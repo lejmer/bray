@@ -8,6 +8,7 @@
 - `bray-source`
     - Source files, source IDs, spans, text ranges, source maps, and source-location utilities.
     - Owns the compiler's model of "where in the input this came from."
+- 
 - `bray-diagnostics`
     - Diagnostics infrastructure: errors, warnings, notes, labels, suggestions, diagnostic codes, and reporting structures.
     - Should not own compiler logic; it only represents and renders diagnostics.
