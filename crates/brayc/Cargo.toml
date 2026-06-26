@@ -1,0 +1,16 @@
+[package]
+name = "brayc"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+bray-driver = { path = "../bray-driver" }
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "brayc"
+path = "src/main.rs"

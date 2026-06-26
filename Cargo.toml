@@ -1,0 +1,36 @@
+[workspace]
+members = [
+    "crates/bray-base",
+    "crates/bray-binder",
+    "crates/bray-bound-tree",
+    "crates/bray-checker",
+    "crates/bray-codegen",
+    "crates/bray-compilation",
+    "crates/bray-declarations",
+    "crates/bray-diagnostics",
+    "crates/bray-driver",
+    "crates/bray-emitter",
+    "crates/bray-ir",
+    "crates/bray-lowering",
+    "crates/bray-parser",
+    "crates/bray-source",
+    "crates/bray-symbols",
+    "crates/bray-syntax",
+    "crates/bray-testing",
+    "crates/brayc",
+    "xtask",
+]
+resolver = "3"
+
+[workspace.package]
+edition = "2024"
+license = "AGPL-3.0-only"
+version = "0.0.0"
+rust-version = "1.89"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
