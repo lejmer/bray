@@ -27,3 +27,5 @@ Project-specific automation belongs in `xtask/`. Shell and PowerShell scripts in
 Do not add a second build system, task runner, or command DSL unless explicitly requested. Prefer extending `xtask` over adding Makefiles, Justfiles, cargo-make tasks, Bazel files, or ad hoc scripts.
 
 `cargo test` must continue to work. Additional test runners such as `cargo-nextest` may be used for faster local and CI runs, but they must not be the only way to run the test suite.
+
+> **Note:** If you do not change any code, you do not need to run tests, linting, or code checks.
