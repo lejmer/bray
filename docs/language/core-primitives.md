@@ -64,20 +64,26 @@ Every exit from a block has a coherent ownership, initialization, and destructio
 
 ---
 
-## Expressions and program elements
+## Declarations, expressions, and directives
 
-An **expression** is a program element that produces a value, access path, control-flow outcome, or compile-time entity.
+A **declaration** introduces a named program entity or semantic relationship.
 
-Bray is expression-oriented. Blocks, conditionals, matches, and other control-flow forms produce values when their exits
-have coherent type, ownership, initialization, and destruction state.
+An **expression** produces a value, access path, control-flow outcome, or compile-time entity.
+
+A **directive** is a compile-time instruction that modifies compiler interpretation, checking, diagnostics, target selection,
+trusted permissions, or build behavior for a declared scope or program element.
+
+Bray is expression-oriented. Blocks, conditionals, matches, and other control-flow forms produce values when their exits have
+coherent type, ownership, initialization, and destruction state.
 
 An expression carries a semantic contract: its type, ownership behavior, capability requirements, and effects.
 
-A **program element** is an item that appears inside a block, module, or declaration body. Program elements include
-declarations, expressions, and control-flow forms.
+Directives are part of the source graph and semantic context. They do not execute at runtime and do not produce runtime values.
 
-Operations such as observation, borrowing, mutation, movement, copying, consumption, construction, and destruction occur
-through expressions whose required capabilities are available at that program point.
+A block, module, or declaration body contains declarations, expressions, and directives according to Bray's grammar.
+
+Operations such as observation, borrowing, mutation, movement, copying, consumption, construction, and destruction occur through
+expressions whose required capabilities are available at that program point.
 
 ---
 
