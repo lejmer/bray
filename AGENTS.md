@@ -12,11 +12,11 @@ Do not construct user-facing English text inside compiler logic. Emit structured
 
 ## Coding conventions
 
-Read and follow [coding-conventions.md](docs/contributing/coding-conventions.md).
+If the task involves writing code, read and follow [coding-conventions.md](docs/contributing/coding-conventions.md).
 
 ## Crates
 
-Read and follow [crates.md](docs/contributing/crates.md).
+If the task involves writing code, read and follow [crates.md](docs/contributing/crates.md).
 
 ## Building
 
