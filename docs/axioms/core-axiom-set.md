@@ -45,11 +45,11 @@
 
 10. **A program's dependencies are part of the program.**
 
-   The build graph, source graph, and dependency graph should be visible and reproducible. Vendoring-first. A program's dependencies are part of the program,
-   and should not be thought of as ambient environment.
+    The build graph, source graph, and dependency graph should be visible and reproducible. Vendoring-first. A program's dependencies are part of the program,
+    and should not be thought of as ambient environment.
 
 11. **Trusted memory power is explicit and bounded.**
 
-   Unchecked memory operations are available only through a closed trusted capability model. Modules must opt in to trusted declarations, functions must declare the
-   exact trusted capabilities they use, and trusted-ness remains local to the declaring function. Public trusted implementations must expose either a safe wrapper or
-   an explicitly trusted public contract.
+    Unchecked memory operations are available only through a closed trusted capability model. Modules must opt in to trusted declarations, functions must declare the
+    exact trusted capabilities they use, and trusted-ness remains local to the declaring function. Public trusted implementations must expose either a safe wrapper or
+    an explicitly trusted public contract.
