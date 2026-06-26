@@ -190,6 +190,49 @@ returned value to the caller.
 
 ---
 
+## Explicit exits
+
+An **explicit exit** leaves a control-flow region and supplies the value or outcome required by that region.
+
+A `return` exits the current callable execution scope and supplies the callable's result.
+
+A region-result operation exits the current value-producing region and supplies the region's value.
+
+A `break` exits the current loop region. A `continue` exits the current loop iteration and begins the next iteration according
+to the loop's contract.
+
+Every explicit exit satisfies the target region's type, ownership state, initialization state, destruction state, finalization
+obligations, capability contract, effect contract, and execution mode.
+
+Nested regions have distinct exit targets. An explicit exit targets the nearest region of the kind it exits.
+
+---
+
+## Callable execution scopes
+
+A **callable execution scope** is the body of a callable program element.
+
+Functions, local functions, anonymous functions, lambdas, closures, and asynchronous functions introduce callable execution scopes.
+
+A callable execution scope has a declared result type. A `return` exits the current callable execution scope and supplies a value
+compatible with that result type.
+
+Nested callable execution scopes are independent. A `return` inside a nested callable exits the nested callable.
+
+---
+
+## Value-producing regions
+
+A **value-producing region** is a program region whose purpose is to produce a value for an enclosing expression.
+
+Block expressions, conditional expressions, match expressions, and other expression-oriented control-flow forms are value-producing
+regions when used in value-producing position.
+
+A value-producing region completes through an explicit region-result operation. The result operation produces the region's value
+without exiting the enclosing callable execution scope.
+
+---
+
 ## Types
 
 A **type** is a semantic contract for values, storage, access paths, and operations.
