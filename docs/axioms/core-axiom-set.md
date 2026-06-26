@@ -13,7 +13,7 @@
 3. **Every value has a statically known ownership story.**
 
    At every point in the program, the compiler can determine which entity owns a value, whether the value is initialized, whether it has been moved, whether it may be
-   borrowed, whether it must be destroyed, and which operation is responsible for its lifetime. Ownership is part of the static semantics of the language.
+   borrowed, whether it must be destroyed, and which operation is responsible for its lifetime. Ownership is part of the static semantics of Bray.
 
 4. **Mutation requires unique authority.**
 
@@ -22,34 +22,40 @@
 
 5. **Moves are not copies, but semantic transfers, moving ownership.**
 
-   Moving a value transfers ownership. Copying a value duplicates it. These are distinct concepts in the language.
+   Moving a value transfers ownership. Copying a value duplicates it. These are distinct concepts in Bray.
 
 6. **Resource lifetime is deterministic by default.**
 
-   Owned resources should have predictable destruction points. Memory is the obvious case, but this should apply equally to files, sockets, locks, temporary buffers,
+   Owned resources have predictable destruction points. Memory is the obvious case, but this also applies equally to files, sockets, locks, temporary buffers,
    GPU handles, arenas, etc. Resource safety and memory safety are the same design problem.
 
 7. **No invisible polymorphism.**
 
-   Polymorphic behavior should be declared intentionally. Overload sets, trait implementations, implicit conversions, generic constraints, dynamic dispatch,
-   and type-directed behavior should not appear accidentally. Implicit casting is only allowed for literals.
+   Polymorphic behavior are declared intentionally. Overload sets, trait implementations, implicit conversions, generic constraints, dynamic dispatch,
+   and type-directed behavior do not appear accidentally. Implicit casting is only allowed for literals.
 
 8. **Abstraction is behavioral.**
 
-   The language should use traits/interfaces/protocols as the primary abstraction mechanism. Types do not inherit implementation identity from parent types.
+   Bray uses traits/interfaces/protocols as the primary abstraction mechanism. Types do not inherit implementation identity from parent types.
    Behavior is attached through explicit capabilities.
 
 9. **Small core language.**
 
-   The language should have few fundamental concepts, but those concepts may be deep. Prefer deep orthogonal primitives over many shallow conveniences.
+   Bray has few fundamental concepts, but those concepts are deep. Bray always prefers deep orthogonal primitives over many shallow conveniences.
 
 10. **A program's dependencies are part of the program.**
 
-    The build graph, source graph, and dependency graph should be visible and reproducible. Vendoring-first. A program's dependencies are part of the program,
-    and should not be thought of as ambient environment.
+    The build graph, source graph, and dependency graph is visible and reproducible. Vendoring-first. A program's dependencies are part of the program,
+    and will never be thought of as ambient environment.
 
 11. **Trusted memory power is explicit and bounded.**
 
     Unchecked memory operations are available only through a closed trusted capability model. Modules must opt in to trusted declarations, functions must declare the
     exact trusted capabilities they use, and trusted-ness remains local to the declaring function. Public trusted implementations must expose either a safe wrapper or
     an explicitly trusted public contract.
+
+12. **Asynchronous execution is structured and first-class.**
+
+    Asynchronous execution is part of Bray's semantic model. Async computations are owned values, suspension is governed by ownership and capability rules,
+    spawned work is scope-bound by default, and detached work uses explicit ownership-extending task handles. Async finalization obligations are part of type contracts
+    and are tracked by the compiler across every exit path. Low-level async runtime machinery belongs to the trusted substrate.
