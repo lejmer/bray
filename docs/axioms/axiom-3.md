@@ -30,7 +30,7 @@ ownership construct whose contract changes its destruction behavior.
 Ownership is visible at API boundaries. Function, method, trait, and generic signatures declare whether values are observed, mutably borrowed, consumed, produced, or returned.
 A function that consumes a value receives ownership. A function that returns a value creates a new ownership obligation for the caller.
 
-Shared ownership is explicit. Ownership-extending abstractions define their ownership and destruction rules as part of their type and public contract.
+Mediated ownership is explicit. Ownership-extending abstractions define their ownership and destruction rules as part of their type and public contract.
 
 Ownership is checked over access paths and the storage they reach. Substructure, projections, temporaries, captures, and views participate in ownership tracking when they
 denote owned storage or owned substructure.

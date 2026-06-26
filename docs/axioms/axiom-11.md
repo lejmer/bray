@@ -5,7 +5,7 @@ Unchecked memory power is a trusted capability model. Trusted power is named, sc
 A module may opt in to trusted declarations through a code directive. The directive grants permission to declare trusted functions inside that module. Ordinary functions in
 the same module remain ordinary functions.
 
-Trusted capabilities are declared at the function level. A trusted function may use only exactly the trusted capabilities it declares. If a trusted function declares a
+Trusted capabilities are declared at the function level. A trusted function may use exactly the trusted capabilities it declares. If a trusted function declares a
 capability it does not use, the compiler should treat that as an error.
 
 The set of trusted capabilities is closed:
@@ -23,5 +23,5 @@ Trustedness is local. Calling a trusted function uses that function's declared c
 
 A public trusted implementation exposes one of two contracts:
 
-- A safe public wrapper whose implementation fully upholds and contains the trusted obligations.
-- An explicitly trusted public contract whose callers knowingly accept the stated obligations.
+- A safe public wrapper that does not expose trusted capabilities to ordinary callers.
+- An explicitly trusted public contract whose callers must opt in to the stated trusted contract.

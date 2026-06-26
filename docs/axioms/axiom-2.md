@@ -11,9 +11,9 @@ explicit meanings:
 - Copy: an independent duplicate is created, only if the type explicitly supports copy semantics.
 - Borrow: a non-owning temporary access path is created.
 - View: a non-owning access path into part of a value is created, such as a slice, field view, iterator, or projection.
-- Shared ownership: ownership is mediated by an explicit abstraction such as reference counting, arenas, handles, or other declared ownership types.
+- Mediated ownership: ownership is governed by an explicit abstraction such as reference counting, regions, handles, or other declared ownership types.
 
-Aliases are not inherently unsafe. Conflicting aliases are unsafe. The compiler must reject or mediate alias combinations whose capabilities conflict.
+Aliases are valid when their capabilities are compatible. Conflicting aliases are rejected or mediated by an explicit capability construct.
 
 Shared aliases may observe. Mutation requires exclusive authority over the reached storage, unless the mutation is performed through an explicit interior-mutability
 abstraction whose contract permits it.
@@ -21,8 +21,8 @@ abstraction whose contract permits it.
 While an alias exists, the owner remains the owner, but some owner capabilities may be temporarily suspended. In particular, the owner may not move, destroy, or mutably
 access storage in a way that conflicts with active aliases.
 
-Aliasing is checked over access paths and the storage they reach, not merely over variable names. Whole values, fields, subfields, array elements, slices, iterators,
-views, closures, and raw pointers may all alias if they can reach the same storage or overlapping storage.
+Aliasing is checked over access paths and the storage they reach. Variable names alone are not the unit of alias analysis. Any access path may alias when it can reach the
+same storage or overlapping storage.
 
 Two access paths conflict only if they may overlap and their capabilities are incompatible. Disjoint fields or proven non-overlapping regions may be accessed independently
 when the compiler can prove they do not overlap.

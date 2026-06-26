@@ -5,7 +5,7 @@ The default local capability of a binding is read-only observation. Mutation is 
 - An immutable binding owns a value but does not grant local mutation authority.
 - A mutable binding owns a value and grants local mutation authority.
 - An immutable borrow grants observation.
-- A mutable borrow grants temporary exclusive mutation authority
+- A mutable borrow grants temporary exclusive mutation authority.
 - Interior mutability grants mutation through a special audited abstraction.
 - An immutable owner may move or destroy a value without being allowed to mutate its fields.
 - A mutable owner may mutate the value while it owns it.
@@ -15,7 +15,7 @@ The default local capability of a binding is read-only observation. Mutation is 
 An immutable binding cannot be rebound and does not grant mutation authority over the value it reaches.
 
 An owned value and a mutable value are not the same thing. Ownership answers "who is responsible for this value?" while mutability answers "who may modify this value?".
-So in other words, by immutable, we do not mean all values are frozen unless declared mutable. That would be too restrictive for systems programming.
+Default immutability is access-path immutability. Deep immutability is a separate stronger guarantee.
 
 Function parameters are immutable by default as well. There are three types of parameters:
 - Owned parameters, and immutable local binding: The function owns the value but cannot mutate it unless it requested mutable local authority.
@@ -24,8 +24,8 @@ Function parameters are immutable by default as well. There are three types of p
 
 This is important because ownership transfer should not implicitly imply mutation permission. We want to avoid "move into function" becoming a way to bypass immutability.
 
-Field mutation requires mutability of the access path (not merely mutability of the field declaration). If you own a struct through an immutable binding, you are not
-able to mutate its fields directly. If you have mutable authority over the struct, you can mutate mutable parts of it. If a field is intentionally internally mutable,
+Field mutation requires mutability of the access path. Field declarations alone do not grant mutation authority. If you own a struct through an immutable binding, you are
+not able to mutate its fields directly. If you have mutable authority over the struct, you can mutate mutable parts of it. If a field is intentionally internally mutable,
 that must be visible in the field's type or capability.
 
 Mutation authority applies to an access path and the storage it reaches. Two access paths conflict only if they may overlap in storage and their capabilities are
@@ -45,10 +45,8 @@ shared static data, and safe cross-thread sharing.
 Immutable access is shareable only when the reached type is safe to share. Interior-mutable state is not thread-shareable unless its mutation capability provides
 synchronization or atomicity.
 
-Note for the compiler: Read-only access does not imply that the underlying storage can never change; it only means this access path cannot mutate it. Stronger optimization
-assumptions require frozen/deep-immutable or no-interior-effect guarantees.
-
-Note: Default immutability is access-path immutability, not transitive deep immutability. Deep immutability is a separate stronger guarantee.
+Read-only access means this access path cannot mutate the reached storage. Stronger optimization assumptions require frozen/deep-immutable or no-interior-effect
+guarantees.
 
 To avoid "immutable by default" becoming anti-performance ceremony, initialization is not considered ordinary mutation. A not yet fully initialized value is not a
 normal value. It has no stable observable identity yet. Therefore, mutating fields during construction does not violate the spirit of immutable-by-default.

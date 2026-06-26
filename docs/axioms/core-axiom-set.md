@@ -8,12 +8,12 @@
 2. **Aliasing is explicit, non-owning, and capability-checked.**
 
    An alias is any additional live access path to the same underlying value, storage, resource, identity, or overlapping region of memory. Owning aliases are forbidden.
-   Borrowed aliases, views, projections, iterators, and shared-ownership handles are allowed only when their capabilities are explicit, non-conflicting, and lifetime-safe.
+   Borrowed aliases, views, projections, iterators, and mediated-ownership handles are allowed only when their capabilities are explicit, non-conflicting, and lifetime-safe.
 
 3. **Every value has a statically known ownership story.**
 
-   At every point in the program, the compiler should be able to answer: who owns this value, who may observe it, who may mutate it, and when is it destroyed?
-   Ownership is not merely a runtime convention or documentation, but a part of the static semantics of the language.
+   At every point in the program, the compiler can determine which entity owns a value, whether the value is initialized, whether it has been moved, whether it may be
+   borrowed, whether it must be destroyed, and which operation is responsible for its lifetime. Ownership is part of the static semantics of the language.
 
 4. **Mutation requires unique authority.**
 

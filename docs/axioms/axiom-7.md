@@ -19,7 +19,7 @@ Generic constraints are part of the generic declaration. A generic body may use 
 Dynamic dispatch is explicit at the type or call boundary. A value whose behavior is selected dynamically carries that dispatch model in its type or contract.
 
 Conversions are explicit operations, except for literals. A literal may adapt to a target type when the target type is known and the literal value is valid for that type.
-Non-literal alues do not implicitly cast, widen, narrow, reinterpret, allocate, borrow, clone, move, or dispatch through conversion-like behavior.
+Non-literal values do not implicitly cast, widen, narrow, reinterpret, allocate, borrow, clone, move, or dispatch through conversion-like behavior.
 
 Imported declarations do not silently extend overload sets, operators, conversions, or trait behavior. Extension of polymorphic behavior must be explicit at the declaration
 site or import site according to deterministic language rules.
