@@ -239,6 +239,63 @@ without exiting the enclosing callable execution scope.
 
 ---
 
+## Yield-capable regions
+
+A **yield-capable region** is a region that accepts `yield` expressions.
+
+Bray has two kinds of yield-capable regions:
+
+- **single-yield regions**, which produce exactly one value.
+- **multi-yield regions**, which produce a sequence of values.
+
+Block expressions, conditional expression arms, and match expression arms are single-yield regions.
+
+Generator expressions are multi-yield regions.
+
+A `yield` expression targets the nearest enclosing yield-capable region.
+
+Nested yield-capable regions capture their own yields. A `yield` inside an inner yield-capable region does not yield to an
+outer region.
+
+A single-yield region must yield exactly one value on every normal completion path.
+
+A multi-yield region may yield zero or more values, unless the consuming context imposes a stricter cardinality contract.
+
+A fixed-size array generator is a multi-yield region with a statically required yield count. The number of yielded values must
+equal the array length.
+
+A generator used to construct a fixed-size array can contain nested control flow, but every possible execution must produce the
+required number of elements. If the compiler cannot prove the yield count, the program is rejected.
+
+Every yielded value must satisfy the target region's element/result type, ownership state, initialization state, destruction state,
+finalization obligations, capability contract, effect contract, and execution mode.
+
+---
+
+## Generator iteration expression
+
+A generator iteration expression has the form:
+
+`each <binding> in <source> { ... }`
+
+The `<source>` expression must provide an iteration contract. The iteration contract defines the yielded element type, iteration
+order, ownership behavior, borrowing behavior, cardinality information, and whether iteration is finite.
+
+The `<binding>` introduces a new binding for each iteration step. Its type and capability come from the source's iteration contract.
+
+The per-element binding is scoped to the generator body. A new binding instance exists for each iteration step.
+
+The source expression is evaluated once before iteration begins.
+
+A generator body is a multi-yield region. Each `yield` inside the body contributes a value to the generator unless it is captured
+by a nested yield-capable region.
+
+A fixed-size array generator for [T; N] must yield exactly N values of type T.
+
+If T is itself [U; M], then each yielded value must itself satisfy the fixed-size array construction rules for [U; M].
+
+---
+
 ## Types
 
 A **type** is a semantic contract for values, storage, access paths, and operations.
