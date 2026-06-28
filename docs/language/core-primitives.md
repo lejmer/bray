@@ -22,6 +22,9 @@ A **binding** gives a name to an access path, value, function, type, module, con
 A local value binding introduces an access path to storage. The binding has a declared capability: by default it grants
 read-only observation. When explicitly mutable, it grants local mutation authority.
 
+A binding can be introduced directly by a declaration or indirectly by a pattern. A pattern-introduced binding receives its
+kind, type, lifetime, capability, initialization state, and ownership story from the pattern operation that created it.
+
 A binding is introduced once in its scope. Rebinding and shadowing are not part of Bray's language model.
 
 A binding may own the value it names, borrow storage owned elsewhere, or denote a non-value entity such as a type, function,
@@ -87,6 +90,87 @@ expressions whose required capabilities are available at that program point.
 
 ---
 
+## Patterns
+
+A **pattern** is a structural matching form that can refine a value, bind parts of it, and determine how ownership or access paths
+flow into the matched region.
+
+Patterns form their own grammar category. They are checked against a subject type and interpreted by the construct that uses them.
+
+A pattern can introduce bindings, discard parts of a value, match literals, match union variants, decompose product values,
+decompose tuples, decompose fixed-size arrays, or match through type forms such as `box`.
+
+```bray
+_
+value
+mut value
+0
+true
+.Error
+.Circle(center = c, radius = r)
+{ x, y }
+(x, y)
+[first, second]
+box(inner)
+```
+
+Bare identifiers bind. Named constants, no-payload variants, and other named pattern-eligible declarations are matched through
+paths.
+
+A leading-dot variant pattern refers to a variant of the expected union type.
+
+```bray
+.Empty
+.Circle(center = c, radius = r)
+```
+
+Product and variant payload patterns match fields by name. Field order does not matter. Field shorthand binds a field to a binding
+with the same name.
+
+```bray
+{ x, y }
+
+.Circle(center, radius)
+```
+
+The `..` pattern explicitly accounts for remaining fields or elements and introduces no bindings.
+
+```bray
+{ x, .. }
+
+.Circle(radius, ..)
+
+[first, .., last]
+```
+
+A pattern is **irrefutable** when it matches every value of its subject type. A pattern is **refutable** when it matches only
+some values of its subject type.
+
+Local destructuring and iteration patterns require irrefutable patterns.
+
+Union handling and match expressions can use refutable patterns and perform coverage checking according to the subject type.
+
+A pattern operation has a mode supplied by the construct using the pattern. The core modes are observe, shared borrow, mutable
+borrow, consume, and copy.
+
+The same pattern syntax can bind owned values, copied values, observed access paths, shared borrowed access paths, or mutable
+borrowed access paths depending on the operation mode.
+
+A successful union variant pattern refines the subject to that active variant in the matched region. The selected payload exists
+in that region, and payload fields are available according to the operation mode.
+
+A consuming pattern can move fields or payloads out of a subject. Moving parts out requires ownership of the subject and no
+conflicting active borrows. After a partial move, the subject is partially initialized. Destruction of a partially moved value
+destroys only the still-initialized parts.
+
+Successful pattern matching can add facts to the fact context, including active union variant, literal equality, field
+availability, payload initialization, tuple or array shape, and narrowed control-flow state.
+
+Pattern matching is structural, deterministic, and effect-free. Guards belong to the surrounding construct and provide additional
+boolean checks after structural matching.
+
+---
+
 ## Control flow
 
 **Control flow** determines which program elements execute and how execution leaves expressions, blocks, functions,
@@ -104,6 +188,23 @@ value according to the same type, ownership, initialization, and destruction rul
 Abrupt exits, such as returning from a function or leaving a loop, still preserve deterministic ownership and destruction
 behavior. Values owned by scopes that are exited are destroyed according to Bray's destruction rules unless ownership has
 moved elsewhere.
+
+---
+
+## Conditional expressions
+
+An `if` expression selects between branches based on a boolean condition.
+
+The condition expression must have boolean type.
+
+Parentheses around the condition are ordinary expression grouping and are therefore not required.
+
+When an `if` expression is used as a value-producing region, every normal completion path must yield a value compatible with the
+expected result type.
+
+An `else` branch is required when the `if` expression must produce a value and the condition can evaluate to false.
+
+`else if` is syntactic nesting of another `if` expression in the `else` branch.
 
 ---
 
@@ -276,14 +377,17 @@ finalization obligations, capability contract, effect contract, and execution mo
 
 A generator iteration expression has the form:
 
-`each <binding> in <source> { ... }`
+`each <pattern> in <source> { ... }`
 
 The `<source>` expression must provide an iteration contract. The iteration contract defines the yielded element type, iteration
 order, ownership behavior, borrowing behavior, cardinality information, and whether iteration is finite.
 
-The `<binding>` introduces a new binding for each iteration step. Its type and capability come from the source's iteration contract.
+The `<pattern>` is checked against the yielded element type and must be irrefutable.
 
-The per-element binding is scoped to the generator body. A new binding instance exists for each iteration step.
+The iteration expression applies the pattern to each yielded element in the mode defined by the iteration contract. Bindings
+introduced by the pattern receive their type, capability, lifetime, and ownership behavior from that pattern operation.
+
+Per-element pattern bindings are scoped to the generator body. A new pattern application occurs for each iteration step.
 
 The source expression is evaluated once before iteration begins.
 
@@ -293,6 +397,105 @@ by a nested yield-capable region.
 A fixed-size array generator for [T; N] must yield exactly N values of type T.
 
 If T is itself [U; M], then each yielded value must itself satisfy the fixed-size array construction rules for [U; M].
+
+---
+
+## Match expressions
+
+A **match expression** evaluates a subject expression, compares it against a sequence of pattern arms, and produces the result
+of the selected arm.
+
+A match expression is an expression. It has a type, participates in ownership and capability checking, and is terminated with a
+semicolon when used as a sequenced expression.
+
+```bray
+let area: r64 = match shape
+{
+    case .Circle(radius)
+    {
+        yield math.pi * radius * radius;
+    }
+
+    case .Rectangle(min, max)
+    {
+        yield (max.x - min.x) * (max.y - min.y);
+    }
+
+    case .Empty
+    {
+        yield 0.0;
+    }
+};
+```
+
+A match expression evaluates its subject once.
+
+A match body contains `case` arms.
+
+Each arm has a pattern and a block expression body.
+
+An arm can also have a `when` guard. A guard is an observe-only boolean expression evaluated after the arm pattern structurally
+matches and before the arm body is selected.
+
+Bindings introduced by an arm pattern are available in the guard and in the arm body. In the guard, those bindings are available
+for observation. In the arm body, those bindings are available according to the match operation mode.
+
+The first arm whose pattern matches and whose guard holds is selected.
+
+A catch-all arm is written with the discard pattern.
+
+```bray
+case _
+{
+    yield fallback;
+}
+```
+
+Match arm bodies are block expressions. The result of the selected arm body becomes the result of the match expression.
+
+If the match expression has result type `unit`, an arm body can complete normally.
+
+If the match expression has a result type other than `unit`, every reachable normal completion path in every selected arm body
+supplies a value with `yield` or ends in a `never` expression.
+
+All match arms must merge to a coherent type, ownership state, initialization state, destruction state, finalization state,
+capability state, and fact context.
+
+A match expression can use refutable patterns.
+
+A match expression over a closed union performs coverage checking against the union’s closed variant set.
+
+Guarded arms provide conditional coverage. A guarded arm contributes full coverage only when the compiler can prove that the
+guard always holds for the matched state.
+
+Alternative patterns contribute coverage for each alternative.
+
+Arm order is semantically meaningful. The selected arm is the first arm that matches structurally and passes its guard.
+
+A later arm whose pattern can never be selected is unreachable.
+
+A successful arm pattern refines the fact context for the guard and the arm body. For union variants, this includes the active
+variant and the initialized payload fields.
+
+The match operation mode determines how pattern bindings are produced. The core modes are observe, shared borrow, mutable borrow,
+consume, and copy.
+
+The default match operation mode is observe.
+
+A consuming match uses consume mode.
+
+In consume mode, selected payloads and fields can be moved out according to ownership rules.
+
+A consuming match with guards evaluates structural matching and guards through observation first. Consuming bindings are produced
+for the selected arm body after the guard holds.
+
+A match expression can match through borrowed or type-form subjects when the subject type and pattern form support it.
+
+A match expression can use `box` patterns for owned indirection.
+
+Match expressions are structural, deterministic, and coverage-checked according to the subject type and pattern set.
+
+Guards supply additional boolean conditions after structural matching.
 
 ---
 
@@ -329,8 +532,8 @@ generation.
 A type can expose ordinary operations, behavioral contract implementations, associated types, constants, constructors, destructors,
 and trusted contracts according to its declaration.
 
-Type checking determines whether expressions, calls, bindings, control-flow exits, generic instantiations, and declarations satisfy
-the type contracts they use.
+Type checking determines whether expressions, calls, patterns, bindings, control-flow exits, generic instantiations, and
+declarations satisfy the type contracts they use.
 
 ---
 
@@ -369,6 +572,51 @@ the language's ordinary semantic rules.
 
 ---
 
+## Product types
+
+A **product type** is a named type whose value is composed from a fixed set of named fields.
+
+A product type is declared with `struct`.
+
+A `struct` has one primary representation declaration. The primary representation declaration defines the type's identity, fields,
+field order, representation-level ownership contract, initialization contract, destruction contract, default field values, and
+layout contract when one is declared.
+
+Fields belong to the primary representation declaration. Methods, constructors, behavioral contract implementations, and other
+implementation blocks can be declared separately, but they do not add fields or change the representation.
+
+A field is an owned subvalue unless its type defines a different ownership relationship.
+
+A `struct` value is fully initialized when all required fields are initialized. A field with a declared default value can be omitted
+during construction; the default expression initializes that field. A field without a default value must be supplied by the
+construction expression or by an explicit constructor.
+
+Field defaults are part of the `struct` declaration. Defaults are explicit representation-level behavior, not inference.
+
+Field access creates an access path into the struct's storage. Observing a field requires read capability over the reached field.
+Mutating a field requires mutation authority over the reached field.
+
+Borrowing can target individual fields when the compiler can prove the field access paths are disjoint. Disjoint field borrows are
+independent according to the ordinary aliasing and capability rules.
+
+Moving a field out through ordinary field access is not allowed. Moving a `struct` as a complete value moves the whole value.
+
+A consuming product pattern can move selected fields out of a `struct` according to the pattern operation rules. After a partial
+move, the `struct` is partially initialized and destruction affects only the fields that remain initialized.
+
+Copy behavior is explicit. A `struct` is copyable only when its declaration or derived contract makes it copyable, and every field
+satisfies the required copy contract.
+
+Destruction is deterministic. Destroying a fully initialized `struct` destroys its initialized fields in reverse declaration order.
+
+The default layout of a `struct` is compiler-defined. A stable layout, ABI layout, packed layout, or foreign-compatible layout exists
+only through an explicit layout contract.
+
+A `struct` participates in ownership, borrowing, mutation authority, initialization, destruction, conversion, behavioral contracts,
+and visibility according to its declared fields and contracts.
+
+---
+
 ## Constraints
 
 A **constraint** is a compile-time requirement attached to a generic parameter, declaration, expression, or contract.
@@ -379,11 +627,11 @@ obligations that generic code can rely on.
 
 A generic body is checked against its declared constraints. The body can use only behavior guaranteed by those constraints.
 
-A generic instantiation satisfies a constraint when the supplied type, value, capability, effect, lifetime, or other generic argument
-provides the required contract.
+A generic instantiation satisfies a constraint when the supplied type, value, capability, effect, lifetime, or other generic
+argument provides the required contract.
 
-Constraints are part of the public semantic contract of a declaration. Changing constraints changes what callers may supply and what
-the generic body may assume.
+Constraints are part of the public semantic contract of a declaration. Changing constraints changes what callers may supply and
+what the generic body may assume.
 
 ---
 
@@ -404,6 +652,169 @@ behavior, internal-effect behavior, and trusted behavior when those are part of 
 
 A behavioral contract is part of the public semantic surface of a program. Changing a contract changes what implementers must
 provide and what callers can rely on.
+
+---
+
+## Type forms
+
+A **type form** is a syntactic and semantic form that produces a type.
+
+Type forms are compiler-recognized type-level constructs. They define how a type is built from one or more subject types,
+compile-time arguments, or structural components.
+
+A type form can affect ownership, storage, borrowing, layout, lifetime behavior, callable behavior, initialization, destruction,
+finalization, or value representation.
+
+Type forms are part of the core type grammar.
+
+Examples:
+
+```bray
+&T
+&mut T
+box T
+box[Heap] T
+T?
+[T; N]
+(T1, T2)
+func(T1, T2) -> R
+```
+
+### Prefix type forms
+
+A **prefix type form** appears before its subject type.
+
+```bray
+&T
+&mut T
+box T
+box[Heap] T
+```
+
+`&T` is the shared-borrow type form.
+
+`&mut T` is the mutable-borrow type form.
+
+`box T` is the default owned-indirection type form.
+
+`box[S] T` is the owned-indirection type form using storage policy type `S`.
+
+The square-bracket part of a prefix type form contains compile-time arguments for that type form.
+
+```bray
+box[Heap] List<i32>
+box[AllocatorStorage<MyAllocator>] Node
+```
+
+### Postfix type forms
+
+A **postfix type form** appears after its subject type.
+
+```bray
+T?
+```
+
+`T?` is the optional type form.
+
+It produces a type whose values are either a present `T` value or the absence state.
+
+### Structural type forms
+
+A **structural type form** uses a larger syntactic structure to produce a type.
+
+```bray
+[T; N]
+(T1, T2)
+func(T1, T2) -> R
+```
+
+`[T; N]` is the fixed-size array type form.
+
+`(T1, T2)` is the tuple type form.
+
+`func(T1, T2) -> R` is the callable type form.
+
+Structural type forms can contain one or more subject types and compile-time values.
+
+### Type-form arguments
+
+A type form can accept compile-time arguments.
+
+```bray
+box[Heap] T
+box[AllocatorStorage<MyAllocator>] T
+[T; N]
+```
+
+Type-form arguments are part of the produced type.
+
+For example:
+
+```bray
+box[Heap] Point
+box[ArenaStorage] Point
+```
+
+are distinct types because the storage policy argument differs.
+
+### Subject type
+
+A **subject type** is the type that a type form is applied to.
+
+In:
+
+```bray
+box[Heap] Point
+```
+
+`Point` is the subject type.
+
+In:
+
+```bray
+Point?
+```
+
+`Point` is the subject type.
+
+In:
+
+```bray
+&mut Buffer
+```
+
+`Buffer` is the subject type.
+
+### Composition
+
+Type forms compose recursively.
+
+```bray
+box[Heap] List<i32>
+box[Heap] Point?
+&mut box[Heap] Node
+[box[Heap] Node; 4]
+func(&Buffer, usize) -> u8
+```
+
+The meaning of a composed type is determined by applying each type form according to the type grammar and the semantic contract
+of that form.
+
+### Core rule
+
+A type form is introduced by the language when the form has core semantic meaning.
+
+A type form earns core status when ordinary named types and behavioral contracts cannot express the construct without losing
+required compiler knowledge about ownership, storage, borrowing, layout, lifetime, callable behavior, initialization, destruction,
+or finalization.
+
+`box` is a type form because owned indirection affects recursive type sizing, ownership transfer, destruction, borrow projection,
+and storage identity.
+
+`?` is a type form because optionality is a core value-state shape used throughout the language.
+
+`func(...) -> ...` is a type form because callable values carry parameter, result, ownership, effect, execution, and contract
+semantics.
 
 ---
 
@@ -584,6 +995,68 @@ contract permit it.
 
 ---
 
+## Lifecycle declarations
+
+A **lifecycle declaration** defines special behavior attached to a type's construction, finalization, destruction, or scoped use.
+
+Lifecycle declarations are not behavioral contracts. They are part of the type's lifecycle contract and are interpreted directly
+by the compiler.
+
+A **constructor** creates a fully initialized value of its declaring type. Constructors are declared with `construct`.
+
+A constructor named after the type is the primary constructor form. A constructor with another name becomes a named constructor
+under the type.
+
+```bray
+construct File(path: Path, mode: FileMode = FileMode.read) -> File
+{
+    ...
+}
+
+construct temp(directory: Path, prefix: String = "tmp") -> File
+{
+    ...
+}
+```
+
+A **finalizer** completes a required lifecycle obligation before ownership ends. Finalizers are declared with `finalize`.
+
+A finalizer can be synchronous or asynchronous according to its result contract. A value whose type declares a required finalizer
+carries a finalization obligation tracked by the compiler.
+
+```bray
+finalize File() -> async Result<unit, FileError>
+{
+    ...
+}
+```
+
+A **destructor** performs synchronous cleanup when ownership ends. Destructors are declared with `destruct`.
+
+A destructor returns `unit`. The result type can be omitted, and if present must be `unit`.
+
+```bray
+destruct File()
+{
+    ...
+}
+```
+
+A destructor cannot be asynchronous and cannot produce a recoverable result. Fallible or asynchronous cleanup belongs to
+finalization.
+
+A **scope enter declaration** defines how a value creates a scoped capability.
+
+A **scope exit declaration** defines how that scoped capability is released when the scope exits.
+
+Scope enter and exit declarations are declared with `enter` and `exit`. They support resource-scope idioms such as lock guards,
+temporary permissions, transactions, and scoped runtime registrations.
+
+Lifecycle declarations participate in ownership, borrowing, mutation authority, finalization obligations, effects, and trusted
+capability checking.
+
+---
+
 ## Destruction and finalization
 
 **Destruction** ends ownership of a value and releases the resources governed by its destruction contract.
@@ -591,15 +1064,21 @@ contract permit it.
 Destruction is deterministic. A fully initialized owned value is destroyed exactly once unless ownership moves elsewhere or the
 value enters an explicit ownership construct with a different lifetime contract.
 
-Destruction is synchronous. Leaving a scope destroys local owned values whose ownership remains in that scope, in the order
-defined by Bray.
+Destruction is synchronous. Leaving a scope destroys local owned values whose ownership remains in that scope, in the order defined
+by Bray.
 
 A moved-from value is not destroyed by the old owner. Partially initialized storage destroys only the parts that were initialized.
 
+A type can define a destructor with a `destruct` lifecycle declaration. The destructor is synchronous, returns `unit`, and runs
+as part of destruction.
+
 **Finalization** is a required lifecycle obligation that must be completed before ownership ends.
 
-A value can carry a synchronous or asynchronous finalization obligation as part of its type contract. The compiler tracks
-finalization obligations across movement, scope exit, cancellation, and destruction.
+A type can define a finalizer with a `finalize` lifecycle declaration. A finalizer can be synchronous or asynchronous according to
+its result contract.
+
+A value can carry a finalization obligation as part of its type contract. The compiler tracks finalization obligations across
+movement, scope exit, cancellation, and destruction.
 
 A value with a finalization obligation must be finalized, transferred to another owner that assumes the obligation, or converted
 into an explicit fallback ownership form before the owning scope exits.
@@ -614,27 +1093,29 @@ An **effect** is an observable or declared consequence of evaluating a program e
 
 A **capability contract** declares which capabilities an operation requires, holds, creates, transfers, or releases.
 
-Effects and capabilities are part of function signatures, behavioral contracts, generic constraints, callable values, and
-trusted declarations.
+Effects and capabilities are part of function signatures, behavioral contracts, generic constraints, callable values, lifecycle
+declarations, scope enter/exit declarations, and trusted declarations.
 
 The core capability categories are:
 
-* **Observe:** reads or inspects without visible mutation or internal mutation.
-* **Observe with internal effects:** preserves the abstract value while performing declared internal effects such as caching,
+- **Observe:** reads or inspects without visible mutation or internal mutation.
+- **Observe with internal effects:** preserves the abstract value while performing declared internal effects such as caching,
   metrics, lazy initialization, locking, or reference-count updates.
-* **Mutate:** changes the abstract value reached through an access path.
-* **Consume:** takes ownership of a value.
-* **Finalize:** completes a required lifecycle obligation before ownership ends.
-* **Trusted:** uses declared trusted memory capabilities.
+- **Mutate:** changes the abstract value reached through an access path.
+- **Consume:** takes ownership of a value.
+- **Finalize:** completes a required lifecycle obligation before ownership ends.
+- **Enter scope:** creates a scoped capability through a lifecycle declaration.
+- **Exit scope:** releases a scoped capability through a lifecycle declaration.
+- **Trusted:** uses declared trusted memory capabilities.
 
-A program element can use only the effects and capabilities available through its bindings, parameters, constraints,
-execution mode, and surrounding context.
+A program element can use only the effects and capabilities available through its bindings, parameters, constraints, execution
+mode, lifecycle state, and surrounding context.
 
 Generic code is checked against declared effects and capability contracts. A generic body uses only the effects and capabilities
 guaranteed by its constraints.
 
-Effects and capability contracts are part of overload resolution, behavioral contract satisfaction, dynamic dispatch, and public
-API compatibility.
+Effects and capability contracts are part of overload resolution, behavioral contract satisfaction, dynamic dispatch, lifecycle
+checking, and public API compatibility.
 
 ---
 
@@ -647,14 +1128,14 @@ declarations. It does not make the module's ordinary declarations trusted.
 
 A **trusted function** declares the exact trusted capabilities it uses. The set of trusted capabilities is closed:
 
-* `raw_memory`
-* `unchecked_alias`
-* `unchecked_init`
-* `foreign_call`
-* `layout_reinterpret`
-* `manual_alloc`
-* `device_memory`
-* `intrinsic`
+- `raw_memory`
+- `unchecked_alias`
+- `unchecked_init`
+- `foreign_call`
+- `layout_reinterpret`
+- `manual_alloc`
+- `device_memory`
+- `intrinsic`
 
 A trusted function uses exactly the trusted capabilities it declares. Declaring an unused trusted capability is an error.
 
