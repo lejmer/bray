@@ -1854,7 +1854,9 @@ Assignment preserves facts that remain true after the destination is reinitializ
 
 Assignment participates in effect and capability checking.
 
-TODO: Define the general evaluation order for assignment subexpressions.
+The destination expression is evaluated first and establishes the destination access path.
+
+The assigned value expression is evaluated after the destination access path is established.
 
 The assignment operation itself requires the destination access path and assigned value to be established before the destination is reinitialized.
 
@@ -2039,7 +2041,7 @@ Result type and expected type do not participate in overload resolution.
 
 Ambiguous calls are rejected.
 
-TODO: Define the general evaluation order for callee and argument expressions.
+Call expression evaluation order is defined by the general expression evaluation order rules.
 
 ---
 
@@ -2075,7 +2077,7 @@ Positional argument order determines binding to the positional parameter prefix.
 
 Positional arguments must appear before named arguments.
 
-Argument order is source order for evaluation only if the evaluation-order model chooses source-order argument evaluation.
+Argument order is source order for evaluation.
 
 Named argument order does not change which parameter receives which named argument.
 
@@ -2178,11 +2180,15 @@ Default arguments are applied to direct calls after the callable has been select
 
 Default arguments do not participate in overload selection.
 
+Explicit argument expressions are evaluated before omitted parameter defaults.
+
+Explicit argument expressions are evaluated in source order.
+
+Omitted parameter defaults are evaluated after explicit arguments, in parameter declaration order.
+
 Duplicate supplied arguments remain errors even when a parameter has a default.
 
 Unknown supplied arguments remain errors even when other parameters have defaults.
-
-TODO: Define the ordering of explicit argument evaluation and default argument evaluation.
 
 Struct field defaults and union variant payload defaults follow their own construction-field default rules. They use the same principle that omitted fields evaluate their defaults as part of construction.
 
@@ -2311,7 +2317,9 @@ A method path used without a call can produce a callable value when the expected
 
 TODO: Define bound-method value rules.
 
-TODO: Define the general evaluation order for receiver and argument expressions.
+The receiver expression is evaluated before method argument expressions.
+
+Method argument expressions and omitted parameter defaults follow the same evaluation-order rules as function calls.
 
 ---
 
@@ -2379,7 +2387,9 @@ A static function call participates in overload resolution when the path resolve
 
 A static function call resolves to exactly one callable after path resolution, argument binding, type checking, ownership checking, capability checking, effect checking, contract checking, and overload resolution.
 
-TODO: Define the general evaluation order for callee path resolution and argument expressions.
+Static callee path resolution is a checking step and has no runtime evaluation order.
+
+Static function argument expressions and omitted parameter defaults follow the same evaluation-order rules as function calls.
 
 ---
 
@@ -2457,6 +2467,8 @@ let nested: ((i32, i32), bool) = ((1, 2), true);
 A tuple element can itself be any expression that produces a value compatible with that element position.
 
 A tuple expression is fully initialized when every element is fully initialized.
+
+Tuple element expressions are evaluated left to right.
 
 Each tuple element has its own initialization state while the tuple is being constructed.
 
@@ -2570,6 +2582,8 @@ Each inner array expression follows the same array-expression rules recursively.
 Every supplied element expression must produce a value compatible with the array element type.
 
 An array expression is fully initialized when every element is fully initialized.
+
+Array element expressions are evaluated left to right.
 
 Each array element has its own initialization state while the array is being constructed.
 
@@ -3018,7 +3032,9 @@ let c: Counter =
 
 The field `value` is initialized during construction. Its `mut` field declaration controls later mutation through compatible mutable access paths.
 
-TODO: Define the general evaluation order of field initializer expressions and default expressions.
+Supplied field initializer expressions are evaluated in source order.
+
+Omitted field defaults are evaluated after supplied field initializers, in field declaration order.
 
 ---
 
@@ -3159,6 +3175,10 @@ A value being constructed has no stable observable identity until construction i
 
 Payload field mutability controls post-initialization mutation of payload fields. It does not restrict initialization of payload fields during construction.
 
+Supplied payload field initializer expressions are evaluated in source order.
+
+Omitted payload field defaults are evaluated after supplied payload field initializers, in payload field declaration order.
+
 ---
 
 ## Box construction expressions
@@ -3287,7 +3307,9 @@ Facts can include the produced box type, storage policy type, contained or viewe
 
 Mutation, movement, consumption, destruction, reinitialization, finalization, or capability loss can invalidate facts about the box value, storage state, or contained value.
 
-TODO: Define the general evaluation order of the contained value expression and additional storage policy arguments.
+The contained value expression and additional explicit storage policy arguments are evaluated in source order.
+
+Omitted storage construction defaults are evaluated after explicit runtime arguments, in storage construction parameter declaration order.
 
 The box construction operation itself initializes indirect storage with the contained value before the resulting box value becomes available.
 
@@ -3356,7 +3378,9 @@ A type-form construction expression can establish facts in the fact context acco
 
 Facts established by a type-form construction expression remain valid only while the values, storage identities, lifetimes, capabilities, and versions they depend on remain valid.
 
-TODO: Define the general evaluation order of runtime construction arguments.
+Runtime construction arguments are evaluated in source order.
+
+Omitted runtime construction defaults are evaluated after explicit runtime construction arguments, in construction parameter declaration order.
 
 ---
 
@@ -3936,7 +3960,7 @@ Predicate expressions exclude trusted capability use.
 
 Predicate expressions exclude reading mutable global state.
 
-Predicate expressions exclude dependence on time, randomness, scheduler state, address layout, or unspecified evaluation order.
+Predicate expressions exclude dependence on time, randomness, scheduler state, address layout, or implementation scheduling.
 
 A predicate expression with type `bool` can serve as an ordinary contract requirement.
 
@@ -4195,17 +4219,63 @@ Facts expire when the values or storage they depend on change in a way that can 
 
 ## Expression evaluation order
 
-TODO: Define the general evaluation order for operands, callees, arguments, field initializers, defaults, array elements, tuple elements, and construction forms.
+Runtime expression evaluation is source-order by default.
 
-The expression model already fixes these specific evaluation facts:
+Binding, path resolution, overload selection, type checking, contract checking, and compile-time argument checking are checking steps.
+
+Checking steps do not create runtime evaluation steps.
+
+Runtime subexpressions are evaluated in the order they are written unless a more specific expression rule defines a narrower order.
+
+Operator operands are evaluated left to right.
+
+Tuple elements are evaluated left to right.
+
+Array elements are evaluated left to right.
+
+Repeated-element array expressions evaluate the repeated element expression before initializing repeated elements according to the repeat contract.
+
+Function call callee expressions are evaluated before call arguments.
+
+Method receiver expressions are evaluated before method arguments.
+
+Static function callee path resolution is checked before runtime evaluation and has no runtime evaluation step.
+
+Explicit call arguments are evaluated in source order.
+
+Named argument binding is separate from argument evaluation order.
+
+Named arguments bind by parameter name, but evaluate in the order written by the caller.
+
+Positional arguments bind by position, and also evaluate in source order.
+
+Omitted parameter defaults are evaluated after explicit arguments, in parameter declaration order.
+
+Supplied struct field initializer expressions are evaluated in source order.
+
+Omitted struct field defaults are evaluated after supplied field initializers, in field declaration order.
+
+Supplied union payload initializer expressions are evaluated in source order.
+
+Omitted union payload defaults are evaluated after supplied payload initializers, in payload field declaration order.
+
+Runtime construction arguments for type-form construction expressions are evaluated in source order.
+
+Omitted runtime construction defaults are evaluated after explicit runtime construction arguments, in construction parameter declaration order.
+
+Compile-time arguments, storage policy types, trait applications, overload declarations, type arguments, and path resolution have no runtime evaluation order.
+
+The compiler may reorder implementation work only when the reordering preserves observable Bray semantics.
+
+Observable Bray semantics include effects, ownership, borrowing, mutation authority, destruction, finalization, capability checking, trusted obligations, fact-context behavior, and control-flow outcomes.
+
+Specific expression forms also define these evaluation facts:
 
 - a match expression evaluates its subject once,
 - an `each` source expression is evaluated once before iteration,
 - a struct or variant field default is evaluated when that field is omitted,
 - a box construction expression evaluates the contained value before initializing indirect storage,
 - a guard is evaluated after structural pattern matching and before selecting the arm body.
-
-TODO: Ensure the evaluation-order rule preserves ownership, borrowing, destruction, finalization, capability, effect, and fact-context correctness.
 
 ---
 
@@ -4216,7 +4286,6 @@ TODO: Ensure the evaluation-order rule preserves ownership, borrowing, destructi
 - TODO: Define resource-scope expression syntax.
 - TODO: Define await surface syntax.
 - TODO: Define unit-return syntax.
-- TODO: Define exact evaluation order.
 - TODO: Define assertion syntax.
 - TODO: Define checked-conversion result shape.
 - TODO: Define optional absence literal.
