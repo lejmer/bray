@@ -2509,6 +2509,8 @@ let values: [i32; 4] = [1, 2, 3, 4];
 
 The array length is the number of element expressions.
 
+An array expression with no supplied elements is rejected.
+
 The array element type is determined by the expected array type when one is available, or inferred from the element expressions when no expected array type is available.
 
 When an expected array type is available, the expected array length must equal the number of supplied element expressions.
@@ -2614,6 +2616,8 @@ The count determines the array length.
 
 The count participates in the array type.
 
+The count must be greater than zero.
+
 The count must be known where the array length is required as a compile-time value.
 
 The element expression is checked against the expected array element type when one is available.
@@ -2696,6 +2700,8 @@ Array-generator context is yield-capable.
 A fixed-size array generator must yield exactly one array element per iteration.
 
 A fixed-size array generator must yield exactly `N` total elements, where `N` is the length of the resulting array type.
+
+The resulting array length must be greater than zero.
 
 The compiler must be able to prove the required cardinality.
 

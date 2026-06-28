@@ -742,6 +742,8 @@ func(T1, T2) -> R
 
 `[T; N]` is the fixed-size array type form.
 
+`N` must be greater than zero.
+
 `(T1, T2)` is the tuple type form.
 
 `func(T1, T2) -> R` is the callable type form.

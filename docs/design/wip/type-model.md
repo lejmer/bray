@@ -1200,31 +1200,27 @@ TODO: Define variant-specific lifecycle declarations.
 
 A union can be recursive through explicit indirection.
 
-A recursive cycle in a union type must pass through an indirection boundary.
+A recursive cycle in a union type must satisfy the recursive stored-field rules.
 
-An indirection boundary is a type form or type whose outer representation has statically known finite size independent of the recursively referenced type.
-
-The primary owned-indirection boundary is `box`.
+A recursive payload is valid only when every recursive path back to the declaring union crosses an owning indirection boundary.
 
 ```bray
 union List<T>
 {
-    Node(value: T, next: box List<T>);
+    Node(value: T, next: box Self);
     Empty;
 }
 ```
 
-A recursive union that contains itself by value in a cycle without indirection has no finite size and is rejected.
+A recursive union that contains itself by value in a cycle without owning indirection is rejected.
 
 ```bray
 union BadList<T>
 {
-    Node(value: T, next: BadList<T>);
+    Node(value: T, next: Self);
     Empty;
 }
 ```
-
-TODO: Define the type forms and type categories that count as recursive indirection boundaries.
 
 ### Union layout
 
@@ -1805,6 +1801,8 @@ The fixed-size array type form is:
 
 `N` is part of the type.
 
+`N` must be greater than zero.
+
 A fixed-size array contains exactly `N` elements of type `T`.
 
 Each element has its own initialization state while the array is being initialized or after a partial move.
@@ -1906,15 +1904,75 @@ Detailed type-form construction rules belong to the Expression Model.
 
 ### Type forms and recursive types
 
-A recursive type cycle must pass through an indirection boundary when the cycle would otherwise make the type infinitely sized.
+A stored field type must have known finite outer size.
 
-A type form can be an indirection boundary when its outer representation has statically known finite size independent of the recursively referenced subject type.
+A recursively reachable stored field is valid only when every recursive path back to the declaring type crosses an owning indirection boundary.
 
-`box[S] T` is an indirection boundary.
+An **owning indirection boundary** is a type form whose outer value has known finite size and owns storage for its subject separately from the outer value.
 
-TODO: Define other indirection boundaries.
+The currently defined owning indirection boundary is `box[S] T`.
 
-TODO: Define recursive sizing rules.
+This includes `box[S] view TraitApplication`.
+
+```bray
+struct Node
+{
+    next: Self; // invalid
+}
+
+struct Node
+{
+    next: box[Heap] Self; // valid
+}
+```
+
+Borrow types are finite access values.
+
+Borrow types are non-owning and do not make a type own recursive structure.
+
+```bray
+struct View
+{
+    next: &Self; // valid finite representation, non-owning
+}
+```
+
+Structural type forms do not break recursive stored ownership.
+
+Products, union payloads, tuples, arrays, and optionals keep their stored subjects inline for recursive sizing.
+
+```bray
+struct Node
+{
+    next: Self?; // invalid
+}
+
+struct Node
+{
+    children: [Self; 2]; // invalid
+}
+
+struct Node
+{
+    next: (box[Heap] Self)?; // valid
+}
+```
+
+Generic type applications do not hide recursive storage.
+
+After generic substitution, the resulting stored field type must satisfy the same recursive stored-field rules.
+
+```bray
+struct Wrap<T>
+{
+    value: T;
+}
+
+struct Node
+{
+    next: Wrap<Self>; // invalid
+}
+```
 
 ### Type forms and layout
 
