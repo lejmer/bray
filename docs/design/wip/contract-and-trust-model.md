@@ -402,7 +402,7 @@ Forbidden in predicate expressions:
 - dynamic dispatch with effects,
 - trusted capability use,
 - reading mutable global state,
-- depending on time, randomness, address layout, scheduler state, or unspecified evaluation order.
+- depending on time, randomness, address layout, scheduler state, or implementation scheduling.
 
 Because ordinary Bray blocks are expressions, block expressions must be explicitly forbidden in predicate expressions.
 

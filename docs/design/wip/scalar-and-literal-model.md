@@ -202,6 +202,12 @@ unit
 
 `unit` has exactly one value.
 
+The unit value is spelled `unit`.
+
+In type position, `unit` names the unit type.
+
+In expression position, `unit` is the unit value.
+
 `unit` represents successful completion without meaningful data.
 
 A callable with an omitted result type returns `unit`.

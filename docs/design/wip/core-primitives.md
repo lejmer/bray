@@ -551,7 +551,8 @@ The core built-in type categories are:
 - **signed/unsigned integers:** represent a whole-number value with a defined signedness and width.
 - **floating-point numbers:** represent an approximate real-number value with a defined format.
 - **machine-sized integers:** represent an integer whose width is defined by the target platform.
-- **unit type:** the type with exactly one value. It represents completion without meaningful returned data.
+- **unit type:** the type with exactly one value. The value is spelled `unit`. It represents completion without meaningful
+  returned data.
 - **never type:** the type with no values. It represents computation that does not produce a value because control flow does not
   continue normally from that point.
 - **optional values:** represent either a present value of a contained type or absence of a value. Absence is a valid

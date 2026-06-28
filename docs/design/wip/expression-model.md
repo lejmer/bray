@@ -236,7 +236,17 @@ func add(left: i32, right: i32) -> i32
 }
 ```
 
-TODO: Define explicit unit-return syntax for callables returning `unit`.
+A callable returning `unit` can return explicitly with `return unit;`.
+
+```bray
+func log(pos message: String) -> unit
+{
+    print(message);
+    return unit;
+}
+```
+
+Bare `return;` is rejected.
 
 A `return` expression has type `never` in the current control-flow path because control exits the callable execution scope.
 
@@ -839,6 +849,10 @@ Character literals are already typed as `char`.
 
 `unit` is a type with exactly one value.
 
+In type position, `unit` names the unit type.
+
+In expression position, `unit` is the unit value.
+
 A block expression or callable body can produce `unit` by completing normally in a `unit` context.
 
 ```bray
@@ -848,7 +862,21 @@ func log(pos message: String)
 }
 ```
 
-TODO: Define the explicit source spelling for the unit value.
+A unit value expression has type `unit`.
+
+```bray
+let done: unit = unit;
+```
+
+A callable returning `unit` can complete normally or return `unit` explicitly.
+
+```bray
+func log(pos message: String)
+{
+    print(message);
+    return unit;
+}
+```
 
 `never` is a type with no values.
 
@@ -2430,7 +2458,7 @@ Parentheses around one expression without a tuple comma form an expression group
 let grouped: i32 = (1 + 2);
 ```
 
-TODO: Define unit value spelling.
+The unit value is spelled `unit`.
 
 A tuple expression is checked against an expected tuple type when one is available.
 
@@ -3546,7 +3574,9 @@ The returned value must be compatible with the callable’s declared result type
 
 A callable with result type `unit` can complete normally.
 
-TODO: Define explicit unit-return syntax.
+A callable with result type `unit` can also return explicitly with `return unit;`.
+
+Bare `return;` is rejected.
 
 A `return` expression has type `never` in the current control-flow path because control exits the callable execution scope.
 
@@ -4285,7 +4315,6 @@ Specific expression forms also define these evaluation facts:
 - TODO: Define ordinary loop expression syntax.
 - TODO: Define resource-scope expression syntax.
 - TODO: Define await surface syntax.
-- TODO: Define unit-return syntax.
 - TODO: Define assertion syntax.
 - TODO: Define checked-conversion result shape.
 - TODO: Define optional absence literal.

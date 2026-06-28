@@ -471,17 +471,17 @@ func log(pos message: String)
 }
 ```
 
-TODO: Define whether functions that return `unit` may use explicit unit-return syntax.
+A function returning `unit` can also return explicitly with `return unit;`.
 
 ```bray
 func log(pos message: String)
 {
     print(message);
-    return;
+    return unit;
 }
 ```
 
-TODO: Define syntax for explicitly returning `unit`.
+Bare `return;` is rejected.
 
 ---
 
