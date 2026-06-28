@@ -2315,3 +2315,43 @@ TODO: Define dynamic dispatch.
 TODO: Define trait object and trait type-form syntax.
 
 TODO: Define operator traits.
+
+---
+
+## Design principles
+
+Types are semantic contracts.
+
+Every value has a type.
+
+Every access path has a type and a capability state.
+
+Types govern initialization, ownership, borrowing, mutation authority, movement, copying, destruction, finalization, layout, contracts, and valid operations.
+
+Named types have identity.
+
+Structural type forms produce types according to their type-form rules.
+
+Product types model named-field structure.
+
+Union types model closed tagged alternatives.
+
+Traits model explicit behavioral contracts.
+
+A type satisfies a trait through an explicit implementation.
+
+Type forms exist only when the language needs compiler-known semantics that ordinary named types cannot express.
+
+Default layout is compiler-defined.
+
+Stable layout and foreign layout require explicit layout contracts.
+
+Public type surfaces are API surfaces.
+
+Internal type surfaces require explicit acknowledgement outside their intended scope.
+
+Type behavior is explicit.
+
+Polymorphism is explicit.
+
+No type gains behavior by accidental structural matching.
