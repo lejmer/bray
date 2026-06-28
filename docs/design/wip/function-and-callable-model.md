@@ -623,18 +623,102 @@ The exact syntax for function types with contract clauses is part of the Contrac
 
 ## Function overloading
 
-Polymorphism is explicit.
+Function overloading is explicit.
 
-Overloads are opt-in at the declaration site.
+Same-name function declarations do not automatically form an overload set.
 
-Imported declarations participate in overload resolution through explicit declarations and deterministic lookup.
+An overload declaration introduces a shared call name over separately named callable declarations.
 
-A function call resolves to exactly one callable declaration after type checking, overload resolution, capability checking,
-and contract checking.
+```bray
+func parse_int(text: String, radix: i32 = 10) -> i64
+{
+    ...
+}
+
+func parse_float(text: String) -> r64
+{
+    ...
+}
+
+overload parse =
+{
+    parse_int,
+    parse_float,
+}
+```
+
+The overload name is the shared call surface.
+
+Each overload arm keeps its own declaration name.
+
+The separately named arm can still be referenced and called directly.
+
+```bray
+let value = parse_int(text = input);
+```
+
+Direct calls to an arm use that arm’s ordinary callable rules, including default arguments.
+
+Calls through the overload name use overload selection.
+
+```bray
+let value = parse(text = input);
+```
+
+Overload selection uses only arguments explicitly supplied by the caller.
+
+Default arguments do not participate in overload selection.
+
+A defaulted parameter does not make an overload arm selectable when that parameter is omitted.
+
+After a single overload arm has been selected, the call is checked as a call to that selected arm.
+
+Result type does not participate in overload selection.
+
+Expected type does not participate in overload selection.
+
+Overload resolution does not rank candidates.
+
+A call through an overload name must resolve to exactly one overload arm.
+
+If no overload arm matches, the call is rejected.
+
+If more than one overload arm matches, the call is rejected as ambiguous.
+
+For the overload above:
+
+```bray
+parse(text = input)
+```
+
+selects `parse_float`.
+
+```bray
+parse(text = input, radix = 10)
+```
+
+selects `parse_int`.
+
+The direct call remains valid:
+
+```bray
+parse_int(text = input)
+```
+
+An overload arm matches a call only when:
+
+- every supplied argument name exists as a parameter of the arm,
+- every parameter of the arm is supplied by the call,
+- each supplied argument expression is compatible with the corresponding parameter type,
+- the callable’s ownership, borrowing, capability, effect, trusted obligation, and contract requirements can be satisfied.
+
+The receiver of a method is supplied by method-call syntax and is not a named argument.
+
+For method overloads, receiver mode and receiver compatibility participate in overload selection.
+
+Imported declarations participate in overload resolution only through visible overload declarations and deterministic lookup.
 
 Ambiguous polymorphism is rejected.
-
-TODO: Define overload declaration syntax.
 
 ---
 

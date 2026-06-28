@@ -2003,9 +2003,15 @@ A call expression can establish facts from the callable’s `ensures(...)` claus
 
 Facts established by a call are tied to the values, storage identities, lifetimes, capabilities, and versions referenced by the ensures clause.
 
-A call expression participates in overload resolution when multiple callable declarations are available.
+A call expression participates in overload resolution when the callee resolves to an overload declaration.
 
 A call resolves to exactly one callable after name resolution, argument-name matching, type checking, ownership checking, capability checking, effect checking, contract checking, and overload resolution.
+
+Overload resolution uses only arguments explicitly supplied by the caller.
+
+Default arguments do not make an overload arm selectable.
+
+Result type and expected type do not participate in overload resolution.
 
 Ambiguous calls are rejected.
 
@@ -2136,6 +2142,10 @@ A default expression for a parameter is evaluated only when the parameter is omi
 
 Supplying an explicit argument suppresses evaluation of that parameter’s default expression.
 
+Default arguments are applied to direct calls after the callable has been selected.
+
+Default arguments do not participate in overload selection.
+
 Duplicate supplied arguments remain errors even when a parameter has a default.
 
 Unknown supplied arguments remain errors even when other parameters have defaults.
@@ -2216,6 +2226,8 @@ A method call resolves through the receiver type, receiver capability, inherent 
 
 A method call resolves to exactly one method after receiver checking, argument-name matching, type checking, ownership checking, capability checking, effect checking, contract checking, and overload resolution.
 
+For overloaded methods, the receiver mode and explicitly supplied method arguments select the overload arm.
+
 Method call arguments follow the same named-argument rules as function calls.
 
 A method call produces the method’s declared result.
@@ -2294,7 +2306,7 @@ A static function call can use ordinary and trusted facts from the fact context 
 
 A static function call can establish facts from the static function’s `ensures(...)` clause after successful completion.
 
-A static function call participates in overload resolution when multiple static callable declarations are available.
+A static function call participates in overload resolution when the path resolves to an overload declaration.
 
 A static function call resolves to exactly one callable after path resolution, argument-name matching, type checking, ownership checking, capability checking, effect checking, contract checking, and overload resolution.
 
