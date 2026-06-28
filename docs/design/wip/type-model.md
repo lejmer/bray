@@ -300,9 +300,7 @@ struct CacheEntry
 }
 ```
 
-TODO: Define the grammar order for field visibility and mutability modifiers.
-
-Recommended canonical order:
+The grammar order for field visibility and mutability modifiers is:
 
 ```bray
 visibility mut name: Type = default;
@@ -1817,7 +1815,10 @@ The full trait body is the contract surface of the trait.
 
 A trait body contains member declarations that make up the trait’s behavioral contract.
 
-The currently defined trait member form is the callable member declaration.
+The currently defined trait member forms are:
+
+- callable member declarations,
+- type-valued member declarations.
 
 ```bray
 trait Equatable
@@ -1828,7 +1829,7 @@ trait Equatable
 
 A trait callable member can be required or defaulted.
 
-A required trait member has no body and ends with a semicolon.
+A required callable trait member has no body and ends with a semicolon.
 
 ```bray
 trait Equatable
@@ -1837,7 +1838,7 @@ trait Equatable
 }
 ```
 
-A defaulted trait member has a body.
+A defaulted callable trait member has a body.
 
 ```bray
 trait Equatable
@@ -1855,11 +1856,168 @@ A defaulted member body provides default behavior for implementations that do no
 
 A defaulted member body is checked in trait context.
 
-A defaulted member body can use the trait’s declared surface, `self` when the member is an instance method, `Self`, trait parameters, available constraints, and declarations visible from the trait declaration context.
+A defaulted member body can use the trait’s declared surface, `self` when the member is an instance method, `Self`, trait parameters, type-valued members, available constraints, and declarations visible from the trait declaration context.
 
 A defaulted member body must satisfy the member’s declared result type, ownership behavior, borrowing behavior, capability contract, effect contract, and contract clauses.
 
-TODO: Define additional trait member kinds such as constants, predicates, lifecycle requirements, and type-valued members.
+TODO: Define additional trait member kinds such as constants, predicates, and lifecycle requirements.
+
+### Type-valued members in traits
+
+A type-valued member is a type-level output of a trait implementation.
+
+Type-valued members are allowed only in trait declarations.
+
+```bray
+trait Iterator
+{
+    type Element;
+
+    mut func next() -> Element?;
+}
+```
+
+A type-valued member declaration without a binding introduces a required type member.
+
+Inside the declaring trait, the type-valued member name is available in that trait’s member signatures, default bodies, and contract clauses.
+
+Type-valued members are immutable.
+
+A type-valued member cannot be declared `mut`.
+
+A type-valued member cannot be rebound after the implementation has selected its value.
+
+A type-valued member is not a type alias.
+
+A type-valued member does not introduce an alternate name for an arbitrary type outside the trait relationship that defines it.
+
+Module-level type aliases are not part of Bray.
+
+Structs, unions, modules, packages, functions, and inherent implementations cannot declare type-valued members.
+
+Trait parameters and type-valued members have different roles:
+
+- trait parameters are inputs to a trait application,
+- type-valued members are outputs selected by the implementation of a trait application.
+
+For a given visible implementation of a concrete trait application, every type-valued member has exactly one selected type.
+
+The selected type can depend on the implementing type and on the trait application’s generic arguments.
+
+The selected type cannot depend on a runtime value, control-flow path, local inference choice, caller preference, or use site.
+
+An implementation of a trait with required type-valued members must bind each required type member explicitly.
+
+```bray
+impl TokenCursor(Iterator)
+{
+    type Element = Token;
+
+    mut func next() -> Element?
+    {
+        ...
+    }
+}
+```
+
+The `type Element = Token;` implementation member is a trait-member binding.
+
+It is not a general type alias declaration.
+
+Inside an implementation of the trait, the type-valued member name refers to the selected type bound by that implementation.
+
+An implementation member that refers to a type-valued member is checked after substituting the implementation’s selected type.
+
+A trait implementation satisfies the trait only when its callable members match the trait contract after all type-valued member bindings are applied.
+
+Type-valued members participate in type checking, callable checking, method resolution, generic constraints, contract checking, fact-context checking, documentation, and public API compatibility.
+
+Type-valued members do not create runtime type identity.
+
+Type-valued members do not permit downcasting, runtime type tests, or dynamic type mutation.
+
+Dynamic dispatch through a trait cannot erase selected type-valued members that are visible through that dispatch surface.
+
+Type-valued members cannot have their own generic parameters.
+
+```bray
+trait StreamingParser
+{
+    type Output;       // valid
+    type Token<T>;     // invalid
+}
+```
+
+Type-valued member defaults are not allowed.
+
+```bray
+trait Parser
+{
+    type Error = ParseError; // invalid
+}
+```
+
+Changing a type-valued member binding can change the public contract of the implementation.
+
+Outside the declaring trait and an implementation of that trait, a type-valued member is referenced with a qualified type-valued member reference:
+
+```bray
+SubjectType(TraitApplication).MemberName
+```
+
+The syntax mirrors trait implementation syntax.
+
+`SubjectType` is the implementing type whose selected member type is being referenced.
+
+`TraitApplication` is the trait application that declares the type-valued member.
+
+`MemberName` is the type-valued member declared by that trait.
+
+For example:
+
+```bray
+TokenCursor(Iterator).Element
+```
+
+A generic type parameter can be the subject when the surrounding constraints require the trait application:
+
+```bray
+func first<I>(iter: I) -> I(Iterator).Element?
+    with(I: Iterator)
+{
+    return iter.next();
+}
+```
+
+The result type is the `Element` selected by the visible implementation of `Iterator` for `I`.
+
+Trait applications with generic arguments are written inside the parentheses:
+
+```bray
+Buffer(JsonEncode<Compact>).Output
+Buffer(JsonEncode<Pretty>).Output
+```
+
+The trait application is required outside the declaring trait and its implementation.
+
+```bray
+I.Element             // invalid
+I(Iterator).Element   // valid
+```
+
+The unqualified member name is available only inside the declaring trait and inside an implementation of that trait.
+
+A qualified type-valued member reference is a type expression.
+
+It does not access a runtime field or value member.
+
+The qualified reference is valid only when the referenced implementation is available in the checking context.
+
+If no matching implementation is available, the reference is rejected.
+
+If more than one matching implementation is available in the relevant coherence domain, the reference is rejected as ambiguous.
+
+Visibility and internal-use acknowledgement rules apply to the trait application, implementation, and selected type.
 
 ### Instance methods in traits
 
@@ -2094,7 +2252,9 @@ impl Point(Equatable)
 }
 ```
 
-A trait implementation must provide every required trait member that has no default body.
+A trait implementation must provide every required callable trait member that has no default body.
+
+A trait implementation must bind every required type-valued member.
 
 A trait implementation can provide a member that has default behavior in the trait.
 
@@ -2102,7 +2262,15 @@ When an implementation provides a member with default behavior, the implementati
 
 When an implementation omits a member with default behavior, the trait’s default behavior is used for that implementation.
 
-An implementation member must match the fulfilled trait member’s name, receiver mode, parameter names, parameter types, result type, execution mode, contract obligations, and caller-visible effects.
+An implementation callable member must match the fulfilled trait member’s name, receiver mode, parameter names, parameter types, result type, execution mode, contract obligations, and caller-visible effects after type-valued member bindings have been applied.
+
+An implementation type-valued member binding must match a type-valued member declared by the implemented trait.
+
+An implementation type-valued member binding must select a concrete type that is valid in the implementation context.
+
+An implementation cannot bind the same type-valued member more than once.
+
+An implementation cannot provide extra type-valued member bindings that are not declared by the trait.
 
 Implementation member visibility is governed by the implementation relationship and the implemented trait or inherent implementation context.
 
@@ -2198,6 +2366,34 @@ impl Box<T>(Comparable<Box<T>>)
 
 TODO: Define generic parameter syntax, generic constraints, and generic implementation checking for implementations.
 
+Trait generic parameters are inputs to the trait application.
+
+Type-valued members are outputs of the selected trait implementation.
+
+A generic trait should use generic parameters when the caller or constraint site chooses the type relationship.
+
+A generic trait should use type-valued members when the implementation uniquely determines the related type.
+
+For example, a conversion trait can use a target type as an input:
+
+```bray
+trait ConvertTo<Target>
+{
+    func convert() -> Target;
+}
+```
+
+An iterator trait can use an element type as an implementation output:
+
+```bray
+trait Iterator
+{
+    type Element;
+
+    mut func next() -> Element?;
+}
+```
+
 ### Trait use in constraints
 
 Traits participate in generic constraints.
@@ -2288,6 +2484,14 @@ Changing parameter types is a public API change.
 
 Changing a result type is a public API change.
 
+Adding a required type-valued member to a public trait is a public API change.
+
+Removing a type-valued member from a public trait is a public API change.
+
+Changing a type-valued member name is a public API change.
+
+Changing the selected type for a public or reachable implementation can be a public API change.
+
 Changing member contract clauses can be a public API change when requirements, guarantees, effects, capabilities, trusted obligations, or caller-visible behavior change.
 
 Changing a default member body can be a public API change when observable behavior changes for implementations that use the default.
@@ -2303,8 +2507,6 @@ TODO: Define constants in traits.
 TODO: Define predicates in traits.
 
 TODO: Define lifecycle declarations in traits.
-
-TODO: Define type-valued trait members.
 
 TODO: Define generic constraints.
 

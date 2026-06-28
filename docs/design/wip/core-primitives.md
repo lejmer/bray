@@ -529,8 +529,8 @@ Generic code is checked against its declared constraints. A generic body uses on
 Types participate in ownership, borrowing, aliasing, movement, destruction, effects, behavioral contracts, polymorphism, and code
 generation.
 
-A type can expose ordinary operations, behavioral contract implementations, associated types, constants, constructors, destructors,
-and trusted contracts according to its declaration.
+A type can expose ordinary operations, behavioral contract implementations, type-valued trait member bindings, constants,
+constructors, destructors, and trusted contracts according to its declaration.
 
 Type checking determines whether expressions, calls, patterns, bindings, control-flow exits, generic instantiations, and
 declarations satisfy the type contracts they use.
@@ -639,7 +639,7 @@ what the generic body may assume.
 
 A **behavioral contract** is a named compile-time contract that describes behavior a type provides.
 
-A behavioral contract defines required operations, associated types, constants, capability requirements, effect requirements,
+A behavioral contract defines required operations, type-valued trait members, constants, capability requirements, effect requirements,
 execution-mode requirements, and semantic obligations.
 
 A type satisfies a behavioral contract through an explicit implementation.
@@ -822,8 +822,8 @@ semantics.
 
 An **implementation** is an explicit declaration that makes a type satisfy a behavioral contract.
 
-An implementation defines how the type provides the operations, associated types, constants, capability requirements, effect
-requirements, execution modes, and semantic obligations required by the contract.
+An implementation defines how the type provides the operations, type-valued trait member bindings, constants, capability
+requirements, effect requirements, execution modes, and semantic obligations required by the contract.
 
 Implementations are nominal relationships between a type and a behavioral contract. A type satisfies a contract only through an
 implementation visible to the compiler.

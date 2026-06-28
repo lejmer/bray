@@ -2,7 +2,7 @@
 
 Abstraction is expressed through behavioral contracts.
 
-A behavioral contract declares operations, associated types, capability requirements, effect requirements, and semantic obligations that an implementing type must provide.
+A behavioral contract declares operations, type-valued members, capability requirements, effect requirements, and semantic obligations that an implementing type must provide.
 
 A type's identity comes from its own declaration. A type gains abstract behavior through explicit implementations of behavioral contracts.
 

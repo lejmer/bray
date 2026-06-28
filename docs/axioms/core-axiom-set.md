@@ -36,7 +36,7 @@
 
 8. **Abstraction is behavioral.**
 
-   Bray uses traits/interfaces/protocols as the primary abstraction mechanism. Types do not inherit implementation identity from parent types.
+   Bray uses traits as the primary abstraction mechanism. Types do not inherit implementation identity from parent types.
    Behavior is attached through explicit capabilities.
 
 9. **Small core language.**
