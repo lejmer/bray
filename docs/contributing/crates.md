@@ -34,11 +34,11 @@
 - `bray-binder`
     - Name binding and semantic reference resolution.
     - Converts syntax references into bound references to symbols.
-    - Produces `bray-bound-tree` structures where names, members, calls, fields, and places are resolved.
+    - Produces `bray-bound-tree` structures where names, members, calls, fields, and storages are resolved.
 
 - `bray-bound-tree`
     - Semantic tree after binding.
-    - Represents bound expressions, statements, items, places, projections, calls, locals, temporaries, and other source-correlated semantic nodes.
+    - Represents bound expressions, statements, items, storages, projections, calls, locals, temporaries, and other source-correlated semantic nodes.
     - This is still high-level enough to produce good user diagnostics.
 
 - `bray-checker`
@@ -52,7 +52,7 @@
 
 - `bray-ir`
     - Backend-independent intermediate representation.
-    - Represents lowered control flow, locals, places, explicit moves/drops, calls, branches, and other operations used by codegen.
+    - Represents lowered control flow, locals, storages, explicit moves/drops, calls, branches, and other operations used by codegen.
 
 - `bray-codegen`
     - Backend-independent code generation interface and codegen orchestration.

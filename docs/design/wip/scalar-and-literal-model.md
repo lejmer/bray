@@ -645,7 +645,7 @@ rounding
 Their meanings are:
 
 ```text
-checked     succeeds only if representable; otherwise returns an optional or result
+checked     succeeds only if representable; otherwise returns a nullable value or result
 saturating  clamps to the target range
 wrapping    uses modular integer conversion
 truncating  discards fractional part
@@ -680,7 +680,7 @@ A value of source type `S` can be converted to target type `T` with plain `as` w
    target element type.
 5. `S` and `T` are array types with the same length, and the source element type is explicitly convertible to the target element
    type.
-6. `S` and `T` are optional types, and the source contained type is explicitly convertible to the target contained type.
+6. `S` and `T` are nullable types, and the source contained type is explicitly convertible to the target contained type.
 7. `T` declares an explicit conversion from `S`.
 
 Composite conversion preserves structure.
@@ -736,9 +736,9 @@ Array conversion does not change length, shape, layout, or storage representatio
 
 ---
 
-## Optional conversion
+## Nullable conversion
 
-Optional-to-optional conversion is allowed when the contained source type can be explicitly converted to the contained
+Nullable-to-nullable conversion is allowed when the contained source type can be explicitly converted to the contained
 target type.
 
 ```bray
@@ -753,9 +753,9 @@ let a: [(i32, r32?); 4] = ...;
 let b: [(i64, r64?); 4] = a as [(i64, r64?); 4];
 ```
 
-The absence value remains absence. The present value, if present, is converted recursively.
+The absent state remains absent. The present value, if present, is converted recursively.
 
-TODO: Define absence literal syntax.
+The absence expression is `none`.
 
 ---
 

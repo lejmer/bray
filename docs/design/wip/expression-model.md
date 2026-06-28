@@ -3667,7 +3667,7 @@ A value of source type `S` can be converted to target type `T` with plain `as` w
 3. `S` is a two-element tuple and `T` is a built-in complex type, and both tuple element types are explicitly convertible to `T`’s component real type.
 4. `S` and `T` are tuple types with the same arity, and each source element type is explicitly convertible to the corresponding target element type.
 5. `S` and `T` are array types with the same length, and the source element type is explicitly convertible to the target element type.
-6. `S` and `T` are optional types, and the source contained type is explicitly convertible to the target contained type.
+6. `S` and `T` are nullable types, and the source contained type is explicitly convertible to the target contained type.
 7. `T` declares an explicit conversion from `S`.
 
 Composite conversion preserves structure.
@@ -3706,14 +3706,16 @@ Each source array element is converted to the target array element type.
 
 Array conversion preserves length and shape.
 
-Optional-to-optional conversion converts the present value recursively and preserves the absence state.
+Nullable-to-nullable conversion converts the present value recursively and preserves the absent state.
 
 ```bray
 let a: i32? = ...;
 let b: i64? = a as i64?;
 ```
 
-TODO: Define absence literal syntax and optional handling syntax.
+The absence expression is `none`.
+
+TODO: Define nullable handling syntax.
 
 A built-in scalar conversion is valid with plain `as` only when it is total and value-preserving.
 
@@ -3940,7 +3942,7 @@ Predicate expressions can reference constants and associated constants.
 
 Predicate expressions can use field access through observable access paths.
 
-Predicate expressions can inspect tuples, arrays, optional values, and union values by observation.
+Predicate expressions can inspect tuples, arrays, nullable values, and union values by observation.
 
 Predicate expressions can use arithmetic under contract arithmetic semantics.
 
@@ -4090,11 +4092,33 @@ TODO: Define assertion expressions.
 
 ---
 
-## Optional type expressions
+## Nullable and absence expressions
 
-The optional type form is `T?`.
+The nullable type form is `T?`.
 
-TODO: Define optional type expressions.
+The absence expression is `none`.
+
+`none` has no standalone type.
+
+It is accepted only when the surrounding context determines a concrete nullable type `T?`.
+
+```bray
+let mut count: i32? = none;
+count = 10;
+count = none;
+```
+
+A value of type `T` can initialize or assign the present state of an expected `T?`.
+
+Assigning `none` to a nullable access path changes that access path's nullable storage state to absent.
+
+If the access path owns a present value, that value is destroyed before the access path becomes absent.
+
+If the access path holds a borrow, assigning `none` ends the borrow before the access path becomes absent.
+
+The binding, field, parameter, or other declaration remains declared; only the nullable storage state changes.
+
+TODO: Define nullable handling syntax.
 
 ---
 
@@ -4317,8 +4341,7 @@ Specific expression forms also define these evaluation facts:
 - TODO: Define await surface syntax.
 - TODO: Define assertion syntax.
 - TODO: Define checked-conversion result shape.
-- TODO: Define optional absence literal.
-- TODO: Define optional handling syntax.
+- TODO: Define nullable handling syntax.
 - TODO: Define closure and anonymous function syntax.
 - TODO: Define general generator expression syntax.
 - TODO: Define operator precedence and operator overloading syntax.

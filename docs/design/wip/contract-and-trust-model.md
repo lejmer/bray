@@ -370,7 +370,7 @@ Allowed in predicate expressions:
 - result references in postconditions,
 - constants and associated constants,
 - field access through observable access paths,
-- tuple, array, optional, and union inspection by observation,
+- tuple, array, nullable, and union inspection by observation,
 - arithmetic using contract arithmetic semantics,
 - boolean operators,
 - comparisons,

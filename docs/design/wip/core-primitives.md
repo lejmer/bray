@@ -555,8 +555,8 @@ The core built-in type categories are:
   returned data.
 - **never type:** the type with no values. It represents computation that does not produce a value because control flow does not
   continue normally from that point.
-- **optional values:** represent either a present value of a contained type or absence of a value. Absence is a valid
-  initialized state of the optional type.
+- **nullable values:** represent either a present value of a contained type or absence of a value. Absence is a valid
+  initialized state of the nullable type form.
 - **tuples:** a fixed-size ordered product type. A tuple's element types are part of its type. Tuple ownership, borrowing,
   movement, copying, initialization, and destruction are derived from its elements.
 - **arrays:** a fixed-size ordered sequence type. An array's element type and length are part of its type. Array ownership,
@@ -688,6 +688,41 @@ T?
 func(T1, T2) -> R
 ```
 
+### Type expressions
+
+A **type expression** is syntax that denotes a type in a type context.
+
+Type expressions are composed from type names, qualified type paths, generic type applications, type-valued member references,
+type forms, type-form arguments, structural type forms, and parenthesized type expressions.
+
+Type expressions do not perform runtime evaluation.
+
+Parentheses around a single type expression group that type expression and make type-form composition order explicit.
+
+```bray
+(box[Heap] Point)?
+box[Heap] (Point?)
+&mut (box[Heap] Node)
+```
+
+Grouping parentheses do not produce a new type.
+
+Tuple type forms use comma-separated element types.
+
+A parenthesized single type expression without a comma is grouping.
+
+```bray
+(Point)
+```
+
+A one-element tuple type uses a trailing comma.
+
+```bray
+(Point,)
+```
+
+The trailing comma distinguishes a one-element tuple type from grouping parentheses.
+
 ### Prefix type forms
 
 A **prefix type form** appears before its subject type or subject entity.
@@ -727,9 +762,11 @@ A **postfix type form** appears after its subject type.
 T?
 ```
 
-`T?` is the optional type form.
+`T?` is the nullable type form.
 
-It produces a type whose values are either a present `T` value or the absence state.
+It produces a type whose values and access paths have a nullable storage state.
+
+The absence expression is `none`.
 
 ### Structural type forms
 
@@ -820,8 +857,8 @@ box[Heap] Point?
 func(&Buffer, usize) -> u8
 ```
 
-The meaning of a composed type is determined by applying each type form according to the type grammar and the semantic contract
-of that form.
+The meaning of a composed type is determined by applying each type form according to the type grammar, explicit grouping
+parentheses, and the semantic contract of that form.
 
 ### Core rule
 
@@ -834,7 +871,7 @@ or finalization.
 `box` is a type form because owned indirection affects recursive type sizing, ownership transfer, destruction, borrow projection,
 and storage identity.
 
-`?` is a type form because optionality is a core value-state shape used throughout the language.
+`?` is a type form because nullability is a core value-state shape used throughout the language.
 
 `func(...) -> ...` is a type form because callable values carry parameter, result, ownership, effect, execution, and contract
 semantics.

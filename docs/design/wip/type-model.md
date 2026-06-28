@@ -76,7 +76,7 @@ The currently defined categories include:
 - union types,
 - tuple types,
 - fixed-size array types,
-- optional types,
+- nullable types,
 - borrow types,
 - trait-view types,
 - owned-indirection types,
@@ -92,7 +92,7 @@ Tuple types are fixed-size ordered product types.
 
 Fixed-size array types are fixed-size ordered homogeneous product types.
 
-Optional types are produced by the postfix optional type form `T?`.
+Nullable types are produced by the postfix nullable type form `T?`.
 
 Borrow types are produced by `&T` and `&mut T`.
 
@@ -1305,6 +1305,72 @@ T?
 func(left: T1, right: T2) -> R
 ```
 
+### Type expressions
+
+A **type expression** is syntax that denotes a type in a type context.
+
+Type expressions do not read runtime storage, create runtime values, or perform runtime evaluation.
+
+Type expressions are composed from:
+
+- type names and qualified type paths,
+- generic type applications,
+- type-valued member references,
+- prefix type forms,
+- postfix type forms,
+- structural type forms,
+- type-form arguments,
+- parenthesized type expressions.
+
+Type-form arguments can include types, constants, and other compile-time entities when the type form permits them.
+
+Trait applications can appear inside type expressions only where a type form or qualified type-valued member reference permits them.
+
+Examples:
+
+```bray
+Point
+geometry.shapes.Circle
+List<Point>
+Buffer(Iterator<Bytes>).Element
+&mut Buffer
+box[Heap] Node
+Point?
+[Point; 4]
+(Point, Point)
+func(buffer: &Buffer, index: usize) -> u8
+```
+
+A parenthesized type expression groups a single type expression.
+
+```bray
+(box[Heap] Point)?
+box[Heap] (Point?)
+&mut (box[Heap] Node)
+```
+
+Grouping parentheses make type-form composition order explicit.
+
+Grouping parentheses do not produce a new type.
+
+A parenthesized single type expression without a comma is grouping.
+
+```bray
+(Point)
+```
+
+This denotes `Point`.
+
+Tuple type forms use comma-separated element types.
+
+A one-element tuple type uses a trailing comma.
+
+```bray
+(Point,)
+```
+
+The trailing comma distinguishes a one-element tuple type from grouping parentheses.
+
 ### Subject type
 
 A **subject type** is the type that a type form is applied to.
@@ -1427,11 +1493,11 @@ A **postfix type form** appears after its subject type.
 T?
 ```
 
-`T?` is the optional type form.
+`T?` is the nullable type form.
 
-It produces a type whose values represent either a present `T` value or the absence state.
+It produces a type whose values and access paths have a nullable storage state.
 
-TODO: Define optional absence spelling and optional handling syntax.
+The absence expression is `none`.
 
 Postfix type forms compose with other type forms according to the type grammar.
 
@@ -1477,7 +1543,7 @@ func(buffer: &Buffer, index: usize) -> u8
 
 The meaning of a composed type is determined by applying each type form according to the type grammar and the semantic contract of that form.
 
-Composition order is determined by the type grammar.
+Composition order is determined by the type grammar and explicit grouping parentheses.
 
 A composed type has one ownership, borrowing, initialization, destruction, finalization, capability, effect, and layout contract produced by the composition of its type forms and subject types.
 
@@ -1528,31 +1594,67 @@ The reachable operation depends on the whole access path, including every borrow
 
 TODO: Define detailed borrow rules for borrow type forms.
 
-### Optional type form
+### Nullable type form
 
-The optional type form is:
+The nullable type form is:
 
 ```bray
 T?
 ```
 
-An optional value is either a present contained value of type `T` or the absence state.
+A nullable value or access path has a nullable storage state.
 
-The absence state is a valid initialized state.
+The nullable storage state is either present or absent.
 
-An optional value is fully initialized when it is initialized to either presence or absence.
+When present, the nullable value contains or reaches a value of type `T`.
+
+When absent, the nullable value contains or reaches no value or storage of type `T`.
+
+The absent state is a valid initialized state.
+
+A nullable value or access path is fully initialized when it is initialized to either present or absent state.
 
 When present, the contained `T` value follows the ownership, borrowing, movement, copying, destruction, finalization, and capability rules of `T`.
 
 When absent, there is no contained `T` value to access, move, copy, borrow, destroy, or finalize.
 
-Optional-to-optional conversion follows the recursive explicit convertibility rule when the contained source type is explicitly convertible to the contained target type.
+`T?` is not a named container type.
 
-The absence state remains absence during optional-to-optional conversion.
+It does not expose a user-visible variant container or construction wrapper.
+
+The absence expression is:
+
+```bray
+none
+```
+
+`none` has no standalone type.
+
+`none` is accepted only when the expected type determines a concrete nullable type `T?`.
+
+```bray
+let mut count: i32? = none;
+count = 10;
+count = none;
+```
+
+A value of type `T` can initialize or assign the present state of an expected `T?`.
+
+Assigning `none` to a nullable access path changes its nullable storage state to absent.
+
+If the access path owns a present value, that value is destroyed before the access path becomes absent.
+
+If the access path holds a borrow, assigning `none` ends the borrow before the access path becomes absent.
+
+The binding, field, parameter, or other declaration remains declared; only the nullable storage state changes.
+
+Nullable-to-nullable conversion follows the recursive explicit convertibility rule when the contained source type is explicitly convertible to the contained target type.
+
+The absent state remains absent during nullable-to-nullable conversion.
 
 A present value is converted recursively.
 
-TODO: Define optional construction, absence literal syntax, unwrapping syntax, propagation syntax, and optional patterns.
+TODO: Define nullable unwrapping syntax, propagation syntax, and nullable patterns.
 
 ### Owned-indirection type form
 
@@ -1839,6 +1941,8 @@ A one-element tuple type uses a trailing comma.
 (T,)
 ```
 
+The trailing comma distinguishes a one-element tuple type from grouping parentheses.
+
 Each tuple element has its own type and initialization state.
 
 A tuple value is fully initialized when every element is initialized.
@@ -1940,7 +2044,7 @@ struct View
 
 Structural type forms do not break recursive stored ownership.
 
-Products, union payloads, tuples, arrays, and optionals keep their stored subjects inline for recursive sizing.
+Products, union payloads, tuples, arrays, and nullable values keep their stored subjects inline for recursive sizing.
 
 ```bray
 struct Node
@@ -1995,7 +2099,7 @@ A type form earns core status when ordinary named types and behavioral contracts
 
 `box` is a type form because owned indirection affects recursive type sizing, ownership transfer, destruction, borrow projection, and storage identity.
 
-`?` is a type form because optionality is a core value-state shape used throughout the language.
+`?` is a type form because nullability is a core value-state shape used throughout the language.
 
 `func(...) -> ...` is a type form because callable values carry parameter, result, ownership, effect, execution, and contract semantics.
 
