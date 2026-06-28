@@ -207,18 +207,18 @@ unit
 A callable with an omitted result type returns `unit`.
 
 ```bray
-func log(message: String)
+func log(pos message: String)
 {
-    print(message = message);
+    print(message);
 }
 ```
 
 This means:
 
 ```bray
-func log(message: String) -> unit
+func log(pos message: String) -> unit
 {
-    print(message = message);
+    print(message);
 }
 ```
 

@@ -47,18 +47,18 @@ The function body is a block expression in callable-body context.
 If the result type is omitted, the function returns `unit`.
 
 ```bray
-func log(message: String)
+func log(pos message: String)
 {
-    print(message = message);
+    print(message);
 }
 ```
 
 This means:
 
 ```bray
-func log(message: String) -> unit
+func log(pos message: String) -> unit
 {
-    print(message = message);
+    print(message);
 }
 ```
 
@@ -115,9 +115,9 @@ func add(left: i32, right: i32) -> i32
 A function whose declared result type is `unit` can complete normally.
 
 ```bray
-func log(message: String)
+func log(pos message: String)
 {
-    print(message = message);
+    print(message);
 }
 ```
 
@@ -133,8 +133,8 @@ Semicolons are mandatory for sequenced expressions.
 ```bray
 func f()
 {
-    log(message = "hello");
-    log(message = "world");
+    log("hello");
+    log("world");
 }
 ```
 
@@ -168,9 +168,58 @@ A parameter has:
 2. a type,
 3. an ownership or borrowing mode,
 4. a mutation capability,
-5. a lifetime and capability contract.
+5. a call-position permission,
+6. a lifetime and capability contract.
 
 The parameter binding exists inside the function body.
+
+---
+
+## Positional parameters
+
+Parameters are named by default.
+
+A parameter can use the `pos` modifier to permit positional arguments at call sites.
+
+```bray
+func print(pos message: String)
+{
+    ...
+}
+
+func fit(pos data: DataFrame, max_iterations: i32)
+{
+    ...
+}
+```
+
+The `pos` modifier changes the call surface only.
+
+The parameter still has a name, and the function body uses that name.
+
+A `pos` parameter can be supplied positionally or by name.
+
+```bray
+print("hello");
+fit(data_frame, max_iterations = 10);
+fit(data = data_frame, max_iterations = 10);
+```
+
+A parameter without `pos` must be supplied by name unless it is omitted through a default.
+
+```bray
+fit(data_frame, 10); // invalid
+```
+
+A `pos` parameter may only appear before any non-`pos` parameter in the same parameter list.
+
+```bray
+func valid(pos first: A, pos second: B, third: C);
+
+func invalid(first: A, pos second: B); // invalid
+```
+
+Parameter modifiers apply independently to the parameter.
 
 ---
 
@@ -179,7 +228,7 @@ The parameter binding exists inside the function body.
 A parameter of plain type receives an owned value.
 
 ```bray
-func consume(buffer: Buffer)
+func consume(pos buffer: Buffer)
 {
     ...
 }
@@ -196,7 +245,7 @@ Inside the function, the parameter binding owns the value.
 Owned parameters are immutable by default.
 
 ```bray
-func inspect(buffer: Buffer)
+func inspect(pos buffer: Buffer)
 {
     ...
 }
@@ -213,7 +262,7 @@ Ownership and mutation authority are separate capabilities.
 A mutable owned parameter uses `mut` before the parameter name.
 
 ```bray
-func normalize(mut buffer: Buffer) -> Buffer
+func normalize(pos mut buffer: Buffer) -> Buffer
 {
     ...
     return buffer;
@@ -227,7 +276,7 @@ The `mut` before the parameter name applies to the local owned binding.
 
 The caller’s binding keeps its own declared capability rules.
 
-The grammar accepts `mut <name>: T` for owned parameter types.
+The grammar accepts parameter modifiers before the parameter name.
 
 ---
 
@@ -236,7 +285,7 @@ The grammar accepts `mut <name>: T` for owned parameter types.
 A shared borrow parameter uses `&T`.
 
 ```bray
-func read(buffer: &Buffer)
+func read(pos buffer: &Buffer)
 {
     ...
 }
@@ -253,7 +302,7 @@ Multiple compatible shared borrows can exist at the same time.
 A mutable borrow parameter uses `&mut T`.
 
 ```bray
-func fill(buffer: &mut Buffer)
+func fill(pos buffer: &mut Buffer)
 {
     ...
 }
@@ -270,7 +319,7 @@ While the mutable borrow is active, incompatible access paths are suspended.
 `mut` before a parameter name marks the local owned parameter binding as mutable.
 
 ```bray
-func normalize(mut buffer: Buffer) -> Buffer
+func normalize(pos mut buffer: Buffer) -> Buffer
 {
     ...
 }
@@ -279,7 +328,7 @@ func normalize(mut buffer: Buffer) -> Buffer
 `mut` after `&` marks mutation authority over the storage reached by that borrow layer.
 
 ```bray
-func fill(buffer: &mut Buffer)
+func fill(pos buffer: &mut Buffer)
 {
     ...
 }
@@ -287,17 +336,17 @@ func fill(buffer: &mut Buffer)
 
 These are different syntactic positions with different meanings.
 
-The grammar accepts `mut <name>: T` for owned parameter types.
+The grammar accepts parameter modifiers before the parameter name.
 
 The grammar represents borrowed parameter capability through the borrow type itself:
 
 ```bray
-func read(buffer: &Buffer)
+func read(pos buffer: &Buffer)
 {
     ...
 }
 
-func fill(buffer: &mut Buffer)
+func fill(pos buffer: &mut Buffer)
 {
     ...
 }
@@ -353,6 +402,7 @@ A function call evaluates the callee and arguments according to Bray evaluation 
 
 ```bray
 let result = add(left = 1, right = 2);
+print("hello");
 ```
 
 The final evaluation-order rules are part of the expression model.
@@ -415,18 +465,18 @@ The second `return` exits `outer`.
 A function returning `unit` can complete normally.
 
 ```bray
-func log(message: String)
+func log(pos message: String)
 {
-    print(message = message);
+    print(message);
 }
 ```
 
 TODO: Define whether functions that return `unit` may use explicit unit-return syntax.
 
 ```bray
-func log(message: String)
+func log(pos message: String)
 {
-    print(message = message);
+    print(message);
     return;
 }
 ```
@@ -440,9 +490,9 @@ TODO: Define syntax for explicitly returning `unit`.
 A `never` expression satisfies any required result type at a control-flow merge because it has no normal continuation.
 
 ```bray
-func fail(message: String) -> never
+func fail(pos message: String) -> never
 {
-    abort(message = message);
+    abort(message);
 }
 ```
 
@@ -587,9 +637,9 @@ A function assignment succeeds when the target callable type preserves the calla
 A function can accept another function as a parameter.
 
 ```bray
-func apply(value: i32, op: func(value: i32) -> i32) -> i32
+func apply(pos value: i32, op: func(pos value: i32) -> i32) -> i32
 {
-    return op(value = value);
+    return op(value);
 }
 ```
 
@@ -615,6 +665,14 @@ Example ordinary callable type:
 let f: func(&Buffer, usize) -> u8 = get_checked;
 ```
 
+Callable types that preserve named parameters write parameter names.
+
+Callable types that permit positional arguments use the same `pos` parameter modifier as callable declarations.
+
+```bray
+let op: func(pos value: i32) -> i32 = double;
+```
+
 A callable with trusted caller obligations requires a callable type that carries those obligations.
 
 The exact syntax for function types with contract clauses is part of the Contract and Trust Model.
@@ -630,12 +688,12 @@ Same-name function declarations do not automatically form an overload set.
 An overload declaration introduces a shared call name over separately named callable declarations.
 
 ```bray
-func parse_int(text: String, radix: i32 = 10) -> i64
+func parse_int(pos text: String, radix: i32 = 10) -> i64
 {
     ...
 }
 
-func parse_float(text: String) -> r64
+func parse_float(pos text: String) -> r64
 {
     ...
 }
@@ -654,7 +712,7 @@ Each overload arm keeps its own declaration name.
 The separately named arm can still be referenced and called directly.
 
 ```bray
-let value = parse_int(text = input);
+let value = parse_int(input);
 ```
 
 Direct calls to an arm use that arm’s ordinary callable rules, including default arguments.
@@ -662,7 +720,7 @@ Direct calls to an arm use that arm’s ordinary callable rules, including defau
 Calls through the overload name use overload selection.
 
 ```bray
-let value = parse(text = input);
+let value = parse(input);
 ```
 
 Overload selection uses only arguments explicitly supplied by the caller.
@@ -688,13 +746,13 @@ If more than one overload arm matches, the call is rejected as ambiguous.
 For the overload above:
 
 ```bray
-parse(text = input)
+parse(input)
 ```
 
 selects `parse_float`.
 
 ```bray
-parse(text = input, radix = 10)
+parse(input, radix = 10)
 ```
 
 selects `parse_int`.
@@ -702,13 +760,15 @@ selects `parse_int`.
 The direct call remains valid:
 
 ```bray
-parse_int(text = input)
+parse_int(input)
 ```
 
 An overload arm matches a call only when:
 
-- every supplied argument name exists as a parameter of the arm,
-- every parameter of the arm is supplied by the call,
+- every supplied named argument exists as a parameter of the arm,
+- every supplied positional argument corresponds to a `pos` parameter at the same position in the arm,
+- no parameter is supplied more than once,
+- every parameter of the arm is supplied explicitly by the call,
 - each supplied argument expression is compatible with the corresponding parameter type,
 - the callable’s ownership, borrowing, capability, effect, trusted obligation, and contract requirements can be satisfied.
 
@@ -745,7 +805,7 @@ Generic instantiation must satisfy the generic function’s full callable contra
 Functions can have contract clauses.
 
 ```bray
-func clamp(value: i32, min: i32, max: i32) -> i32
+func clamp(pos value: i32, min: i32, max: i32) -> i32
     requires(
         min <= max,
     )
@@ -810,7 +870,7 @@ async finalize File() -> Result<unit, FileError>
 For ordinary functions, the parallel syntax is:
 
 ```bray
-async func fetch(url: Url) -> Result<Response, FetchError>
+async func fetch(pos url: Url) -> Result<Response, FetchError>
 {
     ...
 }
@@ -964,7 +1024,7 @@ using internal some.module.helper;
 Bray uses `.` for module paths, package paths, type paths, member access, and nested access.
 
 ```bray
-math.sin(angle = x);
+math.sin(x);
 pkg.module.function(value = x);
 pkg.module.Type;
 ```
@@ -1026,7 +1086,7 @@ A method is a callable associated with a type or behavioral contract.
 Method calls use `.`:
 
 ```bray
-value.method(argument = argument);
+value.method(argument);
 ```
 
 A method has a function-like callable contract.
@@ -1056,6 +1116,12 @@ Callable result values are supplied explicitly through `return`.
 Parameters are bindings declared by function signatures.
 
 Owned parameters are immutable by default.
+
+Parameters are named by default.
+
+The `pos` parameter modifier permits positional arguments for that parameter.
+
+`pos` parameters form an initial run in the parameter list.
 
 `mut` before a parameter name applies to an owned local parameter binding.
 

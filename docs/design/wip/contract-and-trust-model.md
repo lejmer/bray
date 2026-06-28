@@ -250,7 +250,7 @@ Trusted requirements must not appear from nowhere.
 A declaration can establish ordinary facts:
 
 ```bray
-func clamp(value: i32, min: i32, max: i32) -> i32
+func clamp(pos value: i32, min: i32, max: i32) -> i32
     requires(
         min <= max,
     )

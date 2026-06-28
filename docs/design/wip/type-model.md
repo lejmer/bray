@@ -280,7 +280,7 @@ A field declaration can include a default expression.
 struct RetryPolicy
 {
     count: i32 = 3;
-    delay: Duration = Duration.seconds(value = 1);
+    delay: Duration = Duration.seconds(1);
 }
 ```
 
@@ -487,7 +487,7 @@ A field default is an expression declared on a field.
 struct RetryPolicy
 {
     count: i32 = 3;
-    delay: Duration = Duration.seconds(value = 1);
+    delay: Duration = Duration.seconds(1);
 }
 ```
 
@@ -702,12 +702,12 @@ struct File
 {
     handle: OsHandle;
 
-    construct File(path: Path, mode: FileMode = FileMode.read) -> File
+    construct File(pos path: Path, mode: FileMode = FileMode.read) -> File
     {
         ...
     }
 
-    construct temp(directory: Path, prefix: String = "tmp") -> File
+    construct temp(pos directory: Path, prefix: String = "tmp") -> File
     {
         ...
     }
@@ -731,7 +731,7 @@ A constructor named after the type is the primary constructor form.
 A constructor with another name becomes a named constructor under the type:
 
 ```bray
-let my_file = File.temp(directory = some_path);
+let my_file = File.temp(some_path);
 ```
 
 Finalizers complete required lifecycle obligations before ownership ends.
@@ -909,7 +909,7 @@ A payload field can declare a default expression.
 ```bray
 union Request
 {
-    Retry(count: i32 = 3, delay: Duration = Duration.seconds(value = 1));
+    Retry(count: i32 = 3, delay: Duration = Duration.seconds(1));
     Cancelled;
 }
 ```
@@ -1588,17 +1588,17 @@ The core storage contract is:
 ```bray
 trait Storage<T>
 {
-    trusted static func create(value: T) -> Self
+    trusted static func create(pos value: T) -> Self
         uses(manual_alloc, raw_memory, unchecked_init);
 
-    static func borrow(storage: &Self) -> &T;
+    static func borrow(pos storage: &Self) -> &T;
 
-    static func borrow_mut(storage: &mut Self) -> &mut T;
+    static func borrow_mut(pos storage: &mut Self) -> &mut T;
 
-    trusted static func destroy(storage: &mut Self)
+    trusted static func destroy(pos storage: &mut Self)
         uses(raw_memory, unchecked_init);
 
-    trusted static func release(storage: Self)
+    trusted static func release(pos storage: Self)
         uses(manual_alloc);
 }
 ```
@@ -1859,12 +1859,13 @@ The callable type form is:
 func(parameter: Type, ...) -> Result
 ```
 
-A callable type describes a callable value’s parameter names, parameter types, result type, execution mode, ownership behavior, borrowing behavior, mutation requirements, lifetime requirements, capability requirements, effects, trusted caller obligations, and finalization behavior.
+A callable type describes a callable value’s parameter names, parameter call-position permissions, parameter types, result type, execution mode, ownership behavior, borrowing behavior, mutation requirements, lifetime requirements, capability requirements, effects, trusted caller obligations, and finalization behavior.
 
-Callable parameter names are part of the callable contract because function call arguments are named.
+Callable parameter names and `pos` permissions are part of the callable contract because they define how call arguments bind to parameters.
 
 ```bray
 func(left: i32, right: i32) -> i32
+func(pos value: i32) -> i32
 ```
 
 A callable returning `unit` can omit the result type in declarations, but callable type forms spell result behavior according to the callable type grammar.
@@ -2011,7 +2012,7 @@ Traits are declared with `trait`.
 ```bray
 trait Equatable
 {
-    func equals(other: &Self) -> bool;
+    func equals(pos other: &Self) -> bool;
 }
 ```
 
@@ -2024,7 +2025,7 @@ A trait can be generic.
 ```bray
 trait Comparable<Other>
 {
-    func compare(other: &Other) -> Ordering;
+    func compare(pos other: &Other) -> Ordering;
 }
 ```
 
@@ -2047,7 +2048,7 @@ A trait declaration can be `public` or `internal`.
 ```bray
 trait Equatable
 {
-    func equals(other: &Self) -> bool;
+    func equals(pos other: &Self) -> bool;
 }
 
 internal trait ParserDiagnostics
@@ -2069,7 +2070,7 @@ The grammar excludes `public` and `internal` modifiers on individual trait membe
 ```bray
 trait Equatable
 {
-    func equals(other: &Self) -> bool;
+    func equals(pos other: &Self) -> bool;
 }
 ```
 
@@ -2087,7 +2088,7 @@ The currently defined trait member forms are:
 ```bray
 trait Equatable
 {
-    func equals(other: &Self) -> bool;
+    func equals(pos other: &Self) -> bool;
 }
 ```
 
@@ -2098,7 +2099,7 @@ A required callable trait member has no body and ends with a semicolon.
 ```bray
 trait Equatable
 {
-    func equals(other: &Self) -> bool;
+    func equals(pos other: &Self) -> bool;
 }
 ```
 
@@ -2107,9 +2108,9 @@ A defaulted callable trait member has a body.
 ```bray
 trait Equatable
 {
-    func equals(other: &Self) -> bool;
+    func equals(pos other: &Self) -> bool;
 
-    func not_equals(other: &Self) -> bool
+    func not_equals(pos other: &Self) -> bool
     {
         ...
     }
@@ -2327,17 +2328,19 @@ An instance method’s ordinary parameters are written inside the parameter list
 ```bray
 trait Comparable<Other>
 {
-    func compare(other: &Other) -> Ordering;
+    func compare(pos other: &Other) -> Ordering;
 }
 ```
 
 The receiver is supplied by method-call syntax.
 
 ```bray
-point.compare(other = other)
+point.compare(other)
 ```
 
-Function-call arguments are always named. Method arguments other than the receiver are also named.
+Parameters are named by default.
+
+Parameters marked `pos` can be supplied positionally.
 
 ### Receiver modes
 
@@ -2380,7 +2383,7 @@ A static trait function is declared with `static func`.
 ```bray
 trait Parse<T>
 {
-    static func parse(text: String) -> T;
+    static func parse(pos text: String) -> T;
 }
 ```
 
@@ -2408,7 +2411,7 @@ Trait member declarations can have callable contracts.
 ```bray
 trait Comparable<Other>
 {
-    func compare(other: &Other) -> Ordering
+    func compare(pos other: &Other) -> Ordering
         requires(
             ...
         )
@@ -2461,7 +2464,7 @@ An inherent implementation is written as `impl Type`.
 ```bray
 impl Point
 {
-    func distance_to(other: &Self) -> r64
+    func distance_to(pos other: &Self) -> r64
     {
         ...
     }
@@ -2484,7 +2487,7 @@ An unnamed trait implementation is written as `impl Type(TraitApplication)`.
 ```bray
 impl Point(Equatable)
 {
-    func equals(other: &Self) -> bool
+    func equals(pos other: &Self) -> bool
     {
         ...
     }
@@ -2496,7 +2499,7 @@ A named trait implementation is written as `impl ImplementationName = Type(Trait
 ```bray
 impl PointEquatable = Point(Equatable)
 {
-    func equals(other: &Self) -> bool
+    func equals(pos other: &Self) -> bool
     {
         ...
     }
@@ -2516,7 +2519,7 @@ For a generic trait application:
 ```bray
 impl Point(Comparable<Point>)
 {
-    func compare(other: &Point) -> Ordering
+    func compare(pos other: &Point) -> Ordering
     {
         ...
     }
@@ -2528,7 +2531,7 @@ For a generic implementing type:
 ```bray
 impl BufferEquatable = Buffer<T>(Equatable)
 {
-    func equals(other: &Self) -> bool
+    func equals(pos other: &Self) -> bool
     {
         ...
     }
@@ -2554,7 +2557,7 @@ In a trait implementation, member definitions fulfill members of the implemented
 ```bray
 impl Point(Equatable)
 {
-    func equals(other: &Self) -> bool
+    func equals(pos other: &Self) -> bool
     {
         ...
     }
@@ -2621,7 +2624,7 @@ impl Point(Cloneable)
 ```bray
 impl Point
 {
-    func distance_to(other: &Self) -> r64
+    func distance_to(pos other: &Self) -> r64
     {
         ...
     }
@@ -2631,7 +2634,7 @@ impl Point
 The receiver is supplied by method-call syntax.
 
 ```bray
-point.distance_to(other = other)
+point.distance_to(other)
 ```
 
 `self` is available only inside instance method bodies.
@@ -2645,7 +2648,7 @@ A trait can have generic parameters.
 ```bray
 trait Comparable<Other>
 {
-    func compare(other: &Other) -> Ordering;
+    func compare(pos other: &Other) -> Ordering;
 }
 ```
 
@@ -2654,7 +2657,7 @@ A trait implementation supplies a concrete trait application.
 ```bray
 impl Point(Comparable<Point>)
 {
-    func compare(other: &Point) -> Ordering
+    func compare(pos other: &Point) -> Ordering
     {
         ...
     }
@@ -2667,7 +2670,7 @@ A generic implementation can satisfy a parameterized set of trait applications.
 impl BufferComparable = Buffer<T>(Comparable<Buffer<T>>)
     with(T: Comparable<T>)
 {
-    func compare(other: &Buffer<T>) -> Ordering
+    func compare(pos other: &Buffer<T>) -> Ordering
     {
         ...
     }
@@ -3039,7 +3042,7 @@ A generic body can use only operations, type-valued members, constants, effects,
 A method call can resolve to an inherent method or a trait method.
 
 ```bray
-value.method(argument = argument)
+value.method(argument)
 ```
 
 Method resolution uses:
@@ -3052,7 +3055,7 @@ Method resolution uses:
 - constraints,
 - overload rules.
 
-The selected method must match the receiver mode and argument names supplied by the call.
+The selected method must match the receiver mode and argument binding supplied by the call.
 
 The selected method must satisfy type checking, ownership checking, borrowing checking, capability checking, effect checking, and contract checking.
 
@@ -3082,7 +3085,7 @@ The path before the static function name determines the type, trait application,
 
 A static function call has no receiver.
 
-Static function arguments are named.
+Static function arguments follow the callable's parameter call surface.
 
 Detailed static function call expression rules belong to the Expression Model.
 
@@ -3175,19 +3178,19 @@ Generic constraints and trait views are separate forms of polymorphism.
 A generic constraint keeps the concrete type known to the generic instantiation.
 
 ```bray
-func write_all<S>(sink: S, message: String)
+func write_all<S>(pos sink: S, pos message: String)
     with(S: Sink)
 {
-    sink.write(message = message);
+    sink.write(message);
 }
 ```
 
 A trait view hides the concrete type and dispatches through the selected implementation witness.
 
 ```bray
-func write_one(sink: &view Sink, message: String)
+func write_one(pos sink: &view Sink, pos message: String)
 {
-    sink.write(message = message);
+    sink.write(message);
 }
 ```
 
@@ -3205,7 +3208,7 @@ Changing a member name is a public API change.
 
 Changing a member receiver mode is a public API change.
 
-Changing parameter names is a public API change because callable arguments are named.
+Changing parameter names or `pos` permissions is a public API change because they change the callable call surface.
 
 Changing parameter types is a public API change.
 

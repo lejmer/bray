@@ -92,8 +92,8 @@ Sequenced expressions are terminated with semicolons.
 
 ```bray
 {
-    log(message = "hello");
-    log(message = "world");
+    log("hello");
+    log("world");
 }
 ```
 
@@ -160,7 +160,7 @@ A block expression in `unit` context can complete normally.
 
 ```bray
 {
-    log(message = "done");
+    log("done");
 }
 ```
 
@@ -201,9 +201,9 @@ func f() -> i32
 A callable body with declared result type `unit` can complete normally.
 
 ```bray
-func log(message: String)
+func log(pos message: String)
 {
-    print(message = message);
+    print(message);
 }
 ```
 
@@ -212,18 +212,18 @@ A callable body with declared result type other than `unit` must ensure every re
 A callable with omitted result type has result type `unit`.
 
 ```bray
-func log(message: String)
+func log(pos message: String)
 {
-    print(message = message);
+    print(message);
 }
 ```
 
 This has the same callable result contract as:
 
 ```bray
-func log(message: String) -> unit
+func log(pos message: String) -> unit
 {
-    print(message = message);
+    print(message);
 }
 ```
 
@@ -243,9 +243,9 @@ A `return` expression has type `never` in the current control-flow path because 
 A `never` expression can satisfy any callable result requirement because it has no normal continuation.
 
 ```bray
-func fail(message: String) -> never
+func fail(pos message: String) -> never
 {
-    abort(message = message);
+    abort(message);
 }
 ```
 
@@ -842,9 +842,9 @@ Character literals are already typed as `char`.
 A block expression or callable body can produce `unit` by completing normally in a `unit` context.
 
 ```bray
-func log(message: String)
+func log(pos message: String)
 {
-    print(message = message);
+    print(message);
 }
 ```
 
@@ -1109,7 +1109,7 @@ Owned parameters are immutable by default.
 A mutable owned parameter uses `mut` before the parameter name in the function signature.
 
 ```bray
-func normalize(mut buffer: Buffer) -> Buffer
+func normalize(pos mut buffer: Buffer) -> Buffer
 {
     return buffer;
 }
@@ -1118,12 +1118,12 @@ func normalize(mut buffer: Buffer) -> Buffer
 Borrow parameters have borrow types.
 
 ```bray
-func read(buffer: &Buffer)
+func read(pos buffer: &Buffer)
 {
     ...
 }
 
-func fill(buffer: &mut Buffer)
+func fill(pos buffer: &mut Buffer)
 {
     ...
 }
@@ -1204,7 +1204,7 @@ pkg
 Module and package name expressions are used as the left side of path expressions.
 
 ```bray
-math.sin(angle = x)
+math.sin(x)
 pkg.module.Type
 ```
 
@@ -1520,7 +1520,7 @@ A method call expression calls the selected method candidate.
 ```bray
 buffer.length()
 buffer.clear()
-point.distance_to(other = p)
+point.distance_to(p)
 ```
 
 Method resolution uses the receiver type, receiver capability, inherent implementations, trait implementations, visible declarations, constraints, and overload rules.
@@ -1565,8 +1565,8 @@ A static function path can be called.
 
 ```bray
 Point.origin()
-Buffer.from_bytes(bytes = bytes)
-math.sin(x = angle)
+Buffer.from_bytes(bytes)
+math.sin(angle)
 ```
 
 A static function call has no `self` receiver.
@@ -1587,15 +1587,19 @@ static func origin() -> Point
 A path expression can be the callee of a call expression.
 
 ```bray
-math.sin(x = angle)
+math.sin(angle)
 Point.origin()
 Shape.Circle(center = origin, radius = 1.0)
 ```
 
-Function calls use named arguments for their parameters.
+Callable parameters are named by default.
+
+Parameters marked with `pos` can be supplied positionally.
 
 ```bray
 add(left = 1, right = 2)
+print("hello")
+fit(data_frame, max_iterations = 10)
 ```
 
 Callable-like construction forms use named arguments where field or parameter identity matters.
@@ -1604,7 +1608,7 @@ Struct construction fields use names.
 
 Union variant payload fields use names.
 
-Named constructors and static functions use named arguments according to their parameter declarations.
+Named constructors and static functions use the call surface defined by their parameter declarations.
 
 Tuple expressions and array expressions are structural expressions and use positional element syntax because their element positions are their structure.
 
@@ -1951,19 +1955,21 @@ A **function call expression** calls a callable declaration or callable value.
 
 ```bray
 add(left = 1, right = 2)
+print("hello")
 ```
 
-Function call arguments are always named.
+Function call arguments are named unless they are supplied to parameters that permit positional arguments.
 
-Argument names are part of the call syntax.
+Named argument names are part of the call syntax.
 
-Argument names cannot be omitted.
+An argument supplied in named form writes the parameter name explicitly.
 
 ```bray
 add(left = 1, right = 2)
+print("hello")
 ```
 
-A function call with unnamed positional arguments is rejected.
+A function call with a positional argument for a non-`pos` parameter is rejected.
 
 ```bray
 add(1, 2)
@@ -1973,13 +1979,21 @@ A function call expression has a callee and an argument list.
 
 The callee must resolve to a callable declaration or callable value.
 
-The argument list supplies argument expressions to callable parameters by name.
+The argument list supplies argument expressions to callable parameters by name or by permitted position.
 
-Each argument name must correspond to exactly one parameter in the callable contract.
+Each named argument must correspond to exactly one parameter in the callable contract.
 
 Duplicate argument names are errors.
 
 Unknown argument names are errors.
+
+Each positional argument supplies the corresponding `pos` parameter by position.
+
+Positional arguments must appear before named arguments.
+
+A positional argument after a named argument is an error.
+
+A parameter cannot be supplied both positionally and by name.
 
 Missing parameters are errors unless the missing parameters have defaults.
 
@@ -2015,7 +2029,7 @@ Facts established by a call are tied to the values, storage identities, lifetime
 
 A call expression participates in overload resolution when the callee resolves to an overload declaration.
 
-A call resolves to exactly one callable after name resolution, argument-name matching, type checking, ownership checking, capability checking, effect checking, contract checking, and overload resolution.
+A call resolves to exactly one callable after name resolution, argument binding, type checking, ownership checking, capability checking, effect checking, contract checking, and overload resolution.
 
 Overload resolution uses only arguments explicitly supplied by the caller.
 
@@ -2031,31 +2045,39 @@ TODO: Define the general evaluation order for callee and argument expressions.
 
 ## Arguments
 
-An **argument** is a named expression supplied to a callable parameter, constructor parameter, method parameter, static function parameter, named constructor parameter, or another callable-like parameter.
+An **argument** is an expression supplied to a callable parameter, constructor parameter, method parameter, static function parameter, named constructor parameter, or another callable-like parameter.
 
 ```bray
 left = 1
 right = 2
 mode = FileMode.write
+buffer
 ```
 
-Arguments are always named in callable calls.
+Arguments are named by default in callable calls.
 
-The argument name identifies the parameter being supplied.
+A named argument identifies the parameter being supplied by name.
+
+A positional argument identifies the parameter being supplied by position and is valid only for a parameter marked `pos`.
 
 The argument expression supplies the value or access path checked against that parameter.
 
 ```bray
 add(left = 1, right = 2)
+print("hello")
 ```
 
-Argument names cannot be omitted.
+An argument supplied in named form writes the parameter name explicitly.
 
-Argument order does not determine parameter binding.
+Named argument order does not determine parameter binding.
+
+Positional argument order determines binding to the positional parameter prefix.
+
+Positional arguments must appear before named arguments.
 
 Argument order is source order for evaluation only if the evaluation-order model chooses source-order argument evaluation.
 
-Argument order does not change which parameter receives which argument.
+Named argument order does not change which parameter receives which named argument.
 
 Duplicate arguments for the same parameter are errors.
 
@@ -2068,38 +2090,38 @@ An argument expression is checked in the expected context of the corresponding p
 Expected parameter context can guide literal typing, variant shorthand, struct construction shorthand, box construction shorthand, tuple element typing, array element typing, and conversion checking.
 
 ```bray
-draw(shape = .Circle(center = origin, radius = 1.0))
+draw(.Circle(center = origin, radius = 1.0))
 ```
 
-Here the parameter type of `shape` can provide the expected union type for `.Circle(...)`.
+Here the `pos shape` parameter type can provide the expected union type for `.Circle(...)`.
 
 Arguments can supply owned values.
 
 ```bray
-consume(buffer = buffer)
+consume(buffer)
 ```
 
 Arguments can supply shared borrows.
 
 ```bray
-read(buffer = &buffer)
+read(&buffer)
 ```
 
 Arguments can supply mutable borrows.
 
 ```bray
-fill(buffer = &mut buffer)
+fill(&mut buffer)
 ```
 
 Arguments can supply values constructed inline.
 
 ```bray
-draw(shape = Shape.Circle(center = origin, radius = 1.0))
+draw(Shape.Circle(center = origin, radius = 1.0))
 ```
 
 Argument expressions participate in ownership, borrowing, mutation authority, initialization, destruction, finalization, capability checking, effect checking, and fact-context refinement.
 
-A function call, method call, or static function call cannot use tuple-style positional syntax to satisfy parameters.
+A function call, method call, or static function call cannot use positional syntax to satisfy parameters that are not marked `pos`.
 
 Tuple expressions and array expressions remain positional structural expressions because their positions are the structure being constructed, not callable parameter binding.
 
@@ -2112,7 +2134,7 @@ A **defaulted argument** is an omitted parameter value supplied by the parameter
 A callable parameter can declare a default value.
 
 ```bray
-func retry(count: i32 = 3, delay: Duration = Duration.seconds(value = 1))
+func retry(count: i32 = 3, delay: Duration = Duration.seconds(1))
 {
     ...
 }
@@ -2123,7 +2145,7 @@ A call can omit a parameter that has a default.
 ```bray
 retry();
 retry(count = 5);
-retry(delay = Duration.seconds(value = 2));
+retry(delay = Duration.seconds(2));
 ```
 
 The omitted parameter receives its declared default expression.
@@ -2173,25 +2195,25 @@ A **method call expression** calls an instance-level function through a receiver
 ```bray
 buffer.length()
 buffer.clear()
-point.distance_to(other = other)
+point.distance_to(other)
 ```
 
 The expression before the method name is the receiver expression.
 
 The receiver is supplied implicitly by the method call syntax.
 
-Method parameters other than the receiver are supplied by named arguments.
+Method parameters other than the receiver follow the same argument-binding rules as function parameters.
 
-Argument names cannot be omitted.
-
-```bray
-point.distance_to(other = other)
-```
-
-A method call with unnamed non-receiver arguments is rejected.
+An argument supplied in named form writes the parameter name explicitly.
 
 ```bray
 point.distance_to(other)
+```
+
+A method call with a positional argument for a non-`pos` parameter is rejected.
+
+```bray
+client.connect(timeout)
 ```
 
 Inside a method body, `self` is the receiver keyword.
@@ -2234,7 +2256,7 @@ A consuming receiver method makes the receiver’s old access path unavailable a
 
 A method call resolves through the receiver type, receiver capability, inherent implementations, participating trait implementations, visible declarations, constraints, and overload rules.
 
-A method call resolves to exactly one method after receiver checking, argument-name matching, type checking, ownership checking, capability checking, effect checking, contract checking, and overload resolution.
+A method call resolves to exactly one method after receiver checking, argument binding, type checking, ownership checking, capability checking, effect checking, contract checking, and overload resolution.
 
 For overloaded methods, the receiver mode and explicitly supplied method arguments select the overload arm.
 
@@ -2273,7 +2295,7 @@ The selected implementation must participate in the checking context.
 
 View formation does not permit downcasting, runtime type tests, field access on the hidden concrete type, or calls outside the view surface.
 
-Method call arguments follow the same named-argument rules as function calls.
+Method call arguments follow the same argument-binding rules as function calls.
 
 A method call produces the method’s declared result.
 
@@ -2299,8 +2321,8 @@ A **static function call expression** calls a type-level function associated wit
 
 ```bray
 Point.origin()
-Buffer.from_bytes(bytes = bytes)
-math.sin(x = angle)
+Buffer.from_bytes(bytes)
+math.sin(angle)
 ```
 
 A static function call has no `self` receiver.
@@ -2318,26 +2340,28 @@ A static function call expression has a callee path and an argument list.
 
 The callee path must resolve to a static callable declaration or callable value.
 
-Arguments are always named.
+Static function parameters follow the same argument-binding rules as function parameters.
 
-Argument names cannot be omitted.
-
-```bray
-Buffer.from_bytes(bytes = bytes)
-math.sin(x = angle)
-```
-
-A static function call with unnamed arguments is rejected.
+An argument supplied in named form writes the parameter name explicitly.
 
 ```bray
+Buffer.from_bytes(bytes)
 math.sin(angle)
 ```
 
-Every supplied argument name must correspond to exactly one parameter in the static callable contract.
+A static function call with a positional argument for a non-`pos` parameter is rejected.
+
+```bray
+lookup(table)
+```
+
+Every supplied named argument must correspond to exactly one parameter in the static callable contract.
 
 Duplicate argument names are errors.
 
 Unknown argument names are errors.
+
+Every supplied positional argument must correspond to a `pos` parameter at the same position in the static callable contract.
 
 Missing parameters are errors unless those parameters have defaults.
 
@@ -2353,7 +2377,7 @@ A static function call can establish facts from the static function’s `ensures
 
 A static function call participates in overload resolution when the path resolves to an overload declaration.
 
-A static function call resolves to exactly one callable after path resolution, argument-name matching, type checking, ownership checking, capability checking, effect checking, contract checking, and overload resolution.
+A static function call resolves to exactly one callable after path resolution, argument binding, type checking, ownership checking, capability checking, effect checking, contract checking, and overload resolution.
 
 TODO: Define the general evaluation order for callee path resolution and argument expressions.
 
@@ -3179,9 +3203,9 @@ In that case, box construction stores `U` through `Storage<U>` and forms the res
 
 The contained value expression is the first runtime argument to the box construction expression.
 
-Additional runtime arguments are named.
+Additional runtime arguments follow the selected storage construction parameter declarations.
 
-Storage-policy argument names cannot be omitted.
+Storage-policy arguments can be positional only when the corresponding storage construction parameter is marked `pos`.
 
 ```bray
 let point: box[AllocatorStorage<MyAllocator>] Point =
@@ -3302,9 +3326,9 @@ box[Heap](value)
 
 The parentheses contain runtime construction arguments.
 
-Runtime arguments are named when the type-form construction behavior defines parameters.
+Runtime arguments follow the call surface defined by the type-form construction behavior.
 
-Argument names cannot be omitted for named runtime parameters.
+An argument supplied in named runtime-parameter form writes the runtime parameter name explicitly.
 
 A type-form construction expression can use expected type context.
 

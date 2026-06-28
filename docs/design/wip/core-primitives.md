@@ -1030,12 +1030,12 @@ A constructor named after the type is the primary constructor form. A constructo
 under the type.
 
 ```bray
-construct File(path: Path, mode: FileMode = FileMode.read) -> File
+construct File(pos path: Path, mode: FileMode = FileMode.read) -> File
 {
     ...
 }
 
-construct temp(directory: Path, prefix: String = "tmp") -> File
+construct temp(pos directory: Path, prefix: String = "tmp") -> File
 {
     ...
 }
