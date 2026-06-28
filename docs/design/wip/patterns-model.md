@@ -28,6 +28,8 @@ Type { ... }              // product pattern with explicit type
 { ... }                   // product pattern with expected type
 (pattern1, pattern2)      // tuple pattern
 [pattern1, pattern2]      // fixed-size array pattern
+none                      // nullable absent pattern
+?pattern                  // nullable present pattern
 box(pattern)              // owned-indirection pattern
 pattern1 | pattern2       // alternative pattern
 ```
@@ -297,6 +299,72 @@ Binding the remaining elements as a slice or subarray belongs to a later sequenc
 
 ---
 
+### Nullable patterns
+
+Nullable patterns match the nullable storage state of a subject with type `T?`.
+
+Absent pattern:
+
+```bray
+none
+```
+
+Present pattern:
+
+```bray
+?inner
+```
+
+The `none` pattern is valid only when the subject type is a concrete nullable type `T?`.
+
+It matches the absent state and introduces no binding.
+
+`none` is a built-in nullable pattern and does not introduce a binding named `none`.
+
+The `?inner` pattern is valid only when the subject type is a concrete nullable type `T?`.
+
+It matches the present state and applies `inner` to the contained `T`.
+
+`?inner` is a nullable pattern form, not a general pattern modifier.
+
+Bare binding patterns bind the whole nullable value.
+
+```bray
+value   // binds T?
+?value  // matches present state and binds contained T
+```
+
+Both `none` and `?inner` are refutable.
+
+A nullable pattern set is exhaustive when it covers the absent state and covers the present state for every possible contained `T` value.
+
+```bray
+case ?value
+{
+    ...
+}
+case none
+{
+    ...
+}
+```
+
+This is exhaustive because `value` is irrefutable for the contained `T`.
+
+An alternative pattern can cover both states only when the alternatives bind the same names.
+
+```bray
+?_ | none
+```
+
+The pattern operation mode determines whether the contained value is observed, borrowed, mutably borrowed, copied, or consumed.
+
+Successful matching of `?inner` refines the subject to present state in the matched region.
+
+Successful matching of `none` refines the subject to absent state in the matched region.
+
+---
+
 ### Box patterns
 
 A `box` pattern matches through owned indirection.
@@ -360,12 +428,16 @@ Examples of refutable patterns:
 true
 .Circle(radius, ..)
 .Empty
+none
+?value
 .Error | .Cancelled
 ```
 
 A variant pattern is refutable when the subject union has other variants.
 
 A literal pattern is refutable when the subject type has other possible values.
+
+The `none` pattern and `?inner` pattern are refutable because a nullable value can be absent or present.
 
 A pattern context declares whether it accepts refutable patterns.
 
@@ -496,6 +568,7 @@ literal equality,
 field availability,
 payload initialization,
 tuple or array shape,
+nullable present or absent state,
 narrowed control-flow state.
 ```
 
@@ -525,7 +598,7 @@ Guard syntax belongs to the match/control-flow model.
 
 Pattern matching is structural, deterministic, and effect-free.
 
-Pattern matching can inspect tags, fields, tuple elements, array elements, and type-form structure according to the subject type and operation mode.
+Pattern matching can inspect tags, fields, tuple elements, array elements, nullable state, and type-form structure according to the subject type and operation mode.
 
 Pattern matching can bind names, refine the fact context, and move/copy/borrow parts according to ownership rules.
 
@@ -550,6 +623,8 @@ Payload and product fields are matched by name.
 Field shorthand binds same-name fields.
 
 `..` explicitly accounts for remaining fields or elements.
+
+Nullable patterns match absent state with `none` and present state with `?pattern`.
 
 Pattern operation mode determines observe, borrow, mutable borrow, consume, or copy behavior.
 

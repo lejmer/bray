@@ -88,6 +88,9 @@ A block, module, or declaration body contains declarations, expressions, and dir
 Operations such as observation, borrowing, mutation, movement, copying, consumption, construction, and destruction occur through
 expressions whose required capabilities are available at that program point.
 
+A nullable propagation expression `expression?` evaluates a nullable expression, produces the contained value on the present path,
+and propagates `none` from the nearest nullable propagation boundary on the absent path.
+
 ---
 
 ## Patterns
@@ -98,7 +101,7 @@ flow into the matched region.
 Patterns form their own grammar category. They are checked against a subject type and interpreted by the construct that uses them.
 
 A pattern can introduce bindings, discard parts of a value, match literals, match union variants, decompose product values,
-decompose tuples, decompose fixed-size arrays, or match through type forms such as `box`.
+decompose tuples, decompose fixed-size arrays, match nullable state, or match through type forms such as `box`.
 
 ```bray
 _
@@ -111,6 +114,8 @@ true
 { x, y }
 (x, y)
 [first, second]
+none
+?inner
 box(inner)
 ```
 
@@ -149,6 +154,10 @@ some values of its subject type.
 Local destructuring and iteration patterns require irrefutable patterns.
 
 Union handling and match expressions can use refutable patterns and perform coverage checking according to the subject type.
+
+For nullable subjects, `none` matches absent state and `?pattern` matches present state before applying `pattern` to the contained value.
+
+Nullable patterns are the ordinary way to prove present state and bind the contained value.
 
 A pattern operation has a mode supplied by the construct using the pattern. The core modes are observe, shared borrow, mutable
 borrow, consume, and copy.
@@ -464,6 +473,8 @@ capability state, and fact context.
 A match expression can use refutable patterns.
 
 A match expression over a closed union performs coverage checking against the union’s closed variant set.
+
+A match expression over a nullable value performs coverage checking over absent state and present contained values.
 
 Guarded arms provide conditional coverage. A guarded arm contributes full coverage only when the compiler can prove that the
 guard always holds for the matched state.

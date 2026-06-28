@@ -3490,6 +3490,8 @@ A match expression can use refutable patterns.
 
 A match expression over a closed union performs coverage checking against the union’s closed variant set.
 
+A match expression over a nullable value performs coverage checking over absent state and present contained values.
+
 Guarded arms contribute full coverage when the compiler can prove the guard always holds for the matched state.
 
 Alternative patterns contribute coverage for each alternative.
@@ -3501,6 +3503,8 @@ A later arm whose pattern can never be selected is unreachable.
 A successful arm pattern refines the fact context for the guard and the arm body.
 
 For union variants, refinement includes the active variant and initialized payload fields.
+
+For nullable patterns, refinement includes present state for `?pattern` arms and absent state for `none` arms.
 
 The default match operation mode is observe.
 
@@ -3715,7 +3719,7 @@ let b: i64? = a as i64?;
 
 The absence expression is `none`.
 
-TODO: Define nullable handling syntax.
+Nullable propagation is defined by the nullable propagation expression.
 
 A built-in scalar conversion is valid with plain `as` only when it is total and value-preserving.
 
@@ -3851,7 +3855,7 @@ A successful pattern can refine the subject.
 
 A successful pattern can add facts to the fact context.
 
-Facts established by a pattern can include active union variant, literal equality, field availability, initialized payload fields, tuple shape, fixed array shape, and narrowed control-flow state.
+Facts established by a pattern can include active union variant, literal equality, field availability, initialized payload fields, tuple shape, fixed array shape, nullable present or absent state, and narrowed control-flow state.
 
 Pattern-introduced bindings are scoped to the region defined by the pattern-bearing expression.
 
@@ -3879,7 +3883,7 @@ A pattern-bearing expression can copy from its subject in copy mode when the rea
 
 Pattern matching is structural, deterministic, and effect-free.
 
-Pattern matching can inspect tags, fields, tuple elements, array elements, and type-form structure according to the subject type and operation mode.
+Pattern matching can inspect tags, fields, tuple elements, array elements, nullable state, and type-form structure according to the subject type and operation mode.
 
 Pattern matching can bind names, refine facts, and move, copy, borrow, or observe parts according to ownership rules.
 
@@ -4118,7 +4122,83 @@ If the access path holds a borrow, assigning `none` ends the borrow before the a
 
 The binding, field, parameter, or other declaration remains declared; only the nullable storage state changes.
 
-TODO: Define nullable handling syntax.
+Nullable patterns match nullable state in pattern-bearing expressions.
+
+```bray
+match count
+{
+    case ?value
+    {
+        yield value;
+    }
+    case none
+    {
+        yield 0;
+    }
+}
+```
+
+`none` matches absent state.
+
+`?pattern` matches present state and applies `pattern` to the contained `T`.
+
+`?pattern` is valid only when the subject type is `T?`.
+
+Bare binding patterns bind the whole nullable value.
+
+Nullable patterns are the ordinary unwrapping mechanism.
+
+There is no separate forced unwrap expression.
+
+A value of type `T?` can be unwrapped to `T` only by proving present state through a nullable pattern or by using nullable
+propagation.
+
+The nullable propagation expression is:
+
+```bray
+expression?
+```
+
+The operand expression must have type `T?`.
+
+The normal continuation of `expression?` has type `T`.
+
+If the operand is present, `expression?` evaluates to the contained `T`.
+
+If the operand is absent, `expression?` propagates `none` to the nearest enclosing nullable propagation boundary.
+
+A nullable propagation boundary is:
+
+- a callable execution scope whose result type is `R?`,
+- a single-yield region whose result type is `R?`.
+
+If no nullable propagation boundary is available, `expression?` is rejected.
+
+On the absent path, propagation supplies `none` to the target boundary and the current control-flow path has no normal continuation.
+
+For a callable execution scope, this has the same boundary behavior as returning `none`.
+
+For a single-yield region, this has the same boundary behavior as yielding `none` to that region.
+
+Nested callable execution scopes and nested yield-capable regions create their own propagation boundaries when their result type is
+nullable.
+
+The operand is evaluated exactly once.
+
+There is no implicit propagation through field access, method calls, function calls, indexing, or construction.
+
+```bray
+func full_name(user_id: UserId) -> String?
+{
+    let user = find_user(user_id)?;
+    let profile = user.profile?;
+    return profile.full_name;
+}
+```
+
+In type context, postfix `?` is the nullable type form.
+
+In expression context, postfix `?` is nullable propagation.
 
 ---
 
@@ -4341,7 +4421,6 @@ Specific expression forms also define these evaluation facts:
 - TODO: Define await surface syntax.
 - TODO: Define assertion syntax.
 - TODO: Define checked-conversion result shape.
-- TODO: Define nullable handling syntax.
 - TODO: Define closure and anonymous function syntax.
 - TODO: Define general generator expression syntax.
 - TODO: Define operator precedence and operator overloading syntax.

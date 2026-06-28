@@ -1654,7 +1654,21 @@ The absent state remains absent during nullable-to-nullable conversion.
 
 A present value is converted recursively.
 
-TODO: Define nullable unwrapping syntax, propagation syntax, and nullable patterns.
+Nullable values support two pattern forms:
+
+```bray
+none
+?pattern
+```
+
+`none` matches absent state.
+
+`?pattern` matches present state and applies `pattern` to the contained `T`.
+
+Nullable patterns are the ordinary way to prove present state and bind the contained `T`.
+
+The nullable propagation expression `expression?` evaluates a `T?` expression, produces `T` on the present path, and propagates
+`none` from the nearest nullable propagation boundary on the absent path.
 
 ### Owned-indirection type form
 
