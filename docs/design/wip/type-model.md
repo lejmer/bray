@@ -1575,21 +1575,101 @@ box[S] T
 
 `S` is the storage policy type.
 
-The storage policy type must satisfy the storage behavior required for storing `T`.
+For sized `T`, the storage policy type must satisfy `Storage<T>`.
 
-The storage policy is an ordinary type with compiler-recognized storage behavior.
+The storage policy is an ordinary type that satisfies the compiler-known `Storage<T>` trait for the stored type.
 
-TODO: Define the `Storage` trait and storage model.
+The `Storage<T>` trait is declared by the language substrate and interpreted by the `box` type form.
 
-A `box[S] T` value owns separately stored `T`.
+Implementing `Storage<T>` is ordinary trait implementation plus the trusted declarations required by the storage operations.
+
+The compiler does not infer storage behavior from matching member names.
+
+The compiler recognizes the trait identity of `Storage<T>` and the contracts of its required members.
+
+The core storage contract is:
+
+```bray
+trait Storage<T>
+{
+    trusted static func create(value: T) -> Self
+        uses(manual_alloc, raw_memory, unchecked_init);
+
+    static func borrow(storage: &Self) -> &T;
+
+    static func borrow_mut(storage: &mut Self) -> &mut T;
+
+    trusted static func destroy(storage: &mut Self)
+        uses(raw_memory, unchecked_init);
+
+    trusted static func release(storage: Self)
+        uses(manual_alloc);
+}
+```
+
+`Storage<T>.create` creates storage for a fully initialized `T` and moves `value` into that storage.
+
+`Storage<T>.borrow` projects a shared borrow of the stored `T`.
+
+`Storage<T>.borrow_mut` projects a mutable borrow of the stored `T`.
+
+`Storage<T>.destroy` destroys the stored `T` without releasing the storage object itself.
+
+`Storage<T>.release` releases the storage object after the stored value has been destroyed or otherwise removed according to the storage contract.
+
+`Storage<T>.create` requires `T` to be sized.
+
+The `box[S] T` type form can store an unsized subject only when the type-form rule defines how to store a sized concrete value behind that subject.
+
+For `box[S] view TraitApplication`, box construction stores a sized concrete value `U` using `Storage<U>`, then forms the view from the stored `U` and the selected `U(TraitApplication)` implementation witness.
+
+```bray
+let sink: box[Heap] view Sink = box[Heap](file_sink);
+```
+
+Here `file_sink` has a sized concrete type such as `FileSink`.
+
+The storage policy must satisfy `Storage<FileSink>`.
+
+The view type is `view Sink`.
+
+The resulting box owns the stored `FileSink` and carries the implementation witness for `FileSink(Sink)`.
+
+The default storage policy is `Heap`.
+
+A storage policy can require construction arguments.
+
+Those arguments are supplied to the box construction expression after the contained value argument.
+
+```bray
+let point: box[AllocatorStorage<MyAllocator>] Point =
+    box[AllocatorStorage<MyAllocator>](
+        { x = 1.0, y = 2.0, },
+        storage = storage,
+    );
+```
+
+Storage construction arguments are part of the storage policy's construction contract.
+
+They are not part of the `Storage<T>` type application.
+
+A `Storage<T>` implementation must preserve Bray ownership, borrowing, initialization, destruction, finalization, capability, effect, and trusted-obligation rules.
+
+Trusted storage members expose implementation power only inside their bodies.
+
+Calling `box(...)`, borrowing through a box, and destroying a box remain ordinary operations when the selected storage implementation satisfies its public contract.
+
+For sized `T`, a `box[S] T` value owns separately stored `T`.
+
+For `box[S] view TraitApplication`, the box owns the stored concrete value and exposes it through the trait-view subject.
 
 Moving a `box[S] T` moves ownership of the indirection value.
 
-Destroying a `box[S] T` destroys the contained `T` and releases storage according to the storage policy.
+Destroying a `box[S] T` destroys the stored value and releases storage according to the storage policy.
 
-Borrowing a `box[S] T` can project a borrow of the contained `T` when the storage policy and access path permit it.
+Borrowing a `box[S] T` can project a borrow of the contained or viewed value when the storage policy and access path permit it.
 
-Mutable borrowing a `box[S] T` can project mutable access to the contained `T` when the box access path, storage policy, and contained type permit it.
+Mutable borrowing a `box[S] T` can project mutable access to the contained or viewed value when the box access path, storage policy, and contained type permit it.
 
 The outer representation of `box[S] T` has statically known finite size independent of `T`.
 
@@ -1912,9 +1992,9 @@ trait Equatable
     func equals(other: &Self) -> bool;
 }
 
-internal trait Storage<T>
+internal trait ParserDiagnostics
 {
-    func borrow() -> &T;
+    func report_state() -> ParserState;
 }
 ```
 
@@ -2294,7 +2374,21 @@ An implementation member must satisfy the contract of the trait member it fulfil
 
 Rules for predicate expressions, fact contexts, trusted obligations, and contract clauses belong to the Contract and Trust Model.
 
-TODO: Define trusted implementation capability clauses on required trait members.
+A required trait member can be trusted.
+
+A trusted required trait member uses the `trusted` modifier and a `uses(...)` clause.
+
+The `uses(...)` clause on a required trait member declares the trusted implementation capability envelope for that member.
+
+An implementation member that fulfills a trusted required trait member must also be trusted.
+
+The implementation member's `uses(...)` clause must be a subset of the required member's capability envelope.
+
+The implementation member's `uses(...)` clause must still exactly match the trusted capabilities used by that implementation body.
+
+A trusted required trait member does not by itself impose a trusted caller obligation.
+
+Trusted caller obligations must be declared with `trusted` requirements in `requires(...)` or another caller-visible contract clause.
 
 TODO: Define effect annotation syntax beyond currently defined contract clauses.
 
@@ -2374,9 +2468,9 @@ impl Point(Comparable<Point>)
 For a generic implementing type:
 
 ```bray
-impl BufferStorage = Buffer<T>(Storage<T>)
+impl BufferEquatable = Buffer<T>(Equatable)
 {
-    func borrow() -> &T
+    func equals(other: &Self) -> bool
     {
         ...
     }

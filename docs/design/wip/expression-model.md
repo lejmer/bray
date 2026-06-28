@@ -3161,15 +3161,21 @@ box[S] T
 
 `box[S] T` uses storage policy type `S`.
 
-The storage policy type must satisfy the storage behavior required by `box[S] T`.
+For sized `T`, the storage policy type must satisfy `Storage<T>`.
+
+For `box[S] view TraitApplication`, the storage policy type must satisfy `Storage<U>` for the sized concrete source type `U` used to form the view.
 
 A `box[S](value, ...)` expression constructs a `box[S] T` from a contained value of type `T`.
+
+When the expected box type is `box[S] view TraitApplication`, the contained value expression can have a sized concrete type `U` that satisfies the exact trait application.
+
+In that case, box construction stores `U` through `Storage<U>` and forms the resulting box view with the selected `U(TraitApplication)` implementation witness.
 
 The contained value expression is the first runtime argument to the box construction expression.
 
 Additional runtime arguments are named.
 
-Argument names cannot be omitted.
+Storage-policy argument names cannot be omitted.
 
 ```bray
 let point: box[AllocatorStorage<MyAllocator>] Point =
@@ -3201,6 +3207,8 @@ When no expected box type is available and an explicit storage policy is supplie
 
 The contained value expression is checked against the expected contained type when one is available.
 
+When the expected contained type is a trait view, the contained value expression is checked as a view-formation source rather than as a value whose type is exactly the view type.
+
 The expected contained type can guide literal typing, union variant shorthand, struct construction shorthand, tuple element typing, array element typing, conversion checking, and nested expression checking.
 
 The storage policy runtime arguments are checked against the storage construction behavior required by the selected storage policy type.
@@ -3217,15 +3225,17 @@ Box construction evaluates the contained value expression and initializes indire
 
 The contained value is moved into the box storage unless the value is copied according to its type’s copy contract or another explicit rule applies.
 
-The resulting `box[S] T` owns the indirect storage and the contained `T`.
+For sized `T`, the resulting `box[S] T` owns the indirect storage and the contained `T`.
+
+For `box[S] view TraitApplication`, the resulting box owns the stored concrete `U` and exposes it through `view TraitApplication`.
 
 Moving a `box[S] T` moves ownership of the indirection value.
 
-Destroying a `box[S] T` destroys the contained `T` and releases storage according to the storage policy.
+Destroying a `box[S] T` destroys the stored value and releases storage according to the storage policy.
 
-Borrowing a `box[S] T` can project borrows of the contained `T` according to the box type form and storage behavior.
+Borrowing a `box[S] T` can project borrows of the contained or viewed value according to the box type form and storage behavior.
 
-A mutable borrow of a `box[S] T` can project mutable access to the contained `T` when the box access path, storage policy, and contained type permit it.
+A mutable borrow of a `box[S] T` can project mutable access to the contained or viewed value when the box access path, storage policy, and contained type permit it.
 
 A box construction expression is fully initialized when the storage state has been created, the contained value has been initialized in the storage, and the `box[S] T` value has been formed.
 
@@ -3243,7 +3253,7 @@ Trusted capabilities used by storage construction behavior must be permitted by 
 
 A box construction expression can establish facts in the fact context.
 
-Facts can include the produced box type, storage policy type, contained type, full initialization of the box value, initialization of the contained value, and facts established by the contained value expression or storage construction behavior.
+Facts can include the produced box type, storage policy type, contained or viewed type, stored concrete type when it remains visible to the checking context, full initialization of the box value, initialization of the stored value, and facts established by the contained value expression or storage construction behavior.
 
 Mutation, movement, consumption, destruction, reinitialization, finalization, or capability loss can invalidate facts about the box value, storage state, or contained value.
 
