@@ -2,12 +2,13 @@
 
 ## Overview
 
-Bray separates four related concepts:
+Bray separates five related concepts:
 
 1. **Trusted implementation capability:** authority used inside a trusted declaration body.
 2. **Ordinary contract requirement:** a checkable condition expressed in Bray's contract expression language.
-3. **Trusted obligation:** an externally trusted fact that Bray cannot prove through ordinary semantics.
-4. **Predicate:** a named contract-level relation used in requirements, guarantees, and trusted obligations.
+3. **Static constraint:** a compile-time fact expressed in Bray's predicate expression language.
+4. **Trusted obligation:** an externally trusted fact that Bray cannot prove through ordinary semantics.
+5. **Predicate:** a named contract-level relation used in requirements, guarantees, constraints, and trusted obligations.
 
 Trusted implementation power and trusted caller obligations are independent. A function can use trusted implementation capabilities
 internally while exposing an ordinary safe API. A function exposes trusted caller obligations only when its public contract says so.
@@ -164,7 +165,7 @@ requires(
 )
 ```
 
-The same rule applies to `ensures(...)` and `uses(...)`.
+The same rule applies to `ensures(...)`, `with(...)`, and `uses(...)`.
 
 ```bray
 ensures(
@@ -195,6 +196,8 @@ requires(
 A `requires(...)` clause lists facts that must hold before the declaration body executes.
 
 An `ensures(...)` clause lists facts established after the declaration completes normally.
+
+A `with(...)` clause lists static constraint facts required by a generic declaration.
 
 A `uses(...)` clause lists trusted implementation capabilities used by the declaration body.
 
@@ -283,7 +286,7 @@ and invalidation rules.
 
 A predicate is a contract-level relation. It is not an ordinary runtime function.
 
-Predicates are used in contract clauses, predicate bodies, and trusted obligations.
+Predicates are used in contract clauses, constraint clauses, predicate bodies, and trusted obligations.
 
 An ordinary predicate has a body:
 
@@ -339,7 +342,7 @@ These are not keywords. They are declared predicates accessed through normal Bra
 
 ## Predicate expressions
 
-Predicate expressions are contract expressions.
+Predicate expressions are contract-level expressions.
 
 They are parsed and checked in predicate-expression context. The parser may reuse ordinary expression grammar, but binding and
 checking apply predicate-expression restrictions.
@@ -347,6 +350,17 @@ checking apply predicate-expression restrictions.
 Predicate expressions are not ordinary runtime Bray expressions.
 
 A predicate expression must be pure, deterministic, total, terminating, and observational.
+
+Predicate expressions are checked in one of these predicate contexts:
+
+- **value predicate context:** for value predicate bodies, `requires(...)`, `ensures(...)`, and trusted obligations.
+- **static constraint context:** for `with(...)` clauses on generic declarations and static predicate bodies.
+
+Both contexts use the same purity and determinism rules.
+
+Each context decides which names, entities, and built-in predicate forms are available.
+
+A predicate declaration is checked in the predicate context required by its parameters, body, and declared use.
 
 Allowed in predicate expressions:
 
@@ -407,6 +421,101 @@ Valid:
 predicate valid(length: usize, capacity: usize) =
     length <= capacity;
 ```
+
+---
+
+## Static constraint predicate expressions
+
+A `with(...)` clause is a comma-separated list of static predicate expressions.
+
+```bray
+func first_token<I>(iter: I) -> Token?
+    with(
+        I: Iterator,
+        I(Iterator).Element == Token,
+    )
+{
+    ...
+}
+```
+
+Static predicate expressions are checked in static constraint context.
+
+They are compile-time facts.
+
+They do not read runtime storage, execute runtime code, allocate, mutate, move, borrow, perform I/O, dispatch dynamically, or establish trusted runtime facts.
+
+Allowed in static predicate expressions:
+
+- references to generic parameters,
+- type expressions,
+- trait applications,
+- type-valued member references,
+- compile-time constants and constant generic values,
+- capability, effect, lifetime, and execution-mode entities,
+- boolean operators,
+- equality and comparison operators whose operands are valid in static constraint context,
+- calls to predicates and contract functions that are valid in static constraint context.
+
+A predicate or contract function is valid in static constraint context only when its parameters, body, and referenced declarations are valid in static constraint context.
+
+Calling a value predicate from static constraint context is rejected.
+
+Built-in static predicate forms include trait satisfaction:
+
+```bray
+T: Comparable<T>
+I: Iterator
+```
+
+Built-in static predicate forms include type equality:
+
+```bray
+I(Iterator).Element == Token
+A(Iterator).Element == B(Iterator).Element
+```
+
+Type equality is a compile-time fact.
+
+It does not introduce a type alias or alternate type name.
+
+Constraint facts are unordered.
+
+These two clauses have the same meaning:
+
+```bray
+with(
+    I: Iterator,
+    I(Iterator).Element == Token,
+)
+
+with(
+    I(Iterator).Element == Token,
+    I: Iterator,
+)
+```
+
+A type-valued member reference in static constraint context is valid only when the exact trait application is established by the same constraint set or by an enclosing constraint context.
+
+This is rejected because the selected `Iterator` application is not established:
+
+```bray
+func first_token<I>(iter: I) -> Token?
+    with(
+        I(Iterator).Element == Token,
+    )
+{
+    ...
+}
+```
+
+Type equality does not select an implementation, create a trait satisfaction fact, or choose an arm from an implementation overload family.
+
+Result type and expected type do not infer missing static constraints.
+
+Static constraint facts become available while checking the constrained declaration body, its signature, and its contract clauses.
+
+They do not become runtime facts unless a separate value predicate or contract clause establishes a runtime fact.
 
 ---
 

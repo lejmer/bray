@@ -730,6 +730,10 @@ TODO: Define generic function syntax.
 
 A generic function body is checked against its declared constraints.
 
+Generic function constraints are written with `with(...)` clauses.
+
+`with(...)` clauses contain static predicate expressions.
+
 Generic code can use the operations, ownership behavior, effects, capabilities, and contracts guaranteed by its constraints.
 
 Generic instantiation must satisfy the generic function’s full callable contract.

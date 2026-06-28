@@ -1523,9 +1523,19 @@ buffer.clear()
 point.distance_to(other = p)
 ```
 
-Method resolution uses the receiver type, receiver capability, inherent implementations, trait implementations, visible declarations, and constraints.
+Method resolution uses the receiver type, receiver capability, inherent implementations, trait implementations, visible declarations, constraints, and overload rules.
 
 The method receiver is supplied by the left-hand expression.
+
+The method receiver can be qualified by an exact trait application to select a trait implementation before method lookup.
+
+```bray
+buffer(Iterator<Bytes>).next()
+```
+
+This is a trait-qualified receiver expression.
+
+It is not a runtime call, cast, conversion, or wrapper construction.
 
 The method receiver mode is declared by the method kind.
 
@@ -2227,6 +2237,14 @@ A method call resolves through the receiver type, receiver capability, inherent 
 A method call resolves to exactly one method after receiver checking, argument-name matching, type checking, ownership checking, capability checking, effect checking, contract checking, and overload resolution.
 
 For overloaded methods, the receiver mode and explicitly supplied method arguments select the overload arm.
+
+For method calls through a trait implementation overload family, receiver mode, receiver compatibility, member name, and explicitly supplied method arguments select the implementation arm.
+
+Result type, expected type, and type-valued member outputs do not select an implementation arm.
+
+If more than one implementation arm remains possible, the method call is rejected as ambiguous.
+
+If the receiver is trait-qualified, the exact trait application is selected before member lookup.
 
 Method call arguments follow the same named-argument rules as function calls.
 
@@ -3756,9 +3774,9 @@ TODO: Define the complete guard syntax and rules for match and control-flow form
 
 ## Predicate expressions
 
-A **predicate expression** is a restricted contract expression checked in predicate-expression context.
+A **predicate expression** is a restricted contract-level expression checked in predicate-expression context.
 
-Predicate expressions are used in predicate bodies, `requires(...)` clauses, `ensures(...)` clauses, and other contract-level positions.
+Predicate expressions are used in predicate bodies, `requires(...)` clauses, `ensures(...)` clauses, `with(...)` clauses, and other contract-level positions.
 
 ```bray
 predicate fits(length: usize, capacity: usize) =
@@ -3768,6 +3786,8 @@ predicate fits(length: usize, capacity: usize) =
 A predicate expression is pure, deterministic, total, terminating, and observational.
 
 Predicate expressions form their own checking context.
+
+The Contract and Trust Model defines value predicate context and static constraint context.
 
 The parser can reuse ordinary expression grammar pieces, but binding and checking apply predicate-expression restrictions.
 
@@ -3864,13 +3884,17 @@ requires(
 
 Ordinary predicate expressions and trusted predicate calls are distinct contract requirements.
 
-Predicate expressions can establish facts when used in `ensures(...)`.
+Predicate expressions can establish value facts when used in `ensures(...)`.
 
-Predicate expressions can require facts when used in `requires(...)`.
+Predicate expressions can require value facts when used in `requires(...)`.
 
-Facts introduced by predicate expressions are tied to the values, storage identities, lifetimes, capabilities, and versions mentioned by the expression.
+Predicate expressions can require static constraint facts when used in `with(...)`.
+
+Value facts introduced by predicate expressions are tied to the values, storage identities, lifetimes, capabilities, and versions mentioned by the expression.
 
 Mutation, movement, consumption, destruction, reinitialization, finalization, or capability loss can invalidate facts that depend on the affected state.
+
+Static constraint facts are compile-time facts scoped to the constrained declaration and its generic checking context.
 
 Runtime assertions generated from predicate expressions must preserve predicate-expression semantics.
 

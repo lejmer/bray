@@ -1998,6 +1998,15 @@ Buffer(JsonEncode<Compact>).Output
 Buffer(JsonEncode<Pretty>).Output
 ```
 
+The trait application in a qualified type-valued member reference must be exact.
+
+An implementation overload family header is not an exact trait application reference when it names several applications.
+
+```bray
+Buffer(Iterator<Bytes>).Element
+Buffer(Iterator<Lines>).Element
+```
+
 The trait application is required outside the declaring trait and its implementation.
 
 ```bray
@@ -2190,7 +2199,9 @@ An inherent implementation adds behavior associated with the type.
 
 An inherent implementation does not add fields to the type’s primary representation.
 
-A trait implementation is written as `impl Type(TraitApplication)`.
+A trait implementation can be unnamed or named.
+
+An unnamed trait implementation is written as `impl Type(TraitApplication)`.
 
 ```bray
 impl Point(Equatable)
@@ -2201,6 +2212,26 @@ impl Point(Equatable)
     }
 }
 ```
+
+A named trait implementation is written as `impl ImplementationName = Type(TraitApplication)`.
+
+```bray
+impl PointEquatable = Point(Equatable)
+{
+    func equals(other: &Self) -> bool
+    {
+        ...
+    }
+}
+```
+
+`ImplementationName` is the implementation identity.
+
+It is not a type, a type alias, or a wrapper around the subject type.
+
+The subject type before the parentheses determines `Self`, the receiver type, and the storage being implemented for.
+
+The trait application inside the parentheses determines the contract being fulfilled.
 
 For a generic trait application:
 
@@ -2230,7 +2261,7 @@ A trait implementation makes the implementing type satisfy the specified trait a
 
 Trait satisfaction is explicit.
 
-A type satisfies a trait application through an `impl Type(TraitApplication)` declaration.
+A type satisfies a trait application through an accepted visible implementation declaration for that exact subject type and trait application.
 
 Matching member names and signatures alone gives no trait satisfaction.
 
@@ -2352,7 +2383,7 @@ impl Point(Comparable<Point>)
 }
 ```
 
-A generic implementation can satisfy a family of trait applications.
+A generic implementation can satisfy a parameterized set of trait applications.
 
 ```bray
 impl Box<T>(Comparable<Box<T>>)
@@ -2364,7 +2395,7 @@ impl Box<T>(Comparable<Box<T>>)
 }
 ```
 
-TODO: Define generic parameter syntax, generic constraints, and generic implementation checking for implementations.
+TODO: Define generic parameter syntax and generic implementation checking for implementations.
 
 Trait generic parameters are inputs to the trait application.
 
@@ -2394,11 +2425,124 @@ trait Iterator
 }
 ```
 
+### Trait implementation overload families
+
+Multiple applications of the same generic trait for the same subject type are an implementation overload family.
+
+Implementation overload families are explicit.
+
+Different trait applications do not automatically form an implementation overload family.
+
+When a subject type needs multiple applications of the same generic trait, each application is declared as a named implementation, and an overload declaration groups those implementation names under the shared subject and trait surface.
+
+```bray
+impl BufferBytesIterator = Buffer(Iterator<Bytes>)
+{
+    type Element = u8;
+
+    mut func next() -> Element?
+    {
+        ...
+    }
+}
+
+impl BufferLinesIterator = Buffer(Iterator<Lines>)
+{
+    type Element = Line;
+
+    mut func next() -> Element?
+    {
+        ...
+    }
+}
+
+overload Buffer(Iterator) =
+{
+    BufferBytesIterator,
+    BufferLinesIterator,
+}
+```
+
+The overload declaration has this form:
+
+```bray
+overload SubjectType(TraitName) =
+{
+    ImplementationName,
+}
+```
+
+`SubjectType` is the shared subject type.
+
+`TraitName` is the trait declaration whose applications are being grouped.
+
+`ImplementationName` names a previously declared named trait implementation.
+
+Each listed implementation must implement the same subject type and an application of the named trait declaration.
+
+The overload declaration does not implement the trait.
+
+It maps existing implementation identities to a shared subject and trait surface.
+
+The overload name is the shared surface.
+
+Each overload arm keeps its own implementation name.
+
+Unnamed trait implementations cannot be listed in an implementation overload family.
+
+Generic trait arguments are part of the exact trait application.
+
+Therefore, these are different implementation keys and can coexist when grouped:
+
+```bray
+impl BufferBytesIterator = Buffer(Iterator<Bytes>)
+impl BufferLinesIterator = Buffer(Iterator<Lines>)
+```
+
+The same exact implementation key cannot appear more than once:
+
+```bray
+impl BufferBytesIterator = Buffer(Iterator<Bytes>)
+impl BufferOtherBytesIterator = Buffer(Iterator<Bytes>) // invalid
+```
+
+If more than one visible implementation for the same subject type and generic trait declaration exists in a coherence domain, those implementations must be named and must be grouped by an implementation overload declaration.
+
+A non-overloaded trait implementation can use the unnamed `impl Type(TraitApplication)` form.
+
+Method resolution through an implementation overload family follows overload resolution principles.
+
+Receiver mode, receiver compatibility, member name, and explicitly supplied method arguments can select an overload arm.
+
+Result type, expected type, and type-valued member outputs do not select an overload arm.
+
+If no arm matches, the call is rejected.
+
+If more than one arm matches, the call is rejected as ambiguous.
+
+An exact trait application can be selected explicitly with a trait-qualified receiver expression:
+
+```bray
+buffer(Iterator<Bytes>).next()
+```
+
+This selects the `Iterator<Bytes>` implementation for the receiver before method lookup.
+
+Trait-qualified receiver expression rules belong to the Expression Model.
+
 ### Trait use in constraints
 
 Traits participate in generic constraints.
 
-A constraint can require that a type satisfy a trait application.
+Generic constraints are written with a `with(...)` clause.
+
+A `with(...)` clause is a static predicate-expression context.
+
+Its entries are comma-separated static predicate expressions.
+
+Static predicate expression rules belong to the Contract and Trust Model.
+
+A static predicate expression can require that a type satisfy a trait application:
 
 ```bray
 func max<T>(left: T, right: T) -> T
@@ -2408,7 +2552,76 @@ func max<T>(left: T, right: T) -> T
 }
 ```
 
-TODO: Define constraint syntax and checking for trait requirements.
+The trait application in a trait satisfaction constraint must be exact.
+
+```bray
+with(T: Comparable<T>)
+```
+
+If the trait declaration is generic, the constraint must supply the generic arguments required by that trait application.
+
+If the trait declaration is not generic, the trait name alone is the exact trait application.
+
+```bray
+with(I: Iterator)
+```
+
+Static predicate expressions can also state type equality.
+
+```bray
+func first_token<I>(iter: I) -> Token?
+    with(
+        I: Iterator,
+        I(Iterator).Element == Token,
+    )
+{
+    return iter.next();
+}
+```
+
+Type equality can relate type-valued members from different constrained types:
+
+```bray
+func zip_same<A, B>(left: A, right: B)
+    with(
+        A: Iterator,
+        B: Iterator,
+        A(Iterator).Element == B(Iterator).Element,
+    )
+{
+    ...
+}
+```
+
+Constraint facts are unordered.
+
+The type-valued member equality can appear before or after the trait satisfaction constraint that makes the qualified reference valid.
+
+The same constraint set must establish the exact trait application for the type-valued member reference to be accepted.
+
+This is rejected:
+
+```bray
+func first_token<I>(iter: I) -> Token?
+    with(
+        I(Iterator).Element == Token,
+    )
+{
+    ...
+}
+```
+
+The equality mentions `I(Iterator).Element`, but the constraint set does not establish `I: Iterator`.
+
+Type equality does not introduce a type alias.
+
+Type equality does not select a trait implementation.
+
+Type equality does not choose an arm from an implementation overload family.
+
+Result type and expected type do not infer missing trait satisfaction constraints.
+
+A generic body can use only operations, type-valued members, constants, effects, capabilities, and facts established by its static constraints and by surrounding declaration context.
 
 ### Trait method resolution
 
@@ -2436,6 +2649,14 @@ A method call resolves to exactly one callable.
 
 Ambiguous method calls are rejected.
 
+When method resolution sees an implementation overload family, resolution uses the same overload principles as callable overloads.
+
+The receiver mode, receiver compatibility, member name, and explicitly supplied method arguments may select one arm.
+
+Result type, expected type, and type-valued member outputs do not select an arm.
+
+A trait-qualified receiver expression can select an exact trait application before member lookup.
+
 Detailed method-call expression rules belong to the Expression Model.
 
 ### Static function resolution
@@ -2456,11 +2677,37 @@ Detailed static function call expression rules belong to the Expression Model.
 
 ### Trait coherence
 
-For a given implementing type and trait application, Bray requires a single visible implementation within the relevant coherence domain.
+For a given coherence domain, the exact coherence key for a trait implementation is:
+
+```text
+(ImplementingType, TraitApplication)
+```
+
+For each exact coherence key, Bray requires at most one visible implementation.
+
+Generic arguments are part of the trait application.
+
+Therefore these implementations have different exact coherence keys:
+
+```bray
+impl BufferBytesIterator = Buffer(Iterator<Bytes>)
+impl BufferLinesIterator = Buffer(Iterator<Lines>)
+```
+
+These implementations have the same exact coherence key and are rejected:
+
+```bray
+impl BufferBytesIterator = Buffer(Iterator<Bytes>)
+impl BufferOtherBytesIterator = Buffer(Iterator<Bytes>)
+```
+
+An implementation overload family groups multiple exact coherence keys that share an implementing type and trait declaration.
+
+It does not allow duplicate exact coherence keys.
 
 This keeps method resolution, generic checking, and public API compatibility deterministic.
 
-TODO: Define coherence domains for trait implementations.
+TODO: Define coherence domain boundaries for trait implementations.
 
 ### Trait objects and dynamic dispatch
 
@@ -2500,6 +2747,8 @@ Changing trait visibility is a public API change.
 
 Changing implementation visibility or reachability can be a public API change when it affects method resolution or generic satisfaction.
 
+Changing implementation overload family membership can be a public API change when it affects trait satisfaction, method resolution, type-valued member selection, or generic satisfaction.
+
 ### Trait TODOs
 
 TODO: Define constants in traits.
@@ -2507,8 +2756,6 @@ TODO: Define constants in traits.
 TODO: Define predicates in traits.
 
 TODO: Define lifecycle declarations in traits.
-
-TODO: Define generic constraints.
 
 TODO: Define coherence domains.
 

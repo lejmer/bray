@@ -31,8 +31,8 @@
 
 7. **No invisible polymorphism.**
 
-   Polymorphic behavior are declared intentionally. Overload sets, trait implementations, implicit conversions, generic constraints, dynamic dispatch,
-   and type-directed behavior do not appear accidentally. Implicit casting is only allowed for literals.
+   Polymorphic behavior is declared intentionally. Overload sets, implementation overload families, trait implementations, implicit conversions,
+   generic constraints, dynamic dispatch, and type-directed behavior do not appear accidentally. Implicit casting is only allowed for literals.
 
 8. **Abstraction is behavioral.**
 

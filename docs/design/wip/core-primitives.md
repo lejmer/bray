@@ -521,8 +521,8 @@ generic parameters.
 A type declaration introduces the type's own name. Bray does not support type aliases; a name that denotes a type denotes a
 declared type, not an alternate name for another type.
 
-A **generic parameter** is part of a declaration's contract. Its constraints define which operations, ownership behavior,
-capabilities, effects, and behavioral contracts the generic declaration relies on.
+A **generic parameter** is part of a declaration's contract. Its constraints are static predicate expressions that define which
+operations, ownership behavior, capabilities, effects, and behavioral contracts the generic declaration relies on.
 
 Generic code is checked against its declared constraints. A generic body uses only the behavior guaranteed by those constraints.
 
@@ -624,6 +624,10 @@ A **constraint** is a compile-time requirement attached to a generic parameter, 
 Constraints describe what the compiler knows about an otherwise generic entity. They define the operations, behavioral contracts,
 ownership behavior, copy behavior, destruction behavior, capability requirements, effects, execution mode, and finalization
 obligations that generic code can rely on.
+
+Constraints are written as static predicate expressions.
+
+Static predicate expressions use the predicate expression model in static constraint context.
 
 A generic body is checked against its declared constraints. The body can use only behavior guaranteed by those constraints.
 
@@ -910,7 +914,7 @@ Imports resolve through the declared workspace, package, module, and dependency 
 
 An import does not execute code, initialize a module, or change runtime behavior by itself.
 
-An import does not silently extend overload sets, operators, conversions, behavioral contracts, or other polymorphic
+An import does not silently extend overload sets, implementation overload families, operators, conversions, behavioral contracts, or other polymorphic
 behavior. Imported behavior participates in the program only through explicit imported declarations and Bray's deterministic
 lookup rules.
 
