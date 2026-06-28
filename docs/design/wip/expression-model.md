@@ -3445,8 +3445,6 @@ break;
 
 `break` targets the nearest compatible loop or iteration region.
 
-TODO: Define named break targets.
-
 TODO: Define loop-expression syntax for `break`.
 
 ---
@@ -3460,8 +3458,6 @@ continue;
 ```
 
 `continue` targets the nearest compatible loop or iteration region.
-
-TODO: Define named continue targets.
 
 TODO: Define loop-expression syntax for `continue`.
 
