@@ -560,6 +560,8 @@ The core built-in type categories are:
   movement, copying, initialization, and destruction are derived from its elements.
 - **arrays:** a fixed-size ordered sequence type. An array's element type and length are part of its type. Array ownership,
   borrowing, movement, copying, initialization, and destruction are derived from its elements.
+- **trait views:** unsized types that expose a value through a specific trait application while hiding the concrete implementing
+  type.
 
 Conversions are explicit operations, except for literals whose value is valid for the target type. Non-literal values do not
 implicitly cast, widen, narrow, reinterpret, allocate, borrow, clone, move, or dispatch through conversion-like behavior.
@@ -676,6 +678,7 @@ Examples:
 ```bray
 &T
 &mut T
+view TraitApplication
 box T
 box[Heap] T
 T?
@@ -686,11 +689,12 @@ func(T1, T2) -> R
 
 ### Prefix type forms
 
-A **prefix type form** appears before its subject type.
+A **prefix type form** appears before its subject type or subject entity.
 
 ```bray
 &T
 &mut T
+view TraitApplication
 box T
 box[Heap] T
 ```
@@ -698,6 +702,10 @@ box[Heap] T
 `&T` is the shared-borrow type form.
 
 `&mut T` is the mutable-borrow type form.
+
+`view TraitApplication` is the trait-view type form.
+
+The `view` type form uses a trait application as its subject entity.
 
 `box T` is the default owned-indirection type form.
 
@@ -788,6 +796,14 @@ In:
 ```
 
 `Buffer` is the subject type.
+
+The `view` type form has a trait application subject rather than a subject type.
+
+```bray
+view Sink
+```
+
+`Sink` is the trait application subject.
 
 ### Composition
 

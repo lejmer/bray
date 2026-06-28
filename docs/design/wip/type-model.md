@@ -78,6 +78,7 @@ The currently defined categories include:
 - fixed-size array types,
 - optional types,
 - borrow types,
+- trait-view types,
 - owned-indirection types,
 - callable types.
 
@@ -94,6 +95,8 @@ Fixed-size array types are fixed-size ordered homogeneous product types.
 Optional types are produced by the postfix optional type form `T?`.
 
 Borrow types are produced by `&T` and `&mut T`.
+
+Trait-view types are produced by the `view` type form.
 
 Owned-indirection types are produced by the `box` type form.
 
@@ -1297,6 +1300,7 @@ Examples:
 ```bray
 &T
 &mut T
+view TraitApplication
 box T
 box[Heap] T
 T?
@@ -1332,6 +1336,14 @@ In:
 ```
 
 `Buffer` is the subject type.
+
+The `view` type form has a trait application subject rather than a subject type.
+
+```bray
+view Sink
+```
+
+`Sink` is the trait application subject.
 
 Some type forms have one subject type.
 
@@ -1373,11 +1385,12 @@ Each type form defines its permitted argument kinds.
 
 ### Prefix type forms
 
-A **prefix type form** appears before its subject type.
+A **prefix type form** appears before its subject type or subject entity.
 
 ```bray
 &T
 &mut T
+view TraitApplication
 box T
 box[Heap] T
 ```
@@ -1385,6 +1398,10 @@ box[Heap] T
 `&T` is the shared-borrow type form.
 
 `&mut T` is the mutable-borrow type form.
+
+`view TraitApplication` is the trait-view type form.
+
+The `view` type form uses a trait application as its subject entity.
 
 `box T` is the default-storage owned-indirection type form.
 
@@ -1457,6 +1474,7 @@ Type forms compose recursively.
 box[Heap] List<i32>
 box[Heap] Point?
 &mut box[Heap] Node
+box[Heap] view Sink
 [box[Heap] Node; 4]
 func(buffer: &Buffer, index: usize) -> u8
 ```
@@ -1584,6 +1602,114 @@ let node: box List<i32> = box(.Empty);
 ```
 
 Detailed box construction rules belong to the Expression Model.
+
+### Trait-view type form
+
+The trait-view type form is:
+
+```bray
+view TraitApplication
+```
+
+`TraitApplication` must be an exact trait application.
+
+If the trait declaration is generic, the view type must supply the generic arguments required by the trait application.
+
+```bray
+view Sink
+view Encoder<Json>
+```
+
+A trait view exposes a hidden concrete value through the callable and contract surface of one trait application.
+
+The concrete implementing type is not part of the visible static type.
+
+A trait view carries the implementation witness needed to dispatch calls through the selected trait implementation.
+
+The runtime representation of a trait view is compiler-defined.
+
+It must preserve the view's ownership, borrowing, lifetime, destruction, finalization, capability, effect, and contract semantics.
+
+`view TraitApplication` is unsized.
+
+It is not a storable value type by itself.
+
+It must appear behind a type form that defines storage or access for an unsized subject.
+
+The defined forms are:
+
+```bray
+&view TraitApplication
+&mut view TraitApplication
+box[S] view TraitApplication
+```
+
+This is rejected:
+
+```bray
+let sink: view Sink = file_sink;
+
+struct Logger
+{
+    sink: view Sink;
+}
+```
+
+This is valid:
+
+```bray
+struct Logger
+{
+    sinks: [box[Heap] view Sink; 4];
+}
+```
+
+A trait view is not a dynamic type.
+
+It does not permit runtime type tests, downcasting, field access on the hidden concrete type, or calls outside the selected trait view surface.
+
+The only behavior available through a view is behavior declared by the exact trait application and accepted by the view-surface rules.
+
+A concrete value can form a view only when its type satisfies the exact trait application through a participating implementation.
+
+If no participating implementation satisfies the exact trait application, view formation is rejected.
+
+If more than one participating implementation could satisfy the exact trait application, view formation is rejected by coherence rules before the view is formed.
+
+Static functions in a trait are not part of a value view surface.
+
+A callable trait member is part of a view surface only when its signature, contracts, effects, capabilities, and obligations can be checked without naming the hidden concrete type.
+
+A callable trait member that mentions `Self` outside the receiver is not part of a view surface.
+
+A callable trait member with its own generic parameters is not part of a view surface.
+
+A callable trait member that exposes an unfixed type-valued member is not part of a view surface.
+
+A trait with type-valued members can still be used statically through generic constraints and exact trait applications.
+
+When runtime dispatch must expose a related type through a view, that related type must be modeled as an input to the trait application rather than as a type-valued member output.
+
+For example:
+
+```bray
+trait Stream<Item>
+{
+    mut func next() -> Item?;
+}
+
+let stream: &mut view Stream<Token> = &mut token_stream;
+```
+
+A shared borrowed view permits shared receiver methods.
+
+A mutable borrowed view permits shared and mutable receiver methods.
+
+An owned boxed view permits shared, mutable, and consuming receiver methods according to the box access path, ownership state, and receiver mode.
+
+Consuming a boxed view consumes the owning box value.
+
+The hidden concrete value is destroyed and finalized according to the selected implementation, the concrete type, and the storage policy.
 
 ### Fixed-size array type form
 
@@ -1936,7 +2062,7 @@ Type-valued members do not create runtime type identity.
 
 Type-valued members do not permit downcasting, runtime type tests, or dynamic type mutation.
 
-Dynamic dispatch through a trait cannot erase selected type-valued members that are visible through that dispatch surface.
+Dynamic dispatch through a trait view is rejected when it would hide selected type-valued members that are visible through that dispatch surface.
 
 Type-valued members cannot have their own generic parameters.
 
@@ -2858,9 +2984,62 @@ Overlapping generic implementations are rejected.
 
 This keeps method resolution, generic checking, and public API compatibility deterministic.
 
-### Trait objects and dynamic dispatch
+### Trait views and dynamic dispatch
 
-TODO: Define trait objects, dynamic dispatch type forms, vtable-like representation, object safety, receiver restrictions, and ownership behavior.
+Traits are behavioral contracts.
+
+Traits are not value types.
+
+Using a trait name as a stored type is rejected.
+
+```bray
+struct Logger
+{
+    sinks: [Sink; 4]; // invalid
+}
+```
+
+Open heterogeneous storage through a trait uses a trait view behind an explicit storage or access type form.
+
+```bray
+struct Logger
+{
+    sinks: [box[Heap] view Sink; 4];
+}
+```
+
+Dynamic dispatch in Bray is dispatch through a trait view.
+
+It uses the implementation witness carried by the view.
+
+It does not perform structural method lookup at runtime.
+
+It does not search for methods by name at runtime.
+
+It does not expose the hidden concrete type.
+
+Generic constraints and trait views are separate forms of polymorphism.
+
+A generic constraint keeps the concrete type known to the generic instantiation.
+
+```bray
+func write_all<S>(sink: S, message: String)
+    with(S: Sink)
+{
+    sink.write(message = message);
+}
+```
+
+A trait view hides the concrete type and dispatches through the selected implementation witness.
+
+```bray
+func write_one(sink: &view Sink, message: String)
+{
+    sink.write(message = message);
+}
+```
+
+The trait-view type form, view-surface rules, receiver restrictions, and ownership behavior are defined by the trait-view type form.
 
 ### Trait API compatibility
 
@@ -2905,10 +3084,6 @@ TODO: Define constants in traits.
 TODO: Define predicates in traits.
 
 TODO: Define lifecycle declarations in traits.
-
-TODO: Define dynamic dispatch.
-
-TODO: Define trait object and trait type-form syntax.
 
 TODO: Define operator traits.
 

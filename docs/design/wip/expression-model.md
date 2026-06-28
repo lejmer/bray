@@ -2246,6 +2246,33 @@ If more than one implementation arm remains possible, the method call is rejecte
 
 If the receiver is trait-qualified, the exact trait application is selected before member lookup.
 
+If the receiver access path reaches a trait view, method resolution uses the view's exact trait application.
+
+The method call dispatches through the implementation witness carried by the view.
+
+Dynamic dispatch through a trait view uses ordinary method-call syntax.
+
+There is no separate dynamic-dispatch call syntax.
+
+View formation is checked when an expression is expected to produce a type whose subject is a trait view.
+
+For a borrowed view, the source expression must produce a borrow whose reached concrete type satisfies the exact trait application.
+
+```bray
+let sink: &view Sink = &file_sink;
+let sink: &mut view Sink = &mut file_sink;
+```
+
+For an owned boxed view, the box construction expression stores the concrete value and records the selected implementation witness.
+
+```bray
+let sink: box[Heap] view Sink = box[Heap](file_sink);
+```
+
+The selected implementation must participate in the checking context.
+
+View formation does not permit downcasting, runtime type tests, field access on the hidden concrete type, or calls outside the view surface.
+
 Method call arguments follow the same named-argument rules as function calls.
 
 A method call produces the method’s declared result.
@@ -4154,7 +4181,6 @@ TODO: Ensure the evaluation-order rule preserves ownership, borrowing, destructi
 - TODO: Define checked-conversion result shape.
 - TODO: Define optional absence literal.
 - TODO: Define optional handling syntax.
-- TODO: Define dynamic dispatch expression syntax.
 - TODO: Define closure and anonymous function syntax.
 - TODO: Define general generator expression syntax.
 - TODO: Define operator precedence and operator overloading syntax.
