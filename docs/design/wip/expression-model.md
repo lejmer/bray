@@ -92,8 +92,8 @@ Sequenced expressions are terminated with semicolons.
 
 ```bray
 {
-    log("hello");
-    log("world");
+    log(message = "hello");
+    log(message = "world");
 }
 ```
 
@@ -160,7 +160,7 @@ A block expression in `unit` context can complete normally.
 
 ```bray
 {
-    log("done");
+    log(message = "done");
 }
 ```
 
@@ -203,7 +203,7 @@ A callable body with declared result type `unit` can complete normally.
 ```bray
 func log(message: String)
 {
-    print(message);
+    print(message = message);
 }
 ```
 
@@ -214,7 +214,7 @@ A callable with omitted result type has result type `unit`.
 ```bray
 func log(message: String)
 {
-    print(message);
+    print(message = message);
 }
 ```
 
@@ -223,7 +223,7 @@ This has the same callable result contract as:
 ```bray
 func log(message: String) -> unit
 {
-    print(message);
+    print(message = message);
 }
 ```
 
@@ -245,7 +245,7 @@ A `never` expression can satisfy any callable result requirement because it has 
 ```bray
 func fail(message: String) -> never
 {
-    abort(message);
+    abort(message = message);
 }
 ```
 
@@ -844,7 +844,7 @@ A block expression or callable body can produce `unit` by completing normally in
 ```bray
 func log(message: String)
 {
-    print(message);
+    print(message = message);
 }
 ```
 
@@ -1204,7 +1204,7 @@ pkg
 Module and package name expressions are used as the left side of path expressions.
 
 ```bray
-math.sin(x)
+math.sin(angle = x)
 pkg.module.Type
 ```
 
@@ -3850,7 +3850,7 @@ A trusted predicate call can appear in a contract clause when prefixed with `tru
 ```bray
 requires(
     length <= capacity,
-    trusted core.memory.owned_allocation(pointer, capacity),
+    trusted core.memory.owned_allocation(pointer = pointer, capacity = capacity),
 )
 ```
 

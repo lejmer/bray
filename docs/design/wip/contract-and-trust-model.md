@@ -135,9 +135,9 @@ trusted func copy_bytes_unchecked(
     count: usize,
 ) -> unit
     requires(
-        trusted core.memory.valid_write_range(destination, count),
-        trusted core.memory.valid_read_range(source, count),
-        trusted core.memory.disjoint_ranges(destination, count, source, count),
+        trusted core.memory.valid_write_range(pointer = destination, count = count),
+        trusted core.memory.valid_read_range(pointer = source, count = count),
+        trusted core.memory.disjoint_ranges(left = destination, left_count = count, right = source, right_count = count),
     )
     uses(raw_memory)
 {
@@ -160,7 +160,7 @@ Contract clauses are always parenthesized comma-separated lists.
 ```bray
 requires(
     length <= capacity,
-    trusted core.memory.owned_allocation(pointer, capacity),
+    trusted core.memory.owned_allocation(pointer = pointer, capacity = capacity),
 )
 ```
 
@@ -180,7 +180,7 @@ This avoids ambiguous or hard-to-read clause chains.
 Invalid style:
 
 ```bray
-requires length <= capacity requires trusted core.memory.owned_allocation(pointer, capacity)
+requires length <= capacity requires trusted core.memory.owned_allocation(pointer = pointer, capacity = capacity)
 ```
 
 Valid style:
@@ -188,7 +188,7 @@ Valid style:
 ```bray
 requires(
     length <= capacity,
-    trusted core.memory.owned_allocation(pointer, capacity),
+    trusted core.memory.owned_allocation(pointer = pointer, capacity = capacity),
 )
 ```
 
@@ -224,7 +224,7 @@ A trusted requirement is a trusted predicate call inside a contract clause.
 
 ```bray
 requires(
-    trusted core.memory.owned_allocation(pointer, capacity),
+    trusted core.memory.owned_allocation(pointer = pointer, capacity = capacity),
 )
 ```
 
@@ -265,8 +265,8 @@ A trusted declaration can establish trusted facts:
 ```bray
 trusted func allocate(capacity: usize) -> RawPointer<u8>
     ensures(
-        trusted core.memory.owned_allocation(result, capacity),
-        trusted core.memory.valid_write_range(result, capacity),
+        trusted core.memory.owned_allocation(pointer = result, capacity = capacity),
+        trusted core.memory.valid_write_range(pointer = result, count = capacity),
     )
     uses(manual_alloc)
 {
@@ -353,7 +353,7 @@ Allowed in predicate expressions:
 - literals,
 - references to predicate parameters,
 - `self` where applicable,
-- result references in postconditions, once result-binding syntax is defined,
+- result references in postconditions,
 - constants and associated constants,
 - field access through observable access paths,
 - tuple, array, optional, and union inspection by observation,
@@ -363,7 +363,11 @@ Allowed in predicate expressions:
 - calls to predicates,
 - calls to contract functions,
 - conditional expressions, if expression-only and pure,
-- finite bounded quantifier expressions, if quantifiers are added.
+- finite bounded quantifier expressions.
+
+TODO: Define result-binding syntax for postconditions.
+
+TODO: Define finite bounded quantifier expression syntax and checking.
 
 Forbidden in predicate expressions:
 
@@ -483,7 +487,7 @@ predicate can_index<T>(buffer: &Buffer<T>, index: usize) =
     index < buffer.length;
 ```
 
-A fact of `can_index(buffer, index)` is valid only while the relevant buffer identity remains valid and the length state it depends
+A fact of `can_index(buffer = buffer, index = index)` is valid only while the relevant buffer identity remains valid and the length state it depends
 on remains unchanged.
 
 If `buffer` is mutated in a way that can change `length`, the fact expires.
@@ -501,7 +505,7 @@ Invalid:
 
 ```bray
 func bad(pointer: RawPointer<u8>) -> u8 {
-    return trusted read_unchecked(pointer);
+    return trusted read_unchecked(pointer = pointer);
 }
 ```
 
@@ -510,10 +514,10 @@ Valid if the obligation is exposed:
 ```bray
 func read_wrapper(pointer: RawPointer<u8>) -> u8
     requires(
-        trusted core.memory.valid_read_range(pointer, 1),
+        trusted core.memory.valid_read_range(pointer = pointer, count = 1),
     )
 {
-    return trusted read_unchecked(pointer);
+    return trusted read_unchecked(pointer = pointer);
 }
 ```
 
@@ -552,8 +556,9 @@ The function type must preserve the trusted obligation.
 
 Calling a function with trusted caller obligations requires acknowledgement at the call site or in an enclosing declaration.
 
-Exact acknowledgement syntax is still open, but the semantic rule is fixed: the caller must visibly accept the trusted obligation
-unless it has already been established by the fact context.
+TODO: Define acknowledgement syntax for trusted obligations.
+
+The semantic rule is fixed: the caller must visibly accept the trusted obligation unless it has already been established by the fact context.
 
 A call to a safe wrapper around trusted implementation code does not require caller acknowledgement.
 
@@ -587,7 +592,7 @@ trusted construct from_raw_parts(
 ) -> Buffer
     requires(
         length <= capacity,
-        trusted core.memory.owned_allocation(pointer, capacity),
+        trusted core.memory.owned_allocation(pointer = pointer, capacity = capacity),
     )
     uses(raw_memory, manual_alloc)
 {

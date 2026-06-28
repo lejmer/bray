@@ -209,7 +209,7 @@ A callable with an omitted result type returns `unit`.
 ```bray
 func log(message: String)
 {
-    print(message);
+    print(message = message);
 }
 ```
 
@@ -218,7 +218,7 @@ This means:
 ```bray
 func log(message: String) -> unit
 {
-    print(message);
+    print(message = message);
 }
 ```
 
@@ -241,7 +241,7 @@ A computation of type `never` does not complete normally.
 Examples of expressions that may have type `never` include expressions that always return, always fail, always abort, or otherwise
 never produce a normal value.
 
-The exact set of `never`-producing constructs is defined by the control-flow model.
+TODO: Define the exact set of `never`-producing constructs.
 
 ---
 
@@ -653,10 +653,9 @@ let x = value as checked i32;
 let y = value as rounding r32;
 ```
 
-The exact result type of `checked` conversion is determined by the conversion model. It may be optional or result-based depending
-on the final error-handling design.
+A rounding conversion must declare or imply a rounding rule.
 
-A rounding conversion must declare or imply a rounding rule. The rounding-rule syntax is still open.
+The Expression Model defines conversion expression syntax, checked-conversion result shape, and rounding-rule syntax.
 
 ---
 
@@ -750,7 +749,7 @@ let b: [(i64, r64?); 4] = a as [(i64, r64?); 4];
 
 The absence value remains absence. The present value, if present, is converted recursively.
 
-The exact absence literal syntax is still open.
+TODO: Define absence literal syntax.
 
 ---
 

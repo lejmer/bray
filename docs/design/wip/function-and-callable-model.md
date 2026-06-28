@@ -49,7 +49,7 @@ If the result type is omitted, the function returns `unit`.
 ```bray
 func log(message: String)
 {
-    print(message);
+    print(message = message);
 }
 ```
 
@@ -58,7 +58,7 @@ This means:
 ```bray
 func log(message: String) -> unit
 {
-    print(message);
+    print(message = message);
 }
 ```
 
@@ -117,7 +117,7 @@ A function whose declared result type is `unit` can complete normally.
 ```bray
 func log(message: String)
 {
-    print(message);
+    print(message = message);
 }
 ```
 
@@ -133,8 +133,8 @@ Semicolons are mandatory for sequenced expressions.
 ```bray
 func f()
 {
-    log("hello");
-    log("world");
+    log(message = "hello");
+    log(message = "world");
 }
 ```
 
@@ -352,7 +352,7 @@ The innermost type alone does not determine the available operation.
 A function call evaluates the callee and arguments according to Bray evaluation order.
 
 ```bray
-let result = add(1, 2);
+let result = add(left = 1, right = 2);
 ```
 
 The final evaluation-order rules are part of the expression model.
@@ -417,21 +417,21 @@ A function returning `unit` can complete normally.
 ```bray
 func log(message: String)
 {
-    print(message);
+    print(message = message);
 }
 ```
 
-A function that explicitly returns `unit` can also use explicit unit-return syntax if Bray keeps that form.
+TODO: Define whether functions that return `unit` may use explicit unit-return syntax.
 
 ```bray
 func log(message: String)
 {
-    print(message);
+    print(message = message);
     return;
 }
 ```
 
-The exact syntax for explicitly returning `unit` remains open.
+TODO: Define syntax for explicitly returning `unit`.
 
 ---
 
@@ -442,13 +442,13 @@ A `never` expression satisfies any required result type at a control-flow merge 
 ```bray
 func fail(message: String) -> never
 {
-    abort(message);
+    abort(message = message);
 }
 ```
 
 A function declared to return `never` has no normal completion path.
 
-The exact set of `never`-producing constructs is defined by the control-flow model.
+TODO: Define the exact set of `never`-producing constructs.
 
 ---
 
@@ -587,9 +587,9 @@ A function assignment succeeds when the target callable type preserves the calla
 A function can accept another function as a parameter.
 
 ```bray
-func apply(value: i32, op: func(i32) -> i32) -> i32
+func apply(value: i32, op: func(value: i32) -> i32) -> i32
 {
-    return op(value);
+    return op(value = value);
 }
 ```
 
@@ -634,7 +634,7 @@ and contract checking.
 
 Ambiguous polymorphism is rejected.
 
-The exact overload declaration syntax remains open.
+TODO: Define overload declaration syntax.
 
 ---
 
@@ -642,7 +642,7 @@ The exact overload declaration syntax remains open.
 
 Generic functions are parameterized by types, constants, capabilities, effects, lifetimes, or other generic parameters.
 
-The exact generic syntax is covered separately.
+TODO: Define generic function syntax.
 
 A generic function body is checked against its declared constraints.
 
@@ -754,7 +754,9 @@ contract.
 
 `await` drives an async computation to completion.
 
-The exact syntax is still open, but the semantic form is:
+TODO: Define await syntax.
+
+Semantic form:
 
 ```text
 await <async-computation>
@@ -796,7 +798,7 @@ Effects and capability contracts are part of:
 - dynamic dispatch,
 - public API compatibility.
 
-The exact syntax for general effect and capability annotations beyond currently discussed clauses remains open.
+TODO: Define syntax for general effect and capability annotations beyond currently discussed clauses.
 
 ---
 
@@ -874,8 +876,8 @@ using internal some.module.helper;
 Bray uses `.` for module paths, package paths, type paths, member access, and nested access.
 
 ```bray
-math.sin(x);
-pkg.module.function(x);
+math.sin(angle = x);
+pkg.module.function(value = x);
 pkg.module.Type;
 ```
 
@@ -888,7 +890,7 @@ module context.
 
 ## Local functions
 
-Function declarations can exist inside callable bodies if local declarations are supported in block expressions.
+TODO: Define whether function declarations can exist inside callable bodies and whether local declarations are supported in block expressions.
 
 ```bray
 func outer() -> i32
@@ -906,15 +908,15 @@ A local function introduces its own callable execution scope.
 
 A `return` inside the local function exits the local function.
 
-The exact capture rules for local functions remain open and may overlap with closure rules.
+TODO: Define capture rules for local functions and their relationship to closure rules.
 
 ---
 
 ## Closures and anonymous functions
 
-Anonymous callable syntax remains open.
+TODO: Define anonymous callable syntax.
 
-Closure capture rules remain open.
+TODO: Define closure capture rules.
 
 Anonymous callable values obey the same callable model:
 
@@ -929,21 +931,21 @@ Anonymous callable values obey the same callable model:
 
 ## Methods
 
-Method syntax remains open.
+TODO: Define method declaration syntax.
 
 A method is a callable associated with a type or behavioral contract.
 
-Method calls likely use `.`:
+Method calls use `.`:
 
 ```bray
-value.method(argument);
+value.method(argument = argument);
 ```
 
 A method has a function-like callable contract.
 
 The receiver is a parameter with ownership, borrowing, mutation, capability, and lifetime behavior.
 
-The exact receiver syntax remains open.
+TODO: Define receiver syntax.
 
 ---
 
