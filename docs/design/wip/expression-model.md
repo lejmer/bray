@@ -2232,7 +2232,7 @@ A consuming receiver method requires ownership of the receiver value.
 
 A consuming receiver method makes the receiver’s old access path unavailable after the call unless reinitialized.
 
-A method call resolves through the receiver type, receiver capability, inherent implementations, trait implementations, visible declarations, constraints, and overload rules.
+A method call resolves through the receiver type, receiver capability, inherent implementations, participating trait implementations, visible declarations, constraints, and overload rules.
 
 A method call resolves to exactly one method after receiver checking, argument-name matching, type checking, ownership checking, capability checking, effect checking, contract checking, and overload resolution.
 

@@ -1900,7 +1900,7 @@ Trait parameters and type-valued members have different roles:
 - trait parameters are inputs to a trait application,
 - type-valued members are outputs selected by the implementation of a trait application.
 
-For a given visible implementation of a concrete trait application, every type-valued member has exactly one selected type.
+For a given participating implementation of a concrete trait application, every type-valued member has exactly one selected type.
 
 The selected type can depend on the implementing type and on the trait application’s generic arguments.
 
@@ -1989,7 +1989,7 @@ func first<I>(iter: I) -> I(Iterator).Element?
 }
 ```
 
-The result type is the `Element` selected by the visible implementation of `Iterator` for `I`.
+The result type is the `Element` selected by the participating implementation of `Iterator` for `I`.
 
 Trait applications with generic arguments are written inside the parentheses:
 
@@ -2248,7 +2248,7 @@ impl Point(Comparable<Point>)
 For a generic implementing type:
 
 ```bray
-impl Buffer<T>(Storage<T>)
+impl BufferStorage = Buffer<T>(Storage<T>)
 {
     func borrow() -> &T
     {
@@ -2261,7 +2261,7 @@ A trait implementation makes the implementing type satisfy the specified trait a
 
 Trait satisfaction is explicit.
 
-A type satisfies a trait application through an accepted visible implementation declaration for that exact subject type and trait application.
+A type satisfies a trait application through an accepted participating implementation declaration for that exact subject type and trait application.
 
 Matching member names and signatures alone gives no trait satisfaction.
 
@@ -2386,16 +2386,73 @@ impl Point(Comparable<Point>)
 A generic implementation can satisfy a parameterized set of trait applications.
 
 ```bray
-impl Box<T>(Comparable<Box<T>>)
+impl BufferComparable = Buffer<T>(Comparable<Buffer<T>>)
+    with(T: Comparable<T>)
 {
-    func compare(other: &Box<T>) -> Ordering
+    func compare(other: &Buffer<T>) -> Ordering
     {
         ...
     }
 }
 ```
 
-TODO: Define generic parameter syntax and generic implementation checking for implementations.
+Generic implementation parameters are inferred from the subject type and trait application.
+
+```bray
+impl BufferComparable = Buffer<T>(Comparable<Buffer<T>>)
+```
+
+An otherwise unresolved generic name that appears in the subject type or trait application becomes an implementation parameter.
+
+If a name resolves to an existing type, constant, capability, effect, lifetime, or other visible declaration, it is not inferred as an implementation parameter.
+
+The implementation name is written without a generic parameter list.
+
+The subject type, trait application, `with(...)` clause, and implementation body can use inferred implementation parameters.
+
+The `with(...)` clause can constrain inferred implementation parameters.
+
+The `with(...)` clause cannot introduce implementation parameters by itself.
+
+Every inferred implementation parameter must appear in the subject type or trait application.
+
+This is rejected:
+
+```bray
+impl BadCloneBuffer = Buffer<i32>(Cloneable)
+    with(T: Cloneable)
+{
+    ...
+}
+```
+
+`T` appears only in the `with(...)` clause, so it is not an implementation parameter.
+
+A generic implementation represents a parameterized set of exact trait implementations.
+
+For each valid substitution of the implementation parameters, the implementation produces one exact coherence key:
+
+```text
+(SubstitutedSubjectType, SubstitutedTraitApplication)
+```
+
+A substitution is valid only when it satisfies the implementation’s `with(...)` clause and makes the subject type and trait application well formed.
+
+The implementation body is checked once under the implementation’s static constraints.
+
+The body can use only operations, type-valued members, constants, effects, capabilities, and facts established by the implementation’s `with(...)` clause and surrounding declaration context.
+
+Generic implementation overlap is rejected.
+
+Two implementation declarations overlap when some valid substitutions can produce the same exact coherence key.
+
+If the compiler cannot prove that two participating generic implementations are disjoint, they are rejected as overlapping.
+
+Bray does not use specialization ranking between generic implementations.
+
+An implementation is not selected because one implementation’s constraints look more specific than another’s.
+
+If multiple participating generic implementations could produce the same exact coherence key, the program is invalid.
 
 Trait generic parameters are inputs to the trait application.
 
@@ -2474,6 +2531,8 @@ overload SubjectType(TraitName) =
 
 `SubjectType` is the shared subject type.
 
+For a generic subject type, the overload header names the shared subject type declaration.
+
 `TraitName` is the trait declaration whose applications are being grouped.
 
 `ImplementationName` names a previously declared named trait implementation.
@@ -2489,6 +2548,78 @@ The overload name is the shared surface.
 Each overload arm keeps its own implementation name.
 
 Unnamed trait implementations cannot be listed in an implementation overload family.
+
+An implementation overload family can list generic implementation declarations.
+
+The family lists implementation declaration names.
+
+It does not list instantiated implementation arms.
+
+```bray
+impl BufferValuesIterator = Buffer<T>(Iterator<Values>)
+{
+    type Element = T;
+
+    mut func next() -> Element?
+    {
+        ...
+    }
+}
+
+impl BufferIndexesIterator = Buffer<T>(Iterator<Indexes>)
+{
+    type Element = usize;
+
+    mut func next() -> Element?
+    {
+        ...
+    }
+}
+
+overload Buffer(Iterator) =
+{
+    BufferValuesIterator,
+    BufferIndexesIterator,
+}
+```
+
+For generic implementation arms, overlap checking is performed on the exact coherence keys produced by valid substitutions of each arm.
+
+Every possible exact coherence key produced by one arm must be disjoint from every possible exact coherence key produced by every other arm in the same implementation overload family.
+
+This is rejected:
+
+```bray
+impl BufferCloneItemsIterator = Buffer<T>(Iterator<Items>)
+    with(T: Cloneable)
+{
+    ...
+}
+
+impl BufferCopyItemsIterator = Buffer<T>(Iterator<Items>)
+    with(T: Copyable)
+{
+    ...
+}
+
+overload Buffer(Iterator) =
+{
+    BufferCloneItemsIterator,
+    BufferCopyItemsIterator,
+}
+```
+
+A type can satisfy both `Cloneable` and `Copyable`, so both arms can produce the same exact coherence key:
+
+```text
+(Buffer<T>, Iterator<Items>)
+```
+
+The overload family is invalid.
+
+Bray does not use specialization ranking between implementation overload arms.
+
+An implementation arm is not selected because its constraints look more specific than another arm’s constraints.
 
 Generic trait arguments are part of the exact trait application.
 
@@ -2506,9 +2637,11 @@ impl BufferBytesIterator = Buffer(Iterator<Bytes>)
 impl BufferOtherBytesIterator = Buffer(Iterator<Bytes>) // invalid
 ```
 
-If more than one visible implementation for the same subject type and generic trait declaration exists in a coherence domain, those implementations must be named and must be grouped by an implementation overload declaration.
+If more than one participating implementation for the same subject type and generic trait declaration exists in a coherence domain, those implementations must be named and must be grouped by an implementation overload declaration.
 
-A non-overloaded trait implementation can use the unnamed `impl Type(TraitApplication)` form.
+A concrete non-overloaded trait implementation can use the unnamed `impl Type(TraitApplication)` form.
+
+A generic trait implementation is a named implementation declaration with inferred generic parameters.
 
 Method resolution through an implementation overload family follows overload resolution principles.
 
@@ -2636,7 +2769,7 @@ Method resolution uses:
 - receiver type,
 - receiver capability,
 - inherent implementations,
-- visible trait implementations,
+- participating trait implementations,
 - visible declarations,
 - constraints,
 - overload rules.
@@ -2683,7 +2816,21 @@ For a given coherence domain, the exact coherence key for a trait implementation
 (ImplementingType, TraitApplication)
 ```
 
-For each exact coherence key, Bray requires at most one visible implementation.
+Any package can declare a trait implementation for any reachable subject type and trait application.
+
+An implementation participates in a coherence domain only when the implementation is declared in that domain or explicitly imported into it.
+
+A package dependency makes implementation declarations reachable for explicit import.
+
+A package dependency does not silently make dependency implementations participate in the importing coherence domain.
+
+Transitive dependency implementations do not participate unless they are explicitly imported or re-exported through ordinary import rules.
+
+For each exact coherence key, Bray requires at most one participating implementation in a coherence domain.
+
+Path qualification can name an implementation declaration.
+
+Path qualification does not bypass coherence checking or activate an implementation for implicit trait satisfaction.
 
 Generic arguments are part of the trait application.
 
@@ -2705,9 +2852,11 @@ An implementation overload family groups multiple exact coherence keys that shar
 
 It does not allow duplicate exact coherence keys.
 
-This keeps method resolution, generic checking, and public API compatibility deterministic.
+For generic implementations, the set of exact coherence keys produced by all valid substitutions must be disjoint from every other participating implementation in the same coherence domain.
 
-TODO: Define coherence domain boundaries for trait implementations.
+Overlapping generic implementations are rejected.
+
+This keeps method resolution, generic checking, and public API compatibility deterministic.
 
 ### Trait objects and dynamic dispatch
 
@@ -2756,8 +2905,6 @@ TODO: Define constants in traits.
 TODO: Define predicates in traits.
 
 TODO: Define lifecycle declarations in traits.
-
-TODO: Define coherence domains.
 
 TODO: Define dynamic dispatch.
 
