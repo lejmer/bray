@@ -3587,16 +3587,18 @@ yield value;
 Yield-capable regions include:
 
 - value-producing block expressions,
+- value-producing conditional arm block expressions,
 - match arm block expressions,
 - loop expressions,
+- while expressions,
 - generator expressions,
 - array generator expressions.
 
 A single-yield region with result type other than `unit` must receive exactly one yielded value on every normal completion path or
 have no normal continuation.
 
-A single-yield region with result type `unit` can complete naturally without `yield`, except for ordinary loop expressions whose
-body completion starts the next iteration.
+A single-yield region with result type `unit` can complete naturally without `yield`, except for loop bodies whose completion
+starts the next iteration.
 
 A multi-yield region can receive zero or more yielded values according to the region’s contract.
 
@@ -4178,7 +4180,7 @@ Predicate expressions can call predicates.
 
 Predicate expressions can call contract functions.
 
-TODO: Define conditional expression syntax before allowing predicate expressions to use expression-only conditional forms.
+Predicate expressions can use conditional expressions when the condition and every branch are valid predicate expressions.
 
 TODO: Define whether predicate expressions support finite bounded quantifier expressions.
 
@@ -4549,7 +4551,180 @@ In the `collect` example, `catch task.join()` has type `RunResult<Result<User, L
 
 ## Conditional expressions
 
-TODO: Define conditional expressions.
+A conditional expression selects one branch according to a boolean condition.
+
+The conditional expression forms are:
+
+```bray
+if condition
+{
+    ...
+}
+```
+
+```bray
+if condition
+{
+    ...
+}
+else
+{
+    ...
+}
+```
+
+```bray
+if condition
+{
+    ...
+}
+else if other_condition
+{
+    ...
+}
+else
+{
+    ...
+}
+```
+
+The condition expression is evaluated exactly once.
+
+The condition expression must have type `bool`.
+
+Bray does not define truthy or falsy conversion for conditional conditions.
+
+Parentheses around the condition are ordinary expression grouping and are not required by conditional syntax.
+
+The then body and else body are block expressions.
+
+Only the selected body is evaluated.
+
+If the condition evaluates to `true`, the then body is selected.
+
+If the condition evaluates to `false`, the else body is selected when one is present.
+
+If the condition evaluates to `false` and no else body is present, the conditional expression completes as `unit`.
+
+`else if` is syntactic nesting of another conditional expression in the else body.
+
+When a conditional expression is used in value-producing context, each selected body is a single-yield region.
+
+If the conditional expression result type is `unit`, a selected body can complete normally.
+
+If the conditional expression result type is a value type other than `unit`, every reachable normal completion path in every
+selected body must supply a value with `yield` or end in a `never` expression.
+
+An else body is required when the conditional expression result type is not `unit` and the false path is reachable.
+
+If the compiler proves the false path unreachable, a missing else body does not contribute a normal path.
+
+All reachable normal branch exits must merge to a coherent type, ownership state, initialization state, destruction state,
+finalization state, capability state, effect state, task-obligation state, and fact context.
+
+A `never` branch does not contribute a value to the merged result type.
+
+Bindings introduced inside a branch body are scoped to that branch body.
+
+The then body receives the fact that the condition is true.
+
+The else body receives the fact that the condition is false.
+
+For an `else if` chain, each later condition is checked in a fact context where all earlier conditions in the chain are false.
+
+Facts established inside a branch body contribute after the conditional expression only when they are established by every
+reachable normal branch exit and remain valid after the merged ownership and mutation state.
+
+If a branch moves, destroys, initializes, finalizes, cancels, transfers, or changes capability state, the merged state after the
+conditional expression must account for that change on every reachable normal branch path.
+
+```bray
+let grade: Grade = if score >= 90
+{
+    yield Grade.A;
+}
+else if score >= 80
+{
+    yield Grade.B;
+}
+else
+{
+    yield Grade.C;
+};
+```
+
+```bray
+if ready
+{
+    start();
+}
+```
+
+---
+
+## While expressions
+
+A while expression is a pre-test loop expression.
+
+The while expression form is:
+
+```bray
+while condition
+{
+    ...
+}
+```
+
+The condition expression is evaluated before each attempted iteration.
+
+The condition expression must have type `bool`.
+
+Bray does not define truthy or falsy conversion for while conditions.
+
+Parentheses around the condition are ordinary expression grouping and are not required by while syntax.
+
+If the condition evaluates to `true`, the body is evaluated once.
+
+If the condition evaluates to `false`, the while expression completes as `unit`.
+
+After the body reaches its end, the condition is evaluated again.
+
+The syntactic body block of a while expression belongs to the while expression's yield-capable region. It does not capture `yield`
+for itself unless it contains a nested value-producing block expression.
+
+`yield value` exits the while expression and supplies the while result.
+
+`yield;` exits the while expression and supplies `unit`.
+
+`continue` skips the rest of the current body evaluation and starts the next condition evaluation.
+
+Loop paths that keep iterating do not supply a while result.
+
+A reachable false-condition exit contributes `unit`.
+
+If a while expression has result type `unit`, a false-condition exit is valid.
+
+If a while expression has a result type other than `unit`, every reachable normal exit path must supply a compatible value with
+`yield` or end in a `never` expression. A reachable false-condition exit makes the expression invalid for that result type.
+
+The while body is checked in a fact context where the condition is true.
+
+The false-condition exit contributes the fact that the condition is false.
+
+No fact is assumed to survive from one iteration to the next merely because it was true in a previous iteration.
+
+The type, ownership, initialization, destruction, finalization, capability, effect, task-obligation, and fact state after a while
+expression is the merge of all reachable normal loop exits.
+
+The state at the start of a repeated condition evaluation must be coherent with the state before the first condition evaluation.
+
+```bray
+while index < items.count()
+{
+    process(items.at(index));
+    index = index + 1;
+}
+```
 
 ---
 
@@ -4744,6 +4919,12 @@ Tuple elements are evaluated left to right.
 
 Array elements are evaluated left to right.
 
+Conditional expressions evaluate the condition before evaluating the selected branch body. Unselected branch bodies are not
+evaluated.
+
+While expressions evaluate the condition before each attempted iteration. The while body is evaluated only when the condition is
+true.
+
 Repeated-element array expressions evaluate the repeated element expression before initializing repeated elements according to the repeat contract.
 
 Function call callee expressions are evaluated before call arguments.
@@ -4792,7 +4973,6 @@ Specific expression forms also define these evaluation facts:
 
 ## Expression TODOs
 
-- TODO: Define ordinary conditional expression syntax.
 - TODO: Define resource-scope expression syntax.
 - TODO: Define assertion syntax.
 - TODO: Define checked-conversion result shape.

@@ -218,12 +218,41 @@ The condition expression must have boolean type.
 
 Parentheses around the condition are ordinary expression grouping and are therefore not required.
 
+The branch bodies are block expressions, and only the selected branch body is evaluated.
+
+An `if` expression without an `else` branch produces `unit` on the false path.
+
 When an `if` expression is used as a value-producing region, every normal completion path must yield a value compatible with the
 expected result type.
 
-An `else` branch is required when the `if` expression must produce a value and the condition can evaluate to false.
+An `else` branch is required when the `if` expression must produce a non-`unit` value and the condition can evaluate to false.
 
 `else if` is syntactic nesting of another `if` expression in the `else` branch.
+
+---
+
+## While expressions
+
+A `while` expression repeats a body while a boolean condition remains true.
+
+The condition expression is evaluated before each attempted iteration and must have boolean type.
+
+Parentheses around the condition are ordinary expression grouping and are therefore not required.
+
+The body is evaluated only when the condition evaluates to `true`.
+
+When the condition evaluates to `false`, the `while` expression completes as `unit`.
+
+Reaching the end of the body starts the next condition evaluation.
+
+`continue` skips the rest of the current body evaluation and starts the next condition evaluation.
+
+The body belongs to the `while` expression's yield-capable region.
+
+A `yield` that targets the `while` expression exits the loop and supplies the `while` result.
+
+If a `while` expression must produce a non-`unit` value, every reachable normal exit path must yield a compatible value. A
+reachable false-condition exit makes the expression invalid for that result type.
 
 ---
 
@@ -451,7 +480,8 @@ Bray has two kinds of yield-capable regions:
 - **single-yield regions**, which produce exactly one value.
 - **multi-yield regions**, which produce a sequence of values.
 
-Value-producing block expressions, conditional expression arms, match expression arms, and loop expressions are single-yield regions.
+Value-producing block expressions, value-producing conditional expression arms, match expression arms, loop expressions, and while
+expressions are single-yield regions.
 
 Generator expressions are multi-yield regions.
 
@@ -463,8 +493,8 @@ outer region.
 A single-yield region with result type other than `unit` must yield exactly one value on every normal completion path or have no
 normal continuation.
 
-A single-yield region with result type `unit` can complete naturally without `yield`, except for ordinary loop expressions whose
-body completion starts the next iteration.
+A single-yield region with result type `unit` can complete naturally without `yield`, except for loop bodies whose completion
+starts the next iteration.
 
 `yield;` is shorthand for `yield unit;`.
 
@@ -485,6 +515,10 @@ If a loop has reachable `yield` expressions that target the loop, every such yie
 result type.
 
 Loop paths that keep iterating do not supply a loop result.
+
+A while expression repeats only while its condition is true.
+
+The false condition path exits the while expression with `unit`.
 
 A loop with no reachable `yield` to itself has no normal completion and has type `never`.
 

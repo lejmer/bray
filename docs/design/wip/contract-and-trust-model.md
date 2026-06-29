@@ -378,7 +378,7 @@ Allowed in predicate expressions:
 - comparisons,
 - calls to predicates,
 - calls to contract functions,
-- conditional expressions, if expression-only and pure,
+- conditional expressions whose condition and branches are valid predicate expressions,
 - finite bounded quantifier expressions.
 
 TODO: Define result-binding syntax for postconditions.
