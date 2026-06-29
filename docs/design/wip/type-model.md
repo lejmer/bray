@@ -88,6 +88,10 @@ Product types are named types with fields.
 
 Union types are closed tagged sum types with variants.
 
+Compiler-known result types are named union types with language-defined variant contracts.
+
+Compiler-known task handle types are linear ownership types with language-defined async contracts.
+
 Tuple types are fixed-size ordered product types.
 
 Fixed-size array types are fixed-size ordered homogeneous product types.
@@ -1256,6 +1260,102 @@ Union patterns are checked by the Pattern Model.
 Match expressions over closed unions perform coverage checking against the union’s closed variant set.
 
 Union patterns participate in ownership, borrowing, copying, partial moves, initialization, destruction, finalization, capability checking, and fact-context refinement according to the pattern operation mode.
+
+### Compiler-known result unions
+
+`Result<T, E>` is the compiler-known union type for recoverable domain failure and caught synchronous panic values.
+
+Its semantic declaration is:
+
+```bray
+union Result<T, E>
+{
+    Ok(value: T);
+    Error(error: E);
+}
+```
+
+`Result.Ok` carries the successful value.
+
+`Result.Error` carries the recoverable error value, or the caught panic report when `E` is `PanicReport`.
+
+An uncaught panic is not represented by `Result`.
+
+The caught representation of a synchronous panic is `Result<T, PanicReport>`.
+
+`Result<T, E>` uses ordinary union construction, matching, ownership, movement, borrowing, and coverage rules unless a
+language-defined result rule states otherwise.
+
+The `try` expression unwraps `Result.Ok` and propagates `Result.Error` according to result propagation rules.
+
+`RunResult<T>` is the compiler-known union type for observing a task or thread run boundary through `catch`.
+
+Its semantic declaration is:
+
+```bray
+union RunResult<T>
+{
+    Completed(value: T);
+    Panicked(report: PanicReport);
+    Cancelled;
+}
+```
+
+`RunResult.Completed` carries the computation's declared result.
+
+`RunResult.Panicked` carries the panic report produced by a panic caught at the task or thread boundary.
+
+`RunResult.Cancelled` records that the task or thread boundary was cancelled before normal completion.
+
+A fallible computation observed through a task or thread boundary uses `RunResult<Result<T, E>>`.
+
+`RunResult<T>` uses ordinary union construction, matching, ownership, movement, borrowing, and coverage rules unless a
+language-defined task or thread observation rule states otherwise.
+
+The `try` expression unwraps `RunResult.Completed` and propagates `RunResult.Panicked` or `RunResult.Cancelled` according to
+run-result propagation rules.
+
+```bray
+match result
+{
+    case Completed(Ok(value))
+    {
+        ...
+    }
+
+    case Completed(Error(error))
+    {
+        ...
+    }
+
+    case Panicked(report)
+    {
+        ...
+    }
+
+    case Cancelled
+    {
+        ...
+    }
+}
+```
+
+`PanicReport` is a compiler-known protected-representation type that preserves the panic message and diagnostic context carried by a panic.
+
+### Compiler-known task handles
+
+`Task<T>` is the compiler-known linear task handle type for a spawned asynchronous task whose ordinary result type is `T`.
+
+`Task<T>` is an owned value.
+
+`Task<T>` is not copyable.
+
+Moving a `Task<T>` transfers the task obligation.
+
+Joining or cancelling a `Task<T>` consumes the handle and resolves the task obligation.
+
+The Async Model defines task handle creation, joining, cancellation, transfers, escape rules, borrowing rules, and obligation
+checking.
 
 ### Union API compatibility
 

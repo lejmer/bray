@@ -15,7 +15,7 @@ and lifetime contract.
 A value moved into an asynchronous computation is owned by that computation until it is returned, moved elsewhere, or destroyed. A value borrowed by an asynchronous computation remains
 borrowed for the lifetime declared by that computation.
 
-Spawned asynchronous work is structured by default. A spawned computation belongs to a task scope that owns its lifetime, completion, cancellation, and destruction behavior.
+Spawned asynchronous work is structured by default. A non-detached spawned computation belongs to an `async` block that owns its lifetime, completion, cancellation, and destruction behavior.
 
 Detached asynchronous work uses an explicit ownership-extending task handle. The handle represents responsibility for joining, cancelling, or completing the detached computation
 according to its contract.

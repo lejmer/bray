@@ -483,7 +483,7 @@ func log(pos message: String)
 }
 ```
 
-Bare `return;` is rejected.
+`return;` is shorthand for `return unit;`.
 
 ---
 
@@ -506,7 +506,9 @@ Panic is outside the ordinary callable result contract.
 
 If a callable panics, the panic propagates to the nearest panic-catching boundary instead of producing the callable's declared result.
 
-TODO: Define the exact set of `never`-producing constructs.
+A `catch` expression creates an expression-level panic-catching boundary.
+
+The canonical never-producing expression forms are defined by the Expression Model.
 
 ---
 
@@ -528,6 +530,8 @@ This keeps callable exits visible in the source.
 ## Yield and return
 
 `yield` supplies a value to the nearest enclosing yield-capable region.
+
+`yield;` is shorthand for `yield unit;`.
 
 `return` exits the nearest callable execution scope.
 
@@ -868,7 +872,9 @@ Trusted caller obligations must be visible in the callable contract and satisfie
 
 A function can be asynchronous.
 
-The exact placement of the `async` keyword is settled for lifecycle declarations as:
+The `async` keyword appears before function and lifecycle declarations.
+
+For lifecycle declarations:
 
 ```bray
 async finalize File() -> Result<unit, FileError>
@@ -877,7 +883,7 @@ async finalize File() -> Result<unit, FileError>
 }
 ```
 
-For ordinary functions, the parallel syntax is:
+For ordinary functions:
 
 ```bray
 async func fetch(pos url: Url) -> Result<Response, FetchError>
@@ -892,19 +898,24 @@ The async computation is an owned value representing suspendable execution.
 
 Awaiting the computation drives it to completion.
 
+Async computation ownership, captured state, await behavior, async block expressions, spawning, detached spawning, task handles,
+task-obligation checking, transfer, escape, and cancellation rules are defined by the Async Model.
+
 ---
 
 ## Async computation ownership
 
-An async computation is an owned value.
+Async computations are owned values.
 
 Calling an async function creates an async computation value.
 
-That value owns or borrows the state captured by the async function according to the function’s signature, body, suspension
+That value owns or borrows the state captured by the async function according to the function's signature, body, suspension
 points, and lifetime contract.
 
-Suspension captures live values, borrows, capabilities, effects, and finalization obligations into the async computation’s
+Suspension captures live values, borrows, capabilities, effects, and finalization obligations into the async computation's
 contract.
+
+The Async Model defines the full ownership, borrowing, movement, escape, and cancellation rules for async computations.
 
 ---
 
@@ -912,17 +923,21 @@ contract.
 
 `await` drives an async computation to completion.
 
-TODO: Define await syntax.
-
-Semantic form:
-
-```text
-await <async-computation>
+```bray
+await expression
 ```
 
 Awaiting produces the async function’s declared result when the computation completes successfully.
 
+Awaiting an async computation directly is not a run-boundary observation. Panic from the async computation propagates to the awaiting
+execution flow unless a panic-catching boundary handles it.
+
+Applying `catch` to a spawned task join observes a run boundary and produces `RunResult<T>`, where `T` is the spawned
+computation's declared result type.
+
 Awaiting must satisfy the computation’s ownership, borrowing, capability, effect, cancellation, and finalization obligations.
+
+Await expression syntax and semantics are defined by the Async Model.
 
 ---
 
@@ -936,6 +951,8 @@ Ordinary destruction remains synchronous.
 
 Async finalization obligations must be completed through asynchronous execution, transferred, or converted into an explicit
 fallback ownership form before the owning scope exits.
+
+Async cancellation is defined by the Async Model.
 
 ---
 

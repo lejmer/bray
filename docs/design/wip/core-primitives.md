@@ -91,6 +91,13 @@ expressions whose required capabilities are available at that program point.
 A nullable propagation expression `expression?` evaluates a nullable expression, produces the contained value on the present path,
 and propagates `none` from the nearest nullable propagation boundary on the absent path.
 
+A result propagation expression `try expression` evaluates a `Result<T, E>` or `RunResult<T>` expression, produces the contained
+value on the success path, and propagates the non-success outcome to the nearest compatible propagation boundary on the
+non-success path.
+
+A panic-catching expression `catch expression` evaluates an expression inside a panic-catching boundary. For ordinary synchronous
+code, `catch` produces `Result<T, PanicReport>`. For task or thread observation, `catch` produces `RunResult<T>`.
+
 ---
 
 ## Patterns
@@ -243,22 +250,31 @@ distinguish synchronous computation from asynchronous computation.
 A value with an asynchronous finalization obligation carries that obligation as part of its type contract. The compiler tracks
 the obligation across ownership transfer, movement, scope exit, cancellation, and destruction.
 
+The Async Model defines async computations, `await`, `async` block expressions, `spawn`, `spawn detached`, task handles, task
+obligations, and async cancellation.
+
 ---
 
-## Tasks and task scopes
+## Tasks and async blocks
 
 A **task** is an owned asynchronous computation that is scheduled for execution.
 
-A **task scope** is a structured ownership boundary for spawned asynchronous work. Tasks spawned inside a task scope belong to
-that scope unless ownership is transferred to an explicit task handle.
+An **async block** is a structured ownership boundary for spawned asynchronous work. Tasks spawned inside an async block belong to
+that block unless the task handle is transferred to another valid owner.
 
-A task scope owns the completion, cancellation, and destruction obligations of the tasks it contains. Leaving a task scope
-requires every contained task to be completed, cancelled, or transferred according to its task contract.
+An async block owns the completion, cancellation, and destruction obligations of the tasks it contains. Non-panic exits from an
+async block require every contained task to be completed, cancelled, or transferred according to its task contract.
 
-**Spawning** creates a task from an asynchronous computation and places that task under a task scope or task handle.
+**Spawning** creates a task from an asynchronous computation and places that task under the nearest enclosing async block.
+
+**Detached spawning** creates a task whose lifetime is represented by the returned task handle. Detached tasks can capture only
+state whose contract is valid for detached execution.
 
 A **task handle** is an ownership-extending value for a task. The handle carries responsibility for joining, cancelling, or
 otherwise completing the task according to its contract.
+
+Applying `catch` to a task handle join observes the task boundary and produces `RunResult<T>`, where `T` is the spawned
+computation's declared result type.
 
 **Awaiting** an asynchronous computation drives it to completion and produces its declared result.
 
@@ -267,12 +283,38 @@ holds according to Bray's destruction and finalization rules.
 
 Destroying an incomplete asynchronous computation cancels it.
 
+When cancellation is observed through `catch` applied to a task or thread boundary, the catch expression produces
+`RunResult.Cancelled`.
+
 Detached asynchronous work exists only through explicit task handles. A detached task owns or otherwise validly extends the
 lifetime of all state it uses.
 
 Low-level async runtime machinery is part of the trusted substrate. Executors, reactors, wakers, completion queues, foreign async
 callbacks, device async integration, and custom scheduling primitives are implemented through trusted capabilities and exposed
 through safe async contracts.
+
+---
+
+## Run boundaries
+
+A **run boundary** is the boundary of a task or thread.
+
+A task is an owned run boundary for asynchronous execution scheduled under an async block or task handle.
+
+A **thread** is an owned run boundary for synchronous execution scheduled outside the current execution flow.
+
+A **thread handle** is an ownership-extending value for a thread. The handle carries responsibility for joining, cancelling when
+the thread contract permits cancellation, or otherwise completing the thread according to its contract.
+
+Applying `catch` to a thread handle join observes the thread boundary and produces `RunResult<T>`, where `T` is the thread entry
+computation's declared result type.
+
+A run boundary records panic from the run it owns and reports it as `RunResult.Panicked` when observed through `catch`.
+
+Run boundaries do not resume panicked computations.
+
+`RunResult<T>` does not replace recoverable domain failure. A fallible task or thread whose ordinary result is `Result<T, E>` is
+observed through `catch` as `RunResult<Result<T, E>>`.
 
 ---
 
@@ -315,10 +357,11 @@ An **explicit exit** leaves a control-flow region and supplies the value or outc
 
 A `return` exits the current callable execution scope and supplies the callable's result.
 
-A region-result operation exits the current value-producing region and supplies the region's value.
+A `yield` targeting a single-yield region exits that region and supplies its value.
 
-A `break` exits the current loop region. A `continue` exits the current loop iteration and begins the next iteration according
-to the loop's contract.
+A `yield` targeting a multi-yield region contributes an element according to that region's contract.
+
+A `continue` exits the current loop iteration and begins the next iteration according to the loop's contract.
 
 Every explicit exit satisfies the target region's type, ownership state, initialization state, destruction state, finalization
 obligations, capability contract, effect contract, and execution mode.
@@ -334,11 +377,43 @@ A **panic** is an exceptional control-flow outcome outside ordinary result contr
 Panic is used for programmer errors, violated invariants, failed assertions, failed runtime contract checks, failed asserted
 index access, and states not modeled as ordinary failure.
 
-Recoverable domain failure is represented with result values, not panic.
+Recoverable domain failure is represented with `Result<T, E>` values, not panic.
 
 A panic propagates outward until it reaches a panic-catching boundary.
 
+The `catch` expression creates a panic-catching boundary.
+
+For ordinary synchronous code, `catch` reports a caught panic as `Result.Error(error = report)`.
+
+For task or thread observation, `catch` reports a caught panic as `RunResult.Panicked(report = report)`.
+
 If a panic reaches the program root without being caught, the program terminates.
+
+---
+
+## Result and run result values
+
+`Result<T, E>` is the compiler-known union type for recoverable domain failure.
+
+`Result.Ok` carries a successful value of type `T`.
+
+`Result.Error` carries a recoverable error value of type `E`.
+
+`Result<T, PanicReport>` is the caught representation of synchronous panic.
+
+`RunResult<T>` is the compiler-known union type for observing a task or thread run boundary through `catch`.
+
+`RunResult.Completed` carries the computation's declared result of type `T`.
+
+`RunResult.Panicked` carries the panic report caught at the task or thread boundary.
+
+`RunResult.Cancelled` records task or thread cancellation before normal completion.
+
+`RunResult<T>` does not replace `Result<T, E>`. A fallible task or thread whose ordinary result is `Result<T, E>` is observed
+through `catch` as `RunResult<Result<T, E>>`.
+
+The `try` expression unwraps one `Result` or `RunResult` layer and propagates non-success outcomes to the nearest compatible
+boundary.
 
 ---
 
@@ -376,7 +451,7 @@ Bray has two kinds of yield-capable regions:
 - **single-yield regions**, which produce exactly one value.
 - **multi-yield regions**, which produce a sequence of values.
 
-Block expressions, conditional expression arms, and match expression arms are single-yield regions.
+Value-producing block expressions, conditional expression arms, match expression arms, and loop expressions are single-yield regions.
 
 Generator expressions are multi-yield regions.
 
@@ -385,7 +460,33 @@ A `yield` expression targets the nearest enclosing yield-capable region.
 Nested yield-capable regions capture their own yields. A `yield` inside an inner yield-capable region does not yield to an
 outer region.
 
-A single-yield region must yield exactly one value on every normal completion path.
+A single-yield region with result type other than `unit` must yield exactly one value on every normal completion path or have no
+normal continuation.
+
+A single-yield region with result type `unit` can complete naturally without `yield`, except for ordinary loop expressions whose
+body completion starts the next iteration.
+
+`yield;` is shorthand for `yield unit;`.
+
+A loop expression receives its value through `yield`.
+
+The syntactic body block of a loop belongs to the loop expression's yield-capable region. It does not capture `yield` for itself
+unless it contains a nested value-producing block expression.
+
+An ordinary loop expression repeats until control leaves the loop.
+
+Reaching the end of the loop body starts the next iteration.
+
+`continue` skips the rest of the current loop body and starts the next iteration.
+
+A `yield` that targets the loop exits the loop and supplies the loop result.
+
+If a loop has reachable `yield` expressions that target the loop, every such yielded value must be compatible with the loop's
+result type.
+
+Loop paths that keep iterating do not supply a loop result.
+
+A loop with no reachable `yield` to itself has no normal completion and has type `never`.
 
 A multi-yield region may yield zero or more values, unless the consuming context imposes a stricter cardinality contract.
 
@@ -594,6 +695,11 @@ The core built-in type categories are:
   continue normally from that point.
 - **nullable values:** represent either a present value of a contained type or absence of a value. Absence is a valid
   initialized state of the nullable type form.
+- **result values:** represent either successful completion with a value, recoverable domain failure with an error value, or
+  caught synchronous panic when the error value is `PanicReport`.
+- **run result values:** represent completion, panic, or cancellation observed from a task or thread run boundary.
+- **task handles:** represent owned responsibility for a spawned asynchronous task.
+- **panic reports:** preserve the panic message and diagnostic context carried by a panic.
 - **tuples:** a fixed-size ordered product type. A tuple's element types are part of its type. Tuple ownership, borrowing,
   movement, copying, initialization, and destruction are derived from its elements.
 - **arrays:** a fixed-size ordered sequence type. An array's element type and length are part of its type. Array ownership,
@@ -1122,7 +1228,7 @@ A finalizer can be synchronous or asynchronous according to its result contract.
 carries a finalization obligation tracked by the compiler.
 
 ```bray
-finalize File() -> async Result<unit, FileError>
+async finalize File() -> Result<unit, FileError>
 {
     ...
 }

@@ -398,7 +398,7 @@ Forbidden in predicate expressions:
 - I/O,
 - ordinary function calls,
 - method calls unless resolved to contract functions,
-- async, await, or spawn,
+- async, await, spawn, `try`, or `catch`,
 - resource scopes,
 - loops with runtime control flow,
 - dynamic dispatch with effects,

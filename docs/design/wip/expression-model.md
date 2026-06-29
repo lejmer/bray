@@ -246,7 +246,7 @@ func log(pos message: String) -> unit
 }
 ```
 
-Bare `return;` is rejected.
+`return;` is shorthand for `return unit;`.
 
 A `return` expression has type `never` in the current control-flow path because control exits the callable execution scope.
 
@@ -605,7 +605,7 @@ A binding moved out before scope exit is not destroyed by the old binding.
 
 A partially initialized binding destroys only initialized parts.
 
-If initializer evaluation exits through `return`, `yield`, `break`, `continue`, `never`, or panic before the declaration completes, the pattern bindings are not introduced.
+If initializer evaluation exits through `return`, `yield`, `continue`, `never`, or panic before the declaration completes, the pattern bindings are not introduced.
 
 TODO: Define how additional control-flow forms interact with initializer evaluation before local binding declarations complete.
 
@@ -880,9 +880,18 @@ func log(pos message: String)
 
 `never` is a type with no values.
 
-A `never` expression is produced by control-flow constructs that have no normal continuation, such as `return` and panic-producing expressions.
+A `never` expression is produced by expressions that have no normal continuation.
 
-TODO: Define the complete set of never-producing constructs.
+The canonical never-producing expression forms are:
+
+- `return value` and `return;`,
+- `yield value` and `yield;` when they target a single-yield region,
+- `continue`,
+- panic expressions,
+- nullable propagation on the absent path,
+- result and run-result propagation on non-success paths,
+- calls whose declared result type is `never`,
+- expression forms whose every reachable path has type `never`.
 
 ```bray
 return value;
@@ -2073,6 +2082,8 @@ A call to a callable returning `never` has no normal continuation.
 
 A call to an async callable produces an owned async computation.
 
+Applying `catch` to a task or thread join produces `RunResult<T>`, where `T` is the joined computation's declared result type.
+
 A call expression can use ordinary contract facts from the fact context to satisfy `requires(...)`.
 
 A call expression can use trusted facts from the fact context to satisfy trusted requirements.
@@ -2526,7 +2537,7 @@ Tuple element expressions are evaluated left to right.
 
 Each tuple element has its own initialization state while the tuple is being constructed.
 
-If evaluation of an element exits through `return`, `yield`, `break`, `continue`, `never`, cancellation, panic, or another non-local exit before the tuple is fully initialized, already-initialized element temporaries are handled by the corresponding control-flow, ownership, destruction, and finalization rules.
+If evaluation of an element exits through `return`, `yield`, `continue`, `never`, cancellation, panic, or another non-local exit before the tuple is fully initialized, already-initialized element temporaries are handled by the corresponding control-flow, ownership, destruction, and finalization rules.
 
 A tuple expression owns its elements when the element expressions produce owned values that are moved into the tuple.
 
@@ -2641,7 +2652,7 @@ Array element expressions are evaluated left to right.
 
 Each array element has its own initialization state while the array is being constructed.
 
-If evaluation of an element exits through `return`, `yield`, `break`, `continue`, `never`, cancellation, panic, or another non-local exit before the array is fully initialized, already-initialized element temporaries are handled by the corresponding control-flow, ownership, destruction, and finalization rules.
+If evaluation of an element exits through `return`, `yield`, `continue`, `never`, cancellation, panic, or another non-local exit before the array is fully initialized, already-initialized element temporaries are handled by the corresponding control-flow, ownership, destruction, and finalization rules.
 
 An array expression owns its elements when the element expressions produce owned values moved into the array.
 
@@ -2807,15 +2818,11 @@ A yielded value is moved into the array unless it is copied according to the ele
 
 The array is fully initialized when every required element has been yielded and initialized.
 
-If iteration exits before the array is fully initialized through `return`, `break`, `continue`, `never`, cancellation, panic, or another control-flow exit, initialized elements and live temporaries are handled by the corresponding ownership, destruction, and finalization rules.
+If iteration exits before the array is fully initialized through `return`, `yield`, `continue`, `never`, cancellation, panic, or another control-flow exit, initialized elements and live temporaries are handled by the corresponding ownership, destruction, and finalization rules.
 
 `continue` targets the nearest iteration region.
 
 In a fixed-size array generator, any control-flow path that continues an iteration before yielding that iteration’s required element is rejected unless the compiler can prove the required yield still occurs.
-
-`break` targets the nearest iteration region that accepts `break`.
-
-In a fixed-size array generator, breaking out before producing the required number of elements is rejected unless the surrounding construct defines a valid array result for that exit.
 
 Nested yield-capable regions capture their own yields.
 
@@ -2921,8 +2928,6 @@ An inner `yield` supplies the inner yield-capable region.
 A `yield` in the generator iteration body supplies the nearest enclosing generator region that the `yield` targets.
 
 `continue` targets the nearest iteration region.
-
-`break` targets the nearest iteration region that accepts `break`.
 
 A general generator iteration expression can have unknown or runtime cardinality when the enclosing generator region accepts variable cardinality.
 
@@ -3583,10 +3588,15 @@ Yield-capable regions include:
 
 - value-producing block expressions,
 - match arm block expressions,
+- loop expressions,
 - generator expressions,
 - array generator expressions.
 
-A single-yield region must receive exactly one yielded value on every normal completion path.
+A single-yield region with result type other than `unit` must receive exactly one yielded value on every normal completion path or
+have no normal continuation.
+
+A single-yield region with result type `unit` can complete naturally without `yield`, except for ordinary loop expressions whose
+body completion starts the next iteration.
 
 A multi-yield region can receive zero or more yielded values according to the region’s contract.
 
@@ -3598,7 +3608,12 @@ An inner `yield` supplies the inner region.
 
 The yielded value must be compatible with the target region’s expected result or element type.
 
-A `yield` expression changes control flow within the target yield-capable region.
+`yield;` is shorthand for `yield unit;`.
+
+When `yield` targets a single-yield region, it has type `never` because control exits that region.
+
+When `yield` targets a multi-yield region, it contributes an element and its continuation behavior is defined by that multi-yield
+region's contract.
 
 ---
 
@@ -3616,7 +3631,7 @@ A callable with result type `unit` can complete normally.
 
 A callable with result type `unit` can also return explicitly with `return unit;`.
 
-Bare `return;` is rejected.
+`return;` is shorthand for `return unit;`.
 
 A `return` expression has type `never` in the current control-flow path because control exits the callable execution scope.
 
@@ -3640,7 +3655,7 @@ A panic expression has type `never` because the current normal continuation does
 
 Panic is used for programmer errors, violated invariants, failed assertions, failed runtime contract checks, bounds failures in asserted access forms, and states the program did not model as ordinary failure.
 
-Recoverable domain failure is represented with result values, not panic.
+Recoverable domain failure is represented with `Result<T, E>` values, not panic.
 
 A panic propagates outward until it reaches a panic-catching boundary.
 
@@ -3648,21 +3663,82 @@ If a panic reaches a panic-catching boundary, that boundary receives the panic r
 
 A panic-catching boundary does not resume the panicked continuation.
 
+The `catch` expression is the source-level panic-catching expression.
+
+For ordinary synchronous code, `catch` reports a caught panic as `Result.Error(error = report)`.
+
+For task or thread observation, `catch` reports a caught panic as `RunResult.Panicked(report = report)`.
+
 If a panic reaches the program root without being caught, the program terminates.
 
 ---
 
-## Break expressions
+## Catch expressions
 
-A **break expression** exits the nearest loop or iteration region that accepts `break`.
+A **catch expression** creates a panic-catching boundary for its operand.
 
 ```bray
-break;
+catch expression
 ```
 
-`break` targets the nearest compatible loop or iteration region.
+The operand is evaluated exactly once.
 
-TODO: Define loop-expression syntax for `break`.
+The operand form selects the catch behavior. Expected result type does not select a catch behavior or overload.
+
+For an ordinary operand of type `T`, `catch expression` has type `Result<T, PanicReport>`.
+
+If the ordinary operand completes normally with a value of type `T`, the catch expression produces `Result.Ok(value = value)`.
+
+If the ordinary operand completes naturally as `unit`, the catch expression produces `Result.Ok(value = unit)`.
+
+If the ordinary operand panics, the catch expression produces `Result.Error(error = report)`.
+
+For a task or thread observation operand whose joined computation has declared result type `T`, `catch expression` has type
+`RunResult<T>`.
+
+If the observed run completes normally with a value of type `T`, the catch expression produces
+`RunResult.Completed(value = value)`.
+
+If the observed run panics, the catch expression produces `RunResult.Panicked(report = report)`.
+
+If the observed run is cancelled before normal completion, the catch expression produces `RunResult.Cancelled`.
+
+Panics caught by a catch expression do not resume the panicked continuation.
+
+Nested catch expressions create nested panic-catching boundaries. A panic is caught by the nearest enclosing catch boundary.
+
+A catch expression can use a block expression as its operand.
+
+```bray
+let parsed: Result<Item, PanicReport> = catch
+{
+    let item = parse(input);
+    yield item;
+};
+```
+
+The block operand is a single-yield region for the caught operand's successful result.
+
+`yield value` exits the block operand and supplies the successful result.
+
+`yield;` exits the block operand and supplies `unit`.
+
+Result propagation inside a block operand whose result type is `Result<T, E>` supplies `Result.Error(error = error)` as the
+block operand's value according to ordinary result propagation rules.
+
+For a task or thread observation whose declared result type is `Result<T, E>`, a recoverable error from the observed run is a
+normal completion value:
+
+```bray
+let loaded: RunResult<Result<User, LoadError>> = catch task.join();
+```
+
+That value is `RunResult.Completed(value = Result.Error(error = error))`.
+
+`return`, nullable propagation, result propagation, run-result propagation, and other exits that target an outer boundary leave the
+catch expression without producing a result value on that path.
+
+`catch` is not valid in predicate expressions, contract expressions, guard expressions, or pattern contexts.
 
 ---
 
@@ -3676,13 +3752,85 @@ continue;
 
 `continue` targets the nearest compatible loop or iteration region.
 
-TODO: Define loop-expression syntax for `continue`.
+`continue` carries no value.
+
+`continue` has type `never` because the current normal continuation does not run.
 
 ---
 
 ## Await expressions
 
-TODO: Define await expression syntax and semantics.
+The await expression is:
+
+```bray
+await expression
+```
+
+The operand is evaluated exactly once.
+
+The operand must produce an async computation.
+
+`await` consumes the async computation and drives it to completion in the current execution flow.
+
+If the async computation completes normally with a value of type `T`, the await expression has type `T`.
+
+Awaiting an async computation directly is not task observation and does not produce `RunResult<T>`.
+
+Await expression ownership, borrowing, cancellation, panic, capability, and effect rules are defined by the Async Model.
+
+---
+
+## Async block expressions
+
+The async block expression is:
+
+```bray
+async
+{
+    ...
+}
+```
+
+An async block expression is a block expression.
+
+An async block expression introduces an ordinary block scope and a structured async ownership boundary for tasks spawned inside
+the block.
+
+An async block expression can use `await`.
+
+An async block expression can use non-detached `spawn`.
+
+An async block expression is a single-yield region in value-producing context.
+
+The async block expression's task-obligation, transfer, escape, cancellation, ownership, borrowing, capability, and effect rules
+are defined by the Async Model.
+
+---
+
+## Spawn expressions
+
+The non-detached spawn expression is:
+
+```bray
+spawn expression
+```
+
+The detached spawn expression is:
+
+```bray
+spawn detached expression
+```
+
+The operand is evaluated exactly once.
+
+The operand must produce an async computation.
+
+If the async computation's declared result type is `T`, the spawn expression produces `Task<T>`.
+
+Spawning consumes the async computation and schedules it as a task.
+
+The full spawn, detached spawn, task handle, task observation, task-obligation, transfer, escape, cancellation, ownership,
+borrowing, capability, and effect rules are defined by the Async Model.
 
 ---
 
@@ -4056,6 +4204,8 @@ Predicate expressions exclude method calls unless they resolve to contract funct
 
 Predicate expressions exclude asynchronous execution forms.
 
+Predicate expressions exclude `try` propagation and `catch` expressions.
+
 Predicate expressions exclude resource-scope behavior.
 
 Predicate expressions exclude runtime loops.
@@ -4101,8 +4251,6 @@ TODO: Define contract function declaration syntax.
 
 TODO: Define quantifier syntax and rules.
 
-TODO: Define asynchronous expression forms.
-
 TODO: Define resource-scope expression syntax.
 
 ---
@@ -4146,7 +4294,7 @@ Guard context does not allow finalization transfer.
 
 Guard context does not provide trusted capability unless that capability is already available and acknowledged according to ordinary trust rules.
 
-A guard expression cannot mutate, move, consume, allocate, perform I/O, await, enter resource scopes, or depend on effects unavailable in guard context.
+A guard expression cannot mutate, move, consume, allocate, perform I/O, await, use `try`, use `catch`, enter resource scopes, or depend on effects unavailable in guard context.
 
 The arm body is selected only when the pattern matches and the guard evaluates to `true`.
 
@@ -4308,6 +4456,97 @@ In expression context, postfix `?` is nullable propagation.
 
 ---
 
+## Result and run result propagation expressions
+
+The result propagation expression is:
+
+```bray
+try expression
+```
+
+The operand is evaluated exactly once.
+
+The operand must have type `Result<T, E>` or `RunResult<T>`.
+
+The operand type selects the propagation behavior. Expected result type does not select a propagation behavior or overload.
+
+`try` unwraps exactly one layer.
+
+For an operand of type `Result<T, E>`, the normal continuation has type `T`.
+
+If the operand is the `Result.Ok` variant, `try` evaluates to its `value` payload.
+
+If the operand is the `Result.Error` variant, `try` propagates its `error` payload to the nearest compatible result propagation
+boundary as a `Result.Error` value.
+
+A result propagation boundary for a `Result.Error` outcome is:
+
+- a callable execution scope whose result type is `Result<R, F>` where `E` is compatible with `F`,
+- a single-yield region whose result type is `Result<R, F>` where `E` is compatible with `F`,
+- a callable execution scope whose result type is `RunResult<Result<R, F>>` where `E` is compatible with `F`,
+- a single-yield region whose result type is `RunResult<Result<R, F>>` where `E` is compatible with `F`.
+
+When `Result.Error` propagates to a `RunResult<Result<R, F>>` boundary, the supplied boundary value is
+`RunResult.Completed(value = Result.Error(error = error))`.
+
+For an operand of type `RunResult<T>`, the normal continuation has type `T`.
+
+If the operand is the `RunResult.Completed` variant, `try` evaluates to its `value` payload.
+
+If the operand is the `RunResult.Panicked` variant, `try` propagates its `report` payload to the nearest compatible run-result
+propagation boundary as a `RunResult.Panicked` value.
+
+If the operand is `RunResult.Cancelled`, `try` propagates `RunResult.Cancelled` to the nearest compatible run-result propagation
+boundary.
+
+A run-result propagation boundary is:
+
+- a callable execution scope whose result type is `RunResult<R>`,
+- a single-yield region whose result type is `RunResult<R>`.
+
+The propagated `RunResult.Panicked` or `RunResult.Cancelled` value does not depend on the boundary's success type.
+
+If no compatible propagation boundary is available, `try` is rejected.
+
+Nested callable execution scopes and nested yield-capable regions create their own propagation boundaries when their result type is
+compatible with the propagated outcome.
+
+Error payload types must be compatible through ordinary type compatibility. If the source error type does not fit the boundary
+error type, the program must map the error explicitly before propagation.
+
+On the propagation path, the current control-flow path has no normal continuation and has type `never`.
+
+Propagation follows the same ownership, destruction, finalization, capability, and effect rules as an explicit exit to the target
+boundary.
+
+`try` is not valid in predicate expressions, contract expressions, guard expressions, or pattern contexts.
+
+`try await expression` means `try (await expression)`.
+
+```bray
+func load_user(pos id: UserId) -> Result<User, LoadError>
+{
+    let row = try db.fetch_user(id);
+    let user = try decode_user(row);
+
+    return Result.Ok(value = user);
+}
+```
+
+```bray
+func collect(pos task: Task<Result<User, LoadError>>) -> RunResult<Result<User, LoadError>>
+{
+    let result = try catch task.join();
+    let user = try result;
+
+    return RunResult.Completed(value = Result.Ok(value = user));
+}
+```
+
+In the `collect` example, `catch task.join()` has type `RunResult<Result<User, LoadError>>`.
+
+---
+
 ## Conditional expressions
 
 TODO: Define conditional expressions.
@@ -4316,7 +4555,39 @@ TODO: Define conditional expressions.
 
 ## Loop expressions
 
-TODO: Define loop expressions.
+A loop expression is a yield-capable region.
+
+The loop expression form is:
+
+```bray
+loop
+{
+    ...
+}
+```
+
+A loop expression evaluates its body repeatedly until control leaves the loop.
+
+Reaching the end of the loop body starts the next iteration.
+
+The syntactic body block of a loop belongs to the loop expression's yield-capable region. It does not capture `yield` for itself
+unless it contains a nested value-producing block expression.
+
+`yield value` exits the loop expression and supplies the loop result.
+
+`yield;` exits the loop expression and supplies `unit`.
+
+`continue` skips the rest of the current loop body and starts the next iteration.
+
+Loop paths that keep iterating do not supply a loop result.
+
+If a loop has reachable `yield` expressions that target the loop, every such yielded value must be compatible with the loop's
+result type.
+
+`return`, panic, nullable propagation, result propagation, run-result propagation, and other exits that target an outer boundary
+leave the loop without supplying the loop result.
+
+A loop with no reachable `yield` to itself has no normal completion and has type `never`.
 
 ---
 
@@ -4522,17 +4793,13 @@ Specific expression forms also define these evaluation facts:
 ## Expression TODOs
 
 - TODO: Define ordinary conditional expression syntax.
-- TODO: Define ordinary loop expression syntax.
 - TODO: Define resource-scope expression syntax.
-- TODO: Define await surface syntax.
 - TODO: Define assertion syntax.
-- TODO: Define panic-catching boundary syntax and contracts.
 - TODO: Define checked-conversion result shape.
 - TODO: Define closure and anonymous function syntax.
 - TODO: Define general generator expression syntax.
 - TODO: Define operator precedence and operator overloading syntax.
 - TODO: Define indexing contract details.
-- TODO: Define whether loops can produce result values.
 
 ---
 
