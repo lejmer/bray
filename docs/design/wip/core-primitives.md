@@ -541,7 +541,7 @@ Bray has two kinds of yield-capable regions:
 
 Value-producing block expressions, value-producing conditional expression arms, and match expression arms are single-yield regions.
 
-Generator expressions are multi-yield regions.
+General generator expressions and array generator expressions are multi-yield regions.
 
 A `yield` expression targets the nearest enclosing yield-capable region.
 
@@ -562,6 +562,8 @@ equal the array length.
 
 A generator used to construct a fixed-size array can contain nested control flow, but every possible execution must produce the
 required number of elements. If the compiler cannot prove the yield count, the program is rejected.
+
+General generator expressions are multi-yield regions with variable cardinality. They may yield zero or more values.
 
 Every yielded value must satisfy the target region's element/result type, ownership state, initialization state, destruction state,
 finalization obligations, capability contract, effect contract, and execution mode.
@@ -622,9 +624,30 @@ Loop expressions do not have an else body because they have no natural exhaustio
 
 ## Generator iteration expression
 
+A general generator expression has the form:
+
+```bray
+{
+    each <pattern> in <source>
+    {
+        ...
+    }
+}
+```
+
+A brace-enclosed expression whose only top-level child is a general generator iteration expression is a general generator
+expression rather than an ordinary block expression.
+
+General generator expressions contain exactly one top-level generator iteration expression.
+
+A bare top-level `each` is not valid in an ordinary block expression.
+
 A generator iteration expression has the form:
 
 `each <pattern> in <source> { ... }`
+
+A generator iteration expression appears as the top-level child of a general generator expression, inside an array generator
+expression, or nested inside an enclosing generator region that accepts its yielded values.
 
 The `<source>` expression must provide an iteration contract. The iteration contract defines the yielded element type, iteration
 order, ownership behavior, borrowing behavior, cardinality information, and whether iteration is finite.
@@ -638,8 +661,8 @@ Per-element pattern bindings are scoped to the generator body. A new pattern app
 
 The source expression is evaluated once before iteration begins.
 
-A generator body is a multi-yield region. Each `yield` inside the body contributes a value to the generator unless it is captured
-by a nested yield-capable region.
+The body of a generator iteration expression runs inside the enclosing generator region. Each `yield` inside the body contributes
+a value to that generator region unless it is captured by a nested yield-capable region.
 
 `break` exits the nearest generator iteration expression and supplies that iteration expression's result.
 

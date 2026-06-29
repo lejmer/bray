@@ -131,6 +131,9 @@ A **block expression** is a braced expression region.
 }
 ```
 
+A brace-enclosed expression whose only top-level child is a general generator iteration expression is a general generator
+expression, not a block expression.
+
 Every block expression has a type.
 
 A block expression introduces a scope for:
@@ -2872,11 +2875,77 @@ Facts tied to an iteration binding expire at the end of that iteration unless th
 
 ---
 
+## General generator expressions
+
+A **general generator expression** constructs a generator value from zero or more yielded elements.
+
+```bray
+let names =
+{
+    each user in users
+    {
+        yield user.name;
+    }
+};
+```
+
+A general generator expression has the form:
+
+```bray
+{
+    each pattern in source
+    {
+        ...
+    }
+}
+```
+
+A brace-enclosed expression whose only top-level child is a general generator iteration expression is parsed as a general generator
+expression rather than an ordinary block expression.
+
+A general generator expression must contain exactly one top-level generator iteration expression.
+
+A bare top-level `each` is not valid in an ordinary block expression.
+
+The top-level generator iteration expression establishes the general generator region.
+
+A general generator region is a multi-yield region.
+
+`yield` inside the iteration body contributes values to the general generator region unless captured by a nested yield-capable
+region.
+
+The generated element type is determined from yielded values, expected-type guidance, conversion checking, and constraint
+solving.
+
+When an expected generator element type is available, each yielded value is checked against that type.
+
+The source expression of the top-level generator iteration expression is evaluated once before iteration begins.
+
+Nested control flow and nested generator iteration expressions can be used inside the top-level iteration body to compose produced
+values.
+
+```bray
+let values =
+{
+    each source in sources
+    {
+        each item in source
+        {
+            yield item;
+        }
+    }
+};
+```
+
+The general generator expression completes with the generated value.
+
+The top-level generator iteration expression itself completes as `unit`.
+
+---
+
 ## General generator iteration expressions
 
 A **general generator iteration expression** iterates over a source inside a multi-yield generator region.
-
-TODO: Define general generator enclosing syntax.
 
 The iteration form is:
 
@@ -3601,7 +3670,7 @@ Yield-capable regions include:
 - value-producing block expressions,
 - value-producing conditional arm block expressions,
 - match arm block expressions,
-- generator expressions,
+- general generator expressions,
 - array generator expressions.
 
 A single-yield region with result type other than `unit` must receive exactly one yielded value on every normal completion path or
@@ -5209,7 +5278,6 @@ Specific expression forms also define these evaluation facts:
 - TODO: Define assertion syntax.
 - TODO: Define checked-conversion result shape.
 - TODO: Define closure and anonymous function syntax.
-- TODO: Define general generator expression syntax.
 - TODO: Define operator precedence and operator overloading syntax.
 - TODO: Define indexing contract details.
 
