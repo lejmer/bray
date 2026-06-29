@@ -16,12 +16,13 @@ The core pattern forms are:
 
 ```bray
 _                         // discard
-name                      // binding
+name                      // resolved name pattern or binding
 mut name                  // mutable owned binding
 literal                   // literal pattern
 Path.Name                 // path pattern
-.Variant                  // expected-type no-payload variant pattern
-.Variant(...)             // expected-type payload variant pattern
+name(...)                 // resolved payload pattern
+.name                     // explicit expected-subject no-payload pattern
+.name(...)                // explicit expected-subject payload pattern
 Type.Variant              // full no-payload variant pattern
 Type.Variant(...)         // full payload variant pattern
 Type { ... }              // product pattern with explicit type
@@ -34,7 +35,7 @@ box(pattern)              // owned-indirection pattern
 pattern1 | pattern2       // alternative pattern
 ```
 
-The exact set can grow, but each new pattern form must preserve the same core rules: structural matching, explicit binding, refutability tracking, ownership-mode checking, and fact-context refinement.
+Each pattern form preserves the same core rules: structural matching, explicit binding, refutability tracking, ownership-mode checking, and fact-context refinement.
 
 ---
 
@@ -54,17 +55,27 @@ It is used when a value or part of a value should be matched without being named
 
 ### Binding pattern
 
-A bare identifier in a pattern introduces a new binding.
+A bare identifier in a pattern first resolves in pattern context.
 
 ```bray
 value
 ```
 
-Bare identifiers bind. They do not resolve to constants, variants, functions, or existing names.
+If the identifier resolves to a pattern-capable declaration, the pattern uses that declaration.
 
-This keeps pattern resolution predictable.
+If the identifier does not resolve to a pattern-capable declaration, it introduces a new binding.
 
-Named constants, variants, and other named declarations are matched through paths.
+Pattern-capable declarations include constants, no-payload variants, payload variants when the pattern uses payload syntax, built-in pattern names, and other declarations that explicitly define pattern behavior.
+
+Functions, ordinary values, modules, and non-pattern declarations are not pattern-capable just because their names are visible.
+
+If pattern resolution is ambiguous, the pattern is rejected.
+
+A binding pattern receives its name only after pattern resolution fails to find a pattern-capable declaration.
+
+This means ordinary binding syntax stays compact while named pattern forms do not require leading punctuation.
+
+Named constants, variants, and other pattern-capable declarations can also be matched through qualified paths.
 
 ```bray
 Color.Red
@@ -111,7 +122,7 @@ Literal patterns are structural and effect-free.
 
 ### Path patterns
 
-A path pattern matches a named constant, no-payload variant, or other pattern-eligible named declaration.
+A path pattern matches a named constant, no-payload variant, or other pattern-capable named declaration.
 
 ```bray
 Color.Red
@@ -122,7 +133,7 @@ A path pattern uses normal Bray path resolution.
 
 A path pattern has no payload bindings unless the resolved declaration is a payload-carrying pattern form.
 
-Bare identifiers remain binding patterns. A named constant or variant must be written as a path.
+An unqualified identifier can also resolve to a pattern-capable declaration according to pattern-context name resolution.
 
 ---
 
@@ -130,31 +141,40 @@ Bare identifiers remain binding patterns. A named constant or variant must be wr
 
 A union variant pattern matches the active variant of a union value.
 
-Full variant pattern:
+Qualified variant pattern:
 
 ```bray
 Shape.Circle(center = c, radius = r)
 ```
 
-Expected-type shorthand:
+Expected-subject variant pattern:
+
+```bray
+Circle(center = c, radius = r)
+```
+
+Explicit expected-subject shorthand:
 
 ```bray
 .Circle(center = c, radius = r)
 ```
 
-The leading-dot form is valid when the expected subject type is a known union type and that union contains the named variant.
+The unqualified expected-subject form is valid when pattern resolution finds the variant through the subject type or another visible pattern-capable declaration.
+
+The leading-dot form is valid when the expected subject type is a known union type and that union contains the named variant. It is an explicit subject-member shorthand, not the required form.
 
 A no-payload variant pattern uses no parentheses.
 
 ```bray
 Shape.Empty
+Empty
 .Empty
 ```
 
 A payload variant pattern uses parentheses and field patterns.
 
 ```bray
-.Circle(center = c, radius = r)
+Circle(center = c, radius = r)
 ```
 
 Payload fields are matched by name.
@@ -220,16 +240,18 @@ This means:
 The same rule applies to variant payload fields.
 
 ```bray
-.Circle(center, radius)
+Circle(center, radius)
 ```
 
 means:
 
 ```bray
-.Circle(center = center, radius = radius)
+Circle(center = center, radius = radius)
 ```
 
 The shorthand introduces bindings with the same names as the matched fields.
+
+Field shorthand is binding shorthand. The introduced field binding is not resolved as a named constant or variant.
 
 ---
 
@@ -239,7 +261,7 @@ The `..` pattern explicitly accounts for remaining fields or remaining elements.
 
 ```bray
 { x, .. }
-.Circle(radius, ..)
+Circle(radius, ..)
 [first, ..]
 [first, .., last]
 ```
@@ -390,7 +412,7 @@ A borrowing `box(inner)` pattern projects a borrow of the contained value accord
 An alternative pattern matches when any of its alternatives match.
 
 ```bray
-.Error | .Cancelled
+Error | Cancelled
 ```
 
 All alternatives are checked against the same subject type.
@@ -426,11 +448,11 @@ Examples of refutable patterns:
 ```bray
 0
 true
-.Circle(radius, ..)
-.Empty
+Circle(radius, ..)
+Empty
 none
 ?value
-.Error | .Cancelled
+Error | Cancelled
 ```
 
 A variant pattern is refutable when the subject union has other variants.
@@ -614,15 +636,15 @@ Patterns are structural matching forms.
 
 Patterns have a dedicated grammar category.
 
-Bare identifiers bind.
+Pattern names resolve before they bind.
 
-Paths identify named constants, variants, and other pattern-eligible declarations.
+Paths identify named constants, variants, and other pattern-capable declarations.
 
 Variant patterns refine closed union values.
 
 Payload and product fields are matched by name.
 
-Field shorthand binds same-name fields.
+Field shorthand binds same-name fields without resolving those names as named patterns.
 
 `..` explicitly accounts for remaining fields or elements.
 

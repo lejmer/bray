@@ -255,7 +255,7 @@ A `never` expression can satisfy any callable result requirement because it has 
 ```bray
 func fail(pos message: String) -> never
 {
-    abort(message);
+    panic(message);
 }
 ```
 
@@ -523,7 +523,7 @@ Unknown fields are errors.
 
 Missing fields are errors unless `..` is present.
 
-Field shorthand introduces same-name bindings.
+Field shorthand introduces same-name bindings. A field shorthand binding name is not resolved as a named constant or variant.
 
 ```bray
 let { x, y }: Point = point;
@@ -605,7 +605,7 @@ A binding moved out before scope exit is not destroyed by the old binding.
 
 A partially initialized binding destroys only initialized parts.
 
-If initializer evaluation exits through `return`, `yield`, `break`, `continue`, `never`, or panic/abort-like control flow before the declaration completes, the pattern bindings are not introduced.
+If initializer evaluation exits through `return`, `yield`, `break`, `continue`, `never`, or panic before the declaration completes, the pattern bindings are not introduced.
 
 TODO: Define how additional control-flow forms interact with initializer evaluation before local binding declarations complete.
 
@@ -880,7 +880,7 @@ func log(pos message: String)
 
 `never` is a type with no values.
 
-A `never` expression is produced by control-flow constructs that have no normal continuation, such as `return` and abort-like expressions.
+A `never` expression is produced by control-flow constructs that have no normal continuation, such as `return` and panic-producing expressions.
 
 TODO: Define the complete set of never-producing constructs.
 
@@ -888,7 +888,17 @@ TODO: Define the complete set of never-producing constructs.
 return value;
 ```
 
+The operand of `return value` is checked against the nearest callable execution scope's declared result type.
+
+The `return value` expression itself has type `never`.
+
 A `never` expression can satisfy any expected type at a control-flow merge because it has no normal continuation.
+
+At a control-flow merge, `never` contributes no value and does not determine the merged result type.
+
+This does not make `never` a value of the expected type.
+
+Panic-producing expressions have type `never` because their normal continuation does not run.
 
 ---
 
@@ -1038,7 +1048,9 @@ Name expressions are expression grammar forms.
 
 Pattern identifiers are checked by pattern grammar rules instead.
 
-In pattern context, a bare identifier introduces a binding.
+In pattern context, a bare identifier first resolves against pattern-capable declarations available from the subject type and lexical scope.
+
+If the identifier does not resolve to a pattern-capable declaration, it introduces a binding.
 
 In expression context, a bare identifier resolves to an existing visible binding or declaration.
 
@@ -1252,13 +1264,15 @@ A constant name expression produces the constant’s value or a compile-time con
 
 In expression context, a bare identifier can resolve to a constant.
 
-In pattern context, bare identifiers bind. Constant matching in patterns uses a path pattern.
+In pattern context, a bare identifier can resolve to a constant when that constant is pattern-capable in the current subject context.
+
+Constant matching can also use a qualified path pattern.
 
 ```bray
 Color.Red
 ```
 
-This distinction keeps pattern binding predictable while allowing constants to be used normally in expressions.
+If pattern name resolution is ambiguous, the pattern is rejected.
 
 ---
 
@@ -1659,7 +1673,7 @@ Assignment through an active union payload field requires active-variant refinem
 
 Assignment through a type-form projection requires the type form to permit assignment to the reached storage.
 
-Assignment returns `unit`.
+On normal completion, assignment returns `unit`.
 
 Assignment invalidates facts that depend on the previous value or mutated storage.
 
@@ -1741,6 +1755,14 @@ The indexed subject is evaluated as an expression and must have a type that supp
 
 The index expression is evaluated as an expression and must have a type accepted by the indexed subject’s indexing contract.
 
+Index access with `[]` is asserted access.
+
+When the indexing contract has bounds or validity requirements, the compiler can discharge those requirements from static facts.
+
+If an asserted index requirement is checked at runtime and fails, the access panics.
+
+Types can provide checked access operations that represent invalid access through ordinary result values.
+
 For fixed-size arrays, index access reaches an array element.
 
 ```bray
@@ -1791,7 +1813,7 @@ Facts can establish that an index is valid, that an element is initialized, or t
 
 Mutation, movement, consumption, destruction, reinitialization, or finalization of the subject or reached element can invalidate facts about indexed access.
 
-TODO: Define bounds-checking behavior, index type requirements, slice behavior, and custom indexing contracts.
+TODO: Define index type requirements, slice behavior, and custom indexing contracts.
 
 ---
 
@@ -1807,11 +1829,15 @@ items[index] = value;
 
 The left side of an assignment expression must produce an assignable access path.
 
-The right side of an assignment expression must produce a value compatible with the destination type.
+The right side of an assignment expression must produce a value compatible with the destination type on every normal completion path.
+
+A right side of type `never` satisfies the destination type because no value reaches the assignment write.
+
+If the right side has no normal continuation, the destination is not reinitialized and the assignment expression has type `never` on that path.
 
 Assignment requires mutation authority over the destination access path.
 
-Assignment returns `unit`.
+On normal completion, assignment returns `unit`.
 
 ```bray
 counter.value = counter.value + 1;
@@ -2500,7 +2526,7 @@ Tuple element expressions are evaluated left to right.
 
 Each tuple element has its own initialization state while the tuple is being constructed.
 
-If evaluation of an element exits through `return`, `yield`, `break`, `continue`, `never`, cancellation, abort-like control flow, or another non-local exit before the tuple is fully initialized, already-initialized element temporaries are handled by the corresponding control-flow, ownership, destruction, and finalization rules.
+If evaluation of an element exits through `return`, `yield`, `break`, `continue`, `never`, cancellation, panic, or another non-local exit before the tuple is fully initialized, already-initialized element temporaries are handled by the corresponding control-flow, ownership, destruction, and finalization rules.
 
 A tuple expression owns its elements when the element expressions produce owned values that are moved into the tuple.
 
@@ -2615,7 +2641,7 @@ Array element expressions are evaluated left to right.
 
 Each array element has its own initialization state while the array is being constructed.
 
-If evaluation of an element exits through `return`, `yield`, `break`, `continue`, `never`, cancellation, abort-like control flow, or another non-local exit before the array is fully initialized, already-initialized element temporaries are handled by the corresponding control-flow, ownership, destruction, and finalization rules.
+If evaluation of an element exits through `return`, `yield`, `break`, `continue`, `never`, cancellation, panic, or another non-local exit before the array is fully initialized, already-initialized element temporaries are handled by the corresponding control-flow, ownership, destruction, and finalization rules.
 
 An array expression owns its elements when the element expressions produce owned values moved into the array.
 
@@ -2781,7 +2807,7 @@ A yielded value is moved into the array unless it is copied according to the ele
 
 The array is fully initialized when every required element has been yielded and initialized.
 
-If iteration exits before the array is fully initialized through `return`, `break`, `continue`, `never`, cancellation, abort-like control flow, or another control-flow exit, initialized elements and live temporaries are handled by the corresponding ownership, destruction, and finalization rules.
+If iteration exits before the array is fully initialized through `return`, `break`, `continue`, `never`, cancellation, panic, or another control-flow exit, initialized elements and live temporaries are handled by the corresponding ownership, destruction, and finalization rules.
 
 `continue` targets the nearest iteration region.
 
@@ -3419,17 +3445,17 @@ A **match expression** evaluates a subject expression, compares it against a seq
 ```bray
 let area: r64 = match shape
 {
-    case .Circle(radius)
+    case Circle(radius)
     {
         yield math.pi * radius * radius;
     }
 
-    case .Rectangle(min, max)
+    case Rectangle(min, max)
     {
         yield (max.x - min.x) * (max.y - min.y);
     }
 
-    case .Empty
+    case Empty
     {
         yield 0.0;
     }
@@ -3523,12 +3549,12 @@ A consuming match uses consume mode.
 ```bray
 let bytes = match consume buffer
 {
-    case .Inline(data)
+    case Inline(data)
     {
         yield data;
     }
 
-    case .Heap(data)
+    case Heap(data)
     {
         yield data;
     }
@@ -3597,6 +3623,32 @@ A `return` expression has type `never` in the current control-flow path because 
 `return` targets the nearest callable execution scope.
 
 A nested callable creates a separate callable execution scope.
+
+---
+
+## Panic expressions
+
+A **panic expression** raises an exceptional failure outside the ordinary callable result contract.
+
+```bray
+panic(message);
+```
+
+The panic message must be compatible with `String`.
+
+A panic expression has type `never` because the current normal continuation does not run.
+
+Panic is used for programmer errors, violated invariants, failed assertions, failed runtime contract checks, bounds failures in asserted access forms, and states the program did not model as ordinary failure.
+
+Recoverable domain failure is represented with result values, not panic.
+
+A panic propagates outward until it reaches a panic-catching boundary.
+
+If a panic reaches a panic-catching boundary, that boundary receives the panic report and handles recovery according to the boundary's contract.
+
+A panic-catching boundary does not resume the panicked continuation.
+
+If a panic reaches the program root without being caught, the program terminates.
 
 ---
 
@@ -3830,6 +3882,14 @@ Patterns are a dedicated grammar category.
 A pattern-bearing expression supplies a subject type to the pattern.
 
 A pattern-bearing expression supplies a pattern operation mode.
+
+Pattern identifiers resolve in pattern context before they introduce bindings.
+
+A bare identifier that resolves to a pattern-capable declaration is a named pattern.
+
+A bare identifier that does not resolve to a pattern-capable declaration introduces a binding.
+
+Ambiguous pattern-name resolution is rejected.
 
 The core pattern operation modes are:
 
@@ -4135,6 +4195,8 @@ TODO: Define trusted acknowledgement expressions.
 ---
 
 ## Assertion expressions
+
+A failed runtime assertion panics.
 
 TODO: Define assertion expressions.
 
@@ -4464,6 +4526,7 @@ Specific expression forms also define these evaluation facts:
 - TODO: Define resource-scope expression syntax.
 - TODO: Define await surface syntax.
 - TODO: Define assertion syntax.
+- TODO: Define panic-catching boundary syntax and contracts.
 - TODO: Define checked-conversion result shape.
 - TODO: Define closure and anonymous function syntax.
 - TODO: Define general generator expression syntax.
@@ -4499,7 +4562,7 @@ No-payload union variants construct without parentheses.
 
 Function calls and method calls are governed by callable contracts.
 
-Assignment returns `unit`.
+Assignment returns `unit` on normal completion.
 
 Patterns belong to pattern-bearing expressions and remain their own grammar category.
 

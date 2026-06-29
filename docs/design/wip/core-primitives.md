@@ -109,8 +109,8 @@ value
 mut value
 0
 true
-.Error
-.Circle(center = c, radius = r)
+Error
+Circle(center = c, radius = r)
 { x, y }
 (x, y)
 [first, second]
@@ -119,10 +119,13 @@ none
 box(inner)
 ```
 
-Bare identifiers bind. Named constants, no-payload variants, and other named pattern-eligible declarations are matched through
-paths.
+Pattern names resolve before they bind.
 
-A leading-dot variant pattern refers to a variant of the expected union type.
+If a bare identifier in pattern context resolves to a pattern-capable declaration, the pattern uses that declaration.
+
+If it does not resolve to a pattern-capable declaration, it introduces a new binding.
+
+A leading-dot variant pattern remains available as an explicit subject-member shorthand.
 
 ```bray
 .Empty
@@ -130,12 +133,12 @@ A leading-dot variant pattern refers to a variant of the expected union type.
 ```
 
 Product and variant payload patterns match fields by name. Field order does not matter. Field shorthand binds a field to a binding
-with the same name.
+with the same name. The shorthand binding name is not resolved as a named constant or variant.
 
 ```bray
 { x, y }
 
-.Circle(center, radius)
+Circle(center, radius)
 ```
 
 The `..` pattern explicitly accounts for remaining fields or elements and introduces no bindings.
@@ -143,7 +146,7 @@ The `..` pattern explicitly accounts for remaining fields or elements and introd
 ```bray
 { x, .. }
 
-.Circle(radius, ..)
+Circle(radius, ..)
 
 [first, .., last]
 ```
@@ -324,6 +327,21 @@ Nested regions have distinct exit targets. An explicit exit targets the nearest 
 
 ---
 
+## Panic
+
+A **panic** is an exceptional control-flow outcome outside ordinary result contracts.
+
+Panic is used for programmer errors, violated invariants, failed assertions, failed runtime contract checks, failed asserted
+index access, and states not modeled as ordinary failure.
+
+Recoverable domain failure is represented with result values, not panic.
+
+A panic propagates outward until it reaches a panic-catching boundary.
+
+If a panic reaches the program root without being caught, the program terminates.
+
+---
+
 ## Callable execution scopes
 
 A **callable execution scope** is the body of a callable program element.
@@ -420,17 +438,17 @@ semicolon when used as a sequenced expression.
 ```bray
 let area: r64 = match shape
 {
-    case .Circle(radius)
+    case Circle(radius)
     {
         yield math.pi * radius * radius;
     }
 
-    case .Rectangle(min, max)
+    case Rectangle(min, max)
     {
         yield (max.x - min.x) * (max.y - min.y);
     }
 
-    case .Empty
+    case Empty
     {
         yield 0.0;
     }

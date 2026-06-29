@@ -182,7 +182,7 @@ A concrete instantiation supplies arguments for the generic parameters.
 Pair<i32, r64>
 ```
 
-TODO: Define generic syntax, constraints, and generic checking.
+TODO: Define any remaining generic checking rules not covered by declared parameters and `with(...)` constraints.
 
 ---
 
@@ -768,7 +768,7 @@ Product patterns match fields by name.
 
 Field order does not matter.
 
-Field shorthand binds a field to a binding with the same name.
+Field shorthand binds a field to a binding with the same name. The shorthand binding name is not resolved as a named constant or variant.
 
 ```bray
 { x, y }
@@ -1241,8 +1241,8 @@ TODO: Define union layout directive syntax.
 Union values can be refined and decomposed by variant patterns.
 
 ```bray
-.Circle(center = c, radius = r)
-.Empty
+Circle(center = c, radius = r)
+Empty
 ```
 
 Variant patterns refine the subject to the matched active variant in the matched region.

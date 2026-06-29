@@ -425,6 +425,8 @@ func add(left: i32, right: i32) -> i32
 
 The returned expression must be compatible with the callable’s declared result type.
 
+The `return` expression itself has type `never` because control exits the callable execution scope.
+
 `return` always targets the nearest enclosing callable execution scope.
 
 ---
@@ -489,14 +491,20 @@ Bare `return;` is rejected.
 
 A `never` expression satisfies any required result type at a control-flow merge because it has no normal continuation.
 
+At a control-flow merge, `never` contributes no value and does not determine the merged result type.
+
 ```bray
 func fail(pos message: String) -> never
 {
-    abort(message);
+    panic(message);
 }
 ```
 
 A function declared to return `never` has no normal completion path.
+
+Panic is outside the ordinary callable result contract.
+
+If a callable panics, the panic propagates to the nearest panic-catching boundary instead of producing the callable's declared result.
 
 TODO: Define the exact set of `never`-producing constructs.
 
@@ -675,7 +683,7 @@ let op: func(pos value: i32) -> i32 = double;
 
 A callable with trusted caller obligations requires a callable type that carries those obligations.
 
-The exact syntax for function types with contract clauses is part of the Contract and Trust Model.
+TODO: Define callable type syntax for contract clauses.
 
 ---
 
@@ -850,7 +858,9 @@ A trusted implementation can expose an ordinary safe API.
 
 A trusted caller obligation appears in the public function contract.
 
-The detailed rules are part of the Contract and Trust Model.
+Trusted implementation capabilities are available only inside the trusted declaration body.
+
+Trusted caller obligations must be visible in the callable contract and satisfied by the caller.
 
 ---
 

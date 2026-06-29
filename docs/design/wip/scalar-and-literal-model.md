@@ -244,8 +244,14 @@ never
 
 A computation of type `never` does not complete normally.
 
-Examples of expressions that may have type `never` include expressions that always return, always fail, always abort, or otherwise
-never produce a normal value.
+A `never` expression can satisfy any expected value type because it produces no value on the current control-flow path.
+
+At a control-flow merge, `never` contributes no value and does not determine the merged result type.
+
+This does not make `never` a value of the expected type and does not define an implicit conversion from `never`.
+
+Examples of expressions that may have type `never` include expressions that always return, always panic, or otherwise never
+produce a normal value.
 
 TODO: Define the exact set of `never`-producing constructs.
 

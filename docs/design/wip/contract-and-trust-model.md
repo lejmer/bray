@@ -219,6 +219,8 @@ observational.
 Ordinary requirements can be proven statically, established by previous facts, or checked through runtime assertion mechanisms where
 appropriate.
 
+A failed runtime check of an ordinary requirement panics.
+
 ---
 
 ## Trusted requirements
