@@ -590,6 +590,8 @@ Guards belong to the surrounding construct that uses the pattern.
 
 The pattern system supplies structural refinement. Guard expressions supply additional condition checking.
 
+Guard coverage and guard proof rules belong to the surrounding expression form and the shared fact and predicate model.
+
 Guard syntax belongs to the match/control-flow model.
 
 ---

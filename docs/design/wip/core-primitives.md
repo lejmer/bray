@@ -443,7 +443,7 @@ A match body contains `case` arms.
 
 Each arm has a pattern and a block expression body.
 
-An arm can also have a `when` guard. A guard is an observe-only boolean expression evaluated after the arm pattern structurally
+An arm can also have a `when` guard. A guard is a boolean expression checked in guard context after the arm pattern structurally
 matches and before the arm body is selected.
 
 Bindings introduced by an arm pattern are available in the guard and in the arm body. In the guard, those bindings are available
@@ -476,12 +476,20 @@ A match expression over a closed union performs coverage checking against the un
 
 A match expression over a nullable value performs coverage checking over absent state and present contained values.
 
-Guarded arms provide conditional coverage. A guarded arm contributes full coverage only when the compiler can prove that the
-guard always holds for the matched state.
+Guarded arms provide conditional coverage through the shared fact and predicate system.
+
+A guarded arm contributes only the coverage subregion where the guard is statically proven true.
+
+A guard that is statically proven false makes that arm unreachable for the proven-false subregion.
+
+A statically unknown guard can still select the arm at runtime, but does not contribute the unknown subregion to required
+exhaustiveness.
 
 Alternative patterns contribute coverage for each alternative.
 
 Arm order is semantically meaningful. The selected arm is the first arm that matches structurally and passes its guard.
+
+Later arms are checked against the subject space not already definitely covered by earlier arms.
 
 A later arm whose pattern can never be selected is unreachable.
 

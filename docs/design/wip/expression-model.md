@@ -3459,7 +3459,7 @@ match subject
 }
 ```
 
-A guard is an observe-only boolean expression evaluated after the arm pattern structurally matches and before the arm body is selected.
+A guard is a boolean expression evaluated in guard context after the arm pattern structurally matches and before the arm body is selected.
 
 Bindings introduced by an arm pattern are available in the guard and in the arm body.
 
@@ -3492,11 +3492,21 @@ A match expression over a closed union performs coverage checking against the un
 
 A match expression over a nullable value performs coverage checking over absent state and present contained values.
 
-Guarded arms contribute full coverage when the compiler can prove the guard always holds for the matched state.
+Coverage analysis tracks the pattern coverage region for each arm.
+
+An unguarded arm contributes its whole pattern coverage region.
+
+A guarded arm contributes only the subregion where the guard is statically proven true by the shared fact and predicate system.
+
+If the guard is statically proven false for the arm's pattern facts, the arm is unreachable.
+
+If the guard truth is statically unknown for some part of the arm's pattern coverage region, that part can still select the arm at runtime, but it does not contribute to exhaustiveness.
 
 Alternative patterns contribute coverage for each alternative.
 
 Arm order is semantically meaningful.
+
+Later arms are checked against the subject space not already definitely covered by earlier arms.
 
 A later arm whose pattern can never be selected is unreachable.
 
@@ -4054,6 +4064,10 @@ A guard is evaluated after the arm pattern structurally matches.
 
 A guard is evaluated before the arm body is selected.
 
+A guard is an ordinary expression checked in guard context.
+
+It uses normal expression checking with the capabilities, effects, and facts available in guard context.
+
 A guard must produce `bool`.
 
 Bindings introduced by the pattern are available in the guard.
@@ -4061,6 +4075,18 @@ Bindings introduced by the pattern are available in the guard.
 Facts established by successful structural pattern matching are available in the guard.
 
 Surrounding facts from the fact context are available in the guard when they remain valid at the guard evaluation point.
+
+Pattern bindings are available in observe-only form in the guard.
+
+Guard context does not provide consume capability.
+
+Guard context does not provide mutation authority.
+
+Guard context does not allow finalization transfer.
+
+Guard context does not provide trusted capability unless that capability is already available and acknowledged according to ordinary trust rules.
+
+A guard expression cannot mutate, move, consume, allocate, perform I/O, await, enter resource scopes, or depend on effects unavailable in guard context.
 
 The arm body is selected only when the pattern matches and the guard evaluates to `true`.
 
@@ -4074,13 +4100,31 @@ A guard can establish facts for the selected arm body when the guard condition i
 
 Facts established by a guard remain valid only while the values, storage identities, lifetimes, capabilities, and versions they depend on remain valid.
 
-TODO: Define guarded coverage rules for exhaustiveness checking.
+Static guard coverage uses the shared fact and predicate system.
 
-TODO: Define the allowed expression subset for guards.
+For each guarded arm, coverage analysis asks whether the guard condition is statically entailed by:
 
-TODO: Define guard effect and capability rules.
+- facts established by the arm pattern,
+- surrounding facts still valid at the guard point,
+- predicate facts available in the fact context.
 
-TODO: Define guard interaction with consuming match operation mode.
+The static result for a guard over a coverage subregion is one of:
+
+- **proven true:** the guarded arm contributes that subregion to exhaustiveness,
+- **proven false:** the guarded arm cannot select that subregion,
+- **statically unknown:** the guarded arm can select that subregion at runtime, but does not contribute it to exhaustiveness.
+
+If a construct requires exhaustive coverage, statically unknown guard coverage does not satisfy that requirement.
+
+If coverage would be complete only by assuming a statically unknown guard, the construct is rejected.
+
+For constructs that do not require exhaustive coverage, a statically unknown guard can produce a warning when it affects coverage reasoning.
+
+In a consuming match, structural matching and guard evaluation happen by observation first.
+
+Consuming bindings are produced only for the selected arm body after the guard evaluates to `true`.
+
+Guards in a consuming match cannot consume from the subject, move from pattern bindings, or otherwise change the ownership state that the selected arm body receives.
 
 ---
 
@@ -4202,18 +4246,6 @@ In expression context, postfix `?` is nullable propagation.
 
 ---
 
-## Resource-scope expressions
-
-TODO: Define resource-scope expressions.
-
----
-
-## Closure and anonymous function expressions
-
-TODO: Define closure and anonymous function expressions.
-
----
-
 ## Conditional expressions
 
 TODO: Define conditional expressions.
@@ -4223,6 +4255,18 @@ TODO: Define conditional expressions.
 ## Loop expressions
 
 TODO: Define loop expressions.
+
+---
+
+## Resource-scope expressions
+
+TODO: Define resource-scope expressions.
+
+---
+
+## Closure and anonymous function expressions
+
+TODO: Define closure and anonymous function expressions.
 
 ---
 
