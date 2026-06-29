@@ -241,7 +241,9 @@ Parentheses around the condition are ordinary expression grouping and are theref
 
 The body is evaluated only when the condition evaluates to `true`.
 
-When the condition evaluates to `false`, the `while` expression completes as `unit`.
+When the condition evaluates to `false`, the else body is evaluated if one is present.
+
+When the condition evaluates to `false` and no else body is present, the `while` expression completes as `unit`.
 
 Reaching the end of the body starts the next condition evaluation.
 
@@ -253,10 +255,59 @@ Reaching the end of the body starts the next condition evaluation.
 
 The body belongs to the `while` expression's break-capable region.
 
-The body does not capture `yield`.
+The else body belongs to the same break-capable region.
+
+The body and else body do not capture `yield`.
+
+`continue` is not valid in the else body.
 
 If a `while` expression must produce a non-`unit` value, every reachable normal exit path must break with a compatible value. A
-reachable false-condition exit makes the expression invalid for that result type.
+reachable false-condition path requires an else body.
+
+---
+
+## For expressions
+
+A `for` expression iterates over a source that provides an iteration contract.
+
+The source expression is evaluated once before iteration begins.
+
+The source expression must provide an iteration contract. The iteration contract defines the element type, element access mode,
+iteration order, cardinality when known, whether iteration is finite, and ownership and borrowing behavior for each produced
+element.
+
+The pattern is checked against the source element type and must be irrefutable.
+
+Each iteration creates fresh bindings from the pattern.
+
+Iteration bindings are scoped to the for body.
+
+Iteration bindings are not visible in the source expression or else body.
+
+For each produced element, the pattern is applied and the body is evaluated once.
+
+Reaching the end of the body starts the next iteration step.
+
+The for body belongs to the `for` expression's break-capable region.
+
+The else body belongs to the same break-capable region.
+
+The body and else body do not capture `yield`.
+
+`break value` exits the `for` expression and supplies the `for` result.
+
+`break;` is shorthand for `break unit;`.
+
+`continue` skips the rest of the current body evaluation and starts the next iteration step.
+
+`continue` is not valid in the else body.
+
+Natural exhaustion selects the else body when one is present.
+
+Natural exhaustion without an else body completes as `unit`.
+
+If a `for` expression must produce a non-`unit` value, every reachable normal exit path must break with a compatible value. A
+reachable natural-exhaustion path requires an else body.
 
 ---
 
@@ -521,7 +572,7 @@ finalization obligations, capability contract, effect contract, and execution mo
 
 A **break-capable region** is a loop or iteration region that accepts `break` expressions.
 
-Loop expressions, while expressions, and iteration expressions are break-capable regions.
+Loop expressions, while expressions, for expressions, and generator iteration expressions are break-capable regions.
 
 A `break` expression targets the nearest enclosing break-capable region.
 
@@ -555,9 +606,17 @@ Loop paths that keep iterating do not supply a loop result.
 
 A while expression repeats only while its condition is true.
 
-The false condition path exits the while expression with `unit`.
+The false condition path selects the while else body when one is present, or exits the while expression with `unit` when no else
+body is present.
+
+A for expression repeats until its source is exhausted or control leaves the expression.
+
+The natural-exhaustion path selects the for else body when one is present, or exits the for expression with `unit` when no else
+body is present.
 
 A loop with no reachable `break` to itself has no normal completion and has type `never`.
+
+Loop expressions do not have an else body because they have no natural exhaustion path.
 
 ---
 

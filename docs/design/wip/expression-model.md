@@ -4060,9 +4060,8 @@ Trusted caller obligations used by a conversion expression must be available in 
 
 A **pattern-bearing expression** is an expression form that applies a pattern to a subject value, subject access path, or subject element.
 
-Pattern-bearing expression forms include match expressions, array generator iteration expressions, general generator iteration expressions, and local destructuring constructs.
-
-TODO: Define pattern-bearing behavior for loop and control-flow constructs with pattern positions.
+Pattern-bearing expression forms include match expressions, for expressions, array generator iteration expressions, general
+generator iteration expressions, and local destructuring constructs.
 
 Patterns are a dedicated grammar category.
 
@@ -4704,10 +4703,21 @@ if ready
 
 A while expression is a pre-test loop expression.
 
-The while expression form is:
+The while expression forms are:
 
 ```bray
 while condition
+{
+    ...
+}
+```
+
+```bray
+while condition
+{
+    ...
+}
+else
 {
     ...
 }
@@ -4723,13 +4733,20 @@ Parentheses around the condition are ordinary expression grouping and are not re
 
 If the condition evaluates to `true`, the body is evaluated once.
 
-If the condition evaluates to `false`, the while expression completes as `unit`.
+If the condition evaluates to `false`, the else body is selected when one is present.
+
+If the condition evaluates to `false` and no else body is present, the while expression completes as `unit`.
 
 After the body reaches its end, the condition is evaluated again.
 
 The syntactic body block of a while expression belongs to the while expression's break-capable region.
 
+The else body belongs to the same break-capable region.
+
 A while body does not capture `yield`; a `yield` inside a while body targets the nearest enclosing yield-capable region unless a
+nested yield-capable region captures it.
+
+An else body does not capture `yield`; a `yield` inside an else body targets the nearest enclosing yield-capable region unless a
 nested yield-capable region captures it.
 
 `break value` exits the while expression and supplies the while result.
@@ -4738,18 +4755,26 @@ nested yield-capable region captures it.
 
 `continue` skips the rest of the current body evaluation and starts the next condition evaluation.
 
+`continue` is not valid in the else body.
+
 Loop paths that keep iterating do not supply a while result.
 
-A reachable false-condition exit contributes `unit`.
+A reachable false-condition exit without an else body contributes `unit`.
 
-If a while expression has result type `unit`, a false-condition exit is valid.
+An else body that completes naturally contributes `unit`.
+
+If a while expression has result type `unit`, a false-condition exit without an else body is valid.
 
 If a while expression has a result type other than `unit`, every reachable normal while exit path must supply a compatible value
-with `break` or end in a `never` expression. A reachable false-condition exit makes the expression invalid for that result type.
+with `break` or end in a `never` expression.
+
+An else body is required when the while expression result type is not `unit` and the false-condition path is reachable.
+
+If the compiler proves the false-condition path unreachable, a missing else body does not contribute a normal path.
 
 The while body is checked in a fact context where the condition is true.
 
-The false-condition exit contributes the fact that the condition is false.
+The else body is checked in a fact context where the condition is false.
 
 No fact is assumed to survive from one iteration to the next merely because it was true in a previous iteration.
 
@@ -4764,6 +4789,145 @@ while index < items.count()
     process(items.at(index));
     index = index + 1;
 }
+```
+
+```bray
+let found: Item? = while index < items.count()
+{
+    let item = items.at(index);
+
+    if item.matches(query)
+    {
+        break item;
+    }
+
+    index = index + 1;
+}
+else
+{
+    break none;
+};
+```
+
+---
+
+## For expressions
+
+A for expression iterates over a source that provides an iteration contract.
+
+The for expression forms are:
+
+```bray
+for pattern in source
+{
+    ...
+}
+```
+
+```bray
+for pattern in source
+{
+    ...
+}
+else
+{
+    ...
+}
+```
+
+The source expression is evaluated once before iteration begins.
+
+The source expression must provide an iteration contract.
+
+The iteration contract defines:
+
+- the element type,
+- the element access mode,
+- the iteration order,
+- the cardinality when known,
+- whether the iteration is finite,
+- ownership and borrowing behavior for each produced element.
+
+The pattern is checked against the source element type.
+
+The pattern must be irrefutable for the source element type.
+
+The pattern operation mode is determined by the source iteration contract.
+
+Each iteration creates fresh bindings from the pattern.
+
+Iteration bindings are scoped to the for body.
+
+Iteration bindings are not visible in the source expression or else body.
+
+Iteration bindings are destroyed or ended at the end of each iteration according to ownership, borrowing, destruction, and
+finalization rules.
+
+For each produced element, the pattern is applied and the body is evaluated once.
+
+Reaching the end of the body starts the next iteration step.
+
+The syntactic body block of a for expression belongs to the for expression's break-capable region.
+
+The else body belongs to the same break-capable region.
+
+A for body does not capture `yield`; a `yield` inside a for body targets the nearest enclosing yield-capable region unless a nested
+yield-capable region captures it.
+
+An else body does not capture `yield`; a `yield` inside an else body targets the nearest enclosing yield-capable region unless a
+nested yield-capable region captures it.
+
+`break value` exits the for expression and supplies the for result.
+
+`break;` exits the for expression and supplies `unit`.
+
+`continue` skips the rest of the current body evaluation and starts the next iteration step.
+
+`continue` is not valid in the else body.
+
+If iteration reaches natural exhaustion, the else body is selected when one is present.
+
+If iteration reaches natural exhaustion and no else body is present, the for expression completes as `unit`.
+
+Natural exhaustion does not occur on a path that exits through `break`, `return`, `yield`, panic, nullable propagation, result
+propagation, run-result propagation, or another outer-boundary exit.
+
+An else body that completes naturally contributes `unit`.
+
+If a for expression has result type `unit`, natural exhaustion without an else body is valid.
+
+If a for expression has a result type other than `unit`, every reachable normal for exit path must supply a compatible value with
+`break` or end in a `never` expression.
+
+An else body is required when the for expression result type is not `unit` and natural exhaustion is reachable.
+
+If the compiler proves natural exhaustion unreachable, a missing else body does not contribute a normal path.
+
+The type, ownership, initialization, destruction, finalization, capability, effect, task-obligation, and fact state after a for
+expression is the merge of all reachable normal for exits.
+
+Facts tied to an iteration binding expire at the end of that iteration unless they are transferred into another surviving storage
+location.
+
+```bray
+for item in items
+{
+    process(item);
+}
+```
+
+```bray
+let found: Item? = for item in items
+{
+    if item.matches(query)
+    {
+        break item;
+    }
+}
+else
+{
+    break none;
+};
 ```
 
 ---
@@ -4805,6 +4969,8 @@ type.
 boundary leave the loop without supplying the loop result.
 
 A loop with no reachable `break` to itself has no normal completion and has type `never`.
+
+Loop expressions do not have an else body because they have no natural exhaustion path.
 
 ```bray
 let found: Item? = loop
@@ -4984,7 +5150,11 @@ Conditional expressions evaluate the condition before evaluating the selected br
 evaluated.
 
 While expressions evaluate the condition before each attempted iteration. The while body is evaluated only when the condition is
-true.
+true. The while else body is evaluated only when the condition evaluates to `false`.
+
+For expressions evaluate the source expression once before iteration begins. The for body is evaluated once for each produced
+element until the source is exhausted or control leaves the for expression. The for else body is evaluated only when iteration
+reaches natural exhaustion.
 
 Repeated-element array expressions evaluate the repeated element expression before initializing repeated elements according to the repeat contract.
 
@@ -5025,6 +5195,7 @@ Observable Bray semantics include effects, ownership, borrowing, mutation author
 Specific expression forms also define these evaluation facts:
 
 - a match expression evaluates its subject once,
+- a for source expression is evaluated once before iteration,
 - an `each` source expression is evaluated once before iteration,
 - a struct or variant field default is evaluated when that field is omitted,
 - a box construction expression evaluates the contained value before initializing indirect storage,
