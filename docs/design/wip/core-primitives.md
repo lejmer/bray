@@ -245,13 +245,17 @@ When the condition evaluates to `false`, the `while` expression completes as `un
 
 Reaching the end of the body starts the next condition evaluation.
 
+`break value` exits the `while` expression and supplies the `while` result.
+
+`break;` is shorthand for `break unit;`.
+
 `continue` skips the rest of the current body evaluation and starts the next condition evaluation.
 
-The body belongs to the `while` expression's yield-capable region.
+The body belongs to the `while` expression's break-capable region.
 
-A `yield` that targets the `while` expression exits the loop and supplies the `while` result.
+The body does not capture `yield`.
 
-If a `while` expression must produce a non-`unit` value, every reachable normal exit path must yield a compatible value. A
+If a `while` expression must produce a non-`unit` value, every reachable normal exit path must break with a compatible value. A
 reachable false-condition exit makes the expression invalid for that result type.
 
 ---
@@ -390,7 +394,11 @@ A `yield` targeting a single-yield region exits that region and supplies its val
 
 A `yield` targeting a multi-yield region contributes an element according to that region's contract.
 
-A `continue` exits the current loop iteration and begins the next iteration according to the loop's contract.
+A `break` exits the current loop or iteration region and supplies the target region's result.
+
+`break;` is shorthand for `break unit;`.
+
+A `continue` exits the current loop or iteration step and begins the next step according to the target region's contract.
 
 Every explicit exit satisfies the target region's type, ownership state, initialization state, destruction state, finalization
 obligations, capability contract, effect contract, and execution mode.
@@ -480,8 +488,7 @@ Bray has two kinds of yield-capable regions:
 - **single-yield regions**, which produce exactly one value.
 - **multi-yield regions**, which produce a sequence of values.
 
-Value-producing block expressions, value-producing conditional expression arms, match expression arms, loop expressions, and while
-expressions are single-yield regions.
+Value-producing block expressions, value-producing conditional expression arms, and match expression arms are single-yield regions.
 
 Generator expressions are multi-yield regions.
 
@@ -493,34 +500,9 @@ outer region.
 A single-yield region with result type other than `unit` must yield exactly one value on every normal completion path or have no
 normal continuation.
 
-A single-yield region with result type `unit` can complete naturally without `yield`, except for loop bodies whose completion
-starts the next iteration.
+A single-yield region with result type `unit` can complete naturally without `yield`.
 
 `yield;` is shorthand for `yield unit;`.
-
-A loop expression receives its value through `yield`.
-
-The syntactic body block of a loop belongs to the loop expression's yield-capable region. It does not capture `yield` for itself
-unless it contains a nested value-producing block expression.
-
-An ordinary loop expression repeats until control leaves the loop.
-
-Reaching the end of the loop body starts the next iteration.
-
-`continue` skips the rest of the current loop body and starts the next iteration.
-
-A `yield` that targets the loop exits the loop and supplies the loop result.
-
-If a loop has reachable `yield` expressions that target the loop, every such yielded value must be compatible with the loop's
-result type.
-
-Loop paths that keep iterating do not supply a loop result.
-
-A while expression repeats only while its condition is true.
-
-The false condition path exits the while expression with `unit`.
-
-A loop with no reachable `yield` to itself has no normal completion and has type `never`.
 
 A multi-yield region may yield zero or more values, unless the consuming context imposes a stricter cardinality contract.
 
@@ -532,6 +514,50 @@ required number of elements. If the compiler cannot prove the yield count, the p
 
 Every yielded value must satisfy the target region's element/result type, ownership state, initialization state, destruction state,
 finalization obligations, capability contract, effect contract, and execution mode.
+
+---
+
+## Break-capable regions
+
+A **break-capable region** is a loop or iteration region that accepts `break` expressions.
+
+Loop expressions, while expressions, and iteration expressions are break-capable regions.
+
+A `break` expression targets the nearest enclosing break-capable region.
+
+`break value` exits the target region and supplies the target region's result.
+
+`break;` is shorthand for `break unit;`.
+
+The break value must satisfy the target region's result type, ownership state, initialization state, destruction state,
+finalization obligations, capability contract, effect contract, and execution mode.
+
+A loop expression receives its value through `break`.
+
+The syntactic body block of a loop belongs to the loop expression's break-capable region.
+
+The loop body does not capture `yield`.
+
+An ordinary loop expression repeats until control leaves the loop.
+
+Reaching the end of the loop body starts the next iteration.
+
+`break value` exits the current loop or iteration region with that value.
+
+`break;` exits the current loop or iteration region with `unit`.
+
+`continue` skips the rest of the current loop body and starts the next iteration.
+
+If a loop has reachable `break` expressions that target the loop, every such break value must be compatible with the loop's result
+type.
+
+Loop paths that keep iterating do not supply a loop result.
+
+A while expression repeats only while its condition is true.
+
+The false condition path exits the while expression with `unit`.
+
+A loop with no reachable `break` to itself has no normal completion and has type `never`.
 
 ---
 
@@ -555,6 +581,12 @@ The source expression is evaluated once before iteration begins.
 
 A generator body is a multi-yield region. Each `yield` inside the body contributes a value to the generator unless it is captured
 by a nested yield-capable region.
+
+`break` exits the nearest generator iteration expression and supplies that iteration expression's result.
+
+Because generator iteration expressions complete as `unit`, `break;` is the ordinary generator-iteration break form.
+
+`continue` skips the rest of the current generator iteration step and starts the next iteration step.
 
 A fixed-size array generator for [T; N] must yield exactly N values of type T.
 

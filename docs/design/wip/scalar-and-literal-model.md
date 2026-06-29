@@ -250,9 +250,9 @@ At a control-flow merge, `never` contributes no value and does not determine the
 
 This does not make `never` a value of the expected type and does not define an implicit conversion from `never`.
 
-The canonical never-producing expression forms are `return`, `yield` targeting a single-yield region, `continue`, panic
-expressions, propagation paths that exit the current continuation, calls whose declared result type is `never`, and expression
-forms whose every reachable path has type `never`.
+The canonical never-producing expression forms are `return`, `yield` targeting a single-yield region, `break value`, `break;`,
+`continue`, panic expressions, propagation paths that exit the current continuation, calls whose declared result type is `never`,
+and expression forms whose every reachable path has type `never`.
 
 ---
 

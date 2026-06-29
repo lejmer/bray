@@ -605,7 +605,7 @@ A binding moved out before scope exit is not destroyed by the old binding.
 
 A partially initialized binding destroys only initialized parts.
 
-If initializer evaluation exits through `return`, `yield`, `continue`, `never`, or panic before the declaration completes, the pattern bindings are not introduced.
+If initializer evaluation exits through `return`, `yield`, `break`, `continue`, `never`, or panic before the declaration completes, the pattern bindings are not introduced.
 
 TODO: Define how additional control-flow forms interact with initializer evaluation before local binding declarations complete.
 
@@ -886,6 +886,7 @@ The canonical never-producing expression forms are:
 
 - `return value` and `return;`,
 - `yield value` and `yield;` when they target a single-yield region,
+- `break value` and `break;`,
 - `continue`,
 - panic expressions,
 - nullable propagation on the absent path,
@@ -2537,7 +2538,7 @@ Tuple element expressions are evaluated left to right.
 
 Each tuple element has its own initialization state while the tuple is being constructed.
 
-If evaluation of an element exits through `return`, `yield`, `continue`, `never`, cancellation, panic, or another non-local exit before the tuple is fully initialized, already-initialized element temporaries are handled by the corresponding control-flow, ownership, destruction, and finalization rules.
+If evaluation of an element exits through `return`, `yield`, `break`, `continue`, `never`, cancellation, panic, or another non-local exit before the tuple is fully initialized, already-initialized element temporaries are handled by the corresponding control-flow, ownership, destruction, and finalization rules.
 
 A tuple expression owns its elements when the element expressions produce owned values that are moved into the tuple.
 
@@ -2652,7 +2653,7 @@ Array element expressions are evaluated left to right.
 
 Each array element has its own initialization state while the array is being constructed.
 
-If evaluation of an element exits through `return`, `yield`, `continue`, `never`, cancellation, panic, or another non-local exit before the array is fully initialized, already-initialized element temporaries are handled by the corresponding control-flow, ownership, destruction, and finalization rules.
+If evaluation of an element exits through `return`, `yield`, `break`, `continue`, `never`, cancellation, panic, or another non-local exit before the array is fully initialized, already-initialized element temporaries are handled by the corresponding control-flow, ownership, destruction, and finalization rules.
 
 An array expression owns its elements when the element expressions produce owned values moved into the array.
 
@@ -2818,11 +2819,17 @@ A yielded value is moved into the array unless it is copied according to the ele
 
 The array is fully initialized when every required element has been yielded and initialized.
 
-If iteration exits before the array is fully initialized through `return`, `yield`, `continue`, `never`, cancellation, panic, or another control-flow exit, initialized elements and live temporaries are handled by the corresponding ownership, destruction, and finalization rules.
+If iteration exits before the array is fully initialized through `return`, `yield`, `break`, `continue`, `never`, cancellation, panic, or another control-flow exit, initialized elements and live temporaries are handled by the corresponding ownership, destruction, and finalization rules.
 
 `continue` targets the nearest iteration region.
 
+`break` targets the nearest iteration region and exits that iteration expression.
+
+Because array generator iteration expressions complete as `unit`, a break that targets the iteration expression must supply `unit`.
+
 In a fixed-size array generator, any control-flow path that continues an iteration before yielding that iteration’s required element is rejected unless the compiler can prove the required yield still occurs.
+
+In a fixed-size array generator, any control-flow path that breaks the iteration before yielding every required element is rejected unless the compiler can prove the required yield count is still satisfied.
 
 Nested yield-capable regions capture their own yields.
 
@@ -2928,6 +2935,11 @@ An inner `yield` supplies the inner yield-capable region.
 A `yield` in the generator iteration body supplies the nearest enclosing generator region that the `yield` targets.
 
 `continue` targets the nearest iteration region.
+
+`break` targets the nearest iteration region and exits that iteration expression.
+
+Because general generator iteration expressions complete as `unit`, a break that targets the iteration expression must supply
+`unit`.
 
 A general generator iteration expression can have unknown or runtime cardinality when the enclosing generator region accepts variable cardinality.
 
@@ -3589,16 +3601,13 @@ Yield-capable regions include:
 - value-producing block expressions,
 - value-producing conditional arm block expressions,
 - match arm block expressions,
-- loop expressions,
-- while expressions,
 - generator expressions,
 - array generator expressions.
 
 A single-yield region with result type other than `unit` must receive exactly one yielded value on every normal completion path or
 have no normal continuation.
 
-A single-yield region with result type `unit` can complete naturally without `yield`, except for loop bodies whose completion
-starts the next iteration.
+A single-yield region with result type `unit` can complete naturally without `yield`.
 
 A multi-yield region can receive zero or more yielded values according to the region’s contract.
 
@@ -3737,10 +3746,38 @@ let loaded: RunResult<Result<User, LoadError>> = catch task.join();
 
 That value is `RunResult.Completed(value = Result.Error(error = error))`.
 
-`return`, nullable propagation, result propagation, run-result propagation, and other exits that target an outer boundary leave the
-catch expression without producing a result value on that path.
+`return`, `break`, `continue`, nullable propagation, result propagation, run-result propagation, and other exits that target an
+outer boundary leave the catch expression without producing a result value on that path.
 
 `catch` is not valid in predicate expressions, contract expressions, guard expressions, or pattern contexts.
+
+---
+
+## Break expressions
+
+A **break expression** exits the nearest loop or iteration region that accepts `break`.
+
+The break expression forms are:
+
+```bray
+break value;
+```
+
+```bray
+break;
+```
+
+`break` targets the nearest compatible loop or iteration region.
+
+The operand of `break value` is evaluated exactly once.
+
+The break value must be compatible with the target region's result type.
+
+`break;` is shorthand for `break unit;`.
+
+At the target region, `break` is a normal exit path that supplies the break value as the target region's result.
+
+`break` has type `never` because the current normal continuation does not run.
 
 ---
 
@@ -4296,7 +4333,8 @@ Guard context does not allow finalization transfer.
 
 Guard context does not provide trusted capability unless that capability is already available and acknowledged according to ordinary trust rules.
 
-A guard expression cannot mutate, move, consume, allocate, perform I/O, await, use `try`, use `catch`, enter resource scopes, or depend on effects unavailable in guard context.
+A guard expression cannot mutate, move, consume, allocate, perform I/O, await, use `return`, use `yield`, use `break`, use
+`continue`, use `try`, use `catch`, enter resource scopes, or depend on effects unavailable in guard context.
 
 The arm body is selected only when the pattern matches and the guard evaluates to `true`.
 
@@ -4689,12 +4727,14 @@ If the condition evaluates to `false`, the while expression completes as `unit`.
 
 After the body reaches its end, the condition is evaluated again.
 
-The syntactic body block of a while expression belongs to the while expression's yield-capable region. It does not capture `yield`
-for itself unless it contains a nested value-producing block expression.
+The syntactic body block of a while expression belongs to the while expression's break-capable region.
 
-`yield value` exits the while expression and supplies the while result.
+A while body does not capture `yield`; a `yield` inside a while body targets the nearest enclosing yield-capable region unless a
+nested yield-capable region captures it.
 
-`yield;` exits the while expression and supplies `unit`.
+`break value` exits the while expression and supplies the while result.
+
+`break;` exits the while expression and supplies `unit`.
 
 `continue` skips the rest of the current body evaluation and starts the next condition evaluation.
 
@@ -4704,8 +4744,8 @@ A reachable false-condition exit contributes `unit`.
 
 If a while expression has result type `unit`, a false-condition exit is valid.
 
-If a while expression has a result type other than `unit`, every reachable normal exit path must supply a compatible value with
-`yield` or end in a `never` expression. A reachable false-condition exit makes the expression invalid for that result type.
+If a while expression has a result type other than `unit`, every reachable normal while exit path must supply a compatible value
+with `break` or end in a `never` expression. A reachable false-condition exit makes the expression invalid for that result type.
 
 The while body is checked in a fact context where the condition is true.
 
@@ -4714,7 +4754,7 @@ The false-condition exit contributes the fact that the condition is false.
 No fact is assumed to survive from one iteration to the next merely because it was true in a previous iteration.
 
 The type, ownership, initialization, destruction, finalization, capability, effect, task-obligation, and fact state after a while
-expression is the merge of all reachable normal loop exits.
+expression is the merge of all reachable normal while exits.
 
 The state at the start of a repeated condition evaluation must be coherent with the state before the first condition evaluation.
 
@@ -4730,7 +4770,7 @@ while index < items.count()
 
 ## Loop expressions
 
-A loop expression is a yield-capable region.
+A loop expression is a break-capable region.
 
 The loop expression form is:
 
@@ -4745,24 +4785,45 @@ A loop expression evaluates its body repeatedly until control leaves the loop.
 
 Reaching the end of the loop body starts the next iteration.
 
-The syntactic body block of a loop belongs to the loop expression's yield-capable region. It does not capture `yield` for itself
-unless it contains a nested value-producing block expression.
+The syntactic body block of a loop belongs to the loop expression's break-capable region.
 
-`yield value` exits the loop expression and supplies the loop result.
+A loop body does not capture `yield`; a `yield` inside a loop body targets the nearest enclosing yield-capable region unless a
+nested yield-capable region captures it.
 
-`yield;` exits the loop expression and supplies `unit`.
+`break value` exits the loop expression and supplies the loop result.
+
+`break;` exits the loop expression and supplies `unit`.
 
 `continue` skips the rest of the current loop body and starts the next iteration.
 
 Loop paths that keep iterating do not supply a loop result.
 
-If a loop has reachable `yield` expressions that target the loop, every such yielded value must be compatible with the loop's
-result type.
+If a loop has reachable `break` expressions that target the loop, every such break value must be compatible with the loop's result
+type.
 
-`return`, panic, nullable propagation, result propagation, run-result propagation, and other exits that target an outer boundary
-leave the loop without supplying the loop result.
+`return`, `yield`, panic, nullable propagation, result propagation, run-result propagation, and other exits that target an outer
+boundary leave the loop without supplying the loop result.
 
-A loop with no reachable `yield` to itself has no normal completion and has type `never`.
+A loop with no reachable `break` to itself has no normal completion and has type `never`.
+
+```bray
+let found: Item? = loop
+{
+    if index >= items.count()
+    {
+        break none;
+    }
+
+    let item = items.at(index);
+
+    if item.matches(query)
+    {
+        break item;
+    }
+
+    index = index + 1;
+};
+```
 
 ---
 
@@ -4996,6 +5057,8 @@ Sequenced expressions use semicolons.
 Callable results are supplied with `return`.
 
 Yield-capable regions receive values through `yield`.
+
+Break-capable regions receive values through `break`.
 
 Construction expressions use named fields where field identity matters.
 
