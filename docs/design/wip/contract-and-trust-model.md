@@ -380,7 +380,7 @@ Allowed in predicate expressions:
 - references to predicate parameters,
 - `self` where applicable,
 - result references in postconditions,
-- constants and associated constants,
+- constants and constant-valued members,
 - field access through observable access paths,
 - tuple, array, nullable, and union inspection by observation,
 - arithmetic using contract arithmetic semantics,

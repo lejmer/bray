@@ -1273,7 +1273,7 @@ Point
 }
 ```
 
-A type name used in a path expression can expose variants, static functions, named constructors, or other type-associated declarations.
+A type name used in a path expression can expose variants, constants, static functions, named constructors, or other type-associated declarations.
 
 ```bray
 Shape.Circle(center = origin, radius = 1.0)
@@ -1312,7 +1312,87 @@ It does not produce a runtime value.
 
 A name expression can resolve to a visible constant declaration.
 
-TODO: Define constant declaration syntax and binding rules.
+The ordinary constant declaration syntax is:
+
+```bray
+const default_capacity: usize = 64;
+const default_prefix: string = "tmp";
+```
+
+In grammar terms:
+
+```text
+const identifier ':' type-expression '=' constant-expression ';'
+```
+
+A visibility modifier can appear before `const` only in declaration contexts that support visibility.
+
+```bray
+internal const page_size: usize = 4096;
+```
+
+The type annotation is required.
+
+The initializer is checked in constant-initializer context.
+
+The initializer must be a compile-time constant expression compatible with the declared type.
+
+Literal adaptation uses the declared constant type as its expected type.
+
+A constant declaration introduces a named compile-time value in its declaration scope.
+
+The constant name must be unique in the value namespace of that scope.
+
+A constant declaration must not shadow an existing visible binding or constant declaration.
+
+Constants can be declared in modules, type bodies, implementation bodies, trait bodies, and block scopes that allow declarations.
+
+A constant declared in a module is reached through ordinary module path resolution.
+
+A constant declared in a type body or inherent implementation is associated with that type and can be reached through a type path according to path-expression rules.
+
+A constant declared in a trait body or trait implementation is a constant-valued member governed by the Type Model.
+
+A constant declaration in a generic declaration can reference that declaration's type parameters and const parameters when the initializer is valid in static generic context. The constant's value is fixed for each concrete generic instantiation.
+
+A constant has no runtime storage identity.
+
+Using a constant in runtime expression context materializes the constant value for that use.
+
+The initializer is not evaluated at runtime.
+
+A constant cannot be assigned, mutably borrowed, moved from as storage, consumed as a unique storage identity, or destroyed as a declaration.
+
+`mut const` is not a declaration form.
+
+The declared constant type must support constant materialization.
+
+A value with unique runtime identity, runtime-owned resource state, finalization obligations, destructor side effects, or mutable storage identity cannot be a constant value.
+
+A compile-time constant expression can use:
+
+- literals,
+- constants already visible in the current scope,
+- const parameters visible in the current generic context,
+- tuple, array, nullable, product, and union variant construction whose components are constant expressions and whose type has no runtime construction, finalization, or destructor obligation,
+- unary and binary expressions whose operands are constant expressions and whose selected operation is compiler-known and valid in constant-initializer context,
+- field access, tuple projection, and array element access over constant expressions when the selected sub-value is itself valid as a constant.
+
+A compile-time constant expression cannot read runtime storage, borrow runtime storage, assign, mutate, move from a runtime access path, perform I/O, spawn work, catch or raise panics as runtime behavior, or call a user-declared callable.
+
+Only compiler-known pure operations explicitly defined as valid in constant-initializer context can be evaluated by a constant initializer.
+
+For unary and binary expressions in constant-initializer context, the selected operation must be a built-in operation over built-in scalar types, `unit`, or nullable constants whose contained value is valid in constant-initializer context.
+
+User-defined operator implementations are user-declared callables and are not valid in constant-initializer context.
+
+Integer-valued constant arithmetic is exact while the constant expression is checked.
+
+The final constant value must be representable in the declared constant type.
+
+Constant declarations cannot be cyclic.
+
+A constant initializer cannot reference the constant being declared, directly or through another constant initializer cycle.
 
 A constant name expression produces the constant’s value or a compile-time constant entity according to context.
 
@@ -1340,7 +1420,7 @@ A local binding is introduced once.
 
 A binding cannot be rebound.
 
-A local binding declaration must not shadow an existing visible binding.
+A local binding declaration must not shadow an existing visible binding or constant declaration.
 
 This rule keeps name expressions stable and prevents later local declarations from changing the meaning of earlier names in the same scope.
 
@@ -1507,7 +1587,7 @@ Shape.Circle
 ParseResult<i32>.EndOfInput
 ```
 
-Type-associated declarations include static functions, named constructors, union variants, and other declarations associated with the type by type declarations, implementations, or behavioral contracts.
+Type-associated declarations include constants, static functions, named constructors, union variants, and other declarations associated with the type by type declarations, implementations, or behavioral contracts.
 
 A static function path can be called.
 
@@ -4743,7 +4823,7 @@ contexts, or declarations whose normal completion does not produce a value.
 
 Bray does not support named result bindings.
 
-Predicate expressions can reference constants and associated constants.
+Predicate expressions can reference constants and constant-valued members.
 
 Predicate expressions can use field access through observable access paths.
 

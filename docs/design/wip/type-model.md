@@ -294,7 +294,7 @@ The primary representation determines:
 - field destruction order,
 - field access paths.
 
-Additional implementation blocks can define constructors, methods, static functions, trait implementations, and other behavior for the type.
+Additional implementation blocks can define constructors, methods, static functions, constants, trait implementations, and other behavior for the type.
 
 Additional implementation blocks do not add fields to the primary representation.
 
@@ -2809,6 +2809,7 @@ A trait body contains member declarations that make up the trait’s behavioral 
 The currently defined trait member forms are:
 
 - callable member declarations,
+- constant-valued member declarations,
 - type-valued member declarations.
 
 ```bray
@@ -2847,11 +2848,96 @@ A defaulted member body provides default behavior for implementations that do no
 
 A defaulted member body is checked in trait context.
 
-A defaulted member body can use the trait’s declared surface, `self` when the member is an instance method, `Self`, trait parameters, type-valued members, available constraints, and declarations visible from the trait declaration context.
+A defaulted member body can use the trait’s declared surface, `self` when the member is an instance method, `Self`, trait parameters, type-valued members, constant-valued members, available constraints, and declarations visible from the trait declaration context.
 
 A defaulted member body must satisfy the member’s declared result type, ownership behavior, borrowing behavior, capability contract, effect contract, and contract clauses.
 
-TODO: Define additional trait member kinds such as constants, predicates, and lifecycle requirements.
+TODO: Define additional trait member kinds such as predicates and lifecycle requirements.
+
+### Constant-valued members in traits
+
+A constant-valued member is a compile-time value output of a trait implementation.
+
+```bray
+trait HasCapacity
+{
+    const capacity: usize;
+}
+```
+
+A constant-valued member declaration without an initializer introduces a required constant-valued member.
+
+A trait implementation must provide every required constant-valued member.
+
+```bray
+impl PacketBuffer(HasCapacity)
+{
+    const capacity: usize = 1500;
+}
+```
+
+A constant-valued member declaration with an initializer provides default behavior.
+
+```bray
+trait Chunked
+{
+    const chunk_size: usize = 4096;
+}
+```
+
+An implementation can provide a constant-valued member that overrides the default value for that implementation.
+
+When an implementation omits a defaulted constant-valued member, the trait's default value is used for that implementation.
+
+The constant-valued member declaration syntax is the ordinary constant declaration syntax, except that a required constant-valued member omits the initializer:
+
+```text
+const identifier ':' type-expression ['=' constant-expression] ';'
+```
+
+The type annotation is required.
+
+The initializer, when present, is checked in constant-initializer context.
+
+The initializer must be compatible with the declared constant type.
+
+Inside the declaring trait, the constant-valued member name is available in member signatures, default bodies, and contract clauses.
+
+Inside an implementation of the trait, the constant-valued member name refers to the value selected by that implementation.
+
+A constant-valued member name must be unique among the trait's member names.
+
+A constant-valued member cannot be declared `mut`.
+
+A constant-valued member cannot have its own generic parameters.
+
+For a given participating implementation of a concrete trait application, every constant-valued member has exactly one selected value.
+
+The selected value can depend on the implementing type and on the trait application's generic arguments.
+
+The selected value cannot depend on a runtime value, control-flow path, local inference choice, caller preference, or use site.
+
+Outside the declaring trait and an implementation of that trait, a constant-valued member is referenced with a qualified constant-valued member reference:
+
+```bray
+SubjectType(TraitApplication).MemberName
+```
+
+The syntax mirrors trait implementation syntax and qualified type-valued member references.
+
+`SubjectType` is the implementing type whose selected constant value is being referenced.
+
+`TraitApplication` is the trait application that declares the constant-valued member.
+
+`MemberName` is the constant-valued member declared by that trait.
+
+The trait application in a qualified constant-valued member reference must be exact.
+
+If the subject type has multiple visible implementations that could provide different selected constant values, the reference is rejected by implementation coherence before expression checking.
+
+A constant-valued member reference is a compile-time constant expression when the selected value is valid in the current constant-expression context.
+
+Changing a constant-valued member value can change the public contract of an implementation.
 
 ### Type-valued members in traits
 
@@ -2873,6 +2959,8 @@ A type-valued member declaration without a binding introduces a required type me
 Inside the declaring trait, the type-valued member name is available in that trait’s member signatures, default bodies, and contract clauses.
 
 Type-valued members are immutable.
+
+A type-valued member name must be unique among the trait's member names.
 
 A type-valued member cannot be declared `mut`.
 
@@ -3571,6 +3659,8 @@ impl Point(Equatable<Point>)
 
 A trait implementation must provide every required callable trait member that has no default body.
 
+A trait implementation must provide every required constant-valued member.
+
 A trait implementation must bind every required type-valued member.
 
 A trait implementation can provide a member that has default behavior in the trait.
@@ -3580,6 +3670,16 @@ When an implementation provides a member with default behavior, the implementati
 When an implementation omits a member with default behavior, the trait’s default behavior is used for that implementation.
 
 An implementation callable member must match the fulfilled trait member’s name, receiver mode, parameter names, parameter types, result type, execution mode, contract obligations, and caller-visible effects after type-valued member bindings have been applied.
+
+An implementation constant-valued member must match a constant-valued member declared by the implemented trait.
+
+An implementation constant-valued member must use the same declared type as the fulfilled trait member after type-valued member bindings have been applied.
+
+An implementation constant-valued member initializer must be a constant expression valid in the implementation context.
+
+An implementation cannot provide the same constant-valued member more than once.
+
+An implementation cannot provide extra constant-valued members that are not declared by the trait.
 
 An implementation type-valued member binding must match a type-valued member declared by the implemented trait.
 
@@ -4235,6 +4335,12 @@ Changing a type-valued member name is a public API change.
 
 Changing the selected type for a public or reachable implementation can be a public API change.
 
+Adding a required constant-valued member to a public trait is a public API change.
+
+Removing a constant-valued member from a public trait is a public API change.
+
+Changing a constant-valued member name, declared type, default value, or selected implementation value can be a public API change.
+
 Changing member contract clauses can be a public API change when requirements, guarantees, effects, capabilities, trusted obligations, or caller-visible behavior change.
 
 Changing a default member body can be a public API change when observable behavior changes for implementations that use the default.
@@ -4246,8 +4352,6 @@ Changing implementation visibility or reachability can be a public API change wh
 Changing implementation overload family membership can be a public API change when it affects trait satisfaction, method resolution, type-valued member selection, or generic satisfaction.
 
 ### Trait TODOs
-
-TODO: Define constants in traits.
 
 TODO: Define predicates in traits.
 
