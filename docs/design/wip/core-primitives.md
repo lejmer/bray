@@ -898,10 +898,11 @@ Mutating a field requires mutation authority over the reached field.
 Borrowing can target individual fields when the compiler can prove the field access paths are disjoint. Disjoint field borrows are
 independent according to the ordinary aliasing and capability rules.
 
-Moving a field out through ordinary field access is not allowed. Moving a `struct` as a complete value moves the whole value.
+Moving a field out of an owned `struct` access path is a partial move when the product rules permit it. Moving a `struct` as a
+complete value moves the whole value.
 
-A consuming product pattern can move selected fields out of a `struct` according to the pattern operation rules. After a partial
-move, the `struct` is partially initialized and destruction affects only the fields that remain initialized.
+A consuming product pattern can also move selected fields out of a `struct` according to the pattern operation rules. After a
+partial move, the `struct` is partially initialized and destruction affects only the fields that remain initialized.
 
 Copy behavior is explicit. A `struct` is copyable only when its declaration or derived contract makes it copyable, and every field
 satisfies the required copy contract.

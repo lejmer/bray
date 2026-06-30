@@ -644,10 +644,23 @@ Destruction of a partially moved product value destroys only the still-initializ
 
 A partially moved product value can become fully initialized again when all moved-from fields are reinitialized and the storage and type contract permit reinitialization.
 
-A product type with whole-value lifecycle behavior can restrict partial moves when that lifecycle behavior depends on whole-product
-invariants.
+A product type with whole-product lifecycle behavior must be fully initialized whenever a whole-product lifecycle declaration can
+run.
 
-TODO: Define how custom lifecycle behavior restricts or extends product partial-move rules.
+A field move from such a product is valid only when every reachable path re-initializes the field before:
+
+- the product is finalized,
+- the product is destroyed as a complete value,
+- the product is used as a `with` initializer,
+- the product is moved, copied, consumed, borrowed, or observed as a complete value,
+- ownership of the product can end.
+
+If the compiler cannot prove that the product becomes fully initialized before one of those events, the field move is rejected.
+
+Partial product storage resolves only initialized fields.
+
+Partial product storage does not run whole-product finalizers, whole-product destructors, or whole-product scope enter/exit
+behavior.
 
 ### Product movement
 
@@ -707,7 +720,7 @@ A product value with finalization obligations must satisfy those obligations bef
 
 ### Product lifecycle declarations
 
-A product type can define lifecycle declarations inside its type body.
+A product type can define lifecycle declarations inside its type body or inside an inherent implementation for the product type.
 
 ```bray
 struct File
@@ -758,7 +771,87 @@ Product lifecycle declarations follow the general lifecycle ordering model.
 
 Product lifecycle declarations use the general lifecycle declaration signature and selection rules.
 
-TODO: Define detailed lifecycle rules for product types.
+Product lifecycle declarations are whole-product lifecycle declarations.
+
+`Self` in a product lifecycle declaration means the declaring product type.
+
+In an inherent implementation, the implementation subject must be that product type.
+
+For a given product type, lifecycle kind, and lifecycle path, at most one participating lifecycle declaration can be visible in a
+coherence domain.
+
+Constructor bodies have no `self` binding.
+
+A constructor body must produce a fully initialized `Self` value or a `Result.Ok` carrying a fully initialized `Self` value.
+
+A constructor body can produce that value with a product construction expression, another constructor call, or another expression
+whose result type is `Self`.
+
+Constructor failure through `Result.Error`, panic, cancellation, or another non-success exit does not produce a product value.
+
+Values, temporaries, and partially initialized product storage created before such an exit are resolved by ordinary ownership,
+destruction, and finalization rules.
+
+A successfully constructed product carries:
+
+- the lifecycle obligations declared by the product type,
+- the lifecycle obligations of its initialized fields,
+- any lifecycle obligations produced by field defaults or constructor body expressions.
+
+Field defaults used during construction are evaluated according to product construction rules before the product becomes fully
+initialized.
+
+Finalizer bodies have a compiler-introduced `self` binding for the whole product value being finalized.
+
+The finalizer has exclusive lifecycle authority over `self` for the duration of the finalizer.
+
+A finalizer can observe and mutate fields when its declaration contract permits those operations.
+
+A finalizer cannot let `self`, a field access path, a borrow from `self`, or a capability derived from `self` escape unless the
+finalizer contract explicitly transfers the corresponding obligation.
+
+A finalizer must return with the product fully initialized.
+
+If a finalizer returns `Result.Error`, the finalization obligation remains unresolved.
+
+A product with an unresolved finalization obligation cannot be destroyed.
+
+Destructor bodies have a compiler-introduced `self` binding for the whole product value being destroyed.
+
+The destructor has exclusive destruction authority over `self` for the duration of the destructor.
+
+A destructor is synchronous and infallible.
+
+A destructor can observe and mutate fields when its declaration contract permits those operations.
+
+A destructor cannot create a finalization obligation that remains unresolved after the destructor returns.
+
+A destructor cannot let `self`, a field access path, a borrow from `self`, or a capability derived from `self` escape.
+
+If a destructor consumes or destroys a field, that field becomes uninitialized and is not destroyed again after the destructor
+returns.
+
+Any initialized fields remaining after the destructor returns are destroyed in product field destruction order.
+
+Scope enter bodies have a compiler-introduced `self` binding for the product access path used as the `with` initializer.
+
+The selected enter declaration must be able to satisfy its declared ownership, borrowing, mutation, capability, effect, trusted,
+and lifecycle requirements from that access path.
+
+The successful enter result is the scoped capability matched by the `with` pattern.
+
+The scoped capability can borrow from the product, carry access authority for the product, or carry an independent resource token,
+according to the scoped capability type.
+
+Scope exit bodies receive the scoped capability produced by the matching enter declaration.
+
+Exit operates on the scoped capability. It can reach the product only through access carried by that scoped capability.
+
+An active scoped capability can restrict observation, mutation, borrowing, movement, finalization, destruction, and partial moves
+of the product for the lifetime of the `with` body.
+
+A whole-product assignment or replacement resolves the old product value according to product finalization, destruction, and field
+destruction rules before the new product value becomes initialized at that access path.
 
 ### Product layout
 
