@@ -629,7 +629,7 @@ A **literal expression** directly denotes a literal value written in source text
 
 Literal expressions are expression grammar forms. They are checked in expression context and receive a type during binding and type checking.
 
-Literal expressions currently include integer literals, real literals, imaginary literals, boolean literals, and character literals.
+Literal expressions currently include integer literals, real literals, imaginary literals, boolean literals, character literals, and string literals.
 
 ```bray
 1
@@ -638,6 +638,8 @@ Literal expressions currently include integer literals, real literals, imaginary
 true
 false
 'a'
+"text"
+""
 ```
 
 A literal expression can produce a value directly, or it can participate in a larger expression such as an arithmetic expression, tuple expression, array expression, struct construction expression, union variant construction expression, predicate expression, or contract clause.
@@ -841,13 +843,49 @@ A **character literal** directly denotes a value of type `char`.
 
 A `char` value is a Unicode scalar value.
 
+A character literal is enclosed in single quotes.
+
 A character literal has type `char`.
 
 A character literal is not a byte literal.
 
-TODO: Define string literal syntax and string representation.
+Single quotes do not delimit strings.
+
+`''` is invalid.
+
+A character literal must contain exactly one Unicode scalar value after escape processing.
+
+`'ab'` is invalid.
 
 Character literals are already typed as `char`.
+
+---
+
+### String literals
+
+A **string literal** directly denotes a value of type `string`.
+
+```bray
+"hello"
+""
+"line\nbreak"
+```
+
+A string literal is enclosed in double quotes.
+
+Single quotes never delimit strings.
+
+`""` is the empty string.
+
+A string literal has type `string`.
+
+A string literal contains zero or more Unicode scalar values after escape processing.
+
+String literals do not perform interpolation.
+
+String literal escape and representation rules are defined by the Scalar and Literal Model.
+
+String literals are already typed as `string`.
 
 ---
 
@@ -862,7 +900,7 @@ In expression position, `unit` is the unit value.
 A block expression or callable body can produce `unit` by completing normally in a `unit` context.
 
 ```bray
-func log(pos message: String)
+func log(pos message: string)
 {
     print(message);
 }
@@ -4648,7 +4686,7 @@ Pattern matching does not allocate, perform I/O, run asynchronous work, finalize
 
 Additional boolean filtering is handled by guards when the surrounding expression form defines guards.
 
-TODO: Define the complete guard syntax and rules for match and control-flow forms.
+Match `case` arms are the only currently defined guard-bearing control-flow arms. Other control-flow forms use their condition expression directly rather than a separate `when` guard.
 
 ---
 
@@ -4972,9 +5010,51 @@ Trust Model's obligation propagation rules.
 
 ## Assertion expressions
 
-A failed runtime assertion panics.
+An **assertion expression** checks an ordinary boolean condition at runtime.
 
-TODO: Define assertion expressions.
+The syntax is:
+
+```text
+'assert' '(' boolean-expression [',' message-expression] ')'
+```
+
+The condition is an expression that must produce `bool`.
+
+The message, when present, is an expression compatible with `String`.
+
+Examples:
+
+```bray
+assert(index < length);
+assert(index < length, "index out of bounds");
+```
+
+The condition expression is evaluated first.
+
+If the condition evaluates to `true`, the assertion expression completes normally with `unit`.
+
+If the condition evaluates to `false`, the assertion fails and panics.
+
+When a failing assertion has a message expression, the message expression is evaluated after the condition fails and before the
+panic is raised.
+
+When a passing assertion has a message expression, the message expression is not evaluated.
+
+When a failing assertion has no message expression, the panic report uses the compiler-defined assertion-failure message.
+
+An assertion expression has type `unit` on its normal continuation.
+
+On the failing path, the assertion expression has no normal continuation.
+
+After a successful assertion, facts established by the asserted condition enter the fact context when they remain valid after the
+assertion expression.
+
+Facts established by an assertion are ordinary facts, not trusted facts.
+
+An assertion expression does not satisfy trusted caller obligations and does not grant trusted implementation capabilities.
+
+Assertion expressions participate in type checking, ownership checking, borrowing, mutation authority, effect checking,
+capability checking, trusted obligation checking, and fact-context refinement according to the expressions they evaluate.
 
 ---
 
@@ -6016,13 +6096,8 @@ Specific expression forms also define these evaluation facts:
 - a struct or variant field default is evaluated when that field is omitted,
 - a box construction expression evaluates the contained value before initializing indirect storage,
 - a with expression evaluates its initializer once and applies `exit` on every body exit,
-- a guard is evaluated after structural pattern matching and before selecting the arm body.
-
----
-
-## Expression TODOs
-
-- TODO: Define assertion syntax.
+- a guard is evaluated after structural pattern matching and before selecting the arm body,
+- an assertion expression evaluates its condition first and evaluates its message only when the condition is false.
 
 ---
 
