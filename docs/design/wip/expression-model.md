@@ -5373,6 +5373,8 @@ The selected `enter` lifecycle declaration creates the scoped capability value m
 
 The type annotation, when present, applies to the scoped capability value produced by `enter`.
 
+The type annotation does not participate in `enter` lifecycle declaration selection.
+
 The scoped bindings introduced by the pattern are visible only inside the with body.
 
 The with body is a block expression.

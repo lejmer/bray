@@ -728,7 +728,7 @@ Trusted rules apply equally to lifecycle declarations.
 Constructors can use trusted implementation capabilities:
 
 ```bray
-trusted construct Buffer(length: usize) -> Buffer
+trusted construct(length: usize) -> Self
     uses(manual_alloc)
 {
     ...
@@ -744,7 +744,7 @@ trusted construct from_raw_parts(
     pointer: RawPointer<u8>,
     length: usize,
     capacity: usize,
-) -> Buffer
+) -> Self
     requires(
         length <= capacity,
         trusted core.memory.owned_allocation(pointer = pointer, capacity = capacity),

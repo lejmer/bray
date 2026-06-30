@@ -714,22 +714,22 @@ struct File
 {
     handle: OsHandle;
 
-    construct File(pos path: Path, mode: FileMode = FileMode.read) -> File
+    construct(pos path: Path, mode: FileMode = FileMode.read) -> Self
     {
         ...
     }
 
-    construct temp(pos directory: Path, prefix: String = "tmp") -> File
+    construct temp(pos directory: Path, prefix: String = "tmp") -> Self
     {
         ...
     }
 
-    async finalize File() -> Result<unit, FileError>
+    async finalize() -> Result<unit, FileError>
     {
         ...
     }
 
-    destruct File()
+    destruct()
     {
         ...
     }
@@ -738,9 +738,9 @@ struct File
 
 Constructors create fully initialized values of the product type.
 
-A constructor named after the type is the primary constructor form.
+A constructor with no name after `construct` is the primary constructor form.
 
-A constructor with another name becomes a named constructor under the type:
+A constructor with a name after `construct` becomes a named constructor under the type:
 
 ```bray
 let my_file = File.temp(some_path);
@@ -755,6 +755,8 @@ Scope enter and exit declarations define scoped capability behavior for `with` e
 Lifecycle declarations participate in ownership, borrowing, mutation authority, finalization obligations, effects, and trusted capability checking.
 
 Product lifecycle declarations follow the general lifecycle ordering model.
+
+Product lifecycle declarations use the general lifecycle declaration signature and selection rules.
 
 TODO: Define detailed lifecycle rules for product types.
 
@@ -1192,7 +1194,7 @@ union ResourceState
     Open(handle: OsHandle);
     Closed;
 
-    destruct ResourceState()
+    destruct()
     {
         ...
     }
@@ -1212,6 +1214,8 @@ Lifecycle declarations participate in ownership, borrowing, mutation authority, 
 Lifecycle behavior can depend on the active variant.
 
 Union lifecycle declarations follow the general lifecycle ordering model.
+
+Union lifecycle declarations use the general lifecycle declaration signature and selection rules.
 
 TODO: Define detailed lifecycle rules for union types.
 

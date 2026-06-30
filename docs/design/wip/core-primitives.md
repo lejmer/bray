@@ -1368,16 +1368,17 @@ by the compiler.
 
 A **constructor** creates a fully initialized value of its declaring type. Constructors are declared with `construct`.
 
-A constructor named after the type is the primary constructor form. A constructor with another name becomes a named constructor
-under the type.
+The primary constructor has no name after `construct`.
+
+A constructor with a name after `construct` becomes a named constructor under the type.
 
 ```bray
-construct File(pos path: Path, mode: FileMode = FileMode.read) -> File
+construct(pos path: Path, mode: FileMode = FileMode.read) -> Self
 {
     ...
 }
 
-construct temp(pos directory: Path, prefix: String = "tmp") -> File
+construct temp(pos directory: Path, prefix: String = "tmp") -> Self
 {
     ...
 }
@@ -1389,7 +1390,7 @@ A finalizer can be synchronous or asynchronous according to its result contract.
 carries a finalization obligation tracked by the compiler.
 
 ```bray
-async finalize File() -> Result<unit, FileError>
+async finalize() -> Result<unit, FileError>
 {
     ...
 }
@@ -1400,7 +1401,7 @@ A **destructor** performs synchronous cleanup when ownership ends. Destructors a
 A destructor returns `unit`. The result type can be omitted, and if present must be `unit`.
 
 ```bray
-destruct File()
+destruct()
 {
     ...
 }
@@ -1418,6 +1419,165 @@ idioms such as lock guards, temporary permissions, transactions, and scoped runt
 
 Lifecycle declarations participate in ownership, borrowing, mutation authority, finalization obligations, effects, and trusted
 capability checking.
+
+---
+
+## Lifecycle declaration signatures and selection
+
+Lifecycle declaration signatures use the same parameter grammar, default-argument rules, contract clauses, effect clauses,
+capability clauses, generic constraints, and trusted declaration rules as callable declarations unless a lifecycle kind defines a
+narrower rule.
+
+Lifecycle declarations are written inside a type body or implementation body. The declaring type is implicit.
+
+The lifecycle keyword identifies the lifecycle slot. Only named constructors write a user-chosen name after the lifecycle keyword.
+
+Lifecycle declaration bodies can use declaration parameters, visible declarations, `Self`, and any compiler-introduced lifecycle
+receiver binding made available by the lifecycle kind.
+
+The binding name `self` is reserved for compiler-introduced lifecycle receivers and cannot be declared as an ordinary lifecycle
+parameter.
+
+Constructor declarations use either the primary constructor form or a named constructor form:
+
+```bray
+construct(pos path: Path) -> Self
+
+construct temp(pos directory: Path) -> Result<Self, FileError>
+```
+
+The first example declares the primary constructor for the declaring type.
+
+The second example declares a named constructor under the declaring type.
+
+Constructor parameters are supplied by construction-call syntax and follow ordinary argument-binding rules.
+
+The successful constructor result is the declaring type.
+
+A constructor can declare `Self` directly or `Result<Self, E>`.
+
+A constructor cannot be asynchronous.
+
+Finalizer declarations return `unit` directly or through `Result`:
+
+```bray
+finalize() -> unit
+
+async finalize() -> Result<unit, TransactionError>
+```
+
+The finalizer has no caller-supplied parameters.
+
+The successful finalizer result is `unit`.
+
+A finalizer can declare `unit` directly or `Result<unit, E>`.
+
+If the result type is omitted, `unit` is inferred as the result type.
+
+A finalizer can be asynchronous.
+
+Destructor declarations have this form:
+
+```bray
+destruct()
+```
+
+The destructor has no caller-supplied parameters.
+
+The destructor result is `unit`. The result type can be omitted, and if present must be `unit`.
+
+A destructor cannot be asynchronous and cannot declare `Result<unit, E>`.
+
+Scope enter declarations return the scoped capability directly or through `Result`:
+
+```bray
+enter() -> FileLease
+```
+
+When enter can fail, it returns `Result`:
+
+```bray
+enter() -> Result<LockGuard, LockError>
+```
+
+The enter declaration has no caller-supplied parameters.
+
+The successful enter result is the scoped capability value used by the `with` body.
+
+An enter declaration can declare the scoped-capability type directly or `Result<T, E>` where `T` is the scoped-capability type.
+
+An enter declaration can be asynchronous.
+
+Scope exit declarations receive the scoped capability and return `unit` directly or through `Result`:
+
+```bray
+exit(scoped: FileLease) -> unit
+```
+
+When exit can fail, it returns `Result`. It can also use `async`:
+
+```bray
+async exit(scoped: TransactionScope) -> Result<unit, TransactionError>
+```
+
+The exit declaration has exactly one scoped-capability parameter.
+
+The scoped-capability parameter type must match the successful scoped-capability type of the enter declaration it exits.
+
+The successful exit result is `unit`.
+
+An exit declaration can declare `unit` directly or `Result<unit, E>`.
+
+If the result type is omitted, `unit` is inferred as the result type.
+
+An exit declaration can be asynchronous.
+
+Lifecycle selection starts from the lifecycle kind and the exact type whose lifecycle is being used.
+
+Constructor lookup uses the constructor path.
+
+The primary constructor path is the type path.
+
+Named constructor paths are members of the type path.
+
+```bray
+File(path)
+File.temp(directory)
+```
+
+Finalizer and destructor selection uses the type whose ownership is being finalized or destroyed.
+
+With-expression enter selection uses the initializer type and the selected `with` receiver access path.
+
+With-expression exit selection uses the already-selected enter declaration and the exact scoped-capability type produced by that
+enter declaration.
+
+A `with` binding type annotation checks the scoped-capability value after enter selection. It does not select the enter
+declaration.
+
+Lifecycle declarations do not form implicit overload sets.
+
+Two visible lifecycle declarations for the same exact lifecycle kind, type, and lifecycle path cannot coexist in the same
+coherence domain.
+
+Lifecycle selection does not use expected result type.
+
+Lifecycle selection does not rank candidates.
+
+A lifecycle use must resolve to exactly one applicable declaration.
+
+If no declaration is applicable, the lifecycle use is rejected.
+
+If more than one declaration is applicable, the lifecycle use is rejected as ambiguous.
+
+For constructors, explicit construction arguments are checked after constructor lookup selects a single declaration.
+
+Default arguments are applied only after a single lifecycle declaration has been selected.
+
+Default arguments do not participate in lifecycle selection.
+
+Lifecycle declarations provided by trait implementations participate only after the relevant exact trait implementation has been
+selected by the ordinary trait and implementation selection rules.
 
 ---
 

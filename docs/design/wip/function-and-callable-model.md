@@ -962,12 +962,13 @@ Trusted caller obligations must be visible in the callable contract and satisfie
 
 A function can be asynchronous.
 
-The `async` keyword appears before function and lifecycle declarations.
+The `async` keyword appears before function declarations and lifecycle declarations whose lifecycle kind permits asynchronous
+execution.
 
 For lifecycle declarations:
 
 ```bray
-async finalize File() -> Result<unit, FileError>
+async finalize() -> Result<unit, FileError>
 {
     ...
 }
