@@ -5393,6 +5393,10 @@ The matching `exit` lifecycle declaration runs on every path leaving the with bo
 The `exit` lifecycle declaration runs for normal completion, `yield`, `return`, `break`, `continue`, nullable propagation, result
 propagation, run-result propagation, panic propagation, cancellation, and any other control-flow exit from the body.
 
+The scoped capability remains live while `exit` runs.
+
+`exit` runs before ordinary local destruction caused by leaving the with body.
+
 After `exit` completes, the original body result or control-flow outcome continues.
 
 If `enter` does not complete successfully, the pattern is not matched, the with body is not evaluated, and `exit` does not run.
@@ -5735,7 +5739,7 @@ Runtime construction arguments for type-form construction expressions are evalua
 Omitted runtime construction defaults are evaluated after explicit runtime construction arguments, in construction parameter declaration order.
 
 With expressions evaluate their initializer once, apply `enter`, evaluate the body while the scoped bindings are live, and apply
-`exit` before the with expression completes or propagates the body's control-flow outcome.
+`exit` before body-local destruction, expression completion, or propagation of the body's control-flow outcome.
 
 Compile-time arguments, storage policy types, trait applications, overload declarations, type arguments, and path resolution have no runtime evaluation order.
 

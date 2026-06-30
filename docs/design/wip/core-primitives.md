@@ -1421,6 +1421,70 @@ capability checking.
 
 ---
 
+## Lifecycle ordering
+
+For a value that uses every lifecycle phase, the lifecycle order is:
+
+```text
+construct -> ordinary use -> enter -> with body -> exit -> finalize -> destruct -> field/payload destruction
+```
+
+The ordinary use and with-body phases include observation, borrowing, mutation, movement, copying, calls, and access through the
+value's type contract.
+
+Construction initializes storage.
+
+Storage becomes fully initialized only after construction completes.
+
+If construction exits before the whole value is fully initialized, already-initialized subparts are destroyed in reverse
+initialization order.
+
+A completed construction can establish finalization obligations.
+
+Scoped use happens through `with` expressions.
+
+A `with` expression applies `enter`, evaluates its body while the scoped capability is live, then applies the matching `exit`.
+
+The matching `exit` runs before the with body's control-flow outcome continues.
+
+The matching `exit` also runs before ordinary local destruction caused by leaving the with body.
+
+Scope exit resolves owned values whose ownership remains in the scope.
+
+For each such value, any required finalization obligation must be resolved before destruction begins.
+
+Finalization is obligation-driven. A value with an outstanding finalization obligation cannot be destroyed.
+
+The obligation must be completed, transferred to another owner that assumes it, or converted into an explicit fallback ownership
+form before ownership ends.
+
+Finalization obligations represent fallible or asynchronous cleanup before destruction.
+
+Destruction is synchronous and infallible.
+
+When a fully initialized value has a custom destructor, the whole-value destructor runs before the value's fields or active payload
+parts are destroyed.
+
+After the whole-value destructor returns, initialized fields or active payload parts are destroyed in the type's destruction order.
+
+If no custom destructor exists, initialized fields or active payload parts are destroyed directly in the type's destruction order.
+
+Partial values do not run whole-value finalizers or whole-value destructors.
+
+Partial values resolve lifecycle only for initialized parts.
+
+A type with whole-value lifecycle behavior can restrict partial moves when the lifecycle behavior depends on whole-value
+invariants.
+
+Panic propagation and cancellation use the same lifecycle ordering as ordinary scope exit.
+
+Active `with` exits run first, then remaining owned locals are resolved in reverse ownership-scope order.
+
+If lifecycle cleanup produces a failure while panic propagation or cancellation is already in progress, the surrounding panic,
+run-result, or cancellation model must represent that combined outcome. If it cannot, the surrounding program is rejected.
+
+---
+
 ## Destruction and finalization
 
 **Destruction** ends ownership of a value and releases the resources governed by its destruction contract.

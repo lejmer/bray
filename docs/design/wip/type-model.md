@@ -644,6 +644,9 @@ Destruction of a partially moved product value destroys only the still-initializ
 
 A partially moved product value can become fully initialized again when all moved-from fields are reinitialized and the storage and type contract permit reinitialization.
 
+A product type with whole-value lifecycle behavior can restrict partial moves when that lifecycle behavior depends on whole-product
+invariants.
+
 TODO: Define how custom lifecycle behavior restricts or extends product partial-move rules.
 
 ### Product movement
@@ -672,7 +675,9 @@ Copy behavior is explicit through the product type’s contract.
 
 ### Product destruction
 
-Destroying a fully initialized product value destroys its initialized fields.
+Destroying a fully initialized product value runs any whole-product destructor before field destruction.
+
+Initialized fields are then destroyed.
 
 Fields are destroyed in Bray field destruction order.
 
@@ -748,6 +753,8 @@ Destructors perform synchronous cleanup when ownership ends.
 Scope enter and exit declarations define scoped capability behavior for `with` expressions.
 
 Lifecycle declarations participate in ownership, borrowing, mutation authority, finalization obligations, effects, and trusted capability checking.
+
+Product lifecycle declarations follow the general lifecycle ordering model.
 
 TODO: Define detailed lifecycle rules for product types.
 
@@ -1122,6 +1129,9 @@ Destruction of a partially moved union value destroys only the still-initialized
 
 A partially moved union value can become fully initialized again when all moved-from active payload fields are reinitialized and the storage and type contract permit reinitialization.
 
+A union type with whole-value lifecycle behavior can restrict partial moves when that lifecycle behavior depends on whole-union or
+active-variant invariants.
+
 TODO: Define how custom lifecycle behavior restricts or extends union partial-move rules.
 
 ### Union movement
@@ -1152,7 +1162,9 @@ Copy behavior is explicit through the union type’s contract.
 
 ### Union destruction
 
-Destroying a fully initialized union value destroys the active payload.
+Destroying a fully initialized union value runs any whole-union destructor before active payload destruction.
+
+The active payload is then destroyed.
 
 Inactive variant payloads have no initialized values and therefore no destruction work.
 
@@ -1198,6 +1210,8 @@ Scope enter and exit declarations define scoped capability behavior for `with` e
 Lifecycle declarations participate in ownership, borrowing, mutation authority, finalization obligations, effects, and trusted capability checking.
 
 Lifecycle behavior can depend on the active variant.
+
+Union lifecycle declarations follow the general lifecycle ordering model.
 
 TODO: Define detailed lifecycle rules for union types.
 
