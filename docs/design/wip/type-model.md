@@ -1224,10 +1224,23 @@ Destruction of a partially moved union value destroys only the still-initialized
 
 A partially moved union value can become fully initialized again when all moved-from active payload fields are reinitialized and the storage and type contract permit reinitialization.
 
-A union type with whole-value lifecycle behavior can restrict partial moves when that lifecycle behavior depends on whole-union or
-active-variant invariants.
+A union type with whole-union lifecycle behavior must be fully initialized whenever a whole-union lifecycle declaration can run.
 
-TODO: Define how custom lifecycle behavior restricts or extends union partial-move rules.
+A payload field move from such a union is valid only when every reachable path reinitializes the active payload field before:
+
+- the union is finalized,
+- the union is destroyed as a complete value,
+- the union is used as a `with` initializer,
+- the union is moved, copied, consumed, borrowed, or observed as a complete value,
+- the active variant is replaced,
+- ownership of the union can end.
+
+If the compiler cannot prove that the union becomes fully initialized before one of those events, the payload field move is
+rejected.
+
+Partial union storage resolves only initialized fields of the active payload.
+
+Partial union storage does not run whole-union finalizers, whole-union destructors, or whole-union scope enter/exit behavior.
 
 ### Union movement
 
@@ -1279,7 +1292,7 @@ A union value with finalization obligations must satisfy those obligations befor
 
 ### Union lifecycle declarations
 
-A union type can define lifecycle declarations inside its type body.
+A union type can define lifecycle declarations inside its type body or inside an inherent implementation for the union type.
 
 ```bray
 union ResourceState
@@ -1289,10 +1302,22 @@ union ResourceState
 
     destruct()
     {
-        ...
+        match self
+        {
+            case Open(handle)
+            {
+                ...
+            }
+            case Closed
+            {
+                ...
+            }
+        }
     }
 }
 ```
+
+Note: In the example above, `Open` and `Closed` are ordinary variant names, not special syntax.
 
 Constructors create fully initialized values of the union type.
 
@@ -1310,9 +1335,103 @@ Union lifecycle declarations follow the general lifecycle ordering model.
 
 Union lifecycle declarations use the general lifecycle declaration signature and selection rules.
 
-TODO: Define detailed lifecycle rules for union types.
+Union lifecycle declarations are whole-union lifecycle declarations.
 
-TODO: Define variant-specific lifecycle declarations.
+`Self` in a union lifecycle declaration means the declaring union type.
+
+In an inherent implementation, the implementation subject must be that union type.
+
+For a given union type, lifecycle kind, and lifecycle path, at most one participating lifecycle declaration can be visible in a
+coherence domain.
+
+Variant-dependent lifecycle behavior is expressed inside whole-union lifecycle bodies with ordinary control flow, pattern matching,
+active-variant refinement, and payload access.
+
+Constructor bodies have no `self` binding.
+
+A constructor body must produce a fully initialized `Self` value or a `Result.Ok` carrying a fully initialized `Self` value.
+
+A constructor body can produce that value with a variant construction expression, another constructor call, or another expression
+whose result type is `Self`.
+
+Constructor failure through `Result.Error`, panic, cancellation, or another non-success exit does not produce a union value.
+
+Values, temporaries, and partially initialized union storage created before such an exit are resolved by ordinary ownership,
+destruction, and finalization rules.
+
+A successfully constructed union carries:
+
+- the lifecycle obligations declared by the union type,
+- the lifecycle obligations of the active payload,
+- any lifecycle obligations produced by payload defaults or constructor body expressions.
+
+Payload defaults used during construction are evaluated according to union construction rules before the union becomes fully
+initialized.
+
+Finalizer bodies have a compiler-introduced `self` binding for the whole union value being finalized.
+
+The finalizer has exclusive lifecycle authority over `self` for the duration of the finalizer.
+
+A finalizer can branch on `self` with ordinary `match`.
+
+A successful variant pattern in a finalizer refines `self` to that active variant and makes initialized payload fields available
+according to the pattern operation mode.
+
+A finalizer can observe and mutate active payload fields when its declaration contract permits those operations.
+
+A finalizer cannot let `self`, an active payload access path, a borrow from `self`, or a capability derived from `self` escape
+unless the finalizer contract explicitly transfers the corresponding obligation.
+
+A finalizer must return with the union fully initialized.
+
+If a finalizer returns `Result.Error`, the finalization obligation remains unresolved.
+
+A union with an unresolved finalization obligation cannot be destroyed.
+
+Destructor bodies have a compiler-introduced `self` binding for the whole union value being destroyed.
+
+The destructor has exclusive destruction authority over `self` for the duration of the destructor.
+
+A destructor is synchronous and infallible.
+
+A destructor can branch on `self` with ordinary `match`.
+
+A successful variant pattern in a destructor refines `self` to that active variant and makes initialized payload fields available
+according to the pattern operation mode.
+
+A destructor can observe and mutate active payload fields when its declaration contract permits those operations.
+
+A destructor cannot create a finalization obligation that remains unresolved after the destructor returns.
+
+A destructor cannot let `self`, an active payload access path, a borrow from `self`, or a capability derived from `self` escape.
+
+If a destructor consumes or destroys an active payload field, that field becomes uninitialized and is not destroyed again after the
+destructor returns.
+
+Any initialized active payload fields remaining after the destructor returns are destroyed according to active payload destruction
+rules.
+
+Scope enter bodies have a compiler-introduced `self` binding for the union access path used as the `with` initializer.
+
+The selected enter declaration must be able to satisfy its declared ownership, borrowing, mutation, capability, effect, trusted,
+and lifecycle requirements from that access path.
+
+The successful enter result is the scoped capability matched by the `with` pattern.
+
+The scoped capability can borrow from the union, carry access authority for the union or its active payload, or carry an
+independent resource token, according to the scoped capability type.
+
+Scope exit bodies receive the scoped capability produced by the matching enter declaration.
+
+Exit operates on the scoped capability. It can reach the union only through access carried by that scoped capability.
+
+An active scoped capability can restrict observation, mutation, borrowing, movement, active-variant replacement, finalization,
+destruction, and partial moves of the union for the lifetime of the `with` body.
+
+Whole-union replacement resolves the old active variant payload according to union finalization, destruction, and active payload
+destruction rules before the new active variant tag and payload become initialized at that access path.
+
+Variant declarations remain the source of variant names and payload structure.
 
 ### Recursive unions
 
