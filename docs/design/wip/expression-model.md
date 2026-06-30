@@ -1560,9 +1560,9 @@ Module-level acknowledgement uses `using internal`.
 using internal some.module.helper;
 ```
 
-`using internal` acknowledges use of specific internal declarations or declaration paths.
+`using internal` acknowledges use of specific internal modules, declarations, or declaration paths.
 
-`using internal` applies to declarations or declaration paths rather than entire modules or packages.
+`using internal` applies to specific modules, declarations, or declaration paths rather than entire packages.
 
 Acknowledgement is lexical.
 
@@ -1570,7 +1570,7 @@ Acknowledgement does not propagate through re-exports.
 
 Re-exporting an internal declaration requires its own explicit acknowledgement and produces an internal export unless exposed through a public wrapper.
 
-TODO: Define the full re-export rules for internal declarations.
+The Module and Package Model defines export and internal re-export rules.
 
 A public API exposes internal declarations only through an explicit public wrapper that removes the internal declaration from the public signature.
 

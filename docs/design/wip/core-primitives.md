@@ -1262,6 +1262,9 @@ A **module** is a namespace and source-organization unit inside a package.
 A module contains declarations. Modules organize names, define declaration ownership, and participate in visibility and
 import rules.
 
+The Module and Package Model defines module declaration syntax, module visibility, split module behavior, using declarations,
+and exports.
+
 A module can be declared across multiple declaration blocks and source files. Each declaration block that contributes to a
 module declares the same module identity.
 

@@ -22,6 +22,9 @@ Trusted declarations are permitted only inside trusted modules.
 A trusted module declaration says that the module contains trusted declarations. It does not grant trusted capabilities to every
 declaration in the module.
 
+Module declaration syntax, block module declarations, module visibility, and split module rules are defined by the Module and
+Package Model.
+
 ```bray
 trusted module runtime.memory;
 ```

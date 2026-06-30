@@ -474,15 +474,15 @@ Use of an internal field outside its intended scope requires explicit acknowledg
 let h = internal entry.hash;
 ```
 
-A module can acknowledge use of a specific internal declaration or declaration path with `using internal`.
+A module can acknowledge use of a specific internal module, declaration, or declaration path with `using internal`.
 
 ```bray
 using internal cache.CacheEntry.hash;
 ```
 
-`using internal` applies to specific internal declarations or declaration paths.
+`using internal` applies to specific internal modules, declarations, or declaration paths.
 
-`using internal` applies to declarations or declaration paths rather than entire modules or packages.
+`using internal` applies to specific modules, declarations, or declaration paths rather than entire packages.
 
 A public API exposes internal fields only through an explicit public wrapper that removes the internal field from the public signature.
 

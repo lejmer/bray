@@ -1164,9 +1164,9 @@ A module can acknowledge internal use through `using internal`.
 using internal some.module.helper;
 ```
 
-`using internal` acknowledges specific internal declarations or declaration paths.
+`using internal` acknowledges specific internal modules, declarations, or declaration paths.
 
-`using internal` applies to declarations or declaration paths rather than entire modules or packages.
+`using internal` applies to specific modules, declarations, or declaration paths rather than entire packages.
 
 ---
 
