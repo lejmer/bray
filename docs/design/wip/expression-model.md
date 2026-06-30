@@ -4,7 +4,10 @@
 
 An **expression** is a program element that produces a value, an access path, a control-flow outcome, or a compile-time entity.
 
-Bray is expression-oriented. Block expressions, construction expressions, call expressions, match expressions, generator expressions, conversion expressions, borrow expressions, assignment expressions, and control-flow expressions all have types and participate in ownership, borrowing, mutation authority, initialization, destruction, finalization, capability checking, effect checking, and fact-context refinement.
+Bray is expression-oriented. Block expressions, construction expressions, call expressions, match expressions, generator expressions,
+boolean fold expressions, `with` expressions, conversion expressions, borrow expressions, assignment expressions, and control-flow
+expressions all have types and participate in ownership, borrowing, mutation authority, initialization, destruction, finalization,
+capability checking, effect checking, and fact-context refinement.
 
 Expressions are distinct from declarations and directives.
 
@@ -179,7 +182,7 @@ A **callable-body block expression** is the block expression used as the body of
 
 Functions have callable-body block expressions.
 
-Other callable forms such as local functions, anonymous functions, closures, and async functions also have callable-body block expressions.
+Other callable forms such as local functions, lambdas, and async functions also have callable-body block expressions.
 
 ```bray
 func add(left: i32, right: i32) -> i32
@@ -1344,9 +1347,11 @@ math.sin
 point.x
 pkg.module.Type
 Shape.Circle
+pair.0
 ```
 
-Bray uses `.` for package paths, module paths, type paths, associated declarations, variant access, field access, method access, static function access, and nested access.
+Bray uses `.` for package paths, module paths, type paths, associated declarations, variant access, field access, tuple element
+projection, method access, static function access, and nested access.
 
 The binder determines the meaning of each path expression from the resolved left-hand entity and the selected right-hand component.
 
@@ -1366,6 +1371,7 @@ The result of a path expression can be:
 
 - another path-capable entity,
 - a field access path,
+- a tuple element access path,
 - a callable declaration,
 - a callable value,
 - a union variant constructor,
@@ -1560,6 +1566,48 @@ Field access through `box` or another type form follows the access and projectio
 
 ---
 
+### Tuple element paths
+
+A path whose left-hand side is a tuple value or tuple access path can select a tuple element by position.
+
+```bray
+pair.0
+pair.1
+```
+
+The right-hand component is a decimal element position.
+
+The element position is checked statically.
+
+The selected position must be within the tuple arity.
+
+A tuple element path produces an access path to the selected element when the subject expression provides a compatible access path.
+
+Tuple element projection observes, borrows, mutably borrows, moves, copies, consumes, or assigns through the selected element
+according to the operation context.
+
+Observation of a tuple element requires observe capability.
+
+Mutable access to a tuple element requires mutation authority over the reached storage.
+
+Tuple element paths can be chained with other path components.
+
+```bray
+entry.0.name
+entry.1.0
+```
+
+Tuples do not support bracket indexing or slicing.
+
+```bray
+pair[0]     // invalid
+pair[0..1]  // invalid
+```
+
+Arrays and slices use bracket indexing and slicing. Tuples use dot-number projection.
+
+---
+
 ### Method paths and method calls
 
 A path whose left-hand side is a value or access path can select a method candidate.
@@ -1600,9 +1648,20 @@ mut func clear();
 consume func into_bytes() -> Bytes;
 ```
 
-A method path used without a call can produce a callable value when the expected callable type captures the receiver and preserves the callable contract.
+A method path used without a call does not implicitly produce a callable value that captures the receiver.
 
-TODO: Define bound-method value rules.
+```bray
+let f = buffer.clear; // invalid
+```
+
+Use a lambda with an explicit capture when a callable value should call a method later.
+
+```bray
+let f = capture(&mut buffer) lambda ()
+{
+    buffer.clear();
+};
+```
 
 ---
 
@@ -2389,6 +2448,11 @@ Inside a method body, `self` is the receiver keyword.
 
 The receiver is not written as an ordinary parameter in method declarations.
 
+The binding name `self` is reserved for the compiler-introduced receiver and cannot be declared as an ordinary parameter, local
+binding, or pattern binding.
+
+Ordinary parameters may still use `Self` as a type when `Self` is in scope.
+
 In trait and implementation contexts, `func` declares an instance method by default.
 
 ```bray
@@ -2474,9 +2538,9 @@ A method call can require ordinary or trusted preconditions through `requires(..
 
 Trusted caller obligations must be present in the fact context, acknowledged at a trust boundary, or exposed through the surrounding declaration’s contract.
 
-A method path used without a call can produce a callable value when the expected callable type captures or represents the receiver and preserves the callable contract.
+A method path used without a call does not implicitly produce a callable value that captures or represents the receiver.
 
-TODO: Define bound-method value rules.
+Use a lambda with an explicit capture when a callable value should call a method later.
 
 The receiver expression is evaluated before method argument expressions.
 
@@ -2648,6 +2712,15 @@ Copying a tuple requires every element type to satisfy the required copy contrac
 Borrowing a tuple borrows the tuple storage.
 
 Projecting a tuple element from a tuple access path creates an access path to that element.
+
+Tuple element projection uses dot-number syntax.
+
+```bray
+let x = pair.0;
+let y = pair.1;
+```
+
+Tuples do not support bracket indexing or slicing.
 
 Shared borrowing a tuple can provide shared access to tuple elements according to Bray's borrowing rules.
 
@@ -3123,6 +3196,68 @@ A general generator iteration expression participates in ownership, borrowing, m
 The completion result of a generator iteration expression is `unit`.
 
 The values produced by `yield` are delivered to the enclosing generator region rather than becoming the direct completion result of the iteration expression.
+
+---
+
+## Boolean fold expressions
+
+A **boolean fold expression** reduces a finite iterable expression with boolean elements to a single `bool`.
+
+Boolean fold expressions use `all(...)` and `any(...)`.
+
+```bray
+all(flags)
+any(errors)
+```
+
+The operand must provide an iteration contract.
+
+The operand's element type must be `bool`.
+
+The operand must be finite and bounded.
+
+`all(operand)` evaluates to `true` when every produced element is `true`.
+
+`all(operand)` evaluates to `true` for an empty operand.
+
+`any(operand)` evaluates to `true` when at least one produced element is `true`.
+
+`any(operand)` evaluates to `false` for an empty operand.
+
+Both forms short-circuit.
+
+`all(...)` stops iterating the operand after the first `false` element.
+
+`any(...)` stops iterating the operand after the first `true` element.
+
+The operand expression is evaluated once.
+
+Iteration observes or borrows elements according to the operand's iteration contract.
+
+Boolean fold expressions do not consume the operand by default.
+
+A generator expression can be used as the operand.
+
+```bray
+let every_valid = all(
+    {
+        each item in items
+        {
+            yield item.is_valid();
+        }
+    }
+);
+```
+
+Generator expressions are not required.
+
+Any finite bounded iterable expression with `bool` elements can be used.
+
+In ordinary expression context, the operand and any generator body used to produce it obey ordinary expression, ownership,
+borrowing, effect, capability, and finalization rules.
+
+In predicate-expression context, the operand and any generator body used to produce it must also obey predicate-expression
+restrictions.
 
 ---
 
@@ -4323,7 +4458,7 @@ Pattern matching does not execute ordinary user code.
 
 Pattern matching does not call ordinary functions or methods.
 
-Pattern matching does not allocate, perform I/O, run asynchronous work, finalize, destroy, or enter resource scopes.
+Pattern matching does not allocate, perform I/O, run asynchronous work, finalize, destroy, or use `with` expressions.
 
 Additional boolean filtering is handled by guards when the surrounding expression form defines guards.
 
@@ -4372,7 +4507,17 @@ Predicate expressions can reference predicate parameters.
 
 Predicate expressions can reference `self` where applicable.
 
-TODO: Define result-binding syntax before allowing predicate expressions to reference result bindings in postconditions.
+Predicate expressions in postcondition context can reference `result`.
+
+`result` is the compiler-introduced binding for the value produced by normal completion of the declaration being checked.
+
+`result` is available only inside `ensures(...)` clauses and other postcondition predicate contexts that describe a normal
+completion value.
+
+`result` is not available in `requires(...)`, `with(...)`, predicate declaration bodies, guard expressions, ordinary expression
+contexts, or declarations whose normal completion does not produce a value.
+
+Bray does not support named result bindings.
 
 Predicate expressions can reference constants and associated constants.
 
@@ -4390,11 +4535,29 @@ Predicate expressions can use comparisons.
 
 Predicate expressions can call predicates.
 
-Predicate expressions can call contract functions.
+Predicate expressions can call functions and methods whose selected callable contract is valid in predicate-expression context.
+
+Predicate-safe callable contract rules belong to the Contract and Trust Model.
 
 Predicate expressions can use conditional expressions when the condition and every branch are valid predicate expressions.
 
-TODO: Define whether predicate expressions support finite bounded quantifier expressions.
+Predicate expressions can use `all(...)` and `any(...)` boolean fold expressions.
+
+The operand of a predicate-context boolean fold expression must be predicate-valid.
+
+If the operand is a generator expression, its source expression, pattern operation, iteration body, and yielded expressions must be
+predicate-valid.
+
+The yielded element type must be `bool`.
+
+The operand must be finite and bounded in the current predicate context.
+
+In static constraint context, the compiler must be able to statically enumerate the operand or reason about its finite bound.
+
+In value predicate context, a runtime contract check may iterate a runtime-sized operand only when its finite bound is available
+from observable state in that predicate context.
+
+If finiteness or boundedness cannot be proven in the required predicate context, the predicate expression is rejected.
 
 Predicate expressions exclude local binding declarations.
 
@@ -4412,17 +4575,18 @@ Predicate expressions exclude allocation.
 
 Predicate expressions exclude I/O.
 
-Predicate expressions exclude ordinary function calls.
+Predicate expressions exclude function calls whose selected callable contract is not valid in predicate-expression context.
 
-Predicate expressions exclude method calls unless they resolve to contract functions.
+Predicate expressions exclude method calls whose selected callable contract is not valid in predicate-expression context.
 
 Predicate expressions exclude asynchronous execution forms.
 
 Predicate expressions exclude `try` propagation and `catch` expressions.
 
-Predicate expressions exclude resource-scope behavior.
+Predicate expressions exclude `with` expressions and resource-scope behavior.
 
-Predicate expressions exclude runtime loops.
+Predicate expressions exclude runtime loops other than generator iteration expressions used to produce finite boolean operands for
+`all(...)` or `any(...)`.
 
 Predicate expressions exclude dynamic dispatch with effects.
 
@@ -4458,14 +4622,6 @@ Mutation, movement, consumption, destruction, reinitialization, finalization, or
 Static constraint facts are compile-time facts scoped to the constrained declaration and its generic checking context.
 
 Runtime assertions generated from predicate expressions must preserve predicate-expression semantics.
-
-TODO: Define result-binding syntax for postconditions.
-
-TODO: Define contract function declaration syntax.
-
-TODO: Define quantifier syntax and rules.
-
-TODO: Define resource-scope expression syntax.
 
 ---
 
@@ -4509,7 +4665,7 @@ Guard context does not allow finalization transfer.
 Guard context does not provide trusted capability unless that capability is already available and acknowledged according to ordinary trust rules.
 
 A guard expression cannot mutate, move, consume, allocate, perform I/O, await, use `return`, use `yield`, use `break`, use
-`continue`, use `try`, use `catch`, enter resource scopes, or depend on effects unavailable in guard context.
+`continue`, use `try`, use `catch`, use `with` expressions, or depend on effects unavailable in guard context.
 
 The arm body is selected only when the pattern matches and the guard evaluates to `true`.
 
@@ -5169,15 +5325,221 @@ let found: Item? = loop
 
 ---
 
-## Resource-scope expressions
+## With expressions
 
-TODO: Define resource-scope expressions.
+A **with expression** enters scoped lifecycle behavior for a resource and evaluates a body while the scoped capability is active.
+
+With expressions use `with`.
+
+```bray
+with file = File.open(path)
+{
+    file.write(bytes);
+}
+```
+
+A with expression has the form:
+
+```bray
+with pattern = initializer
+{
+    ...
+}
+```
+
+The binding side can include a type annotation:
+
+```bray
+with file: File = File.open(path)
+{
+    file.write(bytes);
+}
+```
+
+The binding side is an irrefutable pattern.
+
+```bray
+with (file, metadata) = open_with_metadata(path)
+{
+    ...
+}
+```
+
+The initializer expression is evaluated once.
+
+The initializer must produce a resource value or access path whose type has an applicable `enter` lifecycle declaration.
+
+The selected `enter` lifecycle declaration creates the scoped capability value matched by the pattern.
+
+The type annotation, when present, applies to the scoped capability value produced by `enter`.
+
+The scoped bindings introduced by the pattern are visible only inside the with body.
+
+The with body is a block expression.
+
+In value-producing context, the with body is a single-yield region and supplies the with expression result.
+
+```bray
+let count: usize = with file = File.open(path)
+{
+    yield file.count_lines();
+};
+```
+
+When the with body produces a value, that value is held as the pending with expression result until scope exit completes.
+
+The matching `exit` lifecycle declaration runs on every path leaving the with body.
+
+The `exit` lifecycle declaration runs for normal completion, `yield`, `return`, `break`, `continue`, nullable propagation, result
+propagation, run-result propagation, panic propagation, cancellation, and any other control-flow exit from the body.
+
+After `exit` completes, the original body result or control-flow outcome continues.
+
+If `enter` does not complete successfully, the pattern is not matched, the with body is not evaluated, and `exit` does not run.
+
+Fallible `enter` or `exit` behavior contributes its failure contract to the with expression.
+
+Asynchronous `enter` or `exit` behavior contributes its execution contract to the with expression.
+
+The surrounding context must be able to satisfy the with expression's type, failure, execution, effect, capability, and lifecycle
+contract.
+
+The scoped bindings, borrows from them, and capabilities derived from them cannot escape the with body unless the selected `exit`
+lifecycle contract explicitly transfers that obligation.
+
+A `with` expression participates in ownership, borrowing, mutation authority, initialization, destruction, finalization, capability
+checking, effect checking, task-obligation checking, and fact-context refinement.
 
 ---
 
-## Closure and anonymous function expressions
+## Lambda expressions and anonymous callable expressions
 
-TODO: Define closure and anonymous function expressions.
+An **anonymous callable expression** creates a callable value.
+
+Anonymous callable expressions use `lambda`.
+
+```bray
+let increment = lambda (pos value: i32) -> i32
+{
+    return value + 1;
+};
+```
+
+A lambda has the form:
+
+```bray
+lambda (parameters) -> Result
+{
+    ...
+}
+```
+
+The parameter list uses the same parameter grammar as function declarations.
+
+The result type is optional. An omitted result type means `unit`.
+
+The lambda body is a callable-body block expression.
+
+The lambda body creates its own callable execution scope.
+
+`return` exits the lambda, not the enclosing callable execution scope.
+
+```bray
+func outer() -> i32
+{
+    let f = lambda () -> i32
+    {
+        return 1;
+    };
+
+    f();
+
+    return 2;
+}
+```
+
+The first `return` exits the lambda.
+
+The second `return` exits `outer`.
+
+A lambda expression can include callable modifiers before `lambda`.
+
+```bray
+async lambda () -> Response
+{
+    return await read_response();
+}
+
+trusted lambda (pos bytes: &mut [u8])
+    uses(raw_memory)
+{
+    ...
+}
+```
+
+Receiver-mode modifiers such as `mut` and `consume` do not apply to `lambda`.
+
+Lambdas have no receiver.
+
+`self` is unavailable inside a lambda body unless it is explicitly captured from an enclosing method body.
+
+Captures are explicit.
+
+A lambda without a capture clause captures no ordinary local bindings from the surrounding callable execution scope.
+
+A capture clause appears before `lambda`.
+
+When both a capture clause and callable modifiers are present, the capture clause appears before the modifiers.
+
+```bray
+let f = capture(&buffer, copy limit) lambda () -> usize
+{
+    return buffer.count() + limit;
+};
+```
+
+Capture entries are:
+
+- `copy name`, which copies the captured value into the callable value,
+- `&name`, which captures a shared borrow,
+- `&mut name`, which captures a mutable borrow,
+- `consume name`, which moves the captured value into the callable value.
+
+Each capture entry names a binding visible at the lambda expression.
+
+Inside a method body, a capture entry can name the compiler-introduced receiver binding `self`.
+
+Capture names are available inside the lambda body under the same name.
+
+A capture name cannot duplicate another capture name or a lambda parameter name.
+
+The captured binding must support the requested capture mode.
+
+A `copy` capture requires the captured type to satisfy the copy contract.
+
+A shared-borrow capture requires the captured access path to be observable for the lifetime of the callable value.
+
+A mutable-borrow capture requires exclusive mutation authority for the lifetime of the callable value.
+
+A `consume` capture moves the captured value into the callable value when the lambda expression is evaluated.
+
+After a `consume` capture, the old access path is unavailable until reinitialized.
+
+Captured ownership, borrows, mutation authority, effects, and finalization obligations are part of the callable value's contract.
+
+The lambda body can use only its parameters, explicit captures, declarations visible from the declaration context, and values
+introduced inside the lambda body.
+
+Using an ordinary local binding from an enclosing callable body without listing it in the capture clause is rejected.
+
+Evaluating a lambda expression evaluates its capture entries in source order and creates the callable value.
+
+The lambda body is not evaluated when the lambda expression is evaluated.
+
+The lambda body is evaluated when the callable value is called.
+
+The callable value produced by a lambda has the callable type described by its parameters, result type, execution mode, contract
+clauses, effect clauses, capability clauses, trusted obligations, and captured state.
 
 ---
 
@@ -5340,6 +5702,16 @@ Method receiver expressions are evaluated before method arguments.
 
 Static function callee path resolution is checked before runtime evaluation and has no runtime evaluation step.
 
+Lambda capture entries are evaluated when the lambda expression is evaluated.
+
+Lambda bodies are evaluated only when the produced callable value is called.
+
+Boolean fold expressions evaluate their operand once and then iterate it according to the operand's iteration contract.
+
+`all(...)` stops iterating after the first `false` element.
+
+`any(...)` stops iterating after the first `true` element.
+
 Explicit call arguments are evaluated in source order.
 
 Named argument binding is separate from argument evaluation order.
@@ -5362,6 +5734,9 @@ Runtime construction arguments for type-form construction expressions are evalua
 
 Omitted runtime construction defaults are evaluated after explicit runtime construction arguments, in construction parameter declaration order.
 
+With expressions evaluate their initializer once, apply `enter`, evaluate the body while the scoped bindings are live, and apply
+`exit` before the with expression completes or propagates the body's control-flow outcome.
+
 Compile-time arguments, storage policy types, trait applications, overload declarations, type arguments, and path resolution have no runtime evaluation order.
 
 The compiler may reorder implementation work only when the reordering preserves observable Bray semantics.
@@ -5375,16 +5750,15 @@ Specific expression forms also define these evaluation facts:
 - an `each` source expression is evaluated once before iteration,
 - a struct or variant field default is evaluated when that field is omitted,
 - a box construction expression evaluates the contained value before initializing indirect storage,
+- a with expression evaluates its initializer once and applies `exit` on every body exit,
 - a guard is evaluated after structural pattern matching and before selecting the arm body.
 
 ---
 
 ## Expression TODOs
 
-- TODO: Define resource-scope expression syntax.
 - TODO: Define assertion syntax.
 - TODO: Define checked-conversion result shape.
-- TODO: Define closure and anonymous function syntax.
 - TODO: Define operator precedence and operator overloading syntax.
 
 ---

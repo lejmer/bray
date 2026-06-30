@@ -437,8 +437,7 @@ A callable execution scope is created by the block expression body of a callable
 
 Functions create callable execution scopes.
 
-Later callable forms such as local functions, anonymous functions, closures, and async functions also create callable
-execution scopes.
+Local functions, lambdas, and async functions also create callable execution scopes.
 
 `return` exits the nearest callable execution scope.
 
@@ -588,7 +587,7 @@ A function body is a block expression, and its callable result is governed by ca
 Callable types use `func(...) -> ...`.
 
 ```bray
-let op: func(i32, i32) -> i32 = add;
+let op: func(left: i32, right: i32) -> i32 = add;
 ```
 
 Tuple types use tuple syntax:
@@ -600,7 +599,7 @@ Tuple types use tuple syntax:
 Function types use callable syntax:
 
 ```bray
-func(T1, T2) -> R
+func(left: T1, right: T2) -> R
 ```
 
 Example:
@@ -611,7 +610,7 @@ func add(left: i32, right: i32) -> i32
     return left + right;
 }
 
-let op: func(i32, i32) -> i32 = add;
+let op: func(left: i32, right: i32) -> i32 = add;
 ```
 
 ---
@@ -621,24 +620,26 @@ let op: func(i32, i32) -> i32 = add;
 A function can be used as a value when its callable contract matches the expected function type.
 
 ```bray
-let op: func(i32, i32) -> i32 = add;
+let op: func(left: i32, right: i32) -> i32 = add;
 ```
 
 A function value carries its full callable contract.
 
 The callable contract includes:
 
-1. parameter types,
-2. result type,
-3. execution mode,
-4. ownership behavior,
-5. borrowing behavior,
-6. mutation requirements,
-7. lifetime requirements,
-8. capability requirements,
-9. effects,
-10. trusted caller obligations,
-11. finalization behavior.
+1. parameter names,
+2. parameter call-position permissions,
+3. parameter types,
+4. result type,
+5. execution mode,
+6. ownership behavior,
+7. borrowing behavior,
+8. mutation requirements,
+9. lifetime requirements,
+10. capability requirements,
+11. effects,
+12. trusted caller obligations,
+13. finalization behavior.
 
 A function assignment succeeds when the target callable type preserves the callable contract required by the function value.
 
@@ -666,18 +667,18 @@ when the parameter type includes those obligations.
 
 ## Callable contract preservation
 
-Callable contracts are preserved through assignment, aliases, wrappers, generic parameters, dynamic dispatch, exports,
-and re-exports.
+Callable contracts are preserved through assignment, named callable contracts, wrappers, generic parameters, dynamic dispatch,
+exports, and re-exports.
 
 A callable assignment succeeds when the target callable type preserves every caller-visible obligation of the source callable.
 
 Example ordinary callable type:
 
 ```bray
-let f: func(&Buffer, usize) -> u8 = get_checked;
+let f: func(buffer: &Buffer, index: usize) -> u8 = get_checked;
 ```
 
-Callable types that preserve named parameters write parameter names.
+Callable types write parameter names.
 
 Callable types that permit positional arguments use the same `pos` parameter modifier as callable declarations.
 
@@ -687,7 +688,92 @@ let op: func(pos value: i32) -> i32 = double;
 
 A callable with trusted caller obligations requires a callable type that carries those obligations.
 
-TODO: Define callable type syntax for contract clauses.
+A callable type uses the callable signature grammar without a body.
+
+```bray
+func(left: i32, right: i32) -> i32
+func(pos value: i32) -> i32
+async func(pos request: Request) -> Response
+trusted func(pos bytes: &mut [u8])
+    uses(raw_memory)
+```
+
+The parameter list uses the same parameter grammar as callable declarations.
+
+The result type can be omitted when the result is `unit`.
+
+Callable modifiers that are visible in a callable contract are written before `func`.
+
+Contract clauses attach after the callable signature.
+
+```bray
+func(pos value: i32) -> i32
+    requires(value >= 0)
+```
+
+Contract clauses on callable types use the same predicate-expression syntax as contract clauses on callable declarations.
+
+The callable type must preserve every caller-visible obligation of the callable value assigned to it.
+
+### Named callable contracts
+
+A named callable contract declaration gives a reusable name to a callable type form.
+
+```bray
+callable Transform =
+    func(pos value: i32) -> i32;
+```
+
+A named callable contract declaration has no body and creates no callable value.
+
+The declared name can be used in type positions that expect a callable type.
+
+```bray
+func double(pos value: i32) -> i32
+{
+    return value + value;
+}
+
+let transform: Transform = double;
+```
+
+A named callable contract can be generic.
+
+```bray
+callable Mapper<T, U> =
+    func(pos value: T) -> U;
+```
+
+A generic callable contract can have `with(...)` constraints.
+
+```bray
+callable OrderedPredicate<T>
+    with(T: Comparable<T>) =
+    func(pos left: &T, pos right: &T) -> bool;
+```
+
+The `with(...)` clause uses static predicate expressions.
+
+The callable type on the right-hand side can reference the callable declaration's generic parameters and constraints.
+
+A named callable contract is not a general type alias.
+
+It can name only callable type forms.
+
+It does not rename a type, function, method, lambda, implementation, module, or package.
+
+It does not create a wrapper value or adapter.
+
+A callable value satisfies a named callable contract when its visible callable contract satisfies the named contract.
+
+Capture state is not written in the named callable contract.
+
+Captured ownership, borrows, capabilities, effects, finalization obligations, and lifetimes must still be preserved by the callable
+value that satisfies the contract.
+
+Named callable contracts cannot be overloaded.
+
+There can be at most one visible callable contract declaration for a given name in a name/coherence domain.
 
 ---
 
@@ -833,6 +919,10 @@ func clamp(pos value: i32, min: i32, max: i32) -> i32
 `requires(...)` declares preconditions.
 
 `ensures(...)` declares postconditions.
+
+Postconditions can reference the compiler-introduced `result` binding for the declaration's normal completion value.
+
+Bray does not support named result bindings.
 
 Contract clauses are parenthesized comma-separated lists.
 
@@ -1083,30 +1173,129 @@ A local function introduces its own callable execution scope.
 
 A `return` inside the local function exits the local function.
 
-TODO: Define capture rules for local functions and their relationship to closure rules.
+TODO: Define local function capture policy.
 
 ---
 
-## Closures and anonymous functions
+## Lambda expressions and anonymous callables
 
-TODO: Define anonymous callable syntax.
+An anonymous callable expression uses `lambda`.
 
-TODO: Define closure capture rules.
+```bray
+let increment = lambda (pos value: i32) -> i32
+{
+    return value + 1;
+};
+```
 
-Anonymous callable values obey the same callable model:
+A lambda has the same callable shape as a function declaration, but has no binding name.
 
-- parameters have declared types and capabilities,
-- result type is explicit or `unit` by omission when the chosen syntax permits omission,
-- captures are explicit or governed by a clear capture rule,
-- captured ownership, borrows, mutation authority, effects, and finalization obligations are part of the callable value’s
-  contract,
-- `return` exits the anonymous callable’s own callable execution scope.
+```bray
+lambda (parameters) -> Result
+{
+    ...
+}
+```
+
+Parameters use the same parameter grammar as functions.
+
+The result type is optional. An omitted result type means `unit`.
+
+A lambda body is a callable-body block and creates its own callable execution scope.
+
+`return` exits the lambda's callable execution scope.
+
+Lambdas have no receiver.
+
+`self` is unavailable inside a lambda body unless it is explicitly captured from an enclosing method body.
+
+Receiver-mode modifiers such as `mut` and `consume` do not apply to `lambda`.
+
+Trusted, asynchronous, contract, effect, and capability clauses compose with lambda syntax according to their ordinary callable
+rules.
+
+```bray
+async lambda (pos request: Request) -> Response
+{
+    return await handle(request);
+}
+
+trusted lambda (pos bytes: &mut [u8])
+    uses(raw_memory)
+{
+    ...
+}
+```
+
+Captures are explicit.
+
+A lambda without a capture clause captures no ordinary local bindings from its surrounding callable execution scope.
+
+A capture clause appears before `lambda`.
+
+When both a capture clause and callable modifiers are present, the capture clause appears before the modifiers.
+
+```bray
+capture(&buffer, copy limit) lambda () -> usize
+{
+    return buffer.count() + limit;
+}
+```
+
+A capture clause contains one or more capture entries.
+
+Capture entries are:
+
+- `copy name`, which copies the captured value into the lambda value,
+- `&name`, which captures a shared borrow,
+- `&mut name`, which captures a mutable borrow,
+- `consume name`, which moves the captured value into the lambda value.
+
+Each capture entry names a binding visible at the lambda expression.
+
+Inside a method body, a capture entry can name the compiler-introduced receiver binding `self`.
+
+Capture names are available inside the lambda body under the same name.
+
+A capture name cannot duplicate another capture name or a lambda parameter name.
+
+The captured binding must support the requested capture mode.
+
+A `copy` capture requires the captured type to satisfy the copy contract.
+
+A shared-borrow capture requires the captured access path to be observable for the lifetime of the lambda value.
+
+A mutable-borrow capture requires exclusive mutation authority for the lifetime of the lambda value.
+
+A `consume` capture moves the value into the lambda value when the lambda expression is evaluated.
+
+After a `consume` capture, the old access path is unavailable until reinitialized.
+
+Captured ownership, borrows, mutation authority, effects, and finalization obligations are part of the callable value's contract.
+
+The lambda body can use only its parameters, explicit captures, declarations visible from the declaration context, and values
+introduced inside the lambda body.
+
+Using an ordinary local binding from an enclosing callable body without listing it in the capture clause is rejected.
+
+Method paths do not implicitly produce bound-method values.
+
+```bray
+let f = buffer.clear; // invalid
+```
+
+Use a lambda with an explicit capture instead.
+
+```bray
+let f = capture(&mut buffer) lambda ()
+{
+    buffer.clear();
+};
+```
 
 ---
 
 ## Methods
-
-TODO: Define method declaration syntax.
 
 A method is a callable associated with a type or behavioral contract.
 
@@ -1118,9 +1307,64 @@ value.method(argument);
 
 A method has a function-like callable contract.
 
-The receiver is a parameter with ownership, borrowing, mutation, capability, and lifetime behavior.
+The receiver is supplied by method-call syntax.
 
-TODO: Define receiver syntax.
+The receiver is not written as an ordinary parameter.
+
+Inside a method body, `self` is the compiler-introduced receiver binding.
+
+`self` cannot be declared as an ordinary parameter, local binding, or pattern binding.
+
+The type name `Self` can still be used in ordinary parameter, result, local binding, and field types wherever `Self` is in scope.
+
+```bray
+func distance_to(pos other: &Self) -> r64
+{
+    ...
+}
+```
+
+Method declaration syntax is determined by receiver mode.
+
+```bray
+func length() -> usize;
+
+mut func clear();
+
+consume func into_bytes() -> Bytes;
+
+consume mut func normalize() -> Self;
+```
+
+`func` declares a method with a shared receiver.
+
+Inside a shared receiver method, `self` is an observable receiver access path.
+
+`mut func` declares a method with a mutable receiver.
+
+Inside a mutable receiver method, `self` is an exclusive mutable receiver access path.
+
+`consume func` declares a method that consumes the receiver.
+
+Inside a consuming receiver method, `self` is an owned receiver value.
+
+`consume mut func` declares a method that consumes the receiver and gives the method body mutable local authority over `self`.
+
+Receiver mode is part of the method's callable contract.
+
+Receiver mode participates in method call checking and method overload selection.
+
+Trusted, asynchronous, generic, contract, effect, and capability clauses compose with receiver-mode syntax according to their
+ordinary declaration rules.
+
+```bray
+trusted mut func reserve(pos count: usize)
+    uses(manual_alloc);
+```
+
+A static function has no receiver.
+
+`self` is unavailable inside a static function body.
 
 ---
 

@@ -197,6 +197,16 @@ A `requires(...)` clause lists facts that must hold before the declaration body 
 
 An `ensures(...)` clause lists facts established after the declaration completes normally.
 
+Inside an `ensures(...)` clause for a declaration that completes with a value, `result` is the compiler-introduced postcondition
+binding for that normal completion value.
+
+`result` is available only in postcondition predicate contexts.
+
+`result` is not available in `requires(...)`, `with(...)`, predicate declaration bodies, guard expressions, ordinary expression
+contexts, or declarations whose normal completion does not produce a value.
+
+Bray does not support named result bindings.
+
 A `with(...)` clause lists static constraint facts required by a generic declaration.
 
 A `uses(...)` clause lists trusted implementation capabilities used by the declaration body.
@@ -377,13 +387,17 @@ Allowed in predicate expressions:
 - boolean operators,
 - comparisons,
 - calls to predicates,
-- calls to contract functions,
+- calls to functions and methods whose selected callable contract is valid in predicate-expression context,
 - conditional expressions whose condition and branches are valid predicate expressions,
-- finite bounded quantifier expressions.
+- `all(...)` and `any(...)` boolean fold expressions whose operands are predicate-valid, finite, bounded, and iterable as `bool`.
 
-TODO: Define result-binding syntax for postconditions.
+In static constraint context, a boolean fold operand must be statically enumerable or have a finite bound the compiler can reason
+about.
 
-TODO: Define finite bounded quantifier expression syntax and checking.
+In value predicate context, a runtime contract check may iterate a runtime-sized boolean fold operand only when its finite bound is
+available from observable state in that predicate context.
+
+If finiteness or boundedness cannot be proven in the required predicate context, the predicate expression is rejected.
 
 Forbidden in predicate expressions:
 
@@ -396,11 +410,12 @@ Forbidden in predicate expressions:
 - finalization,
 - allocation,
 - I/O,
-- ordinary function calls,
-- method calls unless resolved to contract functions,
+- function calls whose selected callable contract is not valid in predicate-expression context,
+- method calls whose selected callable contract is not valid in predicate-expression context,
 - async, await, spawn, `try`, or `catch`,
-- resource scopes,
-- loops with runtime control flow,
+- `with` expressions and resource-scope behavior,
+- loops with runtime control flow other than generator iteration expressions used to produce finite boolean operands for `all(...)`
+  or `any(...)`,
 - dynamic dispatch with effects,
 - trusted capability use,
 - reading mutable global state,
@@ -457,9 +472,10 @@ Allowed in static predicate expressions:
 - capability, effect, lifetime, and execution-mode entities,
 - boolean operators,
 - equality and comparison operators whose operands are valid in static constraint context,
-- calls to predicates and contract functions that are valid in static constraint context.
+- calls to predicates, functions, and methods that are valid in static constraint context.
 
-A predicate or contract function is valid in static constraint context only when its parameters, body, and referenced declarations are valid in static constraint context.
+A predicate, function, or method is valid in static constraint context only when its parameters, body, selected callable contract,
+and referenced declarations are valid in static constraint context.
 
 Calling a value predicate from static constraint context is rejected.
 
@@ -521,21 +537,49 @@ They do not become runtime facts unless a separate value predicate or contract c
 
 ---
 
-## Contract functions
+## Predicate-safe function calls
 
-A contract function is a pure contract-level function used by predicates and contract expressions.
+A predicate expression can call a function or method when the selected callable contract is valid in predicate-expression context.
 
-A contract function returns a contract value, not necessarily `bool`.
+The callable can return any value type that is valid in predicate-expression context.
 
 ```bray
-contract func remaining(capacity: usize, length: usize) -> usize =
-    capacity - length;
+func remaining(capacity: usize, length: usize) -> usize
+    requires(length <= capacity)
+{
+    return capacity - length;
+}
+
+predicate has_space(length: usize, capacity: usize) =
+    remaining(capacity = capacity, length = length) > 0;
 ```
 
-Ordinary functions are not callable from predicate expressions. A callable used in a predicate expression must be a predicate or
-an explicitly declared contract function.
+A callable contract is valid in predicate-expression context only when the callable is:
 
-Contract functions obey the same purity, determinism, totality, termination, and observational restrictions as predicate expressions.
+- pure,
+- deterministic,
+- total,
+- terminating,
+- observational,
+- effect-free,
+- allocation-free,
+- async-free,
+- free of trusted capability use,
+- checked only through predicate-valid operations.
+
+The selected callable contract is the full callable contract of the resolved function or method after overload selection and
+generic substitution.
+
+The callable body may use ordinary callable-body structure, including `return`, when every reachable result-producing path uses
+only predicate-valid expressions and predicate-safe calls.
+
+The callable's parameters and result type must be valid predicate-expression values.
+
+The call arguments must be predicate-valid expressions.
+
+The callable's `requires(...)` obligations must be satisfied by the current predicate fact context.
+
+The callable's `ensures(...)` facts become available after the call inside the predicate-expression check.
 
 ---
 
@@ -644,7 +688,7 @@ Trusted obligations must propagate through:
 - destructors,
 - finalizers,
 - scope enter/exit declarations,
-- aliases,
+- named callable contracts,
 - exports,
 - re-exports,
 - internal declarations.
@@ -654,7 +698,7 @@ A function with trusted caller obligations cannot be used where an ordinary func
 Invalid:
 
 ```bray
-let f: func(&Buffer, usize) -> u8 = get_unchecked;
+let f: func(buffer: &Buffer, index: usize) -> u8 = get_unchecked;
 ```
 
 if `get_unchecked` has trusted caller obligations.

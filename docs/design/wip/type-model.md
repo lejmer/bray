@@ -745,7 +745,7 @@ Finalizers complete required lifecycle obligations before ownership ends.
 
 Destructors perform synchronous cleanup when ownership ends.
 
-Scope enter and exit declarations define scoped capability behavior.
+Scope enter and exit declarations define scoped capability behavior for `with` expressions.
 
 Lifecycle declarations participate in ownership, borrowing, mutation authority, finalization obligations, effects, and trusted capability checking.
 
@@ -1193,7 +1193,7 @@ Finalizers complete required lifecycle obligations before ownership ends.
 
 Destructors perform synchronous cleanup when ownership ends.
 
-Scope enter and exit declarations define scoped capability behavior.
+Scope enter and exit declarations define scoped capability behavior for `with` expressions.
 
 Lifecycle declarations participate in ownership, borrowing, mutation authority, finalization obligations, effects, and trusted capability checking.
 
@@ -2158,11 +2158,39 @@ A tuple value is fully initialized when every element is initialized.
 
 Tuple construction is handled by tuple expressions.
 
-TODO: Define tuple movement, copying, borrowing, partial moves, destruction, and finalization rules.
+Moving a complete tuple moves every initialized element as part of the tuple value.
+
+Copying a tuple requires every element type to satisfy the required copy contract.
+
+Borrowing a tuple borrows the tuple storage. Tuple element projection can derive narrower borrows from that borrow when ordinary
+borrowing rules permit it.
+
+Moving an element out of an owned tuple access path is a partial move of the tuple.
+
+After an element has been moved out, the tuple is partially initialized.
+
+Destruction of a partially initialized tuple destroys only initialized elements.
+
+Tuple destruction processes initialized elements in reverse element order.
+
+Finalization obligations retained by tuple elements are retained by the tuple.
 
 Detailed tuple expression rules belong to the Expression Model.
 
-TODO: Define tuple element projection syntax.
+Tuple element projection uses dot-number syntax.
+
+```bray
+pair.0
+pair.1
+```
+
+The projection number is a compile-time tuple element position.
+
+The selected position must be within the tuple arity.
+
+Tuple element projection reaches the selected element access path.
+
+Tuples do not support bracket indexing or slicing.
 
 ### Callable type form
 
@@ -2179,9 +2207,10 @@ Callable parameter names and `pos` permissions are part of the callable contract
 ```bray
 func(left: i32, right: i32) -> i32
 func(pos value: i32) -> i32
+async func(pos request: Request) -> Response
 ```
 
-A callable returning `unit` can omit the result type in declarations, but callable type forms spell result behavior according to the callable type grammar.
+A callable returning `unit` can omit the result type.
 
 Callable types preserve caller-visible obligations.
 
@@ -2189,11 +2218,85 @@ A callable with trusted caller obligations requires a callable type that preserv
 
 Callable values and callable declarations are checked by the Function and Callable Model.
 
-TODO: Define callable type syntax with contract clauses.
+Contract clauses attach after the callable type signature.
 
-TODO: Define async callable type syntax.
+```bray
+func(pos value: i32) -> i32
+    requires(value >= 0)
+```
 
-TODO: Define closure and anonymous callable type interactions.
+Contract clauses on callable type forms use the same predicate-expression syntax as contract clauses on callable declarations.
+
+Async callable type forms use `async` before `func`.
+
+```bray
+async func(pos request: Request) -> Response
+```
+
+Trusted callable type forms preserve trusted callable obligations and trusted implementation capability requirements through their
+callable contract.
+
+```bray
+trusted func(pos bytes: &mut [u8])
+    uses(raw_memory)
+```
+
+A named callable contract declaration gives a reusable name to a callable type form.
+
+```bray
+callable Transform =
+    func(pos value: i32) -> i32;
+```
+
+The callable name can be used in type positions that expect a callable type.
+
+A named callable contract can be generic.
+
+```bray
+callable Mapper<T, U> =
+    func(pos value: T) -> U;
+```
+
+A named callable contract can have `with(...)` constraints.
+
+```bray
+callable OrderedPredicate<T>
+    with(T: Comparable<T>) =
+    func(pos left: &T, pos right: &T) -> bool;
+```
+
+A named callable contract is not a general type alias.
+
+It can name only callable type forms.
+
+It does not rename arbitrary type expressions, functions, methods, lambdas, implementations, modules, or packages.
+
+A callable value satisfies a named callable contract when its visible callable contract satisfies the named contract.
+
+Named callable contracts cannot be overloaded.
+
+Lambda expressions produce anonymous callable values.
+
+A lambda's callable type is described by its parameter names, parameter call-position permissions, parameter types, result type,
+execution mode, contract clauses, effect clauses, capability clauses, trusted obligations, and captured state.
+
+Capture state is not a callable parameter.
+
+Capture state is part of the callable value's ownership, borrowing, initialization, destruction, finalization, capability, effect,
+lifetime, and storage contract.
+
+A capture-free lambda can be used where an expected callable type accepts a callable value with the same visible callable contract.
+
+A capture-bearing lambda can be used where the expected callable type preserves the captured state's ownership, borrowing,
+capability, effect, lifetime, and finalization obligations.
+
+Two lambda expressions with the same visible callable signature can still produce distinct callable value types when their captured
+state differs.
+
+The call surface of a lambda is its visible callable contract.
+
+The representation of a lambda's captured state is not part of the callable parameter list and is not directly accessible through
+the callable value.
 
 ### Type forms and construction
 
@@ -2634,9 +2737,11 @@ trait Cloneable
 
 The grammar reserves `self` for the current receiver in instance method bodies.
 
-`self` is not declared as an ordinary parameter.
+`self` cannot be declared as an ordinary parameter, local binding, or pattern binding.
 
 An instance method’s ordinary parameters are written inside the parameter list.
+
+Ordinary parameters may still use `Self` as a type when `Self` is in scope.
 
 ```bray
 trait Comparable<Other>
@@ -2951,6 +3056,8 @@ point.distance_to(other)
 ```
 
 `self` is available only inside instance method bodies.
+
+The binding name `self` is reserved for the compiler-introduced receiver.
 
 Static function bodies use `Self` for the implementing type and receive ordinary parameters through their parameter list.
 

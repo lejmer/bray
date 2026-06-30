@@ -7,8 +7,8 @@ A **value** is the semantic thing a program computes, owns, moves, copies, borro
 **Storage** is where a value can live. Storage has identity for the purposes of ownership, borrowing, mutation, aliasing,
 initialization, movement, and destruction.
 
-An **access path** is a way to reach storage. A local binding, parameter, field projection, index projection, dereference,
-temporary, view, or borrow may all be access paths when they reach storage.
+An **access path** is a way to reach storage. A local binding, parameter, field projection, tuple element projection, index
+projection, dereference, temporary, view, or borrow may all be access paths when they reach storage.
 
 Ownership, borrowing, mutation, movement, and destruction are checked over access paths and the storage they reach.
 Two access paths may conflict when they can reach the same storage or overlapping storage with incompatible capabilities.
@@ -509,7 +509,7 @@ boundary.
 
 A **callable execution scope** is the body of a callable program element.
 
-Functions, local functions, anonymous functions, lambdas, closures, and asynchronous functions introduce callable execution scopes.
+Functions, local functions, lambdas, and asynchronous functions introduce callable execution scopes.
 
 A callable execution scope has a declared result type. A `return` exits the current callable execution scope and supplies a value
 compatible with that result type.
@@ -807,6 +807,9 @@ generic parameters.
 A type declaration introduces the type's own name. Bray does not support type aliases; a name that denotes a type denotes a
 declared type, not an alternate name for another type.
 
+A named callable contract can give a reusable name to a callable type form. This is not a general type alias and cannot name an
+arbitrary type expression.
+
 A **generic parameter** is part of a declaration's contract. Its constraints are static predicate expressions that define which
 operations, ownership behavior, capabilities, effects, and behavioral contracts the generic declaration relies on.
 
@@ -979,7 +982,7 @@ T?
 [T]
 [T; N]
 (T1, T2)
-func(T1, T2) -> R
+func(left: T1, right: T2) -> R
 ```
 
 ### Type expressions
@@ -1070,7 +1073,7 @@ A **structural type form** uses a larger syntactic structure to produce a type.
 [T]
 [T; N]
 (T1, T2)
-func(T1, T2) -> R
+func(left: T1, right: T2) -> R
 ```
 
 `[T]` is the unsized slice type form.
@@ -1081,7 +1084,7 @@ func(T1, T2) -> R
 
 `(T1, T2)` is the tuple type form.
 
-`func(T1, T2) -> R` is the callable type form.
+`func(left: T1, right: T2) -> R` is the callable type form.
 
 Structural type forms can contain one or more subject types and compile-time values.
 
@@ -1152,7 +1155,7 @@ box[Heap] Point?
 &mut box[Heap] Node
 box[Heap] [u8]
 [box[Heap] Node; 4]
-func(&Buffer, usize) -> u8
+func(buffer: &Buffer, index: usize) -> u8
 ```
 
 The meaning of a composed type is determined by applying each type form according to the type grammar, explicit grouping
@@ -1410,8 +1413,8 @@ A **scope enter declaration** defines how a value creates a scoped capability.
 
 A **scope exit declaration** defines how that scoped capability is released when the scope exits.
 
-Scope enter and exit declarations are declared with `enter` and `exit`. They support resource-scope idioms such as lock guards,
-temporary permissions, transactions, and scoped runtime registrations.
+Scope enter and exit declarations are declared with `enter` and `exit`. `with` expressions use them to support resource-scope
+idioms such as lock guards, temporary permissions, transactions, and scoped runtime registrations.
 
 Lifecycle declarations participate in ownership, borrowing, mutation authority, finalization obligations, effects, and trusted
 capability checking.
