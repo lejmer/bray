@@ -650,7 +650,7 @@ rounding
 Their meanings are:
 
 ```text
-checked     succeeds only if representable; otherwise returns a nullable value or result
+checked     succeeds only if representable; otherwise returns a result
 saturating  clamps to the target range
 wrapping    uses modular integer conversion
 truncating  discards fractional part
@@ -686,7 +686,7 @@ A value of source type `S` can be converted to target type `T` with plain `as` w
 5. `S` and `T` are array types with the same length, and the source element type is explicitly convertible to the target element
    type.
 6. `S` and `T` are nullable types, and the source contained type is explicitly convertible to the target contained type.
-7. `T` declares an explicit conversion from `S`.
+7. `S` has a participating `ConvertTo<T>` implementation.
 
 Composite conversion preserves structure.
 
@@ -705,8 +705,7 @@ let a: (i32, r32) = (1, 2.0);
 let b: (i64, r64) = a as (i64, r64);
 ```
 
-A tuple cannot be converted to a non-tuple user type unless the target type declares an explicit conversion from the source
-tuple type.
+A tuple cannot be converted to a non-tuple user type unless the tuple type has a participating `ConvertTo<T>` implementation for the target type.
 
 Two-element tuple to complex conversion is allowed when the target is a built-in complex type and both elements can be explicitly
 converted to the complex component real type.

@@ -1575,6 +1575,33 @@ match result
 
 `PanicReport` is a compiler-known protected-representation type that preserves the panic message and diagnostic context carried by a panic.
 
+`ConversionError` is the compiler-known error type used by built-in checked conversions.
+
+Its semantic declaration is:
+
+```bray
+union ConversionError
+{
+    OutOfRange;
+    NonFinite;
+    NonRepresentable;
+}
+```
+
+`ConversionError.OutOfRange` means the source value is outside the target type's value range.
+
+`ConversionError.NonFinite` means the source value is not finite and the selected checked conversion contract requires a finite value.
+
+`ConversionError.NonRepresentable` means the source value is within the target type's range and domain but cannot be represented exactly by the target type without rounding, truncation, saturation, wrapping, or other information loss.
+
+`ConversionError` reports the failure category only.
+
+It does not carry the source value, source type, target type, or source expression location.
+
+Diagnostics can report those details from the conversion expression and type-checking context.
+
+User-defined checked conversions do not use `ConversionError` unless their selected `CheckedConvertTo<Target>.Error` type is `ConversionError`.
+
 ### Compiler-known task handles
 
 `Task<T>` is the compiler-known linear task handle type for a spawned asynchronous task whose ordinary result type is `T`.
@@ -3101,6 +3128,112 @@ Trusted caller obligations must be declared with `trusted` requirements in `requ
 
 TODO: Define effect annotation syntax beyond currently defined contract clauses.
 
+### Conversion traits
+
+Conversion expression syntax is implemented through compiler-known traits.
+
+The language substrate declares the conversion trait surface.
+
+A type enables a conversion by satisfying the corresponding compiler-known trait application.
+
+Source code does not declare new conversion modes or implicit conversion behavior.
+
+Plain conversion uses `ConvertTo<Target>`:
+
+```bray
+trait ConvertTo<Target>
+{
+    consume func convert() -> Target;
+}
+```
+
+`ConvertTo<Target>` is the compiler-known trait application for `as Target`.
+
+`convert` is the member called by a plain conversion expression when no built-in recursive conversion rule applies.
+
+A `ConvertTo<Target>` implementation must be total and value-preserving according to the conversion contract.
+
+Fallible conversion uses `CheckedConvertTo<Target>`:
+
+```bray
+trait CheckedConvertTo<Target>
+{
+    type Error;
+
+    consume func convert_checked() -> Result<Target, Error>;
+}
+```
+
+`CheckedConvertTo<Target>` is the compiler-known trait application for `as checked Target`.
+
+`convert_checked` is the member called by a checked conversion expression when no built-in checked conversion rule applies.
+
+The selected `Error` type becomes the error type of the checked conversion result.
+
+An implementation of a conversion trait is an ordinary trait implementation:
+
+```bray
+impl PortToU16 = Port(ConvertTo<u16>)
+{
+    consume func convert() -> u16
+    {
+        return self.value;
+    }
+}
+
+impl StringToPort = String(CheckedConvertTo<Port>)
+{
+    type Error = ParseError;
+
+    consume func convert_checked() -> Result<Port, Error>
+    {
+        ...
+    }
+}
+```
+
+Conversion trait implementations follow trait implementation coherence.
+
+The exact coherence key is still:
+
+```text
+(ImplementingType, TraitApplication)
+```
+
+For `as Target`, the trait application includes the target type:
+
+```text
+(SourceType, ConvertTo<Target>)
+```
+
+For `as checked Target`, the trait application includes the target type:
+
+```text
+(SourceType, CheckedConvertTo<Target>)
+```
+
+If the relevant implementation belongs to an implementation overload family, conversion expression resolution uses the same implementation overload rules as method calls.
+
+The source type, target type, conversion mode, and compiler-known conversion member name can select an implementation arm.
+
+Result type, expected type, and type-valued member outputs do not select a conversion implementation.
+
+No ranking is performed between conversion implementation candidates.
+
+If no participating implementation matches, the conversion expression is rejected.
+
+If more than one participating implementation remains possible, the conversion expression is rejected as ambiguous.
+
+Conversion expressions can use only the public compiler-known conversion trait surface and public participating implementations in the current coherence domain.
+
+Internal-access acknowledgement does not make an implementation candidate available to a conversion expression.
+
+Internal conversion behavior can be exposed through named functions or methods when the caller explicitly opts into the internal declaration according to the internal-access rules.
+
+Conversion trait members consume the receiver value produced by the source expression.
+
+When the source expression produces a borrow value, consuming the borrow value does not consume the borrowed storage.
+
 ### Operator traits
 
 Operator syntax is implemented through compiler-known traits.
@@ -3562,12 +3695,12 @@ A generic trait should use generic parameters when the caller or constraint site
 
 A generic trait should use type-valued members when the implementation uniquely determines the related type.
 
-For example, a conversion trait can use a target type as an input:
+For example, `ConvertTo<Target>` uses the target type as an input:
 
 ```bray
 trait ConvertTo<Target>
 {
-    func convert() -> Target;
+    consume func convert() -> Target;
 }
 ```
 

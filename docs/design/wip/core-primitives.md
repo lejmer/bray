@@ -489,6 +489,10 @@ If a panic reaches the program root without being caught, the program terminates
 
 `Result<T, PanicReport>` is the caught representation of synchronous panic.
 
+Built-in checked conversions produce `Result<T, ConversionError>`.
+
+`ConversionError` reports the built-in checked conversion failure category.
+
 `RunResult<T>` is the compiler-known union type for observing a task or thread run boundary through `catch`.
 
 `RunResult.Completed` carries the computation's declared result of type `T`.

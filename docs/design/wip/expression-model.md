@@ -4366,7 +4366,7 @@ A value of source type `S` can be converted to target type `T` with plain `as` w
 4. `S` and `T` are tuple types with the same arity, and each source element type is explicitly convertible to the corresponding target element type.
 5. `S` and `T` are array types with the same length, and the source element type is explicitly convertible to the target element type.
 6. `S` and `T` are nullable types, and the source contained type is explicitly convertible to the target contained type.
-7. `T` declares an explicit conversion from `S`.
+7. `S` has a participating `ConvertTo<T>` implementation.
 
 Composite conversion preserves structure.
 
@@ -4475,7 +4475,22 @@ let x = value as checked i32;
 let y = value as rounding r32;
 ```
 
-A `checked` conversion succeeds only when the source value is representable in the target type.
+A `checked` conversion succeeds only when the source value satisfies the selected checked conversion contract.
+
+For built-in scalar conversions, this means the source value is representable in the target type.
+
+A checked conversion expression has result type `Result<T, E>`, where `T` is the syntactically declared target type.
+
+For built-in checked scalar conversions, `E` is the compiler-known `ConversionError` type.
+
+`ConversionError` reports the built-in conversion failure category as `OutOfRange`, `NonFinite`, or `NonRepresentable`.
+
+For user-defined checked conversions, `E` is the selected `Error` type from the `CheckedConvertTo<T>` implementation.
+
+```bray
+let parsed: Result<Port, ParseError> = text as checked Port;
+let port: Port = try text as checked Port;
+```
 
 A `saturating` conversion clamps to the target range.
 
@@ -4485,11 +4500,53 @@ A `truncating` conversion discards information according to the conversion modeâ
 
 A `rounding` conversion rounds according to a declared rounding rule.
 
-TODO: Define checked-conversion result type.
+User-defined plain conversions are declared by implementing `ConvertTo<Target>` for the source type.
+
+User-defined checked conversions are declared by implementing `CheckedConvertTo<Target>` for the source type.
+
+```bray
+impl PortToU16 = Port(ConvertTo<u16>)
+{
+    consume func convert() -> u16
+    {
+        return self.value;
+    }
+}
+
+impl StringToPort = String(CheckedConvertTo<Port>)
+{
+    type Error = ParseError;
+
+    consume func convert_checked() -> Result<Port, Error>
+    {
+        ...
+    }
+}
+```
+
+For a source expression of type `S`, `source as T` selects `S(ConvertTo<T>)` when no built-in recursive conversion rule applies.
+
+For a source expression of type `S`, `source as checked T` selects `S(CheckedConvertTo<T>)` when no built-in checked conversion rule applies.
+
+The target type is always syntactically present.
+
+The expected type of the surrounding expression does not select the target type, conversion mode, error type, or conversion implementation.
+
+The source type, target type, conversion mode, and compiler-known conversion member name can select a conversion implementation.
+
+Result type, expected type, and type-valued member outputs do not select a conversion implementation.
+
+Conversion implementation selection performs no ranking.
+
+If no participating conversion implementation matches, the conversion expression is rejected.
+
+If more than one participating conversion implementation remains possible, the conversion expression is rejected as ambiguous.
+
+Conversion expressions do not create implicit conversions for calls, assignments, operators, overload selection, construction, or pattern matching.
+
+User code cannot define new conversion modes.
 
 TODO: Define rounding-rule syntax.
-
-TODO: Define user-defined conversion declaration syntax.
 
 Conversion expressions participate in type checking, ownership checking, initialization checking, destruction checking, finalization tracking, effect checking, capability checking, trusted obligation checking, and fact-context refinement.
 
@@ -5900,7 +5957,6 @@ Specific expression forms also define these evaluation facts:
 ## Expression TODOs
 
 - TODO: Define assertion syntax.
-- TODO: Define checked-conversion result shape.
 
 ---
 
