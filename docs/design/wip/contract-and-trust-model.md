@@ -619,7 +619,7 @@ Facts can enter the fact context through:
 - successful pattern matches,
 - runtime assertions of ordinary conditions,
 - witness values,
-- trusted acknowledgements,
+- trust boundary expressions,
 - trusted declarations that establish facts.
 
 A fact is tied to the values, storage identities, lifetimes, capabilities, and versions it mentions.
@@ -707,17 +707,63 @@ The function type must preserve the trusted obligation.
 
 ---
 
-## Trusted acknowledgement
+## Trust boundaries
 
-Calling a function with trusted caller obligations requires acknowledgement at the call site or in an enclosing declaration.
+Calling a function with trusted caller obligations requires a trust boundary at the call site or in an enclosing declaration.
 
-TODO: Define acknowledgement syntax for trusted obligations.
+The expression-level trust boundary syntax is:
+
+```bray
+trusted expression
+```
+
+A trust boundary expression is a trust boundary for its operand expression.
+
+It visibly accepts the trusted caller obligations required by that operand.
+
+The compiler records the exact trusted predicate requirements accepted at the boundary.
 
 The semantic rule is fixed: the caller must visibly accept the trusted obligation unless it has already been established by the fact context.
 
 A call to a safe wrapper around trusted implementation code does not require caller acknowledgement.
 
 A call to a declaration with trusted caller obligations does require caller acknowledgement or proof.
+
+The boundary scope is exactly the operand expression.
+
+For a block operand, the scope is the block.
+
+Trusted facts introduced solely by the boundary do not become facts after the operand completes.
+
+A trust boundary inside a callable or lifecycle declaration does not hide the obligation from that declaration's callers.
+
+A trusted obligation introduced by a trust boundary inside a callable or lifecycle declaration must be discharged before the
+declaration exits, or it must appear in that declaration's public contract.
+
+This keeps the invalid wrapper invalid:
+
+```bray
+func bad(pointer: RawPointer<u8>) -> u8
+{
+    return trusted read_unchecked(pointer = pointer);
+}
+```
+
+The wrapper accepts a trusted obligation inside its body but does not expose that obligation to its caller.
+
+This wrapper exposes the obligation:
+
+```bray
+func read_wrapper(pointer: RawPointer<u8>) -> u8
+    requires(
+        trusted core.memory.valid_read_range(pointer = pointer, count = 1),
+    )
+{
+    return trusted read_unchecked(pointer = pointer);
+}
+```
+
+`trusted expression` does not grant trusted implementation capabilities and does not satisfy ordinary requirements.
 
 ---
 

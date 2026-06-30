@@ -710,10 +710,10 @@ Real literal typing is literal adaptation. It does not create implicit conversio
 
 ```bray
 let x: r64 = 1.0;
-let y: r32 = x as rounding r32;
+let y: r32 = std.round_to<r32>(x, rule = NearestEven);
 ```
 
-The literal `1.0` can adapt to `r64`. The already-typed value `x` uses an explicit named conversion mode to become `r32` when narrowing or rounding behavior is required.
+The literal `1.0` can adapt to `r64`. The already-typed value `x` uses an ordinary standard-library rounding operation to become `r32` when narrowing or rounding behavior is required.
 
 ---
 
@@ -4320,7 +4320,7 @@ borrowing, capability, and effect rules are defined by the Async Model.
 
 ## Conversion expressions
 
-A **conversion expression** explicitly converts a source expression to a target type or through a named conversion mode.
+A **conversion expression** explicitly converts a source expression to a target type.
 
 Plain conversion uses `as`.
 
@@ -4456,53 +4456,23 @@ let imag: r64 = 2.0;
 let z: c128 = (real, imag) as c128;
 ```
 
-Named conversion modes are conversion expressions for conversions that are not plain `as` conversions.
+User-defined plain conversions are declared by implementing `ConvertTo<Target>` for the source type.
 
-Named conversion modes include:
+Fallible conversions are ordinary call expressions, not conversion expression modes.
 
-```text
-checked
-saturating
-wrapping
-truncating
-rounding
-```
+The standard library fallible conversion operation is `std.convert<Target>(source)`.
 
-Example syntax:
+`std.convert<Target>(source)` produces `Result<Target, E>`.
 
-```bray
-let x = value as checked i32;
-let y = value as rounding r32;
-```
+The Compiler-Known and Standard Library Model defines visibility and compiler recognition for standard-library operations.
 
-A `checked` conversion succeeds only when the source value satisfies the selected checked conversion contract.
-
-For built-in scalar conversions, this means the source value is representable in the target type.
-
-A checked conversion expression has result type `Result<T, E>`, where `T` is the syntactically declared target type.
-
-For built-in checked scalar conversions, `E` is the compiler-known `ConversionError` type.
+For built-in fallible scalar conversions, `E` is the compiler-known `ConversionError` type.
 
 `ConversionError` reports the built-in conversion failure category as `OutOfRange`, `NonFinite`, or `NonRepresentable`.
 
-For user-defined checked conversions, `E` is the selected `Error` type from the `CheckedConvertTo<T>` implementation.
+For user-defined fallible conversions, `E` is the selected `Error` type from the `CheckedConvertTo<Target>` implementation.
 
-```bray
-let parsed: Result<Port, ParseError> = text as checked Port;
-let port: Port = try text as checked Port;
-```
-
-A `saturating` conversion clamps to the target range.
-
-A `wrapping` conversion uses modular integer conversion.
-
-A `truncating` conversion discards information according to the conversion mode’s contract.
-
-A `rounding` conversion rounds according to a declared rounding rule.
-
-User-defined plain conversions are declared by implementing `ConvertTo<Target>` for the source type.
-
-User-defined checked conversions are declared by implementing `CheckedConvertTo<Target>` for the source type.
+User-defined fallible conversions are declared by implementing `CheckedConvertTo<Target>` for the source type.
 
 ```bray
 impl PortToU16 = Port(ConvertTo<u16>)
@@ -4526,27 +4496,52 @@ impl StringToPort = String(CheckedConvertTo<Port>)
 
 For a source expression of type `S`, `source as T` selects `S(ConvertTo<T>)` when no built-in recursive conversion rule applies.
 
-For a source expression of type `S`, `source as checked T` selects `S(CheckedConvertTo<T>)` when no built-in checked conversion rule applies.
+For a source expression of type `S`, `std.convert<T>(source)` selects `S(CheckedConvertTo<T>)` when no built-in fallible conversion rule applies.
+
+```bray
+let parsed: Result<Port, ParseError> = std.convert<Port>(text);
+let port: Port = try std.convert<Port>(text);
+
+let narrowed: Result<i32, ConversionError> = std.convert<i32>(value);
+let count: i32 = try std.convert<i32>(value);
+```
+
+`try` does not select a conversion.
+
+`try` only unwraps or propagates the `Result` value produced by `std.convert<T>(source)`.
+
+Lossy numeric policies such as rounding, truncating, saturating, and wrapping are ordinary standard-library operations.
+
+They are not conversion expression modes.
+
+```bray
+let rounded: r32 = std.round_to<r32>(value, rule = NearestEven);
+let truncated: i32 = std.truncate_to<i32>(value);
+let saturated: u8 = std.saturate_to<u8>(value);
+let wrapped: u8 = std.wrap_to<u8>(value);
+```
 
 The target type is always syntactically present.
 
-The expected type of the surrounding expression does not select the target type, conversion mode, error type, or conversion implementation.
+For `source as T`, the target type is the type after `as`.
 
-The source type, target type, conversion mode, and compiler-known conversion member name can select a conversion implementation.
+For `std.convert<T>(source)`, the target type is the explicit type argument.
+
+The expected type of the surrounding expression does not select the target type, error type, or conversion implementation.
+
+The source type, target type, selected conversion operation, and compiler-known conversion member name can select a conversion implementation.
 
 Result type, expected type, and type-valued member outputs do not select a conversion implementation.
 
 Conversion implementation selection performs no ranking.
 
-If no participating conversion implementation matches, the conversion expression is rejected.
+If no participating conversion implementation matches, the conversion expression or fallible conversion call is rejected.
 
-If more than one participating conversion implementation remains possible, the conversion expression is rejected as ambiguous.
+If more than one participating conversion implementation remains possible, the conversion expression or fallible conversion call is rejected as ambiguous.
 
 Conversion expressions do not create implicit conversions for calls, assignments, operators, overload selection, construction, or pattern matching.
 
-User code cannot define new conversion modes.
-
-TODO: Define rounding-rule syntax.
+Fallible conversion calls do not create implicit conversions for calls, assignments, operators, overload selection, construction, or pattern matching.
 
 Conversion expressions participate in type checking, ownership checking, initialization checking, destruction checking, finalization tracking, effect checking, capability checking, trusted obligation checking, and fact-context refinement.
 
@@ -4898,9 +4893,80 @@ Guards in a consuming match cannot consume from the subject, move from pattern b
 
 ---
 
-## Trusted acknowledgement expressions
+## Trust boundary expressions
 
-TODO: Define trusted acknowledgement expressions.
+A **trust boundary expression** marks a local trust boundary for one operand expression.
+
+The syntax is:
+
+```bray
+trusted expression
+```
+
+Example:
+
+```bray
+let byte = trusted read_unchecked(pointer = pointer);
+```
+
+The operand is checked as the expression covered by the trust boundary.
+
+The trust boundary acknowledges trusted caller obligations required by the operand.
+
+If the required trusted facts are already available in the incoming fact context, the boundary records that this operand
+depends on them.
+
+If the required trusted facts are not already available, the boundary introduces trusted obligations that must satisfy the
+Contract and Trust Model's propagation rules.
+
+The boundary is explicit source syntax.
+
+It does not perform a runtime check.
+
+It does not prove the trusted facts.
+
+It records that the programmer accepts the trusted caller obligations at that use site.
+
+The trust boundary expression has the same type, value category, ownership result, control-flow behavior, effect
+behavior, and finalization behavior as its operand.
+
+The boundary scope is exactly the operand expression.
+
+For a single call, the scope is that call expression.
+
+For a block operand, the scope is the block expression.
+
+```bray
+trusted
+{
+    let first = read_unchecked(pointer = first_pointer);
+    let second = read_unchecked(pointer = second_pointer);
+    yield first + second;
+}
+```
+
+Trusted facts introduced solely by the boundary are available only while checking and evaluating the operand.
+
+They do not enter the surrounding fact context after the trust boundary expression completes.
+
+Facts independently established by the operand's ordinary result, pattern, or `ensures(...)` behavior flow out according to the
+ordinary fact-context rules.
+
+A trust boundary expression must acknowledge at least one trusted caller obligation required by its operand.
+
+If the operand has no trusted caller obligation, the boundary is rejected as redundant.
+
+`trusted expression` does not grant trusted implementation capabilities.
+
+An expression that uses trusted implementation capabilities must still appear inside a trusted declaration with the matching
+`uses(...)` clause.
+
+`trusted expression` does not bypass visibility, internal-access acknowledgement, ownership checking, borrowing rules,
+initialization checking, destruction checking, finalization checking, capability checking, effect checking, or ordinary
+`requires(...)` checking.
+
+Inside a callable or lifecycle declaration, trusted obligations introduced by trust boundaries must still satisfy the Contract and
+Trust Model's obligation propagation rules.
 
 ---
 

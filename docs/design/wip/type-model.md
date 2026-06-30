@@ -179,7 +179,39 @@ struct Pair<TLeft, TRight>
 
 A generic type declaration is parameterized by declared generic parameters.
 
-TODO: Define generic parameter kinds beyond type parameters.
+The generic parameter list is written after the type name.
+
+Bray has two generic parameter kinds:
+
+- **type parameters:** declared by a bare generic parameter name,
+- **const parameters:** declared with `const Name: Type`.
+
+All explicit generic parameter lists use this parameter-kind set.
+
+```bray
+struct Pair<TLeft, TRight>
+{
+    left: TLeft;
+    right: TRight;
+}
+
+struct FixedBuffer<T, const N: usize>
+{
+    items: [T; N];
+}
+```
+
+A type parameter denotes a type.
+
+A const parameter denotes a compile-time value of its declared type.
+
+Const parameters have no runtime storage, cannot be borrowed, cannot be moved, and cannot be assigned.
+
+Const parameters can be used in type-form arguments and static predicate expressions where their declared type is valid.
+
+Capabilities, effects, lifetimes, and storage policies are not generic parameter kinds.
+
+A storage policy is supplied as an ordinary type parameter when a declaration needs to abstract over storage.
 
 The body of a generic type declaration is checked against its declared parameters and constraints.
 
@@ -187,9 +219,27 @@ A concrete instantiation supplies arguments for the generic parameters.
 
 ```bray
 Pair<i32, r64>
+FixedBuffer<u8, 32>
 ```
 
-TODO: Define any remaining generic checking rules not covered by declared parameters and `with(...)` constraints.
+Generic arguments are supplied explicitly and in parameter order.
+
+A type parameter argument must be a type expression.
+
+A const parameter argument must be a compile-time constant expression compatible with the const parameter's declared type.
+
+Generic arguments are not inferred from expected type, field initializers, result type, constraints, or surrounding expression
+context.
+
+A `with(...)` clause constrains declared generic parameters.
+
+A `with(...)` clause does not introduce generic parameters.
+
+A generic declaration body is checked once against the operations, type relationships, const facts, ownership behavior,
+capabilities, effects, and contracts established by its declared parameters and `with(...)` constraints.
+
+A concrete instantiation is valid only when every supplied generic argument has the required kind and every `with(...)`
+constraint is satisfied.
 
 ---
 
@@ -1498,6 +1548,9 @@ Union patterns participate in ownership, borrowing, copying, partial moves, init
 
 `Result<T, E>` is the compiler-known union type for recoverable domain failure and caught synchronous panic values.
 
+The Compiler-Known and Standard Library Model defines availability and import behavior for compiler-known declarations and
+standard-library declarations.
+
 Its semantic declaration is:
 
 ```bray
@@ -1575,7 +1628,7 @@ match result
 
 `PanicReport` is a compiler-known protected-representation type that preserves the panic message and diagnostic context carried by a panic.
 
-`ConversionError` is the compiler-known error type used by built-in checked conversions.
+`ConversionError` is the compiler-known error type used by built-in fallible conversions.
 
 Its semantic declaration is:
 
@@ -1590,7 +1643,7 @@ union ConversionError
 
 `ConversionError.OutOfRange` means the source value is outside the target type's value range.
 
-`ConversionError.NonFinite` means the source value is not finite and the selected checked conversion contract requires a finite value.
+`ConversionError.NonFinite` means the source value is not finite and the selected fallible conversion contract requires a finite value.
 
 `ConversionError.NonRepresentable` means the source value is within the target type's range and domain but cannot be represented exactly by the target type without rounding, truncation, saturation, wrapping, or other information loss.
 
@@ -1598,9 +1651,9 @@ union ConversionError
 
 It does not carry the source value, source type, target type, or source expression location.
 
-Diagnostics can report those details from the conversion expression and type-checking context.
+Diagnostics can report those details from the conversion operation and type-checking context.
 
-User-defined checked conversions do not use `ConversionError` unless their selected `CheckedConvertTo<Target>.Error` type is `ConversionError`.
+User-defined fallible conversions do not use `ConversionError` unless their selected `CheckedConvertTo<Target>.Error` type is `ConversionError`.
 
 ### Compiler-known task handles
 
@@ -3130,13 +3183,13 @@ TODO: Define effect annotation syntax beyond currently defined contract clauses.
 
 ### Conversion traits
 
-Conversion expression syntax is implemented through compiler-known traits.
+Plain conversion expression syntax is implemented through compiler-known traits.
 
 The language substrate declares the conversion trait surface.
 
 A type enables a conversion by satisfying the corresponding compiler-known trait application.
 
-Source code does not declare new conversion modes or implicit conversion behavior.
+Source code does not declare new `as` forms or implicit conversion behavior.
 
 Plain conversion uses `ConvertTo<Target>`:
 
@@ -3153,7 +3206,7 @@ trait ConvertTo<Target>
 
 A `ConvertTo<Target>` implementation must be total and value-preserving according to the conversion contract.
 
-Fallible conversion uses `CheckedConvertTo<Target>`:
+Fallible conversion support uses `CheckedConvertTo<Target>`:
 
 ```bray
 trait CheckedConvertTo<Target>
@@ -3164,11 +3217,11 @@ trait CheckedConvertTo<Target>
 }
 ```
 
-`CheckedConvertTo<Target>` is the compiler-known trait application for `as checked Target`.
+`CheckedConvertTo<Target>` is the compiler-known trait application used by the standard-library `std.convert<Target>(source)` operation.
 
-`convert_checked` is the member called by a checked conversion expression when no built-in checked conversion rule applies.
+`convert_checked` is the member called by `std.convert<Target>(source)` when no built-in fallible conversion rule applies.
 
-The selected `Error` type becomes the error type of the checked conversion result.
+The selected `Error` type becomes the error type of the `std.convert<Target>(source)` result.
 
 An implementation of a conversion trait is an ordinary trait implementation:
 
@@ -3206,27 +3259,29 @@ For `as Target`, the trait application includes the target type:
 (SourceType, ConvertTo<Target>)
 ```
 
-For `as checked Target`, the trait application includes the target type:
+For `std.convert<Target>(source)`, the trait application includes the target type:
 
 ```text
 (SourceType, CheckedConvertTo<Target>)
 ```
 
-If the relevant implementation belongs to an implementation overload family, conversion expression resolution uses the same implementation overload rules as method calls.
+If the relevant implementation belongs to an implementation overload family, conversion operation resolution uses the same implementation overload rules as method calls.
 
-The source type, target type, conversion mode, and compiler-known conversion member name can select an implementation arm.
+The source type, target type, selected conversion operation, and compiler-known conversion member name can select an implementation arm.
 
 Result type, expected type, and type-valued member outputs do not select a conversion implementation.
 
 No ranking is performed between conversion implementation candidates.
 
-If no participating implementation matches, the conversion expression is rejected.
+If no participating implementation matches, the plain conversion expression or fallible conversion operation is rejected.
 
-If more than one participating implementation remains possible, the conversion expression is rejected as ambiguous.
+If more than one participating implementation remains possible, the plain conversion expression or fallible conversion operation is rejected as ambiguous.
 
-Conversion expressions can use only the public compiler-known conversion trait surface and public participating implementations in the current coherence domain.
+Plain conversion expressions can use only the public compiler-known conversion trait surface and public participating implementations in the current coherence domain.
 
-Internal-access acknowledgement does not make an implementation candidate available to a conversion expression.
+The standard-library `std.convert<Target>(source)` operation follows the same public participation rule for fallible conversion implementations.
+
+Internal-access acknowledgement does not make an implementation candidate available to a plain conversion expression or standard-library fallible conversion operation.
 
 Internal conversion behavior can be exposed through named functions or methods when the caller explicitly opts into the internal declaration according to the internal-access rules.
 
@@ -3597,6 +3652,8 @@ Static function bodies use `Self` for the implementing type and receive ordinary
 
 A trait can have generic parameters.
 
+Trait generic parameter lists use the same type-parameter and const-parameter syntax as other generic declarations.
+
 ```bray
 trait Comparable<Other>
 {
@@ -3637,7 +3694,7 @@ impl BufferComparable = Buffer<T>(Comparable<Buffer<T>>)
 
 An otherwise unresolved generic name that appears in the subject type or trait application becomes an implementation parameter.
 
-If a name resolves to an existing type, constant, capability, effect, lifetime, or other visible declaration, it is not inferred as an implementation parameter.
+If a name resolves to an existing type, constant, or other visible declaration, it is not inferred as an implementation parameter.
 
 The implementation name is written without a generic parameter list.
 
@@ -3875,6 +3932,10 @@ If more than one participating implementation for the same subject type and gene
 A concrete non-overloaded trait implementation can use the unnamed `impl Type(TraitApplication)` form.
 
 A generic trait implementation is a named implementation declaration with inferred generic parameters.
+
+Inferred implementation parameters are type parameters or const parameters that appear in the subject type or trait application.
+
+The `with(...)` clause can constrain inferred implementation parameters, but it cannot introduce them.
 
 Method resolution through an implementation overload family follows overload resolution principles.
 

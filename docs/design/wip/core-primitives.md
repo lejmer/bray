@@ -489,9 +489,9 @@ If a panic reaches the program root without being caught, the program terminates
 
 `Result<T, PanicReport>` is the caught representation of synchronous panic.
 
-Built-in checked conversions produce `Result<T, ConversionError>`.
+Built-in fallible conversions through standard-library `std.convert<T>` produce `Result<T, ConversionError>`.
 
-`ConversionError` reports the built-in checked conversion failure category.
+`ConversionError` reports the built-in fallible conversion failure category.
 
 `RunResult<T>` is the compiler-known union type for observing a task or thread run boundary through `catch`.
 
@@ -805,8 +805,7 @@ separately from the primary representation declaration. Separate implementation 
 Every value has a type. Every expression has a type. Every access path reaches storage whose current value state is governed
 by a type.
 
-A **generic type** is a type parameterized by other types, constants, capabilities, effects, lifetimes, or other language-defined
-generic parameters.
+A **generic type** is a type parameterized by type parameters, const parameters, or both.
 
 A type declaration introduces the type's own name. Bray does not support type aliases; a name that denotes a type denotes a
 declared type, not an alternate name for another type.
@@ -814,8 +813,14 @@ declared type, not an alternate name for another type.
 A named callable contract can give a reusable name to a callable type form. This is not a general type alias and cannot name an
 arbitrary type expression.
 
-A **generic parameter** is part of a declaration's contract. Its constraints are static predicate expressions that define which
-operations, ownership behavior, capabilities, effects, and behavioral contracts the generic declaration relies on.
+A **generic parameter** is a compile-time declaration parameter.
+
+Bray has type parameters and const parameters.
+
+Capabilities, effects, and lifetimes are not generic parameter kinds.
+
+Generic constraints are static predicate expressions that define which operations, ownership behavior, capabilities, effects, and
+behavioral contracts the generic declaration relies on.
 
 Generic code is checked against its declared constraints. A generic body uses only the behavior guaranteed by those constraints.
 
@@ -832,7 +837,10 @@ declarations satisfy the type contracts they use.
 
 ## Built-in types
 
-A **built-in type** is a type defined by the language or standard substrate rather than by user code.
+A **built-in type** is a language-defined type or type form rather than a standard-library or user-defined declaration.
+
+The Compiler-Known and Standard Library Model defines which built-in declarations are always available and which standard-library
+declarations require ordinary import or path visibility.
 
 Built-in types participate in the same ownership, borrowing, mutation, initialization, destruction, constraint, and effect
 rules as user-defined types, unless their language-defined contract states otherwise.
@@ -935,8 +943,7 @@ Static predicate expressions use the predicate expression model in static constr
 
 A generic body is checked against its declared constraints. The body can use only behavior guaranteed by those constraints.
 
-A generic instantiation satisfies a constraint when the supplied type, value, capability, effect, lifetime, or other generic
-argument provides the required contract.
+A generic instantiation satisfies a constraint when each supplied type argument or const argument provides the required contract.
 
 Constraints are part of the public semantic contract of a declaration. Changing constraints changes what callers may supply and
 what the generic body may assume.

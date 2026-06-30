@@ -502,7 +502,7 @@ Plain `as` does not perform fallible conversion.
 Plain `as` does not perform wrapping, saturating, truncating, rounding, reshaping, flattening, allocation-changing, or
 layout-reinterpreting conversion.
 
-Those require named conversion modes or separately declared operations.
+Those require ordinary operations with explicit callable contracts.
 
 ---
 
@@ -595,7 +595,7 @@ let x: r64 = 1.5;
 let y: i32 = x as i32; // invalid
 ```
 
-Real-to-integer conversion requires a named conversion mode.
+Real-to-integer conversion requires an ordinary fallible or lossy numeric operation.
 
 ---
 
@@ -632,41 +632,39 @@ Complex component extraction must use an explicit operation.
 
 ---
 
-## Named conversion modes
+## Fallible and lossy numeric operations
 
 Lossy, fallible, saturating, wrapping, truncating, rounding, reshaping, flattening, allocation-changing, or layout-reinterpreting
-conversions require named conversion modes or explicit declared operations.
+conversions are ordinary operations with explicit callable contracts.
 
-Named conversion modes include:
+The standard library fallible conversion operation is `std.convert<Target>(source)`.
 
-```text
-checked
-saturating
-wrapping
-truncating
-rounding
-```
+`std.convert<Target>(source)` returns `Result<Target, E>`.
 
-Their meanings are:
+Built-in fallible scalar conversions use `ConversionError` as `E`.
 
-```text
-checked     succeeds only if representable; otherwise returns a result
-saturating  clamps to the target range
-wrapping    uses modular integer conversion
-truncating  discards fractional part
-rounding    rounds according to a declared rounding rule
-```
+User-defined fallible conversions use the selected `CheckedConvertTo<Target>.Error` type as `E`.
 
-Example syntax:
+Examples:
 
 ```bray
-let x = value as checked i32;
-let y = value as rounding r32;
+let x: Result<i32, ConversionError> = std.convert<i32>(value);
+let y: i32 = try std.convert<i32>(value);
+
+let rounded: r32 = std.round_to<r32>(value, rule = NearestEven);
+let truncated: i32 = std.truncate_to<i32>(value);
+let saturated: u8 = std.saturate_to<u8>(value);
+let wrapped: u8 = std.wrap_to<u8>(value);
 ```
 
-A rounding conversion must declare or imply a rounding rule.
+Rounding policy is an ordinary function argument, not conversion-expression syntax.
 
-The Expression Model defines conversion expression syntax, checked-conversion result shape, and rounding-rule syntax.
+The Expression Model defines `as` conversion expression syntax.
+
+The Type Model defines the `ConvertTo<Target>` and `CheckedConvertTo<Target>` trait contracts.
+
+The Compiler-Known and Standard Library Model defines availability and compiler recognition for standard-library numeric
+operations.
 
 ---
 
@@ -859,7 +857,7 @@ Imaginary literals use an `i` suffix on numeric literals.
 
 Plain `as` is total and value-preserving.
 
-Lossy or fallible conversions require named conversion modes.
+Lossy or fallible conversions require ordinary operations with explicit callable contracts.
 
 Composite conversion is recursive but structure-preserving.
 

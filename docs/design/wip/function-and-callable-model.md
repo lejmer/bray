@@ -742,6 +742,9 @@ A named callable contract can be generic.
 ```bray
 callable Mapper<T, U> =
     func(pos value: T) -> U;
+
+callable ArrayConsumer<T, const N: usize> =
+    func(pos items: &[T; N]) -> unit;
 ```
 
 A generic callable contract can have `with(...)` constraints.
@@ -882,9 +885,39 @@ Ambiguous polymorphism is rejected.
 
 ## Generic functions
 
-Generic functions are parameterized by types, constants, capabilities, effects, lifetimes, or other generic parameters.
+Generic functions are parameterized by type parameters, const parameters, or both.
 
-TODO: Define generic function syntax.
+The generic parameter list is written after the function name and before the function parameter list.
+
+```bray
+func identity<T>(pos value: T) -> T
+{
+    return value;
+}
+
+func element_count<T, const N: usize>(pos items: &[T; N]) -> usize
+{
+    return N;
+}
+```
+
+Bare generic parameter names declare type parameters.
+
+Const parameters are declared with `const Name: Type`.
+
+Generic functions do not declare capability parameters, effect parameters, or lifetime parameters.
+
+Capabilities and effects are declared through contract clauses, not through the generic parameter list.
+
+Generic function calls supply generic arguments explicitly.
+
+```bray
+let value = identity<i32>(10);
+let count = element_count<u8, 4>(&bytes);
+```
+
+Generic arguments are not inferred from ordinary arguments, expected result type, assignment target type, return type, or
+constraints.
 
 A generic function body is checked against its declared constraints.
 
