@@ -1753,20 +1753,43 @@ Path resolution errors are reported during binding and checking.
 
 ## Index access expressions
 
-An **index access expression** reaches an indexed element or component through an indexed access contract.
+An **index access expression** reaches an indexed element, component, or contiguous sub-storage through an indexing contract.
 
 ```bray
 items[index]
 matrix[row][column]
+items[start..end]
+items[start..]
+items[..end]
+items[..]
 ```
 
 The expression before `[` is the indexed subject.
 
-The expression inside `[` is the index expression.
+The content inside `[` is the index selector.
+
+An index selector is either an element selector or a slice selector.
+
+An element selector contains one index expression.
+
+A slice selector uses `..` and denotes a half-open range.
+
+The supported slice selector forms are:
+
+```bray
+start..end
+start..
+..end
+..
+```
 
 The indexed subject is evaluated as an expression and must have a type that supports indexed access.
 
-The index expression is evaluated as an expression and must have a type accepted by the indexed subject’s indexing contract.
+Selector expressions are evaluated after the indexed subject.
+
+When a selector has both a start expression and an end expression, the start expression is evaluated before the end expression.
+
+Omitted slice boundaries do not evaluate an expression.
 
 Index access with `[]` is asserted access.
 
@@ -1776,13 +1799,27 @@ If an asserted index requirement is checked at runtime and fails, the access pan
 
 Types can provide checked access operations that represent invalid access through ordinary result values.
 
-For fixed-size arrays, index access reaches an array element.
+For fixed-size arrays and slices, an element selector must provide a nonnegative integer index accepted by the indexing contract.
+
+For fixed-size arrays, the valid element index range is `0 <= index < N`, where `N` is the array length.
+
+For slices, the valid element index range is `0 <= index < length`, where `length` is the runtime slice length.
+
+For fixed-size arrays and slices, a slice selector must satisfy `0 <= start <= end <= length`.
+
+The default start boundary is `0`.
+
+The default end boundary is the subject length.
+
+Negative indexing, wraparound indexing, and stride syntax are not part of core `[]` access.
+
+For fixed-size arrays, element access reaches an array element.
 
 ```bray
 values[index]
 ```
 
-For nested arrays, repeated index access composes.
+For nested arrays, repeated element access composes.
 
 ```bray
 matrix[row][column]
@@ -1790,19 +1827,54 @@ matrix[row][column]
 
 The first index access reaches an element of the outer array. The second index access reaches an element of the inner array.
 
+Slicing a fixed-size array or slice reaches contiguous sub-storage with slice type `[T]`.
+
+```bray
+let part: &[u8] = &bytes[2..6];
+let tail: &[u8] = &bytes[2..];
+let prefix: &[u8] = &bytes[..6];
+let all: &[u8] = &bytes[..];
+```
+
+Slice projection does not copy elements.
+
+Slice projection produces access to contiguous sub-storage. Because `[T]` is unsized, the projected slice must be used through an
+indirection boundary such as `&[T]`, `&mut [T]`, or `box[S] [T]`.
+
+Mutable slice borrowing requires mutation authority over the whole projected range.
+
+```bray
+let part: &mut [u8] = &mut bytes[2..6];
+```
+
+An owned slice storage value can be indexed and sliced through its owned indirection.
+
+```bray
+let owned: box[Heap] [u8] = box[Heap]([1, 2, 3, 4]);
+let first: &u8 = &owned[0];
+let part: &[u8] = &owned[1..4];
+```
+
 Index access can produce an access path when the subject expression produces a compatible access path.
 
-An index access path can be observed, borrowed, mutably borrowed, moved from, copied from, consumed, assigned through, or destroyed according to the subject access path, element type, index contract, ownership state, initialization state, and capability state.
+An element access path can be observed, borrowed, mutably borrowed, moved from, copied from, consumed, assigned through, or
+destroyed according to the subject access path, element type, index contract, ownership state, initialization state, and capability
+state.
 
 Observation through index access requires observe capability for the subject and the reached element.
 
-Mutable access through index access requires mutation authority over the subject access path and mutation authority over the reached element.
+Mutable access through index access requires mutation authority over the subject access path and mutation authority over the
+reached element.
 
-Assignment through index access requires the index expression to identify an assignable element access path.
+Assignment through element access requires the index selector to identify an assignable element access path.
 
 ```bray
 items[index] = value;
 ```
+
+Built-in slice projection is not an assignment destination for ordinary `=`.
+
+Modifying projected elements uses element access or operations on a mutable slice borrow.
 
 Moving from an indexed element is an ownership operation.
 
@@ -1820,13 +1892,33 @@ Borrowing an indexed element creates a borrow of the reached element.
 
 Mutable borrowing an indexed element requires compatible exclusivity for the reached element.
 
+Borrowing a slice projection creates a borrow of the projected contiguous substorage.
+
+Mutable borrowing a slice projection requires compatible exclusivity for the whole projected range.
+
 Index access can refine or use facts in the fact context.
 
-Facts can establish that an index is valid, that an element is initialized, or that an indexed access is within the subject’s bounds when the indexing contract exposes such facts.
+Facts can establish that an index is valid, that a slice range is valid, that an element is initialized, or that an indexed access
+is within the subject’s bounds when the indexing contract exposes such facts.
 
-Mutation, movement, consumption, destruction, reinitialization, or finalization of the subject or reached element can invalidate facts about indexed access.
+Mutation, movement, consumption, destruction, reinitialization, or finalization of the subject, reached element, or projected
+substorage can invalidate facts about indexed access.
 
-TODO: Define index type requirements, slice behavior, and custom indexing contracts.
+A custom indexing contract defines:
+
+- the accepted selector shapes,
+- the accepted selector expression types,
+- the produced value type or access path type,
+- the required capabilities,
+- the asserted validity requirements,
+- the facts established by successful access,
+- the panic condition for failed asserted access.
+
+Indexing contract selection is based on the indexed subject type, selector shape, and selector expression types.
+
+The result type of the index access expression does not select the indexing contract.
+
+Ambiguous indexing contract selection is rejected.
 
 ---
 
@@ -3355,11 +3447,24 @@ For sized `T`, the storage policy type must satisfy `Storage<T>`.
 
 For `box[S] view TraitApplication`, the storage policy type must satisfy `Storage<U>` for the sized concrete source type `U` used to form the view.
 
+For `box[S] [T]`, the storage policy type must provide contiguous owned storage behavior for element type `T` and a runtime element
+count.
+
 A `box[S](value, ...)` expression constructs a `box[S] T` from a contained value of type `T`.
 
 When the expected box type is `box[S] view TraitApplication`, the contained value expression can have a sized concrete type `U` that satisfies the exact trait application.
 
 In that case, box construction stores `U` through `Storage<U>` and forms the resulting box view with the selected `U(TraitApplication)` implementation witness.
+
+When the expected box type is `box[S] [T]`, the contained value expression must produce an owned contiguous sequence of `T`
+elements with a known finite element count at construction time.
+
+```bray
+let bytes: box[Heap] [u8] = box[Heap]([1, 2, 3, 4]);
+```
+
+In that case, box construction allocates contiguous storage for the element count, initializes each element in order, records the
+runtime length, and forms the resulting owned slice storage.
 
 The contained value expression is the first runtime argument to the box construction expression.
 
@@ -3418,6 +3523,8 @@ The contained value is moved into the box storage unless the value is copied acc
 For sized `T`, the resulting `box[S] T` owns the indirect storage and the contained `T`.
 
 For `box[S] view TraitApplication`, the resulting box owns the stored concrete `U` and exposes it through `view TraitApplication`.
+
+For `box[S] [T]`, the resulting box owns the contiguous element storage and exposes it through `[T]`.
 
 Moving a `box[S] T` moves ownership of the indirection value.
 
@@ -5279,7 +5386,6 @@ Specific expression forms also define these evaluation facts:
 - TODO: Define checked-conversion result shape.
 - TODO: Define closure and anonymous function syntax.
 - TODO: Define operator precedence and operator overloading syntax.
-- TODO: Define indexing contract details.
 
 ---
 

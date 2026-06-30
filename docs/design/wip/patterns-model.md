@@ -317,7 +317,9 @@ Each element pattern is checked against the array element type.
 
 A fixed-size array pattern is irrefutable when it accounts for the array shape and every listed element pattern is irrefutable.
 
-Binding the remaining elements as a slice or subarray belongs to a later sequence/slice model.
+`..` accounts for remaining elements and introduces no binding.
+
+Binding remaining elements requires an explicit slice projection outside the pattern.
 
 ---
 

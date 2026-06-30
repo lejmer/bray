@@ -852,6 +852,8 @@ The core built-in type categories are:
   movement, copying, initialization, and destruction are derived from its elements.
 - **arrays:** a fixed-size ordered sequence type. An array's element type and length are part of its type. Array ownership,
   borrowing, movement, copying, initialization, and destruction are derived from its elements.
+- **slices:** an unsized contiguous sequence type. A slice's element type is part of its type. Slice length is runtime state
+  carried by an indirection boundary such as `&[T]`, `&mut [T]`, or `box[S] [T]`.
 - **trait views:** unsized types that expose a value through a specific trait application while hiding the concrete implementing
   type.
 
@@ -974,6 +976,7 @@ view TraitApplication
 box T
 box[Heap] T
 T?
+[T]
 [T; N]
 (T1, T2)
 func(T1, T2) -> R
@@ -1064,10 +1067,13 @@ The absence expression is `none`.
 A **structural type form** uses a larger syntactic structure to produce a type.
 
 ```bray
+[T]
 [T; N]
 (T1, T2)
 func(T1, T2) -> R
 ```
+
+`[T]` is the unsized slice type form.
 
 `[T; N]` is the fixed-size array type form.
 
@@ -1144,6 +1150,7 @@ Type forms compose recursively.
 box[Heap] List<i32>
 box[Heap] Point?
 &mut box[Heap] Node
+box[Heap] [u8]
 [box[Heap] Node; 4]
 func(&Buffer, usize) -> u8
 ```
@@ -1166,6 +1173,9 @@ and storage identity.
 
 `func(...) -> ...` is a type form because callable values carry parameter, result, ownership, effect, execution, and contract
 semantics.
+
+`[T; N]` and `[T]` are type forms because contiguous sequence storage, bounds, element access, slice projection, and element
+lifecycle behavior require compiler-visible structure.
 
 ---
 

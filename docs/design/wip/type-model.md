@@ -76,6 +76,7 @@ The currently defined categories include:
 - union types,
 - tuple types,
 - fixed-size array types,
+- slice types,
 - nullable types,
 - borrow types,
 - trait-view types,
@@ -95,6 +96,8 @@ Compiler-known task handle types are linear ownership types with language-define
 Tuple types are fixed-size ordered product types.
 
 Fixed-size array types are fixed-size ordered homogeneous product types.
+
+Slice types are unsized contiguous sequence types.
 
 Nullable types are produced by the postfix nullable type form `T?`.
 
@@ -1400,6 +1403,7 @@ view TraitApplication
 box T
 box[Heap] T
 T?
+[T]
 [T; N]
 (T1, T2)
 func(left: T1, right: T2) -> R
@@ -1436,6 +1440,7 @@ Buffer(Iterator<Bytes>).Element
 &mut Buffer
 box[Heap] Node
 Point?
+[Point]
 [Point; 4]
 (Point, Point)
 func(buffer: &Buffer, index: usize) -> u8
@@ -1613,10 +1618,13 @@ Each postfix type form contributes its own value-state, ownership, initializatio
 A **structural type form** uses a larger syntactic structure to produce a type.
 
 ```bray
+[T]
 [T; N]
 (T1, T2)
 func(left: T1, right: T2) -> R
 ```
+
+`[T]` is the unsized slice type form.
 
 `[T; N]` is the fixed-size array type form.
 
@@ -1637,6 +1645,7 @@ box[Heap] List<i32>
 box[Heap] Point?
 &mut box[Heap] Node
 box[Heap] view Sink
+box[Heap] [u8]
 [box[Heap] Node; 4]
 func(buffer: &Buffer, index: usize) -> u8
 ```
@@ -1835,6 +1844,11 @@ The `box[S] T` type form can store an unsized subject only when the type-form ru
 
 For `box[S] view TraitApplication`, box construction stores a sized concrete value `U` using `Storage<U>`, then forms the view from the stored `U` and the selected `U(TraitApplication)` implementation witness.
 
+For `box[S] [T]`, box construction uses contiguous owned storage behavior for element type `T` and a runtime element count.
+
+The storage policy allocates storage for the element count, initializes each element exactly once, projects slice borrows, destroys
+initialized elements, and releases the allocation according to the storage policy.
+
 ```bray
 let sink: box[Heap] view Sink = box[Heap](file_sink);
 ```
@@ -1874,6 +1888,8 @@ Calling `box(...)`, borrowing through a box, and destroying a box remain ordinar
 For sized `T`, a `box[S] T` value owns separately stored `T`.
 
 For `box[S] view TraitApplication`, the box owns the stored concrete value and exposes it through the trait-view subject.
+
+For `box[S] [T]`, the box owns the contiguous element storage and exposes it through the slice subject.
 
 Moving a `box[S] T` moves ownership of the indirection value.
 
@@ -2025,15 +2041,94 @@ Each element has its own initialization state while the array is being initializ
 
 An array value is fully initialized when every element is initialized.
 
-TODO: Define array indexing rules.
+Array element access uses indexing syntax.
+
+An array index must be a nonnegative integer index accepted by the array indexing contract.
+
+For an array of length `N`, an element index is valid only when it is less than `N`.
+
+Indexing a fixed-size array access path reaches the selected element access path.
+
+Slicing a fixed-size array access path reaches contiguous substorage with slice type `[T]`.
 
 Array construction is handled by array expressions and array generator expressions.
 
-TODO: Define array movement, copying, borrowing, partial moves, destruction, and finalization rules.
+Moving a complete array moves every initialized element as part of the array value.
+
+Copying an array requires the element type to satisfy the required copy contract.
+
+Borrowing an array borrows the array storage. Element access and slice projection can derive narrower borrows from that borrow
+when ordinary borrowing rules permit it.
+
+Moving an element out of an owned array access path is a partial move of the array.
+
+After an element has been moved out, the array is partially initialized.
+
+Destruction of a partially initialized array destroys only initialized elements.
+
+Array destruction processes initialized elements in reverse index order.
+
+Finalization obligations retained by array elements are retained by the array.
 
 Detailed array expression rules belong to the Expression Model.
 
-TODO: Define array indexing expression rules.
+Detailed array indexing and slicing expression rules belong to the Expression Model.
+
+### Slice type form
+
+The slice type form is:
+
+```bray
+[T]
+```
+
+`T` is the element type.
+
+`[T]` is an unsized contiguous sequence type.
+
+The slice length is runtime state carried by an indirection boundary.
+
+A slice type cannot appear as a local value by itself, a by-value parameter type, a by-value result type, or a by-value field type.
+
+A slice type can appear behind an indirection boundary:
+
+```bray
+&[T]
+&mut [T]
+box[S] [T]
+```
+
+`&[T]` is a shared slice borrow.
+
+`&mut [T]` is a mutable slice borrow.
+
+`box[S] [T]` is owned contiguous slice storage using storage policy `S`.
+
+Owned slice storage has a fixed length after construction.
+
+Resizable buffers are library types built on top of storage primitives rather than a meaning of `[T]`.
+
+A shared slice borrow permits observation of initialized elements.
+
+A mutable slice borrow permits mutation of initialized elements according to ordinary exclusive-borrow rules.
+
+Borrowed slices do not own their elements.
+
+Moving an element out through a borrowed slice is not allowed.
+
+Moving `box[S] [T]` moves the owned contiguous storage, its runtime length, and its initialized elements as one owned value.
+
+Destroying `box[S] [T]` destroys initialized elements in reverse index order and then releases the underlying storage through `S`.
+
+Borrowing `box[S] [T]` can produce `&[T]` or `&mut [T]` according to the borrowing mode and access path authority.
+
+Indexing `box[S] [T]` projects through the owned indirection to the selected element.
+
+Slicing `box[S] [T]` projects through the owned indirection to contiguous substorage.
+
+Slice projection never copies elements.
+
+Slice projection cannot change the length of the projected storage.
 
 ### Tuple type form
 

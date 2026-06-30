@@ -10,7 +10,8 @@ explicit meanings:
 - Move: ownership is transferred, and the old binding is no longer usable as an owner.
 - Copy: an independent duplicate is created, only if the type explicitly supports copy semantics.
 - Borrow: a non-owning temporary access path is created.
-- View: a non-owning access path into part of a value is created, such as a slice, field view, iterator, or projection.
+- Projection: a non-owning access path into part of a value is created, such as a slice, field projection, iterator, or other
+  projected access path.
 - Mediated ownership: ownership is governed by an explicit abstraction such as reference counting, regions, handles, or other declared ownership types.
 
 Aliases are valid when their capabilities are compatible. Conflicting aliases are rejected or mediated by an explicit capability construct.
