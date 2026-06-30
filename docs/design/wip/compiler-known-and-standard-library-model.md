@@ -46,6 +46,7 @@ Protected representation means user code can use the declaration according to it
 The always-available compiler-known surface includes:
 
 - built-in scalar type names such as `bool`, `char`, `unit`, `never`, integer types, real types, complex types, and machine-sized integer types,
+- the compiler-known text type `string`,
 - structural type forms such as tuple types, fixed-size array types, slice types, nullable types, borrow types, trait-view types, owned-indirection types, and callable types,
 - compiler-known result and run-boundary types such as `Result<T, E>`, `RunResult<T>`, `PanicReport`, `ConversionError`, and `Task<T>`,
 - compiler-known type-form support traits such as `Storage<T>`,
@@ -133,6 +134,7 @@ If a visible declaration is not the recognized standard-library declaration, it 
 | Entity kind | Compiler can reason about it | Available without import | Uses ordinary import rules |
 |-------------|------------------------------|--------------------------|----------------------------|
 | Compiler-known scalar types | yes | yes | no |
+| `string` | yes | yes | no |
 | Compiler-known type forms | yes | yes | no |
 | `Result<T, E>`, `RunResult<T>`, `Task<T>` | yes | yes | no |
 | `PanicReport`, `ConversionError` | yes | yes | no |

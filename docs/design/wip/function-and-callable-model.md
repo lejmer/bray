@@ -47,7 +47,7 @@ The function body is a block expression in callable-body context.
 If the result type is omitted, the function returns `unit`.
 
 ```bray
-func log(pos message: String)
+func log(pos message: string)
 {
     print(message);
 }
@@ -56,7 +56,7 @@ func log(pos message: String)
 This means:
 
 ```bray
-func log(pos message: String) -> unit
+func log(pos message: string) -> unit
 {
     print(message);
 }
@@ -115,7 +115,7 @@ func add(left: i32, right: i32) -> i32
 A function whose declared result type is `unit` can complete normally.
 
 ```bray
-func log(pos message: String)
+func log(pos message: string)
 {
     print(message);
 }
@@ -182,7 +182,7 @@ Parameters are named by default.
 A parameter can use the `pos` modifier to permit positional arguments at call sites.
 
 ```bray
-func print(pos message: String)
+func print(pos message: string)
 {
     ...
 }
@@ -466,7 +466,7 @@ The second `return` exits `outer`.
 A function returning `unit` can complete normally.
 
 ```bray
-func log(pos message: String)
+func log(pos message: string)
 {
     print(message);
 }
@@ -475,7 +475,7 @@ func log(pos message: String)
 A function returning `unit` can also return explicitly with `return unit;`.
 
 ```bray
-func log(pos message: String)
+func log(pos message: string)
 {
     print(message);
     return unit;
@@ -493,7 +493,7 @@ A `never` expression satisfies any required result type at a control-flow merge 
 At a control-flow merge, `never` contributes no value and does not determine the merged result type.
 
 ```bray
-func fail(pos message: String) -> never
+func fail(pos message: string) -> never
 {
     panic(message);
 }
@@ -789,12 +789,12 @@ Same-name function declarations do not automatically form an overload set.
 An overload declaration introduces a shared call name over separately named callable declarations.
 
 ```bray
-func parse_int(pos text: String, radix: i32 = 10) -> i64
+func parse_int(pos text: string, radix: i32 = 10) -> i64
 {
     ...
 }
 
-func parse_float(pos text: String) -> r64
+func parse_float(pos text: string) -> r64
 {
     ...
 }

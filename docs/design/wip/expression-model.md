@@ -207,7 +207,7 @@ func f() -> i32
 A callable body with declared result type `unit` can complete normally.
 
 ```bray
-func log(pos message: String)
+func log(pos message: string)
 {
     print(message);
 }
@@ -218,7 +218,7 @@ A callable body with declared result type other than `unit` must ensure every re
 A callable with omitted result type has result type `unit`.
 
 ```bray
-func log(pos message: String)
+func log(pos message: string)
 {
     print(message);
 }
@@ -227,7 +227,7 @@ func log(pos message: String)
 This has the same callable result contract as:
 
 ```bray
-func log(pos message: String) -> unit
+func log(pos message: string) -> unit
 {
     print(message);
 }
@@ -245,7 +245,7 @@ func add(left: i32, right: i32) -> i32
 A callable returning `unit` can return explicitly with `return unit;`.
 
 ```bray
-func log(pos message: String) -> unit
+func log(pos message: string) -> unit
 {
     print(message);
     return unit;
@@ -259,7 +259,7 @@ A `return` expression has type `never` in the current control-flow path because 
 A `never` expression can satisfy any callable result requirement because it has no normal continuation.
 
 ```bray
-func fail(pos message: String) -> never
+func fail(pos message: string) -> never
 {
     panic(message);
 }
@@ -881,11 +881,11 @@ A string literal has type `string`.
 
 A string literal contains zero or more Unicode scalar values after escape processing.
 
-String literals do not perform interpolation.
+No interpolation is performed by string literals.
 
-String literal escape and representation rules are defined by the Scalar and Literal Model.
+Escape and representation rules for string literals are defined by the Scalar and Literal Model.
 
-String literals are already typed as `string`.
+They are already typed as `string`.
 
 ---
 
@@ -915,7 +915,7 @@ let done: unit = unit;
 A callable returning `unit` can complete normally or return `unit` explicitly.
 
 ```bray
-func log(pos message: String)
+func log(pos message: string)
 {
     print(message);
     return unit;
@@ -4143,7 +4143,7 @@ A **panic expression** raises an exceptional failure outside the ordinary callab
 panic(message);
 ```
 
-The panic message must be compatible with `String`.
+The panic message must be compatible with `string`.
 
 A panic expression has type `never` because the current normal continuation does not run.
 
@@ -4521,7 +4521,7 @@ impl PortToU16 = Port(ConvertTo<u16>)
     }
 }
 
-impl StringToPort = String(CheckedConvertTo<Port>)
+impl TextToPort = string(CheckedConvertTo<Port>)
 {
     type Error = ParseError;
 
@@ -5020,7 +5020,7 @@ The syntax is:
 
 The condition is an expression that must produce `bool`.
 
-The message, when present, is an expression compatible with `String`.
+The message, when present, is an expression compatible with `string`.
 
 Examples:
 
@@ -5150,7 +5150,7 @@ The operand is evaluated exactly once.
 There is no implicit propagation through field access, method calls, function calls, indexing, or construction.
 
 ```bray
-func full_name(user_id: UserId) -> String?
+func full_name(user_id: UserId) -> string?
 {
     let user = find_user(user_id)?;
     let profile = user.profile?;

@@ -355,7 +355,7 @@ A field declaration can include field visibility.
 ```bray
 struct CacheEntry
 {
-    key: String;
+    key: string;
     internal hash: u64;
 }
 ```
@@ -463,7 +463,7 @@ An `internal` field is available within its intended scope.
 ```bray
 struct CacheEntry
 {
-    key: String;
+    key: string;
     internal hash: u64;
 }
 ```
@@ -782,7 +782,7 @@ struct File
         ...
     }
 
-    construct temp(pos directory: Path, prefix: String = "tmp") -> Self
+    construct temp(pos directory: Path, prefix: string = "tmp") -> Self
     {
         ...
     }
@@ -3111,7 +3111,7 @@ A static trait function is declared with `static func`.
 ```bray
 trait Parse<T>
 {
-    static func parse(pos text: String) -> T;
+    static func parse(pos text: string) -> T;
 }
 ```
 
@@ -3234,7 +3234,7 @@ impl PortToU16 = Port(ConvertTo<u16>)
     }
 }
 
-impl StringToPort = String(CheckedConvertTo<Port>)
+impl TextToPort = string(CheckedConvertTo<Port>)
 {
     type Error = ParseError;
 
@@ -4191,7 +4191,7 @@ Generic constraints and trait views are separate forms of polymorphism.
 A generic constraint keeps the concrete type known to the generic instantiation.
 
 ```bray
-func write_all<S>(pos sink: S, pos message: String)
+func write_all<S>(pos sink: S, pos message: string)
     with(S: Sink)
 {
     sink.write(message);
@@ -4201,7 +4201,7 @@ func write_all<S>(pos sink: S, pos message: String)
 A trait view hides the concrete type and dispatches through the selected implementation witness.
 
 ```bray
-func write_one(pos sink: &view Sink, pos message: String)
+func write_one(pos sink: &view Sink, pos message: string)
 {
     sink.write(message);
 }

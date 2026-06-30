@@ -849,6 +849,7 @@ The core built-in type categories are:
 
 - **booleans:** represent truth values.
 - **characters:** represent a Unicode scalar value.
+- **strings:** represent finite Unicode text values through the compiler-known `string` type.
 - **signed/unsigned integers:** represent a whole-number value with a defined signedness and width.
 - **floating-point numbers:** represent an approximate real-number value with a defined format.
 - **machine-sized integers:** represent an integer whose width is defined by the target platform.
@@ -1390,7 +1391,7 @@ construct(pos path: Path, mode: FileMode = FileMode.read) -> Self
     ...
 }
 
-construct temp(pos directory: Path, prefix: String = "tmp") -> Self
+construct temp(pos directory: Path, prefix: string = "tmp") -> Self
 {
     ...
 }

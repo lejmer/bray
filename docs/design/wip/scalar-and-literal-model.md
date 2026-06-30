@@ -2,9 +2,9 @@
 
 ## Overview
 
-Bray has a small fixed set of built-in scalar types.
+Bray has a small fixed set of built-in scalar types and a compiler-known text type.
 
-The scalar model covers:
+The scalar and literal model covers:
 
 1. integer types,
 2. real floating-point types,
@@ -12,14 +12,19 @@ The scalar model covers:
 4. machine-sized integer types,
 5. `bool`,
 6. `char`,
-7. `unit`,
-8. `never`,
-9. numeric literals,
-10. imaginary literals,
-11. explicit scalar and composite conversion.
+7. `string`,
+8. `unit`,
+9. `never`,
+10. numeric literals,
+11. imaginary literals,
+12. character literals,
+13. string literals,
+14. explicit scalar and composite conversion.
 
 Scalar types are ordinary value types. They participate in ownership, copying, borrowing, mutation authority, initialization,
 destruction, generic constraints, contract expressions, and overload resolution according to their type contracts.
+
+The compiler-known `string` type is also an ordinary value type, but it is not a scalar type.
 
 ---
 
@@ -187,8 +192,85 @@ A `char` is a Unicode scalar value.
 
 A `char` is not a byte.
 
-A string is not an array of `char` by default. String representation, encoding, slicing, and indexing are part of the string
-model, not the scalar model.
+Character literals are delimited by single quotes.
+
+```bray
+'a'
+'\n'
+'\u{03BB}'
+```
+
+A character literal has type `char`.
+
+After escape processing, a character literal must contain exactly one Unicode scalar value.
+
+`''` is invalid.
+
+`'ab'` is invalid.
+
+Single quotes do not delimit strings.
+
+---
+
+## `string` type
+
+Bray defines the compiler-known text type:
+
+```bray
+string
+```
+
+`string` represents a finite sequence of Unicode scalar values.
+
+`string` has protected representation.
+
+The language-defined contents of a string literal use UTF-8 as their canonical encoding.
+
+A `string` is not an array of `char` or `u8`.
+
+Indexing, slicing, and encoding views for `string` are string operations, not scalar-literal semantics.
+
+---
+
+## string literals
+
+A string literal is delimited by double quotes.
+
+```bray
+"hello"
+""
+"line\nbreak"
+```
+
+A string literal has type `string`.
+
+`""` is the empty string.
+
+Single quotes never delimit strings.
+
+`''` is invalid because single quotes delimit character literals.
+
+A string literal contains zero or more Unicode scalar values after escape processing.
+
+A line break cannot appear unescaped inside a string literal.
+
+No interpolation is performed by string literals.
+
+The valid string-literal escape sequences are:
+
+- `\"` for a double quote,
+- `\\` for a backslash,
+- `\n` for newline,
+- `\r` for carriage return,
+- `\t` for tab,
+- `\0` for the Unicode scalar value U+0000,
+- `\u{H...}` for a Unicode scalar value written with hexadecimal digits.
+
+The `\u{H...}` escape is valid only when the hexadecimal value is a Unicode scalar value.
+
+Unknown escape sequences are invalid.
+
+Character literals use the same escape sequences as string literals, except that `\'` is also valid in a character literal for a single quote.
 
 ---
 
@@ -213,7 +295,7 @@ In expression position, `unit` is the unit value.
 A callable with an omitted result type returns `unit`.
 
 ```bray
-func log(pos message: String)
+func log(pos message: string)
 {
     print(message);
 }
@@ -222,7 +304,7 @@ func log(pos message: String)
 This means:
 
 ```bray
-func log(pos message: String) -> unit
+func log(pos message: string) -> unit
 {
     print(message);
 }
