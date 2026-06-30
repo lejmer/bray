@@ -2656,9 +2656,9 @@ A trait defines behavior that a type can satisfy through an explicit implementat
 Traits are declared with `trait`.
 
 ```bray
-trait Equatable
+trait Equatable<Other>
 {
-    func equals(pos other: &Self) -> bool;
+    func equals(pos other: &Other) -> bool;
 }
 ```
 
@@ -2692,9 +2692,9 @@ A trait declaration can be `public` or `internal`.
 `public` is the default.
 
 ```bray
-trait Equatable
+trait Equatable<Other>
 {
-    func equals(pos other: &Self) -> bool;
+    func equals(pos other: &Other) -> bool;
 }
 
 internal trait ParserDiagnostics
@@ -2714,9 +2714,9 @@ Trait members inherit the visibility of the trait.
 The grammar excludes `public` and `internal` modifiers on individual trait members.
 
 ```bray
-trait Equatable
+trait Equatable<Other>
 {
-    func equals(pos other: &Self) -> bool;
+    func equals(pos other: &Other) -> bool;
 }
 ```
 
@@ -2732,9 +2732,9 @@ The currently defined trait member forms are:
 - type-valued member declarations.
 
 ```bray
-trait Equatable
+trait Equatable<Other>
 {
-    func equals(pos other: &Self) -> bool;
+    func equals(pos other: &Other) -> bool;
 }
 ```
 
@@ -2743,20 +2743,20 @@ A trait callable member can be required or defaulted.
 A required callable trait member has no body and ends with a semicolon.
 
 ```bray
-trait Equatable
+trait Equatable<Other>
 {
-    func equals(pos other: &Self) -> bool;
+    func equals(pos other: &Other) -> bool;
 }
 ```
 
 A defaulted callable trait member has a body.
 
 ```bray
-trait Equatable
+trait Equatable<Other>
 {
-    func equals(pos other: &Self) -> bool;
+    func equals(pos other: &Other) -> bool;
 
-    func not_equals(pos other: &Self) -> bool
+    func not_equals(pos other: &Other) -> bool
     {
         ...
     }
@@ -3101,6 +3101,175 @@ Trusted caller obligations must be declared with `trusted` requirements in `requ
 
 TODO: Define effect annotation syntax beyond currently defined contract clauses.
 
+### Operator traits
+
+Operator syntax is implemented through compiler-known traits.
+
+The language substrate declares the overloadable operator set as part of the compiler-known trait surface.
+
+A type enables an operator by satisfying the corresponding compiler-known trait application.
+
+Source code does not declare new operator symbols, new operator precedence, or mappings from arbitrary functions to operator tokens.
+
+The overloadable operators are:
+
+| Operator form | Trait application     | Member            | Result            |
+|---------------|-----------------------|-------------------|-------------------|
+| infix `+`     | `Add<Rhs>`            | `add`             | selected `Output` |
+| infix `-`     | `Subtract<Rhs>`       | `subtract`        | selected `Output` |
+| infix `*`     | `Multiply<Rhs>`       | `multiply`        | selected `Output` |
+| infix `/`     | `Divide<Rhs>`         | `divide`          | selected `Output` |
+| infix `%`     | `Remainder<Rhs>`      | `remainder`       | selected `Output` |
+| infix `**`    | `Exponentiate<Rhs>`   | `exponentiate`    | selected `Output` |
+| infix `@`     | `MatrixMultiply<Rhs>` | `matrix_multiply` | selected `Output` |
+| prefix `-`    | `Negate`              | `negate`          | selected `Output` |
+| infix `==`    | `Equatable<Rhs>`      | `equals`          | `bool`            |
+| infix `!=`    | `Equatable<Rhs>`      | `equals`          | `bool`            |
+| infix `<`     | `Comparable<Rhs>`     | `compare`         | `bool`            |
+| infix `<=`    | `Comparable<Rhs>`     | `compare`         | `bool`            |
+| infix `>`     | `Comparable<Rhs>`     | `compare`         | `bool`            |
+| infix `>=`    | `Comparable<Rhs>`     | `compare`         | `bool`            |
+| infix `&`     | `BitAnd<Rhs>`         | `bit_and`         | selected `Output` |
+| infix `\|`    | `BitOr<Rhs>`          | `bit_or`          | selected `Output` |
+| infix `^`     | `BitXor<Rhs>`         | `bit_xor`         | selected `Output` |
+| prefix `~`    | `BitNot`              | `bit_not`         | selected `Output` |
+| infix `<<`    | `ShiftLeft<Rhs>`      | `shift_left`      | selected `Output` |
+| infix `>>`    | `ShiftRight<Rhs>`     | `shift_right`     | selected `Output` |
+
+The value-producing binary operator traits have this shape:
+
+```bray
+trait Add<Rhs>
+{
+    type Output;
+
+    func add(pos rhs: &Rhs) -> Output;
+}
+```
+
+`Add<Rhs>` is the compiler-known trait application for binary `+`.
+
+`add` is the member called by the `+` operator.
+
+The other value-producing binary operator traits use the same shared-receiver shape and differ only by trait name, member name, operator token, and operator meaning.
+
+The unary value-producing operator traits have this shape:
+
+```bray
+trait Negate
+{
+    type Output;
+
+    func negate() -> Output;
+}
+```
+
+`BitNot` uses the same shape with `bit_not`.
+
+Equality uses `Equatable<Rhs>`:
+
+```bray
+trait Equatable<Rhs>
+{
+    func equals(pos rhs: &Rhs) -> bool;
+}
+```
+
+`left == right` calls `equals`.
+
+`left != right` is derived from the boolean inverse of `equals`.
+
+`!=` is not implemented separately.
+
+Relational comparison uses `Comparable<Rhs>`:
+
+```bray
+trait Comparable<Rhs>
+{
+    func compare(pos rhs: &Rhs) -> Ordering;
+}
+```
+
+`<`, `<=`, `>`, and `>=` are derived from the returned `Ordering`.
+
+The relational operators are not implemented separately.
+
+`MatrixMultiply<Rhs>` is the compiler-known trait for `@`.
+
+`@` is reserved for linear-algebra multiplication semantics, including vector dot product, matrix-vector multiplication, and matrix-matrix multiplication.
+
+The operator token, fixity, arity, precedence, associativity, trait name, member name, receiver mode, operand parameter contract, and result rule are part of the compiler-known trait contract.
+
+An implementation of an operator trait is an ordinary trait implementation:
+
+```bray
+impl Vec2Add = Vec2(Add<Vec2>)
+{
+    type Output = Vec2;
+
+    func add(pos rhs: &Vec2) -> Output
+    {
+        return Vec2 { x = self.x + rhs.x, y = self.y + rhs.y };
+    }
+}
+```
+
+Given participating implementations for the operand types, `left + right` resolves to the `Add<RightType>.add` member for `LeftType`.
+
+Operator trait members are public language surface.
+
+A unary or binary expression using an overloadable token can use only the public compiler-known operator trait surface and public participating implementations in the current coherence domain.
+
+Unary and binary expressions using overloadable tokens do not opt into internal access.
+
+Internal-access acknowledgement does not make an implementation candidate available to a unary or binary expression.
+
+Internal implementation details can be used from the named member body, but they are not exposed by the expression itself.
+
+An operator trait member cannot require mutation authority over the receiver or over caller-provided operand storage.
+
+For receiver-based operators, the operator member uses the shared receiver mode.
+
+An operator trait member cannot be declared with `mut func`, `consume func`, or `consume mut func`.
+
+An explicit operand parameter receives a shared borrow according to the compiler-known trait signature.
+
+An explicit operand parameter cannot require a mutable borrow.
+
+A unary or binary expression using an overloadable token does not consume either operand.
+
+If an operation needs to consume an operand or mutate caller-provided storage, it is expressed as a named method or function rather than an operator.
+
+Operators not listed in the overloadable operator table are not overloadable.
+
+Assignment, compound assignment, field access, method calls, function calls, indexing, slicing, ranges, borrowing, nullable propagation, result propagation, panic catching, awaiting, spawning, construction forms, pattern matching, and lifecycle forms are not operator-overload hooks.
+
+Unary and binary expressions using overloadable tokens follow trait implementation coherence.
+
+The exact coherence key is still:
+
+```text
+(ImplementingType, TraitApplication)
+```
+
+For binary `+`, the trait application includes the right operand type:
+
+```text
+(LeftType, Add<RightType>)
+```
+
+If the relevant implementation belongs to an implementation overload family, overloadable token resolution uses the same implementation overload rules as method calls.
+
+Operand types, receiver compatibility, and the operator trait member name can select an implementation arm.
+
+Result type, expected type, and type-valued member outputs do not select an operator implementation.
+
+No ranking is performed between operator implementation candidates.
+
+If no participating implementation matches, the unary or binary expression is rejected.
+
+If more than one participating implementation remains possible, the unary or binary expression is rejected as ambiguous.
+
 ## Implementations
 
 An **implementation** declares behavior for a type.
@@ -3133,7 +3302,7 @@ A trait implementation can be unnamed or named.
 An unnamed trait implementation is written as `impl Type(TraitApplication)`.
 
 ```bray
-impl Point(Equatable)
+impl Point(Equatable<Point>)
 {
     func equals(pos other: &Self) -> bool
     {
@@ -3145,7 +3314,7 @@ impl Point(Equatable)
 A named trait implementation is written as `impl ImplementationName = Type(TraitApplication)`.
 
 ```bray
-impl PointEquatable = Point(Equatable)
+impl PointEquatable = Point(Equatable<Point>)
 {
     func equals(pos other: &Self) -> bool
     {
@@ -3177,7 +3346,7 @@ impl Point(Comparable<Point>)
 For a generic implementing type:
 
 ```bray
-impl BufferEquatable = Buffer<T>(Equatable)
+impl BufferEquatable = Buffer<T>(Equatable<Buffer<T>>)
 {
     func equals(pos other: &Self) -> bool
     {
@@ -3203,7 +3372,7 @@ In an inherent implementation, member definitions become behavior associated wit
 In a trait implementation, member definitions fulfill members of the implemented trait application.
 
 ```bray
-impl Point(Equatable)
+impl Point(Equatable<Point>)
 {
     func equals(pos other: &Self) -> bool
     {
@@ -3889,8 +4058,6 @@ TODO: Define constants in traits.
 TODO: Define predicates in traits.
 
 TODO: Define lifecycle declarations in traits.
-
-TODO: Define operator traits.
 
 ---
 

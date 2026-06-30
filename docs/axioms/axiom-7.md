@@ -5,7 +5,7 @@ Polymorphic behavior is declared intentionally.
 A declaration that introduces polymorphic behavior states the kind of polymorphism it provides. This applies to overload sets, generic parameters, generic constraints,
 trait implementations, dynamic dispatch, operator behavior, conversions, and other type-directed behavior.
 
-Inference may select among declared meanings. It may not create new meanings. A generic call, overloaded call, trait operation, or operator expression may infer types or
+Inference may select among declared meanings. It may not create new meanings. A generic call, overloaded call, trait operation, or a unary or binary expression may infer types or
 select an implementation only when the selected behavior already exists as a declared part of the program.
 
 Overloading is opt-in at the declaration site. Functions, operators, or multiple trait applications for the same subject type participate in overload resolution only when

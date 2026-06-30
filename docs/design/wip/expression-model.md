@@ -1844,6 +1844,10 @@ start..
 
 The indexed subject is evaluated as an expression and must have a type that supports indexed access.
 
+Indexing and slicing are access-path projection expressions, not unary or binary expressions.
+
+They are not enabled by operator traits.
+
 Selector expressions are evaluated after the indexed subject.
 
 When a selector has both a start expression and an end expression, the start expression is evaluated before the end expression.
@@ -2545,6 +2549,136 @@ Use a lambda with an explicit capture when a callable value should call a method
 The receiver expression is evaluated before method argument expressions.
 
 Method argument expressions and omitted parameter defaults follow the same evaluation-order rules as function calls.
+
+---
+
+## Unary and binary expressions
+
+A **unary expression** applies a prefix unary token to one operand.
+
+A **binary expression** applies an infix binary token between two operands.
+
+```bray
+let inverse = -value;
+let flipped = ~bits;
+let total = left + right;
+```
+
+Unary and binary tokens, precedence, and associativity are fixed by the language.
+
+Overloadable unary and binary token behavior is provided by compiler-known operator traits.
+
+Source code does not bind arbitrary functions, methods, or traits to unary or binary tokens.
+
+The following tables define the complete unary and binary expression token set.
+
+Precedence is relative. Larger precedence numbers bind tighter.
+
+Unary expression tokens:
+
+| Token | Precedence | Primary function    | Overloadable                  |
+|-------|------------|---------------------|-------------------------------|
+| `-`   | 11         | arithmetic negation | yes, through `Negate.negate`  |
+| `~`   | 11         | bitwise complement  | yes, through `BitNot.bit_not` |
+| `!`   | 11         | boolean negation    | no                            |
+
+Binary expression tokens:
+
+| Token  | Precedence | Associativity | Primary function                  | Overloadable                                       |
+|--------|------------|---------------|-----------------------------------|----------------------------------------------------|
+| `**`   | 12         | right         | exponentiation                    | yes, through `Exponentiate<Rhs>.exponentiate`      |
+| `*`    | 10         | left          | multiplication                    | yes, through `Multiply<Rhs>.multiply`              |
+| `/`    | 10         | left          | division                          | yes, through `Divide<Rhs>.divide`                  |
+| `%`    | 10         | left          | remainder                         | yes, through `Remainder<Rhs>.remainder`            |
+| `@`    | 10         | left          | linear-algebra multiplication     | yes, through `MatrixMultiply<Rhs>.matrix_multiply` |
+| `+`    | 9          | left          | addition                          | yes, through `Add<Rhs>.add`                        |
+| `-`    | 9          | left          | subtraction                       | yes, through `Subtract<Rhs>.subtract`              |
+| `<<`   | 8          | left          | shift left                        | yes, through `ShiftLeft<Rhs>.shift_left`           |
+| `>>`   | 8          | left          | shift right                       | yes, through `ShiftRight<Rhs>.shift_right`         |
+| `&`    | 7          | left          | bitwise and                       | yes, through `BitAnd<Rhs>.bit_and`                 |
+| `^`    | 6          | left          | bitwise xor                       | yes, through `BitXor<Rhs>.bit_xor`                 |
+| `\|`   | 5          | left          | bitwise or                        | yes, through `BitOr<Rhs>.bit_or`                   |
+| `==`   | 4          | none          | equality comparison               | yes, through `Equatable<Rhs>.equals`               |
+| `!=`   | 4          | none          | inequality comparison             | yes, derived from `Equatable<Rhs>.equals`          |
+| `<`    | 4          | none          | less-than comparison              | yes, derived from `Comparable<Rhs>.compare`        |
+| `<=`   | 4          | none          | less-than-or-equal comparison     | yes, derived from `Comparable<Rhs>.compare`        |
+| `>`    | 4          | none          | greater-than comparison           | yes, derived from `Comparable<Rhs>.compare`        |
+| `>=`   | 4          | none          | greater-than-or-equal comparison  | yes, derived from `Comparable<Rhs>.compare`        |
+| `&&`   | 2          | left          | short-circuit boolean conjunction | no                                                 |
+| `\|\|` | 1          | left          | short-circuit boolean disjunction | no                                                 |
+
+Exponentiation binds tighter than prefix unary negation, bitwise complement, and boolean negation.
+
+Therefore `-x ** y` is parsed as `-(x ** y)`.
+
+Comparisons are non-associative.
+
+To combine comparisons, use boolean operators explicitly.
+
+`!`, `&&`, and `||` require `bool` operands and produce `bool`.
+
+`&&` and `||` are short-circuiting.
+
+Borrow expressions, conversion expressions, field access, calls, indexing, slicing, assignment, construction, pattern-bearing forms, `try`, `catch`, `await`, `spawn`, and lifecycle forms are separate expression forms.
+
+They are not unary or binary expression tokens.
+
+The overloadable token set is defined by the compiler-known operator traits in the Type Model.
+
+For a compiler-known operator trait, the trait contract defines the operator token, the required member name, the operand contract, and the result type.
+
+For binary `+`, the compiler-known trait is `Add<Rhs>` and the called member is `add`.
+
+```bray
+trait Add<Rhs>
+{
+    type Output;
+
+    func add(pos rhs: &Rhs) -> Output;
+}
+```
+
+The expression:
+
+```bray
+left + right
+```
+
+is a binary expression that resolves as a call to the public operator trait member selected for the left operand type and the right operand type.
+
+For binary `+`, the relevant trait application is:
+
+```text
+LeftType(Add<RightType>)
+```
+
+The result type of a unary or binary expression using an overloadable token is the operator trait member's declared result after applying the selected implementation's type-valued member bindings.
+
+For `Add<Rhs>`, the result type is the selected `Output`.
+
+Overloadable token resolution uses the same participating-implementation and implementation-overload rules as trait method resolution.
+
+Operand types, receiver compatibility, and the compiler-known operator member name can select an implementation arm.
+
+Result type, expected type, and type-valued member outputs do not select an operator implementation.
+
+Overloadable token resolution does not rank candidates.
+
+If no participating implementation matches, the unary or binary expression is rejected.
+
+If more than one participating implementation remains possible, the unary or binary expression is rejected as ambiguous.
+
+Unary and binary expressions using overloadable tokens cannot opt into internal access.
+
+They resolve only through the public compiler-known operator trait surface and public participating implementations in the current coherence domain.
+
+Internal-access acknowledgement does not make an implementation candidate available to a unary or binary expression.
+
+Operator trait members cannot require mutation authority over the receiver or over caller-provided operand storage.
+
+Unary and binary expressions using overloadable tokens do not consume operands.
+
+Unary and binary operand evaluation order is defined by the general expression evaluation order rules.
 
 ---
 
@@ -5684,7 +5818,9 @@ Checking steps do not create runtime evaluation steps.
 
 Runtime subexpressions are evaluated in the order they are written unless a more specific expression rule defines a narrower order.
 
-Operator operands are evaluated left to right.
+Unary and binary operands are evaluated left to right.
+
+For `&&` and `||`, the left operand is evaluated first, and the right operand is evaluated only when required by short-circuit boolean semantics.
 
 Tuple elements are evaluated left to right.
 
@@ -5765,7 +5901,6 @@ Specific expression forms also define these evaluation facts:
 
 - TODO: Define assertion syntax.
 - TODO: Define checked-conversion result shape.
-- TODO: Define operator precedence and operator overloading syntax.
 
 ---
 
