@@ -1811,6 +1811,10 @@ Method resolution uses the receiver type, receiver capability, inherent implemen
 
 The method receiver is supplied by the left-hand expression.
 
+Trait implementations for implementation-eligible type-form subjects participate only when the receiver expression has the exact receiver type.
+
+Method resolution does not create a shared borrow or mutable borrow solely to search for a type-form implementation.
+
 The method receiver can be qualified by an exact trait application to select a trait implementation before method lookup.
 
 ```bray
@@ -2629,6 +2633,16 @@ A consuming receiver method requires ownership of the receiver value.
 A consuming receiver method makes the receiver’s old access path unavailable after the call unless reinitialized.
 
 A method call resolves through the receiver type, receiver capability, inherent implementations, participating trait implementations, visible declarations, constraints, and overload rules.
+
+Trait implementations for implementation-eligible type-form subjects participate only when the receiver expression has the exact receiver type.
+
+Method resolution does not create a shared borrow or mutable borrow solely to search for a type-form implementation.
+
+```bray
+values.iterate()        // checks implementations for Vec<T>
+(&values).iterate()     // checks implementations for &Vec<T>
+(&mut values).iterate() // checks implementations for &mut Vec<T>
+```
 
 A method call resolves to exactly one method after receiver checking, argument binding, type checking, ownership checking, capability checking, effect checking, contract checking, and overload resolution.
 

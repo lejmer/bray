@@ -3623,7 +3623,7 @@ A constant-valued member cannot have its own generic parameters.
 
 For a given participating implementation of a concrete trait application, every constant-valued member has exactly one selected value.
 
-The selected value can depend on the implementing type and on the trait application's generic arguments.
+The selected value can depend on the implementing subject and on the trait application's generic arguments.
 
 The selected value cannot depend on a runtime value, control-flow path, local inference choice, caller preference, or use site.
 
@@ -3635,15 +3635,22 @@ SubjectType(TraitApplication).MemberName
 
 The syntax mirrors trait implementation syntax and qualified type-valued member references.
 
-`SubjectType` is the implementing type whose selected constant value is being referenced.
+`SubjectType` is the named implementing type whose selected constant value is being referenced.
 
 `TraitApplication` is the trait application that declares the constant-valued member.
 
 `MemberName` is the constant-valued member declared by that trait.
 
+When the subject is an implementation-eligible type-form subject, the subject must be grouped before the trait application:
+
+```bray
+(&SubjectType)(TraitApplication).MemberName
+(&mut SubjectType)(TraitApplication).MemberName
+```
+
 The trait application in a qualified constant-valued member reference must be exact.
 
-If the subject type has multiple visible implementations that could provide different selected constant values, the reference is rejected by implementation coherence before expression checking.
+If the implementing subject has multiple visible implementations that could provide different selected constant values, the reference is rejected by implementation coherence before expression checking.
 
 A constant-valued member reference is a compile-time constant expression when the selected value is valid in the current constant-expression context.
 
@@ -3691,7 +3698,7 @@ Trait parameters and type-valued members have different roles:
 
 For a given participating implementation of a concrete trait application, every type-valued member has exactly one selected type.
 
-The selected type can depend on the implementing type and on the trait application’s generic arguments.
+The selected type can depend on the implementing subject and on the trait application’s generic arguments.
 
 The selected type cannot depend on a runtime value, control-flow path, local inference choice, caller preference, or use site.
 
@@ -3756,11 +3763,18 @@ SubjectType(TraitApplication).MemberName
 
 The syntax mirrors trait implementation syntax.
 
-`SubjectType` is the implementing type whose selected member type is being referenced.
+`SubjectType` is the named implementing type whose selected member type is being referenced.
 
 `TraitApplication` is the trait application that declares the type-valued member.
 
 `MemberName` is the type-valued member declared by that trait.
+
+When the subject is an implementation-eligible type-form subject, the subject must be grouped before the trait application:
+
+```bray
+(&Vec<T>)(Iterable).Cursor
+(&mut Vec<T>)(Iterable).Element
+```
 
 For example:
 
@@ -3872,9 +3886,16 @@ member reference:
 SubjectType(TraitApplication).predicate_name(...)
 ```
 
-`SubjectType` is the implementing type whose selected predicate is being referenced.
+`SubjectType` is the named implementing type whose selected predicate is being referenced.
 
 `TraitApplication` is the trait application that declares the predicate member.
+
+When the subject is an implementation-eligible type-form subject, the subject must be grouped before the trait application:
+
+```bray
+(&SubjectType)(TraitApplication).predicate_name(...)
+(&mut SubjectType)(TraitApplication).predicate_name(...)
+```
 
 The trait application in a qualified predicate member reference must be exact.
 
@@ -3891,7 +3912,7 @@ Trusted predicate members follow the ordinary trusted predicate and trusted obli
 
 ### Lifecycle requirements in traits
 
-A lifecycle requirement is a trait member that requires compatible lifecycle behavior from the implementing type or exact trait
+A lifecycle requirement is a trait member that requires compatible lifecycle behavior from the implementing subject or exact trait
 implementation.
 
 Lifecycle requirements are written with lifecycle declaration syntax and end with `;`.
@@ -3922,7 +3943,7 @@ trait Openable
 }
 ```
 
-A `finalize` requirement is satisfied by a compatible type-wide finalizer on the implementing type.
+A `finalize` requirement is satisfied by compatible finalization behavior on the implementing subject.
 
 ```bray
 trait Finalizable
@@ -3945,7 +3966,7 @@ impl File(Finalizable)
 }
 ```
 
-A `destruct` requirement is satisfied by a compatible type-wide destructor on the implementing type.
+A `destruct` requirement is satisfied by compatible destruction behavior on the implementing subject.
 
 ```bray
 trait Destructible
@@ -3956,13 +3977,17 @@ trait Destructible
 
 Trait implementations cannot provide `finalize` or `destruct` bodies.
 
-`finalize` and `destruct` remain lifecycle behavior of the concrete type.
+`finalize` and `destruct` remain lifecycle behavior of the concrete subject.
 
 Finalization and destruction do not depend on which trait view or trait implementation is used to observe a value.
 
-Multiple traits can require `finalize` or `destruct` from the same implementing type.
+For named type subjects, this behavior is provided by the type's type-wide lifecycle declaration.
 
-The implementing type's type-wide lifecycle declaration must satisfy every participating `finalize` or `destruct` requirement.
+For implementation-eligible type-form subjects, this behavior is the lifecycle behavior produced by the type form.
+
+Multiple traits can require `finalize` or `destruct` from the same implementing subject.
+
+The implementing subject's lifecycle behavior must satisfy every participating `finalize` or `destruct` requirement.
 
 A `destruct` requirement must be synchronous, infallible, and return `unit`.
 
@@ -3975,9 +4000,7 @@ A `finalize` requirement can be synchronous or asynchronous.
 
 A `finalize` requirement can return `unit` or `Result<unit, E>`.
 
-The implementing type's type-wide finalizer must match the requirement's execution mode.
-
-The implementing type's type-wide finalizer must match the requirement's result shape.
+The implementing subject's finalization behavior must match the requirement's execution mode and result shape.
 
 For a `Result<unit, E>` requirement, the finalizer error type must be compatible with `E`.
 
@@ -3990,7 +4013,7 @@ An `exit` requirement is valid only when the same trait declares the matching `e
 The `exit` scoped-capability parameter type must match the successful scoped-capability type of the matching `enter`
 requirement after type-valued member bindings have been applied.
 
-An `enter` or `exit` requirement can be satisfied by a compatible type-wide lifecycle declaration on the implementing type.
+An `enter` or `exit` requirement can be satisfied by compatible lifecycle behavior on the implementing subject.
 
 An `enter` or `exit` requirement can also be satisfied by a compatible lifecycle declaration in the trait implementation body.
 
@@ -4012,7 +4035,7 @@ impl File(Scoped<FileLease>)
 Trait implementation lifecycle declarations for `enter` and `exit` are selected only after the exact trait implementation has
 been selected by ordinary implementation selection rules.
 
-For a given exact subject type, exact trait application, lifecycle kind, and lifecycle path, at most one participating
+For a given exact implementing subject, exact trait application, lifecycle kind, and lifecycle path, at most one participating
 implementation lifecycle declaration can be visible in a coherence domain.
 
 Lifecycle requirements participate in ownership checking, borrowing checking, finalization tracking, with-expression checking,
@@ -4035,7 +4058,7 @@ The receiver is not written as a parameter.
 
 The keyword `self` refers to the current receiver inside an instance method body.
 
-The keyword `Self` refers to the implementing type inside a trait declaration and inside implementations of that trait.
+The keyword `Self` refers to the implementing subject inside a trait declaration and inside implementations of that trait.
 
 ```bray
 trait Cloneable
@@ -4261,7 +4284,7 @@ Conversion trait implementations follow trait implementation coherence.
 The exact coherence key is still:
 
 ```text
-(ImplementingType, TraitApplication)
+(ImplementingSubject, TraitApplication)
 ```
 
 For `as Target`, the trait application includes the target type:
@@ -4448,7 +4471,7 @@ Unary and binary expressions using overloadable tokens follow trait implementati
 The exact coherence key is still:
 
 ```text
-(ImplementingType, TraitApplication)
+(ImplementingSubject, TraitApplication)
 ```
 
 For binary `+`, the trait application includes the right operand type:
@@ -4498,7 +4521,7 @@ An inherent implementation does not add fields to the type’s primary represent
 
 A trait implementation can be unnamed or named.
 
-An unnamed trait implementation is written as `impl Type(TraitApplication)`.
+An unnamed trait implementation is written as `impl ImplementingSubject(TraitApplication)`.
 
 ```bray
 impl Point(Equatable<Point>)
@@ -4510,7 +4533,7 @@ impl Point(Equatable<Point>)
 }
 ```
 
-A named trait implementation is written as `impl ImplementationName = Type(TraitApplication)`.
+A named trait implementation is written as `impl ImplementationName = ImplementingSubject(TraitApplication)`.
 
 ```bray
 impl PointEquatable = Point(Equatable<Point>)
@@ -4524,9 +4547,9 @@ impl PointEquatable = Point(Equatable<Point>)
 
 `ImplementationName` is the implementation identity.
 
-It is not a type, a type alias, or a wrapper around the subject type.
+It is not a type, a type alias, or a wrapper around the implementing subject.
 
-The subject type before the parentheses determines `Self`, the receiver type, and the storage being implemented for.
+The implementing subject before the parentheses determines `Self`, the receiver type, and the storage being implemented for.
 
 The trait application inside the parentheses determines the contract being fulfilled.
 
@@ -4542,7 +4565,7 @@ impl Point(Comparable<Point>)
 }
 ```
 
-For a generic implementing type:
+For a generic implementing subject:
 
 ```bray
 impl BufferEquatable = Buffer<T>(Equatable<Buffer<T>>)
@@ -4554,13 +4577,88 @@ impl BufferEquatable = Buffer<T>(Equatable<Buffer<T>>)
 }
 ```
 
-A trait implementation makes the implementing type satisfy the specified trait application.
+A trait implementation makes the implementing subject satisfy the specified trait application.
 
 Trait satisfaction is explicit.
 
-A type satisfies a trait application through an accepted participating implementation declaration for that exact subject type and trait application.
+An implementing subject satisfies a trait application through an accepted participating implementation declaration for that exact subject and trait application.
 
 Matching member names and signatures alone gives no trait satisfaction.
+
+### Trait implementation subjects
+
+An implementation subject is the entity being implemented for.
+
+Inherent implementations require a named type subject.
+
+Trait implementation subjects can be:
+
+- a named type subject,
+- a generic named type subject,
+- an inferred implementation parameter used as a type subject,
+- an implementation-eligible type-form subject.
+
+Implementation-eligible type-form subjects are:
+
+- `&T`,
+- `&mut T`.
+
+No other type form is implementation-eligible unless this model explicitly defines it as implementation-eligible.
+
+These are distinct exact implementation subjects:
+
+```bray
+impl VecReadIterable = &Vec<T>(Iterable)
+{
+    type Element = &T;
+    type Cursor = VecReadCursor<T>;
+
+    func iterate() -> Cursor
+    {
+        ...
+    }
+}
+
+impl VecWriteIterable = &mut Vec<T>(Iterable)
+{
+    type Element = &mut T;
+    type Cursor = VecWriteCursor<T>;
+
+    func iterate() -> Cursor
+    {
+        ...
+    }
+}
+
+impl VecMoveIterable = Vec<T>(Iterable)
+{
+    type Element = T;
+    type Cursor = VecMoveCursor<T>;
+
+    consume func iterate() -> Cursor
+    {
+        ...
+    }
+}
+```
+
+`Vec<T>`, `&Vec<T>`, and `&mut Vec<T>` are three different implementing subjects.
+
+An implementation for `&T` does not make `T` satisfy the same trait application.
+
+An implementation for `&mut T` does not make `&T` satisfy the same trait application.
+
+A value of type `&mut T` can reach an implementation for `&T` only when ordinary expression rules create an explicit shared reborrow and method resolution is then performed on the shared-borrow type.
+
+For a trait implementation with an implementation-eligible type-form subject, `Self` is the whole type form.
+
+Inside `impl VecReadIterable = &Vec<T>(Iterable)`, `Self` is `&Vec<T>`.
+
+Inside `impl VecWriteIterable = &mut Vec<T>(Iterable)`, `Self` is `&mut Vec<T>`.
+
+Values returned by callable members can carry borrow dependencies from a borrow implementation subject according to ordinary dependency-contract rules.
+
+Such values cannot outlive or extend the borrow represented by the implementation subject.
 
 ### Implementation members
 
@@ -4643,7 +4741,7 @@ Implementation members in a trait implementation are fulfillments of a trait con
 
 ### `Self` and `self`
 
-`Self` is the implementing type in trait and implementation contexts.
+`Self` is the implementing subject in trait and implementation contexts.
 
 Inside:
 
@@ -4654,7 +4752,7 @@ trait Cloneable
 }
 ```
 
-`Self` means the type that implements `Cloneable`.
+`Self` means the subject that implements `Cloneable`.
 
 Inside:
 
@@ -4692,7 +4790,7 @@ point.distance_to(other)
 
 The binding name `self` is reserved for the compiler-introduced receiver.
 
-Static function bodies use `Self` for the implementing type and receive ordinary parameters through their parameter list.
+Static function bodies use `Self` for the implementing subject and receive ordinary parameters through their parameter list.
 
 ### Generic traits
 
@@ -4732,25 +4830,33 @@ impl BufferComparable = Buffer<T>(Comparable<Buffer<T>>)
 }
 ```
 
-Generic implementation parameters are inferred from the subject type and trait application.
+Generic implementation parameters are inferred from the implementing subject and trait application.
 
 ```bray
 impl BufferComparable = Buffer<T>(Comparable<Buffer<T>>)
 ```
 
-An otherwise unresolved generic name that appears in the subject type or trait application becomes an implementation parameter.
+An otherwise unresolved generic name that appears in the implementing subject or trait application becomes an implementation parameter.
 
 If a name resolves to an existing type, constant, or other visible declaration, it is not inferred as an implementation parameter.
 
 The implementation name is written without a generic parameter list.
 
-The subject type, trait application, `with(...)` clause, and implementation body can use inferred implementation parameters.
+The implementing subject, trait application, `with(...)` clause, and implementation body can use inferred implementation parameters.
 
 The `with(...)` clause can constrain inferred implementation parameters.
 
 The `with(...)` clause cannot introduce implementation parameters by itself.
 
-Every inferred implementation parameter must appear in the subject type or trait application.
+Every inferred implementation parameter must appear in the implementing subject or trait application.
+
+An inferred implementation parameter can appear inside an implementation-eligible type-form subject.
+
+```bray
+impl VecReadIterable = &Vec<T>(Iterable)
+```
+
+Here `T` is inferred from the `&Vec<T>` implementation subject.
 
 This is rejected:
 
@@ -4769,10 +4875,10 @@ A generic implementation represents a parameterized set of exact trait implement
 For each valid substitution of the implementation parameters, the implementation produces one exact coherence key:
 
 ```text
-(SubstitutedSubjectType, SubstitutedTraitApplication)
+(SubstitutedImplementingSubject, SubstitutedTraitApplication)
 ```
 
-A substitution is valid only when it satisfies the implementation’s `with(...)` clause and makes the subject type and trait application well formed.
+A substitution is valid only when it satisfies the implementation’s `with(...)` clause and makes the implementing subject and trait application well formed.
 
 The implementation body is checked once under the implementation’s static constraints.
 
@@ -4820,13 +4926,13 @@ trait Iterator
 
 ### Trait implementation overload families
 
-Multiple applications of the same generic trait for the same subject type are an implementation overload family.
+Multiple applications of the same generic trait for the same implementing subject are an implementation overload family.
 
 Implementation overload families are explicit.
 
 Different trait applications do not automatically form an implementation overload family.
 
-When a subject type needs multiple applications of the same generic trait, each application is declared as a named implementation, and an overload declaration groups those implementation names under the shared subject and trait surface.
+When an implementing subject needs multiple applications of the same generic trait, each application is declared as a named implementation, and an overload declaration groups those implementation names under the shared subject and trait surface.
 
 ```bray
 impl BufferBytesIterator = Buffer(Iterator<Bytes>)
@@ -4863,17 +4969,31 @@ overload SubjectType(TraitName) =
 {
     ImplementationName,
 }
+
+overload (&SubjectType)(TraitName) =
+{
+    ImplementationName,
+}
+
+overload (&mut SubjectType)(TraitName) =
+{
+    ImplementationName,
+}
 ```
 
-`SubjectType` is the shared subject type.
+`SubjectType` is the shared named type subject.
 
-For a generic subject type, the overload header names the shared subject type declaration.
+For a generic named type subject, the overload header names the shared subject type declaration.
+
+For an implementation-eligible type-form subject, the overload header names the exact shared type-form subject.
+
+The grouped subject form is required for implementation-eligible type-form subjects in overload headers.
 
 `TraitName` is the trait declaration whose applications are being grouped.
 
 `ImplementationName` names a previously declared named trait implementation.
 
-Each listed implementation must implement the same subject type and an application of the named trait declaration.
+Each listed implementation must implement the same implementing subject and an application of the named trait declaration.
 
 The overload declaration does not implement the trait.
 
@@ -4973,13 +5093,13 @@ impl BufferBytesIterator = Buffer(Iterator<Bytes>)
 impl BufferOtherBytesIterator = Buffer(Iterator<Bytes>) // invalid
 ```
 
-If more than one participating implementation for the same subject type and generic trait declaration exists in a coherence domain, those implementations must be named and must be grouped by an implementation overload declaration.
+If more than one participating implementation for the same implementing subject and generic trait declaration exists in a coherence domain, those implementations must be named and must be grouped by an implementation overload declaration.
 
-A concrete non-overloaded trait implementation can use the unnamed `impl Type(TraitApplication)` form.
+A concrete non-overloaded trait implementation can use the unnamed `impl ImplementingSubject(TraitApplication)` form.
 
 A generic trait implementation is a named implementation declaration with inferred generic parameters.
 
-Inferred implementation parameters are type parameters or const parameters that appear in the subject type or trait application.
+Inferred implementation parameters are type parameters or const parameters that appear in the implementing subject or trait application.
 
 The `with(...)` clause can constrain inferred implementation parameters, but it cannot introduce them.
 
@@ -5015,7 +5135,7 @@ Its entries are comma-separated static predicate expressions.
 
 Static predicate expression rules belong to the Contract and Trust Model.
 
-A static predicate expression can require that a type satisfy a trait application:
+A static predicate expression can require that an implementing subject satisfy a trait application:
 
 ```bray
 func max<T>(left: T, right: T) -> T
@@ -5023,6 +5143,15 @@ func max<T>(left: T, right: T) -> T
 {
     ...
 }
+```
+
+The left side of a trait satisfaction constraint is an implementing subject.
+
+It can be a named type subject, a generic parameter used as a type subject, or an implementation-eligible type-form subject.
+
+```bray
+with(&T: Iterable)
+with(&mut T: Iterable)
 ```
 
 The trait application in a trait satisfaction constraint must be exact.
@@ -5037,6 +5166,13 @@ If the trait declaration is not generic, the trait name alone is the exact trait
 
 ```bray
 with(I: Iterator)
+```
+
+When a qualified member reference uses a constrained implementation-eligible type-form subject, the subject is grouped:
+
+```bray
+(&T)(Iterable).Element
+(&mut T)(Iterable).Cursor
 ```
 
 Static predicate expressions can also state type equality.
@@ -5130,6 +5266,18 @@ Result type, expected type, and type-valued member outputs do not select an arm.
 
 A trait-qualified receiver expression can select an exact trait application before member lookup.
 
+Trait implementations for implementation-eligible type-form subjects participate in method resolution only when the receiver expression has that exact receiver type.
+
+Method resolution does not create a shared borrow or mutable borrow solely to search for a type-form implementation.
+
+```bray
+values.iterate()        // checks implementations for Vec<T>
+(&values).iterate()     // checks implementations for &Vec<T>
+(&mut values).iterate() // checks implementations for &mut Vec<T>
+```
+
+Expression forms that define their own access mode can create the relevant borrow before method resolution according to that expression form's rules.
+
 Detailed method-call expression rules belong to the Expression Model.
 
 ### Static function resolution
@@ -5153,10 +5301,10 @@ Detailed static function call expression rules belong to the Expression Model.
 For a given coherence domain, the exact coherence key for a trait implementation is:
 
 ```text
-(ImplementingType, TraitApplication)
+(ImplementingSubject, TraitApplication)
 ```
 
-Any package can declare a trait implementation for any reachable subject type and trait application.
+Any package can declare a trait implementation for any reachable implementing subject and trait application.
 
 An implementation participates in a coherence domain only when the implementation is declared in that domain or explicitly imported into it.
 
@@ -5188,7 +5336,24 @@ impl BufferBytesIterator = Buffer(Iterator<Bytes>)
 impl BufferOtherBytesIterator = Buffer(Iterator<Bytes>)
 ```
 
-An implementation overload family groups multiple exact coherence keys that share an implementing type and trait declaration.
+The implementing subject is also part of the exact coherence key.
+
+Therefore these implementations have different exact coherence keys:
+
+```bray
+impl VecReadIterable = &Vec<T>(Iterable)
+impl VecWriteIterable = &mut Vec<T>(Iterable)
+impl VecMoveIterable = Vec<T>(Iterable)
+```
+
+These implementations have the same exact coherence key and are rejected:
+
+```bray
+impl VecReadIterable = &Vec<T>(Iterable)
+impl VecOtherReadIterable = &Vec<T>(Iterable)
+```
+
+An implementation overload family groups multiple exact coherence keys that share an implementing subject and trait declaration.
 
 It does not allow duplicate exact coherence keys.
 
@@ -5332,7 +5497,7 @@ Union types model closed tagged alternatives.
 
 Traits model explicit behavioral contracts.
 
-A type satisfies a trait through an explicit implementation.
+An implementing subject satisfies a trait through an explicit implementation.
 
 Type forms exist only when the language needs compiler-known semantics that ordinary named types cannot express.
 

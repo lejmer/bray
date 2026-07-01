@@ -499,13 +499,20 @@ Built-in static predicate forms include trait satisfaction:
 ```bray
 T: Comparable<T>
 I: Iterator
+&T: Iterable
+&mut T: Iterable
 ```
+
+The left side of a trait satisfaction predicate is an implementing subject.
+
+The Type Model defines which type-form subjects are implementation-eligible.
 
 Built-in static predicate forms include type equality:
 
 ```bray
 I(Iterator).Element == Token
 A(Iterator).Element == B(Iterator).Element
+(&T)(Iterable).Element == &T
 ```
 
 Type equality is a compile-time fact.
@@ -528,7 +535,7 @@ with(
 )
 ```
 
-A type-valued member reference in static constraint context is valid only when the exact trait application is established by the same constraint set or by an enclosing constraint context.
+A type-valued member reference in static constraint context is valid only when the exact implementation subject and exact trait application are established by the same constraint set or by an enclosing constraint context.
 
 This is rejected because the selected `Iterator` application is not established:
 

@@ -8,11 +8,11 @@ trait implementations, dynamic dispatch, operator behavior, conversions, and oth
 Inference may select among declared meanings. It may not create new meanings. A generic call, overloaded call, trait operation, or a unary or binary expression may infer types or
 select an implementation only when the selected behavior already exists as a declared part of the program.
 
-Overloading is opt-in at the declaration site. Functions, operators, or multiple trait applications for the same subject type participate in overload resolution only when
+Overloading is opt-in at the declaration site. Functions, operators, or multiple trait applications for the same implementing subject participate in overload resolution only when
 they are explicitly grouped into an overload set or implementation overload family. The overload declaration is part of the public contract.
 
-Trait satisfaction is nominal and declared. A type satisfies a trait through an explicit implementation that is visible to the compiler as a declared relationship between
-the type and the trait.
+Trait satisfaction is nominal and declared. An implementing subject satisfies a trait through an explicit implementation that is visible to the compiler as a declared
+relationship between the subject and the trait.
 
 Generic constraints are part of the generic declaration. A generic body may use only the operations guaranteed by its declared constraints.
 

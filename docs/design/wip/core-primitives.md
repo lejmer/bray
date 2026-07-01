@@ -1209,20 +1209,24 @@ lifecycle behavior require compiler-visible structure.
 
 ## Implementations
 
-An **implementation** is an explicit declaration that makes a type satisfy a behavioral contract.
+An **implementation** is an explicit declaration that makes an implementing subject satisfy a behavioral contract.
 
-An implementation defines how the type provides the operations, predicate members, type-valued trait member bindings,
+An implementation defines how the subject provides the operations, predicate members, type-valued trait member bindings,
 constant-valued members, lifecycle requirements, capability requirements, effect requirements, execution modes, and semantic
 obligations required by the contract.
 
-Implementations are nominal relationships between a type and a behavioral contract. A type satisfies a contract only through a
-participating implementation available in the relevant checking context.
+Implementations are nominal relationships between an implementing subject and a behavioral contract. An implementing subject
+satisfies a contract only through a participating implementation available in the relevant checking context.
+
+An implementing subject can be a named type or an implementation-eligible type form.
+
+The Type Model defines which type forms are implementation-eligible and which subjects are valid for each implementation form.
 
 An implementation that participates in a checking context is part of the program's semantic surface. It participates in type
 checking, generic constraint satisfaction, dispatch, documentation, and public API compatibility.
 
-An implementation may provide additional behavior only when that behavior is declared by the implementation form or by the type's
-own public contract.
+An implementation may provide additional behavior only when that behavior is declared by the implementation form or by the
+subject's own public contract.
 
 ---
 
