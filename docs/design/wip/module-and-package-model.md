@@ -386,6 +386,17 @@ The public wrapper is a new public declaration with its own public contract.
 
 ---
 
+## Finalization TODOs
+
+- TODO: Define package manifest semantics, including package identity, declared source graph, source discovery, package kind,
+  library entry surface, executable entry points, test entry points, target constraints, feature selection, dependency lock inputs,
+  and direct compiler invocation behavior.
+- TODO: Define the test model, including how test declarations or test modules are discovered, how test entry points are formed,
+  how test-only dependencies participate in the package graph, and how test execution interacts with panics, results, async work,
+  trusted declarations, and internal access.
+
+---
+
 ## Design principles
 
 Module identity is explicit in source.

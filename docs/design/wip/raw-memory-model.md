@@ -475,6 +475,13 @@ They do not make raw pointers behave like references.
 
 ---
 
+## Finalization TODOs
+
+- TODO: Define the raw-memory-facing standard-library surface for allocators, raw buffers, device memory, and ABI-oriented helpers
+  that are expected to wrap `core.memory` while preserving trusted obligations.
+
+---
+
 ## Design principles
 
 Raw pointers are values, not access paths.

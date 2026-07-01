@@ -838,6 +838,15 @@ Destructors remain synchronous and return `unit`. Fallible or asynchronous clean
 
 ---
 
+## Finalization TODOs
+
+- TODO: Define trusted witness values, including syntax, introduction, lifetime, movement, storage, invalidation, and how witness
+  values establish or preserve trusted predicate facts.
+- TODO: Define the FFI and foreign-call trust boundary model, including foreign declarations, ABI selection, linking, ownership
+  transfer, error and panic boundaries, raw memory obligations, and interaction with `foreign_call`.
+
+---
+
 ## Design principles
 
 No magic trusted-condition names exist.

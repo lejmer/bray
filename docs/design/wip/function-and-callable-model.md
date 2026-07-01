@@ -1483,6 +1483,13 @@ A static function has no receiver.
 
 ---
 
+## Finalization TODOs
+
+- TODO: Define callable effect syntax and semantics beyond `const`, `async`, and trusted `uses(...)`, including allocation, I/O,
+  mutation-with-internal-effects, cancellation, and how those effects are represented in callable types.
+
+---
+
 ## Design principles
 
 Functions use `func`.

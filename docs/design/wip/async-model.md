@@ -423,3 +423,12 @@ Low-level async runtime machinery is part of the trusted substrate.
 
 Executors, reactors, wakers, completion queues, foreign async callbacks, device async integration, and custom scheduling primitives
 are implemented through trusted capabilities and exposed through safe async contracts.
+
+---
+
+## Finalization TODOs
+
+- TODO: Define thread run-boundaries, including thread creation, thread handles, join and cancel behavior, ownership transfer,
+  capture restrictions, panic reporting through `RunResult<T>`, and how threads differ from tasks.
+- TODO: Define the cross-task and cross-thread memory model, including data-race prevention, shared-state synchronization, atomic
+  operation contracts, cancellation interaction, capability transfer, and trusted escape hatches.

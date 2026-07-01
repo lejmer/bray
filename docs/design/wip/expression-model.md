@@ -6161,6 +6161,16 @@ Specific expression forms also define these evaluation facts:
 
 ---
 
+## Finalization TODOs
+
+- TODO: Define the concrete iteration protocol used by `for` expressions, `each` generator iteration expressions, array generators,
+  general generators, and boolean fold operands, including element access mode, finiteness, boundedness, cleanup, early exit,
+  ownership transfer, borrowing, and effect propagation.
+- TODO: Define the complete compile-time constant evaluation model, including which compiler-known operations are valid, how target
+  facts participate, how failures are diagnosed, and how constant evaluation preserves contract arithmetic semantics.
+
+---
+
 ## Design principles
 
 Expressions are typed.

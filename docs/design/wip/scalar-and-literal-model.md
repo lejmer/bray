@@ -923,6 +923,16 @@ A runtime assertion generated from a contract expression must preserve the meani
 
 ---
 
+## Finalization TODOs
+
+- TODO: Define the v1 `string` operation model, including equality, ordering if any, length semantics, Unicode normalization,
+  indexing and slicing policy, encoding views, construction from encoded bytes, and standard-library string operation identities.
+- TODO: Define built-in scalar operation semantics for every unary and binary token that applies to scalar operands, including
+  division and remainder edge cases, shifts, exponentiation domains, bitwise operations, signedness behavior, floating-point and
+  complex IEEE behavior, NaN and infinity behavior, comparisons, and panic/report behavior.
+
+---
+
 ## Design principles
 
 Scalar types are explicit.

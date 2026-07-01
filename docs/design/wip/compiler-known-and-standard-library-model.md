@@ -290,6 +290,15 @@ If a visible declaration is not the recognized standard-library declaration, it 
 
 ---
 
+## Finalization TODOs
+
+- TODO: Define target fact and target profile semantics, including target identity, pointer width, scalar availability,
+  alignment, ABI facts, atomic capability facts, address-space facts, and how target-conditional compiler-known declarations are checked.
+- TODO: Define the complete v1 compiler-known and recognized standard-library conformance catalog, including declaration identities,
+  required contracts, target availability, compiler recognition rules, and required standard-library package contents.
+
+---
+
 ## Design principles
 
 Compiler-known does not mean magical runtime behavior.

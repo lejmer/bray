@@ -1830,3 +1830,12 @@ Build scripts, generated code, compiler plugins, foreign artifacts, and tool-dri
 nodes with declared inputs, outputs, permissions, and reproducibility contracts.
 
 The same declared dependency graph and target configuration produce the same compiler input.
+
+---
+
+## Finalization TODOs
+
+- TODO: Define Bray's source text and lexical model, including source encoding, Unicode normalization policy, identifier grammar,
+  keyword reservation, whitespace, comments, documentation comments, token boundaries, and invalid-token diagnostics.
+- TODO: Define the complete source grammar and declaration catalog that maps every top-level, module-level, type-level,
+  implementation-level, trait-level, block-level, expression-level, pattern-level, and directive form to its owning model.
