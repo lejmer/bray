@@ -15,6 +15,8 @@ A **declaration** introduces a named program entity or semantic relationship.
 
 A **directive** is a compile-time instruction affecting interpretation, checking, diagnostics, target behavior, or build behavior.
 
+Directive syntax starts with `@`.
+
 ---
 
 ## Expression results

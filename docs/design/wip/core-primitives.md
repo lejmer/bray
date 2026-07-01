@@ -76,6 +76,14 @@ An **expression** produces a value, access path, control-flow outcome, or compil
 A **directive** is a compile-time instruction that modifies compiler interpretation, checking, diagnostics, target selection,
 trusted permissions, or build behavior for a declared scope or program element.
 
+Directive syntax starts with `@`.
+
+```bray
+@directive_name(...)
+```
+
+The directive name determines the kind of compile-time instruction and the program element it can attach to.
+
 Bray is expression-oriented. Blocks, conditionals, matches, and other control-flow forms produce values when their exits have
 coherent type, ownership, initialization, and destruction state.
 
@@ -922,8 +930,8 @@ satisfies the required copy contract.
 
 Destruction is deterministic. Destroying a fully initialized `struct` destroys its initialized fields in reverse declaration order.
 
-The default layout of a `struct` is compiler-defined. A stable layout, ABI layout, packed layout, or foreign-compatible layout exists
-only through an explicit layout contract.
+The default layout of a `struct` is compiler-defined. Stable layout, C-compatible layout, packed layout, and explicit alignment
+exist only through an explicit layout contract.
 
 A `struct` participates in ownership, borrowing, mutation authority, initialization, destruction, conversion, behavioral contracts,
 and visibility according to its declared fields and contracts.
@@ -1717,7 +1725,7 @@ mode, lifecycle state, and surrounding context.
 Generic code is checked against declared effects and capability contracts. A generic body uses only the effects and capabilities
 guaranteed by its constraints.
 
-Effects and capability contracts are part of overload resolution, behavioral contract satisfaction, dynamic dispatch, lifecycle
+Effects and capability contracts are part of call checking, behavioral contract satisfaction, dynamic dispatch, lifecycle
 checking, and public API compatibility.
 
 ---
@@ -1726,8 +1734,8 @@ checking, and public API compatibility.
 
 A **trusted declaration** is a declaration that uses bounded unchecked memory power through Bray's trusted capability model.
 
-A module must opt in to trusted declarations before it can contain trusted functions. The module directive permits trusted
-declarations. It does not make the module's ordinary declarations trusted.
+A module must opt in to trusted declarations before it can contain trusted functions. The trusted module declaration permits
+trusted declarations. It does not make the module's ordinary declarations trusted.
 
 A **trusted function** declares the exact trusted capabilities it uses. The set of trusted capabilities is closed:
 
