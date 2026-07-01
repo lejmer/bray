@@ -683,7 +683,7 @@ The callable contract includes:
 8. mutation requirements,
 9. lifetime requirements,
 10. capability requirements,
-11. effects,
+11. caller-visible effects,
 12. trusted caller obligations,
 13. finalization behavior.
 
@@ -706,7 +706,7 @@ The function parameter type describes the callable contract required by `apply`.
 
 The body of `apply` can use the capabilities guaranteed by that callable type.
 
-A callable with trusted caller obligations, async execution mode, mutating requirements, or additional effects can be passed
+A callable with trusted caller obligations, async execution mode, mutating requirements, or additional caller-visible effects can be passed
 when the parameter type includes those obligations.
 
 ---
@@ -951,9 +951,9 @@ Bare generic parameter names declare type parameters.
 
 Const parameters are declared with `const Name: Type`.
 
-Generic functions do not declare capability parameters, effect parameters, or lifetime parameters.
+Generic function parameter lists contain type parameters and const parameters.
 
-Capabilities and effects are declared through contract clauses, not through the generic parameter list.
+Capability requirements and caller-visible effects are represented by the ordinary callable surface and contract clauses.
 
 Generic function calls supply generic arguments explicitly.
 
@@ -1133,6 +1133,22 @@ Function signatures include effects and capability contracts.
 A function can use only the capabilities available through its parameters, local bindings, including pattern-introduced bindings,
 generic constraints, execution mode, lifecycle state, trusted declarations, and surrounding context.
 
+An effect is a semantic property of evaluating, driving, or resolving a callable that matters to call checking, context validity,
+generic satisfaction, dynamic dispatch, or public API compatibility.
+
+The caller-visible effect surface is:
+
+- `const`,
+- `async`,
+- receiver, parameter, and capture modes,
+- `requires(...)`,
+- `ensures(...)`,
+- `with(...)`,
+- trusted `uses(...)`,
+- lifecycle contracts,
+- task and async-computation contracts,
+- parameter, result, and captured-value type contracts.
+
 Effects and capability contracts are part of:
 
 - function signatures,
@@ -1143,7 +1159,21 @@ Effects and capability contracts are part of:
 - dynamic dispatch,
 - public API compatibility.
 
-Effects and capability requirements are declared through contract clauses.
+The compiler computes a body effect summary for each callable body.
+
+The body effect summary is derived from:
+
+- selected callable contracts of calls and method calls,
+- selected lifecycle declaration contracts,
+- construction, destruction, finalization, and resource-scope behavior,
+- assignments and mutation,
+- allocation and deallocation,
+- I/O,
+- async computation creation, `await`, `spawn`, task joins, and task cancellation,
+- panic-catching boundaries,
+- trusted capability use.
+
+The computed body effect summary must be valid for the callable's declaration surface and surrounding context.
 
 Constant-evaluation eligibility is declared with the `const` function modifier.
 
@@ -1153,14 +1183,113 @@ Constant-evaluation eligibility is declared with the `const` function modifier.
 
 `uses(...)` declares trusted implementation capabilities used by a trusted callable body.
 
-Cancellation, panic behavior, finalization obligations, lifecycle obligations, and async execution obligations are part of the
-same callable contract surface when those obligations are visible to callers, call checking, generic satisfaction, or public
-API compatibility.
+A trusted callable's `uses(...)` clause must exactly describe the trusted implementation capabilities used by its body.
+
+Trusted implementation capabilities cover low-level operations named by the trust model.
+
+Ordinary safe allocation, ordinary I/O, and ordinary mutation are checked as body effects and as caller-visible effects when they
+cross the callable boundary or are constrained by the surrounding context.
+
+### Mutation effects
+
+Mutation authority is represented by receiver, parameter, and capture modes.
+
+Caller-reachable mutation occurs when a callable can mutate storage reachable by the caller before or after the call.
+
+Caller-reachable mutation must be visible through one of:
+
+- a mutable receiver mode,
+- a mutable borrow parameter,
+- an owned parameter consumed by the callable,
+- a mutable capture,
+- a global or module storage contract,
+- a trusted raw-memory contract,
+- a type, lifecycle, or trait contract that exposes mutation authority.
+
+Internal mutation occurs when a callable mutates storage that is created inside the callable or owned exclusively by the callable
+and is not reachable by the caller except through the callable's returned value.
+
+Internal mutation is still a runtime effect.
+
+Constant-evaluation context, predicate-expression context, static constraint context, and other effect-free contexts require
+callables without internal mutation.
+
+Internal mutation is represented in callable types only when it creates a caller-visible requirement through the ordinary callable
+surface.
+
+### Allocation and I/O effects
+
+Allocation creates runtime storage or asks a storage policy to create runtime storage.
+
+Deallocation releases runtime storage.
+
+Safe allocation and safe deallocation are ordinary runtime effects.
+
+Low-level allocation, raw allocation facts, and allocator manipulation require trusted capabilities such as `manual_alloc` or
+`raw_memory` when the selected operation's contract names those capabilities.
+
+Constant-evaluation context, predicate-expression context, static constraint context, and other allocation-free contexts require
+callables without allocation or deallocation.
+
+Allocation and deallocation become caller-visible when the callable's signature, type contracts, lifecycle contracts, or result
+obligations require the caller to preserve, destroy, finalize, join, cancel, or otherwise resolve storage produced by the call.
+
+I/O is any interaction with external state outside the Bray abstract machine, including files, terminals, network connections,
+devices, clocks, environment state, randomness, and foreign callbacks with externally visible behavior.
+
+I/O enters Bray through compiler-known, standard-library, foreign, or user declarations whose contracts describe the resource,
+capability, ownership, borrowing, finalization, and panic behavior involved.
+
+Constant-evaluation context, predicate-expression context, static constraint context, and other effect-free contexts require
+callables without I/O.
+
+I/O becomes caller-visible when the callable's signature or contracts require an I/O resource, return an I/O resource, mutate an
+I/O resource, transfer an I/O obligation, or state facts about external behavior.
+
+### Cancellation effects
+
+Cancellation is an async and run-boundary effect.
+
+An `async` callable type carries suspendable execution and cancellation participation.
+
+Calling an async function creates an async computation whose cancellation behavior is governed by the Async Model.
+
+Awaiting an async computation, spawning it as a task, joining a task, cancelling a task, and observing a run boundary must satisfy
+the async computation's ownership, borrowing, capability, effect, finalization, and cancellation obligations.
+
+A synchronous callable cancels a task through ownership of a task handle or another value whose contract gives cancellation
+authority.
+
+That authority is represented by the parameter, receiver, capture, or field type that carries the task obligation.
+
+Task cancellation is represented through `async`, task-handle ownership, and the contracts of values that carry cancellation
+authority.
+
+### Effects in callable types
 
 A callable type includes every caller-visible contract clause needed to call a value of that type.
 
 Two callable declarations with the same parameter and result shape but incompatible caller-visible contracts have different
 callable types.
+
+Callable types represent caller-visible effects through the ordinary callable type surface:
+
+- `const` for constant-evaluation eligibility,
+- `async` for suspendable execution and cancellation participation,
+- receiver and parameter modes for ownership, borrowing, movement, and mutation requirements,
+- trusted `uses(...)` for trusted implementation capability envelopes that must be preserved,
+- contract clauses for preconditions, postconditions, static constraints, trusted caller obligations, facts, and resource obligations,
+- parameter and result types for task handles, async computations, storage obligations, lifecycle obligations, and resource
+  ownership.
+
+Callable type assignment, trait implementation checking, dynamic dispatch, and public API compatibility preserve caller-visible
+effects.
+
+An ordinary runtime callable that allocates internally, mutates internal temporary storage, or performs internal safe bookkeeping can
+match an ordinary runtime callable type when those effects remain internal and impose no caller-visible obligations.
+
+A callable can match a callable type or context when its body effect summary is valid for every effect requirement of that type or
+context.
 
 After overload resolution selects exactly one overload arm by the supplied arguments, contract checking verifies that the
 caller's context satisfies the selected arm's caller-visible obligations.
@@ -1479,13 +1608,6 @@ trusted mut func reserve(pos count: usize)
 A static function has no receiver.
 
 `self` is unavailable inside a static function body.
-
----
-
-## Finalization TODOs
-
-- TODO: Define callable effect syntax and semantics beyond `const`, `async`, and trusted `uses(...)`, including allocation, I/O,
-  mutation-with-internal-effects, cancellation, and how those effects are represented in callable types.
 
 ---
 

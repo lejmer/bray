@@ -1263,7 +1263,7 @@ A function name used in a value context produces a function value when the funct
 
 The function value carries its full callable contract.
 
-The callable contract includes parameter names, parameter types, result type, execution mode, ownership behavior, borrowing behavior, mutation requirements, lifetime requirements, capability requirements, effects, trusted caller obligations, and finalization behavior.
+The callable contract includes parameter names, parameter types, result type, execution mode, ownership behavior, borrowing behavior, mutation requirements, lifetime requirements, capability requirements, caller-visible effects, trusted caller obligations, and finalization behavior.
 
 A function with caller obligations can be used as a value only where the expected callable type preserves those obligations.
 

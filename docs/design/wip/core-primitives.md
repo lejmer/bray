@@ -418,8 +418,8 @@ observed through `catch` as `RunResult<Result<T, E>>`.
 A **function** is a callable program element with parameters, a body, an execution mode, and a result contract.
 
 A function signature declares the function's boundary contract: parameter types, parameter capabilities, result type, execution
-mode, ownership transfer, mutation requirements, effects, trusted capabilities when present, and asynchronous finalization
-behavior when relevant.
+mode, ownership transfer, mutation requirements, caller-visible effects, trusted capabilities when present, and asynchronous
+finalization behavior when relevant.
 
 A function is either synchronous or asynchronous.
 
@@ -1735,8 +1735,8 @@ The core capability categories are:
 A program element can use only the effects and capabilities available through its bindings, parameters, constraints, execution
 mode, lifecycle state, and surrounding context.
 
-Generic code is checked against declared effects and capability contracts. A generic body uses only the effects and capabilities
-guaranteed by its constraints.
+Generic code is checked against callable, type, effect, and capability contracts. A generic body uses only the effects and
+capabilities guaranteed by its constraints.
 
 Effects and capability contracts are part of call checking, behavioral contract satisfaction, dynamic dispatch, lifecycle
 checking, and public API compatibility.

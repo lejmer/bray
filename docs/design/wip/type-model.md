@@ -3117,7 +3117,7 @@ The callable type form is:
 func(parameter: Type, ...) -> Result
 ```
 
-A callable type describes a callable value’s parameter names, parameter call-position permissions, parameter types, result type, execution mode, ownership behavior, borrowing behavior, mutation requirements, lifetime requirements, capability requirements, effects, trusted caller obligations, and finalization behavior.
+A callable type describes a callable value’s parameter names, parameter call-position permissions, parameter types, result type, execution mode, ownership behavior, borrowing behavior, mutation requirements, lifetime requirements, capability requirements, caller-visible effects, trusted caller obligations, and finalization behavior.
 
 Callable parameter names and `pos` permissions are part of the callable contract because they define how call arguments bind to parameters.
 
@@ -4201,7 +4201,7 @@ A trusted required trait member does not by itself impose a trusted caller oblig
 
 Trusted caller obligations must be declared with `trusted` requirements in `requires(...)` or another caller-visible contract clause.
 
-Trait member effects and capability requirements are declared through contract clauses.
+Trait member caller-visible effects and capability requirements are represented by the ordinary member surface and contract clauses.
 
 `requires(...)`, `ensures(...)`, `uses(...)`, lifecycle clauses, cancellation obligations, panic behavior, and async execution
 obligations are part of the trait member contract when they affect callers, implementation satisfaction, generic satisfaction,
