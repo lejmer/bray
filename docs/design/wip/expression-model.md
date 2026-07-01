@@ -1394,15 +1394,19 @@ A compile-time constant expression can use:
 - const parameters visible in the current generic context,
 - tuple, array, nullable, product, and union variant construction whose components are constant expressions and whose type has no runtime construction, finalization, or destructor obligation,
 - unary and binary expressions whose operands are constant expressions and whose selected operation is compiler-known and valid in constant-initializer context,
+- calls to const callables whose arguments are constant expressions and whose callable contract is valid in constant-initializer
+  context,
 - field access, tuple projection, and array element access over constant expressions when the selected sub-value is itself valid as a constant.
 
-A compile-time constant expression cannot read runtime storage, borrow runtime storage, assign, mutate, move from a runtime access path, perform I/O, spawn work, catch or raise panics as runtime behavior, or call a user-declared callable.
+A compile-time constant expression cannot read runtime storage, borrow runtime storage, assign, mutate, move from a runtime access path, perform I/O, spawn work, catch or raise panics as runtime behavior, or call a non-const callable.
 
-Only compiler-known pure operations explicitly defined as valid in constant-initializer context can be evaluated by a constant initializer.
+Only compiler-known operations and const callables explicitly defined as valid in constant-initializer context can be evaluated by a
+constant initializer.
 
 For unary and binary expressions in constant-initializer context, the selected operation must be a built-in operation over built-in scalar types, `unit`, or nullable constants whose contained value is valid in constant-initializer context.
 
-User-defined operator implementations are user-declared callables and are not valid in constant-initializer context.
+User-defined operator implementations are valid in constant-initializer context only when the selected implementation member is a
+const callable and all operands are valid constant expressions.
 
 Integer-valued constant arithmetic is exact while the constant expression is checked.
 

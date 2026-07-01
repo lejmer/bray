@@ -229,6 +229,9 @@ requires(
 Ordinary requirements are evaluated in contract-expression context. They must be pure, deterministic, total, terminating, and
 observational.
 
+Calls inside ordinary requirements must resolve to predicates, compiler-known predicate-valid operations, or const callables valid
+in contract-expression context.
+
 Ordinary requirements can be proven statically, established by previous facts, or checked through runtime assertion mechanisms where
 appropriate.
 
@@ -486,6 +489,9 @@ Allowed in static predicate expressions:
 A predicate, function, or method is valid in static constraint context only when its parameters, body, selected callable contract,
 and referenced declarations are valid in static constraint context.
 
+For an ordinary function or method call to be valid in static constraint context, the callable must be a const callable or a private
+or local helper inferred as const-eligible inside the same checking unit.
+
 Calling a value predicate from static constraint context is rejected.
 
 Built-in static predicate forms include trait satisfaction:
@@ -575,6 +581,12 @@ A callable contract is valid in predicate-expression context only when the calla
 - async-free,
 - free of trusted capability use,
 - checked only through predicate-valid operations.
+
+Public predicate-expression use of an ordinary function or method requires the selected declaration surface to expose `const`.
+
+Private or local helper callables can be inferred as const-eligible within the same checking unit.
+
+Inferred const eligibility does not become part of an exported declaration surface.
 
 The selected callable contract is the full callable contract of the resolved function or method after overload selection and
 generic substitution.

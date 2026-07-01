@@ -167,12 +167,17 @@ The always-available compiler-known surface includes:
 - compiler-known raw memory declarations and trusted predicates under `core.memory`,
 - compiler-known type-form support traits such as `Storage<T>`,
 - compiler-known conversion traits such as `ConvertTo<Target>` and `CheckedConvertTo<Target>`,
+- the compiler-known `Copyable` contract used by static constraints,
 - compiler-known operator traits such as `Add<Rhs>`, `Equatable<Rhs>`, `Comparable<Rhs>`, and the other operator traits defined by the Type Model,
 - compiler-known literals and special values such as `true`, `false`, `unit`, and `none`.
 
 This list is a catalog of the current design surface.
 
 The detailed rules for each entity remain in the model that owns that feature.
+
+Some compiler-known entities have target availability rules.
+
+When a compiler-known entity is target-unavailable, source that uses it is rejected before code generation.
 
 ---
 

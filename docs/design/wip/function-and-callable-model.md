@@ -14,7 +14,8 @@ A function defines:
 6. a block expression body,
 7. ownership and borrowing behavior,
 8. effects and capability requirements,
-9. optional contract clauses.
+9. constant-evaluation eligibility,
+10. optional contract clauses.
 
 Functions are named program entities. They can be referenced, called, passed as values when their type permits it, and used in
 generic or higher-order contexts according to their full callable contract.
@@ -39,6 +40,64 @@ Parameters are declared inside parentheses.
 The result type follows `->`.
 
 The function body is a block expression in callable-body context.
+
+---
+
+## Const functions
+
+A function can be declared with the `const` modifier:
+
+```bray
+const func max(pos a: i32, pos b: i32) -> i32
+{
+    if a >= b
+    {
+        return a;
+    }
+
+    return b;
+}
+```
+
+`const func` means the callable body is valid in constant-evaluation context.
+
+A const function is valid in constant expressions, predicate expressions, contract expressions, and static constraint contexts when
+its arguments are valid in that context and its ordinary callable contract is satisfied.
+
+A const function must be pure, deterministic, total for valid inputs, terminating, observational, effect-free, and allocation-free
+unless the constant-evaluation model explicitly permits a narrower allocation form.
+
+A const function cannot read runtime storage, mutate storage, perform I/O, spawn work, await, suspend, catch or raise panics as
+runtime behavior, use runtime dynamic dispatch, or depend on runtime identity.
+
+The body of a const function is checked in constant-evaluation context.
+
+Every reachable result-producing path must use only expressions, operations, and calls valid in constant-evaluation context.
+
+Public use in predicates, contract expressions, static constraints, and constant expressions requires the declaration surface to
+expose `const`.
+
+Private or local helper callables can be inferred as const-eligible inside the checking unit.
+
+Inferred const eligibility for a private or local helper does not become part of the exported declaration surface.
+
+When a declaration is exported or otherwise used through compiled interface metadata, const-context callers can depend on that
+declaration only when its interface exposes `const`.
+
+Compiler-known declarations and recognized standard-library declarations can be `const` when their language-defined declaration
+contract marks them as `const`.
+
+`const` composes with ordinary function modifiers only where the combined contract is valid.
+
+`trusted const func` is valid only when the trusted capability use is itself permitted by the constant-evaluation and trust models.
+
+`async const func` is rejected.
+
+Async evaluation implies suspension or runtime execution machinery, which is not valid in constant-evaluation context.
+
+`const` is part of a callable's caller-visible contract.
+
+Changing whether a public function exposes `const` is a public API change.
 
 ---
 
@@ -1087,6 +1146,8 @@ Effects and capability contracts are part of:
 
 Effects and capability requirements are declared through contract clauses.
 
+Constant-evaluation eligibility is declared with the `const` function modifier.
+
 `requires(...)` declares caller obligations and preconditions.
 
 `ensures(...)` declares established facts after normal completion.
@@ -1408,7 +1469,7 @@ Receiver mode is part of the method's callable contract.
 
 Receiver mode participates in method call checking and method overload selection.
 
-Trusted, asynchronous, generic, and contract clauses compose with receiver-mode syntax according to their ordinary declaration
+Const, trusted, asynchronous, generic, and contract clauses compose with receiver-mode syntax according to their ordinary declaration
 rules.
 
 ```bray

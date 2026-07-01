@@ -2974,12 +2974,15 @@ Callable parameter names and `pos` permissions are part of the callable contract
 ```bray
 func(left: i32, right: i32) -> i32
 func(pos value: i32) -> i32
+const func(pos value: i32) -> i32
 async func(pos request: Request) -> Response
 ```
 
 A callable returning `unit` can omit the result type.
 
 Callable types preserve caller-visible obligations.
+
+Const eligibility is a caller-visible callable contract.
 
 A callable with trusted caller obligations requires a callable type that preserves those obligations.
 
@@ -2993,6 +2996,12 @@ func(pos value: i32) -> i32
 ```
 
 Contract clauses on callable type forms use the same predicate-expression syntax as contract clauses on callable declarations.
+
+Const callable type forms use `const` before `func`.
+
+```bray
+const func(pos value: i32) -> i32
+```
 
 Async callable type forms use `async` before `func`.
 
