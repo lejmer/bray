@@ -291,9 +291,7 @@ func read(pos buffer: &Buffer)
 }
 ```
 
-A shared borrow allows observation through the borrow.
-
-Multiple compatible shared borrows can exist at the same time.
+The Borrow type forms section of the Type Model defines shared-borrow observation, aliasing, lifetime, and capability rules.
 
 ---
 
@@ -308,9 +306,7 @@ func fill(pos buffer: &mut Buffer)
 }
 ```
 
-A mutable borrow grants temporary exclusive mutation authority over the storage reached by that borrow layer.
-
-While the mutable borrow is active, incompatible access paths are suspended.
+The Borrow type forms section of the Type Model defines mutable-borrow exclusivity, lifetime, and capability rules.
 
 ---
 
@@ -356,9 +352,7 @@ func fill(pos buffer: &mut Buffer)
 
 ## Nested borrow parameter types
 
-Nested borrow types are allowed.
-
-Each borrow layer has its own capability.
+Nested borrow type forms can appear in parameter types.
 
 ```bray
 func f(x: &T)
@@ -386,13 +380,7 @@ func f(x: &mut &mut T)
 }
 ```
 
-The reachable operation depends on the whole access path, including every borrow layer.
-
-An outer shared borrow provides shared access to the next layer.
-
-An outer mutable borrow provides mutation authority over the next layer.
-
-The innermost type alone does not determine the available operation.
+The Borrow type forms section of the Type Model defines nested borrow capability and reachable-operation rules.
 
 ---
 

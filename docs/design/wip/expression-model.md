@@ -2252,52 +2252,10 @@ A shared borrow requires an access path that can be observed.
 
 A mutable borrow requires mutation authority over the reached storage and compatible exclusivity for the duration of the borrow.
 
-Borrowing does not transfer ownership of the reached storage.
-
-The owner remains responsible for destruction and finalization unless another explicit ownership construct changes that responsibility.
-
-A shared borrow allows observation through the borrow.
-
-Multiple compatible shared borrows can exist at the same time.
-
-A mutable borrow grants temporary exclusive mutation authority over the storage reached by that borrow layer.
-
-While a mutable borrow is active, incompatible operations on the borrowed storage are suspended.
-
-Borrowing suspends movement, destruction, mutation, or other incompatible operations on the original access path for the duration of the borrow.
-
-A borrow has a lifetime.
-
-The borrow is valid only while the reached storage remains valid and the borrow’s capability contract remains satisfied.
-
-A borrow cannot outlive the storage it reaches.
-
 A borrow expression can borrow a local binding, field access path, indexed access path, active union payload access path, dereferenced type-form projection, or another expression that produces a compatible access path.
 
-Nested borrow types are allowed.
-
-```bray
-&T
-&mut T
-&&T
-&&mut T
-&mut &T
-&mut &mut T
-```
-
-Each borrow layer has its own capability.
-
-An outer shared borrow provides shared access to the next layer.
-
-An outer mutable borrow provides mutation authority over the next layer.
-
-The reachable operation depends on the whole access path, including every borrow layer.
-
-A reborrow can be created from an existing borrow.
-
-A reborrow has authority no greater than the borrow it comes from.
-
-A reborrow suspends incompatible use of the original borrow for the reached storage while the reborrow is active.
+The Borrow type forms section of the Type Model defines borrow ownership behavior, compatibility, copying, movement, storage,
+returning, reborrowing, nesting, lifetime validity, and invalidation.
 
 Borrow expressions participate in fact-context checking.
 

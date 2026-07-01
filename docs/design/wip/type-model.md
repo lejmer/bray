@@ -2103,6 +2103,78 @@ A shared borrow allows observation.
 
 A mutable borrow grants temporary exclusive mutation authority over the reached storage.
 
+Multiple compatible shared borrows can exist at the same time.
+
+While a mutable borrow is active, incompatible operations on the borrowed storage are suspended.
+
+Borrowing suspends movement, destruction, mutation, variant replacement, reinitialization, finalization, or other incompatible
+operations on the reached storage for the duration of the borrow.
+
+Borrow compatibility is based on the reached storage, not only on the spelling of the access path.
+
+Two borrow access paths are compatible when their required capabilities are compatible and the compiler proves that the reached
+storage is the same shared-readable storage or statically disjoint storage.
+
+Shared borrows of the same reached storage are compatible.
+
+A mutable borrow of reached storage is incompatible with any other active borrow or operation that observes, mutates, moves,
+destroys, finalizes, reinitializes, or changes that reached storage, except through a valid reborrow derived from the mutable
+borrow.
+
+Disjoint field projections, tuple element projections, active payload projections, indexed element projections, and slice ranges
+can be borrowed independently when the compiler proves that the reached storage cannot overlap.
+
+If overlap cannot be proven statically, the borrow access paths are treated as conflicting.
+
+Borrow values are created only by language constructs that establish borrow capability.
+
+These include borrow expressions, borrow-typed parameter passing, receiver calls, pattern borrow modes, lambda capture entries, and
+projection through compiler-known type forms.
+
+Borrowing an access path requires the reached storage to be initialized and reachable.
+
+A shared borrow requires an access path that can be observed.
+
+A mutable borrow requires mutation authority over the reached storage and compatible exclusivity for the duration of the borrow.
+
+A shared borrow value is copyable.
+
+Copying a shared borrow copies the borrow value and preserves the same reached storage, lifetime, and capability requirements.
+
+A mutable borrow value is not copyable.
+
+Moving a borrow value moves only the borrow value.
+
+Moving a borrow value never moves the reached storage.
+
+Moving a mutable borrow transfers its exclusive mutation authority to the destination borrow value.
+
+A borrow lifetime can be shortened to the last required use of the borrow.
+
+A reborrow can be created from an existing borrow.
+
+A reborrow has authority no greater than the borrow it comes from.
+
+A reborrow suspends incompatible use of the original borrow for the reached storage while the reborrow is active.
+
+A borrow value can be stored only when the containing value's type and contract carry the borrow's lifetime and capability
+requirements.
+
+Storing a borrow does not extend the lifetime of the reached storage.
+
+A callable can return a borrow only when the callable result contract carries the lifetime and capability dependency on a parameter,
+receiver, or other input storage that can outlive the returned borrow.
+
+A callable cannot return a borrow of local storage that ends before the returned borrow.
+
+A borrow becomes invalid when the reached storage stops being valid, when the borrow's capability contract stops being satisfied, or
+when the nullable access path holding the borrow is assigned `none`.
+
+Mutation through a valid mutable borrow invalidates facts that depend on the changed storage.
+
+Movement, destruction, reinitialization, finalization, active-variant replacement, or capability loss invalidates facts and borrows
+that depend on the affected storage.
+
 Nested borrow types are allowed.
 
 ```bray
@@ -2119,8 +2191,6 @@ An outer shared borrow provides shared access to the next layer.
 An outer mutable borrow provides mutation authority over the next layer.
 
 The reachable operation depends on the whole access path, including every borrow layer.
-
-TODO: Define detailed borrow rules for borrow type forms.
 
 ### Nullable type form
 
