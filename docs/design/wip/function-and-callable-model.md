@@ -64,8 +64,7 @@ const func max(pos a: i32, pos b: i32) -> i32
 A const function is valid in constant expressions, predicate expressions, contract expressions, and static constraint contexts when
 its arguments are valid in that context and its ordinary callable contract is satisfied.
 
-A const function must be pure, deterministic, total for valid inputs, terminating, observational, effect-free, and allocation-free
-unless the constant-evaluation model explicitly permits a narrower allocation form.
+A const function must be pure, deterministic, total for valid inputs, terminating, observational, effect-free, and allocation-free.
 
 A const function cannot read runtime storage, mutate storage, perform I/O, spawn work, await, suspend, catch or raise panics as
 runtime behavior, use runtime dynamic dispatch, or depend on runtime identity.

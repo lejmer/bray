@@ -116,6 +116,14 @@ configuration must provide the concrete target facts needed by that rule.
 Examples of target facts include pointer width, pointer alignment, scalar layout, address-space rules, allocation alignment support,
 atomic operation support, and platform ABI constraints.
 
+A target fact used by a compile-time constant makes that constant target-dependent.
+
+Target-dependent constants are evaluated for the selected target profile, and compiled interface metadata records the target facts
+that affect the value.
+
+A compiler must not reuse a target-dependent constant value across target profiles unless the recorded target facts are identical
+for the purposes of that constant.
+
 A compiler must not expose target-specific behavior through a compiler-provided declaration unless the owning language model defines
 that behavior or target fact as part of the declaration's contract.
 
