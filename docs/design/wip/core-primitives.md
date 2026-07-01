@@ -850,8 +850,8 @@ declarations satisfy the type contracts they use.
 
 A **built-in type** is a language-defined type or type form rather than a standard-library or user-defined declaration.
 
-The Compiler-Known and Standard Library Model defines which built-in declarations are always available and which standard-library
-declarations require ordinary import or path visibility.
+The Compiler-Known and Standard Library Model defines which built-in declarations are compiler-known, which compiler-known
+declarations have target availability rules, and which standard-library declarations require ordinary import or path visibility.
 
 Built-in types participate in the same ownership, borrowing, mutation, initialization, destruction, constraint, and effect
 rules as user-defined types, unless their language-defined contract states otherwise.

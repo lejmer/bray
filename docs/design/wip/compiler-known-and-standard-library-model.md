@@ -156,9 +156,9 @@ model explicitly makes the wrapper compiler-known.
 
 ---
 
-## Always-available compiler-known entities
+## Compiler-known surface
 
-The always-available compiler-known surface includes:
+The compiler-known surface includes:
 
 - built-in scalar type names such as `bool`, `char`, `unit`, `never`, integer types, real types, complex types, and machine-sized integer types,
 - the compiler-known text type `string`,
