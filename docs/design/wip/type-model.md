@@ -3140,7 +3140,7 @@ The callable type form is:
 func(parameter: Type, ...) -> Result
 ```
 
-A callable type describes a callable value’s parameter names, parameter call-position permissions, parameter types, result type, execution mode, ownership behavior, borrowing behavior, mutation requirements, lifetime requirements, capability requirements, caller-visible effects, trusted caller obligations, and finalization behavior.
+A callable type describes a callable value’s parameter names, parameter call-position permissions, parameter types, result type, execution mode, callable ABI, ownership behavior, borrowing behavior, mutation requirements, lifetime requirements, capability requirements, caller-visible effects, trusted caller obligations, and finalization behavior.
 
 Callable parameter names and `pos` permissions are part of the callable contract because they define how call arguments bind to parameters.
 
@@ -3149,6 +3149,7 @@ func(left: i32, right: i32) -> i32
 func(pos value: i32) -> i32
 const func(pos value: i32) -> i32
 async func(pos request: Request) -> Response
+@abi(c) func(pos context: RawPointer<u8>, pos value: i32) -> i32
 ```
 
 A callable returning `unit` can omit the result type.
@@ -3190,6 +3191,14 @@ trusted func(pos bytes: &mut [u8])
     uses(raw_memory)
 ```
 
+ABI-qualified callable type forms use `@abi(...)` immediately before `func`.
+
+```bray
+@abi(c) func(pos context: RawPointer<u8>, pos value: i32) -> i32
+```
+
+Callable ABI is part of the callable type's visible contract.
+
 A named callable contract declaration gives a reusable name to a callable type form.
 
 ```bray
@@ -3227,7 +3236,7 @@ Named callable contracts cannot be overloaded.
 Lambda expressions produce anonymous callable values.
 
 A lambda's callable type is described by its parameter names, parameter call-position permissions, parameter types, result type,
-execution mode, contract clauses, trusted obligations, and captured state.
+execution mode, callable ABI, contract clauses, trusted obligations, and captured state.
 
 Capture state is not a callable parameter.
 
@@ -3381,6 +3390,15 @@ The compiler can select different default layouts across targets, compiler versi
 strategies when Bray semantics are preserved.
 
 Source code can depend on physical layout only when an explicit layout contract is declared.
+
+The Raw Memory Model's `std.memory.size_of<T>()`, `std.memory.align_of<T>()`, `std.memory.stride_of<T>()`, and
+`std.memory.layout_of<T>(count = count)` helpers observe the effective layout contract produced by these rules.
+
+For a type with an explicit `@layout(...)` directive, those helpers report the layout defined by that directive and the selected
+target profile.
+
+For a type with compiler-defined default layout, those helpers report the compiler-selected layout for the selected target profile
+without making that layout public ABI.
 
 The layout modes are:
 

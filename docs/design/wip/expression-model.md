@@ -6064,6 +6064,16 @@ trusted lambda (pos bytes: &mut [u8])
 }
 ```
 
+An ABI-qualified lambda expression writes the ABI directive before `lambda`.
+
+```bray
+let callback: @abi(c) func(pos value: i32) -> i32 =
+    @abi(c) lambda (pos value: i32) -> i32
+    {
+        return value;
+    };
+```
+
 Receiver-mode modifiers such as `mut` and `consume` do not apply to `lambda`.
 
 Lambdas have no receiver.

@@ -270,7 +270,8 @@ Current known standard-library operations include:
 - numeric policy operations such as `std.round_to<Target>(source, rule = ...)`, `std.truncate_to<Target>(source)`, `std.saturate_to<Target>(source)`, and `std.wrap_to<Target>(source)`,
 - string operations under the `std.string` module, including scalar-value count, emptiness, equality, scalar indexing, scalar slicing,
   UTF-8 views, and UTF-8 construction,
-- raw pointer convenience helpers under `std.memory`, when imported,
+- raw memory helpers under `std.memory`, including raw pointer helpers, allocation owners, raw buffers, device memory helpers, and
+  ABI/layout helpers, when imported,
 - standard storage policy types and helpers used with compiler-known type forms, when imported.
 
 These operations are not syntax.

@@ -93,6 +93,9 @@ Argumentless directives omit the parentheses.
 
 The directive name determines the kind of compile-time instruction and the program element it can attach to.
 
+Language-defined directives include representation, callable ABI, linkage, symbol, copy, and tag directives such as `@layout(...)`,
+`@abi(...)`, `@link(...)`, `@symbol(...)`, `@copy`, and `@tag(...)`.
+
 Bray is expression-oriented. Blocks, conditionals, matches, and other control-flow forms produce values when their exits have
 coherent type, ownership, initialization, and destruction state.
 
@@ -1844,6 +1847,8 @@ interface, linkage mode, version identity, and integrity checks are part of thei
 
 Foreign libraries and system libraries are explicit boundary dependencies. Their required identity, version range, target
 constraints, discovery rules, and validation checks are declared in the graph.
+
+Source-level `@link(...)` directives select declared external artifact or system-library nodes from this dependency graph.
 
 Build scripts, generated code, compiler plugins, foreign artifacts, and tool-driven source transformations are dependency graph
 nodes with declared inputs, outputs, permissions, and reproducibility contracts.

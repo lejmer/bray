@@ -845,12 +845,246 @@ Destructors remain synchronous and return `unit`. Fallible or asynchronous clean
 
 ---
 
+## FFI and foreign-call trust boundaries
+
+An FFI boundary is any boundary where Bray code interacts with code, storage, callbacks, or runtime behavior outside Bray's ordinary
+semantic model.
+
+FFI boundaries include:
+
+- calls from Bray into an extern callable,
+- calls from foreign code into an exported ABI callable,
+- foreign callbacks invoked through ABI-qualified callable values,
+- foreign APIs that read, write, initialize, retain, release, or alias Bray-accessible storage,
+- foreign APIs that create, consume, or transfer resource handles,
+- foreign runtime behavior that can reenter Bray.
+
+The Function and Callable Model defines `extern`, `@abi(...)`, `@link(...)`, and `@symbol(...)`.
+
+The Type Model defines ABI-relevant data layout through `@layout(...)`.
+
+The Raw Memory Model defines raw pointer facts, raw memory predicates, allocation facts, and ABI layout helpers.
+
+### Imported foreign callables
+
+An extern callable with a foreign ABI is a trusted declaration.
+
+```bray
+@link(name = "c")
+@symbol(name = "getpid")
+@abi(c)
+extern trusted func get_process_id() -> i32
+    uses(foreign_call);
+```
+
+The declaration is the complete Bray-visible contract for the foreign callable.
+
+The compiler checks calls to the extern callable against that declaration exactly like calls to ordinary Bray callables.
+
+The foreign implementation body is not Bray source and is not type checked as Bray source.
+
+`uses(foreign_call)` is required for an extern callable with a foreign ABI.
+
+The foreign-call capability is consumed by the call boundary itself.
+
+A foreign callable that requires trusted facts must state them as trusted requirements.
+
+```bray
+@link(name = "runtime")
+@symbol(name = "runtime_fill")
+@abi(c)
+extern trusted func fill_buffer(pos destination: RawPointer<u8>, count: usize) -> i32
+    requires(
+        trusted core.memory.valid_write(pointer = destination, count = count),
+        trusted core.memory.aligned_for<u8>(pointer = destination),
+    )
+    ensures(
+        result < 0 || trusted core.memory.initialized_range_as<u8>(pointer = destination, count = count),
+    )
+    uses(foreign_call);
+```
+
+Calling `fill_buffer` requires those trusted facts to already be established or visibly acknowledged at a trust boundary.
+
+The extern declaration must describe every caller-visible foreign obligation, including:
+
+- pointer validity,
+- alignment,
+- initialization state,
+- byte count and element count,
+- lifetime and retention behavior,
+- ownership transfer,
+- aliasing permissions,
+- thread-affinity requirements,
+- synchronization requirements,
+- callback reentrancy behavior,
+- resource acquisition and release obligations,
+- ordinary error return conventions,
+- panic boundary behavior.
+
+### Linkage and symbol identity
+
+`@link(...)` selects an external artifact or system library dependency from the declared dependency graph.
+
+`@symbol(...)` names the exact foreign symbol used by the selected ABI and target profile.
+
+The dependency graph records the selected artifact identity, target constraints, ABI, architecture, linkage mode, version identity,
+and integrity checks.
+
+If the selected target profile cannot resolve the link dependency or symbol according to the dependency graph, the program is
+rejected before code generation.
+
+Link and symbol directives do not establish memory facts, ownership facts, resource facts, or safety facts.
+
+Those facts belong to ordinary types, trusted predicates, and contract clauses.
+
+### Ownership and borrowing across FFI
+
+Foreign code cannot receive a hidden Bray ownership, borrow, lifetime, or finalization contract.
+
+Every value that crosses a foreign ABI boundary is lowered according to the callable ABI and the value's data layout contract.
+
+Raw pointers are plain pointer values at the ABI boundary.
+
+A raw pointer crossing a foreign ABI boundary does not by itself carry ownership, validity, initialization, alignment, lifetime, or
+aliasing facts.
+
+Those facts must be established by the surrounding Bray context and named in the extern declaration's contract when the foreign
+call depends on them.
+
+Passing a raw pointer derived from a Bray borrow to a foreign call keeps the corresponding Bray borrow active for the full duration
+of the call.
+
+During that call, ordinary Bray code cannot use the borrowed storage in a way that conflicts with the borrow represented by the raw
+pointer.
+
+If foreign code stores a pointer, handle, callback, or context value beyond the dynamic extent of the call, the extern
+declaration must represent that retention as an ownership transfer, resource obligation, or trusted lifetime obligation.
+
+If the declaration does not state retention, the foreign call is checked as non-retaining.
+
+A foreign API that initializes storage must establish initialization facts in `ensures(...)`.
+
+A foreign API that consumes ownership must consume a linear owner, return a new linear owner, or state the ownership fact it
+requires and invalidates.
+
+A foreign API that releases a resource must consume the owner or scoped capability that carries the release obligation.
+
+### ABI-safe values
+
+ABI-safe values are values whose callable ABI representation and data layout are accepted by the selected ABI.
+
+For foreign ABI boundaries, source-level convenience types such as slices, borrows, trait views, owned indirection, task handles,
+thread handles, nullable types with protected representation, default-layout products, default-layout unions, and captured callable
+values are not ABI contracts by themselves.
+
+FFI surfaces use explicit ABI representations such as scalars, raw pointers, ABI-qualified callable values, and explicitly laid-out
+products or unions.
+
+```bray
+@layout(c)
+struct BufferView
+{
+    pointer: RawPointer<u8>;
+    length: usize;
+}
+```
+
+`@layout(c)` and compatible `@layout(transparent)` declarations can be used for C ABI aggregate values.
+
+The Raw Memory Model's `std.memory.size_of<T>()`, `std.memory.align_of<T>()`, `std.memory.stride_of<T>()`, and
+`std.memory.layout_of<T>(count = count)` helpers observe the effective layout contract used by these ABI representations.
+
+### Error and panic boundaries
+
+Recoverable foreign failures are modeled as ordinary ABI values.
+
+An imported foreign status code, null pointer, handle value, or out-parameter convention is converted to Bray `Result<T, E>` by an
+ordinary wrapper when the wrapper wants to expose recoverable failure as Bray error handling.
+
+```bray
+func fill_checked(pos destination: RawPointer<u8>, count: usize) -> Result<unit, IoError>
+    requires(
+        trusted core.memory.valid_write(pointer = destination, count = count),
+        trusted core.memory.aligned_for<u8>(pointer = destination),
+    )
+{
+    let status = fill_buffer(destination, count = count);
+
+    if status < 0
+    {
+        return Result.Error(error = IoError.ReadFailed);
+    }
+
+    return Result.Ok(value = unit);
+}
+```
+
+An uncaught Bray panic must not unwind through a foreign ABI frame.
+
+An exported ABI callable catches any uncaught Bray panic at the foreign entry boundary and applies the program-root panic behavior
+for that run.
+
+The boundary does not return a success value after catching that panic.
+
+A Bray callable that wants to report a panic-like failure to foreign code uses `catch` inside its body and returns an
+ABI-representable error value.
+
+If a foreign callable attempts to unwind through a foreign ABI boundary into Bray, it violates the extern declaration's ABI
+contract.
+
+Declarations for foreign APIs that can unwind must use a foreign wrapper that converts the unwind into an ordinary ABI result
+before control reaches Bray.
+
+### Foreign callbacks
+
+A foreign callback accepted by a foreign API is represented by an ABI-qualified callable type.
+
+```bray
+callable VisitCallback =
+    @abi(c) func(pos context: RawPointer<u8>, pos value: i32) -> i32;
+```
+
+Registering a Bray callable as a foreign callback is part of the trusted contract of the registration call.
+
+The registration declaration must state whether the foreign API:
+
+- calls the callback only during the registration call,
+- stores the callback for later calls,
+- stores the context pointer,
+- calls from one thread or many threads,
+- calls concurrently,
+- calls after cancellation or shutdown,
+- requires explicit unregistering.
+
+Callbacks stored beyond the registration call require an owner, scoped capability, or resource obligation that keeps the callback
+target and context valid until the foreign API releases them.
+
+Captured Bray state does not cross a plain foreign callback ABI implicitly.
+
+Foreign callback state is represented explicitly through context pointers, ABI-laid-out context values, handles, owners, or scoped
+capabilities.
+
+### Exported Bray callables
+
+A Bray callable with `@abi(...)` and `@symbol(...)` can be exported as a native symbol.
+
+The callable body is checked by Bray.
+
+The foreign caller is not checked by Bray.
+
+Every assumption about foreign-provided arguments must be represented by ABI-safe parameter types, ordinary runtime checks,
+trusted requirements, or trusted wrappers.
+
+An exported callable that dereferences a foreign pointer, accepts foreign-owned storage, or trusts foreign-provided lifetime facts
+must use the same raw memory and trusted predicate rules as an imported foreign call.
+
+---
+
 ## Finalization TODOs
 
 - TODO: Define trusted witness values, including syntax, introduction, lifetime, movement, storage, invalidation, and how witness
   values establish or preserve trusted predicate facts.
-- TODO: Define the FFI and foreign-call trust boundary model, including foreign declarations, ABI selection, linking, ownership
-  transfer, error and panic boundaries, raw memory obligations, and interaction with `foreign_call`.
 
 ---
 
