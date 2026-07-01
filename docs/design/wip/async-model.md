@@ -602,6 +602,205 @@ state.
 
 ---
 
+## Cross-Task And Cross-Thread Memory Model
+
+Tasks and threads are concurrent runs when their execution can overlap with another live run.
+
+An async computation that is only awaited in the current execution flow is not a concurrent run by itself.
+
+A task becomes a concurrent run when it is spawned.
+
+A thread becomes a concurrent run when it is spawned.
+
+Within one run, ordinary expression evaluation order defines the order of memory effects.
+
+Between concurrent runs, memory effects are ordered only by language-defined synchronization edges.
+
+A synchronization edge is created by:
+
+- transferring captured state into a spawned task or thread before that run can observe the state,
+- joining a task or thread,
+- completing task or thread cancellation,
+- operations whose type or declaration contract explicitly synchronizes access,
+- atomic operations according to their ordering contract,
+- trusted runtime declarations whose safe contract establishes synchronization.
+
+Moving a task handle or thread handle transfers the obligation represented by that handle.
+
+Moving a handle does not by itself create a synchronization edge with the run owned by the handle.
+
+Joining a task or thread creates a completion edge from the joined run to the continuation after the `catch handle.join()`
+expression.
+
+Completing cancellation creates a completion edge from the cancelled run's cleanup path to the continuation after the cancellation
+operation.
+
+---
+
+## Data-Race Prevention
+
+A data race is a pair of potentially overlapping accesses from different concurrent runs where:
+
+- both accesses can reach the same storage or overlapping storage,
+- at least one access mutates, initializes, reinitializes, moves, destroys, finalizes, replaces an active variant, changes nullable
+  state, writes through raw memory, or performs another operation whose contract modifies storage,
+- the accesses are not ordered by a synchronization edge,
+- and the accesses are not both mediated by a valid atomic or synchronization contract for the reached storage.
+
+A Bray program with a data race is invalid.
+
+Safe Bray source must be data-race-free by construction.
+
+If the compiler cannot prove that potentially overlapping concurrent accesses are disjoint, ordered, immutable, or mediated by a
+valid synchronization contract, the program is rejected.
+
+Moving owned state into a spawned task or thread transfers exclusive ownership of that state to the spawned run.
+
+After the move, the creating run has no access path that owns the moved state.
+
+Copying a value into a spawned task or thread is valid only when the copied value's type contract permits use in that run boundary.
+
+Copyability does not imply cross-thread sharing, detached execution safety, atomic access, or synchronized interior mutation.
+
+Capturing a shared borrow into a concurrent run keeps the shared borrow active for the lifetime carried by the task or thread
+handle.
+
+While that shared borrow is active, incompatible mutation, movement, destruction, finalization, reinitialization, or variant
+replacement of the reached storage remains suspended in every run.
+
+Capturing a mutable borrow into a concurrent run transfers exclusive mutation authority to that run for the lifetime carried by the
+task or thread handle.
+
+No other run can observe, mutate, move, destroy, finalize, reinitialize, or otherwise incompatibly access the reached storage until
+the mutable borrow is resolved.
+
+Raw pointers do not create an exception to the data-race rule.
+
+Raw memory access across concurrent runs requires the ordinary raw-memory trusted facts plus a synchronization or atomic contract
+covering the reached storage.
+
+---
+
+## Shared State And Synchronization
+
+Shared mutable state is valid only when access is mediated by a type or declaration contract that defines the synchronization
+behavior for that state.
+
+A synchronization contract must identify:
+
+- the storage or resource it protects,
+- the access capability granted while synchronization is held,
+- whether the access is shared observation, exclusive mutation, transfer, or atomic mutation,
+- the lifetime of the granted capability,
+- the operations that acquire and release the synchronization,
+- the synchronization edges established by those operations,
+- the cancellation, panic, destruction, and finalization behavior while the synchronization is held.
+
+Scoped synchronization fits the ordinary `enter` and `exit` lifecycle model.
+
+The `enter` declaration produces a scoped capability that grants access to the protected storage.
+
+The matching `exit` declaration releases that scoped capability and establishes the release behavior declared by the type.
+
+The scoped capability cannot escape its valid scope unless its type contract explicitly preserves the protected storage,
+synchronization state, and dependency contract.
+
+Library synchronization declarations are ordinary declarations.
+
+They become meaningful to the compiler through their language-defined or recognized standard-library contracts, not through special
+call syntax.
+
+---
+
+## Atomic Operation Contracts
+
+An atomic operation is an operation whose declaration contract states that it atomically observes or mutates a specific storage
+location.
+
+Atomic operations can be compiler-known declarations, compiler-provided declarations, or recognized standard-library declarations.
+
+An atomic operation contract must state:
+
+- the storage reached by the operation,
+- the element type, size, alignment, initialization, and target-availability requirements,
+- whether the operation reads, writes, or read-modify-writes,
+- the value produced by the operation, if any,
+- the memory ordering used by the operation,
+- the failure ordering for compare-exchange style operations,
+- the trusted facts and trusted implementation capabilities required when the operation reaches raw memory or target intrinsics,
+- the panic, cancellation, destruction, finalization, and fact-invalidation behavior.
+
+The required atomic ordering meanings are:
+
+- relaxed ordering: the operation is atomic but creates no synchronization edge,
+- acquire ordering: later effects in the acquiring run can observe effects published by a matching release edge,
+- release ordering: earlier effects in the releasing run are published to a matching acquire edge,
+- acquire-release ordering: the operation has both acquire and release behavior,
+- sequentially consistent ordering: the operation participates in one language-defined total order of sequentially consistent
+  atomic operations in addition to its acquire or release behavior.
+
+A compare-exchange failure ordering cannot include release behavior because the failing operation does not write the target storage.
+
+Atomic access to one storage location does not make ordinary non-atomic access to the same storage valid while concurrent access can
+overlap.
+
+Atomic access to one field, element, or raw location does not authorize concurrent movement, destruction, finalization,
+reinitialization, or variant replacement of the owning value unless the owning type contract explicitly permits that operation.
+
+---
+
+## Cancellation And Memory Visibility
+
+Cancellation requests are observed by tasks and threads through cancellation points and operation contracts.
+
+A cancellation request does not grant direct access to the cancelled run's captured storage.
+
+Cancellation does not interrupt an atomic operation at a partial state.
+
+Cancellation does not interrupt a non-cancellable operation at an arbitrary source point.
+
+When cancellation completes, all destruction, finalization, capability release, and synchronization behavior required by the
+cancelled state has completed or has been transferred according to the cancelled run's contract.
+
+After cancellation completes, the cancelling run observes the completion edge produced by cancellation.
+
+If cancellation runs cleanup while a scoped synchronization capability is held, cleanup must release that capability according to
+the same `exit`, destruction, and finalization rules that apply to ordinary scope exit.
+
+---
+
+## Capability Transfer Across Run Boundaries
+
+Every value captured by a spawned task or thread carries its dependency contract across that run boundary.
+
+A capability can cross a run boundary only when its contract permits use in that kind of run.
+
+A capability contract can permit:
+
+- use inside an async computation,
+- transfer into a structured task,
+- transfer into a detached task,
+- transfer into a thread,
+- copying into a run boundary,
+- movement into a run boundary,
+- sharing across concurrent runs through a synchronization contract.
+
+If a capability is tied to the creating run, creating scope, stack storage, local resource scope, target thread, executor, or
+foreign callback context, the capability cannot cross a run boundary unless its contract preserves that dependency through the task
+or thread handle.
+
+Detached tasks require captured capabilities whose contracts permit detached execution and whose lifetime and release obligations
+are independent of the creating async block or are preserved by the returned task handle's dependency contract.
+
+Threads require captured capabilities whose contracts permit thread execution.
+
+When a task or thread handle is transferred, the handle's dependency contract and obligation transfer with it.
+
+The destination must preserve every lifetime, capability, synchronization, cancellation, destruction, and finalization requirement
+carried by the handle.
+
+---
+
 ## Low-Level Runtime
 
 Low-level async runtime machinery is part of the trusted substrate.
@@ -609,9 +808,15 @@ Low-level async runtime machinery is part of the trusted substrate.
 Executors, reactors, wakers, completion queues, foreign async callbacks, device async integration, and custom scheduling primitives
 are implemented through trusted capabilities and exposed through safe async contracts.
 
----
+Trusted runtime declarations that affect scheduling, cross-run memory visibility, synchronization, cancellation, or foreign
+callbacks must expose a safe contract that states the ownership effects, borrow effects, synchronization edges, cancellation
+behavior, panic behavior, trusted facts, fact invalidation, and capability requirements visible to callers.
 
-## Finalization TODOs
+Trusted runtime declarations can use raw memory, unchecked aliasing, target intrinsics, device memory, or foreign calls only through
+the trusted capabilities defined by the Trust Model and Raw Memory Model.
 
-- TODO: Define the cross-task and cross-thread memory model, including data-race prevention, shared-state synchronization, atomic
-  operation contracts, cancellation interaction, capability transfer, and trusted escape hatches.
+Foreign or device operations that can access Bray-owned storage must either be represented by a synchronization contract or be
+treated by their declaration contract as affecting every reachable storage item they can touch.
+
+A trusted declaration cannot expose an ordinary safe API that permits data races, dangling borrows, unsynchronized shared mutation,
+invalid raw memory access, leaked scoped capabilities, or unresolved run obligations.

@@ -418,6 +418,9 @@ Run boundaries do not resume panicked computations.
 `RunResult<T>` does not replace recoverable domain failure. A fallible task or thread whose ordinary result is `Result<T, E>` is
 observed through `catch` as `RunResult<Result<T, E>>`.
 
+Concurrent run boundaries use Bray's ordinary ownership, borrowing, dependency-contract, synchronization, and trusted capability
+rules to prevent data races. Shared mutable state must be mediated by a synchronization, atomic, or trusted runtime contract.
+
 ---
 
 ## Functions
