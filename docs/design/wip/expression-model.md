@@ -315,9 +315,21 @@ Local bindings introduced inside the callable-body block expression are visible 
 
 Local owned values whose ownership remains in the callable-body block expression are destroyed when the callable-body block expression exits.
 
-Callable-body exits include normal completion, `return`, `never`, and cancellation of an async computation.
+Callable-body exits include:
 
-TODO: Define any additional control-flow forms that leave a callable-body block expression.
+- normal completion,
+- `return`,
+- uncaught panic propagation,
+- nullable propagation whose target boundary is the callable execution scope,
+- result propagation whose target boundary is the callable execution scope,
+- run-result propagation whose target boundary is the callable execution scope,
+- cancellation of the current async computation,
+- any expression path with type `never` that prevents the callable body from continuing.
+
+`yield`, `break`, and `continue` are not callable-body exits merely because they occur inside a callable body.
+
+They leave the callable-body block expression only when the region they target or the enclosing expression path that contains them
+also leaves the callable body.
 
 A `return` expression first evaluates its returned expression.
 
@@ -611,11 +623,15 @@ A binding moved out before scope exit is not destroyed by the old binding.
 
 A partially initialized binding destroys only initialized parts.
 
-If initializer evaluation exits through `return`, `yield`, `break`, `continue`, `never`, or panic before the declaration completes, the pattern bindings are not introduced.
+If initializer evaluation leaves the declaration before it completes, the pattern bindings are not introduced.
 
-TODO: Define how additional control-flow forms interact with initializer evaluation before local binding declarations complete.
+This includes `return`, `yield` to an enclosing yield-capable region, `break`, `continue`, nullable propagation, result
+propagation, run-result propagation, uncaught panic propagation, cancellation, and any expression path with type `never`.
 
-Values and temporaries already initialized during initializer evaluation are handled by the corresponding control-flow and destruction rules.
+A caught panic inside the initializer does not leave the declaration; it produces the catch expression's normal result.
+
+Values and temporaries already initialized during initializer evaluation are handled by the corresponding control-flow,
+ownership, destruction, and finalization rules.
 
 A local binding declaration is a declaration inside a block expression, but its initializer and pattern matching are expression-checked operations.
 
