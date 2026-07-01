@@ -2588,7 +2588,7 @@ Named callable contracts cannot be overloaded.
 Lambda expressions produce anonymous callable values.
 
 A lambda's callable type is described by its parameter names, parameter call-position permissions, parameter types, result type,
-execution mode, contract clauses, effect clauses, capability clauses, trusted obligations, and captured state.
+execution mode, contract clauses, trusted obligations, and captured state.
 
 Capture state is not a callable parameter.
 
@@ -2850,7 +2850,8 @@ A defaulted member body is checked in trait context.
 
 A defaulted member body can use the trait’s declared surface, `self` when the member is an instance method, `Self`, trait parameters, type-valued members, constant-valued members, available constraints, and declarations visible from the trait declaration context.
 
-A defaulted member body must satisfy the member’s declared result type, ownership behavior, borrowing behavior, capability contract, effect contract, and contract clauses.
+A defaulted member body must satisfy the member's declared result type, ownership behavior, borrowing behavior, and callable
+contract.
 
 TODO: Define additional trait member kinds such as predicates and lifecycle requirements.
 
@@ -3267,7 +3268,19 @@ A trusted required trait member does not by itself impose a trusted caller oblig
 
 Trusted caller obligations must be declared with `trusted` requirements in `requires(...)` or another caller-visible contract clause.
 
-TODO: Define effect annotation syntax beyond currently defined contract clauses.
+Trait member effects and capability requirements are declared through contract clauses.
+
+`requires(...)`, `ensures(...)`, `uses(...)`, lifecycle clauses, cancellation obligations, panic behavior, and async execution
+obligations are part of the trait member contract when they affect callers, implementation satisfaction, generic satisfaction,
+or public API compatibility.
+
+An implementation member must satisfy the caller-visible contract of the trait member it fulfills.
+
+An implementation member can have stricter internal implementation requirements only when they do not add caller obligations,
+weaken guarantees, exceed the trusted capability envelope, or change public behavior.
+
+Generic constraints that require a trait application also require the caller-visible contracts of the trait members used by
+the constrained code.
 
 ### Conversion traits
 

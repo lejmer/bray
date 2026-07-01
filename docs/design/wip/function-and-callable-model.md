@@ -1091,13 +1091,35 @@ Effects and capability contracts are part of:
 
 - function signatures,
 - function types,
-- overload resolution,
+- call checking,
 - behavioral contract satisfaction,
 - generic constraints,
 - dynamic dispatch,
 - public API compatibility.
 
-TODO: Define syntax for general effect and capability annotations beyond currently discussed clauses.
+Effects and capability requirements are declared through contract clauses.
+
+`requires(...)` declares caller obligations and preconditions.
+
+`ensures(...)` declares established facts after normal completion.
+
+`uses(...)` declares trusted implementation capabilities used by a trusted callable body.
+
+Cancellation, panic behavior, finalization obligations, lifecycle obligations, and async execution obligations are part of the
+same callable contract surface when those obligations are visible to callers, call checking, generic satisfaction, or public
+API compatibility.
+
+A callable type includes every caller-visible contract clause needed to call a value of that type.
+
+Two callable declarations with the same parameter and result shape but incompatible caller-visible contracts have different
+callable types.
+
+After overload resolution selects exactly one overload arm by the supplied arguments, contract checking verifies that the
+caller's context satisfies the selected arm's caller-visible obligations.
+
+Overload resolution does not rank or distinguish overloads by effect or capability contracts.
+
+If multiple overloads remain applicable after argument matching, the call is ambiguous.
 
 ---
 
@@ -1245,8 +1267,7 @@ Lambdas have no receiver.
 
 Receiver-mode modifiers such as `mut` and `consume` do not apply to `lambda`.
 
-Trusted, asynchronous, contract, effect, and capability clauses compose with lambda syntax according to their ordinary callable
-rules.
+Trusted, asynchronous, and contract clauses compose with lambda syntax according to their ordinary callable rules.
 
 ```bray
 async lambda (pos request: Request) -> Response
@@ -1388,8 +1409,8 @@ Receiver mode is part of the method's callable contract.
 
 Receiver mode participates in method call checking and method overload selection.
 
-Trusted, asynchronous, generic, contract, effect, and capability clauses compose with receiver-mode syntax according to their
-ordinary declaration rules.
+Trusted, asynchronous, generic, and contract clauses compose with receiver-mode syntax according to their ordinary declaration
+rules.
 
 ```bray
 trusted mut func reserve(pos count: usize)

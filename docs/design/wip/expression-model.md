@@ -5962,7 +5962,7 @@ The lambda body is not evaluated when the lambda expression is evaluated.
 The lambda body is evaluated when the callable value is called.
 
 The callable value produced by a lambda has the callable type described by its parameters, result type, execution mode, contract
-clauses, effect clauses, capability clauses, trusted obligations, and captured state.
+clauses, trusted obligations, and captured state.
 
 ---
 

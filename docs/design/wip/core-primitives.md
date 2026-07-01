@@ -1440,9 +1440,8 @@ capability checking.
 
 ## Lifecycle declaration signatures and selection
 
-Lifecycle declaration signatures use the same parameter grammar, default-argument rules, contract clauses, effect clauses,
-capability clauses, generic constraints, and trusted declaration rules as callable declarations unless a lifecycle kind defines a
-narrower rule.
+Lifecycle declaration signatures use the same parameter grammar, default-argument rules, contract clauses, generic constraints,
+and trusted declaration rules as callable declarations unless a lifecycle kind defines a narrower rule.
 
 Lifecycle declarations are written inside a type body or implementation body. The declaring type is implicit.
 
