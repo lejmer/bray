@@ -92,7 +92,7 @@ Union types are closed tagged sum types with variants.
 
 Compiler-known result types are named union types with language-defined variant contracts.
 
-Compiler-known task handle types are linear ownership types with language-defined async contracts.
+Compiler-known task and thread handle types are linear ownership types with language-defined run-boundary contracts.
 
 Tuple types are fixed-size ordered product types.
 
@@ -120,8 +120,8 @@ rules.
 The Raw Memory Model defines `RawPointer<T>`, raw pointer validity, raw memory operations, raw memory trusted predicates, and raw
 pointer standard-library helpers.
 
-All other categories listed here are defined by the product, union, compiler-known result union, compiler-known task handle, and
-type-form sections of this model.
+All other categories listed here are defined by the product, union, compiler-known result union, compiler-known task handle,
+compiler-known thread handle, and type-form sections of this model.
 
 ---
 
@@ -427,6 +427,7 @@ The following type categories are not copyable by default:
 
 - mutable borrow values,
 - `Task<T>`,
+- `Thread<T>`,
 - async computations,
 - `box[S] T`,
 - `box[S] view TraitApplication`,
@@ -453,8 +454,8 @@ storage.
 
 Copying a callable value copies the callable value's copyable capture state and dependency contract.
 
-If the callable value captures a mutable borrow, a non-copyable owned value, a task handle, a scoped capability that cannot be
-copied, or an unresolved finalization obligation, the callable value is not copyable.
+If the callable value captures a mutable borrow, a non-copyable owned value, a task handle, a thread handle, a scoped capability
+that cannot be copied, or an unresolved finalization obligation, the callable value is not copyable.
 
 Copying a nullable value in absent state copies the absent state.
 
@@ -2059,6 +2060,21 @@ Joining or cancelling a `Task<T>` consumes the handle and resolves the task obli
 The Async Model defines task handle creation, joining, cancellation, transfers, escape rules, borrowing rules, and obligation
 checking.
 
+### Compiler-known thread handles
+
+`Thread<T>` is the compiler-known linear thread handle type for a spawned synchronous thread whose ordinary result type is `T`.
+
+`Thread<T>` is an owned value.
+
+`Thread<T>` is not copyable.
+
+Moving a `Thread<T>` transfers the thread obligation.
+
+Joining or cancelling a `Thread<T>` consumes the handle and resolves the thread obligation.
+
+The Async Model defines thread handle creation, joining, cancellation, transfers, escape rules, borrowing rules, capture
+restrictions, and obligation checking.
+
 ### Union API compatibility
 
 For a public union type, the variant set is part of the public API.
@@ -2479,7 +2495,7 @@ Bray does not have source-level lifetime parameters or source-level lifetime ann
 Lifetime and capability dependency contracts are semantic facts inferred and checked by the compiler.
 
 A **dependency contract** records the non-local requirements that must remain true for a value, access path, callable value, trait
-view, task handle, or stored field to remain valid.
+view, task handle, thread handle, or stored field to remain valid.
 
 A dependency contract can include:
 
@@ -2516,6 +2532,8 @@ A trait view carries the dependency contract of the access or storage form that 
 implementation witness needed for the selected trait application.
 
 A task handle carries the dependency contract of the captured task state and the task obligation represented by the handle.
+
+A thread handle carries the dependency contract of the captured thread state and the thread obligation represented by the handle.
 
 Moving a value moves its dependency contract with the value.
 
@@ -2565,8 +2583,8 @@ The expected result type, assignment target type, or overload result type does n
 
 Dependency contracts are inferred from the producing expression and checked against the destination.
 
-A declaration whose public result, stored value, callable value, trait view, task handle, or lifecycle value carries non-local
-dependencies exposes those dependencies through its compiler-visible declaration contract.
+A declaration whose public result, stored value, callable value, trait view, task handle, thread handle, or lifecycle value carries
+non-local dependencies exposes those dependencies through its compiler-visible declaration contract.
 
 This exposure is semantic metadata, not additional source syntax.
 

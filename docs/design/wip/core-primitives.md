@@ -25,7 +25,14 @@ read-only observation. When explicitly mutable, it grants local mutation authori
 A binding can be introduced directly by a declaration or indirectly by a pattern. A pattern-introduced binding receives its
 kind, type, lifetime, capability, initialization state, and ownership story from the pattern operation that created it.
 
-A binding is introduced once in its scope. Rebinding and shadowing are not part of Bray's language model.
+A binding is introduced once in its scope.
+
+Rebinding and unqualified name shadowing are not part of Bray's language model.
+
+Name uniqueness is checked by unqualified lookup name and lookup namespace.
+
+Qualified paths distinguish declarations through their resolved left-hand entity, so `some.thing` and `thing` can both be visible
+when `some` and `thing` are distinct unqualified lookup names.
 
 A binding may own the value it names, borrow storage owned elsewhere, or denote a non-value entity such as a type, function,
 module, or contract. The kind of binding determines which operations are valid through that name.
@@ -345,8 +352,8 @@ distinguish synchronous computation from asynchronous computation.
 A value with an asynchronous finalization obligation carries that obligation as part of its type contract. The compiler tracks
 the obligation across ownership transfer, movement, scope exit, cancellation, and destruction.
 
-The Async Model defines async computations, `await`, `async` block expressions, `spawn`, `spawn detached`, task handles, task
-obligations, and async cancellation.
+The Async Model defines async computations, `await`, `async` block expressions, `spawn`, `spawn detached`, `spawn thread`, task
+handles, thread handles, task and thread obligations, and cancellation.
 
 ---
 
@@ -878,6 +885,7 @@ The core built-in type categories are:
   caught synchronous panic when the error value is `PanicReport`.
 - **run result values:** represent completion, panic, or cancellation observed from a task or thread run boundary.
 - **task handles:** represent owned responsibility for a spawned asynchronous task.
+- **thread handles:** represent owned responsibility for a spawned synchronous thread.
 - **panic reports:** preserve the panic message and diagnostic context carried by a panic.
 - **tuples:** a fixed-size ordered product type. A tuple's element types are part of its type. Tuple ownership, borrowing,
   movement, copying, initialization, and destruction are derived from its elements.

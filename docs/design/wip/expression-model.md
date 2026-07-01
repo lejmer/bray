@@ -445,9 +445,11 @@ Bindings introduced by the pattern become visible after the local binding declar
 
 Bindings introduced by the pattern are not visible inside the initializer expression.
 
-Every binding name introduced by a pattern must be unique within that pattern.
+A pattern-introduced binding name must be unique within that pattern.
 
-A binding introduced by a local binding declaration must not shadow an existing visible binding.
+A local binding declaration introduces one or more unqualified lookup names into the current scope.
+
+Each introduced unqualified lookup name must not already resolve in the same lookup namespace from that scope.
 
 A local binding declaration introduces each pattern binding exactly once.
 
@@ -1361,7 +1363,9 @@ A constant declaration introduces a named compile-time value in its declaration 
 
 The constant name must be unique in the value namespace of that scope.
 
-A constant declaration must not shadow an existing visible binding or constant declaration.
+A constant declaration introduces an unqualified lookup name into its declaration scope.
+
+That unqualified lookup name must not already resolve in the same lookup namespace from that scope.
 
 Constants can be declared in modules, type bodies, implementation bodies, trait bodies, and block scopes that allow declarations.
 
@@ -1483,7 +1487,24 @@ A local binding is introduced once.
 
 A binding cannot be rebound.
 
-A local binding declaration must not shadow an existing visible binding or constant declaration.
+A local binding declaration introduces one or more unqualified lookup names into the current scope.
+
+Each introduced unqualified lookup name must not already resolve in the same lookup namespace from that scope.
+
+Name shadowing is checked by unqualified lookup name and lookup namespace.
+
+Qualified paths distinguish declarations through their resolved left-hand entity.
+
+The first component of a qualified path participates in ordinary unqualified name resolution.
+
+Each component after `.` is resolved inside the namespace, type, value, access path, trait application, or other path-capable entity
+selected by the preceding component.
+
+Therefore, a declaration reachable as `some.thing` and a declaration reachable as `thing` can both be visible in the same scope when
+`some` and `thing` are distinct unqualified lookup names.
+
+When a declaration is intentionally exposed through an unqualified name, that exposed name participates in the same shadowing rule
+as any other unqualified lookup name in that lookup namespace.
 
 This rule keeps name expressions stable and prevents later local declarations from changing the meaning of earlier names in the same scope.
 
@@ -2806,7 +2827,7 @@ is a binary expression that resolves as a call to the public operator trait memb
 
 For binary `+`, the relevant trait application is:
 
-```text
+```bray
 LeftType(Add<RightType>)
 ```
 
@@ -4532,28 +4553,40 @@ are defined by the Async Model.
 
 ## Spawn expressions
 
-The non-detached spawn expression is:
+The task spawn expressions are:
 
 ```bray
 spawn expression
 ```
 
-The detached spawn expression is:
-
 ```bray
 spawn detached expression
 ```
 
-The operand is evaluated exactly once.
+The task spawn operand is evaluated exactly once.
 
-The operand must produce an async computation.
+The task spawn operand must produce an async computation.
 
 If the async computation's declared result type is `T`, the spawn expression produces `Task<T>`.
 
 Spawning consumes the async computation and schedules it as a task.
 
-The full spawn, detached spawn, task handle, task observation, task-obligation, transfer, escape, cancellation, ownership,
-borrowing, capability, and effect rules are defined by the Async Model.
+The thread spawn expression is:
+
+```bray
+spawn thread expression
+```
+
+The thread spawn operand is evaluated exactly once.
+
+The thread spawn operand must produce a synchronous callable value that can be called with no runtime arguments.
+
+If the callable value's result type is `T`, the thread spawn expression produces `Thread<T>`.
+
+Thread spawning consumes the callable value and schedules it as a thread.
+
+The full task spawn, detached task spawn, thread spawn, task handle, thread handle, run-boundary observation, transfer, escape,
+cancellation, ownership, borrowing, capability, and effect rules are defined by the Async Model.
 
 ---
 

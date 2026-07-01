@@ -2,9 +2,9 @@
 
 ## Overview
 
-Bray treats asynchronous execution as part of the core ownership and control-flow model.
+Bray treats asynchronous execution and run-boundary observation as part of the core ownership and control-flow model.
 
-The core async forms are:
+The core async and run-boundary forms are:
 
 - async functions,
 - async computations,
@@ -12,8 +12,10 @@ The core async forms are:
 - `async` block expressions,
 - `spawn` expressions,
 - `spawn detached` expressions,
+- `spawn thread` expressions,
 - task handles,
-- task observation through `catch`.
+- thread handles,
+- task and thread observation through `catch`.
 
 An async computation is an owned value. It can own or borrow state, hold capabilities, carry effects, and carry finalization
 obligations.
@@ -23,6 +25,9 @@ completed, cancelled, or transferred to another owner.
 
 Detached work is explicit. `spawn detached` creates a task whose lifetime is represented by the returned task handle and whose
 captured state must be detached-safe.
+
+Thread work is explicit. `spawn thread` creates a thread whose lifetime is represented by the returned thread handle and whose
+captured state must be valid for thread execution.
 
 ---
 
@@ -399,18 +404,198 @@ This is valid because the task owns `data`.
 
 ---
 
+## Thread Spawn Expressions
+
+The thread spawn expression is:
+
+```bray
+spawn thread expression
+```
+
+The operand is evaluated exactly once.
+
+The operand must produce a synchronous callable value that can be called with no runtime arguments.
+
+If the callable value's result type is `T`, the thread spawn expression produces `Thread<T>`.
+
+`Thread<T>` is the compiler-known linear thread handle type for a spawned synchronous thread whose ordinary result type is `T`.
+
+`spawn thread` consumes the callable value and schedules it as a thread outside the current execution flow.
+
+The callable value's captured state becomes captured thread state.
+
+The thread handle carries the dependency contract of the captured thread state and the thread obligation represented by the
+handle.
+
+`spawn thread` is valid in synchronous and asynchronous execution contexts when thread creation is available for the target.
+
+The source evaluation order guarantees operand evaluation and thread-handle creation.
+
+Thread entry scheduling is governed by the runtime and target thread model.
+
+The created thread can start before or after the creating execution flow continues past the `spawn thread` expression.
+
+Inter-thread visibility and synchronization are governed by the cross-task and cross-thread memory model.
+
+The thread entry callable must be synchronous.
+
+An async callable produces an async computation and is spawned as a task through `spawn` or `spawn detached`.
+
+Example:
+
+```bray
+let handle: Thread<Hash> = spawn thread lambda () -> Hash
+{
+    return hash(data);
+};
+```
+
+---
+
+## Thread Captures
+
+Thread captures are the captured state of the callable value supplied to `spawn thread`.
+
+A thread entry can capture:
+
+- owned values whose type contract permits transfer to a thread,
+- copied values whose type contract permits use by a thread,
+- borrows whose lifetime is preserved by the thread handle's dependency contract and whose access contract permits thread use,
+- capabilities whose contract permits transfer to or use by a thread,
+- finalization obligations whose contract can be completed by the thread or preserved by the thread handle.
+
+The thread handle preserves every captured-state dependency until the thread is joined, cancelled, or transferred to another owner.
+
+A thread that captures a borrow can escape only to an owner whose lifetime is proven not to outlive the borrowed storage.
+
+A thread that captures a scoped capability can escape only to an owner whose contract assumes responsibility for resolving that
+capability before the capability's source scope exits.
+
+A thread that captures local storage from its creating scope can escape that scope only when the destination preserves the captured
+dependency contract.
+
+If the destination type or declaration contract does not preserve the thread handle's capture requirements, the transfer is
+rejected.
+
+---
+
+## Thread Handles
+
+`Thread<T>` is an owned thread handle.
+
+`Thread<T>` is not copyable.
+
+Moving a `Thread<T>` transfers the thread obligation.
+
+A thread handle can be joined, cancelled when its contract permits cancellation, or moved to transfer the thread obligation to
+another owner.
+
+The join operation consumes the thread handle.
+
+Thread joins are observed with `catch`:
+
+```bray
+let result: RunResult<T> = catch thread.join();
+```
+
+A thread join expression is valid only as the operand of `catch`.
+
+If the thread completed normally with a value of type `T`, `catch thread.join()` produces `RunResult.Completed(value = value)`.
+
+If the thread panicked, `catch thread.join()` produces `RunResult.Panicked(report = report)`.
+
+If the thread was cancelled before normal completion, `catch thread.join()` produces `RunResult.Cancelled`.
+
+Joining a thread resolves the thread obligation regardless of which `RunResult` variant is produced.
+
+Thread cancellation is valid when the thread handle's contract permits cancellation.
+
+The cancellation operation consumes the thread handle:
+
+```bray
+thread.cancel();
+```
+
+Thread cancellation reaches completion through cancellation points and operation contracts declared by the thread entry and the
+values it uses.
+
+Cancelling a thread destroys owned captured state and releases captured capabilities according to ordinary destruction and
+finalization rules.
+
+Cancelling a thread resolves the thread obligation.
+
+---
+
+## Thread Obligation Checking
+
+The compiler tracks live thread obligations in the same control-flow state as ownership, initialization, movement, destruction,
+finalization, borrow, capability, and task-obligation state.
+
+Each `spawn thread` creates one live thread obligation owned by the returned thread handle.
+
+The obligation is resolved when the thread is joined or cancelled.
+
+The obligation is transferred when the thread handle is moved to another valid owner.
+
+Every non-panic source-level path that exits a scope owning a thread handle must leave no unresolved thread obligation owned by
+that scope.
+
+An exit path can transfer a thread obligation as part of the exit by yielding, returning, assigning, or otherwise moving the thread
+handle into a valid destination.
+
+After a thread handle is transferred, the old owner no longer has the thread obligation.
+
+At control-flow merge points, thread-obligation state must be coherent. A thread handle cannot be joined, cancelled, transferred,
+or used on a path where that handle is no longer live.
+
+---
+
+## Tasks And Threads
+
+Tasks and threads are both run boundaries.
+
+Both are represented by linear owned handles after spawning.
+
+Both are observed through `catch handle.join()` as `RunResult<T>`.
+
+Both record panic at the run boundary and report it as `RunResult.Panicked(report = report)`.
+
+Both report completed cancellation as `RunResult.Cancelled`.
+
+A task runs an async computation.
+
+A thread runs a synchronous callable value.
+
+Non-detached task spawning is structured by the nearest enclosing `async` block.
+
+Thread spawning is represented directly by the returned `Thread<T>` handle.
+
+Task spawning with `spawn` requires async execution capability.
+
+Thread spawning with `spawn thread` requires thread creation availability for the target.
+
+Await drives an async computation in the current execution flow.
+
+Join observes a task or thread run boundary from its handle.
+
+---
+
 ## Cancellation
 
-Cancellation is an exit path for an incomplete async computation or task.
+Cancellation is an exit path for an incomplete async computation, task, or thread.
 
 Cancelling an async computation destroys owned captured state and releases held capabilities according to the computation's
 contract.
 
 Cancelling a task consumes the task handle and resolves the task obligation.
 
+Cancelling a thread consumes the thread handle and resolves the thread obligation.
+
 Cancellation of a task observed through `catch task.join()` produces `RunResult.Cancelled`.
 
-Cancellation does not produce the task's ordinary result type.
+Cancellation of a thread observed through `catch thread.join()` produces `RunResult.Cancelled`.
+
+Cancellation does not produce the task's or thread's ordinary result type.
 
 Cancellation must satisfy all ownership, destruction, finalization, borrow, capability, and effect obligations of the cancelled
 state.
@@ -428,7 +613,5 @@ are implemented through trusted capabilities and exposed through safe async cont
 
 ## Finalization TODOs
 
-- TODO: Define thread run-boundaries, including thread creation, thread handles, join and cancel behavior, ownership transfer,
-  capture restrictions, panic reporting through `RunResult<T>`, and how threads differ from tasks.
 - TODO: Define the cross-task and cross-thread memory model, including data-race prevention, shared-state synchronization, atomic
   operation contracts, cancellation interaction, capability transfer, and trusted escape hatches.
