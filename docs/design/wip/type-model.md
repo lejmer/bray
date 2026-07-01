@@ -2408,7 +2408,7 @@ If overlap cannot be proven statically, the borrow access paths are treated as c
 
 Borrow values are created only by language constructs that establish borrow capability.
 
-These include borrow expressions, borrow-typed parameter passing, receiver calls, pattern borrow modes, lambda capture entries, and
+These include borrow expressions, borrow-typed parameter passing, receiver calls, pattern borrow modes, lambda lexical captures, and
 projection through compiler-known type forms.
 
 Borrowing an access path requires the reached storage to be initialized and reachable.
@@ -2609,9 +2609,14 @@ A `Cursor` value cannot outlive the storage reached by `data`.
 A callable value that captures a borrow carries that borrow dependency:
 
 ```bray
-let writer = capture(&mut file) lambda (pos text: string)
+let writer =
 {
-    file.write(text);
+    let output = &mut file;
+
+    lambda (pos text: string)
+    {
+        output.write(text);
+    }
 };
 ```
 

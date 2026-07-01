@@ -1417,7 +1417,7 @@ Block expressions support local binding declarations.
 They do not support nested named function declarations, nested type declarations, nested trait declarations, nested implementation
 declarations, nested module declarations, or nested package declarations.
 
-Lambda capture uses the ordinary lambda capture rules.
+Lambda capture uses ordinary lexical capture rules.
 
 ---
 
@@ -1451,7 +1451,7 @@ A lambda body is a callable-body block and creates its own callable execution sc
 
 Lambdas have no receiver.
 
-`self` is unavailable inside a lambda body unless it is explicitly captured from an enclosing method body.
+Inside a method body, `self` is available inside a lambda body only as captured state from the enclosing method body.
 
 Receiver-mode modifiers such as `mut` and `consume` do not apply to `lambda`.
 
@@ -1470,56 +1470,69 @@ trusted lambda (pos bytes: &mut [u8])
 }
 ```
 
-Captures are explicit.
-
-A lambda without a capture clause captures no ordinary local bindings from its surrounding callable execution scope.
-
-A capture clause appears before `lambda`.
-
-When both a capture clause and callable modifiers are present, the capture clause appears before the modifiers.
+Captures use ordinary lexical bindings.
 
 ```bray
-capture(&buffer, copy limit) lambda () -> usize
+let f =
 {
-    return buffer.count() + limit;
-}
+    let source = &buffer;
+    let captured_limit = limit;
+
+    lambda () -> usize
+    {
+        return source.count() + captured_limit;
+    }
+};
 ```
 
-A capture clause contains one or more capture entries.
+A lambda body can reference:
 
-Capture entries are:
+- lambda parameters,
+- local bindings introduced inside the lambda body,
+- declarations visible from the declaration context,
+- local bindings visible from enclosing lexical scopes.
 
-- `copy name`, which copies the captured value into the lambda value,
-- `&name`, which captures a shared borrow,
-- `&mut name`, which captures a mutable borrow,
-- `consume name`, which moves the captured value into the lambda value.
+An enclosing local binding referenced by the lambda body becomes captured state of the callable value.
 
-Each capture entry names a binding visible at the lambda expression.
+A lambda that references no enclosing local bindings is capture-free.
 
-Inside a method body, a capture entry can name the compiler-introduced receiver binding `self`.
+A lambda that references one or more enclosing local bindings is capture-bearing.
 
-Capture names are available inside the lambda body under the same name.
+Captured names are available inside the lambda body under the same name.
 
-A capture name cannot duplicate another capture name or a lambda parameter name.
+The captured binding must support the way it is captured.
 
-The captured binding must support the requested capture mode.
+An owned copyable binding is copied into the callable value.
 
-A `copy` capture requires the captured type to satisfy the copy contract.
+An owned non-copyable binding is moved into the callable value.
 
-A shared-borrow capture requires the captured access path to be observable for the lifetime of the lambda value.
+A shared borrow binding is copied into the callable value.
 
-A mutable-borrow capture requires exclusive mutation authority for the lifetime of the lambda value.
+A mutable borrow binding is moved into the callable value.
 
-A `consume` capture moves the value into the lambda value when the lambda expression is evaluated.
+A captured shared borrow requires the reached access path to be observable for the lifetime of the lambda value.
 
-After a `consume` capture, the old access path is unavailable until reinitialized.
+A captured mutable borrow requires exclusive mutation authority for the lifetime of the lambda value.
+
+After a moved capture, the old access path is unavailable until reinitialized.
+
+Captured state is formed in the order the captured binding declarations were evaluated.
 
 Captured ownership, borrows, mutation authority, effects, and finalization obligations are part of the callable value's contract.
 
-The lambda body can use only its parameters, explicit captures, declarations visible from the declaration context, and values
-introduced inside the lambda body.
+To select a specific capture mode, introduce an ordinary local binding before the lambda expression.
 
-Using an ordinary local binding from an enclosing callable body without listing it in the capture clause is rejected.
+```bray
+let f =
+{
+    let target = &mut buffer;
+
+    lambda ()
+    {
+        target.clear();
+    }
+};
+```
 
 Method paths do not implicitly produce bound-method values.
 
@@ -1527,12 +1540,17 @@ Method paths do not implicitly produce bound-method values.
 let f = buffer.clear; // invalid
 ```
 
-Use a lambda with an explicit capture instead.
+Use a lambda with an ordinary lexical binding instead.
 
 ```bray
-let f = capture(&mut buffer) lambda ()
+let f =
 {
-    buffer.clear();
+    let target = &mut buffer;
+
+    lambda ()
+    {
+        target.clear();
+    }
 };
 ```
 
