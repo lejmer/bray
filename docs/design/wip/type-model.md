@@ -2135,7 +2135,7 @@ Examples:
 Point
 geometry.shapes.Circle
 List<Point>
-Buffer(Iterator<Bytes>).Element
+Buffer(Reader<Bytes>).Element
 &mut Buffer
 box[Heap] Node
 Point?
@@ -3806,8 +3806,8 @@ The trait application in a qualified type-valued member reference must be exact.
 An implementation overload family header is not an exact trait application reference when it names several applications.
 
 ```bray
-Buffer(Iterator<Bytes>).Element
-Buffer(Iterator<Lines>).Element
+Buffer(Reader<Bytes>).Element
+Buffer(Reader<Lines>).Element
 ```
 
 The trait application is required outside the declaring trait and its implementation.
@@ -4613,7 +4613,7 @@ impl VecReadIterable = &Vec<T>(Iterable)
     type Element = &T;
     type Cursor = VecReadCursor<T>;
 
-    func iterate() -> Cursor
+    consume func iterate() -> Cursor
     {
         ...
     }
@@ -4624,7 +4624,7 @@ impl VecWriteIterable = &mut Vec<T>(Iterable)
     type Element = &mut T;
     type Cursor = VecWriteCursor<T>;
 
-    func iterate() -> Cursor
+    consume func iterate() -> Cursor
     {
         ...
     }
@@ -4913,7 +4913,14 @@ trait ConvertTo<Target>
 }
 ```
 
-An iterator trait can use an element type as an implementation output:
+### Iteration traits
+
+Bray iteration is defined by two compiler-known traits:
+
+- `Iterable`, the source-to-cursor contract,
+- `Iterator`, the cursor-advance contract.
+
+`Iterator` is the cursor contract:
 
 ```bray
 trait Iterator
@@ -4923,6 +4930,112 @@ trait Iterator
     mut func next() -> Element?;
 }
 ```
+
+`Element` is the type produced by each successful step.
+
+`next` advances the cursor.
+
+`next` returns an element value when the cursor produces an element.
+
+`next` returns `none` when the cursor reaches natural exhaustion.
+
+After a cursor returns `none`, later calls to `next` on the same cursor must return `none`.
+
+An iterator cursor can mutate its own state while advancing.
+
+An iterator that yields borrowed elements must preserve Bray aliasing and borrowing rules for every live yielded element.
+
+If a yielded borrow is still live and the compiler cannot prove that advancing the cursor is compatible with that borrow, the next
+advance is rejected.
+
+`Iterable` is the source contract:
+
+```bray
+trait Iterable
+{
+    type Element;
+    type Cursor;
+
+    consume func iterate() -> Cursor;
+}
+```
+
+`Element` is the type produced by iteration.
+
+`Cursor` is the cursor type returned by `iterate`.
+
+An `Iterable` implementation is valid only when its selected `Cursor` type satisfies `Iterator` and the cursor element type matches
+the iterable element type:
+
+```text
+Cursor: Iterator
+Cursor(Iterator).Element == Element
+```
+
+This is a compiler-known validity rule for `Iterable` implementations.
+
+It is checked as part of trait implementation checking.
+
+`iterate` consumes the implementation subject.
+
+For an owned subject, this consumes the source value into the cursor.
+
+For a borrow subject such as `&T` or `&mut T`, this consumes the borrow value into the cursor, not the borrowed storage.
+
+The cursor can carry the dependency contract of that borrow.
+
+The cursor cannot outlive or extend the source access it depends on.
+
+`Iterable` and `Iterator` define element production.
+
+They do not require separate cardinality, boundedness, or finiteness members.
+
+Cardinality, boundedness, finiteness, iteration order, and element-borrowing facts are established by the selected implementation
+contracts, source type facts, cursor contracts, and compiler-known declarations.
+
+An expression form that requires one of those facts is rejected when the fact is not established in the checking context.
+
+For example:
+
+```bray
+impl VecReadIterable = &Vec<T>(Iterable)
+{
+    type Element = &T;
+    type Cursor = VecReadCursor<T>;
+
+    consume func iterate() -> Cursor
+    {
+        ...
+    }
+}
+
+impl VecWriteIterable = &mut Vec<T>(Iterable)
+{
+    type Element = &mut T;
+    type Cursor = VecWriteCursor<T>;
+
+    consume func iterate() -> Cursor
+    {
+        ...
+    }
+}
+
+impl VecMoveIterable = Vec<T>(Iterable)
+{
+    type Element = T;
+    type Cursor = VecMoveCursor<T>;
+
+    consume func iterate() -> Cursor
+    {
+        ...
+    }
+}
+```
+
+These three implementations satisfy different exact implementing subjects.
+
+The `for`, `each`, `all`, and `any` expression forms use `Iterable` and `Iterator` through their expression-specific iteration
+source rules.
 
 ### Trait implementation overload families
 
@@ -4935,30 +5048,37 @@ Different trait applications do not automatically form an implementation overloa
 When an implementing subject needs multiple applications of the same generic trait, each application is declared as a named implementation, and an overload declaration groups those implementation names under the shared subject and trait surface.
 
 ```bray
-impl BufferBytesIterator = Buffer(Iterator<Bytes>)
+trait Reader<Mode>
+{
+    type Element;
+
+    mut func read_next() -> Element?;
+}
+
+impl BufferBytesReader = Buffer(Reader<Bytes>)
 {
     type Element = u8;
 
-    mut func next() -> Element?
+    mut func read_next() -> Element?
     {
         ...
     }
 }
 
-impl BufferLinesIterator = Buffer(Iterator<Lines>)
+impl BufferLinesReader = Buffer(Reader<Lines>)
 {
     type Element = Line;
 
-    mut func next() -> Element?
+    mut func read_next() -> Element?
     {
         ...
     }
 }
 
-overload Buffer(Iterator) =
+overload Buffer(Reader) =
 {
-    BufferBytesIterator,
-    BufferLinesIterator,
+    BufferBytesReader,
+    BufferLinesReader,
 }
 ```
 
@@ -5012,30 +5132,30 @@ The family lists implementation declaration names.
 It does not list instantiated implementation arms.
 
 ```bray
-impl BufferValuesIterator = Buffer<T>(Iterator<Values>)
+impl BufferValuesReader = Buffer<T>(Reader<Values>)
 {
     type Element = T;
 
-    mut func next() -> Element?
+    mut func read_next() -> Element?
     {
         ...
     }
 }
 
-impl BufferIndexesIterator = Buffer<T>(Iterator<Indexes>)
+impl BufferIndexesReader = Buffer<T>(Reader<Indexes>)
 {
     type Element = usize;
 
-    mut func next() -> Element?
+    mut func read_next() -> Element?
     {
         ...
     }
 }
 
-overload Buffer(Iterator) =
+overload Buffer(Reader) =
 {
-    BufferValuesIterator,
-    BufferIndexesIterator,
+    BufferValuesReader,
+    BufferIndexesReader,
 }
 ```
 
@@ -5046,29 +5166,29 @@ Every possible exact coherence key produced by one arm must be disjoint from eve
 This is rejected:
 
 ```bray
-impl BufferCloneItemsIterator = Buffer<T>(Iterator<Items>)
+impl BufferCloneItemsReader = Buffer<T>(Reader<Items>)
     with(T: Cloneable)
 {
     ...
 }
 
-impl BufferCopyItemsIterator = Buffer<T>(Iterator<Items>)
+impl BufferCopyItemsReader = Buffer<T>(Reader<Items>)
     with(T: Copyable)
 {
     ...
 }
 
-overload Buffer(Iterator) =
+overload Buffer(Reader) =
 {
-    BufferCloneItemsIterator,
-    BufferCopyItemsIterator,
+    BufferCloneItemsReader,
+    BufferCopyItemsReader,
 }
 ```
 
 A type can satisfy both `Cloneable` and `Copyable`, so both arms can produce the same exact coherence key:
 
 ```text
-(Buffer<T>, Iterator<Items>)
+(Buffer<T>, Reader<Items>)
 ```
 
 The overload family is invalid.
@@ -5082,15 +5202,15 @@ Generic trait arguments are part of the exact trait application.
 Therefore, these are different implementation keys and can coexist when grouped:
 
 ```bray
-impl BufferBytesIterator = Buffer(Iterator<Bytes>)
-impl BufferLinesIterator = Buffer(Iterator<Lines>)
+impl BufferBytesReader = Buffer(Reader<Bytes>)
+impl BufferLinesReader = Buffer(Reader<Lines>)
 ```
 
 The same exact implementation key cannot appear more than once:
 
 ```bray
-impl BufferBytesIterator = Buffer(Iterator<Bytes>)
-impl BufferOtherBytesIterator = Buffer(Iterator<Bytes>) // invalid
+impl BufferBytesReader = Buffer(Reader<Bytes>)
+impl BufferOtherBytesReader = Buffer(Reader<Bytes>) // invalid
 ```
 
 If more than one participating implementation for the same implementing subject and generic trait declaration exists in a coherence domain, those implementations must be named and must be grouped by an implementation overload declaration.
@@ -5116,10 +5236,10 @@ If more than one arm matches, the call is rejected as ambiguous.
 An exact trait application can be selected explicitly with a trait-qualified receiver expression:
 
 ```bray
-buffer(Iterator<Bytes>).next()
+buffer(Reader<Bytes>).read_next()
 ```
 
-This selects the `Iterator<Bytes>` implementation for the receiver before method lookup.
+This selects the `Reader<Bytes>` implementation for the receiver before method lookup.
 
 Trait-qualified receiver expression rules belong to the Expression Model.
 
@@ -5325,15 +5445,15 @@ Generic arguments are part of the trait application.
 Therefore these implementations have different exact coherence keys:
 
 ```bray
-impl BufferBytesIterator = Buffer(Iterator<Bytes>)
-impl BufferLinesIterator = Buffer(Iterator<Lines>)
+impl BufferBytesReader = Buffer(Reader<Bytes>)
+impl BufferLinesReader = Buffer(Reader<Lines>)
 ```
 
 These implementations have the same exact coherence key and are rejected:
 
 ```bray
-impl BufferBytesIterator = Buffer(Iterator<Bytes>)
-impl BufferOtherBytesIterator = Buffer(Iterator<Bytes>)
+impl BufferBytesReader = Buffer(Reader<Bytes>)
+impl BufferOtherBytesReader = Buffer(Reader<Bytes>)
 ```
 
 The implementing subject is also part of the exact coherence key.

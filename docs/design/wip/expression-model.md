@@ -1415,7 +1415,7 @@ storage, runtime effects, or runtime dispatch.
 Loop expressions are not valid in constant-evaluation context.
 
 This includes `loop`, `while`, `for`, `each`, array generator iteration expressions, general generator iteration expressions, and
-boolean fold expressions whose operand consumes an iteration source.
+boolean fold expressions.
 
 Finite aggregate construction is still valid when every element or field initializer is itself a valid compile-time constant
 expression.
@@ -1818,7 +1818,7 @@ Method resolution does not create a shared borrow or mutable borrow solely to se
 The method receiver can be qualified by an exact trait application to select a trait implementation before method lookup.
 
 ```bray
-buffer(Iterator<Bytes>).next()
+buffer(Reader<Bytes>).read_next()
 ```
 
 This is a trait-qualified receiver expression.
@@ -3193,6 +3193,87 @@ Effects and finalization obligations of the repeated element expression and repe
 
 ---
 
+## Iteration source resolution
+
+Iteration-bearing expressions use the compiler-known `Iterable` and `Iterator` traits from the Type Model.
+
+Iteration-bearing expressions include:
+
+- `for` expressions,
+- array generator iteration expressions,
+- general generator iteration expressions,
+- boolean fold expressions.
+
+An iteration source is resolved in one of three access modes:
+
+- shared iteration,
+- mutable iteration,
+- consuming iteration.
+
+The unmarked source form selects shared iteration.
+
+Shared iteration evaluates the source expression once, creates a shared borrow for the duration of the iteration, and requires the
+selected subject to satisfy `Iterable`:
+
+```bray
+&SourceType: Iterable
+```
+
+The source form marked with `mut` selects mutable iteration.
+
+Mutable iteration evaluates the source expression once, creates a mutable borrow for the duration of the iteration, and requires
+mutation authority and compatible exclusivity for the source access path:
+
+```bray
+&mut SourceType: Iterable
+```
+
+The source form marked with `move` selects consuming iteration.
+
+Consuming iteration evaluates the source expression once, moves the resulting value into the iteration cursor, and requires the
+source type itself to satisfy `Iterable`:
+
+```bray
+SourceType: Iterable
+```
+
+For the selected iterable subject `S`, the source element type is:
+
+```bray
+S(Iterable).Element
+```
+
+The cursor type is:
+
+```bray
+S(Iterable).Cursor
+```
+
+The selected `Iterable` implementation guarantees that the cursor satisfies `Iterator` and has the same element type.
+
+An iteration expression calls `iterate` exactly once after evaluating the source expression and creating the selected iteration
+subject.
+
+The produced cursor is owned by the iteration expression.
+
+The iteration expression repeatedly advances the cursor with `next`.
+
+Each non-`none` result from `next` produces one iteration element.
+
+The first `none` result from `next` is natural exhaustion.
+
+The selected `iterate` call and each selected `next` call participate in type checking, ownership checking, borrowing checking,
+capability checking, effect checking, panic checking, and contract checking like ordinary method calls.
+
+The hidden cursor is destroyed or finalized when the iteration expression exits.
+
+For shared and mutable iteration, the source borrow ends when the cursor is destroyed or finalized.
+
+Iteration order, cardinality facts, finiteness facts, element borrowing behavior, and element ownership behavior come from the
+selected `Iterable` implementation, the selected `Iterator` implementation, and facts established for the source expression.
+
+---
+
 ## Array generator iteration expressions
 
 An **array generator iteration expression** constructs a fixed-size array by iterating over a source and yielding array elements.
@@ -3213,18 +3294,18 @@ The expression has the form:
 
 ```bray
 [
-    each pattern in source
+    each <pattern> in <source>
     {
         ...
     }
 ]
 ```
 
-The `source` expression is evaluated once before iteration begins.
+The source position uses iteration source resolution.
 
-The source expression must provide an iteration contract.
+It can use shared, mutable, or consuming iteration.
 
-The iteration contract defines:
+The selected `Iterable` and `Iterator` contracts define:
 
 - the element type,
 - the element access mode,
@@ -3238,7 +3319,7 @@ The `pattern` is checked against the source element type.
 
 The pattern must be irrefutable for the source element type.
 
-The pattern operation mode is determined by the source iteration contract.
+The pattern operation mode is determined by the selected element type, element ownership behavior, and element borrowing behavior.
 
 The pattern can introduce one or more iteration bindings.
 
@@ -3311,7 +3392,7 @@ The source expression of each generator is evaluated once for that generator.
 
 Nested array generator expressions are checked recursively.
 
-Array generator iteration expressions participate in effect checking and capability checking through the source expression, pattern operation, iteration body, yielded expressions, and iteration contract.
+Array generator iteration expressions participate in effect checking and capability checking through the source expression, selected `Iterable` implementation, selected `Iterator` implementation, pattern operation, iteration body, and yielded expressions.
 
 Effects of the source expression occur once before iteration.
 
@@ -3345,7 +3426,7 @@ A general generator expression has the form:
 
 ```bray
 {
-    each pattern in source
+    each <pattern> in <source>
     {
         ...
     }
@@ -3402,7 +3483,7 @@ A **general generator iteration expression** iterates over a source inside a mul
 The iteration form is:
 
 ```bray
-each pattern in source
+each <pattern> in <source>
 {
     ...
 }
@@ -3410,11 +3491,11 @@ each pattern in source
 
 A general generator iteration expression is valid inside a generator region that accepts zero or more yielded values.
 
-The `source` expression is evaluated once before iteration begins.
+The source position uses iteration source resolution.
 
-The source expression must provide an iteration contract.
+It can use shared, mutable, or consuming iteration.
 
-The iteration contract defines:
+The selected `Iterable` and `Iterator` contracts define:
 
 - the element type,
 - the element access mode,
@@ -3427,7 +3508,7 @@ The `pattern` is checked against the source element type.
 
 The pattern must be irrefutable for the source element type.
 
-The pattern operation mode is determined by the source iteration contract.
+The pattern operation mode is determined by the selected element type, element ownership behavior, and element borrowing behavior.
 
 Each iteration creates fresh bindings from the pattern.
 
@@ -3497,9 +3578,9 @@ all(flags)
 any(errors)
 ```
 
-The operand must provide an iteration contract.
+The operand is resolved as a shared iteration source.
 
-The operand's element type must be `bool`.
+The selected element type must be `bool`.
 
 The operand must be finite and bounded.
 
@@ -3519,9 +3600,9 @@ Both forms short-circuit.
 
 The operand expression is evaluated once.
 
-Iteration observes or borrows elements according to the operand's iteration contract.
+Iteration observes or borrows elements according to the selected `Iterable` and `Iterator` contracts.
 
-Boolean fold expressions do not consume the operand by default.
+Boolean fold expressions do not consume the operand.
 
 A generator expression can be used as the operand.
 
@@ -5597,19 +5678,29 @@ else
 
 ## For expressions
 
-A for expression iterates over a source that provides an iteration contract.
+A for expression iterates over a source through the compiler-known `Iterable` and `Iterator` traits.
 
 The for expression forms are:
 
 ```bray
-for pattern in source
+for <pattern> in <source>
+{
+    ...
+}
+
+for <pattern> in mut <source>
+{
+    ...
+}
+
+for <pattern> in move <source>
 {
     ...
 }
 ```
 
 ```bray
-for pattern in source
+for <pattern> in <source>
 {
     ...
 }
@@ -5619,11 +5710,11 @@ else
 }
 ```
 
-The source expression is evaluated once before iteration begins.
+The source position uses iteration source resolution.
 
-The source expression must provide an iteration contract.
+It can use shared, mutable, or consuming iteration.
 
-The iteration contract defines:
+The selected `Iterable` and `Iterator` contracts define:
 
 - the element type,
 - the element access mode,
@@ -5636,7 +5727,7 @@ The pattern is checked against the source element type.
 
 The pattern must be irrefutable for the source element type.
 
-The pattern operation mode is determined by the source iteration contract.
+The pattern operation mode is determined by the selected element type, element ownership behavior, and element borrowing behavior.
 
 Each iteration creates fresh bindings from the pattern.
 
@@ -6166,7 +6257,7 @@ Lambda capture entries are evaluated when the lambda expression is evaluated.
 
 Lambda bodies are evaluated only when the produced callable value is called.
 
-Boolean fold expressions evaluate their operand once and then iterate it according to the operand's iteration contract.
+Boolean fold expressions evaluate their operand once and then iterate it through the selected `Iterable` and `Iterator` contracts.
 
 `all(...)` stops iterating after the first `false` element.
 
@@ -6213,14 +6304,6 @@ Specific expression forms also define these evaluation facts:
 - a with expression evaluates its initializer once and applies `exit` on every body exit,
 - a guard is evaluated after structural pattern matching and before selecting the arm body,
 - an assertion expression evaluates its condition first and evaluates its message only when the condition is false.
-
----
-
-## Finalization TODOs
-
-- TODO: Define the concrete iteration protocol used by `for` expressions, `each` generator iteration expressions, array generators,
-  general generators, and boolean fold operands, including element access mode, finiteness, boundedness, cleanup, early exit,
-  ownership transfer, borrowing, and effect propagation.
 
 ---
 

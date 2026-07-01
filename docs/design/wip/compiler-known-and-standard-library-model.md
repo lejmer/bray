@@ -175,6 +175,7 @@ The compiler-known surface includes:
 - compiler-known result and run-boundary types such as `Result<T, E>`, `RunResult<T>`, `PanicReport`, `ConversionError`, and `Task<T>`,
 - compiler-known raw memory declarations and trusted predicates under `core.memory`,
 - compiler-known type-form support traits such as `Storage<T>`,
+- compiler-known iteration traits such as `Iterable` and `Iterator`,
 - compiler-known conversion traits such as `ConvertTo<Target>` and `CheckedConvertTo<Target>`,
 - the compiler-known `Copyable` contract used by static constraints,
 - compiler-known operator traits such as `Add<Rhs>`, `Equatable<Rhs>`, `Comparable<Rhs>`, and the other operator traits defined by the Type Model,

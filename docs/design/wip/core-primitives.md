@@ -278,13 +278,14 @@ reachable false-condition path requires an else body.
 
 ## For expressions
 
-A `for` expression iterates over a source that provides an iteration contract.
+A `for` expression iterates over a source through the compiler-known `Iterable` and `Iterator` traits.
+
+The source portion can use shared, mutable, or consuming iteration.
 
 The source expression is evaluated once before iteration begins.
 
-The source expression must provide an iteration contract. The iteration contract defines the element type, element access mode,
-iteration order, cardinality when known, whether iteration is finite, and ownership and borrowing behavior for each produced
-element.
+The selected `Iterable` and `Iterator` contracts define the element type, element access mode, iteration order, cardinality when
+known, whether iteration is finite, and ownership and borrowing behavior for each produced element.
 
 The pattern is checked against the source element type and must be irrefutable.
 
@@ -663,13 +664,16 @@ A generator iteration expression has the form:
 A generator iteration expression appears as the top-level child of a general generator expression, inside an array generator
 expression, or nested inside an enclosing generator region that accepts its yielded values.
 
-The `<source>` expression must provide an iteration contract. The iteration contract defines the yielded element type, iteration
-order, ownership behavior, borrowing behavior, cardinality information, and whether iteration is finite.
+The `<source>` portion uses the same `Iterable` and `Iterator` iteration source rules as `for` expressions.
+
+The selected contracts define the yielded element type, iteration order, ownership behavior, borrowing behavior, cardinality
+information, and whether iteration is finite.
 
 The `<pattern>` is checked against the yielded element type and must be irrefutable.
 
-The iteration expression applies the pattern to each yielded element in the mode defined by the iteration contract. Bindings
-introduced by the pattern receive their type, capability, lifetime, and ownership behavior from that pattern operation.
+The iteration expression applies the pattern to each yielded element in the mode defined by the selected `Iterable` and `Iterator`
+contracts. Bindings introduced by the pattern receive their type, capability, lifetime, and ownership behavior from that pattern
+operation.
 
 Per-element pattern bindings are scoped to the generator body. A new pattern application occurs for each iteration step.
 
