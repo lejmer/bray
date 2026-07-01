@@ -1288,7 +1288,9 @@ of the Contract and Trust Model.
 
 ## Trusted functions
 
-Trusted functions use the `trusted` modifier and a `uses(...)` clause.
+Trusted functions use the `trusted` modifier.
+
+A trusted function can use trusted implementation capabilities, expose trusted caller obligations, or both.
 
 ```bray
 trusted func copy_bytes(
@@ -1302,6 +1304,8 @@ trusted func copy_bytes(
 ```
 
 `uses(...)` declares trusted implementation capabilities used by the body.
+
+A trusted function that uses no trusted implementation capabilities has no `uses(...)` clause.
 
 A trusted implementation can expose an ordinary safe API.
 
