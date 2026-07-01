@@ -93,8 +93,8 @@ Argumentless directives omit the parentheses.
 
 The directive name determines the kind of compile-time instruction and the program element it can attach to.
 
-Language-defined directives include representation, callable ABI, linkage, symbol, copy, and tag directives such as `@layout(...)`,
-`@abi(...)`, `@link(...)`, `@symbol(...)`, `@copy`, and `@tag(...)`.
+Language-defined directives include representation, callable ABI, linkage, symbol, entrypoint, copy, and tag directives such as
+`@layout(...)`, `@abi(...)`, `@link(...)`, `@symbol(...)`, `@entrypoint`, `@copy`, and `@tag(...)`.
 
 Bray is expression-oriented. Blocks, conditionals, matches, and other control-flow forms produce values when their exits have
 coherent type, ownership, initialization, and destruction state.
@@ -495,9 +495,9 @@ A panic propagates outward until it reaches a panic-catching boundary.
 
 The `catch` expression creates a panic-catching boundary.
 
-For ordinary synchronous code, `catch` reports a caught panic as `Result.Error(error = report)`.
+For ordinary synchronous code, `catch` reports a caught panic as `Result.Error(report)`.
 
-For task or thread observation, `catch` reports a caught panic as `RunResult.Panicked(report = report)`.
+For task or thread observation, `catch` reports a caught panic as `RunResult.Panicked(report)`.
 
 If a panic reaches the program root without being caught, the program terminates.
 
@@ -1279,6 +1279,8 @@ A workspace owns workspace-level configuration, shared tool settings, local pack
 A **package** is a build, versioning, distribution, and dependency unit.
 
 A package owns a set of modules, declared dependencies, build settings, target constraints, and package-level metadata.
+
+A package can define library, executable, and test products.
 
 The package dependency graph is acyclic. A package can depend on another package, but two packages cannot depend on each other
 directly or indirectly.

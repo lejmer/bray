@@ -1931,7 +1931,7 @@ Callable-like construction forms use named arguments where field or parameter id
 
 Struct construction fields use names.
 
-Union variant payload fields use names.
+Union variant payload fields use names unless the selected payload field permits positional construction.
 
 Named constructors and static functions use the call surface defined by their parameter declarations.
 
@@ -3839,7 +3839,7 @@ Payload field initializers are comma-separated.
 
 Trailing commas are allowed.
 
-Payload field initializers use `=`.
+Named payload field initializers use `=`.
 
 ```bray
 Shape.Circle(
@@ -3848,11 +3848,19 @@ Shape.Circle(
 )
 ```
 
-Payload fields are always named.
+Payload fields are named by default.
 
-Payload field names cannot be omitted.
+Payload field names can be omitted only when the initializer supplies a `pos` payload field by position.
 
-Payload field order does not matter.
+Named payload field order does not matter.
+
+Each positional payload initializer supplies the corresponding `pos` payload field by declaration order.
+
+Positional payload initializers must appear before named payload initializers.
+
+A positional payload initializer for a non-`pos` payload field is rejected.
+
+A payload field cannot be supplied both positionally and by name.
 
 A variant construction expression that initializes the same payload field more than once is rejected.
 
@@ -4381,9 +4389,9 @@ A panic-catching boundary does not resume the panicked continuation.
 
 The `catch` expression is the source-level panic-catching expression.
 
-For ordinary synchronous code, `catch` reports a caught panic as `Result.Error(error = report)`.
+For ordinary synchronous code, `catch` reports a caught panic as `Result.Error(report)`.
 
-For task or thread observation, `catch` reports a caught panic as `RunResult.Panicked(report = report)`.
+For task or thread observation, `catch` reports a caught panic as `RunResult.Panicked(report)`.
 
 If a panic reaches the program root without being caught, the program terminates.
 
@@ -4403,19 +4411,19 @@ The operand form selects the catch behavior. Expected result type does not selec
 
 For an ordinary operand of type `T`, `catch expression` has type `Result<T, PanicReport>`.
 
-If the ordinary operand completes normally with a value of type `T`, the catch expression produces `Result.Ok(value = value)`.
+If the ordinary operand completes normally with a value of type `T`, the catch expression produces `Result.Ok(value)`.
 
-If the ordinary operand completes naturally as `unit`, the catch expression produces `Result.Ok(value = unit)`.
+If the ordinary operand completes naturally as `unit`, the catch expression produces `Result.Ok(unit)`.
 
-If the ordinary operand panics, the catch expression produces `Result.Error(error = report)`.
+If the ordinary operand panics, the catch expression produces `Result.Error(report)`.
 
 For a task or thread observation operand whose joined computation has declared result type `T`, `catch expression` has type
 `RunResult<T>`.
 
 If the observed run completes normally with a value of type `T`, the catch expression produces
-`RunResult.Completed(value = value)`.
+`RunResult.Completed(value)`.
 
-If the observed run panics, the catch expression produces `RunResult.Panicked(report = report)`.
+If the observed run panics, the catch expression produces `RunResult.Panicked(report)`.
 
 If the observed run is cancelled before normal completion, the catch expression produces `RunResult.Cancelled`.
 
@@ -4439,7 +4447,7 @@ The block operand is a single-yield region for the caught operand's successful r
 
 `yield;` exits the block operand and supplies `unit`.
 
-Result propagation inside a block operand whose result type is `Result<T, E>` supplies `Result.Error(error = error)` as the
+Result propagation inside a block operand whose result type is `Result<T, E>` supplies `Result.Error(error)` as the
 block operand's value according to ordinary result propagation rules.
 
 For a task or thread observation whose declared result type is `Result<T, E>`, a recoverable error from the observed run is a
@@ -4449,7 +4457,7 @@ normal completion value:
 let loaded: RunResult<Result<User, LoadError>> = catch task.join();
 ```
 
-That value is `RunResult.Completed(value = Result.Error(error = error))`.
+That value is `RunResult.Completed(Result.Error(error))`.
 
 `return`, `break`, `continue`, nullable propagation, result propagation, run-result propagation, and other exits that target an
 outer boundary leave the catch expression without producing a result value on that path.
@@ -5429,7 +5437,7 @@ A result propagation boundary for a `Result.Error` outcome is:
 - a single-yield region whose result type is `RunResult<Result<R, F>>` where `E` is compatible with `F`.
 
 When `Result.Error` propagates to a `RunResult<Result<R, F>>` boundary, the supplied boundary value is
-`RunResult.Completed(value = Result.Error(error = error))`.
+`RunResult.Completed(Result.Error(error))`.
 
 For an operand of type `RunResult<T>`, the normal continuation has type `T`.
 
@@ -5471,7 +5479,7 @@ func load_user(pos id: UserId) -> Result<User, LoadError>
     let row = try db.fetch_user(id);
     let user = try decode_user(row);
 
-    return Result.Ok(value = user);
+    return Result.Ok(user);
 }
 ```
 
@@ -5481,7 +5489,7 @@ func collect(pos task: Task<Result<User, LoadError>>) -> RunResult<Result<User, 
     let result = try catch task.join();
     let user = try result;
 
-    return RunResult.Completed(value = Result.Ok(value = user));
+    return RunResult.Completed(Result.Ok(user));
 }
 ```
 

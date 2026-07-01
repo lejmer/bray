@@ -278,8 +278,8 @@ func parse_entry(pos text: RawPointer<u8>) -> Status
 
     match result
     {
-        case Result.Ok(value = status) => yield status;
-        case Result.Error(error = _) => yield Status(code = 1);
+        case Result.Ok(status) => yield status;
+        case Result.Error(_) => yield Status(code = 1);
     }
 }
 ```

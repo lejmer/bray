@@ -171,15 +171,30 @@ Empty
 .Empty
 ```
 
-A payload variant pattern uses parentheses and field patterns.
+A payload variant pattern uses parentheses and payload patterns.
 
 ```bray
 Circle(center = c, radius = r)
 ```
 
-Payload fields are matched by name.
+Named payload patterns are matched by name.
 
-Field order does not matter.
+Named payload pattern order does not matter.
+
+A positional payload pattern can match a payload field declared with `pos`.
+
+```bray
+Result.Ok(value)
+Result.Error(error)
+```
+
+Each positional payload pattern supplies the corresponding `pos` payload field by declaration order.
+
+Positional payload patterns must appear before named payload patterns.
+
+A positional payload pattern for a non-`pos` payload field is rejected.
+
+A payload field cannot be matched both positionally and by name.
 
 Duplicate payload fields are errors.
 
@@ -237,7 +252,7 @@ This means:
 { x = x, y = y }
 ```
 
-The same rule applies to variant payload fields.
+The same rule applies to variant payload fields when the pattern entry is not filling a positional payload pattern slot.
 
 ```bray
 Circle(center, radius)
@@ -252,6 +267,9 @@ Circle(center = center, radius = radius)
 The shorthand introduces bindings with the same names as the matched fields.
 
 Field shorthand is binding shorthand. The introduced field binding is not resolved as a named constant or variant.
+
+For a payload variant with `pos` payload fields, a pattern entry without `=` fills the next positional payload pattern slot while
+one is available.
 
 ---
 

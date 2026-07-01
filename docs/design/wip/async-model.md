@@ -251,9 +251,9 @@ let result: RunResult<T> = catch task.join();
 
 A task join expression is valid only as the operand of `catch`.
 
-If the task completed normally with a value of type `T`, `catch task.join()` produces `RunResult.Completed(value = value)`.
+If the task completed normally with a value of type `T`, `catch task.join()` produces `RunResult.Completed(value)`.
 
-If the task panicked, `catch task.join()` produces `RunResult.Panicked(report = report)`.
+If the task panicked, `catch task.join()` produces `RunResult.Panicked(report)`.
 
 If the task was cancelled before normal completion, `catch task.join()` produces `RunResult.Cancelled`.
 
@@ -316,7 +316,7 @@ async
     if cancelled
     {
         task.cancel();
-        yield Result.Error(error = HashError.cancelled);
+        yield Result.Error(HashError.cancelled);
     }
 
     let result = try catch task.join();
@@ -333,7 +333,7 @@ async
 
     if cancelled
     {
-        yield Result.Error(error = HashError.cancelled);
+        yield Result.Error(HashError.cancelled);
     }
 
     let result = try catch task.join();
@@ -500,9 +500,9 @@ let result: RunResult<T> = catch thread.join();
 
 A thread join expression is valid only as the operand of `catch`.
 
-If the thread completed normally with a value of type `T`, `catch thread.join()` produces `RunResult.Completed(value = value)`.
+If the thread completed normally with a value of type `T`, `catch thread.join()` produces `RunResult.Completed(value)`.
 
-If the thread panicked, `catch thread.join()` produces `RunResult.Panicked(report = report)`.
+If the thread panicked, `catch thread.join()` produces `RunResult.Panicked(report)`.
 
 If the thread was cancelled before normal completion, `catch thread.join()` produces `RunResult.Cancelled`.
 
@@ -558,7 +558,7 @@ Both are represented by linear owned handles after spawning.
 
 Both are observed through `catch handle.join()` as `RunResult<T>`.
 
-Both record panic at the run boundary and report it as `RunResult.Panicked(report = report)`.
+Both record panic at the run boundary and report it as `RunResult.Panicked(report)`.
 
 Both report completed cancellation as `RunResult.Cancelled`.
 

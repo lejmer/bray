@@ -14,7 +14,7 @@ Module declarations are source declarations.
 
 Package identity is not declared in source.
 
-The current package is supplied by package metadata, build configuration, or direct compiler invocation.
+The current package is supplied by the package/build layer.
 
 Source code declares modules inside the current package.
 
@@ -54,7 +54,7 @@ geometry.shapes.Circle
 
 A package has a package identity supplied outside Bray source.
 
-The compiler receives package identity from the build system, package manifest, or command-line invocation.
+The compiler receives package identity from the package/build layer.
 
 Package identity determines how other packages refer to the compiled package.
 
@@ -67,6 +67,149 @@ Package dependencies are declared by the package/build layer, not by module decl
 The package dependency graph is acyclic.
 
 The module graph inside a package is a declaration graph and can be cyclic.
+
+---
+
+## Package products
+
+A package can define one or more products.
+
+A product is a selected compilation surface over the package's source graph and dependency graph.
+
+The language-defined product kinds are:
+
+- library,
+- executable,
+- test.
+
+Package identity is shared by all products of the package.
+
+Product identity, selected source inputs, selected dependencies, and target constraints are supplied by the package/build layer.
+
+A product is not a module and does not create a namespace.
+
+A source declaration can contribute to more than one product when it is present in each product's selected source graph and is valid
+under each product's product kind and target constraints.
+
+---
+
+## Source graphs
+
+A package product is compiled from an explicit source graph.
+
+The source graph is the selected set of source inputs for that product.
+
+The compiler checks only source inputs that are in the selected source graph.
+
+Every source input in the source graph must be a Bray source file containing module declarations.
+
+Module declarations define module identity.
+
+File paths and source graph order do not define module identity.
+
+Split module declarations are valid when all contributing source inputs are part of the same selected source graph and satisfy the
+split module rules.
+
+The same source input cannot appear more than once in the same product source graph.
+
+Source graph construction is deterministic. The same package identity, product kind, selected source graph, selected dependency
+graph, and target profile produce the same compiler input.
+
+---
+
+## Library products
+
+A library product exposes the package's reachable public declaration graph.
+
+The reachable public declaration graph is computed from the selected source graph after module visibility, declaration visibility,
+internal access, using declarations, exports, re-exports, implementation coherence, overload declarations, and ordinary path
+resolution have been checked.
+
+An internal module or declaration is not part of the public library surface unless a public wrapper or public re-export exposes a
+public declaration whose signature does not require internal access.
+
+A library product has no runtime entry point.
+
+An `@entrypoint` directive in a library product source graph is rejected.
+
+---
+
+## Executable products
+
+An executable product has exactly one resolved entry point.
+
+An explicit entry point is declared with `@entrypoint` immediately before a module-level function declaration:
+
+```bray
+@entrypoint
+func main() -> Result<unit, StartupError>
+{
+    ...
+}
+```
+
+`@entrypoint` is valid only in an executable product source graph.
+
+At most one `@entrypoint` directive can appear in a single executable product source graph.
+
+When an executable product source graph contains no explicit `@entrypoint`, the compiler resolves a standard entry point by looking
+for exactly one module-level function named `main` that satisfies the entry point contract.
+
+If no valid entry point exists, the executable product is rejected.
+
+If more than one valid entry point exists, the executable product is rejected.
+
+An entry point function:
+
+- is a module-level function declaration,
+- has no receiver,
+- has no generic parameters,
+- has no caller-supplied parameters,
+- returns `unit`, `Result<unit, E>`, or `i32`,
+- does not expose trusted caller obligations,
+- is not `const`.
+
+An entry point can be `async` only when the executable product context supplies an async runtime contract for async entry
+execution.
+
+For an entry point with no explicit result type, the result type is `unit`.
+
+`unit` completion is successful executable completion.
+
+`Result.Ok(unit)` completion is successful executable completion.
+
+`Result.Error(error)` completion is failed executable completion with `error` as the reported entry failure value.
+
+An `i32` result is the executable's numeric exit result.
+
+The product runtime contract maps successful completion, failed completion, panic completion, cancellation completion, and numeric
+exit results to the host process or embedding environment.
+
+`@entrypoint` does not change a function's name, module, visibility, callable type, ABI, contract, overload participation, or
+export behavior.
+
+---
+
+## Test products
+
+A test product is a package product whose selected source graph is checked and executed by the test model.
+
+Test products can include ordinary source inputs, test-only source inputs, ordinary dependencies, and test-only dependencies selected
+for that product.
+
+The test model defines test declarations, test modules, test entry point formation, and test execution behavior.
+
+---
+
+## Target constraints
+
+Target constraints are product constraints supplied by the package/build layer.
+
+The compiler checks a product only when the selected target profile satisfies that product's target constraints.
+
+Target facts exposed to Bray source are ordinary compiler-known facts of the selected target profile.
+
+When a product's target constraints are not satisfied, the product is rejected before module bodies are checked.
 
 ---
 
@@ -388,9 +531,6 @@ The public wrapper is a new public declaration with its own public contract.
 
 ## Finalization TODOs
 
-- TODO: Define package manifest semantics, including package identity, declared source graph, source discovery, package kind,
-  library entry surface, executable entry points, test entry points, target constraints, feature selection, dependency lock inputs,
-  and direct compiler invocation behavior.
 - TODO: Define the test model, including how test declarations or test modules are discovered, how test entry points are formed,
   how test-only dependencies participate in the package graph, and how test execution interacts with panics, results, async work,
   trusted declarations, and internal access.
@@ -402,6 +542,8 @@ The public wrapper is a new public declaration with its own public contract.
 Module identity is explicit in source.
 
 Package identity belongs to the package/build layer.
+
+Package products select explicit source and dependency graphs.
 
 Modules are namespaces, not runtime objects.
 

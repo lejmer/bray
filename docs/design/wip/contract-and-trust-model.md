@@ -1142,10 +1142,10 @@ func fill_checked(pos destination: RawPointer<u8>, count: usize) -> Result<unit,
 
     if status < 0
     {
-        return Result.Error(error = IoError.ReadFailed);
+        return Result.Error(IoError.ReadFailed);
     }
 
-    return Result.Ok(value = unit);
+    return Result.Ok(unit);
 }
 ```
 

@@ -649,10 +649,10 @@ fields.
 Constructing a `MemoryLayout` value from arbitrary field values is valid only when the surrounding context proves the same
 allocation-layout contract.
 
-`layout_of<T>(count = count)` returns `Result.Error(error = MemoryLayoutError.SizeOverflow)` when the byte count cannot be
+`layout_of<T>(count = count)` returns `Result.Error(MemoryLayoutError.SizeOverflow)` when the byte count cannot be
 represented as `usize`.
 
-`layout_of<T>(count = count)` returns `Result.Error(error = MemoryLayoutError.UnsupportedAlignment)` when the selected target
+`layout_of<T>(count = count)` returns `Result.Error(MemoryLayoutError.UnsupportedAlignment)` when the selected target
 cannot represent the required alignment for allocation.
 
 The ABI and layout helper results are target-dependent constants when their inputs are constant.
@@ -794,7 +794,7 @@ When `create_buffer` returns `Result.Error`, no allocation owner is created.
 
 If allocation fails after the layout is valid, `create_buffer` panics according to the allocation rules.
 
-When `create_buffer` returns `Result.Ok(value = buffer)`, `buffer.capacity == capacity` and `buffer.initialized == 0`.
+When `create_buffer` returns `Result.Ok(buffer)`, `buffer.capacity == capacity` and `buffer.initialized == 0`.
 
 `RawBuffer<T>` owns its allocation and deallocates it when destroyed.
 

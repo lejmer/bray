@@ -1354,7 +1354,17 @@ A no-payload variant omits parentheses.
 Empty;
 ```
 
-Payload fields are always named.
+Payload fields are named by default.
+
+A payload field can use the `pos` modifier to permit positional construction and positional pattern matching.
+
+```bray
+union Result<T, E>
+{
+    Ok(pos value: T);
+    Error(pos error: E);
+}
+```
 
 Payload field declarations use `:`.
 
@@ -1363,6 +1373,8 @@ Payload field declarations inside variant parentheses are comma-separated.
 Variant names must be unique within the union type.
 
 Payload field names must be unique within the variant payload.
+
+A `pos` payload field may only appear before any non-`pos` payload field in the same variant payload.
 
 Variant-level visibility modifiers are excluded from union bodies.
 
@@ -1376,7 +1388,16 @@ A payload field is a named value stored by a payload variant.
 Circle(center: Point, radius: r64);
 ```
 
-Each payload field has a name, a type, a mutability contract, an optional default expression, and an initialization state.
+Each payload field has a name, a type, a call-position permission, a mutability contract, an optional default expression, and an
+initialization state.
+
+The `pos` modifier changes the construction and pattern surface only.
+
+The payload field still has a name, and payload field access uses that name.
+
+A `pos` payload field can be supplied positionally or by name.
+
+A `pos` payload field can be matched positionally or by name.
 
 Payload fields are immutable by default after initialization.
 
@@ -1478,9 +1499,13 @@ let end = ParseResult<i32>.EndOfInput;
 let end: ParseResult<i32> = .EndOfInput;
 ```
 
-Payload variant construction initializes payload fields by name.
+Payload variant construction initializes payload fields by name or by permitted position.
 
-Payload field order does not matter.
+Named payload field order does not matter.
+
+Each positional payload initializer supplies the corresponding `pos` payload field by declaration order.
+
+Positional payload initializers must appear before named payload initializers.
 
 All non-default payload fields must be initialized.
 
@@ -1946,8 +1971,8 @@ Its semantic declaration is:
 ```bray
 union Result<T, E>
 {
-    Ok(value: T);
-    Error(error: E);
+    Ok(pos value: T);
+    Error(pos error: E);
 }
 ```
 
@@ -1971,8 +1996,8 @@ Its semantic declaration is:
 ```bray
 union RunResult<T>
 {
-    Completed(value: T);
-    Panicked(report: PanicReport);
+    Completed(pos value: T);
+    Panicked(pos report: PanicReport);
     Cancelled;
 }
 ```

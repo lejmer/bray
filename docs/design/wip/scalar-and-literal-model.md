@@ -348,9 +348,9 @@ When valid, `std.string.slice(text, start = start, end = end)` returns a `string
 
 The UTF-8 view is read-only and does not expose mutable representation.
 
-`std.string.from_utf8(bytes)` returns `Result.Ok(value = text)` when `bytes` is well-formed UTF-8.
+`std.string.from_utf8(bytes)` returns `Result.Ok(text)` when `bytes` is well-formed UTF-8.
 
-It returns `Result.Error(error = std.string.EncodingError.InvalidUtf8)` when the byte sequence is not well-formed UTF-8.
+It returns `Result.Error(std.string.EncodingError.InvalidUtf8)` when the byte sequence is not well-formed UTF-8.
 
 String literals are not normalized.
 
