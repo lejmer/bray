@@ -437,17 +437,17 @@ A callable execution scope is created by the block expression body of a callable
 
 Functions create callable execution scopes.
 
-Local functions, lambdas, and async functions also create callable execution scopes.
+Lambdas and async functions also create callable execution scopes.
 
 `return` exits the nearest callable execution scope.
 
 ```bray
 func outer() -> i32
 {
-    func inner() -> i32
+    let inner = lambda () -> i32
     {
         return 1;
-    }
+    };
 
     inner();
 
@@ -1209,27 +1209,38 @@ module context.
 
 ---
 
-## Local functions
+## Local callable values
 
-TODO: Define whether function declarations can exist inside callable bodies and whether local declarations are supported in block expressions.
+Function declarations are declaration forms, not block-expression items.
+
+They do not appear inside callable-body block expressions or ordinary block expressions.
+
+Named reusable behavior belongs at module scope, type scope, implementation scope, or trait scope.
+
+Local callable behavior is expressed with a lambda value bound to a local binding.
 
 ```bray
 func outer() -> i32
 {
-    func inner() -> i32
+    let inner = lambda () -> i32
     {
         return 1;
-    }
+    };
 
     return inner();
 }
 ```
 
-A local function introduces its own callable execution scope.
+A lambda introduces its own callable execution scope.
 
-A `return` inside the local function exits the local function.
+A `return` inside the lambda exits the lambda.
 
-TODO: Define local function capture policy.
+Block expressions support local binding declarations.
+
+They do not support nested named function declarations, nested type declarations, nested trait declarations, nested implementation
+declarations, nested module declarations, or nested package declarations.
+
+Lambda capture uses the ordinary lambda capture rules.
 
 ---
 

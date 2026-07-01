@@ -144,7 +144,6 @@ Every block expression has a type.
 A block expression introduces a scope for:
 
 - local bindings,
-- local declarations where permitted,
 - ownership tracking,
 - borrow tracking,
 - destruction,
@@ -184,7 +183,7 @@ A **callable-body block expression** is the block expression used as the body of
 
 Functions have callable-body block expressions.
 
-Other callable forms such as local functions, lambdas, and async functions also have callable-body block expressions.
+Other callable forms such as lambdas and async functions also have callable-body block expressions.
 
 ```bray
 func add(left: i32, right: i32) -> i32
@@ -311,7 +310,8 @@ A `yield` inside a nested value-producing block expression supplies that nested 
 
 Callable result values are supplied through `return`.
 
-A callable-body block expression introduces a scope for local bindings, local declarations where permitted, ownership tracking, borrow tracking, destruction, finalization tracking, capability checking, effect checking, and fact-context refinement.
+A callable-body block expression introduces a scope for local bindings, ownership tracking, borrow tracking, destruction,
+finalization tracking, capability checking, effect checking, and fact-context refinement.
 
 Local bindings introduced inside the callable-body block expression are visible according to ordinary block-expression scope rules.
 

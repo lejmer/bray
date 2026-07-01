@@ -521,7 +521,7 @@ boundary.
 
 A **callable execution scope** is the body of a callable program element.
 
-Functions, local functions, lambdas, and asynchronous functions introduce callable execution scopes.
+Functions, lambdas, and asynchronous functions introduce callable execution scopes.
 
 A callable execution scope has a declared result type. A `return` exits the current callable execution scope and supplies a value
 compatible with that result type.
