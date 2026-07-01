@@ -7,7 +7,7 @@ Raw memory support is the lowest-level part of Bray's trusted substrate.
 The raw memory model defines:
 
 - the compiler-known `RawPointer<T>` type,
-- the compiler-known `core.memory` operations,
+- the compiler-provided `core.memory` declarations,
 - the trusted predicates used to state raw memory facts,
 - the trusted capabilities required by raw memory operations,
 - the standard-library convenience surface for raw pointers.
@@ -18,6 +18,98 @@ Raw pointers are easy to pass around and impossible to use accidentally as ordin
 
 Every operation that reads, writes, initializes, copies, reinterprets, aliases, allocates, or deallocates raw memory remains gated by
 trusted capabilities, trusted predicate facts, or both.
+
+The `core.memory` declarations in this model are compiler-provided compiler-known declarations.
+
+The Compiler-Known and Standard Library Model defines how compiler-provided declarations exist, how source refers to them, and how
+compilers conform to their specified semantics.
+
+`core.memory` is a compiler-known namespace.
+
+It is not a source package.
+
+It is not a standard-library package.
+
+It is not implemented by standard-library source.
+
+Bodyless declarations shown under `core.memory` are specification notation for compiler-provided declarations.
+
+They are not a source-level declaration form that user packages or standard-library packages can write.
+
+Unless a declaration in this model explicitly states target-conditional availability, it is required on every target that a
+conforming compiler supports.
+
+---
+
+## Compiler conformance
+
+A conforming compiler must provide the `core.memory` declarations exactly as specified by this model.
+
+A compiler must not add additional `core.memory` declarations.
+
+A compiler must not remove, rename, shadow, overload, replace, or change the signature of a `core.memory` declaration.
+
+A compiler must not change parameter names, parameter modifiers, generic parameters, result types, contracts, trusted obligations,
+trusted capabilities, fact production rules, fact invalidation rules, ownership effects, borrowing effects, initialization effects,
+destruction effects, finalization effects, allocation effects, aliasing effects, panic behavior, or evaluation-order behavior.
+
+The observable semantics of `core.memory` declarations are the semantics in this model.
+
+The implementation strategy is not observable Bray semantics.
+
+A compiler can lower `core.memory` declarations through target instructions, target intrinsics, runtime calls, allocator hooks,
+platform APIs, inline code generation, metadata operations, or any other mechanism that preserves the specified Bray semantics.
+
+If a selected target cannot support any required `core.memory` declaration, the compiler must reject that target before code
+generation.
+
+The compiler must not silently substitute a different raw memory contract for that target.
+
+If a target has stricter alignment, address-space, allocation, or ABI constraints than another target, those constraints enter Bray
+through target facts used by this model's contracts.
+
+They do not change the declaration surface.
+
+They do not allow a compiler to make a well-formed Bray program mean something different from the semantics defined here.
+
+`address_of` and `address_of_mut` produce raw pointer values to the storage reached by their borrow arguments without extending the
+borrow lifetime or creating later ordinary borrow protection.
+
+`null` produces a null raw pointer value and no validity facts.
+
+`is_null` observes the raw pointer value and does not read reached storage.
+
+`offset` and `byte_offset` compute raw pointer values and do not read or write reached storage.
+
+`reinterpret` changes the raw pointer element type and does not read or write reached storage.
+
+`read` observes initialized storage and produces a `T` according to the source type's movement and copying rules.
+
+`write` stores a `T` into raw storage and establishes initialized storage for `T` when its preconditions are satisfied.
+
+`copy` copies the representation bytes of `count` initialized `T` values from source to destination and requires the source and
+destination ranges not to overlap.
+
+`copy_overlapping` copies the representation bytes of `count` initialized `T` values from source to destination as if those bytes
+were first preserved in temporary storage, so overlapping source and destination ranges are valid when the other preconditions
+hold.
+
+On normal completion, `allocate` creates a distinct raw allocation described by the produced `owned_allocation` fact and writable by
+the produced `valid_write` fact.
+
+If `allocate` cannot create an allocation satisfying its contract, it panics.
+
+`allocate` must not return a null pointer or any other pointer value that lacks the produced trusted facts.
+
+`deallocate` releases the allocation described by its required `owned_allocation` fact and invalidates every trusted fact that
+depends on that allocation.
+
+`std.memory` declarations are not alternate implementations of `core.memory`.
+
+They are ordinary standard-library declarations that can call or wrap `core.memory` declarations while preserving their contracts.
+
+Different standard-library implementations can organize those wrappers differently, but they cannot change the `core.memory`
+contract.
 
 ---
 
@@ -58,14 +150,14 @@ Raw pointers have no pointer arithmetic syntax.
 
 Raw pointers do not implicitly convert to or from integer types.
 
-Raw pointers are usable only through compiler-known raw memory operations, standard-library wrappers over those operations, ordinary
-copying, ordinary assignment, ordinary parameter passing, and ordinary return.
+Raw pointers are usable only through compiler-known raw memory declarations, standard-library wrappers over those declarations,
+ordinary copying, ordinary assignment, ordinary parameter passing, and ordinary return.
 
 ---
 
 ## Raw pointer creation
 
-The compiler-known raw pointer creation operations are declared in `core.memory`.
+The compiler-known raw pointer creation declarations are under `core.memory`.
 
 ```bray
 func address_of<T>(pos value: &T) -> RawPointer<T>;
@@ -127,7 +219,7 @@ Using the resulting pointer for memory access requires the ordinary trusted fact
 
 ## Raw memory access
 
-The compiler-known raw memory access operations are declared in `core.memory`.
+The compiler-known raw memory access declarations are under `core.memory`.
 
 ```bray
 trusted func read<T>(pos pointer: RawPointer<T>) -> T
@@ -167,7 +259,7 @@ finalization, and ownership obligations before `write` overwrites the storage.
 
 ## Raw memory copy
 
-The compiler-known raw memory copy operations are declared in `core.memory`.
+The compiler-known raw memory copy declarations are under `core.memory`.
 
 ```bray
 trusted func copy<T>(
@@ -222,7 +314,7 @@ and representation invariant required by the involved type and storage.
 
 ## Manual allocation
 
-The compiler-known manual allocation operations are declared in `core.memory`.
+The compiler-known manual allocation declarations are under `core.memory`.
 
 ```bray
 trusted func allocate(bytes: usize, align: usize) -> RawPointer<u8>
@@ -243,6 +335,12 @@ trusted func deallocate(pos pointer: RawPointer<u8>, bytes: usize, align: usize)
 
 `allocate` does not initialize typed values in the returned storage.
 
+If `allocate` cannot create an allocation satisfying its contract, it panics.
+
+An allocation failure panic is an ordinary panic and can be caught by `catch`.
+
+`allocate` must not return a null pointer or any other sentinel value to report allocation failure.
+
 `deallocate` releases the allocation represented by its trusted ownership fact.
 
 Before deallocation, the caller must satisfy all destruction, finalization, initialization, aliasing, and borrowing obligations for
@@ -256,7 +354,7 @@ Raw pointers into a deallocated allocation can still exist as raw pointer values
 
 ## Trusted raw memory predicates
 
-The compiler-known trusted raw memory predicates are declared in `core.memory`.
+The compiler-known trusted raw memory predicates are under `core.memory`.
 
 ```bray
 trusted predicate valid_read<T>(pointer: RawPointer<T>, count: usize);
@@ -348,7 +446,7 @@ They use ordinary import and path visibility rules.
 The compiler can recognize selected `std.memory` declarations by stable declaration identity.
 
 Recognized helpers must preserve the same trusted capability and trusted predicate contracts as the compiler-known `core.memory`
-operation they wrap.
+declaration they wrap.
 
 Examples of recognized helper calls:
 

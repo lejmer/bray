@@ -1758,7 +1758,7 @@ grant trusted capabilities to the caller.
 
 A public trusted implementation exposes either a safe public wrapper or an explicitly trusted public contract.
 
-The Raw Memory Model defines `RawPointer<T>`, compiler-known `core.memory` operations, raw memory trusted predicates, and
+The Raw Memory Model defines `RawPointer<T>`, compiler-known `core.memory` declarations, raw memory trusted predicates, and
 standard-library raw pointer helpers.
 
 ### Trusted capabilities
@@ -1796,6 +1796,8 @@ standard-library raw pointer helpers.
       Bray code.
     - Used for target intrinsics, atomic lowering hooks, SIMD, runtime primitives, and operations that require special
       compiler knowledge.
+    - This is a trusted capability name, not a source-level declaration modifier. Compiler-provided declarations are defined by
+      the Compiler-Known and Standard Library Model.
 
 ---
 

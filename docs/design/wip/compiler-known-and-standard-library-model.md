@@ -6,7 +6,8 @@ Bray distinguishes compiler-known declarations from standard-library declaration
 
 The compiler can reason about both categories, but they enter name resolution differently.
 
-Compiler-known declarations are always available.
+Compiler-known declarations are available without import, subject to any target availability rule defined by the owning language
+model.
 
 Standard-library declarations are ordinary declarations supplied by standard-library packages and must be visible through normal
 import and path rules before source code can use them.
@@ -19,7 +20,8 @@ This split keeps the language core small while still allowing the compiler to un
 
 A **compiler-known declaration** is a language-defined declaration whose identity and contract are known to the compiler.
 
-Compiler-known declarations are available in every module without an import.
+Compiler-known declarations are available in every module without an import, subject to any target availability rule defined by the
+owning language model.
 
 They participate in ordinary type checking, path resolution, overload selection, implementation coherence, ownership checking, borrowing, effect checking, contract checking, and code generation according to their language-defined contracts.
 
@@ -38,6 +40,118 @@ It does not imply that user code can replace, redeclare, or emulate that declara
 Some compiler-known declarations have protected representation.
 
 Protected representation means user code can use the declaration according to its public contract, but cannot construct, inspect, or mutate representation details that the compiler reserves for language invariants.
+
+---
+
+## Compiler-provided declarations
+
+A **compiler-provided declaration** is a compiler-known declaration whose implementation is supplied by the compiler instead of by
+ordinary Bray source.
+
+Compiler-provided declarations have ordinary declaration surfaces.
+
+Their declaration surface includes their namespace, name, generic parameters, parameter names, parameter modifiers, default values,
+result type, contracts, trusted obligations, trusted capabilities, effects, availability, and overload-family membership.
+
+A compiler-provided declaration can be written in a design document as a bodyless declaration.
+
+A bodyless compiler-provided declaration in a design document is specification notation.
+
+It is not source syntax that packages can write.
+
+There is no source-level `intrinsic` declaration modifier.
+
+The set of compiler-provided declarations is closed by the language specification.
+
+A compiler must not add, remove, rename, overload, shadow, replace, or change a compiler-provided declaration except where the owning
+language model defines an explicit target-conditional declaration.
+
+User packages cannot declare compiler-provided declarations.
+
+Standard-library packages cannot declare compiler-provided declarations.
+
+Standard-library packages cannot replace compiler-provided declarations.
+
+Compiler-provided declarations exist in the compiler-known environment before source packages, imports, module declarations, overload
+declarations, and implementation declarations are checked.
+
+Their fully qualified names and declaration identities are reserved.
+
+If source declares the same fully qualified name in the same namespace, the source declaration is rejected.
+
+If source declares a name that is textually similar but has a different namespace or declaration identity, it is an ordinary source
+declaration and does not gain compiler-provided behavior.
+
+The owning language model defines the observable semantics of each compiler-provided declaration.
+
+Those observable semantics include normal results, panic behavior, trusted fact production, trusted fact invalidation, ownership
+effects, borrowing effects, initialization effects, finalization effects, destruction effects, allocation effects, aliasing effects,
+memory effects, and any target-specific constraints named by the owning model.
+
+A conforming compiler must implement the specified observable semantics for every supported target where the declaration is available.
+
+Changing those observable semantics is a compiler bug, not an implementation choice.
+
+A behavior is not implementation-defined merely because the declaration is compiler-provided.
+
+Compiler-provided behavior is portable unless the owning language model explicitly marks a specific part of that behavior as
+target-defined or implementation-defined and defines the allowed range.
+
+A compiler can use target intrinsics, runtime calls, inline code generation, platform APIs, allocator hooks, metadata, static
+analysis, or any other lowering strategy when the specified observable Bray semantics are preserved.
+
+Lowering strategy is not observable Bray semantics.
+
+Implementation-specific lowering must not introduce extra user-visible preconditions, postconditions, panics, trusted facts,
+invalidations, overloads, conversions, imports, visibility changes, or evaluation-order changes.
+
+Implementation-specific lowering must not remove any specified precondition, postcondition, panic, trusted fact, invalidation,
+ownership effect, borrowing effect, initialization effect, finalization effect, destruction effect, allocation effect, aliasing
+effect, memory effect, or evaluation-order rule.
+
+If a declaration's behavior depends on target properties, the owning language model must state the abstract rule and the target
+configuration must provide the concrete target facts needed by that rule.
+
+Examples of target facts include pointer width, pointer alignment, scalar layout, address-space rules, allocation alignment support,
+atomic operation support, and platform ABI constraints.
+
+A compiler must not expose target-specific behavior through a compiler-provided declaration unless the owning language model defines
+that behavior or target fact as part of the declaration's contract.
+
+Compiler-specific extensions must not appear in compiler-known namespaces.
+
+Compiler-specific extensions must not change name resolution, overload resolution, type checking, ownership checking, contract
+checking, trusted fact checking, or code generation for conforming Bray source.
+
+If a compiler exposes extensions, they must be reached through ordinary package or target configuration mechanisms that are outside
+the compiler-known declaration set.
+
+An always-available compiler-provided declaration must be implemented on every target that the compiler claims to support.
+
+A target-conditional compiler-provided declaration is part of the language surface only for targets whose target facts satisfy the
+declaration's availability rule.
+
+Using a target-unavailable compiler-provided declaration is a compile-time error before code generation.
+
+If the compiler cannot implement a required always-available compiler-provided declaration for the selected target, the compiler
+must reject the target as unsupported before checking user source that depends on that target.
+
+Calls to compiler-provided declarations are checked like normal calls against the declaration surface.
+
+Contracts, trusted obligations, trusted capabilities, effects, named and positional parameter rules, generic argument rules, overload
+selection rules, evaluation-order rules, panic-catching rules, result propagation rules, and ownership rules apply normally.
+
+The compiler-provided implementation body is not Bray source.
+
+It is not type checked as a Bray body.
+
+It cannot be referenced, imported, reflected over, overloaded, partially applied, replaced, wrapped by name resolution, or selected by
+source-level implementation rules except through the declaration surface exposed by the language model.
+
+Compiler-provided declarations can be used by the standard library like ordinary visible compiler-known declarations.
+
+Standard-library wrappers over compiler-provided declarations are ordinary standard-library declarations unless the owning language
+model explicitly makes the wrapper compiler-known.
 
 ---
 
@@ -89,6 +203,17 @@ Standard-library declarations are not automatically visible.
 Source code can use a standard-library declaration only when the declaration is reachable through the `std` package root and
 visible through normal import or path rules.
 
+When a design document shows a standard-library declaration without a body, that bodyless form is specification notation for the
+declaration surface and contract.
+
+It is not source syntax that standard-library packages can write.
+
+A conforming standard-library package must provide the declaration through ordinary Bray source, trusted Bray source, or another
+declared dependency mechanism allowed by the dependency and trust models.
+
+If a declaration has no ordinary standard-library implementation because the compiler provides it, it is a compiler-provided
+compiler-known declaration, not a standard-library declaration.
+
 The compiler may recognize selected standard-library declarations by stable declaration identity.
 
 Recognized standard-library declarations can have compiler-defined checking, lowering, optimization, diagnostics, or contract behavior.
@@ -98,6 +223,13 @@ Recognition is based on the declaration's identity, not on accidental spelling.
 A user-defined declaration named like a standard-library declaration is just a user-defined declaration.
 
 It does not gain standard-library recognition.
+
+A standard-library declaration that wraps a compiler-provided declaration remains an ordinary standard-library declaration unless the
+owning language model explicitly makes it compiler-known.
+
+Compiler recognition of a standard-library declaration must preserve that declaration's specified contract and observable semantics.
+
+Recognition does not let different compilers define different standard-library behavior.
 
 Standard-library declarations do not create ambient behavior.
 
@@ -134,20 +266,20 @@ If a visible declaration is not the recognized standard-library declaration, it 
 
 ## Availability summary
 
-| Entity kind | Compiler can reason about it | Available without import | Uses ordinary import rules |
-|-------------|------------------------------|--------------------------|----------------------------|
-| Compiler-known scalar types | yes | yes | no |
-| `string` | yes | yes | no |
-| `RawPointer<T>` | yes | yes | no |
-| Compiler-known type forms | yes | yes | no |
-| `Result<T, E>`, `RunResult<T>`, `Task<T>` | yes | yes | no |
-| `PanicReport`, `ConversionError` | yes | yes | no |
-| `core.memory` raw memory declarations | yes | yes | no |
-| Compiler-known traits | yes | yes | no |
-| User implementations of compiler-known traits | yes | only when declared in the coherence domain | yes, for external implementations |
-| Recognized standard-library functions | yes | no | yes |
-| Recognized standard-library types | yes | no | yes |
-| Ordinary user declarations | according to their contracts | only in their declaration scope | yes |
+| Entity kind                                   | Compiler can reason about it | Available without import                   | Uses ordinary import rules        |
+|-----------------------------------------------|------------------------------|--------------------------------------------|-----------------------------------|
+| Compiler-known scalar types                   | yes                          | yes                                        | no                                |
+| `string`                                      | yes                          | yes                                        | no                                |
+| `RawPointer<T>`                               | yes                          | yes                                        | no                                |
+| Compiler-known type forms                     | yes                          | yes                                        | no                                |
+| `Result<T, E>`, `RunResult<T>`, `Task<T>`     | yes                          | yes                                        | no                                |
+| `PanicReport`, `ConversionError`              | yes                          | yes                                        | no                                |
+| `core.memory` raw memory declarations         | yes                          | yes                                        | no                                |
+| Compiler-known traits                         | yes                          | yes                                        | no                                |
+| User implementations of compiler-known traits | yes                          | only when declared in the coherence domain | yes, for external implementations |
+| Recognized standard-library functions         | yes                          | no                                         | yes                               |
+| Recognized standard-library types             | yes                          | no                                         | yes                               |
+| Ordinary user declarations                    | according to their contracts | only in their declaration scope            | yes                               |
 
 ---
 

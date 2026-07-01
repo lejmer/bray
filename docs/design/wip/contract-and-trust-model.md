@@ -326,11 +326,9 @@ Trusted predicates name facts outside ordinary Bray proof power.
 
 The Raw Memory Model defines the compiler-known trusted predicates under `core.memory`.
 
-Example trusted predicates in a memory module:
+Specification notation for compiler-known trusted predicates:
 
 ```bray
-trusted module core.memory;
-
 trusted predicate owned_allocation(
     pointer: RawPointer<u8>,
     bytes: usize,
@@ -355,7 +353,11 @@ trusted predicate non_overlapping<T>(
 );
 ```
 
-These are not keywords. They are declared predicates accessed through normal Bray paths.
+These are not keywords.
+
+They are compiler-provided declarations accessed through normal Bray paths.
+
+User packages and standard-library packages cannot declare or replace the compiler-known `core.memory` predicates.
 
 ---
 
