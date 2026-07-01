@@ -835,8 +835,9 @@ Generic code is checked against its declared constraints. A generic body uses on
 Types participate in ownership, borrowing, aliasing, movement, destruction, effects, behavioral contracts, polymorphism, and code
 generation.
 
-A type can expose ordinary operations, behavioral contract implementations, type-valued trait member bindings, constants,
-constructors, destructors, and trusted contracts according to its declaration.
+A type can expose ordinary operations, behavioral contract implementations, predicate members, type-valued trait member bindings,
+constant-valued members, constructors, finalizers, destructors, scoped lifecycle behavior, and trusted contracts according to its
+declaration.
 
 Type checking determines whether expressions, calls, patterns, bindings, control-flow exits, generic instantiations, and
 declarations satisfy the type contracts they use.
@@ -963,8 +964,8 @@ what the generic body may assume.
 
 A **behavioral contract** is a named compile-time contract that describes behavior a type provides.
 
-A behavioral contract defines required operations, type-valued trait members, constants, capability requirements, effect requirements,
-execution-mode requirements, and semantic obligations.
+A behavioral contract defines required operations, predicate members, type-valued trait members, constant-valued members,
+lifecycle requirements, capability requirements, effect requirements, execution-mode requirements, and semantic obligations.
 
 A type satisfies a behavioral contract through an explicit implementation.
 
@@ -1207,8 +1208,9 @@ lifecycle behavior require compiler-visible structure.
 
 An **implementation** is an explicit declaration that makes a type satisfy a behavioral contract.
 
-An implementation defines how the type provides the operations, type-valued trait member bindings, constants, capability
-requirements, effect requirements, execution modes, and semantic obligations required by the contract.
+An implementation defines how the type provides the operations, predicate members, type-valued trait member bindings,
+constant-valued members, lifecycle requirements, capability requirements, effect requirements, execution modes, and semantic
+obligations required by the contract.
 
 Implementations are nominal relationships between a type and a behavioral contract. A type satisfies a contract only through a
 participating implementation available in the relevant checking context.
@@ -1599,8 +1601,8 @@ Default arguments are applied only after a single lifecycle declaration has been
 
 Default arguments do not participate in lifecycle selection.
 
-Lifecycle declarations provided by trait implementations participate only after the relevant exact trait implementation has been
-selected by the ordinary trait and implementation selection rules.
+Trait implementation lifecycle declarations for `enter` and `exit` participate only after the relevant exact trait implementation
+has been selected by the ordinary trait and implementation selection rules.
 
 ---
 

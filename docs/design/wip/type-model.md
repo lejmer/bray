@@ -69,7 +69,7 @@ are distinct types because the storage policy argument differs.
 
 Bray has multiple type categories.
 
-The currently defined categories include:
+The type categories include:
 
 - scalar types,
 - product types,
@@ -2746,7 +2746,7 @@ A recursively reachable stored field is valid only when every recursive path bac
 
 An **owning indirection boundary** is a type form whose outer value has known finite size and owns storage for its subject separately from the outer value.
 
-The currently defined owning indirection boundary is `box[S] T`.
+The owning indirection boundary is `box[S] T`.
 
 This includes `box[S] view TraitApplication`.
 
@@ -3004,11 +3004,13 @@ The full trait body is the contract surface of the trait.
 
 A trait body contains member declarations that make up the trait’s behavioral contract.
 
-The currently defined trait member forms are:
+The trait member forms are:
 
 - callable member declarations,
 - constant-valued member declarations,
-- type-valued member declarations.
+- type-valued member declarations,
+- predicate member declarations,
+- lifecycle requirement declarations.
 
 ```bray
 trait Equatable<Other>
@@ -3046,12 +3048,12 @@ A defaulted member body provides default behavior for implementations that do no
 
 A defaulted member body is checked in trait context.
 
-A defaulted member body can use the trait’s declared surface, `self` when the member is an instance method, `Self`, trait parameters, type-valued members, constant-valued members, available constraints, and declarations visible from the trait declaration context.
+A defaulted member body can use the trait’s declared surface, `self` when the member is an instance method, `Self`, trait
+parameters, type-valued members, constant-valued members, predicate members, available constraints, and declarations visible from
+the trait declaration context.
 
 A defaulted member body must satisfy the member's declared result type, ownership behavior, borrowing behavior, and callable
 contract.
-
-TODO: Define additional trait member kinds such as predicates and lifecycle requirements.
 
 ### Constant-valued members in traits
 
@@ -3305,6 +3307,207 @@ If no matching implementation is available, the reference is rejected.
 If more than one matching implementation is available in the relevant coherence domain, the reference is rejected as ambiguous.
 
 Visibility and internal-use acknowledgement rules apply to the trait application, implementation, and selected type.
+
+### Predicate members in traits
+
+A predicate member is a contract-level relation declared by a trait.
+
+```bray
+trait Buffer
+{
+    predicate valid(value: &Self);
+
+    predicate has_space(value: &Self, count: usize) =
+        value.length() + count <= value.capacity();
+}
+```
+
+A predicate member declaration without a body introduces a required predicate member.
+
+A predicate member declaration with `=` and a predicate expression defines the predicate for every implementation of the trait.
+
+Trait-defined predicate members are not overridden by implementations.
+
+An implementation must provide every required predicate member.
+
+```bray
+impl PacketBuffer(Buffer)
+{
+    predicate valid(value: &Self) =
+        value.length <= value.capacity;
+}
+```
+
+An implementation predicate member must match a predicate member declared by the implemented trait.
+
+An implementation cannot provide the same predicate member more than once.
+
+An implementation cannot provide extra predicate members that are not declared by the trait.
+
+A predicate member name must be unique among the trait's member names.
+
+Predicate member parameters can mention `Self`, trait parameters, type-valued members, and ordinary types visible from the trait
+declaration context.
+
+A predicate member body is checked as a predicate expression.
+
+Inside the declaring trait, the predicate member name is available in member signatures, default bodies, predicate bodies, and
+contract clauses.
+
+Inside an implementation of the trait, the predicate member name refers to the predicate selected by that implementation.
+
+Outside the declaring trait and an implementation of that trait, a predicate member is referenced with a qualified predicate
+member reference:
+
+```bray
+SubjectType(TraitApplication).predicate_name(...)
+```
+
+`SubjectType` is the implementing type whose selected predicate is being referenced.
+
+`TraitApplication` is the trait application that declares the predicate member.
+
+The trait application in a qualified predicate member reference must be exact.
+
+The qualified reference is valid only when the referenced implementation is available in the checking context.
+
+If no matching implementation is available, the reference is rejected.
+
+If more than one matching implementation is available in the relevant coherence domain, the reference is rejected as ambiguous.
+
+Predicate members participate in contract checking, static constraints, fact-context checking, generic satisfaction,
+documentation, and public API compatibility.
+
+Trusted predicate members follow the ordinary trusted predicate and trusted obligation rules from the Contract and Trust Model.
+
+### Lifecycle requirements in traits
+
+A lifecycle requirement is a trait member that requires compatible lifecycle behavior from the implementing type or exact trait
+implementation.
+
+Lifecycle requirements are written with lifecycle declaration syntax and end with `;`.
+
+```bray
+trait Scoped<Lease>
+{
+    enter() -> Result<Lease, LockError>;
+    exit(scoped: Lease) -> unit;
+}
+```
+
+Lifecycle requirements do not have bodies in trait declarations.
+
+The lifecycle requirements allowed in traits are:
+
+- `finalize`,
+- `destruct`,
+- `enter`,
+- `exit`.
+
+Constructor requirements are expressed as static callable members that return `Self` or `Result<Self, E>`.
+
+```bray
+trait Openable
+{
+    static func open(pos path: Path) -> Result<Self, OpenError>;
+}
+```
+
+A `finalize` requirement is satisfied by a compatible type-wide finalizer on the implementing type.
+
+```bray
+trait Finalizable
+{
+    async finalize() -> Result<unit, FileError>;
+}
+
+struct File
+{
+    handle: OsHandle;
+
+    async finalize() -> Result<unit, FileError>
+    {
+        ...
+    }
+}
+
+impl File(Finalizable)
+{
+}
+```
+
+A `destruct` requirement is satisfied by a compatible type-wide destructor on the implementing type.
+
+```bray
+trait Destructible
+{
+    destruct();
+}
+```
+
+Trait implementations cannot provide `finalize` or `destruct` bodies.
+
+`finalize` and `destruct` remain lifecycle behavior of the concrete type.
+
+Finalization and destruction do not depend on which trait view or trait implementation is used to observe a value.
+
+Multiple traits can require `finalize` or `destruct` from the same implementing type.
+
+The implementing type's type-wide lifecycle declaration must satisfy every participating `finalize` or `destruct` requirement.
+
+A `destruct` requirement must be synchronous, infallible, and return `unit`.
+
+If the result type is omitted from a `destruct` requirement, `unit` is inferred.
+
+A type-wide destructor satisfies a `destruct` requirement when it satisfies the requirement's lifecycle signature and contract
+clauses.
+
+A `finalize` requirement can be synchronous or asynchronous.
+
+A `finalize` requirement can return `unit` or `Result<unit, E>`.
+
+The implementing type's type-wide finalizer must match the requirement's execution mode.
+
+The implementing type's type-wide finalizer must match the requirement's result shape.
+
+For a `Result<unit, E>` requirement, the finalizer error type must be compatible with `E`.
+
+The type-wide finalizer must satisfy the requirement's contract clauses.
+
+An `enter` requirement must be paired with a matching `exit` requirement in the same trait.
+
+An `exit` requirement is valid only when the same trait declares the matching `enter` requirement.
+
+The `exit` scoped-capability parameter type must match the successful scoped-capability type of the matching `enter`
+requirement after type-valued member bindings have been applied.
+
+An `enter` or `exit` requirement can be satisfied by a compatible type-wide lifecycle declaration on the implementing type.
+
+An `enter` or `exit` requirement can also be satisfied by a compatible lifecycle declaration in the trait implementation body.
+
+```bray
+impl File(Scoped<FileLease>)
+{
+    enter() -> Result<FileLease, LockError>
+    {
+        ...
+    }
+
+    exit(scoped: FileLease) -> unit
+    {
+        ...
+    }
+}
+```
+
+Trait implementation lifecycle declarations for `enter` and `exit` are selected only after the exact trait implementation has
+been selected by ordinary implementation selection rules.
+
+For a given exact subject type, exact trait application, lifecycle kind, and lifecycle path, at most one participating
+implementation lifecycle declaration can be visible in a coherence domain.
+
+Lifecycle requirements participate in ownership checking, borrowing checking, finalization tracking, with-expression checking,
+generic satisfaction, documentation, and public API compatibility.
 
 ### Instance methods in traits
 
@@ -3874,11 +4077,17 @@ A trait implementation must provide every required constant-valued member.
 
 A trait implementation must bind every required type-valued member.
 
-A trait implementation can provide a member that has default behavior in the trait.
+A trait implementation must provide every required predicate member.
 
-When an implementation provides a member with default behavior, the implementation member is used for that implementation.
+A trait implementation must satisfy every lifecycle requirement.
 
-When an implementation omits a member with default behavior, the trait’s default behavior is used for that implementation.
+A trait implementation can provide a callable member or constant-valued member that has default behavior in the trait.
+
+When an implementation provides a callable member or constant-valued member with default behavior, the implementation member is
+used for that implementation.
+
+When an implementation omits a callable member or constant-valued member with default behavior, the trait’s default behavior is
+used for that implementation.
 
 An implementation callable member must match the fulfilled trait member’s name, receiver mode, parameter names, parameter types, result type, execution mode, contract obligations, and caller-visible effects after type-valued member bindings have been applied.
 
@@ -3899,6 +4108,23 @@ An implementation type-valued member binding must select a concrete type that is
 An implementation cannot bind the same type-valued member more than once.
 
 An implementation cannot provide extra type-valued member bindings that are not declared by the trait.
+
+An implementation predicate member must match a predicate member declared by the implemented trait.
+
+An implementation predicate member body must be a predicate expression valid in the implementation context.
+
+An implementation cannot provide the same predicate member more than once.
+
+An implementation cannot provide extra predicate members that are not declared by the trait.
+
+An implementation lifecycle declaration can fulfill only an `enter` or `exit` requirement declared by the implemented trait.
+
+An implementation lifecycle declaration must satisfy the lifecycle signature and contract clauses of the requirement it fulfills
+after type-valued member bindings have been applied.
+
+An implementation cannot provide `finalize` or `destruct` as trait implementation members.
+
+An implementation cannot provide lifecycle declarations that do not fulfill lifecycle requirements declared by the trait.
 
 Implementation member visibility is governed by the implementation relationship and the implemented trait or inherent implementation context.
 
@@ -4552,6 +4778,19 @@ Removing a constant-valued member from a public trait is a public API change.
 
 Changing a constant-valued member name, declared type, default value, or selected implementation value can be a public API change.
 
+Adding a required predicate member to a public trait is a public API change.
+
+Removing a predicate member from a public trait is a public API change.
+
+Changing a predicate member name, parameters, body, trusted state, or selected implementation predicate can be a public API change.
+
+Adding a lifecycle requirement to a public trait is a public API change.
+
+Removing a lifecycle requirement from a public trait is a public API change.
+
+Changing a lifecycle requirement kind, signature, execution mode, result shape, contract clauses, or required scoped-capability
+type can be a public API change.
+
 Changing member contract clauses can be a public API change when requirements, guarantees, effects, capabilities, trusted obligations, or caller-visible behavior change.
 
 Changing a default member body can be a public API change when observable behavior changes for implementations that use the default.
@@ -4560,13 +4799,7 @@ Changing trait visibility is a public API change.
 
 Changing implementation visibility or reachability can be a public API change when it affects method resolution or generic satisfaction.
 
-Changing implementation overload family membership can be a public API change when it affects trait satisfaction, method resolution, type-valued member selection, or generic satisfaction.
-
-### Trait TODOs
-
-TODO: Define predicates in traits.
-
-TODO: Define lifecycle declarations in traits.
+Changing implementation overload family membership can be a public API change when it affects trait satisfaction, method resolution, type-valued member selection, predicate member selection, lifecycle requirement satisfaction, or generic satisfaction.
 
 ---
 
