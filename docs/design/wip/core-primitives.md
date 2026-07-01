@@ -927,8 +927,8 @@ complete value moves the whole value.
 A consuming product pattern can also move selected fields out of a `struct` according to the pattern operation rules. After a
 partial move, the `struct` is partially initialized and destruction affects only the fields that remain initialized.
 
-Copy behavior is explicit. A `struct` is copyable only when its declaration or derived contract makes it copyable, and every field
-satisfies the required copy contract.
+Copy behavior is explicit. A `struct` is copyable only when its declaration has an accepted `@copy` contract and every field
+satisfies the required copy contract for that concrete type.
 
 Destruction is deterministic. Destroying a fully initialized `struct` destroys its initialized fields in reverse declaration order.
 

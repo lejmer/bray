@@ -1004,7 +1004,8 @@ A product move transfers finalization obligations carried by the product or its 
 
 ### Product copying
 
-A product value is copyable only when the product type has a copy contract and every field satisfies the required copy contract.
+A product value is copyable only when the product type has an accepted `@copy` contract and every field satisfies the required copy
+contract for that concrete type.
 
 Copying a product copies every field according to its field type’s copy contract.
 
@@ -1012,7 +1013,7 @@ Copying a product produces a separate value with its own ownership story.
 
 Copying a product preserves the abstract value according to the product’s copy contract.
 
-Copy behavior is explicit through the product type’s contract.
+Copy behavior is explicit through the product type's `@copy` contract.
 
 ### Product destruction
 
@@ -1639,7 +1640,8 @@ Moving a union transfers finalization obligations carried by the union or its ac
 
 ### Union copying
 
-A union value is copyable only when the union type has a copy contract and every possible active payload satisfies the required copy contract.
+A union value is copyable only when the union type has an accepted `@copy` contract and every possible active payload satisfies the
+required copy contract for that concrete type.
 
 Copying a union copies the active tag.
 
@@ -1649,7 +1651,7 @@ Inactive payloads have no initialized values to copy.
 
 Copying a union produces a separate value with its own ownership story.
 
-Copy behavior is explicit through the union type’s contract.
+Copy behavior is explicit through the union type's `@copy` contract.
 
 ### Union destruction
 

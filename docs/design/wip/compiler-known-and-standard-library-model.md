@@ -51,7 +51,8 @@ ordinary Bray source.
 Compiler-provided declarations have ordinary declaration surfaces.
 
 Their declaration surface includes their namespace, name, generic parameters, parameter names, parameter modifiers, default values,
-result type, contracts, trusted obligations, trusted capabilities, effects, availability, and overload-family membership.
+result type, contracts, trusted obligations, trusted capabilities, effects, const eligibility, availability, and overload-family
+membership.
 
 A compiler-provided declaration can be written in a design document as a bodyless declaration.
 
@@ -221,7 +222,8 @@ compiler-known declaration, not a standard-library declaration.
 
 The compiler may recognize selected standard-library declarations by stable declaration identity.
 
-Recognized standard-library declarations can have compiler-defined checking, lowering, optimization, diagnostics, or contract behavior.
+Recognized standard-library declarations can have compiler-defined checking, lowering, optimization, diagnostics, const eligibility,
+or contract behavior.
 
 Recognition is based on the declaration's identity, not on accidental spelling.
 
@@ -271,20 +273,20 @@ If a visible declaration is not the recognized standard-library declaration, it 
 
 ## Availability summary
 
-| Entity kind                                   | Compiler can reason about it | Available without import                   | Uses ordinary import rules        |
-|-----------------------------------------------|------------------------------|--------------------------------------------|-----------------------------------|
-| Compiler-known scalar types                   | yes                          | yes                                        | no                                |
-| `string`                                      | yes                          | yes                                        | no                                |
-| `RawPointer<T>`                               | yes                          | yes                                        | no                                |
-| Compiler-known type forms                     | yes                          | yes                                        | no                                |
-| `Result<T, E>`, `RunResult<T>`, `Task<T>`     | yes                          | yes                                        | no                                |
-| `PanicReport`, `ConversionError`              | yes                          | yes                                        | no                                |
-| `core.memory` raw memory declarations         | yes                          | yes                                        | no                                |
-| Compiler-known traits                         | yes                          | yes                                        | no                                |
-| User implementations of compiler-known traits | yes                          | only when declared in the coherence domain | yes, for external implementations |
-| Recognized standard-library functions         | yes                          | no                                         | yes                               |
-| Recognized standard-library types             | yes                          | no                                         | yes                               |
-| Ordinary user declarations                    | according to their contracts | only in their declaration scope            | yes                               |
+| Entity kind                                   | Compiler can reason about it | Available without import                            | Uses ordinary import rules        |
+|-----------------------------------------------|------------------------------|-----------------------------------------------------|-----------------------------------|
+| Compiler-known scalar types                   | yes                          | yes, when target-available                          | no                                |
+| `string`                                      | yes                          | yes                                                 | no                                |
+| `RawPointer<T>`                               | yes                          | yes                                                 | no                                |
+| Compiler-known type forms                     | yes                          | yes, when target-available                          | no                                |
+| `Result<T, E>`, `RunResult<T>`, `Task<T>`     | yes                          | yes                                                 | no                                |
+| `PanicReport`, `ConversionError`              | yes                          | yes                                                 | no                                |
+| `core.memory` raw memory declarations         | yes                          | yes, when target-available                          | no                                |
+| Compiler-known traits                         | yes                          | yes, when target-available                          | no                                |
+| User implementations of compiler-known traits | yes                          | only when declared in the coherence domain          | yes, for external implementations |
+| Recognized standard-library functions         | yes                          | no                                                  | yes                               |
+| Recognized standard-library types             | yes                          | no                                                  | yes                               |
+| Ordinary user declarations                    | according to their contracts | only in their declaration scope                     | yes                               |
 
 ---
 
