@@ -44,7 +44,10 @@ Signed integer types have fixed bit width.
 
 Signed integer operations are typed operations over their declared type.
 
-Integer overflow behavior for ordinary runtime arithmetic is a separate language rule and must be defined explicitly.
+Overflow in ordinary runtime signed integer arithmetic panics.
+
+Wrapping, saturating, widening, checked, or otherwise policy-specific arithmetic requires an explicit operation with that contract.
+
 Contract arithmetic does not use machine overflow semantics.
 
 ---
@@ -65,7 +68,10 @@ Unsigned integer types have fixed bit width.
 
 Unsigned integer operations are typed operations over their declared type.
 
-Unsigned integer overflow behavior for ordinary runtime arithmetic is a separate language rule and must be defined explicitly.
+Overflow in ordinary runtime unsigned integer arithmetic panics.
+
+Wrapping, saturating, widening, checked, or otherwise policy-specific arithmetic requires an explicit operation with that contract.
+
 Contract arithmetic does not silently wrap.
 
 ---
