@@ -47,8 +47,10 @@ The always-available compiler-known surface includes:
 
 - built-in scalar type names such as `bool`, `char`, `unit`, `never`, integer types, real types, complex types, and machine-sized integer types,
 - the compiler-known text type `string`,
+- the compiler-known raw pointer type `RawPointer<T>`,
 - structural type forms such as tuple types, fixed-size array types, slice types, nullable types, borrow types, trait-view types, owned-indirection types, and callable types,
 - compiler-known result and run-boundary types such as `Result<T, E>`, `RunResult<T>`, `PanicReport`, `ConversionError`, and `Task<T>`,
+- compiler-known raw memory declarations and trusted predicates under `core.memory`,
 - compiler-known type-form support traits such as `Storage<T>`,
 - compiler-known conversion traits such as `ConvertTo<Target>` and `CheckedConvertTo<Target>`,
 - compiler-known operator traits such as `Add<Rhs>`, `Equatable<Rhs>`, `Comparable<Rhs>`, and the other operator traits defined by the Type Model,
@@ -117,6 +119,7 @@ Current known standard-library operations include:
 
 - `std.convert<Target>(source)`, the fallible conversion operation backed by `CheckedConvertTo<Target>`,
 - numeric policy operations such as `std.round_to<Target>(source, rule = ...)`, `std.truncate_to<Target>(source)`, `std.saturate_to<Target>(source)`, and `std.wrap_to<Target>(source)`,
+- raw pointer convenience helpers under `std.memory`, when imported,
 - standard storage policy types and helpers used with compiler-known type forms, when imported.
 
 These operations are not syntax.
@@ -135,9 +138,11 @@ If a visible declaration is not the recognized standard-library declaration, it 
 |-------------|------------------------------|--------------------------|----------------------------|
 | Compiler-known scalar types | yes | yes | no |
 | `string` | yes | yes | no |
+| `RawPointer<T>` | yes | yes | no |
 | Compiler-known type forms | yes | yes | no |
 | `Result<T, E>`, `RunResult<T>`, `Task<T>` | yes | yes | no |
 | `PanicReport`, `ConversionError` | yes | yes | no |
+| `core.memory` raw memory declarations | yes | yes | no |
 | Compiler-known traits | yes | yes | no |
 | User implementations of compiler-known traits | yes | only when declared in the coherence domain | yes, for external implementations |
 | Recognized standard-library functions | yes | no | yes |

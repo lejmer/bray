@@ -63,8 +63,8 @@ A trusted function declares the exact trusted implementation capabilities used b
 
 ```bray
 trusted func copy_bytes(
-    destination: &mut RawBuffer,
-    source: &RawBuffer,
+    destination: &mut ByteBuffer,
+    source: &ByteBuffer,
     count: usize,
 ) uses(raw_memory)
 {
@@ -139,9 +139,9 @@ trusted func copy_bytes_unchecked(
     count: usize,
 ) -> unit
     requires(
-        trusted core.memory.valid_write_range(pointer = destination, count = count),
-        trusted core.memory.valid_read_range(pointer = source, count = count),
-        trusted core.memory.disjoint_ranges(left = destination, left_count = count, right = source, right_count = count),
+        trusted core.memory.valid_write(pointer = destination, count = count),
+        trusted core.memory.valid_read(pointer = source, count = count),
+        trusted core.memory.non_overlapping(left = destination, left_count = count, right = source, right_count = count),
     )
     uses(raw_memory)
 {
@@ -164,7 +164,7 @@ Contract clauses are always parenthesized comma-separated lists.
 ```bray
 requires(
     length <= capacity,
-    trusted core.memory.owned_allocation(pointer = pointer, capacity = capacity),
+    trusted core.memory.owned_allocation(pointer = pointer, bytes = capacity, align = align),
 )
 ```
 
@@ -184,7 +184,7 @@ This avoids ambiguous or hard-to-read clause chains.
 Invalid style:
 
 ```bray
-requires length <= capacity requires trusted core.memory.owned_allocation(pointer = pointer, capacity = capacity)
+requires length <= capacity requires trusted core.memory.owned_allocation(pointer = pointer, bytes = capacity, align = align)
 ```
 
 Valid style:
@@ -192,7 +192,7 @@ Valid style:
 ```bray
 requires(
     length <= capacity,
-    trusted core.memory.owned_allocation(pointer = pointer, capacity = capacity),
+    trusted core.memory.owned_allocation(pointer = pointer, bytes = capacity, align = align),
 )
 ```
 
@@ -242,7 +242,7 @@ A trusted requirement is a trusted predicate call inside a contract clause.
 
 ```bray
 requires(
-    trusted core.memory.owned_allocation(pointer = pointer, capacity = capacity),
+    trusted core.memory.owned_allocation(pointer = pointer, bytes = capacity, align = align),
 )
 ```
 
@@ -281,10 +281,10 @@ func clamp(pos value: i32, min: i32, max: i32) -> i32
 A trusted declaration can establish trusted facts:
 
 ```bray
-trusted func allocate(capacity: usize) -> RawPointer<u8>
+trusted func allocate(bytes: usize, align: usize) -> RawPointer<u8>
     ensures(
-        trusted core.memory.owned_allocation(pointer = result, capacity = capacity),
-        trusted core.memory.valid_write_range(pointer = result, count = capacity),
+        trusted core.memory.owned_allocation(pointer = result, bytes = bytes, align = align),
+        trusted core.memory.valid_write(pointer = result, count = bytes),
     )
     uses(manual_alloc)
 {
@@ -317,11 +317,14 @@ A trusted predicate is opaque and has no ordinary body:
 ```bray
 trusted predicate owned_allocation(
     pointer: RawPointer<u8>,
-    capacity: usize,
+    bytes: usize,
+    align: usize,
 );
 ```
 
 Trusted predicates name facts outside ordinary Bray proof power.
+
+The Raw Memory Model defines the compiler-known trusted predicates under `core.memory`.
 
 Example trusted predicates in a memory module:
 
@@ -330,23 +333,24 @@ trusted module core.memory;
 
 trusted predicate owned_allocation(
     pointer: RawPointer<u8>,
-    capacity: usize,
+    bytes: usize,
+    align: usize,
 );
 
-trusted predicate valid_read_range(
-    pointer: RawPointer<u8>,
+trusted predicate valid_read<T>(
+    pointer: RawPointer<T>,
     count: usize,
 );
 
-trusted predicate valid_write_range(
-    pointer: RawPointer<u8>,
+trusted predicate valid_write<T>(
+    pointer: RawPointer<T>,
     count: usize,
 );
 
-trusted predicate disjoint_ranges(
-    left: RawPointer<u8>,
+trusted predicate non_overlapping<T>(
+    left: RawPointer<T>,
     left_count: usize,
-    right: RawPointer<u8>,
+    right: RawPointer<T>,
     right_count: usize,
 );
 ```
@@ -663,7 +667,7 @@ Invalid:
 
 ```bray
 func bad(pointer: RawPointer<u8>) -> u8 {
-    return trusted read_unchecked(pointer = pointer);
+    return trusted core.memory.read<u8>(pointer);
 }
 ```
 
@@ -672,10 +676,12 @@ Valid if the obligation is exposed:
 ```bray
 func read_wrapper(pointer: RawPointer<u8>) -> u8
     requires(
-        trusted core.memory.valid_read_range(pointer = pointer, count = 1),
+        trusted core.memory.valid_read(pointer = pointer, count = 1),
+        trusted core.memory.aligned_for<u8>(pointer = pointer),
+        trusted core.memory.initialized_as<u8>(pointer = pointer),
     )
 {
-    return trusted read_unchecked(pointer = pointer);
+    return trusted core.memory.read<u8>(pointer);
 }
 ```
 
@@ -748,7 +754,7 @@ This keeps the invalid wrapper invalid:
 ```bray
 func bad(pointer: RawPointer<u8>) -> u8
 {
-    return trusted read_unchecked(pointer = pointer);
+    return trusted core.memory.read<u8>(pointer);
 }
 ```
 
@@ -759,10 +765,12 @@ This wrapper exposes the obligation:
 ```bray
 func read_wrapper(pointer: RawPointer<u8>) -> u8
     requires(
-        trusted core.memory.valid_read_range(pointer = pointer, count = 1),
+        trusted core.memory.valid_read(pointer = pointer, count = 1),
+        trusted core.memory.aligned_for<u8>(pointer = pointer),
+        trusted core.memory.initialized_as<u8>(pointer = pointer),
     )
 {
-    return trusted read_unchecked(pointer = pointer);
+    return trusted core.memory.read<u8>(pointer);
 }
 ```
 
@@ -793,10 +801,11 @@ trusted construct from_raw_parts(
     pointer: RawPointer<u8>,
     length: usize,
     capacity: usize,
+    align: usize,
 ) -> Self
     requires(
         length <= capacity,
-        trusted core.memory.owned_allocation(pointer = pointer, capacity = capacity),
+        trusted core.memory.owned_allocation(pointer = pointer, bytes = capacity, align = align),
     )
     uses(raw_memory, manual_alloc)
 {

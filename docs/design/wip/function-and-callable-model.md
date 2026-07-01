@@ -958,8 +958,8 @@ Trusted functions use the `trusted` modifier and a `uses(...)` clause.
 
 ```bray
 trusted func copy_bytes(
-    destination: &mut RawBuffer,
-    source: &RawBuffer,
+    destination: &mut ByteBuffer,
+    source: &ByteBuffer,
     count: usize,
 ) uses(raw_memory)
 {

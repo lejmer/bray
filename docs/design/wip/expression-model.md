@@ -4883,7 +4883,7 @@ A trusted predicate call can appear in a contract clause when prefixed with `tru
 ```bray
 requires(
     length <= capacity,
-    trusted core.memory.owned_allocation(pointer = pointer, capacity = capacity),
+    trusted core.memory.owned_allocation(pointer = pointer, bytes = capacity, align = align),
 )
 ```
 
@@ -5000,7 +5000,7 @@ trusted expression
 Example:
 
 ```bray
-let byte = trusted read_unchecked(pointer = pointer);
+let byte = trusted core.memory.read<u8>(pointer);
 ```
 
 The operand is checked as the expression covered by the trust boundary.
@@ -5033,8 +5033,8 @@ For a block operand, the scope is the block expression.
 ```bray
 trusted
 {
-    let first = read_unchecked(pointer = first_pointer);
-    let second = read_unchecked(pointer = second_pointer);
+    let first = core.memory.read<u8>(first_pointer);
+    let second = core.memory.read<u8>(second_pointer);
     yield first + second;
 }
 ```

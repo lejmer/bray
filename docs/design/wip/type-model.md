@@ -79,6 +79,7 @@ The type categories include:
 - slice types,
 - nullable types,
 - borrow types,
+- raw pointer types,
 - trait-view types,
 - owned-indirection types,
 - callable types.
@@ -103,6 +104,8 @@ Nullable types are produced by the postfix nullable type form `T?`.
 
 Borrow types are produced by `&T` and `&mut T`.
 
+Raw pointer types are produced by the compiler-known generic type `RawPointer<T>`.
+
 Trait-view types are produced by the `view` type form.
 
 Owned-indirection types are produced by the `box` type form.
@@ -113,6 +116,9 @@ The compiler-known `string` type is a named protected-representation value type,
 
 The Scalar and Literal Model defines the exact scalar type set, literal typing, scalar operation behavior, and scalar conversion
 rules.
+
+The Raw Memory Model defines `RawPointer<T>`, raw pointer validity, raw memory operations, raw memory trusted predicates, and raw
+pointer standard-library helpers.
 
 All other categories listed here are defined by the product, union, compiler-known result union, compiler-known task handle, and
 type-form sections of this model.

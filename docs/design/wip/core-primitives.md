@@ -879,6 +879,7 @@ The core built-in type categories are:
   borrowing, movement, copying, initialization, and destruction are derived from its elements.
 - **slices:** an unsized contiguous sequence type. A slice's element type is part of its type. Slice length is runtime state
   carried by an indirection boundary such as `&[T]`, `&mut [T]`, or `box[S] [T]`.
+- **raw pointers:** compiler-known protected-representation pointer values used by the Raw Memory Model.
 - **trait views:** unsized types that expose a value through a specific trait application while hiding the concrete implementing
   type.
 
@@ -1756,6 +1757,9 @@ Trustedness is local to the trusted declaration. Calling a trusted function uses
 grant trusted capabilities to the caller.
 
 A public trusted implementation exposes either a safe public wrapper or an explicitly trusted public contract.
+
+The Raw Memory Model defines `RawPointer<T>`, compiler-known `core.memory` operations, raw memory trusted predicates, and
+standard-library raw pointer helpers.
 
 ### Trusted capabilities
 
