@@ -552,7 +552,7 @@ They do not become runtime facts unless a separate value predicate or contract c
 
 ---
 
-## Predicate-safe function calls
+## Predicate-expression function calls
 
 A predicate expression can call a function or method when the selected callable contract is valid in predicate-expression context.
 
@@ -592,7 +592,7 @@ The selected callable contract is the full callable contract of the resolved fun
 generic substitution.
 
 The callable body may use ordinary callable-body structure, including `return`, when every reachable result-producing path uses
-only predicate-valid expressions and predicate-safe calls.
+only predicate-valid expressions and predicate-expression-valid calls.
 
 The callable's parameters and result type must be valid predicate-expression values.
 

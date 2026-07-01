@@ -266,6 +266,8 @@ Current known standard-library operations include:
 
 - `std.convert<Target>(source)`, the fallible conversion operation backed by `CheckedConvertTo<Target>`,
 - numeric policy operations such as `std.round_to<Target>(source, rule = ...)`, `std.truncate_to<Target>(source)`, `std.saturate_to<Target>(source)`, and `std.wrap_to<Target>(source)`,
+- string operations under the `std.string` module, including scalar-value count, emptiness, equality, scalar indexing, scalar slicing,
+  UTF-8 views, and UTF-8 construction,
 - raw pointer convenience helpers under `std.memory`, when imported,
 - standard storage policy types and helpers used with compiler-known type forms, when imported.
 

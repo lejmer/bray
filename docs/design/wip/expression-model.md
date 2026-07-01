@@ -1423,7 +1423,7 @@ expression.
 Only compiler-known operations and const callables explicitly defined as valid in constant-initializer context can be evaluated by a
 constant initializer.
 
-For unary and binary expressions in constant-initializer context, the selected operation must be a built-in operation over built-in scalar types, `unit`, or nullable constants whose contained value is valid in constant-initializer context.
+For unary and binary expressions in constant-initializer context, the selected operation must be a built-in operation over built-in scalar types, `string`, `unit`, or nullable constants whose contained value is valid in constant-initializer context.
 
 User-defined operator implementations are valid in constant-initializer context only when the selected implementation member is a
 const callable and all operands are valid constant expressions.
@@ -4862,7 +4862,7 @@ Predicate expressions can call predicates.
 
 Predicate expressions can call functions and methods whose selected callable contract is valid in predicate-expression context.
 
-Predicate-safe callable contract rules belong to the Contract and Trust Model.
+Predicate-expression callable contract rules belong to the Contract and Trust Model.
 
 Predicate expressions can use conditional expressions when the condition and every branch are valid predicate expressions.
 

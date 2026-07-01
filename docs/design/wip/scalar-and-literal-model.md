@@ -280,6 +280,84 @@ Character literals use the same escape sequences as string literals, except that
 
 ---
 
+## String operations
+
+String operations observe a `string` as a finite sequence of Unicode scalar values.
+
+The observable canonical encoding of a `string` is UTF-8.
+
+The representation remains protected. User code cannot assume that the protected representation is an array, a slice, a pointer,
+or an exposed UTF-8 buffer.
+
+String equality is defined over Unicode scalar value sequences.
+
+Two strings are equal when they contain the same number of Unicode scalar values and each scalar value at each position is equal.
+
+String equality does not perform Unicode normalization, case folding, locale collation, width folding, grapheme-cluster comparison,
+or encoding-form comparison.
+
+Canonically equivalent Unicode text can be unequal as `string` values when the scalar value sequences differ.
+
+String inequality is the negation of string equality.
+
+`==` and `!=` are valid for `string` operands and produce `bool`.
+
+`<`, `<=`, `>`, and `>=` are not built-in string operations.
+
+Lexicographic ordering, locale collation, case-insensitive comparison, normalization-aware comparison, and natural sorting are
+explicit standard-library operations with their own contracts.
+
+The language-defined length of a `string` is its Unicode scalar value count.
+
+The empty string has length `0`.
+
+String length is not byte length and not grapheme-cluster count.
+
+Core `[]` indexing and slicing syntax is not defined for `string`.
+
+String indexing and slicing are explicit standard-library operations because their units, failure behavior, and allocation behavior
+are part of the operation contract.
+
+The compiler-recognized standard-library string operation identities are contained in the `std.string` module and are as follows:
+
+| Declaration identity       | Declaration contract                                                           |
+|----------------------------|--------------------------------------------------------------------------------|
+| `std.string.count`         | `const func count(pos text: string) -> usize`                                  |
+| `std.string.is_empty`      | `const func is_empty(pos text: string) -> bool`                                |
+| `std.string.equal`         | `const func equal(pos left: string, pos right: string) -> bool`                |
+| `std.string.at`            | `func at(pos text: string, pos index: usize) -> char?`                         |
+| `std.string.slice`         | `func slice(pos text: string, start: usize, end: usize) -> string?`            |
+| `std.string.utf8`          | `func utf8(pos text: &string) -> &[u8]`                                        |
+| `std.string.from_utf8`     | `func from_utf8(pos bytes: &[u8]) -> Result<string, std.string.EncodingError>` |
+| `std.string.EncodingError` | standard-library union type with variant `InvalidUtf8`                         |
+
+`std.string.count(text)` returns the Unicode scalar value count.
+
+`std.string.is_empty(text)` returns `true` exactly when `std.string.count(text) == 0`.
+
+`std.string.equal(left, right)` has the same equality semantics as `left == right`.
+
+`std.string.at(text, index)` uses Unicode scalar value indexing and returns `none` when `index >= std.string.count(text)`.
+
+`std.string.slice(text, start = start, end = end)` uses Unicode scalar value boundaries and returns `none` unless
+`0 <= start <= end <= std.string.count(text)`.
+
+When valid, `std.string.slice(text, start = start, end = end)` returns a `string` containing the selected scalar value subsequence.
+
+`std.string.utf8(&text)` returns a shared byte slice view of the string's canonical UTF-8 bytes.
+
+The UTF-8 view is read-only and does not expose mutable representation.
+
+`std.string.from_utf8(bytes)` returns `Result.Ok(value = text)` when `bytes` is well-formed UTF-8.
+
+It returns `Result.Error(error = std.string.EncodingError.InvalidUtf8)` when the byte sequence is not well-formed UTF-8.
+
+String literals are not normalized.
+
+String construction from UTF-8 bytes preserves the scalar value sequence represented by those bytes.
+
+---
+
 ## Unit type
 
 Bray defines the unit type:
@@ -341,6 +419,229 @@ This does not make `never` a value of the expected type and does not define an i
 The canonical never-producing expression forms are `return`, `yield` targeting a single-yield region, `break value`, `break;`,
 `continue`, panic expressions, propagation paths that exit the current continuation, calls whose declared result type is `never`,
 and expression forms whose every reachable path has type `never`.
+
+---
+
+## Built-in scalar operations
+
+Built-in scalar operations are language-defined operations for compiler-known scalar operands.
+
+They are part of the compiler-known operator surface for those scalar types.
+
+In this section, integer types include fixed-width integer types and machine-sized integer types.
+
+Unless a rule below says otherwise, a built-in binary scalar operation requires both operands to have the same scalar type and
+produces that same type.
+
+Numeric literal adaptation can use the selected built-in operation as type context.
+
+Already-typed non-literal values do not implicitly convert to satisfy a built-in scalar operation.
+
+For example, `i32 + i64` is rejected unless one operand is explicitly converted.
+
+Runtime scalar operation failure raises an ordinary panic.
+
+A scalar operation that would panic at runtime is rejected in constant-evaluation context.
+
+In predicate expressions and contract expressions, integer-valued arithmetic uses contract arithmetic semantics.
+
+Because predicate expressions must be total, integer `/` and `%` in predicate-expression context require the current fact context to
+prove that the divisor is nonzero and that signed division overflow cannot occur on any reachable path.
+
+### Unary scalar operations
+
+| Token | Operand types                        | Result type | Failure behavior                           |
+|-------|--------------------------------------|-------------|--------------------------------------------|
+| `!`   | `bool`                               | `bool`      | none                                       |
+| `-`   | signed integers                      | operand     | panics for the minimum representable value |
+| `-`   | real floating-point types            | operand     | IEEE sign negation                         |
+| `-`   | complex floating-point types         | operand     | component-wise IEEE sign negation          |
+| `~`   | unsigned integers, including `usize` | operand     | none                                       |
+
+Unary `-` is not defined for unsigned integers.
+
+Unary `~` is not defined for signed integers, real types, complex types, `bool`, `char`, `unit`, `never`, or `string`.
+
+### Integer arithmetic
+
+The integer arithmetic operators are:
+
+| Token | Operand types                         | Result type | Runtime failure behavior                      |
+|-------|---------------------------------------|-------------|-----------------------------------------------|
+| `+`   | signed or unsigned integer, same type | operand     | panics on overflow                            |
+| `-`   | signed or unsigned integer, same type | operand     | panics on overflow                            |
+| `*`   | signed or unsigned integer, same type | operand     | panics on overflow                            |
+| `/`   | signed or unsigned integer, same type | operand     | panics on division by zero or signed overflow |
+| `%`   | signed or unsigned integer, same type | operand     | panics on division by zero or signed overflow |
+| `**`  | integer base and `usize` exponent     | base type   | panics on overflow                            |
+
+Integer division truncates toward zero.
+
+Integer remainder is defined by:
+
+```text
+left == (left / right) * right + (left % right)
+```
+
+when `right != 0` and the division does not overflow.
+
+For signed integers, the remainder has the sign of the left operand or is zero.
+
+For signed integers, dividing the minimum representable value by `-1` panics because the mathematical quotient is not
+representable in the operand type.
+
+The same signed-overflow edge is rejected for `%`.
+
+Integer exponentiation requires a `usize` exponent.
+
+Negative integer exponents are not represented by the built-in `**` operation.
+
+### Real arithmetic
+
+The real arithmetic operators are:
+
+| Token | Operand types             | Result type | Behavior                    |
+|-------|---------------------------|-------------|-----------------------------|
+| `+`   | same real type            | operand     | IEEE addition               |
+| `-`   | same real type            | operand     | IEEE subtraction            |
+| `*`   | same real type            | operand     | IEEE multiplication         |
+| `/`   | same real type            | operand     | IEEE division               |
+| `**`  | same real type            | operand     | IEEE power operation        |
+
+Real arithmetic follows the IEEE 754 semantics of the selected real type.
+
+Real arithmetic can produce signed zero, infinities, and NaN values according to IEEE rules.
+
+Real division by zero follows IEEE division semantics and does not panic solely because the divisor is zero.
+
+The `%` token is not a built-in real operation.
+
+Real remainder policies are explicit standard-library operations.
+
+### Complex arithmetic
+
+The complex arithmetic operators are:
+
+| Token | Operand types             | Result type | Behavior                    |
+|-------|---------------------------|-------------|-----------------------------|
+| `+`   | same complex type         | operand     | complex addition            |
+| `-`   | same complex type         | operand     | complex subtraction         |
+| `*`   | same complex type         | operand     | complex multiplication      |
+| `/`   | same complex type         | operand     | complex division            |
+
+Complex arithmetic operates over the component real type of the selected complex type.
+
+Component arithmetic follows IEEE semantics.
+
+Complex arithmetic can produce signed zero, infinities, and NaN component values according to IEEE rules.
+
+The `%` and `**` tokens are not built-in complex operations.
+
+Complex exponentiation, polar operations, magnitude, phase, conjugation, and component extraction are explicit standard-library
+operations.
+
+### Bitwise and shift operations
+
+Built-in bitwise and shift operations are defined only for unsigned integer types, including `usize`.
+
+Signed integer bit manipulation requires an explicit operation or conversion whose contract states how signed values are interpreted.
+
+The bitwise operators are:
+
+| Token | Operand types                     | Result type | Failure behavior |
+|-------|-----------------------------------|-------------|------------------|
+| `~`   | unsigned integer                  | operand     | none             |
+| `&`   | same unsigned integer type        | operand     | none             |
+| `^`   | same unsigned integer type        | operand     | none             |
+| `\|`  | same unsigned integer type        | operand     | none             |
+
+The shift operators are:
+
+| Token | Left operand types | Right operand type | Result type  | Runtime failure behavior                                                                                                     |
+|-------|--------------------|--------------------|--------------|------------------------------------------------------------------------------------------------------------------------------|
+| `<<`  | unsigned integer   | `usize`            | left operand | panics when the shift count is greater than or equal to the left operand bit width, or when any one bit would be shifted out |
+| `>>`  | unsigned integer   | `usize`            | left operand | panics when the shift count is greater than or equal to the left operand bit width                                           |
+
+Left shift is checked.
+
+It does not silently discard shifted-out one bits.
+
+Right shift fills with zero bits.
+
+Wrapping, rotating, saturating, unchecked, or bit-discarding shift behavior requires an explicit standard-library operation with that
+contract.
+
+### Boolean operations
+
+The boolean operators are:
+
+| Token  | Operand types | Result type | Behavior                    |
+|--------|---------------|-------------|-----------------------------|
+| `!`    | `bool`        | `bool`      | logical negation            |
+| `&&`   | `bool`        | `bool`      | short-circuit conjunction   |
+| `\|\|` | `bool`        | `bool`      | short-circuit disjunction   |
+| `==`   | `bool`        | `bool`      | equality                    |
+| `!=`   | `bool`        | `bool`      | inequality                  |
+
+`&&` evaluates its right operand only when the left operand is `true`.
+
+`||` evaluates its right operand only when the left operand is `false`.
+
+Relational ordering operators are not defined for `bool`.
+
+### Equality and ordering
+
+This summary includes `unit` and `string` for operator completeness even though `string` is not a scalar type.
+
+`==` and `!=` are defined for:
+
+- `bool`,
+- `char`,
+- signed integer types,
+- unsigned integer types,
+- machine-sized integer types,
+- real floating-point types,
+- complex floating-point types,
+- `unit`,
+- `string`.
+
+For `unit`, `unit == unit` is `true` and `unit != unit` is `false`.
+
+For real floating-point values, equality follows IEEE semantics.
+
+NaN is not equal to any value, including itself.
+
+Positive zero and negative zero compare equal.
+
+For complex floating-point values, equality is component-wise real equality.
+
+A complex value with a NaN component is not equal to any value, including itself.
+
+`!=` is the logical negation of `==`.
+
+`<`, `<=`, `>`, and `>=` are defined for:
+
+- `char`,
+- signed integer types,
+- unsigned integer types,
+- machine-sized integer types,
+- real floating-point types.
+
+Character ordering compares Unicode scalar value numbers.
+
+Integer ordering compares represented numeric values.
+
+Real ordering follows IEEE ordered comparison.
+
+If either real operand is NaN, `<`, `<=`, `>`, and `>=` produce `false`.
+
+Relational ordering operators are not defined for complex values, `bool`, `unit`, `never`, or `string`.
+
+### Matrix multiplication token
+
+The `@` token has no built-in scalar operation.
+
+It is reserved for linear-algebra multiplication through compiler-known operator traits and participating implementations.
 
 ---
 
@@ -920,16 +1221,6 @@ Contract expressions use contract arithmetic semantics.
 Integer-valued contract arithmetic is exact and does not silently wrap.
 
 A runtime assertion generated from a contract expression must preserve the meaning of the contract expression.
-
----
-
-## Finalization TODOs
-
-- TODO: Define the v1 `string` operation model, including equality, ordering if any, length semantics, Unicode normalization,
-  indexing and slicing policy, encoding views, construction from encoded bytes, and standard-library string operation identities.
-- TODO: Define built-in scalar operation semantics for every unary and binary token that applies to scalar operands, including
-  division and remainder edge cases, shifts, exponentiation domains, bitwise operations, signedness behavior, floating-point and
-  complex IEEE behavior, NaN and infinity behavior, comparisons, and panic/report behavior.
 
 ---
 
