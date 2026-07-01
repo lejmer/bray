@@ -82,6 +82,8 @@ Directive syntax starts with `@`.
 @directive_name(...)
 ```
 
+Argumentless directives omit the parentheses.
+
 The directive name determines the kind of compile-time instruction and the program element it can attach to.
 
 Bray is expression-oriented. Blocks, conditionals, matches, and other control-flow forms produce values when their exits have

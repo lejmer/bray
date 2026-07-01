@@ -2442,8 +2442,8 @@ requirements.
 
 Storing a borrow does not extend the lifetime of the reached storage.
 
-A callable can return a borrow only when the callable result contract carries the lifetime and capability dependency on a parameter,
-receiver, or other input storage that can outlive the returned borrow.
+A callable can return a borrow only when the callable result contract preserves the lifetime and capability dependency on a
+parameter, receiver, or other input storage that can outlive the returned borrow.
 
 A callable cannot return a borrow of local storage that ends before the returned borrow.
 
@@ -2471,6 +2471,152 @@ An outer shared borrow provides shared access to the next layer.
 An outer mutable borrow provides mutation authority over the next layer.
 
 The reachable operation depends on the whole access path, including every borrow layer.
+
+### Lifetime and capability dependency contracts
+
+Bray does not have source-level lifetime parameters or source-level lifetime annotations.
+
+Lifetime and capability dependency contracts are semantic facts inferred and checked by the compiler.
+
+A **dependency contract** records the non-local requirements that must remain true for a value, access path, callable value, trait
+view, task handle, or stored field to remain valid.
+
+A dependency contract can include:
+
+- storage that must remain alive,
+- storage that must remain initialized,
+- borrow capability that must remain active,
+- mutation authority that must remain exclusive,
+- scoped capability that must remain live,
+- finalization or destruction obligations that must remain attached to the value,
+- facts whose validity depends on the same storage, capability, or ownership state.
+
+A dependency contract is not part of surface syntax.
+
+It is part of the compiler-visible semantic contract of the value or declaration that carries it.
+
+For exported declarations, compiled interfaces, documentation, diagnostics, incremental compilation, and separate compilation, the
+compiler records the inferred dependency contract as interface metadata.
+
+Two compilers must reject and accept the same programs according to the language rules for dependency contracts, even though the
+source code does not write those contracts explicitly.
+
+Each expression that produces a value or access path also produces a dependency contract.
+
+Owned values carry the dependency contracts of their initialized subvalues.
+
+Borrow values carry the reached storage, borrow capability, and invalidation requirements of the borrow.
+
+Nullable values carry the dependency contract of their contained value only while present.
+
+Product, union, tuple, array, box, and callable values carry the dependency contracts of the parts they currently own, borrow, or
+capture.
+
+A trait view carries the dependency contract of the access or storage form that contains the view, plus the requirements of the
+implementation witness needed for the selected trait application.
+
+A task handle carries the dependency contract of the captured task state and the task obligation represented by the handle.
+
+Moving a value moves its dependency contract with the value.
+
+Copying a value copies its dependency contract only when the value's copy contract permits the copy.
+
+Destroying, finalizing, cancelling, joining, assigning `none`, or otherwise resolving a value resolves or invalidates the dependency
+contract carried by that value according to the operation's contract.
+
+A value can cross a boundary only when the destination can preserve every dependency contract carried by that value.
+
+Boundaries include:
+
+- returning from a callable,
+- yielding from a value-producing region,
+- storing into a field, variant payload, tuple element, array element, or box storage,
+- assigning to an existing access path,
+- passing an argument to a callable,
+- capturing into a lambda, async computation, task, or thread,
+- forming a trait view,
+- importing or exporting a declaration surface.
+
+A destination preserves a dependency contract when the destination's lifetime, ownership state, capability state, and semantic
+contract are proven to keep every required storage, borrow, capability, and obligation valid until the destination no longer uses or
+owns the value.
+
+Storing a dependency-carrying value never extends the source storage or scoped capability that the dependency requires.
+
+If the destination could outlive required storage or a required scoped capability, the transfer is rejected.
+
+If a dependency contract cannot be represented in the destination's compiler-visible semantic contract, the transfer is rejected.
+
+Function, method, constructor, lifecycle, lambda, async, and implementation bodies are checked against their inferred dependency
+contracts.
+
+At each normal exit, the result value's dependency contract must be derived from parameters, receiver state, captured state, owned
+input values, or other storage and capabilities that outlive the returned value.
+
+Returning a borrow of local storage that ends at the callable exit is rejected.
+
+Returning a value that owns local state is valid when ownership moves into the result and the value's dependency contract no longer
+depends on the local binding.
+
+When multiple control-flow exits can produce a value, the merged dependency contract conservatively preserves every dependency that
+can be required by any reachable exit unless facts available at the use site prove a narrower alternative.
+
+The expected result type, assignment target type, or overload result type does not invent missing dependency contracts.
+
+Dependency contracts are inferred from the producing expression and checked against the destination.
+
+A declaration whose public result, stored value, callable value, trait view, task handle, or lifecycle value carries non-local
+dependencies exposes those dependencies through its compiler-visible declaration contract.
+
+This exposure is semantic metadata, not additional source syntax.
+
+Callers must satisfy the exposed dependency contract when they use the declaration.
+
+This is valid because the returned borrow depends on the `item` parameter:
+
+```bray
+func same(pos item: &u8) -> &u8
+{
+    return item;
+}
+```
+
+The returned borrow remains valid only while the storage reached through `item` remains valid and while the returned borrow's
+capability requirements remain satisfied.
+
+This is rejected because the returned borrow depends on local storage that ends at the function exit:
+
+```bray
+func bad() -> &u8
+{
+    let value: u8 = 1;
+    return &value;
+}
+```
+
+This type carries the dependency contract of its `data` field:
+
+```bray
+struct Cursor
+{
+    data: &[u8];
+    index: usize;
+}
+```
+
+A `Cursor` value cannot outlive the storage reached by `data`.
+
+A callable value that captures a borrow carries that borrow dependency:
+
+```bray
+let writer = capture(&mut file) lambda (pos text: string)
+{
+    file.write(text);
+};
+```
+
+The callable value cannot be stored, returned, spawned, or otherwise moved to a destination that can outlive the mutable borrow of
+`file`.
 
 ### Nullable type form
 
@@ -2702,6 +2848,8 @@ A trait view exposes a hidden concrete value through the callable and contract s
 The concrete implementing type is not part of the visible static type.
 
 A trait view carries the implementation witness needed to dispatch calls through the selected trait implementation.
+
+The implementation witness is part of the trait view's dependency contract.
 
 The runtime representation of a trait view is compiler-defined.
 
@@ -3067,6 +3215,8 @@ A capture-free lambda can be used where an expected callable type accepts a call
 
 A capture-bearing lambda can be used where the expected callable type preserves the captured state's ownership, borrowing,
 capability, effect, lifetime, and finalization obligations.
+
+The preservation rule is checked through the callable value's dependency contract.
 
 Two lambda expressions with the same visible callable signature can still produce distinct callable value types when their captured
 state differs.

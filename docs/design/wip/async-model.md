@@ -366,8 +366,8 @@ capability before the capability's source scope exits.
 
 A task that captures local storage from its creating async block cannot escape that async block.
 
-A declaration that returns, stores, or otherwise exposes a borrowed task handle must expose the task handle's borrow and capability
-requirements in its own contract.
+A declaration that returns, stores, or otherwise exposes a task handle with non-local dependencies preserves those dependencies
+through the task handle's inferred lifetime and capability dependency contract.
 
 If the destination type or declaration contract does not preserve the task handle's capture requirements, the transfer is rejected.
 
@@ -382,7 +382,7 @@ func start(pos data: &Data) -> Task<Result<Hash, HashError>>
 }
 ```
 
-This is invalid unless the returned task handle's contract preserves the borrow of `data`.
+This is invalid unless the returned task handle's dependency contract preserves the borrow of `data`.
 
 ```bray
 func start(pos data: Data) -> Task<Result<Hash, HashError>>
