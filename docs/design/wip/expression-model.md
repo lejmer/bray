@@ -1418,7 +1418,7 @@ storage, runtime effects, or runtime dispatch.
 
 Loop expressions are not valid in constant-evaluation context.
 
-This includes `loop`, `while`, `for`, `each`, array generator iteration expressions, general generator iteration expressions, and
+This includes `loop`, `while`, `for`, `each`, array generator expressions, general generator iteration expressions, and
 boolean fold expressions.
 
 Finite aggregate construction is still valid when every element or field initializer is itself a valid compile-time constant
@@ -3226,7 +3226,7 @@ Iteration-bearing expressions use the compiler-known `Iterable` and `Iterator` t
 Iteration-bearing expressions include:
 
 - `for` expressions,
-- array generator iteration expressions,
+- array generator expressions,
 - general generator iteration expressions,
 - boolean fold expressions.
 
@@ -3300,9 +3300,9 @@ selected `Iterable` implementation, the selected `Iterator` implementation, and 
 
 ---
 
-## Array generator iteration expressions
+## Array generator expressions
 
-An **array generator iteration expression** constructs a fixed-size array by iterating over a source and yielding array elements.
+An **array generator expression** constructs a fixed-size array by iterating over a source and yielding array elements.
 
 ```bray
 let xs: [i32; 4] =
@@ -3314,7 +3314,7 @@ let xs: [i32; 4] =
 ];
 ```
 
-An array generator iteration expression appears inside an array expression.
+An array generator expression is the bracketed array expression form whose top-level child is a generator iteration expression.
 
 The expression has the form:
 
@@ -3387,7 +3387,8 @@ If iteration exits before the array is fully initialized through `return`, `yiel
 
 `break` targets the nearest iteration region and exits that iteration expression.
 
-Because array generator iteration expressions complete as `unit`, a break that targets the iteration expression must supply `unit`.
+Because the generator iteration expression inside an array generator completes as `unit`, a break that targets the iteration
+expression must supply `unit`.
 
 In a fixed-size array generator, any control-flow path that continues an iteration before yielding that iteration’s required element is rejected unless the compiler can prove the required yield still occurs.
 
@@ -3418,7 +3419,8 @@ The source expression of each generator is evaluated once for that generator.
 
 Nested array generator expressions are checked recursively.
 
-Array generator iteration expressions participate in effect checking and capability checking through the source expression, selected `Iterable` implementation, selected `Iterator` implementation, pattern operation, iteration body, and yielded expressions.
+Array generator expressions participate in effect checking and capability checking through the source expression, selected
+`Iterable` implementation, selected `Iterator` implementation, pattern operation, iteration body, and yielded expressions.
 
 Effects of the source expression occur once before iteration.
 
@@ -4837,7 +4839,7 @@ Trusted caller obligations used by a conversion expression must be available in 
 
 A **pattern-bearing expression** is an expression form that applies a pattern to a subject value, subject access path, or subject element.
 
-Pattern-bearing expression forms include match expressions, for expressions, array generator iteration expressions, general
+Pattern-bearing expression forms include match expressions, for expressions, array generator expressions, general
 generator iteration expressions, and local destructuring constructs.
 
 Patterns are a dedicated grammar category.
