@@ -268,15 +268,15 @@ func fail(pos message: string) -> never
 
 A callable declared to return `never` has no normal completion path.
 
-A callable-body block expression can contain nested callable declarations. Each nested callable creates its own callable execution scope.
+A callable-body block expression can contain local binding declarations.
 
 ```bray
 func outer() -> i32
 {
-    func inner() -> i32
+    let inner = lambda () -> i32
     {
         return 1;
-    }
+    };
 
     inner();
 
@@ -284,7 +284,7 @@ func outer() -> i32
 }
 ```
 
-The first `return` exits `inner`.
+The first `return` exits the lambda.
 
 The second `return` exits `outer`.
 
@@ -4361,7 +4361,7 @@ A `return` expression has type `never` in the current control-flow path because 
 
 `return` targets the nearest callable execution scope.
 
-A nested callable creates a separate callable execution scope.
+A callable expression nested inside another callable body creates a separate callable execution scope.
 
 ---
 
