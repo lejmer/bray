@@ -164,6 +164,176 @@ model explicitly makes the wrapper compiler-known.
 
 ---
 
+## Target profiles
+
+A **target profile** is the language-level description of one selected compilation target for one package product.
+
+The package/build layer supplies the selected target profile before source graph contributions are checked.
+
+The compiler validates the target profile before checking target-gated module contributions, module bodies, declarations,
+contracts, layouts, ABI surfaces, raw-memory operations, async runtime contracts, atomic operations, and constant expressions.
+
+A target profile contains:
+
+- target identity facts,
+- pointer facts,
+- scalar availability and scalar layout facts,
+- endian facts,
+- alignment facts,
+- callable ABI facts,
+- data layout ABI facts,
+- atomic capability facts,
+- address-space facts,
+- allocation facts,
+- symbol and linkage facts required by selected ABI modes.
+
+A target profile is immutable for one product compilation.
+
+All target facts used by a product are facts of that one selected target profile.
+
+If a target profile is missing a required fact, contains contradictory facts, or states a fact outside the language-defined range
+for that fact, the target profile is invalid and the product is rejected before source checking.
+
+---
+
+## Target facts
+
+A **target fact** is a compiler-known compile-time constant fact exposed by the selected target profile.
+
+Target facts are available under the reserved compiler-known path prefix `std.target`.
+
+`std.target` uses ordinary path syntax, but its declarations are compiler-known target facts, not ordinary standard-library
+declarations.
+
+Target fact declarations are available without `using`.
+
+Source packages cannot declare, import, re-export, overload, shadow, replace, or implement declarations under `std.target`.
+
+Target facts can have scalar, string, boolean, or compiler-known target-fact enum types.
+
+Target facts are valid in constant expressions, predicate expressions, contract expressions, static constraints, target-selection
+expressions, layout checking, ABI checking, and compiler-known availability rules.
+
+Target fact values are deterministic for the selected target profile.
+
+The language-defined target fact groups are:
+
+- `std.target.identity`: stable identity facts such as target name, architecture, vendor, operating system, environment, and ABI
+  family,
+- `std.target.pointer`: pointer size, pointer alignment, address-sized integer facts, and pointer representation facts,
+- `std.target.scalar`: scalar availability and scalar layout facts for built-in scalar types,
+- `std.target.endian`: the selected target's byte order,
+- `std.target.alignment`: supported alignment ranges for storage, allocation, and ABI surfaces,
+- `std.target.abi`: callable ABI and data layout ABI availability facts,
+- `std.target.atomic`: atomic storage and atomic operation capability facts,
+- `std.target.address_space`: address-space availability and pointer behavior facts,
+- `std.target.allocation`: allocation size and alignment support facts,
+- `std.target.linkage`: symbol encoding, linkage kind, and external artifact facts exposed by the target profile.
+
+The target fact namespace includes at least these boolean and scalar facts:
+
+```bray
+std.target.identity.name
+std.target.identity.arch
+std.target.identity.vendor
+std.target.identity.system
+std.target.identity.environment
+std.target.identity.abi
+std.target.pointer.bits
+std.target.pointer.bytes
+std.target.endian.little
+std.target.endian.big
+std.target.scalar.bool
+std.target.scalar.char
+std.target.scalar.i8
+std.target.scalar.i16
+std.target.scalar.i32
+std.target.scalar.i64
+std.target.scalar.i128
+std.target.scalar.u8
+std.target.scalar.u16
+std.target.scalar.u32
+std.target.scalar.u64
+std.target.scalar.u128
+std.target.scalar.usize
+std.target.scalar.isize
+std.target.scalar.r16
+std.target.scalar.r32
+std.target.scalar.r64
+std.target.scalar.r128
+std.target.scalar.c32
+std.target.scalar.c64
+std.target.scalar.c128
+std.target.scalar.c256
+std.target.atomic.u8
+std.target.atomic.u16
+std.target.atomic.u32
+std.target.atomic.u64
+std.target.atomic.u128
+std.target.atomic.pointer
+std.target.abi.c
+std.target.abi.system
+std.target.address_space.host
+std.target.address_space.device
+std.target.alignment.max_storage
+std.target.alignment.max_allocation
+```
+
+`std.target.identity.name`, `std.target.identity.arch`, `std.target.identity.vendor`, `std.target.identity.system`,
+`std.target.identity.environment`, and `std.target.identity.abi` have type `string`.
+
+`std.target.pointer.bits`, `std.target.pointer.bytes`, `std.target.alignment.max_storage`, and
+`std.target.alignment.max_allocation` have type `usize`.
+
+The other facts listed above have type `bool`.
+
+Exactly one of `std.target.endian.little` and `std.target.endian.big` is true.
+
+Scalar availability facts for required scalar types must be true for every conforming target profile.
+
+Scalar availability facts for target-conditional scalar types are true only when the selected target profile supports the required
+representation and operations for that scalar type.
+
+Additional target fact declarations can be defined only by the language specification.
+
+Compiler-specific target facts cannot appear under `std.target`.
+
+Compiler-specific target information belongs to package/build metadata, diagnostics, or compiler-specific tooling outside the
+compiler-known declaration surface.
+
+---
+
+## Target-conditional declarations
+
+A **target-conditional declaration** is a compiler-known or recognized standard-library declaration whose availability depends on
+target facts.
+
+The owning language model defines each target-conditional declaration's availability rule as a compile-time boolean expression over
+target facts.
+
+Before normal source checking, the compiler evaluates availability rules for the selected target profile and forms the available
+compiler-known and recognized standard-library surface for that product.
+
+Using a target-unavailable declaration is a compile-time error.
+
+A target-unavailable declaration inside a target-disabled module contribution is not used by that product.
+
+Availability is checked during name resolution, type checking, trait and implementation checking, contract checking, layout
+checking, ABI checking, overload resolution, conversion selection, operator selection, const evaluation, and generic instantiation.
+
+A generic declaration that uses a target-conditional declaration must be valid for the selected target profile wherever the generic
+body is checked or instantiated.
+
+A target-gated module contribution can prove target availability for declarations inside that contribution.
+
+If a public declaration's signature, contract, layout, ABI, constant value, implementation participation, overload participation, or
+availability depends on target facts, compiled interface metadata records the relevant target fact dependencies.
+
+Compiled interface metadata for a target-dependent public surface is valid only for target profiles whose recorded target facts
+match for the purposes of that public surface.
+
+---
+
 ## Compiler-known surface
 
 The compiler-known surface includes:
@@ -175,6 +345,7 @@ The compiler-known surface includes:
 - compiler-known result and run-boundary types such as `Result<T, E>`, `RunResult<T>`, `PanicReport`, `ConversionError`,
   `Task<T>`, and `Thread<T>`,
 - compiler-known raw memory declarations and trusted predicates under `core.memory`,
+- compiler-known target facts under `std.target`,
 - compiler-known type-form support traits such as `Storage<T>`,
 - compiler-known iteration traits such as `Iterable` and `Iterator`,
 - compiler-known conversion traits such as `ConvertTo<Target>` and `CheckedConvertTo<Target>`,
@@ -296,6 +467,7 @@ If a visible declaration is not the recognized standard-library declaration, it 
 | `Task<T>`, `Thread<T>`                        | yes                          | yes                                        | no                                |
 | `PanicReport`, `ConversionError`              | yes                          | yes                                        | no                                |
 | `core.memory` raw memory declarations         | yes                          | yes, when target-available                 | no                                |
+| `std.target` target facts                     | yes                          | yes                                        | no                                |
 | Compiler-known traits                         | yes                          | yes, when target-available                 | no                                |
 | User implementations of compiler-known traits | yes                          | only when declared in the coherence domain | yes, for external implementations |
 | Recognized standard-library functions         | yes                          | no                                         | yes                               |
@@ -306,8 +478,6 @@ If a visible declaration is not the recognized standard-library declaration, it 
 
 ## Finalization TODOs
 
-- TODO: Define target fact and target profile semantics, including target identity, pointer width, scalar availability,
-  alignment, ABI facts, atomic capability facts, address-space facts, and how target-conditional compiler-known declarations are checked.
 - TODO: Define the complete v1 compiler-known and recognized standard-library conformance catalog, including declaration identities,
   required contracts, target availability, compiler recognition rules, and required standard-library package contents.
 

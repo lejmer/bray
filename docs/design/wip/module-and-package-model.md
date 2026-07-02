@@ -117,6 +117,32 @@ graph, and target profile produce the same compiler input.
 
 ---
 
+## Conditional module contributions
+
+A module contribution is enabled for a product unless a directive that controls module contribution disables it.
+
+The language-defined module contribution gates are `@test` and `@target(...)`.
+
+When a file-scoped module declaration is disabled for a product, the entire source file contributes no declarations to that product.
+
+When a block module declaration is disabled for a product, that block module declaration contributes no declarations to that
+product.
+
+A disabled module contribution must still be lexically and syntactically valid Bray source.
+
+Declarations inside a disabled module contribution are not semantically checked for that product.
+
+Only enabled module contributions participate in split module merging, module visibility agreement, trusted-module agreement, name
+resolution, overload declarations, implementation coherence, entrypoint resolution, test entry formation, public API construction,
+and compiled interface metadata for that product.
+
+When multiple contribution gates apply to the same module declaration, the contribution is enabled only when every gate enables it.
+
+Contribution gates do not change module identity, module visibility, trusted-module state, declaration visibility, path resolution,
+internal access, trusted capability access, or runtime behavior.
+
+---
+
 ## Library products
 
 A library product exposes the package's reachable public declaration graph.
@@ -192,12 +218,167 @@ export behavior.
 
 ## Test products
 
-A test product is a package product whose selected source graph is checked and executed by the test model.
+A test product is a package product whose selected source graph is checked and executed as independent test entries.
 
 Test products can include ordinary source inputs, test-only source inputs, ordinary dependencies, and test-only dependencies selected
 for that product.
 
-The test model defines test declarations, test modules, test entry point formation, and test execution behavior.
+Test-only source inputs and test-only dependencies participate only in test products that select them.
+
+They do not contribute declarations, dependencies, implementations, overloads, conversions, public API, or coherence-domain behavior
+to library or executable products.
+
+Test products use ordinary module declarations, path resolution, dependency checking, visibility checking, internal access rules,
+trusted-module rules, target gates, contract checking, ownership checking, async checking, and run-boundary rules.
+
+An `@entrypoint` directive in a test product source graph is rejected because test products form test entries through `@test`.
+
+A test product can contain zero or more test entries.
+
+---
+
+## Test-only module contributions
+
+A module contribution can be marked test-only with `@test`.
+
+`@test` attaches to a file-scoped module declaration or a block module declaration.
+
+Only one `@test` directive can apply to a module declaration.
+
+```bray
+@test
+module net.tests;
+
+using net.parser;
+
+func minimal_packet_bytes() -> &[u8]
+{
+    ...
+}
+
+@test
+func parses_minimal_packet()
+{
+    let packet = net.parser.parse_packet(minimal_packet_bytes());
+    assert(packet.kind == PacketKind.minimal);
+}
+```
+
+`@test` enables the module contribution for test products and disables it for library and executable products.
+
+`@test` does not change module identity, module visibility, trusted-module state, declaration visibility, path resolution, internal
+access, trusted capability access, or runtime behavior.
+
+`@test` and `@target(...)` can both apply to the same module declaration according to conditional module contribution rules.
+
+---
+
+## Test declarations
+
+A module-level function declaration can be marked as a test entry with `@test`.
+
+```bray
+@test
+func parses_minimal_packet()
+{
+    ...
+}
+```
+
+An `@test` function contributes only to test products.
+
+For non-test products, an `@test` function contributes no declaration and its body is not semantically checked.
+
+An `@test` function must still be lexically and syntactically valid Bray source.
+
+Only one `@test` directive can apply to a function declaration.
+
+An `@test` function:
+
+- is a module-level function declaration,
+- has no receiver,
+- has no generic parameters,
+- has no caller-supplied parameters,
+- returns `unit` or `Result<unit, E>`,
+- does not expose trusted caller obligations,
+- is not `const`.
+
+An `@test` function can be `async` only when the test product context supplies an async runtime contract for async test execution.
+
+For an `@test` function with no explicit result type, the result type is `unit`.
+
+Normal trusted implementation rules apply to test functions.
+
+`@test` does not grant trusted implementation capabilities.
+
+`@test` does not grant internal access.
+
+If a test needs internal access, it uses ordinary internal-use acknowledgement.
+
+```bray
+using internal net.parser.impl;
+```
+
+An `@test` function can call trusted declarations only when ordinary trusted caller obligation rules are satisfied.
+
+---
+
+## Test entry formation
+
+Test discovery happens after source graph selection, target-gated contribution selection, test-only contribution selection, module
+merging, and declaration checking.
+
+Each enabled `@test` function forms one test entry.
+
+The test entry identity is the function's fully qualified declaration path.
+
+Test entry formation is not ordinary external path access.
+
+It does not make the test function public.
+
+It does not export the test function from its module.
+
+It does not import the test function into any other module.
+
+Helper functions in test-only modules are ordinary functions unless they are marked `@test`.
+
+Test execution order is not language-defined.
+
+Each test entry is reported independently.
+
+Shared mutable state between tests must be mediated by ordinary synchronization, atomic, ownership, borrowing, internal access, and
+trusted contract rules.
+
+---
+
+## Test execution outcomes
+
+A test entry is executed behind a panic-catching run boundary owned by the test product.
+
+A synchronous test that completes with `unit` passes.
+
+A synchronous test that completes with `Result.Ok(unit)` passes.
+
+A synchronous test that completes with `Result.Error(error)` fails with `error` as its recoverable test failure value.
+
+A synchronous test that panics fails with the caught `PanicReport`.
+
+An async test is driven by the test product's async runtime contract.
+
+An async test whose run completes with `unit` or `Result.Ok(unit)` passes.
+
+An async test whose run completes with `Result.Error(error)` fails with `error` as its recoverable test failure value.
+
+An async test whose run boundary reports `RunResult.Panicked(report)` fails with `report`.
+
+An async test whose run boundary reports `RunResult.Cancelled` is reported as cancelled.
+
+Tasks and threads created by a test obey ordinary task and thread obligation rules.
+
+Unresolved task or thread obligations at test completion are rejected by ordinary ownership and obligation checking.
+
+Lifecycle, finalization, destruction, panic, cancellation, and cleanup behavior during test execution follows the ordinary language
+rules.
 
 ---
 
@@ -210,6 +391,67 @@ The compiler checks a product only when the selected target profile satisfies th
 Target facts exposed to Bray source are ordinary compiler-known facts of the selected target profile.
 
 When a product's target constraints are not satisfied, the product is rejected before module bodies are checked.
+
+---
+
+## Target-gated module contributions
+
+A module contribution can be gated by the selected target profile with `@target(...)`.
+
+`@target(...)` attaches to a file-scoped module declaration or a block module declaration.
+
+```bray
+@target(std.target.atomic.u64)
+module counters;
+
+using std.atomic;
+
+func add(pos counter: &std.atomic.AtomicU64, amount: u64) -> u64
+{
+    return std.atomic.add(counter, amount, ordering = std.atomic.Ordering.acq_rel);
+}
+```
+
+A fallback module contribution can use the negated target fact:
+
+```bray
+@target(!std.target.atomic.u64)
+module counters;
+
+struct Counter
+{
+    value: u64;
+}
+
+func add(pos counter: &mut Counter, amount: u64) -> u64
+{
+    let old = counter.value;
+    counter.value = old + amount;
+    return old;
+}
+```
+
+The operand of `@target(...)` is an ordinary compile-time boolean expression evaluated in target-selection context.
+
+Target-selection context uses ordinary constant-expression syntax and semantics.
+
+The expression can reference compiler-known target facts under `std.target`, literals, compiler-known target-fact enum values, and
+built-in boolean, comparison, field-access, and grouping expressions that are valid in constant-evaluation context.
+
+The expression cannot reference declarations contributed by the source graph being selected.
+
+The expression cannot call user code.
+
+The expression must evaluate to `bool`.
+
+If the operand is not a valid compile-time boolean expression for the selected target profile, the product is rejected.
+
+Only one `@target(...)` directive can apply to a module declaration.
+
+`@target(...)` enables the module contribution when its operand evaluates to `true` for the selected target profile.
+
+`@target(...)` does not change module identity, module visibility, trusted-module state, declaration visibility, path resolution,
+or runtime behavior.
 
 ---
 
@@ -288,8 +530,10 @@ func parse_packet(pos bytes: &[u8]) -> Packet
     ...
 }
 
+@test
 module net.tests
 {
+    @test
     func parses_minimal_packet()
     {
         ...
@@ -526,14 +770,6 @@ public struct Buffer
 ```
 
 The public wrapper is a new public declaration with its own public contract.
-
----
-
-## Finalization TODOs
-
-- TODO: Define the test model, including how test declarations or test modules are discovered, how test entry points are formed,
-  how test-only dependencies participate in the package graph, and how test execution interacts with panics, results, async work,
-  trusted declarations, and internal access.
 
 ---
 

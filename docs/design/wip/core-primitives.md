@@ -93,8 +93,9 @@ Argumentless directives omit the parentheses.
 
 The directive name determines the kind of compile-time instruction and the program element it can attach to.
 
-Language-defined directives include representation, callable ABI, linkage, symbol, entrypoint, copy, and tag directives such as
-`@layout(...)`, `@abi(...)`, `@link(...)`, `@symbol(...)`, `@entrypoint`, `@copy`, and `@tag(...)`.
+Language-defined directives include representation, callable ABI, linkage, symbol, target, entrypoint, test, copy, and tag
+directives such as `@layout(...)`, `@abi(...)`, `@link(...)`, `@symbol(...)`, `@target(...)`, `@entrypoint`, `@test`, `@copy`,
+and `@tag(...)`.
 
 Bray is expression-oriented. Blocks, conditionals, matches, and other control-flow forms produce values when their exits have
 coherent type, ownership, initialization, and destruction state.
@@ -1863,5 +1864,6 @@ The same declared dependency graph and target configuration produce the same com
 
 - TODO: Define Bray's source text and lexical model, including source encoding, Unicode normalization policy, identifier grammar,
   keyword reservation, whitespace, comments, documentation comments, token boundaries, and invalid-token diagnostics.
-- TODO: Define the complete source grammar and declaration catalog that maps every top-level, module-level, type-level,
-  implementation-level, trait-level, block-level, expression-level, pattern-level, and directive form to its owning model.
+- TODO: Complete `syntax-grammar.ebnf` with the source grammar, and complete `syntax-grammar.md` with the matching explanatory
+  grammar notes and declaration catalog that maps every top-level, module-level, type-level, implementation-level, trait-level,
+  block-level, expression-level, pattern-level, and directive form to its owning model.
