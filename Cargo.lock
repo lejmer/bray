@@ -43,6 +43,10 @@ dependencies = [
 [[package]]
 name = "bray-driver"
 version = "0.0.0"
+dependencies = [
+ "bray-compilation",
+ "bray-source",
+]
 
 [[package]]
 name = "bray-emitter"
