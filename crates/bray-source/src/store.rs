@@ -1,29 +1,15 @@
 use crate::id::SourceId;
 use crate::identity::SourceIdentity;
 use crate::input::SourceInput;
+use crate::loader::{SourceLoadError, SourceLoader};
 use crate::origin::SourceOrigin;
 use crate::snapshot::SourceSnapshot;
-use crate::text::TextSizeOverflow;
 use crate::version::SourceVersion;
 
-/// Error returned when a source snapshot cannot be inserted.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub enum SourceStoreError {
-    /// The store cannot assign another compact source ID.
-    TooManySources { count: usize },
-    /// The source text is too large for compact byte offsets.
-    TextTooLarge(TextSizeOverflow),
-}
-
-impl From<TextSizeOverflow> for SourceStoreError {
-    fn from(error: TextSizeOverflow) -> Self {
-        Self::TextTooLarge(error)
-    }
-}
-
-/// Owns source input snapshots and provides lookup by source ID.
+/// Owns loaded source snapshots and provides lookup by source ID.
 #[derive(Debug, Default, Eq, PartialEq)]
 pub struct SourceStore {
+    loader: SourceLoader,
     snapshots: Vec<SourceSnapshot>,
 }
 
@@ -31,6 +17,7 @@ impl SourceStore {
     /// Creates an empty source store.
     pub const fn new() -> Self {
         Self {
+            loader: SourceLoader::new(),
             snapshots: Vec::new(),
         }
     }
@@ -38,6 +25,7 @@ impl SourceStore {
     /// Creates an empty source store with space for at least `capacity` items.
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
+            loader: SourceLoader::new(),
             snapshots: Vec::with_capacity(capacity),
         }
     }
@@ -49,20 +37,17 @@ impl SourceStore {
         origin: SourceOrigin,
         version: impl Into<SourceVersion>,
         text: impl Into<String>,
-    ) -> Result<SourceId, SourceStoreError> {
-        let source_id = self.next_source_id()?;
-        let snapshot = SourceSnapshot::new(source_id, identity, origin, version, text)?;
+    ) -> Result<SourceId, SourceLoadError> {
+        let snapshot = self.loader.load_snapshot(identity, origin, version, text)?;
 
-        self.snapshots.push(snapshot);
-
-        Ok(source_id)
+        Ok(self.insert_loaded_snapshot(snapshot))
     }
 
     /// Inserts a source input and returns its assigned source ID.
-    pub fn insert_input(&mut self, input: SourceInput) -> Result<SourceId, SourceStoreError> {
-        let (identity, origin, version, text) = input.into_snapshot_parts();
+    pub fn insert_input(&mut self, input: SourceInput) -> Result<SourceId, SourceLoadError> {
+        let snapshot = self.loader.load_input(input)?;
 
-        self.insert(identity, origin, version, text)
+        Ok(self.insert_loaded_snapshot(snapshot))
     }
 
     /// Returns the source snapshot for `source_id`.
@@ -108,17 +93,12 @@ impl SourceStore {
         self.snapshots.iter()
     }
 
-    fn next_source_id(&self) -> Result<SourceId, SourceStoreError> {
-        let raw = match u32::try_from(self.snapshots.len()) {
-            Ok(raw) => raw,
-            Err(_) => {
-                return Err(SourceStoreError::TooManySources {
-                    count: self.snapshots.len(),
-                });
-            }
-        };
+    fn insert_loaded_snapshot(&mut self, snapshot: SourceSnapshot) -> SourceId {
+        let source_id = snapshot.source_id();
 
-        Ok(SourceId::new(raw))
+        self.snapshots.push(snapshot);
+
+        source_id
     }
 }
 

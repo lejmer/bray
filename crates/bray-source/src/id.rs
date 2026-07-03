@@ -1,6 +1,6 @@
 /// Stable typed identity for one source input snapshot.
 ///
-/// The source table assigns the raw value. Keeping it typed prevents source
+/// The source loader assigns the raw value. Keeping it typed prevents source
 /// snapshots from being mixed with other compiler IDs. Use
 /// [`SourceIdentity`](crate::SourceIdentity) for the logical source across
 /// multiple versions.
@@ -8,7 +8,7 @@
 pub struct SourceId(u32);
 
 impl SourceId {
-    /// Creates a source snapshot ID from the source table's stable raw value.
+    /// Creates a source snapshot ID from the source loader's stable raw value.
     pub const fn new(raw: u32) -> Self {
         Self(raw)
     }
