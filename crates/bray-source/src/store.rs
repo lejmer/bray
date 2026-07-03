@@ -4,6 +4,7 @@ use crate::input::SourceInput;
 use crate::loader::{SourceLoadError, SourceLoader};
 use crate::origin::SourceOrigin;
 use crate::snapshot::SourceSnapshot;
+use crate::text::TextRange;
 use crate::version::SourceVersion;
 
 /// Owns loaded source snapshots and provides lookup by source ID.
@@ -60,6 +61,16 @@ impl SourceStore {
     /// Returns the source text for `source_id`.
     pub fn text(&self, source_id: SourceId) -> Option<&str> {
         self.get(source_id).map(SourceSnapshot::text)
+    }
+
+    /// Returns the source text slice for `source_id` and `range`.
+    pub fn text_slice(&self, source_id: SourceId, range: TextRange) -> Option<&str> {
+        self.get(source_id)?.text_slice(range)
+    }
+
+    /// Returns the source byte slice for `source_id` and `range`.
+    pub fn byte_slice(&self, source_id: SourceId, range: TextRange) -> Option<&[u8]> {
+        self.get(source_id)?.byte_slice(range)
     }
 
     /// Returns snapshots for the same logical source in insertion order.
@@ -125,6 +136,7 @@ mod tests {
     use super::SourceStore;
     use crate::{
         SourceId, SourceIdentity, SourceInput, SourceOrigin, SourceOriginKind, SourceVersion,
+        TextRange, TextSize,
     };
 
     #[test]
@@ -188,8 +200,38 @@ mod tests {
     }
 
     #[test]
+    fn source_store_slices_snapshots_by_source_id_and_range() {
+        let mut store = SourceStore::new();
+
+        let source_id = insert(
+            &mut store,
+            SourceIdentity::new(32),
+            SourceOrigin::stdin(),
+            SourceVersion::new(0),
+            "aébc",
+        );
+
+        assert_eq!(
+            store.text_slice(
+                source_id,
+                TextRange::new(TextSize::new(1), TextSize::new(3))
+            ),
+            Some("é")
+        );
+
+        assert_eq!(
+            store.byte_slice(
+                source_id,
+                TextRange::new(TextSize::new(2), TextSize::new(4))
+            ),
+            Some(&"aébc".as_bytes()[2..4])
+        );
+    }
+
+    #[test]
     fn source_store_inserts_source_inputs() {
         let mut store = SourceStore::new();
+
         let input = SourceInput::lsp_open_document(
             SourceIdentity::new(40),
             "file:///main.bray",

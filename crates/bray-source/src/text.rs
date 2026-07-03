@@ -1,3 +1,5 @@
+use std::ops::Range;
+
 /// UTF-8 byte offset inside source text.
 ///
 /// Compiler spans use byte offsets internally. Line and column coordinates are
@@ -143,6 +145,30 @@ impl TextRange {
         self.start.bytes() == self.end.bytes()
     }
 
+    /// Returns this range as a standard byte index range.
+    pub fn to_usize_range(self) -> Option<Range<usize>> {
+        let start = usize::try_from(self.start.bytes()).ok()?;
+        let end = usize::try_from(self.end.bytes()).ok()?;
+
+        Some(start..end)
+    }
+
+    /// Returns the string slice covered by this range.
+    ///
+    /// Returns `None` when the range is outside the text or does not align with
+    /// UTF-8 scalar boundaries.
+    pub fn slice_str(self, text: &str) -> Option<&str> {
+        text.get(self.to_usize_range()?)
+    }
+
+    /// Returns the byte slice covered by this range.
+    ///
+    /// Unlike [`slice_str`](Self::slice_str), this only requires the range to be
+    /// within bounds.
+    pub fn slice_bytes(self, bytes: &[u8]) -> Option<&[u8]> {
+        bytes.get(self.to_usize_range()?)
+    }
+
     /// Returns whether `offset` is inside the half-open range.
     pub const fn contains(self, offset: TextSize) -> bool {
         self.start.bytes() <= offset.bytes() && offset.bytes() < self.end.bytes()
@@ -255,6 +281,37 @@ mod tests {
         assert_eq!(
             inner.cover(after),
             TextRange::new(TextSize::new(4), TextSize::new(16))
+        );
+    }
+
+    #[test]
+    fn text_ranges_slice_strings_on_utf8_boundaries() {
+        let text = "aébc";
+        let range = TextRange::new(TextSize::new(1), TextSize::new(3));
+
+        assert_eq!(range.slice_str(text), Some("é"));
+
+        assert_eq!(
+            TextRange::new(TextSize::new(2), TextSize::new(3)).slice_str(text),
+            None
+        );
+        assert_eq!(
+            TextRange::new(TextSize::new(0), TextSize::new(99)).slice_str(text),
+            None
+        );
+    }
+
+    #[test]
+    fn text_ranges_slice_bytes_by_raw_offsets() {
+        let bytes = "aébc".as_bytes();
+
+        assert_eq!(
+            TextRange::new(TextSize::new(2), TextSize::new(4)).slice_bytes(bytes),
+            Some(&bytes[2..4])
+        );
+        assert_eq!(
+            TextRange::new(TextSize::new(0), TextSize::new(99)).slice_bytes(bytes),
+            None
         );
     }
 
