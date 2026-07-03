@@ -3,6 +3,7 @@
 #![forbid(unsafe_code)]
 
 mod id;
+mod input;
 mod line_index;
 mod location;
 mod origin;
@@ -12,6 +13,7 @@ mod store;
 mod text;
 
 pub use id::SourceId;
+pub use input::{SourceInput, SourceInputKind};
 pub use line_index::{LineColumn, LineIndex, LspPosition};
 pub use location::SourceLocation;
 pub use origin::{SourceOrigin, SourceOriginKind};

@@ -1,4 +1,5 @@
 use crate::id::SourceId;
+use crate::input::SourceInput;
 use crate::origin::SourceOrigin;
 use crate::snapshot::{SourceRevision, SourceSnapshot};
 use crate::text::TextSizeOverflow;
@@ -52,6 +53,13 @@ impl SourceStore {
         self.snapshots.push(snapshot);
 
         Ok(source_id)
+    }
+
+    /// Inserts a source input and returns its assigned source ID.
+    pub fn insert_input(&mut self, input: SourceInput) -> Result<SourceId, SourceStoreError> {
+        let (origin, revision, text) = input.into_snapshot_parts();
+
+        self.insert(origin, revision, text)
     }
 
     /// Returns the source snapshot for `source_id`.
@@ -116,7 +124,7 @@ impl<'a> IntoIterator for &'a SourceStore {
 #[cfg(test)]
 mod tests {
     use super::SourceStore;
-    use crate::{SourceId, SourceOrigin, SourceRevision};
+    use crate::{SourceId, SourceInput, SourceOrigin, SourceOriginKind, SourceRevision};
 
     #[test]
     fn source_store_assigns_ids_and_fetches_snapshots() {
@@ -172,6 +180,32 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert_eq!(texts, vec!["a", "b"]);
+    }
+
+    #[test]
+    fn source_store_inserts_source_inputs() {
+        let mut store = SourceStore::new();
+        let input = SourceInput::lsp_open_document(
+            "file:///main.bray",
+            SourceRevision::new(7),
+            "module main\n",
+        );
+
+        let source_id = match store.insert_input(input) {
+            Ok(source_id) => source_id,
+            Err(error) => panic!("test source input should insert successfully: {error:?}"),
+        };
+
+        let snapshot = match store.get(source_id) {
+            Some(snapshot) => snapshot,
+            None => panic!("inserted source ID should resolve to a snapshot"),
+        };
+
+        assert_eq!(snapshot.source_id(), SourceId::new(0));
+        assert_eq!(snapshot.origin().kind(), SourceOriginKind::LspDocument);
+        assert_eq!(snapshot.origin().lsp_uri(), Some("file:///main.bray"));
+        assert_eq!(snapshot.revision(), SourceRevision::new(7));
+        assert_eq!(snapshot.text(), "module main\n");
     }
 
     #[test]
