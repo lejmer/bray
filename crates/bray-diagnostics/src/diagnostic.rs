@@ -119,8 +119,8 @@ mod tests {
             DiagnosticArgValue::Character('\u{0}'),
         );
 
-        let label =
-            DiagnosticLabel::primary(DiagnosticLabelKind::InvalidCharacter, span).with_arg(arg);
+        let label = DiagnosticLabel::primary(DiagnosticLabelKind::InvalidCharacter, span)
+            .with_arg(arg.clone());
 
         let note = DiagnosticNote::new(DiagnosticNoteKind::CharacterNotAccepted);
 
@@ -130,7 +130,7 @@ mod tests {
             SeverityKind::Error,
         )
         .with_primary_span(span)
-        .with_arg(arg)
+        .with_arg(arg.clone())
         .with_label(label.clone())
         .with_note(note.clone());
 

@@ -52,6 +52,7 @@ name = "bray-driver"
 version = "0.0.0"
 dependencies = [
  "bray-compilation",
+ "bray-diagnostics",
  "bray-source",
  "clap",
 ]

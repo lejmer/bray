@@ -17,4 +17,4 @@ pub use file_arguments::{
     DriverSourceInputError, compilation_request_from_file_arguments,
     source_inputs_from_file_arguments,
 };
-pub use run::run;
+pub use run::{DriverRunResult, run, run_result};

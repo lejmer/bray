@@ -1,8 +1,9 @@
 use std::path::PathBuf;
 
 use bray_compilation::{CompilationOptions, CompilationRequest, WorkerBudget};
+use bray_diagnostics::DiagnosticBag;
 
-use crate::file_arguments::{DriverSourceInputError, compilation_request_from_file_arguments};
+use crate::file_arguments::compilation_request_from_file_arguments;
 
 /// Output format selected for driver-produced output.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -138,7 +139,7 @@ impl DriverInvocation {
     }
 
     /// Builds the compilation request for this invocation.
-    pub fn into_compilation_request(self) -> Result<CompilationRequest, DriverSourceInputError> {
+    pub fn into_compilation_request(self) -> Result<CompilationRequest, DiagnosticBag> {
         let options = self.options.compilation_options();
         let files = self.command.into_files();
 

@@ -11,7 +11,7 @@ mod label;
 mod note;
 mod severity;
 
-pub use argument::{DiagnosticArg, DiagnosticArgName, DiagnosticArgValue};
+pub use argument::{DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticIoErrorKind};
 pub use bag::DiagnosticBag;
 pub use diagnostic::Diagnostic;
 pub use id::DiagnosticId;
