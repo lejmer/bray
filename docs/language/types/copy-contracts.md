@@ -94,8 +94,7 @@ The following type categories are not copyable by default:
 - values that own or carry non-copyable resource obligations,
 - trait-view storage or access forms whose outer type form is not copyable.
 
-A compiler-known protected-representation type can have a language-defined copy contract only when the owning language rule defines
-that contract.
+A compiler-known [protected-representation](../compiler-known-and-standard-library/protected-representation.md) type can have a language-defined copy contract only when the owning language rule defines that contract.
 
 Its implementation representation is not source-observable.
 

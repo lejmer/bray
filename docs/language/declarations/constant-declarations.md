@@ -82,7 +82,7 @@ A compile-time constant expression can use:
 - literals,
 - constants already visible in the current scope,
 - const parameters visible in the current generic context,
-- compiler-known target facts visible for the selected target profile,
+- [target facts](../targets-layout-abi-and-raw-memory/target-profiles-and-facts.md) visible for the selected target profile,
 - tuple, array, nullable, product, and union variant construction whose components are constant expressions and whose type has no runtime construction, finalization, or destructor obligation,
 - unary and binary expressions whose operands are constant expressions and whose selected operation is compiler-known and valid in constant-initializer context,
 - calls to const callables whose arguments are constant expressions and whose callable contract is valid in constant-initializer context,
@@ -120,7 +120,7 @@ Floating-point constants do not use unbounded precision.
 
 A constant initializer that evaluates to `never`, panics, fails a contract, fails a conversion, divides by zero, overflows after conversion into the declared type, cannot prove termination, exceeds implementation resource limits, or depends on a target fact unavailable for the selected target profile is rejected.
 
-Implementation resource limits for constant evaluation must be deterministic for a compiler invocation and must be reported as diagnostics, not as runtime behavior.
+Implementation resource limits for constant evaluation must be deterministic for a compiler invocation and must cause compile-time rejection, not runtime behavior.
 
 Target facts can participate in constant evaluation.
 

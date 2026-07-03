@@ -565,41 +565,14 @@ Interning should not be used to hide ownership boundaries or to avoid defining a
 
 Compiler logic emits structured diagnostics.
 
-A diagnostic has:
+Diagnostic records are immutable compiler data until they are rendered at the reporting boundary.
 
-- stable diagnostic identity,
-- severity,
-- primary span when available,
-- labels,
-- related spans,
-- typed message arguments,
-- optional machine-applicable suggestions.
+Each phase owns diagnostics for violations it has enough information to report accurately.
 
-Diagnostics are locale-neutral compiler data.
+Diagnostics must remain deterministic under parallel execution.
 
-Compiler logic must not build user-facing English strings.
-
-Diagnostic message IDs, label IDs, note IDs, suggestion IDs, and typed message arguments are rendered through locale-aware
-`bray-messages` infrastructure at the reporting boundary.
-
-The initial supported locale is English.
-
-Adding another locale should require adding or extending message catalogs and locale rules, not changing parser, binder, checker,
-lowering, codegen, or emitter logic.
-
-Localization owns language-specific wording, argument ordering, plural forms, list formatting, quotation style, and other grammar
-rules.
-
-Typed message arguments should preserve compiler meaning instead of pre-rendering text. For example, pass a symbol ID, type ID,
-operator kind, source span, count, or declaration kind instead of an English phrase.
-
-When a locale is unavailable, fallback behavior must be explicit and deterministic.
-
-Phases should emit diagnostics at the earliest phase that has enough information to be accurate.
-
-A later phase should not duplicate an earlier diagnostic.
-
-When recovery creates placeholder compiler data, the placeholder must preserve enough context to avoid follow-on diagnostic noise.
+Detailed diagnostic data, localization, suggestion, recovery, ordering, and testing rules are defined in
+[Compiler diagnostics](compiler-diagnostics.md).
 
 ---
 

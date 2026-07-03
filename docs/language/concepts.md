@@ -160,6 +160,8 @@ Contract, predicate, fact-context, trusted-capability, trusted-obligation, witne
 A **lifecycle obligation** is an obligation to finalize, exit, destroy, cancel, join, release, or otherwise complete a value's
 required lifecycle before the owning scope ends.
 
+Construction, finalization, destruction, scoped-use, and lifecycle-obligation rules are defined in [Lifecycle](lifecycle.md).
+
 ---
 
 ## Concurrency
@@ -178,17 +180,3 @@ the owning scope exits.
 **Cancellation** requests that a run stop according to its cancellation contract.
 
 ---
-
-## Diagnostics
-
-A **diagnostic** is structured compiler output describing an error, warning, note, or suggestion.
-
-A **diagnostic identity** is the stable identifier of a diagnostic kind.
-
-A **primary span** is the source location most directly responsible for a diagnostic.
-
-A **label** is a source-attached diagnostic explanation.
-
-A **suggestion** is a compiler-provided source change or action.
-
-Diagnostic text is localized at the reporting boundary from message IDs and typed message arguments.

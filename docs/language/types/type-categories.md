@@ -50,8 +50,7 @@ The compiler-known `string` type is a named protected-representation value type,
 The scalar and literal rules define the exact scalar type set, literal typing, scalar operation behavior, and scalar conversion
 rules.
 
-The raw memory rules define `RawPointer<T>`, raw pointer validity, raw memory operations, raw memory trusted predicates, and raw
-pointer standard-library helpers.
+[Raw pointer type](../targets-layout-abi-and-raw-memory/raw-pointer-type.md) defines `RawPointer<T>`, raw pointer validity, raw memory operations, raw memory trusted predicates, and raw pointer standard-library helpers.
 
 All other categories listed here are defined by the product, union, compiler-known result union, compiler-known task handle,
 compiler-known thread handle, and type-form sections of this chapter.

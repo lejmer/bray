@@ -13,7 +13,7 @@ They do not contribute declarations, dependencies, implementations, overloads, c
 to library or executable products.
 
 Test products use ordinary module declarations, path resolution, dependency checking, visibility checking, internal access rules,
-trusted-module rules, target gates, contract checking, ownership checking, async checking, and run-boundary rules.
+trusted-module rules, target gates, contract checking, ownership checking, and [async and run-boundary rules](../async-and-concurrency.md).
 
 An `@entrypoint` directive in a test product source graph is rejected because test products form test entries through `@test`.
 
@@ -149,7 +149,7 @@ An async test whose run boundary reports `RunResult.Panicked(report)` fails with
 
 An async test whose run boundary reports `RunResult.Cancelled` is reported as cancelled.
 
-Tasks and threads created by a test obey ordinary task and thread obligation rules.
+Tasks and threads created by a test obey ordinary [task](../async-and-concurrency/task-handles-and-obligations.md) and [thread](../async-and-concurrency/thread-handles-and-obligations.md) obligation rules.
 
 Unresolved task or thread obligations at test completion are rejected by ordinary ownership and obligation checking.
 

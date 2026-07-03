@@ -20,7 +20,7 @@ A dependency contract is not part of surface syntax.
 
 It is part of the compiler-visible semantic contract of the value or declaration that carries it.
 
-For exported declarations, compiled interfaces, documentation, diagnostics, incremental compilation, and separate compilation, the compiler records the inferred dependency contract as interface metadata.
+For exported declarations, compiled interfaces, documentation, incremental compilation, and separate compilation, the compiler records the inferred dependency contract as interface metadata.
 
 Two compilers must reject and accept the same programs according to these dependency-contract rules, even though the source code does not write those contracts explicitly.
 

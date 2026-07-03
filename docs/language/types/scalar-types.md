@@ -14,7 +14,7 @@ Scalar types are:
 - `unit`,
 - `never`.
 
-Scalar type names are compiler-known declarations.
+Scalar type names are [compiler-known declarations](../compiler-known-and-standard-library/compiler-known-declarations.md).
 
 User code cannot redeclare a scalar type name, add representation members to a scalar type, add variants to a scalar type, or attach
 lifecycle declarations to a scalar type.

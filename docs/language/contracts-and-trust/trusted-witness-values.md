@@ -11,8 +11,8 @@ Witness values are introduced by ordinary declaration mechanisms:
 - trusted functions,
 - trusted constructors,
 - trusted lifecycle declarations,
-- compiler-known declarations,
-- recognized standard-library declarations whose language-defined contracts establish trusted facts.
+- [compiler-known declarations](../compiler-known-and-standard-library/compiler-known-declarations.md),
+- [recognized standard-library declarations](../compiler-known-and-standard-library/standard-library-recognition.md) whose language-defined contracts establish trusted facts.
 
 A declaration introduces a witness value when its successful result carries trusted facts in `ensures(...)` and those facts are tied to the returned value, its fields, its owned storage, its borrows, or its dependency contract.
 

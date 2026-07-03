@@ -38,8 +38,7 @@ Inferred const eligibility for a private or local helper does not become part of
 When a declaration is exported or otherwise used through compiled interface metadata, const-context callers can depend on that
 declaration only when its interface exposes `const`.
 
-Compiler-known declarations and recognized standard-library declarations can be `const` when their language-defined declaration
-contract marks them as `const`.
+[Compiler-known declarations](../compiler-known-and-standard-library/compiler-known-declarations.md) and [recognized standard-library declarations](../compiler-known-and-standard-library/standard-library-recognition.md) can be `const` when their language-defined declaration contract marks them as `const`.
 
 `const` composes with ordinary function modifiers only where the combined contract is valid.
 

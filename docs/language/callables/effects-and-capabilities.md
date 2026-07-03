@@ -123,7 +123,7 @@ Cancellation is an async and run-boundary effect.
 
 An `async` callable type carries suspendable execution and cancellation participation.
 
-Calling an async function creates an async computation whose cancellation behavior is governed by the async and concurrency rules.
+Calling an async function creates an async computation whose cancellation behavior is governed by [Async and concurrency](../async-and-concurrency.md).
 
 Awaiting an async computation, spawning it as a task, joining a task, cancelling a task, and observing a run boundary must satisfy
 the async computation's ownership, borrowing, capability, effect, finalization, and cancellation obligations.

@@ -22,11 +22,10 @@ The chapters are organized from source text to program meaning:
 9. [Expressions](expressions.md)
 10. [Ownership and borrowing](ownership-and-borrowing.md)
 11. [Contracts and trust](contracts-and-trust.md)
-12. Lifecycle
-13. Async and concurrency
-14. Compiler-known declarations and standard library recognition
-15. Targets, layout, ABI, and raw memory
-16. Diagnostics
+12. [Lifecycle](lifecycle.md)
+13. [Async and concurrency](async-and-concurrency.md)
+14. [Compiler-known declarations and standard library recognition](compiler-known-and-standard-library.md)
+15. [Targets, layout, ABI, and raw memory](targets-layout-abi-and-raw-memory.md)
 
 The lexical and syntax grammar chapters define how source text is tokenized and parsed.
 

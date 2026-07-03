@@ -28,7 +28,7 @@ If the source expression reaches a non-copyable owned value, the conversion move
 
 After a conversion moves from a source access path, the source access path is moved-from until reinitialized.
 
-If the source expression reaches a copyable value and the conversion context uses copy behavior, the conversion copies according to the source type’s copy contract.
+If the source expression reaches a copyable value and the conversion context uses copy behavior, the conversion copies according to the source type's copy contract.
 
 If the source expression is a borrow, the conversion operates through the borrow according to the borrow and conversion contracts.
 
@@ -42,7 +42,7 @@ A value of source type `S` can be converted to target type `T` with plain `as` w
 
 1. `S` and `T` are the same type.
 2. `S` and `T` are built-in scalar numeric types and Bray defines a total value-preserving explicit scalar conversion from `S` to `T`.
-3. `S` is a two-element tuple and `T` is a built-in complex type, and both tuple element types are explicitly convertible to `T`’s component real type.
+3. `S` is a two-element tuple and `T` is a built-in complex type, and both tuple element types are explicitly convertible to `T`'s component real type.
 4. `S` and `T` are tuple types with the same arity, and each source element type is explicitly convertible to the corresponding target element type.
 5. `S` and `T` are array types with the same length, and the source element type is explicitly convertible to the target element type.
 6. `S` and `T` are nullable types, and the source contained type is explicitly convertible to the target contained type.
@@ -63,7 +63,7 @@ let b: (i64, r64) = a as (i64, r64);
 
 Each source tuple element is converted to the corresponding target tuple element.
 
-A two-element tuple can be converted to a built-in complex type when both tuple elements can be explicitly converted to the complex type’s component real type.
+A two-element tuple can be converted to a built-in complex type when both tuple elements can be explicitly converted to the complex type's component real type.
 
 ```bray
 let z: c128 = (real, imag) as c128;
@@ -144,7 +144,7 @@ The standard library fallible conversion operation is `std.convert<Target>(sourc
 
 `std.convert<Target>(source)` produces `Result<Target, E>`.
 
-The compiler-known and standard-library rules define visibility and compiler recognition for standard-library operations.
+[Compiler-known declarations and standard library recognition](../compiler-known-and-standard-library.md) defines visibility and compiler recognition for standard-library operations.
 
 For built-in fallible scalar conversions, `E` is the compiler-known `ConversionError` type.
 
@@ -229,7 +229,7 @@ A conversion expression can require facts declared by the selected conversion co
 
 A conversion expression can establish facts declared by the selected conversion contract.
 
-Trusted caller obligations used by a conversion expression must be available in the fact context, explicitly acknowledged at a trust boundary, or exposed through the surrounding declaration’s contract.
+Trusted caller obligations used by a conversion expression must be available in the fact context, explicitly acknowledged at a trust boundary, or exposed through the surrounding declaration's contract.
 
 ## Navigation
 

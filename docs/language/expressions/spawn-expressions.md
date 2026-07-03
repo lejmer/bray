@@ -40,7 +40,7 @@ Thread spawning moves, copies, or borrows explicit entry state according to the 
 contracts.
 
 The full task spawn, detached task spawn, thread spawn, task handle, thread handle, run-boundary observation, transfer, escape,
-cancellation, ownership, borrowing, capability, and effect rules are defined by the async and concurrency rules.
+cancellation, ownership, borrowing, capability, and effect rules are defined in [Async and concurrency](../async-and-concurrency.md).
 
 ## Navigation
 

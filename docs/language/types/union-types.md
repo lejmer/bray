@@ -21,7 +21,7 @@ union Shape
 
 The declared variant set is closed.
 
-The variant set is part of the union type’s definition.
+The variant set is part of the union type's definition.
 
 A union value is fully initialized when its active variant tag is initialized and the active variant payload, if any, is fully initialized.
 
@@ -80,7 +80,7 @@ A `pos` payload field may only appear before any non-`pos` payload field in the 
 
 Variant-level visibility modifiers are excluded from union bodies.
 
-A union’s variant surface has the visibility of the union type.
+A union's variant surface has the visibility of the union type.
 
 ## Variant payload fields
 
@@ -209,7 +209,7 @@ Union variant construction expression rules are defined in [Union variant constr
 
 Every fully initialized union value has one active variant.
 
-The active variant is part of the union value’s runtime state.
+The active variant is part of the union value's runtime state.
 
 Operations that branch on or refine a union value can make the active variant known within a control-flow region.
 
@@ -359,7 +359,7 @@ required copy contract for that concrete type.
 
 Copying a union copies the active tag.
 
-Copying a union copies the active payload according to the active payload field types’ copy contracts.
+Copying a union copies the active payload according to the active payload field types' copy contracts.
 
 Inactive payloads have no initialized values to copy.
 
@@ -383,11 +383,9 @@ A moved-from payload field is not destroyed by the old union owner.
 
 A union type can define a destructor with a `destruct` lifecycle declaration.
 
-A union destructor is synchronous and returns `unit`.
+Union destructor declarations follow the general [destruction](../lifecycle/destruction.md) rules.
 
-Fallible or asynchronous cleanup belongs to finalization.
-
-A union value with finalization obligations must satisfy those obligations before ownership ends, unless the value is transferred to another owner that assumes them or converted into an explicit fallback ownership form.
+Union finalization obligations follow the general [finalization](../lifecycle/finalization.md) rules.
 
 ## Union lifecycle declarations
 
@@ -422,7 +420,7 @@ Union constructors create fully initialized values of the union type.
 
 Lifecycle behavior can depend on the active variant.
 
-Union lifecycle declarations follow the [lifecycle declaration](lifecycle-declarations.md) ordering, signature, and selection rules.
+Union lifecycle declarations follow the [Lifecycle](../lifecycle.md) ordering, signature, and selection rules.
 
 Union lifecycle declarations are whole-union lifecycle declarations.
 
@@ -499,15 +497,6 @@ union BadList<T>
 
 A union has a semantic active variant tag.
 
-The compiler chooses the default physical tag representation and payload layout.
-
-The default layout can use representation optimizations when Bray semantics are preserved.
-
-Default layout is compiler-defined.
-
-Stable ABI layout, C-compatible layout, explicit tag representation, packed layout, and explicit alignment belong to explicit
-layout contracts.
-
 Union layout is declared with `@layout(...)` immediately before the `union` declaration.
 
 ```bray
@@ -522,46 +511,7 @@ union Message
 }
 ```
 
-Union types accept these layout modes:
-
-- `stable`,
-- `c`.
-
-`stable` union layout defines deterministic tag representation, payload layout, size, and alignment for the target layout
-profile.
-
-If `tag` is omitted from a `stable` union layout, the tag type is the smallest fixed-width unsigned integer scalar type that can
-represent every variant tag value.
-
-If no fixed-width unsigned integer scalar type can represent every variant tag value, the union must declare `tag` explicitly.
-
-`c` union layout uses a C-compatible tagged aggregate representation for the target C ABI.
-
-An explicitly laid out `c` union must declare `tag`.
-
-```bray
-@layout(c, tag = u32)
-union CStatus
-{
-    @tag(0)
-    Ok;
-
-    @tag(1)
-    Error(code: u32);
-}
-```
-
-The `@tag(value)` directive declares a physical tag value for a union variant.
-
-Tag values are compile-time integer constants.
-
-Tag values must be representable by the union's physical tag type.
-
-Tag values must be unique within the union.
-
-If any variant in an explicitly laid out union uses `@tag`, every variant in that union must use `@tag`.
-
-If no variant in an explicitly laid out union uses `@tag`, variant tag values are assigned by declaration order starting at `0`.
+Union layout modes, physical tags, `@tag(...)`, default tag representation, and union-specific layout rules are defined in [Union layout](../targets-layout-abi-and-raw-memory/union-layout.md).
 
 ## Union patterns
 
@@ -580,7 +530,7 @@ No-payload variant patterns introduce no payload bindings.
 
 Union variant pattern rules are defined in [Union variant patterns](../patterns/union-variant-patterns.md).
 
-Match expressions over closed unions perform coverage checking against the union’s closed variant set.
+Match expressions over closed unions perform coverage checking against the union's closed variant set.
 
 Union patterns participate in ownership, borrowing, copying, partial moves, initialization, destruction, finalization, capability checking, and fact-context refinement according to the pattern operation mode.
 
@@ -588,8 +538,7 @@ Union patterns participate in ownership, borrowing, copying, partial moves, init
 
 `Result<T, E>` is the compiler-known union type for recoverable domain failure and caught synchronous panic values.
 
-The compiler-known and standard-library rules define availability and visibility behavior for compiler-known declarations and
-standard-library declarations.
+[Compiler-known declarations and standard library recognition](../compiler-known-and-standard-library.md) defines availability and visibility behavior for compiler-known declarations and standard-library declarations.
 
 Its semantic declaration is:
 
@@ -666,7 +615,7 @@ match result
 }
 ```
 
-`PanicReport` is a compiler-known protected-representation type that preserves the panic message and diagnostic context carried by a panic.
+`PanicReport` is a compiler-known [protected-representation](../compiler-known-and-standard-library/protected-representation.md) type that preserves the panic message and source context carried by a panic.
 
 `ConversionError` is the compiler-known error type used by built-in fallible conversions.
 
@@ -691,7 +640,7 @@ union ConversionError
 
 It does not carry the source value, source type, target type, or source expression location.
 
-Diagnostics can report those details from the conversion operation and type-checking context.
+Those details remain available from the conversion operation and type-checking context.
 
 User-defined fallible conversions do not use `ConversionError` unless their selected `CheckedConvertTo<Target>.Error` type is `ConversionError`.
 
@@ -707,8 +656,7 @@ Moving a `Task<T>` transfers the task obligation.
 
 Joining or cancelling a `Task<T>` consumes the handle and resolves the task obligation.
 
-The async and concurrency rules define task handle creation, joining, cancellation, transfers, escape rules, borrowing rules, and obligation
-checking.
+[Task handles and obligations](../async-and-concurrency/task-handles-and-obligations.md) and [Task transfers and escapes](../async-and-concurrency/task-transfers-and-escapes.md) define task handle creation, joining, cancellation, transfers, escape rules, borrowing rules, and obligation checking.
 
 ## Compiler-known thread handles
 
@@ -722,8 +670,7 @@ Moving a `Thread<T>` transfers the thread obligation.
 
 Joining or cancelling a `Thread<T>` consumes the handle and resolves the thread obligation.
 
-The async and concurrency rules define thread handle creation, joining, cancellation, transfers, escape rules, borrowing rules, capture
-restrictions, and obligation checking.
+[Thread handles and obligations](../async-and-concurrency/thread-handles-and-obligations.md) and [Thread entry state](../async-and-concurrency/thread-entry-state.md) define thread handle creation, joining, cancellation, transfers, escape rules, borrowing rules, capture restrictions, and obligation checking.
 
 ## Union API compatibility
 
@@ -741,7 +688,7 @@ Changing payload defaults can be a public API change when construction behavior 
 
 Changing variant contracts can be a public API change when construction requirements or established facts visible to users change.
 
-Changing union lifecycle declarations follows the public API compatibility rule defined in [Lifecycle declarations](lifecycle-declarations.md#api-compatibility).
+Changing union lifecycle declarations follows the public API compatibility rule defined in [API compatibility](../lifecycle/api-compatibility.md).
 
 Default physical layout is not public ABI unless the type declares an explicit layout contract.
 

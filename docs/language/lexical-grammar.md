@@ -490,7 +490,7 @@ Invalid lexical forms include:
 - numeric suffixes other than the imaginary `i` suffix,
 - non-ASCII identifier characters.
 
-Diagnostics for invalid tokens are structured compiler diagnostics with source ranges.
+Invalid tokens are rejected at the source range that forms or attempts to form the token.
 
 ---
 

@@ -76,7 +76,7 @@ func area(circle: geometry.shapes.Circle) -> r64
 
 `using` declares that a module, package path, or declaration path is intentionally used by the current module.
 
-`using` participates in dependency checking, visibility checking, internal-use acknowledgement, diagnostics, and tooling.
+`using` participates in dependency checking, visibility checking, internal-use acknowledgement, and tooling.
 
 `using` does not introduce unqualified names.
 

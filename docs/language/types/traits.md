@@ -48,7 +48,7 @@ trait Equatable<Other>
     func equals(pos other: &Other) -> bool;
 }
 
-internal trait ParserDiagnostics
+internal trait ParserReports
 {
     func report_state() -> ParserState;
 }

@@ -7,7 +7,7 @@ using geometry.shapes;
 using std.convert;
 ```
 
-`using` participates in dependency checking, visibility checking, internal-use acknowledgement, diagnostics, and tooling.
+`using` participates in dependency checking, visibility checking, internal-use acknowledgement, and tooling.
 
 `using` does not introduce unqualified names.
 

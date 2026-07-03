@@ -50,9 +50,9 @@ Language-defined directives include:
 
 Module directives are defined in [Modules and packages](../modules-and-packages.md).
 
-Callable ABI, linking, symbols, and extern-related directives are defined in [Callable ABI and FFI](../callables/callable-abi-and-ffi.md).
+Callable ABI, linking, symbols, extern-related directives, target directives, and layout directives are defined in [Targets, layout, ABI, and raw memory](../targets-layout-abi-and-raw-memory.md).
 
-Type layout and copy directives are defined in [Type declarations](../types/type-declarations.md), [Product Types](../types/product-types.md), [Union Types](../types/union-types.md), and [Copy contracts](../types/copy-contracts.md).
+Copy directives are defined in [Copy contracts](../types/copy-contracts.md).
 
 Repeated directives, conflicting directives, invalid directive targets, invalid directive arguments, and unsupported directive combinations are rejected.
 

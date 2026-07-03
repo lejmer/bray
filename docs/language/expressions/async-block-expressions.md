@@ -21,7 +21,7 @@ An async block expression can use non-detached `spawn`.
 An async block expression is a single-yield region in value-producing context.
 
 The async block expression's task-obligation, transfer, escape, cancellation, ownership, borrowing, capability, and effect rules
-are defined by the async and concurrency rules.
+are defined in [Async block expressions](../async-and-concurrency/async-block-expressions.md).
 
 ## Navigation
 

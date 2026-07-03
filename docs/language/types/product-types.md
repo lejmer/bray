@@ -16,7 +16,7 @@ struct Point
 
 A product value contains one value for each field in the product representation.
 
-The fields together form the product value’s primary representation.
+The fields together form the product value's primary representation.
 
 Each field has a name, a type, a mutability contract, a visibility contract, and an initialization state.
 
@@ -135,9 +135,9 @@ struct Example
 
 ## Field names
 
-Field names are part of the product type’s representation.
+Field names are part of the product type's representation.
 
-Field names are used by construction expressions, field access expressions, product patterns, diagnostics, documentation, and public API compatibility.
+Field names are used by construction expressions, field access expressions, product patterns, documentation, and public API compatibility.
 
 Field names must be unique within the product type.
 
@@ -467,7 +467,7 @@ Moving the complete product transfers ownership of every initialized field to th
 
 The old access path becomes moved-from until reinitialized.
 
-Moving a product preserves the product’s type and field structure.
+Moving a product preserves the product's type and field structure.
 
 A product move transfers finalization obligations carried by the product or its fields to the new owner.
 
@@ -476,11 +476,11 @@ A product move transfers finalization obligations carried by the product or its 
 A product value is copyable only when the product type has an accepted `@copy` contract and every field satisfies the required copy
 contract for that concrete type.
 
-Copying a product copies every field according to its field type’s copy contract.
+Copying a product copies every field according to its field type's copy contract.
 
 Copying a product produces a separate value with its own ownership story.
 
-Copying a product preserves the abstract value according to the product’s copy contract.
+Copying a product preserves the abstract value according to the product's copy contract.
 
 Copy behavior is explicit through the product type's `@copy` contract.
 
@@ -510,11 +510,9 @@ A moved-from field is not destroyed by the old product owner.
 
 A product type can define a destructor with a `destruct` lifecycle declaration.
 
-A product destructor is synchronous and returns `unit`.
+Product destructor declarations follow the general [destruction](../lifecycle/destruction.md) rules.
 
-Fallible or asynchronous cleanup belongs to finalization.
-
-A product value with finalization obligations must satisfy those obligations before ownership ends, unless the value is transferred to another owner that assumes them or converted into an explicit fallback ownership form.
+Product finalization obligations follow the general [finalization](../lifecycle/finalization.md) rules.
 
 ## Product lifecycle declarations
 
@@ -555,7 +553,7 @@ Named product constructors are reached through the product type path:
 let my_file = File.temp(some_path);
 ```
 
-Product lifecycle declarations follow the [lifecycle declaration](lifecycle-declarations.md) ordering, signature, and selection rules.
+Product lifecycle declarations follow the [Lifecycle](../lifecycle.md) ordering, signature, and selection rules.
 
 Product lifecycle declarations are whole-product lifecycle declarations.
 
@@ -586,13 +584,6 @@ destruction rules before the new product value becomes initialized at that acces
 
 The default physical layout of a product type is compiler-defined.
 
-The compiler can choose a layout that preserves Bray semantics.
-
-Field declaration order is part of the semantic representation, but default physical layout is selected by the compiler.
-
-Stable ABI layout, C-compatible layout, packed layout, explicit alignment, and explicit representation belong to explicit layout
-contracts.
-
 Product layout is declared with `@layout(...)` immediately before the `struct` declaration.
 
 ```bray
@@ -604,50 +595,7 @@ struct Header
 }
 ```
 
-Product types accept these layout modes:
-
-- `stable`,
-- `c`,
-- `transparent`.
-
-`stable` product layout uses field declaration order as physical field order and defines deterministic padding, field offsets,
-size, and alignment for the target layout profile.
-
-```bray
-@layout(stable, align = 16)
-struct Vec4
-{
-    x: f32;
-    y: f32;
-    z: f32;
-    w: f32;
-}
-```
-
-`c` product layout uses the target C ABI for product field layout.
-
-```bray
-@layout(c)
-struct CPoint
-{
-    x: f32;
-    y: f32;
-}
-```
-
-`transparent` product layout is valid only for a product with exactly one storage field.
-
-```bray
-@layout(transparent)
-struct UserId
-{
-    value: u64;
-}
-```
-
-A transparent product has the same layout and ABI as its storage field.
-
-Transparent layout cannot be combined with `align`, `pack`, or any other layout option.
+Product layout modes, options, default layout behavior, transparent layout, and product-specific layout rules are defined in [Product layout](../targets-layout-abi-and-raw-memory/product-layout.md).
 
 ## Product patterns
 
@@ -689,7 +637,7 @@ Changing field visibility is a public API change.
 
 Changing field defaults can be a public API change when construction behavior visible to users changes.
 
-Changing product lifecycle declarations follows the public API compatibility rule defined in [Lifecycle declarations](lifecycle-declarations.md#api-compatibility).
+Changing product lifecycle declarations follows the public API compatibility rule defined in [API compatibility](../lifecycle/api-compatibility.md).
 
 Default physical layout is not public ABI unless the type declares an explicit layout contract.
 
