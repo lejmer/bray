@@ -5,5 +5,9 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
+[dependencies]
+bray-compilation = { path = "../bray-compilation" }
+bray-source = { path = "../bray-source" }
+
 [lints]
 workspace = true

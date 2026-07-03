@@ -1,0 +1,268 @@
+use std::fs;
+use std::io::ErrorKind;
+use std::path::PathBuf;
+
+use bray_compilation::{CompilationOptions, CompilationRequest};
+use bray_source::{SourceIdentity, SourceInput, SourceVersion};
+
+const FILE_ARGUMENT_SOURCE_VERSION: SourceVersion = SourceVersion::new(0);
+
+/// Error returned when converting file arguments into compiler source inputs.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum DriverSourceInputError {
+    /// A file argument index cannot fit in a stable source identity.
+    SourceIdentityOverflow {
+        /// Zero-based file argument index.
+        input_index: usize,
+    },
+    /// A file argument could not be read as bytes.
+    ReadFile {
+        /// Zero-based file argument index.
+        input_index: usize,
+        /// File path that could not be read.
+        path: PathBuf,
+        /// Structured I/O error category reported by the host.
+        kind: ErrorKind,
+    },
+}
+
+impl DriverSourceInputError {
+    /// Returns the zero-based file argument index associated with this error.
+    pub const fn input_index(&self) -> usize {
+        match self {
+            Self::SourceIdentityOverflow { input_index } => *input_index,
+            Self::ReadFile { input_index, .. } => *input_index,
+        }
+    }
+}
+
+/// Builds a compilation request from file arguments read at the driver boundary.
+///
+/// Source identities are assigned deterministically by file argument order,
+/// starting at zero. File arguments are initial command-line snapshots, so each
+/// source input receives source version zero.
+pub fn compilation_request_from_file_arguments<I, P>(
+    file_arguments: I,
+    options: CompilationOptions,
+) -> Result<CompilationRequest, DriverSourceInputError>
+where
+    I: IntoIterator<Item = P>,
+    P: Into<PathBuf>,
+{
+    let sources = source_inputs_from_file_arguments(file_arguments)?;
+
+    Ok(CompilationRequest::with_options(sources, options))
+}
+
+/// Reads file arguments as bytes and converts them into source inputs.
+///
+/// Source identities are assigned deterministically by file argument order,
+/// starting at zero. UTF-8 validation and byte-order-mark handling remain with
+/// the source loader used by compilation construction.
+pub fn source_inputs_from_file_arguments<I, P>(
+    file_arguments: I,
+) -> Result<Vec<SourceInput>, DriverSourceInputError>
+where
+    I: IntoIterator<Item = P>,
+    P: Into<PathBuf>,
+{
+    let mut sources = Vec::new();
+
+    for (input_index, file_argument) in file_arguments.into_iter().enumerate() {
+        let path = file_argument.into();
+
+        sources.push(source_input_from_file_argument(input_index, path)?);
+    }
+
+    Ok(sources)
+}
+
+fn source_input_from_file_argument(
+    input_index: usize,
+    path: PathBuf,
+) -> Result<SourceInput, DriverSourceInputError> {
+    let identity = source_identity_for_input_index(input_index)?;
+
+    let bytes = match fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            return Err(DriverSourceInputError::ReadFile {
+                input_index,
+                path,
+                kind: error.kind(),
+            });
+        }
+    };
+
+    Ok(SourceInput::file_bytes(
+        identity,
+        path,
+        FILE_ARGUMENT_SOURCE_VERSION,
+        bytes,
+    ))
+}
+
+fn source_identity_for_input_index(
+    input_index: usize,
+) -> Result<SourceIdentity, DriverSourceInputError> {
+    let raw = match u32::try_from(input_index) {
+        Ok(raw) => raw,
+        Err(_) => return Err(DriverSourceInputError::SourceIdentityOverflow { input_index }),
+    };
+
+    Ok(SourceIdentity::new(raw))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::ErrorKind;
+    use std::path::{Path, PathBuf};
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    use bray_compilation::{Compilation, CompilationOptions, WorkerBudget};
+    use bray_source::{SourceId, SourceIdentity, SourceVersion};
+
+    use super::{
+        DriverSourceInputError, compilation_request_from_file_arguments,
+        source_identity_for_input_index, source_inputs_from_file_arguments,
+    };
+
+    static NEXT_TEMP_DIRECTORY: AtomicU64 = AtomicU64::new(0);
+
+    #[test]
+    fn file_arguments_are_loaded_as_raw_file_source_inputs() {
+        let first_file = TemporaryFile::write("first.bray", &[0xef, 0xbb, 0xbf, b'm', b'o', b'd']);
+        let second_file = TemporaryFile::write("second.bray", &[0xff, b'x']);
+
+        let inputs = match source_inputs_from_file_arguments([
+            first_file.path().to_path_buf(),
+            second_file.path().to_path_buf(),
+        ]) {
+            Ok(inputs) => inputs,
+            Err(error) => panic!("file source inputs should load: {error:?}"),
+        };
+
+        let [first_input, second_input] = inputs.as_slice() else {
+            panic!("test should load exactly two source inputs: {inputs:?}");
+        };
+
+        assert_eq!(first_input.identity(), SourceIdentity::new(0));
+        assert_eq!(second_input.identity(), SourceIdentity::new(1));
+        assert_eq!(first_input.version(), SourceVersion::new(0));
+        assert_eq!(second_input.version(), SourceVersion::new(0));
+        assert_eq!(first_input.file_path(), Some(first_file.path()));
+        assert_eq!(second_input.file_path(), Some(second_file.path()));
+        assert_eq!(first_input.text(), None);
+        assert_eq!(second_input.text(), None);
+        assert_eq!(first_input.bytes(), &[0xef, 0xbb, 0xbf, b'm', b'o', b'd']);
+        assert_eq!(second_input.bytes(), &[0xff, b'x']);
+    }
+
+    #[test]
+    fn file_arguments_build_compilation_requests_with_options() {
+        let file = TemporaryFile::write("main.bray", b"module main\n");
+        let options = CompilationOptions::new(WorkerBudget::serial());
+
+        let request =
+            match compilation_request_from_file_arguments([file.path().to_path_buf()], options) {
+                Ok(request) => request,
+                Err(error) => panic!("compilation request should build: {error:?}"),
+            };
+
+        assert_eq!(request.options(), options);
+        assert_eq!(request.sources().len(), 1);
+
+        let compilation = match Compilation::build(request) {
+            Ok(compilation) => compilation,
+            Err(error) => panic!("compilation should load driver file input: {error:?}"),
+        };
+
+        assert_eq!(compilation.source_count(), 1);
+
+        assert_eq!(
+            compilation.source_text(SourceId::new(0)),
+            Some("module main\n")
+        );
+    }
+
+    #[test]
+    fn file_argument_read_errors_report_input_index_path_and_kind() {
+        let missing_path = unique_temporary_directory().join("missing.bray");
+
+        let error = match source_inputs_from_file_arguments([missing_path.clone()]) {
+            Ok(inputs) => panic!("missing file should fail to load: {inputs:?}"),
+            Err(error) => error,
+        };
+
+        assert_eq!(
+            error,
+            DriverSourceInputError::ReadFile {
+                input_index: 0,
+                path: missing_path,
+                kind: ErrorKind::NotFound
+            }
+        );
+
+        assert_eq!(error.input_index(), 0);
+    }
+
+    #[test]
+    fn file_argument_identity_overflow_is_reported() {
+        let overflow_index = match usize::try_from(u64::from(u32::MAX) + 1) {
+            Ok(overflow_index) => overflow_index,
+            Err(_) => return,
+        };
+
+        assert_eq!(
+            source_identity_for_input_index(overflow_index),
+            Err(DriverSourceInputError::SourceIdentityOverflow {
+                input_index: overflow_index
+            })
+        );
+    }
+
+    struct TemporaryFile {
+        directory: PathBuf,
+        path: PathBuf,
+    }
+
+    impl TemporaryFile {
+        fn write(file_name: &str, bytes: &[u8]) -> Self {
+            let directory = unique_temporary_directory();
+
+            match std::fs::create_dir(&directory) {
+                Ok(()) => {}
+                Err(error) => panic!("temporary test directory should be created: {error:?}"),
+            }
+
+            let path = directory.join(file_name);
+
+            match std::fs::write(&path, bytes) {
+                Ok(()) => {}
+                Err(error) => panic!("temporary test file should be written: {error:?}"),
+            }
+
+            Self { directory, path }
+        }
+
+        fn path(&self) -> &Path {
+            self.path.as_path()
+        }
+    }
+
+    impl Drop for TemporaryFile {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.path);
+            let _ = std::fs::remove_dir(&self.directory);
+        }
+    }
+
+    fn unique_temporary_directory() -> PathBuf {
+        let sequence = NEXT_TEMP_DIRECTORY.fetch_add(1, Ordering::Relaxed);
+
+        std::env::temp_dir().join(format!(
+            "bray-driver-test-{}-{sequence}",
+            std::process::id()
+        ))
+    }
+}
