@@ -197,7 +197,7 @@ mod tests {
 
     #[test]
     fn bags_collect_diagnostics_in_insertion_order() {
-        let first = diagnostic(0, DiagnosticKind::LexicalInvalidUtf8, SeverityKind::Error);
+        let first = diagnostic(0, DiagnosticKind::SourceInvalidUtf8, SeverityKind::Error);
 
         let second = diagnostic(
             1,
@@ -217,7 +217,7 @@ mod tests {
 
     #[test]
     fn bags_merge_without_mutating_inputs_and_remove_duplicates() {
-        let first = diagnostic(0, DiagnosticKind::LexicalInvalidUtf8, SeverityKind::Error);
+        let first = diagnostic(0, DiagnosticKind::SourceInvalidUtf8, SeverityKind::Error);
 
         let second = diagnostic(
             1,
@@ -237,7 +237,7 @@ mod tests {
 
     #[test]
     fn bags_merge_many_without_duplicates() {
-        let first = diagnostic(0, DiagnosticKind::LexicalInvalidUtf8, SeverityKind::Error);
+        let first = diagnostic(0, DiagnosticKind::SourceInvalidUtf8, SeverityKind::Error);
 
         let second = diagnostic(
             1,
@@ -273,7 +273,7 @@ mod tests {
 
     #[test]
     fn bags_filter_by_kind_and_severity() {
-        let error = diagnostic(0, DiagnosticKind::LexicalInvalidUtf8, SeverityKind::Error);
+        let error = diagnostic(0, DiagnosticKind::SourceInvalidUtf8, SeverityKind::Error);
 
         let warning = diagnostic(
             1,
@@ -285,7 +285,7 @@ mod tests {
         bag.add_range([error.clone(), warning.clone()]);
 
         assert_eq!(
-            bag.by_kind(DiagnosticKind::LexicalInvalidUtf8)
+            bag.by_kind(DiagnosticKind::SourceInvalidUtf8)
                 .collect::<Vec<_>>(),
             vec![&error]
         );
@@ -297,7 +297,7 @@ mod tests {
 
     #[test]
     fn bags_convert_to_and_from_owned_diagnostics() {
-        let first = diagnostic(0, DiagnosticKind::LexicalInvalidUtf8, SeverityKind::Error);
+        let first = diagnostic(0, DiagnosticKind::SourceInvalidUtf8, SeverityKind::Error);
 
         let second = diagnostic(
             1,
@@ -313,7 +313,7 @@ mod tests {
 
     #[test]
     fn bags_work_with_standard_collection_traits() {
-        let first = diagnostic(0, DiagnosticKind::LexicalInvalidUtf8, SeverityKind::Error);
+        let first = diagnostic(0, DiagnosticKind::SourceInvalidUtf8, SeverityKind::Error);
 
         let second = diagnostic(
             1,
@@ -340,7 +340,7 @@ mod tests {
 
     #[test]
     fn bags_allow_concurrent_shared_reads() {
-        let error = diagnostic(0, DiagnosticKind::LexicalInvalidUtf8, SeverityKind::Error);
+        let error = diagnostic(0, DiagnosticKind::SourceInvalidUtf8, SeverityKind::Error);
 
         let warning = diagnostic(
             1,
@@ -358,7 +358,7 @@ mod tests {
                 assert_eq!(bag.warnings().count(), 1);
             });
             scope.spawn(|| {
-                assert_eq!(bag.by_kind(DiagnosticKind::LexicalInvalidUtf8).count(), 1);
+                assert_eq!(bag.by_kind(DiagnosticKind::SourceInvalidUtf8).count(), 1);
             });
         });
     }

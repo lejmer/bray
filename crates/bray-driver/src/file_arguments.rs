@@ -3,6 +3,10 @@ use std::io::ErrorKind;
 use std::path::PathBuf;
 
 use bray_compilation::{CompilationOptions, CompilationRequest};
+use bray_diagnostics::{
+    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticIoErrorKind, DiagnosticKind,
+    DiagnosticNote, DiagnosticNoteKind, SeverityKind,
+};
 use bray_source::{SourceIdentity, SourceInput, SourceVersion};
 
 const FILE_ARGUMENT_SOURCE_VERSION: SourceVersion = SourceVersion::new(0);
@@ -34,6 +38,57 @@ impl DriverSourceInputError {
             Self::ReadFile { input_index, .. } => *input_index,
         }
     }
+
+    /// Converts this user-facing source-input error into a diagnostic.
+    pub fn into_diagnostic(self, id: DiagnosticId) -> Diagnostic {
+        match self {
+            Self::SourceIdentityOverflow { input_index } => {
+                let mut diagnostic = Diagnostic::new(
+                    id,
+                    DiagnosticKind::RequestInvalidSourceInput,
+                    SeverityKind::Error,
+                )
+                .with_note(DiagnosticNote::new(
+                    DiagnosticNoteKind::SourceInputNeedsStableIdentity,
+                ));
+
+                if let Some(input_index) = DiagnosticArg::input_index(input_index) {
+                    diagnostic = diagnostic.with_arg(input_index);
+                }
+
+                diagnostic
+            }
+            Self::ReadFile {
+                input_index,
+                path,
+                kind,
+            } => {
+                let mut diagnostic = Diagnostic::new(
+                    id,
+                    DiagnosticKind::SourceFileReadFailed,
+                    SeverityKind::Error,
+                )
+                .with_arg(DiagnosticArg::file_path(path))
+                .with_arg(DiagnosticArg::io_error_kind(DiagnosticIoErrorKind::from(
+                    kind,
+                )))
+                .with_note(DiagnosticNote::new(
+                    DiagnosticNoteKind::SourceFileMustBeReadable,
+                ));
+
+                if let Some(input_index) = DiagnosticArg::input_index(input_index) {
+                    diagnostic = diagnostic.with_arg(input_index);
+                }
+
+                diagnostic
+            }
+        }
+    }
+
+    /// Converts this user-facing source-input error into a diagnostic bag.
+    pub fn into_diagnostic_bag(self) -> DiagnosticBag {
+        DiagnosticBag::single(self.into_diagnostic(DiagnosticId::new(0)))
+    }
 }
 
 /// Builds a compilation request from file arguments read at the driver boundary.
@@ -44,12 +99,13 @@ impl DriverSourceInputError {
 pub fn compilation_request_from_file_arguments<I, P>(
     file_arguments: I,
     options: CompilationOptions,
-) -> Result<CompilationRequest, DriverSourceInputError>
+) -> Result<CompilationRequest, DiagnosticBag>
 where
     I: IntoIterator<Item = P>,
     P: Into<PathBuf>,
 {
-    let sources = source_inputs_from_file_arguments(file_arguments)?;
+    let sources = source_inputs_from_file_arguments(file_arguments)
+        .map_err(|error| error.into_diagnostic_bag())?;
 
     Ok(CompilationRequest::with_options(sources, options))
 }
@@ -118,6 +174,10 @@ mod tests {
     use std::io::ErrorKind;
 
     use bray_compilation::{Compilation, CompilationOptions, WorkerBudget};
+    use bray_diagnostics::{
+        DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticIoErrorKind,
+        DiagnosticKind, DiagnosticNote, DiagnosticNoteKind,
+    };
     use bray_source::{SourceId, SourceIdentity, SourceVersion};
 
     use super::{
@@ -204,6 +264,51 @@ mod tests {
     }
 
     #[test]
+    fn file_argument_read_errors_convert_to_diagnostics() {
+        let missing_path = unique_temporary_directory().join("missing.bray");
+
+        let diagnostics = match compilation_request_from_file_arguments(
+            [missing_path.clone()],
+            CompilationOptions::new(WorkerBudget::serial()),
+        ) {
+            Ok(request) => panic!("missing file should fail to build a request: {request:?}"),
+            Err(diagnostics) => diagnostics,
+        };
+
+        let diagnostic = match diagnostics.diagnostics() {
+            [diagnostic] => diagnostic,
+            diagnostics => panic!("expected one diagnostic: {diagnostics:?}"),
+        };
+
+        assert_eq!(diagnostic.kind(), DiagnosticKind::SourceFileReadFailed);
+
+        assert_eq!(
+            diagnostic.args(),
+            &[
+                DiagnosticArg::new(
+                    DiagnosticArgName::FilePath,
+                    DiagnosticArgValue::FilePath(missing_path)
+                ),
+                DiagnosticArg::new(
+                    DiagnosticArgName::IoErrorKind,
+                    DiagnosticArgValue::IoErrorKind(DiagnosticIoErrorKind::NotFound)
+                ),
+                DiagnosticArg::new(
+                    DiagnosticArgName::InputIndex,
+                    DiagnosticArgValue::InputIndex(0)
+                )
+            ]
+        );
+
+        assert_eq!(
+            diagnostic.notes(),
+            &[DiagnosticNote::new(
+                DiagnosticNoteKind::SourceFileMustBeReadable
+            )]
+        );
+    }
+
+    #[test]
     fn file_argument_identity_overflow_is_reported() {
         let overflow_index = match usize::try_from(u64::from(u32::MAX) + 1) {
             Ok(overflow_index) => overflow_index,
@@ -215,6 +320,20 @@ mod tests {
             Err(DriverSourceInputError::SourceIdentityOverflow {
                 input_index: overflow_index
             })
+        );
+
+        let diagnostic = DriverSourceInputError::SourceIdentityOverflow {
+            input_index: overflow_index,
+        }
+        .into_diagnostic(bray_diagnostics::DiagnosticId::new(0));
+
+        assert_eq!(diagnostic.kind(), DiagnosticKind::RequestInvalidSourceInput);
+
+        assert_eq!(
+            diagnostic.notes(),
+            &[DiagnosticNote::new(
+                DiagnosticNoteKind::SourceInputNeedsStableIdentity
+            )]
         );
     }
 }

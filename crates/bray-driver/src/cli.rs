@@ -1,9 +1,9 @@
 use std::ffi::OsString;
-use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 use bray_compilation::WorkerBudget;
+use bray_diagnostics::DiagnosticBag;
 use clap::error::ErrorKind as ClapErrorKind;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 
@@ -12,22 +12,41 @@ use crate::command::{DriverCommand, DriverInvocation, DriverOptions, DriverOutpu
 /// Error returned when parsing driver command-line arguments.
 #[derive(Debug)]
 pub struct DriverCliError {
-    error: clap::Error,
+    kind: DriverCliErrorKind,
+}
+
+#[derive(Debug)]
+enum DriverCliErrorKind {
+    Clap(clap::Error),
+    Diagnostics(DiagnosticBag),
 }
 
 impl DriverCliError {
     /// Returns the process exit code for this CLI parse error.
     pub fn exit_code(&self) -> ExitCode {
-        match self.error.kind() {
-            ClapErrorKind::DisplayHelp | ClapErrorKind::DisplayVersion => ExitCode::SUCCESS,
-            _ => ExitCode::FAILURE,
+        match &self.kind {
+            DriverCliErrorKind::Clap(error) => match error.kind() {
+                ClapErrorKind::DisplayHelp | ClapErrorKind::DisplayVersion => ExitCode::SUCCESS,
+                _ => ExitCode::FAILURE,
+            },
+            DriverCliErrorKind::Diagnostics(_) => ExitCode::FAILURE,
+        }
+    }
+
+    /// Converts this parse failure into structured diagnostics when available.
+    pub fn into_diagnostics(self) -> DiagnosticBag {
+        match self.kind {
+            DriverCliErrorKind::Clap(_) => DiagnosticBag::new(),
+            DriverCliErrorKind::Diagnostics(diagnostics) => diagnostics,
         }
     }
 }
 
 impl From<clap::Error> for DriverCliError {
     fn from(error: clap::Error) -> Self {
-        Self { error }
+        Self {
+            kind: DriverCliErrorKind::Clap(error),
+        }
     }
 }
 
@@ -40,7 +59,7 @@ impl DriverInvocation {
     {
         let cli = Cli::try_parse_from(arguments).map_err(DriverCliError::from)?;
 
-        Ok(cli.into_driver_invocation())
+        cli.into_driver_invocation()
     }
 }
 
@@ -54,30 +73,40 @@ struct Cli {
 }
 
 impl Cli {
-    fn into_driver_invocation(self) -> DriverInvocation {
-        DriverInvocation::new(
-            self.options.into_driver_options(),
+    fn into_driver_invocation(self) -> Result<DriverInvocation, DriverCliError> {
+        let options = self
+            .options
+            .into_driver_options()
+            .map_err(|diagnostics| DriverCliError {
+                kind: DriverCliErrorKind::Diagnostics(diagnostics),
+            })?;
+
+        Ok(DriverInvocation::new(
+            options,
             self.command.into_driver_command(),
-        )
+        ))
     }
 }
 
 #[derive(Args, Debug)]
 struct CliOptions {
     #[arg(long = "cpu-count", global = true, value_name = "N")]
-    cpu_count: Option<NonZeroUsize>,
+    cpu_count: Option<usize>,
     #[arg(long = "format", global = true, value_enum, default_value = "text")]
     format: CliOutputFormat,
 }
 
 impl CliOptions {
-    fn into_driver_options(self) -> DriverOptions {
+    fn into_driver_options(self) -> Result<DriverOptions, DiagnosticBag> {
         let worker_budget = match self.cpu_count {
-            Some(cpu_count) => WorkerBudget::from_nonzero(cpu_count),
+            Some(cpu_count) => match WorkerBudget::new(cpu_count) {
+                Ok(worker_budget) => worker_budget,
+                Err(error) => return Err(error.into_diagnostic_bag()),
+            },
             None => WorkerBudget::default(),
         };
 
-        DriverOptions::new(worker_budget, self.format.into())
+        Ok(DriverOptions::new(worker_budget, self.format.into()))
     }
 }
 
@@ -117,7 +146,7 @@ enum CliInspectSubcommand {
 
 #[derive(Args, Debug)]
 struct CliSourceFiles {
-    #[arg(value_name = "FILE", required = true, num_args = 1..)]
+    #[arg(value_name = "FILE", num_args = 0..)]
     files: Vec<PathBuf>,
 }
 
@@ -141,6 +170,7 @@ mod tests {
     use std::path::PathBuf;
 
     use bray_compilation::WorkerBudget;
+    use bray_diagnostics::DiagnosticKind;
 
     use crate::command::{DriverCommandKind, DriverInvocation, DriverOutputFormat};
 
@@ -209,21 +239,40 @@ mod tests {
 
     #[test]
     fn rejects_zero_cpu_count() {
-        let result = DriverInvocation::try_from_arguments([
+        let error = match DriverInvocation::try_from_arguments([
             "brayc",
             "--cpu-count",
             "0",
             "check",
             "main.bray",
-        ]);
+        ]) {
+            Ok(invocation) => panic!("zero worker budget should fail: {invocation:?}"),
+            Err(error) => error,
+        };
 
-        assert!(result.is_err());
+        let diagnostics = error.into_diagnostics();
+
+        assert_eq!(
+            diagnostics
+                .by_kind(DiagnosticKind::RequestInvalidWorkerBudget)
+                .count(),
+            1
+        );
     }
 
     #[test]
-    fn requires_source_files() {
-        let result = DriverInvocation::try_from_arguments(["brayc", "inspect", "source"]);
+    fn parses_empty_source_file_lists_for_structured_request_diagnostics() {
+        let invocation = match DriverInvocation::try_from_arguments(["brayc", "inspect", "source"])
+        {
+            Ok(invocation) => invocation,
+            Err(error) => panic!("empty source list should parse for diagnostics: {error:?}"),
+        };
 
-        assert!(result.is_err());
+        assert_eq!(
+            invocation.command().kind(),
+            DriverCommandKind::InspectSource
+        );
+
+        assert!(invocation.command().files().is_empty());
     }
 }

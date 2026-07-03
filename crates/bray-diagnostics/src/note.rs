@@ -37,8 +37,20 @@ impl DiagnosticNote {
 /// Stable category for a diagnostic note.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum DiagnosticNoteKind {
+    /// Note explaining that a source file must be readable before compilation.
+    SourceFileMustBeReadable,
     /// Note explaining that source inputs must be valid UTF-8.
     SourceMustBeUtf8,
+    /// Note explaining that source IDs use a compact representation.
+    SourceIdsAreCompact,
+    /// Note explaining that source text offsets use a compact representation.
+    SourceTextOffsetsAreCompact,
+    /// Note explaining that at least one source input is required.
+    SourceInputRequired,
+    /// Note explaining that CLI source inputs need stable source identities.
+    SourceInputNeedsStableIdentity,
+    /// Note explaining that worker budgets must be positive.
+    WorkerBudgetMustBePositive,
     /// Note explaining that a character is not accepted by the lexer.
     CharacterNotAccepted,
     /// Note explaining that a block comment needs a closing terminator.
@@ -59,6 +71,7 @@ mod tests {
             ));
 
         assert_eq!(note.kind(), DiagnosticNoteKind::SourceMustBeUtf8);
+
         assert_eq!(
             note.args(),
             &[DiagnosticArg::new(
