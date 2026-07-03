@@ -1,37 +1,11 @@
 use crate::id::SourceId;
+use crate::identity::SourceIdentity;
 use crate::origin::SourceOrigin;
 use crate::text::{TextRange, TextSize, TextSizeOverflow};
+use crate::version::SourceVersion;
 
 const FNV_OFFSET_BASIS: u64 = 0xcbf29ce484222325;
 const FNV_PRIME: u64 = 0x00000100000001b3;
-
-/// Monotonic revision for a source input snapshot.
-#[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct SourceRevision(u64);
-
-impl SourceRevision {
-    /// Creates a source revision from a raw value.
-    pub const fn new(raw: u64) -> Self {
-        Self(raw)
-    }
-
-    /// Returns the raw source revision value.
-    pub const fn raw(self) -> u64 {
-        self.0
-    }
-}
-
-impl From<u64> for SourceRevision {
-    fn from(raw: u64) -> Self {
-        Self::new(raw)
-    }
-}
-
-impl From<SourceRevision> for u64 {
-    fn from(revision: SourceRevision) -> Self {
-        revision.raw()
-    }
-}
 
 /// Deterministic non-cryptographic checksum of a source input snapshot's text.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -66,8 +40,9 @@ impl From<SourceChecksum> for u64 {
 #[derive(Debug, Eq, Hash, PartialEq)]
 pub struct SourceSnapshot {
     source_id: SourceId,
+    identity: SourceIdentity,
     origin: SourceOrigin,
-    revision: SourceRevision,
+    version: SourceVersion,
     checksum: SourceChecksum,
     text_len: TextSize,
     text: String,
@@ -77,8 +52,9 @@ impl SourceSnapshot {
     /// Creates an immutable source snapshot.
     pub fn new(
         source_id: SourceId,
+        identity: SourceIdentity,
         origin: SourceOrigin,
-        revision: impl Into<SourceRevision>,
+        version: impl Into<SourceVersion>,
         text: impl Into<String>,
     ) -> Result<Self, TextSizeOverflow> {
         let text = text.into();
@@ -87,8 +63,9 @@ impl SourceSnapshot {
 
         Ok(Self {
             source_id,
+            identity,
             origin,
-            revision: revision.into(),
+            version: version.into(),
             checksum,
             text_len,
             text,
@@ -100,14 +77,19 @@ impl SourceSnapshot {
         self.source_id
     }
 
+    /// Returns the logical source identity.
+    pub const fn identity(&self) -> SourceIdentity {
+        self.identity
+    }
+
     /// Returns the source origin.
     pub const fn origin(&self) -> &SourceOrigin {
         &self.origin
     }
 
-    /// Returns the source revision.
-    pub const fn revision(&self) -> SourceRevision {
-        self.revision
+    /// Returns the source version.
+    pub const fn version(&self) -> SourceVersion {
+        self.version
     }
 
     /// Returns the checksum of the source text.
@@ -138,15 +120,16 @@ impl SourceSnapshot {
 
 #[cfg(test)]
 mod tests {
-    use super::{SourceChecksum, SourceRevision, SourceSnapshot};
-    use crate::{SourceId, SourceOrigin, TextRange, TextSize};
+    use super::{SourceChecksum, SourceSnapshot};
+    use crate::{SourceId, SourceIdentity, SourceOrigin, SourceVersion, TextRange, TextSize};
 
     #[test]
     fn snapshots_store_immutable_text_metadata() {
         let snapshot = match SourceSnapshot::new(
             SourceId::new(2),
+            SourceIdentity::new(9),
             SourceOrigin::virtual_source("buffer"),
-            SourceRevision::new(4),
+            SourceVersion::new(4),
             "module main\n",
         ) {
             Ok(snapshot) => snapshot,
@@ -154,8 +137,9 @@ mod tests {
         };
 
         assert_eq!(snapshot.source_id(), SourceId::new(2));
+        assert_eq!(snapshot.identity(), SourceIdentity::new(9));
         assert_eq!(snapshot.origin().kind(), crate::SourceOriginKind::Virtual);
-        assert_eq!(snapshot.revision(), SourceRevision::new(4));
+        assert_eq!(snapshot.version(), SourceVersion::new(4));
         assert_eq!(snapshot.text(), "module main\n");
         assert_eq!(snapshot.text_len(), TextSize::new(12));
 

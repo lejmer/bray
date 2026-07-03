@@ -1,7 +1,7 @@
 use crate::id::SourceId;
 use crate::text::{TextRange, TextSize};
 
-/// Source identity plus a byte range inside that source snapshot.
+/// Source snapshot identity plus a byte range inside that snapshot.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct SourceSpan {
     source_id: SourceId,
@@ -9,7 +9,7 @@ pub struct SourceSpan {
 }
 
 impl SourceSpan {
-    /// Creates a span from a source identity and byte range.
+    /// Creates a span from a source snapshot identity and byte range.
     pub const fn new(source_id: SourceId, range: TextRange) -> Self {
         Self { source_id, range }
     }
@@ -59,7 +59,7 @@ mod tests {
     use crate::{SourceId, TextRange, TextSize};
 
     #[test]
-    fn source_spans_pair_source_identity_with_byte_range() {
+    fn source_spans_pair_source_snapshot_id_with_byte_range() {
         let source_id = SourceId::new(3);
         let range = TextRange::new(TextSize::new(2), TextSize::new(9));
         let span = SourceSpan::new(source_id, range);
