@@ -14,6 +14,8 @@ The receiver is supplied implicitly by the method call syntax.
 
 Method parameters other than the receiver follow the [argument binding](arguments.md) rules.
 
+Method declaration, receiver-mode, and receiver contract rules are defined in [Methods](../callables/methods.md).
+
 A method call with a positional argument for a non-`pos` parameter is rejected.
 
 ```bray

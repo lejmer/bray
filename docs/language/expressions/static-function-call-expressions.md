@@ -25,6 +25,8 @@ The callee path must resolve to a static callable declaration or callable value.
 
 Static function parameters follow the [argument binding](arguments.md) rules.
 
+Static function calls use the callable contract rules defined in [Callables](../callables.md).
+
 A static function call with a positional argument for a non-`pos` parameter is rejected.
 
 ```bray

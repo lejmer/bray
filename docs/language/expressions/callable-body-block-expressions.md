@@ -15,6 +15,8 @@ func add(left: i32, right: i32) -> i32
 
 A callable-body block expression creates a **callable execution scope**.
 
+Callable result and execution-scope rules are defined in [Return and execution scopes](../callables/return-and-execution-scopes.md).
+
 `return` exits the nearest callable execution scope.
 
 A callable body supplies callable result values through `return`.

@@ -22,6 +22,8 @@ lambda (parameters) -> Result
 
 The parameter list uses the same parameter grammar as function declarations.
 
+Lambda callable rules are defined in [Lambda expressions and anonymous callables](../callables/lambda-expressions-and-anonymous-callables.md).
+
 The result type is optional. An omitted result type means `unit`.
 
 The lambda body is a callable-body block expression.

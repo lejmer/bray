@@ -3192,7 +3192,7 @@ Const eligibility is a caller-visible callable contract.
 
 A callable with trusted caller obligations requires a callable type that preserves those obligations.
 
-Callable values and callable declarations are checked by the Function and Callable Model.
+Callable values and callable declarations are checked by [Callables](../../language/callables.md).
 
 Contract clauses attach after the callable type signature.
 

@@ -1058,7 +1058,7 @@ Const eligibility is a caller-visible callable contract.
 
 A callable with trusted caller obligations requires a callable type that preserves those obligations.
 
-Callable values and callable declarations are checked by the Function and Callable Model.
+Callable values and callable declarations are checked by [Callables](../callables.md).
 
 Contract clauses attach after the callable type signature.
 
@@ -1097,7 +1097,7 @@ ABI-qualified callable type forms use `@abi(...)` immediately before `func`.
 
 Callable ABI is part of the callable type's visible contract.
 
-A named callable contract declaration gives a reusable name to a callable type form.
+A named callable contract declaration gives a reusable name to a callable type form. Named callable contract rules are defined in [Callable types and values](../callables/callable-types-and-values.md).
 
 ```bray
 callable Transform =
@@ -1131,7 +1131,7 @@ A callable value satisfies a named callable contract when its visible callable c
 
 Named callable contracts cannot be overloaded.
 
-Lambda expressions produce anonymous callable values.
+Lambda expressions produce anonymous callable values. Lambda callable rules are defined in [Lambda expressions and anonymous callables](../callables/lambda-expressions-and-anonymous-callables.md).
 
 A lambda's callable type is described by its parameter names, parameter call-position permissions, parameter types, result type,
 execution mode, callable ABI, contract clauses, and trusted obligations.

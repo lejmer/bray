@@ -11,6 +11,8 @@ buffer
 
 Arguments are named by default in callable calls.
 
+Callable parameter surfaces and `pos` parameter rules are defined in [Parameters](../callables/parameters.md).
+
 A named argument identifies the parameter being supplied by name.
 
 A positional argument identifies the parameter being supplied by position and is valid only for a parameter marked `pos`.

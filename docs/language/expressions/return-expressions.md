@@ -8,6 +8,8 @@ return value;
 
 The returned value must be compatible with the callable’s declared result type.
 
+Callable result and execution-scope rules are defined in [Return and execution scopes](../callables/return-and-execution-scopes.md).
+
 A callable with result type `unit` can complete normally.
 
 A callable with result type `unit` can also return explicitly with `return unit;`.

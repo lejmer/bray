@@ -988,7 +988,7 @@ FFI boundaries include:
 - foreign APIs that create, consume, or transfer resource handles,
 - foreign runtime behavior that can reenter Bray.
 
-The Function and Callable Model defines `extern`, `@abi(...)`, `@link(...)`, and `@symbol(...)`.
+[Callables](../../language/callables.md) defines `extern`, `@abi(...)`, `@link(...)`, and `@symbol(...)`.
 
 The Type Model defines ABI-relevant data layout through `@layout(...)`.
 

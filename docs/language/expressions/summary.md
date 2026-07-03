@@ -24,7 +24,7 @@ No-payload union variants construct without parentheses.
 
 `box(...)` is the owned-indirection construction expression.
 
-Function calls and method calls are governed by callable contracts.
+Function calls and method calls are governed by [callable contracts](../callables.md).
 
 Assignment returns `unit` on normal completion.
 
