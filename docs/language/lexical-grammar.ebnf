@@ -1,8 +1,8 @@
 (* Bray lexical grammar.
 
-   This is the implementation-facing plain EBNF artifact for source text,
-   tokens, trivia, comments, identifiers, keywords, and literal spellings.
-   The explanatory language documentation lives in lexical-grammar.md.
+   This plain EBNF reference covers source text, tokens, trivia, comments,
+   identifiers, keywords, and literal spellings.
+   The explanatory language chapter is lexical-grammar.md.
 *)
 
 source-text =

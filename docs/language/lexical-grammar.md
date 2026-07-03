@@ -1,8 +1,8 @@
 # Lexical grammar
 
-This document explains Bray source text, lexical tokens, trivia, comments, identifiers, keywords, and literal spellings.
+This chapter explains Bray source text, lexical tokens, trivia, comments, identifiers, keywords, and literal spellings.
 
-The implementation-facing plain EBNF artifact is `lexical-grammar.ebnf`.
+The companion plain EBNF reference is `lexical-grammar.ebnf`.
 
 The source grammar is defined separately in `syntax-grammar.md` and `syntax-grammar.ebnf`.
 

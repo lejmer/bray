@@ -1,15 +1,13 @@
 # Syntax grammar
 
-This document explains the Bray EBNF source grammar.
+This chapter explains the Bray EBNF source grammar.
 
-The implementation-facing plain EBNF artifact is `syntax-grammar.ebnf`.
+The companion plain EBNF reference is `syntax-grammar.ebnf`.
 
 The lexical grammar is defined separately in `lexical-grammar.md` and `lexical-grammar.ebnf`.
 
-Both grammar files are expanded incrementally as the syntax is finalized.
-
-The package product, selected source graph, selected dependency graph, package identity, and target profile are semantic compiler
-inputs. They are not source syntax.
+The package product, selected source graph, selected dependency graph, package identity, and target profile are semantic inputs.
+They are not source syntax.
 
 ---
 

@@ -1,11 +1,11 @@
 (* Bray source syntax grammar.
 
-   This is the implementation-facing plain EBNF artifact. The explanatory
-   language documentation lives in syntax-grammar.md.
+   This plain EBNF reference covers Bray source syntax.
+   The explanatory language chapter is syntax-grammar.md.
 
    The package product, selected source graph, selected dependency graph,
-   package identity, and target profile are semantic compiler inputs, not
-   source syntax.
+   package identity, and target profile are semantic inputs, not source
+   syntax.
 
    Lexical terminals such as identifier and literal tokens are defined in
    lexical-grammar.ebnf.
