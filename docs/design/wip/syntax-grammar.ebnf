@@ -1,0 +1,1327 @@
+(* Bray source syntax grammar.
+
+   This is the implementation-facing plain EBNF artifact. The explanatory
+   language documentation lives in syntax-grammar.md.
+
+   The package product, selected source graph, selected dependency graph,
+   package identity, and target profile are semantic compiler inputs, not
+   source syntax.
+
+   Lexical terminals such as identifier and literal tokens are defined in
+   lexical-grammar.ebnf.
+*)
+
+compilation-unit =
+    { source-file } ;
+
+source-file =
+    file-module-declaration { file-item } ;
+
+file-module-declaration =
+    module-directives module-modifiers "module" module-path ";" ;
+
+file-item =
+      using-declaration
+    | export-declaration
+    | block-module-declaration
+    | module-level-declaration ;
+
+block-module-declaration =
+    module-directives module-modifiers "module" module-path module-body ;
+
+module-body =
+    "{" { module-item } "}" ;
+
+module-item =
+      using-declaration
+    | export-declaration
+    | module-level-declaration ;
+
+module-path =
+    path ;
+
+module-level-declaration =
+      constant-declaration
+    | function-declaration
+    | callable-contract-declaration
+    | type-declaration
+    | trait-declaration
+    | implementation-declaration
+    | overload-declaration
+    | predicate-declaration ;
+
+type-member-declaration =
+      type-callable-member-declaration
+    | type-constructor-member-declaration
+    | type-lifecycle-member-declaration
+    | constant-declaration
+    | callable-overload-declaration ;
+
+trait-member-declaration =
+      trait-callable-member-declaration
+    | trait-constant-member-declaration
+    | trait-type-member-declaration
+    | trait-predicate-member-declaration
+    | trait-lifecycle-requirement-declaration ;
+
+block-level-declaration =
+      local-binding-declaration
+    | constant-declaration ;
+
+module-directives =
+    { module-directive } ;
+
+module-directive =
+      target-directive
+    | test-directive
+    | link-directive ;
+
+directive-marker =
+    "@" ;
+
+target-directive =
+    directive-marker "target" "(" constant-expression ")" ;
+
+test-directive =
+    directive-marker "test" ;
+
+module-modifiers =
+    [ trusted-modifier ] [ visibility-modifier ] ;
+
+trusted-modifier =
+    "trusted" ;
+
+visibility-modifier =
+      "public"
+    | "internal" ;
+
+using-declaration =
+    "using" [ "internal" ] path ";" ;
+
+export-declaration =
+    "export" path ";" ;
+
+path =
+    identifier { "." identifier } ;
+
+expression =
+    assignment-expression ;
+
+assignment-expression =
+    non-assignment-expression [ assignment-continuation ] ;
+
+assignment-continuation =
+    assignment-operator expression ;
+
+assignment-operator =
+    "=" ;
+
+non-assignment-expression =
+    logical-or-expression ;
+
+condition-expression =
+    non-assignment-expression ;
+
+assignable-expression =
+    access-expression ;
+
+logical-or-expression =
+    logical-and-expression { "||" logical-and-expression } ;
+
+logical-and-expression =
+    comparison-expression { "&&" comparison-expression } ;
+
+comparison-expression =
+    bitwise-or-expression [ comparison-operator bitwise-or-expression ] ;
+
+bitwise-or-expression =
+    bitwise-xor-expression { "|" bitwise-xor-expression } ;
+
+bitwise-xor-expression =
+    bitwise-and-expression { "^" bitwise-and-expression } ;
+
+bitwise-and-expression =
+    shift-expression { "&" shift-expression } ;
+
+shift-expression =
+    additive-expression { shift-operator additive-expression } ;
+
+additive-expression =
+    multiplicative-expression { additive-operator multiplicative-expression } ;
+
+multiplicative-expression =
+    unary-expression { multiplicative-operator unary-expression } ;
+
+unary-expression =
+      unary-operator unary-expression
+    | exponentiation-expression ;
+
+exponentiation-expression =
+    postfix-expression [ "**" unary-expression ] ;
+
+postfix-expression =
+    primary-expression { postfix-operation } ;
+
+access-expression =
+    access-root-expression { access-postfix-operation } ;
+
+access-root-expression =
+      identifier
+    | "self"
+    | internal-access-expression
+    | grouped-access-expression ;
+
+internal-access-expression =
+    "internal" access-expression ;
+
+grouped-access-expression =
+    "(" access-expression ")" ;
+
+access-postfix-operation =
+      member-access-operation
+    | element-index-operation ;
+
+member-access-operation =
+    "." member-selector ;
+
+member-selector =
+      identifier
+    | tuple-element-index ;
+
+element-index-operation =
+    "[" expression "]" ;
+
+primary-expression =
+      literal-expression
+    | unit-expression
+    | absence-expression
+    | access-primary-expression
+    | grouped-expression
+    | tuple-expression
+    | array-expression
+    | general-generator-expression
+    | expected-type-struct-construction-expression
+    | leading-dot-variant-expression
+    | block-expression
+    | conditional-expression
+    | match-expression
+    | while-expression
+    | for-expression
+    | loop-expression
+    | with-expression
+    | lambda-expression
+    | borrow-expression
+    | trust-boundary-expression
+    | assertion-expression
+    | result-propagation-expression
+    | catch-expression
+    | await-expression
+    | async-block-expression
+    | spawn-expression
+    | type-form-construction-expression
+    | boolean-fold-expression
+    | yield-expression
+    | return-expression
+    | panic-expression
+    | break-expression
+    | continue-expression ;
+
+access-primary-expression =
+    access-expression [ struct-construction-body ] ;
+
+postfix-operation =
+      access-postfix-operation
+    | call-operation
+    | slice-index-operation
+    | nullable-propagation-operation
+    | conversion-operation
+    | trait-qualified-member-operation ;
+
+call-operation =
+    argument-list ;
+
+slice-index-operation =
+    "[" slice-selector "]" ;
+
+slice-selector =
+    [ expression ] ".." [ expression ] ;
+
+nullable-propagation-operation =
+    "?" ;
+
+conversion-operation =
+    "as" type-expression ;
+
+trait-qualified-member-operation =
+    "(" trait-application ")" member-access-operation ;
+
+full-struct-construction-expression =
+    access-expression struct-construction-body ;
+
+literal-expression =
+      integer-literal
+    | real-literal
+    | imaginary-literal
+    | boolean-literal
+    | character-literal
+    | string-literal ;
+
+boolean-literal =
+      "true"
+    | "false" ;
+
+unit-expression =
+    "unit" ;
+
+absence-expression =
+    "none" ;
+
+grouped-expression =
+    "(" expression ")" ;
+
+leading-dot-variant-expression =
+    "." identifier ;
+
+borrow-expression =
+    "&" [ "mut" ] expression ;
+
+trust-boundary-expression =
+    "trusted" expression ;
+
+assertion-expression =
+    "assert" "(" condition-expression [ "," expression ] ")" ;
+
+result-propagation-expression =
+    "try" expression ;
+
+catch-expression =
+    "catch" expression ;
+
+await-expression =
+    "await" expression ;
+
+with-expression =
+    "with" irrefutable-pattern [ ":" type-expression ] "=" expression
+    block-expression ;
+
+async-block-expression =
+    "async" block-expression ;
+
+(* The block after a with header belongs to the with-expression and is not
+   parsed as part of the initializer expression. The block after async belongs
+   to the async-block-expression. *)
+
+spawn-expression =
+      task-spawn-expression
+    | detached-task-spawn-expression
+    | thread-spawn-expression ;
+
+task-spawn-expression =
+    "spawn" expression ;
+
+detached-task-spawn-expression =
+    "spawn" "detached" expression ;
+
+thread-spawn-expression =
+    "spawn" "thread" thread-spawn-callee argument-list ;
+
+thread-spawn-callee =
+    access-expression ;
+
+yield-expression =
+    "yield" [ expression ] ;
+
+return-expression =
+    "return" [ expression ] ;
+
+panic-expression =
+    "panic" argument-list ;
+
+break-expression =
+    "break" [ expression ] ;
+
+continue-expression =
+    "continue" ;
+
+argument-list =
+    "(" [ argument-sequence [ "," ] ] ")" ;
+
+argument-sequence =
+      positional-argument-sequence [ "," named-argument-sequence ]
+    | named-argument-sequence ;
+
+positional-argument-sequence =
+    positional-argument { "," positional-argument } ;
+
+named-argument-sequence =
+    named-argument { "," named-argument } ;
+
+positional-argument =
+    expression ;
+
+named-argument =
+    identifier "=" expression ;
+
+(* In an argument list, an entry beginning with identifier "=" is parsed as
+   named-argument. A positional assignment expression with that token shape must
+   be grouped. *)
+
+struct-construction-body =
+    "{" [ struct-field-initializer-sequence [ "," ] ] "}" ;
+
+struct-field-initializer-sequence =
+    struct-field-initializer { "," struct-field-initializer } ;
+
+struct-field-initializer =
+    identifier "=" expression ;
+
+expected-type-struct-construction-expression =
+    struct-construction-body ;
+
+type-form-construction-expression =
+    box-construction-expression ;
+
+box-construction-expression =
+    "box" [ type-form-argument-list ] argument-list ;
+
+(* A non-empty expected-type struct construction body is recognized by the
+   top-level identifier "=" field-initializer shape. An empty braced expression
+   is accepted as expected-type struct construction only when the expression
+   context supplies the constructed struct type. *)
+
+tuple-expression =
+    "(" expression "," [ tuple-expression-tail ] ")" ;
+
+tuple-expression-tail =
+    expression { "," expression } [ "," ] ;
+
+array-expression =
+      element-array-expression
+    | repeated-element-array-expression
+    | array-generator-expression ;
+
+element-array-expression =
+    "[" array-element-sequence [ "," ] "]" ;
+
+array-element-sequence =
+    expression { "," expression } ;
+
+repeated-element-array-expression =
+    "[" expression ";" constant-expression "]" ;
+
+array-generator-expression =
+    "[" generator-iteration-expression "]" ;
+
+general-generator-expression =
+    "{" generator-iteration-expression "}" ;
+
+generator-iteration-expression =
+    "each" irrefutable-pattern "in" iteration-source block-expression ;
+
+boolean-fold-expression =
+      all-expression
+    | any-expression ;
+
+all-expression =
+    "all" "(" boolean-fold-operand ")" ;
+
+any-expression =
+    "any" "(" boolean-fold-operand ")" ;
+
+boolean-fold-operand =
+    expression ;
+
+block-expression =
+    "{" { block-item } "}" ;
+
+block-item =
+      block-level-declaration
+    | generator-iteration-expression
+    | sequenced-expression ;
+
+sequenced-expression =
+    expression ";" ;
+
+local-binding-declaration =
+    "let" irrefutable-pattern [ ":" type-expression ] "=" expression ";" ;
+
+(* A block expression does not use a final un-terminated expression as its
+   result. Value production is handled by yield. A brace-enclosed expression
+   whose only top-level child is generator-iteration-expression is a
+   general-generator-expression rather than a block-expression. *)
+
+conditional-expression =
+    "if" condition-expression block-expression [ "else" conditional-else ] ;
+
+conditional-else =
+      block-expression
+    | conditional-expression ;
+
+match-expression =
+    "match" match-subject match-body ;
+
+match-subject =
+    [ "consume" ] expression ;
+
+match-body =
+    "{" match-arm { match-arm } "}" ;
+
+match-arm =
+    "case" case-pattern [ "when" guard-expression ] block-expression ;
+
+while-expression =
+    "while" condition-expression block-expression [ "else" block-expression ] ;
+
+for-expression =
+    "for" irrefutable-pattern "in" iteration-source block-expression
+    [ "else" block-expression ] ;
+
+iteration-source =
+    [ iteration-source-mode ] expression ;
+
+iteration-source-mode =
+      "mut"
+    | "move" ;
+
+loop-expression =
+    "loop" block-expression ;
+
+(* The block after a control-flow header belongs to the control-flow expression.
+   It is not parsed as part of the condition, subject, or source expression in
+   the header. Match arms are separated by their block bodies. *)
+
+irrefutable-pattern =
+    irrefutable-pattern-primary ;
+
+case-pattern =
+    case-pattern-primary { "|" case-pattern-primary } ;
+
+irrefutable-pattern-primary =
+      shared-pattern-primary
+    | irrefutable-recursive-pattern ;
+
+case-pattern-primary =
+      shared-pattern-primary
+    | case-recursive-pattern ;
+
+shared-pattern-primary =
+      discard-pattern
+    | mutable-binding-pattern
+    | literal-pattern
+    | nullable-absent-pattern ;
+
+irrefutable-recursive-pattern =
+      irrefutable-nullable-present-pattern
+    | irrefutable-box-pattern
+    | leading-dot-irrefutable-pattern
+    | path-irrefutable-pattern
+    | expected-type-irrefutable-product-pattern
+    | grouped-irrefutable-pattern
+    | irrefutable-tuple-pattern
+    | irrefutable-array-pattern ;
+
+case-recursive-pattern =
+      case-nullable-present-pattern
+    | case-box-pattern
+    | leading-dot-case-pattern
+    | path-case-pattern
+    | expected-type-case-product-pattern
+    | grouped-case-pattern
+    | case-tuple-pattern
+    | case-array-pattern ;
+
+(* The irrefutable and case recursive productions are context specializations
+   of the same parser shape. A hand-written parser should dispatch through one
+   pattern-primary routine parameterized by the current pattern context. *)
+
+discard-pattern =
+    "_" ;
+
+mutable-binding-pattern =
+    "mut" identifier ;
+
+literal-pattern =
+      integer-literal
+    | real-literal
+    | imaginary-literal
+    | boolean-literal
+    | character-literal
+    | string-literal ;
+
+nullable-absent-pattern =
+    "none" ;
+
+irrefutable-nullable-present-pattern =
+    "?" irrefutable-pattern-primary ;
+
+case-nullable-present-pattern =
+    "?" case-pattern-primary ;
+
+irrefutable-box-pattern =
+    "box" "(" irrefutable-pattern ")" ;
+
+case-box-pattern =
+    "box" "(" case-pattern ")" ;
+
+leading-dot-irrefutable-pattern =
+    "." identifier [ irrefutable-payload-pattern-body ] ;
+
+leading-dot-case-pattern =
+    "." identifier [ case-payload-pattern-body ] ;
+
+path-irrefutable-pattern =
+    path [ path-irrefutable-pattern-continuation ] ;
+
+path-case-pattern =
+    path [ path-case-pattern-continuation ] ;
+
+path-irrefutable-pattern-continuation =
+      irrefutable-payload-pattern-body
+    | irrefutable-product-pattern-body ;
+
+path-case-pattern-continuation =
+      case-payload-pattern-body
+    | case-product-pattern-body ;
+
+expected-type-irrefutable-product-pattern =
+    irrefutable-product-pattern-body ;
+
+expected-type-case-product-pattern =
+    case-product-pattern-body ;
+
+grouped-irrefutable-pattern =
+    "(" irrefutable-pattern ")" ;
+
+grouped-case-pattern =
+    "(" case-pattern ")" ;
+
+irrefutable-tuple-pattern =
+    "(" irrefutable-pattern "," [ irrefutable-tuple-pattern-tail ] ")" ;
+
+irrefutable-tuple-pattern-tail =
+    irrefutable-pattern { "," irrefutable-pattern } [ "," ] ;
+
+case-tuple-pattern =
+    "(" case-pattern "," [ case-tuple-pattern-tail ] ")" ;
+
+case-tuple-pattern-tail =
+    case-pattern { "," case-pattern } [ "," ] ;
+
+irrefutable-array-pattern =
+    "[" irrefutable-array-pattern-entry-sequence [ "," ] "]" ;
+
+irrefutable-array-pattern-entry-sequence =
+    irrefutable-array-pattern-entry { "," irrefutable-array-pattern-entry } ;
+
+irrefutable-array-pattern-entry =
+      irrefutable-pattern
+    | remaining-pattern ;
+
+case-array-pattern =
+    "[" case-array-pattern-entry-sequence [ "," ] "]" ;
+
+case-array-pattern-entry-sequence =
+    case-array-pattern-entry { "," case-array-pattern-entry } ;
+
+case-array-pattern-entry =
+      case-pattern
+    | remaining-pattern ;
+
+irrefutable-product-pattern-body =
+    "{" [ irrefutable-product-pattern-entry-sequence [ "," ] ] "}" ;
+
+irrefutable-product-pattern-entry-sequence =
+    irrefutable-product-pattern-entry { "," irrefutable-product-pattern-entry } ;
+
+irrefutable-product-pattern-entry =
+      product-field-irrefutable-pattern
+    | remaining-pattern ;
+
+product-field-irrefutable-pattern =
+    identifier [ "=" irrefutable-pattern ] ;
+
+case-product-pattern-body =
+    "{" [ case-product-pattern-entry-sequence [ "," ] ] "}" ;
+
+case-product-pattern-entry-sequence =
+    case-product-pattern-entry { "," case-product-pattern-entry } ;
+
+case-product-pattern-entry =
+      product-field-case-pattern
+    | remaining-pattern ;
+
+product-field-case-pattern =
+    identifier [ "=" case-pattern ] ;
+
+irrefutable-payload-pattern-body =
+    "(" [ irrefutable-payload-pattern-entry-sequence [ "," ] ] ")" ;
+
+irrefutable-payload-pattern-entry-sequence =
+    irrefutable-payload-pattern-entry { "," irrefutable-payload-pattern-entry } ;
+
+irrefutable-payload-pattern-entry =
+      named-irrefutable-payload-pattern
+    | irrefutable-pattern
+    | remaining-pattern ;
+
+named-irrefutable-payload-pattern =
+    identifier "=" irrefutable-pattern ;
+
+case-payload-pattern-body =
+    "(" [ case-payload-pattern-entry-sequence [ "," ] ] ")" ;
+
+case-payload-pattern-entry-sequence =
+    case-payload-pattern-entry { "," case-payload-pattern-entry } ;
+
+case-payload-pattern-entry =
+      named-case-payload-pattern
+    | case-pattern
+    | remaining-pattern ;
+
+named-case-payload-pattern =
+    identifier "=" case-pattern ;
+
+remaining-pattern =
+    ".." ;
+
+constant-expression =
+    non-assignment-expression ;
+
+predicate-expression =
+    non-assignment-expression ;
+
+guard-expression =
+    non-assignment-expression ;
+
+comparison-operator =
+      "=="
+    | "!="
+    | "<"
+    | "<="
+    | ">"
+    | ">=" ;
+
+shift-operator =
+      "<<"
+    | ">>" ;
+
+additive-operator =
+      "+"
+    | "-" ;
+
+multiplicative-operator =
+      "*"
+    | "/"
+    | "%"
+    | "@" ;
+
+unary-operator =
+      "-"
+    | "~"
+    | "!" ;
+
+type-expression =
+    prefix-type-expression ;
+
+prefix-type-expression =
+      borrow-type-expression
+    | box-type-expression
+    | view-type-expression
+    | callable-type-expression
+    | postfix-type-expression ;
+
+borrow-type-expression =
+    "&" [ "mut" ] type-expression ;
+
+box-type-expression =
+    "box" [ type-form-argument-list ] type-expression ;
+
+(* Note: When a default-storage box subject begins with `[`, the subject is
+   grouped so it is not parsed as a type-form argument list: `box ([u8])`. *)
+
+view-type-expression =
+    "view" trait-application ;
+
+callable-type-expression =
+    callable-directives callable-modifiers "func" parameter-list
+    [ callable-result-clause ] callable-contract-clauses ;
+
+postfix-type-expression =
+    type-primary-expression { type-postfix-operation } ;
+
+type-postfix-operation =
+      nullable-type-operation
+    | generic-argument-list
+    | qualified-type-member-operation ;
+
+nullable-type-operation =
+    "?" ;
+
+qualified-type-member-operation =
+    "(" trait-application ")" "." identifier ;
+
+type-primary-expression =
+      self-type-expression
+    | path
+    | grouped-type-expression
+    | tuple-type-expression
+    | slice-type-expression
+    | array-type-expression ;
+
+self-type-expression =
+    "Self" ;
+
+grouped-type-expression =
+    "(" type-expression ")" ;
+
+tuple-type-expression =
+    "(" type-expression "," [ tuple-type-tail ] ")" ;
+
+tuple-type-tail =
+    type-expression { "," type-expression } [ "," ] ;
+
+slice-type-expression =
+    "[" type-expression "]" ;
+
+array-type-expression =
+    "[" type-expression ";" constant-expression "]" ;
+
+trait-application =
+    path [ generic-argument-list ] ;
+
+generic-argument-list =
+    "<" generic-argument-sequence [ "," ] ">" ;
+
+generic-argument-sequence =
+    generic-argument { "," generic-argument } ;
+
+generic-argument =
+      type-expression
+    | constant-expression ;
+
+type-form-argument-list =
+    "[" type-form-argument-sequence [ "," ] "]" ;
+
+type-form-argument-sequence =
+    type-form-argument { "," type-form-argument } ;
+
+type-form-argument =
+      type-expression
+    | constant-expression ;
+
+parameter-list =
+    "(" [ parameter-sequence [ "," ] ] ")" ;
+
+parameter-sequence =
+    parameter { "," parameter } ;
+
+parameter =
+    parameter-modifiers identifier ":" type-expression [ parameter-default ] ;
+
+parameter-modifiers =
+    { parameter-modifier } ;
+
+parameter-modifier =
+      "pos"
+    | "mut" ;
+
+parameter-default =
+    "=" expression ;
+
+callable-contract-clauses =
+    { callable-contract-clause } ;
+
+callable-contract-clause =
+      requires-clause
+    | ensures-clause
+    | with-clause
+    | uses-clause ;
+
+requires-clause =
+    "requires" "(" predicate-expression-sequence [ "," ] ")" ;
+
+ensures-clause =
+    "ensures" "(" predicate-expression-sequence [ "," ] ")" ;
+
+with-clause =
+    "with" "(" static-predicate-expression-sequence [ "," ] ")" ;
+
+uses-clause =
+    "uses" "(" trusted-capability-sequence [ "," ] ")" ;
+
+predicate-expression-sequence =
+    predicate-expression { "," predicate-expression } ;
+
+static-predicate-expression-sequence =
+    static-predicate-expression { "," static-predicate-expression } ;
+
+static-predicate-expression =
+    predicate-expression ;
+
+trusted-capability-sequence =
+    trusted-capability { "," trusted-capability } ;
+
+trusted-capability =
+    path ;
+
+constant-declaration =
+    constant-modifiers "const" identifier ":" type-expression "=" constant-expression ";" ;
+
+constant-modifiers =
+    [ visibility-modifier ] ;
+
+generic-parameter-list =
+    "<" generic-parameter-sequence [ "," ] ">" ;
+
+generic-parameter-sequence =
+    generic-parameter { "," generic-parameter } ;
+
+generic-parameter =
+      generic-type-parameter
+    | generic-const-parameter ;
+
+generic-type-parameter =
+    identifier ;
+
+generic-const-parameter =
+    "const" identifier ":" type-expression ;
+
+predicate-declaration =
+    predicate-modifiers "predicate" identifier [ generic-parameter-list ]
+    predicate-parameter-list predicate-declaration-tail ;
+
+predicate-modifiers =
+    { predicate-modifier } ;
+
+predicate-modifier =
+      visibility-modifier
+    | "trusted" ;
+
+predicate-declaration-tail =
+      "=" predicate-expression ";"
+    | ";" ;
+
+predicate-parameter-list =
+    "(" [ predicate-parameter-sequence [ "," ] ] ")" ;
+
+predicate-parameter-sequence =
+    predicate-parameter { "," predicate-parameter } ;
+
+predicate-parameter =
+    identifier ":" type-expression ;
+
+callable-contract-declaration =
+    callable-contract-modifiers "callable" identifier [ generic-parameter-list ]
+    callable-contract-constraints "=" callable-type-expression ";" ;
+
+callable-contract-modifiers =
+    [ visibility-modifier ] ;
+
+callable-contract-constraints =
+    { with-clause } ;
+
+type-declaration =
+      struct-declaration
+    | union-declaration ;
+
+struct-declaration =
+    type-directives type-modifiers "struct" identifier [ generic-parameter-list ]
+    type-constraints struct-body ;
+
+union-declaration =
+    type-directives type-modifiers "union" identifier [ generic-parameter-list ]
+    type-constraints union-body ;
+
+type-directives =
+    { type-directive } ;
+
+type-directive =
+      layout-directive
+    | copy-directive ;
+
+layout-directive =
+    directive-marker "layout" directive-argument-list ;
+
+copy-directive =
+    directive-marker "copy" ;
+
+type-modifiers =
+    [ visibility-modifier ] ;
+
+type-constraints =
+    { with-clause } ;
+
+struct-body =
+    "{" { struct-body-item } "}" ;
+
+struct-body-item =
+      struct-field-declaration
+    | type-member-declaration ;
+
+struct-field-declaration =
+    field-modifiers identifier ":" type-expression [ field-default ] ";" ;
+
+field-modifiers =
+    [ visibility-modifier ] [ "mut" ] ;
+
+field-default =
+    "=" expression ;
+
+union-body =
+    "{" { union-body-item } "}" ;
+
+union-body-item =
+      union-variant-declaration
+    | type-member-declaration ;
+
+union-variant-declaration =
+    variant-directives identifier [ union-variant-payload ] ";" ;
+
+variant-directives =
+    { variant-directive } ;
+
+variant-directive =
+    tag-directive ;
+
+tag-directive =
+    directive-marker "tag" directive-argument-list ;
+
+union-variant-payload =
+    "(" [ union-payload-field-sequence [ "," ] ] ")" ;
+
+union-payload-field-sequence =
+    union-payload-field { "," union-payload-field } ;
+
+union-payload-field =
+    payload-field-modifiers identifier ":" type-expression [ field-default ] ;
+
+payload-field-modifiers =
+    [ "pos" ] [ "mut" ] ;
+
+type-callable-member-declaration =
+    type-callable-member-modifiers "func" identifier [ generic-parameter-list ]
+    parameter-list [ callable-result-clause ] callable-contract-clauses
+    callable-body-block-expression ;
+
+type-callable-member-modifiers =
+    { type-callable-member-modifier } ;
+
+type-callable-member-modifier =
+      visibility-modifier
+    | callable-modifier
+    | "static"
+    | "consume"
+    | "mut" ;
+
+type-constructor-member-declaration =
+    constructor-member-modifiers "construct" [ identifier ] parameter-list
+    callable-result-clause callable-contract-clauses callable-body-block-expression ;
+
+constructor-member-modifiers =
+    { constructor-member-modifier } ;
+
+constructor-member-modifier =
+      visibility-modifier
+    | "trusted" ;
+
+type-lifecycle-member-declaration =
+      finalizer-member-declaration
+    | destructor-member-declaration
+    | scope-enter-member-declaration
+    | scope-exit-member-declaration ;
+
+finalizer-member-declaration =
+    async-capable-lifecycle-member-modifiers "finalize" empty-parameter-list
+    [ callable-result-clause ] callable-contract-clauses callable-body-block-expression ;
+
+destructor-member-declaration =
+    sync-lifecycle-member-modifiers "destruct" empty-parameter-list
+    [ callable-result-clause ] callable-contract-clauses callable-body-block-expression ;
+
+scope-enter-member-declaration =
+    async-capable-lifecycle-member-modifiers "enter" empty-parameter-list
+    callable-result-clause callable-contract-clauses callable-body-block-expression ;
+
+scope-exit-member-declaration =
+    async-capable-lifecycle-member-modifiers "exit" single-parameter-list
+    [ callable-result-clause ] callable-contract-clauses callable-body-block-expression ;
+
+async-capable-lifecycle-member-modifiers =
+    { async-capable-lifecycle-member-modifier } ;
+
+async-capable-lifecycle-member-modifier =
+      "async"
+    | "trusted" ;
+
+sync-lifecycle-member-modifiers =
+    { sync-lifecycle-member-modifier } ;
+
+sync-lifecycle-member-modifier =
+    "trusted" ;
+
+empty-parameter-list =
+    "(" ")" ;
+
+single-parameter-list =
+    "(" parameter [ "," ] ")" ;
+
+trait-declaration =
+    trait-modifiers "trait" identifier [ generic-parameter-list ]
+    trait-constraints trait-body ;
+
+trait-modifiers =
+    [ visibility-modifier ] ;
+
+trait-constraints =
+    { with-clause } ;
+
+trait-body =
+    "{" { trait-member-declaration } "}" ;
+
+trait-callable-member-declaration =
+    trait-callable-member-modifiers "func" identifier [ generic-parameter-list ]
+    parameter-list [ callable-result-clause ] callable-contract-clauses
+    trait-callable-member-tail ;
+
+trait-callable-member-modifiers =
+    { trait-callable-member-modifier } ;
+
+trait-callable-member-modifier =
+      callable-modifier
+    | "static"
+    | "consume"
+    | "mut" ;
+
+trait-callable-member-tail =
+      callable-body-block-expression
+    | ";" ;
+
+trait-constant-member-declaration =
+    "const" identifier ":" type-expression [ "=" constant-expression ] ";" ;
+
+trait-type-member-declaration =
+    "type" identifier ";" ;
+
+trait-predicate-member-declaration =
+    trait-predicate-member-modifiers "predicate" identifier
+    predicate-parameter-list trait-predicate-member-tail ;
+
+trait-predicate-member-modifiers =
+    [ "trusted" ] ;
+
+trait-predicate-member-tail =
+      "=" predicate-expression ";"
+    | ";" ;
+
+trait-lifecycle-requirement-declaration =
+      trait-finalizer-requirement-declaration
+    | trait-destructor-requirement-declaration
+    | trait-scope-enter-requirement-declaration
+    | trait-scope-exit-requirement-declaration ;
+
+trait-finalizer-requirement-declaration =
+    async-capable-lifecycle-member-modifiers "finalize" empty-parameter-list
+    [ callable-result-clause ] callable-contract-clauses ";" ;
+
+trait-destructor-requirement-declaration =
+    sync-lifecycle-member-modifiers "destruct" empty-parameter-list
+    [ callable-result-clause ] callable-contract-clauses ";" ;
+
+trait-scope-enter-requirement-declaration =
+    async-capable-lifecycle-member-modifiers "enter" empty-parameter-list
+    callable-result-clause callable-contract-clauses ";" ;
+
+trait-scope-exit-requirement-declaration =
+    async-capable-lifecycle-member-modifiers "exit" single-parameter-list
+    [ callable-result-clause ] callable-contract-clauses ";" ;
+
+implementation-declaration =
+      inherent-implementation-declaration
+    | unnamed-trait-implementation-declaration
+    | named-trait-implementation-declaration ;
+
+inherent-implementation-declaration =
+    "impl" inherent-implementation-subject implementation-constraints
+    inherent-implementation-body ;
+
+unnamed-trait-implementation-declaration =
+    "impl" implementation-subject "(" trait-application ")"
+    implementation-constraints trait-implementation-body ;
+
+named-trait-implementation-declaration =
+    "impl" identifier "=" implementation-subject "(" trait-application ")"
+    implementation-constraints trait-implementation-body ;
+
+implementation-constraints =
+    { with-clause } ;
+
+inherent-implementation-subject =
+    implementation-named-subject ;
+
+implementation-subject =
+    [ implementation-borrow-prefix ] implementation-named-subject ;
+
+implementation-borrow-prefix =
+    "&" [ "mut" ] ;
+
+implementation-named-subject =
+    path [ generic-argument-list ] ;
+
+inherent-implementation-body =
+    "{" { inherent-implementation-member-declaration } "}" ;
+
+trait-implementation-body =
+    "{" { trait-implementation-member-declaration } "}" ;
+
+implementation-member-declaration =
+      inherent-implementation-member-declaration
+    | trait-implementation-member-declaration ;
+
+inherent-implementation-member-declaration =
+      type-callable-member-declaration
+    | type-constructor-member-declaration
+    | type-lifecycle-member-declaration
+    | constant-declaration
+    | callable-overload-declaration ;
+
+trait-implementation-member-declaration =
+      trait-implementation-callable-member-declaration
+    | trait-implementation-constant-member-definition
+    | trait-implementation-type-member-binding
+    | trait-implementation-predicate-member-definition
+    | trait-implementation-lifecycle-member-declaration ;
+
+trait-implementation-callable-member-declaration =
+    trait-callable-member-modifiers "func" identifier [ generic-parameter-list ]
+    parameter-list [ callable-result-clause ] callable-contract-clauses
+    callable-body-block-expression ;
+
+trait-implementation-constant-member-definition =
+    "const" identifier ":" type-expression "=" constant-expression ";" ;
+
+trait-implementation-type-member-binding =
+    "type" identifier "=" type-expression ";" ;
+
+trait-implementation-predicate-member-definition =
+    trait-predicate-member-modifiers "predicate" identifier
+    predicate-parameter-list "=" predicate-expression ";" ;
+
+trait-implementation-lifecycle-member-declaration =
+      trait-implementation-scope-enter-member-declaration
+    | trait-implementation-scope-exit-member-declaration ;
+
+trait-implementation-scope-enter-member-declaration =
+    async-capable-lifecycle-member-modifiers "enter" empty-parameter-list
+    callable-result-clause callable-contract-clauses callable-body-block-expression ;
+
+trait-implementation-scope-exit-member-declaration =
+    async-capable-lifecycle-member-modifiers "exit" single-parameter-list
+    [ callable-result-clause ] callable-contract-clauses callable-body-block-expression ;
+
+overload-declaration =
+      callable-overload-declaration
+    | implementation-overload-declaration ;
+
+callable-overload-declaration =
+    overload-modifiers "overload" identifier "=" overload-arm-list ;
+
+implementation-overload-declaration =
+    overload-modifiers "overload" implementation-overload-subject "(" path ")" "="
+    overload-arm-list ;
+
+overload-modifiers =
+    [ visibility-modifier ] ;
+
+implementation-overload-subject =
+      implementation-overload-named-subject
+    | grouped-implementation-overload-borrow-subject ;
+
+implementation-overload-named-subject =
+    path ;
+
+grouped-implementation-overload-borrow-subject =
+    "(" implementation-borrow-prefix implementation-overload-named-subject ")" ;
+
+overload-arm-list =
+    "{" overload-arm-sequence [ "," ] "}" ;
+
+overload-arm-sequence =
+    overload-arm { "," overload-arm } ;
+
+overload-arm =
+    path ;
+
+callable-directives =
+    { callable-directive } ;
+
+callable-directive =
+    abi-directive ;
+
+abi-directive =
+    directive-marker "abi" directive-argument-list ;
+
+function-directives =
+    { function-directive } ;
+
+function-directive =
+      callable-directive
+    | link-directive
+    | symbol-directive
+    | entrypoint-directive
+    | test-directive ;
+
+link-directive =
+    directive-marker "link" directive-argument-list ;
+
+symbol-directive =
+    directive-marker "symbol" directive-argument-list ;
+
+entrypoint-directive =
+    directive-marker "entrypoint" ;
+
+directive-argument-list =
+    "(" [ directive-argument-sequence [ "," ] ] ")" ;
+
+directive-argument-sequence =
+    directive-argument { "," directive-argument } ;
+
+directive-argument =
+    [ identifier "=" ] constant-expression ;
+
+function-declaration =
+    function-directives function-modifiers "func" identifier
+    [ generic-parameter-list ] parameter-list [ callable-result-clause ]
+    callable-contract-clauses function-declaration-tail ;
+
+function-modifiers =
+    { function-modifier } ;
+
+function-modifier =
+      "extern"
+    | visibility-modifier
+    | callable-modifier ;
+
+function-declaration-tail =
+      callable-body-block-expression
+    | ";" ;
+
+lambda-expression =
+    callable-directives callable-modifiers "lambda" parameter-list
+    [ callable-result-clause ] callable-contract-clauses callable-body-block-expression ;
+
+(* When a callable-modifier sequence is followed by "lambda", it is parsed as
+   lambda-expression rather than trust-boundary-expression. *)
+
+callable-modifiers =
+    { callable-modifier } ;
+
+callable-modifier =
+      "async"
+    | "trusted"
+    | "const" ;
+
+callable-result-clause =
+    "->" type-expression ;
+
+callable-body-block-expression =
+    block-expression ;
