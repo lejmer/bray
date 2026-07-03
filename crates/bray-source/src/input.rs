@@ -200,8 +200,9 @@ impl SourceInput {
         }
     }
 
-    /// Converts this input into the pieces needed to create a source snapshot.
-    pub fn into_snapshot_parts(self) -> (SourceIdentity, SourceOrigin, SourceVersion, String) {
+    pub(crate) fn into_snapshot_parts(
+        self,
+    ) -> (SourceIdentity, SourceOrigin, SourceVersion, String) {
         match self {
             Self::File {
                 identity,
