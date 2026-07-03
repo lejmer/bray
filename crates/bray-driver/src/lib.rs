@@ -7,7 +7,9 @@ mod command;
 mod diagnostic_output;
 mod exit_status;
 mod file_arguments;
+mod output_path;
 mod run;
+mod source_inspection;
 mod terminal_style;
 #[cfg(test)]
 mod test_support;

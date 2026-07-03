@@ -8,6 +8,7 @@ use bray_source::SourceSpan;
 use serde::Serialize;
 
 use crate::command::DriverOutputFormat;
+use crate::output_path::path_to_output_string;
 use crate::run::DriverRunResult;
 use crate::terminal_style::{color_note_heading, color_severity_label};
 
@@ -234,9 +235,7 @@ impl DiagnosticArgValueJson {
             DiagnosticArgValue::Byte(byte) => Self::Byte(*byte),
             DiagnosticArgValue::ByteCount(byte_count) => Self::ByteCount(*byte_count),
             DiagnosticArgValue::Character(character) => Self::Character(*character),
-            DiagnosticArgValue::FilePath(path) => {
-                Self::FilePath(path.to_string_lossy().into_owned())
-            }
+            DiagnosticArgValue::FilePath(path) => Self::FilePath(path_to_output_string(path)),
             DiagnosticArgValue::InputIndex(input_index) => Self::InputIndex(*input_index),
             DiagnosticArgValue::IoErrorKind(kind) => Self::IoErrorKind((*kind).as_str()),
             DiagnosticArgValue::SourceName(name) => Self::SourceName(name.clone()),

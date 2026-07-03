@@ -30,6 +30,20 @@ pub enum SourceOriginKind {
     Stdin,
 }
 
+impl SourceOriginKind {
+    /// Returns the stable machine key for this source origin category.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::File => "file",
+            Self::Virtual => "virtual",
+            Self::Generated => "generated",
+            Self::LspDocument => "lsp_document",
+            Self::TestFixture => "test_fixture",
+            Self::Stdin => "stdin",
+        }
+    }
+}
+
 /// Structured description of where a source input came from.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum SourceOrigin {
@@ -331,23 +345,38 @@ mod tests {
             SourceOrigin::file("main.bray").kind(),
             SourceOriginKind::File
         );
+
+        assert_eq!(SourceOriginKind::File.as_str(), "file");
+
         assert_eq!(
             SourceOrigin::virtual_source("memory").kind(),
             SourceOriginKind::Virtual
         );
+
+        assert_eq!(SourceOriginKind::Virtual.as_str(), "virtual");
+
         assert_eq!(
             SourceOrigin::generated("lowered").kind(),
             SourceOriginKind::Generated
         );
+
+        assert_eq!(SourceOriginKind::Generated.as_str(), "generated");
+
         assert_eq!(
             SourceOrigin::lsp_document("file:///main.bray").kind(),
             SourceOriginKind::LspDocument
         );
+
+        assert_eq!(SourceOriginKind::LspDocument.as_str(), "lsp_document");
+
         assert_eq!(
             SourceOrigin::test_fixture("fixture").kind(),
             SourceOriginKind::TestFixture
         );
+
+        assert_eq!(SourceOriginKind::TestFixture.as_str(), "test_fixture");
         assert_eq!(SourceOrigin::stdin().kind(), SourceOriginKind::Stdin);
+        assert_eq!(SourceOriginKind::Stdin.as_str(), "stdin");
     }
 
     #[test]
