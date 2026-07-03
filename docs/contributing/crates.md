@@ -8,13 +8,16 @@
 - `bray-source`
     - Source files, source IDs, spans, text ranges, source maps, and source-location utilities.
     - Owns the compiler's model of "where in the input this came from."
-- 
+
 - `bray-diagnostics`
-    - Diagnostics infrastructure: errors, warnings, notes, labels, suggestions, diagnostic codes, and reporting structures.
-    - Should not own compiler logic; it only represents and renders diagnostics.
+    - Locale-neutral diagnostics infrastructure: errors, warnings, notes, labels, suggestions, diagnostic codes, message IDs, typed message arguments, and reporting structures.
+    - Owns diagnostic rendering contracts consumed by the locale-aware `bray-messages` infrastructure.
+    - English is the initial supported locale, but diagnostics must be structured so other locales can be added without changing compiler logic.
+    - Should not own compiler logic; it only represents diagnostics and rendering data.
 
 - `bray-syntax`
     - Syntax data structures: tokens, token kinds, syntax node kinds, syntax trees, trivia, and syntax-level representations.
+    - Owns reusable syntax walkers, visitors, and cursors.
     - Defines the shape of parsed source, but should not perform parsing itself.
 
 - `bray-parser`
@@ -32,19 +35,21 @@
     - Symbols answer "what declared thing is this?"
 
 - `bray-binder`
-    - Name binding and semantic reference resolution.
+    - Name binding and semantic-analysis orchestration.
     - Converts syntax references into bound references to symbols.
-    - Produces `bray-bound-tree` structures where names, members, calls, fields, and storages are resolved.
+    - Calls focused checker services while constructing checked bound units.
+    - Produces immutable `bray-bound-tree` structures where names, members, calls, fields, storages, and required semantic facts are resolved.
 
 - `bray-bound-tree`
-    - Semantic tree after binding.
-    - Represents bound expressions, statements, items, storages, projections, calls, locals, temporaries, and other source-correlated semantic nodes.
+    - Immutable source-shaped semantic representation after binding and semantic analysis.
+    - Represents bound expressions, statements, items, storages, projections, calls, locals, temporaries, resolved references, selected semantic facts, and other source-correlated semantic nodes.
+    - Owns reusable bound-representation walkers and visitors.
     - This is still high-level enough to produce good user diagnostics.
 
 - `bray-checker`
-    - Semantic checking after binding.
+    - Focused semantic checker services used by `bray-binder`.
     - Owns type checking, ownership checking, borrow checking, alias checking, mutation authority, move/drop legality, initialization tracking, and effect/capability contract validation.
-    - Answers "is this bound program valid Bray?"
+    - Returns structured diagnostics and semantic facts for the binder to place on bound nodes before publication.
 
 - `bray-lowering`
     - Lowers checked bound trees into a more explicit compiler IR.
@@ -53,6 +58,7 @@
 - `bray-ir`
     - Backend-independent intermediate representation.
     - Represents lowered control flow, locals, storages, explicit moves/drops, calls, branches, and other operations used by codegen.
+    - Owns reusable IR walkers and visitors.
 
 - `bray-codegen`
     - Backend-independent code generation interface and codegen orchestration.
@@ -66,7 +72,7 @@
 - `bray-compilation`
     - Main compiler entry point and compilation context.
     - Owns compile requests, options, package/file inputs, target settings, session-like state, and pipeline orchestration.
-    - Coordinates parsing, declaration discovery, binding, checking, lowering, codegen, and emission.
+    - Coordinates parsing, declaration discovery, binding and semantic analysis, lowering, codegen, and emission.
 
 - `bray-driver`
     - User-facing compiler command orchestration.
