@@ -2,6 +2,7 @@ use crate::encoding::{SourceUtf8Error, decode_source_bytes, normalize_source_tex
 use crate::id::SourceId;
 use crate::identity::SourceIdentity;
 use crate::input::{SourceInput, SourceInputContent};
+use crate::newline::SourceNewlinePolicy;
 use crate::origin::SourceOrigin;
 use crate::snapshot::SourceSnapshot;
 use crate::text::TextSizeOverflow;
@@ -34,9 +35,9 @@ impl From<SourceUtf8Error> for SourceLoadError {
 ///
 /// `SourceLoader` assigns [`SourceId`] values deterministically in load order.
 /// It validates source bytes as UTF-8 and removes an initial UTF-8 byte order
-/// mark before publishing source text. It does not perform file, LSP, or
-/// standard-input I/O; callers resolve external input into [`SourceInput`]
-/// before loading.
+/// mark before publishing source text. It preserves source newline spellings
+/// exactly. It does not perform file, LSP, or standard-input I/O; callers
+/// resolve external input into [`SourceInput`] before loading.
 #[derive(Debug, Default, Eq, PartialEq)]
 pub struct SourceLoader {
     loaded_count: u64,
@@ -111,6 +112,7 @@ impl SourceLoader {
         version: impl Into<SourceVersion>,
         text: String,
     ) -> Result<SourceSnapshot, SourceLoadError> {
+        let text = SourceNewlinePolicy::DEFAULT.normalize_text(text);
         let source_id = self.next_source_id()?;
         let snapshot = SourceSnapshot::new(source_id, identity, origin, version, text)?;
 
@@ -240,6 +242,20 @@ mod tests {
         };
 
         assert_eq!(snapshot.text(), "a\u{feff}b");
+    }
+
+    #[test]
+    fn source_loader_preserves_newline_spelling() {
+        let mut loader = SourceLoader::new();
+
+        let snapshot = load_virtual(
+            &mut loader,
+            SourceIdentity::new(16),
+            SourceVersion::new(0),
+            "a\r\nb\rc\n",
+        );
+
+        assert_eq!(snapshot.text(), "a\r\nb\rc\n");
     }
 
     #[test]
