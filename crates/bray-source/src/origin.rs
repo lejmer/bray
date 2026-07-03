@@ -1,5 +1,18 @@
 use std::path::{Path, PathBuf};
 
+/// Error returned when converting between document URIs and file paths.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum SourceUriError {
+    /// A file path cannot be represented as a UTF-8 document URI.
+    NonUtf8Path,
+    /// A relative file path cannot be converted to an LSP document URI without a base directory.
+    RelativeFilePath,
+    /// A percent escape is incomplete or contains a non-hex digit.
+    InvalidPercentEncoding,
+    /// A percent-decoded URI path is not valid UTF-8.
+    InvalidPercentUtf8,
+}
+
 /// Stable category for where a source input came from.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum SourceOriginKind {
@@ -85,6 +98,86 @@ impl SourceOrigin {
         }
     }
 
+    /// Returns an owned document URI when this origin has one.
+    ///
+    /// File origins are converted to `file:` URIs. LSP document origins return
+    /// their stored URI, which may use any URI scheme.
+    pub fn document_uri(&self) -> Result<Option<String>, SourceUriError> {
+        match self {
+            Self::File { path } => Self::file_uri_from_path(path).map(Some),
+            Self::LspDocument { uri } => Ok(Some(uri.to_owned())),
+            Self::Virtual { .. }
+            | Self::Generated { .. }
+            | Self::TestFixture { .. }
+            | Self::Stdin => Ok(None),
+        }
+    }
+
+    /// Returns a file path when this origin is path-backed or uses a `file:` URI.
+    ///
+    /// Non-file LSP document URIs return `Ok(None)`; callers can keep using the
+    /// URI identity without requiring a filesystem path.
+    pub fn document_file_path(&self) -> Result<Option<PathBuf>, SourceUriError> {
+        match self {
+            Self::File { path } => Ok(Some(path.to_path_buf())),
+            Self::LspDocument { uri } => Self::path_from_document_uri(uri),
+            Self::Virtual { .. }
+            | Self::Generated { .. }
+            | Self::TestFixture { .. }
+            | Self::Stdin => Ok(None),
+        }
+    }
+
+    /// Converts a file path to a `file:` document URI.
+    ///
+    /// The path must be absolute. Relative file paths remain valid source
+    /// origins, but callers need an embedding-specific base directory before
+    /// converting them to LSP document URIs.
+    pub fn file_uri_from_path(path: &Path) -> Result<String, SourceUriError> {
+        if !path.is_absolute() {
+            return Err(SourceUriError::RelativeFilePath);
+        }
+
+        let path = match path.to_str() {
+            Some(path) => path.replace('\\', "/"),
+            None => return Err(SourceUriError::NonUtf8Path),
+        };
+
+        let encoded_path = percent_encode_uri_path(&path);
+
+        if encoded_path.starts_with("//") {
+            return Ok(format!("file:{encoded_path}"));
+        }
+
+        if encoded_path.starts_with('/') {
+            return Ok(format!("file://{encoded_path}"));
+        }
+
+        if is_windows_drive_path(&encoded_path) {
+            return Ok(format!("file:///{encoded_path}"));
+        }
+
+        Ok(format!("file:{encoded_path}"))
+    }
+
+    /// Converts a `file:` document URI to a file path.
+    ///
+    /// Non-file URI schemes return `Ok(None)`.
+    pub fn path_from_document_uri(uri: &str) -> Result<Option<PathBuf>, SourceUriError> {
+        let (scheme, rest) = match uri.split_once(':') {
+            Some(parts) => parts,
+            None => return Ok(None),
+        };
+
+        if !scheme.eq_ignore_ascii_case("file") {
+            return Ok(None);
+        }
+
+        let path = file_uri_path(rest)?;
+
+        Ok(Some(PathBuf::from(path)))
+    }
+
     /// Returns the virtual source name for virtual origins.
     pub fn virtual_name(&self) -> Option<&str> {
         match self {
@@ -118,9 +211,119 @@ impl SourceOrigin {
     }
 }
 
+fn file_uri_path(rest: &str) -> Result<String, SourceUriError> {
+    if let Some(authority_and_path) = rest.strip_prefix("//") {
+        return file_uri_path_with_authority(authority_and_path);
+    }
+
+    percent_decode_uri_path(rest)
+}
+
+fn file_uri_path_with_authority(authority_and_path: &str) -> Result<String, SourceUriError> {
+    let (authority, path) = match authority_and_path.split_once('/') {
+        Some((authority, path)) => (authority, format!("/{path}")),
+        None => (authority_and_path, String::new()),
+    };
+
+    if authority.is_empty() || authority.eq_ignore_ascii_case("localhost") {
+        return decode_local_file_path(&path);
+    }
+
+    percent_decode_uri_path(&format!("//{authority}{path}"))
+}
+
+fn decode_local_file_path(path: &str) -> Result<String, SourceUriError> {
+    let path = percent_decode_uri_path(path)?;
+
+    if cfg!(windows) && is_slash_prefixed_windows_drive_path(&path) {
+        return Ok(path[1..].to_owned());
+    }
+
+    Ok(path)
+}
+
+fn percent_encode_uri_path(path: &str) -> String {
+    let mut encoded = String::with_capacity(path.len());
+
+    for byte in path.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' | b'/' | b':' => {
+                encoded.push(char::from(byte))
+            }
+            _ => push_percent_encoded_byte(&mut encoded, byte),
+        }
+    }
+
+    encoded
+}
+
+fn push_percent_encoded_byte(encoded: &mut String, byte: u8) {
+    const HEX: &[u8; 16] = b"0123456789ABCDEF";
+
+    encoded.push('%');
+    encoded.push(char::from(HEX[usize::from(byte >> 4)]));
+    encoded.push(char::from(HEX[usize::from(byte & 0x0f)]));
+}
+
+fn percent_decode_uri_path(path: &str) -> Result<String, SourceUriError> {
+    let bytes = path.as_bytes();
+
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+
+    while index < bytes.len() {
+        if bytes[index] != b'%' {
+            decoded.push(bytes[index]);
+            index += 1;
+            continue;
+        }
+
+        let high = match bytes.get(index + 1).copied().and_then(hex_value) {
+            Some(value) => value,
+            None => return Err(SourceUriError::InvalidPercentEncoding),
+        };
+
+        let low = match bytes.get(index + 2).copied().and_then(hex_value) {
+            Some(value) => value,
+            None => return Err(SourceUriError::InvalidPercentEncoding),
+        };
+
+        decoded.push((high << 4) | low);
+        index += 3;
+    }
+
+    match String::from_utf8(decoded) {
+        Ok(path) => Ok(path),
+        Err(_) => Err(SourceUriError::InvalidPercentUtf8),
+    }
+}
+
+fn hex_value(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
+}
+
+fn is_windows_drive_path(path: &str) -> bool {
+    let bytes = path.as_bytes();
+
+    matches!(bytes, [letter, b':', ..] if letter.is_ascii_alphabetic())
+}
+
+fn is_slash_prefixed_windows_drive_path(path: &str) -> bool {
+    let bytes = path.as_bytes();
+
+    matches!(bytes, [b'/', letter, b':', ..] if letter.is_ascii_alphabetic())
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{SourceOrigin, SourceOriginKind};
+    use std::path::{Path, PathBuf};
+
+    use super::{SourceOrigin, SourceOriginKind, SourceUriError};
 
     #[test]
     fn source_origins_report_their_kind() {
@@ -165,5 +368,74 @@ mod tests {
         assert_eq!(lsp_document.lsp_uri(), Some("file:///main.bray"));
         assert_eq!(fixture.test_fixture_name(), Some("lexer/invalid-char"));
         assert_eq!(SourceOrigin::stdin().file_path(), None);
+    }
+
+    #[test]
+    fn source_origins_convert_paths_to_document_uris() {
+        let path = absolute_test_path("src/main bray.bray");
+        let uri = match SourceOrigin::file_uri_from_path(&path) {
+            Ok(uri) => uri,
+            Err(error) => panic!("test path should convert to a file URI: {error:?}"),
+        };
+
+        assert!(uri.starts_with("file:"));
+        assert!(uri.contains("main%20bray.bray"));
+        assert_eq!(SourceOrigin::file(path).document_uri(), Ok(Some(uri)));
+    }
+
+    #[test]
+    fn source_origins_do_not_make_relative_file_paths_into_document_uris() {
+        assert_eq!(
+            SourceOrigin::file_uri_from_path(Path::new("src/main.bray")),
+            Err(SourceUriError::RelativeFilePath)
+        );
+        assert_eq!(
+            SourceOrigin::file("src/main.bray").document_uri(),
+            Err(SourceUriError::RelativeFilePath)
+        );
+    }
+
+    #[test]
+    fn source_origins_convert_file_document_uris_to_paths() {
+        let path = match SourceOrigin::path_from_document_uri("file:src/main%20bray.bray") {
+            Ok(Some(path)) => path,
+            Ok(None) => panic!("test URI should be a file URI"),
+            Err(error) => panic!("test URI should convert to a path: {error:?}"),
+        };
+
+        assert_eq!(path, PathBuf::from("src/main bray.bray"));
+        assert_eq!(
+            SourceOrigin::lsp_document("file:src/main%20bray.bray").document_file_path(),
+            Ok(Some(path))
+        );
+    }
+
+    #[test]
+    fn source_origins_keep_non_file_lsp_uris_path_optional() {
+        let origin = SourceOrigin::lsp_document("untitled:main.bray");
+
+        assert_eq!(
+            origin.document_uri(),
+            Ok(Some(String::from("untitled:main.bray")))
+        );
+
+        assert_eq!(origin.document_file_path(), Ok(None));
+    }
+
+    #[test]
+    fn source_origins_report_invalid_file_uri_percent_encoding() {
+        assert_eq!(
+            SourceOrigin::path_from_document_uri("file:src/%zz.bray"),
+            Err(SourceUriError::InvalidPercentEncoding)
+        );
+    }
+
+    fn absolute_test_path(path: &str) -> PathBuf {
+        let current_directory = match std::env::current_dir() {
+            Ok(current_directory) => current_directory,
+            Err(error) => panic!("test should read the current directory: {error:?}"),
+        };
+
+        current_directory.join(path)
     }
 }

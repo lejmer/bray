@@ -17,6 +17,14 @@ impl SourceVersion {
     pub const fn raw(self) -> u64 {
         self.0
     }
+
+    /// Returns the next source version, or `None` on overflow.
+    pub const fn checked_next(self) -> Option<Self> {
+        match self.0.checked_add(1) {
+            Some(raw) => Some(Self(raw)),
+            None => None,
+        }
+    }
 }
 
 impl From<u64> for SourceVersion {
@@ -43,5 +51,14 @@ mod tests {
         let copied = version;
 
         assert_eq!(copied.raw(), 42);
+    }
+
+    #[test]
+    fn source_versions_track_next_revision() {
+        assert_eq!(
+            SourceVersion::new(42).checked_next(),
+            Some(SourceVersion::new(43))
+        );
+        assert_eq!(SourceVersion::new(u64::MAX).checked_next(), None);
     }
 }
