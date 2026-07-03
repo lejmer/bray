@@ -70,6 +70,14 @@ name = "bray-lowering"
 version = "0.0.0"
 
 [[package]]
+name = "bray-messages"
+version = "0.0.0"
+dependencies = [
+ "bray-diagnostics",
+ "bray-source",
+]
+
+[[package]]
 name = "bray-parser"
 version = "0.0.0"
 

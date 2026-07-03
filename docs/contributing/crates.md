@@ -15,6 +15,12 @@
     - English is the initial supported locale, but diagnostics must be structured so other locales can be added without changing compiler logic.
     - Should not own compiler logic; it only represents diagnostics and rendering data.
 
+- `bray-messages`
+    - Locale-aware diagnostic rendering.
+    - Owns localized message catalogs, argument formatting, and rendered diagnostic values.
+    - Keeps diagnostic message catalogs split by human language so locale additions do not grow one shared catalog file.
+    - Consumes structured `bray-diagnostics` records and must not own compiler logic.
+
 - `bray-syntax`
     - Syntax data structures: tokens, token kinds, syntax node kinds, syntax trees, trivia, and syntax-level representations.
     - Owns reusable syntax walkers, visitors, and cursors.
