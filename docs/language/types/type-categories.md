@@ -1,0 +1,64 @@
+# Type categories
+
+Bray has multiple type categories.
+
+The type categories include:
+
+- scalar types,
+- product types,
+- union types,
+- tuple types,
+- fixed-size array types,
+- slice types,
+- nullable types,
+- borrow types,
+- raw pointer types,
+- trait-view types,
+- owned-indirection types,
+- callable types.
+
+Scalar types include integers, real floating-point types, complex floating-point types, machine-sized integer types, `bool`, `char`, `unit`, and `never`.
+
+Product types are named types with fields.
+
+Union types are closed tagged sum types with variants.
+
+Compiler-known result types are named union types with language-defined variant contracts.
+
+Compiler-known task and thread handle types are linear ownership types with language-defined run-boundary contracts.
+
+Tuple types are fixed-size ordered product types.
+
+Fixed-size array types are fixed-size ordered homogeneous product types.
+
+Slice types are unsized contiguous sequence types.
+
+Nullable types are produced by the postfix nullable type form `T?`.
+
+Borrow types are produced by `&T` and `&mut T`.
+
+Raw pointer types are produced by the compiler-known generic type `RawPointer<T>`.
+
+Trait-view types are produced by the `view` type form.
+
+Owned-indirection types are produced by the `box` type form.
+
+Callable types are produced by the `func(...) -> ...` type form.
+
+The compiler-known `string` type is a named protected-representation value type, not a scalar type.
+
+The Scalar and Literal Model defines the exact scalar type set, literal typing, scalar operation behavior, and scalar conversion
+rules.
+
+The Raw Memory Model defines `RawPointer<T>`, raw pointer validity, raw memory operations, raw memory trusted predicates, and raw
+pointer standard-library helpers.
+
+All other categories listed here are defined by the product, union, compiler-known result union, compiler-known task handle,
+compiler-known thread handle, and type-form sections of this chapter.
+
+## Navigation
+
+- [Language index](../index.md)
+- [Types index](../types.md)
+- Previous: [Type identity](type-identity.md)
+- Next: [Scalar Types](scalar-types.md)

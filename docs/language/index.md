@@ -15,9 +15,9 @@ The chapters are organized from source text to program meaning:
 2. [Syntax grammar](syntax-grammar.md)
 3. [Concepts](concepts.md)
 4. Declarations
-5. Types
+5. [Types](types.md)
 6. Patterns
-7. Expressions
+7. [Expressions](expressions.md)
 8. Ownership and borrowing
 9. Contracts and trust
 10. Lifecycle
