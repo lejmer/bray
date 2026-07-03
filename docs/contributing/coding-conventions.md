@@ -117,13 +117,17 @@ For crate layout, crate ownership, and workspace structure, see the crate respon
 - Keep serialized and external contracts explicit and typed.
 - Use typed configuration or contract objects when behavior has multiple options.
 
-## Diagnostics and user-facing text
+## Compiler diagnostics and user-facing text
 
 - Compiler logic must emit structured diagnostics, not hardcoded user-facing English strings.
 - Use diagnostic codes, severities, spans, labels, notes, suggestions, related locations, message IDs, and typed message arguments.
-- User-facing text must be rendered through the locale-aware message infrastructure.
+- User-facing text must be rendered through the locale-aware `bray-messages` infrastructure.
 - CLI and LSP output must use localized messages.
+- Diagnostic data must be designed so multiple locales can be added without changing compiler logic.
 - Do not construct user-facing prose inside parser, binder, checker, lowering, codegen, or emitter logic.
+- Do not pre-render diagnostic arguments into any one language before passing them to message rendering.
+- Pass typed arguments such as symbols, types, declaration kinds, operator kinds, spans, counts, and source snippets to the renderer.
+- Let localization handle argument ordering, plural forms, list formatting, quotation style, and grammar-specific phrasing.
 - Diagnostics should explain the cause, point at the relevant source locations, and prefer actionable suggestions when the suggestion is mechanically reliable.
 - Do not emit vague diagnostics when the compiler has enough structure to be precise.
 - Snapshot tests for diagnostics should validate diagnostic structure and rendered output where appropriate.
