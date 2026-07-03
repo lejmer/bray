@@ -97,6 +97,29 @@ impl Diagnostic {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub(crate) struct DiagnosticDuplicateKey<'diagnostic> {
+    kind: DiagnosticKind,
+    severity: SeverityKind,
+    primary_span: Option<SourceSpan>,
+    labels: &'diagnostic [DiagnosticLabel],
+    notes: &'diagnostic [DiagnosticNote],
+    args: &'diagnostic [DiagnosticArg],
+}
+
+impl Diagnostic {
+    pub(crate) fn duplicate_key(&self) -> DiagnosticDuplicateKey<'_> {
+        DiagnosticDuplicateKey {
+            kind: self.kind,
+            severity: self.severity,
+            primary_span: self.primary_span,
+            labels: &self.labels,
+            notes: &self.notes,
+            args: &self.args,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use bray_source::{SourceId, SourceSpan, TextRange, TextSize};

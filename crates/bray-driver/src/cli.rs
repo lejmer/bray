@@ -8,6 +8,8 @@ use clap::error::ErrorKind as ClapErrorKind;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 
 use crate::command::{DriverCommand, DriverInvocation, DriverOptions, DriverOutputFormat};
+use crate::exit_status::exit_code_from_diagnostics;
+use crate::terminal_style::{clap_styles, render_styled_text};
 
 /// Error returned when parsing driver command-line arguments.
 #[derive(Debug)]
@@ -18,7 +20,10 @@ pub struct DriverCliError {
 #[derive(Debug)]
 enum DriverCliErrorKind {
     Clap(clap::Error),
-    Diagnostics(DiagnosticBag),
+    Diagnostics {
+        diagnostics: DiagnosticBag,
+        output_format: DriverOutputFormat,
+    },
 }
 
 impl DriverCliError {
@@ -26,10 +31,22 @@ impl DriverCliError {
     pub fn exit_code(&self) -> ExitCode {
         match &self.kind {
             DriverCliErrorKind::Clap(error) => match error.kind() {
-                ClapErrorKind::DisplayHelp | ClapErrorKind::DisplayVersion => ExitCode::SUCCESS,
+                ClapErrorKind::DisplayHelp
+                | ClapErrorKind::DisplayHelpOnMissingArgumentOrSubcommand
+                | ClapErrorKind::DisplayVersion => ExitCode::SUCCESS,
                 _ => ExitCode::FAILURE,
             },
-            DriverCliErrorKind::Diagnostics(_) => ExitCode::FAILURE,
+            DriverCliErrorKind::Diagnostics { diagnostics, .. } => {
+                exit_code_from_diagnostics(diagnostics)
+            }
+        }
+    }
+
+    /// Returns the output format selected before this parse failure, when known.
+    pub const fn output_format(&self) -> DriverOutputFormat {
+        match &self.kind {
+            DriverCliErrorKind::Clap(_) => DriverOutputFormat::Text,
+            DriverCliErrorKind::Diagnostics { output_format, .. } => *output_format,
         }
     }
 
@@ -37,7 +54,20 @@ impl DriverCliError {
     pub fn into_diagnostics(self) -> DiagnosticBag {
         match self.kind {
             DriverCliErrorKind::Clap(_) => DiagnosticBag::new(),
-            DriverCliErrorKind::Diagnostics(diagnostics) => diagnostics,
+            DriverCliErrorKind::Diagnostics { diagnostics, .. } => diagnostics,
+        }
+    }
+
+    pub(crate) fn into_diagnostics_and_output(self) -> (DiagnosticBag, String, String) {
+        match self.kind {
+            DriverCliErrorKind::Clap(error) => {
+                let (stdout, stderr) = render_clap_error(error);
+
+                (DiagnosticBag::new(), stdout, stderr)
+            }
+            DriverCliErrorKind::Diagnostics { diagnostics, .. } => {
+                (diagnostics, String::new(), String::new())
+            }
         }
     }
 }
@@ -64,7 +94,13 @@ impl DriverInvocation {
 }
 
 #[derive(Debug, Parser)]
-#[command(name = "brayc")]
+#[command(
+    name = "brayc",
+    version = env!("CARGO_PKG_VERSION"),
+    about = "The Bray compiler",
+    styles = clap_styles(),
+    arg_required_else_help = true
+)]
 struct Cli {
     #[command(flatten)]
     options: CliOptions,
@@ -72,13 +108,38 @@ struct Cli {
     command: CliCommand,
 }
 
+fn render_clap_error(error: clap::Error) -> (String, String) {
+    let use_stdout = clap_error_uses_stdout(&error);
+    let output = render_styled_text(&error.render());
+
+    if use_stdout {
+        (output, String::new())
+    } else {
+        (String::new(), output)
+    }
+}
+
+fn clap_error_uses_stdout(error: &clap::Error) -> bool {
+    matches!(
+        error.kind(),
+        ClapErrorKind::DisplayHelp
+            | ClapErrorKind::DisplayHelpOnMissingArgumentOrSubcommand
+            | ClapErrorKind::DisplayVersion
+    )
+}
+
 impl Cli {
     fn into_driver_invocation(self) -> Result<DriverInvocation, DriverCliError> {
+        let output_format = self.options.output_format();
+
         let options = self
             .options
             .into_driver_options()
             .map_err(|diagnostics| DriverCliError {
-                kind: DriverCliErrorKind::Diagnostics(diagnostics),
+                kind: DriverCliErrorKind::Diagnostics {
+                    diagnostics,
+                    output_format,
+                },
             })?;
 
         Ok(DriverInvocation::new(
@@ -97,6 +158,13 @@ struct CliOptions {
 }
 
 impl CliOptions {
+    const fn output_format(&self) -> DriverOutputFormat {
+        match self.format {
+            CliOutputFormat::Text => DriverOutputFormat::Text,
+            CliOutputFormat::Json => DriverOutputFormat::Json,
+        }
+    }
+
     fn into_driver_options(self) -> Result<DriverOptions, DiagnosticBag> {
         let worker_budget = match self.cpu_count {
             Some(cpu_count) => match WorkerBudget::new(cpu_count) {

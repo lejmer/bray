@@ -281,6 +281,22 @@ order.
 
 ---
 
+## Deduplication
+
+Diagnostic deduplication uses structured diagnostic facts, not localized rendered text.
+
+Two diagnostics are duplicates only when their severity, stable kind, primary span, labels, notes, and typed arguments are all
+equal. The diagnostic record ID is not part of the duplicate key because it identifies one emitted record, not the source fact
+being reported.
+
+Diagnostics that render to similar or identical prose must remain distinct when they refer to different source facts, spans,
+labels, notes, related locations, suggestions, or typed arguments.
+
+When related locations, suggestions, or other structured fields are added to diagnostic records, they must become part of the
+duplicate key.
+
+---
+
 ## Suppression And Policy
 
 The core diagnostic record does not decide command-line policy.

@@ -1,8 +1,13 @@
-use bray_diagnostics::{DiagnosticKind, DiagnosticLabelKind, DiagnosticNoteKind};
+use bray_diagnostics::{
+    DiagnosticKind, DiagnosticLabelKind, DiagnosticLabelStyle, DiagnosticNoteKind, SeverityKind,
+};
 
 use crate::locale::DiagnosticLocale;
 
-use super::english::{english_diagnostic_template, english_label_template, english_note_template};
+use super::english::{
+    english_diagnostic_template, english_label_style, english_label_template, english_note_heading,
+    english_note_template, english_severity_label,
+};
 use super::template::MessageTemplate;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -21,15 +26,33 @@ impl MessageCatalog {
         }
     }
 
+    pub(crate) const fn severity_label(self, severity: SeverityKind) -> &'static str {
+        match self.locale {
+            DiagnosticLocale::English => english_severity_label(severity),
+        }
+    }
+
     pub(crate) const fn label_template(self, kind: DiagnosticLabelKind) -> MessageTemplate {
         match self.locale {
             DiagnosticLocale::English => english_label_template(kind),
         }
     }
 
+    pub(crate) const fn label_style(self, style: DiagnosticLabelStyle) -> &'static str {
+        match self.locale {
+            DiagnosticLocale::English => english_label_style(style),
+        }
+    }
+
     pub(crate) const fn note_template(self, kind: DiagnosticNoteKind) -> MessageTemplate {
         match self.locale {
             DiagnosticLocale::English => english_note_template(kind),
+        }
+    }
+
+    pub(crate) const fn note_heading(self) -> &'static str {
+        match self.locale {
+            DiagnosticLocale::English => english_note_heading(),
         }
     }
 }

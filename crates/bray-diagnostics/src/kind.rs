@@ -23,3 +23,33 @@ pub enum DiagnosticKind {
     /// A block comment reaches the end of input before its terminator.
     LexicalUnterminatedBlockComment,
 }
+
+impl DiagnosticKind {
+    /// Returns the stable machine key for this diagnostic category.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::SourceFileReadFailed => "source_file_read_failed",
+            Self::SourceInvalidUtf8 => "source_invalid_utf8",
+            Self::SourceTooManyInputs => "source_too_many_inputs",
+            Self::SourceTextTooLarge => "source_text_too_large",
+            Self::RequestMissingSourceInput => "request_missing_source_input",
+            Self::RequestInvalidSourceInput => "request_invalid_source_input",
+            Self::RequestInvalidWorkerBudget => "request_invalid_worker_budget",
+            Self::LexicalInvalidCharacter => "lexical_invalid_character",
+            Self::LexicalUnterminatedBlockComment => "lexical_unterminated_block_comment",
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::DiagnosticKind;
+
+    #[test]
+    fn diagnostic_kinds_expose_stable_machine_keys() {
+        assert_eq!(
+            DiagnosticKind::LexicalUnterminatedBlockComment.as_str(),
+            "lexical_unterminated_block_comment"
+        );
+    }
+}

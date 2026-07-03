@@ -71,6 +71,17 @@ pub enum DiagnosticLabelKind {
     UnterminatedBlockCommentStart,
 }
 
+impl DiagnosticLabelKind {
+    /// Returns the stable machine key for this label category.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::InvalidUtf8Bytes => "invalid_utf8_bytes",
+            Self::InvalidCharacter => "invalid_character",
+            Self::UnterminatedBlockCommentStart => "unterminated_block_comment_start",
+        }
+    }
+}
+
 /// Relationship between a label and its diagnostic.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum DiagnosticLabelStyle {
@@ -78,6 +89,16 @@ pub enum DiagnosticLabelStyle {
     Primary,
     /// Supporting label for another relevant source range.
     Secondary,
+}
+
+impl DiagnosticLabelStyle {
+    /// Returns the stable machine key for this label style.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Primary => "primary",
+            Self::Secondary => "secondary",
+        }
+    }
 }
 
 #[cfg(test)]
@@ -93,6 +114,7 @@ mod tests {
             SourceId::new(2),
             TextRange::new(TextSize::new(8), TextSize::new(9)),
         );
+
         let label = DiagnosticLabel::primary(DiagnosticLabelKind::InvalidCharacter, span).with_arg(
             DiagnosticArg::new(
                 DiagnosticArgName::Character,
@@ -101,8 +123,11 @@ mod tests {
         );
 
         assert_eq!(label.kind(), DiagnosticLabelKind::InvalidCharacter);
+        assert_eq!(label.kind().as_str(), "invalid_character");
         assert_eq!(label.style(), DiagnosticLabelStyle::Primary);
+        assert_eq!(label.style().as_str(), "primary");
         assert_eq!(label.span(), span);
+
         assert_eq!(
             label.args(),
             &[DiagnosticArg::new(

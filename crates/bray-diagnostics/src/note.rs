@@ -57,6 +57,23 @@ pub enum DiagnosticNoteKind {
     BlockCommentNeedsTerminator,
 }
 
+impl DiagnosticNoteKind {
+    /// Returns the stable machine key for this note category.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::SourceFileMustBeReadable => "source_file_must_be_readable",
+            Self::SourceMustBeUtf8 => "source_must_be_utf8",
+            Self::SourceIdsAreCompact => "source_ids_are_compact",
+            Self::SourceTextOffsetsAreCompact => "source_text_offsets_are_compact",
+            Self::SourceInputRequired => "source_input_required",
+            Self::SourceInputNeedsStableIdentity => "source_input_needs_stable_identity",
+            Self::WorkerBudgetMustBePositive => "worker_budget_must_be_positive",
+            Self::CharacterNotAccepted => "character_not_accepted",
+            Self::BlockCommentNeedsTerminator => "block_comment_needs_terminator",
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{DiagnosticNote, DiagnosticNoteKind};
@@ -71,6 +88,7 @@ mod tests {
             ));
 
         assert_eq!(note.kind(), DiagnosticNoteKind::SourceMustBeUtf8);
+        assert_eq!(note.kind().as_str(), "source_must_be_utf8");
 
         assert_eq!(
             note.args(),
