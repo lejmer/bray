@@ -3,6 +3,7 @@
 #![forbid(unsafe_code)]
 
 mod argument;
+mod bag;
 mod diagnostic;
 mod id;
 mod kind;
@@ -11,6 +12,7 @@ mod note;
 mod severity;
 
 pub use argument::{DiagnosticArg, DiagnosticArgName, DiagnosticArgValue};
+pub use bag::DiagnosticBag;
 pub use diagnostic::Diagnostic;
 pub use id::DiagnosticId;
 pub use kind::DiagnosticKind;
