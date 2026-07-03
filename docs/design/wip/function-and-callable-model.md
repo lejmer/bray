@@ -129,8 +129,8 @@ Accepted foreign ABI representation categories are:
 For `c`, accepted aggregate layout contracts are `@layout(c)` and compatible `@layout(transparent)`.
 
 Borrow types, slices, default-layout products, default-layout unions, trait-view types, owned-indirection types, task handles,
-thread handles, and callable values with capture state need an explicit ABI wrapper or lowering declaration before they can cross a
-foreign ABI boundary.
+thread handles, and callable values without the selected foreign ABI contract need an explicit ABI wrapper or lowering declaration
+before they can cross a foreign ABI boundary.
 
 `@abi(...)` does not change ownership, borrowing, lifetime, panic, contract, trusted capability, generic, overload, or evaluation
 rules.
@@ -308,10 +308,8 @@ struct CallbackPair
 }
 ```
 
-A lambda with captured state cannot satisfy a plain foreign callback type.
-
-A captureless lambda can satisfy an ABI-qualified callable type only when the lambda expression explicitly carries the same
-`@abi(...)` directive and the selected ABI permits the required callable representation.
+A lambda can satisfy an ABI-qualified callable type only when the lambda expression explicitly carries the same `@abi(...)`
+directive and the selected ABI permits the required callable representation.
 
 ---
 
@@ -1091,10 +1089,10 @@ It does not create a wrapper value or adapter.
 
 A callable value satisfies a named callable contract when its visible callable contract satisfies the named contract.
 
-Capture state is not written in the named callable contract.
+Named callable contracts describe only the visible callable contract.
 
-Captured ownership, borrows, capabilities, effects, finalization obligations, and lifetimes must still be preserved by the callable
-value that satisfies the contract.
+A named callable contract does not create wrapper state, bind a receiver, or attach hidden environment state to the callable value
+that satisfies it.
 
 Named callable contracts cannot be overloaded.
 
@@ -1420,14 +1418,14 @@ The caller-visible effect surface is:
 
 - `const`,
 - `async`,
-- receiver, parameter, and capture modes,
+- receiver and parameter modes,
 - `requires(...)`,
 - `ensures(...)`,
 - `with(...)`,
 - trusted `uses(...)`,
 - lifecycle contracts,
 - task and async-computation contracts,
-- parameter, result, and captured-value type contracts.
+- parameter and result type contracts.
 
 Effects and capability contracts are part of:
 
@@ -1472,7 +1470,7 @@ cross the callable boundary or are constrained by the surrounding context.
 
 ### Mutation effects
 
-Mutation authority is represented by receiver, parameter, and capture modes.
+Mutation authority is represented by receiver and parameter modes.
 
 Caller-reachable mutation occurs when a callable can mutate storage reachable by the caller before or after the call.
 
@@ -1481,7 +1479,6 @@ Caller-reachable mutation must be visible through one of:
 - a mutable receiver mode,
 - a mutable borrow parameter,
 - an owned parameter consumed by the callable,
-- a mutable capture,
 - a global or module storage contract,
 - a trusted raw-memory contract,
 - a type, lifecycle, or trait contract that exposes mutation authority.
@@ -1540,7 +1537,7 @@ the async computation's ownership, borrowing, capability, effect, finalization, 
 A synchronous callable cancels a task through ownership of a task handle or another value whose contract gives cancellation
 authority.
 
-That authority is represented by the parameter, receiver, capture, or field type that carries the task obligation.
+That authority is represented by the parameter, receiver, or field type that carries the task obligation.
 
 Task cancellation is represented through `async`, task-handle ownership, and the contracts of values that carry cancellation
 authority.
@@ -1698,7 +1695,7 @@ Block expressions support local binding declarations.
 They do not support nested named function declarations, nested type declarations, nested trait declarations, nested implementation
 declarations, nested module declarations, or nested package declarations.
 
-Lambda capture uses ordinary lexical capture rules.
+Lambdas are capture-free.
 
 ---
 
@@ -1742,7 +1739,7 @@ A lambda body is a callable-body block and creates its own callable execution sc
 
 Lambdas have no receiver.
 
-Inside a method body, `self` is available inside a lambda body only as captured state from the enclosing method body.
+Inside a method body, `self` from the enclosing method is not available inside a lambda body.
 
 Receiver-mode modifiers such as `mut` and `consume` do not apply to `lambda`.
 
@@ -1761,67 +1758,26 @@ trusted lambda (pos bytes: &mut [u8])
 }
 ```
 
-Captures use ordinary lexical bindings.
-
-```bray
-let f =
-{
-    let source = &buffer;
-    let captured_limit = limit;
-
-    lambda () -> usize
-    {
-        return source.count() + captured_limit;
-    }
-};
-```
+Lambdas do not capture enclosing local bindings.
 
 A lambda body can reference:
 
 - lambda parameters,
 - local bindings introduced inside the lambda body,
-- declarations visible from the declaration context,
-- local bindings visible from enclosing lexical scopes.
+- declarations visible from the declaration context.
 
-An enclosing local binding referenced by the lambda body becomes captured state of the callable value.
+A lambda body cannot reference:
 
-A lambda that references no enclosing local bindings is capture-free.
+- local bindings from enclosing block or callable scopes,
+- `self` from an enclosing method or lifecycle body,
+- scoped capabilities available only through an enclosing local binding.
 
-A lambda that references one or more enclosing local bindings is capture-bearing.
-
-Captured names are available inside the lambda body under the same name.
-
-The captured binding must support the way it is captured.
-
-An owned copyable binding is copied into the callable value.
-
-An owned non-copyable binding is moved into the callable value.
-
-A shared borrow binding is copied into the callable value.
-
-A mutable borrow binding is moved into the callable value.
-
-A captured shared borrow requires the reached access path to be observable for the lifetime of the lambda value.
-
-A captured mutable borrow requires exclusive mutation authority for the lifetime of the lambda value.
-
-After a moved capture, the old access path is unavailable until reinitialized.
-
-Captured state is formed in the order the captured binding declarations were evaluated.
-
-Captured ownership, borrows, mutation authority, effects, and finalization obligations are part of the callable value's contract.
-
-To select a specific capture mode, introduce an ordinary local binding before the lambda expression.
+State used by a lambda must be passed explicitly through parameters or represented by a named type with methods.
 
 ```bray
-let f =
+let clear_buffer = lambda (pos target: &mut Buffer)
 {
-    let target = &mut buffer;
-
-    lambda ()
-    {
-        target.clear();
-    }
+    target.clear();
 };
 ```
 
@@ -1831,17 +1787,12 @@ Method paths do not implicitly produce bound-method values.
 let f = buffer.clear; // invalid
 ```
 
-Use a lambda with an ordinary lexical binding instead.
+Use a lambda with an explicit receiver parameter instead.
 
 ```bray
-let f =
+let clear_buffer = lambda (pos target: &mut Buffer)
 {
-    let target = &mut buffer;
-
-    lambda ()
-    {
-        target.clear();
-    }
+    target.clear();
 };
 ```
 

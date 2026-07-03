@@ -406,7 +406,7 @@ arguments.
 That concrete instantiation is simply not copyable.
 
 The compiler derives the copy operation by recursively copying represented fields, active payload fields, tuple elements, array
-elements, nullable contained values, callable capture state, and dependency contracts according to each part's copy contract.
+elements, nullable contained values, callable values, and dependency contracts according to each part's copy contract.
 
 The compiler does not synthesize or call a user-defined copy body.
 
@@ -419,8 +419,7 @@ The following type categories have language-defined copy contracts:
 - nullable values whose contained type is copyable,
 - tuples whose element types are all copyable,
 - fixed-size arrays whose element type is copyable,
-- capture-free callable values,
-- callable values whose captured state is copyable and whose dependency contract is copyable,
+- callable values,
 - product and union values whose concrete type has an accepted `@copy` contract.
 
 The following type categories are not copyable by default:
@@ -452,10 +451,9 @@ Copying a shared borrow copies the borrow value and preserves the same reached s
 Copying a raw pointer copies the pointer value and does not copy, borrow, move, initialize, destroy, or otherwise affect the reached
 storage.
 
-Copying a callable value copies the callable value's copyable capture state and dependency contract.
+Copying a callable value copies the callable identity and dependency contract.
 
-If the callable value captures a mutable borrow, a non-copyable owned value, a task handle, a thread handle, a scoped capability
-that cannot be copied, or an unresolved finalization obligation, the callable value is not copyable.
+Callable values do not contain hidden captured state.
 
 Copying a nullable value in absent state copies the absent state.
 
@@ -2449,8 +2447,8 @@ If overlap cannot be proven statically, the borrow access paths are treated as c
 
 Borrow values are created only by language constructs that establish borrow capability.
 
-These include borrow expressions, borrow-typed parameter passing, receiver calls, pattern borrow modes, lambda lexical captures, and
-projection through compiler-known type forms.
+These include borrow expressions, borrow-typed parameter passing, receiver calls, pattern borrow modes, and projection through
+compiler-known type forms.
 
 Borrowing an access path requires the reached storage to be initialized and reachable.
 
@@ -2550,8 +2548,11 @@ Borrow values carry the reached storage, borrow capability, and invalidation req
 
 Nullable values carry the dependency contract of their contained value only while present.
 
-Product, union, tuple, array, box, and callable values carry the dependency contracts of the parts they currently own, borrow, or
-capture.
+Product, union, tuple, array, and box values carry the dependency contracts of the parts they currently own or borrow.
+
+Callable values carry the dependency contract of the callable declaration or lambda expression that produced them.
+
+Lambda expressions do not capture enclosing local state.
 
 A trait view carries the dependency contract of the access or storage form that contains the view, plus the requirements of the
 implementation witness needed for the selected trait application.
@@ -2576,7 +2577,7 @@ Boundaries include:
 - storing into a field, variant payload, tuple element, array element, or box storage,
 - assigning to an existing access path,
 - passing an argument to a callable,
-- capturing into a lambda, async computation, task, or thread,
+- capturing into an async computation, task, or thread,
 - forming a trait view,
 - importing or exporting a declaration surface.
 
@@ -2593,8 +2594,8 @@ If a dependency contract cannot be represented in the destination's compiler-vis
 Function, method, constructor, lifecycle, lambda, async, and implementation bodies are checked against their inferred dependency
 contracts.
 
-At each normal exit, the result value's dependency contract must be derived from parameters, receiver state, captured state, owned
-input values, or other storage and capabilities that outlive the returned value.
+At each normal exit, the result value's dependency contract must be derived from parameters, receiver state, owned input values,
+async or task state available to that body, or other storage and capabilities that outlive the returned value.
 
 Returning a borrow of local storage that ends at the callable exit is rejected.
 
@@ -2649,7 +2650,7 @@ struct Cursor
 
 A `Cursor` value cannot outlive the storage reached by `data`.
 
-A callable value that captures a borrow carries that borrow dependency:
+A lambda cannot capture a borrow from an enclosing local binding:
 
 ```bray
 let writer =
@@ -2658,13 +2659,19 @@ let writer =
 
     lambda (pos text: string)
     {
-        output.write(text);
+        output.write(text); // invalid
     }
 };
 ```
 
-The callable value cannot be stored, returned, spawned, or otherwise moved to a destination that can outlive the mutable borrow of
-`file`.
+Pass the state explicitly when a callable value needs caller-provided context:
+
+```bray
+let write_line = lambda (pos output: &mut File, pos text: string)
+{
+    output.write(text);
+};
+```
 
 ### Nullable type form
 
@@ -3261,27 +3268,13 @@ Named callable contracts cannot be overloaded.
 Lambda expressions produce anonymous callable values.
 
 A lambda's callable type is described by its parameter names, parameter call-position permissions, parameter types, result type,
-execution mode, callable ABI, contract clauses, trusted obligations, and captured state.
+execution mode, callable ABI, contract clauses, and trusted obligations.
 
-Capture state is not a callable parameter.
+Lambdas are capture-free.
 
-Capture state is part of the callable value's ownership, borrowing, initialization, destruction, finalization, capability, effect,
-lifetime, and storage contract.
-
-A capture-free lambda can be used where an expected callable type accepts a callable value with the same visible callable contract.
-
-A capture-bearing lambda can be used where the expected callable type preserves the captured state's ownership, borrowing,
-capability, effect, lifetime, and finalization obligations.
-
-The preservation rule is checked through the callable value's dependency contract.
-
-Two lambda expressions with the same visible callable signature can still produce distinct callable value types when their captured
-state differs.
+A lambda can be used where an expected callable type accepts a callable value with the same visible callable contract.
 
 The call surface of a lambda is its visible callable contract.
-
-The representation of a lambda's captured state is not part of the callable parameter list and is not directly accessible through
-the callable value.
 
 ### Type forms and construction
 

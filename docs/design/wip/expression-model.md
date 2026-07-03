@@ -1860,17 +1860,12 @@ A method path used without a call does not implicitly produce a callable value t
 let f = buffer.clear; // invalid
 ```
 
-Use a lambda with an ordinary lexical binding when a callable value should call a method later.
+Use a lambda with an explicit receiver parameter when a callable value should call a method later.
 
 ```bray
-let f =
+let clear_buffer = lambda (pos target: &mut Buffer)
 {
-    let target = &mut buffer;
-
-    lambda ()
-    {
-        target.clear();
-    }
+    target.clear();
 };
 ```
 
@@ -2723,7 +2718,7 @@ Trusted caller obligations must be present in the fact context, acknowledged at 
 
 A method path used without a call does not implicitly produce a callable value that captures or represents the receiver.
 
-Use a lambda with an ordinary lexical binding when a callable value should call a method later.
+Use a lambda with an explicit receiver parameter when a callable value should call a method later.
 
 The receiver expression is evaluated before method argument expressions.
 
@@ -4584,16 +4579,23 @@ Spawning consumes the async computation and schedules it as a task.
 The thread spawn expression is:
 
 ```bray
-spawn thread expression
+spawn thread callee(arguments)
 ```
 
-The thread spawn operand is evaluated exactly once.
+The thread spawn form is a thread entry application.
 
-The thread spawn operand must produce a synchronous callable value that can be called with no runtime arguments.
+The callee must resolve to a synchronous callable declaration, method, static function, or callable value.
 
-If the callable value's result type is `T`, the thread spawn expression produces `Thread<T>`.
+The supplied arguments bind to the selected callable's parameters according to ordinary call argument-binding rules.
 
-Thread spawning consumes the callable value and schedules it as a thread.
+If the selected callable's result type is `T`, the thread spawn expression produces `Thread<T>`.
+
+The callee access expression, explicit arguments, and omitted parameter defaults are evaluated in the creating run.
+
+The selected callable body is evaluated in the spawned thread, not in the creating run.
+
+Thread spawning moves, copies, or borrows explicit entry state according to the selected callable's receiver and parameter
+contracts.
 
 The full task spawn, detached task spawn, thread spawn, task handle, thread handle, run-boundary observation, transfer, escape,
 cancellation, ownership, borrowing, capability, and effect rules are defined by the Async Model.
@@ -6088,81 +6090,39 @@ Receiver-mode modifiers such as `mut` and `consume` do not apply to `lambda`.
 
 Lambdas have no receiver.
 
-Inside a method body, `self` is available inside a lambda body only as captured state from the enclosing method body.
+Inside a method body, `self` from the enclosing method is not available inside a lambda body.
 
-Captures use ordinary lexical bindings.
-
-```bray
-let f =
-{
-    let source = &buffer;
-    let captured_limit = limit;
-
-    lambda () -> usize
-    {
-        return source.count() + captured_limit;
-    }
-};
-```
+Lambdas do not capture enclosing local bindings.
 
 A lambda body can reference:
 
 - lambda parameters,
 - local bindings introduced inside the lambda body,
-- declarations visible from the declaration context,
-- local bindings visible from enclosing lexical scopes.
+- declarations visible from the declaration context.
 
-An enclosing local binding referenced by the lambda body becomes captured state of the callable value.
+A lambda body cannot reference:
 
-A lambda that references no enclosing local bindings is capture-free.
+- local bindings from enclosing block or callable scopes,
+- `self` from an enclosing method or lifecycle body,
+- scoped capabilities available only through an enclosing local binding.
 
-A lambda that references one or more enclosing local bindings is capture-bearing.
-
-Captured names are available inside the lambda body under the same name.
-
-The captured binding must support the way it is captured.
-
-An owned copyable binding is copied into the callable value.
-
-An owned non-copyable binding is moved into the callable value.
-
-A shared borrow binding is copied into the callable value.
-
-A mutable borrow binding is moved into the callable value.
-
-A captured shared borrow requires the reached access path to be observable for the lifetime of the callable value.
-
-A captured mutable borrow requires exclusive mutation authority for the lifetime of the callable value.
-
-After a moved capture, the old access path is unavailable until reinitialized.
-
-Captured state is formed in the order the captured binding declarations were evaluated.
-
-Captured ownership, borrows, mutation authority, effects, and finalization obligations are part of the callable value's contract.
-
-To select a specific capture mode, introduce an ordinary local binding before the lambda expression.
+State used by a lambda must be passed explicitly through parameters or represented by a named type with methods.
 
 ```bray
-let f =
+let clear_buffer = lambda (pos target: &mut Buffer)
 {
-    let target = &mut buffer;
-
-    lambda ()
-    {
-        target.clear();
-    }
+    target.clear();
 };
 ```
 
-Evaluating a lambda expression captures referenced enclosing local bindings in binding-evaluation order and creates the callable
-value.
+Evaluating a lambda expression creates the callable value without copying, moving, or borrowing enclosing local state.
 
 The lambda body is not evaluated when the lambda expression is evaluated.
 
 The lambda body is evaluated when the callable value is called.
 
 The callable value produced by a lambda has the callable type described by its parameters, result type, execution mode, contract
-clauses, trusted obligations, and captured state.
+clauses, and trusted obligations.
 
 ---
 
@@ -6327,7 +6287,10 @@ Method receiver expressions are evaluated before method arguments.
 
 Static function callee path resolution is checked before runtime evaluation and has no runtime evaluation step.
 
-Referenced enclosing local bindings are captured in binding-evaluation order when the lambda expression is evaluated.
+Thread spawn entry applications evaluate the callee access expression, explicit argument expressions, and omitted parameter
+defaults before the spawned thread can observe its entry state.
+
+Lambda expressions do not capture enclosing local bindings.
 
 Lambda bodies are evaluated only when the produced callable value is called.
 

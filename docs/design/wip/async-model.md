@@ -27,7 +27,7 @@ Detached work is explicit. `spawn detached` creates a task whose lifetime is rep
 captured state must be detached-safe.
 
 Thread work is explicit. `spawn thread` creates a thread whose lifetime is represented by the returned thread handle and whose
-captured state must be valid for thread execution.
+entry state must be valid for thread execution.
 
 ---
 
@@ -409,27 +409,52 @@ This is valid because the task owns `data`.
 The thread spawn expression is:
 
 ```bray
-spawn thread expression
+spawn thread callee(arguments)
 ```
 
-The operand is evaluated exactly once.
+The syntax is call-shaped, but it is not an ordinary function call expression.
 
-The operand must produce a synchronous callable value that can be called with no runtime arguments.
+The callee and argument list are checked as a thread entry application.
 
-If the callable value's result type is `T`, the thread spawn expression produces `Thread<T>`.
+The callee must resolve to a synchronous callable declaration, method, static function, or callable value.
+
+The selected callable must be callable with the supplied arguments according to ordinary call argument-binding rules.
+
+If the selected callable's result type is `T`, the thread spawn expression produces `Thread<T>`.
 
 `Thread<T>` is the compiler-known linear thread handle type for a spawned synchronous thread whose ordinary result type is `T`.
 
-`spawn thread` consumes the callable value and schedules it as a thread outside the current execution flow.
+`spawn thread` evaluates the callee access expression, explicit argument expressions, and omitted parameter defaults in the
+creating run.
 
-The callable value's captured state becomes captured thread state.
+For method entry applications, the receiver expression is evaluated before method arguments.
 
-The thread handle carries the dependency contract of the captured thread state and the thread obligation represented by the
-handle.
+For function, static function, and callable-value entry applications, explicit argument expressions are evaluated in source order.
+
+Omitted parameter defaults are evaluated after explicit arguments, in parameter declaration order.
+
+The callable body is not evaluated in the creating run.
+
+The evaluated receiver, evaluated arguments, and evaluated defaults are bound into the thread entry state.
+
+The created thread runs the selected callable body with that entry state.
+
+The thread entry callable receives no hidden state from lambda capture or bound-method capture.
+
+Owned entry values are moved or copied into the thread entry state according to ordinary argument-passing rules.
+
+Borrow entry values make the returned `Thread<T>` carry the borrow dependency.
+
+Scoped capabilities and finalization obligations supplied through entry state are carried by the thread handle until the thread is
+joined, cancelled, or transferred to another owner.
+
+If the returned thread handle could outlive storage, capabilities, facts, or obligations required by its entry state, the transfer
+or escape is rejected.
 
 `spawn thread` is valid in synchronous and asynchronous execution contexts when thread creation is available for the target.
 
-The source evaluation order guarantees operand evaluation and thread-handle creation.
+The source evaluation order guarantees callee evaluation, argument evaluation, default evaluation, entry-state binding, and
+thread-handle creation before the spawned thread can observe its entry state.
 
 Thread entry scheduling is governed by the runtime and target thread model.
 
@@ -444,38 +469,61 @@ An async callable produces an async computation and is spawned as a task through
 Example:
 
 ```bray
-let handle: Thread<Hash> = spawn thread lambda () -> Hash
+func hash_data(pos data: Data) -> Hash
+{
+    return hash(data);
+}
+
+let handle: Thread<Hash> = spawn thread hash_data(data);
+```
+
+An anonymous callable can be used by binding it explicitly and passing state explicitly:
+
+```bray
+let worker = lambda (pos data: Data) -> Hash
 {
     return hash(data);
 };
+
+let handle: Thread<Hash> = spawn thread worker(data);
 ```
 
 ---
 
-## Thread Captures
+## Thread Entry State
 
-Thread captures are the captured state of the callable value supplied to `spawn thread`.
+The thread entry callable selected by `spawn thread` is not a bound-method value and does not carry lambda capture state.
 
-A thread entry can capture:
+Thread entry state is supplied only by the receiver and arguments of the `spawn thread` entry application.
 
-- owned values whose type contract permits transfer to a thread,
-- copied values whose type contract permits use by a thread,
-- borrows whose lifetime is preserved by the thread handle's dependency contract and whose access contract permits thread use,
-- capabilities whose contract permits transfer to or use by a thread,
-- finalization obligations whose contract can be completed by the thread or preserved by the thread handle.
+For a function or static function entry, the entry state is the bound parameter set.
 
-The thread handle preserves every captured-state dependency until the thread is joined, cancelled, or transferred to another owner.
+For a callable-value entry, the callable value is evaluated as the callee and the entry state is the callable value plus the bound
+parameter set.
 
-A thread that captures a borrow can escape only to an owner whose lifetime is proven not to outlive the borrowed storage.
+For a method entry, the entry state is the evaluated receiver plus the bound parameter set.
 
-A thread that captures a scoped capability can escape only to an owner whose contract assumes responsibility for resolving that
-capability before the capability's source scope exits.
+A receiver or argument that is passed by ownership becomes owned by the thread entry state unless the value is copied by its copy
+contract.
 
-A thread that captures local storage from its creating scope can escape that scope only when the destination preserves the captured
-dependency contract.
+A receiver or argument that is passed by shared borrow keeps the reached storage shared-borrowed for the lifetime represented by
+the thread handle.
 
-If the destination type or declaration contract does not preserve the thread handle's capture requirements, the transfer is
-rejected.
+A receiver or argument that is passed by mutable borrow keeps the reached storage mutably borrowed for the lifetime represented by
+the thread handle.
+
+While the thread handle is live, the creating run cannot perform operations that conflict with borrow, ownership, capability,
+finalization, or fact dependencies carried by the thread entry state.
+
+Joining the thread resolves the thread obligation and releases or returns entry-state dependencies according to the selected
+callable's contract and the join result.
+
+Cancelling the thread resolves the thread obligation by cancelling the run, destroying initialized owned entry state, releasing
+entry capabilities, and preserving any obligations that the cancellation contract transfers to the cancellation result or caller.
+
+Moving a thread handle transfers the thread obligation and every dependency carried by the thread entry state.
+
+If the destination cannot preserve those dependencies, the move is rejected.
 
 ---
 
@@ -519,7 +567,7 @@ thread.cancel();
 Thread cancellation reaches completion through cancellation points and operation contracts declared by the thread entry and the
 values it uses.
 
-Cancelling a thread destroys owned captured state and releases captured capabilities according to ordinary destruction and
+Cancelling a thread destroys owned thread entry state and releases thread entry capabilities according to ordinary destruction and
 finalization rules.
 
 Cancelling a thread resolves the thread obligation.
@@ -618,7 +666,8 @@ Between concurrent runs, memory effects are ordered only by language-defined syn
 
 A synchronization edge is created by:
 
-- transferring captured state into a spawned task or thread before that run can observe the state,
+- transferring captured state into a spawned task or explicit thread entry state into a spawned thread before that run can observe
+  the state,
 - joining a task or thread,
 - completing task or thread cancellation,
 - operations whose type or declaration contract explicitly synchronizes access,
