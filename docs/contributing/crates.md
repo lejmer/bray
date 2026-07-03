@@ -12,7 +12,7 @@
 - `bray-diagnostics`
     - Locale-neutral diagnostics infrastructure: errors, warnings, notes, labels, suggestions, diagnostic codes, message IDs, typed message arguments, and reporting structures.
     - Owns diagnostic rendering contracts consumed by the locale-aware `bray-messages` infrastructure.
-    - English is the initial supported locale, but diagnostics must be structured so other locales can be added without changing compiler logic.
+    - Diagnostics must be structured so other locales can be added without changing compiler logic.
     - Should not own compiler logic; it only represents diagnostics and rendering data.
 
 - `bray-messages`
