@@ -6,6 +6,8 @@ mod cli;
 mod command;
 mod file_arguments;
 mod run;
+#[cfg(test)]
+mod test_support;
 
 pub use cli::DriverCliError;
 pub use command::{

@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use crate::diagnostic::Diagnostic;
 use crate::kind::DiagnosticKind;
 use crate::severity::SeverityKind;
@@ -49,9 +51,20 @@ impl DiagnosticBag {
         self.diagnostics.extend(diagnostics);
     }
 
-    /// Moves all diagnostics from `other` into this bag.
-    pub fn append(&mut self, other: &mut Self) {
-        self.diagnostics.append(&mut other.diagnostics);
+    /// Returns a new bag containing diagnostics from both bags without duplicates.
+    ///
+    /// The merged bag preserves the first occurrence order from `self`, then
+    /// appends diagnostics from `other` that were not already present.
+    pub fn merged(&self, other: &Self) -> Self {
+        Self::deduplicated_from(self.iter().chain(other.iter()))
+    }
+
+    /// Returns a new bag containing diagnostics from all bags without duplicates.
+    ///
+    /// The merged bag preserves the first occurrence order of the input bags
+    /// and of diagnostics within each bag.
+    pub fn merged_all<'diagnostic>(bags: impl IntoIterator<Item = &'diagnostic Self>) -> Self {
+        Self::deduplicated_from(bags.into_iter().flat_map(Self::iter))
     }
 
     /// Returns all diagnostics in insertion order.
@@ -104,6 +117,25 @@ impl DiagnosticBag {
     /// Converts the bag into its underlying ordered diagnostics.
     pub fn into_vec(self) -> Vec<Diagnostic> {
         self.diagnostics
+    }
+
+    fn deduplicated_from<'diagnostic>(
+        diagnostics: impl IntoIterator<Item = &'diagnostic Diagnostic>,
+    ) -> Self {
+        let mut seen = HashSet::new();
+        let mut merged = Vec::new();
+
+        for diagnostic in diagnostics {
+            if seen.insert(diagnostic) {
+                // A new immutable bag must own its diagnostics without mutating
+                // either source bag.
+                merged.push(diagnostic.clone());
+            }
+        }
+
+        Self {
+            diagnostics: merged,
+        }
     }
 }
 
@@ -166,6 +198,7 @@ mod tests {
     #[test]
     fn bags_collect_diagnostics_in_insertion_order() {
         let first = diagnostic(0, DiagnosticKind::LexicalInvalidUtf8, SeverityKind::Error);
+
         let second = diagnostic(
             1,
             DiagnosticKind::LexicalInvalidCharacter,
@@ -183,26 +216,65 @@ mod tests {
     }
 
     #[test]
-    fn bags_append_and_drain_other_bags() {
+    fn bags_merge_without_mutating_inputs_and_remove_duplicates() {
         let first = diagnostic(0, DiagnosticKind::LexicalInvalidUtf8, SeverityKind::Error);
+
         let second = diagnostic(
             1,
             DiagnosticKind::LexicalInvalidCharacter,
             SeverityKind::Error,
         );
 
-        let mut left = DiagnosticBag::single(first.clone());
-        let mut right = DiagnosticBag::single(second.clone());
+        let left = DiagnosticBag::from(vec![first.clone(), second.clone()]);
+        let right = DiagnosticBag::from(vec![second.clone(), first.clone()]);
 
-        left.append(&mut right);
+        let merged = left.merged(&right);
 
-        assert_eq!(left.diagnostics(), &[first, second]);
-        assert!(right.is_empty());
+        assert_eq!(merged.diagnostics(), &[first.clone(), second.clone()]);
+        assert_eq!(left.diagnostics(), &[first.clone(), second.clone()]);
+        assert_eq!(right.diagnostics(), &[second, first]);
+    }
+
+    #[test]
+    fn bags_merge_many_without_duplicates() {
+        let first = diagnostic(0, DiagnosticKind::LexicalInvalidUtf8, SeverityKind::Error);
+
+        let second = diagnostic(
+            1,
+            DiagnosticKind::LexicalInvalidCharacter,
+            SeverityKind::Warning,
+        );
+
+        let third = diagnostic(
+            2,
+            DiagnosticKind::LexicalUnterminatedBlockComment,
+            SeverityKind::Error,
+        );
+
+        let first_bag = DiagnosticBag::from(vec![first.clone(), second.clone()]);
+        let second_bag = DiagnosticBag::from(vec![second, third.clone()]);
+        let third_bag = DiagnosticBag::single(first.clone());
+
+        let merged = DiagnosticBag::merged_all([&first_bag, &second_bag, &third_bag]);
+
+        assert_eq!(
+            merged.diagnostics(),
+            &[
+                first,
+                diagnostic(
+                    1,
+                    DiagnosticKind::LexicalInvalidCharacter,
+                    SeverityKind::Warning
+                ),
+                third
+            ]
+        );
     }
 
     #[test]
     fn bags_filter_by_kind_and_severity() {
         let error = diagnostic(0, DiagnosticKind::LexicalInvalidUtf8, SeverityKind::Error);
+
         let warning = diagnostic(
             1,
             DiagnosticKind::LexicalInvalidCharacter,
@@ -217,6 +289,7 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![&error]
         );
+
         assert_eq!(bag.errors().collect::<Vec<_>>(), vec![&error]);
         assert_eq!(bag.warnings().collect::<Vec<_>>(), vec![&warning]);
         assert!(bag.has_errors());
@@ -225,6 +298,7 @@ mod tests {
     #[test]
     fn bags_convert_to_and_from_owned_diagnostics() {
         let first = diagnostic(0, DiagnosticKind::LexicalInvalidUtf8, SeverityKind::Error);
+
         let second = diagnostic(
             1,
             DiagnosticKind::LexicalInvalidCharacter,
@@ -240,6 +314,7 @@ mod tests {
     #[test]
     fn bags_work_with_standard_collection_traits() {
         let first = diagnostic(0, DiagnosticKind::LexicalInvalidUtf8, SeverityKind::Error);
+
         let second = diagnostic(
             1,
             DiagnosticKind::LexicalInvalidCharacter,
@@ -251,6 +326,7 @@ mod tests {
             .collect::<DiagnosticBag>();
 
         assert_eq!(bag.iter().collect::<Vec<_>>(), vec![&first, &second]);
+
         assert_eq!(
             (&bag).into_iter().collect::<Vec<_>>(),
             vec![&first, &second]
@@ -265,6 +341,7 @@ mod tests {
     #[test]
     fn bags_allow_concurrent_shared_reads() {
         let error = diagnostic(0, DiagnosticKind::LexicalInvalidUtf8, SeverityKind::Error);
+
         let warning = diagnostic(
             1,
             DiagnosticKind::LexicalInvalidCharacter,
