@@ -30,7 +30,9 @@ impl DriverCliError {
     pub fn exit_code(&self) -> ExitCode {
         match &self.kind {
             DriverCliErrorKind::Clap(error) => match error.kind() {
-                ClapErrorKind::DisplayHelp | ClapErrorKind::DisplayVersion => ExitCode::SUCCESS,
+                ClapErrorKind::DisplayHelp
+                | ClapErrorKind::DisplayHelpOnMissingArgumentOrSubcommand
+                | ClapErrorKind::DisplayVersion => ExitCode::SUCCESS,
                 _ => ExitCode::FAILURE,
             },
             DriverCliErrorKind::Diagnostics { diagnostics, .. } => {
@@ -52,6 +54,19 @@ impl DriverCliError {
         match self.kind {
             DriverCliErrorKind::Clap(_) => DiagnosticBag::new(),
             DriverCliErrorKind::Diagnostics { diagnostics, .. } => diagnostics,
+        }
+    }
+
+    pub(crate) fn into_diagnostics_and_output(self) -> (DiagnosticBag, String, String) {
+        match self.kind {
+            DriverCliErrorKind::Clap(error) => {
+                let (stdout, stderr) = render_clap_error(error);
+
+                (DiagnosticBag::new(), stdout, stderr)
+            }
+            DriverCliErrorKind::Diagnostics { diagnostics, .. } => {
+                (diagnostics, String::new(), String::new())
+            }
         }
     }
 }
@@ -78,12 +93,37 @@ impl DriverInvocation {
 }
 
 #[derive(Debug, Parser)]
-#[command(name = "brayc")]
+#[command(
+    name = "brayc",
+    version = env!("CARGO_PKG_VERSION"),
+    about = "The Bray compiler",
+    arg_required_else_help = true
+)]
 struct Cli {
     #[command(flatten)]
     options: CliOptions,
     #[command(subcommand)]
     command: CliCommand,
+}
+
+fn render_clap_error(error: clap::Error) -> (String, String) {
+    let use_stdout = clap_error_uses_stdout(&error);
+    let output = error.render().to_string();
+
+    if use_stdout {
+        (output, String::new())
+    } else {
+        (String::new(), output)
+    }
+}
+
+fn clap_error_uses_stdout(error: &clap::Error) -> bool {
+    matches!(
+        error.kind(),
+        ClapErrorKind::DisplayHelp
+            | ClapErrorKind::DisplayHelpOnMissingArgumentOrSubcommand
+            | ClapErrorKind::DisplayVersion
+    )
 }
 
 impl Cli {

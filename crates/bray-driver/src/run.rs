@@ -16,18 +16,38 @@ pub struct DriverRunResult {
     exit_code: ExitCode,
     diagnostics: DiagnosticBag,
     output_format: DriverOutputFormat,
+    stdout: String,
+    stderr: String,
 }
 
 impl DriverRunResult {
-    const fn new(
+    fn new(
         exit_code: ExitCode,
         diagnostics: DiagnosticBag,
         output_format: DriverOutputFormat,
+    ) -> Self {
+        Self::with_output(
+            exit_code,
+            diagnostics,
+            output_format,
+            String::new(),
+            String::new(),
+        )
+    }
+
+    fn with_output(
+        exit_code: ExitCode,
+        diagnostics: DiagnosticBag,
+        output_format: DriverOutputFormat,
+        stdout: String,
+        stderr: String,
     ) -> Self {
         Self {
             exit_code,
             diagnostics,
             output_format,
+            stdout,
+            stderr,
         }
     }
 
@@ -44,6 +64,21 @@ impl DriverRunResult {
     /// Returns the output format selected for driver-produced output.
     pub const fn output_format(&self) -> DriverOutputFormat {
         self.output_format
+    }
+
+    /// Returns driver-owned stdout text, such as help or version output.
+    pub fn stdout(&self) -> &str {
+        &self.stdout
+    }
+
+    /// Returns driver-owned stderr text, such as command-line parser errors.
+    pub fn stderr(&self) -> &str {
+        &self.stderr
+    }
+
+    /// Returns whether this result carries driver-owned terminal output.
+    pub fn has_terminal_output(&self) -> bool {
+        !self.stdout.is_empty() || !self.stderr.is_empty()
     }
 }
 
@@ -63,7 +98,15 @@ pub fn run_result(arguments: impl IntoIterator<Item = OsString>) -> DriverRunRes
             let exit_code = error.exit_code();
             let output_format = error.output_format();
 
-            return DriverRunResult::new(exit_code, error.into_diagnostics(), output_format);
+            let (diagnostics, stdout, stderr) = error.into_diagnostics_and_output();
+
+            return DriverRunResult::with_output(
+                exit_code,
+                diagnostics,
+                output_format,
+                stdout,
+                stderr,
+            );
         }
     };
 
@@ -214,6 +257,111 @@ mod tests {
                 .count(),
             1
         );
+    }
+
+    #[test]
+    fn run_writes_help_to_stdout() {
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+
+        let exit_code = run_with_writers(
+            [OsString::from("brayc"), OsString::from("--help")],
+            &mut stdout,
+            &mut stderr,
+        );
+
+        assert_eq!(exit_code, ExitCode::SUCCESS);
+        assert!(stderr.is_empty());
+
+        let stdout = match String::from_utf8(stdout) {
+            Ok(stdout) => stdout,
+            Err(error) => panic!("stdout should be UTF-8: {error:?}"),
+        };
+
+        assert!(stdout.contains("The Bray compiler"));
+        assert!(stdout.contains("Usage:"));
+        assert!(stdout.contains("check"));
+        assert!(stdout.contains("--version"));
+    }
+
+    #[test]
+    fn run_writes_subcommand_help_to_stdout() {
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+
+        let exit_code = run_with_writers(
+            [
+                OsString::from("brayc"),
+                OsString::from("check"),
+                OsString::from("--help"),
+            ],
+            &mut stdout,
+            &mut stderr,
+        );
+
+        assert_eq!(exit_code, ExitCode::SUCCESS);
+        assert!(stderr.is_empty());
+
+        let stdout = match String::from_utf8(stdout) {
+            Ok(stdout) => stdout,
+            Err(error) => panic!("stdout should be UTF-8: {error:?}"),
+        };
+
+        assert!(stdout.contains("Usage:"));
+        assert!(stdout.contains("FILE"));
+    }
+
+    #[test]
+    fn run_writes_help_to_stdout_when_no_arguments_are_provided() {
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+
+        let exit_code = run_with_writers([OsString::from("brayc")], &mut stdout, &mut stderr);
+
+        assert_eq!(exit_code, ExitCode::SUCCESS);
+        assert!(stderr.is_empty());
+        assert!(!stdout.is_empty());
+    }
+
+    #[test]
+    fn run_writes_version_to_stdout() {
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+
+        let exit_code = run_with_writers(
+            [OsString::from("brayc"), OsString::from("--version")],
+            &mut stdout,
+            &mut stderr,
+        );
+
+        assert_eq!(exit_code, ExitCode::SUCCESS);
+        assert!(stderr.is_empty());
+
+        let stdout = match String::from_utf8(stdout) {
+            Ok(stdout) => stdout,
+            Err(error) => panic!("stdout should be UTF-8: {error:?}"),
+        };
+
+        assert_eq!(
+            stdout.trim(),
+            format!("brayc {}", env!("CARGO_PKG_VERSION"))
+        );
+    }
+
+    #[test]
+    fn run_writes_clap_errors_to_stderr() {
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+
+        let exit_code = run_with_writers(
+            [OsString::from("brayc"), OsString::from("--unknown")],
+            &mut stdout,
+            &mut stderr,
+        );
+
+        assert_eq!(exit_code, ExitCode::FAILURE);
+        assert!(stdout.is_empty());
+        assert!(!stderr.is_empty());
     }
 
     #[test]

@@ -22,6 +22,13 @@ pub(crate) fn write_driver_output(
     stdout: &mut impl Write,
     stderr: &mut impl Write,
 ) -> io::Result<()> {
+    stdout.write_all(result.stdout().as_bytes())?;
+    stderr.write_all(result.stderr().as_bytes())?;
+
+    if result.has_terminal_output() {
+        return Ok(());
+    }
+
     match result.output_format() {
         DriverOutputFormat::Text => write_text_diagnostics(result.diagnostics(), stderr),
         DriverOutputFormat::Json => write_json_diagnostics(result.diagnostics(), stdout),

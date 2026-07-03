@@ -12,10 +12,13 @@ bray-messages = { path = "../bray-messages" }
 bray-source = { path = "../bray-source" }
 
 # `std` supports process arguments and paths, `derive` keeps the typed CLI shape
-# colocated with the clap boundary.
-clap = { version = "4", default-features = false, features = ["derive", "std"] }
+# colocated with the clap boundary, and `help`/`usage` let clap render the
+# compiler help view.
+clap = { version = "4", default-features = false, features = ["derive", "help", "std", "usage"] }
+
 # `derive` keeps the driver JSON output contract explicit in local DTOs.
 serde = { version = "1", features = ["derive"] }
+
 serde_json = "1"
 
 [lints]
