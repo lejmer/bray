@@ -1,5 +1,5 @@
 use crate::newline::{SourceLineBreakKind, SourceNewlinePolicy};
-use crate::text::{TextSize, TextSizeOverflow};
+use crate::text::{TextRange, TextSize, TextSizeOverflow};
 
 /// One-based human source line and Unicode-scalar column.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -131,6 +131,33 @@ impl LineIndex {
         self.position(offset).map(|position| position.lsp_position)
     }
 
+    /// Returns the UTF-8 byte offset for a zero-based LSP UTF-16 position.
+    ///
+    /// Returns `None` when the line does not exist, the UTF-16 character value
+    /// falls inside a surrogate pair, or the position is beyond the line end.
+    pub fn offset_for_lsp_position(&self, position: LspPosition) -> Option<TextSize> {
+        let line_index = usize::try_from(position.line()).ok()?;
+        let metrics = self.lines.get(line_index)?;
+
+        metrics.offset_for_lsp_character(position.character())
+    }
+
+    /// Returns the source text range covered by a zero-based LSP UTF-16 range.
+    pub fn text_range_for_lsp_range(
+        &self,
+        start: LspPosition,
+        end: LspPosition,
+    ) -> Option<TextRange> {
+        if start > end {
+            return None;
+        }
+
+        TextRange::try_new(
+            self.offset_for_lsp_position(start)?,
+            self.offset_for_lsp_position(end)?,
+        )
+    }
+
     fn position(&self, offset: TextSize) -> Option<ResolvedPosition> {
         if offset > self.text_len {
             return None;
@@ -213,6 +240,16 @@ impl LineMetrics {
             lsp_position,
         })
     }
+
+    fn offset_for_lsp_character(&self, character: u32) -> Option<TextSize> {
+        match self.utf16_columns.binary_search(&character) {
+            Ok(index) => self.character_offsets.get(index).copied(),
+            Err(index) if index == self.utf16_columns.len() && character == self.utf16_len => {
+                Some(self.end)
+            }
+            Err(_) => None,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -224,7 +261,7 @@ struct ResolvedPosition {
 #[cfg(test)]
 mod tests {
     use super::{LineColumn, LineIndex, LspPosition};
-    use crate::TextSize;
+    use crate::{TextRange, TextSize};
 
     #[test]
     fn line_index_maps_utf8_offsets_to_human_columns() {
@@ -287,6 +324,55 @@ mod tests {
         assert_eq!(
             index.lsp_position(TextSize::new(9)),
             Some(LspPosition::new(1, 3))
+        );
+    }
+
+    #[test]
+    fn line_index_maps_lsp_utf16_positions_to_offsets() {
+        let index = line_index("a𝄞b\né");
+
+        assert_eq!(
+            index.offset_for_lsp_position(LspPosition::new(0, 0)),
+            Some(TextSize::new(0))
+        );
+        assert_eq!(
+            index.offset_for_lsp_position(LspPosition::new(0, 1)),
+            Some(TextSize::new(1))
+        );
+        assert_eq!(index.offset_for_lsp_position(LspPosition::new(0, 2)), None);
+        assert_eq!(
+            index.offset_for_lsp_position(LspPosition::new(0, 3)),
+            Some(TextSize::new(5))
+        );
+        assert_eq!(
+            index.offset_for_lsp_position(LspPosition::new(0, 4)),
+            Some(TextSize::new(6))
+        );
+        assert_eq!(
+            index.offset_for_lsp_position(LspPosition::new(1, 0)),
+            Some(TextSize::new(7))
+        );
+        assert_eq!(
+            index.offset_for_lsp_position(LspPosition::new(1, 1)),
+            Some(TextSize::new(9))
+        );
+    }
+
+    #[test]
+    fn line_index_maps_lsp_utf16_ranges_to_text_ranges() {
+        let index = line_index("a𝄞b\né");
+
+        assert_eq!(
+            index.text_range_for_lsp_range(LspPosition::new(0, 1), LspPosition::new(0, 3)),
+            Some(TextRange::new(TextSize::new(1), TextSize::new(5)))
+        );
+        assert_eq!(
+            index.text_range_for_lsp_range(LspPosition::new(0, 2), LspPosition::new(0, 3)),
+            None
+        );
+        assert_eq!(
+            index.text_range_for_lsp_range(LspPosition::new(1, 0), LspPosition::new(0, 0)),
+            None
         );
     }
 

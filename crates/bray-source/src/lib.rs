@@ -2,6 +2,7 @@
 
 #![forbid(unsafe_code)]
 
+mod edit;
 mod encoding;
 mod id;
 mod identity;
@@ -17,6 +18,7 @@ mod store;
 mod text;
 mod version;
 
+pub use edit::{SourceEdit, SourceEditError};
 pub use encoding::SourceUtf8Error;
 pub use id::SourceId;
 pub use identity::SourceIdentity;
@@ -25,7 +27,7 @@ pub use line_index::{LineColumn, LineIndex, LspPosition};
 pub use loader::{SourceLoadError, SourceLoader};
 pub use location::SourceLocation;
 pub use newline::{SourceLineBreakKind, SourceNewlinePolicy};
-pub use origin::{SourceOrigin, SourceOriginKind};
+pub use origin::{SourceOrigin, SourceOriginKind, SourceUriError};
 pub use snapshot::{SourceChecksum, SourceSnapshot};
 pub use span::SourceSpan;
 pub use store::SourceStore;
