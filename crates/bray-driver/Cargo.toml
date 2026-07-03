@@ -9,5 +9,9 @@ rust-version.workspace = true
 bray-compilation = { path = "../bray-compilation" }
 bray-source = { path = "../bray-source" }
 
+# `std` supports process arguments and paths, `derive` keeps the typed CLI shape
+# colocated with the clap boundary.
+clap = { version = "4", default-features = false, features = ["derive", "std"] }
+
 [lints]
 workspace = true

@@ -1,16 +1,16 @@
 use std::ffi::OsString;
-use std::path::PathBuf;
 use std::process::ExitCode;
 
-use bray_compilation::CompilationOptions;
-
-use crate::file_arguments::compilation_request_from_file_arguments;
+use crate::command::DriverInvocation;
 
 /// Runs the Bray compiler driver for the provided process arguments.
 pub fn run(arguments: impl IntoIterator<Item = OsString>) -> ExitCode {
-    let file_arguments = arguments.into_iter().skip(1).map(PathBuf::from);
+    let invocation = match DriverInvocation::try_from_arguments(arguments) {
+        Ok(invocation) => invocation,
+        Err(error) => return error.exit_code(),
+    };
 
-    match compilation_request_from_file_arguments(file_arguments, CompilationOptions::default()) {
+    match invocation.into_compilation_request() {
         Ok(_) => ExitCode::SUCCESS,
         Err(_) => ExitCode::FAILURE,
     }
