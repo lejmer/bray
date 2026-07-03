@@ -1,0 +1,293 @@
+(* Bray lexical grammar.
+
+   This is the implementation-facing plain EBNF artifact for source text,
+   tokens, trivia, comments, identifiers, keywords, and literal spellings.
+   The explanatory language documentation lives in lexical-grammar.md.
+*)
+
+source-text =
+    [ utf8-bom ] { lexical-item } end-of-file ;
+
+lexical-item =
+      token
+    | trivia ;
+
+trivia =
+      whitespace
+    | documentation-comment
+    | comment ;
+
+token =
+      keyword
+    | identifier
+    | literal-token
+    | tuple-element-index
+    | operator-or-punctuation-token ;
+
+utf8-bom =
+    ? U+FEFF at the beginning of the source text ? ;
+
+end-of-file =
+    ? end of source text ? ;
+
+whitespace =
+      " "
+    | "\t"
+    | line-break ;
+
+line-break =
+      "\n"
+    | "\r\n" ;
+
+comment =
+      line-comment
+    | block-comment ;
+
+documentation-comment =
+      documentation-line-comment
+    | documentation-block-comment ;
+
+line-comment =
+    "//" { not-line-break } ;
+
+documentation-line-comment =
+    "///" { not-line-break } ;
+
+block-comment =
+    "/*" { block-comment-item } "*/" ;
+
+documentation-block-comment =
+    "/**" { block-comment-item } "*/" ;
+
+block-comment-item =
+      block-comment
+    | not-block-comment-delimiter ;
+
+not-line-break =
+    ? any Unicode scalar value except U+000A or U+000D ? ;
+
+not-block-comment-delimiter =
+    ? any Unicode scalar value sequence that does not begin a block comment delimiter or end the current block comment ? ;
+
+keyword =
+      "all"
+    | "any"
+    | "as"
+    | "assert"
+    | "async"
+    | "await"
+    | "box"
+    | "break"
+    | "callable"
+    | "case"
+    | "catch"
+    | "const"
+    | "construct"
+    | "consume"
+    | "continue"
+    | "destruct"
+    | "detached"
+    | "each"
+    | "else"
+    | "ensures"
+    | "enter"
+    | "exit"
+    | "export"
+    | "extern"
+    | "false"
+    | "finalize"
+    | "for"
+    | "func"
+    | "if"
+    | "impl"
+    | "in"
+    | "internal"
+    | "lambda"
+    | "let"
+    | "loop"
+    | "match"
+    | "module"
+    | "move"
+    | "mut"
+    | "none"
+    | "overload"
+    | "panic"
+    | "pos"
+    | "predicate"
+    | "public"
+    | "requires"
+    | "return"
+    | "self"
+    | "Self"
+    | "spawn"
+    | "static"
+    | "struct"
+    | "thread"
+    | "trait"
+    | "trusted"
+    | "true"
+    | "try"
+    | "type"
+    | "union"
+    | "unit"
+    | "using"
+    | "uses"
+    | "view"
+    | "when"
+    | "while"
+    | "with"
+    | "yield" ;
+
+identifier =
+    ascii-letter { ascii-letter | decimal-digit | "_" } ;
+
+literal-token =
+      numeric-literal
+    | character-literal
+    | string-literal ;
+
+numeric-literal =
+      imaginary-literal
+    | real-literal
+    | integer-literal ;
+
+integer-literal =
+      decimal-integer-literal
+    | binary-integer-literal
+    | hexadecimal-integer-literal ;
+
+decimal-integer-literal =
+    decimal-digit-sequence ;
+
+binary-integer-literal =
+    "0" ( "b" | "B" ) binary-digit-sequence ;
+
+hexadecimal-integer-literal =
+    "0" ( "x" | "X" ) hexadecimal-digit-sequence ;
+
+real-literal =
+      decimal-digit-sequence "." decimal-digit-sequence [ exponent-part ]
+    | decimal-digit-sequence exponent-part ;
+
+imaginary-literal =
+    ( real-literal | integer-literal ) "i" ;
+
+exponent-part =
+    ( "e" | "E" ) [ "+" | "-" ] decimal-digit-sequence ;
+
+decimal-digit-sequence =
+    decimal-digit { [ "_" ] decimal-digit } ;
+
+binary-digit-sequence =
+    binary-digit { [ "_" ] binary-digit } ;
+
+hexadecimal-digit-sequence =
+    hexadecimal-digit { [ "_" ] hexadecimal-digit } ;
+
+tuple-element-index =
+      "0"
+    | nonzero-decimal-digit { decimal-digit } ;
+
+(* tuple-element-index is scanned only in member-selector position after ".". *)
+
+character-literal =
+    "'" character-literal-body "'" ;
+
+character-literal-body =
+      character-literal-scalar
+    | character-escape-sequence ;
+
+character-literal-scalar =
+    ? any Unicode scalar value except single quote, backslash, U+000A, or U+000D ? ;
+
+string-literal =
+    "\"" { string-literal-item } "\"" ;
+
+string-literal-item =
+      string-literal-scalar
+    | string-escape-sequence ;
+
+string-literal-scalar =
+    ? any Unicode scalar value except double quote, backslash, U+000A, or U+000D ? ;
+
+character-escape-sequence =
+      string-escape-sequence
+    | "\\'" ;
+
+string-escape-sequence =
+      "\\\""
+    | "\\\\"
+    | "\\n"
+    | "\\r"
+    | "\\t"
+    | "\\0"
+    | unicode-escape ;
+
+unicode-escape =
+    "\\u{" unicode-escape-digits "}" ;
+
+unicode-escape-digits =
+    hexadecimal-digit { hexadecimal-digit } ;
+
+operator-or-punctuation-token =
+      "->"
+    | "=="
+    | "!="
+    | "<="
+    | ">="
+    | "&&"
+    | "||"
+    | "<<"
+    | ">>"
+    | "**"
+    | ".."
+    | "("
+    | ")"
+    | "{"
+    | "}"
+    | "["
+    | "]"
+    | ","
+    | ";"
+    | ":"
+    | "."
+    | "?"
+    | "="
+    | "+"
+    | "-"
+    | "*"
+    | "/"
+    | "%"
+    | "@"
+    | "&"
+    | "|"
+    | "^"
+    | "~"
+    | "!"
+    | "<"
+    | ">"
+    | "_" ;
+
+ascii-letter =
+      "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H" | "I" | "J"
+    | "K" | "L" | "M" | "N" | "O" | "P" | "Q" | "R" | "S" | "T"
+    | "U" | "V" | "W" | "X" | "Y" | "Z"
+    | "a" | "b" | "c" | "d" | "e" | "f" | "g" | "h" | "i" | "j"
+    | "k" | "l" | "m" | "n" | "o" | "p" | "q" | "r" | "s" | "t"
+    | "u" | "v" | "w" | "x" | "y" | "z" ;
+
+decimal-digit =
+      "0" | "1" | "2" | "3" | "4"
+    | "5" | "6" | "7" | "8" | "9" ;
+
+nonzero-decimal-digit =
+      "1" | "2" | "3" | "4"
+    | "5" | "6" | "7" | "8" | "9" ;
+
+binary-digit =
+      "0" | "1" ;
+
+hexadecimal-digit =
+      decimal-digit
+    | "A" | "B" | "C" | "D" | "E" | "F"
+    | "a" | "b" | "c" | "d" | "e" | "f" ;
