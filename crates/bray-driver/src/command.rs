@@ -1,9 +1,6 @@
 use std::path::PathBuf;
 
-use bray_compilation::{CompilationOptions, CompilationRequest, WorkerBudget};
-use bray_diagnostics::DiagnosticBag;
-
-use crate::file_arguments::compilation_request_from_file_arguments;
+use bray_compilation::{CompilationOptions, WorkerBudget};
 
 /// Output format selected for driver-produced output.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -103,7 +100,7 @@ impl DriverCommand {
         }
     }
 
-    fn into_files(self) -> Vec<PathBuf> {
+    pub(crate) fn into_files(self) -> Vec<PathBuf> {
         match self {
             Self::Check { files } | Self::InspectSource { files } => files,
         }
@@ -136,13 +133,5 @@ impl DriverInvocation {
     /// Consumes this invocation into options and command.
     pub fn into_parts(self) -> (DriverOptions, DriverCommand) {
         (self.options, self.command)
-    }
-
-    /// Builds the compilation request for this invocation.
-    pub fn into_compilation_request(self) -> Result<CompilationRequest, DiagnosticBag> {
-        let options = self.options.compilation_options();
-        let files = self.command.into_files();
-
-        compilation_request_from_file_arguments(files, options)
     }
 }

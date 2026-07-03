@@ -21,6 +21,13 @@ impl SourceNewlinePolicy {
         }
     }
 
+    /// Returns the stable machine key for this newline policy.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::PreserveExactText => "preserve_exact_text",
+        }
+    }
+
     /// Applies newline normalization according to this policy.
     pub fn normalize_text(self, text: String) -> String {
         match self {
@@ -84,6 +91,7 @@ mod tests {
         );
 
         assert!(SourceNewlinePolicy::DEFAULT.preserves_exact_text());
+        assert_eq!(SourceNewlinePolicy::DEFAULT.as_str(), "preserve_exact_text");
     }
 
     #[test]

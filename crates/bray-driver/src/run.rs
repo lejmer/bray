@@ -5,10 +5,11 @@ use std::process::ExitCode;
 use bray_compilation::Compilation;
 use bray_diagnostics::DiagnosticBag;
 
-use crate::command::DriverInvocation;
-use crate::command::DriverOutputFormat;
+use crate::command::{DriverCommandKind, DriverInvocation, DriverOutputFormat};
 use crate::diagnostic_output::write_driver_output;
 use crate::exit_status::exit_code_from_diagnostics;
+use crate::file_arguments::compilation_request_from_file_arguments;
+use crate::source_inspection::render_source_inspection;
 
 /// Structured result from running the Bray compiler driver.
 #[derive(Debug)]
@@ -110,9 +111,14 @@ pub fn run_result(arguments: impl IntoIterator<Item = OsString>) -> DriverRunRes
         }
     };
 
-    let output_format = invocation.options().output_format();
+    let (options, command) = invocation.into_parts();
+    let output_format = options.output_format();
+    let command_kind = command.kind();
 
-    let request = match invocation.into_compilation_request() {
+    let request = match compilation_request_from_file_arguments(
+        command.into_files(),
+        options.compilation_options(),
+    ) {
         Ok(request) => request,
         Err(diagnostics) => {
             let exit_code = exit_code_from_diagnostics(&diagnostics);
@@ -127,6 +133,27 @@ pub fn run_result(arguments: impl IntoIterator<Item = OsString>) -> DriverRunRes
             return DriverRunResult::new(ExitCode::FAILURE, DiagnosticBag::new(), output_format);
         }
     };
+
+    if command_kind == DriverCommandKind::InspectSource && compilation.diagnostics().is_empty() {
+        let stdout = match render_source_inspection(&compilation, output_format) {
+            Ok(stdout) => stdout,
+            Err(_) => {
+                return DriverRunResult::new(
+                    ExitCode::FAILURE,
+                    DiagnosticBag::new(),
+                    output_format,
+                );
+            }
+        };
+
+        return DriverRunResult::with_output(
+            ExitCode::SUCCESS,
+            DiagnosticBag::new(),
+            output_format,
+            stdout,
+            String::new(),
+        );
+    }
 
     let diagnostics = compilation.into_diagnostics();
     let exit_code = exit_code_from_diagnostics(&diagnostics);
@@ -428,5 +455,85 @@ mod tests {
 
         assert!(stdout.contains("\"kind\": \"source_invalid_utf8\""));
         assert!(!stdout.contains("source input contains invalid UTF-8 at byte offset"));
+    }
+
+    #[test]
+    fn run_writes_text_source_inspection_to_stdout() {
+        let file = TemporaryFile::write("main.bray", b"module main\r\nfunc main() {}\n");
+
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+
+        let exit_code = run_with_writers(
+            [
+                OsString::from("brayc"),
+                OsString::from("inspect"),
+                OsString::from("source"),
+                file.path().as_os_str().to_os_string(),
+            ],
+            &mut stdout,
+            &mut stderr,
+        );
+
+        assert_eq!(exit_code, ExitCode::SUCCESS);
+        assert!(stderr.is_empty());
+
+        let stdout = match String::from_utf8(stdout) {
+            Ok(stdout) => stdout,
+            Err(error) => panic!("stdout should be UTF-8: {error:?}"),
+        };
+
+        assert!(stdout.contains("kind: source_inspection"));
+        assert!(stdout.contains("source_count: 1"));
+        assert!(stdout.contains("source_id: 0"));
+        assert!(stdout.contains("  origin_kind: file"));
+        assert!(stdout.contains("  line_starts: [0, 13, 28]"));
+        assert!(stdout.contains("module main\r\nfunc main() {}\n"));
+    }
+
+    #[test]
+    fn run_writes_json_source_inspection_to_stdout() {
+        let file = TemporaryFile::write("main.bray", b"module main\n");
+
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+
+        let exit_code = run_with_writers(
+            [
+                OsString::from("brayc"),
+                OsString::from("--format"),
+                OsString::from("json"),
+                OsString::from("inspect"),
+                OsString::from("source"),
+                file.path().as_os_str().to_os_string(),
+            ],
+            &mut stdout,
+            &mut stderr,
+        );
+
+        assert_eq!(exit_code, ExitCode::SUCCESS);
+        assert!(stderr.is_empty());
+
+        let stdout = match String::from_utf8(stdout) {
+            Ok(stdout) => stdout,
+            Err(error) => panic!("stdout should be UTF-8: {error:?}"),
+        };
+
+        let output_json: serde_json::Value = match serde_json::from_str(&stdout) {
+            Ok(value) => value,
+            Err(error) => panic!("stdout should be source-inspection JSON: {error:?}"),
+        };
+
+        assert_eq!(output_json["kind"], "source_inspection");
+        assert_eq!(output_json["source_count"], 1);
+        assert_eq!(output_json["sources"][0]["origin"]["kind"], "file");
+        assert_eq!(output_json["sources"][0]["byte_len"], 12);
+
+        assert_eq!(
+            output_json["sources"][0]["line_starts"],
+            serde_json::json!([0, 12])
+        );
+
+        assert_eq!(output_json["sources"][0]["text"], "module main\n");
     }
 }
