@@ -116,8 +116,6 @@ fn source_identity_for_input_index(
 #[cfg(test)]
 mod tests {
     use std::io::ErrorKind;
-    use std::path::{Path, PathBuf};
-    use std::sync::atomic::{AtomicU64, Ordering};
 
     use bray_compilation::{Compilation, CompilationOptions, WorkerBudget};
     use bray_source::{SourceId, SourceIdentity, SourceVersion};
@@ -126,8 +124,7 @@ mod tests {
         DriverSourceInputError, compilation_request_from_file_arguments,
         source_identity_for_input_index, source_inputs_from_file_arguments,
     };
-
-    static NEXT_TEMP_DIRECTORY: AtomicU64 = AtomicU64::new(0);
+    use crate::test_support::{TemporaryFile, unique_temporary_directory};
 
     #[test]
     fn file_arguments_are_loaded_as_raw_file_source_inputs() {
@@ -219,50 +216,5 @@ mod tests {
                 input_index: overflow_index
             })
         );
-    }
-
-    struct TemporaryFile {
-        directory: PathBuf,
-        path: PathBuf,
-    }
-
-    impl TemporaryFile {
-        fn write(file_name: &str, bytes: &[u8]) -> Self {
-            let directory = unique_temporary_directory();
-
-            match std::fs::create_dir(&directory) {
-                Ok(()) => {}
-                Err(error) => panic!("temporary test directory should be created: {error:?}"),
-            }
-
-            let path = directory.join(file_name);
-
-            match std::fs::write(&path, bytes) {
-                Ok(()) => {}
-                Err(error) => panic!("temporary test file should be written: {error:?}"),
-            }
-
-            Self { directory, path }
-        }
-
-        fn path(&self) -> &Path {
-            self.path.as_path()
-        }
-    }
-
-    impl Drop for TemporaryFile {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_file(&self.path);
-            let _ = std::fs::remove_dir(&self.directory);
-        }
-    }
-
-    fn unique_temporary_directory() -> PathBuf {
-        let sequence = NEXT_TEMP_DIRECTORY.fetch_add(1, Ordering::Relaxed);
-
-        std::env::temp_dir().join(format!(
-            "bray-driver-test-{}-{sequence}",
-            std::process::id()
-        ))
     }
 }

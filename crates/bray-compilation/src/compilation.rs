@@ -1,6 +1,12 @@
 use std::num::NonZeroUsize;
 
-use bray_source::{SourceId, SourceInput, SourceLoadError, SourceSnapshot, SourceStore};
+use bray_diagnostics::{
+    Diagnostic, DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticBag, DiagnosticId,
+    DiagnosticKind, DiagnosticNote, DiagnosticNoteKind, SeverityKind,
+};
+use bray_source::{
+    SourceId, SourceInput, SourceLoadError, SourceSnapshot, SourceStore, SourceUtf8Error, TextSize,
+};
 
 /// Positive CPU worker budget for compiler-owned work.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -122,13 +128,19 @@ pub enum CompilationBuildError {
         source_index: usize,
         error: SourceLoadError,
     },
+    /// The compiler cannot assign another compact diagnostic ID.
+    TooManyDiagnostics {
+        /// Number of diagnostics already assigned.
+        count: usize,
+    },
 }
 
 impl CompilationBuildError {
     /// Returns the source input index associated with this build error.
-    pub const fn source_index(self) -> usize {
+    pub const fn source_index(self) -> Option<usize> {
         match self {
-            Self::SourceLoad { source_index, .. } => source_index,
+            Self::SourceLoad { source_index, .. } => Some(source_index),
+            Self::TooManyDiagnostics { .. } => None,
         }
     }
 }
@@ -138,6 +150,7 @@ impl CompilationBuildError {
 pub struct Compilation {
     options: CompilationOptions,
     sources: SourceStore,
+    diagnostics: DiagnosticBag,
 }
 
 impl Compilation {
@@ -146,17 +159,31 @@ impl Compilation {
         let (options, source_inputs) = request.into().into_parts();
 
         let mut sources = SourceStore::with_capacity(source_inputs.len());
+        let mut diagnostics = DiagnosticBag::new();
 
         for (source_index, source_input) in source_inputs.into_iter().enumerate() {
-            if let Err(error) = sources.insert_input(source_input) {
-                return Err(CompilationBuildError::SourceLoad {
-                    source_index,
-                    error,
-                });
+            match sources.insert_input(source_input) {
+                Ok(_) => {}
+                Err(SourceLoadError::InvalidUtf8(error)) => {
+                    diagnostics.add(invalid_utf8_diagnostic(
+                        next_diagnostic_id(&diagnostics)?,
+                        error,
+                    ));
+                }
+                Err(error) => {
+                    return Err(CompilationBuildError::SourceLoad {
+                        source_index,
+                        error,
+                    });
+                }
             }
         }
 
-        Ok(Self { options, sources })
+        Ok(Self {
+            options,
+            sources,
+            diagnostics,
+        })
     }
 
     /// Builds durable compilation state from source inputs and default options.
@@ -177,6 +204,25 @@ impl Compilation {
     /// Returns the loaded source snapshots.
     pub const fn sources(&self) -> &SourceStore {
         &self.sources
+    }
+
+    /// Returns the final merged diagnostics for this compilation.
+    pub const fn diagnostics(&self) -> &DiagnosticBag {
+        &self.diagnostics
+    }
+
+    /// Returns a new compilation with `diagnostics` folded into the final bag.
+    ///
+    /// The combination and deduplication policy belongs to [`DiagnosticBag`];
+    /// compilation only publishes the resulting immutable state.
+    pub fn with_additional_diagnostics(self, diagnostics: DiagnosticBag) -> Self {
+        let diagnostics = self.diagnostics.merged(&diagnostics);
+
+        Self {
+            options: self.options,
+            sources: self.sources,
+            diagnostics,
+        }
     }
 
     /// Returns the loaded source snapshot for `source_id`.
@@ -200,16 +246,54 @@ impl Compilation {
     }
 }
 
+fn next_diagnostic_id(diagnostics: &DiagnosticBag) -> Result<DiagnosticId, CompilationBuildError> {
+    let raw = match u32::try_from(diagnostics.len()) {
+        Ok(raw) => raw,
+        Err(_) => {
+            return Err(CompilationBuildError::TooManyDiagnostics {
+                count: diagnostics.len(),
+            });
+        }
+    };
+
+    Ok(DiagnosticId::new(raw))
+}
+
+fn invalid_utf8_diagnostic(id: DiagnosticId, error: SourceUtf8Error) -> Diagnostic {
+    let mut diagnostic =
+        Diagnostic::new(id, DiagnosticKind::LexicalInvalidUtf8, SeverityKind::Error)
+            .with_note(DiagnosticNote::new(DiagnosticNoteKind::SourceMustBeUtf8));
+
+    if let Ok(offset) = TextSize::try_from(error.valid_up_to()) {
+        diagnostic = diagnostic.with_arg(DiagnosticArg::new(
+            DiagnosticArgName::TextOffset,
+            DiagnosticArgValue::TextOffset(offset),
+        ));
+    }
+
+    if let Some(byte_count) = invalid_utf8_byte_count(error) {
+        diagnostic = diagnostic.with_arg(DiagnosticArg::new(
+            DiagnosticArgName::ByteCount,
+            DiagnosticArgValue::ByteCount(byte_count),
+        ));
+    }
+
+    diagnostic
+}
+
+fn invalid_utf8_byte_count(error: SourceUtf8Error) -> Option<u32> {
+    let len = error.invalid_sequence_len()?;
+
+    u32::try_from(len).ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        Compilation, CompilationBuildError, CompilationOptions, CompilationRequest, WorkerBudget,
-        WorkerBudgetError,
+        Compilation, CompilationOptions, CompilationRequest, WorkerBudget, WorkerBudgetError,
     };
-    use bray_source::{
-        SourceId, SourceIdentity, SourceInput, SourceLoadError, SourceOriginKind, SourceUtf8Error,
-        SourceVersion,
-    };
+    use bray_diagnostics::{Diagnostic, DiagnosticBag, DiagnosticId, DiagnosticKind, SeverityKind};
+    use bray_source::{SourceId, SourceIdentity, SourceInput, SourceOriginKind, SourceVersion};
 
     #[test]
     fn worker_budgets_are_positive() {
@@ -254,6 +338,7 @@ mod tests {
         assert_eq!(compilation.options(), options);
         assert_eq!(compilation.worker_budget(), WorkerBudget::serial());
         assert_eq!(compilation.source_count(), 2);
+        assert!(compilation.diagnostics().is_empty());
         assert!(!compilation.is_empty());
 
         assert_eq!(
@@ -277,7 +362,7 @@ mod tests {
     }
 
     #[test]
-    fn compilations_report_source_load_failures_with_request_index() {
+    fn compilations_store_utf8_source_load_diagnostics() {
         let invalid = SourceInput::file_bytes(
             SourceIdentity::new(10),
             "bad.bray",
@@ -285,20 +370,64 @@ mod tests {
             vec![0xff],
         );
 
-        let error = match Compilation::from_sources(vec![source_input("valid", 0), invalid]) {
-            Ok(compilation) => panic!("test compilation should fail: {compilation:?}"),
-            Err(error) => error,
+        let compilation = match Compilation::from_sources(vec![source_input("valid", 0), invalid]) {
+            Ok(compilation) => compilation,
+            Err(error) => panic!("invalid UTF-8 should become a diagnostic: {error:?}"),
         };
 
-        assert_eq!(
-            error,
-            CompilationBuildError::SourceLoad {
-                source_index: 1,
-                error: SourceLoadError::InvalidUtf8(SourceUtf8Error::new(0, Some(1)))
-            }
+        let diagnostics = compilation.diagnostics();
+
+        assert_eq!(compilation.source_count(), 1);
+        assert!(diagnostics.has_errors());
+        assert_eq!(diagnostics.len(), 1);
+
+        let diagnostic = match diagnostics.diagnostics() {
+            [diagnostic] => diagnostic,
+            diagnostics => panic!("expected one diagnostic: {diagnostics:?}"),
+        };
+
+        assert_eq!(diagnostic.id(), DiagnosticId::new(0));
+        assert_eq!(diagnostic.kind(), DiagnosticKind::LexicalInvalidUtf8);
+        assert_eq!(diagnostic.severity(), SeverityKind::Error);
+        assert_eq!(diagnostic.primary_span(), None);
+        assert_eq!(diagnostic.args().len(), 2);
+        assert_eq!(diagnostic.notes().len(), 1);
+    }
+
+    #[test]
+    fn compilations_produce_final_diagnostics_from_phase_diagnostics() {
+        let invalid = SourceInput::file_bytes(
+            SourceIdentity::new(11),
+            "bad.bray",
+            SourceVersion::new(0),
+            vec![0xff],
         );
 
-        assert_eq!(error.source_index(), 1);
+        let compilation = match Compilation::from_sources(vec![invalid]) {
+            Ok(compilation) => compilation,
+            Err(error) => panic!("invalid UTF-8 should become a diagnostic: {error:?}"),
+        };
+
+        let duplicate = match compilation.diagnostics().diagnostics() {
+            [diagnostic] => diagnostic.clone(),
+            diagnostics => panic!("expected one diagnostic: {diagnostics:?}"),
+        };
+
+        let lexical_warning = Diagnostic::new(
+            DiagnosticId::new(1),
+            DiagnosticKind::LexicalInvalidCharacter,
+            SeverityKind::Warning,
+        );
+
+        let phase_diagnostics =
+            DiagnosticBag::from(vec![duplicate.clone(), lexical_warning.clone()]);
+
+        let compilation = compilation.with_additional_diagnostics(phase_diagnostics);
+
+        assert_eq!(
+            compilation.diagnostics().diagnostics(),
+            &[duplicate, lexical_warning]
+        );
     }
 
     #[test]
