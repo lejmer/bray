@@ -611,7 +611,9 @@ The absent state remains absent during nullable-to-nullable conversion.
 
 A present value is converted recursively.
 
-Nullable pattern and propagation expression rules are defined in [Nullable and absence expressions](../expressions/nullable-and-absence-expressions.md).
+Nullable pattern rules are defined in [Nullable patterns](../patterns/nullable-patterns.md).
+
+Nullable propagation expression rules are defined in [Nullable and absence expressions](../expressions/nullable-and-absence-expressions.md).
 
 ## Owned-indirection type form
 

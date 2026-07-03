@@ -16,7 +16,7 @@ count = none;
 
 Nullable initialization and assignment rules are defined by the [nullable type form](../types/type-forms.md#nullable-type-form).
 
-Nullable patterns match nullable state in pattern-bearing expressions.
+Nullable patterns match nullable state in pattern-bearing expressions according to [Nullable patterns](../patterns/nullable-patterns.md).
 
 ```bray
 match count

@@ -673,7 +673,7 @@ Field shorthand binds a field to a binding with the same name. The shorthand bin
 { x, .. }
 ```
 
-Product patterns are checked by [Pattern-bearing expressions](../expressions/pattern-bearing-expressions.md).
+Product pattern rules are defined in [Product patterns](../patterns/product-patterns.md).
 
 Product patterns participate in ownership, borrowing, copying, partial moves, initialization, destruction, finalization, capability checking, and fact-context refinement according to the pattern operation mode.
 

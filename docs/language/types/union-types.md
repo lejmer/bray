@@ -578,7 +578,7 @@ Payload variant patterns introduce bindings for selected payload fields accordin
 
 No-payload variant patterns introduce no payload bindings.
 
-Union patterns are checked by [Pattern-bearing expressions](../expressions/pattern-bearing-expressions.md).
+Union variant pattern rules are defined in [Union variant patterns](../patterns/union-variant-patterns.md).
 
 Match expressions over closed unions perform coverage checking against the union’s closed variant set.
 

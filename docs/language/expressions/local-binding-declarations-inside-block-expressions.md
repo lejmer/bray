@@ -44,7 +44,7 @@ let [first, second, third]: [i32; 3] = values;
 
 A local binding declaration requires an irrefutable pattern.
 
-A refutable pattern belongs to match expressions, union handling, or another construct that defines behavior for failed matching.
+A refutable pattern belongs to match expressions or another construct that defines behavior for failed matching.
 
 A union variant pattern is valid in a local binding declaration only when it is irrefutable for the subject type.
 

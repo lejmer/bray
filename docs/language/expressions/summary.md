@@ -28,7 +28,7 @@ Function calls and method calls are governed by callable contracts.
 
 Assignment returns `unit` on normal completion.
 
-Patterns belong to pattern-bearing expressions and remain their own grammar category.
+Patterns are their own grammar category and are defined in [Patterns](../patterns.md).
 
 Match expressions are expressions and produce the selected arm result.
 

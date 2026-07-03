@@ -65,7 +65,7 @@ The selected `Iterable` and `Iterator` contracts define:
 - whether the iteration is finite,
 - ownership and borrowing behavior for each produced element.
 
-For pattern-bearing iteration expressions, the pattern operation mode follows the iteration binding rule in [Pattern-bearing expressions](pattern-bearing-expressions.md).
+For pattern-bearing iteration expressions, the pattern operation mode follows the iteration binding rule in [Pattern contexts](../patterns/pattern-contexts.md).
 
 An iteration expression calls `iterate` exactly once after evaluating the source expression and creating the selected iteration
 subject.
