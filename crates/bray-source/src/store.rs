@@ -1,8 +1,10 @@
 use crate::id::SourceId;
+use crate::identity::SourceIdentity;
 use crate::input::SourceInput;
 use crate::origin::SourceOrigin;
-use crate::snapshot::{SourceRevision, SourceSnapshot};
+use crate::snapshot::SourceSnapshot;
 use crate::text::TextSizeOverflow;
+use crate::version::SourceVersion;
 
 /// Error returned when a source snapshot cannot be inserted.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -43,12 +45,13 @@ impl SourceStore {
     /// Inserts source text and returns its assigned source ID.
     pub fn insert(
         &mut self,
+        identity: SourceIdentity,
         origin: SourceOrigin,
-        revision: impl Into<SourceRevision>,
+        version: impl Into<SourceVersion>,
         text: impl Into<String>,
     ) -> Result<SourceId, SourceStoreError> {
         let source_id = self.next_source_id()?;
-        let snapshot = SourceSnapshot::new(source_id, origin, revision, text)?;
+        let snapshot = SourceSnapshot::new(source_id, identity, origin, version, text)?;
 
         self.snapshots.push(snapshot);
 
@@ -57,9 +60,9 @@ impl SourceStore {
 
     /// Inserts a source input and returns its assigned source ID.
     pub fn insert_input(&mut self, input: SourceInput) -> Result<SourceId, SourceStoreError> {
-        let (origin, revision, text) = input.into_snapshot_parts();
+        let (identity, origin, version, text) = input.into_snapshot_parts();
 
-        self.insert(origin, revision, text)
+        self.insert(identity, origin, version, text)
     }
 
     /// Returns the source snapshot for `source_id`.
@@ -72,6 +75,22 @@ impl SourceStore {
     /// Returns the source text for `source_id`.
     pub fn text(&self, source_id: SourceId) -> Option<&str> {
         self.get(source_id).map(SourceSnapshot::text)
+    }
+
+    /// Returns snapshots for the same logical source in insertion order.
+    pub fn snapshots_for_identity(
+        &self,
+        identity: SourceIdentity,
+    ) -> impl Iterator<Item = &SourceSnapshot> + '_ {
+        self.snapshots
+            .iter()
+            .filter(move |snapshot| snapshot.identity() == identity)
+    }
+
+    /// Returns the highest-version snapshot for a logical source.
+    pub fn latest_for_identity(&self, identity: SourceIdentity) -> Option<&SourceSnapshot> {
+        self.snapshots_for_identity(identity)
+            .max_by_key(|snapshot| snapshot.version())
     }
 
     /// Returns the number of source snapshots in the store.
@@ -124,7 +143,9 @@ impl<'a> IntoIterator for &'a SourceStore {
 #[cfg(test)]
 mod tests {
     use super::SourceStore;
-    use crate::{SourceId, SourceInput, SourceOrigin, SourceOriginKind, SourceRevision};
+    use crate::{
+        SourceId, SourceIdentity, SourceInput, SourceOrigin, SourceOriginKind, SourceVersion,
+    };
 
     #[test]
     fn source_store_assigns_ids_and_fetches_snapshots() {
@@ -132,15 +153,17 @@ mod tests {
 
         let first = insert(
             &mut store,
+            SourceIdentity::new(20),
             SourceOrigin::file("main.bray"),
-            SourceRevision::new(0),
+            SourceVersion::new(0),
             "one",
         );
 
         let second = insert(
             &mut store,
+            SourceIdentity::new(21),
             SourceOrigin::stdin(),
-            SourceRevision::new(1),
+            SourceVersion::new(1),
             "two",
         );
 
@@ -149,8 +172,8 @@ mod tests {
         assert_eq!(store.text(first), Some("one"));
 
         assert_eq!(
-            store.get(second).map(|snapshot| snapshot.revision()),
-            Some(SourceRevision::new(1))
+            store.get(second).map(|snapshot| snapshot.version()),
+            Some(SourceVersion::new(1))
         );
 
         assert_eq!(store.len(), 2);
@@ -162,15 +185,17 @@ mod tests {
 
         insert(
             &mut store,
+            SourceIdentity::new(30),
             SourceOrigin::stdin(),
-            SourceRevision::new(0),
+            SourceVersion::new(0),
             "a",
         );
 
         insert(
             &mut store,
+            SourceIdentity::new(31),
             SourceOrigin::stdin(),
-            SourceRevision::new(0),
+            SourceVersion::new(0),
             "b",
         );
 
@@ -186,8 +211,9 @@ mod tests {
     fn source_store_inserts_source_inputs() {
         let mut store = SourceStore::new();
         let input = SourceInput::lsp_open_document(
+            SourceIdentity::new(40),
             "file:///main.bray",
-            SourceRevision::new(7),
+            SourceVersion::new(7),
             "module main\n",
         );
 
@@ -202,10 +228,62 @@ mod tests {
         };
 
         assert_eq!(snapshot.source_id(), SourceId::new(0));
+        assert_eq!(snapshot.identity(), SourceIdentity::new(40));
         assert_eq!(snapshot.origin().kind(), SourceOriginKind::LspDocument);
         assert_eq!(snapshot.origin().lsp_uri(), Some("file:///main.bray"));
-        assert_eq!(snapshot.revision(), SourceRevision::new(7));
+        assert_eq!(snapshot.version(), SourceVersion::new(7));
         assert_eq!(snapshot.text(), "module main\n");
+    }
+
+    #[test]
+    fn source_store_finds_snapshots_for_the_same_logical_source() {
+        let mut store = SourceStore::new();
+
+        let identity = SourceIdentity::new(50);
+
+        let old = insert(
+            &mut store,
+            identity,
+            SourceOrigin::file("main.bray"),
+            SourceVersion::new(1),
+            "old",
+        );
+
+        let new = insert(
+            &mut store,
+            identity,
+            SourceOrigin::file("main.bray"),
+            SourceVersion::new(3),
+            "new",
+        );
+
+        insert(
+            &mut store,
+            SourceIdentity::new(51),
+            SourceOrigin::file("other.bray"),
+            SourceVersion::new(4),
+            "other",
+        );
+
+        let matching_sources = store
+            .snapshots_for_identity(identity)
+            .map(SourceSnapshotView::from)
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            matching_sources,
+            vec![
+                SourceSnapshotView::new(old, SourceVersion::new(1), "old"),
+                SourceSnapshotView::new(new, SourceVersion::new(3), "new")
+            ]
+        );
+
+        assert_eq!(
+            store
+                .latest_for_identity(identity)
+                .map(|snapshot| snapshot.source_id()),
+            Some(new)
+        );
     }
 
     #[test]
@@ -215,13 +293,37 @@ mod tests {
 
     fn assert_send_sync<T: Send + Sync>() {}
 
+    #[derive(Debug, Eq, PartialEq)]
+    struct SourceSnapshotView<'source> {
+        source_id: SourceId,
+        version: SourceVersion,
+        text: &'source str,
+    }
+
+    impl<'source> SourceSnapshotView<'source> {
+        fn new(source_id: SourceId, version: SourceVersion, text: &'source str) -> Self {
+            Self {
+                source_id,
+                version,
+                text,
+            }
+        }
+    }
+
+    impl<'source> From<&'source crate::SourceSnapshot> for SourceSnapshotView<'source> {
+        fn from(snapshot: &'source crate::SourceSnapshot) -> Self {
+            Self::new(snapshot.source_id(), snapshot.version(), snapshot.text())
+        }
+    }
+
     fn insert(
         store: &mut SourceStore,
+        identity: SourceIdentity,
         origin: SourceOrigin,
-        revision: SourceRevision,
+        version: SourceVersion,
         text: &str,
     ) -> SourceId {
-        match store.insert(origin, revision, text) {
+        match store.insert(identity, origin, version, text) {
             Ok(source_id) => source_id,
             Err(error) => panic!("test source should insert successfully: {error:?}"),
         }

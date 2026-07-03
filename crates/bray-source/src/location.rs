@@ -92,16 +92,17 @@ impl<'source> SourceLocation<'source> {
 mod tests {
     use super::SourceLocation;
     use crate::{
-        LineColumn, LineIndex, LspPosition, SourceId, SourceOrigin, SourceRevision, SourceSnapshot,
-        SourceSpan, TextRange, TextSize,
+        LineColumn, LineIndex, LspPosition, SourceId, SourceIdentity, SourceOrigin, SourceSnapshot,
+        SourceSpan, SourceVersion, TextRange, TextSize,
     };
 
     #[test]
     fn source_locations_resolve_human_and_lsp_positions() {
         let snapshot = snapshot(
             SourceId::new(3),
+            SourceIdentity::new(5),
             SourceOrigin::file("main.bray"),
-            SourceRevision::new(1),
+            SourceVersion::new(1),
             "aé\n𝄞b",
         );
 
@@ -136,8 +137,9 @@ mod tests {
     fn source_locations_reject_spans_for_other_sources() {
         let snapshot = snapshot(
             SourceId::new(3),
+            SourceIdentity::new(5),
             SourceOrigin::stdin(),
-            SourceRevision::new(1),
+            SourceVersion::new(1),
             "abc",
         );
 
@@ -149,11 +151,12 @@ mod tests {
 
     fn snapshot(
         source_id: SourceId,
+        identity: SourceIdentity,
         origin: SourceOrigin,
-        revision: SourceRevision,
+        version: SourceVersion,
         text: &str,
     ) -> SourceSnapshot {
-        match SourceSnapshot::new(source_id, origin, revision, text) {
+        match SourceSnapshot::new(source_id, identity, origin, version, text) {
             Ok(snapshot) => snapshot,
             Err(error) => panic!("test source should fit in TextSize: {error:?}"),
         }
