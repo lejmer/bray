@@ -2,6 +2,7 @@
 
 #![forbid(unsafe_code)]
 
+mod encoding;
 mod id;
 mod identity;
 mod input;
@@ -15,6 +16,7 @@ mod store;
 mod text;
 mod version;
 
+pub use encoding::SourceUtf8Error;
 pub use id::SourceId;
 pub use identity::SourceIdentity;
 pub use input::{SourceInput, SourceInputKind};

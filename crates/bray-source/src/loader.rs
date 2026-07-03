@@ -1,6 +1,7 @@
+use crate::encoding::{SourceUtf8Error, decode_source_bytes, normalize_source_text};
 use crate::id::SourceId;
 use crate::identity::SourceIdentity;
-use crate::input::SourceInput;
+use crate::input::{SourceInput, SourceInputContent};
 use crate::origin::SourceOrigin;
 use crate::snapshot::SourceSnapshot;
 use crate::text::TextSizeOverflow;
@@ -11,6 +12,8 @@ use crate::version::SourceVersion;
 pub enum SourceLoadError {
     /// The loader cannot assign another compact source ID.
     TooManySources { count: u64 },
+    /// Source bytes are not valid UTF-8.
+    InvalidUtf8(SourceUtf8Error),
     /// The source text is too large for compact byte offsets.
     TextTooLarge(TextSizeOverflow),
 }
@@ -21,11 +24,19 @@ impl From<TextSizeOverflow> for SourceLoadError {
     }
 }
 
+impl From<SourceUtf8Error> for SourceLoadError {
+    fn from(error: SourceUtf8Error) -> Self {
+        Self::InvalidUtf8(error)
+    }
+}
+
 /// Turns requested source inputs into immutable source snapshots.
 ///
 /// `SourceLoader` assigns [`SourceId`] values deterministically in load order.
-/// It does not perform file, LSP, or standard-input I/O; callers resolve
-/// external input into [`SourceInput`] before loading.
+/// It validates source bytes as UTF-8 and removes an initial UTF-8 byte order
+/// mark before publishing source text. It does not perform file, LSP, or
+/// standard-input I/O; callers resolve external input into [`SourceInput`]
+/// before loading.
 #[derive(Debug, Default, Eq, PartialEq)]
 pub struct SourceLoader {
     loaded_count: u64,
@@ -44,18 +55,61 @@ impl SourceLoader {
 
     /// Loads a source input into an immutable source snapshot.
     pub fn load_input(&mut self, input: SourceInput) -> Result<SourceSnapshot, SourceLoadError> {
-        let (identity, origin, version, text) = input.into_snapshot_parts();
+        let (identity, origin, version, content) = input.into_snapshot_parts();
 
-        self.load_snapshot(identity, origin, version, text)
+        self.load_content(identity, origin, version, content)
     }
 
     /// Loads source text and metadata into an immutable source snapshot.
+    ///
+    /// A leading byte order mark character is removed before publication.
     pub fn load_snapshot(
         &mut self,
         identity: SourceIdentity,
         origin: SourceOrigin,
         version: impl Into<SourceVersion>,
         text: impl Into<String>,
+    ) -> Result<SourceSnapshot, SourceLoadError> {
+        let text = normalize_source_text(text.into());
+
+        self.load_decoded_text(identity, origin, version, text)
+    }
+
+    /// Loads source bytes and metadata into an immutable source snapshot.
+    ///
+    /// Bytes must be valid UTF-8. A leading UTF-8 byte order mark is removed
+    /// before publication.
+    pub fn load_bytes(
+        &mut self,
+        identity: SourceIdentity,
+        origin: SourceOrigin,
+        version: impl Into<SourceVersion>,
+        bytes: impl Into<Vec<u8>>,
+    ) -> Result<SourceSnapshot, SourceLoadError> {
+        let text = decode_source_bytes(bytes.into())?;
+
+        self.load_decoded_text(identity, origin, version, text)
+    }
+
+    fn load_content(
+        &mut self,
+        identity: SourceIdentity,
+        origin: SourceOrigin,
+        version: SourceVersion,
+        content: SourceInputContent,
+    ) -> Result<SourceSnapshot, SourceLoadError> {
+        match content {
+            SourceInputContent::Text(text) => self.load_snapshot(identity, origin, version, text),
+            SourceInputContent::Bytes(bytes) => self.load_bytes(identity, origin, version, bytes),
+        }
+    }
+
+    fn load_decoded_text(
+        &mut self,
+        identity: SourceIdentity,
+        origin: SourceOrigin,
+        version: impl Into<SourceVersion>,
+        text: String,
     ) -> Result<SourceSnapshot, SourceLoadError> {
         let source_id = self.next_source_id()?;
         let snapshot = SourceSnapshot::new(source_id, identity, origin, version, text)?;
@@ -81,8 +135,11 @@ impl SourceLoader {
 
 #[cfg(test)]
 mod tests {
-    use super::SourceLoader;
-    use crate::{SourceId, SourceIdentity, SourceInput, SourceOriginKind, SourceVersion};
+    use super::{SourceLoadError, SourceLoader};
+    use crate::{
+        SourceId, SourceIdentity, SourceInput, SourceOrigin, SourceOriginKind, SourceUtf8Error,
+        SourceVersion,
+    };
 
     #[test]
     fn source_loader_turns_inputs_into_snapshots() {
@@ -129,6 +186,92 @@ mod tests {
         assert_eq!(first.source_id(), SourceId::new(0));
         assert_eq!(second.source_id(), SourceId::new(1));
         assert_eq!(loader.loaded_count(), 2);
+    }
+
+    #[test]
+    fn source_loader_strips_leading_bom_from_source_bytes() {
+        let mut loader = SourceLoader::new();
+        let input = SourceInput::file_bytes(
+            SourceIdentity::new(11),
+            "main.bray",
+            SourceVersion::new(0),
+            Vec::from(b"\xEF\xBB\xBFmodule main\n"),
+        );
+
+        let snapshot = match loader.load_input(input) {
+            Ok(snapshot) => snapshot,
+            Err(error) => panic!("test source input should load successfully: {error:?}"),
+        };
+
+        assert_eq!(snapshot.text(), "module main\n");
+        assert_eq!(snapshot.source_id(), SourceId::new(0));
+        assert_eq!(loader.loaded_count(), 1);
+    }
+
+    #[test]
+    fn source_loader_strips_leading_bom_from_source_text() {
+        let mut loader = SourceLoader::new();
+
+        let snapshot = match loader.load_snapshot(
+            SourceIdentity::new(12),
+            SourceOrigin::virtual_source("buffer"),
+            SourceVersion::new(0),
+            "\u{feff}module main\n",
+        ) {
+            Ok(snapshot) => snapshot,
+            Err(error) => panic!("test source input should load successfully: {error:?}"),
+        };
+
+        assert_eq!(snapshot.text(), "module main\n");
+    }
+
+    #[test]
+    fn source_loader_preserves_non_initial_bom_character() {
+        let mut loader = SourceLoader::new();
+
+        let snapshot = match loader.load_snapshot(
+            SourceIdentity::new(13),
+            SourceOrigin::virtual_source("buffer"),
+            SourceVersion::new(0),
+            "a\u{feff}b",
+        ) {
+            Ok(snapshot) => snapshot,
+            Err(error) => panic!("test source input should load successfully: {error:?}"),
+        };
+
+        assert_eq!(snapshot.text(), "a\u{feff}b");
+    }
+
+    #[test]
+    fn source_loader_rejects_invalid_utf8_without_consuming_source_id() {
+        let mut loader = SourceLoader::new();
+        let input = SourceInput::file_bytes(
+            SourceIdentity::new(14),
+            "main.bray",
+            SourceVersion::new(0),
+            vec![b'a', 0xff, b'b'],
+        );
+
+        let error = match loader.load_input(input) {
+            Ok(snapshot) => panic!("test source input should fail: {snapshot:?}"),
+            Err(error) => error,
+        };
+
+        assert_eq!(
+            error,
+            SourceLoadError::InvalidUtf8(SourceUtf8Error::new(1, Some(1)))
+        );
+        assert_eq!(loader.loaded_count(), 0);
+
+        let snapshot = load_virtual(
+            &mut loader,
+            SourceIdentity::new(15),
+            SourceVersion::new(0),
+            "valid",
+        );
+
+        assert_eq!(snapshot.source_id(), SourceId::new(0));
+        assert_eq!(loader.loaded_count(), 1);
     }
 
     #[test]
