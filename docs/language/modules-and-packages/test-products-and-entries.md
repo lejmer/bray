@@ -1,0 +1,164 @@
+# Test products and entries
+
+## Test products
+
+A test product is a package product whose selected source graph is checked and executed as independent test entries.
+
+Test products can include ordinary source inputs, test-only source inputs, ordinary dependencies, and test-only dependencies selected
+for that product.
+
+Test-only source inputs and test-only dependencies participate only in test products that select them.
+
+They do not contribute declarations, dependencies, implementations, overloads, conversions, public API, or coherence-domain behavior
+to library or executable products.
+
+Test products use ordinary module declarations, path resolution, dependency checking, visibility checking, internal access rules,
+trusted-module rules, target gates, contract checking, ownership checking, async checking, and run-boundary rules.
+
+An `@entrypoint` directive in a test product source graph is rejected because test products form test entries through `@test`.
+
+A test product can contain zero or more test entries.
+
+## Test-only module contributions
+
+A module contribution can be marked test-only with `@test`.
+
+`@test` attaches to a file-scoped module declaration or a block module declaration.
+
+Only one `@test` directive can apply to a module declaration.
+
+```bray
+@test
+module net.tests;
+
+using net.parser;
+
+func minimal_packet_bytes() -> &[u8]
+{
+    ...
+}
+
+@test
+func parses_minimal_packet()
+{
+    let packet = net.parser.parse_packet(minimal_packet_bytes());
+    assert(packet.kind == PacketKind.minimal);
+}
+```
+
+`@test` enables the module contribution for test products and disables it for library and executable products.
+
+`@test` does not change module identity, module visibility, trusted-module state, declaration visibility, path resolution, internal
+access, trusted capability access, or runtime behavior.
+
+`@test` and `@target(...)` can both apply to the same module declaration according to conditional module contribution rules.
+
+## Test declarations
+
+A module-level function declaration can be marked as a test entry with `@test`.
+
+```bray
+@test
+func parses_minimal_packet()
+{
+    ...
+}
+```
+
+An `@test` function contributes only to test products.
+
+For non-test products, an `@test` function contributes no declaration and its body is not semantically checked.
+
+An `@test` function must still be lexically and syntactically valid Bray source.
+
+Only one `@test` directive can apply to a function declaration.
+
+An `@test` function:
+
+- is a module-level function declaration,
+- has no receiver,
+- has no generic parameters,
+- has no caller-supplied parameters,
+- returns `unit` or `Result<unit, E>`,
+- does not expose trusted caller obligations,
+- is not `const`.
+
+An `@test` function can be `async` only when the test product context supplies an async runtime contract for async test execution.
+
+For an `@test` function with no explicit result type, the result type is `unit`.
+
+Normal trusted implementation rules apply to test functions.
+
+`@test` does not grant trusted implementation capabilities.
+
+`@test` does not grant internal access.
+
+If a test needs internal access, it uses ordinary internal-use acknowledgement.
+
+```bray
+using internal net.parser.impl;
+```
+
+An `@test` function can call trusted declarations only when ordinary trusted caller obligation rules are satisfied.
+
+## Test entry formation
+
+Test discovery happens after source graph selection, target-gated contribution selection, test-only contribution selection, module
+merging, and declaration checking.
+
+Each enabled `@test` function forms one test entry.
+
+The test entry identity is the function's fully qualified declaration path.
+
+Test entry formation is not ordinary external path access.
+
+It does not make the test function public.
+
+It does not export the test function from its module.
+
+It does not make the test function visible in any other module.
+
+Helper functions in test-only modules are ordinary functions unless they are marked `@test`.
+
+Test execution order is not language-defined.
+
+Each test entry is reported independently.
+
+Shared mutable state between tests must be mediated by ordinary synchronization, atomic, ownership, borrowing, internal access, and
+trusted contract rules.
+
+## Test execution outcomes
+
+A test entry is executed behind a panic-catching run boundary owned by the test product.
+
+A synchronous test that completes with `unit` passes.
+
+A synchronous test that completes with `Result.Ok(unit)` passes.
+
+A synchronous test that completes with `Result.Error(error)` fails with `error` as its recoverable test failure value.
+
+A synchronous test that panics fails with the caught `PanicReport`.
+
+An async test is driven by the test product's async runtime contract.
+
+An async test whose run completes with `unit` or `Result.Ok(unit)` passes.
+
+An async test whose run completes with `Result.Error(error)` fails with `error` as its recoverable test failure value.
+
+An async test whose run boundary reports `RunResult.Panicked(report)` fails with `report`.
+
+An async test whose run boundary reports `RunResult.Cancelled` is reported as cancelled.
+
+Tasks and threads created by a test obey ordinary task and thread obligation rules.
+
+Unresolved task or thread obligations at test completion are rejected by ordinary ownership and obligation checking.
+
+Lifecycle, finalization, destruction, panic, cancellation, and cleanup behavior during test execution follows the ordinary language
+rules.
+
+## Navigation
+
+- [Language index](../index.md)
+- [Modules and packages index](../modules-and-packages.md)
+- Previous: [Library and executable products](library-and-executable-products.md)
+- Next: [Target constraints and gates](target-constraints-and-gates.md)

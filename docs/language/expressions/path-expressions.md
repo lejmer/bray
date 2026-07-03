@@ -61,7 +61,7 @@ They do not execute code.
 
 They do not initialize modules.
 
-They do not import unqualified names.
+They do not introduce unqualified names.
 
 A referenced external path must be reachable through the current package or module context, or it must be declared by a `using` declaration.
 
@@ -78,7 +78,7 @@ func area(circle: geometry.shapes.Circle) -> r64
 
 `using` participates in dependency checking, visibility checking, internal-use acknowledgement, diagnostics, and tooling.
 
-`using` does not import unqualified names.
+`using` does not introduce unqualified names.
 
 `using` does not execute code.
 
@@ -112,7 +112,7 @@ Acknowledgement does not propagate through re-exports.
 
 Re-exporting an internal declaration requires its own explicit acknowledgement and produces an internal export unless exposed through a public wrapper.
 
-The Module and Package Model defines export and internal re-export rules.
+The [module and package rules](../modules-and-packages.md) define export and internal re-export behavior.
 
 A public API exposes internal declarations only through an explicit public wrapper that removes the internal declaration from the public signature.
 

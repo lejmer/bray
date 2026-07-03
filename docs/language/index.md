@@ -14,16 +14,16 @@ The chapters are organized from source text to program meaning:
 1. [Lexical grammar](lexical-grammar.md)
 2. [Syntax grammar](syntax-grammar.md)
 3. [Concepts](concepts.md)
-4. Declarations
-5. [Types](types.md)
-6. [Patterns](patterns.md)
-7. [Callables](callables.md)
-8. [Expressions](expressions.md)
-9. Ownership and borrowing
-10. Contracts and trust
-11. Lifecycle
-12. Async and concurrency
-13. Modules and packages
+4. [Modules and packages](modules-and-packages.md)
+5. Declarations
+6. [Types](types.md)
+7. [Patterns](patterns.md)
+8. [Callables](callables.md)
+9. [Expressions](expressions.md)
+10. Ownership and borrowing
+11. Contracts and trust
+12. Lifecycle
+13. Async and concurrency
 14. Compiler-known declarations and standard library recognition
 15. Targets, layout, ABI, and raw memory
 16. Diagnostics

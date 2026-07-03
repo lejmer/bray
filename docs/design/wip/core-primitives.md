@@ -869,7 +869,7 @@ declarations satisfy the type contracts they use.
 A **built-in type** is a language-defined type or type form rather than a standard-library or user-defined declaration.
 
 The Compiler-Known and Standard Library Model defines which built-in declarations are compiler-known, which compiler-known
-declarations have target availability rules, and which standard-library declarations require ordinary import or path visibility.
+declarations have target availability rules, and which standard-library declarations require ordinary using declaration or path visibility.
 
 Built-in types participate in the same ownership, borrowing, mutation, initialization, destruction, constraint, and effect
 rules as user-defined types, unless their language-defined contract states otherwise.
@@ -1266,7 +1266,7 @@ mutation, initialization, async, or trusted-memory model. Protected representati
 A **workspace** is a local development collection of packages.
 
 A workspace groups packages for editing, building, testing, vendoring, and tooling. It is not itself a package, versioned
-dependency, or importable program unit.
+dependency, or directly usable program unit.
 
 Packages inside a workspace depend on each other through ordinary package dependencies. The package dependency graph remains
 acyclic, including dependencies between packages in the same workspace.
@@ -1297,10 +1297,10 @@ A package defines the boundary between its own declarations and declarations sup
 
 A **module** is a namespace and source-organization unit inside a package.
 
-A module contains declarations. Modules organize names, define declaration ownership, and participate in visibility and
-import rules.
+A module contains declarations. Modules organize names, define declaration ownership, and participate in visibility, using
+declaration, and export rules.
 
-The Module and Package Model defines module declaration syntax, module visibility, split module behavior, using declarations,
+The [module and package rules](../../language/modules-and-packages.md) define module declaration syntax, module visibility, split module behavior, using declarations,
 and exports.
 
 A module can be declared across multiple declaration blocks and source files. Each declaration block that contributes to a
@@ -1309,7 +1309,7 @@ module declares the same module identity.
 Split module declarations contribute to one logical module. Declaration merging is deterministic, and duplicate declarations
 are errors unless the declaration form explicitly defines merging behavior.
 
-Modules are compile-time structure. A module has no runtime initialization phase and does not execute code when imported or
+Modules are compile-time structure. A module has no runtime initialization phase and does not execute code when used or
 referenced.
 
 Modules cannot alias other modules.
@@ -1319,20 +1319,20 @@ build-order graph.
 
 ---
 
-## Imports
+## Using declarations
 
-An **import** is an explicit declaration that makes declarations from another module or package available for name
-resolution.
+A **using declaration** records that a module, package path, or declaration path is intentionally used by the current module.
 
-Imports resolve through the declared workspace, package, module, and dependency graph.
+Using declarations resolve through the declared workspace, package, module, and dependency graph.
 
-An import does not execute code, initialize a module, or change runtime behavior by itself.
+A using declaration does not execute code, initialize a module, or change runtime behavior by itself.
 
-An import does not silently extend overload sets, implementation overload families, operators, conversions, behavioral contracts, or other polymorphic
-behavior. Imported behavior participates in the program only through explicit imported declarations and Bray's deterministic
-lookup rules.
+A using declaration does not silently extend overload sets, implementation overload families, operators, conversions, behavioral
+contracts, or other polymorphic behavior.
 
-Imports are part of the source graph and semantic context of the importing module.
+Using declarations are part of the source graph and semantic context of the current module.
+
+The [module and package rules](../../language/modules-and-packages.md) define using declaration syntax and path reachability.
 
 ---
 
