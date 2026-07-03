@@ -588,7 +588,7 @@ Union patterns participate in ownership, borrowing, copying, partial moves, init
 
 `Result<T, E>` is the compiler-known union type for recoverable domain failure and caught synchronous panic values.
 
-The Compiler-Known and Standard Library Model defines availability and import behavior for compiler-known declarations and
+The compiler-known and standard-library rules define availability and visibility behavior for compiler-known declarations and
 standard-library declarations.
 
 Its semantic declaration is:
@@ -707,7 +707,7 @@ Moving a `Task<T>` transfers the task obligation.
 
 Joining or cancelling a `Task<T>` consumes the handle and resolves the task obligation.
 
-The Async Model defines task handle creation, joining, cancellation, transfers, escape rules, borrowing rules, and obligation
+The async and concurrency rules define task handle creation, joining, cancellation, transfers, escape rules, borrowing rules, and obligation
 checking.
 
 ## Compiler-known thread handles
@@ -722,7 +722,7 @@ Moving a `Thread<T>` transfers the thread obligation.
 
 Joining or cancelling a `Thread<T>` consumes the handle and resolves the thread obligation.
 
-The Async Model defines thread handle creation, joining, cancellation, transfers, escape rules, borrowing rules, capture
+The async and concurrency rules define thread handle creation, joining, cancellation, transfers, escape rules, borrowing rules, capture
 restrictions, and obligation checking.
 
 ## Union API compatibility

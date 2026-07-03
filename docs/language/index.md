@@ -20,7 +20,7 @@ The chapters are organized from source text to program meaning:
 7. [Patterns](patterns.md)
 8. [Callables](callables.md)
 9. [Expressions](expressions.md)
-10. Ownership and borrowing
+10. [Ownership and borrowing](ownership-and-borrowing.md)
 11. Contracts and trust
 12. Lifecycle
 13. Async and concurrency

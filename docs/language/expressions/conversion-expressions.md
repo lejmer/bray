@@ -144,7 +144,7 @@ The standard library fallible conversion operation is `std.convert<Target>(sourc
 
 `std.convert<Target>(source)` produces `Result<Target, E>`.
 
-The Compiler-Known and Standard Library Model defines visibility and compiler recognition for standard-library operations.
+The compiler-known and standard-library rules define visibility and compiler recognition for standard-library operations.
 
 For built-in fallible scalar conversions, `E` is the compiler-known `ConversionError` type.
 

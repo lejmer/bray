@@ -107,7 +107,7 @@ extern trusted func get_process_id() -> i32
     uses(foreign_call);
 ```
 
-`extern` declarations are declarations, not imports that create unqualified names.
+`extern` declarations do not create unqualified names outside their declaration context.
 
 Name resolution, visibility, module membership, using declarations, overload declarations, callable type checking, contract
 checking, and trusted obligation checking apply normally.

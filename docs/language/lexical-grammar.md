@@ -7,7 +7,7 @@ The companion plain EBNF reference is `lexical-grammar.ebnf`.
 The source grammar is defined separately in `syntax-grammar.md` and `syntax-grammar.ebnf`.
 
 Lexical grammar defines token spelling. Literal typing, literal adaptation, scalar operations, and string value semantics belong to
-the Scalar and Literal Model.
+the scalar and literal rules.
 
 ---
 
@@ -259,7 +259,7 @@ declarations, not lexical keywords.
 
 Numeric literal spelling is lexical.
 
-Numeric literal typing and adaptation belong to the Scalar and Literal Model.
+Numeric literal typing and adaptation belong to the scalar and literal rules.
 
 ```ebnf
 literal-token =

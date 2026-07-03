@@ -2,28 +2,13 @@
 
 Expressions interact with ownership.
 
-An expression can:
+General ownership and borrowing rules are defined in [Ownership and borrowing](../ownership-and-borrowing.md).
 
-- create a value,
-- move a value,
-- copy a value,
-- borrow a value,
-- mutably borrow a value,
-- consume a value,
-- partially move a value,
-- initialize storage,
-- reinitialize storage,
-- destroy storage.
+The expression chapter defines which expression forms create values, move values, copy values, borrow values, consume values, initialize storage, reinitialize storage, or destroy initialized storage.
 
-Construction expressions create fully initialized values when all required parts are initialized.
+Each expression form applies the ownership operation selected by that expression form.
 
-Assignment expressions reinitialize storage when the destination and type contract permit it.
-
-Consuming expressions make the consumed value unavailable through its old access path unless it is reinitialized.
-
-Partial moves leave the subject partially initialized.
-
-Destruction of partially initialized values destroys only initialized parts.
+Reachable expression exits must merge to coherent ownership, borrowing, initialization, destruction, finalization, capability, effect, and fact-context state.
 
 ## Navigation
 

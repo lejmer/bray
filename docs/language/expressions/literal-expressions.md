@@ -258,7 +258,7 @@ A string literal contains zero or more Unicode scalar values after escape proces
 
 No interpolation is performed by string literals.
 
-Escape and representation rules for string literals are defined by the Scalar and Literal Model.
+Escape and representation rules for string literals are defined by the scalar and literal rules.
 
 They are already typed as `string`.
 

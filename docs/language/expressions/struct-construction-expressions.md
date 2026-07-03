@@ -102,7 +102,7 @@ A field initializer can use only the capabilities available in the construction 
 
 A field default can use only the capabilities available to the declaration that defines the default and to the construction context according to the default-expression rules.
 
-Trusted capabilities used by defaults or field initializers must be permitted by the surrounding trusted declaration or rejected according to the Contract and Trust Model.
+Trusted capabilities used by defaults or field initializers must be permitted by the surrounding trusted declaration or rejected according to the contract and trust rules.
 
 A struct construction expression can establish facts in the fact context.
 

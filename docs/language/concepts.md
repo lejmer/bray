@@ -67,6 +67,8 @@ A **copy** duplicates a value according to the value's copy contract without tra
 
 A **partial move** moves a subpart of a value while leaving the remaining parts subject to Bray's partial-move rules.
 
+Ownership, borrowing, access-path, movement, and dependency-contract rules are defined in [Ownership and borrowing](ownership-and-borrowing.md).
+
 An **initialized** storage location contains a valid value of its type.
 
 An **uninitialized** storage location does not contain a valid value and cannot be read as that type.

@@ -13,7 +13,7 @@ A predicate expression is pure, deterministic, total, terminating, and observati
 
 Predicate expressions form their own checking context.
 
-The Contract and Trust Model defines value predicate context and static constraint context.
+The contract and trust rules define value predicate context and static constraint context.
 
 The parser can reuse ordinary expression grammar pieces, but binding and checking apply predicate-expression restrictions.
 
@@ -69,7 +69,7 @@ Predicate expressions can call predicates.
 
 Predicate expressions can call functions and methods whose selected callable contract is valid in predicate-expression context.
 
-Predicate-expression callable contract rules belong to the Contract and Trust Model.
+Predicate-expression callable contract rules belong to the contract and trust rules.
 
 Predicate expressions can use conditional expressions when the condition and every branch are valid predicate expressions.
 

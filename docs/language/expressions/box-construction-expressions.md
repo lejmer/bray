@@ -131,7 +131,7 @@ Effects of storage construction behavior are effects of the box construction exp
 
 Finalization obligations created by the contained value expression, storage construction behavior, or contained value become obligations of the resulting box, local temporaries, or surrounding context according to ownership and lifecycle rules.
 
-Trusted capabilities used by storage construction behavior must be permitted by the trusted declaration that implements that behavior or rejected according to the Contract and Trust Model.
+Trusted capabilities used by storage construction behavior must be permitted by the trusted declaration that implements that behavior or rejected according to the contract and trust rules.
 
 A box construction expression can establish facts in the fact context.
 

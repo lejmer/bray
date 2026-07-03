@@ -32,8 +32,9 @@ A mutable borrow requires mutation authority over the reached storage and compat
 
 A borrow expression can borrow a local binding, field access path, indexed access path, active union payload access path, dereferenced type-form projection, or another expression that produces a compatible access path.
 
-[Borrow type forms](../types/type-forms.md#borrow-type-forms) define borrow ownership behavior, compatibility, copying, movement,
-storage, returning, reborrowing, nesting, lifetime validity, and invalidation.
+[Borrow rules](../ownership-and-borrowing/borrow-rules.md) define borrow compatibility, storage requirements, and exclusivity.
+
+[Reborrowing and borrow values](../ownership-and-borrowing/reborrowing-and-borrow-values.md) defines copying, movement, returning, reborrowing, nesting, and lifetime validity for borrow values.
 
 Borrow expressions participate in fact-context checking.
 

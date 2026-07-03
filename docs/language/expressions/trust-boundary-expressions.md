@@ -22,7 +22,7 @@ If the required trusted facts are already available in the incoming fact context
 depends on them.
 
 If the required trusted facts are not already available, the boundary introduces trusted obligations that must satisfy the
-Contract and Trust Model's propagation rules.
+contract and trust propagation rules.
 
 The boundary is explicit source syntax.
 
@@ -70,8 +70,8 @@ An expression that uses trusted implementation capabilities must still appear in
 initialization checking, destruction checking, finalization checking, capability checking, effect checking, or ordinary
 `requires(...)` checking.
 
-Inside a callable or lifecycle declaration, trusted obligations introduced by trust boundaries must still satisfy the Contract and
-Trust Model's obligation propagation rules.
+Inside a callable or lifecycle declaration, trusted obligations introduced by trust boundaries must still satisfy the contract and
+trust obligation propagation rules.
 
 ## Navigation
 

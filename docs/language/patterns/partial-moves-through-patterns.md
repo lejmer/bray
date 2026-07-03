@@ -2,6 +2,8 @@
 
 A consuming pattern can move fields or payloads out of a subject.
 
+General partial-move rules are defined in [Partial moves](../ownership-and-borrowing/partial-moves.md).
+
 Moving a field or payload is an ownership operation.
 
 Moving parts out requires ownership of the subject and no conflicting active borrows.

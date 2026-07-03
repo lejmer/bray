@@ -459,7 +459,7 @@ SubjectType(TraitApplication).predicate_name(...)
 Predicate members participate in contract checking, static constraints, fact-context checking, generic satisfaction,
 documentation, and public API compatibility.
 
-Trusted predicate members follow the ordinary trusted predicate and trusted obligation rules from the Contract and Trust Model.
+Trusted predicate members follow the ordinary trusted predicate and trusted obligation rules from the contract and trust rules.
 
 ## Lifecycle requirements in traits
 
@@ -734,7 +734,7 @@ A defaulted trait member’s body is checked against its contract.
 
 An implementation member must satisfy the contract of the trait member it fulfills.
 
-Rules for predicate expressions, fact contexts, trusted obligations, and contract clauses belong to the Contract and Trust Model.
+Rules for predicate expressions, fact contexts, trusted obligations, and contract clauses belong to the contract and trust rules.
 
 A required trait member can be trusted.
 

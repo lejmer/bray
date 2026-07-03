@@ -125,7 +125,7 @@ A payload initializer can use only the capabilities available in the constructio
 
 A payload default can use only the capabilities available to the declaration that defines the default and to the construction context according to the default-expression rules.
 
-Trusted capabilities used by defaults, payload initializers, or variant contracts must be permitted by the surrounding trusted declaration or rejected according to the Contract and Trust Model.
+Trusted capabilities used by defaults, payload initializers, or variant contracts must be permitted by the surrounding trusted declaration or rejected according to the contract and trust rules.
 
 A union variant construction expression can establish facts in the fact context.
 

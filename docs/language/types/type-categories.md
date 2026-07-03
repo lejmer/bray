@@ -47,10 +47,10 @@ Callable types are produced by the `func(...) -> ...` type form.
 
 The compiler-known `string` type is a named protected-representation value type, not a scalar type.
 
-The Scalar and Literal Model defines the exact scalar type set, literal typing, scalar operation behavior, and scalar conversion
+The scalar and literal rules define the exact scalar type set, literal typing, scalar operation behavior, and scalar conversion
 rules.
 
-The Raw Memory Model defines `RawPointer<T>`, raw pointer validity, raw memory operations, raw memory trusted predicates, and raw
+The raw memory rules define `RawPointer<T>`, raw pointer validity, raw memory operations, raw memory trusted predicates, and raw
 pointer standard-library helpers.
 
 All other categories listed here are defined by the product, union, compiler-known result union, compiler-known task handle,
