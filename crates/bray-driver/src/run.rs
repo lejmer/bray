@@ -279,6 +279,7 @@ mod tests {
         };
 
         assert!(stdout.contains("The Bray compiler"));
+        assert!(stdout.contains("\x1b[36mUsage:\x1b[0m"));
         assert!(stdout.contains("Usage:"));
         assert!(stdout.contains("check"));
         assert!(stdout.contains("--version"));
@@ -361,7 +362,13 @@ mod tests {
 
         assert_eq!(exit_code, ExitCode::FAILURE);
         assert!(stdout.is_empty());
-        assert!(!stderr.is_empty());
+
+        let stderr = match String::from_utf8(stderr) {
+            Ok(stderr) => stderr,
+            Err(error) => panic!("stderr should be UTF-8: {error:?}"),
+        };
+
+        assert!(stderr.contains("\x1b[31merror:\x1b[0m"));
     }
 
     #[test]

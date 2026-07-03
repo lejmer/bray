@@ -8,6 +8,7 @@ mod diagnostic_output;
 mod exit_status;
 mod file_arguments;
 mod run;
+mod terminal_style;
 #[cfg(test)]
 mod test_support;
 

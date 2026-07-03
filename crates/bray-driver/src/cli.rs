@@ -9,6 +9,7 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 
 use crate::command::{DriverCommand, DriverInvocation, DriverOptions, DriverOutputFormat};
 use crate::exit_status::exit_code_from_diagnostics;
+use crate::terminal_style::{clap_styles, render_styled_text};
 
 /// Error returned when parsing driver command-line arguments.
 #[derive(Debug)]
@@ -97,6 +98,7 @@ impl DriverInvocation {
     name = "brayc",
     version = env!("CARGO_PKG_VERSION"),
     about = "The Bray compiler",
+    styles = clap_styles(),
     arg_required_else_help = true
 )]
 struct Cli {
@@ -108,7 +110,7 @@ struct Cli {
 
 fn render_clap_error(error: clap::Error) -> (String, String) {
     let use_stdout = clap_error_uses_stdout(&error);
-    let output = error.render().to_string();
+    let output = render_styled_text(&error.render());
 
     if use_stdout {
         (output, String::new())

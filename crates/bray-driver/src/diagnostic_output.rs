@@ -2,7 +2,6 @@ use std::io::{self, Write};
 
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticArgValue, DiagnosticBag, DiagnosticLabel, DiagnosticNote,
-    SeverityKind,
 };
 use bray_messages::{DiagnosticRenderer, RenderedDiagnostic, RenderedDiagnosticLabel};
 use bray_source::SourceSpan;
@@ -10,12 +9,7 @@ use serde::Serialize;
 
 use crate::command::DriverOutputFormat;
 use crate::run::DriverRunResult;
-
-const ANSI_RESET: &str = "\x1b[0m";
-const ANSI_RED: &str = "\x1b[31m";
-const ANSI_YELLOW: &str = "\x1b[33m";
-const ANSI_CYAN: &str = "\x1b[36m";
-const ANSI_GREEN: &str = "\x1b[32m";
+use crate::terminal_style::{color_note_heading, color_severity_label};
 
 pub(crate) fn write_driver_output(
     result: &DriverRunResult,
@@ -53,7 +47,10 @@ fn write_text_diagnostic(
     writeln!(
         writer,
         "{}[{}] {}: {}",
-        colored_severity(renderer, diagnostic.severity()),
+        color_severity_label(
+            diagnostic.severity(),
+            renderer.render_severity(diagnostic.severity())
+        ),
         diagnostic.id().raw(),
         diagnostic.kind().as_str(),
         diagnostic.message()
@@ -75,7 +72,7 @@ fn write_text_diagnostic(
         writeln!(
             writer,
             "  {}: {}",
-            colored_note_heading(renderer),
+            color_note_heading(renderer.render_note_heading()),
             note.message()
         )?;
     }
@@ -102,28 +99,6 @@ fn write_json_diagnostics(diagnostics: &DiagnosticBag, writer: &mut impl Write) 
 
     serde_json::to_writer_pretty(&mut *writer, &report).map_err(io::Error::other)?;
     writeln!(writer)
-}
-
-fn colored_severity(renderer: DiagnosticRenderer, severity: SeverityKind) -> String {
-    format!(
-        "{}{}{}",
-        severity_color(severity),
-        renderer.render_severity(severity),
-        ANSI_RESET
-    )
-}
-
-fn colored_note_heading(renderer: DiagnosticRenderer) -> String {
-    format!("{ANSI_CYAN}{}{ANSI_RESET}", renderer.render_note_heading())
-}
-
-const fn severity_color(severity: SeverityKind) -> &'static str {
-    match severity {
-        SeverityKind::Error => ANSI_RED,
-        SeverityKind::Warning => ANSI_YELLOW,
-        SeverityKind::Note => ANSI_CYAN,
-        SeverityKind::Help => ANSI_GREEN,
-    }
 }
 
 #[derive(Serialize)]
