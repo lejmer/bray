@@ -457,7 +457,7 @@ Boundaries include:
 - passing an argument to a callable,
 - capturing into an async computation, task, or thread,
 - forming a trait view,
-- importing or exporting a declaration surface.
+- using or exporting a declaration surface.
 
 A destination preserves a dependency contract when the destination's lifetime, ownership state, capability state, and semantic
 contract are proven to keep every required storage, borrow, capability, and obligation valid until the destination no longer uses or
@@ -1275,7 +1275,7 @@ strategies when Bray semantics are preserved.
 
 Source code can depend on physical layout only when an explicit layout contract is declared.
 
-The Raw Memory Model's `std.memory.size_of<T>()`, `std.memory.align_of<T>()`, `std.memory.stride_of<T>()`, and
+The raw memory rules define `std.memory.size_of<T>()`, `std.memory.align_of<T>()`, `std.memory.stride_of<T>()`, and
 `std.memory.layout_of<T>(count = count)` helpers observe the effective layout contract produced by these rules.
 
 For a type with an explicit `@layout(...)` directive, those helpers report the layout defined by that directive and the selected

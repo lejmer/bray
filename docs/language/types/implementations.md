@@ -759,7 +759,7 @@ A `with(...)` clause is a static predicate-expression context.
 
 Its entries are comma-separated static predicate expressions.
 
-Static predicate expression rules belong to the Contract and Trust Model.
+Static predicate expression rules belong to the contract and trust rules.
 
 A static predicate expression can require that an implementing subject satisfy a trait application:
 
@@ -932,13 +932,13 @@ For a given coherence domain, the exact coherence key for a trait implementation
 
 Any package can declare a trait implementation for any reachable implementing subject and trait application.
 
-An implementation participates in a coherence domain only when the implementation is declared in that domain or explicitly imported into it.
+An implementation participates in a coherence domain only when the implementation is declared in that domain or explicitly made visible in it.
 
-A package dependency makes implementation declarations reachable for explicit import.
+A package dependency makes implementation declarations reachable for explicit visibility.
 
-A package dependency does not silently make dependency implementations participate in the importing coherence domain.
+A package dependency does not silently make dependency implementations participate in the dependent coherence domain.
 
-Transitive dependency implementations do not participate unless they are explicitly imported or re-exported through ordinary import rules.
+Transitive dependency implementations do not participate unless using declarations or re-exports explicitly make them visible according to module and implementation coherence rules.
 
 For each exact coherence key, Bray requires at most one participating implementation in a coherence domain.
 

@@ -15,7 +15,7 @@ The chapters are organized from source text to program meaning:
 2. [Syntax grammar](syntax-grammar.md)
 3. [Concepts](concepts.md)
 4. [Modules and packages](modules-and-packages.md)
-5. Declarations
+5. [Declarations](declarations.md)
 6. [Types](types.md)
 7. [Patterns](patterns.md)
 8. [Callables](callables.md)

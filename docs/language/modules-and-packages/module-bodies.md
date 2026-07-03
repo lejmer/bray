@@ -2,6 +2,8 @@
 
 A module body contains declarations.
 
+Declaration contexts and module-level declaration forms are defined in [Declarations](../declarations.md).
+
 Module bodies do not evaluate at runtime.
 
 Using, referencing, or contributing to a module does not execute code.

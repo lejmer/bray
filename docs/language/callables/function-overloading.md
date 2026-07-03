@@ -95,7 +95,7 @@ The receiver of a method is supplied by method-call syntax and is not a named ar
 
 For method overloads, receiver mode and receiver compatibility participate in overload selection.
 
-Imported declarations participate in overload resolution only through visible overload declarations and deterministic lookup.
+Declarations from other modules or packages participate in overload resolution only through visible overload declarations and deterministic lookup.
 
 Ambiguous polymorphism is rejected.
 

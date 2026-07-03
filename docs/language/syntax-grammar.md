@@ -1172,7 +1172,7 @@ The `mut` modifier marks the parameter binding. Borrowing and reachable mutation
 expression.
 
 Parameter defaults use expression syntax. Default validity, evaluation timing, effects, capabilities, and omission rules are
-checked by the call and declaration models.
+checked by the call and declaration rules.
 
 ---
 
@@ -1227,7 +1227,7 @@ Each contract clause contains at least one entry and can include a trailing comm
 
 `uses(...)` contains trusted capability paths.
 
-Clause ordering, repeated clause kinds, and context-specific clause availability are checked by the declaration and contract models.
+Clause ordering, repeated clause kinds, and context-specific clause availability are checked by the declaration and contract rules.
 
 ---
 
@@ -1551,7 +1551,7 @@ constructor-member-modifier =
 
 `construct` followed by an identifier declares a named constructor under the type.
 
-The result clause is required. Semantic checking accepts `Self` or `Result<Self, E>` according to the lifecycle model.
+The result clause is required. Semantic checking accepts `Self` or `Result<Self, E>` according to lifecycle rules.
 
 Constructors are synchronous. Trusted constructors use the same `trusted` modifier and callable contract clauses as other trusted
 declarations.
@@ -1819,7 +1819,7 @@ A trait implementation subject can be a named subject, a generic named subject, 
 an implementation-eligible borrow subject.
 
 The grammar accepts `&Subject` and `&mut Subject` as borrow-subject forms. Which type forms are implementation-eligible is checked
-by the type model.
+by type rules.
 
 ### Implementation Bodies
 

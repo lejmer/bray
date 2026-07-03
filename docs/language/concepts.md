@@ -19,7 +19,7 @@ A **module** is a named source-level unit of declaration ownership and path reso
 
 A **package** is a collection of source files and package metadata compiled as one product or library surface.
 
-A **declaration** introduces a named program entity or language-defined member.
+A **declaration** introduces a named program entity or language-defined member. Declaration rules are defined in [Declarations](declarations.md).
 
 A **scope** is a region where names can be introduced and resolved.
 
@@ -101,7 +101,7 @@ A **standard-library type** is supplied by a standard-library package and must b
 An **expression** computes a value, performs an effect, controls evaluation, or combines those behaviors according to its expression
 kind.
 
-A **statement-like expression** is an expression commonly used for its effect or control behavior even though Bray models it as an
+A **statement-like expression** is an expression commonly used for its effect or control behavior even though Bray treats it as an
 expression form.
 
 A **block** is a scoped expression region containing declarations and expressions.
@@ -135,7 +135,7 @@ A **postcondition** must hold after an operation completes normally.
 A **dependency contract** records requirements that must remain true for a value, borrow, callable value, trait view, task, or other
 entity to stay valid.
 
-A **trusted obligation** is an obligation the ordinary checker cannot prove and that must be satisfied through Bray's trust model.
+A **trusted obligation** is an obligation the ordinary checker cannot prove and that must be satisfied through Bray's trust rules.
 
 A **capability** is named authority to perform an operation that ordinary safe Bray does not allow without that authority.
 
@@ -162,7 +162,7 @@ required lifecycle before the owning scope ends.
 
 A **run** is an independently executing task or thread.
 
-A **task** is an asynchronous run managed by Bray's async model.
+A **task** is an asynchronous run managed by Bray's async rules.
 
 A **thread** is an operating-system or runtime thread run when the target supports thread execution.
 
