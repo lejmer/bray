@@ -140,6 +140,28 @@ pub enum DiagnosticArgName {
     WorkerCount,
 }
 
+impl DiagnosticArgName {
+    /// Returns the stable machine key for this argument name.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Byte => "byte",
+            Self::ByteCount => "byte_count",
+            Self::Character => "character",
+            Self::ConstructStart => "construct_start",
+            Self::FilePath => "file_path",
+            Self::InputIndex => "input_index",
+            Self::IoErrorKind => "io_error_kind",
+            Self::SourceName => "source_name",
+            Self::SourceCount => "source_count",
+            Self::SourceInputKind => "source_input_kind",
+            Self::TextOffset => "text_offset",
+            Self::Uri => "uri",
+            Self::SourceSpan => "source_span",
+            Self::WorkerCount => "worker_count",
+        }
+    }
+}
+
 /// Locale-neutral typed value for a diagnostic argument.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum DiagnosticArgValue {
@@ -203,6 +225,26 @@ pub enum DiagnosticIoErrorKind {
     WouldBlock,
 }
 
+impl DiagnosticIoErrorKind {
+    /// Returns the stable machine key for this I/O error category.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::AlreadyExists => "already_exists",
+            Self::IsDirectory => "is_directory",
+            Self::InvalidData => "invalid_data",
+            Self::InvalidInput => "invalid_input",
+            Self::Interrupted => "interrupted",
+            Self::NotDirectory => "not_directory",
+            Self::NotFound => "not_found",
+            Self::Other => "other",
+            Self::PermissionDenied => "permission_denied",
+            Self::TimedOut => "timed_out",
+            Self::UnexpectedEof => "unexpected_eof",
+            Self::WouldBlock => "would_block",
+        }
+    }
+}
+
 impl From<std::io::ErrorKind> for DiagnosticIoErrorKind {
     fn from(kind: std::io::ErrorKind) -> Self {
         match kind {
@@ -236,6 +278,7 @@ mod tests {
         );
 
         assert_eq!(arg.name(), DiagnosticArgName::Character);
+        assert_eq!(arg.name().as_str(), "character");
         assert_eq!(arg.value(), &DiagnosticArgValue::Character('\u{0}'));
     }
 
@@ -249,5 +292,6 @@ mod tests {
             DiagnosticIoErrorKind::from(ErrorKind::ConnectionReset),
             DiagnosticIoErrorKind::Other
         );
+        assert_eq!(DiagnosticIoErrorKind::NotFound.as_str(), "not_found");
     }
 }

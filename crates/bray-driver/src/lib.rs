@@ -4,6 +4,8 @@
 
 mod cli;
 mod command;
+mod diagnostic_output;
+mod exit_status;
 mod file_arguments;
 mod run;
 #[cfg(test)]

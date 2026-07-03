@@ -33,23 +33,14 @@ impl ArgumentFormatter {
     }
 }
 
-pub(crate) const fn arg_name_key(name: DiagnosticArgName) -> &'static str {
-    match name {
-        DiagnosticArgName::Byte => "byte",
-        DiagnosticArgName::ByteCount => "byte_count",
-        DiagnosticArgName::Character => "character",
-        DiagnosticArgName::ConstructStart => "construct_start",
-        DiagnosticArgName::FilePath => "file_path",
-        DiagnosticArgName::InputIndex => "input_index",
-        DiagnosticArgName::IoErrorKind => "io_error_kind",
-        DiagnosticArgName::SourceName => "source_name",
-        DiagnosticArgName::SourceCount => "source_count",
-        DiagnosticArgName::SourceInputKind => "source_input_kind",
-        DiagnosticArgName::TextOffset => "text_offset",
-        DiagnosticArgName::Uri => "uri",
-        DiagnosticArgName::SourceSpan => "source_span",
-        DiagnosticArgName::WorkerCount => "worker_count",
+pub(crate) fn format_source_span(locale: DiagnosticLocale, span: SourceSpan) -> String {
+    match locale {
+        DiagnosticLocale::English => format_english_source_span(span),
     }
+}
+
+pub(crate) const fn arg_name_key(name: DiagnosticArgName) -> &'static str {
+    name.as_str()
 }
 
 fn format_missing_arg(name: DiagnosticArgName) -> String {
@@ -71,7 +62,9 @@ fn format_english_value(value: &DiagnosticArgValue) -> String {
         }
         DiagnosticArgValue::TextOffset(offset) => offset.bytes().to_string(),
         DiagnosticArgValue::Uri(uri) => uri.clone(),
-        DiagnosticArgValue::SourceSpan(span) => format_english_source_span(*span),
+        DiagnosticArgValue::SourceSpan(span) => {
+            format_source_span(DiagnosticLocale::English, *span)
+        }
         DiagnosticArgValue::WorkerCount(worker_count) => worker_count.to_string(),
     }
 }

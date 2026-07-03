@@ -1,6 +1,10 @@
-use bray_diagnostics::{Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticLabel, DiagnosticNote};
+use bray_diagnostics::{
+    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticLabel, DiagnosticLabelStyle,
+    DiagnosticNote, SeverityKind,
+};
+use bray_source::SourceSpan;
 
-use crate::argument::ArgumentFormatter;
+use crate::argument::{ArgumentFormatter, format_source_span};
 use crate::catalog::{MessageCatalog, MessageTemplate, MessageTemplatePart};
 use crate::locale::DiagnosticLocale;
 use crate::rendered::{RenderedDiagnostic, RenderedDiagnosticLabel, RenderedDiagnosticNote};
@@ -60,6 +64,26 @@ impl DiagnosticRenderer {
         bag.iter()
             .map(|diagnostic| self.render(diagnostic))
             .collect()
+    }
+
+    /// Renders a source span for human diagnostic output.
+    pub fn render_source_span(self, span: SourceSpan) -> String {
+        format_source_span(self.locale, span)
+    }
+
+    /// Renders a severity heading for human diagnostic output.
+    pub fn render_severity(self, severity: SeverityKind) -> &'static str {
+        MessageCatalog::new(self.locale).severity_label(severity)
+    }
+
+    /// Renders a label style for human diagnostic output.
+    pub fn render_label_style(self, style: DiagnosticLabelStyle) -> &'static str {
+        MessageCatalog::new(self.locale).label_style(style)
+    }
+
+    /// Renders the note heading for human diagnostic output.
+    pub fn render_note_heading(self) -> &'static str {
+        MessageCatalog::new(self.locale).note_heading()
     }
 
     fn render_label(self, label: &DiagnosticLabel) -> RenderedDiagnosticLabel {
@@ -247,6 +271,18 @@ mod tests {
             rendered.message(),
             "source text is too large: {byte_count} bytes"
         );
+    }
+
+    #[test]
+    fn renderer_formats_human_output_headings() {
+        let renderer = DiagnosticRenderer::english();
+
+        assert_eq!(renderer.render_severity(SeverityKind::Error), "error");
+        assert_eq!(
+            renderer.render_label_style(DiagnosticLabelStyle::Secondary),
+            "secondary"
+        );
+        assert_eq!(renderer.render_note_heading(), "note");
     }
 
     #[test]

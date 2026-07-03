@@ -1,5 +1,6 @@
 use bray_diagnostics::{
-    DiagnosticArgName, DiagnosticKind, DiagnosticLabelKind, DiagnosticNoteKind,
+    DiagnosticArgName, DiagnosticKind, DiagnosticLabelKind, DiagnosticLabelStyle,
+    DiagnosticNoteKind, SeverityKind,
 };
 
 use super::{MessageTemplate, MessageTemplatePart};
@@ -91,6 +92,26 @@ const NOTE_CHARACTER_NOT_ACCEPTED: &[MessageTemplatePart] = &[MessageTemplatePar
 
 const NOTE_BLOCK_COMMENT_NEEDS_TERMINATOR: &[MessageTemplatePart] =
     &[MessageTemplatePart::Text("block comments must be closed")];
+
+pub(super) const fn english_severity_label(severity: SeverityKind) -> &'static str {
+    match severity {
+        SeverityKind::Error => "error",
+        SeverityKind::Warning => "warning",
+        SeverityKind::Note => "note",
+        SeverityKind::Help => "help",
+    }
+}
+
+pub(super) const fn english_label_style(style: DiagnosticLabelStyle) -> &'static str {
+    match style {
+        DiagnosticLabelStyle::Primary => "primary",
+        DiagnosticLabelStyle::Secondary => "secondary",
+    }
+}
+
+pub(super) const fn english_note_heading() -> &'static str {
+    "note"
+}
 
 pub(super) const fn english_diagnostic_template(kind: DiagnosticKind) -> MessageTemplate {
     match kind {

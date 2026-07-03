@@ -10,6 +10,14 @@ use crate::severity::SeverityKind;
 /// ordering should add diagnostics in deterministic phase order or sort before
 /// publication at the owning boundary.
 ///
+/// Merge deduplication uses structured diagnostic facts, not localized rendered
+/// text. Two diagnostics are duplicates when their severity, stable kind,
+/// primary span, labels, notes, and typed arguments are all equal. The
+/// diagnostic record ID is intentionally not part of this key because it is an
+/// emission identity, not the reported source fact. Future structured fields
+/// such as related locations or suggestions must become part of this key when
+/// they are added to diagnostic records.
+///
 /// `DiagnosticBag` has no interior mutability. Shared access is thread-safe:
 /// immutable bags can be read concurrently by multiple workers, while mutation
 /// requires exclusive `&mut self` access or caller-owned synchronization.
@@ -126,7 +134,7 @@ impl DiagnosticBag {
         let mut merged = Vec::new();
 
         for diagnostic in diagnostics {
-            if seen.insert(diagnostic) {
+            if seen.insert(diagnostic.duplicate_key()) {
                 // A new immutable bag must own its diagnostics without mutating
                 // either source bag.
                 merged.push(diagnostic.clone());
@@ -192,8 +200,10 @@ impl<'a> IntoIterator for &'a DiagnosticBag {
 
 #[cfg(test)]
 mod tests {
+    use bray_source::{SourceId, SourceSpan, TextRange, TextSize};
+
     use super::DiagnosticBag;
-    use crate::{Diagnostic, DiagnosticId, DiagnosticKind, SeverityKind};
+    use crate::{Diagnostic, DiagnosticArg, DiagnosticId, DiagnosticKind, SeverityKind};
 
     #[test]
     fn bags_collect_diagnostics_in_insertion_order() {
@@ -272,6 +282,56 @@ mod tests {
     }
 
     #[test]
+    fn bags_deduplicate_structural_duplicates_with_different_ids() {
+        let first = diagnostic(0, DiagnosticKind::SourceInvalidUtf8, SeverityKind::Error)
+            .with_arg(DiagnosticArg::text_offset(TextSize::new(4)));
+
+        let duplicate = diagnostic(99, DiagnosticKind::SourceInvalidUtf8, SeverityKind::Error)
+            .with_arg(DiagnosticArg::text_offset(TextSize::new(4)));
+
+        let left = DiagnosticBag::single(first.clone());
+        let right = DiagnosticBag::single(duplicate);
+
+        let merged = left.merged(&right);
+
+        assert_eq!(merged.diagnostics(), &[first]);
+    }
+
+    #[test]
+    fn bags_preserve_similarly_rendered_distinct_source_facts() {
+        let first_span = SourceSpan::new(
+            SourceId::new(0),
+            TextRange::new(TextSize::new(1), TextSize::new(2)),
+        );
+
+        let second_span = SourceSpan::new(
+            SourceId::new(0),
+            TextRange::new(TextSize::new(3), TextSize::new(4)),
+        );
+
+        let first = diagnostic(
+            0,
+            DiagnosticKind::LexicalInvalidCharacter,
+            SeverityKind::Error,
+        )
+        .with_primary_span(first_span);
+
+        let second = diagnostic(
+            1,
+            DiagnosticKind::LexicalInvalidCharacter,
+            SeverityKind::Error,
+        )
+        .with_primary_span(second_span);
+
+        let left = DiagnosticBag::single(first.clone());
+        let right = DiagnosticBag::single(second.clone());
+
+        let merged = left.merged(&right);
+
+        assert_eq!(merged.diagnostics(), &[first, second]);
+    }
+
+    #[test]
     fn bags_filter_by_kind_and_severity() {
         let error = diagnostic(0, DiagnosticKind::SourceInvalidUtf8, SeverityKind::Error);
 
@@ -282,6 +342,7 @@ mod tests {
         );
 
         let mut bag = DiagnosticBag::new();
+
         bag.add_range([error.clone(), warning.clone()]);
 
         assert_eq!(

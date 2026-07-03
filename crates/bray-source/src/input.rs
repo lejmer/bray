@@ -27,6 +27,16 @@ impl SourceInputKind {
             Self::LspOpenDocument => SourceOriginKind::LspDocument,
         }
     }
+
+    /// Returns the stable machine key for this source input category.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::File => "file",
+            Self::VirtualText => "virtual_text",
+            Self::GeneratedText => "generated_text",
+            Self::LspOpenDocument => "lsp_open_document",
+        }
+    }
 }
 
 /// Source content plus boundary metadata before loading into a source snapshot.
@@ -271,6 +281,7 @@ mod tests {
     #[test]
     fn input_kinds_map_to_origin_kinds() {
         assert_eq!(SourceInputKind::File.origin_kind(), SourceOriginKind::File);
+        assert_eq!(SourceInputKind::File.as_str(), "file");
 
         assert_eq!(
             SourceInputKind::VirtualText.origin_kind(),
