@@ -18,11 +18,9 @@ The operand is checked as the expression covered by the trust boundary.
 
 The trust boundary acknowledges trusted caller obligations required by the operand.
 
-If the required trusted facts are already available in the incoming fact context, the boundary records that this operand
-depends on them.
+Trust boundary semantics are defined in [Trust boundaries](../contracts-and-trust/trust-boundaries.md).
 
-If the required trusted facts are not already available, the boundary introduces trusted obligations that must satisfy the
-contract and trust propagation rules.
+Trusted obligation propagation is defined in [Obligation propagation](../contracts-and-trust/obligation-propagation.md).
 
 The boundary is explicit source syntax.
 
@@ -32,8 +30,7 @@ It does not prove the trusted facts.
 
 It records that the programmer accepts the trusted caller obligations at that use site.
 
-The trust boundary expression has the same type, value category, ownership result, control-flow behavior, effect
-behavior, and finalization behavior as its operand.
+The trust boundary expression has the same type, value category, ownership result, control-flow behavior, effect behavior, and finalization behavior as its operand.
 
 The boundary scope is exactly the operand expression.
 
@@ -50,28 +47,11 @@ trusted
 }
 ```
 
-Trusted facts introduced solely by the boundary are available only while checking and evaluating the operand.
-
-They do not enter the surrounding fact context after the trust boundary expression completes.
-
-Facts independently established by the operand's ordinary result, pattern, or `ensures(...)` behavior flow out according to the
-ordinary fact-context rules.
-
-A trust boundary expression must acknowledge at least one trusted caller obligation required by its operand.
-
-If the operand has no trusted caller obligation, the boundary is rejected as redundant.
-
 `trusted expression` does not grant trusted implementation capabilities.
 
-An expression that uses trusted implementation capabilities must still appear inside a trusted declaration with the matching
-`uses(...)` clause.
+An expression that uses trusted implementation capabilities must still appear inside a trusted declaration with the matching `uses(...)` clause.
 
-`trusted expression` does not bypass visibility, internal-access acknowledgement, ownership checking, borrowing rules,
-initialization checking, destruction checking, finalization checking, capability checking, effect checking, or ordinary
-`requires(...)` checking.
-
-Inside a callable or lifecycle declaration, trusted obligations introduced by trust boundaries must still satisfy the contract and
-trust obligation propagation rules.
+`trusted expression` does not bypass visibility, internal-access acknowledgement, ownership checking, borrowing rules, initialization checking, destruction checking, finalization checking, capability checking, effect checking, or ordinary `requires(...)` checking.
 
 ## Navigation
 

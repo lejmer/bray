@@ -21,7 +21,7 @@ The chapters are organized from source text to program meaning:
 8. [Callables](callables.md)
 9. [Expressions](expressions.md)
 10. [Ownership and borrowing](ownership-and-borrowing.md)
-11. Contracts and trust
+11. [Contracts and trust](contracts-and-trust.md)
 12. Lifecycle
 13. Async and concurrency
 14. Compiler-known declarations and standard library recognition

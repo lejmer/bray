@@ -24,9 +24,11 @@ Postconditions can reference the compiler-introduced `result` binding for the de
 
 Bray does not support named result bindings.
 
-Contract clauses are parenthesized comma-separated lists.
+Contract clause semantics are defined in [Contract clauses](../contracts-and-trust/contract-clauses.md).
 
-Predicate expressions, fact contexts, trusted obligations, and contract clauses use the contract and trust rules.
+Ordinary requirements and ensured facts are defined in [Ordinary requirements and ensured facts](../contracts-and-trust/ordinary-requirements-and-ensured-facts.md).
+
+Predicate expressions, fact contexts, and trusted obligations are defined in [Contracts and trust](../contracts-and-trust.md).
 
 ## Navigation
 

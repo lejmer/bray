@@ -41,6 +41,8 @@ assertion expression.
 
 Facts established by an assertion are ordinary facts, not trusted facts.
 
+Fact-context rules are defined in [Fact context](../contracts-and-trust/fact-context.md).
+
 An assertion expression does not satisfy trusted caller obligations and does not grant trusted implementation capabilities.
 
 Assertion expressions participate in type checking, ownership checking, borrowing, mutation authority, effect checking,

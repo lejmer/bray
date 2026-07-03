@@ -19,6 +19,8 @@ The `trusted` modifier permits trusted declarations in that module.
 
 It does not make ordinary declarations in the module trusted.
 
+Trusted declaration semantics are defined in [Contracts and trust](../contracts-and-trust.md).
+
 If a module has split declarations, all declarations that contribute to that module share the same trusted-module state.
 
 Split declarations of the same module must agree on whether the module is trusted.

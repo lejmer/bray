@@ -2,6 +2,8 @@
 
 Successful pattern matching can add facts to the fact context.
 
+General fact-context rules are defined in [Fact context](../contracts-and-trust/fact-context.md).
+
 Examples of facts established by patterns:
 
 ```text

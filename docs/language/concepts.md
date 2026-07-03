@@ -141,6 +141,8 @@ A **trusted obligation** is an obligation the ordinary checker cannot prove and 
 
 A **capability** is named authority to perform an operation that ordinary safe Bray does not allow without that authority.
 
+Contract, predicate, fact-context, trusted-capability, trusted-obligation, witness-value, and trust-boundary rules are defined in [Contracts and trust](contracts-and-trust.md).
+
 ---
 
 ## Lifecycle

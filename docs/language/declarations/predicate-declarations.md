@@ -29,7 +29,7 @@ Trusted predicate calls establish trusted obligations according to the contract 
 
 Predicate bodies are checked in predicate-expression context.
 
-Predicate-expression rules are defined in [Predicate expressions](../expressions/predicate-expressions.md).
+Predicate-expression rules are defined in [Predicates and predicate expressions](../contracts-and-trust/predicates-and-predicate-expressions.md).
 
 Predicate declarations can be module-level declarations.
 
