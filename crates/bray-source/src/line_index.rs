@@ -1,3 +1,4 @@
+use crate::newline::{SourceLineBreakKind, SourceNewlinePolicy};
 use crate::text::{TextSize, TextSizeOverflow};
 
 /// One-based human source line and Unicode-scalar column.
@@ -55,6 +56,10 @@ impl LspPosition {
 }
 
 /// Derived index that maps UTF-8 byte offsets to human and LSP positions.
+///
+/// The index preserves source text offsets exactly. LF and CRLF are recognized
+/// as line breaks, while a lone CR remains an ordinary source character for
+/// location mapping.
 #[derive(Debug, Eq, PartialEq)]
 pub struct LineIndex {
     text_len: TextSize,
@@ -65,46 +70,30 @@ impl LineIndex {
     /// Builds a line index for UTF-8 source text.
     pub fn new(text: &str) -> Result<Self, TextSizeOverflow> {
         let text_len = TextSize::try_from(text.len())?;
+        let newline_policy = SourceNewlinePolicy::DEFAULT;
 
         let mut lines = Vec::new();
         let mut current_line = LineMetrics::new(TextSize::ZERO);
-        let mut previous_was_carriage_return = false;
         let mut characters = text.char_indices().peekable();
 
         while let Some((byte_index, character)) = characters.next() {
             let offset = TextSize::try_from(byte_index)?;
+            let next_character = characters.peek().map(|(_, next_character)| *next_character);
 
-            match character {
-                '\r' if matches!(characters.peek(), Some((_, '\n'))) => {
+            match newline_policy.line_break_kind(character, next_character) {
+                Some(line_break_kind) => {
                     current_line.end = offset;
                     lines.push(current_line);
 
-                    let next_line_start = TextSize::try_from(byte_index + character.len_utf8())?;
+                    if line_break_kind == SourceLineBreakKind::CarriageReturnLineFeed {
+                        let _line_feed = characters.next();
+                    }
 
+                    let next_line_start =
+                        TextSize::try_from(byte_index + line_break_kind.byte_len())?;
                     current_line = LineMetrics::new(next_line_start);
-                    previous_was_carriage_return = true;
                 }
-                '\n' if previous_was_carriage_return => {
-                    let next_line_start = TextSize::try_from(byte_index + character.len_utf8())?;
-
-                    current_line.start = next_line_start;
-                    current_line.end = next_line_start;
-
-                    previous_was_carriage_return = false;
-                }
-                '\n' => {
-                    current_line.end = offset;
-                    lines.push(current_line);
-
-                    let next_line_start = TextSize::try_from(byte_index + character.len_utf8())?;
-
-                    current_line = LineMetrics::new(next_line_start);
-                    previous_was_carriage_return = false;
-                }
-                _ => {
-                    current_line.push_character(offset, character);
-                    previous_was_carriage_return = false;
-                }
+                None => current_line.push_character(offset, character),
             }
         }
 
@@ -358,6 +347,29 @@ mod tests {
         assert_eq!(
             index.line_column(TextSize::new(2)),
             Some(LineColumn::new(1, 3))
+        );
+    }
+
+    #[test]
+    fn line_index_handles_mixed_newline_spellings() {
+        let index = line_index("a\nb\r\nc\rd");
+
+        assert_eq!(index.line_count(), 3);
+        assert_eq!(index.line_start(0), Some(TextSize::new(0)));
+        assert_eq!(index.line_start(1), Some(TextSize::new(2)));
+        assert_eq!(index.line_start(2), Some(TextSize::new(5)));
+
+        assert_eq!(
+            index.line_column(TextSize::new(5)),
+            Some(LineColumn::new(3, 1))
+        );
+        assert_eq!(
+            index.line_column(TextSize::new(6)),
+            Some(LineColumn::new(3, 2))
+        );
+        assert_eq!(
+            index.line_column(TextSize::new(7)),
+            Some(LineColumn::new(3, 3))
         );
     }
 
