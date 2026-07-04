@@ -1,7 +1,7 @@
 use bray_source::{SourceSnapshot, TextRange, TextSize};
 use bray_syntax::{SyntaxKind, SyntaxTrivia};
 
-use super::text::{text_size_from_usize, text_size_to_usize};
+use super::text::{character_len_at, text_size_from_usize, text_size_to_usize};
 
 pub(super) struct TriviaScan {
     trivia: Vec<SyntaxTrivia>,
@@ -250,13 +250,9 @@ fn starts_with(snapshot: &SourceSnapshot, start: TextSize, text: &str) -> bool {
 fn next_utf8_character_len(snapshot: &SourceSnapshot, start: TextSize) -> usize {
     let start_index = text_size_to_usize(start);
 
-    let source_text = match snapshot.text().get(start_index..) {
-        Some(source_text) => source_text,
+    match character_len_at(snapshot, start_index) {
+        Some(character_len) => character_len,
+        None if start == snapshot.text_len() => 0,
         None => panic!("lexer cursor is not on a UTF-8 boundary"),
-    };
-
-    match source_text.chars().next() {
-        Some(character) => character.len_utf8(),
-        None => 0,
     }
 }

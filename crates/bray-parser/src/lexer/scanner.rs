@@ -1,7 +1,14 @@
 use bray_source::{SourceSnapshot, TextRange, TextSize};
 use bray_syntax::{SyntaxKind, SyntaxToken};
 
-use super::text::{text_size_from_usize, text_size_to_usize};
+use super::literal::{
+    scan_character_literal, scan_numeric_literal, scan_string_literal,
+    scan_tuple_element_index_token,
+};
+use super::text::{
+    first_character, make_scalar_token, make_token, offset_after_character, text_size_from_usize,
+    text_size_to_usize, token_text,
+};
 use super::trivia::{scan_leading_trivia, scan_trailing_trivia};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -63,7 +70,15 @@ fn scan_normal_token(snapshot: &SourceSnapshot, start: TextSize) -> SyntaxToken 
     }
 
     if character.is_ascii_digit() {
-        return scan_invalid_numeric_like_token(snapshot, start);
+        return scan_numeric_literal(snapshot, start);
+    }
+
+    if character == '\'' {
+        return scan_character_literal(snapshot, start);
+    }
+
+    if character == '"' {
+        return scan_string_literal(snapshot, start);
     }
 
     if let Some(kind) = delimiter_or_separator_kind(character) {
@@ -126,17 +141,6 @@ fn scan_underscore_or_invalid_identifier(
     }
 }
 
-fn scan_tuple_element_index_token(snapshot: &SourceSnapshot, start: TextSize) -> SyntaxToken {
-    let end = decimal_digit_sequence_end(snapshot, start);
-    let text = token_text(snapshot, TextRange::new(start, end));
-
-    if tuple_index_text_is_valid(text) {
-        make_token(snapshot, SyntaxKind::TupleElementIndexToken, start, end)
-    } else {
-        scan_invalid_numeric_like_token(snapshot, start)
-    }
-}
-
 fn scan_operator_or_punctuation_token(snapshot: &SourceSnapshot, start: TextSize) -> SyntaxToken {
     let end = operator_cluster_end(snapshot, start);
     let text = token_text(snapshot, TextRange::new(start, end));
@@ -153,12 +157,6 @@ fn scan_invalid_identifier_like_token(snapshot: &SourceSnapshot, start: TextSize
     make_token(snapshot, SyntaxKind::InvalidToken, start, end)
 }
 
-fn scan_invalid_numeric_like_token(snapshot: &SourceSnapshot, start: TextSize) -> SyntaxToken {
-    let end = invalid_numeric_like_end(snapshot, start);
-
-    make_token(snapshot, SyntaxKind::InvalidToken, start, end)
-}
-
 fn scan_invalid_scalar_token(snapshot: &SourceSnapshot, start: TextSize) -> SyntaxToken {
     let character = match first_character(snapshot, start) {
         Some(character) => character,
@@ -166,44 +164,6 @@ fn scan_invalid_scalar_token(snapshot: &SourceSnapshot, start: TextSize) -> Synt
     };
 
     make_scalar_token(snapshot, SyntaxKind::InvalidToken, start, character)
-}
-
-fn make_scalar_token(
-    snapshot: &SourceSnapshot,
-    kind: SyntaxKind,
-    start: TextSize,
-    character: char,
-) -> SyntaxToken {
-    make_token(
-        snapshot,
-        kind,
-        start,
-        offset_after_character(start, character),
-    )
-}
-
-fn make_token(
-    snapshot: &SourceSnapshot,
-    kind: SyntaxKind,
-    start: TextSize,
-    end: TextSize,
-) -> SyntaxToken {
-    let range = TextRange::new(start, end);
-    let text = token_text(snapshot, range);
-
-    SyntaxToken::new(kind, range, text)
-}
-
-fn first_character(snapshot: &SourceSnapshot, start: TextSize) -> Option<char> {
-    let source_text = snapshot.text();
-    let start_index = text_size_to_usize(start);
-
-    let remainder = match source_text.get(start_index..) {
-        Some(remainder) => remainder,
-        None => panic!("lexer cursor is not on a UTF-8 boundary"),
-    };
-
-    remainder.chars().next()
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -267,45 +227,6 @@ fn invalid_identifier_like_end(snapshot: &SourceSnapshot, start: TextSize) -> Te
     }
 }
 
-fn invalid_numeric_like_end(snapshot: &SourceSnapshot, start: TextSize) -> TextSize {
-    let mut end = start;
-
-    while let Some(character) = first_character(snapshot, end) {
-        if character.is_ascii_alphanumeric() || character == '_' {
-            end = offset_after_character(end, character);
-            continue;
-        }
-
-        break;
-    }
-
-    if end == start {
-        match first_character(snapshot, start) {
-            Some(character) => offset_after_character(start, character),
-            None => start,
-        }
-    } else {
-        end
-    }
-}
-
-fn decimal_digit_sequence_end(snapshot: &SourceSnapshot, start: TextSize) -> TextSize {
-    let bytes = snapshot.bytes();
-
-    let mut index = text_size_to_usize(start);
-
-    while let Some(byte) = bytes.get(index).copied() {
-        if byte.is_ascii_digit() {
-            index += 1;
-            continue;
-        }
-
-        break;
-    }
-
-    text_size_from_usize(index)
-}
-
 fn operator_cluster_end(snapshot: &SourceSnapshot, start: TextSize) -> TextSize {
     let bytes = snapshot.bytes();
 
@@ -323,21 +244,6 @@ fn operator_cluster_end(snapshot: &SourceSnapshot, start: TextSize) -> TextSize 
     }
 
     text_size_from_usize(index)
-}
-
-fn token_text(snapshot: &SourceSnapshot, range: TextRange) -> &str {
-    match snapshot.text_slice(range) {
-        Some(text) => text,
-        None => panic!("lexer token range is not on UTF-8 boundaries"),
-    }
-}
-
-fn tuple_index_text_is_valid(text: &str) -> bool {
-    if text == "0" {
-        return true;
-    }
-
-    matches!(text.as_bytes().first().copied(), Some(b'1'..=b'9'))
 }
 
 fn keyword_kind(text: &str) -> Option<SyntaxKind> {
@@ -489,13 +395,4 @@ fn is_ascii_identifier_continue(byte: u8) -> bool {
 
 fn is_non_ascii_identifier_character(character: char) -> bool {
     !character.is_ascii() && character.is_alphanumeric()
-}
-
-fn offset_after_character(start: TextSize, character: char) -> TextSize {
-    let character_len = text_size_from_usize(character.len_utf8());
-
-    match start.checked_add(character_len) {
-        Some(end) => end,
-        None => panic!("lexer token range overflowed TextSize"),
-    }
 }

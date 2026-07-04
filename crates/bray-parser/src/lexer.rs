@@ -1,3 +1,4 @@
+mod literal;
 mod scanner;
 mod text;
 mod token_source;

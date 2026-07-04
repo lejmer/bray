@@ -387,7 +387,12 @@ mod tests {
         assert_eq!(dot.text(), ".");
         assert_eq!(dot.kind(), SyntaxKind::DotToken);
         assert_eq!(cached_ordinary_next.text(), "1");
-        assert_eq!(cached_ordinary_next.kind(), SyntaxKind::InvalidToken);
+
+        assert_eq!(
+            cached_ordinary_next.kind(),
+            SyntaxKind::DecimalIntegerLiteralToken
+        );
+
         assert_eq!(tuple_index.kind(), SyntaxKind::TupleElementIndexToken);
         assert_eq!(tuple_index.text(), "1");
 
@@ -550,8 +555,167 @@ mod tests {
     }
 
     #[test]
-    fn ordinary_digit_sequences_remain_invalid_until_literal_lexing_lands() {
-        let tokens = token_stream("1 1i32");
+    fn numeric_literals_are_classified_by_spelling() {
+        let tokens = token_stream("1 0b1010 0xFF 1.25 1e+10 1i 1.25i 0xFi");
+
+        assert_eq!(
+            token_kinds(&tokens),
+            [
+                SyntaxKind::DecimalIntegerLiteralToken,
+                SyntaxKind::BinaryIntegerLiteralToken,
+                SyntaxKind::HexadecimalIntegerLiteralToken,
+                SyntaxKind::RealLiteralToken,
+                SyntaxKind::RealLiteralToken,
+                SyntaxKind::ImaginaryLiteralToken,
+                SyntaxKind::ImaginaryLiteralToken,
+                SyntaxKind::ImaginaryLiteralToken,
+                SyntaxKind::EndOfFileToken,
+            ]
+        );
+
+        assert_eq!(
+            token_texts(&tokens),
+            [
+                "1", "0b1010", "0xFF", "1.25", "1e+10", "1i", "1.25i", "0xFi", ""
+            ]
+        );
+    }
+
+    #[test]
+    fn numeric_literal_digit_separators_must_be_between_digits() {
+        let tokens = token_stream("1_000 0b1010_0011 0xCAFE_BABE 1_ 1__2 0x_FF");
+
+        assert_eq!(
+            token_kinds(&tokens),
+            [
+                SyntaxKind::DecimalIntegerLiteralToken,
+                SyntaxKind::BinaryIntegerLiteralToken,
+                SyntaxKind::HexadecimalIntegerLiteralToken,
+                SyntaxKind::InvalidToken,
+                SyntaxKind::InvalidToken,
+                SyntaxKind::InvalidToken,
+                SyntaxKind::EndOfFileToken,
+            ]
+        );
+
+        assert_eq!(
+            token_texts(&tokens),
+            [
+                "1_000",
+                "0b1010_0011",
+                "0xCAFE_BABE",
+                "1_",
+                "1__2",
+                "0x_FF",
+                ""
+            ]
+        );
+    }
+
+    #[test]
+    fn malformed_numeric_literals_and_suffixes_are_invalid_single_tokens() {
+        let tokens = token_stream("1i32 1u8 1.0r64 0b102 0x 1e+");
+
+        assert_eq!(
+            token_kinds(&tokens),
+            [
+                SyntaxKind::InvalidToken,
+                SyntaxKind::InvalidToken,
+                SyntaxKind::InvalidToken,
+                SyntaxKind::InvalidToken,
+                SyntaxKind::InvalidToken,
+                SyntaxKind::InvalidToken,
+                SyntaxKind::EndOfFileToken,
+            ]
+        );
+
+        assert_eq!(
+            token_texts(&tokens),
+            ["1i32", "1u8", "1.0r64", "0b102", "0x", "1e+", ""]
+        );
+    }
+
+    #[test]
+    fn dot_prefixed_and_dot_suffixed_numbers_do_not_form_real_literals() {
+        let tokens = token_stream(".5 1.");
+
+        assert_eq!(
+            token_kinds(&tokens),
+            [
+                SyntaxKind::DotToken,
+                SyntaxKind::DecimalIntegerLiteralToken,
+                SyntaxKind::DecimalIntegerLiteralToken,
+                SyntaxKind::DotToken,
+                SyntaxKind::EndOfFileToken,
+            ]
+        );
+
+        assert_eq!(token_texts(&tokens), [".", "5", "1", ".", ""]);
+    }
+
+    #[test]
+    fn character_and_string_literals_accept_valid_escapes() {
+        let tokens = token_stream(r#"'a' '\'' '\n' '\u{1F600}' "text\n\u{41}""#);
+
+        assert_eq!(
+            token_kinds(&tokens),
+            [
+                SyntaxKind::CharacterLiteralToken,
+                SyntaxKind::CharacterLiteralToken,
+                SyntaxKind::CharacterLiteralToken,
+                SyntaxKind::CharacterLiteralToken,
+                SyntaxKind::StringLiteralToken,
+                SyntaxKind::EndOfFileToken,
+            ]
+        );
+
+        assert_eq!(
+            token_texts(&tokens),
+            [
+                r#"'a'"#,
+                r#"'\''"#,
+                r#"'\n'"#,
+                r#"'\u{1F600}'"#,
+                r#""text\n\u{41}""#,
+                ""
+            ]
+        );
+    }
+
+    #[test]
+    fn invalid_character_and_string_literal_spellings_are_single_tokens() {
+        let tokens = token_stream(r#"'' 'ab' '\q' '\u{110000}' "bad\q" "\u{}""#);
+
+        assert_eq!(
+            token_kinds(&tokens),
+            [
+                SyntaxKind::InvalidToken,
+                SyntaxKind::InvalidToken,
+                SyntaxKind::InvalidToken,
+                SyntaxKind::InvalidToken,
+                SyntaxKind::InvalidToken,
+                SyntaxKind::InvalidToken,
+                SyntaxKind::EndOfFileToken,
+            ]
+        );
+
+        assert_eq!(
+            token_texts(&tokens),
+            [
+                r#"''"#,
+                r#"'ab'"#,
+                r#"'\q'"#,
+                r#"'\u{110000}'"#,
+                r#""bad\q""#,
+                r#""\u{}""#,
+                ""
+            ]
+        );
+    }
+
+    #[test]
+    fn unterminated_quoted_literals_stop_before_line_break_or_eof() {
+        let tokens = token_stream("'a\n\"text");
 
         assert_eq!(
             token_kinds(&tokens),
@@ -562,7 +726,7 @@ mod tests {
             ]
         );
 
-        assert_eq!(token_texts(&tokens), ["1", "1i32", ""]);
+        assert_eq!(token_texts(&tokens), ["'a", "\"text", ""]);
     }
 
     #[test]
