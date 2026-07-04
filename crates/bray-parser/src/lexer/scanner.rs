@@ -1,10 +1,12 @@
 use bray_source::{SourceSnapshot, TextRange, TextSize};
 use bray_syntax::{SyntaxKind, SyntaxToken};
 
+use super::diagnostic;
 use super::literal::{
     scan_character_literal, scan_numeric_literal, scan_string_literal,
     scan_tuple_element_index_token,
 };
+use super::scan::TokenScan;
 use super::text::{
     first_character, make_scalar_token, make_token, offset_after_character, text_size_from_usize,
     text_size_to_usize, token_text,
@@ -21,32 +23,45 @@ pub(super) fn scan_token_at(
     snapshot: &SourceSnapshot,
     start: TextSize,
     mode: LexerScanMode,
-) -> SyntaxToken {
+) -> TokenScan {
     if snapshot.text_len() < start {
         panic!("lexer cursor moved past source text");
     }
 
     let leading_trivia = scan_leading_trivia(snapshot, start);
     let token_start = leading_trivia.end();
+    let mut diagnostics = leading_trivia.diagnostics().clone();
 
     if token_start == snapshot.text_len() {
-        return SyntaxToken::end_of_file(token_start)
-            .with_leading_trivia(leading_trivia.into_trivia());
+        let token =
+            SyntaxToken::end_of_file(token_start).with_leading_trivia(leading_trivia.into_trivia());
+
+        return TokenScan::with_diagnostics(token, diagnostics);
     }
 
-    let token = scan_token_core(snapshot, token_start, mode);
+    let token_scan = scan_token_core(snapshot, token_start, mode);
+    diagnostics = diagnostics.merged(token_scan.diagnostics());
+
+    let token = token_scan.into_token();
     let trailing_trivia = scan_trailing_trivia(snapshot, token.end());
+    diagnostics = diagnostics.merged(trailing_trivia.diagnostics());
 
     if trailing_trivia.reached_eof() {
-        return token.with_leading_trivia(leading_trivia.into_trivia());
+        return TokenScan::with_diagnostics(
+            token.with_leading_trivia(leading_trivia.into_trivia()),
+            diagnostics,
+        );
     }
 
-    token
-        .with_leading_trivia(leading_trivia.into_trivia())
-        .with_trailing_trivia(trailing_trivia.into_trivia())
+    TokenScan::with_diagnostics(
+        token
+            .with_leading_trivia(leading_trivia.into_trivia())
+            .with_trailing_trivia(trailing_trivia.into_trivia()),
+        diagnostics,
+    )
 }
 
-fn scan_token_core(snapshot: &SourceSnapshot, start: TextSize, mode: LexerScanMode) -> SyntaxToken {
+fn scan_token_core(snapshot: &SourceSnapshot, start: TextSize, mode: LexerScanMode) -> TokenScan {
     match mode {
         LexerScanMode::Normal => scan_normal_token(snapshot, start),
         LexerScanMode::TupleElementIndexAfterDot => {
@@ -55,10 +70,10 @@ fn scan_token_core(snapshot: &SourceSnapshot, start: TextSize, mode: LexerScanMo
     }
 }
 
-fn scan_normal_token(snapshot: &SourceSnapshot, start: TextSize) -> SyntaxToken {
+fn scan_normal_token(snapshot: &SourceSnapshot, start: TextSize) -> TokenScan {
     let character = match first_character(snapshot, start) {
         Some(character) => character,
-        None => return SyntaxToken::end_of_file(start),
+        None => return TokenScan::clean(SyntaxToken::end_of_file(start)),
     };
 
     if character.is_ascii_alphabetic() {
@@ -82,7 +97,7 @@ fn scan_normal_token(snapshot: &SourceSnapshot, start: TextSize) -> SyntaxToken 
     }
 
     if let Some(kind) = delimiter_or_separator_kind(character) {
-        return make_scalar_token(snapshot, kind, start, character);
+        return TokenScan::clean(make_scalar_token(snapshot, kind, start, character));
     }
 
     if is_operator_cluster_character(character) {
@@ -90,16 +105,18 @@ fn scan_normal_token(snapshot: &SourceSnapshot, start: TextSize) -> SyntaxToken 
     }
 
     if is_non_ascii_identifier_character(character) {
-        return scan_invalid_identifier_like_token(snapshot, start);
+        let end = invalid_identifier_like_end(snapshot, start);
+
+        return scan_invalid_identifier_like_token(snapshot, start, end);
     }
 
     scan_invalid_scalar_token(snapshot, start)
 }
 
-fn scan_tuple_element_index_or_normal(snapshot: &SourceSnapshot, start: TextSize) -> SyntaxToken {
+fn scan_tuple_element_index_or_normal(snapshot: &SourceSnapshot, start: TextSize) -> TokenScan {
     let character = match first_character(snapshot, start) {
         Some(character) => character,
-        None => return SyntaxToken::end_of_file(start),
+        None => return TokenScan::clean(SyntaxToken::end_of_file(start)),
     };
 
     if character.is_ascii_digit() {
@@ -109,24 +126,19 @@ fn scan_tuple_element_index_or_normal(snapshot: &SourceSnapshot, start: TextSize
     scan_normal_token(snapshot, start)
 }
 
-fn scan_identifier_or_keyword(snapshot: &SourceSnapshot, start: TextSize) -> SyntaxToken {
+fn scan_identifier_or_keyword(snapshot: &SourceSnapshot, start: TextSize) -> TokenScan {
     match identifier_like_end(snapshot, start) {
         IdentifierScanEnd::Valid(end) => {
             let text = token_text(snapshot, TextRange::new(start, end));
             let kind = keyword_kind(text).unwrap_or(SyntaxKind::IdentifierToken);
 
-            make_token(snapshot, kind, start, end)
+            TokenScan::clean(make_token(snapshot, kind, start, end))
         }
-        IdentifierScanEnd::Invalid(end) => {
-            make_token(snapshot, SyntaxKind::InvalidToken, start, end)
-        }
+        IdentifierScanEnd::Invalid(end) => scan_invalid_identifier_like_token(snapshot, start, end),
     }
 }
 
-fn scan_underscore_or_invalid_identifier(
-    snapshot: &SourceSnapshot,
-    start: TextSize,
-) -> SyntaxToken {
+fn scan_underscore_or_invalid_identifier(snapshot: &SourceSnapshot, start: TextSize) -> TokenScan {
     let end = offset_after_character(start, '_');
 
     match first_character(snapshot, end) {
@@ -135,35 +147,69 @@ fn scan_underscore_or_invalid_identifier(
                 || character == '_'
                 || is_non_ascii_identifier_character(character) =>
         {
-            scan_invalid_identifier_like_token(snapshot, start)
+            let end = invalid_identifier_like_end(snapshot, start);
+
+            scan_invalid_identifier_like_token(snapshot, start, end)
         }
-        _ => make_token(snapshot, SyntaxKind::UnderscoreToken, start, end),
+        _ => TokenScan::clean(make_token(
+            snapshot,
+            SyntaxKind::UnderscoreToken,
+            start,
+            end,
+        )),
     }
 }
 
-fn scan_operator_or_punctuation_token(snapshot: &SourceSnapshot, start: TextSize) -> SyntaxToken {
+fn scan_operator_or_punctuation_token(snapshot: &SourceSnapshot, start: TextSize) -> TokenScan {
     let end = operator_cluster_end(snapshot, start);
     let text = token_text(snapshot, TextRange::new(start, end));
 
     match operator_or_punctuation_kind(text) {
-        Some(kind) => make_token(snapshot, kind, start, end),
-        None => make_token(snapshot, SyntaxKind::InvalidToken, start, end),
+        Some(kind) => TokenScan::clean(make_token(snapshot, kind, start, end)),
+        None => {
+            let range = TextRange::new(start, end);
+            let token = make_token(snapshot, SyntaxKind::InvalidToken, start, end);
+
+            TokenScan::with_diagnostic(
+                token,
+                diagnostic::invalid_operator_or_punctuation(snapshot, range),
+            )
+        }
     }
 }
 
-fn scan_invalid_identifier_like_token(snapshot: &SourceSnapshot, start: TextSize) -> SyntaxToken {
-    let end = invalid_identifier_like_end(snapshot, start);
+fn scan_invalid_identifier_like_token(
+    snapshot: &SourceSnapshot,
+    start: TextSize,
+    end: TextSize,
+) -> TokenScan {
+    let range = TextRange::new(start, end);
+    let token = make_token(snapshot, SyntaxKind::InvalidToken, start, end);
 
-    make_token(snapshot, SyntaxKind::InvalidToken, start, end)
+    match first_non_ascii_identifier_character(snapshot, start, end) {
+        Some(character) => TokenScan::with_diagnostic(
+            token,
+            diagnostic::non_ascii_identifier(snapshot, range, character),
+        ),
+        None => TokenScan::with_diagnostic(token, diagnostic::invalid_identifier(snapshot, range)),
+    }
 }
 
-fn scan_invalid_scalar_token(snapshot: &SourceSnapshot, start: TextSize) -> SyntaxToken {
+fn scan_invalid_scalar_token(snapshot: &SourceSnapshot, start: TextSize) -> TokenScan {
     let character = match first_character(snapshot, start) {
         Some(character) => character,
-        None => return SyntaxToken::end_of_file(start),
+        None => return TokenScan::clean(SyntaxToken::end_of_file(start)),
     };
 
-    make_scalar_token(snapshot, SyntaxKind::InvalidToken, start, character)
+    let token = make_scalar_token(snapshot, SyntaxKind::InvalidToken, start, character);
+    let range = token.range();
+    let diagnostic = match character {
+        '\u{feff}' => diagnostic::misplaced_bom(snapshot, range),
+        '\r' => diagnostic::lone_carriage_return(snapshot, range),
+        _ => diagnostic::invalid_character(snapshot, range, character),
+    };
+
+    TokenScan::with_diagnostic(token, diagnostic)
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -225,6 +271,26 @@ fn invalid_identifier_like_end(snapshot: &SourceSnapshot, start: TextSize) -> Te
     } else {
         end
     }
+}
+
+fn first_non_ascii_identifier_character(
+    snapshot: &SourceSnapshot,
+    start: TextSize,
+    end: TextSize,
+) -> Option<char> {
+    let mut cursor = start;
+
+    while cursor < end {
+        let character = first_character(snapshot, cursor)?;
+
+        if is_non_ascii_identifier_character(character) {
+            return Some(character);
+        }
+
+        cursor = offset_after_character(cursor, character);
+    }
+
+    None
 }
 
 fn operator_cluster_end(snapshot: &SourceSnapshot, start: TextSize) -> TextSize {

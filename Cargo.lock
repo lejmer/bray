@@ -128,6 +128,7 @@ dependencies = [
 name = "bray-parser"
 version = "0.0.0"
 dependencies = [
+ "bray-diagnostics",
  "bray-source",
  "bray-syntax",
 ]

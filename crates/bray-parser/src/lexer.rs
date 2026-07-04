@@ -1,4 +1,6 @@
+mod diagnostic;
 mod literal;
+mod scan;
 mod scanner;
 mod text;
 mod token_source;

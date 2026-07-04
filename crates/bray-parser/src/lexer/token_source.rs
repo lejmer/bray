@@ -1,3 +1,4 @@
+use bray_diagnostics::DiagnosticBag;
 use bray_source::{SourceSnapshot, TextSize};
 use bray_syntax::{SyntaxKind, SyntaxToken};
 
@@ -16,14 +17,16 @@ pub enum LexerCachePolicy {
 /// Lazy lexical token source over an immutable source snapshot.
 ///
 /// The lexer produces tokens on demand and may cache tokens produced for
-/// lookahead. Whitespace and comments are preserved as token trivia. Literals
-/// are not classified by this partial scanner.
+/// lookahead. Whitespace and comments are preserved as token trivia. Lexical
+/// diagnostics are accumulated as tokens are scanned, including tokens scanned
+/// for lookahead.
 #[derive(Clone, Debug)]
 pub struct LexerTokenSource {
     snapshot: SourceSnapshot,
     cursor: TextSize,
     cache_policy: LexerCachePolicy,
     cached_tokens: Vec<SyntaxToken>,
+    diagnostics: DiagnosticBag,
 }
 
 impl LexerTokenSource {
@@ -39,6 +42,7 @@ impl LexerTokenSource {
             cursor: TextSize::ZERO,
             cache_policy,
             cached_tokens: Vec::new(),
+            diagnostics: DiagnosticBag::new(),
         }
     }
 
@@ -55,6 +59,16 @@ impl LexerTokenSource {
     /// Returns the current cache policy.
     pub const fn cache_policy(&self) -> LexerCachePolicy {
         self.cache_policy
+    }
+
+    /// Returns lexical diagnostics produced by tokens scanned so far.
+    pub const fn diagnostics(&self) -> &DiagnosticBag {
+        &self.diagnostics
+    }
+
+    /// Consumes the token source and returns lexical diagnostics produced so far.
+    pub fn into_diagnostics(self) -> DiagnosticBag {
+        self.diagnostics
     }
 
     /// Returns the next token without consuming it.
@@ -124,9 +138,9 @@ impl LexerTokenSource {
         }
     }
 
-    fn uncached_lookahead(&self, distance: usize) -> SyntaxToken {
+    fn uncached_lookahead(&mut self, distance: usize) -> SyntaxToken {
         let mut offset = self.cursor;
-        let mut token = scan_token_at(&self.snapshot, offset, LexerScanMode::Normal);
+        let mut token = self.scan_token_at(offset, LexerScanMode::Normal);
 
         for _ in 0..distance {
             if is_eof(&token) {
@@ -134,7 +148,7 @@ impl LexerTokenSource {
             }
 
             offset = token.full_range().end();
-            token = scan_token_at(&self.snapshot, offset, LexerScanMode::Normal);
+            token = self.scan_token_at(offset, LexerScanMode::Normal);
         }
 
         token
@@ -150,12 +164,12 @@ impl LexerTokenSource {
             .collect()
     }
 
-    fn uncached_lookahead_window(&self, len: usize) -> Vec<SyntaxToken> {
+    fn uncached_lookahead_window(&mut self, len: usize) -> Vec<SyntaxToken> {
         let mut tokens = Vec::with_capacity(len);
         let mut offset = self.cursor;
 
         while tokens.len() < len {
-            let token = scan_token_at(&self.snapshot, offset, LexerScanMode::Normal);
+            let token = self.scan_token_at(offset, LexerScanMode::Normal);
             let reached_eof = is_eof(&token);
             let next_offset = token.full_range().end();
 
@@ -186,14 +200,29 @@ impl LexerTokenSource {
                 None => self.cursor,
             };
 
-            let token = scan_token_at(&self.snapshot, offset, LexerScanMode::Normal);
+            let token = self.scan_token_at(offset, LexerScanMode::Normal);
 
             self.cached_tokens.push(token);
         }
     }
 
-    fn scan_current_token(&self, mode: LexerScanMode) -> SyntaxToken {
-        scan_token_at(&self.snapshot, self.cursor, mode)
+    fn scan_current_token(&mut self, mode: LexerScanMode) -> SyntaxToken {
+        self.scan_token_at(self.cursor, mode)
+    }
+
+    fn scan_token_at(&mut self, offset: TextSize, mode: LexerScanMode) -> SyntaxToken {
+        let scan = scan_token_at(&self.snapshot, offset, mode);
+        self.record_diagnostics(scan.diagnostics());
+
+        scan.into_token()
+    }
+
+    fn record_diagnostics(&mut self, diagnostics: &DiagnosticBag) {
+        if diagnostics.is_empty() {
+            return;
+        }
+
+        self.diagnostics = self.diagnostics.merged(diagnostics);
     }
 
     fn advance_after_consuming(&mut self, token: &SyntaxToken) {
@@ -236,6 +265,7 @@ fn share_token(token: &SyntaxToken) -> SyntaxToken {
 
 #[cfg(test)]
 mod tests {
+    use bray_diagnostics::DiagnosticKind;
     use bray_source::{SourceId, SourceIdentity, SourceOrigin, SourceVersion};
 
     use super::{LexerCachePolicy, LexerTokenSource};
@@ -730,6 +760,81 @@ mod tests {
     }
 
     #[test]
+    fn invalid_lexical_forms_emit_structured_diagnostics_and_recover() {
+        let source = consumed_source("a \u{feff} \r é _foo === $ z");
+
+        assert_eq!(
+            diagnostic_kinds(&source),
+            [
+                DiagnosticKind::LexicalMisplacedBom,
+                DiagnosticKind::LexicalLoneCarriageReturn,
+                DiagnosticKind::LexicalNonAsciiIdentifier,
+                DiagnosticKind::LexicalInvalidIdentifier,
+                DiagnosticKind::LexicalInvalidOperatorOrPunctuation,
+                DiagnosticKind::LexicalInvalidCharacter,
+            ]
+        );
+
+        assert_eq!(source.diagnostics().len(), 6);
+    }
+
+    #[test]
+    fn malformed_literals_emit_specific_structured_diagnostics() {
+        let source = consumed_source(r#"1u8 0x "bad\q" "\u{}" '' 'ab' '\u{110000}'"#);
+
+        assert_eq!(
+            diagnostic_kinds(&source),
+            [
+                DiagnosticKind::LexicalInvalidNumericSuffix,
+                DiagnosticKind::LexicalMalformedNumericLiteral,
+                DiagnosticKind::LexicalUnknownEscape,
+                DiagnosticKind::LexicalInvalidUnicodeEscape,
+                DiagnosticKind::LexicalMalformedCharacterLiteral,
+                DiagnosticKind::LexicalMalformedCharacterLiteral,
+                DiagnosticKind::LexicalInvalidUnicodeEscape,
+            ]
+        );
+    }
+
+    #[test]
+    fn unterminated_literals_and_comments_emit_diagnostics_while_recovering_to_eof() {
+        let string_source = consumed_source(r#""open"#);
+        let character_source = consumed_source("'o");
+        let comment_source = consumed_source("value /* open");
+
+        assert_eq!(
+            diagnostic_kinds(&string_source),
+            [DiagnosticKind::LexicalUnterminatedStringLiteral]
+        );
+
+        assert_eq!(
+            diagnostic_kinds(&character_source),
+            [DiagnosticKind::LexicalUnterminatedCharacterLiteral]
+        );
+
+        assert_eq!(
+            diagnostic_kinds(&comment_source),
+            [DiagnosticKind::LexicalUnterminatedBlockComment]
+        );
+
+        assert_eq!(comment_source.diagnostics().len(), 1);
+    }
+
+    #[test]
+    fn repeated_uncached_lookahead_deduplicates_lexical_diagnostics() {
+        let mut source =
+            LexerTokenSource::with_cache_policy(snapshot("$"), LexerCachePolicy::DoNotCacheTokens);
+
+        assert_eq!(source.lookahead(0).kind(), SyntaxKind::InvalidToken);
+        assert_eq!(source.lookahead(0).kind(), SyntaxKind::InvalidToken);
+
+        assert_eq!(
+            diagnostic_kinds(&source),
+            [DiagnosticKind::LexicalInvalidCharacter]
+        );
+    }
+
+    #[test]
     fn tuple_index_scan_rejects_leading_zeroes() {
         let snapshot = snapshot(".01");
 
@@ -888,12 +993,32 @@ mod tests {
         tokens.iter().map(SyntaxToken::text).collect()
     }
 
+    fn diagnostic_kinds(source: &LexerTokenSource) -> Vec<DiagnosticKind> {
+        source
+            .diagnostics()
+            .iter()
+            .map(|diagnostic| diagnostic.kind())
+            .collect()
+    }
+
     fn trivia_kinds(trivia: &[SyntaxTrivia]) -> Vec<SyntaxKind> {
         trivia.iter().map(SyntaxTrivia::kind).collect()
     }
 
     fn trivia_texts(trivia: &[SyntaxTrivia]) -> Vec<&str> {
         trivia.iter().map(SyntaxTrivia::text).collect()
+    }
+
+    fn consumed_source(text: &str) -> LexerTokenSource {
+        let mut source = LexerTokenSource::new(snapshot(text));
+
+        loop {
+            let token = source.consume();
+
+            if token.kind() == SyntaxKind::EndOfFileToken {
+                return source;
+            }
+        }
     }
 
     fn snapshot(text: &str) -> SourceSnapshot {
