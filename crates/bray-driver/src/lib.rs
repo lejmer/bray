@@ -10,10 +10,12 @@ mod file_arguments;
 mod output_path;
 mod run;
 mod source_inspection;
+mod source_location_output;
 mod source_origin_output;
 mod terminal_style;
 #[cfg(test)]
 mod test_support;
+mod token_inspection;
 
 pub use cli::DriverCliError;
 pub use command::{

@@ -10,6 +10,7 @@ use serde::Serialize;
 use crate::command::DriverOutputFormat;
 use crate::output_path::path_to_output_string;
 use crate::run::DriverRunResult;
+use crate::source_location_output::SourceLocationOutput;
 use crate::source_origin_output::SourceOriginOutput;
 use crate::terminal_style::{color_note_heading, color_severity_label};
 
@@ -118,6 +119,25 @@ fn write_json_diagnostics(
     writeln!(writer)
 }
 
+pub(crate) fn diagnostic_jsons(
+    diagnostics: &DiagnosticBag,
+    sources: Option<&SourceStore>,
+) -> Vec<DiagnosticJson> {
+    let source_map = DiagnosticSourceMap::new(sources);
+
+    diagnostic_jsons_from_map(diagnostics, &source_map)
+}
+
+fn diagnostic_jsons_from_map(
+    diagnostics: &DiagnosticBag,
+    source_map: &DiagnosticSourceMap<'_>,
+) -> Vec<DiagnosticJson> {
+    diagnostics
+        .iter()
+        .map(|diagnostic| DiagnosticJson::from_diagnostic(diagnostic, source_map))
+        .collect()
+}
+
 struct DiagnosticSourceMap<'source> {
     sources: Option<&'source SourceStore>,
     line_indexes: Vec<Option<LineIndex>>,
@@ -172,16 +192,13 @@ impl DiagnosticJsonReport {
     fn from_bag(bag: &DiagnosticBag, source_map: &DiagnosticSourceMap<'_>) -> Self {
         Self {
             has_errors: bag.has_errors(),
-            diagnostics: bag
-                .iter()
-                .map(|diagnostic| DiagnosticJson::from_diagnostic(diagnostic, source_map))
-                .collect(),
+            diagnostics: diagnostic_jsons_from_map(bag, source_map),
         }
     }
 }
 
 #[derive(Serialize)]
-struct DiagnosticJson {
+pub(crate) struct DiagnosticJson {
     id: u32,
     code: u32,
     kind: &'static str,
@@ -218,6 +235,22 @@ impl DiagnosticJson {
                 .map(|arg| DiagnosticArgJson::from_arg(arg, source_map))
                 .collect(),
         }
+    }
+
+    pub(crate) const fn code(&self) -> u32 {
+        self.code
+    }
+
+    pub(crate) const fn kind(&self) -> &'static str {
+        self.kind
+    }
+
+    pub(crate) const fn severity(&self) -> &'static str {
+        self.severity
+    }
+
+    pub(crate) const fn primary_span(&self) -> Option<&SourceSpanJson> {
+        self.primary_span.as_ref()
     }
 }
 
@@ -319,14 +352,14 @@ impl DiagnosticArgValueJson {
 }
 
 #[derive(Serialize)]
-struct SourceSpanJson {
+pub(crate) struct SourceSpanJson {
     source_id: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
     source_origin: Option<SourceOriginOutput>,
     start: u32,
     end: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
-    location: Option<SourceLocationJson>,
+    location: Option<SourceLocationOutput>,
 }
 
 impl SourceSpanJson {
@@ -338,57 +371,20 @@ impl SourceSpanJson {
             end: span.end().bytes(),
             location: source_map
                 .resolve(span)
-                .map(SourceLocationJson::from_location),
+                .map(SourceLocationOutput::from_location),
         }
     }
-}
 
-#[derive(Serialize)]
-struct SourceLocationJson {
-    start: HumanPositionJson,
-    end: HumanPositionJson,
-    lsp_start: LspPositionJson,
-    lsp_end: LspPositionJson,
-}
-
-impl SourceLocationJson {
-    fn from_location(location: SourceLocation<'_>) -> Self {
-        Self {
-            start: HumanPositionJson::from_position(location.start()),
-            end: HumanPositionJson::from_position(location.end()),
-            lsp_start: LspPositionJson::from_position(location.lsp_start()),
-            lsp_end: LspPositionJson::from_position(location.lsp_end()),
-        }
+    pub(crate) const fn start(&self) -> u32 {
+        self.start
     }
-}
 
-#[derive(Serialize)]
-struct HumanPositionJson {
-    line: u32,
-    column: u32,
-}
-
-impl HumanPositionJson {
-    const fn from_position(position: bray_source::LineColumn) -> Self {
-        Self {
-            line: position.line(),
-            column: position.column(),
-        }
+    pub(crate) const fn end(&self) -> u32 {
+        self.end
     }
-}
 
-#[derive(Serialize)]
-struct LspPositionJson {
-    line: u32,
-    character: u32,
-}
-
-impl LspPositionJson {
-    const fn from_position(position: bray_source::LspPosition) -> Self {
-        Self {
-            line: position.line(),
-            character: position.character(),
-        }
+    pub(crate) const fn location(&self) -> Option<SourceLocationOutput> {
+        self.location
     }
 }
 

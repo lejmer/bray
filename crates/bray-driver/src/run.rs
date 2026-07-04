@@ -2,7 +2,7 @@ use std::ffi::OsString;
 use std::io;
 use std::process::ExitCode;
 
-use bray_compilation::{Compilation, CompilationBuildError, CompilationRequest};
+use bray_compilation::{Compilation, CompilationRequest};
 use bray_diagnostics::DiagnosticBag;
 use bray_source::SourceStore;
 
@@ -11,6 +11,7 @@ use crate::diagnostic_output::write_driver_output;
 use crate::exit_status::exit_code_from_diagnostics;
 use crate::file_arguments::compilation_request_from_file_arguments;
 use crate::source_inspection::render_source_inspection;
+use crate::token_inspection::render_token_inspection;
 
 /// Structured result from running the Bray compiler driver.
 #[derive(Debug)]
@@ -150,48 +151,100 @@ pub fn run_result(arguments: impl IntoIterator<Item = OsString>) -> DriverRunRes
         }
     };
 
-    let compilation = match run_compilation(command_kind, request) {
-        Ok(compilation) => compilation,
-        Err(_) => {
-            return DriverRunResult::new(ExitCode::FAILURE, DiagnosticBag::new(), output_format);
-        }
-    };
-
-    if command_kind == DriverCommandKind::InspectSource && compilation.diagnostics().is_empty() {
-        let stdout = match render_source_inspection(&compilation, output_format) {
-            Ok(stdout) => stdout,
-            Err(_) => {
-                return DriverRunResult::new(
-                    ExitCode::FAILURE,
-                    DiagnosticBag::new(),
-                    output_format,
-                );
-            }
-        };
-
-        return DriverRunResult::with_output(
-            ExitCode::SUCCESS,
-            DiagnosticBag::new(),
-            output_format,
-            stdout,
-            String::new(),
-        );
+    if command_kind == DriverCommandKind::Check {
+        return run_check_command(request, output_format);
     }
 
+    if command_kind == DriverCommandKind::InspectSource {
+        return run_inspect_source_command(request, output_format);
+    }
+
+    if command_kind == DriverCommandKind::InspectTokens {
+        return run_inspect_tokens_command(request, output_format);
+    }
+
+    match command_kind {
+        DriverCommandKind::Check
+        | DriverCommandKind::InspectSource
+        | DriverCommandKind::InspectTokens => unreachable!("handled command kind did not return"),
+    }
+}
+
+fn run_check_command(
+    request: CompilationRequest,
+    output_format: DriverOutputFormat,
+) -> DriverRunResult {
+    let compilation = match Compilation::build(request) {
+        Ok(compilation) => compilation,
+        Err(_) => return compilation_build_failure_result(output_format),
+    };
+
+    diagnostic_result_from_compilation(compilation, output_format)
+}
+
+fn run_inspect_source_command(
+    request: CompilationRequest,
+    output_format: DriverOutputFormat,
+) -> DriverRunResult {
+    let compilation = match Compilation::load(request) {
+        Ok(compilation) => compilation,
+        Err(_) => return compilation_build_failure_result(output_format),
+    };
+
+    if !compilation.diagnostics().is_empty() {
+        return diagnostic_result_from_compilation(compilation, output_format);
+    }
+
+    let stdout = match render_source_inspection(&compilation, output_format) {
+        Ok(stdout) => stdout,
+        Err(_) => return compilation_build_failure_result(output_format),
+    };
+
+    DriverRunResult::with_output(
+        ExitCode::SUCCESS,
+        DiagnosticBag::new(),
+        output_format,
+        stdout,
+        String::new(),
+    )
+}
+
+fn run_inspect_tokens_command(
+    request: CompilationRequest,
+    output_format: DriverOutputFormat,
+) -> DriverRunResult {
+    let compilation = match Compilation::load(request) {
+        Ok(compilation) => compilation,
+        Err(_) => return compilation_build_failure_result(output_format),
+    };
+
+    if !compilation.diagnostics().is_empty() {
+        return diagnostic_result_from_compilation(compilation, output_format);
+    }
+
+    let output = match render_token_inspection(&compilation, output_format) {
+        Ok(output) => output,
+        Err(_) => return compilation_build_failure_result(output_format),
+    };
+
+    let (stdout, diagnostics) = output.into_parts();
+    let exit_code = exit_code_from_diagnostics(&diagnostics);
+
+    DriverRunResult::with_output(exit_code, diagnostics, output_format, stdout, String::new())
+}
+
+fn diagnostic_result_from_compilation(
+    compilation: Compilation,
+    output_format: DriverOutputFormat,
+) -> DriverRunResult {
     let (diagnostics, sources) = compilation.into_diagnostics_and_sources();
     let exit_code = exit_code_from_diagnostics(&diagnostics);
 
     DriverRunResult::with_sources(exit_code, diagnostics, output_format, sources)
 }
 
-fn run_compilation(
-    command_kind: DriverCommandKind,
-    request: CompilationRequest,
-) -> Result<Compilation, CompilationBuildError> {
-    match command_kind {
-        DriverCommandKind::Check => Compilation::build(request),
-        DriverCommandKind::InspectSource => Compilation::load(request),
-    }
+fn compilation_build_failure_result(output_format: DriverOutputFormat) -> DriverRunResult {
+    DriverRunResult::new(ExitCode::FAILURE, DiagnosticBag::new(), output_format)
 }
 
 fn run_with_writers(
@@ -636,5 +689,98 @@ mod tests {
         );
 
         assert_eq!(output_json["sources"][0]["text"], "module main\n");
+    }
+
+    #[test]
+    fn run_writes_text_token_inspection_to_stdout() {
+        let file = TemporaryFile::write("tokens.bray", b"  func // tail\nmain");
+
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+
+        let exit_code = run_with_writers(
+            [
+                OsString::from("brayc"),
+                OsString::from("inspect"),
+                OsString::from("tokens"),
+                file.path().as_os_str().to_os_string(),
+            ],
+            &mut stdout,
+            &mut stderr,
+        );
+
+        assert_eq!(exit_code, ExitCode::SUCCESS);
+        assert!(stderr.is_empty());
+
+        let stdout = match String::from_utf8(stdout) {
+            Ok(stdout) => stdout,
+            Err(error) => panic!("stdout should be UTF-8: {error:?}"),
+        };
+
+        assert!(stdout.contains("kind: token_inspection"));
+        assert!(stdout.contains("source_count: 1"));
+        assert!(stdout.contains("source_unit: file"));
+        assert!(stdout.contains("func_keyword"));
+        assert!(stdout.contains("\"func\""));
+        assert!(stdout.contains("leading=whitespace_trivia"));
+        assert!(stdout.contains("line_comment_trivia"));
+        assert!(stdout.contains("diagnostics:\n    none"));
+    }
+
+    #[test]
+    fn run_writes_json_token_inspection_to_stdout() {
+        let first = TemporaryFile::write("first.bray", b"func\n");
+        let second = TemporaryFile::write("second.bray", b"$");
+
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+
+        let exit_code = run_with_writers(
+            [
+                OsString::from("brayc"),
+                OsString::from("--format"),
+                OsString::from("json"),
+                OsString::from("inspect"),
+                OsString::from("tokens"),
+                first.path().as_os_str().to_os_string(),
+                second.path().as_os_str().to_os_string(),
+            ],
+            &mut stdout,
+            &mut stderr,
+        );
+
+        assert_eq!(exit_code, ExitCode::FAILURE);
+        assert!(stderr.is_empty());
+
+        let stdout = match String::from_utf8(stdout) {
+            Ok(stdout) => stdout,
+            Err(error) => panic!("stdout should be UTF-8: {error:?}"),
+        };
+
+        let output_json: serde_json::Value = match serde_json::from_str(&stdout) {
+            Ok(value) => value,
+            Err(error) => panic!("stdout should be token-inspection JSON: {error:?}"),
+        };
+
+        assert_eq!(output_json["kind"], "token_inspection");
+        assert_eq!(output_json["source_count"], 2);
+        assert_eq!(output_json["has_errors"], true);
+
+        assert_eq!(
+            output_json["sources"][0]["tokens"][0]["kind"],
+            "func_keyword"
+        );
+
+        assert_eq!(
+            output_json["sources"][1]["tokens"][0]["kind"],
+            "invalid_token"
+        );
+
+        assert_eq!(
+            output_json["sources"][1]["diagnostics"][0]["kind"],
+            "lexical_invalid_character"
+        );
+
+        assert_eq!(output_json["sources"][1]["diagnostics"][0]["code"], 2001);
     }
 }

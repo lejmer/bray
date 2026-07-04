@@ -203,6 +203,7 @@ impl CliInspectCommand {
     fn into_driver_command(self) -> DriverCommand {
         match self.command {
             CliInspectSubcommand::Source(files) => DriverCommand::inspect_source(files.files),
+            CliInspectSubcommand::Tokens(files) => DriverCommand::inspect_tokens(files.files),
         }
     }
 }
@@ -210,6 +211,7 @@ impl CliInspectCommand {
 #[derive(Debug, Subcommand)]
 enum CliInspectSubcommand {
     Source(CliSourceFiles),
+    Tokens(CliSourceFiles),
 }
 
 #[derive(Args, Debug)]
@@ -298,6 +300,40 @@ mod tests {
         assert_eq!(
             invocation.command().kind(),
             DriverCommandKind::InspectSource
+        );
+
+        let files = [PathBuf::from("main.bray"), PathBuf::from("lib.bray")];
+
+        assert_eq!(invocation.command().files(), files.as_slice());
+    }
+
+    #[test]
+    fn parses_inspect_tokens_command_with_subcommand_options() {
+        let invocation = match DriverInvocation::try_from_arguments([
+            "brayc",
+            "inspect",
+            "tokens",
+            "--format",
+            "json",
+            "--cpu-count",
+            "1",
+            "main.bray",
+            "lib.bray",
+        ]) {
+            Ok(invocation) => invocation,
+            Err(error) => panic!("inspect tokens invocation should parse: {error:?}"),
+        };
+
+        assert_eq!(invocation.options().worker_budget(), WorkerBudget::serial());
+
+        assert_eq!(
+            invocation.options().output_format(),
+            DriverOutputFormat::Json
+        );
+
+        assert_eq!(
+            invocation.command().kind(),
+            DriverCommandKind::InspectTokens
         );
 
         let files = [PathBuf::from("main.bray"), PathBuf::from("lib.bray")];

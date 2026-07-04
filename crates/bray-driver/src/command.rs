@@ -57,6 +57,8 @@ pub enum DriverCommandKind {
     Check,
     /// Inspects loaded source snapshots.
     InspectSource,
+    /// Inspects lexed source tokens.
+    InspectTokens,
 }
 
 /// Driver command selected by the CLI.
@@ -69,6 +71,11 @@ pub enum DriverCommand {
     },
     /// Inspects loaded source snapshots.
     InspectSource {
+        /// Source files to inspect.
+        files: Vec<PathBuf>,
+    },
+    /// Inspects lexed source tokens.
+    InspectTokens {
         /// Source files to inspect.
         files: Vec<PathBuf>,
     },
@@ -85,24 +92,34 @@ impl DriverCommand {
         Self::InspectSource { files }
     }
 
+    /// Creates an inspect-tokens command.
+    pub fn inspect_tokens(files: Vec<PathBuf>) -> Self {
+        Self::InspectTokens { files }
+    }
+
     /// Returns this command's stable category.
     pub const fn kind(&self) -> DriverCommandKind {
         match self {
             Self::Check { .. } => DriverCommandKind::Check,
             Self::InspectSource { .. } => DriverCommandKind::InspectSource,
+            Self::InspectTokens { .. } => DriverCommandKind::InspectTokens,
         }
     }
 
     /// Returns the command's source file paths.
     pub fn files(&self) -> &[PathBuf] {
         match self {
-            Self::Check { files } | Self::InspectSource { files } => files,
+            Self::Check { files }
+            | Self::InspectSource { files }
+            | Self::InspectTokens { files } => files,
         }
     }
 
     pub(crate) fn into_files(self) -> Vec<PathBuf> {
         match self {
-            Self::Check { files } | Self::InspectSource { files } => files,
+            Self::Check { files }
+            | Self::InspectSource { files }
+            | Self::InspectTokens { files } => files,
         }
     }
 }
