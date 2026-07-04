@@ -67,6 +67,28 @@ pub enum DiagnosticLabelKind {
     InvalidUtf8Bytes,
     /// Label for a character that the lexer cannot accept.
     InvalidCharacter,
+    /// Label for a byte order mark after the start of the source.
+    MisplacedBom,
+    /// Label for a lone carriage return outside a block comment.
+    LoneCarriageReturn,
+    /// Label for non-ASCII identifier text.
+    NonAsciiIdentifier,
+    /// Label for invalid identifier text.
+    InvalidIdentifier,
+    /// Label for invalid operator or punctuation text.
+    InvalidOperatorOrPunctuation,
+    /// Label for a malformed literal spelling.
+    MalformedLiteral,
+    /// Label for a numeric suffix that is not accepted.
+    InvalidNumericSuffix,
+    /// Label for the start of an unterminated character literal.
+    UnterminatedCharacterLiteralStart,
+    /// Label for the start of an unterminated string literal.
+    UnterminatedStringLiteralStart,
+    /// Label for an unknown escape sequence.
+    UnknownEscape,
+    /// Label for an invalid Unicode escape sequence.
+    InvalidUnicodeEscape,
     /// Label for the start of a block comment that was not terminated.
     UnterminatedBlockCommentStart,
 }
@@ -77,6 +99,17 @@ impl DiagnosticLabelKind {
         match self {
             Self::InvalidUtf8Bytes => "invalid_utf8_bytes",
             Self::InvalidCharacter => "invalid_character",
+            Self::MisplacedBom => "misplaced_bom",
+            Self::LoneCarriageReturn => "lone_carriage_return",
+            Self::NonAsciiIdentifier => "non_ascii_identifier",
+            Self::InvalidIdentifier => "invalid_identifier",
+            Self::InvalidOperatorOrPunctuation => "invalid_operator_or_punctuation",
+            Self::MalformedLiteral => "malformed_literal",
+            Self::InvalidNumericSuffix => "invalid_numeric_suffix",
+            Self::UnterminatedCharacterLiteralStart => "unterminated_character_literal_start",
+            Self::UnterminatedStringLiteralStart => "unterminated_string_literal_start",
+            Self::UnknownEscape => "unknown_escape",
+            Self::InvalidUnicodeEscape => "invalid_unicode_escape",
             Self::UnterminatedBlockCommentStart => "unterminated_block_comment_start",
         }
     }

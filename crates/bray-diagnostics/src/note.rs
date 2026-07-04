@@ -53,6 +53,26 @@ pub enum DiagnosticNoteKind {
     WorkerBudgetMustBePositive,
     /// Note explaining that a character is not accepted by the lexer.
     CharacterNotAccepted,
+    /// Note explaining that a byte order mark is accepted only at source start.
+    BomOnlyAllowedAtStart,
+    /// Note explaining that accepted line breaks are LF and CRLF.
+    LineBreaksMustBeLfOrCrlf,
+    /// Note explaining that identifiers are ASCII.
+    IdentifiersMustBeAscii,
+    /// Note explaining that identifiers have a constrained spelling.
+    IdentifierSpellingMustBeValid,
+    /// Note explaining that only the imaginary suffix is accepted.
+    OnlyImaginaryNumericSuffix,
+    /// Note explaining that a character literal contains one scalar value.
+    CharacterLiteralMustContainOneScalar,
+    /// Note explaining that a character literal needs a closing quote.
+    CharacterLiteralNeedsTerminator,
+    /// Note explaining that a string literal needs a closing quote.
+    StringLiteralNeedsTerminator,
+    /// Note explaining that escape sequences must be known.
+    EscapeMustBeKnown,
+    /// Note explaining that Unicode escapes must denote scalar values.
+    UnicodeEscapeMustBeScalar,
     /// Note explaining that a block comment needs a closing terminator.
     BlockCommentNeedsTerminator,
 }
@@ -69,6 +89,18 @@ impl DiagnosticNoteKind {
             Self::SourceInputNeedsStableIdentity => "source_input_needs_stable_identity",
             Self::WorkerBudgetMustBePositive => "worker_budget_must_be_positive",
             Self::CharacterNotAccepted => "character_not_accepted",
+            Self::BomOnlyAllowedAtStart => "bom_only_allowed_at_start",
+            Self::LineBreaksMustBeLfOrCrlf => "line_breaks_must_be_lf_or_crlf",
+            Self::IdentifiersMustBeAscii => "identifiers_must_be_ascii",
+            Self::IdentifierSpellingMustBeValid => "identifier_spelling_must_be_valid",
+            Self::OnlyImaginaryNumericSuffix => "only_imaginary_numeric_suffix",
+            Self::CharacterLiteralMustContainOneScalar => {
+                "character_literal_must_contain_one_scalar"
+            }
+            Self::CharacterLiteralNeedsTerminator => "character_literal_needs_terminator",
+            Self::StringLiteralNeedsTerminator => "string_literal_needs_terminator",
+            Self::EscapeMustBeKnown => "escape_must_be_known",
+            Self::UnicodeEscapeMustBeScalar => "unicode_escape_must_be_scalar",
             Self::BlockCommentNeedsTerminator => "block_comment_needs_terminator",
         }
     }

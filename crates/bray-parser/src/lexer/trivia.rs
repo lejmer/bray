@@ -1,12 +1,15 @@
+use bray_diagnostics::DiagnosticBag;
 use bray_source::{SourceSnapshot, TextRange, TextSize};
 use bray_syntax::{SyntaxKind, SyntaxTrivia};
 
+use super::diagnostic;
 use super::text::{character_len_at, text_size_from_usize, text_size_to_usize};
 
 pub(super) struct TriviaScan {
     trivia: Vec<SyntaxTrivia>,
     end: TextSize,
     reached_eof: bool,
+    diagnostics: DiagnosticBag,
 }
 
 impl TriviaScan {
@@ -21,14 +24,20 @@ impl TriviaScan {
     pub(super) const fn reached_eof(&self) -> bool {
         self.reached_eof
     }
+
+    pub(super) const fn diagnostics(&self) -> &DiagnosticBag {
+        &self.diagnostics
+    }
 }
 
 pub(super) fn scan_leading_trivia(snapshot: &SourceSnapshot, start: TextSize) -> TriviaScan {
     let mut trivia = Vec::new();
     let mut cursor = start;
+    let mut diagnostics = DiagnosticBag::new();
 
     while let Some(item) = scan_trivia_at(snapshot, cursor, TriviaPosition::Leading) {
         cursor = item.trivia.end();
+        diagnostics = diagnostics.merged(&item.diagnostics);
         trivia.push(item.trivia);
     }
 
@@ -36,15 +45,18 @@ pub(super) fn scan_leading_trivia(snapshot: &SourceSnapshot, start: TextSize) ->
         trivia,
         end: cursor,
         reached_eof: cursor == snapshot.text_len(),
+        diagnostics,
     }
 }
 
 pub(super) fn scan_trailing_trivia(snapshot: &SourceSnapshot, start: TextSize) -> TriviaScan {
     let mut trivia = Vec::new();
     let mut cursor = start;
+    let mut diagnostics = DiagnosticBag::new();
 
     while let Some(item) = scan_trivia_at(snapshot, cursor, TriviaPosition::Trailing) {
         cursor = item.trivia.end();
+        diagnostics = diagnostics.merged(&item.diagnostics);
 
         let contains_line_break = item.contains_line_break;
 
@@ -59,12 +71,14 @@ pub(super) fn scan_trailing_trivia(snapshot: &SourceSnapshot, start: TextSize) -
         trivia,
         end: cursor,
         reached_eof: cursor == snapshot.text_len(),
+        diagnostics,
     }
 }
 
 struct TriviaItem {
     trivia: SyntaxTrivia,
     contains_line_break: bool,
+    diagnostics: DiagnosticBag,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -209,13 +223,17 @@ fn scan_block_comment_trivia(snapshot: &SourceSnapshot, start: TextSize) -> Triv
         SyntaxKind::BlockCommentTrivia
     };
 
-    make_trivia_item(
-        snapshot,
-        kind,
-        start,
-        text_size_from_usize(index),
-        contains_line_break,
-    )
+    let end = text_size_from_usize(index);
+    let mut item = make_trivia_item(snapshot, kind, start, end, contains_line_break);
+
+    if depth != 0 {
+        item.diagnostics.add(diagnostic::unterminated_block_comment(
+            snapshot,
+            TextRange::new(start, end),
+        ));
+    }
+
+    item
 }
 
 fn make_trivia_item(
@@ -235,6 +253,7 @@ fn make_trivia_item(
     TriviaItem {
         trivia: SyntaxTrivia::new(kind, range, text),
         contains_line_break,
+        diagnostics: DiagnosticBag::new(),
     }
 }
 
