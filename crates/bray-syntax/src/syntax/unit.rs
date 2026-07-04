@@ -4,7 +4,7 @@ use std::sync::Arc;
 use bray_base::shared_slice;
 use bray_source::{SourceSnapshot, TextRange};
 
-use super::{SourceSyntaxNode, SyntaxElements, SyntaxNode, SyntaxText};
+use super::{SourceOrderElements, SourceSyntaxNode, SyntaxNode, SyntaxText};
 use crate::{SyntaxKind, SyntaxToken};
 
 /// Root syntax node for one compiler compilation unit.
@@ -14,10 +14,14 @@ pub struct CompilationUnitSyntax {
 }
 
 impl CompilationUnitSyntax {
-    /// Creates a compilation-unit node from parsed source-unit children.
-    pub fn new(source_units: impl IntoIterator<Item = SourceUnitSyntax>) -> Self {
+    /// Creates a builder for a compilation-unit node.
+    pub const fn builder() -> CompilationUnitSyntaxBuilder {
+        CompilationUnitSyntaxBuilder::new()
+    }
+
+    fn from_builder(builder: CompilationUnitSyntaxBuilder) -> Self {
         Self {
-            source_units: shared_slice(source_units),
+            source_units: shared_slice(builder.source_units),
         }
     }
 
@@ -42,6 +46,41 @@ impl CompilationUnitSyntax {
     /// Returns whether this compilation unit contains no source units.
     pub fn is_empty(&self) -> bool {
         self.source_units.is_empty()
+    }
+}
+
+/// Builder for a compilation-unit syntax node.
+#[derive(Debug, Default)]
+pub struct CompilationUnitSyntaxBuilder {
+    source_units: Vec<SourceUnitSyntax>,
+}
+
+impl CompilationUnitSyntaxBuilder {
+    /// Creates an empty compilation-unit builder.
+    pub const fn new() -> Self {
+        Self {
+            source_units: Vec::new(),
+        }
+    }
+
+    /// Appends a source-unit child to the compilation-unit child list.
+    pub fn push_source_unit(&mut self, source_unit: SourceUnitSyntax) {
+        self.source_units.push(source_unit);
+    }
+
+    /// Appends source-unit children to the compilation-unit child list.
+    pub fn source_units(
+        mut self,
+        source_units: impl IntoIterator<Item = SourceUnitSyntax>,
+    ) -> Self {
+        self.source_units.extend(source_units);
+
+        self
+    }
+
+    /// Builds the compilation-unit node.
+    pub fn build(self) -> CompilationUnitSyntax {
+        CompilationUnitSyntax::from_builder(self)
     }
 }
 
@@ -70,22 +109,31 @@ impl SyntaxNode for CompilationUnitSyntax {
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct SourceUnitSyntax {
     source: SourceSnapshot,
-    elements: SyntaxElements,
+    tokens: Arc<[SyntaxToken]>,
+    elements: SourceOrderElements,
 }
 
 impl SourceUnitSyntax {
-    /// Creates a source-unit node with its ordered token stream.
-    ///
-    /// Panics when the token stream does not end in EOF.
-    pub fn new(source: SourceSnapshot, tokens: impl IntoIterator<Item = SyntaxToken>) -> Self {
-        let elements = SyntaxElements::from_tokens(tokens);
+    /// Creates a builder for a source-unit node.
+    pub fn builder(source: SourceSnapshot) -> SourceUnitSyntaxBuilder {
+        SourceUnitSyntaxBuilder::new(source)
+    }
 
-        match elements.last_token() {
+    fn from_builder(builder: SourceUnitSyntaxBuilder) -> Self {
+        let tokens = shared_slice(builder.tokens);
+
+        match tokens.last() {
             Some(token) if token.is_end_of_file() => {}
             _ => panic!("source unit token stream must end with EOF"),
         }
 
-        Self { source, elements }
+        let elements = elements_from_tokens(tokens.as_ref());
+
+        Self {
+            source: builder.source,
+            tokens,
+            elements,
+        }
     }
 
     /// Returns this node's stable syntax kind.
@@ -103,14 +151,63 @@ impl SourceUnitSyntax {
         &self.source
     }
 
-    /// Returns this source unit's ordered syntax elements.
-    pub const fn elements(&self) -> &SyntaxElements {
-        &self.elements
+    /// Returns this source unit's lexical token list, including EOF.
+    ///
+    /// This list is useful for source reconstruction and token-stream
+    /// inspection. Grammar-aware code should prefer named slots and child lists
+    /// on concrete syntax nodes as those nodes are added.
+    pub fn tokens(&self) -> impl Iterator<Item = &SyntaxToken> + '_ {
+        self.tokens.iter()
     }
 
-    /// Returns this source unit's ordered token stream, including EOF.
-    pub fn tokens(&self) -> impl Iterator<Item = &SyntaxToken> + '_ {
-        self.elements.tokens()
+    /// Returns the required EOF token for this source unit.
+    pub fn eof_token(&self) -> &SyntaxToken {
+        match self.tokens.last() {
+            Some(token) => token,
+            None => panic!("source unit token stream must end with EOF"),
+        }
+    }
+}
+
+fn elements_from_tokens(tokens: &[SyntaxToken]) -> SourceOrderElements {
+    // SyntaxToken clones share immutable trivia storage. The element storage is
+    // derived from the named token list for reconstruction infrastructure.
+    SourceOrderElements::from_tokens(tokens.iter().cloned())
+}
+
+/// Builder for a source-unit syntax node.
+#[derive(Debug)]
+pub struct SourceUnitSyntaxBuilder {
+    source: SourceSnapshot,
+    tokens: Vec<SyntaxToken>,
+}
+
+impl SourceUnitSyntaxBuilder {
+    /// Creates an empty source-unit builder for `source`.
+    pub fn new(source: SourceSnapshot) -> Self {
+        Self {
+            source,
+            tokens: Vec::new(),
+        }
+    }
+
+    /// Appends a token to the source-unit token list.
+    pub fn push_token(&mut self, token: SyntaxToken) {
+        self.tokens.push(token);
+    }
+
+    /// Appends tokens to the source-unit token list.
+    pub fn tokens(mut self, tokens: impl IntoIterator<Item = SyntaxToken>) -> Self {
+        self.tokens.extend(tokens);
+
+        self
+    }
+
+    /// Builds the source-unit node.
+    ///
+    /// Panics when the token list does not end in EOF.
+    pub fn build(self) -> SourceUnitSyntax {
+        SourceUnitSyntax::from_builder(self)
     }
 }
 
@@ -125,8 +222,8 @@ impl SyntaxNode for SourceUnitSyntax {
 }
 
 impl SourceSyntaxNode for SourceUnitSyntax {
-    fn elements(&self) -> &SyntaxElements {
-        self.elements()
+    fn write_full_text_from(&self, source_text: &str, writer: &mut dyn Write) -> fmt::Result {
+        self.elements.write_source_text(source_text, writer)
     }
 }
 
@@ -146,7 +243,7 @@ mod tests {
     use crate::{SourceSyntaxNode, SyntaxKind, SyntaxNode, SyntaxText, SyntaxToken, SyntaxTrivia};
 
     #[test]
-    fn source_units_store_source_snapshot_ordered_tokens_and_full_range() {
+    fn source_units_store_source_snapshot_named_tokens_and_full_range() {
         let snapshot = snapshot("func");
 
         let first = SyntaxToken::new(
@@ -155,7 +252,9 @@ mod tests {
         );
 
         let eof = SyntaxToken::end_of_file(TextSize::new(4));
-        let source_unit = SourceUnitSyntax::new(snapshot, [first.clone(), eof.clone()]);
+        let source_unit = SourceUnitSyntax::builder(snapshot)
+            .tokens([first.clone(), eof.clone()])
+            .build();
 
         assert_eq!(source_unit.kind(), SyntaxKind::SourceUnit);
 
@@ -166,16 +265,21 @@ mod tests {
 
         assert_eq!(
             source_unit.tokens().cloned().collect::<Vec<_>>(),
-            [first, eof]
+            [first, eof.clone()]
         );
+
+        assert_eq!(source_unit.eof_token(), &eof);
     }
 
     #[test]
     fn compilation_units_store_named_source_unit_children() {
-        let source_unit =
-            SourceUnitSyntax::new(snapshot(""), [SyntaxToken::end_of_file(TextSize::ZERO)]);
+        let source_unit = SourceUnitSyntax::builder(snapshot(""))
+            .tokens([SyntaxToken::end_of_file(TextSize::ZERO)])
+            .build();
 
-        let compilation_unit = CompilationUnitSyntax::new([source_unit.clone()]);
+        let compilation_unit = CompilationUnitSyntax::builder()
+            .source_units([source_unit.clone()])
+            .build();
 
         assert_eq!(compilation_unit.kind(), SyntaxKind::CompilationUnit);
         assert_eq!(compilation_unit.source_units(), &[source_unit]);
@@ -184,10 +288,13 @@ mod tests {
 
     #[test]
     fn typed_nodes_implement_syntax_node_contract() {
-        let source_unit =
-            SourceUnitSyntax::new(snapshot(""), [SyntaxToken::end_of_file(TextSize::ZERO)]);
+        let source_unit = SourceUnitSyntax::builder(snapshot(""))
+            .tokens([SyntaxToken::end_of_file(TextSize::ZERO)])
+            .build();
 
-        let compilation_unit = CompilationUnitSyntax::new([source_unit.clone()]);
+        let compilation_unit = CompilationUnitSyntax::builder()
+            .source_units([source_unit.clone()])
+            .build();
 
         assert_node_kind(&source_unit, SyntaxKind::SourceUnit);
         assert_node_kind(&compilation_unit, SyntaxKind::CompilationUnit);
@@ -208,17 +315,18 @@ mod tests {
         .with_leading_trivia([leading])
         .with_trailing_trivia([trailing]);
 
-        let source_unit = SourceUnitSyntax::new(
-            snapshot,
-            [token, SyntaxToken::end_of_file(TextSize::new(13))],
-        );
+        let source_unit = SourceUnitSyntax::builder(snapshot)
+            .tokens([token, SyntaxToken::end_of_file(TextSize::new(13))])
+            .build();
 
         assert_eq!(
             source_unit.full_text_from(source_unit.source().text()),
             "  func// tail"
         );
 
-        let compilation_unit = CompilationUnitSyntax::new([source_unit]);
+        let compilation_unit = CompilationUnitSyntax::builder()
+            .source_units([source_unit])
+            .build();
 
         assert_eq!(compilation_unit.full_text(), "  func// tail");
     }
@@ -232,7 +340,9 @@ mod tests {
     #[test]
     #[should_panic]
     fn source_units_reject_token_streams_without_eof() {
-        let _ = SourceUnitSyntax::new(snapshot("func"), Vec::new());
+        let _ = SourceUnitSyntax::builder(snapshot("func"))
+            .tokens(Vec::new())
+            .build();
     }
 
     fn assert_node_kind(node: &impl SyntaxNode, kind: SyntaxKind) {

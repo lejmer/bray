@@ -64,7 +64,9 @@ fn parse_source_unit(snapshot: &SourceSnapshot) -> ParsedSourceUnit {
     let (tokens, diagnostics) = lex_result.into_parts();
 
     ParsedSourceUnit {
-        source_unit: SourceUnitSyntax::new(snapshot.clone(), tokens),
+        source_unit: SourceUnitSyntax::builder(snapshot.clone())
+            .tokens(tokens)
+            .build(),
         diagnostics,
     }
 }

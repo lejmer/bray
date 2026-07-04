@@ -36,7 +36,7 @@ impl From<SourceUtf8Error> for SourceLoadError {
 /// `SourceLoader` assigns [`SourceId`] values deterministically in load order.
 /// It validates source bytes as UTF-8 and removes an initial UTF-8 byte order
 /// mark before publishing source text. It preserves source newline spellings
-/// exactly. It does not perform file, LSP, or standard-input I/O; callers
+/// exactly. It does not perform file, LSP, or standard-input I/O. Callers
 /// resolve external input into [`SourceInput`] before loading.
 #[derive(Debug, Default, Eq, PartialEq)]
 pub struct SourceLoader {

@@ -129,7 +129,7 @@ impl SourceOrigin {
 
     /// Returns a file path when this origin is path-backed or uses a `file:` URI.
     ///
-    /// Non-file LSP document URIs return `Ok(None)`; callers can keep using the
+    /// Non-file LSP document URIs return `Ok(None)`. Callers can keep using the
     /// URI identity without requiring a filesystem path.
     pub fn document_file_path(&self) -> Result<Option<PathBuf>, SourceUriError> {
         match self {

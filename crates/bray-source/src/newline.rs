@@ -1,7 +1,7 @@
 /// Source newline normalization policy.
 ///
 /// Bray preserves exact source text. LF and CRLF are recognized as line breaks
-/// for source locations. A lone CR is not normalized and is not a line break;
+/// for source locations. A lone CR is not normalized and is not a line break.
 /// the lexer decides whether that source character is valid in its context.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum SourceNewlinePolicy {
