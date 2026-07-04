@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use bray_base::shared_str;
+
 use crate::id::SourceId;
 use crate::identity::SourceIdentity;
 use crate::origin::SourceOrigin;
@@ -67,9 +69,9 @@ impl SourceSnapshot {
         identity: SourceIdentity,
         origin: SourceOrigin,
         version: impl Into<SourceVersion>,
-        text: impl Into<String>,
+        text: impl Into<Arc<str>>,
     ) -> Result<Self, TextSizeOverflow> {
-        let text = Arc::<str>::from(text.into());
+        let text = shared_str(text);
         let text_len = TextSize::try_from(text.len())?;
         let checksum = SourceChecksum::for_text(text.as_ref());
 
