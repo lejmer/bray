@@ -1,22 +1,21 @@
 use std::fmt::{self, Write};
 use std::sync::Arc;
 
-use bray_base::shared_str;
+use bray_base::shared_slice;
 use bray_source::{TextRange, TextSize};
 
-use crate::text::assert_text_len_matches_range;
+use crate::syntax::text_from_writer;
 use crate::{SyntaxKind, SyntaxTrivia};
 
-/// Lossless syntax token produced by lexical analysis.
+/// Syntax token produced by lexical analysis.
 ///
-/// A token stores its own source range and exact text, plus leading and trailing
-/// trivia. The token range excludes trivia; [`full_range`](Self::full_range)
-/// covers both token text and attached trivia.
+/// A token stores its source range plus leading and trailing trivia. Token text
+/// is resolved from immutable source text by range, so tokens stay compact and
+/// do not duplicate source spelling.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct SyntaxToken {
     kind: SyntaxKind,
     range: TextRange,
-    text: Arc<str>,
     leading_trivia: Arc<[SyntaxTrivia]>,
     trailing_trivia: Arc<[SyntaxTrivia]>,
 }
@@ -24,60 +23,52 @@ pub struct SyntaxToken {
 impl SyntaxToken {
     /// Creates a token with no leading or trailing trivia.
     ///
-    /// Panics when `kind` is not a token kind or when `text` does not cover
-    /// exactly the same byte length as `range`.
-    pub fn new(kind: SyntaxKind, range: TextRange, text: impl Into<Arc<str>>) -> Self {
-        Self::with_trivia(kind, range, text, Vec::new(), Vec::new())
+    /// Panics when `kind` is not a token kind.
+    pub fn new(kind: SyntaxKind, range: TextRange) -> Self {
+        Self::with_trivia(kind, range, Vec::new(), Vec::new())
     }
 
     /// Creates a token with explicit leading and trailing trivia.
     ///
-    /// Panics when `kind` is not a token kind or when `text` does not cover
-    /// exactly the same byte length as `range`.
+    /// Panics when `kind` is not a token kind.
     pub fn with_trivia(
         kind: SyntaxKind,
         range: TextRange,
-        text: impl Into<Arc<str>>,
-        leading_trivia: impl Into<Vec<SyntaxTrivia>>,
-        trailing_trivia: impl Into<Vec<SyntaxTrivia>>,
+        leading_trivia: impl IntoIterator<Item = SyntaxTrivia>,
+        trailing_trivia: impl IntoIterator<Item = SyntaxTrivia>,
     ) -> Self {
         assert!(kind.is_token());
-
-        let text = shared_str(text);
-
-        assert_text_len_matches_range(text.as_ref(), range);
 
         Self {
             kind,
             range,
-            text,
-            leading_trivia: shared_trivia(leading_trivia),
-            trailing_trivia: shared_trivia(trailing_trivia),
+            leading_trivia: shared_slice(leading_trivia),
+            trailing_trivia: shared_slice(trailing_trivia),
         }
     }
 
     /// Creates an end-of-file token at `offset`.
     pub fn end_of_file(offset: TextSize) -> Self {
-        Self::new(SyntaxKind::EndOfFileToken, TextRange::empty(offset), "")
+        Self::new(SyntaxKind::EndOfFileToken, TextRange::empty(offset))
     }
 
     /// Creates an invalid token covering `range`.
-    pub fn invalid(range: TextRange, text: impl Into<Arc<str>>) -> Self {
-        Self::new(SyntaxKind::InvalidToken, range, text)
+    pub fn invalid(range: TextRange) -> Self {
+        Self::new(SyntaxKind::InvalidToken, range)
     }
 
     /// Replaces the token's leading trivia.
-    pub fn with_leading_trivia(self, trivia: impl Into<Vec<SyntaxTrivia>>) -> Self {
+    pub fn with_leading_trivia(self, trivia: impl IntoIterator<Item = SyntaxTrivia>) -> Self {
         Self {
-            leading_trivia: shared_trivia(trivia),
+            leading_trivia: shared_slice(trivia),
             ..self
         }
     }
 
     /// Replaces the token's trailing trivia.
-    pub fn with_trailing_trivia(self, trivia: impl Into<Vec<SyntaxTrivia>>) -> Self {
+    pub fn with_trailing_trivia(self, trivia: impl IntoIterator<Item = SyntaxTrivia>) -> Self {
         Self {
-            trailing_trivia: shared_trivia(trivia),
+            trailing_trivia: shared_slice(trivia),
             ..self
         }
     }
@@ -85,6 +76,11 @@ impl SyntaxToken {
     /// Returns the token kind.
     pub const fn kind(&self) -> SyntaxKind {
         self.kind
+    }
+
+    /// Returns whether this token is the end-of-file marker.
+    pub const fn is_end_of_file(&self) -> bool {
+        matches!(self.kind, SyntaxKind::EndOfFileToken)
     }
 
     /// Returns the token source byte range, excluding trivia.
@@ -102,9 +98,12 @@ impl SyntaxToken {
         self.range.end()
     }
 
-    /// Returns the exact token text, excluding trivia.
-    pub fn text(&self) -> &str {
-        self.text.as_ref()
+    /// Returns the exact token text from `source_text`, excluding trivia.
+    ///
+    /// Returns `None` when the token range is outside `source_text` or does not
+    /// align with UTF-8 scalar boundaries.
+    pub fn text<'source>(&self, source_text: &'source str) -> Option<&'source str> {
+        self.range.slice_str(source_text)
     }
 
     /// Returns the leading trivia attached to this token.
@@ -130,31 +129,36 @@ impl SyntaxToken {
         }
     }
 
-    /// Appends this token's leading trivia, text, and trailing trivia to `writer`.
-    pub fn write_full_text(&self, writer: &mut impl Write) -> fmt::Result {
-        for part in self.full_text_parts() {
-            writer.write_str(part)?;
+    /// Appends this token's leading trivia, token text, and trailing trivia.
+    ///
+    /// Panics when `source_text` does not contain the token or trivia ranges.
+    pub fn write_full_text(&self, source_text: &str, writer: &mut dyn Write) -> fmt::Result {
+        for trivia in self.leading_trivia() {
+            writer.write_str(required_text(source_text, trivia.range()))?;
+        }
+
+        writer.write_str(required_text(source_text, self.range()))?;
+
+        for trivia in self.trailing_trivia() {
+            writer.write_str(required_text(source_text, trivia.range()))?;
         }
 
         Ok(())
     }
 
-    /// Returns this token's leading trivia, text, and trailing trivia.
-    pub fn full_text(&self) -> String {
-        self.full_text_parts().collect()
-    }
-
-    fn full_text_parts(&self) -> impl Iterator<Item = &str> {
-        self.leading_trivia()
-            .iter()
-            .map(SyntaxTrivia::text)
-            .chain(std::iter::once(self.text()))
-            .chain(self.trailing_trivia().iter().map(SyntaxTrivia::text))
+    /// Returns this token's leading trivia, token text, and trailing trivia.
+    ///
+    /// Panics when `source_text` does not contain the token or trivia ranges.
+    pub fn full_text(&self, source_text: &str) -> String {
+        text_from_writer(|writer| self.write_full_text(source_text, writer))
     }
 }
 
-fn shared_trivia(trivia: impl Into<Vec<SyntaxTrivia>>) -> Arc<[SyntaxTrivia]> {
-    Arc::<[SyntaxTrivia]>::from(trivia.into())
+fn required_text(source_text: &str, range: TextRange) -> &str {
+    match range.slice_str(source_text) {
+        Some(text) => text,
+        None => panic!("syntax range is not covered by source text"),
+    }
 }
 
 #[cfg(test)]
@@ -165,17 +169,15 @@ mod tests {
     use crate::{SyntaxKind, SyntaxTrivia};
 
     #[test]
-    fn tokens_carry_kind_range_text_and_trivia() {
-        let leading =
-            SyntaxTrivia::whitespace(TextRange::new(TextSize::ZERO, TextSize::new(1)), " ");
+    fn tokens_carry_kind_range_and_trivia() {
+        let source_text = " func\n";
+        let leading = SyntaxTrivia::whitespace(TextRange::new(TextSize::ZERO, TextSize::new(1)));
 
-        let trailing =
-            SyntaxTrivia::whitespace(TextRange::new(TextSize::new(5), TextSize::new(6)), "\n");
+        let trailing = SyntaxTrivia::whitespace(TextRange::new(TextSize::new(5), TextSize::new(6)));
 
         let token = SyntaxToken::with_trivia(
             SyntaxKind::FuncKeyword,
             TextRange::new(TextSize::new(1), TextSize::new(5)),
-            "func",
             [leading.clone()],
             [trailing.clone()],
         );
@@ -190,8 +192,7 @@ mod tests {
         assert_eq!(token.start(), TextSize::new(1));
         assert_eq!(token.end(), TextSize::new(5));
 
-        assert_eq!(token.text(), "func");
-
+        assert_eq!(token.text(source_text), Some("func"));
         assert_eq!(token.leading_trivia(), &[leading]);
         assert_eq!(token.trailing_trivia(), &[trailing]);
 
@@ -206,48 +207,48 @@ mod tests {
         let token = SyntaxToken::end_of_file(TextSize::new(8));
 
         assert_eq!(token.kind(), SyntaxKind::EndOfFileToken);
+        assert!(token.is_end_of_file());
         assert_eq!(token.range(), TextRange::empty(TextSize::new(8)));
-        assert_eq!(token.text(), "");
-        assert_eq!(token.full_text(), "");
+        assert_eq!(token.text("abcdefgh"), Some(""));
+        assert_eq!(token.full_text("abcdefgh"), "");
     }
 
     #[test]
     fn invalid_tokens_use_invalid_kind() {
-        let token = SyntaxToken::invalid(TextRange::new(TextSize::new(2), TextSize::new(5)), "???");
+        let token = SyntaxToken::invalid(TextRange::new(TextSize::new(2), TextSize::new(5)));
 
         assert_eq!(token.kind(), SyntaxKind::InvalidToken);
-        assert_eq!(token.text(), "???");
+        assert_eq!(token.text("?????"), Some("???"));
     }
 
     #[test]
-    fn tokens_reconstruct_lossless_text_with_trivia() {
-        let leading =
-            SyntaxTrivia::line_comment(TextRange::new(TextSize::ZERO, TextSize::new(7)), "// docs");
+    fn tokens_reconstruct_exact_source_text_with_trivia() {
+        let source_text = "// docs\nmain ";
+        let leading = SyntaxTrivia::line_comment(TextRange::new(TextSize::ZERO, TextSize::new(7)));
 
         let separator =
-            SyntaxTrivia::whitespace(TextRange::new(TextSize::new(7), TextSize::new(8)), "\n");
+            SyntaxTrivia::whitespace(TextRange::new(TextSize::new(7), TextSize::new(8)));
 
         let token = SyntaxToken::new(
             SyntaxKind::IdentifierToken,
             TextRange::new(TextSize::new(8), TextSize::new(12)),
-            "main",
         )
         .with_leading_trivia([leading, separator])
-        .with_trailing_trivia([SyntaxTrivia::whitespace(
-            TextRange::new(TextSize::new(12), TextSize::new(13)),
-            " ",
-        )]);
+        .with_trailing_trivia([SyntaxTrivia::whitespace(TextRange::new(
+            TextSize::new(12),
+            TextSize::new(13),
+        ))]);
 
-        assert_eq!(token.full_text(), "// docs\nmain ");
+        assert_eq!(token.full_text(source_text), source_text);
 
         let mut written_text = String::new();
 
-        match token.write_full_text(&mut written_text) {
+        match token.write_full_text(source_text, &mut written_text) {
             Ok(()) => {}
             Err(error) => panic!("writing token text should succeed: {error:?}"),
         }
 
-        assert_eq!(written_text, "// docs\nmain ");
+        assert_eq!(written_text, source_text);
     }
 
     #[test]
@@ -258,17 +259,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn tokens_reject_non_token_kinds() {
-        let _ = SyntaxToken::new(SyntaxKind::SourceUnit, TextRange::EMPTY, "");
-    }
-
-    #[test]
-    #[should_panic]
-    fn tokens_reject_text_that_does_not_match_range_length() {
-        let _ = SyntaxToken::new(
-            SyntaxKind::IdentifierToken,
-            TextRange::new(TextSize::ZERO, TextSize::new(2)),
-            "abc",
-        );
+        let _ = SyntaxToken::new(SyntaxKind::SourceUnit, TextRange::EMPTY);
     }
 
     fn assert_send_sync<T: Send + Sync>() {}

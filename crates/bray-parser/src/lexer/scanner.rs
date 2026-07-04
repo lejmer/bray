@@ -97,7 +97,7 @@ fn scan_normal_token(snapshot: &SourceSnapshot, start: TextSize) -> TokenScan {
     }
 
     if let Some(kind) = delimiter_or_separator_kind(character) {
-        return TokenScan::clean(make_scalar_token(snapshot, kind, start, character));
+        return TokenScan::clean(make_scalar_token(kind, start, character));
     }
 
     if is_operator_cluster_character(character) {
@@ -132,7 +132,7 @@ fn scan_identifier_or_keyword(snapshot: &SourceSnapshot, start: TextSize) -> Tok
             let text = token_text(snapshot, TextRange::new(start, end));
             let kind = keyword_kind(text).unwrap_or(SyntaxKind::IdentifierToken);
 
-            TokenScan::clean(make_token(snapshot, kind, start, end))
+            TokenScan::clean(make_token(kind, start, end))
         }
         IdentifierScanEnd::Invalid(end) => scan_invalid_identifier_like_token(snapshot, start, end),
     }
@@ -151,12 +151,7 @@ fn scan_underscore_or_invalid_identifier(snapshot: &SourceSnapshot, start: TextS
 
             scan_invalid_identifier_like_token(snapshot, start, end)
         }
-        _ => TokenScan::clean(make_token(
-            snapshot,
-            SyntaxKind::UnderscoreToken,
-            start,
-            end,
-        )),
+        _ => TokenScan::clean(make_token(SyntaxKind::UnderscoreToken, start, end)),
     }
 }
 
@@ -165,10 +160,10 @@ fn scan_operator_or_punctuation_token(snapshot: &SourceSnapshot, start: TextSize
     let text = token_text(snapshot, TextRange::new(start, end));
 
     match operator_or_punctuation_kind(text) {
-        Some(kind) => TokenScan::clean(make_token(snapshot, kind, start, end)),
+        Some(kind) => TokenScan::clean(make_token(kind, start, end)),
         None => {
             let range = TextRange::new(start, end);
-            let token = make_token(snapshot, SyntaxKind::InvalidToken, start, end);
+            let token = make_token(SyntaxKind::InvalidToken, start, end);
 
             TokenScan::with_diagnostic(
                 token,
@@ -184,7 +179,7 @@ fn scan_invalid_identifier_like_token(
     end: TextSize,
 ) -> TokenScan {
     let range = TextRange::new(start, end);
-    let token = make_token(snapshot, SyntaxKind::InvalidToken, start, end);
+    let token = make_token(SyntaxKind::InvalidToken, start, end);
 
     match first_non_ascii_identifier_character(snapshot, start, end) {
         Some(character) => TokenScan::with_diagnostic(
@@ -201,7 +196,7 @@ fn scan_invalid_scalar_token(snapshot: &SourceSnapshot, start: TextSize) -> Toke
         None => return TokenScan::clean(SyntaxToken::end_of_file(start)),
     };
 
-    let token = make_scalar_token(snapshot, SyntaxKind::InvalidToken, start, character);
+    let token = make_scalar_token(SyntaxKind::InvalidToken, start, character);
     let range = token.range();
     let diagnostic = match character {
         '\u{feff}' => diagnostic::misplaced_bom(snapshot, range),

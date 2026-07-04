@@ -1,61 +1,50 @@
-use std::sync::Arc;
-
-use bray_base::shared_str;
 use bray_source::{TextRange, TextSize};
 
 use crate::SyntaxKind;
-use crate::text::assert_text_len_matches_range;
 
-/// Lossless trivia attached to a syntax token.
+/// Trivia attached to a syntax token.
 ///
-/// Trivia stores whitespace and comments. It is not represented as ordinary
-/// syntax nodes, but it is retained so syntax token streams can recreate source
-/// text exactly.
+/// Trivia stores a kind and source byte range. Text is resolved from immutable
+/// source text by range, avoiding duplicated whitespace and comment spelling.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct SyntaxTrivia {
     kind: SyntaxKind,
     range: TextRange,
-    text: Arc<str>,
 }
 
 impl SyntaxTrivia {
     /// Creates trivia of a trivia syntax kind.
     ///
-    /// Panics when `kind` is not a trivia kind or when `text` does not cover
-    /// exactly the same byte length as `range`.
-    pub fn new(kind: SyntaxKind, range: TextRange, text: impl Into<Arc<str>>) -> Self {
+    /// Panics when `kind` is not a trivia kind.
+    pub fn new(kind: SyntaxKind, range: TextRange) -> Self {
         assert!(kind.is_trivia());
 
-        let text = shared_str(text);
-
-        assert_text_len_matches_range(text.as_ref(), range);
-
-        Self { kind, range, text }
+        Self { kind, range }
     }
 
     /// Creates whitespace trivia.
-    pub fn whitespace(range: TextRange, text: impl Into<Arc<str>>) -> Self {
-        Self::new(SyntaxKind::WhitespaceTrivia, range, text)
+    pub fn whitespace(range: TextRange) -> Self {
+        Self::new(SyntaxKind::WhitespaceTrivia, range)
     }
 
     /// Creates line comment trivia.
-    pub fn line_comment(range: TextRange, text: impl Into<Arc<str>>) -> Self {
-        Self::new(SyntaxKind::LineCommentTrivia, range, text)
+    pub fn line_comment(range: TextRange) -> Self {
+        Self::new(SyntaxKind::LineCommentTrivia, range)
     }
 
     /// Creates block comment trivia.
-    pub fn block_comment(range: TextRange, text: impl Into<Arc<str>>) -> Self {
-        Self::new(SyntaxKind::BlockCommentTrivia, range, text)
+    pub fn block_comment(range: TextRange) -> Self {
+        Self::new(SyntaxKind::BlockCommentTrivia, range)
     }
 
     /// Creates line documentation comment trivia.
-    pub fn documentation_line_comment(range: TextRange, text: impl Into<Arc<str>>) -> Self {
-        Self::new(SyntaxKind::DocumentationLineCommentTrivia, range, text)
+    pub fn documentation_line_comment(range: TextRange) -> Self {
+        Self::new(SyntaxKind::DocumentationLineCommentTrivia, range)
     }
 
     /// Creates block documentation comment trivia.
-    pub fn documentation_block_comment(range: TextRange, text: impl Into<Arc<str>>) -> Self {
-        Self::new(SyntaxKind::DocumentationBlockCommentTrivia, range, text)
+    pub fn documentation_block_comment(range: TextRange) -> Self {
+        Self::new(SyntaxKind::DocumentationBlockCommentTrivia, range)
     }
 
     /// Returns the trivia kind.
@@ -78,9 +67,12 @@ impl SyntaxTrivia {
         self.range.end()
     }
 
-    /// Returns the exact trivia text.
-    pub fn text(&self) -> &str {
-        self.text.as_ref()
+    /// Returns the exact trivia text from `source_text`.
+    ///
+    /// Returns `None` when the trivia range is outside `source_text` or does
+    /// not align with UTF-8 scalar boundaries.
+    pub fn text<'source>(&self, source_text: &'source str) -> Option<&'source str> {
+        self.range.slice_str(source_text)
     }
 }
 
@@ -92,28 +84,29 @@ mod tests {
     use crate::SyntaxKind;
 
     #[test]
-    fn trivia_carries_kind_range_and_text() {
+    fn trivia_carries_kind_and_range() {
+        let source_text = "abc\t ";
         let range = TextRange::new(TextSize::new(3), TextSize::new(5));
-        let trivia = SyntaxTrivia::whitespace(range, "\t ");
+        let trivia = SyntaxTrivia::whitespace(range);
 
         assert_eq!(trivia.kind(), SyntaxKind::WhitespaceTrivia);
         assert_eq!(trivia.range(), range);
         assert_eq!(trivia.start(), TextSize::new(3));
         assert_eq!(trivia.end(), TextSize::new(5));
-        assert_eq!(trivia.text(), "\t ");
+        assert_eq!(trivia.text(source_text), Some("\t "));
     }
 
     #[test]
     fn documentation_comment_trivia_has_distinct_kinds() {
-        let line = SyntaxTrivia::documentation_line_comment(
-            TextRange::new(TextSize::new(0), TextSize::new(8)),
-            "/// docs",
-        );
+        let line = SyntaxTrivia::documentation_line_comment(TextRange::new(
+            TextSize::new(0),
+            TextSize::new(8),
+        ));
 
-        let block = SyntaxTrivia::documentation_block_comment(
-            TextRange::new(TextSize::new(9), TextSize::new(20)),
-            "/** docs */",
-        );
+        let block = SyntaxTrivia::documentation_block_comment(TextRange::new(
+            TextSize::new(9),
+            TextSize::new(20),
+        ));
 
         assert_eq!(line.kind(), SyntaxKind::DocumentationLineCommentTrivia);
         assert_eq!(block.kind(), SyntaxKind::DocumentationBlockCommentTrivia);
@@ -127,13 +120,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn trivia_rejects_non_trivia_kinds() {
-        let _ = SyntaxTrivia::new(SyntaxKind::IdentifierToken, TextRange::EMPTY, "");
-    }
-
-    #[test]
-    #[should_panic]
-    fn trivia_rejects_text_that_does_not_match_range_length() {
-        let _ = SyntaxTrivia::whitespace(TextRange::new(TextSize::ZERO, TextSize::new(3)), " ");
+        let _ = SyntaxTrivia::new(SyntaxKind::IdentifierToken, TextRange::EMPTY);
     }
 
     fn assert_send_sync<T: Send + Sync>() {}

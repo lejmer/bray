@@ -1,30 +1,12 @@
 use bray_source::{SourceSnapshot, TextRange, TextSize};
 use bray_syntax::{SyntaxKind, SyntaxToken};
 
-pub(super) fn make_token(
-    snapshot: &SourceSnapshot,
-    kind: SyntaxKind,
-    start: TextSize,
-    end: TextSize,
-) -> SyntaxToken {
-    let range = TextRange::new(start, end);
-    let text = token_text(snapshot, range);
-
-    SyntaxToken::new(kind, range, text)
+pub(super) fn make_token(kind: SyntaxKind, start: TextSize, end: TextSize) -> SyntaxToken {
+    SyntaxToken::new(kind, TextRange::new(start, end))
 }
 
-pub(super) fn make_scalar_token(
-    snapshot: &SourceSnapshot,
-    kind: SyntaxKind,
-    start: TextSize,
-    character: char,
-) -> SyntaxToken {
-    make_token(
-        snapshot,
-        kind,
-        start,
-        offset_after_character(start, character),
-    )
+pub(super) fn make_scalar_token(kind: SyntaxKind, start: TextSize, character: char) -> SyntaxToken {
+    make_token(kind, start, offset_after_character(start, character))
 }
 
 pub(super) fn token_text(snapshot: &SourceSnapshot, range: TextRange) -> &str {

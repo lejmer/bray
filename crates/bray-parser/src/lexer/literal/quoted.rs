@@ -23,7 +23,6 @@ pub(in crate::lexer) fn scan_character_literal(
 
     match snapshot.bytes().get(body).copied() {
         Some(b'\'') => TokenScan::clean(make_token(
-            snapshot,
             SyntaxKind::CharacterLiteralToken,
             start,
             text_size_from_usize(body + 1),
@@ -50,7 +49,6 @@ pub(in crate::lexer) fn scan_string_literal(
         match bytes.get(index).copied() {
             Some(b'"') => {
                 return TokenScan::clean(make_token(
-                    snapshot,
                     SyntaxKind::StringLiteralToken,
                     start,
                     text_size_from_usize(index + 1),
@@ -258,7 +256,7 @@ fn make_invalid_character_literal_token(
 ) -> TokenScan {
     let end = quoted_literal_recovery_end(snapshot, start, b'\'');
     let range = TextRange::new(start, end);
-    let token = make_token(snapshot, SyntaxKind::InvalidToken, start, end);
+    let token = make_token(SyntaxKind::InvalidToken, start, end);
 
     let diagnostic = match error {
         CharacterLiteralError::InvalidUnicodeEscape => {
@@ -285,7 +283,7 @@ fn make_invalid_string_literal_token(
 ) -> TokenScan {
     let end = quoted_literal_recovery_end(snapshot, start, b'"');
     let range = TextRange::new(start, end);
-    let token = make_token(snapshot, SyntaxKind::InvalidToken, start, end);
+    let token = make_token(SyntaxKind::InvalidToken, start, end);
 
     let diagnostic = match error {
         StringLiteralError::InvalidUnicodeEscape => {

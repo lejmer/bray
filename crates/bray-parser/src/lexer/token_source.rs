@@ -1,6 +1,6 @@
 use bray_diagnostics::DiagnosticBag;
 use bray_source::{SourceSnapshot, TextSize};
-use bray_syntax::{SyntaxKind, SyntaxToken};
+use bray_syntax::SyntaxToken;
 
 use super::scanner::{LexerScanMode, scan_token_at};
 
@@ -249,7 +249,7 @@ impl LexerTokenSource {
 }
 
 fn is_eof(token: &SyntaxToken) -> bool {
-    token.kind() == SyntaxKind::EndOfFileToken
+    token.is_end_of_file()
 }
 
 fn fill_with_eof(tokens: &mut Vec<SyntaxToken>, len: usize, offset: TextSize) {
@@ -259,7 +259,7 @@ fn fill_with_eof(tokens: &mut Vec<SyntaxToken>, len: usize, offset: TextSize) {
 }
 
 fn share_token(token: &SyntaxToken) -> SyntaxToken {
-    // SyntaxToken clones share immutable Arc-backed text and trivia storage.
+    // SyntaxToken clones copy compact range/kind data and share immutable trivia storage.
     token.clone()
 }
 
@@ -267,6 +267,7 @@ fn share_token(token: &SyntaxToken) -> SyntaxToken {
 mod tests {
     use bray_diagnostics::DiagnosticKind;
     use bray_source::{SourceId, SourceIdentity, SourceOrigin, SourceVersion};
+    use std::ops::Deref;
 
     use super::{LexerCachePolicy, LexerTokenSource};
     use bray_source::{SourceSnapshot, TextRange, TextSize};
@@ -281,7 +282,7 @@ mod tests {
         let token = source.peek();
 
         assert_eq!(token.kind(), SyntaxKind::IdentifierToken);
-        assert_eq!(token.text(), "ab");
+        assert_eq!(token_text(source.source().text(), &token), "ab");
 
         assert_eq!(
             token.range(),
@@ -302,12 +303,19 @@ mod tests {
 
         let mut source = LexerTokenSource::new(snapshot);
 
-        assert_eq!(source.lookahead(0).text(), "a");
-        assert_eq!(source.lookahead(1).text(), "b");
-        assert_eq!(source.lookahead(2).text(), "c");
+        let first = source.lookahead(0);
+        let second = source.lookahead(1);
+        let third = source.lookahead(2);
+
+        assert_eq!(token_text(source.source().text(), &first), "a");
+        assert_eq!(token_text(source.source().text(), &second), "b");
+        assert_eq!(token_text(source.source().text(), &third), "c");
 
         let window = source.lookahead_window(4);
-        let texts: Vec<&str> = window.iter().map(|token| token.text()).collect();
+        let texts: Vec<&str> = window
+            .iter()
+            .map(|token| token_text(source.source().text(), token))
+            .collect();
 
         assert_eq!(texts, ["a", "b", "c", ""]);
         assert_eq!(window[3].kind(), SyntaxKind::EndOfFileToken);
@@ -325,7 +333,7 @@ mod tests {
         let eof = source.consume();
 
         assert_eq!(invalid.kind(), SyntaxKind::InvalidToken);
-        assert_eq!(invalid.text(), "é");
+        assert_eq!(token_text(source.source().text(), &invalid), "é");
 
         assert_eq!(
             invalid.range(),
@@ -372,7 +380,10 @@ mod tests {
 
         assert_eq!(eof.kind(), SyntaxKind::EndOfFileToken);
         assert_eq!(eof.range(), TextRange::empty(TextSize::new(4)));
-        assert_eq!(trivia_texts(eof.leading_trivia()), [" \t\r\n"]);
+        assert_eq!(
+            trivia_texts(source.source().text(), eof.leading_trivia()),
+            [" \t\r\n"]
+        );
         assert_eq!(source.current_offset(), TextSize::new(4));
     }
 
@@ -397,10 +408,15 @@ mod tests {
             LexerTokenSource::with_cache_policy(snapshot, LexerCachePolicy::DoNotCacheTokens);
 
         assert_eq!(source.cache_policy(), LexerCachePolicy::DoNotCacheTokens);
-        assert_eq!(source.peek().text(), "a");
-        assert_eq!(source.lookahead(1).text(), "b");
-        assert_eq!(source.consume().text(), "a");
-        assert_eq!(source.consume().text(), "b");
+        let peeked = source.peek();
+        let lookahead = source.lookahead(1);
+        let first = source.consume();
+        let second = source.consume();
+
+        assert_eq!(token_text(source.source().text(), &peeked), "a");
+        assert_eq!(token_text(source.source().text(), &lookahead), "b");
+        assert_eq!(token_text(source.source().text(), &first), "a");
+        assert_eq!(token_text(source.source().text(), &second), "b");
         assert_eq!(source.consume().kind(), SyntaxKind::EndOfFileToken);
     }
 
@@ -414,9 +430,12 @@ mod tests {
         let cached_ordinary_next = source.lookahead(0);
         let tuple_index = source.consume_tuple_element_index_after_dot();
 
-        assert_eq!(dot.text(), ".");
+        assert_eq!(token_text(source.source().text(), &dot), ".");
         assert_eq!(dot.kind(), SyntaxKind::DotToken);
-        assert_eq!(cached_ordinary_next.text(), "1");
+        assert_eq!(
+            token_text(source.source().text(), &cached_ordinary_next),
+            "1"
+        );
 
         assert_eq!(
             cached_ordinary_next.kind(),
@@ -424,7 +443,7 @@ mod tests {
         );
 
         assert_eq!(tuple_index.kind(), SyntaxKind::TupleElementIndexToken);
-        assert_eq!(tuple_index.text(), "1");
+        assert_eq!(token_text(source.source().text(), &tuple_index), "1");
 
         assert_eq!(
             tuple_index.range(),
@@ -845,7 +864,7 @@ mod tests {
         let token = source.consume_tuple_element_index_after_dot();
 
         assert_eq!(token.kind(), SyntaxKind::InvalidToken);
-        assert_eq!(token.text(), "01");
+        assert_eq!(token_text(source.source().text(), &token), "01");
     }
 
     #[test]
@@ -856,7 +875,10 @@ mod tests {
         let main_identifier = source.consume();
 
         assert_eq!(function_keyword.kind(), SyntaxKind::FuncKeyword);
-        assert_eq!(function_keyword.text(), "func");
+        assert_eq!(
+            token_text(source.source().text(), &function_keyword),
+            "func"
+        );
 
         assert_eq!(
             function_keyword.range(),
@@ -868,7 +890,10 @@ mod tests {
             [SyntaxKind::WhitespaceTrivia]
         );
 
-        assert_eq!(trivia_texts(function_keyword.leading_trivia()), ["  "]);
+        assert_eq!(
+            trivia_texts(source.source().text(), function_keyword.leading_trivia()),
+            ["  "]
+        );
 
         assert_eq!(
             trivia_kinds(function_keyword.trailing_trivia()),
@@ -880,19 +905,22 @@ mod tests {
         );
 
         assert_eq!(
-            trivia_texts(function_keyword.trailing_trivia()),
+            trivia_texts(source.source().text(), function_keyword.trailing_trivia()),
             [" ", "// hi", "\r\n"]
         );
 
         assert_eq!(main_identifier.kind(), SyntaxKind::IdentifierToken);
-        assert_eq!(main_identifier.text(), "main");
+        assert_eq!(token_text(source.source().text(), &main_identifier), "main");
 
         assert_eq!(
             trivia_kinds(main_identifier.leading_trivia()),
             [SyntaxKind::WhitespaceTrivia]
         );
 
-        assert_eq!(trivia_texts(main_identifier.leading_trivia()), ["  "]);
+        assert_eq!(
+            trivia_texts(source.source().text(), main_identifier.leading_trivia()),
+            ["  "]
+        );
         assert!(main_identifier.trailing_trivia().is_empty());
     }
 
@@ -904,7 +932,10 @@ mod tests {
         let eof = source.consume();
 
         assert_eq!(function_keyword.kind(), SyntaxKind::FuncKeyword);
-        assert_eq!(trivia_texts(function_keyword.trailing_trivia()), ["\n"]);
+        assert_eq!(
+            trivia_texts(source.source().text(), function_keyword.trailing_trivia()),
+            ["\n"]
+        );
         assert_eq!(eof.kind(), SyntaxKind::EndOfFileToken);
         assert_eq!(eof.range(), TextRange::empty(TextSize::new(15)));
 
@@ -913,7 +944,10 @@ mod tests {
             [SyntaxKind::LineCommentTrivia, SyntaxKind::WhitespaceTrivia,]
         );
 
-        assert_eq!(trivia_texts(eof.leading_trivia()), ["// final", "\r\n"]);
+        assert_eq!(
+            trivia_texts(source.source().text(), eof.leading_trivia()),
+            ["// final", "\r\n"]
+        );
         assert!(eof.trailing_trivia().is_empty());
     }
 
@@ -941,7 +975,7 @@ mod tests {
         );
 
         assert_eq!(
-            trivia_texts(value.leading_trivia()),
+            trivia_texts(tokens.source_text(), value.leading_trivia()),
             [
                 "/// line",
                 "\n",
@@ -957,7 +991,10 @@ mod tests {
     fn token_stream_reconstructs_source_text_with_trivia() {
         let text = "  func // hi\r\n/** docs */\nvalue /* tail */\n// eof\n";
         let tokens = token_stream(text);
-        let reconstructed: String = tokens.iter().map(SyntaxToken::full_text).collect();
+        let reconstructed: String = tokens
+            .iter()
+            .map(|token| token.full_text(tokens.source_text()))
+            .collect();
 
         assert_eq!(reconstructed, text);
     }
@@ -969,8 +1006,28 @@ mod tests {
 
     fn assert_send_sync<T: Send + Sync>() {}
 
-    fn token_stream(text: &str) -> Vec<SyntaxToken> {
-        let mut source = LexerTokenSource::new(snapshot(text));
+    struct TokenStream {
+        snapshot: SourceSnapshot,
+        tokens: Vec<SyntaxToken>,
+    }
+
+    impl TokenStream {
+        fn source_text(&self) -> &str {
+            self.snapshot.text()
+        }
+    }
+
+    impl Deref for TokenStream {
+        type Target = [SyntaxToken];
+
+        fn deref(&self) -> &Self::Target {
+            &self.tokens
+        }
+    }
+
+    fn token_stream(text: &str) -> TokenStream {
+        let snapshot = snapshot(text);
+        let mut source = LexerTokenSource::new(snapshot.clone());
         let mut tokens = Vec::new();
 
         loop {
@@ -980,7 +1037,7 @@ mod tests {
             tokens.push(token);
 
             if is_eof {
-                return tokens;
+                return TokenStream { snapshot, tokens };
             }
         }
     }
@@ -989,8 +1046,11 @@ mod tests {
         tokens.iter().map(SyntaxToken::kind).collect()
     }
 
-    fn token_texts(tokens: &[SyntaxToken]) -> Vec<&str> {
-        tokens.iter().map(SyntaxToken::text).collect()
+    fn token_texts(tokens: &TokenStream) -> Vec<&str> {
+        tokens
+            .iter()
+            .map(|token| token_text(tokens.source_text(), token))
+            .collect()
     }
 
     fn diagnostic_kinds(source: &LexerTokenSource) -> Vec<DiagnosticKind> {
@@ -1005,8 +1065,24 @@ mod tests {
         trivia.iter().map(SyntaxTrivia::kind).collect()
     }
 
-    fn trivia_texts(trivia: &[SyntaxTrivia]) -> Vec<&str> {
-        trivia.iter().map(SyntaxTrivia::text).collect()
+    fn trivia_texts<'source>(
+        source_text: &'source str,
+        trivia: &[SyntaxTrivia],
+    ) -> Vec<&'source str> {
+        trivia
+            .iter()
+            .map(|trivia| match trivia.text(source_text) {
+                Some(text) => text,
+                None => panic!("test trivia range should resolve into source text"),
+            })
+            .collect()
+    }
+
+    fn token_text<'source>(source_text: &'source str, token: &SyntaxToken) -> &'source str {
+        match token.text(source_text) {
+            Some(text) => text,
+            None => panic!("test token range should resolve into source text"),
+        }
     }
 
     fn consumed_source(text: &str) -> LexerTokenSource {
