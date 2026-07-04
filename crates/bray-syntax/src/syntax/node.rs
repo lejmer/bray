@@ -2,7 +2,7 @@ use std::fmt::{self, Write};
 
 use bray_source::TextRange;
 
-use super::{SyntaxElements, text_from_writer};
+use super::text_from_writer;
 use crate::SyntaxKind;
 
 /// Common contract implemented by typed syntax tree nodes.
@@ -16,15 +16,10 @@ pub trait SyntaxNode: Send + Sync {
 
 /// Common contract for syntax nodes contained in one source snapshot.
 pub trait SourceSyntaxNode: SyntaxNode {
-    /// Returns this node's ordered syntax elements.
-    fn elements(&self) -> &SyntaxElements;
-
     /// Appends this node's exact source text using the owning source text.
     ///
     /// Panics when `source_text` does not contain the node's element ranges.
-    fn write_full_text_from(&self, source_text: &str, writer: &mut dyn Write) -> fmt::Result {
-        self.elements().write_source_text(source_text, writer)
-    }
+    fn write_full_text_from(&self, source_text: &str, writer: &mut dyn Write) -> fmt::Result;
 
     /// Returns this node's exact source text using the owning source text.
     ///

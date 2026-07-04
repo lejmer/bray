@@ -131,7 +131,7 @@ impl DiagnosticBag {
 
         for diagnostic in diagnostics {
             if seen.insert(diagnostic.duplicate_key()) {
-                // Merged bags own their diagnostics; source bags remain unchanged.
+                // Merged bags own their diagnostics. Source bags remain unchanged.
                 merged.push(diagnostic.clone());
             }
         }

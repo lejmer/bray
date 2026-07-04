@@ -16,7 +16,11 @@ impl SyntaxTree {
 
     /// Creates a syntax tree from source-unit child nodes.
     pub fn compilation_unit(source_units: impl IntoIterator<Item = SourceUnitSyntax>) -> Self {
-        Self::new(CompilationUnitSyntax::new(source_units))
+        let root = CompilationUnitSyntax::builder()
+            .source_units(source_units)
+            .build();
+
+        Self::new(root)
     }
 
     /// Returns the root compilation-unit node.
@@ -46,10 +50,11 @@ mod tests {
 
     #[test]
     fn syntax_trees_store_a_compilation_unit_root() {
-        let tree = SyntaxTree::compilation_unit([SourceUnitSyntax::new(
-            snapshot(""),
-            [SyntaxToken::end_of_file(bray_source::TextSize::ZERO)],
-        )]);
+        let source_unit = SourceUnitSyntax::builder(snapshot(""))
+            .tokens([SyntaxToken::end_of_file(bray_source::TextSize::ZERO)])
+            .build();
+
+        let tree = SyntaxTree::compilation_unit([source_unit]);
 
         assert_eq!(tree.root().kind(), SyntaxKind::CompilationUnit);
         assert_eq!(tree.source_units().len(), 1);
