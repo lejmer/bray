@@ -37,43 +37,43 @@ impl DiagnosticNote {
 /// Stable category for a diagnostic note.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum DiagnosticNoteKind {
-    /// Note explaining that a source file must be readable before compilation.
+    /// Source file readability requirement.
     SourceFileMustBeReadable,
-    /// Note explaining that source inputs must be valid UTF-8.
+    /// Source UTF-8 requirement.
     SourceMustBeUtf8,
-    /// Note explaining that source IDs use a compact representation.
+    /// Source ID compactness limit.
     SourceIdsAreCompact,
-    /// Note explaining that source text offsets use a compact representation.
+    /// Source text offset compactness limit.
     SourceTextOffsetsAreCompact,
-    /// Note explaining that at least one source input is required.
+    /// Required source input.
     SourceInputRequired,
-    /// Note explaining that CLI source inputs need stable source identities.
+    /// Stable source identity requirement.
     SourceInputNeedsStableIdentity,
-    /// Note explaining that worker budgets must be positive.
+    /// Positive worker budget requirement.
     WorkerBudgetMustBePositive,
-    /// Note explaining that a character is not accepted by the lexer.
+    /// Character rejected by the lexer.
     CharacterNotAccepted,
-    /// Note explaining that a byte order mark is accepted only at source start.
+    /// Byte order mark placement rule.
     BomOnlyAllowedAtStart,
-    /// Note explaining that accepted line breaks are LF and CRLF.
+    /// Accepted line break spellings.
     LineBreaksMustBeLfOrCrlf,
-    /// Note explaining that identifiers are ASCII.
+    /// Identifier character set rule.
     IdentifiersMustBeAscii,
-    /// Note explaining that identifiers have a constrained spelling.
+    /// Identifier spelling rule.
     IdentifierSpellingMustBeValid,
-    /// Note explaining that only the imaginary suffix is accepted.
+    /// Numeric suffix rule.
     OnlyImaginaryNumericSuffix,
-    /// Note explaining that a character literal contains one scalar value.
+    /// Character literal scalar count rule.
     CharacterLiteralMustContainOneScalar,
-    /// Note explaining that a character literal needs a closing quote.
+    /// Character literal terminator rule.
     CharacterLiteralNeedsTerminator,
-    /// Note explaining that a string literal needs a closing quote.
+    /// String literal terminator rule.
     StringLiteralNeedsTerminator,
-    /// Note explaining that escape sequences must be known.
+    /// Escape sequence spelling rule.
     EscapeMustBeKnown,
-    /// Note explaining that Unicode escapes must denote scalar values.
+    /// Unicode escape scalar value rule.
     UnicodeEscapeMustBeScalar,
-    /// Note explaining that a block comment needs a closing terminator.
+    /// Block comment terminator rule.
     BlockCommentNeedsTerminator,
 }
 

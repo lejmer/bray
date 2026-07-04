@@ -7,7 +7,9 @@ rust-version.workspace = true
 
 [dependencies]
 bray-diagnostics = { path = "../bray-diagnostics" }
+bray-parser = { path = "../bray-parser" }
 bray-source = { path = "../bray-source" }
+bray-syntax = { path = "../bray-syntax" }
 
 [lints]
 workspace = true

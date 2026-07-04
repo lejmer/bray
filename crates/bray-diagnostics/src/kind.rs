@@ -1,7 +1,8 @@
-/// Stable category for a compiler diagnostic.
+use crate::code::DiagnosticCode;
+
+/// Locale-neutral category for a compiler diagnostic.
 ///
-/// The kind is locale-neutral and survives wording changes in rendered
-/// diagnostics. Variants are grouped by owning phase.
+/// Variants are grouped by owning phase.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum DiagnosticKind {
     /// A requested source file could not be read.
@@ -49,7 +50,36 @@ pub enum DiagnosticKind {
 }
 
 impl DiagnosticKind {
-    /// Returns the stable machine key for this diagnostic category.
+    /// Returns the numeric code for this diagnostic category.
+    pub const fn code(self) -> DiagnosticCode {
+        let raw = match self {
+            Self::SourceFileReadFailed => 1001,
+            Self::SourceInvalidUtf8 => 1002,
+            Self::SourceTooManyInputs => 1003,
+            Self::SourceTextTooLarge => 1004,
+            Self::RequestMissingSourceInput => 1101,
+            Self::RequestInvalidSourceInput => 1102,
+            Self::RequestInvalidWorkerBudget => 1103,
+            Self::LexicalInvalidCharacter => 2001,
+            Self::LexicalMisplacedBom => 2002,
+            Self::LexicalLoneCarriageReturn => 2003,
+            Self::LexicalNonAsciiIdentifier => 2004,
+            Self::LexicalInvalidIdentifier => 2005,
+            Self::LexicalInvalidOperatorOrPunctuation => 2006,
+            Self::LexicalMalformedNumericLiteral => 2007,
+            Self::LexicalInvalidNumericSuffix => 2008,
+            Self::LexicalMalformedCharacterLiteral => 2009,
+            Self::LexicalUnterminatedCharacterLiteral => 2010,
+            Self::LexicalUnterminatedStringLiteral => 2011,
+            Self::LexicalUnknownEscape => 2012,
+            Self::LexicalInvalidUnicodeEscape => 2013,
+            Self::LexicalUnterminatedBlockComment => 2014,
+        };
+
+        DiagnosticCode::new(raw)
+    }
+
+    /// Returns the machine key for this diagnostic category.
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::SourceFileReadFailed => "source_file_read_failed",
@@ -87,5 +117,54 @@ mod tests {
             DiagnosticKind::LexicalUnterminatedBlockComment.as_str(),
             "lexical_unterminated_block_comment"
         );
+    }
+
+    #[test]
+    fn diagnostic_kinds_expose_stable_numeric_codes() {
+        assert_eq!(DiagnosticKind::SourceInvalidUtf8.code().raw(), 1002);
+        assert_eq!(
+            DiagnosticKind::LexicalUnterminatedBlockComment.code().raw(),
+            2014
+        );
+    }
+
+    #[test]
+    fn diagnostic_kind_codes_are_unique() {
+        let mut codes = Vec::new();
+
+        for kind in all_diagnostic_kinds() {
+            assert!(
+                !codes.contains(&kind.code()),
+                "duplicate diagnostic code for {kind:?}"
+            );
+
+            codes.push(kind.code());
+        }
+    }
+
+    fn all_diagnostic_kinds() -> [DiagnosticKind; 21] {
+        [
+            DiagnosticKind::SourceFileReadFailed,
+            DiagnosticKind::SourceInvalidUtf8,
+            DiagnosticKind::SourceTooManyInputs,
+            DiagnosticKind::SourceTextTooLarge,
+            DiagnosticKind::RequestMissingSourceInput,
+            DiagnosticKind::RequestInvalidSourceInput,
+            DiagnosticKind::RequestInvalidWorkerBudget,
+            DiagnosticKind::LexicalInvalidCharacter,
+            DiagnosticKind::LexicalMisplacedBom,
+            DiagnosticKind::LexicalLoneCarriageReturn,
+            DiagnosticKind::LexicalNonAsciiIdentifier,
+            DiagnosticKind::LexicalInvalidIdentifier,
+            DiagnosticKind::LexicalInvalidOperatorOrPunctuation,
+            DiagnosticKind::LexicalMalformedNumericLiteral,
+            DiagnosticKind::LexicalInvalidNumericSuffix,
+            DiagnosticKind::LexicalMalformedCharacterLiteral,
+            DiagnosticKind::LexicalUnterminatedCharacterLiteral,
+            DiagnosticKind::LexicalUnterminatedStringLiteral,
+            DiagnosticKind::LexicalUnknownEscape,
+            DiagnosticKind::LexicalInvalidUnicodeEscape,
+            DiagnosticKind::LexicalUnterminatedBlockComment,
+        ]
     }
 }

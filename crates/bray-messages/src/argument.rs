@@ -1,7 +1,7 @@
 use bray_diagnostics::{
     DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticIoErrorKind,
 };
-use bray_source::{SourceInputKind, SourceSpan};
+use bray_source::{SourceInputKind, SourceLocation, SourceOrigin, SourceSpan};
 
 use crate::locale::DiagnosticLocale;
 
@@ -36,6 +36,15 @@ impl ArgumentFormatter {
 pub(crate) fn format_source_span(locale: DiagnosticLocale, span: SourceSpan) -> String {
     match locale {
         DiagnosticLocale::English => format_english_source_span(span),
+    }
+}
+
+pub(crate) fn format_source_location(
+    locale: DiagnosticLocale,
+    location: SourceLocation<'_>,
+) -> String {
+    match locale {
+        DiagnosticLocale::English => format_english_source_location(location),
     }
 }
 
@@ -112,12 +121,40 @@ fn format_english_source_span(span: SourceSpan) -> String {
     )
 }
 
+fn format_english_source_location(location: SourceLocation<'_>) -> String {
+    let start = location.start();
+    let end = location.end();
+
+    format!(
+        "{}:{}:{}..{}:{}",
+        format_english_source_origin(location.source_id().raw(), location.origin()),
+        start.line(),
+        start.column(),
+        end.line(),
+        end.column()
+    )
+}
+
+fn format_english_source_origin(source_id: u32, origin: &SourceOrigin) -> String {
+    match origin {
+        SourceOrigin::File { path } => path.display().to_string(),
+        SourceOrigin::Virtual { name }
+        | SourceOrigin::Generated { name }
+        | SourceOrigin::TestFixture { name } => name.clone(),
+        SourceOrigin::LspDocument { uri } => uri.clone(),
+        SourceOrigin::Stdin => format!("source {source_id}"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use bray_diagnostics::{
         DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticIoErrorKind,
     };
-    use bray_source::{SourceId, SourceInputKind, SourceSpan, TextRange, TextSize};
+    use bray_source::{
+        LineIndex, SourceId, SourceIdentity, SourceInputKind, SourceLocation, SourceOrigin,
+        SourceSnapshot, SourceSpan, SourceVersion, TextRange, TextSize,
+    };
 
     use super::ArgumentFormatter;
     use crate::DiagnosticLocale;
@@ -178,6 +215,40 @@ mod tests {
         assert_eq!(
             formatter.format_named_arg(&args, DiagnosticArgName::WorkerCount),
             "4"
+        );
+    }
+
+    #[test]
+    fn source_locations_format_as_line_column_ranges() {
+        let snapshot = match SourceSnapshot::new(
+            SourceId::new(0),
+            SourceIdentity::new(0),
+            SourceOrigin::file("main.bray"),
+            SourceVersion::new(0),
+            "ok\n$",
+        ) {
+            Ok(snapshot) => snapshot,
+            Err(error) => panic!("test source should fit in TextSize: {error:?}"),
+        };
+
+        let line_index = match LineIndex::new(snapshot.text()) {
+            Ok(line_index) => line_index,
+            Err(error) => panic!("test source should index: {error:?}"),
+        };
+
+        let span = SourceSpan::new(
+            snapshot.source_id(),
+            TextRange::new(TextSize::new(3), TextSize::new(4)),
+        );
+
+        let location = match SourceLocation::resolve(&snapshot, &line_index, span) {
+            Some(location) => location,
+            None => panic!("test span should resolve"),
+        };
+
+        assert_eq!(
+            super::format_source_location(DiagnosticLocale::English, location),
+            "main.bray:2:1..2:2"
         );
     }
 }

@@ -25,10 +25,6 @@ impl ParseResult {
     }
 
     /// Returns diagnostics produced while parsing.
-    ///
-    /// The initial parser does not emit grammar diagnostics. This bag contains
-    /// lexical diagnostics collected from the token sources consumed by the
-    /// parser.
     pub const fn diagnostics(&self) -> &DiagnosticBag {
         &self.diagnostics
     }

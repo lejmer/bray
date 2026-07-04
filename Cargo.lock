@@ -77,7 +77,9 @@ name = "bray-compilation"
 version = "0.0.0"
 dependencies = [
  "bray-diagnostics",
+ "bray-parser",
  "bray-source",
+ "bray-syntax",
 ]
 
 [[package]]

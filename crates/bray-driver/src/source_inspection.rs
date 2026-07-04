@@ -1,9 +1,9 @@
 use bray_compilation::Compilation;
-use bray_source::{LineIndex, SourceNewlinePolicy, SourceOrigin, SourceSnapshot};
+use bray_source::{LineIndex, SourceNewlinePolicy, SourceSnapshot};
 use serde::Serialize;
 
 use crate::command::DriverOutputFormat;
-use crate::output_path::path_to_output_string;
+use crate::source_origin_output::SourceOriginOutput;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum SourceInspectionRenderError {
@@ -53,7 +53,7 @@ struct SourceInspection<'source> {
     source_id: u32,
     identity: u32,
     version: u64,
-    origin: SourceOriginInspection,
+    origin: SourceOriginOutput,
     checksum: u64,
     byte_len: u32,
     line_count: usize,
@@ -73,7 +73,7 @@ impl<'source> SourceInspection<'source> {
             source_id: snapshot.source_id().raw(),
             identity: snapshot.identity().raw(),
             version: snapshot.version().raw(),
-            origin: SourceOriginInspection::from_origin(snapshot.origin()),
+            origin: SourceOriginOutput::from_origin(snapshot.origin()),
             checksum: snapshot.checksum().raw(),
             byte_len: snapshot.text_len().bytes(),
             line_count: line_index.line_count(),
@@ -81,34 +81,6 @@ impl<'source> SourceInspection<'source> {
             newline_policy: SourceNewlinePolicy::DEFAULT.as_str(),
             text: snapshot.text(),
         })
-    }
-}
-
-#[derive(Serialize)]
-struct SourceOriginInspection {
-    kind: &'static str,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    file_path: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    virtual_name: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    generated_name: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    lsp_uri: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    test_fixture_name: Option<String>,
-}
-
-impl SourceOriginInspection {
-    fn from_origin(origin: &SourceOrigin) -> Self {
-        Self {
-            kind: origin.kind().as_str(),
-            file_path: origin.file_path().map(path_to_output_string),
-            virtual_name: origin.virtual_name().map(str::to_owned),
-            generated_name: origin.generated_name().map(str::to_owned),
-            lsp_uri: origin.lsp_uri().map(str::to_owned),
-            test_fixture_name: origin.test_fixture_name().map(str::to_owned),
-        }
     }
 }
 
@@ -152,7 +124,7 @@ fn push_text_source(output: &mut String, source: &SourceInspection) {
 
     push_indented_value(output, "identity", source.identity);
     push_indented_value(output, "version", source.version);
-    push_indented_str(output, "origin_kind", source.origin.kind);
+    push_indented_str(output, "origin_kind", source.origin.kind());
     push_text_origin_detail(output, &source.origin);
     push_indented_str(output, "checksum", &format!("0x{:016x}", source.checksum));
     push_indented_value(output, "byte_len", source.byte_len);
@@ -172,24 +144,24 @@ fn push_text_source(output: &mut String, source: &SourceInspection) {
     }
 }
 
-fn push_text_origin_detail(output: &mut String, origin: &SourceOriginInspection) {
-    if let Some(path) = &origin.file_path {
+fn push_text_origin_detail(output: &mut String, origin: &SourceOriginOutput) {
+    if let Some(path) = origin.file_path() {
         push_indented_str(output, "file_path", path);
     }
 
-    if let Some(name) = &origin.virtual_name {
+    if let Some(name) = origin.virtual_name() {
         push_indented_str(output, "virtual_name", name);
     }
 
-    if let Some(name) = &origin.generated_name {
+    if let Some(name) = origin.generated_name() {
         push_indented_str(output, "generated_name", name);
     }
 
-    if let Some(uri) = &origin.lsp_uri {
+    if let Some(uri) = origin.lsp_uri() {
         push_indented_str(output, "lsp_uri", uri);
     }
 
-    if let Some(name) = &origin.test_fixture_name {
+    if let Some(name) = origin.test_fixture_name() {
         push_indented_str(output, "test_fixture_name", name);
     }
 }
@@ -296,7 +268,7 @@ mod tests {
         let input =
             SourceInput::virtual_text(SourceIdentity::new(0), "main", SourceVersion::new(0), text);
 
-        match Compilation::from_sources(vec![input]) {
+        match Compilation::load_sources(vec![input]) {
             Ok(compilation) => compilation,
             Err(error) => panic!("test compilation should build: {error:?}"),
         }
