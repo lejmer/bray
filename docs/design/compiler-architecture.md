@@ -66,7 +66,7 @@ source text
 
 The arrows show fact dependencies, not mandatory whole-program scheduling barriers.
 
-A source file, module, declaration, function body, type body, predicate body, implementation body, or backend unit can move to the
+A source unit, module, declaration, function body, type body, predicate body, implementation body, or backend unit can move to the
 next relevant phase when its required inputs are available.
 
 The compiler should represent work as dependency-tracked tasks or queries. A task can run when its explicit inputs are available.
@@ -95,7 +95,7 @@ facts have been populated.
 
 Compiler work should be split at stable semantic boundaries:
 
-- source files,
+- source units,
 - modules,
 - declarations,
 - callable bodies,
@@ -113,8 +113,8 @@ Lexing and parsing should be demand-driven. A parser asks a token source for the
 token window. The lexer produces tokens as needed and can cache produced tokens for repeated parser access, diagnostics, and
 incremental reuse.
 
-Full-file tokenization is allowed as an implementation strategy for a source file when it is beneficial, but it is not a semantic
-phase boundary. Later compiler architecture must not require all files to be fully lexed before any parser work can start.
+Whole-source-unit tokenization is allowed as an implementation strategy when it is beneficial, but it is not a semantic phase
+boundary. Later compiler architecture must not require all source units to be fully lexed before any parser work can start.
 
 Declaration discovery can run independently for syntax trees whose module context is known.
 
@@ -161,7 +161,7 @@ respect the worker budget.
 
 ### Source
 
-The source layer owns source files, file IDs, source text, source ranges, spans, line mapping, and source-map utilities.
+The source layer owns source inputs, source IDs, source text, source ranges, spans, line mapping, and source-map utilities.
 
 The source layer does not know Bray syntax.
 
@@ -177,7 +177,7 @@ The lexer supports lazy token production for parser peek and consume operations.
 
 The lexer can cache produced tokens, trivia, and lexical diagnostics for repeated access.
 
-The lexer can also eagerly tokenize a source file when the implementation chooses to, but eager tokenization is not required by
+The lexer can also eagerly tokenize a source unit when the implementation chooses to, but eager tokenization is not required by
 later phases.
 
 The lexer does not perform parsing, name resolution, type checking, or semantic validation.
@@ -398,7 +398,7 @@ Shared data should be shared through typed IDs, typed references, immutable tabl
 
 Durable compiler representations are immutable after publication.
 
-This includes source files, syntax trees, syntax nodes, syntax tokens, symbol tables, bound nodes, checked semantic facts, IR
+This includes source inputs, syntax trees, syntax nodes, syntax tokens, symbol tables, bound nodes, checked semantic facts, IR
 nodes, emitted artifact descriptors, and diagnostic records.
 
 Mutable construction belongs inside local builders, task-local work state, or explicitly internal caches. Mutable construction
@@ -457,7 +457,7 @@ Cross-phase identity should use typed IDs.
 
 An ID answers "which exact compiler object is this?".
 
-Examples include source file IDs, syntax node IDs, syntax token IDs, symbol IDs, declaration IDs, bound node IDs, IR IDs, and
+Examples include source IDs, syntax node IDs, syntax token IDs, symbol IDs, declaration IDs, bound node IDs, IR IDs, and
 diagnostic IDs.
 
 Typed IDs should not be interchangeable raw integers.

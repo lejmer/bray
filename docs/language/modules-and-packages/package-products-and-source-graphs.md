@@ -29,11 +29,11 @@ The source graph is the selected set of source inputs for that product.
 
 The compiler checks only source inputs that are in the selected source graph.
 
-Every source input in the source graph must be a Bray source file containing module declarations.
+Every source input in the source graph must provide Bray source text containing module declarations.
 
 Module declarations define module identity.
 
-File paths and source graph order do not define module identity.
+Source origins and source graph order do not define module identity.
 
 Split module declarations are valid when all contributing source inputs are part of the same selected source graph and satisfy the
 split module rules.

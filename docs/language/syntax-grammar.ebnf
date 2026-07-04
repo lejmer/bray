@@ -12,15 +12,15 @@
 *)
 
 compilation-unit =
-    { source-file } ;
+    { source-unit } ;
 
-source-file =
-    file-module-declaration { file-item } ;
+source-unit =
+    source-module-declaration { source-item } ;
 
-file-module-declaration =
+source-module-declaration =
     module-directives module-modifiers "module" module-path ";" ;
 
-file-item =
+source-item =
       using-declaration
     | export-declaration
     | block-module-declaration

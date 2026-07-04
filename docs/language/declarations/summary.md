@@ -10,7 +10,7 @@ Type bodies, trait bodies, and implementation bodies have their own member decla
 
 Block expressions accept only local binding declarations and constant declarations.
 
-Declaration identity is separate from source file location.
+Declaration identity is separate from source unit origin.
 
 Visibility is public by default where visibility is supported.
 

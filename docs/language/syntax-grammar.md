@@ -33,30 +33,30 @@ apply to a module declaration" are semantic checks.
 
 ## Compilation unit
 
-A compilation unit is the selected Bray source files for one package product.
+A compilation unit is the selected Bray source units for one package product.
 
 ```ebnf
 compilation-unit =
-    { source-file } ;
+    { source-unit } ;
 ```
 
 ---
 
-## Source files
+## Source Units
 
-Every source file begins with one file-scoped module declaration.
+Every source unit begins with one source-scoped module declaration.
 
-The file-scoped module declaration controls the file module contribution. Later block module declarations contribute to the module
-path they name.
+The source-scoped module declaration controls the source unit's module contribution. Later block module declarations contribute to
+the module path they name.
 
 ```ebnf
-source-file =
-    file-module-declaration { file-item } ;
+source-unit =
+    source-module-declaration { source-item } ;
 
-file-module-declaration =
+source-module-declaration =
     module-directives module-modifiers "module" module-path ";" ;
 
-file-item =
+source-item =
       using-declaration
     | export-declaration
     | block-module-declaration
@@ -91,7 +91,7 @@ Block module declarations are package-level module contributions. They are not n
 
 Declarations are grouped by the source context that accepts them.
 
-Module-level declarations can appear directly in a file module contribution or in a block module body.
+Module-level declarations can appear directly in a source-scoped module contribution or in a block module body.
 
 ```ebnf
 module-level-declaration =
