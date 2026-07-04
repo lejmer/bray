@@ -72,10 +72,9 @@ fn parse_source_unit(snapshot: &SourceSnapshot) -> ParsedSourceUnit {
 #[cfg(test)]
 mod tests {
     use bray_diagnostics::DiagnosticKind;
-    use bray_source::{
-        SourceIdentity, SourceOrigin, SourceStore, SourceVersion, TextRange, TextSize,
-    };
+    use bray_source::{TextRange, TextSize};
     use bray_syntax::{SyntaxKind, SyntaxText, SyntaxToken};
+    use bray_testing::test_source_store as source_store;
 
     use super::{ParseResult, parse_compilation_unit};
 
@@ -165,33 +164,6 @@ mod tests {
         let result = parse_compilation_unit(&sources);
 
         assert!(result.diagnostics().is_empty());
-    }
-
-    fn source_store<const N: usize>(texts: [&str; N]) -> SourceStore {
-        let mut store = SourceStore::with_capacity(texts.len());
-
-        for (index, text) in texts.into_iter().enumerate() {
-            insert_source(&mut store, index, text);
-        }
-
-        store
-    }
-
-    fn insert_source(store: &mut SourceStore, index: usize, text: &str) {
-        let identity = SourceIdentity::new(raw_source_identity(index));
-        let origin = SourceOrigin::virtual_source(format!("parser-test-{index}"));
-
-        match store.insert(identity, origin, SourceVersion::new(0), text) {
-            Ok(_) => {}
-            Err(error) => panic!("test source should insert successfully: {error:?}"),
-        }
-    }
-
-    fn raw_source_identity(index: usize) -> u32 {
-        match u32::try_from(index) {
-            Ok(raw) => raw,
-            Err(error) => panic!("test source index should fit in u32: {error:?}"),
-        }
     }
 
     fn token_kinds<'syntax>(

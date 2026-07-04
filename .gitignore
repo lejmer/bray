@@ -35,3 +35,23 @@ target
 scratch/
 tmp/
 .tmp/
+
+# cargo-fuzz build output
+/fuzz/target/
+
+# Crash/repro artifacts from fuzzing
+/fuzz/artifacts/
+
+# Coverage reports/data
+/fuzz/coverage/
+
+# Generated libFuzzer corpus entries.
+# We only commit curated seed files with explicit names/extensions.
+/fuzz/corpus/**/*
+
+# Keep directories visible.
+!/fuzz/corpus/**/
+
+# Commit curated seed inputs.
+!/fuzz/corpus/**/*.bray
+!/fuzz/corpus/**/README.md
