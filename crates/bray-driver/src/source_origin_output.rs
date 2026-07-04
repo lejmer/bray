@@ -34,6 +34,15 @@ impl SourceOriginOutput {
         self.kind
     }
 
+    pub(crate) fn display_name(&self) -> &str {
+        self.file_path()
+            .or_else(|| self.virtual_name())
+            .or_else(|| self.generated_name())
+            .or_else(|| self.lsp_uri())
+            .or_else(|| self.test_fixture_name())
+            .unwrap_or(self.kind)
+    }
+
     pub(crate) fn file_path(&self) -> Option<&str> {
         self.file_path.as_deref()
     }

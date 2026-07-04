@@ -1,8 +1,8 @@
 use bray_diagnostics::DiagnosticBag;
 use bray_source::{SourceSnapshot, SourceStore};
-use bray_syntax::{SourceUnitSyntax, SyntaxToken, SyntaxTree};
+use bray_syntax::{SourceUnitSyntax, SyntaxTree};
 
-use crate::lexer::LexerTokenSource;
+use crate::lexer::lex_source_unit;
 
 /// Result of parsing a source store into an immutable syntax tree.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -60,29 +60,12 @@ struct ParsedSourceUnit {
 }
 
 fn parse_source_unit(snapshot: &SourceSnapshot) -> ParsedSourceUnit {
-    // LexerTokenSource owns its snapshot; cloning shares immutable source text.
-    let mut token_source = LexerTokenSource::new(snapshot.clone());
-
-    let tokens = drain_tokens(&mut token_source);
+    let lex_result = lex_source_unit(snapshot);
+    let (tokens, diagnostics) = lex_result.into_parts();
 
     ParsedSourceUnit {
         source_unit: SourceUnitSyntax::new(snapshot.clone(), tokens),
-        diagnostics: token_source.into_diagnostics(),
-    }
-}
-
-fn drain_tokens(token_source: &mut LexerTokenSource) -> Vec<SyntaxToken> {
-    let mut tokens = Vec::new();
-
-    loop {
-        let token = token_source.consume();
-        let reached_end = token.is_end_of_file();
-
-        tokens.push(token);
-
-        if reached_end {
-            return tokens;
-        }
+        diagnostics,
     }
 }
 

@@ -9,7 +9,9 @@ rust-version.workspace = true
 bray-compilation = { path = "../bray-compilation" }
 bray-diagnostics = { path = "../bray-diagnostics" }
 bray-messages = { path = "../bray-messages" }
+bray-parser = { path = "../bray-parser" }
 bray-source = { path = "../bray-source" }
+bray-syntax = { path = "../bray-syntax" }
 
 # `std` supports process arguments and paths, `derive` keeps the typed CLI shape
 # colocated with the clap boundary, `help`/`usage` let clap render the compiler
