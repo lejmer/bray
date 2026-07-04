@@ -1,6 +1,9 @@
 use bray_source::{SourceSnapshot, TextRange, TextSize};
 use bray_syntax::{SyntaxKind, SyntaxToken};
 
+use super::text::{text_size_from_usize, text_size_to_usize};
+use super::trivia::{scan_leading_trivia, scan_trailing_trivia};
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum LexerScanMode {
     Normal,
@@ -12,34 +15,35 @@ pub(super) fn scan_token_at(
     start: TextSize,
     mode: LexerScanMode,
 ) -> SyntaxToken {
-    let start = skip_whitespace(snapshot, start);
-
-    if start == snapshot.text_len() {
-        return SyntaxToken::end_of_file(start);
-    }
-
     if snapshot.text_len() < start {
         panic!("lexer cursor moved past source text");
     }
 
+    let leading_trivia = scan_leading_trivia(snapshot, start);
+    let token_start = leading_trivia.end();
+
+    if token_start == snapshot.text_len() {
+        return SyntaxToken::end_of_file(token_start)
+            .with_leading_trivia(leading_trivia.into_trivia());
+    }
+
+    let token = scan_token_core(snapshot, token_start, mode);
+    let trailing_trivia = scan_trailing_trivia(snapshot, token.end());
+
+    if trailing_trivia.reached_eof() {
+        return token.with_leading_trivia(leading_trivia.into_trivia());
+    }
+
+    token
+        .with_leading_trivia(leading_trivia.into_trivia())
+        .with_trailing_trivia(trailing_trivia.into_trivia())
+}
+
+fn scan_token_core(snapshot: &SourceSnapshot, start: TextSize, mode: LexerScanMode) -> SyntaxToken {
     match mode {
         LexerScanMode::Normal => scan_normal_token(snapshot, start),
         LexerScanMode::TupleElementIndexAfterDot => {
             scan_tuple_element_index_or_normal(snapshot, start)
-        }
-    }
-}
-
-fn skip_whitespace(snapshot: &SourceSnapshot, start: TextSize) -> TextSize {
-    let bytes = snapshot.bytes();
-
-    let mut index = text_size_to_usize(start);
-
-    loop {
-        match bytes.get(index).copied() {
-            Some(b' ' | b'\t' | b'\n') => index += 1,
-            Some(b'\r') if bytes.get(index + 1).copied() == Some(b'\n') => index += 2,
-            _ => return text_size_from_usize(index),
         }
     }
 }
@@ -485,20 +489,6 @@ fn is_ascii_identifier_continue(byte: u8) -> bool {
 
 fn is_non_ascii_identifier_character(character: char) -> bool {
     !character.is_ascii() && character.is_alphanumeric()
-}
-
-fn text_size_to_usize(size: TextSize) -> usize {
-    match usize::try_from(size.bytes()) {
-        Ok(size) => size,
-        Err(_) => panic!("TextSize did not fit in usize on this target"),
-    }
-}
-
-fn text_size_from_usize(size: usize) -> TextSize {
-    match TextSize::try_from(size) {
-        Ok(size) => size,
-        Err(error) => panic!("source offset should fit in TextSize: {error:?}"),
-    }
 }
 
 fn offset_after_character(start: TextSize, character: char) -> TextSize {

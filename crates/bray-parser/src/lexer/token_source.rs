@@ -16,8 +16,8 @@ pub enum LexerCachePolicy {
 /// Lazy lexical token source over an immutable source snapshot.
 ///
 /// The lexer produces tokens on demand and may cache tokens produced for
-/// lookahead. Whitespace is currently skipped rather than preserved as trivia;
-/// comments and literals are not classified by this partial scanner.
+/// lookahead. Whitespace and comments are preserved as token trivia. Literals
+/// are not classified by this partial scanner.
 #[derive(Clone, Debug)]
 pub struct LexerTokenSource {
     snapshot: SourceSnapshot,
@@ -133,7 +133,7 @@ impl LexerTokenSource {
                 return token;
             }
 
-            offset = token.end();
+            offset = token.full_range().end();
             token = scan_token_at(&self.snapshot, offset, LexerScanMode::Normal);
         }
 
@@ -157,7 +157,7 @@ impl LexerTokenSource {
         while tokens.len() < len {
             let token = scan_token_at(&self.snapshot, offset, LexerScanMode::Normal);
             let reached_eof = is_eof(&token);
-            let next_offset = token.end();
+            let next_offset = token.full_range().end();
 
             tokens.push(token);
 
@@ -182,7 +182,7 @@ impl LexerTokenSource {
             }
 
             let offset = match self.cached_tokens.last() {
-                Some(token) => token.end(),
+                Some(token) => token.full_range().end(),
                 None => self.cursor,
             };
 
@@ -198,11 +198,11 @@ impl LexerTokenSource {
 
     fn advance_after_consuming(&mut self, token: &SyntaxToken) {
         if is_eof(token) {
-            self.cursor = token.end();
+            self.cursor = token.full_range().end();
             return;
         }
 
-        self.cursor = token.end();
+        self.cursor = token.full_range().end();
 
         if self.cache_policy == LexerCachePolicy::CacheTokens && !self.cached_tokens.is_empty() {
             self.cached_tokens.remove(0);
@@ -211,11 +211,11 @@ impl LexerTokenSource {
 
     fn advance_after_consuming_uncached(&mut self, token: &SyntaxToken) {
         if is_eof(token) {
-            self.cursor = token.end();
+            self.cursor = token.full_range().end();
             return;
         }
 
-        self.cursor = token.end();
+        self.cursor = token.full_range().end();
     }
 }
 
@@ -240,7 +240,7 @@ mod tests {
 
     use super::{LexerCachePolicy, LexerTokenSource};
     use bray_source::{SourceSnapshot, TextRange, TextSize};
-    use bray_syntax::{SyntaxKind, SyntaxToken};
+    use bray_syntax::{SyntaxKind, SyntaxToken, SyntaxTrivia};
 
     #[test]
     fn peek_does_not_consume_the_next_token() {
@@ -263,7 +263,7 @@ mod tests {
         let consumed = source.consume();
 
         assert_eq!(consumed, token);
-        assert_eq!(source.current_offset(), TextSize::new(2));
+        assert_eq!(source.current_offset(), TextSize::new(3));
     }
 
     #[test]
@@ -342,6 +342,7 @@ mod tests {
 
         assert_eq!(eof.kind(), SyntaxKind::EndOfFileToken);
         assert_eq!(eof.range(), TextRange::empty(TextSize::new(4)));
+        assert_eq!(trivia_texts(eof.leading_trivia()), [" \t\r\n"]);
         assert_eq!(source.current_offset(), TextSize::new(4));
     }
 
@@ -579,6 +580,120 @@ mod tests {
     }
 
     #[test]
+    fn tokens_carry_leading_and_trailing_trivia_once() {
+        let mut source = LexerTokenSource::new(snapshot("  func // hi\r\n  main"));
+
+        let function_keyword = source.consume();
+        let main_identifier = source.consume();
+
+        assert_eq!(function_keyword.kind(), SyntaxKind::FuncKeyword);
+        assert_eq!(function_keyword.text(), "func");
+
+        assert_eq!(
+            function_keyword.range(),
+            TextRange::new(TextSize::new(2), TextSize::new(6))
+        );
+
+        assert_eq!(
+            trivia_kinds(function_keyword.leading_trivia()),
+            [SyntaxKind::WhitespaceTrivia]
+        );
+
+        assert_eq!(trivia_texts(function_keyword.leading_trivia()), ["  "]);
+
+        assert_eq!(
+            trivia_kinds(function_keyword.trailing_trivia()),
+            [
+                SyntaxKind::WhitespaceTrivia,
+                SyntaxKind::LineCommentTrivia,
+                SyntaxKind::WhitespaceTrivia,
+            ]
+        );
+
+        assert_eq!(
+            trivia_texts(function_keyword.trailing_trivia()),
+            [" ", "// hi", "\r\n"]
+        );
+
+        assert_eq!(main_identifier.kind(), SyntaxKind::IdentifierToken);
+        assert_eq!(main_identifier.text(), "main");
+
+        assert_eq!(
+            trivia_kinds(main_identifier.leading_trivia()),
+            [SyntaxKind::WhitespaceTrivia]
+        );
+
+        assert_eq!(trivia_texts(main_identifier.leading_trivia()), ["  "]);
+        assert!(main_identifier.trailing_trivia().is_empty());
+    }
+
+    #[test]
+    fn eof_carries_final_trivia_after_the_last_ordinary_token() {
+        let mut source = LexerTokenSource::new(snapshot("func\n// final\r\n"));
+
+        let function_keyword = source.consume();
+        let eof = source.consume();
+
+        assert_eq!(function_keyword.kind(), SyntaxKind::FuncKeyword);
+        assert_eq!(trivia_texts(function_keyword.trailing_trivia()), ["\n"]);
+        assert_eq!(eof.kind(), SyntaxKind::EndOfFileToken);
+        assert_eq!(eof.range(), TextRange::empty(TextSize::new(15)));
+
+        assert_eq!(
+            trivia_kinds(eof.leading_trivia()),
+            [SyntaxKind::LineCommentTrivia, SyntaxKind::WhitespaceTrivia,]
+        );
+
+        assert_eq!(trivia_texts(eof.leading_trivia()), ["// final", "\r\n"]);
+        assert!(eof.trailing_trivia().is_empty());
+    }
+
+    #[test]
+    fn documentation_and_nested_block_comments_are_preserved_as_trivia() {
+        let tokens = token_stream("/// line\n/** block */\n/* outer /* inner */ end */\nvalue");
+
+        let value = match tokens.first() {
+            Some(token) => token,
+            None => panic!("test source should produce a token"),
+        };
+
+        assert_eq!(value.kind(), SyntaxKind::IdentifierToken);
+
+        assert_eq!(
+            trivia_kinds(value.leading_trivia()),
+            [
+                SyntaxKind::DocumentationLineCommentTrivia,
+                SyntaxKind::WhitespaceTrivia,
+                SyntaxKind::DocumentationBlockCommentTrivia,
+                SyntaxKind::WhitespaceTrivia,
+                SyntaxKind::BlockCommentTrivia,
+                SyntaxKind::WhitespaceTrivia,
+            ]
+        );
+
+        assert_eq!(
+            trivia_texts(value.leading_trivia()),
+            [
+                "/// line",
+                "\n",
+                "/** block */",
+                "\n",
+                "/* outer /* inner */ end */",
+                "\n",
+            ]
+        );
+    }
+
+    #[test]
+    fn token_stream_reconstructs_source_text_with_trivia() {
+        let text = "  func // hi\r\n/** docs */\nvalue /* tail */\n// eof\n";
+        let tokens = token_stream(text);
+        let reconstructed: String = tokens.iter().map(SyntaxToken::full_text).collect();
+
+        assert_eq!(reconstructed, text);
+    }
+
+    #[test]
     fn lexer_token_sources_are_send_and_sync() {
         assert_send_sync::<LexerTokenSource>();
     }
@@ -607,6 +722,14 @@ mod tests {
 
     fn token_texts(tokens: &[SyntaxToken]) -> Vec<&str> {
         tokens.iter().map(SyntaxToken::text).collect()
+    }
+
+    fn trivia_kinds(trivia: &[SyntaxTrivia]) -> Vec<SyntaxKind> {
+        trivia.iter().map(SyntaxTrivia::kind).collect()
+    }
+
+    fn trivia_texts(trivia: &[SyntaxTrivia]) -> Vec<&str> {
+        trivia.iter().map(SyntaxTrivia::text).collect()
     }
 
     fn snapshot(text: &str) -> SourceSnapshot {
