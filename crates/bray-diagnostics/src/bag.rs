@@ -10,13 +10,9 @@ use crate::severity::SeverityKind;
 /// ordering should add diagnostics in deterministic phase order or sort before
 /// publication at the owning boundary.
 ///
-/// Merge deduplication uses structured diagnostic facts, not localized rendered
-/// text. Two diagnostics are duplicates when their severity, stable kind,
-/// primary span, labels, notes, and typed arguments are all equal. The
-/// diagnostic record ID is intentionally not part of this key because it is an
-/// emission identity, not the reported source fact. Future structured fields
-/// such as related locations or suggestions must become part of this key when
-/// they are added to diagnostic records.
+/// Merge deduplication compares structured facts: severity, kind, primary span,
+/// labels, notes, and typed arguments. Localized rendered text and diagnostic
+/// IDs are excluded from the key.
 ///
 /// `DiagnosticBag` has no interior mutability. Shared access is thread-safe:
 /// immutable bags can be read concurrently by multiple workers, while mutation
@@ -135,8 +131,7 @@ impl DiagnosticBag {
 
         for diagnostic in diagnostics {
             if seen.insert(diagnostic.duplicate_key()) {
-                // A new immutable bag must own its diagnostics without mutating
-                // either source bag.
+                // Merged bags own their diagnostics; source bags remain unchanged.
                 merged.push(diagnostic.clone());
             }
         }

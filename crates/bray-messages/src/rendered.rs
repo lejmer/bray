@@ -1,6 +1,6 @@
 use bray_diagnostics::{
-    DiagnosticId, DiagnosticKind, DiagnosticLabelKind, DiagnosticLabelStyle, DiagnosticNoteKind,
-    SeverityKind,
+    DiagnosticCode, DiagnosticId, DiagnosticKind, DiagnosticLabelKind, DiagnosticLabelStyle,
+    DiagnosticNoteKind, SeverityKind,
 };
 use bray_source::SourceSpan;
 
@@ -45,6 +45,11 @@ impl RenderedDiagnostic {
     /// Returns the stable diagnostic category.
     pub const fn kind(&self) -> DiagnosticKind {
         self.kind
+    }
+
+    /// Returns the stable diagnostic category code.
+    pub const fn code(&self) -> DiagnosticCode {
+        self.kind.code()
     }
 
     /// Returns the diagnostic severity.

@@ -94,8 +94,7 @@ impl DriverSourceInputError {
 /// Builds a compilation request from file arguments read at the driver boundary.
 ///
 /// Source identities are assigned deterministically by file argument order,
-/// starting at zero. File arguments are initial command-line snapshots, so each
-/// source input receives source version zero.
+/// starting at zero. Each file input receives source version zero.
 pub fn compilation_request_from_file_arguments<I, P>(
     file_arguments: I,
     options: CompilationOptions,

@@ -4,6 +4,7 @@
 
 mod argument;
 mod bag;
+mod code;
 mod diagnostic;
 mod id;
 mod kind;
@@ -13,6 +14,7 @@ mod severity;
 
 pub use argument::{DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticIoErrorKind};
 pub use bag::DiagnosticBag;
+pub use code::DiagnosticCode;
 pub use diagnostic::Diagnostic;
 pub use id::DiagnosticId;
 pub use kind::DiagnosticKind;

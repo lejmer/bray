@@ -5,10 +5,12 @@ use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind, DiagnosticNote,
     DiagnosticNoteKind, SeverityKind,
 };
+use bray_parser::parse_compilation_unit;
 use bray_source::{
     SourceId, SourceInput, SourceInputKind, SourceLoadError, SourceSnapshot, SourceStore,
     SourceUtf8Error, TextSize, TextSizeOverflow,
 };
+use bray_syntax::SyntaxTree;
 
 /// Positive CPU worker budget for compiler-owned work.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -159,12 +161,18 @@ pub enum CompilationBuildError {
 pub struct Compilation {
     options: CompilationOptions,
     sources: SourceStore,
+    syntax_tree: Option<SyntaxTree>,
     diagnostics: DiagnosticBag,
 }
 
 impl Compilation {
-    /// Builds durable compilation state from a request.
+    /// Builds durable compilation state by running the current compiler pipeline.
     pub fn build(request: impl Into<CompilationRequest>) -> Result<Self, CompilationBuildError> {
+        Self::load(request).map(Self::with_parsed_sources)
+    }
+
+    /// Loads source inputs into durable compilation state without running parser phases.
+    pub fn load(request: impl Into<CompilationRequest>) -> Result<Self, CompilationBuildError> {
         let (options, source_inputs) = request.into().into_parts();
 
         let mut sources = SourceStore::with_capacity(source_inputs.len());
@@ -203,13 +211,14 @@ impl Compilation {
         Ok(Self {
             options,
             sources,
+            syntax_tree: None,
             diagnostics,
         })
     }
 
-    /// Builds durable compilation state from source inputs and default options.
-    pub fn from_sources(sources: Vec<SourceInput>) -> Result<Self, CompilationBuildError> {
-        Self::build(CompilationRequest::new(sources))
+    /// Loads source inputs with default options without running parser phases.
+    pub fn load_sources(sources: Vec<SourceInput>) -> Result<Self, CompilationBuildError> {
+        Self::load(CompilationRequest::new(sources))
     }
 
     /// Returns the compilation options.
@@ -227,6 +236,11 @@ impl Compilation {
         &self.sources
     }
 
+    /// Returns the parsed syntax tree when this compilation has run parsing.
+    pub fn syntax_tree(&self) -> Option<&SyntaxTree> {
+        self.syntax_tree.as_ref()
+    }
+
     /// Returns the final merged diagnostics for this compilation.
     pub const fn diagnostics(&self) -> &DiagnosticBag {
         &self.diagnostics
@@ -237,16 +251,19 @@ impl Compilation {
         self.diagnostics
     }
 
-    /// Returns a new compilation with `diagnostics` folded into the final bag.
-    ///
-    /// The combination and deduplication policy belongs to [`DiagnosticBag`];
-    /// compilation only publishes the resulting immutable state.
+    /// Consumes the compilation and returns final diagnostics plus loaded sources.
+    pub fn into_diagnostics_and_sources(self) -> (DiagnosticBag, SourceStore) {
+        (self.diagnostics, self.sources)
+    }
+
+    /// Returns a new compilation with additional diagnostics merged into the final bag.
     pub fn with_additional_diagnostics(self, diagnostics: DiagnosticBag) -> Self {
         let diagnostics = self.diagnostics.merged(&diagnostics);
 
         Self {
             options: self.options,
             sources: self.sources,
+            syntax_tree: self.syntax_tree,
             diagnostics,
         }
     }
@@ -269,6 +286,19 @@ impl Compilation {
     /// Returns whether this compilation has no source snapshots.
     pub const fn is_empty(&self) -> bool {
         self.sources.is_empty()
+    }
+
+    fn with_parsed_sources(self) -> Self {
+        let parse_result = parse_compilation_unit(&self.sources);
+        let (syntax_tree, parse_diagnostics) = parse_result.into_parts();
+        let diagnostics = self.diagnostics.merged(&parse_diagnostics);
+
+        Self {
+            options: self.options,
+            sources: self.sources,
+            syntax_tree: Some(syntax_tree),
+            diagnostics,
+        }
     }
 }
 
@@ -481,10 +511,12 @@ mod tests {
 
     #[test]
     fn empty_compilation_requests_produce_diagnostics() {
-        let compilation = match Compilation::from_sources(Vec::new()) {
+        let compilation = match Compilation::build(Vec::new()) {
             Ok(compilation) => compilation,
             Err(error) => panic!("empty requests should build with diagnostics: {error:?}"),
         };
+
+        assert!(compilation.syntax_tree().is_some());
 
         let diagnostic = match compilation.diagnostics().diagnostics() {
             [diagnostic] => diagnostic,
@@ -518,9 +550,9 @@ mod tests {
             options,
         );
 
-        let compilation = match Compilation::build(request) {
+        let compilation = match Compilation::load(request) {
             Ok(compilation) => compilation,
-            Err(error) => panic!("test compilation should build: {error:?}"),
+            Err(error) => panic!("test compilation should load: {error:?}"),
         };
 
         assert_eq!(compilation.options(), options);
@@ -528,6 +560,7 @@ mod tests {
         assert_eq!(compilation.source_count(), 2);
 
         assert!(compilation.diagnostics().is_empty());
+        assert!(compilation.syntax_tree().is_none());
         assert!(!compilation.is_empty());
 
         assert_eq!(
@@ -551,6 +584,47 @@ mod tests {
     }
 
     #[test]
+    fn source_only_compilations_do_not_run_lexing_or_parsing() {
+        let compilation = match Compilation::load_sources(vec![source_input("$", 0)]) {
+            Ok(compilation) => compilation,
+            Err(error) => panic!("source-only compilation should load: {error:?}"),
+        };
+
+        assert!(compilation.syntax_tree().is_none());
+        assert!(compilation.diagnostics().is_empty());
+    }
+
+    #[test]
+    fn build_compilations_parse_loaded_sources_and_merge_lexical_diagnostics() {
+        let invalid_utf8 = SourceInput::file_bytes(
+            SourceIdentity::new(20),
+            "bad-utf8.bray",
+            SourceVersion::new(0),
+            vec![0xff],
+        );
+
+        let compilation = match Compilation::build(vec![source_input("$", 0), invalid_utf8]) {
+            Ok(compilation) => compilation,
+            Err(error) => panic!("compilation should build: {error:?}"),
+        };
+
+        let syntax_tree = match compilation.syntax_tree() {
+            Some(syntax_tree) => syntax_tree,
+            None => panic!("built compilation should publish a syntax tree"),
+        };
+
+        assert_eq!(syntax_tree.source_units().len(), 1);
+
+        assert_eq!(
+            diagnostic_kinds(compilation.diagnostics()),
+            [
+                DiagnosticKind::SourceInvalidUtf8,
+                DiagnosticKind::LexicalInvalidCharacter
+            ]
+        );
+    }
+
+    #[test]
     fn compilations_store_utf8_source_load_diagnostics() {
         let invalid = SourceInput::file_bytes(
             SourceIdentity::new(10),
@@ -559,7 +633,7 @@ mod tests {
             vec![0xff],
         );
 
-        let compilation = match Compilation::from_sources(vec![source_input("valid", 0), invalid]) {
+        let compilation = match Compilation::load_sources(vec![source_input("valid", 0), invalid]) {
             Ok(compilation) => compilation,
             Err(error) => panic!("invalid UTF-8 should become a diagnostic: {error:?}"),
         };
@@ -705,7 +779,7 @@ mod tests {
             vec![0xff],
         );
 
-        let compilation = match Compilation::from_sources(vec![invalid]) {
+        let compilation = match Compilation::load_sources(vec![invalid]) {
             Ok(compilation) => compilation,
             Err(error) => panic!("invalid UTF-8 should become a diagnostic: {error:?}"),
         };
@@ -738,6 +812,13 @@ mod tests {
     }
 
     fn assert_send_sync<T: Send + Sync>() {}
+
+    fn diagnostic_kinds(diagnostics: &DiagnosticBag) -> Vec<DiagnosticKind> {
+        diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.kind())
+            .collect()
+    }
 
     fn source_input(text: &str, version: u32) -> SourceInput {
         SourceInput::virtual_text(

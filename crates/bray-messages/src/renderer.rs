@@ -2,9 +2,9 @@ use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticLabel, DiagnosticLabelStyle,
     DiagnosticNote, SeverityKind,
 };
-use bray_source::SourceSpan;
+use bray_source::{SourceLocation, SourceSpan};
 
-use crate::argument::{ArgumentFormatter, format_source_span};
+use crate::argument::{ArgumentFormatter, format_source_location, format_source_span};
 use crate::catalog::{MessageCatalog, MessageTemplate, MessageTemplatePart};
 use crate::locale::DiagnosticLocale;
 use crate::rendered::{RenderedDiagnostic, RenderedDiagnosticLabel, RenderedDiagnosticNote};
@@ -69,6 +69,11 @@ impl DiagnosticRenderer {
     /// Renders a source span for human diagnostic output.
     pub fn render_source_span(self, span: SourceSpan) -> String {
         format_source_span(self.locale, span)
+    }
+
+    /// Renders a resolved source location for human diagnostic output.
+    pub fn render_source_location(self, location: SourceLocation<'_>) -> String {
+        format_source_location(self.locale, location)
     }
 
     /// Renders a severity heading for human diagnostic output.

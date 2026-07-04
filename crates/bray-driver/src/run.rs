@@ -2,8 +2,9 @@ use std::ffi::OsString;
 use std::io;
 use std::process::ExitCode;
 
-use bray_compilation::Compilation;
+use bray_compilation::{Compilation, CompilationBuildError, CompilationRequest};
 use bray_diagnostics::DiagnosticBag;
+use bray_source::SourceStore;
 
 use crate::command::{DriverCommandKind, DriverInvocation, DriverOutputFormat};
 use crate::diagnostic_output::write_driver_output;
@@ -16,6 +17,7 @@ use crate::source_inspection::render_source_inspection;
 pub struct DriverRunResult {
     exit_code: ExitCode,
     diagnostics: DiagnosticBag,
+    sources: Option<SourceStore>,
     output_format: DriverOutputFormat,
     stdout: String,
     stderr: String,
@@ -46,9 +48,26 @@ impl DriverRunResult {
         Self {
             exit_code,
             diagnostics,
+            sources: None,
             output_format,
             stdout,
             stderr,
+        }
+    }
+
+    fn with_sources(
+        exit_code: ExitCode,
+        diagnostics: DiagnosticBag,
+        output_format: DriverOutputFormat,
+        sources: SourceStore,
+    ) -> Self {
+        Self {
+            exit_code,
+            diagnostics,
+            sources: Some(sources),
+            output_format,
+            stdout: String::new(),
+            stderr: String::new(),
         }
     }
 
@@ -60,6 +79,10 @@ impl DriverRunResult {
     /// Returns the final diagnostics produced by the driver operation.
     pub const fn diagnostics(&self) -> &DiagnosticBag {
         &self.diagnostics
+    }
+
+    pub(crate) fn sources(&self) -> Option<&SourceStore> {
+        self.sources.as_ref()
     }
 
     /// Returns the output format selected for driver-produced output.
@@ -127,7 +150,7 @@ pub fn run_result(arguments: impl IntoIterator<Item = OsString>) -> DriverRunRes
         }
     };
 
-    let compilation = match Compilation::build(request) {
+    let compilation = match run_compilation(command_kind, request) {
         Ok(compilation) => compilation,
         Err(_) => {
             return DriverRunResult::new(ExitCode::FAILURE, DiagnosticBag::new(), output_format);
@@ -155,10 +178,20 @@ pub fn run_result(arguments: impl IntoIterator<Item = OsString>) -> DriverRunRes
         );
     }
 
-    let diagnostics = compilation.into_diagnostics();
+    let (diagnostics, sources) = compilation.into_diagnostics_and_sources();
     let exit_code = exit_code_from_diagnostics(&diagnostics);
 
-    DriverRunResult::new(exit_code, diagnostics, output_format)
+    DriverRunResult::with_sources(exit_code, diagnostics, output_format, sources)
+}
+
+fn run_compilation(
+    command_kind: DriverCommandKind,
+    request: CompilationRequest,
+) -> Result<Compilation, CompilationBuildError> {
+    match command_kind {
+        DriverCommandKind::Check => Compilation::build(request),
+        DriverCommandKind::InspectSource => Compilation::load(request),
+    }
 }
 
 fn run_with_writers(
@@ -284,6 +317,43 @@ mod tests {
                 .count(),
             1
         );
+    }
+
+    #[test]
+    fn check_runs_parser_and_carries_lexical_diagnostics() {
+        let file = TemporaryFile::write("bad.bray", b"$");
+
+        let result = run_result([
+            OsString::from("brayc"),
+            OsString::from("check"),
+            file.path().as_os_str().to_os_string(),
+        ]);
+
+        assert_eq!(result.exit_code(), ExitCode::FAILURE);
+
+        assert_eq!(
+            result
+                .diagnostics()
+                .by_kind(DiagnosticKind::LexicalInvalidCharacter)
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn inspect_source_does_not_run_lexing_or_parsing() {
+        let file = TemporaryFile::write("bad.bray", b"$");
+
+        let result = run_result([
+            OsString::from("brayc"),
+            OsString::from("inspect"),
+            OsString::from("source"),
+            file.path().as_os_str().to_os_string(),
+        ]);
+
+        assert_eq!(result.exit_code(), ExitCode::SUCCESS);
+        assert!(result.diagnostics().is_empty());
+        assert!(result.stdout().contains("$"));
     }
 
     #[test]
@@ -423,7 +493,37 @@ mod tests {
             Err(error) => panic!("stderr should be UTF-8: {error:?}"),
         };
 
-        assert!(stderr.contains("source_invalid_utf8"));
+        assert!(stderr.contains("[1002]: source input contains invalid UTF-8 at byte offset 0"));
+        assert!(!stderr.contains("source_invalid_utf8"));
+    }
+
+    #[test]
+    fn run_writes_lexical_diagnostic_locations_as_source_line_columns() {
+        let file = TemporaryFile::write("bad.bray", b"$");
+
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+
+        let exit_code = run_with_writers(
+            [
+                OsString::from("brayc"),
+                OsString::from("check"),
+                file.path().as_os_str().to_os_string(),
+            ],
+            &mut stdout,
+            &mut stderr,
+        );
+
+        assert_eq!(exit_code, ExitCode::FAILURE);
+        assert!(stdout.is_empty());
+
+        let stderr = match String::from_utf8(stderr) {
+            Ok(stderr) => stderr,
+            Err(error) => panic!("stderr should be UTF-8: {error:?}"),
+        };
+
+        assert!(stderr.contains("bad.bray:1:1..1:2"));
+        assert!(!stderr.contains("source 0:0..1"));
     }
 
     #[test]
@@ -453,6 +553,7 @@ mod tests {
             Err(error) => panic!("stdout should be UTF-8: {error:?}"),
         };
 
+        assert!(stdout.contains("\"code\": 1002"));
         assert!(stdout.contains("\"kind\": \"source_invalid_utf8\""));
         assert!(!stdout.contains("source input contains invalid UTF-8 at byte offset"));
     }

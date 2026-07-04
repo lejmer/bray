@@ -4,12 +4,13 @@ use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticArgValue, DiagnosticBag, DiagnosticLabel, DiagnosticNote,
 };
 use bray_messages::{DiagnosticRenderer, RenderedDiagnostic, RenderedDiagnosticLabel};
-use bray_source::SourceSpan;
+use bray_source::{LineIndex, SourceLocation, SourceSpan, SourceStore};
 use serde::Serialize;
 
 use crate::command::DriverOutputFormat;
 use crate::output_path::path_to_output_string;
 use crate::run::DriverRunResult;
+use crate::source_origin_output::SourceOriginOutput;
 use crate::terminal_style::{color_note_heading, color_severity_label};
 
 pub(crate) fn write_driver_output(
@@ -25,16 +26,25 @@ pub(crate) fn write_driver_output(
     }
 
     match result.output_format() {
-        DriverOutputFormat::Text => write_text_diagnostics(result.diagnostics(), stderr),
-        DriverOutputFormat::Json => write_json_diagnostics(result.diagnostics(), stdout),
+        DriverOutputFormat::Text => {
+            write_text_diagnostics(result.diagnostics(), result.sources(), stderr)
+        }
+        DriverOutputFormat::Json => {
+            write_json_diagnostics(result.diagnostics(), result.sources(), stdout)
+        }
     }
 }
 
-fn write_text_diagnostics(diagnostics: &DiagnosticBag, writer: &mut impl Write) -> io::Result<()> {
+fn write_text_diagnostics(
+    diagnostics: &DiagnosticBag,
+    sources: Option<&SourceStore>,
+    writer: &mut impl Write,
+) -> io::Result<()> {
     let renderer = DiagnosticRenderer::english();
+    let source_map = DiagnosticSourceMap::new(sources);
 
     for diagnostic in renderer.render_bag(diagnostics) {
-        write_text_diagnostic(renderer, &diagnostic, writer)?;
+        write_text_diagnostic(renderer, &source_map, &diagnostic, writer)?;
     }
 
     Ok(())
@@ -42,18 +52,18 @@ fn write_text_diagnostics(diagnostics: &DiagnosticBag, writer: &mut impl Write) 
 
 fn write_text_diagnostic(
     renderer: DiagnosticRenderer,
+    source_map: &DiagnosticSourceMap<'_>,
     diagnostic: &RenderedDiagnostic,
     writer: &mut impl Write,
 ) -> io::Result<()> {
     writeln!(
         writer,
-        "{}[{}] {}: {}",
+        "{}[{:04}]: {}",
         color_severity_label(
             diagnostic.severity(),
             renderer.render_severity(diagnostic.severity())
         ),
-        diagnostic.id().raw(),
-        diagnostic.kind().as_str(),
+        diagnostic.code().raw(),
         diagnostic.message()
     )?;
 
@@ -61,12 +71,12 @@ fn write_text_diagnostic(
         writeln!(
             writer,
             "  --> {}",
-            renderer.render_source_span(primary_span)
+            source_map.render(renderer, primary_span)
         )?;
     }
 
     for label in diagnostic.labels() {
-        write_text_label(renderer, label, writer)?;
+        write_text_label(renderer, source_map, label, writer)?;
     }
 
     for note in diagnostic.notes() {
@@ -83,6 +93,7 @@ fn write_text_diagnostic(
 
 fn write_text_label(
     renderer: DiagnosticRenderer,
+    source_map: &DiagnosticSourceMap<'_>,
     label: &RenderedDiagnosticLabel,
     writer: &mut impl Write,
 ) -> io::Result<()> {
@@ -90,16 +101,65 @@ fn write_text_label(
         writer,
         "  = {} {}: {}",
         renderer.render_label_style(label.style()),
-        renderer.render_source_span(label.span()),
+        source_map.render(renderer, label.span()),
         label.message()
     )
 }
 
-fn write_json_diagnostics(diagnostics: &DiagnosticBag, writer: &mut impl Write) -> io::Result<()> {
-    let report = DiagnosticJsonReport::from_bag(diagnostics);
+fn write_json_diagnostics(
+    diagnostics: &DiagnosticBag,
+    sources: Option<&SourceStore>,
+    writer: &mut impl Write,
+) -> io::Result<()> {
+    let source_map = DiagnosticSourceMap::new(sources);
+    let report = DiagnosticJsonReport::from_bag(diagnostics, &source_map);
 
     serde_json::to_writer_pretty(&mut *writer, &report).map_err(io::Error::other)?;
     writeln!(writer)
+}
+
+struct DiagnosticSourceMap<'source> {
+    sources: Option<&'source SourceStore>,
+    line_indexes: Vec<Option<LineIndex>>,
+}
+
+impl<'source> DiagnosticSourceMap<'source> {
+    fn new(sources: Option<&'source SourceStore>) -> Self {
+        let line_indexes = match sources {
+            Some(sources) => sources
+                .iter()
+                .map(|snapshot| LineIndex::new(snapshot.text()).ok())
+                .collect(),
+            None => Vec::new(),
+        };
+
+        Self {
+            sources,
+            line_indexes,
+        }
+    }
+
+    fn resolve(&self, span: SourceSpan) -> Option<SourceLocation<'source>> {
+        let sources = self.sources?;
+        let index = usize::try_from(span.source_id().raw()).ok()?;
+        let snapshot = sources.get(span.source_id())?;
+        let line_index = self.line_indexes.get(index)?.as_ref()?;
+
+        SourceLocation::resolve(snapshot, line_index, span)
+    }
+
+    fn source_origin(&self, span: SourceSpan) -> Option<SourceOriginOutput> {
+        self.sources?
+            .get(span.source_id())
+            .map(|snapshot| SourceOriginOutput::from_origin(snapshot.origin()))
+    }
+
+    fn render(&self, renderer: DiagnosticRenderer, span: SourceSpan) -> String {
+        match self.resolve(span) {
+            Some(location) => renderer.render_source_location(location),
+            None => renderer.render_source_span(span),
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -109,10 +169,13 @@ struct DiagnosticJsonReport {
 }
 
 impl DiagnosticJsonReport {
-    fn from_bag(bag: &DiagnosticBag) -> Self {
+    fn from_bag(bag: &DiagnosticBag, source_map: &DiagnosticSourceMap<'_>) -> Self {
         Self {
             has_errors: bag.has_errors(),
-            diagnostics: bag.iter().map(DiagnosticJson::from_diagnostic).collect(),
+            diagnostics: bag
+                .iter()
+                .map(|diagnostic| DiagnosticJson::from_diagnostic(diagnostic, source_map))
+                .collect(),
         }
     }
 }
@@ -120,6 +183,7 @@ impl DiagnosticJsonReport {
 #[derive(Serialize)]
 struct DiagnosticJson {
     id: u32,
+    code: u32,
     kind: &'static str,
     severity: &'static str,
     primary_span: Option<SourceSpanJson>,
@@ -129,26 +193,29 @@ struct DiagnosticJson {
 }
 
 impl DiagnosticJson {
-    fn from_diagnostic(diagnostic: &Diagnostic) -> Self {
+    fn from_diagnostic(diagnostic: &Diagnostic, source_map: &DiagnosticSourceMap<'_>) -> Self {
         Self {
             id: diagnostic.id().raw(),
+            code: diagnostic.kind().code().raw(),
             kind: diagnostic.kind().as_str(),
             severity: diagnostic.severity().as_str(),
-            primary_span: diagnostic.primary_span().map(SourceSpanJson::from_span),
+            primary_span: diagnostic
+                .primary_span()
+                .map(|span| SourceSpanJson::from_span(span, source_map)),
             labels: diagnostic
                 .labels()
                 .iter()
-                .map(DiagnosticLabelJson::from_label)
+                .map(|label| DiagnosticLabelJson::from_label(label, source_map))
                 .collect(),
             notes: diagnostic
                 .notes()
                 .iter()
-                .map(DiagnosticNoteJson::from_note)
+                .map(|note| DiagnosticNoteJson::from_note(note, source_map))
                 .collect(),
             args: diagnostic
                 .args()
                 .iter()
-                .map(DiagnosticArgJson::from_arg)
+                .map(|arg| DiagnosticArgJson::from_arg(arg, source_map))
                 .collect(),
         }
     }
@@ -163,15 +230,15 @@ struct DiagnosticLabelJson {
 }
 
 impl DiagnosticLabelJson {
-    fn from_label(label: &DiagnosticLabel) -> Self {
+    fn from_label(label: &DiagnosticLabel, source_map: &DiagnosticSourceMap<'_>) -> Self {
         Self {
             kind: label.kind().as_str(),
             style: label.style().as_str(),
-            span: SourceSpanJson::from_span(label.span()),
+            span: SourceSpanJson::from_span(label.span(), source_map),
             args: label
                 .args()
                 .iter()
-                .map(DiagnosticArgJson::from_arg)
+                .map(|arg| DiagnosticArgJson::from_arg(arg, source_map))
                 .collect(),
         }
     }
@@ -184,13 +251,13 @@ struct DiagnosticNoteJson {
 }
 
 impl DiagnosticNoteJson {
-    fn from_note(note: &DiagnosticNote) -> Self {
+    fn from_note(note: &DiagnosticNote, source_map: &DiagnosticSourceMap<'_>) -> Self {
         Self {
             kind: note.kind().as_str(),
             args: note
                 .args()
                 .iter()
-                .map(DiagnosticArgJson::from_arg)
+                .map(|arg| DiagnosticArgJson::from_arg(arg, source_map))
                 .collect(),
         }
     }
@@ -203,10 +270,10 @@ struct DiagnosticArgJson {
 }
 
 impl DiagnosticArgJson {
-    fn from_arg(arg: &DiagnosticArg) -> Self {
+    fn from_arg(arg: &DiagnosticArg, source_map: &DiagnosticSourceMap<'_>) -> Self {
         Self {
             name: arg.name().as_str(),
-            value: DiagnosticArgValueJson::from_value(arg.value()),
+            value: DiagnosticArgValueJson::from_value(arg.value(), source_map),
         }
     }
 }
@@ -230,7 +297,7 @@ enum DiagnosticArgValueJson {
 }
 
 impl DiagnosticArgValueJson {
-    fn from_value(value: &DiagnosticArgValue) -> Self {
+    fn from_value(value: &DiagnosticArgValue, source_map: &DiagnosticSourceMap<'_>) -> Self {
         match value {
             DiagnosticArgValue::Byte(byte) => Self::Byte(*byte),
             DiagnosticArgValue::ByteCount(byte_count) => Self::ByteCount(*byte_count),
@@ -244,7 +311,7 @@ impl DiagnosticArgValueJson {
             DiagnosticArgValue::TextOffset(offset) => Self::TextOffset(offset.bytes()),
             DiagnosticArgValue::Uri(uri) => Self::Uri(uri.clone()),
             DiagnosticArgValue::SourceSpan(span) => {
-                Self::SourceSpan(SourceSpanJson::from_span(*span))
+                Self::SourceSpan(SourceSpanJson::from_span(*span, source_map))
             }
             DiagnosticArgValue::WorkerCount(worker_count) => Self::WorkerCount(*worker_count),
         }
@@ -254,16 +321,73 @@ impl DiagnosticArgValueJson {
 #[derive(Serialize)]
 struct SourceSpanJson {
     source_id: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source_origin: Option<SourceOriginOutput>,
     start: u32,
     end: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    location: Option<SourceLocationJson>,
 }
 
 impl SourceSpanJson {
-    const fn from_span(span: SourceSpan) -> Self {
+    fn from_span(span: SourceSpan, source_map: &DiagnosticSourceMap<'_>) -> Self {
         Self {
             source_id: span.source_id().raw(),
+            source_origin: source_map.source_origin(span),
             start: span.start().bytes(),
             end: span.end().bytes(),
+            location: source_map
+                .resolve(span)
+                .map(SourceLocationJson::from_location),
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct SourceLocationJson {
+    start: HumanPositionJson,
+    end: HumanPositionJson,
+    lsp_start: LspPositionJson,
+    lsp_end: LspPositionJson,
+}
+
+impl SourceLocationJson {
+    fn from_location(location: SourceLocation<'_>) -> Self {
+        Self {
+            start: HumanPositionJson::from_position(location.start()),
+            end: HumanPositionJson::from_position(location.end()),
+            lsp_start: LspPositionJson::from_position(location.lsp_start()),
+            lsp_end: LspPositionJson::from_position(location.lsp_end()),
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct HumanPositionJson {
+    line: u32,
+    column: u32,
+}
+
+impl HumanPositionJson {
+    const fn from_position(position: bray_source::LineColumn) -> Self {
+        Self {
+            line: position.line(),
+            column: position.column(),
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct LspPositionJson {
+    line: u32,
+    character: u32,
+}
+
+impl LspPositionJson {
+    const fn from_position(position: bray_source::LspPosition) -> Self {
+        Self {
+            line: position.line(),
+            character: position.character(),
         }
     }
 }
@@ -271,10 +395,12 @@ impl SourceSpanJson {
 #[cfg(test)]
 mod tests {
     use bray_diagnostics::{
-        Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind, DiagnosticNote,
-        DiagnosticNoteKind, SeverityKind,
+        Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind, DiagnosticLabel,
+        DiagnosticLabelKind, DiagnosticNote, DiagnosticNoteKind, SeverityKind,
     };
-    use bray_source::TextSize;
+    use bray_source::{
+        SourceIdentity, SourceOrigin, SourceSpan, SourceStore, SourceVersion, TextRange, TextSize,
+    };
 
     use super::{write_json_diagnostics, write_text_diagnostics};
 
@@ -292,7 +418,7 @@ mod tests {
 
         let mut output = Vec::new();
 
-        match write_text_diagnostics(&bag, &mut output) {
+        match write_text_diagnostics(&bag, None, &mut output) {
             Ok(()) => {}
             Err(error) => panic!("text diagnostics should write: {error:?}"),
         }
@@ -302,9 +428,52 @@ mod tests {
             Err(error) => panic!("text diagnostics should be UTF-8: {error:?}"),
         };
 
-        assert!(output.contains("\x1b[31merror\x1b[0m[0] source_invalid_utf8"));
+        assert!(output.contains(
+            "\x1b[31merror\x1b[0m[1002]: source input contains invalid UTF-8 at byte offset 4"
+        ));
+
+        assert!(!output.contains("\x1b[31merror\x1b[0m[0]"));
+        assert!(!output.contains("source_invalid_utf8"));
         assert!(output.contains("source input contains invalid UTF-8 at byte offset 4"));
         assert!(output.contains("\x1b[36mnote\x1b[0m: source inputs must be valid UTF-8"));
+    }
+
+    #[test]
+    fn text_output_resolves_source_spans_to_line_columns() {
+        let sources = source_store("ok\n$");
+
+        let span = SourceSpan::new(
+            bray_source::SourceId::new(0),
+            TextRange::new(TextSize::new(3), TextSize::new(4)),
+        );
+
+        let diagnostic = Diagnostic::new(
+            DiagnosticId::new(0),
+            DiagnosticKind::LexicalInvalidCharacter,
+            SeverityKind::Error,
+        )
+        .with_primary_span(span)
+        .with_label(DiagnosticLabel::primary(
+            DiagnosticLabelKind::InvalidCharacter,
+            span,
+        ));
+
+        let bag = DiagnosticBag::single(diagnostic);
+
+        let mut output = Vec::new();
+
+        match write_text_diagnostics(&bag, Some(&sources), &mut output) {
+            Ok(()) => {}
+            Err(error) => panic!("text diagnostics should write: {error:?}"),
+        }
+
+        let output = match String::from_utf8(output) {
+            Ok(output) => output,
+            Err(error) => panic!("text diagnostics should be UTF-8: {error:?}"),
+        };
+
+        assert!(output.contains("main.bray:2:1..2:2"));
+        assert!(!output.contains("source 0:3..4"));
     }
 
     #[test]
@@ -321,7 +490,7 @@ mod tests {
 
         let mut output = Vec::new();
 
-        match write_json_diagnostics(&bag, &mut output) {
+        match write_json_diagnostics(&bag, None, &mut output) {
             Ok(()) => {}
             Err(error) => panic!("JSON diagnostics should write: {error:?}"),
         }
@@ -341,6 +510,7 @@ mod tests {
         let diagnostic_json = &output_json["diagnostics"][0];
 
         assert_eq!(diagnostic_json["id"], 3);
+        assert_eq!(diagnostic_json["code"], 1002);
         assert_eq!(diagnostic_json["kind"], "source_invalid_utf8");
         assert_eq!(diagnostic_json["severity"], "error");
         assert!(diagnostic_json.get("message").is_none());
@@ -351,5 +521,76 @@ mod tests {
         assert_eq!(arg_json["value"]["kind"], "text_offset");
         assert_eq!(arg_json["value"]["value"], 5);
         assert!(!output.contains("source input contains invalid UTF-8 at byte offset"));
+    }
+
+    #[test]
+    fn json_output_serializes_resolved_source_locations() {
+        let sources = source_store("ok\n$");
+
+        let span = SourceSpan::new(
+            bray_source::SourceId::new(0),
+            TextRange::new(TextSize::new(3), TextSize::new(4)),
+        );
+
+        let diagnostic = Diagnostic::new(
+            DiagnosticId::new(0),
+            DiagnosticKind::LexicalInvalidCharacter,
+            SeverityKind::Error,
+        )
+        .with_primary_span(span);
+
+        let bag = DiagnosticBag::single(diagnostic);
+
+        let mut output = Vec::new();
+
+        match write_json_diagnostics(&bag, Some(&sources), &mut output) {
+            Ok(()) => {}
+            Err(error) => panic!("JSON diagnostics should write: {error:?}"),
+        }
+
+        let output = match String::from_utf8(output) {
+            Ok(output) => output,
+            Err(error) => panic!("JSON diagnostics should be UTF-8: {error:?}"),
+        };
+
+        let output_json: serde_json::Value = match serde_json::from_str(&output) {
+            Ok(value) => value,
+            Err(error) => panic!("JSON diagnostics should parse: {error:?}"),
+        };
+
+        let location = &output_json["diagnostics"][0]["primary_span"]["location"];
+
+        assert_eq!(
+            output_json["diagnostics"][0]["primary_span"]["source_origin"]["kind"],
+            "file"
+        );
+
+        assert_eq!(
+            output_json["diagnostics"][0]["primary_span"]["source_origin"]["file_path"],
+            "main.bray"
+        );
+
+        assert_eq!(location["start"]["line"], 2);
+        assert_eq!(location["start"]["column"], 1);
+        assert_eq!(location["end"]["line"], 2);
+        assert_eq!(location["end"]["column"], 2);
+        assert_eq!(location["lsp_start"]["line"], 1);
+        assert_eq!(location["lsp_start"]["character"], 0);
+    }
+
+    fn source_store(text: &str) -> SourceStore {
+        let mut sources = SourceStore::new();
+
+        match sources.insert(
+            SourceIdentity::new(0),
+            SourceOrigin::file("main.bray"),
+            SourceVersion::new(0),
+            text,
+        ) {
+            Ok(_) => {}
+            Err(error) => panic!("test source should insert: {error:?}"),
+        }
+
+        sources
     }
 }
