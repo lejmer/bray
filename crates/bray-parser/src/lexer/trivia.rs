@@ -237,7 +237,7 @@ fn scan_block_comment_trivia(snapshot: &SourceSnapshot, start: TextSize) -> Triv
 }
 
 fn make_trivia_item(
-    snapshot: &SourceSnapshot,
+    _snapshot: &SourceSnapshot,
     kind: SyntaxKind,
     start: TextSize,
     end: TextSize,
@@ -245,13 +245,8 @@ fn make_trivia_item(
 ) -> TriviaItem {
     let range = TextRange::new(start, end);
 
-    let text = match snapshot.text_slice(range) {
-        Some(text) => text,
-        None => panic!("lexer trivia range is not on UTF-8 boundaries"),
-    };
-
     TriviaItem {
-        trivia: SyntaxTrivia::new(kind, range, text),
+        trivia: SyntaxTrivia::new(kind, range),
         contains_line_break,
         diagnostics: DiagnosticBag::new(),
     }

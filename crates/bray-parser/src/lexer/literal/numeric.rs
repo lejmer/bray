@@ -53,12 +53,7 @@ pub(in crate::lexer) fn scan_numeric_literal(
         return make_invalid_numeric_token(snapshot, start, error);
     }
 
-    TokenScan::clean(make_token(
-        snapshot,
-        kind,
-        start,
-        text_size_from_usize(end_index),
-    ))
+    TokenScan::clean(make_token(kind, start, text_size_from_usize(end_index)))
 }
 
 pub(in crate::lexer) fn scan_tuple_element_index_token(
@@ -79,7 +74,6 @@ pub(in crate::lexer) fn scan_tuple_element_index_token(
     }
 
     TokenScan::clean(make_token(
-        snapshot,
         SyntaxKind::TupleElementIndexToken,
         start,
         text_size_from_usize(end_index),
@@ -261,7 +255,7 @@ fn make_invalid_numeric_token(
 ) -> TokenScan {
     let end = invalid_numeric_like_end(snapshot, start);
     let range = TextRange::new(start, end);
-    let token = make_token(snapshot, SyntaxKind::InvalidToken, start, end);
+    let token = make_token(SyntaxKind::InvalidToken, start, end);
 
     let diagnostic = match error {
         NumericLiteralError::InvalidSuffix(suffix_start) => {

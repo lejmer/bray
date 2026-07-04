@@ -2,6 +2,8 @@
 
 #![forbid(unsafe_code)]
 
+mod slice;
 mod text;
 
+pub use slice::shared_slice;
 pub use text::shared_str;
