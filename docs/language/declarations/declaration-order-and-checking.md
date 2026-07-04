@@ -6,11 +6,11 @@ The selected source graph, package identity, product kind, dependency graph, tar
 
 Split module contributions are merged before module-level declaration checking finishes.
 
-Source file order does not define declaration identity.
+Source unit order does not define declaration identity.
 
 Source graph order does not define declaration identity.
 
-Order between source files does not affect name resolution.
+Order between source units does not affect name resolution.
 
 Within a declaration body, source order matters where the containing grammar or semantic rule makes it matter.
 

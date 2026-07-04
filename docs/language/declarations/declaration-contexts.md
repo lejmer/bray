@@ -4,7 +4,7 @@ A **declaration context** is a source location that accepts declarations.
 
 The declaration contexts are:
 
-- file-scoped module declarations,
+- source-scoped module declarations,
 - block module declarations,
 - module bodies,
 - type bodies,
@@ -12,7 +12,7 @@ The declaration contexts are:
 - implementation bodies,
 - block expressions.
 
-Every source file begins with one file-scoped module declaration.
+Every source unit begins with one source-scoped module declaration.
 
 Block module declarations contribute declarations to an explicitly named module.
 

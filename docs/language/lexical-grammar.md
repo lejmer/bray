@@ -15,7 +15,7 @@ the scalar and literal rules.
 
 Bray source text is UTF-8.
 
-An optional UTF-8 byte order mark is accepted only at the beginning of a source file and is ignored.
+An optional UTF-8 byte order mark is accepted only at the beginning of a source unit and is ignored.
 
 Source text is not Unicode-normalized by the compiler.
 
@@ -142,7 +142,7 @@ Documentation comments are retained as structured trivia for documentation tooli
 A contiguous documentation-comment group immediately before a declaration, separated from it only by whitespace and ordinary
 comments, documents that declaration.
 
-Documentation comments are valid before the file-scoped module declaration.
+Documentation comments are valid before the source-scoped module declaration.
 
 ---
 

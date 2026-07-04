@@ -6,18 +6,18 @@ This chapter defines terms used throughout the Bray language specification. Thes
 
 ## Program Structure
 
-A **source file** is a UTF-8 text input accepted by the lexer.
+A **source unit** is one UTF-8 text input accepted by the lexer.
 
 A **token** is a lexical item produced from source text.
 
 **Trivia** is whitespace or comments attached to tokens. Trivia separates tokens and preserves source text but is not itself a
 semantic language construct.
 
-A **syntax tree** is the parsed representation of a source file.
+A **syntax tree** is the parsed representation of a source unit.
 
 A **module** is a named source-level unit of declaration ownership and path resolution.
 
-A **package** is a collection of source files and package metadata compiled as one product or library surface.
+A **package** is a collection of source units and package metadata compiled as one product or library surface.
 
 A **declaration** introduces a named program entity or language-defined member. Declaration rules are defined in [Declarations](declarations.md).
 
