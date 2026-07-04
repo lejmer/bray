@@ -135,6 +135,7 @@ dependencies = [
  "bray-diagnostics",
  "bray-source",
  "bray-syntax",
+ "bray-testing",
 ]
 
 [[package]]
@@ -159,6 +160,10 @@ dependencies = [
 [[package]]
 name = "bray-testing"
 version = "0.0.0"
+dependencies = [
+ "bray-source",
+ "bray-syntax",
+]
 
 [[package]]
 name = "brayc"

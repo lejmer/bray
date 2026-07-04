@@ -10,5 +10,8 @@ bray-diagnostics = { path = "../bray-diagnostics" }
 bray-source = { path = "../bray-source" }
 bray-syntax = { path = "../bray-syntax" }
 
+[dev-dependencies]
+bray-testing = { path = "../bray-testing" }
+
 [lints]
 workspace = true
