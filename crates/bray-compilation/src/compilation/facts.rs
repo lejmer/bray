@@ -258,7 +258,7 @@ mod tests {
     }
 
     #[test]
-    fn load_diagnostics_do_not_include_lexical_diagnostics() {
+    fn load_diagnostics_do_not_include_syntax_diagnostics() {
         let compilation = match Compilation::load_sources(vec![source_input("$", 0)]) {
             Ok(compilation) => compilation,
             Err(error) => panic!("source-only compilation should load: {error:?}"),
@@ -268,12 +268,15 @@ mod tests {
 
         assert_eq!(
             diagnostic_kinds(compilation.check_diagnostics()),
-            [DiagnosticKind::LexicalInvalidCharacter]
+            [
+                DiagnosticKind::LexicalInvalidCharacter,
+                DiagnosticKind::SyntaxSkippedSyntax
+            ]
         );
     }
 
     #[test]
-    fn check_diagnostics_request_syntax_and_merge_lexical_diagnostics() {
+    fn check_diagnostics_request_syntax_and_merge_syntax_diagnostics() {
         let invalid_utf8 = SourceInput::file_bytes(
             SourceIdentity::new(20),
             "bad-utf8.bray",
@@ -292,7 +295,8 @@ mod tests {
             diagnostic_kinds(compilation.check_diagnostics()),
             [
                 DiagnosticKind::SourceInvalidUtf8,
-                DiagnosticKind::LexicalInvalidCharacter
+                DiagnosticKind::LexicalInvalidCharacter,
+                DiagnosticKind::SyntaxSkippedSyntax
             ]
         );
     }
@@ -407,7 +411,8 @@ mod tests {
             diagnostic_kinds(compilation.check_diagnostics()),
             [
                 DiagnosticKind::SourceInvalidUtf8,
-                DiagnosticKind::LexicalInvalidCharacter
+                DiagnosticKind::LexicalInvalidCharacter,
+                DiagnosticKind::SyntaxSkippedSyntax
             ]
         );
     }

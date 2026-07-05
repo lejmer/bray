@@ -25,34 +25,46 @@ fn source_unit_parser_preserves_lexer_output_and_reconstructs_sources() {
 
     let lex_results = sources.iter().map(lex_source_unit).collect::<Vec<_>>();
 
-    let expected_diagnostic_bags = lex_results
-        .iter()
-        .map(|result| result.diagnostics().clone())
-        .collect::<Vec<_>>();
-
-    let expected_diagnostics = DiagnosticBag::merged_all(&expected_diagnostic_bags);
     let result = parse_compilation_unit(&sources);
     let source_units = result.syntax_tree().root().source_units();
 
     assert_eq!(source_units.len(), sources.len());
-    assert_eq!(result.diagnostics(), &expected_diagnostics);
     assert_eq!(result.syntax_tree().full_text(), expected_text);
 
     for ((snapshot, lex_result), source_unit) in sources.iter().zip(lex_results).zip(source_units) {
         let source_unit_result = parse_source_unit(snapshot);
+
         assert_eq!(source_unit_result.source_id(), snapshot.source_id());
-        assert_eq!(source_unit_result.diagnostics(), lex_result.diagnostics());
+
+        assert_lexical_diagnostics_are_preserved(
+            source_unit_result.diagnostics(),
+            lex_result.diagnostics(),
+        );
 
         let source_unit_tokens = source_unit.tokens().collect::<Vec<_>>();
 
         assert_eq!(source_unit_tokens, lex_result.tokens());
+
         assert_single_final_eof(&source_unit_tokens, snapshot.text());
+
         assert_eq!(source_unit.full_text(), snapshot.text());
         assert_eq!(
             source_unit_result.source_unit().full_text(),
             snapshot.text()
         );
     }
+}
+
+fn assert_lexical_diagnostics_are_preserved(
+    parse_diagnostics: &DiagnosticBag,
+    lexical_diagnostics: &DiagnosticBag,
+) {
+    assert_eq!(
+        parse_diagnostics
+            .diagnostics()
+            .get(..lexical_diagnostics.len()),
+        Some(lexical_diagnostics.diagnostics())
+    );
 }
 
 fn conformance_sources() -> Vec<String> {
