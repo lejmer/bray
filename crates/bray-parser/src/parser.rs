@@ -2,7 +2,7 @@ use bray_diagnostics::DiagnosticBag;
 use bray_source::{SourceId, SourceSnapshot, SourceStore};
 use bray_syntax::{SourceUnitSyntax, SourceUnitSyntaxBuilder, SyntaxKind, SyntaxToken, SyntaxTree};
 
-use crate::cursor::{ParserCursor, RecoverySet};
+use crate::cursor::{ParserCursor, ParserCursorCheckpoint, RecoverySet};
 use crate::lexer::LexerTokenSource;
 
 /// Syntax tree plus diagnostics for a source store.
@@ -147,6 +147,27 @@ impl Parser {
         self.cursor.finish()
     }
 
+    /// Runs a syntax-only lookahead decision on a forked parser.
+    fn scan_ahead(&mut self, scan: impl FnOnce(&mut Parser) -> bool) -> bool {
+        let checkpoint = self.cursor.checkpoint();
+
+        let mut fork = self.fork_from_checkpoint(&checkpoint);
+
+        let decision = scan(&mut fork);
+
+        self.cursor.absorb_lexical_diagnostics_from(&fork.cursor);
+
+        decision
+    }
+
+    fn fork_from_checkpoint(&self, checkpoint: &ParserCursorCheckpoint) -> Self {
+        Self {
+            // Forked parsers share immutable source text with the main parser.
+            snapshot: self.snapshot.clone(),
+            cursor: checkpoint.fork(),
+        }
+    }
+
     fn lookahead(&mut self, distance: usize) -> SyntaxToken {
         self.cursor.lookahead(distance)
     }
@@ -186,6 +207,10 @@ impl Parser {
         builder.push_skipped_tokens(skipped_tokens);
     }
 
+    fn should_recover_invalid_token(&mut self) -> bool {
+        self.scan_ahead(|scan| scan.at(SyntaxKind::InvalidToken))
+    }
+
     fn parse_placeholder_source_unit_tokens(&mut self, builder: &mut SourceUnitSyntaxBuilder) {
         loop {
             if self.at(SyntaxKind::EndOfFileToken) {
@@ -193,7 +218,7 @@ impl Parser {
                 return;
             }
 
-            if self.at(SyntaxKind::InvalidToken) {
+            if self.should_recover_invalid_token() {
                 self.recover_until(builder, &[SyntaxKind::EndOfFileToken]);
                 continue;
             }
@@ -368,6 +393,106 @@ mod tests {
             diagnostic_kinds(&diagnostics),
             [DiagnosticKind::SyntaxSkippedSyntax]
         );
+    }
+
+    #[test]
+    fn parser_scan_ahead_leaves_main_cursor_position_unchanged() {
+        let sources = source_store(["func main"]);
+
+        let snapshot = match sources.get(bray_source::SourceId::new(0)) {
+            Some(snapshot) => snapshot,
+            None => panic!("source should exist"),
+        };
+
+        let mut parser = Parser::new(snapshot.clone());
+
+        let saw_identifier_after_func = parser.scan_ahead(|scan| {
+            assert_eq!(scan.consume().kind(), SyntaxKind::FuncKeyword);
+
+            scan.at(SyntaxKind::IdentifierToken)
+        });
+
+        assert!(saw_identifier_after_func);
+        assert_eq!(parser.peek().kind(), SyntaxKind::FuncKeyword);
+    }
+
+    #[test]
+    fn parser_scan_ahead_discards_recovery_nodes_and_syntax_diagnostics() {
+        let sources = source_store(["main;"]);
+
+        let snapshot = match sources.get(bray_source::SourceId::new(0)) {
+            Some(snapshot) => snapshot,
+            None => panic!("source should exist"),
+        };
+
+        let mut parser = Parser::new(snapshot.clone());
+
+        let built_skipped_syntax_in_scan = parser.scan_ahead(|scan| {
+            let mut builder = SourceUnitSyntax::builder(snapshot.clone());
+
+            scan.recover_until(&mut builder, &[SyntaxKind::SemicolonToken]);
+
+            builder.push_token(scan.expect(SyntaxKind::SemicolonToken));
+            builder.push_token(scan.expect(SyntaxKind::EndOfFileToken));
+
+            let speculative_unit = builder.build();
+
+            speculative_unit.skipped_syntax().next().is_some()
+        });
+
+        assert!(built_skipped_syntax_in_scan);
+
+        let source_unit = parser.parse_source_unit();
+        let diagnostics = parser.finish();
+
+        assert_eq!(source_unit.full_text(), "main;");
+        assert!(source_unit.skipped_syntax().next().is_none());
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn parser_scan_ahead_preserves_demanded_lexical_diagnostics() {
+        let sources = source_store(["$"]);
+
+        let snapshot = match sources.get(bray_source::SourceId::new(0)) {
+            Some(snapshot) => snapshot,
+            None => panic!("source should exist"),
+        };
+
+        let mut parser = Parser::new(snapshot.clone());
+
+        let saw_invalid_token = parser.scan_ahead(|scan| scan.at(SyntaxKind::InvalidToken));
+
+        assert!(saw_invalid_token);
+
+        let diagnostics = parser.finish();
+
+        assert_eq!(
+            diagnostic_kinds(&diagnostics),
+            [DiagnosticKind::LexicalInvalidCharacter]
+        );
+    }
+
+    #[test]
+    fn parser_scan_ahead_discards_parser_diagnostics_from_abandoned_scan() {
+        let sources = source_store(["main"]);
+
+        let snapshot = match sources.get(bray_source::SourceId::new(0)) {
+            Some(snapshot) => snapshot,
+            None => panic!("source should exist"),
+        };
+
+        let mut parser = Parser::new(snapshot.clone());
+
+        let inserted_missing_token =
+            parser.scan_ahead(|scan| scan.expect(SyntaxKind::FuncKeyword).is_missing());
+
+        assert!(inserted_missing_token);
+        assert_eq!(parser.peek().kind(), SyntaxKind::IdentifierToken);
+
+        let diagnostics = parser.finish();
+
+        assert!(diagnostics.is_empty());
     }
 
     #[test]

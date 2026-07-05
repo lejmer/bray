@@ -71,6 +71,10 @@ impl LexerTokenSource {
         self.diagnostics
     }
 
+    pub(crate) fn merge_diagnostics_from(&mut self, diagnostics: &DiagnosticBag) {
+        self.record_diagnostics(diagnostics);
+    }
+
     /// Returns the next token without consuming it.
     pub fn peek(&mut self) -> SyntaxToken {
         self.lookahead(0)
