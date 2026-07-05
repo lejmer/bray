@@ -24,6 +24,17 @@ impl<'kinds> RecoverySet<'kinds> {
 }
 
 #[derive(Clone, Debug)]
+pub(crate) struct ParserCursorCheckpoint {
+    cursor: ParserCursor,
+}
+
+impl ParserCursorCheckpoint {
+    pub(crate) fn fork(&self) -> ParserCursor {
+        self.cursor.clone()
+    }
+}
+
+#[derive(Clone, Debug)]
 pub(crate) struct ParserCursor {
     token_source: LexerTokenSource,
     syntax_diagnostics: DiagnosticBag,
@@ -34,6 +45,12 @@ impl ParserCursor {
         Self {
             token_source,
             syntax_diagnostics: DiagnosticBag::new(),
+        }
+    }
+
+    pub(crate) fn checkpoint(&self) -> ParserCursorCheckpoint {
+        ParserCursorCheckpoint {
+            cursor: self.clone(),
         }
     }
 
@@ -111,6 +128,11 @@ impl ParserCursor {
         self.token_source
             .into_diagnostics()
             .merged(&self.syntax_diagnostics)
+    }
+
+    pub(crate) fn absorb_lexical_diagnostics_from(&mut self, cursor: &Self) {
+        self.token_source
+            .merge_diagnostics_from(cursor.token_source.diagnostics());
     }
 
     fn record_syntax_diagnostic(&mut self, diagnostic: bray_diagnostics::Diagnostic) {
@@ -392,6 +414,79 @@ mod tests {
                 DiagnosticKind::LexicalInvalidCharacter,
                 DiagnosticKind::SyntaxSkippedSyntax
             ]
+        );
+    }
+
+    #[test]
+    fn cursor_checkpoint_fork_does_not_advance_main_cursor() {
+        let mut cursor = cursor("func main");
+
+        let checkpoint = cursor.checkpoint();
+
+        let mut fork = checkpoint.fork();
+
+        assert_eq!(fork.consume().kind(), SyntaxKind::FuncKeyword);
+        assert_eq!(fork.peek().kind(), SyntaxKind::IdentifierToken);
+
+        assert_eq!(cursor.peek().kind(), SyntaxKind::FuncKeyword);
+    }
+
+    #[test]
+    fn cursor_abandoned_fork_discards_syntax_diagnostics() {
+        let mut cursor = cursor("main");
+
+        let checkpoint = cursor.checkpoint();
+
+        let mut fork = checkpoint.fork();
+
+        let token = fork.expect(SyntaxKind::FuncKeyword);
+
+        assert!(token.is_missing());
+
+        cursor.absorb_lexical_diagnostics_from(&fork);
+
+        assert!(cursor.finish().is_empty());
+    }
+
+    #[test]
+    fn cursor_abandoned_fork_preserves_demanded_lexical_diagnostics() {
+        let mut cursor = cursor("$");
+
+        let checkpoint = cursor.checkpoint();
+
+        let mut fork = checkpoint.fork();
+
+        assert_eq!(fork.peek().kind(), SyntaxKind::InvalidToken);
+
+        cursor.absorb_lexical_diagnostics_from(&fork);
+
+        let diagnostics = cursor.finish();
+
+        assert_eq!(
+            diagnostic_kinds(&diagnostics),
+            [DiagnosticKind::LexicalInvalidCharacter]
+        );
+    }
+
+    #[test]
+    fn cursor_absorbed_fork_lexical_diagnostics_are_deduplicated() {
+        let mut cursor = cursor("$");
+
+        let checkpoint = cursor.checkpoint();
+
+        let mut fork = checkpoint.fork();
+
+        assert_eq!(fork.peek().kind(), SyntaxKind::InvalidToken);
+
+        cursor.absorb_lexical_diagnostics_from(&fork);
+
+        assert_eq!(cursor.peek().kind(), SyntaxKind::InvalidToken);
+
+        let diagnostics = cursor.finish();
+
+        assert_eq!(
+            diagnostic_kinds(&diagnostics),
+            [DiagnosticKind::LexicalInvalidCharacter]
         );
     }
 
