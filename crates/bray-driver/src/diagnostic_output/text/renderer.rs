@@ -1,0 +1,275 @@
+use std::io::{self, Write};
+
+use bray_diagnostics::DiagnosticBag;
+use bray_messages::{DiagnosticRenderer, RenderedDiagnostic, RenderedDiagnosticNote};
+use bray_source::SourceStore;
+
+use crate::terminal_style::{color_bright_text, color_note_heading, color_severity_label};
+
+use super::frame::write_source_frame;
+use crate::diagnostic_output::source_map::DiagnosticSourceMap;
+
+pub(crate) fn write_text_diagnostics(
+    diagnostics: &DiagnosticBag,
+    sources: Option<&SourceStore>,
+    writer: &mut impl Write,
+) -> io::Result<()> {
+    let renderer = DiagnosticRenderer::english();
+    let source_map = DiagnosticSourceMap::new(sources);
+
+    let mut first_diagnostic = true;
+
+    for diagnostic in renderer.render_bag(diagnostics) {
+        if !first_diagnostic {
+            writeln!(writer)?;
+        }
+
+        write_text_diagnostic(renderer, &source_map, &diagnostic, writer)?;
+        first_diagnostic = false;
+    }
+
+    Ok(())
+}
+
+fn write_text_diagnostic(
+    renderer: DiagnosticRenderer,
+    source_map: &DiagnosticSourceMap<'_>,
+    diagnostic: &RenderedDiagnostic,
+    writer: &mut impl Write,
+) -> io::Result<()> {
+    write_diagnostic_header(renderer, diagnostic, writer)?;
+
+    let resolved = diagnostic
+        .primary_span()
+        .and_then(|span| source_map.resolve_source_span(span));
+
+    match resolved {
+        Some(resolved) => {
+            writeln!(writer)?;
+            write_source_frame(renderer, diagnostic, resolved, writer)
+        }
+        None => write_notes(renderer, diagnostic.notes(), writer),
+    }
+}
+
+fn write_diagnostic_header(
+    renderer: DiagnosticRenderer,
+    diagnostic: &RenderedDiagnostic,
+    writer: &mut impl Write,
+) -> io::Result<()> {
+    let severity = renderer.render_severity(diagnostic.severity());
+    let heading = format!("{severity} E{:04}", diagnostic.code().raw());
+    let message = format!(": {}", diagnostic.message());
+
+    writeln!(
+        writer,
+        "{}{}",
+        color_severity_label(diagnostic.severity(), &heading),
+        color_bright_text(&message)
+    )
+}
+
+fn write_notes(
+    renderer: DiagnosticRenderer,
+    notes: &[RenderedDiagnosticNote],
+    writer: &mut impl Write,
+) -> io::Result<()> {
+    for note in notes {
+        writeln!(
+            writer,
+            "{}: {}",
+            color_note_heading(renderer.render_note_heading(note.rendered_kind())),
+            note.message()
+        )?;
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_diagnostics::{
+        Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind, DiagnosticLabel,
+        DiagnosticLabelKind, DiagnosticNote, DiagnosticNoteKind, SeverityKind,
+    };
+    use bray_source::{SourceId, SourceSpan, SourceStore, TextRange, TextSize};
+
+    use super::write_text_diagnostics;
+    use crate::diagnostic_output::test_support::file_source_store;
+
+    #[test]
+    fn text_output_renders_colored_terminal_diagnostics() {
+        let diagnostic = Diagnostic::new(
+            DiagnosticId::new(0),
+            DiagnosticKind::SourceInvalidUtf8,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::text_offset(TextSize::new(4)))
+        .with_note(DiagnosticNote::new(DiagnosticNoteKind::SourceMustBeUtf8));
+
+        let bag = DiagnosticBag::single(diagnostic);
+        let output = render(&bag, None);
+
+        assert!(output.contains("\x1b[31merror E1002\x1b[0m"));
+        assert!(output.contains("\x1b[97m: source input contains invalid UTF-8\x1b[0m"));
+        assert!(output.contains("\x1b[97mhelp\x1b[0m: source inputs must be valid UTF-8"));
+        assert!(!output.contains("byte offset 4"));
+        assert!(!output.contains("source_invalid_utf8"));
+    }
+
+    #[test]
+    fn text_output_resolves_source_spans_to_line_columns() {
+        let sources = file_source_store("ok\n$");
+
+        let span = SourceSpan::new(
+            SourceId::new(0),
+            TextRange::new(TextSize::new(3), TextSize::new(4)),
+        );
+
+        let diagnostic = Diagnostic::new(
+            DiagnosticId::new(0),
+            DiagnosticKind::LexicalInvalidCharacter,
+            SeverityKind::Error,
+        )
+        .with_primary_span(span)
+        .with_label(DiagnosticLabel::primary(
+            DiagnosticLabelKind::InvalidCharacter,
+            span,
+        ));
+
+        let bag = DiagnosticBag::single(diagnostic);
+        let output = render(&bag, Some(&sources));
+
+        assert!(output.contains("at \x1b[0mmain.bray:2:1"));
+        assert!(output.contains("2 | "));
+        assert!(output.contains("$"));
+        assert!(!output.contains("source 0:3..4"));
+    }
+
+    #[test]
+    fn text_output_omits_label_list() {
+        let sources = file_source_store("bad é");
+
+        let primary_span = SourceSpan::new(
+            SourceId::new(0),
+            TextRange::new(TextSize::ZERO, TextSize::new(3)),
+        );
+
+        let secondary_span = SourceSpan::new(
+            SourceId::new(0),
+            TextRange::new(TextSize::new(4), TextSize::new(6)),
+        );
+
+        let diagnostic = Diagnostic::new(
+            DiagnosticId::new(0),
+            DiagnosticKind::LexicalInvalidIdentifier,
+            SeverityKind::Error,
+        )
+        .with_primary_span(primary_span)
+        .with_label(DiagnosticLabel::primary(
+            DiagnosticLabelKind::InvalidIdentifier,
+            primary_span,
+        ))
+        .with_label(DiagnosticLabel::secondary(
+            DiagnosticLabelKind::NonAsciiIdentifier,
+            secondary_span,
+        ));
+
+        let bag = DiagnosticBag::single(diagnostic);
+        let output = render(&bag, Some(&sources));
+
+        assert!(output.contains("invalid identifier"));
+        assert!(output.contains("main.bray:1:1..1:3"));
+        assert!(output.contains("^^^"));
+        assert!(!output.contains("primary source"));
+        assert!(!output.contains("secondary source"));
+    }
+
+    #[test]
+    fn text_output_renders_multiline_source_ranges() {
+        let sources = file_source_store("first\nsecond\nthird");
+
+        let span = SourceSpan::new(
+            SourceId::new(0),
+            TextRange::new(TextSize::new(2), TextSize::new(9)),
+        );
+
+        let diagnostic = Diagnostic::new(
+            DiagnosticId::new(0),
+            DiagnosticKind::LexicalInvalidCharacter,
+            SeverityKind::Error,
+        )
+        .with_primary_span(span);
+
+        let bag = DiagnosticBag::single(diagnostic);
+        let output = render(&bag, Some(&sources));
+
+        assert!(output.contains("main.bray:1:3..2:3"));
+        assert!(output.contains("1 | "));
+        assert!(output.contains("first"));
+        assert!(output.contains("2 | "));
+        assert!(output.contains("second"));
+    }
+
+    #[test]
+    fn text_output_clips_long_source_lines() {
+        let long_source = format!("{}target{}", "a".repeat(120), "b".repeat(20));
+        let sources = file_source_store(&long_source);
+
+        let span = SourceSpan::new(
+            SourceId::new(0),
+            TextRange::new(TextSize::new(120), TextSize::new(126)),
+        );
+
+        let diagnostic = Diagnostic::new(
+            DiagnosticId::new(0),
+            DiagnosticKind::LexicalInvalidCharacter,
+            SeverityKind::Error,
+        )
+        .with_primary_span(span);
+
+        let bag = DiagnosticBag::single(diagnostic);
+        let output = render(&bag, Some(&sources));
+
+        assert!(output.contains("..."));
+        assert!(output.contains("target"));
+        assert!(output.contains("^^^^^^"));
+    }
+
+    #[test]
+    fn text_output_does_not_render_line_column_end_past_same_line_span() {
+        let sources = file_source_store("abcdefghijkl");
+
+        let span = SourceSpan::new(
+            SourceId::new(0),
+            TextRange::new(TextSize::ZERO, TextSize::new(12)),
+        );
+
+        let diagnostic = Diagnostic::new(
+            DiagnosticId::new(0),
+            DiagnosticKind::LexicalInvalidCharacter,
+            SeverityKind::Error,
+        )
+        .with_primary_span(span);
+
+        let bag = DiagnosticBag::single(diagnostic);
+        let output = render(&bag, Some(&sources));
+
+        assert!(output.contains("main.bray:1:1..1:12"));
+        assert!(!output.contains("main.bray:1:1..1:13"));
+    }
+
+    fn render(bag: &DiagnosticBag, sources: Option<&SourceStore>) -> String {
+        let mut output = Vec::new();
+
+        match write_text_diagnostics(bag, sources, &mut output) {
+            Ok(()) => {}
+            Err(error) => panic!("text diagnostics should write: {error:?}"),
+        }
+
+        match String::from_utf8(output) {
+            Ok(output) => output,
+            Err(error) => panic!("text diagnostics should be UTF-8: {error:?}"),
+        }
+    }
+}

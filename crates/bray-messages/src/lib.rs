@@ -5,9 +5,11 @@
 mod argument;
 mod catalog;
 mod locale;
-mod rendered;
+mod rendered_diagnostic;
 mod renderer;
 
 pub use locale::DiagnosticLocale;
-pub use rendered::{RenderedDiagnostic, RenderedDiagnosticLabel, RenderedDiagnosticNote};
+pub use rendered_diagnostic::{
+    RenderedDiagnostic, RenderedDiagnosticLabel, RenderedDiagnosticNote, RenderedDiagnosticNoteKind,
+};
 pub use renderer::DiagnosticRenderer;

@@ -551,7 +551,9 @@ mod tests {
             Err(error) => panic!("stderr should be UTF-8: {error:?}"),
         };
 
-        assert!(stderr.contains("[1002]: source input contains invalid UTF-8 at byte offset 0"));
+        assert!(stderr.contains("error E1002"));
+        assert!(stderr.contains("source input contains invalid UTF-8"));
+        assert!(!stderr.contains("byte offset 0"));
         assert!(!stderr.contains("source_invalid_utf8"));
     }
 
@@ -580,7 +582,7 @@ mod tests {
             Err(error) => panic!("stderr should be UTF-8: {error:?}"),
         };
 
-        assert!(stderr.contains("bad.bray:1:1..1:1"));
+        assert!(stderr.contains("bad.bray:1:1"));
         assert!(!stderr.contains("source 0:0..1"));
     }
 
@@ -609,7 +611,7 @@ mod tests {
             Err(error) => panic!("stderr should be UTF-8: {error:?}"),
         };
 
-        assert!(stderr.contains("bad.bray:1:2..1:2"));
+        assert!(stderr.contains("bad.bray:1:2"));
         assert!(stderr.contains("bad.bray:3:1..3:7"));
         assert!(!stderr.contains("bad.bray:2:1..2:7"));
     }

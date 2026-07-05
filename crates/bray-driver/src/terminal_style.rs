@@ -20,8 +20,16 @@ pub(crate) fn color_severity_label(severity: SeverityKind, label: &str) -> Strin
     color_text(severity_style(severity), label)
 }
 
+pub(crate) fn color_bright_text(text: &str) -> String {
+    color_text(bright_text_style(), text)
+}
+
+pub(crate) fn color_frame_text(text: &str) -> String {
+    color_text(note_style(), text)
+}
+
 pub(crate) fn color_note_heading(label: &str) -> String {
-    color_text(note_style(), label)
+    color_bright_text(label)
 }
 
 pub(crate) fn render_styled_text(text: &StyledStr) -> String {
@@ -55,4 +63,8 @@ fn note_style() -> Style {
 
 fn help_style() -> Style {
     AnsiColor::Green.on_default()
+}
+
+fn bright_text_style() -> Style {
+    AnsiColor::BrightWhite.on_default()
 }
