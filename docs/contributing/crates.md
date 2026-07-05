@@ -22,7 +22,8 @@
     - Consumes structured `bray-diagnostics` records and must not own compiler logic.
 
 - `bray-syntax`
-    - Syntax data structures: tokens, token kinds, syntax node kinds, syntax trees, trivia, and syntax-level representations.
+    - Syntax data structures: token kinds, syntax node kinds, green syntax storage, typed syntax nodes, syntax trees, tokens,
+      trivia, and syntax-level representations.
     - Owns reusable syntax walkers, visitors, and cursors.
     - Defines the shape of parsed source, but should not perform parsing itself.
 

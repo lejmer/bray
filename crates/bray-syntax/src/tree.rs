@@ -1,6 +1,6 @@
 use std::fmt::{self, Write};
 
-use super::{CompilationUnitSyntax, SourceUnitSyntax, SyntaxText};
+use crate::{CompilationUnitSyntax, SourceUnitSyntax, SyntaxText};
 
 /// Immutable syntax tree rooted at a compilation unit.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]

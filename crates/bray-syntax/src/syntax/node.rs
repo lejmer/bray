@@ -2,8 +2,8 @@ use std::fmt::{self, Write};
 
 use bray_source::TextRange;
 
-use super::text_from_writer;
 use crate::SyntaxKind;
+use crate::text::text_from_writer;
 
 /// Common contract implemented by typed syntax tree nodes.
 pub trait SyntaxNode: Send + Sync {

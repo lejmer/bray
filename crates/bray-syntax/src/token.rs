@@ -4,10 +4,10 @@ use std::sync::Arc;
 use bray_base::shared_slice;
 use bray_source::{TextRange, TextSize};
 
-use crate::syntax::text_from_writer;
+use crate::text::text_from_writer;
 use crate::{SyntaxKind, SyntaxTrivia};
 
-/// Syntax token produced by lexical analysis.
+/// Range-bearing syntax token produced by lexical analysis or syntax traversal.
 ///
 /// A token stores its source range plus leading and trailing trivia. Token text
 /// is resolved from immutable source text by range, so tokens stay compact and
