@@ -127,12 +127,21 @@ impl RenderedDiagnosticLabel {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RenderedDiagnosticNote {
     kind: DiagnosticNoteKind,
+    rendered_kind: RenderedDiagnosticNoteKind,
     message: String,
 }
 
 impl RenderedDiagnosticNote {
-    pub(crate) fn new(kind: DiagnosticNoteKind, message: String) -> Self {
-        Self { kind, message }
+    pub(crate) fn new(
+        kind: DiagnosticNoteKind,
+        rendered_kind: RenderedDiagnosticNoteKind,
+        message: String,
+    ) -> Self {
+        Self {
+            kind,
+            rendered_kind,
+            message,
+        }
     }
 
     /// Returns the stable note category.
@@ -140,8 +149,22 @@ impl RenderedDiagnosticNote {
         self.kind
     }
 
+    /// Returns the rendered note heading category.
+    pub const fn rendered_kind(&self) -> RenderedDiagnosticNoteKind {
+        self.rendered_kind
+    }
+
     /// Returns the rendered note message.
     pub fn message(&self) -> &str {
         &self.message
     }
+}
+
+/// Rendered category for a diagnostic note heading.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum RenderedDiagnosticNoteKind {
+    /// Informational context.
+    Note,
+    /// Actionable guidance.
+    Help,
 }

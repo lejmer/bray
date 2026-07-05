@@ -3,10 +3,11 @@ use bray_diagnostics::{
 };
 
 use crate::locale::DiagnosticLocale;
+use crate::rendered_diagnostic::RenderedDiagnosticNoteKind;
 
 use super::english::{
     english_diagnostic_template, english_label_style, english_label_template, english_note_heading,
-    english_note_template, english_severity_label,
+    english_note_kind, english_note_template, english_severity_label,
 };
 use super::template::MessageTemplate;
 
@@ -50,9 +51,15 @@ impl MessageCatalog {
         }
     }
 
-    pub(crate) const fn note_heading(self) -> &'static str {
+    pub(crate) const fn note_kind(self, kind: DiagnosticNoteKind) -> RenderedDiagnosticNoteKind {
         match self.locale {
-            DiagnosticLocale::English => english_note_heading(),
+            DiagnosticLocale::English => english_note_kind(kind),
+        }
+    }
+
+    pub(crate) const fn note_heading(self, kind: RenderedDiagnosticNoteKind) -> &'static str {
+        match self.locale {
+            DiagnosticLocale::English => english_note_heading(kind),
         }
     }
 }

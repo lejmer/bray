@@ -7,7 +7,9 @@ use bray_source::{SourceLocation, SourceSpan};
 use crate::argument::{ArgumentFormatter, format_source_location, format_source_span};
 use crate::catalog::{MessageCatalog, MessageTemplate, MessageTemplatePart};
 use crate::locale::DiagnosticLocale;
-use crate::rendered::{RenderedDiagnostic, RenderedDiagnosticLabel, RenderedDiagnosticNote};
+use crate::rendered_diagnostic::{
+    RenderedDiagnostic, RenderedDiagnosticLabel, RenderedDiagnosticNote, RenderedDiagnosticNoteKind,
+};
 
 /// Locale-aware renderer for structured diagnostics.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -86,9 +88,9 @@ impl DiagnosticRenderer {
         MessageCatalog::new(self.locale).label_style(style)
     }
 
-    /// Renders the note heading for terminal diagnostic output.
-    pub fn render_note_heading(self) -> &'static str {
-        MessageCatalog::new(self.locale).note_heading()
+    /// Renders a note heading for terminal diagnostic output.
+    pub fn render_note_heading(self, kind: RenderedDiagnosticNoteKind) -> &'static str {
+        MessageCatalog::new(self.locale).note_heading(kind)
     }
 
     fn render_label(self, label: &DiagnosticLabel) -> RenderedDiagnosticLabel {
@@ -103,13 +105,19 @@ impl DiagnosticRenderer {
     }
 
     fn render_note(self, note: &DiagnosticNote) -> RenderedDiagnosticNote {
-        let template = MessageCatalog::new(self.locale).note_template(note.kind());
+        let catalog = MessageCatalog::new(self.locale);
+        let template = catalog.note_template(note.kind());
 
-        RenderedDiagnosticNote::new(note.kind(), self.render_template(template, note.args()))
+        RenderedDiagnosticNote::new(
+            note.kind(),
+            catalog.note_kind(note.kind()),
+            self.render_template(template, note.args()),
+        )
     }
 
     fn render_template(self, template: MessageTemplate, args: &[DiagnosticArg]) -> String {
         let formatter = ArgumentFormatter::new(self.locale);
+
         let mut message = String::new();
 
         for part in template.parts() {
@@ -135,7 +143,9 @@ mod tests {
     use bray_source::{SourceId, SourceSpan, TextRange, TextSize};
 
     use super::DiagnosticRenderer;
-    use crate::{DiagnosticLocale, RenderedDiagnostic, RenderedDiagnosticLabel};
+    use crate::{
+        DiagnosticLocale, RenderedDiagnostic, RenderedDiagnosticLabel, RenderedDiagnosticNoteKind,
+    };
 
     #[test]
     fn renderer_renders_diagnostic_messages_from_structured_catalog() {
@@ -157,6 +167,7 @@ mod tests {
         assert_eq!(rendered.id(), DiagnosticId::new(7));
         assert_eq!(rendered.kind(), DiagnosticKind::SourceFileReadFailed);
         assert_eq!(rendered.severity(), SeverityKind::Error);
+
         assert_eq!(
             rendered.message(),
             "could not read source file main.bray: not found"
@@ -167,6 +178,8 @@ mod tests {
         };
 
         assert_eq!(note.kind(), DiagnosticNoteKind::SourceFileMustBeReadable);
+        assert_eq!(note.rendered_kind(), RenderedDiagnosticNoteKind::Help);
+
         assert_eq!(
             note.message(),
             "source files must be readable before compilation"
@@ -185,15 +198,13 @@ mod tests {
 
         let rendered = DiagnosticRenderer::new(DiagnosticLocale::English).render(&diagnostic);
 
-        assert_eq!(
-            rendered.message(),
-            "source input contains invalid UTF-8 at byte offset 4"
-        );
+        assert_eq!(rendered.message(), "source input contains invalid UTF-8");
 
         let [note] = rendered.notes() else {
             panic!("expected one rendered note: {rendered:?}");
         };
 
+        assert_eq!(note.rendered_kind(), RenderedDiagnosticNoteKind::Help);
         assert_eq!(note.message(), "source inputs must be valid UTF-8");
     }
 
@@ -251,7 +262,6 @@ mod tests {
         );
 
         let bag = DiagnosticBag::from(vec![first, second]);
-
         let rendered = DiagnosticRenderer::english().render_bag(&bag);
 
         let ids = rendered
@@ -283,11 +293,21 @@ mod tests {
         let renderer = DiagnosticRenderer::english();
 
         assert_eq!(renderer.render_severity(SeverityKind::Error), "error");
+
         assert_eq!(
             renderer.render_label_style(DiagnosticLabelStyle::Secondary),
-            "secondary"
+            "secondary source"
         );
-        assert_eq!(renderer.render_note_heading(), "note");
+
+        assert_eq!(
+            renderer.render_note_heading(RenderedDiagnosticNoteKind::Note),
+            "note"
+        );
+
+        assert_eq!(
+            renderer.render_note_heading(RenderedDiagnosticNoteKind::Help),
+            "help"
+        );
     }
 
     #[test]

@@ -3,6 +3,8 @@ use bray_diagnostics::{
     DiagnosticNoteKind, SeverityKind,
 };
 
+use crate::rendered_diagnostic::RenderedDiagnosticNoteKind;
+
 use super::{MessageTemplate, MessageTemplatePart};
 
 const SOURCE_FILE_READ_FAILED: &[MessageTemplatePart] = &[
@@ -12,10 +14,9 @@ const SOURCE_FILE_READ_FAILED: &[MessageTemplatePart] = &[
     MessageTemplatePart::Arg(DiagnosticArgName::IoErrorKind),
 ];
 
-const SOURCE_INVALID_UTF8: &[MessageTemplatePart] = &[
-    MessageTemplatePart::Text("source input contains invalid UTF-8 at byte offset "),
-    MessageTemplatePart::Arg(DiagnosticArgName::TextOffset),
-];
+const SOURCE_INVALID_UTF8: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "source input contains invalid UTF-8",
+)];
 
 const SOURCE_TOO_MANY_INPUTS: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("too many source inputs: "),
@@ -158,7 +159,7 @@ const NOTE_WORKER_BUDGET_MUST_BE_POSITIVE: &[MessageTemplatePart] = &[MessageTem
 )];
 
 const NOTE_CHARACTER_NOT_ACCEPTED: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
-    "this character is not accepted by the lexer",
+    "remove this character or replace it with valid Bray syntax",
 )];
 
 const NOTE_BOM_ONLY_ALLOWED_AT_START: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
@@ -218,13 +219,40 @@ pub(super) const fn english_severity_label(severity: SeverityKind) -> &'static s
 
 pub(super) const fn english_label_style(style: DiagnosticLabelStyle) -> &'static str {
     match style {
-        DiagnosticLabelStyle::Primary => "primary",
-        DiagnosticLabelStyle::Secondary => "secondary",
+        DiagnosticLabelStyle::Primary => "primary source",
+        DiagnosticLabelStyle::Secondary => "secondary source",
     }
 }
 
-pub(super) const fn english_note_heading() -> &'static str {
-    "note"
+pub(super) const fn english_note_kind(kind: DiagnosticNoteKind) -> RenderedDiagnosticNoteKind {
+    match kind {
+        DiagnosticNoteKind::SourceIdsAreCompact
+        | DiagnosticNoteKind::SourceTextOffsetsAreCompact
+        | DiagnosticNoteKind::BomOnlyAllowedAtStart
+        | DiagnosticNoteKind::IdentifiersMustBeAscii
+        | DiagnosticNoteKind::OnlyImaginaryNumericSuffix
+        | DiagnosticNoteKind::CharacterLiteralMustContainOneScalar
+        | DiagnosticNoteKind::UnicodeEscapeMustBeScalar => RenderedDiagnosticNoteKind::Note,
+        DiagnosticNoteKind::SourceFileMustBeReadable
+        | DiagnosticNoteKind::SourceMustBeUtf8
+        | DiagnosticNoteKind::SourceInputRequired
+        | DiagnosticNoteKind::SourceInputNeedsStableIdentity
+        | DiagnosticNoteKind::WorkerBudgetMustBePositive
+        | DiagnosticNoteKind::CharacterNotAccepted
+        | DiagnosticNoteKind::LineBreaksMustBeLfOrCrlf
+        | DiagnosticNoteKind::IdentifierSpellingMustBeValid
+        | DiagnosticNoteKind::CharacterLiteralNeedsTerminator
+        | DiagnosticNoteKind::StringLiteralNeedsTerminator
+        | DiagnosticNoteKind::EscapeMustBeKnown
+        | DiagnosticNoteKind::BlockCommentNeedsTerminator => RenderedDiagnosticNoteKind::Help,
+    }
+}
+
+pub(super) const fn english_note_heading(kind: RenderedDiagnosticNoteKind) -> &'static str {
+    match kind {
+        RenderedDiagnosticNoteKind::Note => "note",
+        RenderedDiagnosticNoteKind::Help => "help",
+    }
 }
 
 pub(super) const fn english_diagnostic_template(kind: DiagnosticKind) -> MessageTemplate {
