@@ -4,10 +4,10 @@ use std::sync::Arc;
 use bray_base::shared_slice;
 use bray_source::{SourceSnapshot, TextRange, TextSize};
 
-use super::{SourceSyntaxNode, SyntaxNode};
+use super::{SkippedSyntax, SourceSyntaxNode, SyntaxNode};
 use crate::builder::{GreenNodeBuilder, RequiredSyntaxSlot, SyntaxListSlot, require_token_kind};
 use crate::green::GreenNode;
-use crate::{SyntaxKind, SyntaxText, SyntaxToken};
+use crate::{SyntaxKind, SyntaxText, SyntaxToken, SyntaxTokenPresence};
 
 /// Root syntax node for one compiler compilation unit.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -123,9 +123,12 @@ impl SourceUnitSyntax {
     fn from_builder(builder: SourceUnitSyntaxBuilder) -> Self {
         let source = builder.source.into_value();
 
-        match builder.node.last_token_kind() {
-            Some(kind) if kind == SyntaxKind::EndOfFileToken => {
+        match builder.node.last_token() {
+            Some((kind, SyntaxTokenPresence::Present)) if kind == SyntaxKind::EndOfFileToken => {
                 require_token_kind(kind, SyntaxKind::EndOfFileToken, "source_unit.eof_token");
+            }
+            Some((SyntaxKind::EndOfFileToken, SyntaxTokenPresence::Missing)) => {
+                panic!("source unit token stream must end with present EOF");
             }
             _ => panic!("source unit token stream must end with EOF"),
         }
@@ -160,6 +163,16 @@ impl SourceUnitSyntax {
     /// and child lists on concrete syntax nodes as those nodes are added.
     pub fn tokens(&self) -> impl Iterator<Item = SyntaxToken> + '_ {
         self.node.syntax_tokens(TextSize::ZERO)
+    }
+
+    /// Returns skipped-syntax recovery nodes in source order.
+    pub fn skipped_syntax(&self) -> impl Iterator<Item = SkippedSyntax> + '_ {
+        self.node
+            .skipped_syntax_nodes(TextSize::ZERO)
+            .map(|(node, start)| {
+                // SourceSnapshot clones share immutable source text with typed recovery nodes.
+                SkippedSyntax::from_green(self.source.clone(), node, start)
+            })
     }
 
     /// Returns the required EOF token for this source unit.
@@ -206,9 +219,29 @@ impl SourceUnitSyntaxBuilder {
         self.node.push_token(token);
     }
 
+    /// Appends present source tokens under a skipped-syntax recovery node.
+    ///
+    /// Empty token lists do not add a recovery node.
+    ///
+    /// Panics when any skipped token is missing.
+    pub fn push_skipped_tokens(&mut self, tokens: impl IntoIterator<Item = SyntaxToken>) {
+        self.node.push_skipped_tokens(tokens);
+    }
+
     /// Appends tokens to the source-unit token list.
     pub fn tokens(mut self, tokens: impl IntoIterator<Item = SyntaxToken>) -> Self {
         self.node.push_tokens(tokens);
+
+        self
+    }
+
+    /// Appends present source tokens under a skipped-syntax recovery node.
+    ///
+    /// Empty token lists do not add a recovery node.
+    ///
+    /// Panics when any skipped token is missing.
+    pub fn skipped_tokens(mut self, tokens: impl IntoIterator<Item = SyntaxToken>) -> Self {
+        self.push_skipped_tokens(tokens);
 
         self
     }
@@ -349,6 +382,84 @@ mod tests {
             .build();
 
         assert_eq!(compilation_unit.full_text(), "  func// tail");
+    }
+
+    #[test]
+    fn source_units_preserve_missing_tokens_in_named_slots() {
+        let snapshot = snapshot("func");
+        let token = SyntaxToken::new(
+            SyntaxKind::FuncKeyword,
+            TextRange::new(TextSize::ZERO, TextSize::new(4)),
+        );
+
+        let missing = SyntaxToken::missing(SyntaxKind::SemicolonToken, TextSize::new(4));
+        let eof = SyntaxToken::end_of_file(TextSize::new(4));
+
+        let source_unit = SourceUnitSyntax::builder(snapshot)
+            .tokens([token.clone(), missing.clone(), eof.clone()])
+            .build();
+
+        let tokens = source_unit.tokens().collect::<Vec<_>>();
+
+        assert_eq!(tokens, [token, missing.clone(), eof]);
+        assert!(tokens[1].is_missing());
+        assert_eq!(tokens[1].kind(), SyntaxKind::SemicolonToken);
+        assert_eq!(source_unit.full_text(), "func");
+    }
+
+    #[test]
+    fn source_units_attach_skipped_syntax_without_losing_source_text() {
+        let snapshot = snapshot("func @ main");
+        let func = SyntaxToken::new(
+            SyntaxKind::FuncKeyword,
+            TextRange::new(TextSize::ZERO, TextSize::new(4)),
+        )
+        .with_trailing_trivia([SyntaxTrivia::whitespace(TextRange::new(
+            TextSize::new(4),
+            TextSize::new(5),
+        ))]);
+
+        let skipped_token =
+            SyntaxToken::invalid(TextRange::new(TextSize::new(5), TextSize::new(6)))
+                .with_trailing_trivia([SyntaxTrivia::whitespace(TextRange::new(
+                    TextSize::new(6),
+                    TextSize::new(7),
+                ))]);
+
+        let main = SyntaxToken::new(
+            SyntaxKind::IdentifierToken,
+            TextRange::new(TextSize::new(7), TextSize::new(11)),
+        );
+
+        let eof = SyntaxToken::end_of_file(TextSize::new(11));
+        let mut builder = SourceUnitSyntax::builder(snapshot);
+
+        builder.push_token(func.clone());
+        builder.push_skipped_tokens([skipped_token.clone()]);
+        builder.push_token(main.clone());
+        builder.push_token(eof.clone());
+
+        let source_unit = builder.build();
+        let skipped_syntax = source_unit.skipped_syntax().collect::<Vec<_>>();
+
+        assert_eq!(source_unit.full_text(), "func @ main");
+        assert_eq!(
+            source_unit.tokens().collect::<Vec<_>>(),
+            [func, skipped_token.clone(), main, eof]
+        );
+
+        let [skipped] = skipped_syntax.as_slice() else {
+            panic!("expected one skipped-syntax node: {skipped_syntax:?}");
+        };
+
+        assert_eq!(skipped.kind(), SyntaxKind::SkippedSyntax);
+        assert!(skipped.is_recovered());
+        assert_eq!(
+            skipped.full_range(),
+            TextRange::new(TextSize::new(5), TextSize::new(7))
+        );
+        assert_eq!(skipped.tokens().collect::<Vec<_>>(), [skipped_token]);
+        assert_eq!(skipped.full_text(), "@ ");
     }
 
     #[test]

@@ -1,5 +1,5 @@
 use crate::green::{GreenElement, GreenNode};
-use crate::{SyntaxKind, SyntaxToken};
+use crate::{SyntaxKind, SyntaxToken, SyntaxTokenPresence};
 
 #[derive(Debug)]
 pub(crate) struct RequiredSyntaxSlot<T> {
@@ -73,6 +73,10 @@ impl GreenNodeBuilder {
         self.children.push(element);
     }
 
+    pub(crate) fn push_node(&mut self, node: GreenNode) {
+        self.push_element(GreenElement::from(node));
+    }
+
     pub(crate) fn push_elements(&mut self, elements: impl IntoIterator<Item = GreenElement>) {
         self.children.extend(elements);
     }
@@ -85,16 +89,44 @@ impl GreenNodeBuilder {
         self.push_elements(tokens.into_iter().map(GreenElement::from));
     }
 
-    pub(crate) fn last_token_kind(&self) -> Option<SyntaxKind> {
+    pub(crate) fn push_skipped_tokens(&mut self, tokens: impl IntoIterator<Item = SyntaxToken>) {
+        if let Some(node) = skipped_syntax_node(tokens) {
+            self.push_node(node);
+        }
+    }
+
+    pub(crate) fn last_token(&self) -> Option<(SyntaxKind, SyntaxTokenPresence)> {
         match self.children.last() {
-            Some(GreenElement::Token(token)) => Some(token.kind()),
-            Some(GreenElement::Node(node)) => node.last_token_kind(),
+            Some(GreenElement::Token(token)) => Some((token.kind(), token.presence())),
+            Some(GreenElement::Node(node)) => node.last_token(),
             None => None,
         }
     }
 
     pub(crate) fn build(self, kind: SyntaxKind) -> GreenNode {
         GreenNode::new(kind, self.children)
+    }
+}
+
+fn skipped_syntax_node(tokens: impl IntoIterator<Item = SyntaxToken>) -> Option<GreenNode> {
+    let mut builder = GreenNodeBuilder::new();
+    let mut has_tokens = false;
+
+    for token in tokens {
+        assert!(
+            token.is_present(),
+            "skipped syntax can only contain present source tokens"
+        );
+
+        has_tokens = true;
+
+        builder.push_token(token);
+    }
+
+    if has_tokens {
+        Some(builder.build(SyntaxKind::SkippedSyntax))
+    } else {
+        None
     }
 }
 
@@ -116,7 +148,7 @@ pub(crate) fn require_token_kind(
 mod tests {
     use bray_source::{TextRange, TextSize};
 
-    use super::{GreenNodeBuilder, RequiredSyntaxSlot};
+    use super::{GreenNodeBuilder, RequiredSyntaxSlot, require_token_kind};
     use crate::{SyntaxKind, SyntaxToken};
 
     #[test]
@@ -162,7 +194,7 @@ mod tests {
         parent_builder.push_tokens([SyntaxToken::end_of_file(TextSize::new(4))]);
 
         assert_eq!(
-            parent_builder.last_token_kind(),
+            parent_builder.last_token().map(|(kind, _presence)| kind),
             Some(SyntaxKind::EndOfFileToken)
         );
     }
@@ -187,8 +219,55 @@ mod tests {
         parent_builder.push_elements([first.into(), second.into()]);
 
         assert_eq!(
-            parent_builder.last_token_kind(),
+            parent_builder.last_token().map(|(kind, _presence)| kind),
             Some(SyntaxKind::EndOfFileToken)
         );
+    }
+
+    #[test]
+    fn green_node_builders_attach_skipped_syntax_nodes() {
+        let mut builder = GreenNodeBuilder::new();
+
+        builder.push_token(SyntaxToken::new(
+            SyntaxKind::FuncKeyword,
+            TextRange::new(TextSize::ZERO, TextSize::new(4)),
+        ));
+
+        builder.push_skipped_tokens([SyntaxToken::invalid(TextRange::new(
+            TextSize::new(4),
+            TextSize::new(5),
+        ))]);
+
+        builder.push_token(SyntaxToken::end_of_file(TextSize::new(5)));
+
+        let node = builder.build(SyntaxKind::SourceUnit);
+
+        let skipped_nodes = node
+            .skipped_syntax_nodes(TextSize::ZERO)
+            .collect::<Vec<_>>();
+
+        assert_eq!(skipped_nodes.len(), 1);
+        assert_eq!(skipped_nodes[0].0.kind(), SyntaxKind::SkippedSyntax);
+        assert_eq!(skipped_nodes[0].1, TextSize::new(4));
+    }
+
+    #[test]
+    fn required_token_slots_accept_missing_tokens_with_expected_kind() {
+        let mut slot = RequiredSyntaxSlot::new("statement.semicolon_token");
+
+        let missing = SyntaxToken::missing(SyntaxKind::SemicolonToken, TextSize::new(4));
+
+        require_token_kind(
+            missing.kind(),
+            SyntaxKind::SemicolonToken,
+            "statement.semicolon_token",
+        );
+
+        slot.set(missing.clone());
+
+        let token = slot.into_value();
+
+        assert_eq!(token, missing);
+        assert!(token.is_missing());
     }
 }

@@ -13,10 +13,10 @@ mod trivia;
 
 pub use kind::SyntaxKind;
 pub use syntax::{
-    CompilationUnitSyntax, CompilationUnitSyntaxBuilder, SourceSyntaxNode, SourceUnitSyntax,
-    SourceUnitSyntaxBuilder, SyntaxNode,
+    CompilationUnitSyntax, CompilationUnitSyntaxBuilder, SkippedSyntax, SourceSyntaxNode,
+    SourceUnitSyntax, SourceUnitSyntaxBuilder, SyntaxNode,
 };
 pub use text::SyntaxText;
-pub use token::SyntaxToken;
+pub use token::{SyntaxToken, SyntaxTokenPresence};
 pub use tree::SyntaxTree;
 pub use trivia::SyntaxTrivia;

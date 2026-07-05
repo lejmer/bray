@@ -12,6 +12,11 @@ pub trait SyntaxNode: Send + Sync {
 
     /// Returns the full source byte range covered by this node.
     fn full_range(&self) -> TextRange;
+
+    /// Returns whether this node is explicit syntax recovery.
+    fn is_recovered(&self) -> bool {
+        false
+    }
 }
 
 /// Common contract for syntax nodes contained in one source snapshot.

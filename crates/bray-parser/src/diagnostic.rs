@@ -23,6 +23,7 @@ pub(crate) fn expected_token(
         )
 }
 
+// TODO(parser): Remove this allow once production grammar emits unexpected-token diagnostics.
 #[allow(dead_code)]
 pub(crate) fn unexpected_token(snapshot: &SourceSnapshot, actual: &SyntaxToken) -> Diagnostic {
     let span = SourceSpan::new(snapshot.source_id(), actual.range());
@@ -54,7 +55,6 @@ pub(crate) fn unexpected_eof(
         ))
 }
 
-#[allow(dead_code)]
 pub(crate) fn skipped_syntax(snapshot: &SourceSnapshot, range: TextRange) -> Diagnostic {
     let span = SourceSpan::new(snapshot.source_id(), range);
 
