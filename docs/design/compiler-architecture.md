@@ -96,13 +96,18 @@ facts have been populated.
 
 ## Demand-Driven Evaluation
 
-Compiler work should be demand-driven (lazy). A query should run because a compiler command, language-server request, or dependent
-query requested the fact it computes, not because an earlier phase completed globally.
+Compiler work should be lazy by default. Code should expose typed APIs for compiler facts and compute those facts when they are
+requested. A caller should ask for the fact it needs, such as a syntax tree, a declaration surface, an expression type, body
+diagnostics, or an emitted artifact. It should not have to request intermediate phase work unless it needs that intermediate fact
+directly.
 
-Demand-driven evaluation is a compiler architecture rule, not a language semantic. It must not change which diagnostics or
-semantic facts a fully checked program produces.
+Demand-driven evaluation must not change which diagnostics or semantic facts a fully checked program produces.
 
-Queries should be lazy across stable compiler boundaries:
+Lazy evaluation should use ordinary compiler APIs. If computing the type of an expression needs parsed syntax, declaration
+surfaces, symbols, binding, and constraint solving, the type API obtains those dependencies internally through the owning phase
+APIs.
+
+Compiler facts should generally be lazy across stable compiler boundaries:
 
 - source units,
 - modules,
@@ -118,26 +123,25 @@ Queries should be lazy across stable compiler boundaries:
 - lowered IR units,
 - backend codegen units.
 
-A query must be complete within the boundary it promises. If a query promises a checked callable body, the whole callable body is
-checked and the published result contains the required expression types, selected overloads, selected trait implementations, move
-states, borrow states, contract facts, capability facts, and diagnostics for that body.
+A lazy fact must be complete within the boundary promised by its API. If an API returns a checked callable body, the whole callable
+body is checked and the published result contains the required expression types, selected overloads, selected trait
+implementations, move states, borrow states, contract facts, capability facts, and diagnostics for that body.
 
-Smaller requests should use smaller queries with smaller contracts. For example, a language-server hover request can ask for a
-declaration surface or a type signature without forcing every callable body in the package. A completion request can ask for the
-local facts needed at a source position. These are separate query contracts, not partial executions of a larger checked-body
-query.
+Smaller operations should use smaller APIs with smaller contracts. For example, a language-server hover implementation can ask for
+a declaration surface or a type signature. A completion implementation can ask for the local facts needed at a source position.
+These are separate contracts, not partial executions of a larger checked-body API.
 
-Compiler commands decide which query frontier to force:
+Compiler commands and language-server entry points request the result they need:
 
-- an outline request can force source, parsing, and declaration discovery,
-- a go-to-definition request can force symbol construction and the binding needed to resolve the requested reference,
-- a body diagnostic request can force the semantic units needed for that body,
-- a package check can force all semantic units required to validate the package,
-- emission can force lowering, IR validation, code generation, and emission only for checked units needed by the product.
+- an outline request asks for source outlines,
+- a go-to-definition request asks for the declaration target of a reference,
+- a body diagnostic request asks for diagnostics for a body,
+- a package check asks for package validation,
+- emission asks for product artifacts.
 
-Query order, cache hits, worker count, and language-server request order must not affect the semantic facts or diagnostics
-produced for the same requested frontier. Diagnostics from lazily evaluated queries must be merged and ordered deterministically
-when a diagnostic result is materialized.
+The implementation computes whatever intermediate facts are needed to answer each request. Evaluation order, cache hits, worker
+count, and language-server request order must not affect the semantic facts or diagnostics produced for the same requested result.
+Diagnostics from lazily evaluated facts must be merged and ordered deterministically when a diagnostic result is materialized.
 
 ---
 
@@ -588,6 +592,9 @@ A query computes a meaningful compiler fact with explicit inputs and a clear inv
 
 A query can be evaluated lazily when its fact is requested.
 
+Queries should feel like ordinary typed compiler APIs. A caller asks for the fact it needs and the query implementation obtains its
+own dependencies internally.
+
 A task is schedulable compiler work with explicit dependencies.
 
 Queries and tasks should use immutable inputs and publish immutable outputs.
@@ -668,8 +675,8 @@ Do not make every helper a query.
 
 A query should represent a meaningful compiler fact with a clear invalidation story.
 
-Language-server entry points should request narrow query frontiers instead of forcing broader compiler work than the user action
-needs.
+Language-server entry points should request the narrow result they need. Intermediate compiler facts should be computed internally
+by the lazy APIs that own those facts.
 
 Query inputs and outputs should be suitable for parallel scheduling.
 
