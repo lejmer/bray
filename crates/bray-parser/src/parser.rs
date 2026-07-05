@@ -1,6 +1,6 @@
 use bray_diagnostics::DiagnosticBag;
 use bray_source::{SourceId, SourceSnapshot, SourceStore};
-use bray_syntax::{SourceUnitSyntax, SourceUnitSyntaxBuilder, SyntaxKind, SyntaxTree};
+use bray_syntax::{SourceUnitSyntax, SourceUnitSyntaxBuilder, SyntaxKind, SyntaxToken, SyntaxTree};
 
 use crate::cursor::{ParserCursor, RecoverySet};
 use crate::lexer::LexerTokenSource;
@@ -147,24 +147,69 @@ impl Parser {
         self.cursor.finish()
     }
 
+    fn lookahead(&mut self, distance: usize) -> SyntaxToken {
+        self.cursor.lookahead(distance)
+    }
+
+    fn peek(&mut self) -> SyntaxToken {
+        self.lookahead(0)
+    }
+
+    fn at(&mut self, kind: SyntaxKind) -> bool {
+        self.peek().kind() == kind
+    }
+
+    fn consume_if(&mut self, kind: SyntaxKind) -> Option<SyntaxToken> {
+        if !self.at(kind) {
+            return None;
+        }
+
+        Some(self.cursor.consume())
+    }
+
+    fn consume(&mut self) -> SyntaxToken {
+        let kind = self.peek().kind();
+
+        match self.consume_if(kind) {
+            Some(token) => token,
+            None => panic!("parser token changed between peek and consume"),
+        }
+    }
+
+    fn expect(&mut self, kind: SyntaxKind) -> SyntaxToken {
+        self.cursor.expect(kind)
+    }
+
+    fn recover_until(&mut self, builder: &mut impl RecoverySyntaxSink, stop_kinds: &[SyntaxKind]) {
+        let skipped_tokens = self.cursor.skip_until(RecoverySet::new(stop_kinds));
+
+        builder.push_skipped_tokens(skipped_tokens);
+    }
+
     fn parse_placeholder_source_unit_tokens(&mut self, builder: &mut SourceUnitSyntaxBuilder) {
         loop {
-            if self.cursor.at(SyntaxKind::EndOfFileToken) {
-                builder.push_token(self.cursor.expect(SyntaxKind::EndOfFileToken));
+            if self.at(SyntaxKind::EndOfFileToken) {
+                builder.push_token(self.expect(SyntaxKind::EndOfFileToken));
                 return;
             }
 
-            if self.cursor.at(SyntaxKind::InvalidToken) {
-                let skipped_tokens = self
-                    .cursor
-                    .skip_until(RecoverySet::new(&[SyntaxKind::EndOfFileToken]));
-
-                builder.push_skipped_tokens(skipped_tokens);
+            if self.at(SyntaxKind::InvalidToken) {
+                self.recover_until(builder, &[SyntaxKind::EndOfFileToken]);
                 continue;
             }
 
-            builder.push_token(self.cursor.consume());
+            builder.push_token(self.consume());
         }
+    }
+}
+
+trait RecoverySyntaxSink {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>);
+}
+
+impl RecoverySyntaxSink for SourceUnitSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        SourceUnitSyntaxBuilder::push_skipped_tokens(self, tokens);
     }
 }
 
@@ -172,10 +217,10 @@ impl Parser {
 mod tests {
     use bray_diagnostics::{DiagnosticBag, DiagnosticKind};
     use bray_source::{TextRange, TextSize};
-    use bray_syntax::{SyntaxKind, SyntaxText, SyntaxToken};
+    use bray_syntax::{SourceUnitSyntax, SyntaxKind, SyntaxText, SyntaxToken};
     use bray_testing::test_source_store as source_store;
 
-    use super::{SyntaxTreeResult, parse_compilation_unit, parse_source_unit};
+    use super::{Parser, SyntaxTreeResult, parse_compilation_unit, parse_source_unit};
 
     #[test]
     fn parser_builds_one_compilation_unit_root() {
@@ -289,6 +334,40 @@ mod tests {
         };
 
         assert_eq!(skipped.full_text(), "$");
+    }
+
+    #[test]
+    fn parser_recovery_helper_attaches_skipped_syntax_before_stop_token() {
+        let sources = source_store(["main;"]);
+
+        let snapshot = match sources.get(bray_source::SourceId::new(0)) {
+            Some(snapshot) => snapshot,
+            None => panic!("source should exist"),
+        };
+
+        let mut parser = Parser::new(snapshot.clone());
+        let mut builder = SourceUnitSyntax::builder(snapshot.clone());
+
+        parser.recover_until(&mut builder, &[SyntaxKind::SemicolonToken]);
+
+        builder.push_token(parser.expect(SyntaxKind::SemicolonToken));
+        builder.push_token(parser.expect(SyntaxKind::EndOfFileToken));
+
+        let source_unit = builder.build();
+        let diagnostics = parser.finish();
+        let skipped_syntax = source_unit.skipped_syntax().collect::<Vec<_>>();
+
+        let [skipped] = skipped_syntax.as_slice() else {
+            panic!("expected one skipped-syntax node: {skipped_syntax:?}");
+        };
+
+        assert_eq!(skipped.full_text(), "main");
+        assert_eq!(source_unit.full_text(), "main;");
+
+        assert_eq!(
+            diagnostic_kinds(&diagnostics),
+            [DiagnosticKind::SyntaxSkippedSyntax]
+        );
     }
 
     #[test]
