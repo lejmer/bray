@@ -212,6 +212,41 @@ mod tests {
     }
 
     #[test]
+    fn text_output_aligns_omitted_source_frame_separator_with_source_lines() {
+        let source = (1..=16)
+            .map(|line| format!("line {line}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        let source_len = match u32::try_from(source.len()) {
+            Ok(source_len) => source_len,
+            Err(error) => panic!("test source length should fit in TextSize: {error:?}"),
+        };
+
+        let sources = file_source_store(&source);
+
+        let span = SourceSpan::new(
+            SourceId::new(0),
+            TextRange::new(TextSize::ZERO, TextSize::new(source_len)),
+        );
+
+        let diagnostic = Diagnostic::new(
+            DiagnosticId::new(0),
+            DiagnosticKind::LexicalInvalidCharacter,
+            SeverityKind::Error,
+        )
+        .with_primary_span(span);
+
+        let bag = DiagnosticBag::single(diagnostic);
+        let output = render(&bag, Some(&sources));
+
+        let omitted_line = frame_line_containing(&output, "... | ...");
+        let source_line = frame_line_containing(&output, "14 | ");
+
+        assert_eq!(omitted_line.find('|'), source_line.find('|'));
+    }
+
+    #[test]
     fn text_output_clips_long_source_lines() {
         let long_source = format!("{}target{}", "a".repeat(120), "b".repeat(20));
         let sources = file_source_store(&long_source);
@@ -270,6 +305,13 @@ mod tests {
         match String::from_utf8(output) {
             Ok(output) => output,
             Err(error) => panic!("text diagnostics should be UTF-8: {error:?}"),
+        }
+    }
+
+    fn frame_line_containing<'output>(output: &'output str, needle: &str) -> &'output str {
+        match output.lines().find(|line| line.contains(needle)) {
+            Some(line) => line,
+            None => panic!("expected rendered output to contain {needle:?}:\n{output}"),
         }
     }
 }

@@ -207,12 +207,7 @@ fn byte_index(offset: bray_source::TextSize) -> Option<usize> {
 }
 
 fn gutter_width(lines: &[FrameLine<'_>]) -> usize {
-    lines
-        .iter()
-        .filter_map(FrameLine::line_number)
-        .map(decimal_digits)
-        .max()
-        .unwrap_or(1)
+    lines.iter().map(FrameLine::gutter_width).max().unwrap_or(1)
 }
 
 fn blank_gutter(width: usize, marker: char) -> String {
@@ -350,10 +345,10 @@ enum FrameLine<'source> {
 }
 
 impl FrameLine<'_> {
-    const fn line_number(&self) -> Option<u32> {
+    fn gutter_width(&self) -> usize {
         match self {
-            Self::Source(line) => Some(line.number),
-            Self::Omitted => None,
+            Self::Source(line) => decimal_digits(line.number),
+            Self::Omitted => SOURCE_FRAME_OMISSION.len(),
         }
     }
 }
