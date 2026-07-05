@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use bray_source::{SourceInputKind, SourceSpan, TextSize};
+use bray_syntax::SyntaxKind;
 
 /// Stable typed argument attached to a diagnostic message component.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -67,6 +68,22 @@ impl DiagnosticArg {
         )
     }
 
+    /// Creates an expected syntax-kind argument.
+    pub const fn expected_syntax_kind(kind: SyntaxKind) -> Self {
+        Self::new(
+            DiagnosticArgName::ExpectedSyntaxKind,
+            DiagnosticArgValue::SyntaxKind(kind),
+        )
+    }
+
+    /// Creates an actual syntax-kind argument.
+    pub const fn actual_syntax_kind(kind: SyntaxKind) -> Self {
+        Self::new(
+            DiagnosticArgName::ActualSyntaxKind,
+            DiagnosticArgValue::SyntaxKind(kind),
+        )
+    }
+
     /// Creates a source-name argument.
     pub fn source_name(name: impl Into<String>) -> Self {
         Self::new(
@@ -80,6 +97,14 @@ impl DiagnosticArg {
         Self::new(
             DiagnosticArgName::TextOffset,
             DiagnosticArgValue::TextOffset(offset),
+        )
+    }
+
+    /// Creates an exact source-token text argument.
+    pub fn token_text(text: impl Into<String>) -> Self {
+        Self::new(
+            DiagnosticArgName::TokenText,
+            DiagnosticArgValue::TokenText(text.into()),
         )
     }
 
@@ -118,6 +143,10 @@ pub enum DiagnosticArgName {
     Character,
     /// Start location of a block comment or another paired source construct.
     ConstructStart,
+    /// Syntax kind that was present in source.
+    ActualSyntaxKind,
+    /// Syntax kind that was expected by the compiler phase.
+    ExpectedSyntaxKind,
     /// Path of a source file or external artifact.
     FilePath,
     /// Zero-based source input index from the request boundary.
@@ -132,6 +161,8 @@ pub enum DiagnosticArgName {
     SourceInputKind,
     /// Byte offset inside a source input.
     TextOffset,
+    /// Exact token source text that participates in the diagnostic.
+    TokenText,
     /// URI of an LSP or other URI-backed source input.
     Uri,
     /// Source span that participates in the diagnostic.
@@ -148,6 +179,8 @@ impl DiagnosticArgName {
             Self::ByteCount => "byte_count",
             Self::Character => "character",
             Self::ConstructStart => "construct_start",
+            Self::ActualSyntaxKind => "actual_syntax_kind",
+            Self::ExpectedSyntaxKind => "expected_syntax_kind",
             Self::FilePath => "file_path",
             Self::InputIndex => "input_index",
             Self::IoErrorKind => "io_error_kind",
@@ -155,6 +188,7 @@ impl DiagnosticArgName {
             Self::SourceCount => "source_count",
             Self::SourceInputKind => "source_input_kind",
             Self::TextOffset => "text_offset",
+            Self::TokenText => "token_text",
             Self::Uri => "uri",
             Self::SourceSpan => "source_span",
             Self::WorkerCount => "worker_count",
@@ -183,8 +217,12 @@ pub enum DiagnosticArgValue {
     SourceCount(u64),
     /// Stable source input category.
     SourceInputKind(SourceInputKind),
+    /// Syntax vocabulary kind.
+    SyntaxKind(SyntaxKind),
     /// Byte offset inside source text.
     TextOffset(TextSize),
+    /// Exact token source text.
+    TokenText(String),
     /// URI string.
     Uri(String),
     /// Source span.
@@ -268,6 +306,8 @@ impl From<std::io::ErrorKind> for DiagnosticIoErrorKind {
 mod tests {
     use std::io::ErrorKind;
 
+    use bray_syntax::SyntaxKind;
+
     use super::{DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticIoErrorKind};
 
     #[test]
@@ -280,6 +320,19 @@ mod tests {
         assert_eq!(arg.name(), DiagnosticArgName::Character);
         assert_eq!(arg.name().as_str(), "character");
         assert_eq!(arg.value(), &DiagnosticArgValue::Character('\u{0}'));
+    }
+
+    #[test]
+    fn syntax_args_keep_syntax_kind_values_typed() {
+        let arg = DiagnosticArg::expected_syntax_kind(SyntaxKind::FuncKeyword);
+
+        assert_eq!(arg.name(), DiagnosticArgName::ExpectedSyntaxKind);
+        assert_eq!(arg.name().as_str(), "expected_syntax_kind");
+
+        assert_eq!(
+            arg.value(),
+            &DiagnosticArgValue::SyntaxKind(SyntaxKind::FuncKeyword)
+        );
     }
 
     #[test]

@@ -141,6 +141,7 @@ mod tests {
         DiagnosticLabelStyle, DiagnosticNote, DiagnosticNoteKind, SeverityKind,
     };
     use bray_source::{SourceId, SourceSpan, TextRange, TextSize};
+    use bray_syntax::SyntaxKind;
 
     use super::DiagnosticRenderer;
     use crate::{
@@ -245,6 +246,34 @@ mod tests {
         assert_eq!(label.style(), DiagnosticLabelStyle::Primary);
         assert_eq!(label.span(), span);
         assert_eq!(label.message(), "invalid character U+007F");
+    }
+
+    #[test]
+    fn renderer_renders_syntax_diagnostics_from_catalog() {
+        let span = SourceSpan::empty(SourceId::new(0), TextSize::new(5));
+        let expected = DiagnosticArg::expected_syntax_kind(SyntaxKind::FuncKeyword);
+
+        let diagnostic = Diagnostic::new(
+            DiagnosticId::new(5),
+            DiagnosticKind::SyntaxExpectedToken,
+            SeverityKind::Error,
+        )
+        .with_primary_span(span)
+        .with_arg(expected.clone())
+        .with_label(
+            DiagnosticLabel::primary(DiagnosticLabelKind::ExpectedTokenInsertionPoint, span)
+                .with_arg(expected),
+        );
+
+        let rendered = DiagnosticRenderer::english().render(&diagnostic);
+
+        assert_eq!(rendered.message(), "expected func keyword");
+
+        let [label] = rendered.labels() else {
+            panic!("expected one rendered label: {rendered:?}");
+        };
+
+        assert_eq!(label.message(), "insert func keyword here");
     }
 
     #[test]

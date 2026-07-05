@@ -91,6 +91,14 @@ pub enum DiagnosticLabelKind {
     InvalidUnicodeEscape,
     /// Label for the start of a block comment that was not terminated.
     UnterminatedBlockCommentStart,
+    /// Label for a missing token insertion point.
+    ExpectedTokenInsertionPoint,
+    /// Label for a token that is not valid in the current syntax position.
+    UnexpectedToken,
+    /// Label for an end-of-file position reached before syntax was complete.
+    UnexpectedEof,
+    /// Label for source text skipped during parser recovery.
+    SkippedSyntax,
 }
 
 impl DiagnosticLabelKind {
@@ -111,6 +119,10 @@ impl DiagnosticLabelKind {
             Self::UnknownEscape => "unknown_escape",
             Self::InvalidUnicodeEscape => "invalid_unicode_escape",
             Self::UnterminatedBlockCommentStart => "unterminated_block_comment_start",
+            Self::ExpectedTokenInsertionPoint => "expected_token_insertion_point",
+            Self::UnexpectedToken => "unexpected_token",
+            Self::UnexpectedEof => "unexpected_eof",
+            Self::SkippedSyntax => "skipped_syntax",
         }
     }
 }

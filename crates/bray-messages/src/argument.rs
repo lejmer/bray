@@ -2,6 +2,7 @@ use bray_diagnostics::{
     DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticIoErrorKind,
 };
 use bray_source::{SourceInputKind, SourceLocation, SourceOrigin, SourceSpan};
+use bray_syntax::SyntaxKind;
 
 use crate::locale::DiagnosticLocale;
 
@@ -69,7 +70,9 @@ fn format_english_value(value: &DiagnosticArgValue) -> String {
         DiagnosticArgValue::SourceInputKind(kind) => {
             format_english_source_input_kind(*kind).to_owned()
         }
+        DiagnosticArgValue::SyntaxKind(kind) => format_english_syntax_kind(*kind),
         DiagnosticArgValue::TextOffset(offset) => offset.bytes().to_string(),
+        DiagnosticArgValue::TokenText(text) => format_english_token_text(text),
         DiagnosticArgValue::Uri(uri) => uri.clone(),
         DiagnosticArgValue::SourceSpan(span) => {
             format_source_span(DiagnosticLocale::English, *span)
@@ -84,6 +87,14 @@ fn format_english_character(character: char) -> String {
     }
 
     format!("'{}'", character.escape_default())
+}
+
+fn format_english_syntax_kind(kind: SyntaxKind) -> String {
+    kind.as_str().replace('_', " ")
+}
+
+fn format_english_token_text(text: &str) -> String {
+    format!("'{}'", text.escape_default())
 }
 
 const fn format_english_io_error_kind(kind: DiagnosticIoErrorKind) -> &'static str {
@@ -155,6 +166,7 @@ mod tests {
         LineIndex, SourceId, SourceIdentity, SourceInputKind, SourceLocation, SourceOrigin,
         SourceSnapshot, SourceSpan, SourceVersion, TextRange, TextSize,
     };
+    use bray_syntax::SyntaxKind;
 
     use super::ArgumentFormatter;
     use crate::DiagnosticLocale;
@@ -180,6 +192,8 @@ mod tests {
                 DiagnosticArgName::SourceInputKind,
                 DiagnosticArgValue::SourceInputKind(SourceInputKind::GeneratedText),
             ),
+            DiagnosticArg::expected_syntax_kind(SyntaxKind::FuncKeyword),
+            DiagnosticArg::token_text("main\n"),
             DiagnosticArg::new(
                 DiagnosticArgName::SourceSpan,
                 DiagnosticArgValue::SourceSpan(span),
@@ -196,22 +210,37 @@ mod tests {
             formatter.format_named_arg(&args, DiagnosticArgName::Byte),
             "0xFF"
         );
+
         assert_eq!(
             formatter.format_named_arg(&args, DiagnosticArgName::Character),
             "'x'"
         );
+
         assert_eq!(
             formatter.format_named_arg(&args, DiagnosticArgName::IoErrorKind),
             "permission denied"
         );
+
         assert_eq!(
             formatter.format_named_arg(&args, DiagnosticArgName::SourceInputKind),
             "generated text"
         );
+
+        assert_eq!(
+            formatter.format_named_arg(&args, DiagnosticArgName::ExpectedSyntaxKind),
+            "func keyword"
+        );
+
+        assert_eq!(
+            formatter.format_named_arg(&args, DiagnosticArgName::TokenText),
+            r#"'main\n'"#
+        );
+
         assert_eq!(
             formatter.format_named_arg(&args, DiagnosticArgName::SourceSpan),
             "source 2:3..8"
         );
+
         assert_eq!(
             formatter.format_named_arg(&args, DiagnosticArgName::WorkerCount),
             "4"

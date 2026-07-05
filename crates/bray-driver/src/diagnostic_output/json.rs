@@ -184,7 +184,9 @@ enum DiagnosticArgValueJson {
     SourceName(String),
     SourceCount(u64),
     SourceInputKind(&'static str),
+    SyntaxKind(&'static str),
     TextOffset(u32),
+    TokenText(String),
     Uri(String),
     SourceSpan(SourceSpanJson),
     WorkerCount(u64),
@@ -202,7 +204,9 @@ impl DiagnosticArgValueJson {
             DiagnosticArgValue::SourceName(name) => Self::SourceName(name.clone()),
             DiagnosticArgValue::SourceCount(source_count) => Self::SourceCount(*source_count),
             DiagnosticArgValue::SourceInputKind(kind) => Self::SourceInputKind((*kind).as_str()),
+            DiagnosticArgValue::SyntaxKind(kind) => Self::SyntaxKind((*kind).as_str()),
             DiagnosticArgValue::TextOffset(offset) => Self::TextOffset(offset.bytes()),
+            DiagnosticArgValue::TokenText(text) => Self::TokenText(text.clone()),
             DiagnosticArgValue::Uri(uri) => Self::Uri(uri.clone()),
             DiagnosticArgValue::SourceSpan(span) => {
                 Self::SourceSpan(SourceSpanJson::from_span(*span, source_map))
@@ -256,6 +260,7 @@ mod tests {
         DiagnosticNoteKind, SeverityKind,
     };
     use bray_source::{SourceSpan, TextRange, TextSize};
+    use bray_syntax::SyntaxKind;
 
     use super::write_json_diagnostics;
     use crate::diagnostic_output::test_support::file_source_store;
@@ -297,6 +302,7 @@ mod tests {
         assert_eq!(diagnostic_json["code"], 1002);
         assert_eq!(diagnostic_json["kind"], "source_invalid_utf8");
         assert_eq!(diagnostic_json["severity"], "error");
+
         assert!(diagnostic_json.get("message").is_none());
 
         let arg_json = &diagnostic_json["args"][0];
@@ -304,7 +310,61 @@ mod tests {
         assert_eq!(arg_json["name"], "text_offset");
         assert_eq!(arg_json["value"]["kind"], "text_offset");
         assert_eq!(arg_json["value"]["value"], 5);
+
         assert!(!output.contains("source input contains invalid UTF-8 at byte offset"));
+    }
+
+    #[test]
+    fn json_output_serializes_syntax_diagnostic_args() {
+        let diagnostic = Diagnostic::new(
+            DiagnosticId::new(0),
+            DiagnosticKind::SyntaxExpectedToken,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::expected_syntax_kind(SyntaxKind::FuncKeyword))
+        .with_arg(DiagnosticArg::actual_syntax_kind(
+            SyntaxKind::IdentifierToken,
+        ))
+        .with_arg(DiagnosticArg::token_text("main"));
+
+        let bag = DiagnosticBag::single(diagnostic);
+
+        let mut output = Vec::new();
+
+        match write_json_diagnostics(&bag, None, &mut output) {
+            Ok(()) => {}
+            Err(error) => panic!("JSON diagnostics should write: {error:?}"),
+        }
+
+        let output = match String::from_utf8(output) {
+            Ok(output) => output,
+            Err(error) => panic!("JSON diagnostics should be UTF-8: {error:?}"),
+        };
+
+        let output_json: serde_json::Value = match serde_json::from_str(&output) {
+            Ok(value) => value,
+            Err(error) => panic!("JSON diagnostics should parse: {error:?}"),
+        };
+
+        let args = &output_json["diagnostics"][0]["args"];
+
+        assert_eq!(
+            output_json["diagnostics"][0]["kind"],
+            "syntax_expected_token"
+        );
+
+        assert_eq!(output_json["diagnostics"][0]["severity"], "error");
+
+        assert_eq!(args[0]["name"], "expected_syntax_kind");
+        assert_eq!(args[0]["value"]["kind"], "syntax_kind");
+        assert_eq!(args[0]["value"]["value"], "func_keyword");
+
+        assert_eq!(args[1]["name"], "actual_syntax_kind");
+        assert_eq!(args[1]["value"]["value"], "identifier_token");
+
+        assert_eq!(args[2]["name"], "token_text");
+        assert_eq!(args[2]["value"]["kind"], "token_text");
+        assert_eq!(args[2]["value"]["value"], "main");
     }
 
     #[test]
@@ -356,10 +416,13 @@ mod tests {
 
         assert_eq!(location["start"]["line"], 2);
         assert_eq!(location["start"]["column"], 1);
+
         assert_eq!(location["end"]["line"], 2);
         assert_eq!(location["end"]["column"], 1);
+
         assert_eq!(location["lsp_start"]["line"], 1);
         assert_eq!(location["lsp_start"]["character"], 0);
+
         assert_eq!(location["lsp_end"]["line"], 1);
         assert_eq!(location["lsp_end"]["character"], 1);
     }
