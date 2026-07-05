@@ -14,6 +14,12 @@ Do not construct user-facing English text inside compiler logic. Emit structured
 
 If the task involves writing code, read and follow [coding-conventions.md](docs/contributing/coding-conventions.md).
 
+## Refactoring modules
+
+When splitting a module into a directory of submodules, keep the original module file as a thin root. It should contain only module declarations and reexports. Move implementation details into the submodules.
+
+Apply the same rule at every level you touch. If a nested module is split into its own submodules, give that nested module the same thin-root shape.
+
 ## Crates
 
 If the task involves writing code, read and follow [crates.md](docs/contributing/crates.md).
