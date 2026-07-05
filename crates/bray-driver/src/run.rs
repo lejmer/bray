@@ -4,7 +4,6 @@ use std::process::ExitCode;
 
 use bray_compilation::{Compilation, CompilationRequest};
 use bray_diagnostics::DiagnosticBag;
-use bray_source::SourceStore;
 
 use crate::command::{DriverCommandKind, DriverInvocation, DriverOutputFormat};
 use crate::diagnostic_output::write_driver_output;
@@ -18,7 +17,7 @@ use crate::token_inspection::render_token_inspection;
 pub struct DriverRunResult {
     exit_code: ExitCode,
     diagnostics: DiagnosticBag,
-    sources: Option<SourceStore>,
+    compilation: Option<Compilation>,
     output_format: DriverOutputFormat,
     stdout: String,
     stderr: String,
@@ -49,23 +48,23 @@ impl DriverRunResult {
         Self {
             exit_code,
             diagnostics,
-            sources: None,
+            compilation: None,
             output_format,
             stdout,
             stderr,
         }
     }
 
-    fn with_sources(
+    fn with_compilation(
         exit_code: ExitCode,
         diagnostics: DiagnosticBag,
         output_format: DriverOutputFormat,
-        sources: SourceStore,
+        compilation: Compilation,
     ) -> Self {
         Self {
             exit_code,
             diagnostics,
-            sources: Some(sources),
+            compilation: Some(compilation),
             output_format,
             stdout: String::new(),
             stderr: String::new(),
@@ -77,13 +76,13 @@ impl DriverRunResult {
         self.exit_code
     }
 
-    /// Returns the final diagnostics produced by the driver operation.
+    /// Returns diagnostics produced by the driver operation.
     pub const fn diagnostics(&self) -> &DiagnosticBag {
         &self.diagnostics
     }
 
-    pub(crate) fn sources(&self) -> Option<&SourceStore> {
-        self.sources.as_ref()
+    pub(crate) fn sources(&self) -> Option<&bray_source::SourceStore> {
+        self.compilation.as_ref().map(Compilation::sources)
     }
 
     /// Returns the output format selected for driver-produced output.
@@ -174,12 +173,14 @@ fn run_check_command(
     request: CompilationRequest,
     output_format: DriverOutputFormat,
 ) -> DriverRunResult {
-    let compilation = match Compilation::build(request) {
+    let compilation = match Compilation::load(request) {
         Ok(compilation) => compilation,
-        Err(_) => return compilation_build_failure_result(output_format),
+        Err(_) => return compilation_load_failure_result(output_format),
     };
 
-    diagnostic_result_from_compilation(compilation, output_format)
+    let diagnostics = compilation.check_diagnostics().clone();
+
+    diagnostic_result_from_compilation(compilation, diagnostics, output_format)
 }
 
 fn run_inspect_source_command(
@@ -188,16 +189,18 @@ fn run_inspect_source_command(
 ) -> DriverRunResult {
     let compilation = match Compilation::load(request) {
         Ok(compilation) => compilation,
-        Err(_) => return compilation_build_failure_result(output_format),
+        Err(_) => return compilation_load_failure_result(output_format),
     };
 
-    if !compilation.diagnostics().is_empty() {
-        return diagnostic_result_from_compilation(compilation, output_format);
+    if !compilation.source_diagnostics().is_empty() {
+        let diagnostics = compilation.source_diagnostics().clone();
+
+        return diagnostic_result_from_compilation(compilation, diagnostics, output_format);
     }
 
     let stdout = match render_source_inspection(&compilation, output_format) {
         Ok(stdout) => stdout,
-        Err(_) => return compilation_build_failure_result(output_format),
+        Err(_) => return compilation_load_failure_result(output_format),
     };
 
     DriverRunResult::with_output(
@@ -215,16 +218,18 @@ fn run_inspect_tokens_command(
 ) -> DriverRunResult {
     let compilation = match Compilation::load(request) {
         Ok(compilation) => compilation,
-        Err(_) => return compilation_build_failure_result(output_format),
+        Err(_) => return compilation_load_failure_result(output_format),
     };
 
-    if !compilation.diagnostics().is_empty() {
-        return diagnostic_result_from_compilation(compilation, output_format);
+    if !compilation.source_diagnostics().is_empty() {
+        let diagnostics = compilation.source_diagnostics().clone();
+
+        return diagnostic_result_from_compilation(compilation, diagnostics, output_format);
     }
 
     let output = match render_token_inspection(&compilation, output_format) {
         Ok(output) => output,
-        Err(_) => return compilation_build_failure_result(output_format),
+        Err(_) => return compilation_load_failure_result(output_format),
     };
 
     let (stdout, diagnostics) = output.into_parts();
@@ -235,15 +240,15 @@ fn run_inspect_tokens_command(
 
 fn diagnostic_result_from_compilation(
     compilation: Compilation,
+    diagnostics: DiagnosticBag,
     output_format: DriverOutputFormat,
 ) -> DriverRunResult {
-    let (diagnostics, sources) = compilation.into_diagnostics_and_sources();
     let exit_code = exit_code_from_diagnostics(&diagnostics);
 
-    DriverRunResult::with_sources(exit_code, diagnostics, output_format, sources)
+    DriverRunResult::with_compilation(exit_code, diagnostics, output_format, compilation)
 }
 
-fn compilation_build_failure_result(output_format: DriverOutputFormat) -> DriverRunResult {
+fn compilation_load_failure_result(output_format: DriverOutputFormat) -> DriverRunResult {
     DriverRunResult::new(ExitCode::FAILURE, DiagnosticBag::new(), output_format)
 }
 
@@ -271,7 +276,7 @@ mod tests {
     use crate::test_support::{TemporaryFile, unique_temporary_directory};
 
     #[test]
-    fn run_fails_when_final_compilation_diagnostics_have_errors() {
+    fn run_fails_when_check_diagnostics_have_errors() {
         let file = TemporaryFile::write("bad.bray", &[0xff]);
 
         let mut stdout = Vec::new();
@@ -292,7 +297,7 @@ mod tests {
     }
 
     #[test]
-    fn run_result_carries_final_compilation_diagnostics() {
+    fn run_result_carries_check_diagnostics() {
         let file = TemporaryFile::write("bad.bray", &[0xff]);
 
         let result = run_result([
@@ -575,8 +580,38 @@ mod tests {
             Err(error) => panic!("stderr should be UTF-8: {error:?}"),
         };
 
-        assert!(stderr.contains("bad.bray:1:1..1:2"));
+        assert!(stderr.contains("bad.bray:1:1..1:1"));
         assert!(!stderr.contains("source 0:0..1"));
+    }
+
+    #[test]
+    fn run_recovers_lone_cr_as_a_line_break_for_later_diagnostics() {
+        let file = TemporaryFile::write("bad.bray", b"b\rc\n/* open");
+
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+
+        let exit_code = run_with_writers(
+            [
+                OsString::from("brayc"),
+                OsString::from("check"),
+                file.path().as_os_str().to_os_string(),
+            ],
+            &mut stdout,
+            &mut stderr,
+        );
+
+        assert_eq!(exit_code, ExitCode::FAILURE);
+        assert!(stdout.is_empty());
+
+        let stderr = match String::from_utf8(stderr) {
+            Ok(stderr) => stderr,
+            Err(error) => panic!("stderr should be UTF-8: {error:?}"),
+        };
+
+        assert!(stderr.contains("bad.bray:1:2..1:2"));
+        assert!(stderr.contains("bad.bray:3:1..3:7"));
+        assert!(!stderr.contains("bad.bray:2:1..2:7"));
     }
 
     #[test]

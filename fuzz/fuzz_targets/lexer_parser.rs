@@ -1,6 +1,6 @@
 #![no_main]
 
-use bray_parser::{lex_source_unit, parse_compilation_unit};
+use bray_parser::{lex_source_unit, parse_compilation_unit, parse_source_unit};
 use bray_source::SourceId;
 use bray_syntax::SyntaxText;
 use bray_testing::{
@@ -25,6 +25,15 @@ libfuzzer_sys::fuzz_target!(|bytes: &[u8]| {
     assert_single_final_eof(lex_result.tokens(), snapshot.text());
     assert_tokens_cover_source_text(snapshot, lex_result.tokens());
 
+    let source_unit_result = parse_source_unit(snapshot);
+    let source_unit = source_unit_result.source_unit();
+    let source_unit_tokens = source_unit.tokens().cloned().collect::<Vec<_>>();
+
+    assert_eq!(source_unit_result.source_id(), snapshot.source_id());
+    assert_eq!(source_unit.full_text(), snapshot.text());
+    assert_eq!(source_unit_tokens.as_slice(), lex_result.tokens());
+    assert_eq!(source_unit_result.diagnostics(), lex_result.diagnostics());
+
     let parse_result = parse_compilation_unit(&sources);
     let syntax_tree = parse_result.syntax_tree();
 
@@ -33,16 +42,10 @@ libfuzzer_sys::fuzz_target!(|bytes: &[u8]| {
     let source_units = syntax_tree.root().source_units();
     assert_eq!(source_units.len(), 1);
 
-    let source_unit = source_units
+    let tree_source_unit = source_units
         .first()
-        .expect("parser skeleton should produce one source unit for one input");
+        .expect("parser should produce one source unit for one input");
 
-    assert_eq!(source_unit.full_text(), snapshot.text());
-
-    let source_unit_tokens = source_unit.tokens().cloned().collect::<Vec<_>>();
-    assert_eq!(source_unit_tokens.as_slice(), lex_result.tokens());
-
-    // Parser skeleton currently forwards lexer diagnostics. Once real parsing
-    // exists, this should change to "parse diagnostics include lexer diagnostics".
+    assert_eq!(tree_source_unit.full_text(), snapshot.text());
     assert_eq!(parse_result.diagnostics(), lex_result.diagnostics());
 });

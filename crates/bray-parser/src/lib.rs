@@ -6,4 +6,6 @@ mod lexer;
 mod parser;
 
 pub use lexer::{LexResult, LexerCachePolicy, LexerTokenSource, lex_source_unit};
-pub use parser::{ParseResult, parse_compilation_unit};
+pub use parser::{
+    SourceUnitSyntaxResult, SyntaxTreeResult, parse_compilation_unit, parse_source_unit,
+};

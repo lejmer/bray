@@ -17,6 +17,11 @@ impl SourceId {
     pub const fn raw(self) -> u32 {
         self.0
     }
+
+    /// Returns the source snapshot ID as a collection index.
+    pub fn to_index(self) -> Option<usize> {
+        usize::try_from(self.0).ok()
+    }
 }
 
 impl From<SourceId> for u32 {
@@ -37,5 +42,6 @@ mod tests {
         let copied = source_id;
 
         assert_eq!(copied.raw(), 7);
+        assert_eq!(copied.to_index(), Some(7));
     }
 }
