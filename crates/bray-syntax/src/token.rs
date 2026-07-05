@@ -7,6 +7,31 @@ use bray_source::{TextRange, TextSize};
 use crate::text::text_from_writer;
 use crate::{SyntaxKind, SyntaxTrivia};
 
+/// Presence state for a syntax token.
+///
+/// Present tokens correspond to source text produced by lexing. Missing tokens
+/// are parser-inserted recovery markers with an expected token kind and zero
+/// source width.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum SyntaxTokenPresence {
+    /// Token text is present in source.
+    Present,
+    /// Token was inserted by syntax recovery.
+    Missing,
+}
+
+impl SyntaxTokenPresence {
+    /// Returns whether this token presence represents source text.
+    pub const fn is_present(self) -> bool {
+        matches!(self, Self::Present)
+    }
+
+    /// Returns whether this token presence represents parser recovery.
+    pub const fn is_missing(self) -> bool {
+        matches!(self, Self::Missing)
+    }
+}
+
 /// Range-bearing syntax token produced by lexical analysis or syntax traversal.
 ///
 /// A token stores its source range plus leading and trailing trivia. Token text
@@ -16,6 +41,7 @@ use crate::{SyntaxKind, SyntaxTrivia};
 pub struct SyntaxToken {
     kind: SyntaxKind,
     range: TextRange,
+    presence: SyntaxTokenPresence,
     leading_trivia: Arc<[SyntaxTrivia]>,
     trailing_trivia: Arc<[SyntaxTrivia]>,
 }
@@ -37,19 +63,61 @@ impl SyntaxToken {
         leading_trivia: impl IntoIterator<Item = SyntaxTrivia>,
         trailing_trivia: impl IntoIterator<Item = SyntaxTrivia>,
     ) -> Self {
+        Self::with_trivia_and_presence(
+            kind,
+            range,
+            SyntaxTokenPresence::Present,
+            leading_trivia,
+            trailing_trivia,
+        )
+    }
+
+    pub(crate) fn with_trivia_and_presence(
+        kind: SyntaxKind,
+        range: TextRange,
+        presence: SyntaxTokenPresence,
+        leading_trivia: impl IntoIterator<Item = SyntaxTrivia>,
+        trailing_trivia: impl IntoIterator<Item = SyntaxTrivia>,
+    ) -> Self {
         assert!(kind.is_token());
+
+        let leading_trivia = shared_slice(leading_trivia);
+        let trailing_trivia = shared_slice(trailing_trivia);
+
+        assert!(
+            presence.is_present()
+                || (range.is_empty() && leading_trivia.is_empty() && trailing_trivia.is_empty()),
+            "missing syntax tokens must be zero-width and cannot carry trivia"
+        );
 
         Self {
             kind,
             range,
-            leading_trivia: shared_slice(leading_trivia),
-            trailing_trivia: shared_slice(trailing_trivia),
+            presence,
+            leading_trivia,
+            trailing_trivia,
         }
     }
 
     /// Creates an end-of-file token at `offset`.
     pub fn end_of_file(offset: TextSize) -> Self {
         Self::new(SyntaxKind::EndOfFileToken, TextRange::empty(offset))
+    }
+
+    /// Creates a missing token with the expected `kind` at `offset`.
+    ///
+    /// Missing tokens have zero source width and no trivia. They can occupy
+    /// typed token slots without claiming that source text was present.
+    ///
+    /// Panics when `kind` is not a token kind.
+    pub fn missing(kind: SyntaxKind, offset: TextSize) -> Self {
+        Self::with_trivia_and_presence(
+            kind,
+            TextRange::empty(offset),
+            SyntaxTokenPresence::Missing,
+            Vec::new(),
+            Vec::new(),
+        )
     }
 
     /// Creates an invalid token covering `range`.
@@ -59,16 +127,30 @@ impl SyntaxToken {
 
     /// Replaces the token's leading trivia.
     pub fn with_leading_trivia(self, trivia: impl IntoIterator<Item = SyntaxTrivia>) -> Self {
+        let leading_trivia = shared_slice(trivia);
+
+        assert!(
+            self.is_present() || leading_trivia.is_empty(),
+            "missing syntax tokens cannot carry trivia"
+        );
+
         Self {
-            leading_trivia: shared_slice(trivia),
+            leading_trivia,
             ..self
         }
     }
 
     /// Replaces the token's trailing trivia.
     pub fn with_trailing_trivia(self, trivia: impl IntoIterator<Item = SyntaxTrivia>) -> Self {
+        let trailing_trivia = shared_slice(trivia);
+
+        assert!(
+            self.is_present() || trailing_trivia.is_empty(),
+            "missing syntax tokens cannot carry trivia"
+        );
+
         Self {
-            trailing_trivia: shared_slice(trivia),
+            trailing_trivia,
             ..self
         }
     }
@@ -81,6 +163,21 @@ impl SyntaxToken {
     /// Returns whether this token is the end-of-file marker.
     pub const fn is_end_of_file(&self) -> bool {
         matches!(self.kind, SyntaxKind::EndOfFileToken)
+    }
+
+    /// Returns this token's presence state.
+    pub const fn presence(&self) -> SyntaxTokenPresence {
+        self.presence
+    }
+
+    /// Returns whether this token corresponds to source text.
+    pub const fn is_present(&self) -> bool {
+        self.presence.is_present()
+    }
+
+    /// Returns whether this token was inserted by syntax recovery.
+    pub const fn is_missing(&self) -> bool {
+        self.presence.is_missing()
     }
 
     /// Returns the token source byte range, excluding trivia.
@@ -165,7 +262,7 @@ fn required_text(source_text: &str, range: TextRange) -> &str {
 mod tests {
     use bray_source::{TextRange, TextSize};
 
-    use super::SyntaxToken;
+    use super::{SyntaxToken, SyntaxTokenPresence};
     use crate::{SyntaxKind, SyntaxTrivia};
 
     #[test]
@@ -183,6 +280,10 @@ mod tests {
         );
 
         assert_eq!(token.kind(), SyntaxKind::FuncKeyword);
+        assert_eq!(token.presence(), SyntaxTokenPresence::Present);
+
+        assert!(token.is_present());
+        assert!(!token.is_missing());
 
         assert_eq!(
             token.range(),
@@ -207,10 +308,35 @@ mod tests {
         let token = SyntaxToken::end_of_file(TextSize::new(8));
 
         assert_eq!(token.kind(), SyntaxKind::EndOfFileToken);
+
         assert!(token.is_end_of_file());
+        assert!(token.is_present());
+        assert!(!token.is_missing());
+
         assert_eq!(token.range(), TextRange::empty(TextSize::new(8)));
         assert_eq!(token.text("abcdefgh"), Some(""));
         assert_eq!(token.full_text("abcdefgh"), "");
+    }
+
+    #[test]
+    fn missing_tokens_are_zero_width_recovery_tokens() {
+        let token = SyntaxToken::missing(SyntaxKind::SemicolonToken, TextSize::new(4));
+        let eof = SyntaxToken::end_of_file(TextSize::new(4));
+
+        assert_eq!(token.kind(), SyntaxKind::SemicolonToken);
+        assert_eq!(token.presence(), SyntaxTokenPresence::Missing);
+
+        assert!(token.is_missing());
+        assert!(!token.is_present());
+
+        assert_eq!(token.range(), TextRange::empty(TextSize::new(4)));
+        assert_eq!(token.leading_trivia(), &[]);
+        assert_eq!(token.trailing_trivia(), &[]);
+        assert_eq!(token.text("func"), Some(""));
+        assert_eq!(token.full_text("func"), "");
+
+        assert_eq!(eof.kind(), SyntaxKind::EndOfFileToken);
+        assert!(!eof.is_missing());
     }
 
     #[test]
@@ -260,6 +386,16 @@ mod tests {
     #[should_panic]
     fn tokens_reject_non_token_kinds() {
         let _ = SyntaxToken::new(SyntaxKind::SourceUnit, TextRange::EMPTY);
+    }
+
+    #[test]
+    #[should_panic]
+    fn missing_tokens_reject_trivia() {
+        let _ = SyntaxToken::missing(SyntaxKind::SemicolonToken, TextSize::new(4))
+            .with_leading_trivia([SyntaxTrivia::whitespace(TextRange::new(
+                TextSize::new(3),
+                TextSize::new(4),
+            ))]);
     }
 
     fn assert_send_sync<T: Send + Sync>() {}

@@ -9,6 +9,8 @@ pub enum SyntaxKind {
     CompilationUnit,
     /// Root syntax node for one parsed source file.
     SourceUnit,
+    /// Recovery node containing present tokens skipped by the parser.
+    SkippedSyntax,
 
     /// End-of-file marker token.
     EndOfFileToken,
@@ -140,7 +142,10 @@ pub enum SyntaxKind {
 impl SyntaxKind {
     /// Returns whether this kind represents a syntax tree node.
     pub const fn is_node(self) -> bool {
-        matches!(self, Self::SourceUnit | Self::CompilationUnit)
+        matches!(
+            self,
+            Self::SourceUnit | Self::CompilationUnit | Self::SkippedSyntax
+        )
     }
 
     /// Returns whether this kind represents syntax trivia.
@@ -253,6 +258,7 @@ impl SyntaxKind {
         match self {
             Self::SourceUnit => "source_unit",
             Self::CompilationUnit => "compilation_unit",
+            Self::SkippedSyntax => "skipped_syntax",
             Self::EndOfFileToken => "end_of_file_token",
             Self::InvalidToken => "invalid_token",
             Self::IdentifierToken => "identifier_token",
@@ -385,6 +391,8 @@ mod tests {
     fn syntax_kinds_classify_nodes_tokens_and_trivia() {
         assert!(SyntaxKind::SourceUnit.is_node());
         assert!(!SyntaxKind::SourceUnit.is_token());
+        assert!(SyntaxKind::SkippedSyntax.is_node());
+        assert!(!SyntaxKind::SkippedSyntax.is_token());
 
         assert!(SyntaxKind::IdentifierToken.is_token());
         assert!(!SyntaxKind::IdentifierToken.is_trivia());
@@ -408,6 +416,7 @@ mod tests {
     #[test]
     fn syntax_kinds_expose_stable_machine_keys() {
         assert_eq!(SyntaxKind::SourceUnit.as_str(), "source_unit");
+        assert_eq!(SyntaxKind::SkippedSyntax.as_str(), "skipped_syntax");
         assert_eq!(SyntaxKind::EndOfFileToken.as_str(), "end_of_file_token");
         assert_eq!(SyntaxKind::SelfTypeKeyword.as_str(), "self_type_keyword");
         assert_eq!(SyntaxKind::ArrowToken.as_str(), "arrow_token");

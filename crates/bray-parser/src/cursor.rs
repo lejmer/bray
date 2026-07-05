@@ -1,8 +1,31 @@
 use bray_diagnostics::DiagnosticBag;
+use bray_source::TextRange;
 use bray_syntax::{SyntaxKind, SyntaxToken};
 
 use crate::diagnostic;
 use crate::lexer::LexerTokenSource;
+
+/// Parser recovery synchronization set.
+///
+/// A cursor skip stops before any token whose kind is in the set.
+// TODO(parser): Remove this allow once production grammar uses recovery sets.
+#[allow(dead_code)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct RecoverySet<'kinds> {
+    stop_kinds: &'kinds [SyntaxKind],
+}
+
+// TODO(parser): Remove this allow once production grammar constructs recovery sets.
+#[allow(dead_code)]
+impl<'kinds> RecoverySet<'kinds> {
+    pub(crate) const fn new(stop_kinds: &'kinds [SyntaxKind]) -> Self {
+        Self { stop_kinds }
+    }
+
+    fn contains(self, kind: SyntaxKind) -> bool {
+        self.stop_kinds.contains(&kind)
+    }
+}
 
 #[derive(Clone, Debug)]
 pub(crate) struct ParserCursor {
@@ -42,11 +65,11 @@ impl ParserCursor {
         Some(self.consume())
     }
 
-    pub(crate) fn expect(&mut self, kind: SyntaxKind) -> Option<SyntaxToken> {
+    pub(crate) fn expect(&mut self, kind: SyntaxKind) -> SyntaxToken {
         let token = self.peek();
 
         if token.kind() == kind {
-            return Some(self.consume());
+            return self.consume();
         }
 
         let diagnostic = if token.is_end_of_file() {
@@ -57,7 +80,32 @@ impl ParserCursor {
 
         self.record_syntax_diagnostic(diagnostic);
 
-        None
+        SyntaxToken::missing(kind, token.start())
+    }
+
+    /// Consumes tokens until the cursor reaches a recovery token or EOF.
+    ///
+    /// The recovery token is left unconsumed so the caller can use it for a
+    /// named syntax slot. Consumed tokens are returned for attachment under a
+    /// skipped-syntax node.
+    // TODO(parser): Remove this allow once production grammar calls skip_until.
+    #[allow(dead_code)]
+    pub(crate) fn skip_until(&mut self, recovery_set: RecoverySet<'_>) -> Vec<SyntaxToken> {
+        let mut skipped_tokens = Vec::new();
+
+        loop {
+            let token = self.peek();
+
+            if recovery_set.contains(token.kind()) || token.is_end_of_file() {
+                break;
+            }
+
+            skipped_tokens.push(self.consume());
+        }
+
+        self.record_skipped_syntax(&skipped_tokens);
+
+        skipped_tokens
     }
 
     pub(crate) fn finish(self) -> DiagnosticBag {
@@ -71,16 +119,37 @@ impl ParserCursor {
             .syntax_diagnostics
             .merged(&DiagnosticBag::single(diagnostic));
     }
+
+    fn record_skipped_syntax(&mut self, tokens: &[SyntaxToken]) {
+        let Some(range) = skipped_syntax_range(tokens) else {
+            return;
+        };
+
+        let diagnostic = diagnostic::skipped_syntax(self.token_source.source(), range);
+
+        self.record_syntax_diagnostic(diagnostic);
+    }
+}
+
+fn skipped_syntax_range(tokens: &[SyntaxToken]) -> Option<TextRange> {
+    let (first, rest) = tokens.split_first()?;
+    let mut range = first.full_range();
+
+    for token in rest {
+        range = range.cover(token.full_range());
+    }
+
+    Some(range)
 }
 
 #[cfg(test)]
 mod tests {
     use bray_diagnostics::{DiagnosticArg, DiagnosticKind};
-    use bray_source::TextSize;
+    use bray_source::{TextRange, TextSize};
     use bray_syntax::SyntaxKind;
     use bray_testing::test_source_snapshot as snapshot;
 
-    use super::ParserCursor;
+    use super::{ParserCursor, RecoverySet};
     use crate::lexer::LexerTokenSource;
 
     #[test]
@@ -120,10 +189,20 @@ mod tests {
     fn cursor_expect_emits_missing_token_diagnostics_without_consuming_actual_token() {
         let mut cursor = cursor("main");
 
-        assert!(cursor.expect(SyntaxKind::FuncKeyword).is_none());
+        let expected = cursor.expect(SyntaxKind::FuncKeyword);
+
+        assert_eq!(expected.kind(), SyntaxKind::FuncKeyword);
+        assert!(expected.is_missing());
+
+        assert_eq!(
+            expected.range(),
+            bray_source::TextRange::empty(TextSize::ZERO)
+        );
+
         assert_eq!(cursor.peek().kind(), SyntaxKind::IdentifierToken);
 
         let diagnostics = cursor.finish();
+
         let diagnostic = match diagnostics
             .by_kind(DiagnosticKind::SyntaxExpectedToken)
             .next()
@@ -142,9 +221,13 @@ mod tests {
     fn cursor_expect_emits_unexpected_eof_diagnostics() {
         let mut cursor = cursor("");
 
-        assert!(cursor.expect(SyntaxKind::FuncKeyword).is_none());
+        let expected = cursor.expect(SyntaxKind::FuncKeyword);
+
+        assert_eq!(expected.kind(), SyntaxKind::FuncKeyword);
+        assert!(expected.is_missing());
 
         let diagnostics = cursor.finish();
+
         let diagnostic = match diagnostics
             .by_kind(DiagnosticKind::SyntaxUnexpectedEof)
             .next()
@@ -201,7 +284,9 @@ mod tests {
     fn cursor_finish_merges_lexical_and_syntax_diagnostics_deterministically() {
         let mut cursor = cursor("$");
 
-        assert!(cursor.expect(SyntaxKind::FuncKeyword).is_none());
+        let expected = cursor.expect(SyntaxKind::FuncKeyword);
+
+        assert!(expected.is_missing());
 
         let diagnostics = cursor.finish();
 
@@ -214,8 +299,84 @@ mod tests {
         );
     }
 
+    #[test]
+    fn cursor_skip_until_consumes_until_any_recovery_token() {
+        let mut cursor = cursor("main }");
+
+        let skipped = cursor.skip_until(RecoverySet::new(&[
+            SyntaxKind::SemicolonToken,
+            SyntaxKind::CloseBraceToken,
+        ]));
+
+        assert_eq!(token_kinds(&skipped), [SyntaxKind::IdentifierToken]);
+        assert_eq!(cursor.peek().kind(), SyntaxKind::CloseBraceToken);
+
+        let diagnostics = cursor.finish();
+        let diagnostic = match diagnostics
+            .by_kind(DiagnosticKind::SyntaxSkippedSyntax)
+            .next()
+        {
+            Some(diagnostic) => diagnostic,
+            None => panic!("skipped syntax diagnostic should be present"),
+        };
+
+        assert_eq!(
+            diagnostic.primary_span().map(|span| span.range()),
+            Some(TextRange::new(TextSize::ZERO, TextSize::new(5)))
+        );
+    }
+
+    #[test]
+    fn cursor_skip_until_stops_at_eof_without_consuming_eof() {
+        let mut cursor = cursor("main");
+
+        let skipped = cursor.skip_until(RecoverySet::new(&[SyntaxKind::SemicolonToken]));
+
+        assert_eq!(token_kinds(&skipped), [SyntaxKind::IdentifierToken]);
+        assert_eq!(cursor.peek().kind(), SyntaxKind::EndOfFileToken);
+
+        let eof = cursor.consume();
+
+        assert!(eof.is_end_of_file());
+        assert_eq!(eof.range(), TextRange::empty(TextSize::new(4)));
+    }
+
+    #[test]
+    fn cursor_skip_until_does_not_emit_diagnostic_without_skipped_tokens() {
+        let mut cursor = cursor(";");
+
+        let skipped = cursor.skip_until(RecoverySet::new(&[SyntaxKind::SemicolonToken]));
+
+        assert!(skipped.is_empty());
+        assert_eq!(cursor.peek().kind(), SyntaxKind::SemicolonToken);
+        assert!(cursor.finish().is_empty());
+    }
+
+    #[test]
+    fn cursor_skip_until_preserves_lexical_diagnostics_from_skipped_tokens() {
+        let mut cursor = cursor("$;");
+
+        let skipped = cursor.skip_until(RecoverySet::new(&[SyntaxKind::SemicolonToken]));
+
+        assert_eq!(token_kinds(&skipped), [SyntaxKind::InvalidToken]);
+
+        let diagnostics = cursor.finish();
+
+        assert_eq!(
+            diagnostic_kinds(&diagnostics),
+            [
+                DiagnosticKind::LexicalInvalidCharacter,
+                DiagnosticKind::SyntaxSkippedSyntax
+            ]
+        );
+    }
+
     fn cursor(text: &str) -> ParserCursor {
         ParserCursor::new(LexerTokenSource::new(snapshot(text)))
+    }
+
+    fn token_kinds(tokens: &[bray_syntax::SyntaxToken]) -> Vec<SyntaxKind> {
+        tokens.iter().map(|token| token.kind()).collect()
     }
 
     fn diagnostic_kinds(diagnostics: &bray_diagnostics::DiagnosticBag) -> Vec<DiagnosticKind> {

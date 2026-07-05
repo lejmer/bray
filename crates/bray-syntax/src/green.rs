@@ -5,7 +5,7 @@ use std::sync::Arc;
 use bray_base::shared_slice;
 use bray_source::{TextRange, TextSize};
 
-use crate::{SyntaxKind, SyntaxToken, SyntaxTrivia};
+use crate::{SyntaxKind, SyntaxToken, SyntaxTokenPresence, SyntaxTrivia};
 
 /// Canonical immutable syntax tree node.
 ///
@@ -60,9 +60,14 @@ impl GreenNode {
         GreenSyntaxTokenIter::new(self.children(), start)
     }
 
-    /// Returns the last descendant token kind in source order.
-    pub(crate) fn last_token_kind(&self) -> Option<SyntaxKind> {
-        last_token_kind(self.children())
+    /// Returns the last descendant token kind and presence in source order.
+    pub(crate) fn last_token(&self) -> Option<(SyntaxKind, SyntaxTokenPresence)> {
+        last_token(self.children())
+    }
+
+    /// Returns descendant skipped-syntax nodes in source order.
+    pub(crate) fn skipped_syntax_nodes(&self, start: TextSize) -> GreenSkippedSyntaxIter<'_> {
+        GreenSkippedSyntaxIter::new(self.children(), start)
     }
 
     /// Appends this node's exact source text.
@@ -138,6 +143,7 @@ impl From<GreenNode> for GreenElement {
 pub(crate) struct GreenToken {
     kind: SyntaxKind,
     width: TextSize,
+    presence: SyntaxTokenPresence,
     full_width: TextSize,
     leading_trivia: Arc<[GreenTrivia]>,
     trailing_trivia: Arc<[GreenTrivia]>,
@@ -165,6 +171,7 @@ impl GreenToken {
         Self {
             kind: token.kind(),
             width: token.range().len(),
+            presence: token.presence(),
             full_width,
             leading_trivia,
             trailing_trivia,
@@ -173,6 +180,10 @@ impl GreenToken {
 
     pub(crate) fn kind(&self) -> SyntaxKind {
         self.kind
+    }
+
+    pub(crate) fn presence(&self) -> SyntaxTokenPresence {
+        self.presence
     }
 
     fn full_width(&self) -> TextSize {
@@ -184,9 +195,10 @@ impl GreenToken {
         let token_end = checked_add(token_start, self.width, "green token end");
         let (trailing_trivia, _) = syntax_trivia_list(&self.trailing_trivia, token_end);
 
-        SyntaxToken::with_trivia(
+        SyntaxToken::with_trivia_and_presence(
             self.kind,
             TextRange::new(token_start, token_end),
+            self.presence,
             leading_trivia,
             trailing_trivia,
         )
@@ -286,6 +298,56 @@ impl Iterator for GreenSyntaxTokenIter<'_> {
     }
 }
 
+/// Source-order skipped-syntax iterator over a green tree.
+pub(crate) struct GreenSkippedSyntaxIter<'green> {
+    stack: Vec<GreenChildCursor<'green>>,
+}
+
+impl<'green> GreenSkippedSyntaxIter<'green> {
+    fn new(children: &'green [GreenElement], start: TextSize) -> Self {
+        Self {
+            stack: vec![GreenChildCursor {
+                children: children.iter(),
+                offset: start,
+            }],
+        }
+    }
+}
+
+impl Iterator for GreenSkippedSyntaxIter<'_> {
+    type Item = (GreenNode, TextSize);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            let current = self.stack.last_mut()?;
+
+            match current.children.next() {
+                Some(GreenElement::Token(token)) => {
+                    current.offset =
+                        checked_add(current.offset, token.full_width(), "next token start");
+                }
+                Some(GreenElement::Node(node)) => {
+                    let start = current.offset;
+
+                    current.offset = checked_add(start, node.full_width(), "next node start");
+
+                    if node.kind() == SyntaxKind::SkippedSyntax {
+                        return Some((share_node(node), start));
+                    }
+
+                    self.stack.push(GreenChildCursor {
+                        children: node.children().iter(),
+                        offset: start,
+                    });
+                }
+                None => {
+                    self.stack.pop();
+                }
+            }
+        }
+    }
+}
+
 fn full_width_for_children(children: &[GreenElement]) -> TextSize {
     let mut width = TextSize::ZERO;
 
@@ -296,10 +358,10 @@ fn full_width_for_children(children: &[GreenElement]) -> TextSize {
     width
 }
 
-fn last_token_kind(children: &[GreenElement]) -> Option<SyntaxKind> {
+fn last_token(children: &[GreenElement]) -> Option<(SyntaxKind, SyntaxTokenPresence)> {
     match children.last()? {
-        GreenElement::Token(token) => Some(token.kind()),
-        GreenElement::Node(node) => node.last_token_kind(),
+        GreenElement::Token(token) => Some((token.kind(), token.presence())),
+        GreenElement::Node(node) => node.last_token(),
     }
 }
 
@@ -337,6 +399,11 @@ fn checked_add(lhs: TextSize, rhs: TextSize, message: &'static str) -> TextSize 
         Some(value) => value,
         None => panic!("{message} overflow"),
     }
+}
+
+fn share_node(node: &GreenNode) -> GreenNode {
+    // GreenNode clones share immutable Arc-backed tree storage.
+    node.clone()
 }
 
 #[cfg(test)]
@@ -419,6 +486,43 @@ mod tests {
             shifted[0].range(),
             TextRange::new(TextSize::new(22), TextSize::new(26))
         );
+    }
+
+    #[test]
+    fn green_nodes_preserve_missing_token_presence() {
+        let token = SyntaxToken::missing(SyntaxKind::SemicolonToken, TextSize::new(4));
+        let node = GreenNode::new(SyntaxKind::SourceUnit, [GreenElement::from(token.clone())]);
+        let tokens = node.syntax_tokens(TextSize::new(4)).collect::<Vec<_>>();
+
+        assert_eq!(tokens, [token]);
+    }
+
+    #[test]
+    fn green_nodes_find_skipped_syntax_nodes() {
+        let skipped = GreenNode::new(
+            SyntaxKind::SkippedSyntax,
+            [GreenElement::from(SyntaxToken::invalid(TextRange::new(
+                TextSize::new(1),
+                TextSize::new(2),
+            )))],
+        );
+
+        let parent = GreenNode::new(
+            SyntaxKind::SourceUnit,
+            [
+                GreenElement::from(SyntaxToken::new(
+                    SyntaxKind::FuncKeyword,
+                    TextRange::new(TextSize::ZERO, TextSize::new(1)),
+                )),
+                GreenElement::from(skipped.clone()),
+            ],
+        );
+
+        let skipped_nodes = parent
+            .skipped_syntax_nodes(TextSize::ZERO)
+            .collect::<Vec<_>>();
+
+        assert_eq!(skipped_nodes, [(skipped, TextSize::new(1))]);
     }
 
     #[test]

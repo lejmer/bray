@@ -108,7 +108,10 @@ impl SourceUnitSyntaxResult {
 /// Parses one source snapshot into one source-unit syntax node.
 pub fn parse_source_unit(snapshot: &SourceSnapshot) -> SourceUnitSyntaxResult {
     let source_id = snapshot.source_id();
+
+    // Parser owns a snapshot handle; cloning shares immutable source text.
     let mut parser = Parser::new(snapshot.clone());
+
     let source_unit = parser.parse_source_unit();
     let diagnostics = parser.finish();
 
@@ -122,6 +125,7 @@ struct Parser {
 
 impl Parser {
     fn new(snapshot: SourceSnapshot) -> Self {
+        // LexerTokenSource owns a snapshot handle; cloning shares immutable source text.
         let token_source = LexerTokenSource::new(snapshot.clone());
 
         Self {
@@ -148,10 +152,7 @@ impl Parser {
 
         loop {
             let token = if self.cursor.at(SyntaxKind::EndOfFileToken) {
-                match self.cursor.expect(SyntaxKind::EndOfFileToken) {
-                    Some(token) => token,
-                    None => self.cursor.consume(),
-                }
+                self.cursor.expect(SyntaxKind::EndOfFileToken)
             } else {
                 match self.cursor.consume_if(SyntaxKind::InvalidToken) {
                     Some(token) => token,
