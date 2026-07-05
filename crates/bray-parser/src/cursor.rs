@@ -8,15 +8,11 @@ use crate::lexer::LexerTokenSource;
 /// Parser recovery synchronization set.
 ///
 /// A cursor skip stops before any token whose kind is in the set.
-// TODO(parser): Remove this allow once production grammar uses recovery sets.
-#[allow(dead_code)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct RecoverySet<'kinds> {
     stop_kinds: &'kinds [SyntaxKind],
 }
 
-// TODO(parser): Remove this allow once production grammar constructs recovery sets.
-#[allow(dead_code)]
 impl<'kinds> RecoverySet<'kinds> {
     pub(crate) const fn new(stop_kinds: &'kinds [SyntaxKind]) -> Self {
         Self { stop_kinds }
@@ -88,8 +84,6 @@ impl ParserCursor {
     /// The recovery token is left unconsumed so the caller can use it for a
     /// named syntax slot. Consumed tokens are returned for attachment under a
     /// skipped-syntax node.
-    // TODO(parser): Remove this allow once production grammar calls skip_until.
-    #[allow(dead_code)]
     pub(crate) fn skip_until(&mut self, recovery_set: RecoverySet<'_>) -> Vec<SyntaxToken> {
         let mut skipped_tokens = Vec::new();
 
@@ -100,7 +94,12 @@ impl ParserCursor {
                 break;
             }
 
-            skipped_tokens.push(self.consume());
+            let skipped_token = match self.consume_if(token.kind()) {
+                Some(token) => token,
+                None => panic!("parser cursor token changed between peek and consume"),
+            };
+
+            skipped_tokens.push(skipped_token);
         }
 
         self.record_skipped_syntax(&skipped_tokens);
@@ -194,10 +193,7 @@ mod tests {
         assert_eq!(expected.kind(), SyntaxKind::FuncKeyword);
         assert!(expected.is_missing());
 
-        assert_eq!(
-            expected.range(),
-            bray_source::TextRange::empty(TextSize::ZERO)
-        );
+        assert_eq!(expected.range(), TextRange::empty(TextSize::ZERO));
 
         assert_eq!(cursor.peek().kind(), SyntaxKind::IdentifierToken);
 
@@ -213,7 +209,7 @@ mod tests {
 
         assert_eq!(
             diagnostic.primary_span().map(|span| span.range()),
-            Some(bray_source::TextRange::empty(TextSize::ZERO))
+            Some(TextRange::empty(TextSize::ZERO))
         );
     }
 
@@ -238,7 +234,7 @@ mod tests {
 
         assert_eq!(
             diagnostic.primary_span().map(|span| span.range()),
-            Some(bray_source::TextRange::empty(TextSize::ZERO))
+            Some(TextRange::empty(TextSize::ZERO))
         );
 
         assert_eq!(
@@ -327,10 +323,38 @@ mod tests {
     }
 
     #[test]
+    fn cursor_skip_until_supports_common_recovery_sets() {
+        let mut comma = cursor("main, tail");
+        let mut close_paren = cursor("main)");
+        let mut semicolon = cursor("main;");
+
+        assert_eq!(
+            token_kinds(&comma.skip_until(RecoverySet::new(&[SyntaxKind::CommaToken]))),
+            [SyntaxKind::IdentifierToken]
+        );
+
+        assert_eq!(comma.peek().kind(), SyntaxKind::CommaToken);
+
+        assert_eq!(
+            token_kinds(&close_paren.skip_until(RecoverySet::new(&[SyntaxKind::CloseParenToken]))),
+            [SyntaxKind::IdentifierToken]
+        );
+
+        assert_eq!(close_paren.peek().kind(), SyntaxKind::CloseParenToken);
+
+        assert_eq!(
+            token_kinds(&semicolon.skip_until(RecoverySet::new(&[SyntaxKind::SemicolonToken]))),
+            [SyntaxKind::IdentifierToken]
+        );
+
+        assert_eq!(semicolon.peek().kind(), SyntaxKind::SemicolonToken);
+    }
+
+    #[test]
     fn cursor_skip_until_stops_at_eof_without_consuming_eof() {
         let mut cursor = cursor("main");
 
-        let skipped = cursor.skip_until(RecoverySet::new(&[SyntaxKind::SemicolonToken]));
+        let skipped = cursor.skip_until(RecoverySet::new(&[SyntaxKind::EndOfFileToken]));
 
         assert_eq!(token_kinds(&skipped), [SyntaxKind::IdentifierToken]);
         assert_eq!(cursor.peek().kind(), SyntaxKind::EndOfFileToken);

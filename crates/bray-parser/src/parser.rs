@@ -1,8 +1,8 @@
 use bray_diagnostics::DiagnosticBag;
 use bray_source::{SourceId, SourceSnapshot, SourceStore};
-use bray_syntax::{SourceUnitSyntax, SyntaxKind, SyntaxToken, SyntaxTree};
+use bray_syntax::{SourceUnitSyntax, SourceUnitSyntaxBuilder, SyntaxKind, SyntaxTree};
 
-use crate::cursor::ParserCursor;
+use crate::cursor::{ParserCursor, RecoverySet};
 use crate::lexer::LexerTokenSource;
 
 /// Syntax tree plus diagnostics for a source store.
@@ -135,38 +135,35 @@ impl Parser {
     }
 
     fn parse_source_unit(&mut self) -> SourceUnitSyntax {
-        let tokens = self.consume_placeholder_source_unit_tokens();
-
         // Source syntax keeps a cheap handle to immutable source text.
-        SourceUnitSyntax::builder(self.snapshot.clone())
-            .tokens(tokens)
-            .build()
+        let mut builder = SourceUnitSyntax::builder(self.snapshot.clone());
+
+        self.parse_placeholder_source_unit_tokens(&mut builder);
+
+        builder.build()
     }
 
     fn finish(self) -> DiagnosticBag {
         self.cursor.finish()
     }
 
-    fn consume_placeholder_source_unit_tokens(&mut self) -> Vec<SyntaxToken> {
-        let mut tokens = Vec::new();
-
+    fn parse_placeholder_source_unit_tokens(&mut self, builder: &mut SourceUnitSyntaxBuilder) {
         loop {
-            let token = if self.cursor.at(SyntaxKind::EndOfFileToken) {
-                self.cursor.expect(SyntaxKind::EndOfFileToken)
-            } else {
-                match self.cursor.consume_if(SyntaxKind::InvalidToken) {
-                    Some(token) => token,
-                    None => self.cursor.consume(),
-                }
-            };
-
-            let reached_end = token.is_end_of_file();
-
-            tokens.push(token);
-
-            if reached_end {
-                return tokens;
+            if self.cursor.at(SyntaxKind::EndOfFileToken) {
+                builder.push_token(self.cursor.expect(SyntaxKind::EndOfFileToken));
+                return;
             }
+
+            if self.cursor.at(SyntaxKind::InvalidToken) {
+                let skipped_tokens = self
+                    .cursor
+                    .skip_until(RecoverySet::new(&[SyntaxKind::EndOfFileToken]));
+
+                builder.push_skipped_tokens(skipped_tokens);
+                continue;
+            }
+
+            builder.push_token(self.cursor.consume());
         }
     }
 }
@@ -219,7 +216,10 @@ mod tests {
 
         assert_eq!(
             diagnostic_kinds(result.diagnostics()),
-            [DiagnosticKind::LexicalInvalidCharacter]
+            [
+                DiagnosticKind::LexicalInvalidCharacter,
+                DiagnosticKind::SyntaxSkippedSyntax
+            ]
         );
     }
 
@@ -270,14 +270,25 @@ mod tests {
     }
 
     #[test]
-    fn parser_returns_lexical_diagnostics_without_grammar_diagnostics() {
+    fn parser_recovers_invalid_tokens_as_skipped_syntax() {
         let sources = source_store(["$"]);
         let result = parse_compilation_unit(&sources);
+        let source_unit = &result.syntax_tree().root().source_units()[0];
+        let skipped_syntax = source_unit.skipped_syntax().collect::<Vec<_>>();
 
         assert_eq!(
             parse_diagnostic_kinds(&result),
-            [DiagnosticKind::LexicalInvalidCharacter]
+            [
+                DiagnosticKind::LexicalInvalidCharacter,
+                DiagnosticKind::SyntaxSkippedSyntax
+            ]
         );
+
+        let [skipped] = skipped_syntax.as_slice() else {
+            panic!("expected one skipped-syntax node: {skipped_syntax:?}");
+        };
+
+        assert_eq!(skipped.full_text(), "$");
     }
 
     #[test]
