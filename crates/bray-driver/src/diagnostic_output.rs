@@ -161,7 +161,7 @@ impl<'source> DiagnosticSourceMap<'source> {
 
     fn resolve(&self, span: SourceSpan) -> Option<SourceLocation<'source>> {
         let sources = self.sources?;
-        let index = usize::try_from(span.source_id().raw()).ok()?;
+        let index = span.source_id().to_index()?;
         let snapshot = sources.get(span.source_id())?;
         let line_index = self.line_indexes.get(index)?.as_ref()?;
 
@@ -401,7 +401,7 @@ mod tests {
     use super::{write_json_diagnostics, write_text_diagnostics};
 
     #[test]
-    fn text_output_renders_colored_human_diagnostics() {
+    fn text_output_renders_colored_terminal_diagnostics() {
         let diagnostic = Diagnostic::new(
             DiagnosticId::new(0),
             DiagnosticKind::SourceInvalidUtf8,
@@ -468,8 +468,42 @@ mod tests {
             Err(error) => panic!("text diagnostics should be UTF-8: {error:?}"),
         };
 
-        assert!(output.contains("main.bray:2:1..2:2"));
+        assert!(output.contains("main.bray:2:1..2:1"));
         assert!(!output.contains("source 0:3..4"));
+    }
+
+    #[test]
+    fn text_output_does_not_render_line_column_end_past_same_line_span() {
+        let sources = source_store("abcdefghijkl");
+
+        let span = SourceSpan::new(
+            bray_source::SourceId::new(0),
+            TextRange::new(TextSize::ZERO, TextSize::new(12)),
+        );
+
+        let diagnostic = Diagnostic::new(
+            DiagnosticId::new(0),
+            DiagnosticKind::LexicalInvalidCharacter,
+            SeverityKind::Error,
+        )
+        .with_primary_span(span);
+
+        let bag = DiagnosticBag::single(diagnostic);
+
+        let mut output = Vec::new();
+
+        match write_text_diagnostics(&bag, Some(&sources), &mut output) {
+            Ok(()) => {}
+            Err(error) => panic!("text diagnostics should write: {error:?}"),
+        }
+
+        let output = match String::from_utf8(output) {
+            Ok(output) => output,
+            Err(error) => panic!("text diagnostics should be UTF-8: {error:?}"),
+        };
+
+        assert!(output.contains("main.bray:1:1..1:12"));
+        assert!(!output.contains("main.bray:1:1..1:13"));
     }
 
     #[test]
@@ -569,9 +603,11 @@ mod tests {
         assert_eq!(location["start"]["line"], 2);
         assert_eq!(location["start"]["column"], 1);
         assert_eq!(location["end"]["line"], 2);
-        assert_eq!(location["end"]["column"], 2);
+        assert_eq!(location["end"]["column"], 1);
         assert_eq!(location["lsp_start"]["line"], 1);
         assert_eq!(location["lsp_start"]["character"], 0);
+        assert_eq!(location["lsp_end"]["line"], 1);
+        assert_eq!(location["lsp_end"]["character"], 1);
     }
 
     fn source_store(text: &str) -> SourceStore {

@@ -228,7 +228,7 @@ mod tests {
         assert_eq!(request.options(), options);
         assert_eq!(request.sources().len(), 1);
 
-        let compilation = match Compilation::build(request) {
+        let compilation = match Compilation::load(request) {
             Ok(compilation) => compilation,
             Err(error) => panic!("compilation should load driver file input: {error:?}"),
         };

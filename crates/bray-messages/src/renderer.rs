@@ -66,27 +66,27 @@ impl DiagnosticRenderer {
             .collect()
     }
 
-    /// Renders a source span for human diagnostic output.
+    /// Renders a source span for terminal diagnostic output.
     pub fn render_source_span(self, span: SourceSpan) -> String {
         format_source_span(self.locale, span)
     }
 
-    /// Renders a resolved source location for human diagnostic output.
+    /// Renders a resolved source location for terminal diagnostic output.
     pub fn render_source_location(self, location: SourceLocation<'_>) -> String {
         format_source_location(self.locale, location)
     }
 
-    /// Renders a severity heading for human diagnostic output.
+    /// Renders a severity heading for terminal diagnostic output.
     pub fn render_severity(self, severity: SeverityKind) -> &'static str {
         MessageCatalog::new(self.locale).severity_label(severity)
     }
 
-    /// Renders a label style for human diagnostic output.
+    /// Renders a label style for terminal diagnostic output.
     pub fn render_label_style(self, style: DiagnosticLabelStyle) -> &'static str {
         MessageCatalog::new(self.locale).label_style(style)
     }
 
-    /// Renders the note heading for human diagnostic output.
+    /// Renders the note heading for terminal diagnostic output.
     pub fn render_note_heading(self) -> &'static str {
         MessageCatalog::new(self.locale).note_heading()
     }
@@ -279,7 +279,7 @@ mod tests {
     }
 
     #[test]
-    fn renderer_formats_human_output_headings() {
+    fn renderer_formats_terminal_output_headings() {
         let renderer = DiagnosticRenderer::english();
 
         assert_eq!(renderer.render_severity(SeverityKind::Error), "error");

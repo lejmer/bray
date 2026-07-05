@@ -26,8 +26,8 @@ impl TextRangeOutput {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 pub(crate) struct SourceLocationOutput {
-    start: HumanPositionOutput,
-    end: HumanPositionOutput,
+    start: LineColumnOutput,
+    end: LineColumnOutput,
     lsp_start: LspPositionOutput,
     lsp_end: LspPositionOutput,
 }
@@ -35,25 +35,25 @@ pub(crate) struct SourceLocationOutput {
 impl SourceLocationOutput {
     pub(crate) const fn from_location(location: SourceLocation<'_>) -> Self {
         Self {
-            start: HumanPositionOutput::from_position(location.start()),
-            end: HumanPositionOutput::from_position(location.end()),
+            start: LineColumnOutput::from_position(location.start()),
+            end: LineColumnOutput::from_position(location.end()),
             lsp_start: LspPositionOutput::from_position(location.lsp_start()),
             lsp_end: LspPositionOutput::from_position(location.lsp_end()),
         }
     }
 
-    pub(crate) const fn start(self) -> HumanPositionOutput {
+    pub(crate) const fn start(self) -> LineColumnOutput {
         self.start
     }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
-pub(crate) struct HumanPositionOutput {
+pub(crate) struct LineColumnOutput {
     line: u32,
     column: u32,
 }
 
-impl HumanPositionOutput {
+impl LineColumnOutput {
     pub(crate) const fn from_position(position: LineColumn) -> Self {
         Self {
             line: position.line(),

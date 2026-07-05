@@ -248,7 +248,7 @@ mod tests {
 
         assert_eq!(
             super::format_source_location(DiagnosticLocale::English, location),
-            "main.bray:2:1..2:2"
+            "main.bray:2:1..2:1"
         );
     }
 }

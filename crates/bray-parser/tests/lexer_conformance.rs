@@ -1,5 +1,5 @@
 use bray_diagnostics::DiagnosticBag;
-use bray_parser::{lex_source_unit, parse_compilation_unit};
+use bray_parser::{lex_source_unit, parse_compilation_unit, parse_source_unit};
 use bray_source::SourceSnapshot;
 use bray_syntax::SyntaxText;
 use bray_testing::{
@@ -19,7 +19,7 @@ fn lexer_conformance_cases_consume_all_text_and_end_with_eof() {
 }
 
 #[test]
-fn token_draining_parser_preserves_lexer_output_and_reconstructs_sources() {
+fn source_unit_parser_preserves_lexer_output_and_reconstructs_sources() {
     let sources = test_source_store(conformance_sources());
     let expected_text = sources.iter().map(SourceSnapshot::text).collect::<String>();
 
@@ -39,11 +39,19 @@ fn token_draining_parser_preserves_lexer_output_and_reconstructs_sources() {
     assert_eq!(result.syntax_tree().full_text(), expected_text);
 
     for ((snapshot, lex_result), source_unit) in sources.iter().zip(lex_results).zip(source_units) {
+        let source_unit_result = parse_source_unit(snapshot);
+        assert_eq!(source_unit_result.source_id(), snapshot.source_id());
+        assert_eq!(source_unit_result.diagnostics(), lex_result.diagnostics());
+
         let source_unit_tokens = source_unit.tokens().cloned().collect::<Vec<_>>();
 
         assert_eq!(source_unit_tokens, lex_result.tokens());
         assert_single_final_eof(&source_unit_tokens, snapshot.text());
         assert_eq!(source_unit.full_text(), snapshot.text());
+        assert_eq!(
+            source_unit_result.source_unit().full_text(),
+            snapshot.text()
+        );
     }
 }
 

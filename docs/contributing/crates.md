@@ -18,7 +18,7 @@
 - `bray-messages`
     - Locale-aware diagnostic rendering.
     - Owns localized message catalogs, argument formatting, and rendered diagnostic values.
-    - Keeps diagnostic message catalogs split by human language so locale additions do not grow one shared catalog file.
+    - Keeps diagnostic message catalogs split by natural language so locale additions do not grow one shared catalog file.
     - Consumes structured `bray-diagnostics` records and must not own compiler logic.
 
 - `bray-syntax`
@@ -77,8 +77,8 @@
 
 - `bray-compilation`
     - Main compiler entry point and compilation context.
-    - Owns compile requests, options, package/file inputs, target settings, session-like state, and pipeline orchestration.
-    - Coordinates parsing, declaration discovery, binding and semantic analysis, lowering, codegen, and emission.
+    - Owns compile requests, options, package/file inputs, target settings, session-like state, and lazy compiler fact coordination.
+    - Coordinates parsing, declaration discovery, binding and semantic analysis, lowering, codegen, and emission through explicit fact APIs.
 
 - `bray-driver`
     - User-facing compiler command orchestration.

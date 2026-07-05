@@ -1,7 +1,7 @@
 use crate::newline::{SourceLineBreakKind, SourceNewlinePolicy};
 use crate::text::{TextRange, TextSize, TextSizeOverflow};
 
-/// One-based human source line and Unicode-scalar column.
+/// One-based source line and Unicode-scalar column.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct LineColumn {
     line: u32,
@@ -55,11 +55,12 @@ impl LspPosition {
     }
 }
 
-/// Derived index that maps UTF-8 byte offsets to human and LSP positions.
+/// Derived index that maps UTF-8 byte offsets to line-column and LSP positions.
 ///
-/// The index preserves source text offsets exactly. LF and CRLF are recognized
-/// as line breaks, while a lone CR remains an ordinary source character for
-/// location mapping.
+/// The index preserves source text offsets exactly. LF and CRLF are accepted
+/// source line breaks. A lone CR is still indexed as a recovery line break so
+/// diagnostics after an invalid line ending stay aligned with editor line
+/// numbers.
 #[derive(Debug, Eq, PartialEq)]
 pub struct LineIndex {
     text_len: TextSize,
@@ -80,17 +81,16 @@ impl LineIndex {
             let offset = TextSize::try_from(byte_index)?;
             let next_character = characters.peek().map(|(_, next_character)| *next_character);
 
-            match newline_policy.line_break_kind(character, next_character) {
-                Some(line_break_kind) => {
+            match source_line_break(newline_policy, character, next_character) {
+                Some(line_break) => {
                     current_line.end = offset;
                     lines.push(current_line);
 
-                    if line_break_kind == SourceLineBreakKind::CarriageReturnLineFeed {
+                    if line_break.consumes_next_character {
                         let _line_feed = characters.next();
                     }
 
-                    let next_line_start =
-                        TextSize::try_from(byte_index + line_break_kind.byte_len())?;
+                    let next_line_start = TextSize::try_from(byte_index + line_break.byte_len)?;
                     current_line = LineMetrics::new(next_line_start);
                 }
                 None => current_line.push_character(offset, character),
@@ -121,7 +121,7 @@ impl LineIndex {
         self.lines.get(index).map(|metrics| metrics.start)
     }
 
-    /// Returns the one-based human line and column for a byte offset.
+    /// Returns the one-based source line and column for a byte offset.
     pub fn line_column(&self, offset: TextSize) -> Option<LineColumn> {
         self.position(offset).map(|position| position.line_column)
     }
@@ -175,6 +175,39 @@ impl LineIndex {
             Ok(index) => Some(index),
             Err(0) => None,
             Err(index) => Some(index - 1),
+        }
+    }
+}
+
+fn source_line_break(
+    newline_policy: SourceNewlinePolicy,
+    character: char,
+    next_character: Option<char>,
+) -> Option<IndexedLineBreak> {
+    if character == '\r' && next_character != Some('\n') {
+        return Some(IndexedLineBreak::new(1, false));
+    }
+
+    let line_break_kind = newline_policy.line_break_kind(character, next_character)?;
+    let consumes_next_character = line_break_kind == SourceLineBreakKind::CarriageReturnLineFeed;
+
+    Some(IndexedLineBreak::new(
+        line_break_kind.byte_len(),
+        consumes_next_character,
+    ))
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct IndexedLineBreak {
+    byte_len: usize,
+    consumes_next_character: bool,
+}
+
+impl IndexedLineBreak {
+    const fn new(byte_len: usize, consumes_next_character: bool) -> Self {
+        Self {
+            byte_len,
+            consumes_next_character,
         }
     }
 }
@@ -264,7 +297,7 @@ mod tests {
     use crate::{TextRange, TextSize};
 
     #[test]
-    fn line_index_maps_utf8_offsets_to_human_columns() {
+    fn line_index_maps_utf8_offsets_to_line_columns() {
         let index = line_index("aé\n𝄞b");
 
         assert_eq!(index.line_count(), 2);
@@ -421,18 +454,24 @@ mod tests {
     }
 
     #[test]
-    fn line_index_treats_lone_cr_as_a_source_character() {
+    fn line_index_recovers_lone_cr_as_a_line_break() {
         let index = line_index("a\rb");
 
-        assert_eq!(index.line_count(), 1);
+        assert_eq!(index.line_count(), 2);
 
         assert_eq!(
             index.line_column(TextSize::new(1)),
             Some(LineColumn::new(1, 2))
         );
+
         assert_eq!(
             index.line_column(TextSize::new(2)),
-            Some(LineColumn::new(1, 3))
+            Some(LineColumn::new(2, 1))
+        );
+
+        assert_eq!(
+            index.lsp_position(TextSize::new(2)),
+            Some(LspPosition::new(1, 0))
         );
     }
 
@@ -440,22 +479,25 @@ mod tests {
     fn line_index_handles_mixed_newline_spellings() {
         let index = line_index("a\nb\r\nc\rd");
 
-        assert_eq!(index.line_count(), 3);
+        assert_eq!(index.line_count(), 4);
         assert_eq!(index.line_start(0), Some(TextSize::new(0)));
         assert_eq!(index.line_start(1), Some(TextSize::new(2)));
         assert_eq!(index.line_start(2), Some(TextSize::new(5)));
+        assert_eq!(index.line_start(3), Some(TextSize::new(7)));
 
         assert_eq!(
             index.line_column(TextSize::new(5)),
             Some(LineColumn::new(3, 1))
         );
+
         assert_eq!(
             index.line_column(TextSize::new(6)),
             Some(LineColumn::new(3, 2))
         );
+
         assert_eq!(
             index.line_column(TextSize::new(7)),
-            Some(LineColumn::new(3, 3))
+            Some(LineColumn::new(4, 1))
         );
     }
 

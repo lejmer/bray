@@ -53,9 +53,7 @@ impl SourceStore {
 
     /// Returns the source snapshot for `source_id`.
     pub fn get(&self, source_id: SourceId) -> Option<&SourceSnapshot> {
-        let index = usize::try_from(source_id.raw()).ok()?;
-
-        self.snapshots.get(index)
+        self.snapshots.get(source_id.to_index()?)
     }
 
     /// Returns the source text for `source_id`.
