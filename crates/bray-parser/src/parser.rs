@@ -1,7 +1,8 @@
 use bray_diagnostics::DiagnosticBag;
 use bray_source::{SourceId, SourceSnapshot, SourceStore};
-use bray_syntax::{SourceUnitSyntax, SyntaxToken, SyntaxTree};
+use bray_syntax::{SourceUnitSyntax, SyntaxKind, SyntaxToken, SyntaxTree};
 
+use crate::cursor::ParserCursor;
 use crate::lexer::LexerTokenSource;
 
 /// Syntax tree plus diagnostics for a source store.
@@ -106,32 +107,65 @@ impl SourceUnitSyntaxResult {
 
 /// Parses one source snapshot into one source-unit syntax node.
 pub fn parse_source_unit(snapshot: &SourceSnapshot) -> SourceUnitSyntaxResult {
-    let mut token_source = LexerTokenSource::new(snapshot.clone());
+    let source_id = snapshot.source_id();
+    let mut parser = Parser::new(snapshot.clone());
+    let source_unit = parser.parse_source_unit();
+    let diagnostics = parser.finish();
 
-    let tokens = consume_placeholder_source_unit_tokens(&mut token_source);
-    let diagnostics = token_source.into_diagnostics();
-
-    SourceUnitSyntaxResult::new(
-        snapshot.source_id(),
-        // Source syntax keeps a cheap handle to immutable source text.
-        SourceUnitSyntax::builder(snapshot.clone())
-            .tokens(tokens)
-            .build(),
-        diagnostics,
-    )
+    SourceUnitSyntaxResult::new(source_id, source_unit, diagnostics)
 }
 
-fn consume_placeholder_source_unit_tokens(token_source: &mut LexerTokenSource) -> Vec<SyntaxToken> {
-    let mut tokens = Vec::new();
+struct Parser {
+    snapshot: SourceSnapshot,
+    cursor: ParserCursor,
+}
 
-    loop {
-        let token = token_source.consume();
-        let reached_end = token.is_end_of_file();
+impl Parser {
+    fn new(snapshot: SourceSnapshot) -> Self {
+        let token_source = LexerTokenSource::new(snapshot.clone());
 
-        tokens.push(token);
+        Self {
+            snapshot,
+            cursor: ParserCursor::new(token_source),
+        }
+    }
 
-        if reached_end {
-            return tokens;
+    fn parse_source_unit(&mut self) -> SourceUnitSyntax {
+        let tokens = self.consume_placeholder_source_unit_tokens();
+
+        // Source syntax keeps a cheap handle to immutable source text.
+        SourceUnitSyntax::builder(self.snapshot.clone())
+            .tokens(tokens)
+            .build()
+    }
+
+    fn finish(self) -> DiagnosticBag {
+        self.cursor.finish()
+    }
+
+    fn consume_placeholder_source_unit_tokens(&mut self) -> Vec<SyntaxToken> {
+        let mut tokens = Vec::new();
+
+        loop {
+            let token = if self.cursor.at(SyntaxKind::EndOfFileToken) {
+                match self.cursor.expect(SyntaxKind::EndOfFileToken) {
+                    Some(token) => token,
+                    None => self.cursor.consume(),
+                }
+            } else {
+                match self.cursor.consume_if(SyntaxKind::InvalidToken) {
+                    Some(token) => token,
+                    None => self.cursor.consume(),
+                }
+            };
+
+            let reached_end = token.is_end_of_file();
+
+            tokens.push(token);
+
+            if reached_end {
+                return tokens;
+            }
         }
     }
 }

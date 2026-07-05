@@ -47,6 +47,14 @@ pub enum DiagnosticKind {
     LexicalInvalidUnicodeEscape,
     /// A block comment reaches the end of input before its terminator.
     LexicalUnterminatedBlockComment,
+    /// The parser expected a token that is missing at this source position.
+    SyntaxExpectedToken,
+    /// The parser found a token that is not valid in the current syntax position.
+    SyntaxUnexpectedToken,
+    /// The parser reached the end of input before the current syntax construct was complete.
+    SyntaxUnexpectedEof,
+    /// The parser skipped invalid syntax while recovering.
+    SyntaxSkippedSyntax,
 }
 
 impl DiagnosticKind {
@@ -74,6 +82,10 @@ impl DiagnosticKind {
             Self::LexicalUnknownEscape => 2012,
             Self::LexicalInvalidUnicodeEscape => 2013,
             Self::LexicalUnterminatedBlockComment => 2014,
+            Self::SyntaxExpectedToken => 3001,
+            Self::SyntaxUnexpectedToken => 3002,
+            Self::SyntaxUnexpectedEof => 3003,
+            Self::SyntaxSkippedSyntax => 3004,
         };
 
         DiagnosticCode::new(raw)
@@ -103,6 +115,10 @@ impl DiagnosticKind {
             Self::LexicalUnknownEscape => "lexical_unknown_escape",
             Self::LexicalInvalidUnicodeEscape => "lexical_invalid_unicode_escape",
             Self::LexicalUnterminatedBlockComment => "lexical_unterminated_block_comment",
+            Self::SyntaxExpectedToken => "syntax_expected_token",
+            Self::SyntaxUnexpectedToken => "syntax_unexpected_token",
+            Self::SyntaxUnexpectedEof => "syntax_unexpected_eof",
+            Self::SyntaxSkippedSyntax => "syntax_skipped_syntax",
         }
     }
 }
@@ -117,15 +133,23 @@ mod tests {
             DiagnosticKind::LexicalUnterminatedBlockComment.as_str(),
             "lexical_unterminated_block_comment"
         );
+
+        assert_eq!(
+            DiagnosticKind::SyntaxExpectedToken.as_str(),
+            "syntax_expected_token"
+        );
     }
 
     #[test]
     fn diagnostic_kinds_expose_stable_numeric_codes() {
         assert_eq!(DiagnosticKind::SourceInvalidUtf8.code().raw(), 1002);
+
         assert_eq!(
             DiagnosticKind::LexicalUnterminatedBlockComment.code().raw(),
             2014
         );
+
+        assert_eq!(DiagnosticKind::SyntaxSkippedSyntax.code().raw(), 3004);
     }
 
     #[test]
@@ -142,7 +166,7 @@ mod tests {
         }
     }
 
-    fn all_diagnostic_kinds() -> [DiagnosticKind; 21] {
+    fn all_diagnostic_kinds() -> [DiagnosticKind; 25] {
         [
             DiagnosticKind::SourceFileReadFailed,
             DiagnosticKind::SourceInvalidUtf8,
@@ -165,6 +189,10 @@ mod tests {
             DiagnosticKind::LexicalUnknownEscape,
             DiagnosticKind::LexicalInvalidUnicodeEscape,
             DiagnosticKind::LexicalUnterminatedBlockComment,
+            DiagnosticKind::SyntaxExpectedToken,
+            DiagnosticKind::SyntaxUnexpectedToken,
+            DiagnosticKind::SyntaxUnexpectedEof,
+            DiagnosticKind::SyntaxSkippedSyntax,
         ]
     }
 }

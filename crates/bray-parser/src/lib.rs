@@ -2,6 +2,8 @@
 
 #![forbid(unsafe_code)]
 
+mod cursor;
+mod diagnostic;
 mod lexer;
 mod parser;
 
