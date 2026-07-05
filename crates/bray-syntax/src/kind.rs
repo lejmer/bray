@@ -9,6 +9,10 @@ pub enum SyntaxKind {
     CompilationUnit,
     /// Root syntax node for one parsed source file.
     SourceUnit,
+    /// Concrete comma-like identifier list syntax node.
+    IdentifierList,
+    /// Item node inside an identifier list.
+    IdentifierListItem,
     /// Recovery node containing present tokens skipped by the parser.
     SkippedSyntax,
 
@@ -144,7 +148,11 @@ impl SyntaxKind {
     pub const fn is_node(self) -> bool {
         matches!(
             self,
-            Self::SourceUnit | Self::CompilationUnit | Self::SkippedSyntax
+            Self::SourceUnit
+                | Self::CompilationUnit
+                | Self::IdentifierList
+                | Self::IdentifierListItem
+                | Self::SkippedSyntax
         )
     }
 
@@ -258,6 +266,8 @@ impl SyntaxKind {
         match self {
             Self::SourceUnit => "source_unit",
             Self::CompilationUnit => "compilation_unit",
+            Self::IdentifierList => "identifier_list",
+            Self::IdentifierListItem => "identifier_list_item",
             Self::SkippedSyntax => "skipped_syntax",
             Self::EndOfFileToken => "end_of_file_token",
             Self::InvalidToken => "invalid_token",
@@ -391,6 +401,8 @@ mod tests {
     fn syntax_kinds_classify_nodes_tokens_and_trivia() {
         assert!(SyntaxKind::SourceUnit.is_node());
         assert!(!SyntaxKind::SourceUnit.is_token());
+        assert!(SyntaxKind::IdentifierList.is_node());
+        assert!(SyntaxKind::IdentifierListItem.is_node());
         assert!(SyntaxKind::SkippedSyntax.is_node());
         assert!(!SyntaxKind::SkippedSyntax.is_token());
 
@@ -416,6 +428,11 @@ mod tests {
     #[test]
     fn syntax_kinds_expose_stable_machine_keys() {
         assert_eq!(SyntaxKind::SourceUnit.as_str(), "source_unit");
+        assert_eq!(SyntaxKind::IdentifierList.as_str(), "identifier_list");
+        assert_eq!(
+            SyntaxKind::IdentifierListItem.as_str(),
+            "identifier_list_item"
+        );
         assert_eq!(SyntaxKind::SkippedSyntax.as_str(), "skipped_syntax");
         assert_eq!(SyntaxKind::EndOfFileToken.as_str(), "end_of_file_token");
         assert_eq!(SyntaxKind::SelfTypeKeyword.as_str(), "self_type_keyword");

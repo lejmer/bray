@@ -1,8 +1,9 @@
 use std::fmt::{self, Write};
 
-use bray_source::TextRange;
+use bray_source::{SourceSnapshot, TextRange, TextSize};
 
 use crate::SyntaxKind;
+use crate::green::GreenNode;
 use crate::text::text_from_writer;
 
 /// Common contract implemented by typed syntax tree nodes.
@@ -21,6 +22,9 @@ pub trait SyntaxNode: Send + Sync {
 
 /// Common contract for syntax nodes contained in one source snapshot.
 pub trait SourceSyntaxNode: SyntaxNode {
+    /// Returns the immutable source snapshot this node was parsed from.
+    fn source(&self) -> &SourceSnapshot;
+
     /// Appends this node's exact source text using the owning source text.
     ///
     /// Panics when `source_text` does not contain the node's element ranges.
@@ -31,5 +35,67 @@ pub trait SourceSyntaxNode: SyntaxNode {
     /// Panics when `source_text` does not contain the node's element ranges.
     fn full_text_from(&self, source_text: &str) -> String {
         text_from_writer(|writer| self.write_full_text_from(source_text, writer))
+    }
+}
+
+pub(crate) trait GreenSyntaxNode: Send + Sync {
+    fn green_node(&self) -> &GreenNode;
+
+    fn start(&self) -> TextSize;
+
+    fn range_description(&self) -> &'static str;
+
+    fn is_recovered(&self) -> bool {
+        false
+    }
+}
+
+impl<T> SyntaxNode for T
+where
+    T: GreenSyntaxNode,
+{
+    fn kind(&self) -> SyntaxKind {
+        self.green_node().kind()
+    }
+
+    fn full_range(&self) -> TextRange {
+        full_range_from_width(
+            self.start(),
+            self.green_node().full_width(),
+            self.range_description(),
+        )
+    }
+
+    fn is_recovered(&self) -> bool {
+        GreenSyntaxNode::is_recovered(self)
+    }
+}
+
+pub(crate) trait GreenSourceSyntaxNode: GreenSyntaxNode {
+    fn source(&self) -> &SourceSnapshot;
+}
+
+impl<T> SourceSyntaxNode for T
+where
+    T: GreenSourceSyntaxNode,
+{
+    fn source(&self) -> &SourceSnapshot {
+        GreenSourceSyntaxNode::source(self)
+    }
+
+    fn write_full_text_from(&self, source_text: &str, writer: &mut dyn Write) -> fmt::Result {
+        self.green_node()
+            .write_source_text(source_text, self.start(), writer)
+    }
+}
+
+pub(crate) fn full_range_from_width(
+    start: TextSize,
+    width: TextSize,
+    node_description: &'static str,
+) -> TextRange {
+    match TextRange::with_len(start, width) {
+        Some(range) => range,
+        None => panic!("green {node_description} width must fit in TextRange"),
     }
 }

@@ -13,8 +13,9 @@ mod trivia;
 
 pub use kind::SyntaxKind;
 pub use syntax::{
-    CompilationUnitSyntax, CompilationUnitSyntaxBuilder, SkippedSyntax, SourceSyntaxNode,
-    SourceUnitSyntax, SourceUnitSyntaxBuilder, SyntaxNode,
+    CompilationUnitSyntax, CompilationUnitSyntaxBuilder, IdentifierListItemSyntax,
+    IdentifierListItemSyntaxBuilder, IdentifierListSyntax, IdentifierListSyntaxBuilder,
+    SkippedSyntax, SourceSyntaxNode, SourceUnitSyntax, SourceUnitSyntaxBuilder, SyntaxNode,
 };
 pub use text::SyntaxText;
 pub use token::{SyntaxToken, SyntaxTokenPresence};
