@@ -218,7 +218,7 @@ mod tests {
         );
 
         assert_eq!(
-            source_unit.tokens().last().map(SyntaxToken::kind),
+            source_unit.tokens().last().map(|token| token.kind()),
             Some(SyntaxKind::EndOfFileToken)
         );
     }
@@ -253,10 +253,8 @@ mod tests {
         assert!(result.diagnostics().is_empty());
     }
 
-    fn token_kinds<'syntax>(
-        tokens: impl IntoIterator<Item = &'syntax SyntaxToken>,
-    ) -> Vec<SyntaxKind> {
-        tokens.into_iter().map(SyntaxToken::kind).collect()
+    fn token_kinds(tokens: impl IntoIterator<Item = SyntaxToken>) -> Vec<SyntaxKind> {
+        tokens.into_iter().map(|token| token.kind()).collect()
     }
 
     fn parse_diagnostic_kinds(result: &SyntaxTreeResult) -> Vec<DiagnosticKind> {

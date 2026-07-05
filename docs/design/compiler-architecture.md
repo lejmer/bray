@@ -248,26 +248,38 @@ The parser owns token lookahead, token consumption, parser recovery, and syntax-
 
 The parser does not own the policy for scanning all source text up front.
 
-Syntax trees are lossless. They preserve token text, token order, and recovered syntax markers needed to reconstruct the original
-source text.
+Syntax trees are lossless. They preserve token width, token order, trivia width, trivia order, and recovered syntax markers needed
+to reconstruct the original source text.
 
 Syntax trees, syntax nodes, syntax tokens, and syntax trivia are immutable after construction.
 
 The parser can use mutable builders internally, but the published syntax tree is immutable.
 
+The canonical syntax-tree storage is green-style storage:
+
+- green nodes are parentless immutable nodes with a `SyntaxKind`, full source width, and source-order child elements,
+- green child elements are either green nodes or green tokens,
+- green tokens and green trivia store kind plus width, not absolute source offsets,
+- green subtrees can be shared across syntax trees and source snapshots when their text shape is identical.
+
+Typed syntax nodes are red-style wrappers over green storage. A typed node provides source context, absolute ranges, parent/path
+context where needed, and named component accessors. Typed nodes must not duplicate child storage that already exists in green
+storage.
+
 Trivia is attached to syntax tokens as ordered leading and trailing trivia. Trivia is not represented as ordinary syntax nodes.
 
 Each trivia segment is attached exactly once.
 
-Every syntax token in the tree is reachable by walking the syntax tree. Source text is recreated by walking tokens in source order
-and concatenating each token's leading trivia, token text, and trailing trivia.
+Every syntax token in a source unit is reachable by walking the green tree in source order and synthesizing range-bearing syntax
+tokens from the source-unit start offset. Source text is recreated by walking green tokens in source order and slicing the source
+text by each token's synthesized leading trivia range, token range, and trailing trivia range.
 
 The end-of-file token is part of the syntax token sequence and can carry final trivia when trivia appears after the last ordinary
 token.
 
-Syntax nodes expose named components.
+Typed syntax nodes expose named components.
 
-A syntax node component can be:
+A typed syntax node component can be:
 
 - a named token slot,
 - an optional named token slot,
@@ -275,8 +287,8 @@ A syntax node component can be:
 - an optional named child-node slot,
 - a named child-node list.
 
-Keywords, punctuation, delimiters, and operators that belong to a grammar production should be stored in named token slots on the
-owning syntax node. They should not be hidden in anonymous side tables or represented only by source spans.
+Keywords, punctuation, delimiters, and operators that belong to a grammar production should be exposed through named token slots
+on the owning typed syntax node. They should not be hidden in anonymous side tables or represented only by source spans.
 
 For example, an `if` expression node should expose token slots for its `if` keyword and any present `else` keyword, along with
 named child slots for the condition and branch bodies.
@@ -464,7 +476,7 @@ Source-correlated nodes should carry spans or source references until diagnostic
 
 Syntax nodes belong to syntax and parser layers.
 
-Syntax nodes are structured records of named token and child components, not untyped bags of children.
+Typed syntax nodes are structured records of named token and child components, not untyped bags of children.
 
 Syntax tokens retain trivia as syntax-owned data. Later phases can refer to syntax spans, nodes, and tokens, but semantic facts
 should not duplicate trivia.

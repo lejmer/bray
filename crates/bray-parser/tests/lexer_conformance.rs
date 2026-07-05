@@ -43,7 +43,7 @@ fn source_unit_parser_preserves_lexer_output_and_reconstructs_sources() {
         assert_eq!(source_unit_result.source_id(), snapshot.source_id());
         assert_eq!(source_unit_result.diagnostics(), lex_result.diagnostics());
 
-        let source_unit_tokens = source_unit.tokens().cloned().collect::<Vec<_>>();
+        let source_unit_tokens = source_unit.tokens().collect::<Vec<_>>();
 
         assert_eq!(source_unit_tokens, lex_result.tokens());
         assert_single_final_eof(&source_unit_tokens, snapshot.text());
