@@ -1,5 +1,7 @@
 use std::fmt::{self, Write};
 
+use crate::syntax::SourceSyntaxNode;
+
 /// Text-writing contract for syntax values that carry their source context.
 pub trait SyntaxText {
     /// Appends the exact source text represented by this syntax value.
@@ -8,6 +10,15 @@ pub trait SyntaxText {
     /// Returns the exact source text represented by this syntax value.
     fn full_text(&self) -> String {
         text_from_writer(|writer| self.write_full_text(writer))
+    }
+}
+
+impl<T> SyntaxText for T
+where
+    T: SourceSyntaxNode,
+{
+    fn write_full_text(&self, writer: &mut dyn Write) -> fmt::Result {
+        self.write_full_text_from(self.source().text(), writer)
     }
 }
 

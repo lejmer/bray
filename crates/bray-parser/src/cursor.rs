@@ -124,6 +124,24 @@ impl ParserCursor {
         skipped_tokens
     }
 
+    /// Consumes one non-EOF token and records it as skipped syntax.
+    pub(crate) fn skip_one(&mut self) -> Option<SyntaxToken> {
+        let token = self.peek();
+
+        if token.is_end_of_file() {
+            return None;
+        }
+
+        let skipped_token = match self.consume_if(token.kind()) {
+            Some(token) => token,
+            None => panic!("parser cursor token changed between peek and consume"),
+        };
+
+        self.record_skipped_syntax(std::slice::from_ref(&skipped_token));
+
+        Some(skipped_token)
+    }
+
     pub(crate) fn finish(self) -> DiagnosticBag {
         self.token_source
             .into_diagnostics()
@@ -396,6 +414,26 @@ mod tests {
         assert!(skipped.is_empty());
         assert_eq!(cursor.peek().kind(), SyntaxKind::SemicolonToken);
         assert!(cursor.finish().is_empty());
+    }
+
+    #[test]
+    fn cursor_skip_one_consumes_one_token_and_records_skipped_syntax() {
+        let mut cursor = cursor("main tail");
+
+        let skipped = match cursor.skip_one() {
+            Some(token) => token,
+            None => panic!("expected one skipped token"),
+        };
+
+        assert_eq!(skipped.kind(), SyntaxKind::IdentifierToken);
+        assert_eq!(cursor.peek().kind(), SyntaxKind::IdentifierToken);
+
+        let diagnostics = cursor.finish();
+
+        assert_eq!(
+            diagnostic_kinds(&diagnostics),
+            [DiagnosticKind::SyntaxSkippedSyntax]
+        );
     }
 
     #[test]

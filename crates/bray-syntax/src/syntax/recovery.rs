@@ -1,10 +1,10 @@
-use std::fmt::{self, Write};
+use std::fmt;
 
 use bray_source::{SourceSnapshot, TextRange, TextSize};
 
-use super::{SourceSyntaxNode, SyntaxNode};
 use crate::green::GreenNode;
-use crate::{SyntaxKind, SyntaxText, SyntaxToken};
+use crate::syntax::node::{GreenSourceSyntaxNode, GreenSyntaxNode};
+use crate::{SyntaxKind, SyntaxToken};
 
 /// Recovery node containing present tokens skipped by the parser.
 ///
@@ -28,11 +28,6 @@ impl SkippedSyntax {
         }
     }
 
-    /// Returns this node's stable syntax kind.
-    pub fn kind(&self) -> SyntaxKind {
-        self.node.kind()
-    }
-
     /// Returns whether this node is explicit syntax recovery.
     pub const fn is_recovered(&self) -> bool {
         true
@@ -40,15 +35,7 @@ impl SkippedSyntax {
 
     /// Returns the full source text range covered by skipped tokens.
     pub fn full_range(&self) -> TextRange {
-        match TextRange::with_len(self.start, self.node.full_width()) {
-            Some(range) => range,
-            None => panic!("green skipped-syntax width must fit in TextRange"),
-        }
-    }
-
-    /// Returns the immutable source snapshot this recovery node was parsed from.
-    pub const fn source(&self) -> &SourceSnapshot {
-        &self.source
+        crate::SyntaxNode::full_range(self)
     }
 
     /// Returns the skipped syntax tokens in source order.
@@ -62,19 +49,23 @@ impl fmt::Debug for SkippedSyntax {
         formatter
             .debug_struct("SkippedSyntax")
             .field("source", &self.source)
-            .field("kind", &self.kind())
+            .field("kind", &crate::SyntaxNode::kind(self))
             .field("full_range", &self.full_range())
             .finish()
     }
 }
 
-impl SyntaxNode for SkippedSyntax {
-    fn kind(&self) -> SyntaxKind {
-        SkippedSyntax::kind(self)
+impl GreenSyntaxNode for SkippedSyntax {
+    fn green_node(&self) -> &GreenNode {
+        &self.node
     }
 
-    fn full_range(&self) -> TextRange {
-        SkippedSyntax::full_range(self)
+    fn start(&self) -> TextSize {
+        self.start
+    }
+
+    fn range_description(&self) -> &'static str {
+        "skipped-syntax"
     }
 
     fn is_recovered(&self) -> bool {
@@ -82,14 +73,8 @@ impl SyntaxNode for SkippedSyntax {
     }
 }
 
-impl SourceSyntaxNode for SkippedSyntax {
-    fn write_full_text_from(&self, source_text: &str, writer: &mut dyn Write) -> fmt::Result {
-        self.node.write_source_text(source_text, self.start, writer)
-    }
-}
-
-impl SyntaxText for SkippedSyntax {
-    fn write_full_text(&self, writer: &mut dyn Write) -> fmt::Result {
-        self.write_full_text_from(self.source.text(), writer)
+impl GreenSourceSyntaxNode for SkippedSyntax {
+    fn source(&self) -> &SourceSnapshot {
+        &self.source
     }
 }

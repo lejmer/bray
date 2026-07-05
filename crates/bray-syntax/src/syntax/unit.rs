@@ -4,9 +4,10 @@ use std::sync::Arc;
 use bray_base::shared_slice;
 use bray_source::{SourceSnapshot, TextRange, TextSize};
 
-use super::{SkippedSyntax, SourceSyntaxNode, SyntaxNode};
+use super::{IdentifierListSyntax, SkippedSyntax, SyntaxNode};
 use crate::builder::{GreenNodeBuilder, RequiredSyntaxSlot, SyntaxListSlot, require_token_kind};
 use crate::green::GreenNode;
+use crate::syntax::node::{GreenSourceSyntaxNode, GreenSyntaxNode};
 use crate::{SyntaxKind, SyntaxText, SyntaxToken, SyntaxTokenPresence};
 
 /// Root syntax node for one compiler compilation unit.
@@ -138,22 +139,9 @@ impl SourceUnitSyntax {
         Self { source, node }
     }
 
-    /// Returns this node's stable syntax kind.
-    pub fn kind(&self) -> SyntaxKind {
-        self.node.kind()
-    }
-
     /// Returns the full source text range.
     pub fn full_range(&self) -> TextRange {
-        match TextRange::with_len(TextSize::ZERO, self.node.full_width()) {
-            Some(range) => range,
-            None => panic!("green source-unit width must fit in TextRange"),
-        }
-    }
-
-    /// Returns the immutable source snapshot this node was parsed from.
-    pub const fn source(&self) -> &SourceSnapshot {
-        &self.source
+        SyntaxNode::full_range(self)
     }
 
     /// Returns this source unit's syntax tokens in source order, including EOF.
@@ -175,6 +163,16 @@ impl SourceUnitSyntax {
             })
     }
 
+    /// Returns direct identifier-list child nodes in source order.
+    pub fn identifier_lists(&self) -> impl Iterator<Item = IdentifierListSyntax> + '_ {
+        self.node
+            .child_nodes(TextSize::ZERO, SyntaxKind::IdentifierList)
+            .map(|(node, start)| {
+                // SourceSnapshot clones share immutable source text with typed child nodes.
+                IdentifierListSyntax::from_green(self.source.clone(), node, start)
+            })
+    }
+
     /// Returns the required EOF token for this source unit.
     pub fn eof_token(&self) -> SyntaxToken {
         match self.node.syntax_tokens(TextSize::ZERO).last() {
@@ -189,7 +187,7 @@ impl fmt::Debug for SourceUnitSyntax {
         formatter
             .debug_struct("SourceUnitSyntax")
             .field("source", &self.source)
-            .field("kind", &self.kind())
+            .field("kind", &SyntaxNode::kind(self))
             .field("full_range", &self.full_range())
             .finish()
     }
@@ -228,6 +226,11 @@ impl SourceUnitSyntaxBuilder {
         self.node.push_skipped_tokens(tokens);
     }
 
+    /// Appends an identifier-list child in source order.
+    pub fn push_identifier_list(&mut self, list: IdentifierListSyntax) {
+        self.node.push_node(list.into_green());
+    }
+
     /// Appends tokens to the source-unit token list.
     pub fn tokens(mut self, tokens: impl IntoIterator<Item = SyntaxToken>) -> Self {
         self.node.push_tokens(tokens);
@@ -242,6 +245,13 @@ impl SourceUnitSyntaxBuilder {
     /// Panics when any skipped token is missing.
     pub fn skipped_tokens(mut self, tokens: impl IntoIterator<Item = SyntaxToken>) -> Self {
         self.push_skipped_tokens(tokens);
+
+        self
+    }
+
+    /// Appends an identifier-list child in source order.
+    pub fn identifier_list(mut self, list: IdentifierListSyntax) -> Self {
+        self.push_identifier_list(list);
 
         self
     }
@@ -262,26 +272,23 @@ impl fmt::Debug for SourceUnitSyntaxBuilder {
     }
 }
 
-impl SyntaxNode for SourceUnitSyntax {
-    fn kind(&self) -> SyntaxKind {
-        self.kind()
+impl GreenSyntaxNode for SourceUnitSyntax {
+    fn green_node(&self) -> &GreenNode {
+        &self.node
     }
 
-    fn full_range(&self) -> TextRange {
-        self.full_range()
+    fn start(&self) -> TextSize {
+        TextSize::ZERO
     }
-}
 
-impl SourceSyntaxNode for SourceUnitSyntax {
-    fn write_full_text_from(&self, source_text: &str, writer: &mut dyn Write) -> fmt::Result {
-        self.node
-            .write_source_text(source_text, TextSize::ZERO, writer)
+    fn range_description(&self) -> &'static str {
+        "source-unit"
     }
 }
 
-impl SyntaxText for SourceUnitSyntax {
-    fn write_full_text(&self, writer: &mut dyn Write) -> fmt::Result {
-        self.write_full_text_from(self.source.text(), writer)
+impl GreenSourceSyntaxNode for SourceUnitSyntax {
+    fn source(&self) -> &SourceSnapshot {
+        &self.source
     }
 }
 
@@ -292,7 +299,10 @@ mod tests {
     };
 
     use super::{CompilationUnitSyntax, SourceUnitSyntax};
-    use crate::{SourceSyntaxNode, SyntaxKind, SyntaxNode, SyntaxText, SyntaxToken, SyntaxTrivia};
+    use crate::{
+        IdentifierListItemSyntax, IdentifierListSyntax, SourceSyntaxNode, SyntaxKind, SyntaxNode,
+        SyntaxText, SyntaxToken, SyntaxTrivia,
+    };
 
     #[test]
     fn source_units_store_source_snapshot_named_tokens_and_full_range() {
@@ -460,6 +470,51 @@ mod tests {
         );
         assert_eq!(skipped.tokens().collect::<Vec<_>>(), [skipped_token]);
         assert_eq!(skipped.full_text(), "@ ");
+    }
+
+    #[test]
+    fn source_units_expose_identifier_list_children() {
+        let snapshot = snapshot("a,b");
+
+        let first = IdentifierListItemSyntax::builder(snapshot.clone())
+            .identifier_token(SyntaxToken::new(
+                SyntaxKind::IdentifierToken,
+                TextRange::new(TextSize::ZERO, TextSize::new(1)),
+            ))
+            .build();
+
+        let comma = SyntaxToken::new(
+            SyntaxKind::CommaToken,
+            TextRange::new(TextSize::new(1), TextSize::new(2)),
+        );
+
+        let second = IdentifierListItemSyntax::builder(snapshot.clone())
+            .identifier_token(SyntaxToken::new(
+                SyntaxKind::IdentifierToken,
+                TextRange::new(TextSize::new(2), TextSize::new(3)),
+            ))
+            .build();
+
+        let list = IdentifierListSyntax::builder(snapshot.clone(), TextSize::ZERO)
+            .item(first)
+            .separator_token(comma)
+            .item(second)
+            .build();
+
+        let source_unit = SourceUnitSyntax::builder(snapshot)
+            .identifier_list(list)
+            .tokens([SyntaxToken::end_of_file(TextSize::new(3))])
+            .build();
+
+        let identifier_lists = source_unit.identifier_lists().collect::<Vec<_>>();
+
+        let [identifier_list] = identifier_lists.as_slice() else {
+            panic!("expected one identifier-list child: {identifier_lists:?}");
+        };
+
+        assert_eq!(source_unit.full_text(), "a,b");
+        assert_eq!(identifier_list.full_text(), "a,b");
+        assert_eq!(identifier_list.items().count(), 2);
     }
 
     #[test]

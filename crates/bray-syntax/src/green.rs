@@ -70,6 +70,11 @@ impl GreenNode {
         GreenSkippedSyntaxIter::new(self.children(), start)
     }
 
+    /// Returns direct child nodes with `kind` and their source starts.
+    pub(crate) fn child_nodes(&self, start: TextSize, kind: SyntaxKind) -> GreenChildNodeIter<'_> {
+        GreenChildNodeIter::new(self.children(), start, kind)
+    }
+
     /// Appends this node's exact source text.
     pub(crate) fn write_source_text(
         &self,
@@ -348,6 +353,45 @@ impl Iterator for GreenSkippedSyntaxIter<'_> {
     }
 }
 
+/// Source-order direct child-node iterator over a green node.
+pub(crate) struct GreenChildNodeIter<'green> {
+    children: slice::Iter<'green, GreenElement>,
+    offset: TextSize,
+    kind: SyntaxKind,
+}
+
+impl<'green> GreenChildNodeIter<'green> {
+    fn new(children: &'green [GreenElement], start: TextSize, kind: SyntaxKind) -> Self {
+        Self {
+            children: children.iter(),
+            offset: start,
+            kind,
+        }
+    }
+}
+
+impl Iterator for GreenChildNodeIter<'_> {
+    type Item = (GreenNode, TextSize);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        for child in self.children.by_ref() {
+            let start = self.offset;
+
+            self.offset = checked_add(start, child.full_width(), "next child node start");
+
+            let GreenElement::Node(node) = child else {
+                continue;
+            };
+
+            if node.kind() == self.kind {
+                return Some((share_node(node), start));
+            }
+        }
+
+        None
+    }
+}
+
 fn full_width_for_children(children: &[GreenElement]) -> TextSize {
     let mut width = TextSize::ZERO;
 
@@ -523,6 +567,51 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert_eq!(skipped_nodes, [(skipped, TextSize::new(1))]);
+    }
+
+    #[test]
+    fn green_nodes_find_direct_child_nodes_by_kind() {
+        let first = GreenNode::new(
+            SyntaxKind::IdentifierListItem,
+            [GreenElement::from(SyntaxToken::new(
+                SyntaxKind::IdentifierToken,
+                TextRange::new(TextSize::ZERO, TextSize::new(1)),
+            ))],
+        );
+
+        let skipped = GreenNode::new(
+            SyntaxKind::SkippedSyntax,
+            [GreenElement::from(SyntaxToken::invalid(TextRange::new(
+                TextSize::new(1),
+                TextSize::new(2),
+            )))],
+        );
+
+        let second = GreenNode::new(
+            SyntaxKind::IdentifierListItem,
+            [GreenElement::from(SyntaxToken::new(
+                SyntaxKind::IdentifierToken,
+                TextRange::new(TextSize::new(2), TextSize::new(3)),
+            ))],
+        );
+
+        let parent = GreenNode::new(
+            SyntaxKind::IdentifierList,
+            [
+                GreenElement::from(first.clone()),
+                GreenElement::from(skipped),
+                GreenElement::from(second.clone()),
+            ],
+        );
+
+        let children = parent
+            .child_nodes(TextSize::ZERO, SyntaxKind::IdentifierListItem)
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            children,
+            [(first, TextSize::ZERO), (second, TextSize::new(2))]
+        );
     }
 
     #[test]
