@@ -31,6 +31,9 @@ source text from syntax trees.
 Published compiler representations should be immutable. Mutation is allowed inside local builders while constructing a value, but
 the value becomes immutable before it is shared through the compiler graph.
 
+Compiler facts should be evaluated on demand through explicit queries. Laziness applies to when a compiler fact is requested, not
+to whether a requested fact is allowed to be partially completed.
+
 Compiler behavior should be deterministic.
 
 The compiler should be designed for parallel execution from the start.
@@ -88,6 +91,53 @@ The main durable representations are:
 
 The checked program state is the bound representation after the binder has completed semantic analysis and all required semantic
 facts have been populated.
+
+---
+
+## Demand-Driven Evaluation
+
+Compiler work should be demand-driven (lazy). A query should run because a compiler command, language-server request, or dependent
+query requested the fact it computes, not because an earlier phase completed globally.
+
+Demand-driven evaluation is a compiler architecture rule, not a language semantic. It must not change which diagnostics or
+semantic facts a fully checked program produces.
+
+Queries should be lazy across stable compiler boundaries:
+
+- source units,
+- modules,
+- declaration surfaces,
+- type bodies,
+- callable bodies,
+- predicate bodies,
+- implementation bodies,
+- overload families,
+- trait applications,
+- generic instantiations,
+- checked bound units,
+- lowered IR units,
+- backend codegen units.
+
+A query must be complete within the boundary it promises. If a query promises a checked callable body, the whole callable body is
+checked and the published result contains the required expression types, selected overloads, selected trait implementations, move
+states, borrow states, contract facts, capability facts, and diagnostics for that body.
+
+Smaller requests should use smaller queries with smaller contracts. For example, a language-server hover request can ask for a
+declaration surface or a type signature without forcing every callable body in the package. A completion request can ask for the
+local facts needed at a source position. These are separate query contracts, not partial executions of a larger checked-body
+query.
+
+Compiler commands decide which query frontier to force:
+
+- an outline request can force source, parsing, and declaration discovery,
+- a go-to-definition request can force symbol construction and the binding needed to resolve the requested reference,
+- a body diagnostic request can force the semantic units needed for that body,
+- a package check can force all semantic units required to validate the package,
+- emission can force lowering, IR validation, code generation, and emission only for checked units needed by the product.
+
+Query order, cache hits, worker count, and language-server request order must not affect the semantic facts or diagnostics
+produced for the same requested frontier. Diagnostics from lazily evaluated queries must be merged and ordered deterministically
+when a diagnostic result is materialized.
 
 ---
 
@@ -536,9 +586,14 @@ Sinks used by parallel tasks must preserve deterministic final ordering.
 
 A query computes a meaningful compiler fact with explicit inputs and a clear invalidation story.
 
+A query can be evaluated lazily when its fact is requested.
+
 A task is schedulable compiler work with explicit dependencies.
 
 Queries and tasks should use immutable inputs and publish immutable outputs.
+
+Query contracts must be complete within their promised boundary. Do not model a partially checked callable body, type body, or
+implementation body as though it were a fully checked result.
 
 Do not turn ordinary helper functions into queries merely because they are reusable.
 
@@ -612,6 +667,9 @@ If a query-style system is used, query boundaries should align with phase owners
 Do not make every helper a query.
 
 A query should represent a meaningful compiler fact with a clear invalidation story.
+
+Language-server entry points should request narrow query frontiers instead of forcing broader compiler work than the user action
+needs.
 
 Query inputs and outputs should be suitable for parallel scheduling.
 
