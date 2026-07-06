@@ -227,6 +227,7 @@ mod tests {
 
     use super::{ParserCursor, RecoverySet};
     use crate::lexer::LexerTokenSource;
+    use crate::test_support::{diagnostic_kinds, token_kinds};
 
     #[test]
     fn cursor_peeks_and_lookahead_are_stable_without_consuming() {
@@ -594,16 +595,5 @@ mod tests {
 
     fn cursor(text: &str) -> ParserCursor {
         ParserCursor::new(LexerTokenSource::new(snapshot(text)))
-    }
-
-    fn token_kinds(tokens: &[bray_syntax::SyntaxToken]) -> Vec<SyntaxKind> {
-        tokens.iter().map(|token| token.kind()).collect()
-    }
-
-    fn diagnostic_kinds(diagnostics: &bray_diagnostics::DiagnosticBag) -> Vec<DiagnosticKind> {
-        diagnostics
-            .iter()
-            .map(|diagnostic| diagnostic.kind())
-            .collect()
     }
 }

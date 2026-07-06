@@ -71,6 +71,31 @@ They should not inline generic token skipping, list handling, delimiter recovery
 
 ---
 
+## Parser Crate Layout
+
+`bray-parser/src/parser.rs` is a thin parser module root.
+It should contain only parser submodule declarations, crate-local parser wiring, and public reexports for parser entry
+points.
+
+Parser implementation details live under `bray-parser/src/parser/`:
+
+- `entry.rs` owns public parse entry points and parse result types,
+- `state.rs` owns the private `Parser` state and cursor-backed token helpers,
+- `source.rs` owns source-unit grammar parsing,
+- `module.rs` owns module declaration grammar parsing,
+- `path.rs` owns path and identifier grammar parsing,
+- `recovery.rs` owns grammar-neutral recovery sinks and helpers,
+- `separated.rs` owns parser-internal separated-list helpers.
+
+Add new grammar areas as sibling parser submodules when the existing module would otherwise become broad or mixed.
+Do not put unrelated grammar in a module only because that module first needed it.
+
+Tests should live beside the parser code they exercise.
+Use module-local `#[cfg(test)]` blocks for focused parser behavior.
+Shared parser test helpers may live in a small test-only support module when that avoids duplicating test plumbing.
+
+---
+
 ## Expressions
 
 Expression parsing uses precedence climbing.
