@@ -1,6 +1,6 @@
 use std::fmt::{self, Write};
 
-use crate::syntax::SourceSyntaxNode;
+use crate::node::SourceSyntaxNode;
 
 /// Text-writing contract for syntax values that carry their source context.
 pub trait SyntaxText {

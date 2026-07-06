@@ -9,6 +9,16 @@ pub enum SyntaxKind {
     CompilationUnit,
     /// Root syntax node for one parsed source file.
     SourceUnit,
+    /// Module declaration that owns all loose module items in a source unit.
+    SourceUnitModuleDeclaration,
+    /// Braced top-level module declaration.
+    BlockModuleDeclaration,
+    /// Optional module modifiers in source order.
+    ModuleModifiers,
+    /// Braced module declaration body.
+    ModuleBody,
+    /// Dotted identifier path syntax node.
+    Path,
     /// Concrete comma-like identifier list syntax node.
     IdentifierList,
     /// Item node inside an identifier list.
@@ -150,6 +160,11 @@ impl SyntaxKind {
             self,
             Self::SourceUnit
                 | Self::CompilationUnit
+                | Self::SourceUnitModuleDeclaration
+                | Self::BlockModuleDeclaration
+                | Self::ModuleModifiers
+                | Self::ModuleBody
+                | Self::Path
                 | Self::IdentifierList
                 | Self::IdentifierListItem
                 | Self::SkippedSyntax
@@ -266,6 +281,11 @@ impl SyntaxKind {
         match self {
             Self::SourceUnit => "source_unit",
             Self::CompilationUnit => "compilation_unit",
+            Self::SourceUnitModuleDeclaration => "source_unit_module_declaration",
+            Self::BlockModuleDeclaration => "block_module_declaration",
+            Self::ModuleModifiers => "module_modifiers",
+            Self::ModuleBody => "module_body",
+            Self::Path => "path",
             Self::IdentifierList => "identifier_list",
             Self::IdentifierListItem => "identifier_list_item",
             Self::SkippedSyntax => "skipped_syntax",
@@ -401,6 +421,11 @@ mod tests {
     fn syntax_kinds_classify_nodes_tokens_and_trivia() {
         assert!(SyntaxKind::SourceUnit.is_node());
         assert!(!SyntaxKind::SourceUnit.is_token());
+        assert!(SyntaxKind::SourceUnitModuleDeclaration.is_node());
+        assert!(SyntaxKind::BlockModuleDeclaration.is_node());
+        assert!(SyntaxKind::ModuleModifiers.is_node());
+        assert!(SyntaxKind::ModuleBody.is_node());
+        assert!(SyntaxKind::Path.is_node());
         assert!(SyntaxKind::IdentifierList.is_node());
         assert!(SyntaxKind::IdentifierListItem.is_node());
         assert!(SyntaxKind::SkippedSyntax.is_node());
@@ -428,6 +453,17 @@ mod tests {
     #[test]
     fn syntax_kinds_expose_stable_machine_keys() {
         assert_eq!(SyntaxKind::SourceUnit.as_str(), "source_unit");
+        assert_eq!(
+            SyntaxKind::SourceUnitModuleDeclaration.as_str(),
+            "source_unit_module_declaration"
+        );
+        assert_eq!(
+            SyntaxKind::BlockModuleDeclaration.as_str(),
+            "block_module_declaration"
+        );
+        assert_eq!(SyntaxKind::ModuleModifiers.as_str(), "module_modifiers");
+        assert_eq!(SyntaxKind::ModuleBody.as_str(), "module_body");
+        assert_eq!(SyntaxKind::Path.as_str(), "path");
         assert_eq!(SyntaxKind::IdentifierList.as_str(), "identifier_list");
         assert_eq!(
             SyntaxKind::IdentifierListItem.as_str(),

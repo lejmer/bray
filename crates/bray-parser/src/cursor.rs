@@ -142,6 +142,43 @@ impl ParserCursor {
         Some(skipped_token)
     }
 
+    /// Consumes tokens until an unmatched close brace or EOF.
+    ///
+    /// The close brace at depth zero is left unconsumed so the caller can use it
+    /// for a named syntax slot. Consumed tokens are returned for attachment
+    /// under a skipped-syntax node.
+    pub(crate) fn skip_until_balanced_close_brace(&mut self) -> Vec<SyntaxToken> {
+        let mut skipped_tokens = Vec::new();
+        let mut brace_depth = 0usize;
+
+        loop {
+            let token = self.peek();
+
+            if token.is_end_of_file()
+                || (token.kind() == SyntaxKind::CloseBraceToken && brace_depth == 0)
+            {
+                break;
+            }
+
+            let skipped_token = match self.consume_if(token.kind()) {
+                Some(token) => token,
+                None => panic!("parser cursor token changed between peek and consume"),
+            };
+
+            match skipped_token.kind() {
+                SyntaxKind::OpenBraceToken => brace_depth += 1,
+                SyntaxKind::CloseBraceToken => brace_depth = brace_depth.saturating_sub(1),
+                _ => {}
+            }
+
+            skipped_tokens.push(skipped_token);
+        }
+
+        self.record_skipped_syntax(&skipped_tokens);
+
+        skipped_tokens
+    }
+
     pub(crate) fn finish(self) -> DiagnosticBag {
         self.token_source
             .into_diagnostics()
@@ -403,6 +440,33 @@ mod tests {
 
         assert!(eof.is_end_of_file());
         assert_eq!(eof.range(), TextRange::empty(TextSize::new(4)));
+    }
+
+    #[test]
+    fn cursor_skip_until_balanced_close_brace_leaves_outer_close_brace() {
+        let mut cursor = cursor("func run() {} }");
+
+        let skipped = cursor.skip_until_balanced_close_brace();
+
+        assert_eq!(
+            token_kinds(&skipped),
+            [
+                SyntaxKind::FuncKeyword,
+                SyntaxKind::IdentifierToken,
+                SyntaxKind::OpenParenToken,
+                SyntaxKind::CloseParenToken,
+                SyntaxKind::OpenBraceToken,
+                SyntaxKind::CloseBraceToken
+            ]
+        );
+        assert_eq!(cursor.peek().kind(), SyntaxKind::CloseBraceToken);
+
+        let diagnostics = cursor.finish();
+
+        assert_eq!(
+            diagnostic_kinds(&diagnostics),
+            [DiagnosticKind::SyntaxSkippedSyntax]
+        );
     }
 
     #[test]

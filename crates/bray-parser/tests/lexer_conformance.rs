@@ -41,7 +41,10 @@ fn source_unit_parser_preserves_lexer_output_and_reconstructs_sources() {
             lex_result.diagnostics(),
         );
 
-        let source_unit_tokens = source_unit.tokens().collect::<Vec<_>>();
+        let source_unit_tokens = source_unit
+            .tokens()
+            .filter(bray_syntax::SyntaxToken::is_present)
+            .collect::<Vec<_>>();
 
         assert_eq!(source_unit_tokens, lex_result.tokens());
 

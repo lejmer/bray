@@ -131,9 +131,10 @@ impl Compilation {
             let source_units = self.sources().iter().map(|snapshot| {
                 // Source stores and fact caches share the loaded source count.
                 // The whole-source syntax result owns the composed source units.
-                self.source_unit_syntax(snapshot.source_id())
-                    .expect("source unit fact cache should match source store")
-                    .clone()
+                match self.source_unit_syntax(snapshot.source_id()) {
+                    Some(result) => result.clone(),
+                    None => panic!("source unit fact cache should match source store"),
+                }
             });
 
             SyntaxTreeResult::from_source_unit_results(source_units)
@@ -270,7 +271,10 @@ mod tests {
             diagnostic_kinds(compilation.check_diagnostics()),
             [
                 DiagnosticKind::LexicalInvalidCharacter,
-                DiagnosticKind::SyntaxSkippedSyntax
+                DiagnosticKind::SyntaxSkippedSyntax,
+                DiagnosticKind::SyntaxUnexpectedEof,
+                DiagnosticKind::SyntaxUnexpectedEof,
+                DiagnosticKind::SyntaxUnexpectedEof
             ]
         );
     }
@@ -296,7 +300,10 @@ mod tests {
             [
                 DiagnosticKind::SourceInvalidUtf8,
                 DiagnosticKind::LexicalInvalidCharacter,
-                DiagnosticKind::SyntaxSkippedSyntax
+                DiagnosticKind::SyntaxSkippedSyntax,
+                DiagnosticKind::SyntaxUnexpectedEof,
+                DiagnosticKind::SyntaxUnexpectedEof,
+                DiagnosticKind::SyntaxUnexpectedEof
             ]
         );
     }
@@ -412,7 +419,10 @@ mod tests {
             [
                 DiagnosticKind::SourceInvalidUtf8,
                 DiagnosticKind::LexicalInvalidCharacter,
-                DiagnosticKind::SyntaxSkippedSyntax
+                DiagnosticKind::SyntaxSkippedSyntax,
+                DiagnosticKind::SyntaxUnexpectedEof,
+                DiagnosticKind::SyntaxUnexpectedEof,
+                DiagnosticKind::SyntaxUnexpectedEof
             ]
         );
     }
