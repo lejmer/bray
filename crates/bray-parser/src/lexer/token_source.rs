@@ -274,6 +274,7 @@ mod tests {
     use std::ops::Deref;
 
     use super::{LexerCachePolicy, LexerTokenSource};
+    use crate::test_support::{diagnostic_kinds, token_kinds};
     use bray_source::{SourceSnapshot, TextRange, TextSize};
     use bray_syntax::{SyntaxKind, SyntaxToken, SyntaxTrivia};
 
@@ -462,7 +463,7 @@ mod tests {
         let tokens = token_stream("if ifx self Self bool");
 
         assert_eq!(
-            token_kinds(&tokens),
+            token_kinds(&*tokens),
             [
                 SyntaxKind::IfKeyword,
                 SyntaxKind::IdentifierToken,
@@ -484,7 +485,7 @@ mod tests {
         let tokens = token_stream("parse_int BufferReader value2");
 
         assert_eq!(
-            token_kinds(&tokens),
+            token_kinds(&*tokens),
             [
                 SyntaxKind::IdentifierToken,
                 SyntaxKind::IdentifierToken,
@@ -504,7 +505,7 @@ mod tests {
         let tokens = token_stream("_ _foo __ _1");
 
         assert_eq!(
-            token_kinds(&tokens),
+            token_kinds(&*tokens),
             [
                 SyntaxKind::UnderscoreToken,
                 SyntaxKind::InvalidToken,
@@ -524,7 +525,7 @@ mod tests {
         );
 
         assert_eq!(
-            token_kinds(&tokens),
+            token_kinds(&*tokens),
             [
                 SyntaxKind::ArrowToken,
                 SyntaxKind::EqualsEqualsToken,
@@ -573,7 +574,7 @@ mod tests {
         let tokens = token_stream("=== ->> +- :: ...");
 
         assert_eq!(
-            token_kinds(&tokens),
+            token_kinds(&*tokens),
             [
                 SyntaxKind::InvalidToken,
                 SyntaxKind::InvalidToken,
@@ -592,7 +593,7 @@ mod tests {
         let tokens = token_stream("é aé");
 
         assert_eq!(
-            token_kinds(&tokens),
+            token_kinds(&*tokens),
             [
                 SyntaxKind::InvalidToken,
                 SyntaxKind::InvalidToken,
@@ -612,7 +613,7 @@ mod tests {
         let tokens = token_stream("1 0b1010 0xFF 1.25 1e+10 1i 1.25i 0xFi");
 
         assert_eq!(
-            token_kinds(&tokens),
+            token_kinds(&*tokens),
             [
                 SyntaxKind::DecimalIntegerLiteralToken,
                 SyntaxKind::BinaryIntegerLiteralToken,
@@ -639,7 +640,7 @@ mod tests {
         let tokens = token_stream("1_000 0b1010_0011 0xCAFE_BABE 1_ 1__2 0x_FF");
 
         assert_eq!(
-            token_kinds(&tokens),
+            token_kinds(&*tokens),
             [
                 SyntaxKind::DecimalIntegerLiteralToken,
                 SyntaxKind::BinaryIntegerLiteralToken,
@@ -670,7 +671,7 @@ mod tests {
         let tokens = token_stream("1i32 1u8 1.0r64 0b102 0x 1e+");
 
         assert_eq!(
-            token_kinds(&tokens),
+            token_kinds(&*tokens),
             [
                 SyntaxKind::InvalidToken,
                 SyntaxKind::InvalidToken,
@@ -693,7 +694,7 @@ mod tests {
         let tokens = token_stream(".5 1.");
 
         assert_eq!(
-            token_kinds(&tokens),
+            token_kinds(&*tokens),
             [
                 SyntaxKind::DotToken,
                 SyntaxKind::DecimalIntegerLiteralToken,
@@ -711,7 +712,7 @@ mod tests {
         let tokens = token_stream(r#"'a' '\'' '\n' '\u{1F600}' "text\n\u{41}""#);
 
         assert_eq!(
-            token_kinds(&tokens),
+            token_kinds(&*tokens),
             [
                 SyntaxKind::CharacterLiteralToken,
                 SyntaxKind::CharacterLiteralToken,
@@ -740,7 +741,7 @@ mod tests {
         let tokens = token_stream(r#"'' 'ab' '\q' '\u{110000}' "bad\q" "\u{}""#);
 
         assert_eq!(
-            token_kinds(&tokens),
+            token_kinds(&*tokens),
             [
                 SyntaxKind::InvalidToken,
                 SyntaxKind::InvalidToken,
@@ -771,7 +772,7 @@ mod tests {
         let tokens = token_stream("'a\n\"text");
 
         assert_eq!(
-            token_kinds(&tokens),
+            token_kinds(&*tokens),
             [
                 SyntaxKind::InvalidToken,
                 SyntaxKind::InvalidToken,
@@ -787,7 +788,7 @@ mod tests {
         let source = consumed_source("a \u{feff} \r é _foo === $ z");
 
         assert_eq!(
-            diagnostic_kinds(&source),
+            diagnostic_kinds(source.diagnostics()),
             [
                 DiagnosticKind::LexicalMisplacedBom,
                 DiagnosticKind::LexicalLoneCarriageReturn,
@@ -806,7 +807,7 @@ mod tests {
         let source = consumed_source(r#"1u8 0x "bad\q" "\u{}" '' 'ab' '\u{110000}'"#);
 
         assert_eq!(
-            diagnostic_kinds(&source),
+            diagnostic_kinds(source.diagnostics()),
             [
                 DiagnosticKind::LexicalInvalidNumericSuffix,
                 DiagnosticKind::LexicalMalformedNumericLiteral,
@@ -826,17 +827,17 @@ mod tests {
         let comment_source = consumed_source("value /* open");
 
         assert_eq!(
-            diagnostic_kinds(&string_source),
+            diagnostic_kinds(string_source.diagnostics()),
             [DiagnosticKind::LexicalUnterminatedStringLiteral]
         );
 
         assert_eq!(
-            diagnostic_kinds(&character_source),
+            diagnostic_kinds(character_source.diagnostics()),
             [DiagnosticKind::LexicalUnterminatedCharacterLiteral]
         );
 
         assert_eq!(
-            diagnostic_kinds(&comment_source),
+            diagnostic_kinds(comment_source.diagnostics()),
             [DiagnosticKind::LexicalUnterminatedBlockComment]
         );
 
@@ -852,7 +853,7 @@ mod tests {
         assert_eq!(source.lookahead(0).kind(), SyntaxKind::InvalidToken);
 
         assert_eq!(
-            diagnostic_kinds(&source),
+            diagnostic_kinds(source.diagnostics()),
             [DiagnosticKind::LexicalInvalidCharacter]
         );
     }
@@ -1046,22 +1047,10 @@ mod tests {
         }
     }
 
-    fn token_kinds(tokens: &[SyntaxToken]) -> Vec<SyntaxKind> {
-        tokens.iter().map(SyntaxToken::kind).collect()
-    }
-
     fn token_texts(tokens: &TokenStream) -> Vec<&str> {
         tokens
             .iter()
             .map(|token| token_text(tokens.source_text(), token))
-            .collect()
-    }
-
-    fn diagnostic_kinds(source: &LexerTokenSource) -> Vec<DiagnosticKind> {
-        source
-            .diagnostics()
-            .iter()
-            .map(|diagnostic| diagnostic.kind())
             .collect()
     }
 
