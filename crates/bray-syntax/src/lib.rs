@@ -6,7 +6,6 @@ mod builder;
 mod green;
 mod kind;
 mod node;
-mod node_support;
 mod separated;
 mod syntax;
 mod text;

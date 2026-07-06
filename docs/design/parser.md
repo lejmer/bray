@@ -152,8 +152,10 @@ the syntax tree.
 Reusable typed-node infrastructure belongs outside `syntax/`.
 This includes:
 
-- node contracts and green-node adapter traits in `bray-syntax/src/node.rs`,
-- crate-local helpers for typed syntax nodes in `bray-syntax/src/node_support.rs`,
+- the thin node infrastructure root in `bray-syntax/src/node.rs`,
+- node contracts and green-node adapter traits in `bray-syntax/src/node/traits.rs`,
+- typed syntax node definition macros in `bray-syntax/src/node/definition.rs`,
+- crate-local helpers for typed syntax nodes in `bray-syntax/src/node/support.rs`,
 - separated-list storage and code-generation macros in `bray-syntax/src/separated.rs` and
   `bray-syntax/src/separated/`.
 
@@ -164,6 +166,10 @@ used to define that node does not.
 Parser changes that need a new syntax node should add the concrete node under `syntax/`.
 Parser changes that need a reusable builder helper, node trait, macro, or storage adapter should add it to the owning
 crate-root infrastructure module instead.
+
+Parser methods should stay handwritten.
+Syntax-node macros remove typed syntax boilerplate only.
+They should not generate recursive descent parser methods or hide grammar decisions in parser code.
 
 ---
 

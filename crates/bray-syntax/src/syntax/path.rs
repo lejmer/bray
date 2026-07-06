@@ -4,8 +4,7 @@ use bray_source::{SourceSnapshot, TextRange, TextSize};
 
 use crate::builder::{GreenNodeBuilder, RequiredSyntaxSlot, require_token_kind};
 use crate::green::GreenNode;
-use crate::node::{GreenSourceSyntaxNode, GreenSyntaxNode};
-use crate::node_support::contains_recovery;
+use crate::node::{GreenSourceSyntaxNode, GreenSyntaxNode, contains_recovery};
 use crate::{SyntaxKind, SyntaxNode, SyntaxToken};
 
 /// Dotted identifier path syntax node.
