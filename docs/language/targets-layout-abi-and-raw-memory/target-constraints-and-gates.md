@@ -8,7 +8,7 @@ When a product's target constraints are not satisfied, the product is rejected b
 
 A module contribution can be gated by the selected target profile with `@target(...)`.
 
-`@target(...)` attaches to a source-scoped module declaration or a block module declaration.
+`@target(...)` attaches to a source-unit module declaration or a block module declaration.
 
 ```bray
 @target(std.target.atomic.u64)

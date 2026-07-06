@@ -23,7 +23,7 @@ A test product can contain zero or more test entries.
 
 A module contribution can be marked test-only with `@test`.
 
-`@test` attaches to a source-scoped module declaration or a block module declaration.
+`@test` attaches to a source-unit module declaration or a block module declaration.
 
 Only one `@test` directive can apply to a module declaration.
 

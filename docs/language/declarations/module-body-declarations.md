@@ -23,7 +23,7 @@ Export declarations are defined in [Re-exports](../modules-and-packages/re-expor
 
 Block module declarations are package-level module contributions.
 
-A block module declaration is not nested inside the surrounding source-scoped module.
+A block module declaration is not nested inside a source-unit module.
 
 Module-level declarations introduce declarations into the logical module produced after split module merging.
 

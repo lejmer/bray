@@ -4,7 +4,7 @@ A **declaration context** is a source location that accepts declarations.
 
 The declaration contexts are:
 
-- source-scoped module declarations,
+- source-unit module declarations,
 - block module declarations,
 - module bodies,
 - type bodies,
@@ -12,13 +12,16 @@ The declaration contexts are:
 - implementation bodies,
 - block expressions.
 
-Every source unit begins with one source-scoped module declaration.
+A source unit begins with either one source-unit module declaration or one or more block module declarations.
 
 Block module declarations contribute declarations to an explicitly named module.
 
 Module declaration rules are defined in [Modules and packages](../modules-and-packages.md).
 
-A module body accepts using declarations, export declarations, and module-level declarations.
+The unbraced body after a source-unit module declaration accepts using declarations, export declarations, and module-level
+declarations.
+
+A braced module body accepts using declarations, export declarations, and module-level declarations.
 
 A type body accepts representation declarations and type member declarations.
 

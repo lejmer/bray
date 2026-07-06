@@ -44,23 +44,21 @@ compilation-unit =
 
 ## Source Units
 
-Every source unit begins with one source-scoped module declaration.
+Every source unit starts with explicit module syntax.
 
-The source-scoped module declaration controls the source unit's module contribution. Later block module declarations contribute to
-the module path they name.
+A source unit can use one unbraced source-unit module declaration followed by items that belong to that module.
+Alternatively, it can use one or more braced block module declarations.
+
+Loose source-unit items are allowed only after a source-unit module declaration.
+Block module declarations are allowed only as top-level declarations in a block-module-only source unit.
 
 ```ebnf
 source-unit =
-    source-module-declaration { source-item } ;
+      source-unit-module-declaration { module-item }
+    | block-module-declaration { block-module-declaration } ;
 
-source-module-declaration =
+source-unit-module-declaration =
     module-directives module-modifiers "module" module-path ";" ;
-
-source-item =
-      using-declaration
-    | export-declaration
-    | block-module-declaration
-    | module-level-declaration ;
 ```
 
 ---
@@ -84,6 +82,7 @@ module-path =
 ```
 
 Block module declarations are package-level module contributions. They are not nested modules.
+They do not inherit from a source-unit module declaration.
 
 ---
 
@@ -91,7 +90,7 @@ Block module declarations are package-level module contributions. They are not n
 
 Declarations are grouped by the source context that accepts them.
 
-Module-level declarations can appear directly in a source-scoped module contribution or in a block module body.
+Module-level declarations can appear directly after a source-unit module declaration or in a block module body.
 
 ```ebnf
 module-level-declaration =

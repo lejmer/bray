@@ -52,7 +52,7 @@ It must not use name resolution, type information, target facts, package facts, 
 The parser is a recursive descent parser.
 
 As a default rule, each grammar nonterminal has one private `parse_` method on `Parser`.
-A grammar name like `source-module-declaration` maps to a method like `parse_source_module_declaration`.
+A grammar name like `source-unit-module-declaration` maps to a method like `parse_source_unit_module_declaration`.
 
 Shared grammar shapes may use one shared implementation when the behavior is genuinely the same.
 In that case, prefer either:
