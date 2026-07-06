@@ -205,4 +205,4 @@ macro_rules! test_token_separated_list_syntax {
     };
 }
 
-pub(in crate::syntax) use test_token_separated_list_syntax;
+pub(crate) use test_token_separated_list_syntax;

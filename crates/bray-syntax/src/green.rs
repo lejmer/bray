@@ -70,6 +70,12 @@ impl GreenNode {
         GreenSkippedSyntaxIter::new(self.children(), start)
     }
 
+    /// Returns whether this node contains missing tokens or skipped syntax.
+    pub(crate) fn contains_recovery(&self, start: TextSize) -> bool {
+        self.syntax_tokens(start).any(|token| token.is_missing())
+            || self.skipped_syntax_nodes(start).next().is_some()
+    }
+
     /// Returns direct child nodes with `kind` and their source starts.
     pub(crate) fn child_nodes(&self, start: TextSize, kind: SyntaxKind) -> GreenChildNodeIter<'_> {
         GreenChildNodeIter::new(self.children(), start, kind)

@@ -1,12 +1,40 @@
 use bray_diagnostics::DiagnosticBag;
 use bray_source::{SourceId, SourceSnapshot, SourceStore};
 use bray_syntax::{
-    IdentifierListItemSyntax, IdentifierListSyntax, IdentifierListSyntaxBuilder, SourceUnitSyntax,
-    SourceUnitSyntaxBuilder, SyntaxKind, SyntaxToken, SyntaxTree,
+    BlockModuleDeclarationSyntax, BlockModuleDeclarationSyntaxBuilder, IdentifierListItemSyntax,
+    IdentifierListSyntax, IdentifierListSyntaxBuilder, ModuleBodySyntax, ModuleBodySyntaxBuilder,
+    ModuleModifiersSyntax, PathSyntax, SourceUnitModuleDeclarationSyntax,
+    SourceUnitModuleDeclarationSyntaxBuilder, SourceUnitSyntax, SourceUnitSyntaxBuilder,
+    SyntaxKind, SyntaxToken, SyntaxTree,
 };
 
 use crate::cursor::{ParserCursor, ParserCursorCheckpoint, RecoverySet};
 use crate::lexer::LexerTokenSource;
+
+const MODULE_HEADER_START_KINDS: [SyntaxKind; 4] = [
+    SyntaxKind::TrustedKeyword,
+    SyntaxKind::PublicKeyword,
+    SyntaxKind::InternalKeyword,
+    SyntaxKind::ModuleKeyword,
+];
+
+const MODULE_DECLARATION_START_KINDS: [SyntaxKind; 5] = [
+    SyntaxKind::AtToken,
+    SyntaxKind::TrustedKeyword,
+    SyntaxKind::PublicKeyword,
+    SyntaxKind::InternalKeyword,
+    SyntaxKind::ModuleKeyword,
+];
+
+const SOURCE_UNIT_ITEM_TERMINATORS: [SyntaxKind; 1] = [SyntaxKind::EndOfFileToken];
+const TOP_LEVEL_BLOCK_MODULE_RECOVERY_KINDS: [SyntaxKind; 6] = [
+    SyntaxKind::AtToken,
+    SyntaxKind::TrustedKeyword,
+    SyntaxKind::PublicKeyword,
+    SyntaxKind::InternalKeyword,
+    SyntaxKind::ModuleKeyword,
+    SyntaxKind::EndOfFileToken,
+];
 
 /// Syntax tree plus diagnostics for a source store.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -138,10 +166,18 @@ impl Parser {
     }
 
     fn parse_source_unit(&mut self) -> SourceUnitSyntax {
-        // Source syntax keeps a cheap handle to immutable source text.
-        let mut builder = SourceUnitSyntax::builder(self.snapshot.clone());
+        let mut builder = SourceUnitSyntax::builder(self.syntax_source());
 
-        self.parse_placeholder_source_unit_tokens(&mut builder);
+        if self.should_parse_block_module_declaration() {
+            self.parse_block_module_declarations(&mut builder);
+        } else {
+            let declaration = self.parse_source_unit_module_declaration();
+
+            builder.push_source_unit_module_declaration(declaration);
+            self.parse_module_items(&mut builder, &SOURCE_UNIT_ITEM_TERMINATORS);
+        }
+
+        builder.push_token(self.expect(SyntaxKind::EndOfFileToken));
 
         builder.build()
     }
@@ -169,6 +205,11 @@ impl Parser {
             snapshot: self.snapshot.clone(),
             cursor: checkpoint.fork(),
         }
+    }
+
+    fn syntax_source(&self) -> SourceSnapshot {
+        // Syntax nodes share immutable source text by cloning the snapshot handle.
+        self.snapshot.clone()
     }
 
     fn lookahead(&mut self, distance: usize) -> SyntaxToken {
@@ -210,6 +251,142 @@ impl Parser {
         self.cursor.expect(kind)
     }
 
+    fn parse_source_unit_module_declaration(&mut self) -> SourceUnitModuleDeclarationSyntax {
+        let start = self.peek().full_range().start();
+        let mut builder = SourceUnitModuleDeclarationSyntax::builder(self.syntax_source(), start);
+
+        self.parse_module_declaration_header(&mut builder);
+        self.recover_until(
+            &mut builder,
+            &[SyntaxKind::SemicolonToken, SyntaxKind::EndOfFileToken],
+        );
+        builder.push_semicolon_token(self.expect(SyntaxKind::SemicolonToken));
+
+        builder.build()
+    }
+
+    fn parse_block_module_declarations(&mut self, builder: &mut SourceUnitSyntaxBuilder) {
+        loop {
+            if self.at(SyntaxKind::EndOfFileToken) {
+                return;
+            }
+
+            if self.should_parse_block_module_declaration() {
+                let declaration = self.parse_block_module_declaration();
+
+                builder.push_block_module_declaration(declaration);
+                continue;
+            }
+
+            if self.recover_until(builder, &TOP_LEVEL_BLOCK_MODULE_RECOVERY_KINDS) {
+                continue;
+            }
+
+            self.recover_current_token(builder);
+        }
+    }
+
+    fn parse_block_module_declaration(&mut self) -> BlockModuleDeclarationSyntax {
+        let start = self.peek().full_range().start();
+        let mut builder = BlockModuleDeclarationSyntax::builder(self.syntax_source(), start);
+
+        self.parse_module_declaration_header(&mut builder);
+        builder.push_module_body(self.parse_module_body());
+
+        builder.build()
+    }
+
+    fn parse_module_declaration_header(&mut self, builder: &mut impl ModuleDeclarationSyntaxSink) {
+        self.recover_until(builder, &MODULE_HEADER_START_KINDS);
+
+        builder.push_module_modifiers(self.parse_module_modifiers());
+        builder.push_module_keyword(self.expect(SyntaxKind::ModuleKeyword));
+        builder.push_module_path(self.parse_module_path());
+    }
+
+    fn parse_module_modifiers(&mut self) -> ModuleModifiersSyntax {
+        let start = self.peek().full_range().start();
+        let mut builder = ModuleModifiersSyntax::builder(self.syntax_source(), start);
+
+        if self.at(SyntaxKind::TrustedKeyword) {
+            builder.push_trusted_token(self.parse_trusted_modifier());
+        }
+
+        if self.at(SyntaxKind::PublicKeyword) || self.at(SyntaxKind::InternalKeyword) {
+            builder.push_visibility_token(self.parse_visibility_modifier());
+        }
+
+        builder.build()
+    }
+
+    fn parse_trusted_modifier(&mut self) -> SyntaxToken {
+        self.expect(SyntaxKind::TrustedKeyword)
+    }
+
+    fn parse_visibility_modifier(&mut self) -> SyntaxToken {
+        if self.at(SyntaxKind::PublicKeyword) {
+            return self.expect(SyntaxKind::PublicKeyword);
+        }
+
+        self.expect(SyntaxKind::InternalKeyword)
+    }
+
+    fn parse_module_path(&mut self) -> PathSyntax {
+        self.parse_path()
+    }
+
+    fn parse_module_body(&mut self) -> ModuleBodySyntax {
+        let start = self.peek().full_range().start();
+        let mut builder = ModuleBodySyntax::builder(self.syntax_source(), start);
+
+        builder.push_open_brace_token(self.expect(SyntaxKind::OpenBraceToken));
+        self.recover_until_balanced_close_brace(&mut builder);
+        builder.push_close_brace_token(self.expect(SyntaxKind::CloseBraceToken));
+
+        builder.build()
+    }
+
+    fn parse_module_items(
+        &mut self,
+        builder: &mut impl RecoverySyntaxSink,
+        terminators: &[SyntaxKind],
+    ) {
+        while !self.at_any(terminators) && !self.at(SyntaxKind::EndOfFileToken) {
+            self.parse_module_item(builder, terminators);
+        }
+    }
+
+    fn parse_module_item(
+        &mut self,
+        builder: &mut impl RecoverySyntaxSink,
+        terminators: &[SyntaxKind],
+    ) {
+        let start = self.peek().start();
+
+        if self.recover_until(builder, terminators) || self.peek().start() != start {
+            return;
+        }
+
+        self.recover_current_token(builder);
+    }
+
+    fn parse_path(&mut self) -> PathSyntax {
+        let mut builder = PathSyntax::builder(self.syntax_source());
+
+        builder.push_identifier_token(self.parse_identifier());
+
+        while self.at(SyntaxKind::DotToken) {
+            builder.push_dot_token(self.expect(SyntaxKind::DotToken));
+            builder.push_identifier_token(self.parse_identifier());
+        }
+
+        builder.build()
+    }
+
+    fn parse_identifier(&mut self) -> SyntaxToken {
+        self.expect(SyntaxKind::IdentifierToken)
+    }
+
     fn recover_until(
         &mut self,
         builder: &mut impl RecoverySyntaxSink,
@@ -231,6 +408,12 @@ impl Parser {
         builder.push_skipped_tokens(vec![skipped_token]);
     }
 
+    fn recover_until_balanced_close_brace(&mut self, builder: &mut impl RecoverySyntaxSink) {
+        let skipped_tokens = self.cursor.skip_until_balanced_close_brace();
+
+        builder.push_skipped_tokens(skipped_tokens);
+    }
+
     fn at_list_end(&mut self, terminators: &[SyntaxKind]) -> bool {
         self.at_any(terminators) || self.at(SyntaxKind::EndOfFileToken)
     }
@@ -239,22 +422,14 @@ impl Parser {
         self.at(spec.separator_kind) || self.at_list_end(spec.terminators)
     }
 
-    fn should_recover_invalid_token(&mut self) -> bool {
-        self.scan_ahead(|scan| scan.at(SyntaxKind::InvalidToken))
-    }
-
-    fn should_parse_identifier_list(&mut self) -> bool {
-        self.scan_ahead(|scan| {
-            if !scan.at(SyntaxKind::IdentifierToken) {
-                return false;
-            }
-
-            scan.consume();
-
-            scan.at(SyntaxKind::CommaToken)
-        })
-    }
-
+    // TODO(parser): Remove this expectation once production grammar uses separated lists.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "TODO(parser): separated-list parser support is waiting for grammar use"
+        )
+    )]
     fn parse_identifier_list(&mut self, terminators: &[SyntaxKind]) -> IdentifierListSyntax {
         let start = self.peek().full_range().start();
         let recovery_kinds = identifier_list_recovery_kinds(terminators);
@@ -266,7 +441,7 @@ impl Parser {
             allow_trailing_separator: true,
         };
 
-        let mut builder = IdentifierListSyntax::builder(self.snapshot.clone(), start);
+        let mut builder = IdentifierListSyntax::builder(self.syntax_source(), start);
 
         self.parse_separated_list(&mut builder, spec, Parser::parse_identifier_list_item);
 
@@ -274,7 +449,7 @@ impl Parser {
     }
 
     fn parse_identifier_list_item(&mut self) -> IdentifierListItemSyntax {
-        let mut builder = IdentifierListItemSyntax::builder(self.snapshot.clone());
+        let mut builder = IdentifierListItemSyntax::builder(self.syntax_source());
 
         builder.push_identifier_token(self.expect(SyntaxKind::IdentifierToken));
 
@@ -345,27 +520,63 @@ impl Parser {
         self.recover_current_token(builder);
     }
 
-    fn parse_placeholder_source_unit_tokens(&mut self, builder: &mut SourceUnitSyntaxBuilder) {
-        loop {
-            if self.at(SyntaxKind::EndOfFileToken) {
-                builder.push_token(self.expect(SyntaxKind::EndOfFileToken));
-                return;
-            }
-
-            if self.should_recover_invalid_token() {
-                self.recover_until(builder, &[SyntaxKind::EndOfFileToken]);
-                continue;
-            }
-
-            if self.should_parse_identifier_list() {
-                let list = self.parse_identifier_list(&[SyntaxKind::EndOfFileToken]);
-
-                builder.push_identifier_list(list);
-                continue;
-            }
-
-            builder.push_token(self.consume());
+    fn should_parse_block_module_declaration(&mut self) -> bool {
+        if !self.at_any(&MODULE_DECLARATION_START_KINDS) {
+            return false;
         }
+
+        self.scan_ahead(|scan| {
+            scan.skip_module_directives_for_scan();
+            scan.consume_module_modifiers_for_scan();
+
+            if !scan.at(SyntaxKind::ModuleKeyword) {
+                return false;
+            }
+
+            scan.consume();
+
+            if !scan.consume_path_for_scan() {
+                return false;
+            }
+
+            scan.at(SyntaxKind::OpenBraceToken)
+        })
+    }
+
+    fn skip_module_directives_for_scan(&mut self) {
+        while !self.at_any(&MODULE_HEADER_START_KINDS) && !self.at(SyntaxKind::EndOfFileToken) {
+            self.consume();
+        }
+    }
+
+    fn consume_module_modifiers_for_scan(&mut self) {
+        if self.at(SyntaxKind::TrustedKeyword) {
+            self.consume();
+        }
+
+        if self.at(SyntaxKind::PublicKeyword) || self.at(SyntaxKind::InternalKeyword) {
+            self.consume();
+        }
+    }
+
+    fn consume_path_for_scan(&mut self) -> bool {
+        if !self.at(SyntaxKind::IdentifierToken) {
+            return false;
+        }
+
+        self.consume();
+
+        while self.at(SyntaxKind::DotToken) {
+            self.consume();
+
+            if !self.at(SyntaxKind::IdentifierToken) {
+                break;
+            }
+
+            self.consume();
+        }
+
+        true
     }
 }
 
@@ -387,6 +598,14 @@ trait RecoverySyntaxSink {
     fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>);
 }
 
+trait ModuleDeclarationSyntaxSink: RecoverySyntaxSink {
+    fn push_module_modifiers(&mut self, modifiers: ModuleModifiersSyntax);
+
+    fn push_module_keyword(&mut self, token: SyntaxToken);
+
+    fn push_module_path(&mut self, path: PathSyntax);
+}
+
 trait SeparatedListSyntaxSink<Item>: RecoverySyntaxSink {
     fn push_item(&mut self, item: Item);
 
@@ -399,9 +618,55 @@ impl RecoverySyntaxSink for SourceUnitSyntaxBuilder {
     }
 }
 
+impl RecoverySyntaxSink for SourceUnitModuleDeclarationSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        SourceUnitModuleDeclarationSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for BlockModuleDeclarationSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        BlockModuleDeclarationSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for ModuleBodySyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        ModuleBodySyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
 impl RecoverySyntaxSink for IdentifierListSyntaxBuilder {
     fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
         IdentifierListSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl ModuleDeclarationSyntaxSink for SourceUnitModuleDeclarationSyntaxBuilder {
+    fn push_module_modifiers(&mut self, modifiers: ModuleModifiersSyntax) {
+        SourceUnitModuleDeclarationSyntaxBuilder::push_module_modifiers(self, modifiers);
+    }
+
+    fn push_module_keyword(&mut self, token: SyntaxToken) {
+        SourceUnitModuleDeclarationSyntaxBuilder::push_module_keyword(self, token);
+    }
+
+    fn push_module_path(&mut self, path: PathSyntax) {
+        SourceUnitModuleDeclarationSyntaxBuilder::push_module_path(self, path);
+    }
+}
+
+impl ModuleDeclarationSyntaxSink for BlockModuleDeclarationSyntaxBuilder {
+    fn push_module_modifiers(&mut self, modifiers: ModuleModifiersSyntax) {
+        BlockModuleDeclarationSyntaxBuilder::push_module_modifiers(self, modifiers);
+    }
+
+    fn push_module_keyword(&mut self, token: SyntaxToken) {
+        BlockModuleDeclarationSyntaxBuilder::push_module_keyword(self, token);
+    }
+
+    fn push_module_path(&mut self, path: PathSyntax) {
+        BlockModuleDeclarationSyntaxBuilder::push_module_path(self, path);
     }
 }
 
@@ -436,7 +701,7 @@ mod tests {
 
     #[test]
     fn parser_builds_one_compilation_unit_root() {
-        let sources = source_store(["module main\n"]);
+        let sources = source_store(["module main;\n"]);
         let result = parse_compilation_unit(&sources);
         let root = result.syntax_tree().root();
 
@@ -447,14 +712,14 @@ mod tests {
 
     #[test]
     fn parser_creates_source_units_for_every_snapshot_in_source_id_order() {
-        let sources = source_store(["first", "second", "third"]);
+        let sources = source_store(["module first;", "module second;", "module third;"]);
         let result = parse_compilation_unit(&sources);
         let source_units = result.syntax_tree().root().source_units();
 
         assert_eq!(source_units.len(), 3);
-        assert_eq!(source_units[0].full_text(), "first");
-        assert_eq!(source_units[1].full_text(), "second");
-        assert_eq!(source_units[2].full_text(), "third");
+        assert_eq!(source_units[0].full_text(), "module first;");
+        assert_eq!(source_units[1].full_text(), "module second;");
+        assert_eq!(source_units[2].full_text(), "module third;");
     }
 
     #[test]
@@ -475,7 +740,10 @@ mod tests {
             diagnostic_kinds(result.diagnostics()),
             [
                 DiagnosticKind::LexicalInvalidCharacter,
-                DiagnosticKind::SyntaxSkippedSyntax
+                DiagnosticKind::SyntaxSkippedSyntax,
+                DiagnosticKind::SyntaxUnexpectedEof,
+                DiagnosticKind::SyntaxUnexpectedEof,
+                DiagnosticKind::SyntaxUnexpectedEof
             ]
         );
     }
@@ -496,15 +764,16 @@ mod tests {
 
     #[test]
     fn source_unit_tokens_include_eof_and_remain_reachable() {
-        let sources = source_store(["func main"]);
+        let sources = source_store(["module main;"]);
         let result = parse_compilation_unit(&sources);
         let source_unit = &result.syntax_tree().root().source_units()[0];
 
         assert_eq!(
             token_kinds(source_unit.tokens()),
             [
-                SyntaxKind::FuncKeyword,
+                SyntaxKind::ModuleKeyword,
                 SyntaxKind::IdentifierToken,
+                SyntaxKind::SemicolonToken,
                 SyntaxKind::EndOfFileToken
             ]
         );
@@ -517,7 +786,7 @@ mod tests {
 
     #[test]
     fn parser_preserves_exact_source_reconstruction_with_trivia() {
-        let text = "  func // hi\r\n/** docs */\nmain\n// final\n";
+        let text = "  module // hi\r\n/** docs */\nmain;\n// final\n";
         let sources = source_store([text]);
         let result = parse_compilation_unit(&sources);
         let source_unit = &result.syntax_tree().root().source_units()[0];
@@ -537,7 +806,10 @@ mod tests {
             parse_diagnostic_kinds(&result),
             [
                 DiagnosticKind::LexicalInvalidCharacter,
-                DiagnosticKind::SyntaxSkippedSyntax
+                DiagnosticKind::SyntaxSkippedSyntax,
+                DiagnosticKind::SyntaxUnexpectedEof,
+                DiagnosticKind::SyntaxUnexpectedEof,
+                DiagnosticKind::SyntaxUnexpectedEof
             ]
         );
 
@@ -669,32 +941,89 @@ mod tests {
     }
 
     #[test]
-    fn parser_source_units_attach_identifier_lists_for_comma_sequences() {
-        let sources = source_store(["a,b,"]);
+    fn parser_parses_source_unit_module_declarations() {
+        let sources = source_store(["trusted public module main.core; func main() {}"]);
         let result = parse_compilation_unit(&sources);
         let source_unit = &result.syntax_tree().root().source_units()[0];
-        let identifier_lists = source_unit.identifier_lists().collect::<Vec<_>>();
 
-        let [identifier_list] = identifier_lists.as_slice() else {
-            panic!("expected one identifier-list child: {identifier_lists:?}");
+        let declaration = match source_unit.source_unit_module_declaration() {
+            Some(declaration) => declaration,
+            None => panic!("expected source-unit module declaration"),
         };
 
-        assert_eq!(source_unit.full_text(), "a,b,");
-        assert_eq!(identifier_list.full_text(), "a,b,");
-        assert_eq!(identifier_list.items().count(), 2);
+        let modifiers = declaration.module_modifiers();
+        let path = declaration.module_path();
+        let skipped_syntax = source_unit.skipped_syntax().collect::<Vec<_>>();
 
         assert_eq!(
-            token_kinds(source_unit.tokens()),
-            [
-                SyntaxKind::IdentifierToken,
-                SyntaxKind::CommaToken,
-                SyntaxKind::IdentifierToken,
-                SyntaxKind::CommaToken,
-                SyntaxKind::EndOfFileToken
-            ]
+            source_unit.full_text(),
+            "trusted public module main.core; func main() {}"
         );
 
-        assert!(result.diagnostics().is_empty());
+        assert_eq!(declaration.full_text(), "trusted public module main.core; ");
+
+        assert_eq!(
+            modifiers.trusted_token().map(|token| token.kind()),
+            Some(SyntaxKind::TrustedKeyword)
+        );
+
+        assert_eq!(
+            modifiers.visibility_token().map(|token| token.kind()),
+            Some(SyntaxKind::PublicKeyword)
+        );
+
+        assert_eq!(path.full_text(), "main.core");
+        assert_eq!(path.identifier_tokens().count(), 2);
+        assert_eq!(path.dot_tokens().count(), 1);
+
+        let [skipped] = skipped_syntax.as_slice() else {
+            panic!("expected one skipped-syntax node: {skipped_syntax:?}");
+        };
+
+        assert_eq!(skipped.full_text(), "func main() {}");
+
+        assert_eq!(
+            parse_diagnostic_kinds(&result),
+            [DiagnosticKind::SyntaxSkippedSyntax]
+        );
+    }
+
+    #[test]
+    fn parser_parses_block_module_declarations_and_skips_body_items() {
+        let sources = source_store(["internal module main { func run() {} } module extra {}"]);
+        let result = parse_compilation_unit(&sources);
+        let source_unit = &result.syntax_tree().root().source_units()[0];
+        let declarations = source_unit.block_module_declarations().collect::<Vec<_>>();
+
+        let [first, second] = declarations.as_slice() else {
+            panic!("expected two block module declarations: {declarations:?}");
+        };
+
+        assert_eq!(
+            source_unit.full_text(),
+            "internal module main { func run() {} } module extra {}"
+        );
+
+        assert!(source_unit.source_unit_module_declaration().is_none());
+
+        assert_eq!(
+            first
+                .module_modifiers()
+                .visibility_token()
+                .map(|token| token.kind()),
+            Some(SyntaxKind::InternalKeyword)
+        );
+
+        assert_eq!(first.module_path().full_text(), "main ");
+        assert_eq!(first.module_body().full_text(), "{ func run() {} } ");
+        assert_eq!(first.module_body().skipped_syntax().count(), 1);
+        assert_eq!(second.module_path().full_text(), "extra ");
+        assert!(second.module_body().skipped_syntax().next().is_none());
+
+        assert_eq!(
+            parse_diagnostic_kinds(&result),
+            [DiagnosticKind::SyntaxSkippedSyntax]
+        );
     }
 
     #[test]
@@ -720,7 +1049,7 @@ mod tests {
 
     #[test]
     fn parser_scan_ahead_discards_recovery_nodes_and_syntax_diagnostics() {
-        let sources = source_store(["main;"]);
+        let sources = source_store(["module main;"]);
 
         let snapshot = match sources.get(bray_source::SourceId::new(0)) {
             Some(snapshot) => snapshot,
@@ -747,7 +1076,7 @@ mod tests {
         let source_unit = parser.parse_source_unit();
         let diagnostics = parser.finish();
 
-        assert_eq!(source_unit.full_text(), "main;");
+        assert_eq!(source_unit.full_text(), "module main;");
         assert!(source_unit.skipped_syntax().next().is_none());
         assert!(diagnostics.is_empty());
     }
@@ -799,7 +1128,7 @@ mod tests {
 
     #[test]
     fn parser_returns_no_diagnostics_for_lexically_valid_sources() {
-        let sources = source_store(["func main", "1 2 3"]);
+        let sources = source_store(["module main;", "module extra {}"]);
         let result = parse_compilation_unit(&sources);
 
         assert!(result.diagnostics().is_empty());

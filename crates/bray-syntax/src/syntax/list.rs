@@ -1,8 +1,8 @@
-use super::separated::define_token_separated_list_syntax;
 use crate::SyntaxKind;
+use crate::separated::define_token_separated_list_syntax;
 
 #[cfg(test)]
-use super::separated::test_token_separated_list_syntax;
+use crate::separated::test_token_separated_list_syntax;
 
 define_token_separated_list_syntax! {
     list {

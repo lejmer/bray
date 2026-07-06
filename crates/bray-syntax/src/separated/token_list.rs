@@ -31,7 +31,7 @@ macro_rules! define_token_separated_list_syntax {
         }
         separator_kind: $separator_kind:path $(,)?
     ) => {
-        $crate::syntax::separated::define_token_item_syntax! {
+        $crate::separated::define_token_item_syntax! {
             $(#[$item_meta])*
             $item_visibility struct $item_syntax {
                 builder: $item_builder_syntax,
@@ -48,7 +48,7 @@ macro_rules! define_token_separated_list_syntax {
             }
         }
 
-        $crate::syntax::separated::define_separated_list_syntax! {
+        $crate::separated::define_separated_list_syntax! {
             $(#[$list_meta])*
             $list_visibility struct $list_syntax {
                 builder: $list_builder_syntax,
@@ -67,4 +67,4 @@ macro_rules! define_token_separated_list_syntax {
     };
 }
 
-pub(in crate::syntax) use define_token_separated_list_syntax;
+pub(crate) use define_token_separated_list_syntax;

@@ -4,11 +4,14 @@ use std::sync::Arc;
 use bray_base::shared_slice;
 use bray_source::{SourceSnapshot, TextRange, TextSize};
 
-use super::{IdentifierListSyntax, SkippedSyntax, SyntaxNode};
+use super::recovery::{SkippedSyntax, skipped_syntax_nodes};
+use super::{
+    BlockModuleDeclarationSyntax, IdentifierListSyntax, SourceUnitModuleDeclarationSyntax,
+};
 use crate::builder::{GreenNodeBuilder, RequiredSyntaxSlot, SyntaxListSlot, require_token_kind};
 use crate::green::GreenNode;
-use crate::syntax::node::{GreenSourceSyntaxNode, GreenSyntaxNode};
-use crate::{SyntaxKind, SyntaxText, SyntaxToken, SyntaxTokenPresence};
+use crate::node::{GreenSourceSyntaxNode, GreenSyntaxNode};
+use crate::{SyntaxKind, SyntaxNode, SyntaxText, SyntaxToken, SyntaxTokenPresence};
 
 /// Root syntax node for one compiler compilation unit.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -155,12 +158,7 @@ impl SourceUnitSyntax {
 
     /// Returns skipped-syntax recovery nodes in source order.
     pub fn skipped_syntax(&self) -> impl Iterator<Item = SkippedSyntax> + '_ {
-        self.node
-            .skipped_syntax_nodes(TextSize::ZERO)
-            .map(|(node, start)| {
-                // SourceSnapshot clones share immutable source text with typed recovery nodes.
-                SkippedSyntax::from_green(self.source.clone(), node, start)
-            })
+        skipped_syntax_nodes(&self.source, &self.node, TextSize::ZERO)
     }
 
     /// Returns direct identifier-list child nodes in source order.
@@ -170,6 +168,29 @@ impl SourceUnitSyntax {
             .map(|(node, start)| {
                 // SourceSnapshot clones share immutable source text with typed child nodes.
                 IdentifierListSyntax::from_green(self.source.clone(), node, start)
+            })
+    }
+
+    /// Returns the source-unit module declaration child when present.
+    pub fn source_unit_module_declaration(&self) -> Option<SourceUnitModuleDeclarationSyntax> {
+        self.node
+            .child_nodes(TextSize::ZERO, SyntaxKind::SourceUnitModuleDeclaration)
+            .next()
+            .map(|(node, start)| {
+                // SourceSnapshot clones share immutable source text with typed child nodes.
+                SourceUnitModuleDeclarationSyntax::from_green(self.source.clone(), node, start)
+            })
+    }
+
+    /// Returns direct block module declaration children in source order.
+    pub fn block_module_declarations(
+        &self,
+    ) -> impl Iterator<Item = BlockModuleDeclarationSyntax> + '_ {
+        self.node
+            .child_nodes(TextSize::ZERO, SyntaxKind::BlockModuleDeclaration)
+            .map(|(node, start)| {
+                // SourceSnapshot clones share immutable source text with typed child nodes.
+                BlockModuleDeclarationSyntax::from_green(self.source.clone(), node, start)
             })
     }
 
@@ -231,6 +252,19 @@ impl SourceUnitSyntaxBuilder {
         self.node.push_node(list.into_green());
     }
 
+    /// Appends a source-unit module declaration child in source order.
+    pub fn push_source_unit_module_declaration(
+        &mut self,
+        declaration: SourceUnitModuleDeclarationSyntax,
+    ) {
+        self.node.push_node(declaration.into_green());
+    }
+
+    /// Appends a block module declaration child in source order.
+    pub fn push_block_module_declaration(&mut self, declaration: BlockModuleDeclarationSyntax) {
+        self.node.push_node(declaration.into_green());
+    }
+
     /// Appends tokens to the source-unit token list.
     pub fn tokens(mut self, tokens: impl IntoIterator<Item = SyntaxToken>) -> Self {
         self.node.push_tokens(tokens);
@@ -252,6 +286,23 @@ impl SourceUnitSyntaxBuilder {
     /// Appends an identifier-list child in source order.
     pub fn identifier_list(mut self, list: IdentifierListSyntax) -> Self {
         self.push_identifier_list(list);
+
+        self
+    }
+
+    /// Appends a source-unit module declaration child in source order.
+    pub fn source_unit_module_declaration(
+        mut self,
+        declaration: SourceUnitModuleDeclarationSyntax,
+    ) -> Self {
+        self.push_source_unit_module_declaration(declaration);
+
+        self
+    }
+
+    /// Appends a block module declaration child in source order.
+    pub fn block_module_declaration(mut self, declaration: BlockModuleDeclarationSyntax) -> Self {
+        self.push_block_module_declaration(declaration);
 
         self
     }
@@ -300,8 +351,10 @@ mod tests {
 
     use super::{CompilationUnitSyntax, SourceUnitSyntax};
     use crate::{
-        IdentifierListItemSyntax, IdentifierListSyntax, SourceSyntaxNode, SyntaxKind, SyntaxNode,
-        SyntaxText, SyntaxToken, SyntaxTrivia,
+        BlockModuleDeclarationSyntax, IdentifierListItemSyntax, IdentifierListSyntax,
+        ModuleBodySyntax, ModuleModifiersSyntax, PathSyntax, SourceSyntaxNode,
+        SourceUnitModuleDeclarationSyntax, SyntaxKind, SyntaxNode, SyntaxText, SyntaxToken,
+        SyntaxTrivia,
     };
 
     #[test]
@@ -518,6 +571,63 @@ mod tests {
     }
 
     #[test]
+    fn source_units_expose_source_unit_module_declaration_children() {
+        let snapshot = snapshot("module main;");
+        let declaration = source_unit_module_declaration(snapshot.clone());
+        let eof = SyntaxToken::end_of_file(TextSize::new(12));
+
+        let source_unit = SourceUnitSyntax::builder(snapshot)
+            .source_unit_module_declaration(declaration)
+            .tokens([eof])
+            .build();
+
+        let declaration = match source_unit.source_unit_module_declaration() {
+            Some(declaration) => declaration,
+            None => panic!("expected source-unit module declaration"),
+        };
+
+        assert_eq!(source_unit.full_text(), "module main;");
+        assert_eq!(declaration.full_text(), "module main;");
+        assert_eq!(
+            declaration.module_keyword().kind(),
+            SyntaxKind::ModuleKeyword
+        );
+        assert_eq!(
+            declaration.semicolon_token().kind(),
+            SyntaxKind::SemicolonToken
+        );
+        assert_eq!(declaration.module_path().full_text(), "main");
+        assert!(source_unit.block_module_declarations().next().is_none());
+    }
+
+    #[test]
+    fn source_units_expose_block_module_declaration_children() {
+        let snapshot = snapshot("module main {}");
+        let declaration = block_module_declaration(snapshot.clone());
+        let eof = SyntaxToken::end_of_file(TextSize::new(14));
+
+        let source_unit = SourceUnitSyntax::builder(snapshot)
+            .block_module_declaration(declaration)
+            .tokens([eof])
+            .build();
+
+        let block_declarations = source_unit.block_module_declarations().collect::<Vec<_>>();
+
+        let [declaration] = block_declarations.as_slice() else {
+            panic!("expected one block module declaration: {block_declarations:?}");
+        };
+
+        assert_eq!(source_unit.full_text(), "module main {}");
+        assert!(source_unit.source_unit_module_declaration().is_none());
+        assert_eq!(
+            declaration.module_keyword().kind(),
+            SyntaxKind::ModuleKeyword
+        );
+        assert_eq!(declaration.module_path().full_text(), "main ");
+        assert_eq!(declaration.module_body().full_text(), "{}");
+    }
+
+    #[test]
     fn source_unit_debug_does_not_expose_green_storage() {
         let source_unit = SourceUnitSyntax::builder(snapshot(""))
             .tokens([SyntaxToken::end_of_file(TextSize::ZERO)])
@@ -534,6 +644,11 @@ mod tests {
     fn typed_syntax_nodes_are_send_and_sync() {
         assert_send_sync::<CompilationUnitSyntax>();
         assert_send_sync::<SourceUnitSyntax>();
+        assert_send_sync::<SourceUnitModuleDeclarationSyntax>();
+        assert_send_sync::<BlockModuleDeclarationSyntax>();
+        assert_send_sync::<ModuleModifiersSyntax>();
+        assert_send_sync::<ModuleBodySyntax>();
+        assert_send_sync::<PathSyntax>();
     }
 
     #[test]
@@ -549,6 +664,83 @@ mod tests {
     }
 
     fn assert_send_sync<T: Send + Sync>() {}
+
+    fn source_unit_module_declaration(
+        snapshot: SourceSnapshot,
+    ) -> SourceUnitModuleDeclarationSyntax {
+        let mut builder =
+            SourceUnitModuleDeclarationSyntax::builder(snapshot.clone(), TextSize::ZERO);
+
+        builder.push_module_modifiers(
+            ModuleModifiersSyntax::builder(snapshot.clone(), TextSize::ZERO).build(),
+        );
+        builder.push_module_keyword(module_keyword());
+        builder.push_module_path(path(snapshot.clone(), false));
+        builder.push_semicolon_token(SyntaxToken::new(
+            SyntaxKind::SemicolonToken,
+            TextRange::new(TextSize::new(11), TextSize::new(12)),
+        ));
+
+        builder.build()
+    }
+
+    fn block_module_declaration(snapshot: SourceSnapshot) -> BlockModuleDeclarationSyntax {
+        let mut builder = BlockModuleDeclarationSyntax::builder(snapshot.clone(), TextSize::ZERO);
+
+        builder.push_module_modifiers(
+            ModuleModifiersSyntax::builder(snapshot.clone(), TextSize::ZERO).build(),
+        );
+        builder.push_module_keyword(module_keyword());
+        builder.push_module_path(path(snapshot.clone(), true));
+        builder.push_module_body(module_body(snapshot));
+
+        builder.build()
+    }
+
+    fn module_keyword() -> SyntaxToken {
+        SyntaxToken::new(
+            SyntaxKind::ModuleKeyword,
+            TextRange::new(TextSize::ZERO, TextSize::new(6)),
+        )
+        .with_trailing_trivia([SyntaxTrivia::whitespace(TextRange::new(
+            TextSize::new(6),
+            TextSize::new(7),
+        ))])
+    }
+
+    fn path(snapshot: SourceSnapshot, has_trailing_space: bool) -> PathSyntax {
+        let mut builder = PathSyntax::builder(snapshot);
+        let mut token = SyntaxToken::new(
+            SyntaxKind::IdentifierToken,
+            TextRange::new(TextSize::new(7), TextSize::new(11)),
+        );
+
+        if has_trailing_space {
+            token = token.with_trailing_trivia([SyntaxTrivia::whitespace(TextRange::new(
+                TextSize::new(11),
+                TextSize::new(12),
+            ))]);
+        }
+
+        builder.push_identifier_token(token);
+
+        builder.build()
+    }
+
+    fn module_body(snapshot: SourceSnapshot) -> ModuleBodySyntax {
+        let mut builder = ModuleBodySyntax::builder(snapshot, TextSize::new(12));
+
+        builder.push_open_brace_token(SyntaxToken::new(
+            SyntaxKind::OpenBraceToken,
+            TextRange::new(TextSize::new(12), TextSize::new(13)),
+        ));
+        builder.push_close_brace_token(SyntaxToken::new(
+            SyntaxKind::CloseBraceToken,
+            TextRange::new(TextSize::new(13), TextSize::new(14)),
+        ));
+
+        builder.build()
+    }
 
     fn snapshot(text: &str) -> SourceSnapshot {
         match SourceSnapshot::new(

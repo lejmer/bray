@@ -101,7 +101,7 @@ macro_rules! define_token_item_syntax {
             }
         }
 
-        impl $crate::syntax::node::GreenSyntaxNode for $item_syntax {
+        impl $crate::node::GreenSyntaxNode for $item_syntax {
             fn green_node(&self) -> &$crate::green::GreenNode {
                 &self.node
             }
@@ -119,7 +119,7 @@ macro_rules! define_token_item_syntax {
             }
         }
 
-        impl $crate::syntax::node::GreenSourceSyntaxNode for $item_syntax {
+        impl $crate::node::GreenSourceSyntaxNode for $item_syntax {
             fn source(&self) -> &bray_source::SourceSnapshot {
                 &self.source
             }
@@ -172,4 +172,4 @@ macro_rules! define_token_item_syntax {
     };
 }
 
-pub(in crate::syntax) use define_token_item_syntax;
+pub(crate) use define_token_item_syntax;

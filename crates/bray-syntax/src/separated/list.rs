@@ -18,7 +18,7 @@ macro_rules! define_separated_list_syntax {
         $(#[$list_meta])*
         #[derive(Clone, Eq, Hash, PartialEq)]
         $visibility struct $list_syntax {
-            list: $crate::syntax::separated::SeparatedSyntaxList,
+            list: $crate::separated::SeparatedSyntaxList,
         }
 
         impl $list_syntax {
@@ -39,7 +39,7 @@ macro_rules! define_separated_list_syntax {
                 start: bray_source::TextSize,
             ) -> Self {
                 Self {
-                    list: $crate::syntax::separated::SeparatedSyntaxList::from_green(
+                    list: $crate::separated::SeparatedSyntaxList::from_green(
                         source,
                         node,
                         start,
@@ -54,7 +54,7 @@ macro_rules! define_separated_list_syntax {
 
             fn from_builder(builder: $builder_syntax) -> Self {
                 Self {
-                    list: $crate::syntax::separated::SeparatedSyntaxList::from_green(
+                    list: $crate::separated::SeparatedSyntaxList::from_green(
                         builder.source.into_value(),
                         builder.list.build(),
                         builder.start,
@@ -111,7 +111,7 @@ macro_rules! define_separated_list_syntax {
             }
         }
 
-        impl $crate::syntax::node::GreenSyntaxNode for $list_syntax {
+        impl $crate::node::GreenSyntaxNode for $list_syntax {
             fn green_node(&self) -> &$crate::green::GreenNode {
                 self.list.green_node()
             }
@@ -129,7 +129,7 @@ macro_rules! define_separated_list_syntax {
             }
         }
 
-        impl $crate::syntax::node::GreenSourceSyntaxNode for $list_syntax {
+        impl $crate::node::GreenSourceSyntaxNode for $list_syntax {
             fn source(&self) -> &bray_source::SourceSnapshot {
                 self.list.source()
             }
@@ -139,7 +139,7 @@ macro_rules! define_separated_list_syntax {
         $visibility struct $builder_syntax {
             source: $crate::builder::RequiredSyntaxSlot<bray_source::SourceSnapshot>,
             start: bray_source::TextSize,
-            list: $crate::syntax::separated::SeparatedSyntaxListBuilder,
+            list: $crate::separated::SeparatedSyntaxListBuilder,
         }
 
         impl $builder_syntax {
@@ -152,7 +152,7 @@ macro_rules! define_separated_list_syntax {
                 Self {
                     source: source_slot,
                     start,
-                    list: $crate::syntax::separated::SeparatedSyntaxListBuilder::new(
+                    list: $crate::separated::SeparatedSyntaxListBuilder::new(
                         $list_kind,
                         $separator_kind,
                     ),
@@ -226,4 +226,4 @@ macro_rules! define_separated_list_syntax {
     };
 }
 
-pub(in crate::syntax) use define_separated_list_syntax;
+pub(crate) use define_separated_list_syntax;

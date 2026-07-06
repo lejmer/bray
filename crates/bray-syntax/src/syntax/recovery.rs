@@ -3,7 +3,7 @@ use std::fmt;
 use bray_source::{SourceSnapshot, TextRange, TextSize};
 
 use crate::green::GreenNode;
-use crate::syntax::node::{GreenSourceSyntaxNode, GreenSyntaxNode};
+use crate::node::{GreenSourceSyntaxNode, GreenSyntaxNode};
 use crate::{SyntaxKind, SyntaxToken};
 
 /// Recovery node containing present tokens skipped by the parser.
@@ -77,4 +77,15 @@ impl GreenSourceSyntaxNode for SkippedSyntax {
     fn source(&self) -> &SourceSnapshot {
         &self.source
     }
+}
+
+pub(crate) fn skipped_syntax_nodes<'syntax>(
+    source: &'syntax SourceSnapshot,
+    node: &'syntax GreenNode,
+    start: TextSize,
+) -> impl Iterator<Item = SkippedSyntax> + 'syntax {
+    node.skipped_syntax_nodes(start).map(|(node, start)| {
+        // SourceSnapshot clones share immutable source text with typed recovery nodes.
+        SkippedSyntax::from_green(source.clone(), node, start)
+    })
 }
