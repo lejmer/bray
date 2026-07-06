@@ -15,16 +15,11 @@ compilation-unit =
     { source-unit } ;
 
 source-unit =
-    source-module-declaration { source-item } ;
+      source-unit-module-declaration { module-item }
+    | block-module-declaration { block-module-declaration } ;
 
-source-module-declaration =
+source-unit-module-declaration =
     module-directives module-modifiers "module" module-path ";" ;
-
-source-item =
-      using-declaration
-    | export-declaration
-    | block-module-declaration
-    | module-level-declaration ;
 
 block-module-declaration =
     module-directives module-modifiers "module" module-path module-body ;

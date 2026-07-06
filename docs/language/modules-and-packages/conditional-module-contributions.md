@@ -4,7 +4,7 @@ A module contribution is enabled for a product unless a directive that controls 
 
 The language-defined module contribution gates are `@test` and `@target(...)`.
 
-When a source-scoped module declaration is disabled for a product, the entire source unit contributes no declarations to that
+When a source-unit module declaration is disabled for a product, the entire source unit contributes no declarations to that
 product.
 
 When a block module declaration is disabled for a product, that block module declaration contributes no declarations to that

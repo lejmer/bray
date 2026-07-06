@@ -142,7 +142,7 @@ Documentation comments are retained as structured trivia for documentation tooli
 A contiguous documentation-comment group immediately before a declaration, separated from it only by whitespace and ordinary
 comments, documents that declaration.
 
-Documentation comments are valid before the source-scoped module declaration.
+Documentation comments are valid before the first module declaration in a source unit.
 
 ---
 
