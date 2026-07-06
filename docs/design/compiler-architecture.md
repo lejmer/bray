@@ -11,6 +11,8 @@ Implementation coding rules live in `docs/contributing/coding-conventions.md`.
 
 Crate ownership rules live in `docs/contributing/crates.md`.
 
+Parser implementation rules live in `docs/design/parser.md`.
+
 This document is the design-level contract those implementation documents should follow.
 
 ---
