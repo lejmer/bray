@@ -6,13 +6,13 @@ use crate::syntax::skipped_syntax_nodes;
 use crate::{SkippedSyntax, SyntaxKind, SyntaxToken};
 
 #[derive(Clone, Eq, Hash, PartialEq)]
-pub(crate) struct SeparatedSyntaxList {
+pub(crate) struct SyntaxList {
     source: SourceSnapshot,
     node: GreenNode,
     start: TextSize,
 }
 
-impl SeparatedSyntaxList {
+impl SyntaxList {
     pub(crate) fn from_green(
         source: SourceSnapshot,
         node: GreenNode,
@@ -73,25 +73,34 @@ impl SeparatedSyntaxList {
 }
 
 #[derive(Debug)]
-pub(crate) struct SeparatedSyntaxListBuilder {
+pub(crate) struct SyntaxListBuilder {
     node: GreenNodeBuilder,
     list_kind: SyntaxKind,
-    separator_kind: SyntaxKind,
+    separator_kind: Option<SyntaxKind>,
 }
 
-impl SeparatedSyntaxListBuilder {
-    pub(crate) fn new(list_kind: SyntaxKind, separator_kind: SyntaxKind) -> Self {
-        assert!(list_kind.is_node(), "separated list kind must be a node");
-        assert!(
-            separator_kind.is_token(),
-            "separated list separator kind must be a token"
-        );
+impl SyntaxListBuilder {
+    pub(crate) fn new(list_kind: SyntaxKind) -> Self {
+        assert!(list_kind.is_node(), "list kind must be a node");
 
         Self {
             node: GreenNodeBuilder::new(),
             list_kind,
-            separator_kind,
+            separator_kind: None,
         }
+    }
+
+    pub(crate) fn with_separator(list_kind: SyntaxKind, separator_kind: SyntaxKind) -> Self {
+        assert!(
+            separator_kind.is_token(),
+            "list separator kind must be a token"
+        );
+
+        let mut list = Self::new(list_kind);
+
+        list.separator_kind = Some(separator_kind);
+
+        list
     }
 
     pub(crate) fn push_item_node(&mut self, node: GreenNode) {
@@ -99,11 +108,11 @@ impl SeparatedSyntaxListBuilder {
     }
 
     pub(crate) fn push_separator_token(&mut self, token: SyntaxToken) {
-        require_token_kind(
-            token.kind(),
-            self.separator_kind,
-            "separated_list.separator_token",
-        );
+        let Some(separator_kind) = self.separator_kind else {
+            panic!("list builder does not accept separator tokens");
+        };
+
+        require_token_kind(token.kind(), separator_kind, "list.separator_token");
 
         self.node.push_token(token);
     }
