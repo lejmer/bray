@@ -198,6 +198,7 @@ mod tests {
         TargetDirectiveSyntax, TestDirectiveSyntax,
     };
 
+    // TODO(syntax): Update this when directive arguments are typed syntax.
     #[test]
     fn module_directives_preserve_mixed_directives_in_source_order() {
         let snapshot = test_snapshot(

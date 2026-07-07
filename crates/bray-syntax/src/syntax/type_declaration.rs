@@ -83,6 +83,7 @@ mod tests {
         assert_eq!(declaration.struct_body().full_text(), "{}");
     }
 
+    // TODO(syntax): Update this when directive arguments are typed syntax.
     #[test]
     fn union_declarations_store_layout_directives_name_and_body() {
         let snapshot = test_snapshot("syntax-type-declaration-test", "@layout(c) union Maybe {}");

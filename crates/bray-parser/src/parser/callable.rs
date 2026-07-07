@@ -4,8 +4,6 @@ use bray_syntax::{
     SyntaxKind, SyntaxToken,
 };
 
-use crate::cursor::RecoverySet;
-
 use super::separated::{SeparatedListSpec, SeparatedListSyntaxSink};
 use super::state::Parser;
 
@@ -183,15 +181,8 @@ impl Parser {
         let start = self.peek().full_range().start();
         let mut builder = CallableBodyBlockExpressionSyntax::builder(self.syntax_source(), start);
 
-        builder.push_open_brace_token(self.expect(SyntaxKind::OpenBraceToken));
-
         // TODO(parser): Parse block expressions once expression parsing is implemented.
-        self.recover_until_balanced_close_brace_or_recovery_set(
-            &mut builder,
-            RecoverySet::new(&[]),
-        );
-
-        builder.push_close_brace_token(self.expect(SyntaxKind::CloseBraceToken));
+        self.parse_skipped_braced_body_tokens(&mut builder, |_| false);
 
         builder.build()
     }
@@ -228,10 +219,12 @@ mod tests {
     use super::super::state::Parser;
     use crate::test_support::{diagnostic_kinds, source};
 
+    // TODO(parser): Update this when parameter type and default expressions are parsed.
     #[test]
     fn parser_parses_valid_parameter_lists() {
         let sources = source_store(["(pos value: Int = 1, mut tail: Bool,)"]);
         let snapshot = source(&sources, 0);
+
         let mut parser = Parser::new(snapshot);
 
         let list = parser.parse_parameter_list();
@@ -273,10 +266,12 @@ mod tests {
         );
     }
 
+    // TODO(parser): Update this when parameter type expressions are parsed.
     #[test]
     fn parser_parameter_lists_represent_missing_separators() {
         let sources = source_store(["(first: Int mut second: Bool)"]);
         let snapshot = source(&sources, 0);
+
         let mut parser = Parser::new(snapshot);
 
         let list = parser.parse_parameter_list();
@@ -302,10 +297,12 @@ mod tests {
         );
     }
 
+    // TODO(parser): Update this when parameter type expressions are parsed.
     #[test]
     fn parser_parameter_lists_recover_bad_tokens_without_losing_later_items() {
         let sources = source_store(["(first: Int, $, second: Bool)"]);
         let snapshot = source(&sources, 0);
+
         let mut parser = Parser::new(snapshot);
 
         let list = parser.parse_parameter_list();

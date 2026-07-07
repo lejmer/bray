@@ -3,8 +3,6 @@ use bray_syntax::{
     TraitModifiersSyntax,
 };
 
-use crate::cursor::RecoverySet;
-
 use super::module::MODULE_ITEM_START_KINDS;
 use super::state::Parser;
 
@@ -83,24 +81,8 @@ impl Parser {
 
         let mut builder = TraitBodySyntax::builder(self.syntax_source(), start);
 
-        let open_brace_token = self.expect(SyntaxKind::OpenBraceToken);
-        let open_brace_missing = open_brace_token.is_missing();
-
-        builder.push_open_brace_token(open_brace_token);
-
-        if open_brace_missing && self.at_trait_body_missing_boundary() {
-            builder.push_close_brace_token(self.expect(SyntaxKind::CloseBraceToken));
-
-            return builder.build();
-        }
-
         // TODO(parser): Parse trait member declarations as they are implemented.
-        self.recover_until_balanced_close_brace_or_recovery_set(
-            &mut builder,
-            RecoverySet::new(&[]),
-        );
-
-        builder.push_close_brace_token(self.expect(SyntaxKind::CloseBraceToken));
+        self.parse_skipped_braced_body_tokens(&mut builder, Parser::at_trait_body_missing_boundary);
 
         builder.build()
     }
@@ -196,6 +178,7 @@ mod tests {
         assert!(result.diagnostics().is_empty());
     }
 
+    // TODO(parser): Update this when trait generics and constraints are parsed.
     #[test]
     fn parser_skips_trait_generic_parameters_and_constraints_for_now() {
         let source = "module main; trait Iterable<T> with(T: Item) {}";
@@ -230,6 +213,7 @@ mod tests {
         );
     }
 
+    // TODO(parser): Update this when trait member declarations are parsed.
     #[test]
     fn parser_recovers_trait_bodies_without_losing_later_items() {
         let source = "module main; trait Display { func show(); }\nusing core;";

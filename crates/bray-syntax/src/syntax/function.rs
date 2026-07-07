@@ -293,6 +293,7 @@ mod tests {
         assert!(declaration.callable_body_block_expression().is_some());
     }
 
+    // TODO(syntax): Update this when directive arguments are typed syntax.
     #[test]
     fn function_directives_store_directives_in_source_order() {
         let snapshot = test_snapshot("syntax-function-test", "@link(\"m\")");

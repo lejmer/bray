@@ -1,10 +1,12 @@
 use bray_syntax::{
     BlockModuleDeclarationSyntax, BlockModuleDeclarationSyntaxBuilder, ExportDeclarationSyntax,
-    FunctionDeclarationSyntax, ModuleBodySyntax, ModuleBodySyntaxBuilder, ModuleDirectivesSyntax,
-    ModuleDirectivesSyntaxBuilder, ModuleModifiersSyntax, PathSyntax,
+    FunctionDeclarationSyntax, InherentImplementationDeclarationSyntax, ModuleBodySyntax,
+    ModuleBodySyntaxBuilder, ModuleDirectivesSyntax, ModuleDirectivesSyntaxBuilder,
+    ModuleModifiersSyntax, NamedTraitImplementationDeclarationSyntax, PathSyntax,
     SourceUnitModuleDeclarationSyntax, SourceUnitModuleDeclarationSyntaxBuilder,
     SourceUnitSyntaxBuilder, StructDeclarationSyntax, SyntaxKind, SyntaxToken,
-    TraitDeclarationSyntax, UnionDeclarationSyntax, UsingDeclarationSyntax,
+    TraitDeclarationSyntax, UnionDeclarationSyntax, UnnamedTraitImplementationDeclarationSyntax,
+    UsingDeclarationSyntax,
 };
 
 use crate::cursor::RecoverySet;
@@ -45,7 +47,7 @@ const DIRECTIVE_ARGUMENT_RECOVERY_KINDS: [SyntaxKind; 5] = [
     SyntaxKind::ModuleKeyword,
 ];
 
-const PARSED_MODULE_ITEM_BOUNDARY_KINDS: [SyntaxKind; 16] = [
+const PARSED_MODULE_ITEM_BOUNDARY_KINDS: [SyntaxKind; 17] = [
     SyntaxKind::UsingKeyword,
     SyntaxKind::ExportKeyword,
     SyntaxKind::AtToken,
@@ -59,6 +61,7 @@ const PARSED_MODULE_ITEM_BOUNDARY_KINDS: [SyntaxKind; 16] = [
     SyntaxKind::StructKeyword,
     SyntaxKind::UnionKeyword,
     SyntaxKind::TraitKeyword,
+    SyntaxKind::ImplKeyword,
     SyntaxKind::SemicolonToken,
     SyntaxKind::CloseBraceToken,
     SyntaxKind::EndOfFileToken,
@@ -266,6 +269,27 @@ impl Parser {
             return;
         }
 
+        if self.should_parse_named_trait_implementation_declaration() {
+            builder.push_named_trait_implementation_declaration(
+                self.parse_named_trait_implementation_declaration(),
+            );
+            return;
+        }
+
+        if self.should_parse_unnamed_trait_implementation_declaration() {
+            builder.push_unnamed_trait_implementation_declaration(
+                self.parse_unnamed_trait_implementation_declaration(),
+            );
+            return;
+        }
+
+        if self.should_parse_inherent_implementation_declaration() {
+            builder.push_inherent_implementation_declaration(
+                self.parse_inherent_implementation_declaration(),
+            );
+            return;
+        }
+
         // TODO(parser): Parse remaining module-level declarations as they are implemented.
         if self.recover_until_module_item_boundary(builder, terminators)
             || self.peek().start() != start
@@ -386,7 +410,7 @@ impl Parser {
         }
     }
 
-    fn consume_path_for_scan(&mut self) -> bool {
+    pub(super) fn consume_path_for_scan(&mut self) -> bool {
         if !self.at(SyntaxKind::IdentifierToken) {
             return false;
         }
@@ -429,6 +453,21 @@ pub(super) trait ModuleItemSyntaxSink: RecoverySyntaxSink {
     fn push_union_declaration(&mut self, declaration: UnionDeclarationSyntax);
 
     fn push_trait_declaration(&mut self, declaration: TraitDeclarationSyntax);
+
+    fn push_inherent_implementation_declaration(
+        &mut self,
+        declaration: InherentImplementationDeclarationSyntax,
+    );
+
+    fn push_unnamed_trait_implementation_declaration(
+        &mut self,
+        declaration: UnnamedTraitImplementationDeclarationSyntax,
+    );
+
+    fn push_named_trait_implementation_declaration(
+        &mut self,
+        declaration: NamedTraitImplementationDeclarationSyntax,
+    );
 }
 
 impl ModuleDeclarationSyntaxSink for SourceUnitModuleDeclarationSyntaxBuilder {
@@ -491,6 +530,27 @@ impl ModuleItemSyntaxSink for SourceUnitSyntaxBuilder {
     fn push_trait_declaration(&mut self, declaration: TraitDeclarationSyntax) {
         SourceUnitSyntaxBuilder::push_trait_declaration(self, declaration);
     }
+
+    fn push_inherent_implementation_declaration(
+        &mut self,
+        declaration: InherentImplementationDeclarationSyntax,
+    ) {
+        SourceUnitSyntaxBuilder::push_inherent_implementation_declaration(self, declaration);
+    }
+
+    fn push_unnamed_trait_implementation_declaration(
+        &mut self,
+        declaration: UnnamedTraitImplementationDeclarationSyntax,
+    ) {
+        SourceUnitSyntaxBuilder::push_unnamed_trait_implementation_declaration(self, declaration);
+    }
+
+    fn push_named_trait_implementation_declaration(
+        &mut self,
+        declaration: NamedTraitImplementationDeclarationSyntax,
+    ) {
+        SourceUnitSyntaxBuilder::push_named_trait_implementation_declaration(self, declaration);
+    }
 }
 
 impl ModuleItemSyntaxSink for ModuleBodySyntaxBuilder {
@@ -516,6 +576,27 @@ impl ModuleItemSyntaxSink for ModuleBodySyntaxBuilder {
 
     fn push_trait_declaration(&mut self, declaration: TraitDeclarationSyntax) {
         ModuleBodySyntaxBuilder::push_trait_declaration(self, declaration);
+    }
+
+    fn push_inherent_implementation_declaration(
+        &mut self,
+        declaration: InherentImplementationDeclarationSyntax,
+    ) {
+        ModuleBodySyntaxBuilder::push_inherent_implementation_declaration(self, declaration);
+    }
+
+    fn push_unnamed_trait_implementation_declaration(
+        &mut self,
+        declaration: UnnamedTraitImplementationDeclarationSyntax,
+    ) {
+        ModuleBodySyntaxBuilder::push_unnamed_trait_implementation_declaration(self, declaration);
+    }
+
+    fn push_named_trait_implementation_declaration(
+        &mut self,
+        declaration: NamedTraitImplementationDeclarationSyntax,
+    ) {
+        ModuleBodySyntaxBuilder::push_named_trait_implementation_declaration(self, declaration);
     }
 }
 
@@ -670,6 +751,7 @@ mod tests {
         assert!(result.diagnostics().is_empty());
     }
 
+    // TODO(parser): Update this when directive arguments are parsed.
     #[test]
     fn parser_parses_target_and_link_module_directives() {
         let sources = source_store(["@target(host) @link(\"m\") module main;"]);
@@ -899,9 +981,10 @@ mod tests {
         assert!(result.diagnostics().is_empty());
     }
 
+    // TODO(parser): Update this when remaining module-level declarations are parsed.
     #[test]
     fn parser_recovers_unimplemented_module_items_without_losing_later_items() {
-        let sources = source_store(["module main { impl Run {} using core; }"]);
+        let sources = source_store(["module main { overload Run {} using core; }"]);
         let result = parse_compilation_unit(&sources);
         let source_unit = &result.syntax_tree().root().source_units()[0];
         let declarations = source_unit.block_module_declarations().collect::<Vec<_>>();
@@ -919,13 +1002,13 @@ mod tests {
 
         assert_eq!(
             source_unit.full_text(),
-            "module main { impl Run {} using core; }"
+            "module main { overload Run {} using core; }"
         );
 
         assert_eq!(body.using_declarations().count(), 1);
         assert_eq!(body.export_declarations().count(), 0);
 
-        assert_eq!(skipped.full_text(), "impl Run {} ");
+        assert_eq!(skipped.full_text(), "overload Run {} ");
 
         assert_eq!(
             parse_diagnostic_kinds(&result),

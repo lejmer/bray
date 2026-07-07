@@ -7,8 +7,10 @@ use bray_source::{SourceSnapshot, TextRange, TextSize};
 use super::recovery::{SkippedSyntax, skipped_syntax_nodes};
 use super::{
     BlockModuleDeclarationSyntax, ExportDeclarationSyntax, FunctionDeclarationSyntax,
-    IdentifierListSyntax, SourceUnitModuleDeclarationSyntax, StructDeclarationSyntax,
-    TraitDeclarationSyntax, UnionDeclarationSyntax, UsingDeclarationSyntax,
+    IdentifierListSyntax, InherentImplementationDeclarationSyntax,
+    NamedTraitImplementationDeclarationSyntax, SourceUnitModuleDeclarationSyntax,
+    StructDeclarationSyntax, TraitDeclarationSyntax, UnionDeclarationSyntax,
+    UnnamedTraitImplementationDeclarationSyntax, UsingDeclarationSyntax,
 };
 use crate::builder::{GreenNodeBuilder, RequiredSyntaxSlot, SyntaxListSlot, require_token_kind};
 use crate::green::GreenNode;
@@ -265,6 +267,45 @@ impl SourceUnitSyntax {
         )
     }
 
+    /// Returns direct inherent implementation declaration children in source order.
+    pub fn inherent_implementation_declarations(
+        &self,
+    ) -> impl Iterator<Item = InherentImplementationDeclarationSyntax> + '_ {
+        child_nodes(
+            &self.source,
+            &self.node,
+            TextSize::ZERO,
+            SyntaxKind::InherentImplementationDeclaration,
+            InherentImplementationDeclarationSyntax::from_green,
+        )
+    }
+
+    /// Returns direct unnamed trait implementation declaration children in source order.
+    pub fn unnamed_trait_implementation_declarations(
+        &self,
+    ) -> impl Iterator<Item = UnnamedTraitImplementationDeclarationSyntax> + '_ {
+        child_nodes(
+            &self.source,
+            &self.node,
+            TextSize::ZERO,
+            SyntaxKind::UnnamedTraitImplementationDeclaration,
+            UnnamedTraitImplementationDeclarationSyntax::from_green,
+        )
+    }
+
+    /// Returns direct named trait implementation declaration children in source order.
+    pub fn named_trait_implementation_declarations(
+        &self,
+    ) -> impl Iterator<Item = NamedTraitImplementationDeclarationSyntax> + '_ {
+        child_nodes(
+            &self.source,
+            &self.node,
+            TextSize::ZERO,
+            SyntaxKind::NamedTraitImplementationDeclaration,
+            NamedTraitImplementationDeclarationSyntax::from_green,
+        )
+    }
+
     /// Returns the required EOF token for this source unit.
     pub fn eof_token(&self) -> SyntaxToken {
         match self.node.syntax_tokens(TextSize::ZERO).last() {
@@ -366,6 +407,30 @@ impl SourceUnitSyntaxBuilder {
         self.node.push_node(declaration.into_green());
     }
 
+    /// Appends an inherent implementation declaration child in source order.
+    pub fn push_inherent_implementation_declaration(
+        &mut self,
+        declaration: InherentImplementationDeclarationSyntax,
+    ) {
+        self.node.push_node(declaration.into_green());
+    }
+
+    /// Appends an unnamed trait implementation declaration child in source order.
+    pub fn push_unnamed_trait_implementation_declaration(
+        &mut self,
+        declaration: UnnamedTraitImplementationDeclarationSyntax,
+    ) {
+        self.node.push_node(declaration.into_green());
+    }
+
+    /// Appends a named trait implementation declaration child in source order.
+    pub fn push_named_trait_implementation_declaration(
+        &mut self,
+        declaration: NamedTraitImplementationDeclarationSyntax,
+    ) {
+        self.node.push_node(declaration.into_green());
+    }
+
     /// Appends tokens to the source-unit token list.
     pub fn tokens(mut self, tokens: impl IntoIterator<Item = SyntaxToken>) -> Self {
         self.node.push_tokens(tokens);
@@ -450,6 +515,36 @@ impl SourceUnitSyntaxBuilder {
         self
     }
 
+    /// Appends an inherent implementation declaration child in source order.
+    pub fn inherent_implementation_declaration(
+        mut self,
+        declaration: InherentImplementationDeclarationSyntax,
+    ) -> Self {
+        self.push_inherent_implementation_declaration(declaration);
+
+        self
+    }
+
+    /// Appends an unnamed trait implementation declaration child in source order.
+    pub fn unnamed_trait_implementation_declaration(
+        mut self,
+        declaration: UnnamedTraitImplementationDeclarationSyntax,
+    ) -> Self {
+        self.push_unnamed_trait_implementation_declaration(declaration);
+
+        self
+    }
+
+    /// Appends a named trait implementation declaration child in source order.
+    pub fn named_trait_implementation_declaration(
+        mut self,
+        declaration: NamedTraitImplementationDeclarationSyntax,
+    ) -> Self {
+        self.push_named_trait_implementation_declaration(declaration);
+
+        self
+    }
+
     /// Builds the source-unit node.
     ///
     /// Panics when the token list does not end in EOF.
@@ -493,17 +588,22 @@ mod tests {
     use super::{CompilationUnitSyntax, SourceUnitSyntax};
     use crate::test_support::{
         func_keyword, func_keyword_with_trailing_space, identifier_path,
-        identifier_path_with_trailing_space, snapshot as test_snapshot,
+        identifier_path_with_trailing_space, implementation_subject, inherent_implementation_body,
+        keyword, snapshot as test_snapshot, token, trait_application, trait_implementation_body,
     };
     use crate::{
         BlockModuleDeclarationSyntax, CallableBodyBlockExpressionSyntax,
         CallableResultClauseSyntax, ExportDeclarationSyntax, FunctionDeclarationSyntax,
         FunctionDirectivesSyntax, FunctionModifiersSyntax, IdentifierListItemSyntax,
-        IdentifierListSyntax, ModuleBodySyntax, ModuleDirectivesSyntax, ModuleModifiersSyntax,
-        ParameterListSyntax, ParameterModifiersSyntax, ParameterSyntax, PathSyntax,
-        SourceSyntaxNode, SourceUnitModuleDeclarationSyntax, StructDeclarationSyntax, SyntaxKind,
-        SyntaxNode, SyntaxText, SyntaxToken, SyntaxTrivia, TraitBodySyntax, TraitDeclarationSyntax,
-        TraitModifiersSyntax, UnionDeclarationSyntax, UsingDeclarationSyntax,
+        IdentifierListSyntax, ImplementationSubjectSyntax, InherentImplementationBodySyntax,
+        InherentImplementationDeclarationSyntax, ModuleBodySyntax, ModuleDirectivesSyntax,
+        ModuleModifiersSyntax, NamedTraitImplementationDeclarationSyntax, ParameterListSyntax,
+        ParameterModifiersSyntax, ParameterSyntax, PathSyntax, SourceSyntaxNode,
+        SourceUnitModuleDeclarationSyntax, StructDeclarationSyntax, SyntaxKind, SyntaxNode,
+        SyntaxText, SyntaxToken, SyntaxTrivia, TraitApplicationSyntax, TraitBodySyntax,
+        TraitDeclarationSyntax, TraitImplementationBodySyntax, TraitModifiersSyntax,
+        UnionDeclarationSyntax, UnnamedTraitImplementationDeclarationSyntax,
+        UsingDeclarationSyntax,
     };
 
     #[test]
@@ -859,6 +959,65 @@ mod tests {
     }
 
     #[test]
+    fn source_units_expose_implementation_declaration_children() {
+        let snapshot = test_snapshot(
+            "syntax-test",
+            "impl Point {} impl Point(Equatable) {} impl PointEq = Point(Equatable) {}",
+        );
+
+        let inherent = inherent_implementation_declaration(snapshot.clone(), 0, true);
+        let unnamed = unnamed_trait_implementation_declaration(snapshot.clone(), 14, true);
+        let named = named_trait_implementation_declaration(snapshot.clone(), 39);
+        let eof = SyntaxToken::end_of_file(TextSize::new(73));
+
+        let source_unit = SourceUnitSyntax::builder(snapshot)
+            .inherent_implementation_declaration(inherent)
+            .unnamed_trait_implementation_declaration(unnamed)
+            .named_trait_implementation_declaration(named)
+            .tokens([eof])
+            .build();
+
+        let inherent_declarations = source_unit
+            .inherent_implementation_declarations()
+            .collect::<Vec<_>>();
+
+        let unnamed_declarations = source_unit
+            .unnamed_trait_implementation_declarations()
+            .collect::<Vec<_>>();
+
+        let named_declarations = source_unit
+            .named_trait_implementation_declarations()
+            .collect::<Vec<_>>();
+
+        let [inherent] = inherent_declarations.as_slice() else {
+            panic!("expected one inherent implementation declaration: {inherent_declarations:?}");
+        };
+
+        let [unnamed] = unnamed_declarations.as_slice() else {
+            panic!(
+                "expected one unnamed trait implementation declaration: {unnamed_declarations:?}"
+            );
+        };
+
+        let [named] = named_declarations.as_slice() else {
+            panic!("expected one named trait implementation declaration: {named_declarations:?}");
+        };
+
+        assert_eq!(
+            source_unit.full_text(),
+            "impl Point {} impl Point(Equatable) {} impl PointEq = Point(Equatable) {}"
+        );
+
+        assert_eq!(
+            inherent.implementation_subject().path().full_text(),
+            "Point "
+        );
+
+        assert_eq!(unnamed.trait_application().path().full_text(), "Equatable");
+        assert_eq!(named.identifier_token().kind(), SyntaxKind::IdentifierToken);
+    }
+
+    #[test]
     fn source_unit_debug_does_not_expose_green_storage() {
         let source_unit = SourceUnitSyntax::builder(test_snapshot("syntax-test", ""))
             .tokens([SyntaxToken::end_of_file(TextSize::ZERO)])
@@ -887,6 +1046,13 @@ mod tests {
         assert_send_sync::<TraitDeclarationSyntax>();
         assert_send_sync::<TraitModifiersSyntax>();
         assert_send_sync::<TraitBodySyntax>();
+        assert_send_sync::<ImplementationSubjectSyntax>();
+        assert_send_sync::<TraitApplicationSyntax>();
+        assert_send_sync::<InherentImplementationDeclarationSyntax>();
+        assert_send_sync::<InherentImplementationBodySyntax>();
+        assert_send_sync::<UnnamedTraitImplementationDeclarationSyntax>();
+        assert_send_sync::<NamedTraitImplementationDeclarationSyntax>();
+        assert_send_sync::<TraitImplementationBodySyntax>();
         assert_send_sync::<ParameterListSyntax>();
         assert_send_sync::<ParameterSyntax>();
         assert_send_sync::<ParameterModifiersSyntax>();
@@ -921,11 +1087,14 @@ mod tests {
         builder.push_module_directives(
             ModuleDirectivesSyntax::builder(snapshot.clone(), TextSize::ZERO).build(),
         );
+
         builder.push_module_modifiers(
             ModuleModifiersSyntax::builder(snapshot.clone(), TextSize::ZERO).build(),
         );
+
         builder.push_module_keyword(module_keyword());
         builder.push_module_path(identifier_path(snapshot.clone(), 7, 11));
+
         builder.push_semicolon_token(SyntaxToken::new(
             SyntaxKind::SemicolonToken,
             TextRange::new(TextSize::new(11), TextSize::new(12)),
@@ -940,9 +1109,11 @@ mod tests {
         builder.push_module_directives(
             ModuleDirectivesSyntax::builder(snapshot.clone(), TextSize::ZERO).build(),
         );
+
         builder.push_module_modifiers(
             ModuleModifiersSyntax::builder(snapshot.clone(), TextSize::ZERO).build(),
         );
+
         builder.push_module_keyword(module_keyword());
         builder.push_module_path(identifier_path_with_trailing_space(snapshot.clone(), 7, 11));
         builder.push_module_body(module_body(snapshot));
@@ -1057,6 +1228,123 @@ mod tests {
         );
 
         builder.push_trait_body(trait_body(snapshot));
+
+        builder.build()
+    }
+
+    fn inherent_implementation_declaration(
+        snapshot: SourceSnapshot,
+        start: u32,
+        has_trailing_space: bool,
+    ) -> InherentImplementationDeclarationSyntax {
+        let mut builder = InherentImplementationDeclarationSyntax::builder(
+            snapshot.clone(),
+            TextSize::new(start),
+        );
+
+        builder.push_impl_keyword(keyword(SyntaxKind::ImplKeyword, start, start + 4, true));
+
+        builder.push_implementation_subject(implementation_subject(
+            snapshot.clone(),
+            start + 5,
+            start + 10,
+            true,
+        ));
+
+        builder.push_inherent_implementation_body(inherent_implementation_body(
+            snapshot,
+            start + 11,
+            has_trailing_space,
+        ));
+
+        builder.build()
+    }
+
+    fn unnamed_trait_implementation_declaration(
+        snapshot: SourceSnapshot,
+        start: u32,
+        has_trailing_space: bool,
+    ) -> UnnamedTraitImplementationDeclarationSyntax {
+        let mut builder = UnnamedTraitImplementationDeclarationSyntax::builder(
+            snapshot.clone(),
+            TextSize::new(start),
+        );
+
+        builder.push_impl_keyword(keyword(SyntaxKind::ImplKeyword, start, start + 4, true));
+
+        builder.push_implementation_subject(implementation_subject(
+            snapshot.clone(),
+            start + 5,
+            start + 10,
+            false,
+        ));
+
+        builder.push_open_paren_token(token(SyntaxKind::OpenParenToken, start + 10, start + 11));
+        builder.push_trait_application(trait_application(snapshot.clone(), start + 11, start + 20));
+
+        builder.push_close_paren_token(keyword(
+            SyntaxKind::CloseParenToken,
+            start + 20,
+            start + 21,
+            true,
+        ));
+
+        builder.push_trait_implementation_body(trait_implementation_body(
+            snapshot,
+            start + 22,
+            has_trailing_space,
+        ));
+
+        builder.build()
+    }
+
+    fn named_trait_implementation_declaration(
+        snapshot: SourceSnapshot,
+        start: u32,
+    ) -> NamedTraitImplementationDeclarationSyntax {
+        let mut builder = NamedTraitImplementationDeclarationSyntax::builder(
+            snapshot.clone(),
+            TextSize::new(start),
+        );
+
+        builder.push_impl_keyword(keyword(SyntaxKind::ImplKeyword, start, start + 4, true));
+
+        builder.push_identifier_token(keyword(
+            SyntaxKind::IdentifierToken,
+            start + 5,
+            start + 12,
+            true,
+        ));
+
+        builder.push_equals_token(keyword(
+            SyntaxKind::EqualsToken,
+            start + 13,
+            start + 14,
+            true,
+        ));
+
+        builder.push_implementation_subject(implementation_subject(
+            snapshot.clone(),
+            start + 15,
+            start + 20,
+            false,
+        ));
+
+        builder.push_open_paren_token(token(SyntaxKind::OpenParenToken, start + 20, start + 21));
+        builder.push_trait_application(trait_application(snapshot.clone(), start + 21, start + 30));
+
+        builder.push_close_paren_token(keyword(
+            SyntaxKind::CloseParenToken,
+            start + 30,
+            start + 31,
+            true,
+        ));
+
+        builder.push_trait_implementation_body(trait_implementation_body(
+            snapshot,
+            start + 32,
+            false,
+        ));
 
         builder.build()
     }

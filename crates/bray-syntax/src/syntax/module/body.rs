@@ -2,8 +2,9 @@ use super::item::{ExportDeclarationSyntax, UsingDeclarationSyntax};
 use crate::SyntaxKind;
 use crate::node::define_source_syntax_node;
 use crate::{
-    FunctionDeclarationSyntax, StructDeclarationSyntax, TraitDeclarationSyntax,
-    UnionDeclarationSyntax,
+    FunctionDeclarationSyntax, InherentImplementationDeclarationSyntax,
+    NamedTraitImplementationDeclarationSyntax, StructDeclarationSyntax, TraitDeclarationSyntax,
+    UnionDeclarationSyntax, UnnamedTraitImplementationDeclarationSyntax,
 };
 
 define_source_syntax_node! {
@@ -85,6 +86,30 @@ define_source_syntax_node! {
                 push_trait_declaration;
                 ty: TraitDeclarationSyntax;
                 kind: SyntaxKind::TraitDeclaration;
+            },
+            {
+                /// Returns direct inherent implementation declaration children in source order.
+                inherent_implementation_declarations;
+                /// Appends an inherent implementation declaration child in source order.
+                push_inherent_implementation_declaration;
+                ty: InherentImplementationDeclarationSyntax;
+                kind: SyntaxKind::InherentImplementationDeclaration;
+            },
+            {
+                /// Returns direct unnamed trait implementation declaration children in source order.
+                unnamed_trait_implementation_declarations;
+                /// Appends an unnamed trait implementation declaration child in source order.
+                push_unnamed_trait_implementation_declaration;
+                ty: UnnamedTraitImplementationDeclarationSyntax;
+                kind: SyntaxKind::UnnamedTraitImplementationDeclaration;
+            },
+            {
+                /// Returns direct named trait implementation declaration children in source order.
+                named_trait_implementation_declarations;
+                /// Appends a named trait implementation declaration child in source order.
+                push_named_trait_implementation_declaration;
+                ty: NamedTraitImplementationDeclarationSyntax;
+                kind: SyntaxKind::NamedTraitImplementationDeclaration;
             }
         ],
     }
