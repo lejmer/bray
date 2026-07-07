@@ -752,7 +752,8 @@ mod tests {
         SyntaxText, SyntaxToken, SyntaxTrivia, TraitApplicationSyntax, TraitBodySyntax,
         TraitConstantMemberDeclarationSyntax, TraitDeclarationSyntax,
         TraitDestructorRequirementDeclarationSyntax, TraitFinalizerRequirementDeclarationSyntax,
-        TraitModifiersSyntax, TraitScopeEnterRequirementDeclarationSyntax,
+        TraitModifiersSyntax, TraitPredicateMemberDeclarationSyntax,
+        TraitPredicateMemberModifiersSyntax, TraitScopeEnterRequirementDeclarationSyntax,
         TraitScopeExitRequirementDeclarationSyntax, TraitTypeMemberDeclarationSyntax,
         TypeConstructorMemberDeclarationSyntax, UnionDeclarationSyntax,
         UnnamedTraitImplementationDeclarationSyntax, UsingDeclarationSyntax,
@@ -1243,6 +1244,8 @@ mod tests {
         assert_send_sync::<TraitBodySyntax>();
         assert_send_sync::<TraitConstantMemberDeclarationSyntax>();
         assert_send_sync::<TraitTypeMemberDeclarationSyntax>();
+        assert_send_sync::<TraitPredicateMemberModifiersSyntax>();
+        assert_send_sync::<TraitPredicateMemberDeclarationSyntax>();
         assert_send_sync::<TraitFinalizerRequirementDeclarationSyntax>();
         assert_send_sync::<TraitDestructorRequirementDeclarationSyntax>();
         assert_send_sync::<TraitScopeEnterRequirementDeclarationSyntax>();

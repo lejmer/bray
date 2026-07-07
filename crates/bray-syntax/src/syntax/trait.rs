@@ -4,6 +4,7 @@ use super::member::{
     TraitFinalizerRequirementDeclarationSyntax, TraitScopeEnterRequirementDeclarationSyntax,
     TraitScopeExitRequirementDeclarationSyntax, TraitTypeMemberDeclarationSyntax,
 };
+use super::predicate::TraitPredicateMemberDeclarationSyntax;
 use crate::node::define_source_syntax_node;
 use crate::{SyntaxKind, SyntaxToken};
 
@@ -91,6 +92,14 @@ define_source_syntax_node! {
                 push_trait_type_member_declaration;
                 ty: TraitTypeMemberDeclarationSyntax;
                 kind: SyntaxKind::TraitTypeMemberDeclaration;
+            },
+            {
+                /// Returns trait predicate member declarations in source order.
+                trait_predicate_member_declarations;
+                /// Appends a trait predicate member declaration.
+                push_trait_predicate_member_declaration;
+                ty: TraitPredicateMemberDeclarationSyntax;
+                kind: SyntaxKind::TraitPredicateMemberDeclaration;
             },
             {
                 /// Returns trait finalizer requirement declarations in source order.

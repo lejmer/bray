@@ -1,7 +1,8 @@
 use bray_syntax::{
     PredicateDeclarationSyntax, PredicateDeclarationSyntaxBuilder, PredicateModifiersSyntax,
     PredicateParameterListSyntax, PredicateParameterListSyntaxBuilder, PredicateParameterSyntax,
-    SyntaxKind, SyntaxToken,
+    SyntaxKind, SyntaxToken, TraitPredicateMemberDeclarationSyntax,
+    TraitPredicateMemberDeclarationSyntaxBuilder, TraitPredicateMemberModifiersSyntax,
 };
 
 use super::member::MEMBER_KEYWORD_RECOVERY_KINDS;
@@ -72,6 +73,24 @@ impl Parser {
         builder.build()
     }
 
+    pub(super) fn parse_trait_predicate_member_declaration(
+        &mut self,
+    ) -> TraitPredicateMemberDeclarationSyntax {
+        let start = self.peek().full_range().start();
+        let mut builder =
+            TraitPredicateMemberDeclarationSyntax::builder(self.syntax_source(), start);
+
+        builder
+            .push_trait_predicate_member_modifiers(self.parse_trait_predicate_member_modifiers());
+        builder.push_predicate_keyword(self.expect(SyntaxKind::PredicateKeyword));
+        builder.push_identifier_token(self.parse_identifier());
+        builder.push_predicate_parameter_list(self.parse_predicate_parameter_list());
+
+        self.parse_predicate_declaration_tail(&mut builder);
+
+        builder.build()
+    }
+
     fn parse_predicate_modifiers(&mut self) -> PredicateModifiersSyntax {
         let start = self.peek().full_range().start();
         let mut builder = PredicateModifiersSyntax::builder(self.syntax_source(), start);
@@ -82,6 +101,17 @@ impl Parser {
                 continue;
             }
 
+            builder.push_trusted_token(self.expect(SyntaxKind::TrustedKeyword));
+        }
+
+        builder.build()
+    }
+
+    fn parse_trait_predicate_member_modifiers(&mut self) -> TraitPredicateMemberModifiersSyntax {
+        let start = self.peek().full_range().start();
+        let mut builder = TraitPredicateMemberModifiersSyntax::builder(self.syntax_source(), start);
+
+        while self.at(SyntaxKind::TrustedKeyword) {
             builder.push_trusted_token(self.expect(SyntaxKind::TrustedKeyword));
         }
 
@@ -131,10 +161,7 @@ impl Parser {
         builder.build()
     }
 
-    fn parse_predicate_declaration_tail(
-        &mut self,
-        builder: &mut PredicateDeclarationSyntaxBuilder,
-    ) {
+    fn parse_predicate_declaration_tail(&mut self, builder: &mut impl PredicateSyntaxSink) {
         if self.at(SyntaxKind::EqualsToken) {
             builder.push_equals_token(self.expect(SyntaxKind::EqualsToken));
 
@@ -172,10 +199,7 @@ impl Parser {
             || self.at_any(&MEMBER_KEYWORD_RECOVERY_KINDS)
     }
 
-    fn recover_until_predicate_declaration_end(
-        &mut self,
-        builder: &mut PredicateDeclarationSyntaxBuilder,
-    ) {
+    fn recover_until_predicate_declaration_end(&mut self, builder: &mut impl PredicateSyntaxSink) {
         self.recover_until_predicate(builder, Parser::at_predicate_body_boundary);
     }
 
@@ -191,10 +215,50 @@ impl Parser {
         })
     }
 
+    pub(super) fn should_parse_trait_predicate_member_declaration(&mut self) -> bool {
+        if !self.at(SyntaxKind::TrustedKeyword) && !self.at(SyntaxKind::PredicateKeyword) {
+            return false;
+        }
+
+        self.scan_ahead(|scan| {
+            while scan.at(SyntaxKind::TrustedKeyword) {
+                scan.consume();
+            }
+
+            scan.at(SyntaxKind::PredicateKeyword)
+        })
+    }
+
     fn consume_predicate_modifiers_for_scan(&mut self) {
         while self.at_visibility_modifier() || self.at(SyntaxKind::TrustedKeyword) {
             self.consume();
         }
+    }
+}
+
+trait PredicateSyntaxSink: crate::parser::recovery::RecoverySyntaxSink {
+    fn push_equals_token(&mut self, token: SyntaxToken);
+
+    fn push_semicolon_token(&mut self, token: SyntaxToken);
+}
+
+impl PredicateSyntaxSink for PredicateDeclarationSyntaxBuilder {
+    fn push_equals_token(&mut self, token: SyntaxToken) {
+        PredicateDeclarationSyntaxBuilder::push_equals_token(self, token);
+    }
+
+    fn push_semicolon_token(&mut self, token: SyntaxToken) {
+        PredicateDeclarationSyntaxBuilder::push_semicolon_token(self, token);
+    }
+}
+
+impl PredicateSyntaxSink for TraitPredicateMemberDeclarationSyntaxBuilder {
+    fn push_equals_token(&mut self, token: SyntaxToken) {
+        TraitPredicateMemberDeclarationSyntaxBuilder::push_equals_token(self, token);
+    }
+
+    fn push_semicolon_token(&mut self, token: SyntaxToken) {
+        TraitPredicateMemberDeclarationSyntaxBuilder::push_semicolon_token(self, token);
     }
 }
 
@@ -356,6 +420,128 @@ mod tests {
         assert_eq!(
             parse_diagnostic_kinds(&result),
             [DiagnosticKind::SyntaxSkippedSyntax]
+        );
+    }
+
+    // TODO(parser): Update this when predicate parameter type expressions and bodies are parsed.
+    #[test]
+    fn parser_parses_trait_predicate_member_declarations() {
+        let source = concat!(
+            "module main; ",
+            "trait Valid { ",
+            "trusted predicate ready(); ",
+            "predicate positive(value: Int) = value > 0; ",
+            "func check(); ",
+            "}"
+        );
+
+        let sources = source_store([source]);
+        let result = parse_compilation_unit(&sources);
+
+        let source_unit = &result.syntax_tree().root().source_units()[0];
+        let declarations = source_unit.trait_declarations().collect::<Vec<_>>();
+
+        let [declaration] = declarations.as_slice() else {
+            panic!("expected one trait declaration: {declarations:?}");
+        };
+
+        let body = declaration.trait_body();
+
+        let predicates = body
+            .trait_predicate_member_declarations()
+            .collect::<Vec<_>>();
+
+        let callables = body
+            .trait_callable_member_declarations()
+            .collect::<Vec<_>>();
+
+        let [required_predicate, defaulted_predicate] = predicates.as_slice() else {
+            panic!("expected two trait predicate members: {predicates:?}");
+        };
+
+        let [callable] = callables.as_slice() else {
+            panic!("expected one trait callable member: {callables:?}");
+        };
+
+        assert_eq!(source_unit.full_text(), source);
+
+        assert_eq!(
+            required_predicate.full_text(),
+            "trusted predicate ready(); "
+        );
+
+        assert_eq!(
+            required_predicate
+                .trait_predicate_member_modifiers()
+                .trusted_token()
+                .map(|token| token.kind()),
+            Some(SyntaxKind::TrustedKeyword)
+        );
+
+        assert!(required_predicate.equals_token().is_none());
+
+        assert_eq!(
+            defaulted_predicate.full_text(),
+            "predicate positive(value: Int) = value > 0; "
+        );
+
+        assert!(defaulted_predicate.equals_token().is_some());
+        assert_eq!(callable.full_text(), "func check(); ");
+
+        assert_eq!(
+            parse_diagnostic_kinds(&result),
+            [
+                DiagnosticKind::SyntaxSkippedSyntax,
+                DiagnosticKind::SyntaxSkippedSyntax
+            ]
+        );
+    }
+
+    #[test]
+    fn parser_reports_missing_trait_predicate_member_semicolon_before_following_member() {
+        let source = "module main; trait Valid { predicate ready()\nfunc check(); }";
+        let sources = source_store([source]);
+        let result = parse_compilation_unit(&sources);
+
+        let source_unit = &result.syntax_tree().root().source_units()[0];
+        let declarations = source_unit.trait_declarations().collect::<Vec<_>>();
+        let insertion = marker_offset(source, "func");
+
+        let [declaration] = declarations.as_slice() else {
+            panic!("expected one trait declaration: {declarations:?}");
+        };
+
+        let body = declaration.trait_body();
+        let predicates = body
+            .trait_predicate_member_declarations()
+            .collect::<Vec<_>>();
+        let callables = body
+            .trait_callable_member_declarations()
+            .collect::<Vec<_>>();
+
+        let [predicate] = predicates.as_slice() else {
+            panic!("expected one trait predicate member: {predicates:?}");
+        };
+
+        let [callable] = callables.as_slice() else {
+            panic!("expected one trait callable member: {callables:?}");
+        };
+
+        let semicolon_token = predicate.semicolon_token();
+
+        assert_eq!(source_unit.full_text(), source);
+        assert_eq!(predicate.full_text(), "predicate ready()\n");
+        assert_eq!(callable.full_text(), "func check(); ");
+
+        assert!(semicolon_token.is_missing());
+        assert_eq!(semicolon_token.range(), TextRange::empty(insertion));
+
+        assert_missing_semicolon_diagnostic(
+            &result,
+            insertion,
+            SyntaxKind::FuncKeyword,
+            "func",
+            &[DiagnosticKind::SyntaxExpectedToken],
         );
     }
 
