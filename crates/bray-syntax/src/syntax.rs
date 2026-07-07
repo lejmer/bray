@@ -1,6 +1,7 @@
 mod callable;
 mod directive;
 mod function;
+mod implementation;
 mod list;
 mod module;
 mod path;
@@ -26,6 +27,15 @@ pub use directive::{
 pub use function::{
     FunctionDeclarationSyntax, FunctionDeclarationSyntaxBuilder, FunctionDirectivesSyntax,
     FunctionDirectivesSyntaxBuilder, FunctionModifiersSyntax, FunctionModifiersSyntaxBuilder,
+};
+pub use implementation::{
+    ImplementationSubjectSyntax, ImplementationSubjectSyntaxBuilder,
+    InherentImplementationBodySyntax, InherentImplementationBodySyntaxBuilder,
+    InherentImplementationDeclarationSyntax, InherentImplementationDeclarationSyntaxBuilder,
+    NamedTraitImplementationDeclarationSyntax, NamedTraitImplementationDeclarationSyntaxBuilder,
+    TraitApplicationSyntax, TraitApplicationSyntaxBuilder, TraitImplementationBodySyntax,
+    TraitImplementationBodySyntaxBuilder, UnnamedTraitImplementationDeclarationSyntax,
+    UnnamedTraitImplementationDeclarationSyntaxBuilder,
 };
 pub use list::{
     IdentifierListItemSyntax, IdentifierListItemSyntaxBuilder, IdentifierListSyntax,

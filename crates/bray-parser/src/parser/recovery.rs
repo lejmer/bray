@@ -2,12 +2,16 @@ use bray_syntax::{
     BlockModuleDeclarationSyntaxBuilder, CallableBodyBlockExpressionSyntaxBuilder,
     CallableResultClauseSyntaxBuilder, DirectiveArgumentListSyntaxBuilder,
     ExportDeclarationSyntaxBuilder, FunctionDeclarationSyntaxBuilder,
-    FunctionDirectivesSyntaxBuilder, IdentifierListSyntaxBuilder, ModuleBodySyntaxBuilder,
-    ModuleDirectivesSyntaxBuilder, ParameterListSyntaxBuilder, ParameterSyntaxBuilder,
-    SourceUnitModuleDeclarationSyntaxBuilder, SourceUnitSyntaxBuilder, StructBodySyntaxBuilder,
-    StructDeclarationSyntaxBuilder, SyntaxKind, SyntaxToken, TargetDirectiveSyntaxBuilder,
-    TraitBodySyntaxBuilder, TraitDeclarationSyntaxBuilder, TypeDirectivesSyntaxBuilder,
-    UnionBodySyntaxBuilder, UnionDeclarationSyntaxBuilder, UsingDeclarationSyntaxBuilder,
+    FunctionDirectivesSyntaxBuilder, IdentifierListSyntaxBuilder,
+    ImplementationSubjectSyntaxBuilder, InherentImplementationBodySyntaxBuilder,
+    InherentImplementationDeclarationSyntaxBuilder, ModuleBodySyntaxBuilder,
+    ModuleDirectivesSyntaxBuilder, NamedTraitImplementationDeclarationSyntaxBuilder,
+    ParameterListSyntaxBuilder, ParameterSyntaxBuilder, SourceUnitModuleDeclarationSyntaxBuilder,
+    SourceUnitSyntaxBuilder, StructBodySyntaxBuilder, StructDeclarationSyntaxBuilder, SyntaxKind,
+    SyntaxToken, TargetDirectiveSyntaxBuilder, TraitApplicationSyntaxBuilder,
+    TraitBodySyntaxBuilder, TraitDeclarationSyntaxBuilder, TraitImplementationBodySyntaxBuilder,
+    TypeDirectivesSyntaxBuilder, UnionBodySyntaxBuilder, UnionDeclarationSyntaxBuilder,
+    UnnamedTraitImplementationDeclarationSyntaxBuilder, UsingDeclarationSyntaxBuilder,
 };
 
 use crate::cursor::RecoverySet;
@@ -16,6 +20,12 @@ use super::state::Parser;
 
 pub(super) trait RecoverySyntaxSink {
     fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>);
+}
+
+pub(super) trait BracedBodySyntaxSink: RecoverySyntaxSink {
+    fn push_open_brace_token(&mut self, token: SyntaxToken);
+
+    fn push_close_brace_token(&mut self, token: SyntaxToken);
 }
 
 impl Parser {
@@ -106,6 +116,27 @@ impl Parser {
 
         builder.push_skipped_tokens(skipped_tokens);
     }
+
+    pub(super) fn parse_skipped_braced_body_tokens(
+        &mut self,
+        builder: &mut impl BracedBodySyntaxSink,
+        mut at_missing_body_boundary: impl FnMut(&mut Parser) -> bool,
+    ) {
+        let open_brace_token = self.expect(SyntaxKind::OpenBraceToken);
+        let open_brace_missing = open_brace_token.is_missing();
+
+        builder.push_open_brace_token(open_brace_token);
+
+        if open_brace_missing && at_missing_body_boundary(self) {
+            builder.push_close_brace_token(self.expect(SyntaxKind::CloseBraceToken));
+
+            return;
+        }
+
+        self.recover_until_balanced_close_brace_or_recovery_set(builder, RecoverySet::new(&[]));
+
+        builder.push_close_brace_token(self.expect(SyntaxKind::CloseBraceToken));
+    }
 }
 
 impl RecoverySyntaxSink for SourceUnitSyntaxBuilder {
@@ -171,6 +202,48 @@ impl RecoverySyntaxSink for TraitDeclarationSyntaxBuilder {
 impl RecoverySyntaxSink for TraitBodySyntaxBuilder {
     fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
         TraitBodySyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for ImplementationSubjectSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        ImplementationSubjectSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for TraitApplicationSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        TraitApplicationSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for InherentImplementationDeclarationSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        InherentImplementationDeclarationSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for InherentImplementationBodySyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        InherentImplementationBodySyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for UnnamedTraitImplementationDeclarationSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        UnnamedTraitImplementationDeclarationSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for NamedTraitImplementationDeclarationSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        NamedTraitImplementationDeclarationSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for TraitImplementationBodySyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        TraitImplementationBodySyntaxBuilder::push_skipped_tokens(self, tokens);
     }
 }
 
@@ -243,6 +316,66 @@ impl RecoverySyntaxSink for DirectiveArgumentListSyntaxBuilder {
 impl RecoverySyntaxSink for IdentifierListSyntaxBuilder {
     fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
         IdentifierListSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl BracedBodySyntaxSink for TraitBodySyntaxBuilder {
+    fn push_open_brace_token(&mut self, token: SyntaxToken) {
+        TraitBodySyntaxBuilder::push_open_brace_token(self, token);
+    }
+
+    fn push_close_brace_token(&mut self, token: SyntaxToken) {
+        TraitBodySyntaxBuilder::push_close_brace_token(self, token);
+    }
+}
+
+impl BracedBodySyntaxSink for InherentImplementationBodySyntaxBuilder {
+    fn push_open_brace_token(&mut self, token: SyntaxToken) {
+        InherentImplementationBodySyntaxBuilder::push_open_brace_token(self, token);
+    }
+
+    fn push_close_brace_token(&mut self, token: SyntaxToken) {
+        InherentImplementationBodySyntaxBuilder::push_close_brace_token(self, token);
+    }
+}
+
+impl BracedBodySyntaxSink for TraitImplementationBodySyntaxBuilder {
+    fn push_open_brace_token(&mut self, token: SyntaxToken) {
+        TraitImplementationBodySyntaxBuilder::push_open_brace_token(self, token);
+    }
+
+    fn push_close_brace_token(&mut self, token: SyntaxToken) {
+        TraitImplementationBodySyntaxBuilder::push_close_brace_token(self, token);
+    }
+}
+
+impl BracedBodySyntaxSink for StructBodySyntaxBuilder {
+    fn push_open_brace_token(&mut self, token: SyntaxToken) {
+        StructBodySyntaxBuilder::push_open_brace_token(self, token);
+    }
+
+    fn push_close_brace_token(&mut self, token: SyntaxToken) {
+        StructBodySyntaxBuilder::push_close_brace_token(self, token);
+    }
+}
+
+impl BracedBodySyntaxSink for UnionBodySyntaxBuilder {
+    fn push_open_brace_token(&mut self, token: SyntaxToken) {
+        UnionBodySyntaxBuilder::push_open_brace_token(self, token);
+    }
+
+    fn push_close_brace_token(&mut self, token: SyntaxToken) {
+        UnionBodySyntaxBuilder::push_close_brace_token(self, token);
+    }
+}
+
+impl BracedBodySyntaxSink for CallableBodyBlockExpressionSyntaxBuilder {
+    fn push_open_brace_token(&mut self, token: SyntaxToken) {
+        CallableBodyBlockExpressionSyntaxBuilder::push_open_brace_token(self, token);
+    }
+
+    fn push_close_brace_token(&mut self, token: SyntaxToken) {
+        CallableBodyBlockExpressionSyntaxBuilder::push_close_brace_token(self, token);
     }
 }
 

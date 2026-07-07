@@ -272,6 +272,7 @@ mod tests {
         assert_missing_semicolon_diagnostic, marker_offset, parse_diagnostic_kinds,
     };
 
+    // TODO(parser): Update this when callable expressions and directive arguments are parsed.
     #[test]
     fn parser_parses_function_declarations_after_source_unit_modules() {
         let source = concat!(
@@ -348,6 +349,7 @@ mod tests {
         );
     }
 
+    // TODO(parser): Update this when parameter type expressions are parsed.
     #[test]
     fn parser_represents_missing_parameter_separators_in_function_declarations() {
         let source = "module main; func main(first: Int mut second: Bool) {}";
@@ -417,6 +419,7 @@ mod tests {
         );
     }
 
+    // TODO(parser): Update this when function body expressions are parsed.
     #[test]
     fn parser_recovers_function_bodies_without_losing_later_items() {
         let source = "module main; func main() { return; }\nusing core;";

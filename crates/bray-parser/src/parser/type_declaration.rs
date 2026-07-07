@@ -1,11 +1,8 @@
 use bray_syntax::{
-    StructBodySyntax, StructBodySyntaxBuilder, StructDeclarationSyntax,
-    StructDeclarationSyntaxBuilder, SyntaxKind, SyntaxToken, TypeDirectivesSyntax,
-    TypeDirectivesSyntaxBuilder, TypeModifiersSyntax, UnionBodySyntax, UnionBodySyntaxBuilder,
-    UnionDeclarationSyntax, UnionDeclarationSyntaxBuilder,
+    StructBodySyntax, StructDeclarationSyntax, StructDeclarationSyntaxBuilder, SyntaxKind,
+    SyntaxToken, TypeDirectivesSyntax, TypeDirectivesSyntaxBuilder, TypeModifiersSyntax,
+    UnionBodySyntax, UnionDeclarationSyntax, UnionDeclarationSyntaxBuilder,
 };
-
-use crate::cursor::RecoverySet;
 
 use super::directive::{COPY_DIRECTIVE_NAME, LAYOUT_DIRECTIVE_NAME};
 use super::module::MODULE_ITEM_START_KINDS;
@@ -156,7 +153,8 @@ impl Parser {
         let start = self.peek().full_range().start();
         let mut builder = StructBodySyntax::builder(self.syntax_source(), start);
 
-        self.parse_type_body_tokens(&mut builder);
+        // TODO(parser): Parse type body items once fields, variants, and members are implemented.
+        self.parse_skipped_braced_body_tokens(&mut builder, Parser::at_type_body_missing_boundary);
 
         builder.build()
     }
@@ -165,27 +163,10 @@ impl Parser {
         let start = self.peek().full_range().start();
         let mut builder = UnionBodySyntax::builder(self.syntax_source(), start);
 
-        self.parse_type_body_tokens(&mut builder);
+        // TODO(parser): Parse type body items once fields, variants, and members are implemented.
+        self.parse_skipped_braced_body_tokens(&mut builder, Parser::at_type_body_missing_boundary);
 
         builder.build()
-    }
-
-    fn parse_type_body_tokens(&mut self, builder: &mut impl TypeBodySyntaxSink) {
-        let open_brace_token = self.expect(SyntaxKind::OpenBraceToken);
-        let open_brace_missing = open_brace_token.is_missing();
-
-        builder.push_open_brace_token(open_brace_token);
-
-        if open_brace_missing && self.at_type_body_missing_boundary() {
-            builder.push_close_brace_token(self.expect(SyntaxKind::CloseBraceToken));
-
-            return;
-        }
-
-        // TODO(parser): Parse type body items once fields, variants, and members are implemented.
-        self.recover_until_balanced_close_brace_or_recovery_set(builder, RecoverySet::new(&[]));
-
-        builder.push_close_brace_token(self.expect(SyntaxKind::CloseBraceToken));
     }
 
     fn at_type_body_missing_boundary(&mut self) -> bool {
@@ -252,12 +233,6 @@ trait TypeDeclarationSyntaxSink: RecoverySyntaxSink {
     fn push_identifier_token(&mut self, token: SyntaxToken);
 }
 
-trait TypeBodySyntaxSink: RecoverySyntaxSink {
-    fn push_open_brace_token(&mut self, token: SyntaxToken);
-
-    fn push_close_brace_token(&mut self, token: SyntaxToken);
-}
-
 impl TypeDeclarationSyntaxSink for StructDeclarationSyntaxBuilder {
     fn push_type_directives(&mut self, directives: TypeDirectivesSyntax) {
         StructDeclarationSyntaxBuilder::push_type_directives(self, directives);
@@ -291,26 +266,6 @@ impl TypeDeclarationSyntaxSink for UnionDeclarationSyntaxBuilder {
 
     fn push_identifier_token(&mut self, token: SyntaxToken) {
         UnionDeclarationSyntaxBuilder::push_identifier_token(self, token);
-    }
-}
-
-impl TypeBodySyntaxSink for StructBodySyntaxBuilder {
-    fn push_open_brace_token(&mut self, token: SyntaxToken) {
-        StructBodySyntaxBuilder::push_open_brace_token(self, token);
-    }
-
-    fn push_close_brace_token(&mut self, token: SyntaxToken) {
-        StructBodySyntaxBuilder::push_close_brace_token(self, token);
-    }
-}
-
-impl TypeBodySyntaxSink for UnionBodySyntaxBuilder {
-    fn push_open_brace_token(&mut self, token: SyntaxToken) {
-        UnionBodySyntaxBuilder::push_open_brace_token(self, token);
-    }
-
-    fn push_close_brace_token(&mut self, token: SyntaxToken) {
-        UnionBodySyntaxBuilder::push_close_brace_token(self, token);
     }
 }
 
@@ -389,6 +344,7 @@ mod tests {
         assert!(result.diagnostics().is_empty());
     }
 
+    // TODO(parser): Update this when directive arguments are parsed.
     #[test]
     fn parser_parses_layout_type_directives() {
         let source = "module main; @layout(c) struct Point {}";
@@ -418,6 +374,7 @@ mod tests {
         );
     }
 
+    // TODO(parser): Update this when type generics, constraints, and body items are parsed.
     #[test]
     fn parser_skips_type_generic_parameters_constraints_and_body_items_for_now() {
         let source = "module main; struct Box<T> with(T: Copy) { value: T; }";

@@ -252,6 +252,7 @@ mod tests {
         assert_eq!(list.full_text(), "pos value: Int = 1, tail: Bool");
     }
 
+    // TODO(syntax): Update this when callable result and block contents are typed syntax.
     #[test]
     fn callable_result_clauses_and_body_blocks_store_skipped_contents() {
         let snapshot = test_snapshot("syntax-callable-test", "-> Int { return }");

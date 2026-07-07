@@ -65,6 +65,20 @@ pub enum SyntaxKind {
     TraitModifiers,
     /// Braced trait declaration body.
     TraitBody,
+    /// Subject type named by an implementation declaration.
+    ImplementationSubject,
+    /// Trait application named by a trait implementation declaration.
+    TraitApplication,
+    /// Module-level inherent implementation declaration.
+    InherentImplementationDeclaration,
+    /// Braced inherent implementation body.
+    InherentImplementationBody,
+    /// Module-level unnamed trait implementation declaration.
+    UnnamedTraitImplementationDeclaration,
+    /// Module-level named trait implementation declaration.
+    NamedTraitImplementationDeclaration,
+    /// Braced trait implementation body.
+    TraitImplementationBody,
     /// Callable parameter list including delimiters.
     ParameterList,
     /// Callable parameter item.
@@ -246,6 +260,13 @@ impl SyntaxKind {
                 | Self::TraitDeclaration
                 | Self::TraitModifiers
                 | Self::TraitBody
+                | Self::ImplementationSubject
+                | Self::TraitApplication
+                | Self::InherentImplementationDeclaration
+                | Self::InherentImplementationBody
+                | Self::UnnamedTraitImplementationDeclaration
+                | Self::NamedTraitImplementationDeclaration
+                | Self::TraitImplementationBody
                 | Self::ParameterList
                 | Self::Parameter
                 | Self::ParameterModifiers
@@ -401,6 +422,15 @@ impl SyntaxKind {
             Self::TraitDeclaration => "trait_declaration",
             Self::TraitModifiers => "trait_modifiers",
             Self::TraitBody => "trait_body",
+            Self::ImplementationSubject => "implementation_subject",
+            Self::TraitApplication => "trait_application",
+            Self::InherentImplementationDeclaration => "inherent_implementation_declaration",
+            Self::InherentImplementationBody => "inherent_implementation_body",
+            Self::UnnamedTraitImplementationDeclaration => {
+                "unnamed_trait_implementation_declaration"
+            }
+            Self::NamedTraitImplementationDeclaration => "named_trait_implementation_declaration",
+            Self::TraitImplementationBody => "trait_implementation_body",
             Self::ParameterList => "parameter_list",
             Self::Parameter => "parameter",
             Self::ParameterModifiers => "parameter_modifiers",
@@ -578,6 +608,14 @@ mod tests {
         assert!(SyntaxKind::TraitModifiers.is_node());
         assert!(SyntaxKind::TraitBody.is_node());
 
+        assert!(SyntaxKind::ImplementationSubject.is_node());
+        assert!(SyntaxKind::TraitApplication.is_node());
+        assert!(SyntaxKind::InherentImplementationDeclaration.is_node());
+        assert!(SyntaxKind::InherentImplementationBody.is_node());
+        assert!(SyntaxKind::UnnamedTraitImplementationDeclaration.is_node());
+        assert!(SyntaxKind::NamedTraitImplementationDeclaration.is_node());
+        assert!(SyntaxKind::TraitImplementationBody.is_node());
+
         assert!(SyntaxKind::ParameterList.is_node());
         assert!(SyntaxKind::Parameter.is_node());
         assert!(SyntaxKind::ParameterModifiers.is_node());
@@ -676,6 +714,38 @@ mod tests {
         assert_eq!(SyntaxKind::TraitDeclaration.as_str(), "trait_declaration");
         assert_eq!(SyntaxKind::TraitModifiers.as_str(), "trait_modifiers");
         assert_eq!(SyntaxKind::TraitBody.as_str(), "trait_body");
+
+        assert_eq!(
+            SyntaxKind::ImplementationSubject.as_str(),
+            "implementation_subject"
+        );
+
+        assert_eq!(SyntaxKind::TraitApplication.as_str(), "trait_application");
+
+        assert_eq!(
+            SyntaxKind::InherentImplementationDeclaration.as_str(),
+            "inherent_implementation_declaration"
+        );
+
+        assert_eq!(
+            SyntaxKind::InherentImplementationBody.as_str(),
+            "inherent_implementation_body"
+        );
+
+        assert_eq!(
+            SyntaxKind::UnnamedTraitImplementationDeclaration.as_str(),
+            "unnamed_trait_implementation_declaration"
+        );
+
+        assert_eq!(
+            SyntaxKind::NamedTraitImplementationDeclaration.as_str(),
+            "named_trait_implementation_declaration"
+        );
+
+        assert_eq!(
+            SyntaxKind::TraitImplementationBody.as_str(),
+            "trait_implementation_body"
+        );
 
         assert_eq!(SyntaxKind::ParameterList.as_str(), "parameter_list");
         assert_eq!(SyntaxKind::Parameter.as_str(), "parameter");

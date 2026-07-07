@@ -2,6 +2,7 @@ mod callable;
 mod directive;
 mod entry;
 mod function;
+mod implementation_declaration;
 mod modifier;
 mod module;
 mod path;
