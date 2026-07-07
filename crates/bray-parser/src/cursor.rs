@@ -492,21 +492,21 @@ mod tests {
         let mut semicolon = cursor("main;");
 
         assert_eq!(
-            token_kinds(&comma.skip_until(RecoverySet::new(&[SyntaxKind::CommaToken]))),
+            token_kinds(comma.skip_until(RecoverySet::new(&[SyntaxKind::CommaToken]))),
             [SyntaxKind::IdentifierToken]
         );
 
         assert_eq!(comma.peek().kind(), SyntaxKind::CommaToken);
 
         assert_eq!(
-            token_kinds(&close_paren.skip_until(RecoverySet::new(&[SyntaxKind::CloseParenToken]))),
+            token_kinds(close_paren.skip_until(RecoverySet::new(&[SyntaxKind::CloseParenToken]))),
             [SyntaxKind::IdentifierToken]
         );
 
         assert_eq!(close_paren.peek().kind(), SyntaxKind::CloseParenToken);
 
         assert_eq!(
-            token_kinds(&semicolon.skip_until(RecoverySet::new(&[SyntaxKind::SemicolonToken]))),
+            token_kinds(semicolon.skip_until(RecoverySet::new(&[SyntaxKind::SemicolonToken]))),
             [SyntaxKind::IdentifierToken]
         );
 
