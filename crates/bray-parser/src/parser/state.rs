@@ -90,11 +90,22 @@ impl Parser {
         self.cursor.expect(kind)
     }
 
+    pub(super) fn token_text(&self, token: &SyntaxToken) -> Option<&str> {
+        token.text(self.snapshot.text())
+    }
+
     pub(super) fn skip_until(
         &mut self,
         recovery_set: crate::cursor::RecoverySet<'_>,
     ) -> Vec<SyntaxToken> {
         self.cursor.skip_until(recovery_set)
+    }
+
+    pub(super) fn skip_current_and_until(
+        &mut self,
+        recovery_set: crate::cursor::RecoverySet<'_>,
+    ) -> Vec<SyntaxToken> {
+        self.cursor.skip_current_and_until(recovery_set)
     }
 
     pub(super) fn skip_one(&mut self) -> Option<SyntaxToken> {
@@ -103,6 +114,20 @@ impl Parser {
 
     pub(super) fn skip_until_balanced_close_brace(&mut self) -> Vec<SyntaxToken> {
         self.cursor.skip_until_balanced_close_brace()
+    }
+
+    pub(super) fn skip_until_balanced_close_paren(
+        &mut self,
+        recovery_set: crate::cursor::RecoverySet<'_>,
+    ) -> Vec<SyntaxToken> {
+        self.cursor.skip_until_balanced_close_paren(recovery_set)
+    }
+
+    pub(super) fn scan_until_balanced_close_paren(&mut self, stop_kinds: &[SyntaxKind]) {
+        self.cursor
+            .skip_until_balanced_close_paren_unreported(crate::cursor::RecoverySet::new(
+                stop_kinds,
+            ));
     }
 }
 

@@ -17,11 +17,14 @@ pub use kind::SyntaxKind;
 pub use node::{SourceSyntaxNode, SyntaxNode};
 pub use syntax::{
     BlockModuleDeclarationSyntax, BlockModuleDeclarationSyntaxBuilder, CompilationUnitSyntax,
-    CompilationUnitSyntaxBuilder, IdentifierListItemSyntax, IdentifierListItemSyntaxBuilder,
-    IdentifierListSyntax, IdentifierListSyntaxBuilder, ModuleBodySyntax, ModuleBodySyntaxBuilder,
+    CompilationUnitSyntaxBuilder, DirectiveArgumentListSyntax, DirectiveArgumentListSyntaxBuilder,
+    IdentifierListItemSyntax, IdentifierListItemSyntaxBuilder, IdentifierListSyntax,
+    IdentifierListSyntaxBuilder, LinkDirectiveSyntax, LinkDirectiveSyntaxBuilder, ModuleBodySyntax,
+    ModuleBodySyntaxBuilder, ModuleDirectivesSyntax, ModuleDirectivesSyntaxBuilder,
     ModuleModifiersSyntax, ModuleModifiersSyntaxBuilder, PathSyntax, PathSyntaxBuilder,
     SkippedSyntax, SourceUnitModuleDeclarationSyntax, SourceUnitModuleDeclarationSyntaxBuilder,
-    SourceUnitSyntax, SourceUnitSyntaxBuilder,
+    SourceUnitSyntax, SourceUnitSyntaxBuilder, TargetDirectiveSyntax, TargetDirectiveSyntaxBuilder,
+    TestDirectiveSyntax, TestDirectiveSyntaxBuilder,
 };
 pub use text::SyntaxText;
 pub use token::{SyntaxToken, SyntaxTokenPresence};

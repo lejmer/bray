@@ -1,6 +1,8 @@
 use bray_syntax::{
-    BlockModuleDeclarationSyntaxBuilder, IdentifierListSyntaxBuilder, ModuleBodySyntaxBuilder,
+    BlockModuleDeclarationSyntaxBuilder, DirectiveArgumentListSyntaxBuilder,
+    IdentifierListSyntaxBuilder, ModuleBodySyntaxBuilder, ModuleDirectivesSyntaxBuilder,
     SourceUnitModuleDeclarationSyntaxBuilder, SourceUnitSyntaxBuilder, SyntaxKind, SyntaxToken,
+    TargetDirectiveSyntaxBuilder,
 };
 
 use crate::cursor::RecoverySet;
@@ -33,11 +35,34 @@ impl Parser {
         builder.push_skipped_tokens(vec![skipped_token]);
     }
 
+    pub(super) fn recover_current_and_until(
+        &mut self,
+        builder: &mut impl RecoverySyntaxSink,
+        stop_kinds: &[SyntaxKind],
+    ) -> bool {
+        let skipped_tokens = self.skip_current_and_until(RecoverySet::new(stop_kinds));
+        let skipped_any = !skipped_tokens.is_empty();
+
+        builder.push_skipped_tokens(skipped_tokens);
+
+        skipped_any
+    }
+
     pub(super) fn recover_until_balanced_close_brace(
         &mut self,
         builder: &mut impl RecoverySyntaxSink,
     ) {
         let skipped_tokens = self.skip_until_balanced_close_brace();
+
+        builder.push_skipped_tokens(skipped_tokens);
+    }
+
+    pub(super) fn recover_until_balanced_close_paren(
+        &mut self,
+        builder: &mut impl RecoverySyntaxSink,
+        stop_kinds: &[SyntaxKind],
+    ) {
+        let skipped_tokens = self.skip_until_balanced_close_paren(RecoverySet::new(stop_kinds));
 
         builder.push_skipped_tokens(skipped_tokens);
     }
@@ -64,6 +89,24 @@ impl RecoverySyntaxSink for BlockModuleDeclarationSyntaxBuilder {
 impl RecoverySyntaxSink for ModuleBodySyntaxBuilder {
     fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
         ModuleBodySyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for ModuleDirectivesSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        ModuleDirectivesSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for TargetDirectiveSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        TargetDirectiveSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for DirectiveArgumentListSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        DirectiveArgumentListSyntaxBuilder::push_skipped_tokens(self, tokens);
     }
 }
 

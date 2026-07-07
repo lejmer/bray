@@ -1,17 +1,24 @@
+mod directive;
 mod list;
 mod module;
 mod path;
 mod recovery;
 mod unit;
 
+pub use directive::{
+    DirectiveArgumentListSyntax, DirectiveArgumentListSyntaxBuilder, LinkDirectiveSyntax,
+    LinkDirectiveSyntaxBuilder, TargetDirectiveSyntax, TargetDirectiveSyntaxBuilder,
+    TestDirectiveSyntax, TestDirectiveSyntaxBuilder,
+};
 pub use list::{
     IdentifierListItemSyntax, IdentifierListItemSyntaxBuilder, IdentifierListSyntax,
     IdentifierListSyntaxBuilder,
 };
 pub use module::{
     BlockModuleDeclarationSyntax, BlockModuleDeclarationSyntaxBuilder, ModuleBodySyntax,
-    ModuleBodySyntaxBuilder, ModuleModifiersSyntax, ModuleModifiersSyntaxBuilder,
-    SourceUnitModuleDeclarationSyntax, SourceUnitModuleDeclarationSyntaxBuilder,
+    ModuleBodySyntaxBuilder, ModuleDirectivesSyntax, ModuleDirectivesSyntaxBuilder,
+    ModuleModifiersSyntax, ModuleModifiersSyntaxBuilder, SourceUnitModuleDeclarationSyntax,
+    SourceUnitModuleDeclarationSyntaxBuilder,
 };
 pub use path::{PathSyntax, PathSyntaxBuilder};
 pub use recovery::SkippedSyntax;

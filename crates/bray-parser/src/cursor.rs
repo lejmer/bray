@@ -102,22 +102,26 @@ impl ParserCursor {
     /// named syntax slot. Consumed tokens are returned for attachment under a
     /// skipped-syntax node.
     pub(crate) fn skip_until(&mut self, recovery_set: RecoverySet<'_>) -> Vec<SyntaxToken> {
+        let skipped_tokens = self.skip_until_unreported(recovery_set);
+
+        self.record_skipped_syntax(&skipped_tokens);
+
+        skipped_tokens
+    }
+
+    /// Consumes one non-EOF token and then consumes until a recovery token or EOF.
+    ///
+    /// The recovery token is left unconsumed so the caller can use it for a
+    /// named syntax slot. Consumed tokens are returned for attachment under a
+    /// skipped-syntax node and reported as one contiguous skipped range.
+    pub(crate) fn skip_current_and_until(
+        &mut self,
+        recovery_set: RecoverySet<'_>,
+    ) -> Vec<SyntaxToken> {
         let mut skipped_tokens = Vec::new();
 
-        loop {
-            let token = self.peek();
-
-            if recovery_set.contains(token.kind()) || token.is_end_of_file() {
-                break;
-            }
-
-            let skipped_token = match self.consume_if(token.kind()) {
-                Some(token) => token,
-                None => panic!("parser cursor token changed between peek and consume"),
-            };
-
-            skipped_tokens.push(skipped_token);
-        }
+        self.consume_skipped_token_into(&mut skipped_tokens);
+        skipped_tokens.extend(self.skip_until_unreported(recovery_set));
 
         self.record_skipped_syntax(&skipped_tokens);
 
@@ -126,20 +130,61 @@ impl ParserCursor {
 
     /// Consumes one non-EOF token and records it as skipped syntax.
     pub(crate) fn skip_one(&mut self) -> Option<SyntaxToken> {
-        let token = self.peek();
+        let mut skipped_tokens = Vec::new();
 
-        if token.is_end_of_file() {
-            return None;
+        self.consume_skipped_token_into(&mut skipped_tokens);
+        self.record_skipped_syntax(&skipped_tokens);
+
+        skipped_tokens.into_iter().next()
+    }
+
+    /// Consumes tokens until an unmatched close parenthesis, recovery token, or EOF.
+    ///
+    /// The close parenthesis or recovery token at depth zero is left unconsumed
+    /// so the caller can use it for a named syntax slot or a higher-level
+    /// recovery boundary.
+    pub(crate) fn skip_until_balanced_close_paren(
+        &mut self,
+        recovery_set: RecoverySet<'_>,
+    ) -> Vec<SyntaxToken> {
+        let skipped_tokens = self.skip_until_balanced_close_paren_unreported(recovery_set);
+
+        self.record_skipped_syntax(&skipped_tokens);
+
+        skipped_tokens
+    }
+
+    pub(crate) fn skip_until_balanced_close_paren_unreported(
+        &mut self,
+        recovery_set: RecoverySet<'_>,
+    ) -> Vec<SyntaxToken> {
+        let mut skipped_tokens = Vec::new();
+        let mut paren_depth = 0usize;
+
+        loop {
+            let token = self.peek();
+
+            if token.is_end_of_file()
+                || (token.kind() == SyntaxKind::CloseParenToken && paren_depth == 0)
+                || (paren_depth == 0 && recovery_set.contains(token.kind()))
+            {
+                break;
+            }
+
+            let Some(skipped_token) = self.consume_skipped_token() else {
+                break;
+            };
+
+            match skipped_token.kind() {
+                SyntaxKind::OpenParenToken => paren_depth += 1,
+                SyntaxKind::CloseParenToken => paren_depth = paren_depth.saturating_sub(1),
+                _ => {}
+            }
+
+            skipped_tokens.push(skipped_token);
         }
 
-        let skipped_token = match self.consume_if(token.kind()) {
-            Some(token) => token,
-            None => panic!("parser cursor token changed between peek and consume"),
-        };
-
-        self.record_skipped_syntax(std::slice::from_ref(&skipped_token));
-
-        Some(skipped_token)
+        skipped_tokens
     }
 
     /// Consumes tokens until an unmatched close brace or EOF.
@@ -160,9 +205,8 @@ impl ParserCursor {
                 break;
             }
 
-            let skipped_token = match self.consume_if(token.kind()) {
-                Some(token) => token,
-                None => panic!("parser cursor token changed between peek and consume"),
+            let Some(skipped_token) = self.consume_skipped_token() else {
+                break;
             };
 
             match skipped_token.kind() {
@@ -194,6 +238,43 @@ impl ParserCursor {
         self.syntax_diagnostics = self
             .syntax_diagnostics
             .merged(&DiagnosticBag::single(diagnostic));
+    }
+
+    fn skip_until_unreported(&mut self, recovery_set: RecoverySet<'_>) -> Vec<SyntaxToken> {
+        let mut skipped_tokens = Vec::new();
+
+        loop {
+            let token = self.peek();
+
+            if recovery_set.contains(token.kind()) || token.is_end_of_file() {
+                break;
+            }
+
+            self.consume_skipped_token_into(&mut skipped_tokens);
+        }
+
+        skipped_tokens
+    }
+
+    fn consume_skipped_token_into(&mut self, skipped_tokens: &mut Vec<SyntaxToken>) {
+        let Some(skipped_token) = self.consume_skipped_token() else {
+            return;
+        };
+
+        skipped_tokens.push(skipped_token);
+    }
+
+    fn consume_skipped_token(&mut self) -> Option<SyntaxToken> {
+        let token = self.peek();
+
+        if token.is_end_of_file() {
+            return None;
+        }
+
+        match self.consume_if(token.kind()) {
+            Some(token) => Some(token),
+            None => panic!("parser cursor token changed between peek and consume"),
+        }
     }
 
     fn record_skipped_syntax(&mut self, tokens: &[SyntaxToken]) {
