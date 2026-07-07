@@ -33,6 +33,8 @@ Predicate-expression rules are defined in [Predicates and predicate expressions]
 
 Predicate declarations can be module-level declarations.
 
+Predicate declarations in type bodies or inherent implementations are associated with that type.
+
 Trait predicate members declare predicate requirements or default predicate behavior for a trait contract.
 
 Trait implementation predicate members define predicate fulfillments for the implemented trait application.

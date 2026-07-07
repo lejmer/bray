@@ -50,6 +50,7 @@ type-member-declaration =
     | type-constructor-member-declaration
     | type-lifecycle-member-declaration
     | constant-declaration
+    | predicate-declaration
     | callable-overload-declaration ;
 
 trait-member-declaration =
@@ -1137,15 +1138,15 @@ implementation-declaration =
 
 inherent-implementation-declaration =
     "impl" inherent-implementation-subject implementation-constraints
-    inherent-implementation-body ;
+    implementation-body ;
 
 unnamed-trait-implementation-declaration =
     "impl" implementation-subject "(" trait-application ")"
-    implementation-constraints trait-implementation-body ;
+    implementation-constraints implementation-body ;
 
 named-trait-implementation-declaration =
     "impl" identifier "=" implementation-subject "(" trait-application ")"
-    implementation-constraints trait-implementation-body ;
+    implementation-constraints implementation-body ;
 
 implementation-constraints =
     { with-clause } ;
@@ -1162,56 +1163,20 @@ implementation-borrow-prefix =
 implementation-named-subject =
     path [ generic-argument-list ] ;
 
-inherent-implementation-body =
-    "{" { inherent-implementation-member-declaration } "}" ;
-
-trait-implementation-body =
-    "{" { trait-implementation-member-declaration } "}" ;
+implementation-body =
+    "{" { implementation-member-declaration } "}" ;
 
 implementation-member-declaration =
-      inherent-implementation-member-declaration
-    | trait-implementation-member-declaration ;
-
-inherent-implementation-member-declaration =
       type-callable-member-declaration
     | type-constructor-member-declaration
     | type-lifecycle-member-declaration
+    | implementation-type-member-binding
     | constant-declaration
+    | predicate-declaration
     | callable-overload-declaration ;
 
-trait-implementation-member-declaration =
-      trait-implementation-callable-member-declaration
-    | trait-implementation-constant-member-definition
-    | trait-implementation-type-member-binding
-    | trait-implementation-predicate-member-definition
-    | trait-implementation-lifecycle-member-declaration ;
-
-trait-implementation-callable-member-declaration =
-    trait-callable-member-modifiers "func" identifier [ generic-parameter-list ]
-    parameter-list [ callable-result-clause ] callable-contract-clauses
-    callable-body-block-expression ;
-
-trait-implementation-constant-member-definition =
-    "const" identifier ":" type-expression "=" constant-expression ";" ;
-
-trait-implementation-type-member-binding =
+implementation-type-member-binding =
     "type" identifier "=" type-expression ";" ;
-
-trait-implementation-predicate-member-definition =
-    trait-predicate-member-modifiers "predicate" identifier
-    predicate-parameter-list "=" predicate-expression ";" ;
-
-trait-implementation-lifecycle-member-declaration =
-      trait-implementation-scope-enter-member-declaration
-    | trait-implementation-scope-exit-member-declaration ;
-
-trait-implementation-scope-enter-member-declaration =
-    async-capable-lifecycle-member-modifiers "enter" empty-parameter-list
-    callable-result-clause callable-contract-clauses callable-body-block-expression ;
-
-trait-implementation-scope-exit-member-declaration =
-    async-capable-lifecycle-member-modifiers "exit" single-parameter-list
-    [ callable-result-clause ] callable-contract-clauses callable-body-block-expression ;
 
 overload-declaration =
       callable-overload-declaration

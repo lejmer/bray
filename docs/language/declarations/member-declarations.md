@@ -12,6 +12,7 @@ Type bodies can contain:
 - constructor declarations,
 - lifecycle declarations,
 - type-associated constant declarations,
+- type-associated predicate declarations,
 - callable overload declarations.
 
 Product and union declaration rules are defined in [Product Types](../types/product-types.md) and [Union Types](../types/union-types.md).
@@ -26,7 +27,11 @@ Trait bodies can contain:
 
 Trait member rules are defined in [Traits](../types/traits.md).
 
-Implementation bodies can contain inherent members or trait implementation members.
+Implementation bodies can contain implementation members.
+
+In an inherent implementation, members introduce declarations associated with the implementation subject.
+
+In a trait implementation, members fulfill the implemented trait application.
 
 Implementation member rules are defined in [Implementations](../types/implementations.md).
 

@@ -99,6 +99,8 @@ pub enum SyntaxKind {
     TraitBody,
     /// Trait constant member declaration.
     TraitConstantMemberDeclaration,
+    /// Trait type-valued member declaration.
+    TraitTypeMemberDeclaration,
     /// Optional trait callable member modifiers in source order.
     TraitCallableMemberModifiers,
     /// Trait callable member declaration.
@@ -109,20 +111,14 @@ pub enum SyntaxKind {
     TraitApplication,
     /// Module-level inherent implementation declaration.
     InherentImplementationDeclaration,
-    /// Braced inherent implementation body.
-    InherentImplementationBody,
+    /// Braced implementation body.
+    ImplementationBody,
+    /// Type-valued member binding inside an implementation body.
+    ImplementationTypeMemberBinding,
     /// Module-level unnamed trait implementation declaration.
     UnnamedTraitImplementationDeclaration,
     /// Module-level named trait implementation declaration.
     NamedTraitImplementationDeclaration,
-    /// Braced trait implementation body.
-    TraitImplementationBody,
-    /// Trait implementation constant member definition.
-    TraitImplementationConstantMemberDefinition,
-    /// Trait implementation scope-enter member declaration.
-    TraitImplementationScopeEnterMemberDeclaration,
-    /// Trait implementation scope-exit member declaration.
-    TraitImplementationScopeExitMemberDeclaration,
     /// Optional constructor member modifiers in source order.
     ConstructorMemberModifiers,
     /// Type constructor member declaration.
@@ -349,18 +345,16 @@ impl SyntaxKind {
                 | Self::TraitModifiers
                 | Self::TraitBody
                 | Self::TraitConstantMemberDeclaration
+                | Self::TraitTypeMemberDeclaration
                 | Self::TraitCallableMemberModifiers
                 | Self::TraitCallableMemberDeclaration
                 | Self::ImplementationSubject
                 | Self::TraitApplication
                 | Self::InherentImplementationDeclaration
-                | Self::InherentImplementationBody
+                | Self::ImplementationBody
+                | Self::ImplementationTypeMemberBinding
                 | Self::UnnamedTraitImplementationDeclaration
                 | Self::NamedTraitImplementationDeclaration
-                | Self::TraitImplementationBody
-                | Self::TraitImplementationConstantMemberDefinition
-                | Self::TraitImplementationScopeEnterMemberDeclaration
-                | Self::TraitImplementationScopeExitMemberDeclaration
                 | Self::ConstructorMemberModifiers
                 | Self::TypeConstructorMemberDeclaration
                 | Self::AsyncCapableLifecycleMemberModifiers
@@ -547,26 +541,18 @@ impl SyntaxKind {
             Self::TraitModifiers => "trait_modifiers",
             Self::TraitBody => "trait_body",
             Self::TraitConstantMemberDeclaration => "trait_constant_member_declaration",
+            Self::TraitTypeMemberDeclaration => "trait_type_member_declaration",
             Self::TraitCallableMemberModifiers => "trait_callable_member_modifiers",
             Self::TraitCallableMemberDeclaration => "trait_callable_member_declaration",
             Self::ImplementationSubject => "implementation_subject",
             Self::TraitApplication => "trait_application",
             Self::InherentImplementationDeclaration => "inherent_implementation_declaration",
-            Self::InherentImplementationBody => "inherent_implementation_body",
+            Self::ImplementationBody => "implementation_body",
+            Self::ImplementationTypeMemberBinding => "implementation_type_member_binding",
             Self::UnnamedTraitImplementationDeclaration => {
                 "unnamed_trait_implementation_declaration"
             }
             Self::NamedTraitImplementationDeclaration => "named_trait_implementation_declaration",
-            Self::TraitImplementationBody => "trait_implementation_body",
-            Self::TraitImplementationConstantMemberDefinition => {
-                "trait_implementation_constant_member_definition"
-            }
-            Self::TraitImplementationScopeEnterMemberDeclaration => {
-                "trait_implementation_scope_enter_member_declaration"
-            }
-            Self::TraitImplementationScopeExitMemberDeclaration => {
-                "trait_implementation_scope_exit_member_declaration"
-            }
             Self::ConstructorMemberModifiers => "constructor_member_modifiers",
             Self::TypeConstructorMemberDeclaration => "type_constructor_member_declaration",
             Self::AsyncCapableLifecycleMemberModifiers => {
@@ -784,19 +770,17 @@ mod tests {
         assert!(SyntaxKind::TraitModifiers.is_node());
         assert!(SyntaxKind::TraitBody.is_node());
         assert!(SyntaxKind::TraitConstantMemberDeclaration.is_node());
+        assert!(SyntaxKind::TraitTypeMemberDeclaration.is_node());
         assert!(SyntaxKind::TraitCallableMemberModifiers.is_node());
         assert!(SyntaxKind::TraitCallableMemberDeclaration.is_node());
 
         assert!(SyntaxKind::ImplementationSubject.is_node());
         assert!(SyntaxKind::TraitApplication.is_node());
         assert!(SyntaxKind::InherentImplementationDeclaration.is_node());
-        assert!(SyntaxKind::InherentImplementationBody.is_node());
+        assert!(SyntaxKind::ImplementationBody.is_node());
+        assert!(SyntaxKind::ImplementationTypeMemberBinding.is_node());
         assert!(SyntaxKind::UnnamedTraitImplementationDeclaration.is_node());
         assert!(SyntaxKind::NamedTraitImplementationDeclaration.is_node());
-        assert!(SyntaxKind::TraitImplementationBody.is_node());
-        assert!(SyntaxKind::TraitImplementationConstantMemberDefinition.is_node());
-        assert!(SyntaxKind::TraitImplementationScopeEnterMemberDeclaration.is_node());
-        assert!(SyntaxKind::TraitImplementationScopeExitMemberDeclaration.is_node());
         assert!(SyntaxKind::ConstructorMemberModifiers.is_node());
         assert!(SyntaxKind::TypeConstructorMemberDeclaration.is_node());
         assert!(SyntaxKind::AsyncCapableLifecycleMemberModifiers.is_node());
@@ -985,6 +969,11 @@ mod tests {
         );
 
         assert_eq!(
+            SyntaxKind::TraitTypeMemberDeclaration.as_str(),
+            "trait_type_member_declaration"
+        );
+
+        assert_eq!(
             SyntaxKind::TraitCallableMemberModifiers.as_str(),
             "trait_callable_member_modifiers"
         );
@@ -1007,8 +996,13 @@ mod tests {
         );
 
         assert_eq!(
-            SyntaxKind::InherentImplementationBody.as_str(),
-            "inherent_implementation_body"
+            SyntaxKind::ImplementationBody.as_str(),
+            "implementation_body"
+        );
+
+        assert_eq!(
+            SyntaxKind::ImplementationTypeMemberBinding.as_str(),
+            "implementation_type_member_binding"
         );
 
         assert_eq!(
@@ -1019,26 +1013,6 @@ mod tests {
         assert_eq!(
             SyntaxKind::NamedTraitImplementationDeclaration.as_str(),
             "named_trait_implementation_declaration"
-        );
-
-        assert_eq!(
-            SyntaxKind::TraitImplementationBody.as_str(),
-            "trait_implementation_body"
-        );
-
-        assert_eq!(
-            SyntaxKind::TraitImplementationConstantMemberDefinition.as_str(),
-            "trait_implementation_constant_member_definition"
-        );
-
-        assert_eq!(
-            SyntaxKind::TraitImplementationScopeEnterMemberDeclaration.as_str(),
-            "trait_implementation_scope_enter_member_declaration"
-        );
-
-        assert_eq!(
-            SyntaxKind::TraitImplementationScopeExitMemberDeclaration.as_str(),
-            "trait_implementation_scope_exit_member_declaration"
         );
 
         assert_eq!(

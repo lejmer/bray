@@ -46,12 +46,15 @@ Type-form arguments can include types, constants, and other compile-time entitie
 
 Trait applications can appear inside type expressions only where a type form or qualified type-valued member reference permits them.
 
+Type-valued members bound by inherent implementations are referenced through ordinary type-associated paths.
+
 Examples:
 
 ```bray
 Point
 geometry.shapes.Circle
 List<Point>
+Buffer.Cursor
 Buffer(Reader<Bytes>).Element
 &mut Buffer
 box[Heap] Node

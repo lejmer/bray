@@ -28,7 +28,7 @@ Trait implementation callable members always have callable-body block expression
 
 Trait type-valued member declarations end with `;`.
 
-Trait implementation type-valued member bindings use `= type-expression;`.
+Implementation type-valued member bindings use `= type-expression;`.
 
 Trait constant-valued member declarations can be required or defaulted according to the trait rules.
 

@@ -2,7 +2,7 @@ use super::constant::TraitConstantMemberDeclarationSyntax;
 use super::member::{
     TraitCallableMemberDeclarationSyntax, TraitDestructorRequirementDeclarationSyntax,
     TraitFinalizerRequirementDeclarationSyntax, TraitScopeEnterRequirementDeclarationSyntax,
-    TraitScopeExitRequirementDeclarationSyntax,
+    TraitScopeExitRequirementDeclarationSyntax, TraitTypeMemberDeclarationSyntax,
 };
 use crate::node::define_source_syntax_node;
 use crate::{SyntaxKind, SyntaxToken};
@@ -83,6 +83,14 @@ define_source_syntax_node! {
                 push_trait_constant_member_declaration;
                 ty: TraitConstantMemberDeclarationSyntax;
                 kind: SyntaxKind::TraitConstantMemberDeclaration;
+            },
+            {
+                /// Returns trait type-valued member declarations in source order.
+                trait_type_member_declarations;
+                /// Appends a trait type-valued member declaration.
+                push_trait_type_member_declaration;
+                ty: TraitTypeMemberDeclarationSyntax;
+                kind: SyntaxKind::TraitTypeMemberDeclaration;
             },
             {
                 /// Returns trait finalizer requirement declarations in source order.

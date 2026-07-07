@@ -1,15 +1,13 @@
-use super::constant::TraitImplementationConstantMemberDefinitionSyntax;
 use super::member::{
     DestructorMemberDeclarationSyntax, FinalizerMemberDeclarationSyntax,
-    ScopeEnterMemberDeclarationSyntax, ScopeExitMemberDeclarationSyntax,
-    TraitCallableMemberDeclarationSyntax, TraitImplementationScopeEnterMemberDeclarationSyntax,
-    TraitImplementationScopeExitMemberDeclarationSyntax, TypeCallableMemberDeclarationSyntax,
+    ImplementationTypeMemberBindingSyntax, ScopeEnterMemberDeclarationSyntax,
+    ScopeExitMemberDeclarationSyntax, TypeCallableMemberDeclarationSyntax,
     TypeConstructorMemberDeclarationSyntax,
 };
 use super::path::PathSyntax;
-use crate::ConstantDeclarationSyntax;
 use crate::SyntaxKind;
 use crate::node::define_source_syntax_node;
+use crate::{ConstantDeclarationSyntax, PredicateDeclarationSyntax};
 
 define_source_syntax_node! {
     /// Type subject named by an implementation declaration.
@@ -81,15 +79,15 @@ define_source_syntax_node! {
 }
 
 define_source_syntax_node! {
-    /// Braced inherent implementation body.
-    pub struct InherentImplementationBodySyntax {
-        builder: InherentImplementationBodySyntaxBuilder,
-        kind: SyntaxKind::InherentImplementationBody,
-        source_slot: "inherent_implementation_body.source",
-        node_name: "inherent implementation body",
-        range_description: "inherent-implementation-body",
-        debug_name: "InherentImplementationBodySyntax",
-        builder_debug_name: "InherentImplementationBodySyntaxBuilder",
+    /// Braced implementation body.
+    pub struct ImplementationBodySyntax {
+        builder: ImplementationBodySyntaxBuilder,
+        kind: SyntaxKind::ImplementationBody,
+        source_slot: "implementation_body.source",
+        node_name: "implementation body",
+        range_description: "implementation-body",
+        debug_name: "ImplementationBodySyntax",
+        builder_debug_name: "ImplementationBodySyntaxBuilder",
         skipped_syntax: true,
         required_tokens: [
             {
@@ -98,7 +96,7 @@ define_source_syntax_node! {
                 /// Appends the opening brace token.
                 push_open_brace_token;
                 kind: SyntaxKind::OpenBraceToken;
-                slot: "inherent_implementation_body.open_brace_token";
+                slot: "implementation_body.open_brace_token";
             },
             {
                 /// Returns the required closing brace token.
@@ -106,7 +104,7 @@ define_source_syntax_node! {
                 /// Appends the closing brace token.
                 push_close_brace_token;
                 kind: SyntaxKind::CloseBraceToken;
-                slot: "inherent_implementation_body.close_brace_token";
+                slot: "implementation_body.close_brace_token";
             }
         ],
         optional_tokens: [],
@@ -119,6 +117,22 @@ define_source_syntax_node! {
                 push_constant_declaration;
                 ty: ConstantDeclarationSyntax;
                 kind: SyntaxKind::ConstantDeclaration;
+            },
+            {
+                /// Returns predicate declarations in source order.
+                predicate_declarations;
+                /// Appends a predicate declaration.
+                push_predicate_declaration;
+                ty: PredicateDeclarationSyntax;
+                kind: SyntaxKind::PredicateDeclaration;
+            },
+            {
+                /// Returns implementation type member bindings in source order.
+                implementation_type_member_bindings;
+                /// Appends an implementation type member binding.
+                push_implementation_type_member_binding;
+                ty: ImplementationTypeMemberBindingSyntax;
+                kind: SyntaxKind::ImplementationTypeMemberBinding;
             },
             {
                 /// Returns type constructor member declarations in source order.
@@ -173,74 +187,6 @@ define_source_syntax_node! {
 }
 
 define_source_syntax_node! {
-    /// Braced trait implementation body.
-    pub struct TraitImplementationBodySyntax {
-        builder: TraitImplementationBodySyntaxBuilder,
-        kind: SyntaxKind::TraitImplementationBody,
-        source_slot: "trait_implementation_body.source",
-        node_name: "trait implementation body",
-        range_description: "trait-implementation-body",
-        debug_name: "TraitImplementationBodySyntax",
-        builder_debug_name: "TraitImplementationBodySyntaxBuilder",
-        skipped_syntax: true,
-        required_tokens: [
-            {
-                /// Returns the required opening brace token.
-                open_brace_token;
-                /// Appends the opening brace token.
-                push_open_brace_token;
-                kind: SyntaxKind::OpenBraceToken;
-                slot: "trait_implementation_body.open_brace_token";
-            },
-            {
-                /// Returns the required closing brace token.
-                close_brace_token;
-                /// Appends the closing brace token.
-                push_close_brace_token;
-                kind: SyntaxKind::CloseBraceToken;
-                slot: "trait_implementation_body.close_brace_token";
-            }
-        ],
-        optional_tokens: [],
-        required_children: [],
-        repeated_children: [
-            {
-                /// Returns trait implementation constant member definitions in source order.
-                trait_implementation_constant_member_definitions;
-                /// Appends a trait implementation constant member definition.
-                push_trait_implementation_constant_member_definition;
-                ty: TraitImplementationConstantMemberDefinitionSyntax;
-                kind: SyntaxKind::TraitImplementationConstantMemberDefinition;
-            },
-            {
-                /// Returns trait implementation scope-enter member declarations in source order.
-                trait_implementation_scope_enter_member_declarations;
-                /// Appends a trait implementation scope-enter member declaration.
-                push_trait_implementation_scope_enter_member_declaration;
-                ty: TraitImplementationScopeEnterMemberDeclarationSyntax;
-                kind: SyntaxKind::TraitImplementationScopeEnterMemberDeclaration;
-            },
-            {
-                /// Returns trait implementation scope-exit member declarations in source order.
-                trait_implementation_scope_exit_member_declarations;
-                /// Appends a trait implementation scope-exit member declaration.
-                push_trait_implementation_scope_exit_member_declaration;
-                ty: TraitImplementationScopeExitMemberDeclarationSyntax;
-                kind: SyntaxKind::TraitImplementationScopeExitMemberDeclaration;
-            },
-            {
-                /// Returns trait callable member declarations in source order.
-                trait_callable_member_declarations;
-                /// Appends a trait callable member declaration.
-                push_trait_callable_member_declaration;
-                ty: TraitCallableMemberDeclarationSyntax;
-                kind: SyntaxKind::TraitCallableMemberDeclaration;
-            }
-        ],
-    }
-}
-
-define_source_syntax_node! {
     /// Module-level inherent implementation declaration.
     pub struct InherentImplementationDeclarationSyntax {
         builder: InherentImplementationDeclarationSyntaxBuilder,
@@ -273,11 +219,11 @@ define_source_syntax_node! {
             },
             {
                 /// Returns the implementation-body child.
-                inherent_implementation_body;
+                implementation_body;
                 /// Appends the implementation-body child.
-                push_inherent_implementation_body;
-                ty: InherentImplementationBodySyntax;
-                kind: SyntaxKind::InherentImplementationBody;
+                push_implementation_body;
+                ty: ImplementationBodySyntax;
+                kind: SyntaxKind::ImplementationBody;
             }
         ],
     }
@@ -340,11 +286,11 @@ define_source_syntax_node! {
             },
             {
                 /// Returns the implementation-body child.
-                trait_implementation_body;
+                implementation_body;
                 /// Appends the implementation-body child.
-                push_trait_implementation_body;
-                ty: TraitImplementationBodySyntax;
-                kind: SyntaxKind::TraitImplementationBody;
+                push_implementation_body;
+                ty: ImplementationBodySyntax;
+                kind: SyntaxKind::ImplementationBody;
             }
         ],
     }
@@ -423,11 +369,11 @@ define_source_syntax_node! {
             },
             {
                 /// Returns the implementation-body child.
-                trait_implementation_body;
+                implementation_body;
                 /// Appends the implementation-body child.
-                push_trait_implementation_body;
-                ty: TraitImplementationBodySyntax;
-                kind: SyntaxKind::TraitImplementationBody;
+                push_implementation_body;
+                ty: ImplementationBodySyntax;
+                kind: SyntaxKind::ImplementationBody;
             }
         ],
     }
@@ -438,13 +384,14 @@ mod tests {
     use bray_source::TextSize;
 
     use crate::test_support::{
-        identifier_path, implementation_subject, inherent_implementation_body, keyword,
-        snapshot as test_snapshot, token, trait_application, trait_implementation_body,
+        identifier_path, implementation_body, implementation_subject,
+        implementation_type_member_binding, keyword, snapshot as test_snapshot, token,
+        trait_application,
     };
     use crate::{
-        ImplementationSubjectSyntax, InherentImplementationDeclarationSyntax,
-        NamedTraitImplementationDeclarationSyntax, SyntaxKind, SyntaxText,
-        UnnamedTraitImplementationDeclarationSyntax,
+        ImplementationBodySyntax, ImplementationSubjectSyntax,
+        InherentImplementationDeclarationSyntax, NamedTraitImplementationDeclarationSyntax,
+        SyntaxKind, SyntaxText, UnnamedTraitImplementationDeclarationSyntax,
     };
 
     #[test]
@@ -456,8 +403,7 @@ mod tests {
         builder.push_impl_keyword(keyword(SyntaxKind::ImplKeyword, 0, 4, true));
         builder.push_implementation_subject(implementation_subject(snapshot.clone(), 5, 10, true));
 
-        builder
-            .push_inherent_implementation_body(inherent_implementation_body(snapshot, 11, false));
+        builder.push_implementation_body(implementation_body(snapshot, 11, false));
 
         let declaration = builder.build();
 
@@ -466,7 +412,7 @@ mod tests {
             declaration.implementation_subject().path().full_text(),
             "Point "
         );
-        assert_eq!(declaration.inherent_implementation_body().full_text(), "{}");
+        assert_eq!(declaration.implementation_body().full_text(), "{}");
     }
 
     #[test]
@@ -480,14 +426,14 @@ mod tests {
         builder.push_open_paren_token(token(SyntaxKind::OpenParenToken, 10, 11));
         builder.push_trait_application(trait_application(snapshot.clone(), 11, 20));
         builder.push_close_paren_token(keyword(SyntaxKind::CloseParenToken, 20, 21, true));
-        builder.push_trait_implementation_body(trait_implementation_body(snapshot, 22, false));
+        builder.push_implementation_body(implementation_body(snapshot, 22, false));
 
         let declaration = builder.build();
 
         assert_eq!(declaration.full_text(), "impl Point(Equatable) {}");
         assert_eq!(declaration.implementation_subject().full_text(), "Point");
         assert_eq!(declaration.trait_application().full_text(), "Equatable");
-        assert_eq!(declaration.trait_implementation_body().full_text(), "{}");
+        assert_eq!(declaration.implementation_body().full_text(), "{}");
     }
 
     #[test]
@@ -514,7 +460,7 @@ mod tests {
         builder.push_trait_application(trait_application(snapshot.clone(), 21, 30));
         builder.push_close_paren_token(keyword(SyntaxKind::CloseParenToken, 30, 31, true));
 
-        builder.push_trait_implementation_body(trait_implementation_body(snapshot, 32, false));
+        builder.push_implementation_body(implementation_body(snapshot, 32, false));
 
         let declaration = builder.build();
 
@@ -530,6 +476,34 @@ mod tests {
 
         assert_eq!(declaration.implementation_subject().full_text(), "Point");
         assert_eq!(declaration.trait_application().full_text(), "Equatable");
+    }
+
+    // TODO(syntax): Update this when type expressions are typed syntax.
+    #[test]
+    fn implementation_bodies_store_type_member_bindings() {
+        let snapshot = test_snapshot("syntax-implementation-test", "{ type Item = Element; }");
+        let mut builder = ImplementationBodySyntax::builder(snapshot.clone(), TextSize::ZERO);
+
+        builder.push_open_brace_token(keyword(SyntaxKind::OpenBraceToken, 0, 1, true));
+
+        builder.push_implementation_type_member_binding(implementation_type_member_binding(
+            snapshot, 2, true,
+        ));
+
+        builder.push_close_brace_token(token(SyntaxKind::CloseBraceToken, 23, 24));
+
+        let body = builder.build();
+
+        let bindings = body
+            .implementation_type_member_bindings()
+            .collect::<Vec<_>>();
+
+        let [binding] = bindings.as_slice() else {
+            panic!("expected one implementation type member binding: {bindings:?}");
+        };
+
+        assert_eq!(body.full_text(), "{ type Item = Element; }");
+        assert_eq!(binding.full_text(), "type Item = Element; ");
     }
 
     // TODO(syntax): Update this when generic argument lists are typed syntax.

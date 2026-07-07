@@ -92,12 +92,6 @@ const TRAIT_CALLABLE_MEMBER_DECLARATION_END_KINDS: [SyntaxKind; 9] = [
     SyntaxKind::FuncKeyword,
 ];
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) enum TraitCallableTailPolicy {
-    AllowSemicolon,
-    RequireBody,
-}
-
 impl Parser {
     pub(super) fn parse_type_callable_member_declaration(
         &mut self,
@@ -160,7 +154,6 @@ impl Parser {
 
     pub(super) fn parse_trait_callable_member_declaration(
         &mut self,
-        tail_policy: TraitCallableTailPolicy,
     ) -> TraitCallableMemberDeclarationSyntax {
         let start = self.peek().full_range().start();
         let mut builder =
@@ -168,7 +161,7 @@ impl Parser {
 
         builder.push_trait_callable_member_modifiers(self.parse_trait_callable_member_modifiers());
         self.parse_callable_member_header(&mut builder);
-        self.parse_trait_callable_member_tail(&mut builder, tail_policy);
+        self.parse_trait_callable_member_tail(&mut builder);
 
         builder.build()
     }
@@ -233,7 +226,6 @@ impl Parser {
     fn parse_trait_callable_member_tail(
         &mut self,
         builder: &mut TraitCallableMemberDeclarationSyntaxBuilder,
-        tail_policy: TraitCallableTailPolicy,
     ) {
         if self.at(SyntaxKind::OpenBraceToken) {
             builder.push_callable_body_block_expression(
@@ -244,19 +236,8 @@ impl Parser {
             return;
         }
 
-        match tail_policy {
-            TraitCallableTailPolicy::AllowSemicolon => {
-                self.recover_until_trait_callable_member_declaration_end(builder);
-                builder.push_semicolon_token(self.expect(SyntaxKind::SemicolonToken));
-            }
-            TraitCallableTailPolicy::RequireBody => {
-                builder.push_callable_body_block_expression(
-                    self.parse_callable_body_block_expression_until(
-                        Parser::at_callable_member_body_missing_boundary,
-                    ),
-                );
-            }
-        }
+        self.recover_until_trait_callable_member_declaration_end(builder);
+        builder.push_semicolon_token(self.expect(SyntaxKind::SemicolonToken));
     }
 
     fn recover_until_trait_callable_member_declaration_end(

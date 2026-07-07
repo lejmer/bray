@@ -1,8 +1,7 @@
 use bray_syntax::{
     ConstantDeclarationSyntax, ConstantDeclarationSyntaxBuilder, ConstantModifiersSyntax,
     SyntaxKind, SyntaxToken, TraitConstantMemberDeclarationSyntax,
-    TraitConstantMemberDeclarationSyntaxBuilder, TraitImplementationConstantMemberDefinitionSyntax,
-    TraitImplementationConstantMemberDefinitionSyntaxBuilder,
+    TraitConstantMemberDeclarationSyntaxBuilder,
 };
 
 use super::module::MODULE_ITEM_START_KINDS;
@@ -75,18 +74,6 @@ impl Parser {
             TraitConstantMemberDeclarationSyntax::builder(self.syntax_source(), start);
 
         self.parse_constant_declaration_core(&mut builder, ConstantInitializerPolicy::Optional);
-
-        builder.build()
-    }
-
-    pub(super) fn parse_trait_implementation_constant_member_definition(
-        &mut self,
-    ) -> TraitImplementationConstantMemberDefinitionSyntax {
-        let start = self.peek().full_range().start();
-        let mut builder =
-            TraitImplementationConstantMemberDefinitionSyntax::builder(self.syntax_source(), start);
-
-        self.parse_constant_declaration_core(&mut builder, ConstantInitializerPolicy::Required);
 
         builder.build()
     }
@@ -203,10 +190,6 @@ impl Parser {
     pub(super) fn should_parse_trait_constant_member_declaration(&mut self) -> bool {
         self.at(SyntaxKind::ConstKeyword)
     }
-
-    pub(super) fn should_parse_trait_implementation_constant_member_definition(&mut self) -> bool {
-        self.at(SyntaxKind::ConstKeyword)
-    }
 }
 
 trait ConstantDeclarationSyntaxSink: RecoverySyntaxSink {
@@ -262,30 +245,6 @@ impl ConstantDeclarationSyntaxSink for TraitConstantMemberDeclarationSyntaxBuild
 
     fn push_semicolon_token(&mut self, token: SyntaxToken) {
         TraitConstantMemberDeclarationSyntaxBuilder::push_semicolon_token(self, token);
-    }
-}
-
-impl ConstantDeclarationSyntaxSink for TraitImplementationConstantMemberDefinitionSyntaxBuilder {
-    fn push_const_keyword(&mut self, token: SyntaxToken) {
-        TraitImplementationConstantMemberDefinitionSyntaxBuilder::push_const_keyword(self, token);
-    }
-
-    fn push_identifier_token(&mut self, token: SyntaxToken) {
-        TraitImplementationConstantMemberDefinitionSyntaxBuilder::push_identifier_token(
-            self, token,
-        );
-    }
-
-    fn push_colon_token(&mut self, token: SyntaxToken) {
-        TraitImplementationConstantMemberDefinitionSyntaxBuilder::push_colon_token(self, token);
-    }
-
-    fn push_equals_token(&mut self, token: SyntaxToken) {
-        TraitImplementationConstantMemberDefinitionSyntaxBuilder::push_equals_token(self, token);
-    }
-
-    fn push_semicolon_token(&mut self, token: SyntaxToken) {
-        TraitImplementationConstantMemberDefinitionSyntaxBuilder::push_semicolon_token(self, token);
     }
 }
 

@@ -4,6 +4,7 @@ use bray_syntax::{
     SyntaxKind, SyntaxToken,
 };
 
+use super::member::MEMBER_KEYWORD_RECOVERY_KINDS;
 use super::module::MODULE_ITEM_START_KINDS;
 use super::separated::{SeparatedListSpec, SeparatedListSyntaxSink, separated_list_recovery_kinds};
 use super::state::Parser;
@@ -146,12 +147,14 @@ impl Parser {
             }
         }
 
-        self.recover_until_module_item_declaration_end(builder);
+        self.recover_until_predicate_declaration_end(builder);
         builder.push_semicolon_token(self.expect(SyntaxKind::SemicolonToken));
     }
 
     fn at_predicate_after_name_boundary(&mut self) -> bool {
-        self.at_any(&PREDICATE_AFTER_NAME_BOUNDARY_KINDS) || self.at_any(&MODULE_ITEM_START_KINDS)
+        self.at_any(&PREDICATE_AFTER_NAME_BOUNDARY_KINDS)
+            || self.at_any(&MODULE_ITEM_START_KINDS)
+            || self.at_any(&MEMBER_KEYWORD_RECOVERY_KINDS)
     }
 
     fn at_predicate_parameter_type_boundary(&mut self) -> bool {
@@ -164,7 +167,16 @@ impl Parser {
     }
 
     fn at_predicate_body_boundary(&mut self) -> bool {
-        self.at_any(&PREDICATE_BODY_BOUNDARY_KINDS) || self.at_any(&MODULE_ITEM_START_KINDS)
+        self.at_any(&PREDICATE_BODY_BOUNDARY_KINDS)
+            || self.at_any(&MODULE_ITEM_START_KINDS)
+            || self.at_any(&MEMBER_KEYWORD_RECOVERY_KINDS)
+    }
+
+    fn recover_until_predicate_declaration_end(
+        &mut self,
+        builder: &mut PredicateDeclarationSyntaxBuilder,
+    ) {
+        self.recover_until_predicate(builder, Parser::at_predicate_body_boundary);
     }
 
     pub(super) fn should_parse_predicate_declaration(&mut self) -> bool {
@@ -297,6 +309,54 @@ mod tests {
         assert_eq!(declaration.full_text(), "trusted predicate opaque(); ");
         assert!(declaration.equals_token().is_none());
         assert!(result.diagnostics().is_empty());
+    }
+
+    // TODO(parser): Update this when predicate parameter type expressions are parsed.
+    #[test]
+    fn parser_parses_predicate_declarations_inside_type_bodies() {
+        let source = concat!(
+            "module main; ",
+            "struct Point { predicate valid(value: Int); } ",
+            "union Shape { predicate drawable(); }"
+        );
+
+        let sources = source_store([source]);
+        let result = parse_compilation_unit(&sources);
+
+        let source_unit = &result.syntax_tree().root().source_units()[0];
+        let struct_declarations = source_unit.struct_declarations().collect::<Vec<_>>();
+        let union_declarations = source_unit.union_declarations().collect::<Vec<_>>();
+
+        let [struct_declaration] = struct_declarations.as_slice() else {
+            panic!("expected one struct declaration: {struct_declarations:?}");
+        };
+
+        let [union_declaration] = union_declarations.as_slice() else {
+            panic!("expected one union declaration: {union_declarations:?}");
+        };
+
+        assert_eq!(source_unit.full_text(), source);
+
+        assert_eq!(
+            struct_declaration
+                .struct_body()
+                .predicate_declarations()
+                .count(),
+            1
+        );
+
+        assert_eq!(
+            union_declaration
+                .union_body()
+                .predicate_declarations()
+                .count(),
+            1
+        );
+
+        assert_eq!(
+            parse_diagnostic_kinds(&result),
+            [DiagnosticKind::SyntaxSkippedSyntax]
+        );
     }
 
     #[test]

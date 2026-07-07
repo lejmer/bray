@@ -666,8 +666,8 @@ mod tests {
     use super::{CompilationUnitSyntax, SourceUnitSyntax};
     use crate::test_support::{
         func_keyword, func_keyword_with_trailing_space, identifier_path,
-        identifier_path_with_trailing_space, implementation_subject, inherent_implementation_body,
-        keyword, snapshot as test_snapshot, token, trait_application, trait_implementation_body,
+        identifier_path_with_trailing_space, implementation_body, implementation_subject, keyword,
+        snapshot as test_snapshot, token, trait_application,
     };
     use crate::{
         AsyncCapableLifecycleMemberModifiersSyntax, BlockModuleDeclarationSyntax,
@@ -676,20 +676,18 @@ mod tests {
         ConstructorMemberModifiersSyntax, DestructorMemberDeclarationSyntax,
         ExportDeclarationSyntax, FinalizerMemberDeclarationSyntax, FunctionDeclarationSyntax,
         FunctionDirectivesSyntax, FunctionModifiersSyntax, IdentifierListItemSyntax,
-        IdentifierListSyntax, ImplementationSubjectSyntax, InherentImplementationBodySyntax,
-        InherentImplementationDeclarationSyntax, ModuleBodySyntax, ModuleDirectivesSyntax,
-        ModuleModifiersSyntax, NamedTraitImplementationDeclarationSyntax, ParameterListSyntax,
-        ParameterModifiersSyntax, ParameterSyntax, PathSyntax, PredicateDeclarationSyntax,
-        ScopeEnterMemberDeclarationSyntax, ScopeExitMemberDeclarationSyntax, SourceSyntaxNode,
-        SourceUnitModuleDeclarationSyntax, StructDeclarationSyntax,
-        SyncLifecycleMemberModifiersSyntax, SyntaxKind, SyntaxNode, SyntaxText, SyntaxToken,
-        SyntaxTrivia, TraitApplicationSyntax, TraitBodySyntax,
+        IdentifierListSyntax, ImplementationBodySyntax, ImplementationSubjectSyntax,
+        ImplementationTypeMemberBindingSyntax, InherentImplementationDeclarationSyntax,
+        ModuleBodySyntax, ModuleDirectivesSyntax, ModuleModifiersSyntax,
+        NamedTraitImplementationDeclarationSyntax, ParameterListSyntax, ParameterModifiersSyntax,
+        ParameterSyntax, PathSyntax, PredicateDeclarationSyntax, ScopeEnterMemberDeclarationSyntax,
+        ScopeExitMemberDeclarationSyntax, SourceSyntaxNode, SourceUnitModuleDeclarationSyntax,
+        StructDeclarationSyntax, SyncLifecycleMemberModifiersSyntax, SyntaxKind, SyntaxNode,
+        SyntaxText, SyntaxToken, SyntaxTrivia, TraitApplicationSyntax, TraitBodySyntax,
         TraitConstantMemberDeclarationSyntax, TraitDeclarationSyntax,
         TraitDestructorRequirementDeclarationSyntax, TraitFinalizerRequirementDeclarationSyntax,
-        TraitImplementationBodySyntax, TraitImplementationConstantMemberDefinitionSyntax,
-        TraitImplementationScopeEnterMemberDeclarationSyntax,
-        TraitImplementationScopeExitMemberDeclarationSyntax, TraitModifiersSyntax,
-        TraitScopeEnterRequirementDeclarationSyntax, TraitScopeExitRequirementDeclarationSyntax,
+        TraitModifiersSyntax, TraitScopeEnterRequirementDeclarationSyntax,
+        TraitScopeExitRequirementDeclarationSyntax, TraitTypeMemberDeclarationSyntax,
         TypeConstructorMemberDeclarationSyntax, UnionDeclarationSyntax,
         UnnamedTraitImplementationDeclarationSyntax, UsingDeclarationSyntax,
     };
@@ -1172,6 +1170,7 @@ mod tests {
         assert_send_sync::<TraitModifiersSyntax>();
         assert_send_sync::<TraitBodySyntax>();
         assert_send_sync::<TraitConstantMemberDeclarationSyntax>();
+        assert_send_sync::<TraitTypeMemberDeclarationSyntax>();
         assert_send_sync::<TraitFinalizerRequirementDeclarationSyntax>();
         assert_send_sync::<TraitDestructorRequirementDeclarationSyntax>();
         assert_send_sync::<TraitScopeEnterRequirementDeclarationSyntax>();
@@ -1179,13 +1178,10 @@ mod tests {
         assert_send_sync::<ImplementationSubjectSyntax>();
         assert_send_sync::<TraitApplicationSyntax>();
         assert_send_sync::<InherentImplementationDeclarationSyntax>();
-        assert_send_sync::<InherentImplementationBodySyntax>();
+        assert_send_sync::<ImplementationBodySyntax>();
+        assert_send_sync::<ImplementationTypeMemberBindingSyntax>();
         assert_send_sync::<UnnamedTraitImplementationDeclarationSyntax>();
         assert_send_sync::<NamedTraitImplementationDeclarationSyntax>();
-        assert_send_sync::<TraitImplementationBodySyntax>();
-        assert_send_sync::<TraitImplementationConstantMemberDefinitionSyntax>();
-        assert_send_sync::<TraitImplementationScopeEnterMemberDeclarationSyntax>();
-        assert_send_sync::<TraitImplementationScopeExitMemberDeclarationSyntax>();
         assert_send_sync::<ConstructorMemberModifiersSyntax>();
         assert_send_sync::<TypeConstructorMemberDeclarationSyntax>();
         assert_send_sync::<AsyncCapableLifecycleMemberModifiersSyntax>();
@@ -1410,7 +1406,7 @@ mod tests {
             true,
         ));
 
-        builder.push_inherent_implementation_body(inherent_implementation_body(
+        builder.push_implementation_body(implementation_body(
             snapshot,
             start + 11,
             has_trailing_space,
@@ -1448,7 +1444,7 @@ mod tests {
             true,
         ));
 
-        builder.push_trait_implementation_body(trait_implementation_body(
+        builder.push_implementation_body(implementation_body(
             snapshot,
             start + 22,
             has_trailing_space,
@@ -1499,11 +1495,7 @@ mod tests {
             true,
         ));
 
-        builder.push_trait_implementation_body(trait_implementation_body(
-            snapshot,
-            start + 32,
-            false,
-        ));
+        builder.push_implementation_body(implementation_body(snapshot, start + 32, false));
 
         builder.build()
     }
