@@ -189,6 +189,11 @@ impl Parser {
             return;
         }
 
+        if self.should_parse_trait_type_member_declaration() {
+            builder.push_trait_type_member_declaration(self.parse_trait_type_member_declaration());
+            return;
+        }
+
         // TODO(parser): Parse remaining trait member declarations as they are implemented.
         self.recover_body_item(builder);
     }

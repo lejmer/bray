@@ -18,12 +18,12 @@ use bray_syntax::{
     TraitDeclarationSyntaxBuilder, TraitDestructorRequirementDeclarationSyntaxBuilder,
     TraitFinalizerRequirementDeclarationSyntaxBuilder,
     TraitScopeEnterRequirementDeclarationSyntaxBuilder,
-    TraitScopeExitRequirementDeclarationSyntaxBuilder, TypeCallableMemberDeclarationSyntaxBuilder,
-    TypeConstructorMemberDeclarationSyntaxBuilder, TypeDirectivesSyntaxBuilder,
-    UnionBodySyntaxBuilder, UnionDeclarationSyntaxBuilder, UnionPayloadFieldSyntaxBuilder,
-    UnionVariantDeclarationSyntaxBuilder, UnionVariantPayloadSyntaxBuilder,
-    UnnamedTraitImplementationDeclarationSyntaxBuilder, UsingDeclarationSyntaxBuilder,
-    VariantDirectivesSyntaxBuilder,
+    TraitScopeExitRequirementDeclarationSyntaxBuilder, TraitTypeMemberDeclarationSyntaxBuilder,
+    TypeCallableMemberDeclarationSyntaxBuilder, TypeConstructorMemberDeclarationSyntaxBuilder,
+    TypeDirectivesSyntaxBuilder, UnionBodySyntaxBuilder, UnionDeclarationSyntaxBuilder,
+    UnionPayloadFieldSyntaxBuilder, UnionVariantDeclarationSyntaxBuilder,
+    UnionVariantPayloadSyntaxBuilder, UnnamedTraitImplementationDeclarationSyntaxBuilder,
+    UsingDeclarationSyntaxBuilder, VariantDirectivesSyntaxBuilder,
 };
 
 use crate::cursor::RecoverySet;
@@ -480,6 +480,12 @@ impl RecoverySyntaxSink for TraitCallableMemberDeclarationSyntaxBuilder {
 impl RecoverySyntaxSink for TraitConstantMemberDeclarationSyntaxBuilder {
     fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
         TraitConstantMemberDeclarationSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for TraitTypeMemberDeclarationSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        TraitTypeMemberDeclarationSyntaxBuilder::push_skipped_tokens(self, tokens);
     }
 }
 

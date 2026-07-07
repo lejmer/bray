@@ -1,7 +1,8 @@
 use super::member::{
     DestructorMemberDeclarationSyntax, FinalizerMemberDeclarationSyntax,
-    ScopeEnterMemberDeclarationSyntax, ScopeExitMemberDeclarationSyntax,
-    TypeCallableMemberDeclarationSyntax, TypeConstructorMemberDeclarationSyntax,
+    ImplementationTypeMemberBindingSyntax, ScopeEnterMemberDeclarationSyntax,
+    ScopeExitMemberDeclarationSyntax, TypeCallableMemberDeclarationSyntax,
+    TypeConstructorMemberDeclarationSyntax,
 };
 use super::path::PathSyntax;
 use crate::SyntaxKind;
@@ -74,56 +75,6 @@ define_source_syntax_node! {
                 kind: SyntaxKind::Path;
             }
         ],
-    }
-}
-
-define_source_syntax_node! {
-    /// Type-valued member binding inside an implementation body.
-    pub struct ImplementationTypeMemberBindingSyntax {
-        builder: ImplementationTypeMemberBindingSyntaxBuilder,
-        kind: SyntaxKind::ImplementationTypeMemberBinding,
-        source_slot: "implementation_type_member_binding.source",
-        node_name: "implementation type member binding",
-        range_description: "implementation-type-member-binding",
-        debug_name: "ImplementationTypeMemberBindingSyntax",
-        builder_debug_name: "ImplementationTypeMemberBindingSyntaxBuilder",
-        skipped_syntax: true,
-        required_tokens: [
-            {
-                /// Returns the required `type` keyword token.
-                type_keyword;
-                /// Appends the `type` keyword token.
-                push_type_keyword;
-                kind: SyntaxKind::TypeKeyword;
-                slot: "implementation_type_member_binding.type_keyword";
-            },
-            {
-                /// Returns the required type member name token.
-                identifier_token;
-                /// Appends the type member name token.
-                push_identifier_token;
-                kind: SyntaxKind::IdentifierToken;
-                slot: "implementation_type_member_binding.identifier_token";
-            },
-            {
-                /// Returns the required equals token.
-                equals_token;
-                /// Appends the equals token.
-                push_equals_token;
-                kind: SyntaxKind::EqualsToken;
-                slot: "implementation_type_member_binding.equals_token";
-            },
-            {
-                /// Returns the required semicolon token.
-                semicolon_token;
-                /// Appends the semicolon token.
-                push_semicolon_token;
-                kind: SyntaxKind::SemicolonToken;
-                slot: "implementation_type_member_binding.semicolon_token";
-            }
-        ],
-        optional_tokens: [],
-        required_children: [],
     }
 }
 
@@ -433,14 +384,14 @@ mod tests {
     use bray_source::TextSize;
 
     use crate::test_support::{
-        identifier_path, implementation_body, implementation_subject, keyword,
-        snapshot as test_snapshot, token, trait_application,
+        identifier_path, implementation_body, implementation_subject,
+        implementation_type_member_binding, keyword, snapshot as test_snapshot, token,
+        trait_application,
     };
     use crate::{
         ImplementationBodySyntax, ImplementationSubjectSyntax,
-        ImplementationTypeMemberBindingSyntax, InherentImplementationDeclarationSyntax,
-        NamedTraitImplementationDeclarationSyntax, SyntaxKind, SyntaxText,
-        UnnamedTraitImplementationDeclarationSyntax,
+        InherentImplementationDeclarationSyntax, NamedTraitImplementationDeclarationSyntax,
+        SyntaxKind, SyntaxText, UnnamedTraitImplementationDeclarationSyntax,
     };
 
     #[test]
@@ -535,8 +486,9 @@ mod tests {
 
         builder.push_open_brace_token(keyword(SyntaxKind::OpenBraceToken, 0, 1, true));
 
-        builder
-            .push_implementation_type_member_binding(implementation_type_member_binding(snapshot));
+        builder.push_implementation_type_member_binding(implementation_type_member_binding(
+            snapshot, 2, true,
+        ));
 
         builder.push_close_brace_token(token(SyntaxKind::CloseBraceToken, 23, 24));
 
@@ -575,20 +527,5 @@ mod tests {
         assert_eq!(subject.full_text(), "&mut Vec<T>");
         assert_eq!(subject.path().full_text(), "Vec");
         assert_eq!(subject.skipped_syntax().count(), 1);
-    }
-
-    fn implementation_type_member_binding(
-        snapshot: bray_source::SourceSnapshot,
-    ) -> ImplementationTypeMemberBindingSyntax {
-        let mut builder =
-            ImplementationTypeMemberBindingSyntax::builder(snapshot, TextSize::new(2));
-
-        builder.push_type_keyword(keyword(SyntaxKind::TypeKeyword, 2, 6, true));
-        builder.push_identifier_token(keyword(SyntaxKind::IdentifierToken, 7, 11, true));
-        builder.push_equals_token(keyword(SyntaxKind::EqualsToken, 12, 13, true));
-        builder.push_skipped_tokens([token(SyntaxKind::IdentifierToken, 14, 21)]);
-        builder.push_semicolon_token(keyword(SyntaxKind::SemicolonToken, 21, 22, true));
-
-        builder.build()
     }
 }

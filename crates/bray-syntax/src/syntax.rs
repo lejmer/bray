@@ -50,8 +50,7 @@ pub use function::{
 };
 pub use implementation::{
     ImplementationBodySyntax, ImplementationBodySyntaxBuilder, ImplementationSubjectSyntax,
-    ImplementationSubjectSyntaxBuilder, ImplementationTypeMemberBindingSyntax,
-    ImplementationTypeMemberBindingSyntaxBuilder, InherentImplementationDeclarationSyntax,
+    ImplementationSubjectSyntaxBuilder, InherentImplementationDeclarationSyntax,
     InherentImplementationDeclarationSyntaxBuilder, NamedTraitImplementationDeclarationSyntax,
     NamedTraitImplementationDeclarationSyntaxBuilder, TraitApplicationSyntax,
     TraitApplicationSyntaxBuilder, UnnamedTraitImplementationDeclarationSyntax,
@@ -66,6 +65,7 @@ pub use member::{
     ConstructorMemberModifiersSyntax, ConstructorMemberModifiersSyntaxBuilder,
     DestructorMemberDeclarationSyntax, DestructorMemberDeclarationSyntaxBuilder,
     FinalizerMemberDeclarationSyntax, FinalizerMemberDeclarationSyntaxBuilder,
+    ImplementationTypeMemberBindingSyntax, ImplementationTypeMemberBindingSyntaxBuilder,
     ScopeEnterMemberDeclarationSyntax, ScopeEnterMemberDeclarationSyntaxBuilder,
     ScopeExitMemberDeclarationSyntax, ScopeExitMemberDeclarationSyntaxBuilder,
     SyncLifecycleMemberModifiersSyntax, SyncLifecycleMemberModifiersSyntaxBuilder,
@@ -75,7 +75,8 @@ pub use member::{
     TraitDestructorRequirementDeclarationSyntaxBuilder, TraitFinalizerRequirementDeclarationSyntax,
     TraitFinalizerRequirementDeclarationSyntaxBuilder, TraitScopeEnterRequirementDeclarationSyntax,
     TraitScopeEnterRequirementDeclarationSyntaxBuilder, TraitScopeExitRequirementDeclarationSyntax,
-    TraitScopeExitRequirementDeclarationSyntaxBuilder, TypeCallableMemberDeclarationSyntax,
+    TraitScopeExitRequirementDeclarationSyntaxBuilder, TraitTypeMemberDeclarationSyntax,
+    TraitTypeMemberDeclarationSyntaxBuilder, TypeCallableMemberDeclarationSyntax,
     TypeCallableMemberDeclarationSyntaxBuilder, TypeCallableMemberModifiersSyntax,
     TypeCallableMemberModifiersSyntaxBuilder, TypeConstructorMemberDeclarationSyntax,
     TypeConstructorMemberDeclarationSyntaxBuilder,

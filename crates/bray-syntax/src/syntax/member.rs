@@ -1,6 +1,7 @@
 mod callable;
 mod constructor;
 mod lifecycle;
+mod type_value;
 
 pub use callable::{
     TraitCallableMemberDeclarationSyntax, TraitCallableMemberDeclarationSyntaxBuilder,
@@ -24,4 +25,8 @@ pub use lifecycle::{
     TraitFinalizerRequirementDeclarationSyntaxBuilder, TraitScopeEnterRequirementDeclarationSyntax,
     TraitScopeEnterRequirementDeclarationSyntaxBuilder, TraitScopeExitRequirementDeclarationSyntax,
     TraitScopeExitRequirementDeclarationSyntaxBuilder,
+};
+pub use type_value::{
+    ImplementationTypeMemberBindingSyntax, ImplementationTypeMemberBindingSyntaxBuilder,
+    TraitTypeMemberDeclarationSyntax, TraitTypeMemberDeclarationSyntaxBuilder,
 };

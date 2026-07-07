@@ -1,11 +1,9 @@
 use bray_syntax::{
     ImplementationBodySyntax, ImplementationSubjectSyntax, ImplementationSubjectSyntaxBuilder,
-    ImplementationTypeMemberBindingSyntax, InherentImplementationDeclarationSyntax,
-    NamedTraitImplementationDeclarationSyntax, SyntaxKind, TraitApplicationSyntax,
-    UnnamedTraitImplementationDeclarationSyntax,
+    InherentImplementationDeclarationSyntax, NamedTraitImplementationDeclarationSyntax, SyntaxKind,
+    TraitApplicationSyntax, UnnamedTraitImplementationDeclarationSyntax,
 };
 
-use super::member::MEMBER_KEYWORD_RECOVERY_KINDS;
 use super::module::MODULE_ITEM_START_KINDS;
 use super::recovery::RecoverySyntaxSink;
 use super::state::Parser;
@@ -36,12 +34,6 @@ const IMPLEMENTATION_CONSTRAINT_BOUNDARY_KINDS: [SyntaxKind; 5] = [
 ];
 
 const IMPLEMENTATION_BODY_MISSING_BOUNDARY_KINDS: [SyntaxKind; 3] = [
-    SyntaxKind::SemicolonToken,
-    SyntaxKind::CloseBraceToken,
-    SyntaxKind::EndOfFileToken,
-];
-
-const IMPLEMENTATION_TYPE_MEMBER_TYPE_BOUNDARY_KINDS: [SyntaxKind; 3] = [
     SyntaxKind::SemicolonToken,
     SyntaxKind::CloseBraceToken,
     SyntaxKind::EndOfFileToken,
@@ -211,40 +203,6 @@ impl Parser {
         builder.build()
     }
 
-    pub(super) fn parse_implementation_type_member_binding(
-        &mut self,
-    ) -> ImplementationTypeMemberBindingSyntax {
-        let start = self.peek().full_range().start();
-        let mut builder =
-            ImplementationTypeMemberBindingSyntax::builder(self.syntax_source(), start);
-
-        builder.push_type_keyword(self.expect(SyntaxKind::TypeKeyword));
-        builder.push_identifier_token(self.parse_identifier());
-        builder.push_equals_token(self.expect(SyntaxKind::EqualsToken));
-
-        // TODO(parser): Parse implementation type member expressions once expression parsing is implemented.
-        if !self.at_implementation_type_member_type_boundary() {
-            self.recover_current_and_until_predicate(
-                &mut builder,
-                Parser::at_implementation_type_member_type_boundary,
-            );
-        }
-
-        self.recover_until_predicate(
-            &mut builder,
-            Parser::at_implementation_type_member_type_boundary,
-        );
-        builder.push_semicolon_token(self.expect(SyntaxKind::SemicolonToken));
-
-        builder.build()
-    }
-
-    fn at_implementation_type_member_type_boundary(&mut self) -> bool {
-        self.at_any(&IMPLEMENTATION_TYPE_MEMBER_TYPE_BOUNDARY_KINDS)
-            || self.at_any(&MEMBER_KEYWORD_RECOVERY_KINDS)
-            || self.at_any(&MODULE_ITEM_START_KINDS)
-    }
-
     fn at_implementation_named_subject_or_boundary(&mut self) -> bool {
         self.at(SyntaxKind::IdentifierToken) || self.at_implementation_subject_boundary()
     }
@@ -294,10 +252,6 @@ impl Parser {
 
     pub(super) fn should_parse_named_trait_implementation_declaration(&mut self) -> bool {
         self.at(SyntaxKind::ImplKeyword) && self.at_named_trait_implementation_prefix()
-    }
-
-    pub(super) fn should_parse_implementation_type_member_binding(&mut self) -> bool {
-        self.at(SyntaxKind::TypeKeyword)
     }
 
     fn at_named_trait_implementation_prefix(&mut self) -> bool {

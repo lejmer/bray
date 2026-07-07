@@ -3,8 +3,8 @@ use bray_source::{
 };
 
 use crate::{
-    ImplementationBodySyntax, ImplementationSubjectSyntax, PathSyntax, SyntaxKind, SyntaxToken,
-    SyntaxTrivia, TraitApplicationSyntax,
+    ImplementationBodySyntax, ImplementationSubjectSyntax, ImplementationTypeMemberBindingSyntax,
+    PathSyntax, SyntaxKind, SyntaxToken, SyntaxTrivia, TraitApplicationSyntax,
 };
 
 pub(crate) fn func_keyword_with_trailing_space() -> SyntaxToken {
@@ -90,6 +90,38 @@ pub(crate) fn implementation_body(
 
     builder.push_open_brace_token(token(SyntaxKind::OpenBraceToken, start, start + 1));
     builder.push_close_brace_token(close_brace_token(start, has_trailing_space));
+
+    builder.build()
+}
+
+pub(crate) fn implementation_type_member_binding(
+    snapshot: SourceSnapshot,
+    start: u32,
+    has_trailing_space: bool,
+) -> ImplementationTypeMemberBindingSyntax {
+    let mut builder =
+        ImplementationTypeMemberBindingSyntax::builder(snapshot, TextSize::new(start));
+
+    builder.push_type_keyword(keyword(SyntaxKind::TypeKeyword, start, start + 4, true));
+    builder.push_identifier_token(keyword(
+        SyntaxKind::IdentifierToken,
+        start + 5,
+        start + 9,
+        true,
+    ));
+    builder.push_equals_token(keyword(
+        SyntaxKind::EqualsToken,
+        start + 10,
+        start + 11,
+        true,
+    ));
+    builder.push_skipped_tokens([token(SyntaxKind::IdentifierToken, start + 12, start + 19)]);
+    builder.push_semicolon_token(keyword(
+        SyntaxKind::SemicolonToken,
+        start + 19,
+        start + 20,
+        has_trailing_space,
+    ));
 
     builder.build()
 }

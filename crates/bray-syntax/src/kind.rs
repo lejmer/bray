@@ -99,6 +99,8 @@ pub enum SyntaxKind {
     TraitBody,
     /// Trait constant member declaration.
     TraitConstantMemberDeclaration,
+    /// Trait type-valued member declaration.
+    TraitTypeMemberDeclaration,
     /// Optional trait callable member modifiers in source order.
     TraitCallableMemberModifiers,
     /// Trait callable member declaration.
@@ -343,6 +345,7 @@ impl SyntaxKind {
                 | Self::TraitModifiers
                 | Self::TraitBody
                 | Self::TraitConstantMemberDeclaration
+                | Self::TraitTypeMemberDeclaration
                 | Self::TraitCallableMemberModifiers
                 | Self::TraitCallableMemberDeclaration
                 | Self::ImplementationSubject
@@ -538,6 +541,7 @@ impl SyntaxKind {
             Self::TraitModifiers => "trait_modifiers",
             Self::TraitBody => "trait_body",
             Self::TraitConstantMemberDeclaration => "trait_constant_member_declaration",
+            Self::TraitTypeMemberDeclaration => "trait_type_member_declaration",
             Self::TraitCallableMemberModifiers => "trait_callable_member_modifiers",
             Self::TraitCallableMemberDeclaration => "trait_callable_member_declaration",
             Self::ImplementationSubject => "implementation_subject",
@@ -766,6 +770,7 @@ mod tests {
         assert!(SyntaxKind::TraitModifiers.is_node());
         assert!(SyntaxKind::TraitBody.is_node());
         assert!(SyntaxKind::TraitConstantMemberDeclaration.is_node());
+        assert!(SyntaxKind::TraitTypeMemberDeclaration.is_node());
         assert!(SyntaxKind::TraitCallableMemberModifiers.is_node());
         assert!(SyntaxKind::TraitCallableMemberDeclaration.is_node());
 
@@ -961,6 +966,11 @@ mod tests {
         assert_eq!(
             SyntaxKind::TraitConstantMemberDeclaration.as_str(),
             "trait_constant_member_declaration"
+        );
+
+        assert_eq!(
+            SyntaxKind::TraitTypeMemberDeclaration.as_str(),
+            "trait_type_member_declaration"
         );
 
         assert_eq!(
