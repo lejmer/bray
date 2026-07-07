@@ -210,10 +210,9 @@ define_source_syntax_node! {
 
 #[cfg(test)]
 mod tests {
-    use bray_source::{
-        SourceId, SourceIdentity, SourceOrigin, SourceSnapshot, SourceVersion, TextRange, TextSize,
-    };
+    use bray_source::{SourceSnapshot, TextRange, TextSize};
 
+    use crate::test_support::{snapshot as test_snapshot, token};
     use crate::{
         CallableBodyBlockExpressionSyntax, CallableResultClauseSyntax, ParameterListSyntax,
         ParameterModifiersSyntax, ParameterSyntax, SyntaxKind, SyntaxText, SyntaxToken,
@@ -222,7 +221,7 @@ mod tests {
 
     #[test]
     fn parameter_lists_store_parameters_separators_and_defaults() {
-        let snapshot = snapshot("pos value: Int = 1, tail: Bool");
+        let snapshot = test_snapshot("syntax-callable-test", "pos value: Int = 1, tail: Bool");
         let first = parameter(snapshot.clone(), 0, true);
         let second = parameter(snapshot.clone(), 20, false);
         let comma =
@@ -255,7 +254,7 @@ mod tests {
 
     #[test]
     fn callable_result_clauses_and_body_blocks_store_skipped_contents() {
-        let snapshot = snapshot("-> Int { return }");
+        let snapshot = test_snapshot("syntax-callable-test", "-> Int { return }");
         let mut result_builder =
             CallableResultClauseSyntax::builder(snapshot.clone(), TextSize::ZERO);
 
@@ -356,25 +355,5 @@ mod tests {
         }
 
         builder.build()
-    }
-
-    fn token(kind: SyntaxKind, start: u32, end: u32) -> SyntaxToken {
-        SyntaxToken::new(
-            kind,
-            TextRange::new(TextSize::new(start), TextSize::new(end)),
-        )
-    }
-
-    fn snapshot(text: &str) -> SourceSnapshot {
-        match SourceSnapshot::new(
-            SourceId::new(0),
-            SourceIdentity::new(0),
-            SourceOrigin::virtual_source("syntax-callable-test"),
-            SourceVersion::new(0),
-            text,
-        ) {
-            Ok(snapshot) => snapshot,
-            Err(error) => panic!("test source should fit in TextSize: {error:?}"),
-        }
     }
 }

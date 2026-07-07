@@ -125,18 +125,16 @@ define_source_syntax_node! {
 
 #[cfg(test)]
 mod tests {
-    use bray_source::{
-        SourceId, SourceIdentity, SourceOrigin, SourceSnapshot, SourceVersion, TextRange, TextSize,
-    };
+    use bray_source::{SourceSnapshot, TextSize};
 
+    use crate::test_support::{keyword, snapshot as test_snapshot, token};
     use crate::{
-        SyntaxKind, SyntaxText, SyntaxToken, SyntaxTrivia, TraitBodySyntax, TraitDeclarationSyntax,
-        TraitModifiersSyntax,
+        SyntaxKind, SyntaxText, TraitBodySyntax, TraitDeclarationSyntax, TraitModifiersSyntax,
     };
 
     #[test]
     fn trait_declarations_store_modifiers_name_and_body() {
-        let snapshot = snapshot("public trait Display {}");
+        let snapshot = test_snapshot("syntax-trait-declaration-test", "public trait Display {}");
         let mut builder = TraitDeclarationSyntax::builder(snapshot.clone(), TextSize::ZERO);
 
         builder.push_trait_modifiers(trait_modifiers(snapshot.clone()));
@@ -181,38 +179,5 @@ mod tests {
         builder.push_close_brace_token(token(SyntaxKind::CloseBraceToken, 22, 23));
 
         builder.build()
-    }
-
-    fn keyword(kind: SyntaxKind, start: u32, end: u32, has_trailing_space: bool) -> SyntaxToken {
-        let token = token(kind, start, end);
-
-        if has_trailing_space {
-            return token.with_trailing_trivia([SyntaxTrivia::whitespace(TextRange::new(
-                TextSize::new(end),
-                TextSize::new(end + 1),
-            ))]);
-        }
-
-        token
-    }
-
-    fn token(kind: SyntaxKind, start: u32, end: u32) -> SyntaxToken {
-        SyntaxToken::new(
-            kind,
-            TextRange::new(TextSize::new(start), TextSize::new(end)),
-        )
-    }
-
-    fn snapshot(text: &str) -> SourceSnapshot {
-        match SourceSnapshot::new(
-            SourceId::new(0),
-            SourceIdentity::new(0),
-            SourceOrigin::virtual_source("syntax-trait-declaration-test"),
-            SourceVersion::new(0),
-            text,
-        ) {
-            Ok(snapshot) => snapshot,
-            Err(error) => panic!("test source should fit in TextSize: {error:?}"),
-        }
     }
 }

@@ -43,6 +43,22 @@ pub enum SyntaxKind {
     FunctionDirectives,
     /// Optional function modifiers in source order.
     FunctionModifiers,
+    /// Module-level struct declaration.
+    StructDeclaration,
+    /// Type directives in source order.
+    TypeDirectives,
+    /// `@layout(...)` type directive.
+    LayoutDirective,
+    /// `@copy` type directive.
+    CopyDirective,
+    /// Optional type declaration modifiers in source order.
+    TypeModifiers,
+    /// Braced struct declaration body.
+    StructBody,
+    /// Module-level union declaration.
+    UnionDeclaration,
+    /// Braced union declaration body.
+    UnionBody,
     /// Module-level trait declaration.
     TraitDeclaration,
     /// Optional trait modifiers in source order.
@@ -219,6 +235,14 @@ impl SyntaxKind {
                 | Self::FunctionDeclaration
                 | Self::FunctionDirectives
                 | Self::FunctionModifiers
+                | Self::StructDeclaration
+                | Self::TypeDirectives
+                | Self::LayoutDirective
+                | Self::CopyDirective
+                | Self::TypeModifiers
+                | Self::StructBody
+                | Self::UnionDeclaration
+                | Self::UnionBody
                 | Self::TraitDeclaration
                 | Self::TraitModifiers
                 | Self::TraitBody
@@ -366,6 +390,14 @@ impl SyntaxKind {
             Self::FunctionDeclaration => "function_declaration",
             Self::FunctionDirectives => "function_directives",
             Self::FunctionModifiers => "function_modifiers",
+            Self::StructDeclaration => "struct_declaration",
+            Self::TypeDirectives => "type_directives",
+            Self::LayoutDirective => "layout_directive",
+            Self::CopyDirective => "copy_directive",
+            Self::TypeModifiers => "type_modifiers",
+            Self::StructBody => "struct_body",
+            Self::UnionDeclaration => "union_declaration",
+            Self::UnionBody => "union_body",
             Self::TraitDeclaration => "trait_declaration",
             Self::TraitModifiers => "trait_modifiers",
             Self::TraitBody => "trait_body",
@@ -533,6 +565,15 @@ mod tests {
         assert!(SyntaxKind::FunctionDirectives.is_node());
         assert!(SyntaxKind::FunctionModifiers.is_node());
 
+        assert!(SyntaxKind::StructDeclaration.is_node());
+        assert!(SyntaxKind::TypeDirectives.is_node());
+        assert!(SyntaxKind::LayoutDirective.is_node());
+        assert!(SyntaxKind::CopyDirective.is_node());
+        assert!(SyntaxKind::TypeModifiers.is_node());
+        assert!(SyntaxKind::StructBody.is_node());
+        assert!(SyntaxKind::UnionDeclaration.is_node());
+        assert!(SyntaxKind::UnionBody.is_node());
+
         assert!(SyntaxKind::TraitDeclaration.is_node());
         assert!(SyntaxKind::TraitModifiers.is_node());
         assert!(SyntaxKind::TraitBody.is_node());
@@ -622,6 +663,15 @@ mod tests {
         );
 
         assert_eq!(SyntaxKind::FunctionModifiers.as_str(), "function_modifiers");
+
+        assert_eq!(SyntaxKind::StructDeclaration.as_str(), "struct_declaration");
+        assert_eq!(SyntaxKind::TypeDirectives.as_str(), "type_directives");
+        assert_eq!(SyntaxKind::LayoutDirective.as_str(), "layout_directive");
+        assert_eq!(SyntaxKind::CopyDirective.as_str(), "copy_directive");
+        assert_eq!(SyntaxKind::TypeModifiers.as_str(), "type_modifiers");
+        assert_eq!(SyntaxKind::StructBody.as_str(), "struct_body");
+        assert_eq!(SyntaxKind::UnionDeclaration.as_str(), "union_declaration");
+        assert_eq!(SyntaxKind::UnionBody.as_str(), "union_body");
 
         assert_eq!(SyntaxKind::TraitDeclaration.as_str(), "trait_declaration");
         assert_eq!(SyntaxKind::TraitModifiers.as_str(), "trait_modifiers");

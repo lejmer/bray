@@ -199,6 +199,21 @@ define_source_syntax_node! {
 }
 
 define_bare_directive_syntax! {
+    /// `@copy` directive.
+    CopyDirectiveSyntax {
+        builder: CopyDirectiveSyntaxBuilder,
+        kind: SyntaxKind::CopyDirective,
+        source_slot: "copy_directive.source",
+        node_name: "copy directive",
+        range_description: "copy-directive",
+        debug_name: "CopyDirectiveSyntax",
+        builder_debug_name: "CopyDirectiveSyntaxBuilder",
+        marker_slot: "copy_directive.directive_marker_token",
+        name_slot: "copy_directive.name_token",
+    }
+}
+
+define_bare_directive_syntax! {
     /// `@test` directive.
     TestDirectiveSyntax {
         builder: TestDirectiveSyntaxBuilder,
@@ -225,6 +240,21 @@ define_bare_directive_syntax! {
         builder_debug_name: "EntrypointDirectiveSyntaxBuilder",
         marker_slot: "entrypoint_directive.directive_marker_token",
         name_slot: "entrypoint_directive.name_token",
+    }
+}
+
+define_argument_list_directive_syntax! {
+    /// `@layout(...)` directive.
+    LayoutDirectiveSyntax {
+        builder: LayoutDirectiveSyntaxBuilder,
+        kind: SyntaxKind::LayoutDirective,
+        source_slot: "layout_directive.source",
+        node_name: "layout directive",
+        range_description: "layout-directive",
+        debug_name: "LayoutDirectiveSyntax",
+        builder_debug_name: "LayoutDirectiveSyntaxBuilder",
+        marker_slot: "layout_directive.directive_marker_token",
+        name_slot: "layout_directive.name_token",
     }
 }
 

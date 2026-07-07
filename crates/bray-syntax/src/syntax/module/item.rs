@@ -99,23 +99,19 @@ define_source_syntax_node! {
 
 #[cfg(test)]
 mod tests {
-    use bray_source::{
-        SourceId, SourceIdentity, SourceOrigin, SourceSnapshot, SourceVersion, TextRange, TextSize,
-    };
+    use bray_source::TextSize;
 
-    use crate::{
-        ExportDeclarationSyntax, PathSyntax, SyntaxKind, SyntaxText, SyntaxToken, SyntaxTrivia,
-        UsingDeclarationSyntax,
-    };
+    use crate::test_support::{identifier_path, keyword, snapshot as test_snapshot, token};
+    use crate::{ExportDeclarationSyntax, SyntaxKind, SyntaxText, UsingDeclarationSyntax};
 
     #[test]
     fn using_declarations_store_internal_path_and_semicolon() {
-        let snapshot = snapshot("using internal core;");
+        let snapshot = test_snapshot("syntax-module-item-test", "using internal core;");
         let mut builder = UsingDeclarationSyntax::builder(snapshot.clone(), TextSize::ZERO);
 
         builder.push_using_keyword(keyword(SyntaxKind::UsingKeyword, 0, 5, true));
         builder.push_internal_keyword(keyword(SyntaxKind::InternalKeyword, 6, 14, true));
-        builder.push_path(path(snapshot, 15, 19));
+        builder.push_path(identifier_path(snapshot, 15, 19));
         builder.push_semicolon_token(token(SyntaxKind::SemicolonToken, 19, 20));
 
         let declaration = builder.build();
@@ -137,11 +133,11 @@ mod tests {
 
     #[test]
     fn export_declarations_store_path_and_semicolon() {
-        let snapshot = snapshot("export api;");
+        let snapshot = test_snapshot("syntax-module-item-test", "export api;");
         let mut builder = ExportDeclarationSyntax::builder(snapshot.clone(), TextSize::ZERO);
 
         builder.push_export_keyword(keyword(SyntaxKind::ExportKeyword, 0, 6, true));
-        builder.push_path(path(snapshot, 7, 10));
+        builder.push_path(identifier_path(snapshot, 7, 10));
         builder.push_semicolon_token(token(SyntaxKind::SemicolonToken, 10, 11));
 
         let declaration = builder.build();
@@ -153,46 +149,5 @@ mod tests {
             declaration.semicolon_token().kind(),
             SyntaxKind::SemicolonToken
         );
-    }
-
-    fn keyword(kind: SyntaxKind, start: u32, end: u32, has_trailing_space: bool) -> SyntaxToken {
-        let token = token(kind, start, end);
-
-        if has_trailing_space {
-            return token.with_trailing_trivia([SyntaxTrivia::whitespace(TextRange::new(
-                TextSize::new(end),
-                TextSize::new(end + 1),
-            ))]);
-        }
-
-        token
-    }
-
-    fn path(snapshot: SourceSnapshot, start: u32, end: u32) -> PathSyntax {
-        let mut builder = PathSyntax::builder(snapshot);
-
-        builder.push_identifier_token(token(SyntaxKind::IdentifierToken, start, end));
-
-        builder.build()
-    }
-
-    fn token(kind: SyntaxKind, start: u32, end: u32) -> SyntaxToken {
-        SyntaxToken::new(
-            kind,
-            TextRange::new(TextSize::new(start), TextSize::new(end)),
-        )
-    }
-
-    fn snapshot(text: &str) -> SourceSnapshot {
-        match SourceSnapshot::new(
-            SourceId::new(0),
-            SourceIdentity::new(0),
-            SourceOrigin::virtual_source("syntax-module-item-test"),
-            SourceVersion::new(0),
-            text,
-        ) {
-            Ok(snapshot) => snapshot,
-            Err(error) => panic!("test source should fit in TextSize: {error:?}"),
-        }
     }
 }

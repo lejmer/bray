@@ -7,8 +7,8 @@ use bray_source::{SourceSnapshot, TextRange, TextSize};
 use super::recovery::{SkippedSyntax, skipped_syntax_nodes};
 use super::{
     BlockModuleDeclarationSyntax, ExportDeclarationSyntax, FunctionDeclarationSyntax,
-    IdentifierListSyntax, SourceUnitModuleDeclarationSyntax, TraitDeclarationSyntax,
-    UsingDeclarationSyntax,
+    IdentifierListSyntax, SourceUnitModuleDeclarationSyntax, StructDeclarationSyntax,
+    TraitDeclarationSyntax, UnionDeclarationSyntax, UsingDeclarationSyntax,
 };
 use crate::builder::{GreenNodeBuilder, RequiredSyntaxSlot, SyntaxListSlot, require_token_kind};
 use crate::green::GreenNode;
@@ -232,6 +232,28 @@ impl SourceUnitSyntax {
         )
     }
 
+    /// Returns direct struct declaration children in source order.
+    pub fn struct_declarations(&self) -> impl Iterator<Item = StructDeclarationSyntax> + '_ {
+        child_nodes(
+            &self.source,
+            &self.node,
+            TextSize::ZERO,
+            SyntaxKind::StructDeclaration,
+            StructDeclarationSyntax::from_green,
+        )
+    }
+
+    /// Returns direct union declaration children in source order.
+    pub fn union_declarations(&self) -> impl Iterator<Item = UnionDeclarationSyntax> + '_ {
+        child_nodes(
+            &self.source,
+            &self.node,
+            TextSize::ZERO,
+            SyntaxKind::UnionDeclaration,
+            UnionDeclarationSyntax::from_green,
+        )
+    }
+
     /// Returns direct trait declaration children in source order.
     pub fn trait_declarations(&self) -> impl Iterator<Item = TraitDeclarationSyntax> + '_ {
         child_nodes(
@@ -329,6 +351,16 @@ impl SourceUnitSyntaxBuilder {
         self.node.push_node(declaration.into_green());
     }
 
+    /// Appends a struct declaration child in source order.
+    pub fn push_struct_declaration(&mut self, declaration: StructDeclarationSyntax) {
+        self.node.push_node(declaration.into_green());
+    }
+
+    /// Appends a union declaration child in source order.
+    pub fn push_union_declaration(&mut self, declaration: UnionDeclarationSyntax) {
+        self.node.push_node(declaration.into_green());
+    }
+
     /// Appends a trait declaration child in source order.
     pub fn push_trait_declaration(&mut self, declaration: TraitDeclarationSyntax) {
         self.node.push_node(declaration.into_green());
@@ -397,6 +429,20 @@ impl SourceUnitSyntaxBuilder {
         self
     }
 
+    /// Appends a struct declaration child in source order.
+    pub fn struct_declaration(mut self, declaration: StructDeclarationSyntax) -> Self {
+        self.push_struct_declaration(declaration);
+
+        self
+    }
+
+    /// Appends a union declaration child in source order.
+    pub fn union_declaration(mut self, declaration: UnionDeclarationSyntax) -> Self {
+        self.push_union_declaration(declaration);
+
+        self
+    }
+
     /// Appends a trait declaration child in source order.
     pub fn trait_declaration(mut self, declaration: TraitDeclarationSyntax) -> Self {
         self.push_trait_declaration(declaration);
@@ -442,26 +488,27 @@ impl GreenSourceSyntaxNode for SourceUnitSyntax {
 
 #[cfg(test)]
 mod tests {
-    use bray_source::{
-        SourceId, SourceIdentity, SourceOrigin, SourceSnapshot, SourceVersion, TextRange, TextSize,
-    };
+    use bray_source::{SourceSnapshot, TextRange, TextSize};
 
     use super::{CompilationUnitSyntax, SourceUnitSyntax};
-    use crate::test_support::{func_keyword, func_keyword_with_trailing_space};
+    use crate::test_support::{
+        func_keyword, func_keyword_with_trailing_space, identifier_path,
+        identifier_path_with_trailing_space, snapshot as test_snapshot,
+    };
     use crate::{
         BlockModuleDeclarationSyntax, CallableBodyBlockExpressionSyntax,
         CallableResultClauseSyntax, ExportDeclarationSyntax, FunctionDeclarationSyntax,
         FunctionDirectivesSyntax, FunctionModifiersSyntax, IdentifierListItemSyntax,
         IdentifierListSyntax, ModuleBodySyntax, ModuleDirectivesSyntax, ModuleModifiersSyntax,
         ParameterListSyntax, ParameterModifiersSyntax, ParameterSyntax, PathSyntax,
-        SourceSyntaxNode, SourceUnitModuleDeclarationSyntax, SyntaxKind, SyntaxNode, SyntaxText,
-        SyntaxToken, SyntaxTrivia, TraitBodySyntax, TraitDeclarationSyntax, TraitModifiersSyntax,
-        UsingDeclarationSyntax,
+        SourceSyntaxNode, SourceUnitModuleDeclarationSyntax, StructDeclarationSyntax, SyntaxKind,
+        SyntaxNode, SyntaxText, SyntaxToken, SyntaxTrivia, TraitBodySyntax, TraitDeclarationSyntax,
+        TraitModifiersSyntax, UnionDeclarationSyntax, UsingDeclarationSyntax,
     };
 
     #[test]
     fn source_units_store_source_snapshot_named_tokens_and_full_range() {
-        let snapshot = snapshot("func");
+        let snapshot = test_snapshot("syntax-test", "func");
 
         let first = func_keyword();
 
@@ -488,7 +535,7 @@ mod tests {
 
     #[test]
     fn compilation_units_store_named_source_unit_children() {
-        let source_unit = SourceUnitSyntax::builder(snapshot(""))
+        let source_unit = SourceUnitSyntax::builder(test_snapshot("syntax-test", ""))
             .tokens([SyntaxToken::end_of_file(TextSize::ZERO)])
             .build();
 
@@ -503,7 +550,7 @@ mod tests {
 
     #[test]
     fn typed_nodes_implement_syntax_node_contract() {
-        let source_unit = SourceUnitSyntax::builder(snapshot(""))
+        let source_unit = SourceUnitSyntax::builder(test_snapshot("syntax-test", ""))
             .tokens([SyntaxToken::end_of_file(TextSize::ZERO)])
             .build();
 
@@ -517,7 +564,7 @@ mod tests {
 
     #[test]
     fn source_units_reconstruct_exact_source_text_from_tokens() {
-        let snapshot = snapshot("  func// tail");
+        let snapshot = test_snapshot("syntax-test", "  func// tail");
         let leading = SyntaxTrivia::whitespace(TextRange::new(TextSize::ZERO, TextSize::new(2)));
 
         let trailing =
@@ -548,7 +595,7 @@ mod tests {
 
     #[test]
     fn source_units_preserve_missing_tokens_in_named_slots() {
-        let snapshot = snapshot("func");
+        let snapshot = test_snapshot("syntax-test", "func");
         let token = func_keyword();
 
         let missing = SyntaxToken::missing(SyntaxKind::SemicolonToken, TextSize::new(4));
@@ -568,7 +615,7 @@ mod tests {
 
     #[test]
     fn source_units_attach_skipped_syntax_without_losing_source_text() {
-        let snapshot = snapshot("func @ main");
+        let snapshot = test_snapshot("syntax-test", "func @ main");
 
         let func = func_keyword_with_trailing_space();
 
@@ -620,7 +667,7 @@ mod tests {
 
     #[test]
     fn source_units_expose_identifier_list_children() {
-        let snapshot = snapshot("a,b");
+        let snapshot = test_snapshot("syntax-test", "a,b");
 
         let first = IdentifierListItemSyntax::builder(snapshot.clone())
             .identifier_token(SyntaxToken::new(
@@ -665,7 +712,7 @@ mod tests {
 
     #[test]
     fn source_units_expose_source_unit_module_declaration_children() {
-        let snapshot = snapshot("module main;");
+        let snapshot = test_snapshot("syntax-test", "module main;");
         let declaration = source_unit_module_declaration(snapshot.clone());
         let eof = SyntaxToken::end_of_file(TextSize::new(12));
 
@@ -698,7 +745,7 @@ mod tests {
 
     #[test]
     fn source_units_expose_block_module_declaration_children() {
-        let snapshot = snapshot("module main {}");
+        let snapshot = test_snapshot("syntax-test", "module main {}");
         let declaration = block_module_declaration(snapshot.clone());
         let eof = SyntaxToken::end_of_file(TextSize::new(14));
 
@@ -727,7 +774,7 @@ mod tests {
 
     #[test]
     fn source_units_expose_using_and_export_declaration_children() {
-        let snapshot = snapshot("using core; export api;");
+        let snapshot = test_snapshot("syntax-test", "using core; export api;");
         let using_declaration = using_declaration(snapshot.clone(), 0);
         let export_declaration = export_declaration(snapshot.clone(), 12);
         let eof = SyntaxToken::end_of_file(TextSize::new(23));
@@ -758,7 +805,7 @@ mod tests {
 
     #[test]
     fn source_units_expose_function_declaration_children() {
-        let snapshot = snapshot("func main() {}");
+        let snapshot = test_snapshot("syntax-test", "func main() {}");
         let declaration = function_declaration(snapshot.clone());
         let eof = SyntaxToken::end_of_file(TextSize::new(14));
 
@@ -785,7 +832,7 @@ mod tests {
 
     #[test]
     fn source_units_expose_trait_declaration_children() {
-        let snapshot = snapshot("trait Display {}");
+        let snapshot = test_snapshot("syntax-test", "trait Display {}");
         let declaration = trait_declaration(snapshot.clone());
         let eof = SyntaxToken::end_of_file(TextSize::new(16));
 
@@ -813,7 +860,7 @@ mod tests {
 
     #[test]
     fn source_unit_debug_does_not_expose_green_storage() {
-        let source_unit = SourceUnitSyntax::builder(snapshot(""))
+        let source_unit = SourceUnitSyntax::builder(test_snapshot("syntax-test", ""))
             .tokens([SyntaxToken::end_of_file(TextSize::ZERO)])
             .build();
 
@@ -835,6 +882,8 @@ mod tests {
         assert_send_sync::<FunctionDeclarationSyntax>();
         assert_send_sync::<FunctionDirectivesSyntax>();
         assert_send_sync::<FunctionModifiersSyntax>();
+        assert_send_sync::<StructDeclarationSyntax>();
+        assert_send_sync::<UnionDeclarationSyntax>();
         assert_send_sync::<TraitDeclarationSyntax>();
         assert_send_sync::<TraitModifiersSyntax>();
         assert_send_sync::<TraitBodySyntax>();
@@ -852,7 +901,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn source_units_reject_token_streams_without_eof() {
-        let _ = SourceUnitSyntax::builder(snapshot("func"))
+        let _ = SourceUnitSyntax::builder(test_snapshot("syntax-test", "func"))
             .tokens(Vec::new())
             .build();
     }
@@ -876,7 +925,7 @@ mod tests {
             ModuleModifiersSyntax::builder(snapshot.clone(), TextSize::ZERO).build(),
         );
         builder.push_module_keyword(module_keyword());
-        builder.push_module_path(path(snapshot.clone(), false));
+        builder.push_module_path(identifier_path(snapshot.clone(), 7, 11));
         builder.push_semicolon_token(SyntaxToken::new(
             SyntaxKind::SemicolonToken,
             TextRange::new(TextSize::new(11), TextSize::new(12)),
@@ -895,7 +944,7 @@ mod tests {
             ModuleModifiersSyntax::builder(snapshot.clone(), TextSize::ZERO).build(),
         );
         builder.push_module_keyword(module_keyword());
-        builder.push_module_path(path(snapshot.clone(), true));
+        builder.push_module_path(identifier_path_with_trailing_space(snapshot.clone(), 7, 11));
         builder.push_module_body(module_body(snapshot));
 
         builder.build()
@@ -915,7 +964,7 @@ mod tests {
             ))]),
         );
 
-        builder.push_path(path_at(snapshot, start + 6, start + 10, false));
+        builder.push_path(identifier_path(snapshot, start + 6, start + 10));
 
         builder.push_semicolon_token(
             SyntaxToken::new(
@@ -945,7 +994,7 @@ mod tests {
             ))]),
         );
 
-        builder.push_path(path_at(snapshot, start + 7, start + 10, false));
+        builder.push_path(identifier_path(snapshot, start + 7, start + 10));
 
         builder.push_semicolon_token(SyntaxToken::new(
             SyntaxKind::SemicolonToken,
@@ -1077,35 +1126,6 @@ mod tests {
         ))])
     }
 
-    fn path(snapshot: SourceSnapshot, has_trailing_space: bool) -> PathSyntax {
-        path_at(snapshot, 7, 11, has_trailing_space)
-    }
-
-    fn path_at(
-        snapshot: SourceSnapshot,
-        start: u32,
-        end: u32,
-        has_trailing_space: bool,
-    ) -> PathSyntax {
-        let mut builder = PathSyntax::builder(snapshot);
-
-        let mut token = SyntaxToken::new(
-            SyntaxKind::IdentifierToken,
-            TextRange::new(TextSize::new(start), TextSize::new(end)),
-        );
-
-        if has_trailing_space {
-            token = token.with_trailing_trivia([SyntaxTrivia::whitespace(TextRange::new(
-                TextSize::new(end),
-                TextSize::new(end + 1),
-            ))]);
-        }
-
-        builder.push_identifier_token(token);
-
-        builder.build()
-    }
-
     fn module_body(snapshot: SourceSnapshot) -> ModuleBodySyntax {
         let mut builder = ModuleBodySyntax::builder(snapshot, TextSize::new(12));
 
@@ -1120,18 +1140,5 @@ mod tests {
         ));
 
         builder.build()
-    }
-
-    fn snapshot(text: &str) -> SourceSnapshot {
-        match SourceSnapshot::new(
-            SourceId::new(0),
-            SourceIdentity::new(0),
-            SourceOrigin::virtual_source("syntax-test"),
-            SourceVersion::new(0),
-            text,
-        ) {
-            Ok(snapshot) => snapshot,
-            Err(error) => panic!("test source should fit in TextSize: {error:?}"),
-        }
     }
 }
