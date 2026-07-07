@@ -249,6 +249,10 @@ impl ParserCursor {
             .merge_diagnostics_from(cursor.token_source.diagnostics());
     }
 
+    pub(crate) fn record_skipped_syntax_for_tokens(&mut self, tokens: &[SyntaxToken]) {
+        self.record_skipped_syntax(tokens);
+    }
+
     fn record_syntax_diagnostic(&mut self, diagnostic: bray_diagnostics::Diagnostic) {
         self.syntax_diagnostics = self
             .syntax_diagnostics

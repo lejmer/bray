@@ -1,7 +1,7 @@
 use std::borrow::Borrow;
 
-use bray_diagnostics::{DiagnosticBag, DiagnosticKind};
-use bray_source::{SourceId, SourceSnapshot, SourceStore};
+use bray_diagnostics::{DiagnosticArg, DiagnosticBag, DiagnosticKind, SeverityKind};
+use bray_source::{SourceId, SourceSnapshot, SourceStore, TextRange, TextSize};
 use bray_syntax::{SyntaxKind, SyntaxToken};
 
 use crate::SyntaxTreeResult;
@@ -32,4 +32,35 @@ pub(crate) fn diagnostic_kinds(diagnostics: &DiagnosticBag) -> Vec<DiagnosticKin
         .iter()
         .map(|diagnostic| diagnostic.kind())
         .collect()
+}
+
+pub(crate) fn assert_missing_semicolon_diagnostic(
+    result: &SyntaxTreeResult,
+    insertion: TextSize,
+    actual_kind: SyntaxKind,
+    actual_text: &str,
+    expected_kinds: &[DiagnosticKind],
+) {
+    let expected_diagnostic = result
+        .diagnostics()
+        .iter()
+        .find(|diagnostic| diagnostic.kind() == DiagnosticKind::SyntaxExpectedToken)
+        .expect("expected missing semicolon diagnostic");
+
+    assert_eq!(parse_diagnostic_kinds(result).as_slice(), expected_kinds);
+    assert_eq!(expected_diagnostic.severity(), SeverityKind::Error);
+
+    assert_eq!(
+        expected_diagnostic.primary_span().map(|span| span.range()),
+        Some(TextRange::empty(insertion))
+    );
+
+    assert_eq!(
+        expected_diagnostic.args(),
+        &[
+            DiagnosticArg::expected_syntax_kind(SyntaxKind::SemicolonToken),
+            DiagnosticArg::actual_syntax_kind(actual_kind),
+            DiagnosticArg::token_text(actual_text),
+        ]
+    );
 }

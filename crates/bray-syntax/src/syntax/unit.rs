@@ -6,8 +6,8 @@ use bray_source::{SourceSnapshot, TextRange, TextSize};
 
 use super::recovery::{SkippedSyntax, skipped_syntax_nodes};
 use super::{
-    BlockModuleDeclarationSyntax, ExportDeclarationSyntax, IdentifierListSyntax,
-    SourceUnitModuleDeclarationSyntax, UsingDeclarationSyntax,
+    BlockModuleDeclarationSyntax, ExportDeclarationSyntax, FunctionDeclarationSyntax,
+    IdentifierListSyntax, SourceUnitModuleDeclarationSyntax, UsingDeclarationSyntax,
 };
 use crate::builder::{GreenNodeBuilder, RequiredSyntaxSlot, SyntaxListSlot, require_token_kind};
 use crate::green::GreenNode;
@@ -220,6 +220,17 @@ impl SourceUnitSyntax {
         )
     }
 
+    /// Returns direct function declaration children in source order.
+    pub fn function_declarations(&self) -> impl Iterator<Item = FunctionDeclarationSyntax> + '_ {
+        child_nodes(
+            &self.source,
+            &self.node,
+            TextSize::ZERO,
+            SyntaxKind::FunctionDeclaration,
+            FunctionDeclarationSyntax::from_green,
+        )
+    }
+
     /// Returns the required EOF token for this source unit.
     pub fn eof_token(&self) -> SyntaxToken {
         match self.node.syntax_tokens(TextSize::ZERO).last() {
@@ -301,6 +312,11 @@ impl SourceUnitSyntaxBuilder {
         self.node.push_node(declaration.into_green());
     }
 
+    /// Appends a function declaration child in source order.
+    pub fn push_function_declaration(&mut self, declaration: FunctionDeclarationSyntax) {
+        self.node.push_node(declaration.into_green());
+    }
+
     /// Appends tokens to the source-unit token list.
     pub fn tokens(mut self, tokens: impl IntoIterator<Item = SyntaxToken>) -> Self {
         self.node.push_tokens(tokens);
@@ -357,6 +373,13 @@ impl SourceUnitSyntaxBuilder {
         self
     }
 
+    /// Appends a function declaration child in source order.
+    pub fn function_declaration(mut self, declaration: FunctionDeclarationSyntax) -> Self {
+        self.push_function_declaration(declaration);
+
+        self
+    }
+
     /// Builds the source-unit node.
     ///
     /// Panics when the token list does not end in EOF.
@@ -401,10 +424,13 @@ mod tests {
 
     use super::{CompilationUnitSyntax, SourceUnitSyntax};
     use crate::{
-        BlockModuleDeclarationSyntax, ExportDeclarationSyntax, IdentifierListItemSyntax,
+        BlockModuleDeclarationSyntax, CallableBodyBlockExpressionSyntax,
+        CallableResultClauseSyntax, ExportDeclarationSyntax, FunctionDeclarationSyntax,
+        FunctionDirectivesSyntax, FunctionModifiersSyntax, IdentifierListItemSyntax,
         IdentifierListSyntax, ModuleBodySyntax, ModuleDirectivesSyntax, ModuleModifiersSyntax,
-        PathSyntax, SourceSyntaxNode, SourceUnitModuleDeclarationSyntax, SyntaxKind, SyntaxNode,
-        SyntaxText, SyntaxToken, SyntaxTrivia, UsingDeclarationSyntax,
+        ParameterListSyntax, ParameterModifiersSyntax, ParameterSyntax, PathSyntax,
+        SourceSyntaxNode, SourceUnitModuleDeclarationSyntax, SyntaxKind, SyntaxNode, SyntaxText,
+        SyntaxToken, SyntaxTrivia, UsingDeclarationSyntax,
     };
 
     #[test]
@@ -718,6 +744,33 @@ mod tests {
     }
 
     #[test]
+    fn source_units_expose_function_declaration_children() {
+        let snapshot = snapshot("func main() {}");
+        let declaration = function_declaration(snapshot.clone());
+        let eof = SyntaxToken::end_of_file(TextSize::new(14));
+
+        let source_unit = SourceUnitSyntax::builder(snapshot)
+            .function_declaration(declaration)
+            .tokens([eof])
+            .build();
+
+        let declarations = source_unit.function_declarations().collect::<Vec<_>>();
+
+        let [declaration] = declarations.as_slice() else {
+            panic!("expected one function declaration: {declarations:?}");
+        };
+
+        assert_eq!(source_unit.full_text(), "func main() {}");
+        assert_eq!(declaration.full_text(), "func main() {}");
+        assert_eq!(
+            declaration.identifier_token().kind(),
+            SyntaxKind::IdentifierToken
+        );
+        assert_eq!(declaration.parameter_list().full_text(), "() ");
+        assert!(declaration.callable_body_block_expression().is_some());
+    }
+
+    #[test]
     fn source_unit_debug_does_not_expose_green_storage() {
         let source_unit = SourceUnitSyntax::builder(snapshot(""))
             .tokens([SyntaxToken::end_of_file(TextSize::ZERO)])
@@ -738,6 +791,14 @@ mod tests {
         assert_send_sync::<BlockModuleDeclarationSyntax>();
         assert_send_sync::<UsingDeclarationSyntax>();
         assert_send_sync::<ExportDeclarationSyntax>();
+        assert_send_sync::<FunctionDeclarationSyntax>();
+        assert_send_sync::<FunctionDirectivesSyntax>();
+        assert_send_sync::<FunctionModifiersSyntax>();
+        assert_send_sync::<ParameterListSyntax>();
+        assert_send_sync::<ParameterSyntax>();
+        assert_send_sync::<ParameterModifiersSyntax>();
+        assert_send_sync::<CallableResultClauseSyntax>();
+        assert_send_sync::<CallableBodyBlockExpressionSyntax>();
         assert_send_sync::<ModuleDirectivesSyntax>();
         assert_send_sync::<ModuleModifiersSyntax>();
         assert_send_sync::<ModuleBodySyntax>();
@@ -845,6 +906,76 @@ mod tests {
         builder.push_semicolon_token(SyntaxToken::new(
             SyntaxKind::SemicolonToken,
             TextRange::new(TextSize::new(start + 10), TextSize::new(start + 11)),
+        ));
+
+        builder.build()
+    }
+
+    fn function_declaration(snapshot: SourceSnapshot) -> FunctionDeclarationSyntax {
+        let mut builder = FunctionDeclarationSyntax::builder(snapshot.clone(), TextSize::ZERO);
+
+        builder.push_function_directives(
+            FunctionDirectivesSyntax::builder(snapshot.clone(), TextSize::ZERO).build(),
+        );
+        builder.push_function_modifiers(
+            FunctionModifiersSyntax::builder(snapshot.clone(), TextSize::ZERO).build(),
+        );
+
+        builder.push_func_keyword(
+            SyntaxToken::new(
+                SyntaxKind::FuncKeyword,
+                TextRange::new(TextSize::ZERO, TextSize::new(4)),
+            )
+            .with_trailing_trivia([SyntaxTrivia::whitespace(TextRange::new(
+                TextSize::new(4),
+                TextSize::new(5),
+            ))]),
+        );
+
+        builder.push_identifier_token(SyntaxToken::new(
+            SyntaxKind::IdentifierToken,
+            TextRange::new(TextSize::new(5), TextSize::new(9)),
+        ));
+
+        builder.push_parameter_list(parameter_list(snapshot.clone()));
+        builder.push_callable_body_block_expression(callable_body(snapshot));
+
+        builder.build()
+    }
+
+    fn parameter_list(snapshot: SourceSnapshot) -> ParameterListSyntax {
+        let mut builder = ParameterListSyntax::builder(snapshot, TextSize::new(9));
+
+        builder.push_open_paren_token(SyntaxToken::new(
+            SyntaxKind::OpenParenToken,
+            TextRange::new(TextSize::new(9), TextSize::new(10)),
+        ));
+
+        builder.push_close_paren_token(
+            SyntaxToken::new(
+                SyntaxKind::CloseParenToken,
+                TextRange::new(TextSize::new(10), TextSize::new(11)),
+            )
+            .with_trailing_trivia([SyntaxTrivia::whitespace(TextRange::new(
+                TextSize::new(11),
+                TextSize::new(12),
+            ))]),
+        );
+
+        builder.build()
+    }
+
+    fn callable_body(snapshot: SourceSnapshot) -> CallableBodyBlockExpressionSyntax {
+        let mut builder = CallableBodyBlockExpressionSyntax::builder(snapshot, TextSize::new(12));
+
+        builder.push_open_brace_token(SyntaxToken::new(
+            SyntaxKind::OpenBraceToken,
+            TextRange::new(TextSize::new(12), TextSize::new(13)),
+        ));
+
+        builder.push_close_brace_token(SyntaxToken::new(
+            SyntaxKind::CloseBraceToken,
+            TextRange::new(TextSize::new(13), TextSize::new(14)),
         ));
 
         builder.build()

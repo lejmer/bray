@@ -1,14 +1,14 @@
 use bray_syntax::{
-    BlockModuleDeclarationSyntax, BlockModuleDeclarationSyntaxBuilder, DirectiveArgumentListSyntax,
-    ExportDeclarationSyntax, LinkDirectiveSyntax, ModuleBodySyntax, ModuleBodySyntaxBuilder,
-    ModuleDirectivesSyntax, ModuleDirectivesSyntaxBuilder, ModuleModifiersSyntax, PathSyntax,
+    BlockModuleDeclarationSyntax, BlockModuleDeclarationSyntaxBuilder, ExportDeclarationSyntax,
+    FunctionDeclarationSyntax, ModuleBodySyntax, ModuleBodySyntaxBuilder, ModuleDirectivesSyntax,
+    ModuleDirectivesSyntaxBuilder, ModuleModifiersSyntax, PathSyntax,
     SourceUnitModuleDeclarationSyntax, SourceUnitModuleDeclarationSyntaxBuilder,
-    SourceUnitSyntaxBuilder, SyntaxKind, SyntaxToken, TargetDirectiveSyntax, TestDirectiveSyntax,
-    UsingDeclarationSyntax,
+    SourceUnitSyntaxBuilder, SyntaxKind, SyntaxToken, UsingDeclarationSyntax,
 };
 
 use crate::cursor::RecoverySet;
 
+use super::directive::{LINK_DIRECTIVE_NAME, TARGET_DIRECTIVE_NAME, TEST_DIRECTIVE_NAME};
 use super::recovery::RecoverySyntaxSink;
 use super::state::Parser;
 
@@ -44,21 +44,29 @@ const DIRECTIVE_ARGUMENT_RECOVERY_KINDS: [SyntaxKind; 5] = [
     SyntaxKind::ModuleKeyword,
 ];
 
-const PARSED_MODULE_ITEM_BOUNDARY_KINDS: [SyntaxKind; 5] = [
+const PARSED_MODULE_ITEM_BOUNDARY_KINDS: [SyntaxKind; 13] = [
     SyntaxKind::UsingKeyword,
     SyntaxKind::ExportKeyword,
+    SyntaxKind::AtToken,
+    SyntaxKind::PublicKeyword,
+    SyntaxKind::InternalKeyword,
+    SyntaxKind::TrustedKeyword,
+    SyntaxKind::ExternKeyword,
+    SyntaxKind::AsyncKeyword,
+    SyntaxKind::ConstKeyword,
+    SyntaxKind::FuncKeyword,
     SyntaxKind::SemicolonToken,
     SyntaxKind::CloseBraceToken,
     SyntaxKind::EndOfFileToken,
 ];
 
-const MODULE_ITEM_DECLARATION_TERMINATOR_KINDS: [SyntaxKind; 3] = [
+pub(super) const MODULE_ITEM_DECLARATION_TERMINATOR_KINDS: [SyntaxKind; 3] = [
     SyntaxKind::SemicolonToken,
     SyntaxKind::CloseBraceToken,
     SyntaxKind::EndOfFileToken,
 ];
 
-const MODULE_ITEM_START_KINDS: [SyntaxKind; 18] = [
+pub(super) const MODULE_ITEM_START_KINDS: [SyntaxKind; 18] = [
     SyntaxKind::UsingKeyword,
     SyntaxKind::ExportKeyword,
     SyntaxKind::AtToken,
@@ -78,10 +86,6 @@ const MODULE_ITEM_START_KINDS: [SyntaxKind; 18] = [
     SyntaxKind::PredicateKeyword,
     SyntaxKind::ModuleKeyword,
 ];
-
-const TARGET_DIRECTIVE_NAME: &str = "target";
-const TEST_DIRECTIVE_NAME: &str = "test";
-const LINK_DIRECTIVE_NAME: &str = "link";
 
 impl Parser {
     pub(super) fn parse_source_unit_module_declaration(
@@ -149,7 +153,9 @@ impl Parser {
 
         while self.at(SyntaxKind::AtToken) {
             if self.at_directive_name(TARGET_DIRECTIVE_NAME) {
-                builder.push_target_directive(self.parse_target_directive());
+                builder.push_target_directive(
+                    self.parse_target_directive(&DIRECTIVE_ARGUMENT_RECOVERY_KINDS),
+                );
                 continue;
             }
 
@@ -159,7 +165,9 @@ impl Parser {
             }
 
             if self.at_directive_name(LINK_DIRECTIVE_NAME) {
-                builder.push_link_directive(self.parse_link_directive());
+                builder.push_link_directive(
+                    self.parse_link_directive(&DIRECTIVE_ARGUMENT_RECOVERY_KINDS),
+                );
                 continue;
             }
 
@@ -169,67 +177,8 @@ impl Parser {
         builder.build()
     }
 
-    fn parse_target_directive(&mut self) -> TargetDirectiveSyntax {
-        let start = self.peek().full_range().start();
-        let mut builder = TargetDirectiveSyntax::builder(self.syntax_source(), start);
-
-        builder.push_directive_marker_token(self.expect(SyntaxKind::AtToken));
-        builder.push_name_token(self.expect(SyntaxKind::IdentifierToken));
-
-        builder.push_open_paren_token(self.expect(SyntaxKind::OpenParenToken));
-        // TODO(parser): Parse target directive arguments once directive arguments are implemented.
-        self.recover_until_balanced_close_paren(&mut builder, &DIRECTIVE_ARGUMENT_RECOVERY_KINDS);
-        builder.push_close_paren_token(self.expect(SyntaxKind::CloseParenToken));
-
-        builder.build()
-    }
-
-    fn parse_test_directive(&mut self) -> TestDirectiveSyntax {
-        let start = self.peek().full_range().start();
-        let mut builder = TestDirectiveSyntax::builder(self.syntax_source(), start);
-
-        builder.push_directive_marker_token(self.expect(SyntaxKind::AtToken));
-        builder.push_name_token(self.expect(SyntaxKind::IdentifierToken));
-
-        builder.build()
-    }
-
-    fn parse_link_directive(&mut self) -> LinkDirectiveSyntax {
-        let start = self.peek().full_range().start();
-        let mut builder = LinkDirectiveSyntax::builder(self.syntax_source(), start);
-
-        builder.push_directive_marker_token(self.expect(SyntaxKind::AtToken));
-        builder.push_name_token(self.expect(SyntaxKind::IdentifierToken));
-        builder.push_directive_argument_list(self.parse_directive_argument_list());
-
-        builder.build()
-    }
-
-    fn parse_directive_argument_list(&mut self) -> DirectiveArgumentListSyntax {
-        let start = self.peek().full_range().start();
-        let mut builder = DirectiveArgumentListSyntax::builder(self.syntax_source(), start);
-
-        builder.push_open_paren_token(self.expect(SyntaxKind::OpenParenToken));
-        // TODO(parser): Parse directive argument items once directive arguments are implemented.
-        self.recover_until_balanced_close_paren(&mut builder, &DIRECTIVE_ARGUMENT_RECOVERY_KINDS);
-        builder.push_close_paren_token(self.expect(SyntaxKind::CloseParenToken));
-
-        builder.build()
-    }
-
     fn recover_unknown_module_directive(&mut self, builder: &mut ModuleDirectivesSyntaxBuilder) {
         self.recover_current_and_until(builder, &MODULE_DECLARATION_START_KINDS);
-    }
-
-    fn at_directive_name(&mut self, name: &str) -> bool {
-        if !self.at(SyntaxKind::AtToken) {
-            return false;
-        }
-
-        let name_token = self.lookahead(1);
-
-        name_token.kind() == SyntaxKind::IdentifierToken
-            && self.token_text(&name_token) == Some(name)
     }
 
     fn parse_module_modifiers(&mut self) -> ModuleModifiersSyntax {
@@ -240,7 +189,7 @@ impl Parser {
             builder.push_trusted_token(self.parse_trusted_modifier());
         }
 
-        if self.at(SyntaxKind::PublicKeyword) || self.at(SyntaxKind::InternalKeyword) {
+        if self.at_visibility_modifier() {
             builder.push_visibility_token(self.parse_visibility_modifier());
         }
 
@@ -249,14 +198,6 @@ impl Parser {
 
     fn parse_trusted_modifier(&mut self) -> SyntaxToken {
         self.expect(SyntaxKind::TrustedKeyword)
-    }
-
-    fn parse_visibility_modifier(&mut self) -> SyntaxToken {
-        if self.at(SyntaxKind::PublicKeyword) {
-            return self.expect(SyntaxKind::PublicKeyword);
-        }
-
-        self.expect(SyntaxKind::InternalKeyword)
     }
 
     fn parse_module_path(&mut self) -> PathSyntax {
@@ -298,6 +239,11 @@ impl Parser {
 
         if self.at(SyntaxKind::ExportKeyword) {
             builder.push_export_declaration(self.parse_export_declaration());
+            return;
+        }
+
+        if self.should_parse_function_declaration() {
+            builder.push_function_declaration(self.parse_function_declaration());
             return;
         }
 
@@ -354,7 +300,7 @@ impl Parser {
         self.recover_until_balanced_close_brace_or_recovery_set(builder, recovery_set)
     }
 
-    fn recover_until_module_item_declaration_end(
+    pub(super) fn recover_until_module_item_declaration_end(
         &mut self,
         builder: &mut impl RecoverySyntaxSink,
     ) -> bool {
@@ -401,7 +347,7 @@ impl Parser {
             if directive_name == Some(TARGET_DIRECTIVE_NAME)
                 || directive_name == Some(LINK_DIRECTIVE_NAME)
             {
-                self.consume_directive_argument_list_for_scan();
+                self.consume_directive_argument_list_for_scan(&MODULE_DECLARATION_START_KINDS);
                 continue;
             }
 
@@ -409,15 +355,6 @@ impl Parser {
                 self.skip_unknown_module_directive_for_scan();
             }
         }
-    }
-
-    fn consume_directive_argument_list_for_scan(&mut self) {
-        if self.consume_if(SyntaxKind::OpenParenToken).is_none() {
-            return;
-        }
-
-        self.scan_until_balanced_close_paren(&MODULE_DECLARATION_START_KINDS);
-        self.consume_if(SyntaxKind::CloseParenToken);
     }
 
     fn skip_unknown_module_directive_for_scan(&mut self) {
@@ -479,6 +416,8 @@ pub(super) trait ModuleItemSyntaxSink: RecoverySyntaxSink {
     fn push_using_declaration(&mut self, declaration: UsingDeclarationSyntax);
 
     fn push_export_declaration(&mut self, declaration: ExportDeclarationSyntax);
+
+    fn push_function_declaration(&mut self, declaration: FunctionDeclarationSyntax);
 }
 
 impl ModuleDeclarationSyntaxSink for SourceUnitModuleDeclarationSyntaxBuilder {
@@ -525,6 +464,10 @@ impl ModuleItemSyntaxSink for SourceUnitSyntaxBuilder {
     fn push_export_declaration(&mut self, declaration: ExportDeclarationSyntax) {
         SourceUnitSyntaxBuilder::push_export_declaration(self, declaration);
     }
+
+    fn push_function_declaration(&mut self, declaration: FunctionDeclarationSyntax) {
+        SourceUnitSyntaxBuilder::push_function_declaration(self, declaration);
+    }
 }
 
 impl ModuleItemSyntaxSink for ModuleBodySyntaxBuilder {
@@ -535,18 +478,21 @@ impl ModuleItemSyntaxSink for ModuleBodySyntaxBuilder {
     fn push_export_declaration(&mut self, declaration: ExportDeclarationSyntax) {
         ModuleBodySyntaxBuilder::push_export_declaration(self, declaration);
     }
+
+    fn push_function_declaration(&mut self, declaration: FunctionDeclarationSyntax) {
+        ModuleBodySyntaxBuilder::push_function_declaration(self, declaration);
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use bray_diagnostics::{DiagnosticArg, DiagnosticKind, SeverityKind};
+    use bray_diagnostics::DiagnosticKind;
     use bray_source::{TextRange, TextSize};
     use bray_syntax::{SyntaxKind, SyntaxText};
     use bray_testing::test_source_store as source_store;
 
-    use crate::SyntaxTreeResult;
     use crate::parser::parse_compilation_unit;
-    use crate::test_support::parse_diagnostic_kinds;
+    use crate::test_support::{assert_missing_semicolon_diagnostic, parse_diagnostic_kinds};
 
     #[test]
     fn parser_parses_source_unit_module_declarations() {
@@ -774,7 +720,7 @@ mod tests {
     }
 
     #[test]
-    fn parser_parses_block_module_declarations_and_skips_body_items() {
+    fn parser_parses_block_module_declarations_and_function_body_items() {
         let sources =
             source_store(["@test internal module main { func run() {} } module extra {}"]);
         let result = parse_compilation_unit(&sources);
@@ -803,14 +749,12 @@ mod tests {
 
         assert_eq!(first.module_path().full_text(), "main ");
         assert_eq!(first.module_body().full_text(), "{ func run() {} } ");
-        assert_eq!(first.module_body().skipped_syntax().count(), 1);
+        assert_eq!(first.module_body().function_declarations().count(), 1);
+        assert_eq!(first.module_body().skipped_syntax().count(), 0);
         assert_eq!(second.module_path().full_text(), "extra ");
         assert!(second.module_body().skipped_syntax().next().is_none());
 
-        assert_eq!(
-            parse_diagnostic_kinds(&result),
-            [DiagnosticKind::SyntaxSkippedSyntax]
-        );
+        assert!(result.diagnostics().is_empty());
     }
 
     #[test]
@@ -858,7 +802,7 @@ mod tests {
         let result = parse_compilation_unit(&sources);
         let source_unit = &result.syntax_tree().root().source_units()[0];
         let using_declarations = source_unit.using_declarations().collect::<Vec<_>>();
-        let skipped_syntax = source_unit.skipped_syntax().collect::<Vec<_>>();
+        let function_declarations = source_unit.function_declarations().collect::<Vec<_>>();
 
         let insertion = TextSize::new(
             source
@@ -872,8 +816,8 @@ mod tests {
             panic!("expected one using declaration: {using_declarations:?}");
         };
 
-        let [skipped] = skipped_syntax.as_slice() else {
-            panic!("expected one skipped-syntax node: {skipped_syntax:?}");
+        let [function_declaration] = function_declarations.as_slice() else {
+            panic!("expected one function declaration: {function_declarations:?}");
         };
 
         let semicolon_token = using_declaration.semicolon_token();
@@ -881,7 +825,8 @@ mod tests {
         assert_eq!(source_unit.full_text(), source);
         assert_eq!(using_declaration.full_text(), "using std.io\n");
         assert!(using_declaration.skipped_syntax().next().is_none());
-        assert_eq!(skipped.full_text(), "func main() {}");
+        assert_eq!(function_declaration.full_text(), "func main() {}");
+        assert!(source_unit.skipped_syntax().next().is_none());
 
         assert!(semicolon_token.is_missing());
 
@@ -893,10 +838,7 @@ mod tests {
             insertion,
             SyntaxKind::FuncKeyword,
             "func",
-            &[
-                DiagnosticKind::SyntaxExpectedToken,
-                DiagnosticKind::SyntaxSkippedSyntax,
-            ],
+            &[DiagnosticKind::SyntaxExpectedToken],
         );
     }
 
@@ -940,7 +882,7 @@ mod tests {
 
     #[test]
     fn parser_recovers_unimplemented_module_items_without_losing_later_items() {
-        let sources = source_store(["module main { func run() {} using core; }"]);
+        let sources = source_store(["module main { struct Run {} using core; }"]);
         let result = parse_compilation_unit(&sources);
         let source_unit = &result.syntax_tree().root().source_units()[0];
         let declarations = source_unit.block_module_declarations().collect::<Vec<_>>();
@@ -958,48 +900,17 @@ mod tests {
 
         assert_eq!(
             source_unit.full_text(),
-            "module main { func run() {} using core; }"
+            "module main { struct Run {} using core; }"
         );
 
         assert_eq!(body.using_declarations().count(), 1);
         assert_eq!(body.export_declarations().count(), 0);
 
-        assert_eq!(skipped.full_text(), "func run() {} ");
+        assert_eq!(skipped.full_text(), "struct Run {} ");
 
         assert_eq!(
             parse_diagnostic_kinds(&result),
             [DiagnosticKind::SyntaxSkippedSyntax]
-        );
-    }
-
-    fn assert_missing_semicolon_diagnostic(
-        result: &SyntaxTreeResult,
-        insertion: TextSize,
-        actual_kind: SyntaxKind,
-        actual_text: &str,
-        expected_kinds: &[DiagnosticKind],
-    ) {
-        let expected_diagnostic = result
-            .diagnostics()
-            .iter()
-            .find(|diagnostic| diagnostic.kind() == DiagnosticKind::SyntaxExpectedToken)
-            .expect("expected missing semicolon diagnostic");
-
-        assert_eq!(parse_diagnostic_kinds(result).as_slice(), expected_kinds);
-        assert_eq!(expected_diagnostic.severity(), SeverityKind::Error);
-
-        assert_eq!(
-            expected_diagnostic.primary_span().map(|span| span.range()),
-            Some(TextRange::empty(insertion))
-        );
-
-        assert_eq!(
-            expected_diagnostic.args(),
-            &[
-                DiagnosticArg::expected_syntax_kind(SyntaxKind::SemicolonToken),
-                DiagnosticArg::actual_syntax_kind(actual_kind),
-                DiagnosticArg::token_text(actual_text),
-            ]
         );
     }
 }

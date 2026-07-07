@@ -1,4 +1,5 @@
 use super::item::{ExportDeclarationSyntax, UsingDeclarationSyntax};
+use crate::FunctionDeclarationSyntax;
 use crate::SyntaxKind;
 use crate::node::define_source_syntax_node;
 
@@ -49,6 +50,14 @@ define_source_syntax_node! {
                 push_export_declaration;
                 ty: ExportDeclarationSyntax;
                 kind: SyntaxKind::ExportDeclaration;
+            },
+            {
+                /// Returns direct function declaration children in source order.
+                function_declarations;
+                /// Appends a function declaration child in source order.
+                push_function_declaration;
+                ty: FunctionDeclarationSyntax;
+                kind: SyntaxKind::FunctionDeclaration;
             }
         ],
     }
