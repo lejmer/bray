@@ -6,8 +6,9 @@ use bray_source::{SourceSnapshot, TextRange, TextSize};
 
 use super::recovery::{SkippedSyntax, skipped_syntax_nodes};
 use super::{
-    BlockModuleDeclarationSyntax, CallableContractDeclarationSyntax, ConstantDeclarationSyntax,
-    ExportDeclarationSyntax, FunctionDeclarationSyntax, IdentifierListSyntax,
+    BlockModuleDeclarationSyntax, CallableContractDeclarationSyntax,
+    CallableOverloadDeclarationSyntax, ConstantDeclarationSyntax, ExportDeclarationSyntax,
+    FunctionDeclarationSyntax, IdentifierListSyntax, ImplementationOverloadDeclarationSyntax,
     InherentImplementationDeclarationSyntax, NamedTraitImplementationDeclarationSyntax,
     PredicateDeclarationSyntax, SourceUnitModuleDeclarationSyntax, StructDeclarationSyntax,
     TraitDeclarationSyntax, UnionDeclarationSyntax, UnnamedTraitImplementationDeclarationSyntax,
@@ -270,6 +271,32 @@ impl SourceUnitSyntax {
         )
     }
 
+    /// Returns direct callable overload declaration children in source order.
+    pub fn callable_overload_declarations(
+        &self,
+    ) -> impl Iterator<Item = CallableOverloadDeclarationSyntax> + '_ {
+        child_nodes(
+            &self.source,
+            &self.node,
+            TextSize::ZERO,
+            SyntaxKind::CallableOverloadDeclaration,
+            CallableOverloadDeclarationSyntax::from_green,
+        )
+    }
+
+    /// Returns direct implementation overload declaration children in source order.
+    pub fn implementation_overload_declarations(
+        &self,
+    ) -> impl Iterator<Item = ImplementationOverloadDeclarationSyntax> + '_ {
+        child_nodes(
+            &self.source,
+            &self.node,
+            TextSize::ZERO,
+            SyntaxKind::ImplementationOverloadDeclaration,
+            ImplementationOverloadDeclarationSyntax::from_green,
+        )
+    }
+
     /// Returns direct struct declaration children in source order.
     pub fn struct_declarations(&self) -> impl Iterator<Item = StructDeclarationSyntax> + '_ {
         child_nodes(
@@ -446,6 +473,22 @@ impl SourceUnitSyntaxBuilder {
         self.node.push_node(declaration.into_green());
     }
 
+    /// Appends a callable overload declaration child in source order.
+    pub fn push_callable_overload_declaration(
+        &mut self,
+        declaration: CallableOverloadDeclarationSyntax,
+    ) {
+        self.node.push_node(declaration.into_green());
+    }
+
+    /// Appends an implementation overload declaration child in source order.
+    pub fn push_implementation_overload_declaration(
+        &mut self,
+        declaration: ImplementationOverloadDeclarationSyntax,
+    ) {
+        self.node.push_node(declaration.into_green());
+    }
+
     /// Appends a struct declaration child in source order.
     pub fn push_struct_declaration(&mut self, declaration: StructDeclarationSyntax) {
         self.node.push_node(declaration.into_green());
@@ -572,6 +615,26 @@ impl SourceUnitSyntaxBuilder {
         self
     }
 
+    /// Appends a callable overload declaration child in source order.
+    pub fn callable_overload_declaration(
+        mut self,
+        declaration: CallableOverloadDeclarationSyntax,
+    ) -> Self {
+        self.push_callable_overload_declaration(declaration);
+
+        self
+    }
+
+    /// Appends an implementation overload declaration child in source order.
+    pub fn implementation_overload_declaration(
+        mut self,
+        declaration: ImplementationOverloadDeclarationSyntax,
+    ) -> Self {
+        self.push_implementation_overload_declaration(declaration);
+
+        self
+    }
+
     /// Appends a struct declaration child in source order.
     pub fn struct_declaration(mut self, declaration: StructDeclarationSyntax) -> Self {
         self.push_struct_declaration(declaration);
@@ -672,15 +735,18 @@ mod tests {
     use crate::{
         AsyncCapableLifecycleMemberModifiersSyntax, BlockModuleDeclarationSyntax,
         CallableBodyBlockExpressionSyntax, CallableContractDeclarationSyntax,
-        CallableResultClauseSyntax, ConstantDeclarationSyntax, ConstantModifiersSyntax,
-        ConstructorMemberModifiersSyntax, DestructorMemberDeclarationSyntax,
-        ExportDeclarationSyntax, FinalizerMemberDeclarationSyntax, FunctionDeclarationSyntax,
-        FunctionDirectivesSyntax, FunctionModifiersSyntax, IdentifierListItemSyntax,
-        IdentifierListSyntax, ImplementationBodySyntax, ImplementationSubjectSyntax,
+        CallableOverloadDeclarationSyntax, CallableResultClauseSyntax, ConstantDeclarationSyntax,
+        ConstantModifiersSyntax, ConstructorMemberModifiersSyntax,
+        DestructorMemberDeclarationSyntax, ExportDeclarationSyntax,
+        FinalizerMemberDeclarationSyntax, FunctionDeclarationSyntax, FunctionDirectivesSyntax,
+        FunctionModifiersSyntax, IdentifierListItemSyntax, IdentifierListSyntax,
+        ImplementationBodySyntax, ImplementationOverloadDeclarationSyntax,
+        ImplementationOverloadSubjectSyntax, ImplementationSubjectSyntax,
         ImplementationTypeMemberBindingSyntax, InherentImplementationDeclarationSyntax,
         ModuleBodySyntax, ModuleDirectivesSyntax, ModuleModifiersSyntax,
-        NamedTraitImplementationDeclarationSyntax, ParameterListSyntax, ParameterModifiersSyntax,
-        ParameterSyntax, PathSyntax, PredicateDeclarationSyntax, ScopeEnterMemberDeclarationSyntax,
+        NamedTraitImplementationDeclarationSyntax, OverloadArmListSyntax, OverloadArmSyntax,
+        OverloadModifiersSyntax, ParameterListSyntax, ParameterModifiersSyntax, ParameterSyntax,
+        PathSyntax, PredicateDeclarationSyntax, ScopeEnterMemberDeclarationSyntax,
         ScopeExitMemberDeclarationSyntax, SourceSyntaxNode, SourceUnitModuleDeclarationSyntax,
         StructDeclarationSyntax, SyncLifecycleMemberModifiersSyntax, SyntaxKind, SyntaxNode,
         SyntaxText, SyntaxToken, SyntaxTrivia, TraitApplicationSyntax, TraitBodySyntax,
@@ -1162,6 +1228,12 @@ mod tests {
         assert_send_sync::<FunctionDeclarationSyntax>();
         assert_send_sync::<PredicateDeclarationSyntax>();
         assert_send_sync::<CallableContractDeclarationSyntax>();
+        assert_send_sync::<OverloadModifiersSyntax>();
+        assert_send_sync::<CallableOverloadDeclarationSyntax>();
+        assert_send_sync::<ImplementationOverloadDeclarationSyntax>();
+        assert_send_sync::<ImplementationOverloadSubjectSyntax>();
+        assert_send_sync::<OverloadArmListSyntax>();
+        assert_send_sync::<OverloadArmSyntax>();
         assert_send_sync::<FunctionDirectivesSyntax>();
         assert_send_sync::<FunctionModifiersSyntax>();
         assert_send_sync::<StructDeclarationSyntax>();

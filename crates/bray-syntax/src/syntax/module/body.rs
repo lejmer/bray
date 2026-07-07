@@ -2,7 +2,8 @@ use super::item::{ExportDeclarationSyntax, UsingDeclarationSyntax};
 use crate::SyntaxKind;
 use crate::node::define_source_syntax_node;
 use crate::{
-    CallableContractDeclarationSyntax, ConstantDeclarationSyntax, FunctionDeclarationSyntax,
+    CallableContractDeclarationSyntax, CallableOverloadDeclarationSyntax,
+    ConstantDeclarationSyntax, FunctionDeclarationSyntax, ImplementationOverloadDeclarationSyntax,
     InherentImplementationDeclarationSyntax, NamedTraitImplementationDeclarationSyntax,
     PredicateDeclarationSyntax, StructDeclarationSyntax, TraitDeclarationSyntax,
     UnionDeclarationSyntax, UnnamedTraitImplementationDeclarationSyntax,
@@ -87,6 +88,22 @@ define_source_syntax_node! {
                 push_callable_contract_declaration;
                 ty: CallableContractDeclarationSyntax;
                 kind: SyntaxKind::CallableContractDeclaration;
+            },
+            {
+                /// Returns direct callable overload declaration children in source order.
+                callable_overload_declarations;
+                /// Appends a callable overload declaration child in source order.
+                push_callable_overload_declaration;
+                ty: CallableOverloadDeclarationSyntax;
+                kind: SyntaxKind::CallableOverloadDeclaration;
+            },
+            {
+                /// Returns direct implementation overload declaration children in source order.
+                implementation_overload_declarations;
+                /// Appends an implementation overload declaration child in source order.
+                push_implementation_overload_declaration;
+                ty: ImplementationOverloadDeclarationSyntax;
+                kind: SyntaxKind::ImplementationOverloadDeclaration;
             },
             {
                 /// Returns direct struct declaration children in source order.

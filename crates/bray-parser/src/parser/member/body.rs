@@ -121,12 +121,17 @@ impl Parser {
             return;
         }
 
+        if self.should_parse_callable_overload_declaration() {
+            builder.push_callable_overload_declaration(self.parse_callable_overload_declaration());
+            return;
+        }
+
         if self.should_parse_struct_field_declaration() {
             builder.push_struct_field_declaration(self.parse_struct_field_declaration());
             return;
         }
 
-        // TODO(parser): Parse remaining struct body items as they are implemented.
+        // Recover syntax that is not valid in a struct body item position.
         self.recover_body_item(builder);
     }
 
@@ -160,12 +165,17 @@ impl Parser {
             return;
         }
 
+        if self.should_parse_callable_overload_declaration() {
+            builder.push_callable_overload_declaration(self.parse_callable_overload_declaration());
+            return;
+        }
+
         if self.should_parse_union_variant_declaration() {
             builder.push_union_variant_declaration(self.parse_union_variant_declaration());
             return;
         }
 
-        // TODO(parser): Parse remaining union body items as they are implemented.
+        // Recover syntax that is not valid in a union body item position.
         self.recover_body_item(builder);
     }
 
@@ -235,7 +245,12 @@ impl Parser {
             return;
         }
 
-        // TODO(parser): Parse remaining implementation members as they are implemented.
+        if self.should_parse_callable_overload_declaration() {
+            builder.push_callable_overload_declaration(self.parse_callable_overload_declaration());
+            return;
+        }
+
+        // Recover syntax that is not valid in an implementation member position.
         self.recover_body_item(builder);
     }
 

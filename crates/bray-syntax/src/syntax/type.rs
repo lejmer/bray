@@ -7,7 +7,10 @@ use super::member::{
 };
 use super::variant::UnionVariantDeclarationSyntax;
 use crate::node::define_source_syntax_node;
-use crate::{ConstantDeclarationSyntax, PredicateDeclarationSyntax, SyntaxKind, SyntaxToken};
+use crate::{
+    CallableOverloadDeclarationSyntax, ConstantDeclarationSyntax, PredicateDeclarationSyntax,
+    SyntaxKind, SyntaxToken,
+};
 
 define_source_syntax_node! {
     /// Type directives in source order.
@@ -281,6 +284,14 @@ define_source_syntax_node! {
                 kind: SyntaxKind::PredicateDeclaration;
             },
             {
+                /// Returns callable overload declarations in source order.
+                callable_overload_declarations;
+                /// Appends a callable overload declaration.
+                push_callable_overload_declaration;
+                ty: CallableOverloadDeclarationSyntax;
+                kind: SyntaxKind::CallableOverloadDeclaration;
+            },
+            {
                 /// Returns type constructor member declarations in source order.
                 type_constructor_member_declarations;
                 /// Appends a type constructor member declaration.
@@ -387,6 +398,14 @@ define_source_syntax_node! {
                 push_predicate_declaration;
                 ty: PredicateDeclarationSyntax;
                 kind: SyntaxKind::PredicateDeclaration;
+            },
+            {
+                /// Returns callable overload declarations in source order.
+                callable_overload_declarations;
+                /// Appends a callable overload declaration.
+                push_callable_overload_declaration;
+                ty: CallableOverloadDeclarationSyntax;
+                kind: SyntaxKind::CallableOverloadDeclaration;
             },
             {
                 /// Returns type constructor member declarations in source order.

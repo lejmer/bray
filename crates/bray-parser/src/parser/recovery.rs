@@ -1,13 +1,15 @@
 use bray_syntax::{
     BlockModuleDeclarationSyntaxBuilder, CallableBodyBlockExpressionSyntaxBuilder,
-    CallableContractDeclarationSyntaxBuilder, CallableResultClauseSyntaxBuilder,
-    ConstantDeclarationSyntaxBuilder, DestructorMemberDeclarationSyntaxBuilder,
-    DirectiveArgumentListSyntaxBuilder, ExportDeclarationSyntaxBuilder,
-    FinalizerMemberDeclarationSyntaxBuilder, FunctionDeclarationSyntaxBuilder,
-    FunctionDirectivesSyntaxBuilder, IdentifierListSyntaxBuilder, ImplementationBodySyntaxBuilder,
-    ImplementationSubjectSyntaxBuilder, ImplementationTypeMemberBindingSyntaxBuilder,
-    InherentImplementationDeclarationSyntaxBuilder, ModuleBodySyntaxBuilder,
-    ModuleDirectivesSyntaxBuilder, NamedTraitImplementationDeclarationSyntaxBuilder,
+    CallableContractDeclarationSyntaxBuilder, CallableOverloadDeclarationSyntaxBuilder,
+    CallableResultClauseSyntaxBuilder, ConstantDeclarationSyntaxBuilder,
+    DestructorMemberDeclarationSyntaxBuilder, DirectiveArgumentListSyntaxBuilder,
+    ExportDeclarationSyntaxBuilder, FinalizerMemberDeclarationSyntaxBuilder,
+    FunctionDeclarationSyntaxBuilder, FunctionDirectivesSyntaxBuilder, IdentifierListSyntaxBuilder,
+    ImplementationBodySyntaxBuilder, ImplementationOverloadDeclarationSyntaxBuilder,
+    ImplementationOverloadSubjectSyntaxBuilder, ImplementationSubjectSyntaxBuilder,
+    ImplementationTypeMemberBindingSyntaxBuilder, InherentImplementationDeclarationSyntaxBuilder,
+    ModuleBodySyntaxBuilder, ModuleDirectivesSyntaxBuilder,
+    NamedTraitImplementationDeclarationSyntaxBuilder, OverloadArmListSyntaxBuilder,
     ParameterListSyntaxBuilder, ParameterSyntaxBuilder, PredicateDeclarationSyntaxBuilder,
     PredicateParameterListSyntaxBuilder, PredicateParameterSyntaxBuilder,
     ScopeEnterMemberDeclarationSyntaxBuilder, ScopeExitMemberDeclarationSyntaxBuilder,
@@ -318,6 +320,30 @@ impl RecoverySyntaxSink for PredicateParameterSyntaxBuilder {
 impl RecoverySyntaxSink for CallableContractDeclarationSyntaxBuilder {
     fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
         CallableContractDeclarationSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for CallableOverloadDeclarationSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        CallableOverloadDeclarationSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for ImplementationOverloadDeclarationSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        ImplementationOverloadDeclarationSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for ImplementationOverloadSubjectSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        ImplementationOverloadSubjectSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for OverloadArmListSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        OverloadArmListSyntaxBuilder::push_skipped_tokens(self, tokens);
     }
 }
 
