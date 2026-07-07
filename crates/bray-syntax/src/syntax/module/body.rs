@@ -1,7 +1,10 @@
 use super::item::{ExportDeclarationSyntax, UsingDeclarationSyntax};
 use crate::SyntaxKind;
 use crate::node::define_source_syntax_node;
-use crate::{FunctionDeclarationSyntax, TraitDeclarationSyntax};
+use crate::{
+    FunctionDeclarationSyntax, StructDeclarationSyntax, TraitDeclarationSyntax,
+    UnionDeclarationSyntax,
+};
 
 define_source_syntax_node! {
     /// Body of a braced module declaration.
@@ -58,6 +61,22 @@ define_source_syntax_node! {
                 push_function_declaration;
                 ty: FunctionDeclarationSyntax;
                 kind: SyntaxKind::FunctionDeclaration;
+            },
+            {
+                /// Returns direct struct declaration children in source order.
+                struct_declarations;
+                /// Appends a struct declaration child in source order.
+                push_struct_declaration;
+                ty: StructDeclarationSyntax;
+                kind: SyntaxKind::StructDeclaration;
+            },
+            {
+                /// Returns direct union declaration children in source order.
+                union_declarations;
+                /// Appends a union declaration child in source order.
+                push_union_declaration;
+                ty: UnionDeclarationSyntax;
+                kind: SyntaxKind::UnionDeclaration;
             },
             {
                 /// Returns direct trait declaration children in source order.

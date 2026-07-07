@@ -251,19 +251,18 @@ impl FunctionDeclarationSyntax {
 
 #[cfg(test)]
 mod tests {
-    use bray_source::{
-        SourceId, SourceIdentity, SourceOrigin, SourceSnapshot, SourceVersion, TextRange, TextSize,
-    };
+    use bray_source::{SourceSnapshot, TextRange, TextSize};
 
+    use crate::test_support::{snapshot as test_snapshot, token};
     use crate::{
         CallableBodyBlockExpressionSyntax, DirectiveArgumentListSyntax, FunctionDeclarationSyntax,
         FunctionDirectivesSyntax, FunctionModifiersSyntax, LinkDirectiveSyntax,
-        ParameterListSyntax, SyntaxKind, SyntaxText, SyntaxToken, SyntaxTrivia,
+        ParameterListSyntax, SyntaxKind, SyntaxText, SyntaxTrivia,
     };
 
     #[test]
     fn function_declarations_store_modifiers_parameters_and_body() {
-        let snapshot = snapshot("public func main() {}");
+        let snapshot = test_snapshot("syntax-function-test", "public func main() {}");
         let mut builder = FunctionDeclarationSyntax::builder(snapshot.clone(), TextSize::ZERO);
 
         builder.push_function_directives(
@@ -296,7 +295,7 @@ mod tests {
 
     #[test]
     fn function_directives_store_directives_in_source_order() {
-        let snapshot = snapshot("@link(\"m\")");
+        let snapshot = test_snapshot("syntax-function-test", "@link(\"m\")");
         let mut directives = FunctionDirectivesSyntax::builder(snapshot.clone(), TextSize::ZERO);
         let mut link = LinkDirectiveSyntax::builder(snapshot.clone(), TextSize::ZERO);
         let mut arguments =
@@ -352,25 +351,5 @@ mod tests {
         builder.push_close_brace_token(token(SyntaxKind::CloseBraceToken, 20, 21));
 
         builder.build()
-    }
-
-    fn token(kind: SyntaxKind, start: u32, end: u32) -> SyntaxToken {
-        SyntaxToken::new(
-            kind,
-            TextRange::new(TextSize::new(start), TextSize::new(end)),
-        )
-    }
-
-    fn snapshot(text: &str) -> SourceSnapshot {
-        match SourceSnapshot::new(
-            SourceId::new(0),
-            SourceIdentity::new(0),
-            SourceOrigin::virtual_source("syntax-function-test"),
-            SourceVersion::new(0),
-            text,
-        ) {
-            Ok(snapshot) => snapshot,
-            Err(error) => panic!("test source should fit in TextSize: {error:?}"),
-        }
     }
 }

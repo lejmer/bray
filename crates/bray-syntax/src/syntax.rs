@@ -6,6 +6,7 @@ mod module;
 mod path;
 mod recovery;
 mod trait_declaration;
+mod type_declaration;
 mod unit;
 
 pub use callable::{
@@ -15,11 +16,12 @@ pub use callable::{
     ParameterSyntax, ParameterSyntaxBuilder,
 };
 pub use directive::{
-    AbiDirectiveSyntax, AbiDirectiveSyntaxBuilder, DirectiveArgumentListSyntax,
-    DirectiveArgumentListSyntaxBuilder, EntrypointDirectiveSyntax,
-    EntrypointDirectiveSyntaxBuilder, LinkDirectiveSyntax, LinkDirectiveSyntaxBuilder,
-    SymbolDirectiveSyntax, SymbolDirectiveSyntaxBuilder, TargetDirectiveSyntax,
-    TargetDirectiveSyntaxBuilder, TestDirectiveSyntax, TestDirectiveSyntaxBuilder,
+    AbiDirectiveSyntax, AbiDirectiveSyntaxBuilder, CopyDirectiveSyntax, CopyDirectiveSyntaxBuilder,
+    DirectiveArgumentListSyntax, DirectiveArgumentListSyntaxBuilder, EntrypointDirectiveSyntax,
+    EntrypointDirectiveSyntaxBuilder, LayoutDirectiveSyntax, LayoutDirectiveSyntaxBuilder,
+    LinkDirectiveSyntax, LinkDirectiveSyntaxBuilder, SymbolDirectiveSyntax,
+    SymbolDirectiveSyntaxBuilder, TargetDirectiveSyntax, TargetDirectiveSyntaxBuilder,
+    TestDirectiveSyntax, TestDirectiveSyntaxBuilder,
 };
 pub use function::{
     FunctionDeclarationSyntax, FunctionDeclarationSyntaxBuilder, FunctionDirectivesSyntax,
@@ -43,6 +45,12 @@ pub(crate) use recovery::skipped_syntax_nodes;
 pub use trait_declaration::{
     TraitBodySyntax, TraitBodySyntaxBuilder, TraitDeclarationSyntax, TraitDeclarationSyntaxBuilder,
     TraitModifiersSyntax, TraitModifiersSyntaxBuilder,
+};
+pub use type_declaration::{
+    StructBodySyntax, StructBodySyntaxBuilder, StructDeclarationSyntax,
+    StructDeclarationSyntaxBuilder, TypeDirectivesSyntax, TypeDirectivesSyntaxBuilder,
+    TypeModifiersSyntax, TypeModifiersSyntaxBuilder, UnionBodySyntax, UnionBodySyntaxBuilder,
+    UnionDeclarationSyntax, UnionDeclarationSyntaxBuilder,
 };
 pub use unit::{
     CompilationUnitSyntax, CompilationUnitSyntaxBuilder, SourceUnitSyntax, SourceUnitSyntaxBuilder,

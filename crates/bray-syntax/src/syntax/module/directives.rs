@@ -189,19 +189,21 @@ impl fmt::Debug for ModuleDirectivesSyntaxBuilder {
 
 #[cfg(test)]
 mod tests {
-    use bray_source::{
-        SourceId, SourceIdentity, SourceOrigin, SourceSnapshot, SourceVersion, TextRange, TextSize,
-    };
+    use bray_source::{SourceSnapshot, TextRange, TextSize};
 
     use super::{ModuleDirectivesSyntax, ModuleDirectivesSyntaxBuilder};
+    use crate::test_support::{snapshot as test_snapshot, token};
     use crate::{
-        DirectiveArgumentListSyntax, LinkDirectiveSyntax, SyntaxKind, SyntaxText, SyntaxToken,
-        SyntaxTrivia, TargetDirectiveSyntax, TestDirectiveSyntax,
+        DirectiveArgumentListSyntax, LinkDirectiveSyntax, SyntaxKind, SyntaxText, SyntaxTrivia,
+        TargetDirectiveSyntax, TestDirectiveSyntax,
     };
 
     #[test]
     fn module_directives_preserve_mixed_directives_in_source_order() {
-        let snapshot = snapshot("@test @target(x) @link(\"m\")");
+        let snapshot = test_snapshot(
+            "syntax-module-directives-test",
+            "@test @target(x) @link(\"m\")",
+        );
         let test = test_directive(&snapshot);
         let target = target_directive(&snapshot);
         let link = link_directive(&snapshot);
@@ -287,25 +289,5 @@ mod tests {
         builder.push_close_paren_token(token(SyntaxKind::CloseParenToken, 26, 27));
 
         builder.build()
-    }
-
-    fn token(kind: SyntaxKind, start: u32, end: u32) -> SyntaxToken {
-        SyntaxToken::new(
-            kind,
-            TextRange::new(TextSize::new(start), TextSize::new(end)),
-        )
-    }
-
-    fn snapshot(text: &str) -> SourceSnapshot {
-        match SourceSnapshot::new(
-            SourceId::new(0),
-            SourceIdentity::new(0),
-            SourceOrigin::virtual_source("syntax-module-directives-test"),
-            SourceVersion::new(0),
-            text,
-        ) {
-            Ok(snapshot) => snapshot,
-            Err(error) => panic!("test source should fit in TextSize: {error:?}"),
-        }
     }
 }

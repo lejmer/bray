@@ -248,23 +248,8 @@ impl Parser {
             if directive_name != Some(ENTRYPOINT_DIRECTIVE_NAME)
                 && directive_name != Some(TEST_DIRECTIVE_NAME)
             {
-                self.skip_unknown_function_directive_for_scan();
+                self.skip_unknown_directive_for_scan(&FUNCTION_DECLARATION_START_KINDS);
             }
-        }
-    }
-
-    fn skip_unknown_function_directive_for_scan(&mut self) {
-        if self.consume_if(SyntaxKind::OpenParenToken).is_some() {
-            self.scan_until_balanced_close_paren(&FUNCTION_DECLARATION_START_KINDS);
-            self.consume_if(SyntaxKind::CloseParenToken);
-
-            return;
-        }
-
-        while !self.at_any(&FUNCTION_DECLARATION_START_KINDS)
-            && !self.at(SyntaxKind::EndOfFileToken)
-        {
-            self.consume();
         }
     }
 

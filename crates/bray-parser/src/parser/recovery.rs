@@ -4,9 +4,10 @@ use bray_syntax::{
     ExportDeclarationSyntaxBuilder, FunctionDeclarationSyntaxBuilder,
     FunctionDirectivesSyntaxBuilder, IdentifierListSyntaxBuilder, ModuleBodySyntaxBuilder,
     ModuleDirectivesSyntaxBuilder, ParameterListSyntaxBuilder, ParameterSyntaxBuilder,
-    SourceUnitModuleDeclarationSyntaxBuilder, SourceUnitSyntaxBuilder, SyntaxKind, SyntaxToken,
-    TargetDirectiveSyntaxBuilder, TraitBodySyntaxBuilder, TraitDeclarationSyntaxBuilder,
-    UsingDeclarationSyntaxBuilder,
+    SourceUnitModuleDeclarationSyntaxBuilder, SourceUnitSyntaxBuilder, StructBodySyntaxBuilder,
+    StructDeclarationSyntaxBuilder, SyntaxKind, SyntaxToken, TargetDirectiveSyntaxBuilder,
+    TraitBodySyntaxBuilder, TraitDeclarationSyntaxBuilder, TypeDirectivesSyntaxBuilder,
+    UnionBodySyntaxBuilder, UnionDeclarationSyntaxBuilder, UsingDeclarationSyntaxBuilder,
 };
 
 use crate::cursor::RecoverySet;
@@ -170,6 +171,36 @@ impl RecoverySyntaxSink for TraitDeclarationSyntaxBuilder {
 impl RecoverySyntaxSink for TraitBodySyntaxBuilder {
     fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
         TraitBodySyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for TypeDirectivesSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        TypeDirectivesSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for StructDeclarationSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        StructDeclarationSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for StructBodySyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        StructBodySyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for UnionDeclarationSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        UnionDeclarationSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for UnionBodySyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        UnionBodySyntaxBuilder::push_skipped_tokens(self, tokens);
     }
 }
 

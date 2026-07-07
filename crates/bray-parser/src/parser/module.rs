@@ -3,8 +3,8 @@ use bray_syntax::{
     FunctionDeclarationSyntax, ModuleBodySyntax, ModuleBodySyntaxBuilder, ModuleDirectivesSyntax,
     ModuleDirectivesSyntaxBuilder, ModuleModifiersSyntax, PathSyntax,
     SourceUnitModuleDeclarationSyntax, SourceUnitModuleDeclarationSyntaxBuilder,
-    SourceUnitSyntaxBuilder, SyntaxKind, SyntaxToken, TraitDeclarationSyntax,
-    UsingDeclarationSyntax,
+    SourceUnitSyntaxBuilder, StructDeclarationSyntax, SyntaxKind, SyntaxToken,
+    TraitDeclarationSyntax, UnionDeclarationSyntax, UsingDeclarationSyntax,
 };
 
 use crate::cursor::RecoverySet;
@@ -45,7 +45,7 @@ const DIRECTIVE_ARGUMENT_RECOVERY_KINDS: [SyntaxKind; 5] = [
     SyntaxKind::ModuleKeyword,
 ];
 
-const PARSED_MODULE_ITEM_BOUNDARY_KINDS: [SyntaxKind; 14] = [
+const PARSED_MODULE_ITEM_BOUNDARY_KINDS: [SyntaxKind; 16] = [
     SyntaxKind::UsingKeyword,
     SyntaxKind::ExportKeyword,
     SyntaxKind::AtToken,
@@ -56,6 +56,8 @@ const PARSED_MODULE_ITEM_BOUNDARY_KINDS: [SyntaxKind; 14] = [
     SyntaxKind::AsyncKeyword,
     SyntaxKind::ConstKeyword,
     SyntaxKind::FuncKeyword,
+    SyntaxKind::StructKeyword,
+    SyntaxKind::UnionKeyword,
     SyntaxKind::TraitKeyword,
     SyntaxKind::SemicolonToken,
     SyntaxKind::CloseBraceToken,
@@ -249,6 +251,16 @@ impl Parser {
             return;
         }
 
+        if self.should_parse_struct_declaration() {
+            builder.push_struct_declaration(self.parse_struct_declaration());
+            return;
+        }
+
+        if self.should_parse_union_declaration() {
+            builder.push_union_declaration(self.parse_union_declaration());
+            return;
+        }
+
         if self.should_parse_trait_declaration() {
             builder.push_trait_declaration(self.parse_trait_declaration());
             return;
@@ -359,22 +371,8 @@ impl Parser {
             }
 
             if directive_name != Some(TEST_DIRECTIVE_NAME) {
-                self.skip_unknown_module_directive_for_scan();
+                self.skip_unknown_directive_for_scan(&MODULE_DECLARATION_START_KINDS);
             }
-        }
-    }
-
-    fn skip_unknown_module_directive_for_scan(&mut self) {
-        if self.consume_if(SyntaxKind::OpenParenToken).is_some() {
-            self.scan_until_balanced_close_paren(&MODULE_DECLARATION_START_KINDS);
-            self.consume_if(SyntaxKind::CloseParenToken);
-
-            return;
-        }
-
-        while !self.at_any(&MODULE_DECLARATION_START_KINDS) && !self.at(SyntaxKind::EndOfFileToken)
-        {
-            self.consume();
         }
     }
 
@@ -425,6 +423,10 @@ pub(super) trait ModuleItemSyntaxSink: RecoverySyntaxSink {
     fn push_export_declaration(&mut self, declaration: ExportDeclarationSyntax);
 
     fn push_function_declaration(&mut self, declaration: FunctionDeclarationSyntax);
+
+    fn push_struct_declaration(&mut self, declaration: StructDeclarationSyntax);
+
+    fn push_union_declaration(&mut self, declaration: UnionDeclarationSyntax);
 
     fn push_trait_declaration(&mut self, declaration: TraitDeclarationSyntax);
 }
@@ -478,6 +480,14 @@ impl ModuleItemSyntaxSink for SourceUnitSyntaxBuilder {
         SourceUnitSyntaxBuilder::push_function_declaration(self, declaration);
     }
 
+    fn push_struct_declaration(&mut self, declaration: StructDeclarationSyntax) {
+        SourceUnitSyntaxBuilder::push_struct_declaration(self, declaration);
+    }
+
+    fn push_union_declaration(&mut self, declaration: UnionDeclarationSyntax) {
+        SourceUnitSyntaxBuilder::push_union_declaration(self, declaration);
+    }
+
     fn push_trait_declaration(&mut self, declaration: TraitDeclarationSyntax) {
         SourceUnitSyntaxBuilder::push_trait_declaration(self, declaration);
     }
@@ -494,6 +504,14 @@ impl ModuleItemSyntaxSink for ModuleBodySyntaxBuilder {
 
     fn push_function_declaration(&mut self, declaration: FunctionDeclarationSyntax) {
         ModuleBodySyntaxBuilder::push_function_declaration(self, declaration);
+    }
+
+    fn push_struct_declaration(&mut self, declaration: StructDeclarationSyntax) {
+        ModuleBodySyntaxBuilder::push_struct_declaration(self, declaration);
+    }
+
+    fn push_union_declaration(&mut self, declaration: UnionDeclarationSyntax) {
+        ModuleBodySyntaxBuilder::push_union_declaration(self, declaration);
     }
 
     fn push_trait_declaration(&mut self, declaration: TraitDeclarationSyntax) {
@@ -883,7 +901,7 @@ mod tests {
 
     #[test]
     fn parser_recovers_unimplemented_module_items_without_losing_later_items() {
-        let sources = source_store(["module main { struct Run {} using core; }"]);
+        let sources = source_store(["module main { impl Run {} using core; }"]);
         let result = parse_compilation_unit(&sources);
         let source_unit = &result.syntax_tree().root().source_units()[0];
         let declarations = source_unit.block_module_declarations().collect::<Vec<_>>();
@@ -901,13 +919,13 @@ mod tests {
 
         assert_eq!(
             source_unit.full_text(),
-            "module main { struct Run {} using core; }"
+            "module main { impl Run {} using core; }"
         );
 
         assert_eq!(body.using_declarations().count(), 1);
         assert_eq!(body.export_declarations().count(), 0);
 
-        assert_eq!(skipped.full_text(), "struct Run {} ");
+        assert_eq!(skipped.full_text(), "impl Run {} ");
 
         assert_eq!(
             parse_diagnostic_kinds(&result),

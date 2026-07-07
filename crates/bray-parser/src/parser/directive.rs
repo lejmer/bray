@@ -1,13 +1,15 @@
 use bray_syntax::{
-    AbiDirectiveSyntax, DirectiveArgumentListSyntax, EntrypointDirectiveSyntax,
-    LinkDirectiveSyntax, SymbolDirectiveSyntax, SyntaxKind, TargetDirectiveSyntax,
-    TestDirectiveSyntax,
+    AbiDirectiveSyntax, CopyDirectiveSyntax, DirectiveArgumentListSyntax,
+    EntrypointDirectiveSyntax, LayoutDirectiveSyntax, LinkDirectiveSyntax, SymbolDirectiveSyntax,
+    SyntaxKind, TargetDirectiveSyntax, TestDirectiveSyntax,
 };
 
 use super::state::Parser;
 
 pub(super) const ABI_DIRECTIVE_NAME: &str = "abi";
+pub(super) const COPY_DIRECTIVE_NAME: &str = "copy";
 pub(super) const ENTRYPOINT_DIRECTIVE_NAME: &str = "entrypoint";
+pub(super) const LAYOUT_DIRECTIVE_NAME: &str = "layout";
 pub(super) const LINK_DIRECTIVE_NAME: &str = "link";
 pub(super) const SYMBOL_DIRECTIVE_NAME: &str = "symbol";
 pub(super) const TARGET_DIRECTIVE_NAME: &str = "target";
@@ -48,6 +50,32 @@ impl Parser {
 
         builder.push_directive_marker_token(self.expect(SyntaxKind::AtToken));
         builder.push_name_token(self.expect(SyntaxKind::IdentifierToken));
+
+        builder.build()
+    }
+
+    pub(super) fn parse_copy_directive(&mut self) -> CopyDirectiveSyntax {
+        let start = self.peek().full_range().start();
+        let mut builder = CopyDirectiveSyntax::builder(self.syntax_source(), start);
+
+        builder.push_directive_marker_token(self.expect(SyntaxKind::AtToken));
+        builder.push_name_token(self.expect(SyntaxKind::IdentifierToken));
+
+        builder.build()
+    }
+
+    pub(super) fn parse_layout_directive(
+        &mut self,
+        argument_recovery_kinds: &[SyntaxKind],
+    ) -> LayoutDirectiveSyntax {
+        let start = self.peek().full_range().start();
+        let mut builder = LayoutDirectiveSyntax::builder(self.syntax_source(), start);
+
+        builder.push_directive_marker_token(self.expect(SyntaxKind::AtToken));
+        builder.push_name_token(self.expect(SyntaxKind::IdentifierToken));
+        builder.push_directive_argument_list(
+            self.parse_directive_argument_list(argument_recovery_kinds),
+        );
 
         builder.build()
     }
@@ -133,5 +161,18 @@ impl Parser {
 
         self.scan_until_balanced_close_paren(stop_kinds);
         self.consume_if(SyntaxKind::CloseParenToken);
+    }
+
+    pub(super) fn skip_unknown_directive_for_scan(&mut self, stop_kinds: &[SyntaxKind]) {
+        if self.consume_if(SyntaxKind::OpenParenToken).is_some() {
+            self.scan_until_balanced_close_paren(stop_kinds);
+            self.consume_if(SyntaxKind::CloseParenToken);
+
+            return;
+        }
+
+        while !self.at_any(stop_kinds) && !self.at(SyntaxKind::EndOfFileToken) {
+            self.consume();
+        }
     }
 }
