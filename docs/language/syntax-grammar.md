@@ -117,6 +117,7 @@ type-member-declaration =
     | type-constructor-member-declaration
     | type-lifecycle-member-declaration
     | constant-declaration
+    | predicate-declaration
     | callable-overload-declaration ;
 
 trait-member-declaration =
@@ -131,8 +132,10 @@ block-level-declaration =
     | constant-declaration ;
 ```
 
-Implementation member declarations are defined with implementation declarations because inherent and trait implementations accept
-different member forms.
+Implementation member declarations are defined with implementation declarations.
+
+Inherent and trait implementation bodies share one member grammar. The implementation header determines how those members are
+checked.
 
 ---
 
@@ -1531,6 +1534,12 @@ A constant declaration inside a type body defines a type-associated constant.
 
 Type-associated constants use ordinary constant declaration syntax.
 
+### Type Predicates
+
+A predicate declaration inside a type body defines a type-associated predicate.
+
+Type-associated predicates use ordinary predicate declaration syntax.
+
 ### Constructors
 
 ```ebnf
@@ -1701,7 +1710,7 @@ trait-type-member-declaration =
 
 A trait type member declares a required type-valued member.
 
-Type-valued members cannot have generic parameters or defaults.
+Trait type-valued members cannot have generic parameters or defaults.
 
 ### Trait Predicate Members
 
@@ -1770,15 +1779,15 @@ implementation-declaration =
 
 inherent-implementation-declaration =
     "impl" inherent-implementation-subject implementation-constraints
-    inherent-implementation-body ;
+    implementation-body ;
 
 unnamed-trait-implementation-declaration =
     "impl" implementation-subject "(" trait-application ")"
-    implementation-constraints trait-implementation-body ;
+    implementation-constraints implementation-body ;
 
 named-trait-implementation-declaration =
     "impl" identifier "=" implementation-subject "(" trait-application ")"
-    implementation-constraints trait-implementation-body ;
+    implementation-constraints implementation-body ;
 
 implementation-constraints =
     { with-clause } ;
@@ -1823,72 +1832,36 @@ by type rules.
 ### Implementation Bodies
 
 ```ebnf
-inherent-implementation-body =
-    "{" { inherent-implementation-member-declaration } "}" ;
-
-trait-implementation-body =
-    "{" { trait-implementation-member-declaration } "}" ;
+implementation-body =
+    "{" { implementation-member-declaration } "}" ;
 
 implementation-member-declaration =
-      inherent-implementation-member-declaration
-    | trait-implementation-member-declaration ;
+      type-callable-member-declaration
+    | type-constructor-member-declaration
+    | type-lifecycle-member-declaration
+    | implementation-type-member-binding
+    | constant-declaration
+    | predicate-declaration
+    | callable-overload-declaration ;
+
+implementation-type-member-binding =
+    "type" identifier "=" type-expression ";" ;
 ```
 
 Implementation bodies are braced member lists.
 
-The parser uses the implementation header form to choose the inherent or trait implementation body shape.
+The parser uses the same member grammar for inherent and trait implementation bodies.
 
-### Inherent Implementation Members
+### Implementation Members
 
-```ebnf
-inherent-implementation-member-declaration =
-      type-callable-member-declaration
-    | type-constructor-member-declaration
-    | type-lifecycle-member-declaration
-    | constant-declaration
-    | callable-overload-declaration ;
-```
+Implementation members reuse the same definition forms as type-body callable members, constructors, lifecycle members,
+type-associated constants, type-valued member bindings, type-associated predicates, and callable overload declarations.
 
-Inherent implementation members reuse the same definition forms as type-body callable members, constructors, lifecycle members,
-type-associated constants, and callable overload declarations.
+An inherent implementation type member binds a name to a type expression associated with the implementation subject.
 
-### Trait Implementation Members
+The binding does not introduce a module-level type alias and does not fulfill a trait requirement.
 
-```ebnf
-trait-implementation-member-declaration =
-      trait-implementation-callable-member-declaration
-    | trait-implementation-constant-member-definition
-    | trait-implementation-type-member-binding
-    | trait-implementation-predicate-member-definition
-    | trait-implementation-lifecycle-member-declaration ;
-
-trait-implementation-callable-member-declaration =
-    trait-callable-member-modifiers "func" identifier [ generic-parameter-list ]
-    parameter-list [ callable-result-clause ] callable-contract-clauses
-    callable-body-block-expression ;
-
-trait-implementation-constant-member-definition =
-    "const" identifier ":" type-expression "=" constant-expression ";" ;
-
-trait-implementation-type-member-binding =
-    "type" identifier "=" type-expression ";" ;
-
-trait-implementation-predicate-member-definition =
-    trait-predicate-member-modifiers "predicate" identifier
-    predicate-parameter-list "=" predicate-expression ";" ;
-
-trait-implementation-lifecycle-member-declaration =
-      trait-implementation-scope-enter-member-declaration
-    | trait-implementation-scope-exit-member-declaration ;
-
-trait-implementation-scope-enter-member-declaration =
-    async-capable-lifecycle-member-modifiers "enter" empty-parameter-list
-    callable-result-clause callable-contract-clauses callable-body-block-expression ;
-
-trait-implementation-scope-exit-member-declaration =
-    async-capable-lifecycle-member-modifiers "exit" single-parameter-list
-    [ callable-result-clause ] callable-contract-clauses callable-body-block-expression ;
-```
+An inherent implementation predicate declaration defines a type-associated predicate for the implementation subject.
 
 Trait implementation callable members always have a body.
 
@@ -1900,7 +1873,7 @@ Trait implementation predicate members always have a predicate body.
 
 Trait implementation lifecycle members can define `enter` and `exit` fulfillments.
 
-Individual trait implementation members do not accept `public` or `internal` modifiers. They are fulfillments of the implemented
+Individual trait implementation members cannot use `public` or `internal` modifiers. They are fulfillments of the implemented
 trait contract.
 
 Missing members, extra members, duplicate members, signature compatibility, type-valued member compatibility, lifecycle
@@ -1920,9 +1893,11 @@ overload-declaration =
 
 Module-level overload declarations can be callable overload declarations or implementation overload declarations.
 
-Type bodies and inherent implementation bodies can contain callable overload declarations.
+Type bodies and implementation bodies can contain callable overload declarations.
 
-Trait declarations and trait implementation bodies do not contain overload declarations.
+Trait declarations do not contain overload declarations.
+
+Callable overload declarations in trait implementation bodies are rejected semantically because they do not fulfill trait members.
 
 ### Callable Overload Declarations
 

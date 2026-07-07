@@ -247,9 +247,9 @@ Changing a constant-valued member value can change the public contract of an imp
 
 ## Type-valued members in traits
 
-A type-valued member is a type-level output of a trait implementation.
+A trait type-valued member is a type-level output of a trait implementation.
 
-Type-valued members are allowed only in trait declarations.
+Required type-valued member declarations are allowed only in trait declarations.
 
 ```bray
 trait Iterator
@@ -260,25 +260,27 @@ trait Iterator
 }
 ```
 
-A type-valued member declaration without a binding introduces a required type member.
+A trait type-valued member declaration without a binding introduces a required type member.
 
 Inside the declaring trait, the type-valued member name is available in that trait’s member signatures, default bodies, and contract clauses.
 
-Type-valued members are immutable.
+Trait type-valued members are immutable.
 
-A type-valued member name must be unique among the trait's member names.
+A trait type-valued member name must be unique among the trait's member names.
 
-A type-valued member cannot be declared `mut`.
+A trait type-valued member cannot be declared `mut`.
 
-A type-valued member cannot be rebound after the implementation has selected its value.
+A trait type-valued member cannot be rebound after the implementation has selected its value.
 
-A type-valued member is not a type alias.
+A trait type-valued member is not a type alias.
 
-A type-valued member does not introduce an alternate name for an arbitrary type outside the trait relationship that defines it.
+A trait type-valued member does not introduce an alternate name for an arbitrary type outside the trait relationship that defines it.
 
 Module-level type aliases are not part of Bray.
 
-Structs, unions, modules, packages, functions, and inherent implementations cannot declare type-valued members.
+Structs, unions, modules, packages, and functions cannot declare required type-valued members.
+
+Inherent implementations can bind type-valued members for their implementation subject, but those bindings are type-associated members rather than trait requirements.
 
 Trait parameters and type-valued members have different roles:
 
@@ -323,7 +325,7 @@ Type-valued members do not permit downcasting, runtime type tests, or dynamic ty
 
 Dynamic dispatch through a trait view is rejected when it would hide selected type-valued members that are visible through that dispatch surface.
 
-Type-valued members cannot have their own generic parameters.
+Trait type-valued members cannot have their own generic parameters.
 
 ```bray
 trait StreamingParser
@@ -333,7 +335,7 @@ trait StreamingParser
 }
 ```
 
-Type-valued member defaults are not allowed.
+Trait type-valued member defaults are not allowed.
 
 ```bray
 trait Parser
@@ -344,7 +346,7 @@ trait Parser
 
 Changing a type-valued member binding can change the public contract of the implementation.
 
-Outside the declaring trait and an implementation of that trait, a type-valued member is referenced with [qualified trait member reference](#qualified-trait-member-references) syntax:
+Outside the declaring trait and an implementation of that trait, a trait type-valued member is referenced with [qualified trait member reference](#qualified-trait-member-references) syntax:
 
 ```bray
 SubjectType(TraitApplication).MemberName

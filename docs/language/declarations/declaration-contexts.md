@@ -27,7 +27,8 @@ A type body accepts representation declarations and type member declarations.
 
 A trait body accepts trait member declarations.
 
-An implementation body accepts inherent implementation members or trait implementation members according to the implementation header.
+An implementation body accepts implementation members. The implementation header determines whether those members introduce
+type-associated declarations or fulfill trait members.
 
 A block expression accepts local binding declarations and constant declarations.
 

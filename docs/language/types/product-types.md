@@ -49,7 +49,8 @@ The primary representation determines:
 - field destruction order,
 - field access paths.
 
-Additional implementation blocks can define constructors, methods, static functions, constants, trait implementations, and other behavior for the type.
+Additional implementation blocks can define constructors, methods, static functions, constants, predicates, type-valued members,
+trait implementations, and other behavior for the type.
 
 Additional implementation blocks do not add fields to the primary representation.
 

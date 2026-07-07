@@ -170,7 +170,7 @@ Such values cannot outlive or extend the borrow represented by the implementatio
 
 An implementation body contains member definitions.
 
-In an inherent implementation, member definitions become behavior associated with the implementing type.
+In an inherent implementation, member definitions become declarations associated with the implementing type.
 
 In a trait implementation, member definitions fulfill members of the implemented trait application.
 
@@ -196,52 +196,82 @@ A trait implementation must satisfy every lifecycle requirement.
 
 A trait implementation can provide a callable member or constant-valued member that has default behavior in the trait.
 
-When an implementation provides a callable member or constant-valued member with default behavior, the implementation member is
-used for that implementation.
+When a trait implementation provides a callable member or constant-valued member with default behavior, the implementation member
+is used for that implementation.
 
-When an implementation omits a callable member or constant-valued member with default behavior, the trait’s default behavior is
-used for that implementation.
+When a trait implementation omits a callable member or constant-valued member with default behavior, the trait’s default behavior
+is used for that implementation.
 
-An implementation callable member must match the fulfilled trait member’s name, receiver mode, parameter names, parameter types, result type, execution mode, contract obligations, and caller-visible effects after type-valued member bindings have been applied.
+An inherent implementation can bind a type-valued member for its implementation subject.
 
-An implementation constant-valued member must match a constant-valued member declared by the implemented trait.
+```bray
+impl Buffer<T>
+{
+    type Cursor = BufferCursor<T>;
+}
+```
 
-An implementation constant-valued member must use the same declared type as the fulfilled trait member after type-valued member bindings have been applied.
+An inherent type-valued member binding introduces a type-associated member of the implementation subject.
 
-An implementation constant-valued member initializer must be a constant expression valid in the implementation context.
+The selected type can depend on `Self`, inferred implementation parameters, and static constraints established by the implementation.
 
-An implementation cannot provide the same constant-valued member more than once.
+The selected type cannot depend on a runtime value, control-flow path, local inference choice, caller preference, or use site.
 
-An implementation cannot provide extra constant-valued members that are not declared by the trait.
+An inherent type-valued member is reached through ordinary type-associated lookup.
 
-An implementation type-valued member binding must match a type-valued member declared by the implemented trait.
+```bray
+Buffer<u8>.Cursor
+```
 
-An implementation type-valued member binding must select a concrete type that is valid in the implementation context.
+An inherent type-valued member binding is not a module-level type alias.
 
-An implementation cannot bind the same type-valued member more than once.
+An inherent implementation cannot bind the same type-valued member more than once for the same implementation subject in the same
+coherence domain.
 
-An implementation cannot provide extra type-valued member bindings that are not declared by the trait.
+A trait implementation callable member must match the fulfilled trait member’s name, receiver mode, parameter names, parameter types, result type, execution mode, contract obligations, and caller-visible effects after type-valued member bindings have been applied.
 
-An implementation predicate member must match a predicate member declared by the implemented trait.
+A trait implementation constant-valued member must match a constant-valued member declared by the implemented trait.
 
-An implementation predicate member body must be a predicate expression valid in the implementation context.
+A trait implementation constant-valued member must use the same declared type as the fulfilled trait member after type-valued member bindings have been applied.
 
-An implementation cannot provide the same predicate member more than once.
+A trait implementation constant-valued member initializer must be a constant expression valid in the implementation context.
 
-An implementation cannot provide extra predicate members that are not declared by the trait.
+A trait implementation cannot provide the same constant-valued member more than once.
 
-An implementation lifecycle declaration can fulfill only an `enter` or `exit` requirement declared by the implemented trait.
+A trait implementation cannot provide extra constant-valued members that are not declared by the trait.
 
-An implementation lifecycle declaration must satisfy the lifecycle signature and contract clauses of the requirement it fulfills
-after type-valued member bindings have been applied.
+A trait implementation type-valued member binding must match a type-valued member declared by the implemented trait.
 
-An implementation cannot provide `finalize` or `destruct` as trait implementation members.
+A trait implementation type-valued member binding must select a concrete type that is valid in the implementation context.
 
-An implementation cannot provide lifecycle declarations that do not fulfill lifecycle requirements declared by the trait.
+A trait implementation cannot bind the same type-valued member more than once.
+
+A trait implementation cannot provide extra type-valued member bindings that are not declared by the trait.
+
+A trait implementation predicate member must match a predicate member declared by the implemented trait.
+
+A trait implementation predicate member body must be a predicate expression valid in the implementation context.
+
+A trait implementation cannot provide the same predicate member more than once.
+
+A trait implementation cannot provide extra predicate members that are not declared by the trait.
+
+A trait implementation lifecycle declaration can fulfill only an `enter` or `exit` requirement declared by the implemented trait.
+
+A trait implementation lifecycle declaration must satisfy the lifecycle signature and contract clauses of the requirement it
+fulfills after type-valued member bindings have been applied.
+
+A trait implementation cannot provide `finalize` or `destruct` as trait implementation members.
+
+A trait implementation cannot provide lifecycle declarations that do not fulfill lifecycle requirements declared by the trait.
+
+A trait implementation cannot provide constructor declarations.
+
+A trait implementation cannot provide callable overload declarations.
 
 Implementation member visibility is governed by the implementation relationship and the implemented trait or inherent implementation context.
 
-The grammar excludes `public` and `internal` modifiers on individual trait-implementation members.
+Individual trait implementation members cannot use `public` or `internal` modifiers.
 
 Implementation members in a trait implementation are fulfillments of a trait contract, not independent visibility surfaces.
 
@@ -404,7 +434,7 @@ If multiple participating generic implementations could produce the same exact c
 
 Trait generic parameters are inputs to the trait application.
 
-Type-valued members are outputs of the selected trait implementation.
+Trait type-valued members are outputs of the selected trait implementation.
 
 A generic trait should use generic parameters when the caller or constraint site chooses the type relationship.
 
@@ -1069,6 +1099,8 @@ Adding a required type-valued member to a public trait is a public API change.
 Removing a type-valued member from a public trait is a public API change.
 
 Changing a type-valued member name is a public API change.
+
+Adding or removing a public or reachable inherent type-valued member can be a public API change.
 
 Changing the selected type for a public or reachable implementation can be a public API change.
 

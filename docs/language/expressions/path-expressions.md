@@ -129,7 +129,8 @@ Shape.Circle
 ParseResult<i32>.EndOfInput
 ```
 
-Type-associated declarations include constants, static functions, named constructors, union variants, and other declarations associated with the type by type declarations, implementations, or behavioral contracts.
+Type-associated declarations include constants, type-valued members, predicates, static functions, named constructors, union
+variants, and other declarations associated with the type by type declarations, implementations, or behavioral contracts.
 
 A static function path can be called.
 
