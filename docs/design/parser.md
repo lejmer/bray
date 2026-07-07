@@ -85,12 +85,14 @@ Parser implementation details live under `bray-parser/src/parser/`:
 - `callable.rs` owns shared callable roots such as parameter lists, result clauses, and callable bodies,
 - `directive.rs` owns shared directive grammar parsing,
 - `function.rs` owns module-level function declaration grammar parsing,
+- `implementation.rs` owns module-level implementation declaration grammar parsing,
 - `modifier.rs` owns shared modifier grammar parsing,
-- `module.rs` owns module declaration grammar parsing,
+- `module.rs` owns module declaration grammar parsing and module item dispatch,
 - `path.rs` owns path and identifier grammar parsing,
 - `recovery.rs` owns grammar-neutral recovery sinks and helpers,
-- `separated.rs` owns parser-internal separated-list helpers.
-- `trait_declaration.rs` owns module-level trait declaration grammar parsing.
+- `separated.rs` owns parser-internal separated-list helpers,
+- `trait.rs` owns module-level trait declaration grammar parsing,
+- `type.rs` owns module-level struct and union declaration grammar parsing.
 
 Add new grammar areas as sibling parser submodules when the existing module would otherwise become broad or mixed.
 Do not put unrelated grammar in a module only because that module first needed it.
@@ -98,6 +100,9 @@ Do not put unrelated grammar in a module only because that module first needed i
 Tests should live beside the parser code they exercise.
 Use module-local `#[cfg(test)]` blocks for focused parser behavior.
 Shared parser test helpers may live in a small test-only support module when that avoids duplicating test plumbing.
+
+Parser and syntax grammar module files should use the grammar concept name without a `_declaration.rs` suffix.
+If the concept name is a Rust keyword, the owning module root should use a raw module declaration for that file.
 
 ---
 

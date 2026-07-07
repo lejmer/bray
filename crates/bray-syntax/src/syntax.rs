@@ -6,8 +6,8 @@ mod list;
 mod module;
 mod path;
 mod recovery;
-mod trait_declaration;
-mod type_declaration;
+mod r#trait;
+mod r#type;
 mod unit;
 
 pub use callable::{
@@ -52,11 +52,11 @@ pub use module::{
 pub use path::{PathSyntax, PathSyntaxBuilder};
 pub use recovery::SkippedSyntax;
 pub(crate) use recovery::skipped_syntax_nodes;
-pub use trait_declaration::{
+pub use r#trait::{
     TraitBodySyntax, TraitBodySyntaxBuilder, TraitDeclarationSyntax, TraitDeclarationSyntaxBuilder,
     TraitModifiersSyntax, TraitModifiersSyntaxBuilder,
 };
-pub use type_declaration::{
+pub use r#type::{
     StructBodySyntax, StructBodySyntaxBuilder, StructDeclarationSyntax,
     StructDeclarationSyntaxBuilder, TypeDirectivesSyntax, TypeDirectivesSyntaxBuilder,
     TypeModifiersSyntax, TypeModifiersSyntaxBuilder, UnionBodySyntax, UnionBodySyntaxBuilder,
