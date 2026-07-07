@@ -34,6 +34,20 @@ pub(crate) fn diagnostic_kinds(diagnostics: &DiagnosticBag) -> Vec<DiagnosticKin
         .collect()
 }
 
+pub(crate) fn marker_offset(source: &str, marker: &str) -> TextSize {
+    let offset = match source.find(marker) {
+        Some(offset) => offset,
+        None => panic!("test source should contain marker {marker:?}"),
+    };
+
+    let offset = match u32::try_from(offset) {
+        Ok(offset) => offset,
+        Err(_) => panic!("test source marker offset should fit in TextSize"),
+    };
+
+    TextSize::new(offset)
+}
+
 pub(crate) fn assert_missing_semicolon_diagnostic(
     result: &SyntaxTreeResult,
     insertion: TextSize,
@@ -41,11 +55,14 @@ pub(crate) fn assert_missing_semicolon_diagnostic(
     actual_text: &str,
     expected_kinds: &[DiagnosticKind],
 ) {
-    let expected_diagnostic = result
+    let expected_diagnostic = match result
         .diagnostics()
         .iter()
         .find(|diagnostic| diagnostic.kind() == DiagnosticKind::SyntaxExpectedToken)
-        .expect("expected missing semicolon diagnostic");
+    {
+        Some(diagnostic) => diagnostic,
+        None => panic!("expected missing semicolon diagnostic"),
+    };
 
     assert_eq!(parse_diagnostic_kinds(result).as_slice(), expected_kinds);
     assert_eq!(expected_diagnostic.severity(), SeverityKind::Error);

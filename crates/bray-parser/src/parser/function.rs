@@ -278,12 +278,14 @@ impl Parser {
 #[cfg(test)]
 mod tests {
     use bray_diagnostics::DiagnosticKind;
-    use bray_source::{TextRange, TextSize};
+    use bray_source::TextRange;
     use bray_syntax::{SyntaxKind, SyntaxText};
     use bray_testing::test_source_store as source_store;
 
     use crate::parser::parse_compilation_unit;
-    use crate::test_support::{assert_missing_semicolon_diagnostic, parse_diagnostic_kinds};
+    use crate::test_support::{
+        assert_missing_semicolon_diagnostic, marker_offset, parse_diagnostic_kinds,
+    };
 
     #[test]
     fn parser_parses_function_declarations_after_source_unit_modules() {
@@ -409,13 +411,7 @@ mod tests {
             panic!("expected one function declaration: {declarations:?}");
         };
 
-        let insertion = TextSize::new(
-            source
-                .find("using")
-                .expect("test source should contain using keyword")
-                .try_into()
-                .expect("test source offset should fit in TextSize"),
-        );
+        let insertion = marker_offset(source, "using");
 
         let semicolon_token = match declaration.semicolon_token() {
             Some(token) => token,

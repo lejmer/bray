@@ -131,12 +131,11 @@ impl Parser {
 #[cfg(test)]
 mod tests {
     use bray_diagnostics::DiagnosticKind;
-    use bray_source::TextSize;
     use bray_syntax::{SyntaxKind, SyntaxText};
     use bray_testing::test_source_store as source_store;
 
     use crate::parser::parse_compilation_unit;
-    use crate::test_support::{parse_diagnostic_kinds, source};
+    use crate::test_support::{marker_offset, parse_diagnostic_kinds, source};
 
     use super::super::state::Parser;
 
@@ -278,13 +277,7 @@ mod tests {
             panic!("expected one trait declaration: {declarations:?}");
         };
 
-        let insertion = TextSize::new(
-            source
-                .find("using")
-                .expect("test source should contain using keyword")
-                .try_into()
-                .expect("test source offset should fit in TextSize"),
-        );
+        let insertion = marker_offset(source, "using");
 
         let body = declaration.trait_body();
 

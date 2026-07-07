@@ -504,12 +504,14 @@ impl ModuleItemSyntaxSink for ModuleBodySyntaxBuilder {
 #[cfg(test)]
 mod tests {
     use bray_diagnostics::DiagnosticKind;
-    use bray_source::{TextRange, TextSize};
+    use bray_source::TextRange;
     use bray_syntax::{SyntaxKind, SyntaxText};
     use bray_testing::test_source_store as source_store;
 
     use crate::parser::parse_compilation_unit;
-    use crate::test_support::{assert_missing_semicolon_diagnostic, parse_diagnostic_kinds};
+    use crate::test_support::{
+        assert_missing_semicolon_diagnostic, marker_offset, parse_diagnostic_kinds,
+    };
 
     #[test]
     fn parser_parses_source_unit_module_declarations() {
@@ -558,13 +560,7 @@ mod tests {
 
         let using_declarations = source_unit.using_declarations().collect::<Vec<_>>();
 
-        let insertion = TextSize::new(
-            source
-                .find("using")
-                .expect("test source should contain using keyword")
-                .try_into()
-                .expect("test source offset should fit in TextSize"),
-        );
+        let insertion = marker_offset(source, "using");
 
         let [using_declaration] = using_declarations.as_slice() else {
             panic!("expected one using declaration: {using_declarations:?}");
@@ -604,13 +600,7 @@ mod tests {
 
         let skipped_syntax = source_unit.skipped_syntax().collect::<Vec<_>>();
 
-        let insertion = TextSize::new(
-            source
-                .find("module extra")
-                .expect("test source should contain second module keyword")
-                .try_into()
-                .expect("test source offset should fit in TextSize"),
-        );
+        let insertion = marker_offset(source, "module extra");
 
         let [skipped] = skipped_syntax.as_slice() else {
             panic!("expected one skipped-syntax node: {skipped_syntax:?}");
@@ -821,13 +811,7 @@ mod tests {
         let using_declarations = source_unit.using_declarations().collect::<Vec<_>>();
         let function_declarations = source_unit.function_declarations().collect::<Vec<_>>();
 
-        let insertion = TextSize::new(
-            source
-                .find("func")
-                .expect("test source should contain function keyword")
-                .try_into()
-                .expect("test source offset should fit in TextSize"),
-        );
+        let insertion = marker_offset(source, "func");
 
         let [using_declaration] = using_declarations.as_slice() else {
             panic!("expected one using declaration: {using_declarations:?}");
