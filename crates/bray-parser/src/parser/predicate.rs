@@ -485,7 +485,7 @@ mod tests {
             "predicate positive(value: Int) = value > 0; "
         );
 
-        ssert!(defaulted_predicate.equals_token().is_some());
+        assert!(defaulted_predicate.equals_token().is_some());
         assert_eq!(callable.full_text(), "func check(); ");
 
         assert_eq!(
