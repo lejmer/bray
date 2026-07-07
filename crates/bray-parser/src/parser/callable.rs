@@ -68,7 +68,7 @@ const CALLABLE_RESULT_TYPE_BOUNDARY_KINDS: [SyntaxKind; 8] = [
 impl Parser {
     pub(super) fn parse_parameter_list(&mut self) -> ParameterListSyntax {
         let start = self.peek().full_range().start();
-        
+
         let recovery_kinds = separated_list_recovery_kinds(
             &PARAMETER_START_KINDS,
             SyntaxKind::CommaToken,

@@ -1,5 +1,7 @@
+use super::constant::TraitImplementationConstantMemberDefinitionSyntax;
 use super::member::{TraitCallableMemberDeclarationSyntax, TypeCallableMemberDeclarationSyntax};
 use super::path::PathSyntax;
+use crate::ConstantDeclarationSyntax;
 use crate::SyntaxKind;
 use crate::node::define_source_syntax_node;
 
@@ -105,6 +107,14 @@ define_source_syntax_node! {
         required_children: [],
         repeated_children: [
             {
+                /// Returns constant declarations in source order.
+                constant_declarations;
+                /// Appends a constant declaration.
+                push_constant_declaration;
+                ty: ConstantDeclarationSyntax;
+                kind: SyntaxKind::ConstantDeclaration;
+            },
+            {
                 /// Returns type callable member declarations in source order.
                 type_callable_member_declarations;
                 /// Appends a type callable member declaration.
@@ -148,6 +158,14 @@ define_source_syntax_node! {
         optional_tokens: [],
         required_children: [],
         repeated_children: [
+            {
+                /// Returns trait implementation constant member definitions in source order.
+                trait_implementation_constant_member_definitions;
+                /// Appends a trait implementation constant member definition.
+                push_trait_implementation_constant_member_definition;
+                ty: TraitImplementationConstantMemberDefinitionSyntax;
+                kind: SyntaxKind::TraitImplementationConstantMemberDefinition;
+            },
             {
                 /// Returns trait callable member declarations in source order.
                 trait_callable_member_declarations;

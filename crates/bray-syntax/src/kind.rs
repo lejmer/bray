@@ -37,6 +37,10 @@ pub enum SyntaxKind {
     UsingDeclaration,
     /// Module item that exports a path from the current module.
     ExportDeclaration,
+    /// Ordinary constant declaration.
+    ConstantDeclaration,
+    /// Optional constant declaration modifiers in source order.
+    ConstantModifiers,
     /// Module-level function declaration.
     FunctionDeclaration,
     /// Function directives in source order.
@@ -93,6 +97,8 @@ pub enum SyntaxKind {
     TraitModifiers,
     /// Braced trait declaration body.
     TraitBody,
+    /// Trait constant member declaration.
+    TraitConstantMemberDeclaration,
     /// Optional trait callable member modifiers in source order.
     TraitCallableMemberModifiers,
     /// Trait callable member declaration.
@@ -111,6 +117,8 @@ pub enum SyntaxKind {
     NamedTraitImplementationDeclaration,
     /// Braced trait implementation body.
     TraitImplementationBody,
+    /// Trait implementation constant member definition.
+    TraitImplementationConstantMemberDefinition,
     /// Optional type callable member modifiers in source order.
     TypeCallableMemberModifiers,
     /// Type callable member declaration.
@@ -282,6 +290,8 @@ impl SyntaxKind {
                 | Self::ModuleBody
                 | Self::UsingDeclaration
                 | Self::ExportDeclaration
+                | Self::ConstantDeclaration
+                | Self::ConstantModifiers
                 | Self::FunctionDeclaration
                 | Self::FunctionDirectives
                 | Self::FunctionModifiers
@@ -310,6 +320,7 @@ impl SyntaxKind {
                 | Self::TraitDeclaration
                 | Self::TraitModifiers
                 | Self::TraitBody
+                | Self::TraitConstantMemberDeclaration
                 | Self::TraitCallableMemberModifiers
                 | Self::TraitCallableMemberDeclaration
                 | Self::ImplementationSubject
@@ -319,6 +330,7 @@ impl SyntaxKind {
                 | Self::UnnamedTraitImplementationDeclaration
                 | Self::NamedTraitImplementationDeclaration
                 | Self::TraitImplementationBody
+                | Self::TraitImplementationConstantMemberDefinition
                 | Self::TypeCallableMemberModifiers
                 | Self::TypeCallableMemberDeclaration
                 | Self::ParameterList
@@ -462,6 +474,8 @@ impl SyntaxKind {
             Self::ModuleBody => "module_body",
             Self::UsingDeclaration => "using_declaration",
             Self::ExportDeclaration => "export_declaration",
+            Self::ConstantDeclaration => "constant_declaration",
+            Self::ConstantModifiers => "constant_modifiers",
             Self::FunctionDeclaration => "function_declaration",
             Self::FunctionDirectives => "function_directives",
             Self::FunctionModifiers => "function_modifiers",
@@ -490,6 +504,7 @@ impl SyntaxKind {
             Self::TraitDeclaration => "trait_declaration",
             Self::TraitModifiers => "trait_modifiers",
             Self::TraitBody => "trait_body",
+            Self::TraitConstantMemberDeclaration => "trait_constant_member_declaration",
             Self::TraitCallableMemberModifiers => "trait_callable_member_modifiers",
             Self::TraitCallableMemberDeclaration => "trait_callable_member_declaration",
             Self::ImplementationSubject => "implementation_subject",
@@ -501,6 +516,9 @@ impl SyntaxKind {
             }
             Self::NamedTraitImplementationDeclaration => "named_trait_implementation_declaration",
             Self::TraitImplementationBody => "trait_implementation_body",
+            Self::TraitImplementationConstantMemberDefinition => {
+                "trait_implementation_constant_member_definition"
+            }
             Self::TypeCallableMemberModifiers => "type_callable_member_modifiers",
             Self::TypeCallableMemberDeclaration => "type_callable_member_declaration",
             Self::ParameterList => "parameter_list",
@@ -662,6 +680,8 @@ mod tests {
 
         assert!(SyntaxKind::UsingDeclaration.is_node());
         assert!(SyntaxKind::ExportDeclaration.is_node());
+        assert!(SyntaxKind::ConstantDeclaration.is_node());
+        assert!(SyntaxKind::ConstantModifiers.is_node());
 
         assert!(SyntaxKind::FunctionDeclaration.is_node());
         assert!(SyntaxKind::FunctionDirectives.is_node());
@@ -695,6 +715,7 @@ mod tests {
         assert!(SyntaxKind::TraitDeclaration.is_node());
         assert!(SyntaxKind::TraitModifiers.is_node());
         assert!(SyntaxKind::TraitBody.is_node());
+        assert!(SyntaxKind::TraitConstantMemberDeclaration.is_node());
         assert!(SyntaxKind::TraitCallableMemberModifiers.is_node());
         assert!(SyntaxKind::TraitCallableMemberDeclaration.is_node());
 
@@ -705,6 +726,7 @@ mod tests {
         assert!(SyntaxKind::UnnamedTraitImplementationDeclaration.is_node());
         assert!(SyntaxKind::NamedTraitImplementationDeclaration.is_node());
         assert!(SyntaxKind::TraitImplementationBody.is_node());
+        assert!(SyntaxKind::TraitImplementationConstantMemberDefinition.is_node());
         assert!(SyntaxKind::TypeCallableMemberModifiers.is_node());
         assert!(SyntaxKind::TypeCallableMemberDeclaration.is_node());
 
@@ -781,6 +803,12 @@ mod tests {
         assert_eq!(SyntaxKind::ModuleBody.as_str(), "module_body");
         assert_eq!(SyntaxKind::UsingDeclaration.as_str(), "using_declaration");
         assert_eq!(SyntaxKind::ExportDeclaration.as_str(), "export_declaration");
+        assert_eq!(
+            SyntaxKind::ConstantDeclaration.as_str(),
+            "constant_declaration"
+        );
+
+        assert_eq!(SyntaxKind::ConstantModifiers.as_str(), "constant_modifiers");
 
         assert_eq!(
             SyntaxKind::FunctionDeclaration.as_str(),
@@ -867,6 +895,10 @@ mod tests {
         assert_eq!(SyntaxKind::TraitDeclaration.as_str(), "trait_declaration");
         assert_eq!(SyntaxKind::TraitModifiers.as_str(), "trait_modifiers");
         assert_eq!(SyntaxKind::TraitBody.as_str(), "trait_body");
+        assert_eq!(
+            SyntaxKind::TraitConstantMemberDeclaration.as_str(),
+            "trait_constant_member_declaration"
+        );
 
         assert_eq!(
             SyntaxKind::TraitCallableMemberModifiers.as_str(),
@@ -908,6 +940,11 @@ mod tests {
         assert_eq!(
             SyntaxKind::TraitImplementationBody.as_str(),
             "trait_implementation_body"
+        );
+
+        assert_eq!(
+            SyntaxKind::TraitImplementationConstantMemberDefinition.as_str(),
+            "trait_implementation_constant_member_definition"
         );
 
         assert_eq!(
