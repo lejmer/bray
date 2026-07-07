@@ -1,10 +1,12 @@
 mod callable;
+mod callable_contract;
 mod directive;
 mod function;
 mod implementation;
 mod list;
 mod module;
 mod path;
+mod predicate;
 mod recovery;
 mod r#trait;
 mod r#type;
@@ -15,6 +17,10 @@ pub use callable::{
     CallableResultClauseSyntax, CallableResultClauseSyntaxBuilder, ParameterListSyntax,
     ParameterListSyntaxBuilder, ParameterModifiersSyntax, ParameterModifiersSyntaxBuilder,
     ParameterSyntax, ParameterSyntaxBuilder,
+};
+pub use callable_contract::{
+    CallableContractDeclarationSyntax, CallableContractDeclarationSyntaxBuilder,
+    CallableContractModifiersSyntax, CallableContractModifiersSyntaxBuilder,
 };
 pub use directive::{
     AbiDirectiveSyntax, AbiDirectiveSyntaxBuilder, CopyDirectiveSyntax, CopyDirectiveSyntaxBuilder,
@@ -50,6 +56,11 @@ pub use module::{
     UsingDeclarationSyntaxBuilder,
 };
 pub use path::{PathSyntax, PathSyntaxBuilder};
+pub use predicate::{
+    PredicateDeclarationSyntax, PredicateDeclarationSyntaxBuilder, PredicateModifiersSyntax,
+    PredicateModifiersSyntaxBuilder, PredicateParameterListSyntax,
+    PredicateParameterListSyntaxBuilder, PredicateParameterSyntax, PredicateParameterSyntaxBuilder,
+};
 pub use recovery::SkippedSyntax;
 pub(crate) use recovery::skipped_syntax_nodes;
 pub use r#trait::{

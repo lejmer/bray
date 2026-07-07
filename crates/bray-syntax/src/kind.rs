@@ -43,6 +43,18 @@ pub enum SyntaxKind {
     FunctionDirectives,
     /// Optional function modifiers in source order.
     FunctionModifiers,
+    /// Module-level predicate declaration.
+    PredicateDeclaration,
+    /// Optional predicate modifiers in source order.
+    PredicateModifiers,
+    /// Predicate parameter list including delimiters.
+    PredicateParameterList,
+    /// Predicate parameter item.
+    PredicateParameter,
+    /// Module-level named callable contract declaration.
+    CallableContractDeclaration,
+    /// Optional callable contract modifiers in source order.
+    CallableContractModifiers,
     /// Module-level struct declaration.
     StructDeclaration,
     /// Type directives in source order.
@@ -249,6 +261,12 @@ impl SyntaxKind {
                 | Self::FunctionDeclaration
                 | Self::FunctionDirectives
                 | Self::FunctionModifiers
+                | Self::PredicateDeclaration
+                | Self::PredicateModifiers
+                | Self::PredicateParameterList
+                | Self::PredicateParameter
+                | Self::CallableContractDeclaration
+                | Self::CallableContractModifiers
                 | Self::StructDeclaration
                 | Self::TypeDirectives
                 | Self::LayoutDirective
@@ -411,6 +429,12 @@ impl SyntaxKind {
             Self::FunctionDeclaration => "function_declaration",
             Self::FunctionDirectives => "function_directives",
             Self::FunctionModifiers => "function_modifiers",
+            Self::PredicateDeclaration => "predicate_declaration",
+            Self::PredicateModifiers => "predicate_modifiers",
+            Self::PredicateParameterList => "predicate_parameter_list",
+            Self::PredicateParameter => "predicate_parameter",
+            Self::CallableContractDeclaration => "callable_contract_declaration",
+            Self::CallableContractModifiers => "callable_contract_modifiers",
             Self::StructDeclaration => "struct_declaration",
             Self::TypeDirectives => "type_directives",
             Self::LayoutDirective => "layout_directive",
@@ -595,6 +619,14 @@ mod tests {
         assert!(SyntaxKind::FunctionDirectives.is_node());
         assert!(SyntaxKind::FunctionModifiers.is_node());
 
+        assert!(SyntaxKind::PredicateDeclaration.is_node());
+        assert!(SyntaxKind::PredicateModifiers.is_node());
+        assert!(SyntaxKind::PredicateParameterList.is_node());
+        assert!(SyntaxKind::PredicateParameter.is_node());
+
+        assert!(SyntaxKind::CallableContractDeclaration.is_node());
+        assert!(SyntaxKind::CallableContractModifiers.is_node());
+
         assert!(SyntaxKind::StructDeclaration.is_node());
         assert!(SyntaxKind::TypeDirectives.is_node());
         assert!(SyntaxKind::LayoutDirective.is_node());
@@ -701,6 +733,36 @@ mod tests {
         );
 
         assert_eq!(SyntaxKind::FunctionModifiers.as_str(), "function_modifiers");
+
+        assert_eq!(
+            SyntaxKind::PredicateDeclaration.as_str(),
+            "predicate_declaration"
+        );
+
+        assert_eq!(
+            SyntaxKind::PredicateModifiers.as_str(),
+            "predicate_modifiers"
+        );
+
+        assert_eq!(
+            SyntaxKind::PredicateParameterList.as_str(),
+            "predicate_parameter_list"
+        );
+
+        assert_eq!(
+            SyntaxKind::PredicateParameter.as_str(),
+            "predicate_parameter"
+        );
+
+        assert_eq!(
+            SyntaxKind::CallableContractDeclaration.as_str(),
+            "callable_contract_declaration"
+        );
+
+        assert_eq!(
+            SyntaxKind::CallableContractModifiers.as_str(),
+            "callable_contract_modifiers"
+        );
 
         assert_eq!(SyntaxKind::StructDeclaration.as_str(), "struct_declaration");
         assert_eq!(SyntaxKind::TypeDirectives.as_str(), "type_directives");

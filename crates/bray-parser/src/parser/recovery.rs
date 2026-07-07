@@ -1,17 +1,19 @@
 use bray_syntax::{
     BlockModuleDeclarationSyntaxBuilder, CallableBodyBlockExpressionSyntaxBuilder,
-    CallableResultClauseSyntaxBuilder, DirectiveArgumentListSyntaxBuilder,
-    ExportDeclarationSyntaxBuilder, FunctionDeclarationSyntaxBuilder,
-    FunctionDirectivesSyntaxBuilder, IdentifierListSyntaxBuilder,
+    CallableContractDeclarationSyntaxBuilder, CallableResultClauseSyntaxBuilder,
+    DirectiveArgumentListSyntaxBuilder, ExportDeclarationSyntaxBuilder,
+    FunctionDeclarationSyntaxBuilder, FunctionDirectivesSyntaxBuilder, IdentifierListSyntaxBuilder,
     ImplementationSubjectSyntaxBuilder, InherentImplementationBodySyntaxBuilder,
     InherentImplementationDeclarationSyntaxBuilder, ModuleBodySyntaxBuilder,
     ModuleDirectivesSyntaxBuilder, NamedTraitImplementationDeclarationSyntaxBuilder,
-    ParameterListSyntaxBuilder, ParameterSyntaxBuilder, SourceUnitModuleDeclarationSyntaxBuilder,
-    SourceUnitSyntaxBuilder, StructBodySyntaxBuilder, StructDeclarationSyntaxBuilder, SyntaxKind,
-    SyntaxToken, TargetDirectiveSyntaxBuilder, TraitApplicationSyntaxBuilder,
-    TraitBodySyntaxBuilder, TraitDeclarationSyntaxBuilder, TraitImplementationBodySyntaxBuilder,
-    TypeDirectivesSyntaxBuilder, UnionBodySyntaxBuilder, UnionDeclarationSyntaxBuilder,
-    UnnamedTraitImplementationDeclarationSyntaxBuilder, UsingDeclarationSyntaxBuilder,
+    ParameterListSyntaxBuilder, ParameterSyntaxBuilder, PredicateDeclarationSyntaxBuilder,
+    PredicateParameterListSyntaxBuilder, PredicateParameterSyntaxBuilder,
+    SourceUnitModuleDeclarationSyntaxBuilder, SourceUnitSyntaxBuilder, StructBodySyntaxBuilder,
+    StructDeclarationSyntaxBuilder, SyntaxKind, SyntaxToken, TargetDirectiveSyntaxBuilder,
+    TraitApplicationSyntaxBuilder, TraitBodySyntaxBuilder, TraitDeclarationSyntaxBuilder,
+    TraitImplementationBodySyntaxBuilder, TypeDirectivesSyntaxBuilder, UnionBodySyntaxBuilder,
+    UnionDeclarationSyntaxBuilder, UnnamedTraitImplementationDeclarationSyntaxBuilder,
+    UsingDeclarationSyntaxBuilder,
 };
 
 use crate::cursor::RecoverySet;
@@ -84,6 +86,44 @@ impl Parser {
 
         while !self.at(SyntaxKind::EndOfFileToken) && !at_stop(self) {
             skipped_tokens.push(self.consume());
+        }
+
+        let skipped_any = !skipped_tokens.is_empty();
+
+        self.record_skipped_syntax_for_tokens(&skipped_tokens);
+        builder.push_skipped_tokens(skipped_tokens);
+
+        skipped_any
+    }
+
+    pub(super) fn recover_current_and_until_balanced_close_paren_or_predicate(
+        &mut self,
+        builder: &mut impl RecoverySyntaxSink,
+        mut at_stop: impl FnMut(&mut Parser) -> bool,
+    ) -> bool {
+        let mut skipped_tokens = Vec::new();
+        let mut paren_depth = 0usize;
+
+        if !self.at(SyntaxKind::EndOfFileToken) {
+            let skipped_token = self.consume();
+
+            if skipped_token.kind() == SyntaxKind::OpenParenToken {
+                paren_depth += 1;
+            }
+
+            skipped_tokens.push(skipped_token);
+        }
+
+        while !self.at(SyntaxKind::EndOfFileToken) && (paren_depth > 0 || !at_stop(self)) {
+            let skipped_token = self.consume();
+
+            match skipped_token.kind() {
+                SyntaxKind::OpenParenToken => paren_depth += 1,
+                SyntaxKind::CloseParenToken => paren_depth = paren_depth.saturating_sub(1),
+                _ => {}
+            }
+
+            skipped_tokens.push(skipped_token);
         }
 
         let skipped_any = !skipped_tokens.is_empty();
@@ -190,6 +230,30 @@ impl RecoverySyntaxSink for FunctionDirectivesSyntaxBuilder {
 impl RecoverySyntaxSink for FunctionDeclarationSyntaxBuilder {
     fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
         FunctionDeclarationSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for PredicateDeclarationSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        PredicateDeclarationSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for PredicateParameterListSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        PredicateParameterListSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for PredicateParameterSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        PredicateParameterSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for CallableContractDeclarationSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        CallableContractDeclarationSyntaxBuilder::push_skipped_tokens(self, tokens);
     }
 }
 

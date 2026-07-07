@@ -2,8 +2,9 @@ use super::item::{ExportDeclarationSyntax, UsingDeclarationSyntax};
 use crate::SyntaxKind;
 use crate::node::define_source_syntax_node;
 use crate::{
-    FunctionDeclarationSyntax, InherentImplementationDeclarationSyntax,
-    NamedTraitImplementationDeclarationSyntax, StructDeclarationSyntax, TraitDeclarationSyntax,
+    CallableContractDeclarationSyntax, FunctionDeclarationSyntax,
+    InherentImplementationDeclarationSyntax, NamedTraitImplementationDeclarationSyntax,
+    PredicateDeclarationSyntax, StructDeclarationSyntax, TraitDeclarationSyntax,
     UnionDeclarationSyntax, UnnamedTraitImplementationDeclarationSyntax,
 };
 
@@ -62,6 +63,22 @@ define_source_syntax_node! {
                 push_function_declaration;
                 ty: FunctionDeclarationSyntax;
                 kind: SyntaxKind::FunctionDeclaration;
+            },
+            {
+                /// Returns direct predicate declaration children in source order.
+                predicate_declarations;
+                /// Appends a predicate declaration child in source order.
+                push_predicate_declaration;
+                ty: PredicateDeclarationSyntax;
+                kind: SyntaxKind::PredicateDeclaration;
+            },
+            {
+                /// Returns direct callable contract declaration children in source order.
+                callable_contract_declarations;
+                /// Appends a callable contract declaration child in source order.
+                push_callable_contract_declaration;
+                ty: CallableContractDeclarationSyntax;
+                kind: SyntaxKind::CallableContractDeclaration;
             },
             {
                 /// Returns direct struct declaration children in source order.
