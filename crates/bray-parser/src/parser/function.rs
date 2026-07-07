@@ -8,6 +8,7 @@ use super::directive::{
     TEST_DIRECTIVE_NAME,
 };
 use super::module::MODULE_ITEM_START_KINDS;
+use super::recovery::RecoverySyntaxSink;
 use super::state::Parser;
 
 const FUNCTION_DECLARATION_START_KINDS: [SyntaxKind; 8] = [
@@ -82,7 +83,11 @@ impl Parser {
             builder.push_callable_result_clause(self.parse_callable_result_clause());
         }
 
-        self.parse_callable_contract_clauses(&mut builder);
+        self.parse_callable_contract_clauses(
+            &mut builder,
+            Parser::at_module_callable_contract_boundary,
+        );
+
         self.parse_function_declaration_tail(&mut builder);
 
         builder.build()
@@ -176,17 +181,18 @@ impl Parser {
             || self.at(SyntaxKind::ConstKeyword)
     }
 
-    fn parse_callable_contract_clauses(&mut self, builder: &mut FunctionDeclarationSyntaxBuilder) {
+    pub(super) fn parse_callable_contract_clauses(
+        &mut self,
+        builder: &mut impl RecoverySyntaxSink,
+        mut at_boundary: impl FnMut(&mut Parser) -> bool,
+    ) {
         while self.at_any(&CALLABLE_CONTRACT_CLAUSE_START_KINDS) {
             // TODO(parser): Parse callable contract clauses once expressions are implemented.
-            self.recover_current_and_until_predicate(
-                builder,
-                Parser::at_callable_contract_boundary,
-            );
+            self.recover_current_and_until_predicate(builder, |parser| at_boundary(parser));
         }
     }
 
-    fn at_callable_contract_boundary(&mut self) -> bool {
+    fn at_module_callable_contract_boundary(&mut self) -> bool {
         self.at_any(&CALLABLE_CONTRACT_BOUNDARY_KINDS) || self.at_any(&MODULE_ITEM_START_KINDS)
     }
 

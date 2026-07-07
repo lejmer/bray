@@ -1,3 +1,4 @@
+use super::member::{TraitCallableMemberDeclarationSyntax, TypeCallableMemberDeclarationSyntax};
 use super::path::PathSyntax;
 use crate::SyntaxKind;
 use crate::node::define_source_syntax_node;
@@ -102,6 +103,16 @@ define_source_syntax_node! {
         ],
         optional_tokens: [],
         required_children: [],
+        repeated_children: [
+            {
+                /// Returns type callable member declarations in source order.
+                type_callable_member_declarations;
+                /// Appends a type callable member declaration.
+                push_type_callable_member_declaration;
+                ty: TypeCallableMemberDeclarationSyntax;
+                kind: SyntaxKind::TypeCallableMemberDeclaration;
+            }
+        ],
     }
 }
 
@@ -136,6 +147,16 @@ define_source_syntax_node! {
         ],
         optional_tokens: [],
         required_children: [],
+        repeated_children: [
+            {
+                /// Returns trait callable member declarations in source order.
+                trait_callable_member_declarations;
+                /// Appends a trait callable member declaration.
+                push_trait_callable_member_declaration;
+                ty: TraitCallableMemberDeclarationSyntax;
+                kind: SyntaxKind::TraitCallableMemberDeclaration;
+            }
+        ],
     }
 }
 

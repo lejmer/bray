@@ -1,4 +1,7 @@
 use super::directive::{CopyDirectiveSyntax, LayoutDirectiveSyntax};
+use super::field::StructFieldDeclarationSyntax;
+use super::member::TypeCallableMemberDeclarationSyntax;
+use super::variant::UnionVariantDeclarationSyntax;
 use crate::node::define_source_syntax_node;
 use crate::{SyntaxKind, SyntaxToken};
 
@@ -248,6 +251,24 @@ define_source_syntax_node! {
         ],
         optional_tokens: [],
         required_children: [],
+        repeated_children: [
+            {
+                /// Returns struct field declarations in source order.
+                struct_field_declarations;
+                /// Appends a struct field declaration.
+                push_struct_field_declaration;
+                ty: StructFieldDeclarationSyntax;
+                kind: SyntaxKind::StructFieldDeclaration;
+            },
+            {
+                /// Returns type callable member declarations in source order.
+                type_callable_member_declarations;
+                /// Appends a type callable member declaration.
+                push_type_callable_member_declaration;
+                ty: TypeCallableMemberDeclarationSyntax;
+                kind: SyntaxKind::TypeCallableMemberDeclaration;
+            }
+        ],
     }
 }
 
@@ -282,6 +303,24 @@ define_source_syntax_node! {
         ],
         optional_tokens: [],
         required_children: [],
+        repeated_children: [
+            {
+                /// Returns union variant declarations in source order.
+                union_variant_declarations;
+                /// Appends a union variant declaration.
+                push_union_variant_declaration;
+                ty: UnionVariantDeclarationSyntax;
+                kind: SyntaxKind::UnionVariantDeclaration;
+            },
+            {
+                /// Returns type callable member declarations in source order.
+                type_callable_member_declarations;
+                /// Appends a type callable member declaration.
+                push_type_callable_member_declaration;
+                ty: TypeCallableMemberDeclarationSyntax;
+                kind: SyntaxKind::TypeCallableMemberDeclaration;
+            }
+        ],
     }
 }
 

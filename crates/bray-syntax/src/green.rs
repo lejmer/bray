@@ -60,6 +60,31 @@ impl GreenNode {
         GreenSyntaxTokenIter::new(self.children(), start)
     }
 
+    /// Returns the first direct child token with `kind`.
+    pub(crate) fn first_child_token(
+        &self,
+        start: TextSize,
+        kind: SyntaxKind,
+    ) -> Option<SyntaxToken> {
+        let mut offset = start;
+
+        for child in self.children() {
+            let child_start = offset;
+
+            offset = checked_add(child_start, child.full_width(), "next child token start");
+
+            let GreenElement::Token(token) = child else {
+                continue;
+            };
+
+            if token.kind() == kind {
+                return Some(token.syntax_token(child_start));
+            }
+        }
+
+        None
+    }
+
     /// Returns the last descendant token kind and presence in source order.
     pub(crate) fn last_token(&self) -> Option<(SyntaxKind, SyntaxTokenPresence)> {
         last_token(self.children())
@@ -611,6 +636,35 @@ mod tests {
         assert_eq!(
             children,
             [(first, TextSize::ZERO), (second, TextSize::new(2))]
+        );
+    }
+
+    #[test]
+    fn green_nodes_find_direct_child_tokens_without_descending_into_child_nodes() {
+        let child = GreenNode::new(
+            SyntaxKind::SourceUnit,
+            [GreenElement::from(SyntaxToken::new(
+                SyntaxKind::IdentifierToken,
+                TextRange::new(TextSize::ZERO, TextSize::new(3)),
+            ))],
+        );
+
+        let direct = SyntaxToken::new(
+            SyntaxKind::IdentifierToken,
+            TextRange::new(TextSize::new(3), TextSize::new(7)),
+        );
+
+        let parent = GreenNode::new(
+            SyntaxKind::SourceUnit,
+            [
+                GreenElement::from(child),
+                GreenElement::from(direct.clone()),
+            ],
+        );
+
+        assert_eq!(
+            parent.first_child_token(TextSize::ZERO, SyntaxKind::IdentifierToken),
+            Some(direct)
         );
     }
 

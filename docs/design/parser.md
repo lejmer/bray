@@ -87,6 +87,7 @@ Parser implementation details live under `bray-parser/src/parser/`:
 - `directive.rs` owns shared directive grammar parsing,
 - `function.rs` owns module-level function declaration grammar parsing,
 - `implementation.rs` owns module-level implementation declaration grammar parsing,
+- `member.rs` owns body member grammar shared by type, trait, and implementation bodies,
 - `modifier.rs` owns shared modifier grammar parsing,
 - `module.rs` owns module declaration grammar parsing and module item dispatch,
 - `path.rs` owns path and identifier grammar parsing,
@@ -98,6 +99,8 @@ Parser implementation details live under `bray-parser/src/parser/`:
 
 Add new grammar areas as sibling parser submodules when the existing module would otherwise become broad or mixed.
 Do not put unrelated grammar in a module only because that module first needed it.
+If a parser submodule needs its own submodules, keep the parent file as a thin root and name the nested files for the
+local grammar concept.
 
 Tests should live beside the parser code they exercise.
 Use module-local `#[cfg(test)]` blocks for focused parser behavior.

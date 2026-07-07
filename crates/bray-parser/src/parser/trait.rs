@@ -78,11 +78,13 @@ impl Parser {
 
     fn parse_trait_body(&mut self) -> TraitBodySyntax {
         let start = self.peek().full_range().start();
-
         let mut builder = TraitBodySyntax::builder(self.syntax_source(), start);
 
-        // TODO(parser): Parse trait member declarations as they are implemented.
-        self.parse_skipped_braced_body_tokens(&mut builder, Parser::at_trait_body_missing_boundary);
+        self.parse_braced_body_contents(
+            &mut builder,
+            Parser::at_trait_body_missing_boundary,
+            Parser::parse_trait_body_items,
+        );
 
         builder.build()
     }
@@ -126,6 +128,7 @@ mod tests {
         let source = "module main; public trait Display {}";
         let sources = source_store([source]);
         let result = parse_compilation_unit(&sources);
+
         let source_unit = &result.syntax_tree().root().source_units()[0];
         let declarations = source_unit.trait_declarations().collect::<Vec<_>>();
 
@@ -158,6 +161,7 @@ mod tests {
         let source = "module main { trait Display {} }";
         let sources = source_store([source]);
         let result = parse_compilation_unit(&sources);
+
         let source_unit = &result.syntax_tree().root().source_units()[0];
         let declarations = source_unit.block_module_declarations().collect::<Vec<_>>();
 
@@ -184,6 +188,7 @@ mod tests {
         let source = "module main; trait Iterable<T> with(T: Item) {}";
         let sources = source_store([source]);
         let result = parse_compilation_unit(&sources);
+
         let source_unit = &result.syntax_tree().root().source_units()[0];
         let declarations = source_unit.trait_declarations().collect::<Vec<_>>();
 
@@ -213,12 +218,12 @@ mod tests {
         );
     }
 
-    // TODO(parser): Update this when trait member declarations are parsed.
     #[test]
-    fn parser_recovers_trait_bodies_without_losing_later_items() {
+    fn parser_parses_trait_callable_members_without_losing_later_items() {
         let source = "module main; trait Display { func show(); }\nusing core;";
         let sources = source_store([source]);
         let result = parse_compilation_unit(&sources);
+
         let source_unit = &result.syntax_tree().root().source_units()[0];
         let declarations = source_unit.trait_declarations().collect::<Vec<_>>();
 
@@ -228,21 +233,29 @@ mod tests {
 
         let body = declaration.trait_body();
 
+        let members = body
+            .trait_callable_member_declarations()
+            .collect::<Vec<_>>();
+
+        let [member] = members.as_slice() else {
+            panic!("expected one trait callable member: {members:?}");
+        };
+
         assert_eq!(source_unit.full_text(), source);
         assert_eq!(body.full_text(), "{ func show(); }\n");
-        assert_eq!(body.skipped_syntax().count(), 1);
+        assert_eq!(member.full_text(), "func show(); ");
+        assert!(member.semicolon_token().is_some());
+        assert_eq!(body.skipped_syntax().count(), 0);
         assert_eq!(source_unit.using_declarations().count(), 1);
 
-        assert_eq!(
-            parse_diagnostic_kinds(&result),
-            [DiagnosticKind::SyntaxSkippedSyntax]
-        );
+        assert!(result.diagnostics().is_empty());
     }
 
     #[test]
     fn parser_scan_ahead_recognizes_trait_declarations_without_consuming_tokens() {
         let sources = source_store(["public trait Display {}"]);
         let snapshot = source(&sources, 0);
+
         let mut parser = Parser::new(snapshot);
 
         assert!(parser.should_parse_trait_declaration());
@@ -254,6 +267,7 @@ mod tests {
         let source = "module main; trait Display\nusing core;";
         let sources = source_store([source]);
         let result = parse_compilation_unit(&sources);
+
         let source_unit = &result.syntax_tree().root().source_units()[0];
         let declarations = source_unit.trait_declarations().collect::<Vec<_>>();
 

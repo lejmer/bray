@@ -1,3 +1,4 @@
+use super::member::TraitCallableMemberDeclarationSyntax;
 use crate::node::define_source_syntax_node;
 use crate::{SyntaxKind, SyntaxToken};
 
@@ -69,6 +70,16 @@ define_source_syntax_node! {
         ],
         optional_tokens: [],
         required_children: [],
+        repeated_children: [
+            {
+                /// Returns trait callable member declarations in source order.
+                trait_callable_member_declarations;
+                /// Appends a trait callable member declaration.
+                push_trait_callable_member_declaration;
+                ty: TraitCallableMemberDeclarationSyntax;
+                kind: SyntaxKind::TraitCallableMemberDeclaration;
+            }
+        ],
     }
 }
 

@@ -4,8 +4,14 @@ use bray_syntax::{
     SyntaxKind, SyntaxToken,
 };
 
-use super::separated::{SeparatedListSpec, SeparatedListSyntaxSink};
+use super::separated::{SeparatedListSpec, SeparatedListSyntaxSink, separated_list_recovery_kinds};
 use super::state::Parser;
+
+const PARAMETER_START_KINDS: [SyntaxKind; 3] = [
+    SyntaxKind::PosKeyword,
+    SyntaxKind::MutKeyword,
+    SyntaxKind::IdentifierToken,
+];
 
 const PARAMETER_LIST_TERMINATORS: [SyntaxKind; 9] = [
     SyntaxKind::CloseParenToken,
@@ -62,7 +68,12 @@ const CALLABLE_RESULT_TYPE_BOUNDARY_KINDS: [SyntaxKind; 8] = [
 impl Parser {
     pub(super) fn parse_parameter_list(&mut self) -> ParameterListSyntax {
         let start = self.peek().full_range().start();
-        let recovery_kinds = parameter_list_recovery_kinds(&PARAMETER_LIST_TERMINATORS);
+        
+        let recovery_kinds = separated_list_recovery_kinds(
+            &PARAMETER_START_KINDS,
+            SyntaxKind::CommaToken,
+            &PARAMETER_LIST_TERMINATORS,
+        );
 
         let spec = SeparatedListSpec {
             separator_kind: SyntaxKind::CommaToken,
@@ -178,11 +189,18 @@ impl Parser {
     pub(super) fn parse_callable_body_block_expression(
         &mut self,
     ) -> CallableBodyBlockExpressionSyntax {
+        self.parse_callable_body_block_expression_until(|_| false)
+    }
+
+    pub(super) fn parse_callable_body_block_expression_until(
+        &mut self,
+        at_missing_body_boundary: impl FnMut(&mut Parser) -> bool,
+    ) -> CallableBodyBlockExpressionSyntax {
         let start = self.peek().full_range().start();
         let mut builder = CallableBodyBlockExpressionSyntax::builder(self.syntax_source(), start);
 
         // TODO(parser): Parse block expressions once expression parsing is implemented.
-        self.parse_skipped_braced_body_tokens(&mut builder, |_| false);
+        self.parse_skipped_braced_body_tokens(&mut builder, at_missing_body_boundary);
 
         builder.build()
     }
@@ -196,18 +214,6 @@ impl SeparatedListSyntaxSink<ParameterSyntax> for ParameterListSyntaxBuilder {
     fn push_separator(&mut self, separator: SyntaxToken) {
         ParameterListSyntaxBuilder::push_separator_token(self, separator);
     }
-}
-
-fn parameter_list_recovery_kinds(terminators: &[SyntaxKind]) -> Vec<SyntaxKind> {
-    let mut recovery_kinds = Vec::with_capacity(terminators.len() + 4);
-
-    recovery_kinds.push(SyntaxKind::PosKeyword);
-    recovery_kinds.push(SyntaxKind::MutKeyword);
-    recovery_kinds.push(SyntaxKind::IdentifierToken);
-    recovery_kinds.push(SyntaxKind::CommaToken);
-    recovery_kinds.extend_from_slice(terminators);
-
-    recovery_kinds
 }
 
 #[cfg(test)]

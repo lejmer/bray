@@ -4,6 +4,7 @@ mod directive;
 mod entry;
 mod function;
 mod implementation;
+mod member;
 mod modifier;
 mod module;
 mod path;

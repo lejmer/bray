@@ -183,6 +183,7 @@ impl ParserCursor {
         self.skip_until_balanced_close_unreported(
             DelimiterPair::new(SyntaxKind::OpenParenToken, SyntaxKind::CloseParenToken),
             recovery_set,
+            0,
         )
     }
 
@@ -197,7 +198,37 @@ impl ParserCursor {
         let skipped_tokens = self.skip_until_balanced_close_unreported(
             DelimiterPair::new(SyntaxKind::OpenBraceToken, SyntaxKind::CloseBraceToken),
             recovery_set,
+            0,
         );
+
+        self.record_skipped_syntax(&skipped_tokens);
+
+        skipped_tokens
+    }
+
+    pub(crate) fn skip_current_and_until_balanced_close_brace_or_recovery(
+        &mut self,
+        recovery_set: RecoverySet<'_>,
+    ) -> Vec<SyntaxToken> {
+        let delimiters =
+            DelimiterPair::new(SyntaxKind::OpenBraceToken, SyntaxKind::CloseBraceToken);
+
+        let mut skipped_tokens = Vec::new();
+        let mut depth = 0usize;
+
+        if let Some(skipped_token) = self.consume_skipped_token() {
+            if skipped_token.kind() == delimiters.open {
+                depth += 1;
+            }
+
+            skipped_tokens.push(skipped_token);
+        }
+
+        skipped_tokens.extend(self.skip_until_balanced_close_unreported(
+            delimiters,
+            recovery_set,
+            depth,
+        ));
 
         self.record_skipped_syntax(&skipped_tokens);
 
@@ -208,9 +239,10 @@ impl ParserCursor {
         &mut self,
         delimiters: DelimiterPair,
         recovery_set: RecoverySet<'_>,
+        initial_depth: usize,
     ) -> Vec<SyntaxToken> {
         let mut skipped_tokens = Vec::new();
-        let mut depth = 0usize;
+        let mut depth = initial_depth;
 
         loop {
             let token = self.peek();
@@ -574,6 +606,35 @@ mod tests {
             ]
         );
         assert_eq!(cursor.peek().kind(), SyntaxKind::CloseBraceToken);
+
+        let diagnostics = cursor.finish();
+
+        assert_eq!(
+            diagnostic_kinds(&diagnostics),
+            [DiagnosticKind::SyntaxSkippedSyntax]
+        );
+    }
+
+    #[test]
+    fn cursor_skip_current_until_balanced_close_brace_consumes_current_item() {
+        let mut cursor = cursor("construct() {} func run() {}");
+
+        let skipped =
+            cursor.skip_current_and_until_balanced_close_brace_or_recovery(RecoverySet::new(&[
+                SyntaxKind::FuncKeyword,
+            ]));
+
+        assert_eq!(
+            token_kinds(&skipped),
+            [
+                SyntaxKind::ConstructKeyword,
+                SyntaxKind::OpenParenToken,
+                SyntaxKind::CloseParenToken,
+                SyntaxKind::OpenBraceToken,
+                SyntaxKind::CloseBraceToken
+            ]
+        );
+        assert_eq!(cursor.peek().kind(), SyntaxKind::FuncKeyword);
 
         let diagnostics = cursor.finish();
 

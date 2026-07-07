@@ -1,9 +1,11 @@
 mod callable;
 mod callable_contract;
 mod directive;
+mod field;
 mod function;
 mod implementation;
 mod list;
+mod member;
 mod module;
 mod path;
 mod predicate;
@@ -11,6 +13,7 @@ mod recovery;
 mod r#trait;
 mod r#type;
 mod unit;
+mod variant;
 
 pub use callable::{
     CallableBodyBlockExpressionSyntax, CallableBodyBlockExpressionSyntaxBuilder,
@@ -27,8 +30,13 @@ pub use directive::{
     DirectiveArgumentListSyntax, DirectiveArgumentListSyntaxBuilder, EntrypointDirectiveSyntax,
     EntrypointDirectiveSyntaxBuilder, LayoutDirectiveSyntax, LayoutDirectiveSyntaxBuilder,
     LinkDirectiveSyntax, LinkDirectiveSyntaxBuilder, SymbolDirectiveSyntax,
-    SymbolDirectiveSyntaxBuilder, TargetDirectiveSyntax, TargetDirectiveSyntaxBuilder,
-    TestDirectiveSyntax, TestDirectiveSyntaxBuilder,
+    SymbolDirectiveSyntaxBuilder, TagDirectiveSyntax, TagDirectiveSyntaxBuilder,
+    TargetDirectiveSyntax, TargetDirectiveSyntaxBuilder, TestDirectiveSyntax,
+    TestDirectiveSyntaxBuilder,
+};
+pub use field::{
+    FieldModifiersSyntax, FieldModifiersSyntaxBuilder, StructFieldDeclarationSyntax,
+    StructFieldDeclarationSyntaxBuilder,
 };
 pub use function::{
     FunctionDeclarationSyntax, FunctionDeclarationSyntaxBuilder, FunctionDirectivesSyntax,
@@ -46,6 +54,12 @@ pub use implementation::{
 pub use list::{
     IdentifierListItemSyntax, IdentifierListItemSyntaxBuilder, IdentifierListSyntax,
     IdentifierListSyntaxBuilder,
+};
+pub use member::{
+    TraitCallableMemberDeclarationSyntax, TraitCallableMemberDeclarationSyntaxBuilder,
+    TraitCallableMemberModifiersSyntax, TraitCallableMemberModifiersSyntaxBuilder,
+    TypeCallableMemberDeclarationSyntax, TypeCallableMemberDeclarationSyntaxBuilder,
+    TypeCallableMemberModifiersSyntax, TypeCallableMemberModifiersSyntaxBuilder,
 };
 pub use module::{
     BlockModuleDeclarationSyntax, BlockModuleDeclarationSyntaxBuilder, ExportDeclarationSyntax,
@@ -75,4 +89,10 @@ pub use r#type::{
 };
 pub use unit::{
     CompilationUnitSyntax, CompilationUnitSyntaxBuilder, SourceUnitSyntax, SourceUnitSyntaxBuilder,
+};
+pub use variant::{
+    PayloadFieldModifiersSyntax, PayloadFieldModifiersSyntaxBuilder, UnionPayloadFieldSyntax,
+    UnionPayloadFieldSyntaxBuilder, UnionVariantDeclarationSyntax,
+    UnionVariantDeclarationSyntaxBuilder, UnionVariantPayloadSyntax,
+    UnionVariantPayloadSyntaxBuilder, VariantDirectivesSyntax, VariantDirectivesSyntaxBuilder,
 };

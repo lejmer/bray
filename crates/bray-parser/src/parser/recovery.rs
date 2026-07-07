@@ -9,11 +9,14 @@ use bray_syntax::{
     ParameterListSyntaxBuilder, ParameterSyntaxBuilder, PredicateDeclarationSyntaxBuilder,
     PredicateParameterListSyntaxBuilder, PredicateParameterSyntaxBuilder,
     SourceUnitModuleDeclarationSyntaxBuilder, SourceUnitSyntaxBuilder, StructBodySyntaxBuilder,
-    StructDeclarationSyntaxBuilder, SyntaxKind, SyntaxToken, TargetDirectiveSyntaxBuilder,
-    TraitApplicationSyntaxBuilder, TraitBodySyntaxBuilder, TraitDeclarationSyntaxBuilder,
-    TraitImplementationBodySyntaxBuilder, TypeDirectivesSyntaxBuilder, UnionBodySyntaxBuilder,
-    UnionDeclarationSyntaxBuilder, UnnamedTraitImplementationDeclarationSyntaxBuilder,
-    UsingDeclarationSyntaxBuilder,
+    StructDeclarationSyntaxBuilder, StructFieldDeclarationSyntaxBuilder, SyntaxKind, SyntaxToken,
+    TargetDirectiveSyntaxBuilder, TraitApplicationSyntaxBuilder, TraitBodySyntaxBuilder,
+    TraitCallableMemberDeclarationSyntaxBuilder, TraitDeclarationSyntaxBuilder,
+    TraitImplementationBodySyntaxBuilder, TypeCallableMemberDeclarationSyntaxBuilder,
+    TypeDirectivesSyntaxBuilder, UnionBodySyntaxBuilder, UnionDeclarationSyntaxBuilder,
+    UnionPayloadFieldSyntaxBuilder, UnionVariantDeclarationSyntaxBuilder,
+    UnionVariantPayloadSyntaxBuilder, UnnamedTraitImplementationDeclarationSyntaxBuilder,
+    UsingDeclarationSyntaxBuilder, VariantDirectivesSyntaxBuilder,
 };
 
 use crate::cursor::RecoverySet;
@@ -147,6 +150,40 @@ impl Parser {
         skipped_any
     }
 
+    pub(super) fn recover_until_predicate(
+        &mut self,
+        builder: &mut impl RecoverySyntaxSink,
+        mut at_stop: impl FnMut(&mut Parser) -> bool,
+    ) -> bool {
+        let mut skipped_tokens = Vec::new();
+
+        while !self.at(SyntaxKind::EndOfFileToken) && !at_stop(self) {
+            skipped_tokens.push(self.consume());
+        }
+
+        let skipped_any = !skipped_tokens.is_empty();
+
+        self.record_skipped_syntax_for_tokens(&skipped_tokens);
+        builder.push_skipped_tokens(skipped_tokens);
+
+        skipped_any
+    }
+
+    pub(super) fn recover_current_and_until_balanced_close_brace_or_recovery_set(
+        &mut self,
+        builder: &mut impl RecoverySyntaxSink,
+        recovery_set: RecoverySet<'_>,
+    ) -> bool {
+        let skipped_tokens =
+            self.skip_current_and_until_balanced_close_brace_or_recovery(recovery_set);
+
+        let skipped_any = !skipped_tokens.is_empty();
+
+        builder.push_skipped_tokens(skipped_tokens);
+
+        skipped_any
+    }
+
     pub(super) fn recover_until_balanced_close_paren(
         &mut self,
         builder: &mut impl RecoverySyntaxSink,
@@ -160,8 +197,22 @@ impl Parser {
     pub(super) fn parse_skipped_braced_body_tokens(
         &mut self,
         builder: &mut impl BracedBodySyntaxSink,
-        mut at_missing_body_boundary: impl FnMut(&mut Parser) -> bool,
+        at_missing_body_boundary: impl FnMut(&mut Parser) -> bool,
     ) {
+        self.parse_braced_body_contents(builder, at_missing_body_boundary, |parser, builder| {
+            parser
+                .recover_until_balanced_close_brace_or_recovery_set(builder, RecoverySet::new(&[]));
+        });
+    }
+
+    pub(super) fn parse_braced_body_contents<Builder>(
+        &mut self,
+        builder: &mut Builder,
+        mut at_missing_body_boundary: impl FnMut(&mut Parser) -> bool,
+        mut parse_contents: impl FnMut(&mut Parser, &mut Builder),
+    ) where
+        Builder: BracedBodySyntaxSink,
+    {
         let open_brace_token = self.expect(SyntaxKind::OpenBraceToken);
         let open_brace_missing = open_brace_token.is_missing();
 
@@ -173,7 +224,7 @@ impl Parser {
             return;
         }
 
-        self.recover_until_balanced_close_brace_or_recovery_set(builder, RecoverySet::new(&[]));
+        parse_contents(self, builder);
 
         builder.push_close_brace_token(self.expect(SyntaxKind::CloseBraceToken));
     }
@@ -329,6 +380,12 @@ impl RecoverySyntaxSink for StructBodySyntaxBuilder {
     }
 }
 
+impl RecoverySyntaxSink for StructFieldDeclarationSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        StructFieldDeclarationSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
 impl RecoverySyntaxSink for UnionDeclarationSyntaxBuilder {
     fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
         UnionDeclarationSyntaxBuilder::push_skipped_tokens(self, tokens);
@@ -338,6 +395,42 @@ impl RecoverySyntaxSink for UnionDeclarationSyntaxBuilder {
 impl RecoverySyntaxSink for UnionBodySyntaxBuilder {
     fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
         UnionBodySyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for VariantDirectivesSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        VariantDirectivesSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for UnionVariantDeclarationSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        UnionVariantDeclarationSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for UnionVariantPayloadSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        UnionVariantPayloadSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for UnionPayloadFieldSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        UnionPayloadFieldSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for TypeCallableMemberDeclarationSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        TypeCallableMemberDeclarationSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for TraitCallableMemberDeclarationSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        TraitCallableMemberDeclarationSyntaxBuilder::push_skipped_tokens(self, tokens);
     }
 }
 
