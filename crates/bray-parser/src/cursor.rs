@@ -10,16 +10,27 @@ use crate::lexer::LexerTokenSource;
 /// A cursor skip stops before any token whose kind is in the set.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct RecoverySet<'kinds> {
-    stop_kinds: &'kinds [SyntaxKind],
+    primary_stop_kinds: &'kinds [SyntaxKind],
+    additional_stop_kinds: &'kinds [SyntaxKind],
 }
 
 impl<'kinds> RecoverySet<'kinds> {
     pub(crate) const fn new(stop_kinds: &'kinds [SyntaxKind]) -> Self {
-        Self { stop_kinds }
+        Self {
+            primary_stop_kinds: stop_kinds,
+            additional_stop_kinds: &[],
+        }
+    }
+
+    pub(crate) const fn with_additional(self, additional_stop_kinds: &'kinds [SyntaxKind]) -> Self {
+        Self {
+            primary_stop_kinds: self.primary_stop_kinds,
+            additional_stop_kinds,
+        }
     }
 
     fn contains(self, kind: SyntaxKind) -> bool {
-        self.stop_kinds.contains(&kind)
+        self.primary_stop_kinds.contains(&kind) || self.additional_stop_kinds.contains(&kind)
     }
 }
 
@@ -483,6 +494,19 @@ mod tests {
             diagnostic.primary_span().map(|span| span.range()),
             Some(TextRange::new(TextSize::ZERO, TextSize::new(5)))
         );
+    }
+
+    #[test]
+    fn cursor_skip_until_supports_composed_recovery_sets() {
+        let mut cursor = cursor("main; tail");
+
+        let skipped = cursor.skip_until(
+            RecoverySet::new(&[SyntaxKind::CommaToken])
+                .with_additional(&[SyntaxKind::SemicolonToken]),
+        );
+
+        assert_eq!(token_kinds(&skipped), [SyntaxKind::IdentifierToken]);
+        assert_eq!(cursor.peek().kind(), SyntaxKind::SemicolonToken);
     }
 
     #[test]

@@ -20,7 +20,15 @@ impl Parser {
         builder: &mut impl RecoverySyntaxSink,
         stop_kinds: &[SyntaxKind],
     ) -> bool {
-        let skipped_tokens = self.skip_until(RecoverySet::new(stop_kinds));
+        self.recover_until_set(builder, RecoverySet::new(stop_kinds))
+    }
+
+    pub(super) fn recover_until_set(
+        &mut self,
+        builder: &mut impl RecoverySyntaxSink,
+        recovery_set: RecoverySet<'_>,
+    ) -> bool {
+        let skipped_tokens = self.skip_until(recovery_set);
         let skipped_any = !skipped_tokens.is_empty();
 
         builder.push_skipped_tokens(skipped_tokens);
@@ -49,14 +57,12 @@ impl Parser {
         skipped_any
     }
 
-    pub(super) fn recover_until_balanced_close_brace_or_recovery(
+    pub(super) fn recover_until_balanced_close_brace_or_recovery_set(
         &mut self,
         builder: &mut impl RecoverySyntaxSink,
-        stop_kinds: &[SyntaxKind],
+        recovery_set: RecoverySet<'_>,
     ) -> bool {
-        let skipped_tokens =
-            self.skip_until_balanced_close_brace_or_recovery(RecoverySet::new(stop_kinds));
-
+        let skipped_tokens = self.skip_until_balanced_close_brace_or_recovery(recovery_set);
         let skipped_any = !skipped_tokens.is_empty();
 
         builder.push_skipped_tokens(skipped_tokens);

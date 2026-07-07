@@ -7,6 +7,8 @@ use bray_syntax::{
     UsingDeclarationSyntax,
 };
 
+use crate::cursor::RecoverySet;
+
 use super::recovery::RecoverySyntaxSink;
 use super::state::Parser;
 
@@ -42,7 +44,7 @@ const DIRECTIVE_ARGUMENT_RECOVERY_KINDS: [SyntaxKind; 5] = [
     SyntaxKind::ModuleKeyword,
 ];
 
-const MODULE_ITEM_BOUNDARY_KINDS: [SyntaxKind; 5] = [
+const PARSED_MODULE_ITEM_BOUNDARY_KINDS: [SyntaxKind; 5] = [
     SyntaxKind::UsingKeyword,
     SyntaxKind::ExportKeyword,
     SyntaxKind::SemicolonToken,
@@ -50,12 +52,31 @@ const MODULE_ITEM_BOUNDARY_KINDS: [SyntaxKind; 5] = [
     SyntaxKind::EndOfFileToken,
 ];
 
-const MODULE_ITEM_DECLARATION_END_KINDS: [SyntaxKind; 5] = [
+const MODULE_ITEM_DECLARATION_TERMINATOR_KINDS: [SyntaxKind; 3] = [
     SyntaxKind::SemicolonToken,
-    SyntaxKind::UsingKeyword,
-    SyntaxKind::ExportKeyword,
     SyntaxKind::CloseBraceToken,
     SyntaxKind::EndOfFileToken,
+];
+
+const MODULE_ITEM_START_KINDS: [SyntaxKind; 18] = [
+    SyntaxKind::UsingKeyword,
+    SyntaxKind::ExportKeyword,
+    SyntaxKind::AtToken,
+    SyntaxKind::PublicKeyword,
+    SyntaxKind::InternalKeyword,
+    SyntaxKind::TrustedKeyword,
+    SyntaxKind::ExternKeyword,
+    SyntaxKind::AsyncKeyword,
+    SyntaxKind::ConstKeyword,
+    SyntaxKind::CallableKeyword,
+    SyntaxKind::FuncKeyword,
+    SyntaxKind::StructKeyword,
+    SyntaxKind::UnionKeyword,
+    SyntaxKind::TraitKeyword,
+    SyntaxKind::ImplKeyword,
+    SyntaxKind::OverloadKeyword,
+    SyntaxKind::PredicateKeyword,
+    SyntaxKind::ModuleKeyword,
 ];
 
 const TARGET_DIRECTIVE_NAME: &str = "target";
@@ -70,10 +91,8 @@ impl Parser {
         let mut builder = SourceUnitModuleDeclarationSyntax::builder(self.syntax_source(), start);
 
         self.parse_module_declaration_header(&mut builder);
-        self.recover_until(
-            &mut builder,
-            &[SyntaxKind::SemicolonToken, SyntaxKind::EndOfFileToken],
-        );
+        self.recover_until_module_item_declaration_end(&mut builder);
+
         builder.push_semicolon_token(self.expect(SyntaxKind::SemicolonToken));
 
         builder.build()
@@ -156,6 +175,7 @@ impl Parser {
 
         builder.push_directive_marker_token(self.expect(SyntaxKind::AtToken));
         builder.push_name_token(self.expect(SyntaxKind::IdentifierToken));
+
         builder.push_open_paren_token(self.expect(SyntaxKind::OpenParenToken));
         // TODO(parser): Parse target directive arguments once directive arguments are implemented.
         self.recover_until_balanced_close_paren(&mut builder, &DIRECTIVE_ARGUMENT_RECOVERY_KINDS);
@@ -302,7 +322,8 @@ impl Parser {
         }
 
         builder.push_path(self.parse_path());
-        self.recover_until(&mut builder, &MODULE_ITEM_DECLARATION_END_KINDS);
+        self.recover_until_module_item_declaration_end(&mut builder);
+
         builder.push_semicolon_token(self.expect(SyntaxKind::SemicolonToken));
 
         builder.build()
@@ -313,8 +334,10 @@ impl Parser {
         let mut builder = ExportDeclarationSyntax::builder(self.syntax_source(), start);
 
         builder.push_export_keyword(self.expect(SyntaxKind::ExportKeyword));
+
         builder.push_path(self.parse_path());
-        self.recover_until(&mut builder, &MODULE_ITEM_DECLARATION_END_KINDS);
+        self.recover_until_module_item_declaration_end(&mut builder);
+
         builder.push_semicolon_token(self.expect(SyntaxKind::SemicolonToken));
 
         builder.build()
@@ -325,9 +348,20 @@ impl Parser {
         builder: &mut impl RecoverySyntaxSink,
         terminators: &[SyntaxKind],
     ) -> bool {
-        let recovery_kinds = module_item_recovery_kinds(terminators);
+        let recovery_set =
+            RecoverySet::new(&PARSED_MODULE_ITEM_BOUNDARY_KINDS).with_additional(terminators);
 
-        self.recover_until_balanced_close_brace_or_recovery(builder, &recovery_kinds)
+        self.recover_until_balanced_close_brace_or_recovery_set(builder, recovery_set)
+    }
+
+    fn recover_until_module_item_declaration_end(
+        &mut self,
+        builder: &mut impl RecoverySyntaxSink,
+    ) -> bool {
+        let recovery_set = RecoverySet::new(&MODULE_ITEM_DECLARATION_TERMINATOR_KINDS)
+            .with_additional(&MODULE_ITEM_START_KINDS);
+
+        self.recover_until_set(builder, recovery_set)
     }
 
     pub(super) fn should_parse_block_module_declaration(&mut self) -> bool {
@@ -503,22 +537,14 @@ impl ModuleItemSyntaxSink for ModuleBodySyntaxBuilder {
     }
 }
 
-fn module_item_recovery_kinds(terminators: &[SyntaxKind]) -> Vec<SyntaxKind> {
-    let mut recovery_kinds =
-        Vec::with_capacity(MODULE_ITEM_BOUNDARY_KINDS.len() + terminators.len());
-
-    recovery_kinds.extend_from_slice(&MODULE_ITEM_BOUNDARY_KINDS);
-    recovery_kinds.extend_from_slice(terminators);
-
-    recovery_kinds
-}
-
 #[cfg(test)]
 mod tests {
-    use bray_diagnostics::DiagnosticKind;
+    use bray_diagnostics::{DiagnosticArg, DiagnosticKind, SeverityKind};
+    use bray_source::{TextRange, TextSize};
     use bray_syntax::{SyntaxKind, SyntaxText};
     use bray_testing::test_source_store as source_store;
 
+    use crate::SyntaxTreeResult;
     use crate::parser::parse_compilation_unit;
     use crate::test_support::parse_diagnostic_kinds;
 
@@ -537,7 +563,6 @@ mod tests {
         let path = declaration.module_path();
 
         assert_eq!(source_unit.full_text(), "trusted public module main.core;");
-
         assert_eq!(declaration.full_text(), "trusted public module main.core;");
 
         assert_eq!(
@@ -557,6 +582,101 @@ mod tests {
     }
 
     #[test]
+    fn parser_reports_missing_source_unit_module_semicolon_before_module_item_start() {
+        let source = "module main\nusing std.io;";
+        let sources = source_store([source]);
+        let result = parse_compilation_unit(&sources);
+        let source_unit = &result.syntax_tree().root().source_units()[0];
+
+        let declaration = match source_unit.source_unit_module_declaration() {
+            Some(declaration) => declaration,
+            None => panic!("expected source-unit module declaration"),
+        };
+
+        let using_declarations = source_unit.using_declarations().collect::<Vec<_>>();
+
+        let insertion = TextSize::new(
+            source
+                .find("using")
+                .expect("test source should contain using keyword")
+                .try_into()
+                .expect("test source offset should fit in TextSize"),
+        );
+
+        let [using_declaration] = using_declarations.as_slice() else {
+            panic!("expected one using declaration: {using_declarations:?}");
+        };
+
+        let semicolon_token = declaration.semicolon_token();
+
+        assert_eq!(source_unit.full_text(), source);
+        assert_eq!(declaration.full_text(), "module main\n");
+        assert_eq!(using_declaration.full_text(), "using std.io;");
+        assert!(source_unit.skipped_syntax().next().is_none());
+
+        assert!(semicolon_token.is_missing());
+        assert_eq!(semicolon_token.kind(), SyntaxKind::SemicolonToken);
+        assert_eq!(semicolon_token.range(), TextRange::empty(insertion));
+
+        assert_missing_semicolon_diagnostic(
+            &result,
+            insertion,
+            SyntaxKind::UsingKeyword,
+            "using",
+            &[DiagnosticKind::SyntaxExpectedToken],
+        );
+    }
+
+    #[test]
+    fn parser_reports_missing_source_unit_module_semicolon_before_module_start() {
+        let source = "module main\nmodule extra {}";
+        let sources = source_store([source]);
+        let result = parse_compilation_unit(&sources);
+        let source_unit = &result.syntax_tree().root().source_units()[0];
+
+        let declaration = match source_unit.source_unit_module_declaration() {
+            Some(declaration) => declaration,
+            None => panic!("expected source-unit module declaration"),
+        };
+
+        let skipped_syntax = source_unit.skipped_syntax().collect::<Vec<_>>();
+
+        let insertion = TextSize::new(
+            source
+                .find("module extra")
+                .expect("test source should contain second module keyword")
+                .try_into()
+                .expect("test source offset should fit in TextSize"),
+        );
+
+        let [skipped] = skipped_syntax.as_slice() else {
+            panic!("expected one skipped-syntax node: {skipped_syntax:?}");
+        };
+
+        let semicolon_token = declaration.semicolon_token();
+
+        assert_eq!(source_unit.full_text(), source);
+        assert_eq!(declaration.full_text(), "module main\n");
+        assert_eq!(skipped.full_text(), "module extra {}");
+        assert_eq!(source_unit.block_module_declarations().count(), 0);
+
+        assert!(semicolon_token.is_missing());
+        assert_eq!(semicolon_token.kind(), SyntaxKind::SemicolonToken);
+        assert_eq!(semicolon_token.range(), TextRange::empty(insertion));
+
+        assert_missing_semicolon_diagnostic(
+            &result,
+            insertion,
+            SyntaxKind::ModuleKeyword,
+            "module",
+            &[
+                DiagnosticKind::SyntaxExpectedToken,
+                DiagnosticKind::SyntaxSkippedSyntax,
+            ],
+        );
+    }
+
+    #[test]
     fn parser_parses_test_directives_on_source_unit_module_declarations() {
         let sources = source_store(["@test module main;"]);
         let result = parse_compilation_unit(&sources);
@@ -571,9 +691,11 @@ mod tests {
 
         assert_eq!(source_unit.full_text(), "@test module main;");
         assert_eq!(directives.full_text(), "@test ");
+
         assert_eq!(directives.test_directives().count(), 1);
         assert_eq!(directives.target_directives().count(), 0);
         assert_eq!(directives.link_directives().count(), 0);
+
         assert!(result.diagnostics().is_empty());
     }
 
@@ -604,10 +726,12 @@ mod tests {
             source_unit.full_text(),
             "@target(host) @link(\"m\") module main;"
         );
+
         assert_eq!(directives.full_text(), "@target(host) @link(\"m\") ");
         assert_eq!(target.full_text(), "@target(host) ");
         assert_eq!(target.skipped_syntax().count(), 1);
         assert_eq!(link.full_text(), "@link(\"m\") ");
+
         assert_eq!(link.directive_argument_list().skipped_syntax().count(), 1);
 
         assert_eq!(
@@ -640,6 +764,7 @@ mod tests {
         assert_eq!(source_unit.full_text(), "@unknown(foo) @test module main;");
         assert_eq!(directives.full_text(), "@unknown(foo) @test ");
         assert_eq!(skipped.full_text(), "@unknown(foo) ");
+
         assert_eq!(directives.test_directives().count(), 1);
 
         assert_eq!(
@@ -727,6 +852,55 @@ mod tests {
     }
 
     #[test]
+    fn parser_reports_missing_using_semicolon_before_following_declaration_start() {
+        let source = "module main; using std.io\nfunc main() {}";
+        let sources = source_store([source]);
+        let result = parse_compilation_unit(&sources);
+        let source_unit = &result.syntax_tree().root().source_units()[0];
+        let using_declarations = source_unit.using_declarations().collect::<Vec<_>>();
+        let skipped_syntax = source_unit.skipped_syntax().collect::<Vec<_>>();
+
+        let insertion = TextSize::new(
+            source
+                .find("func")
+                .expect("test source should contain function keyword")
+                .try_into()
+                .expect("test source offset should fit in TextSize"),
+        );
+
+        let [using_declaration] = using_declarations.as_slice() else {
+            panic!("expected one using declaration: {using_declarations:?}");
+        };
+
+        let [skipped] = skipped_syntax.as_slice() else {
+            panic!("expected one skipped-syntax node: {skipped_syntax:?}");
+        };
+
+        let semicolon_token = using_declaration.semicolon_token();
+
+        assert_eq!(source_unit.full_text(), source);
+        assert_eq!(using_declaration.full_text(), "using std.io\n");
+        assert!(using_declaration.skipped_syntax().next().is_none());
+        assert_eq!(skipped.full_text(), "func main() {}");
+
+        assert!(semicolon_token.is_missing());
+
+        assert_eq!(semicolon_token.kind(), SyntaxKind::SemicolonToken);
+        assert_eq!(semicolon_token.range(), TextRange::empty(insertion));
+
+        assert_missing_semicolon_diagnostic(
+            &result,
+            insertion,
+            SyntaxKind::FuncKeyword,
+            "func",
+            &[
+                DiagnosticKind::SyntaxExpectedToken,
+                DiagnosticKind::SyntaxSkippedSyntax,
+            ],
+        );
+    }
+
+    #[test]
     fn parser_parses_using_and_export_declarations_inside_block_modules() {
         let sources = source_store(["module main { using core; export api; }"]);
         let result = parse_compilation_unit(&sources);
@@ -760,6 +934,7 @@ mod tests {
         assert_eq!(using_declaration.path().full_text(), "core");
         assert_eq!(export_declaration.full_text(), "export api; ");
         assert_eq!(export_declaration.path().full_text(), "api");
+
         assert!(result.diagnostics().is_empty());
     }
 
@@ -788,11 +963,43 @@ mod tests {
 
         assert_eq!(body.using_declarations().count(), 1);
         assert_eq!(body.export_declarations().count(), 0);
+
         assert_eq!(skipped.full_text(), "func run() {} ");
 
         assert_eq!(
             parse_diagnostic_kinds(&result),
             [DiagnosticKind::SyntaxSkippedSyntax]
+        );
+    }
+
+    fn assert_missing_semicolon_diagnostic(
+        result: &SyntaxTreeResult,
+        insertion: TextSize,
+        actual_kind: SyntaxKind,
+        actual_text: &str,
+        expected_kinds: &[DiagnosticKind],
+    ) {
+        let expected_diagnostic = result
+            .diagnostics()
+            .iter()
+            .find(|diagnostic| diagnostic.kind() == DiagnosticKind::SyntaxExpectedToken)
+            .expect("expected missing semicolon diagnostic");
+
+        assert_eq!(parse_diagnostic_kinds(result).as_slice(), expected_kinds);
+        assert_eq!(expected_diagnostic.severity(), SeverityKind::Error);
+
+        assert_eq!(
+            expected_diagnostic.primary_span().map(|span| span.range()),
+            Some(TextRange::empty(insertion))
+        );
+
+        assert_eq!(
+            expected_diagnostic.args(),
+            &[
+                DiagnosticArg::expected_syntax_kind(SyntaxKind::SemicolonToken),
+                DiagnosticArg::actual_syntax_kind(actual_kind),
+                DiagnosticArg::token_text(actual_text),
+            ]
         );
     }
 }
