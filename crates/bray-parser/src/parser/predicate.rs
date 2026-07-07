@@ -5,7 +5,7 @@ use bray_syntax::{
 };
 
 use super::module::MODULE_ITEM_START_KINDS;
-use super::separated::{SeparatedListSpec, SeparatedListSyntaxSink};
+use super::separated::{SeparatedListSpec, SeparatedListSyntaxSink, separated_list_recovery_kinds};
 use super::state::Parser;
 
 const PREDICATE_DECLARATION_START_KINDS: [SyntaxKind; 4] = [
@@ -30,6 +30,8 @@ const PREDICATE_PARAMETER_LIST_TERMINATORS: [SyntaxKind; 5] = [
     SyntaxKind::CloseBraceToken,
     SyntaxKind::EndOfFileToken,
 ];
+
+const PREDICATE_PARAMETER_START_KINDS: [SyntaxKind; 1] = [SyntaxKind::IdentifierToken];
 
 const PREDICATE_PARAMETER_TYPE_BOUNDARY_KINDS: [SyntaxKind; 6] = [
     SyntaxKind::CommaToken,
@@ -88,8 +90,11 @@ impl Parser {
     fn parse_predicate_parameter_list(&mut self) -> PredicateParameterListSyntax {
         let start = self.peek().full_range().start();
 
-        let recovery_kinds =
-            predicate_parameter_list_recovery_kinds(&PREDICATE_PARAMETER_LIST_TERMINATORS);
+        let recovery_kinds = separated_list_recovery_kinds(
+            &PREDICATE_PARAMETER_START_KINDS,
+            SyntaxKind::CommaToken,
+            &PREDICATE_PARAMETER_LIST_TERMINATORS,
+        );
 
         let spec = SeparatedListSpec {
             separator_kind: SyntaxKind::CommaToken,
@@ -189,16 +194,6 @@ impl SeparatedListSyntaxSink<PredicateParameterSyntax> for PredicateParameterLis
     fn push_separator(&mut self, separator: SyntaxToken) {
         PredicateParameterListSyntaxBuilder::push_separator_token(self, separator);
     }
-}
-
-fn predicate_parameter_list_recovery_kinds(terminators: &[SyntaxKind]) -> Vec<SyntaxKind> {
-    let mut recovery_kinds = Vec::with_capacity(terminators.len() + 2);
-
-    recovery_kinds.push(SyntaxKind::IdentifierToken);
-    recovery_kinds.push(SyntaxKind::CommaToken);
-    recovery_kinds.extend_from_slice(terminators);
-
-    recovery_kinds
 }
 
 #[cfg(test)]

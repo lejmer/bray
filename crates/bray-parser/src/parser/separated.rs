@@ -26,6 +26,20 @@ pub(super) trait SeparatedListSyntaxSink<Item>: RecoverySyntaxSink {
     fn push_separator(&mut self, separator: SyntaxToken);
 }
 
+pub(super) fn separated_list_recovery_kinds(
+    item_start_kinds: &[SyntaxKind],
+    separator_kind: SyntaxKind,
+    terminators: &[SyntaxKind],
+) -> Vec<SyntaxKind> {
+    let mut recovery_kinds = Vec::with_capacity(item_start_kinds.len() + 1 + terminators.len());
+
+    recovery_kinds.extend_from_slice(item_start_kinds);
+    recovery_kinds.push(separator_kind);
+    recovery_kinds.extend_from_slice(terminators);
+
+    recovery_kinds
+}
+
 impl Parser {
     fn at_list_end(&mut self, terminators: &[SyntaxKind]) -> bool {
         self.at_any(terminators) || self.at(SyntaxKind::EndOfFileToken)
@@ -41,7 +55,12 @@ impl Parser {
         terminators: &[SyntaxKind],
     ) -> IdentifierListSyntax {
         let start = self.peek().full_range().start();
-        let recovery_kinds = identifier_list_recovery_kinds(terminators);
+
+        let recovery_kinds = separated_list_recovery_kinds(
+            &[SyntaxKind::IdentifierToken],
+            SyntaxKind::CommaToken,
+            terminators,
+        );
 
         let spec = SeparatedListSpec {
             separator_kind: SyntaxKind::CommaToken,
@@ -140,17 +159,6 @@ impl SeparatedListSyntaxSink<IdentifierListItemSyntax> for IdentifierListSyntaxB
     fn push_separator(&mut self, separator: SyntaxToken) {
         IdentifierListSyntaxBuilder::push_separator_token(self, separator);
     }
-}
-
-#[cfg(test)]
-fn identifier_list_recovery_kinds(terminators: &[SyntaxKind]) -> Vec<SyntaxKind> {
-    let mut recovery_kinds = Vec::with_capacity(terminators.len() + 2);
-
-    recovery_kinds.push(SyntaxKind::IdentifierToken);
-    recovery_kinds.push(SyntaxKind::CommaToken);
-    recovery_kinds.extend_from_slice(terminators);
-
-    recovery_kinds
 }
 
 #[cfg(test)]

@@ -1,7 +1,7 @@
 use bray_syntax::{
     AbiDirectiveSyntax, CopyDirectiveSyntax, DirectiveArgumentListSyntax,
     EntrypointDirectiveSyntax, LayoutDirectiveSyntax, LinkDirectiveSyntax, SymbolDirectiveSyntax,
-    SyntaxKind, TargetDirectiveSyntax, TestDirectiveSyntax,
+    SyntaxKind, TagDirectiveSyntax, TargetDirectiveSyntax, TestDirectiveSyntax,
 };
 
 use super::state::Parser;
@@ -12,6 +12,7 @@ pub(super) const ENTRYPOINT_DIRECTIVE_NAME: &str = "entrypoint";
 pub(super) const LAYOUT_DIRECTIVE_NAME: &str = "layout";
 pub(super) const LINK_DIRECTIVE_NAME: &str = "link";
 pub(super) const SYMBOL_DIRECTIVE_NAME: &str = "symbol";
+pub(super) const TAG_DIRECTIVE_NAME: &str = "tag";
 pub(super) const TARGET_DIRECTIVE_NAME: &str = "target";
 pub(super) const TEST_DIRECTIVE_NAME: &str = "test";
 
@@ -80,6 +81,23 @@ impl Parser {
         builder.build()
     }
 
+    pub(super) fn parse_tag_directive(
+        &mut self,
+        argument_recovery_kinds: &[SyntaxKind],
+    ) -> TagDirectiveSyntax {
+        let start = self.peek().full_range().start();
+        let mut builder = TagDirectiveSyntax::builder(self.syntax_source(), start);
+
+        builder.push_directive_marker_token(self.expect(SyntaxKind::AtToken));
+        builder.push_name_token(self.expect(SyntaxKind::IdentifierToken));
+
+        builder.push_directive_argument_list(
+            self.parse_directive_argument_list(argument_recovery_kinds),
+        );
+
+        builder.build()
+    }
+
     pub(super) fn parse_link_directive(
         &mut self,
         argument_recovery_kinds: &[SyntaxKind],
@@ -89,6 +107,7 @@ impl Parser {
 
         builder.push_directive_marker_token(self.expect(SyntaxKind::AtToken));
         builder.push_name_token(self.expect(SyntaxKind::IdentifierToken));
+
         builder.push_directive_argument_list(
             self.parse_directive_argument_list(argument_recovery_kinds),
         );
@@ -105,6 +124,7 @@ impl Parser {
 
         builder.push_directive_marker_token(self.expect(SyntaxKind::AtToken));
         builder.push_name_token(self.expect(SyntaxKind::IdentifierToken));
+
         builder.push_directive_argument_list(
             self.parse_directive_argument_list(argument_recovery_kinds),
         );
@@ -121,6 +141,7 @@ impl Parser {
 
         builder.push_directive_marker_token(self.expect(SyntaxKind::AtToken));
         builder.push_name_token(self.expect(SyntaxKind::IdentifierToken));
+
         builder.push_directive_argument_list(
             self.parse_directive_argument_list(argument_recovery_kinds),
         );

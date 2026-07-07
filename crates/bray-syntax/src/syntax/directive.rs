@@ -244,6 +244,21 @@ define_bare_directive_syntax! {
 }
 
 define_argument_list_directive_syntax! {
+    /// `@tag(...)` directive.
+    TagDirectiveSyntax {
+        builder: TagDirectiveSyntaxBuilder,
+        kind: SyntaxKind::TagDirective,
+        source_slot: "tag_directive.source",
+        node_name: "tag directive",
+        range_description: "tag-directive",
+        debug_name: "TagDirectiveSyntax",
+        builder_debug_name: "TagDirectiveSyntaxBuilder",
+        marker_slot: "tag_directive.directive_marker_token",
+        name_slot: "tag_directive.name_token",
+    }
+}
+
+define_argument_list_directive_syntax! {
     /// `@layout(...)` directive.
     LayoutDirectiveSyntax {
         builder: LayoutDirectiveSyntaxBuilder,

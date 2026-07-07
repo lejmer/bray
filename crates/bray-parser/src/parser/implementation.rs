@@ -195,10 +195,10 @@ impl Parser {
         let start = self.peek().full_range().start();
         let mut builder = InherentImplementationBodySyntax::builder(self.syntax_source(), start);
 
-        // TODO(parser): Parse implementation member declarations as they are implemented.
-        self.parse_skipped_braced_body_tokens(
+        self.parse_braced_body_contents(
             &mut builder,
             Parser::at_implementation_body_missing_boundary,
+            Parser::parse_inherent_implementation_body_items,
         );
 
         builder.build()
@@ -208,10 +208,10 @@ impl Parser {
         let start = self.peek().full_range().start();
         let mut builder = TraitImplementationBodySyntax::builder(self.syntax_source(), start);
 
-        // TODO(parser): Parse implementation member declarations as they are implemented.
-        self.parse_skipped_braced_body_tokens(
+        self.parse_braced_body_contents(
             &mut builder,
             Parser::at_implementation_body_missing_boundary,
+            Parser::parse_trait_implementation_body_items,
         );
 
         builder.build()
@@ -434,9 +434,9 @@ mod tests {
         assert!(result.diagnostics().is_empty());
     }
 
-    // TODO(parser): Update this when implementation generics, constraints, and members are parsed.
+    // TODO(parser): Update this when implementation generics and constraints are parsed.
     #[test]
-    fn parser_skips_implementation_generic_arguments_constraints_and_body_items_for_now() {
+    fn parser_parses_trait_implementation_callable_members_after_skipped_header_forms() {
         let source = "module main; impl Buffer<T>(Reader<Bytes>) with(T: Copy) { func read() {} }";
         let sources = source_store([source]);
         let result = parse_compilation_unit(&sources);
@@ -462,9 +462,9 @@ mod tests {
 
         let declaration_skipped = declaration.skipped_syntax().collect::<Vec<_>>();
 
-        let body_skipped = declaration
-            .trait_implementation_body()
-            .skipped_syntax()
+        let body = declaration.trait_implementation_body();
+        let members = body
+            .trait_callable_member_declarations()
             .collect::<Vec<_>>();
 
         let [subject_generics] = subject_skipped.as_slice() else {
@@ -479,16 +479,15 @@ mod tests {
             declaration_subject_generics,
             declaration_trait_generics,
             constraint,
-            member,
         ] = declaration_skipped.as_slice()
         else {
             panic!(
-                "expected generic arguments, constraint, and member skipped syntax: {declaration_skipped:?}"
+                "expected generic arguments and constraint as skipped syntax: {declaration_skipped:?}"
             );
         };
 
-        let [body_member] = body_skipped.as_slice() else {
-            panic!("expected member body skipped syntax: {body_skipped:?}");
+        let [member] = members.as_slice() else {
+            panic!("expected one trait implementation callable member: {members:?}");
         };
 
         assert_eq!(source_unit.full_text(), source);
@@ -498,12 +497,11 @@ mod tests {
         assert_eq!(declaration_trait_generics.full_text(), "<Bytes>");
         assert_eq!(constraint.full_text(), "with(T: Copy) ");
         assert_eq!(member.full_text(), "func read() {} ");
-        assert_eq!(body_member.full_text(), "func read() {} ");
+        assert_eq!(body.skipped_syntax().count(), 0);
 
         assert_eq!(
             parse_diagnostic_kinds(&result),
             [
-                DiagnosticKind::SyntaxSkippedSyntax,
                 DiagnosticKind::SyntaxSkippedSyntax,
                 DiagnosticKind::SyntaxSkippedSyntax,
                 DiagnosticKind::SyntaxSkippedSyntax
@@ -511,9 +509,8 @@ mod tests {
         );
     }
 
-    // TODO(parser): Update this when implementation member declarations are parsed.
     #[test]
-    fn parser_recovers_implementation_body_without_losing_later_items() {
+    fn parser_parses_inherent_implementation_callable_members_without_losing_later_items() {
         let source = "module main; impl Point { func run() {} }\nusing core;";
         let sources = source_store([source]);
         let result = parse_compilation_unit(&sources);
@@ -528,16 +525,19 @@ mod tests {
         };
 
         let body = declaration.inherent_implementation_body();
+        let members = body.type_callable_member_declarations().collect::<Vec<_>>();
+
+        let [member] = members.as_slice() else {
+            panic!("expected one inherent implementation callable member: {members:?}");
+        };
 
         assert_eq!(source_unit.full_text(), source);
         assert_eq!(body.full_text(), "{ func run() {} }\n");
-        assert_eq!(body.skipped_syntax().count(), 1);
+        assert_eq!(member.full_text(), "func run() {} ");
+        assert_eq!(body.skipped_syntax().count(), 0);
         assert_eq!(source_unit.using_declarations().count(), 1);
 
-        assert_eq!(
-            parse_diagnostic_kinds(&result),
-            [DiagnosticKind::SyntaxSkippedSyntax]
-        );
+        assert!(result.diagnostics().is_empty());
     }
 
     #[test]

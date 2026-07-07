@@ -9,7 +9,7 @@ pub(crate) fn first_token(
     start: TextSize,
     kind: SyntaxKind,
 ) -> Option<SyntaxToken> {
-    node.syntax_tokens(start).find(|token| token.kind() == kind)
+    node.first_child_token(start, kind)
 }
 
 pub(crate) fn required_token(

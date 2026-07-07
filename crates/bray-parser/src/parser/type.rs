@@ -143,8 +143,11 @@ impl Parser {
         let start = self.peek().full_range().start();
         let mut builder = StructBodySyntax::builder(self.syntax_source(), start);
 
-        // TODO(parser): Parse type body items once fields, variants, and members are implemented.
-        self.parse_skipped_braced_body_tokens(&mut builder, Parser::at_type_body_missing_boundary);
+        self.parse_braced_body_contents(
+            &mut builder,
+            Parser::at_type_body_missing_boundary,
+            Parser::parse_struct_body_items,
+        );
 
         builder.build()
     }
@@ -153,8 +156,11 @@ impl Parser {
         let start = self.peek().full_range().start();
         let mut builder = UnionBodySyntax::builder(self.syntax_source(), start);
 
-        // TODO(parser): Parse type body items once fields, variants, and members are implemented.
-        self.parse_skipped_braced_body_tokens(&mut builder, Parser::at_type_body_missing_boundary);
+        self.parse_braced_body_contents(
+            &mut builder,
+            Parser::at_type_body_missing_boundary,
+            Parser::parse_union_body_items,
+        );
 
         builder.build()
     }
@@ -275,6 +281,7 @@ mod tests {
         let source = "module main; @copy public struct Point {}";
         let sources = source_store([source]);
         let result = parse_compilation_unit(&sources);
+
         let source_unit = &result.syntax_tree().root().source_units()[0];
         let declarations = source_unit.struct_declarations().collect::<Vec<_>>();
 
@@ -303,6 +310,7 @@ mod tests {
         let source = "module main { internal union Maybe {} }";
         let sources = source_store([source]);
         let result = parse_compilation_unit(&sources);
+
         let source_unit = &result.syntax_tree().root().source_units()[0];
         let modules = source_unit.block_module_declarations().collect::<Vec<_>>();
 
@@ -340,6 +348,7 @@ mod tests {
         let source = "module main; @layout(c) struct Point {}";
         let sources = source_store([source]);
         let result = parse_compilation_unit(&sources);
+
         let source_unit = &result.syntax_tree().root().source_units()[0];
         let declarations = source_unit.struct_declarations().collect::<Vec<_>>();
 
@@ -364,12 +373,13 @@ mod tests {
         );
     }
 
-    // TODO(parser): Update this when type generics, constraints, and body items are parsed.
+    // TODO(parser): Update this when type generics, constraints, and field type expressions are parsed.
     #[test]
-    fn parser_skips_type_generic_parameters_constraints_and_body_items_for_now() {
+    fn parser_parses_struct_fields_after_skipping_type_generics_and_constraints() {
         let source = "module main; struct Box<T> with(T: Copy) { value: T; }";
         let sources = source_store([source]);
         let result = parse_compilation_unit(&sources);
+
         let source_unit = &result.syntax_tree().root().source_units()[0];
         let declarations = source_unit.struct_declarations().collect::<Vec<_>>();
 
@@ -378,26 +388,31 @@ mod tests {
         };
 
         let declaration_skipped = declaration.skipped_syntax().collect::<Vec<_>>();
-        let body_skipped = declaration
-            .struct_body()
-            .skipped_syntax()
-            .collect::<Vec<_>>();
+        let body = declaration.struct_body();
+        let fields = body.struct_field_declarations().collect::<Vec<_>>();
+        let body_skipped = body.skipped_syntax().collect::<Vec<_>>();
 
-        let [generics, constraint, field] = declaration_skipped.as_slice() else {
+        let [field] = fields.as_slice() else {
+            panic!("expected one struct field declaration: {fields:?}");
+        };
+
+        let [generics, constraint, field_type] = declaration_skipped.as_slice() else {
             panic!(
-                "expected generic parameters, constraint, and field as skipped syntax: {declaration_skipped:?}"
+                "expected generic parameters, constraint, and field type as skipped syntax: {declaration_skipped:?}"
             );
         };
 
-        let [body_field] = body_skipped.as_slice() else {
-            panic!("expected field as skipped body syntax: {body_skipped:?}");
+        let [body_field_type] = body_skipped.as_slice() else {
+            panic!("expected field type as skipped body syntax: {body_skipped:?}");
         };
 
         assert_eq!(source_unit.full_text(), source);
         assert_eq!(generics.full_text(), "<T> ");
         assert_eq!(constraint.full_text(), "with(T: Copy) ");
+        assert_eq!(field_type.full_text(), "T");
+        assert_eq!(body_field_type.full_text(), "T");
         assert_eq!(field.full_text(), "value: T; ");
-        assert_eq!(body_field.full_text(), "value: T; ");
+        assert_eq!(field.identifier_token().kind(), SyntaxKind::IdentifierToken);
         assert_eq!(declaration.struct_body().full_text(), "{ value: T; }");
 
         assert_eq!(
@@ -410,11 +425,126 @@ mod tests {
         );
     }
 
+    // TODO(parser): Update this when directive arguments and payload field expressions are parsed.
+    #[test]
+    fn parser_parses_union_variants_with_payload_fields() {
+        let source = "module main; union Maybe { @tag(1) Some(pos value: Int = fallback,); None; }";
+        let sources = source_store([source]);
+        let result = parse_compilation_unit(&sources);
+
+        let source_unit = &result.syntax_tree().root().source_units()[0];
+        let declarations = source_unit.union_declarations().collect::<Vec<_>>();
+
+        let [declaration] = declarations.as_slice() else {
+            panic!("expected one union declaration: {declarations:?}");
+        };
+
+        let body = declaration.union_body();
+        let variants = body.union_variant_declarations().collect::<Vec<_>>();
+
+        let [some, none] = variants.as_slice() else {
+            panic!("expected two union variants: {variants:?}");
+        };
+
+        let some_payload = match some.union_variant_payload() {
+            Some(payload) => payload,
+            None => panic!("expected payload on Some variant"),
+        };
+
+        let fields = some_payload.union_payload_fields().collect::<Vec<_>>();
+
+        let [field] = fields.as_slice() else {
+            panic!("expected one payload field: {fields:?}");
+        };
+
+        assert_eq!(source_unit.full_text(), source);
+        assert_eq!(
+            declaration.full_text(),
+            "union Maybe { @tag(1) Some(pos value: Int = fallback,); None; }"
+        );
+
+        assert_eq!(some.variant_directives().tag_directives().count(), 1);
+        assert_eq!(some.identifier_token().text(source), Some("Some"));
+        assert_eq!(some_payload.separator_tokens().count(), 1);
+
+        assert_eq!(
+            field
+                .payload_field_modifiers()
+                .pos_token()
+                .map(|token| token.kind()),
+            Some(SyntaxKind::PosKeyword)
+        );
+
+        assert!(field.equals_token().is_some());
+        assert_eq!(none.full_text(), "None; ");
+
+        assert_eq!(
+            parse_diagnostic_kinds(&result),
+            [
+                DiagnosticKind::SyntaxSkippedSyntax,
+                DiagnosticKind::SyntaxSkippedSyntax,
+                DiagnosticKind::SyntaxSkippedSyntax
+            ]
+        );
+    }
+
+    // TODO(parser): Update this when callable result type expressions are parsed.
+    #[test]
+    fn parser_parses_type_callable_members_in_struct_bodies() {
+        let source = "module main; struct Point { public static func make() -> Point {} }";
+        let sources = source_store([source]);
+        let result = parse_compilation_unit(&sources);
+
+        let source_unit = &result.syntax_tree().root().source_units()[0];
+        let declarations = source_unit.struct_declarations().collect::<Vec<_>>();
+
+        let [declaration] = declarations.as_slice() else {
+            panic!("expected one struct declaration: {declarations:?}");
+        };
+
+        let members = declaration
+            .struct_body()
+            .type_callable_member_declarations()
+            .collect::<Vec<_>>();
+
+        let [member] = members.as_slice() else {
+            panic!("expected one callable member: {members:?}");
+        };
+
+        assert_eq!(source_unit.full_text(), source);
+        assert_eq!(member.full_text(), "public static func make() -> Point {} ");
+
+        assert_eq!(
+            member
+                .type_callable_member_modifiers()
+                .visibility_token()
+                .map(|token| token.kind()),
+            Some(SyntaxKind::PublicKeyword)
+        );
+
+        assert_eq!(
+            member
+                .type_callable_member_modifiers()
+                .static_token()
+                .map(|token| token.kind()),
+            Some(SyntaxKind::StaticKeyword)
+        );
+
+        assert!(member.callable_result_clause().is_some());
+        assert!(member.callable_body_block_expression().is_some());
+
+        assert_eq!(
+            parse_diagnostic_kinds(&result),
+            [DiagnosticKind::SyntaxSkippedSyntax]
+        );
+    }
+
     #[test]
     fn parser_struct_body_missing_open_brace_does_not_consume_following_item() {
         let source = "module main; struct Point\nusing core;";
         let sources = source_store([source]);
         let result = parse_compilation_unit(&sources);
+
         let source_unit = &result.syntax_tree().root().source_units()[0];
         let declarations = source_unit.struct_declarations().collect::<Vec<_>>();
 

@@ -63,20 +63,40 @@ pub enum SyntaxKind {
     LayoutDirective,
     /// `@copy` type directive.
     CopyDirective,
+    /// `@tag(...)` union variant directive.
+    TagDirective,
     /// Optional type declaration modifiers in source order.
     TypeModifiers,
     /// Braced struct declaration body.
     StructBody,
+    /// Optional struct field modifiers in source order.
+    FieldModifiers,
+    /// Struct field declaration.
+    StructFieldDeclaration,
     /// Module-level union declaration.
     UnionDeclaration,
     /// Braced union declaration body.
     UnionBody,
+    /// Union variant directives in source order.
+    VariantDirectives,
+    /// Union variant declaration.
+    UnionVariantDeclaration,
+    /// Parenthesized union variant payload.
+    UnionVariantPayload,
+    /// Union variant payload field.
+    UnionPayloadField,
+    /// Optional union payload field modifiers in source order.
+    PayloadFieldModifiers,
     /// Module-level trait declaration.
     TraitDeclaration,
     /// Optional trait modifiers in source order.
     TraitModifiers,
     /// Braced trait declaration body.
     TraitBody,
+    /// Optional trait callable member modifiers in source order.
+    TraitCallableMemberModifiers,
+    /// Trait callable member declaration.
+    TraitCallableMemberDeclaration,
     /// Subject type named by an implementation declaration.
     ImplementationSubject,
     /// Trait application named by a trait implementation declaration.
@@ -91,6 +111,10 @@ pub enum SyntaxKind {
     NamedTraitImplementationDeclaration,
     /// Braced trait implementation body.
     TraitImplementationBody,
+    /// Optional type callable member modifiers in source order.
+    TypeCallableMemberModifiers,
+    /// Type callable member declaration.
+    TypeCallableMemberDeclaration,
     /// Callable parameter list including delimiters.
     ParameterList,
     /// Callable parameter item.
@@ -271,13 +295,23 @@ impl SyntaxKind {
                 | Self::TypeDirectives
                 | Self::LayoutDirective
                 | Self::CopyDirective
+                | Self::TagDirective
                 | Self::TypeModifiers
                 | Self::StructBody
+                | Self::FieldModifiers
+                | Self::StructFieldDeclaration
                 | Self::UnionDeclaration
                 | Self::UnionBody
+                | Self::VariantDirectives
+                | Self::UnionVariantDeclaration
+                | Self::UnionVariantPayload
+                | Self::UnionPayloadField
+                | Self::PayloadFieldModifiers
                 | Self::TraitDeclaration
                 | Self::TraitModifiers
                 | Self::TraitBody
+                | Self::TraitCallableMemberModifiers
+                | Self::TraitCallableMemberDeclaration
                 | Self::ImplementationSubject
                 | Self::TraitApplication
                 | Self::InherentImplementationDeclaration
@@ -285,6 +319,8 @@ impl SyntaxKind {
                 | Self::UnnamedTraitImplementationDeclaration
                 | Self::NamedTraitImplementationDeclaration
                 | Self::TraitImplementationBody
+                | Self::TypeCallableMemberModifiers
+                | Self::TypeCallableMemberDeclaration
                 | Self::ParameterList
                 | Self::Parameter
                 | Self::ParameterModifiers
@@ -439,13 +475,23 @@ impl SyntaxKind {
             Self::TypeDirectives => "type_directives",
             Self::LayoutDirective => "layout_directive",
             Self::CopyDirective => "copy_directive",
+            Self::TagDirective => "tag_directive",
             Self::TypeModifiers => "type_modifiers",
             Self::StructBody => "struct_body",
+            Self::FieldModifiers => "field_modifiers",
+            Self::StructFieldDeclaration => "struct_field_declaration",
             Self::UnionDeclaration => "union_declaration",
             Self::UnionBody => "union_body",
+            Self::VariantDirectives => "variant_directives",
+            Self::UnionVariantDeclaration => "union_variant_declaration",
+            Self::UnionVariantPayload => "union_variant_payload",
+            Self::UnionPayloadField => "union_payload_field",
+            Self::PayloadFieldModifiers => "payload_field_modifiers",
             Self::TraitDeclaration => "trait_declaration",
             Self::TraitModifiers => "trait_modifiers",
             Self::TraitBody => "trait_body",
+            Self::TraitCallableMemberModifiers => "trait_callable_member_modifiers",
+            Self::TraitCallableMemberDeclaration => "trait_callable_member_declaration",
             Self::ImplementationSubject => "implementation_subject",
             Self::TraitApplication => "trait_application",
             Self::InherentImplementationDeclaration => "inherent_implementation_declaration",
@@ -455,6 +501,8 @@ impl SyntaxKind {
             }
             Self::NamedTraitImplementationDeclaration => "named_trait_implementation_declaration",
             Self::TraitImplementationBody => "trait_implementation_body",
+            Self::TypeCallableMemberModifiers => "type_callable_member_modifiers",
+            Self::TypeCallableMemberDeclaration => "type_callable_member_declaration",
             Self::ParameterList => "parameter_list",
             Self::Parameter => "parameter",
             Self::ParameterModifiers => "parameter_modifiers",
@@ -631,14 +679,24 @@ mod tests {
         assert!(SyntaxKind::TypeDirectives.is_node());
         assert!(SyntaxKind::LayoutDirective.is_node());
         assert!(SyntaxKind::CopyDirective.is_node());
+        assert!(SyntaxKind::TagDirective.is_node());
         assert!(SyntaxKind::TypeModifiers.is_node());
         assert!(SyntaxKind::StructBody.is_node());
+        assert!(SyntaxKind::FieldModifiers.is_node());
+        assert!(SyntaxKind::StructFieldDeclaration.is_node());
         assert!(SyntaxKind::UnionDeclaration.is_node());
         assert!(SyntaxKind::UnionBody.is_node());
+        assert!(SyntaxKind::VariantDirectives.is_node());
+        assert!(SyntaxKind::UnionVariantDeclaration.is_node());
+        assert!(SyntaxKind::UnionVariantPayload.is_node());
+        assert!(SyntaxKind::UnionPayloadField.is_node());
+        assert!(SyntaxKind::PayloadFieldModifiers.is_node());
 
         assert!(SyntaxKind::TraitDeclaration.is_node());
         assert!(SyntaxKind::TraitModifiers.is_node());
         assert!(SyntaxKind::TraitBody.is_node());
+        assert!(SyntaxKind::TraitCallableMemberModifiers.is_node());
+        assert!(SyntaxKind::TraitCallableMemberDeclaration.is_node());
 
         assert!(SyntaxKind::ImplementationSubject.is_node());
         assert!(SyntaxKind::TraitApplication.is_node());
@@ -647,6 +705,8 @@ mod tests {
         assert!(SyntaxKind::UnnamedTraitImplementationDeclaration.is_node());
         assert!(SyntaxKind::NamedTraitImplementationDeclaration.is_node());
         assert!(SyntaxKind::TraitImplementationBody.is_node());
+        assert!(SyntaxKind::TypeCallableMemberModifiers.is_node());
+        assert!(SyntaxKind::TypeCallableMemberDeclaration.is_node());
 
         assert!(SyntaxKind::ParameterList.is_node());
         assert!(SyntaxKind::Parameter.is_node());
@@ -768,14 +828,55 @@ mod tests {
         assert_eq!(SyntaxKind::TypeDirectives.as_str(), "type_directives");
         assert_eq!(SyntaxKind::LayoutDirective.as_str(), "layout_directive");
         assert_eq!(SyntaxKind::CopyDirective.as_str(), "copy_directive");
+        assert_eq!(SyntaxKind::TagDirective.as_str(), "tag_directive");
         assert_eq!(SyntaxKind::TypeModifiers.as_str(), "type_modifiers");
+
         assert_eq!(SyntaxKind::StructBody.as_str(), "struct_body");
+        assert_eq!(SyntaxKind::FieldModifiers.as_str(), "field_modifiers");
+
+        assert_eq!(
+            SyntaxKind::StructFieldDeclaration.as_str(),
+            "struct_field_declaration"
+        );
+
         assert_eq!(SyntaxKind::UnionDeclaration.as_str(), "union_declaration");
         assert_eq!(SyntaxKind::UnionBody.as_str(), "union_body");
+
+        assert_eq!(SyntaxKind::VariantDirectives.as_str(), "variant_directives");
+
+        assert_eq!(
+            SyntaxKind::UnionVariantDeclaration.as_str(),
+            "union_variant_declaration"
+        );
+
+        assert_eq!(
+            SyntaxKind::UnionVariantPayload.as_str(),
+            "union_variant_payload"
+        );
+
+        assert_eq!(
+            SyntaxKind::UnionPayloadField.as_str(),
+            "union_payload_field"
+        );
+
+        assert_eq!(
+            SyntaxKind::PayloadFieldModifiers.as_str(),
+            "payload_field_modifiers"
+        );
 
         assert_eq!(SyntaxKind::TraitDeclaration.as_str(), "trait_declaration");
         assert_eq!(SyntaxKind::TraitModifiers.as_str(), "trait_modifiers");
         assert_eq!(SyntaxKind::TraitBody.as_str(), "trait_body");
+
+        assert_eq!(
+            SyntaxKind::TraitCallableMemberModifiers.as_str(),
+            "trait_callable_member_modifiers"
+        );
+
+        assert_eq!(
+            SyntaxKind::TraitCallableMemberDeclaration.as_str(),
+            "trait_callable_member_declaration"
+        );
 
         assert_eq!(
             SyntaxKind::ImplementationSubject.as_str(),
@@ -807,6 +908,16 @@ mod tests {
         assert_eq!(
             SyntaxKind::TraitImplementationBody.as_str(),
             "trait_implementation_body"
+        );
+
+        assert_eq!(
+            SyntaxKind::TypeCallableMemberModifiers.as_str(),
+            "type_callable_member_modifiers"
+        );
+
+        assert_eq!(
+            SyntaxKind::TypeCallableMemberDeclaration.as_str(),
+            "type_callable_member_declaration"
         );
 
         assert_eq!(SyntaxKind::ParameterList.as_str(), "parameter_list");
