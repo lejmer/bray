@@ -1,4 +1,5 @@
 mod callable;
+mod callable_contract;
 mod directive;
 mod entry;
 mod function;
@@ -6,6 +7,7 @@ mod implementation;
 mod modifier;
 mod module;
 mod path;
+mod predicate;
 mod recovery;
 mod separated;
 mod source;

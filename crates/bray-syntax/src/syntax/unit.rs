@@ -6,11 +6,11 @@ use bray_source::{SourceSnapshot, TextRange, TextSize};
 
 use super::recovery::{SkippedSyntax, skipped_syntax_nodes};
 use super::{
-    BlockModuleDeclarationSyntax, ExportDeclarationSyntax, FunctionDeclarationSyntax,
-    IdentifierListSyntax, InherentImplementationDeclarationSyntax,
-    NamedTraitImplementationDeclarationSyntax, SourceUnitModuleDeclarationSyntax,
-    StructDeclarationSyntax, TraitDeclarationSyntax, UnionDeclarationSyntax,
-    UnnamedTraitImplementationDeclarationSyntax, UsingDeclarationSyntax,
+    BlockModuleDeclarationSyntax, CallableContractDeclarationSyntax, ExportDeclarationSyntax,
+    FunctionDeclarationSyntax, IdentifierListSyntax, InherentImplementationDeclarationSyntax,
+    NamedTraitImplementationDeclarationSyntax, PredicateDeclarationSyntax,
+    SourceUnitModuleDeclarationSyntax, StructDeclarationSyntax, TraitDeclarationSyntax,
+    UnionDeclarationSyntax, UnnamedTraitImplementationDeclarationSyntax, UsingDeclarationSyntax,
 };
 use crate::builder::{GreenNodeBuilder, RequiredSyntaxSlot, SyntaxListSlot, require_token_kind};
 use crate::green::GreenNode;
@@ -234,6 +234,30 @@ impl SourceUnitSyntax {
         )
     }
 
+    /// Returns direct predicate declaration children in source order.
+    pub fn predicate_declarations(&self) -> impl Iterator<Item = PredicateDeclarationSyntax> + '_ {
+        child_nodes(
+            &self.source,
+            &self.node,
+            TextSize::ZERO,
+            SyntaxKind::PredicateDeclaration,
+            PredicateDeclarationSyntax::from_green,
+        )
+    }
+
+    /// Returns direct callable contract declaration children in source order.
+    pub fn callable_contract_declarations(
+        &self,
+    ) -> impl Iterator<Item = CallableContractDeclarationSyntax> + '_ {
+        child_nodes(
+            &self.source,
+            &self.node,
+            TextSize::ZERO,
+            SyntaxKind::CallableContractDeclaration,
+            CallableContractDeclarationSyntax::from_green,
+        )
+    }
+
     /// Returns direct struct declaration children in source order.
     pub fn struct_declarations(&self) -> impl Iterator<Item = StructDeclarationSyntax> + '_ {
         child_nodes(
@@ -392,6 +416,19 @@ impl SourceUnitSyntaxBuilder {
         self.node.push_node(declaration.into_green());
     }
 
+    /// Appends a predicate declaration child in source order.
+    pub fn push_predicate_declaration(&mut self, declaration: PredicateDeclarationSyntax) {
+        self.node.push_node(declaration.into_green());
+    }
+
+    /// Appends a callable contract declaration child in source order.
+    pub fn push_callable_contract_declaration(
+        &mut self,
+        declaration: CallableContractDeclarationSyntax,
+    ) {
+        self.node.push_node(declaration.into_green());
+    }
+
     /// Appends a struct declaration child in source order.
     pub fn push_struct_declaration(&mut self, declaration: StructDeclarationSyntax) {
         self.node.push_node(declaration.into_green());
@@ -490,6 +527,23 @@ impl SourceUnitSyntaxBuilder {
     /// Appends a function declaration child in source order.
     pub fn function_declaration(mut self, declaration: FunctionDeclarationSyntax) -> Self {
         self.push_function_declaration(declaration);
+
+        self
+    }
+
+    /// Appends a predicate declaration child in source order.
+    pub fn predicate_declaration(mut self, declaration: PredicateDeclarationSyntax) -> Self {
+        self.push_predicate_declaration(declaration);
+
+        self
+    }
+
+    /// Appends a callable contract declaration child in source order.
+    pub fn callable_contract_declaration(
+        mut self,
+        declaration: CallableContractDeclarationSyntax,
+    ) -> Self {
+        self.push_callable_contract_declaration(declaration);
 
         self
     }
@@ -593,12 +647,13 @@ mod tests {
     };
     use crate::{
         BlockModuleDeclarationSyntax, CallableBodyBlockExpressionSyntax,
-        CallableResultClauseSyntax, ExportDeclarationSyntax, FunctionDeclarationSyntax,
-        FunctionDirectivesSyntax, FunctionModifiersSyntax, IdentifierListItemSyntax,
-        IdentifierListSyntax, ImplementationSubjectSyntax, InherentImplementationBodySyntax,
-        InherentImplementationDeclarationSyntax, ModuleBodySyntax, ModuleDirectivesSyntax,
-        ModuleModifiersSyntax, NamedTraitImplementationDeclarationSyntax, ParameterListSyntax,
-        ParameterModifiersSyntax, ParameterSyntax, PathSyntax, SourceSyntaxNode,
+        CallableContractDeclarationSyntax, CallableResultClauseSyntax, ExportDeclarationSyntax,
+        FunctionDeclarationSyntax, FunctionDirectivesSyntax, FunctionModifiersSyntax,
+        IdentifierListItemSyntax, IdentifierListSyntax, ImplementationSubjectSyntax,
+        InherentImplementationBodySyntax, InherentImplementationDeclarationSyntax,
+        ModuleBodySyntax, ModuleDirectivesSyntax, ModuleModifiersSyntax,
+        NamedTraitImplementationDeclarationSyntax, ParameterListSyntax, ParameterModifiersSyntax,
+        ParameterSyntax, PathSyntax, PredicateDeclarationSyntax, SourceSyntaxNode,
         SourceUnitModuleDeclarationSyntax, StructDeclarationSyntax, SyntaxKind, SyntaxNode,
         SyntaxText, SyntaxToken, SyntaxTrivia, TraitApplicationSyntax, TraitBodySyntax,
         TraitDeclarationSyntax, TraitImplementationBodySyntax, TraitModifiersSyntax,
@@ -1039,6 +1094,8 @@ mod tests {
         assert_send_sync::<UsingDeclarationSyntax>();
         assert_send_sync::<ExportDeclarationSyntax>();
         assert_send_sync::<FunctionDeclarationSyntax>();
+        assert_send_sync::<PredicateDeclarationSyntax>();
+        assert_send_sync::<CallableContractDeclarationSyntax>();
         assert_send_sync::<FunctionDirectivesSyntax>();
         assert_send_sync::<FunctionModifiersSyntax>();
         assert_send_sync::<StructDeclarationSyntax>();

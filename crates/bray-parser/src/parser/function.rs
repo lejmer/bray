@@ -21,16 +21,6 @@ const FUNCTION_DECLARATION_START_KINDS: [SyntaxKind; 8] = [
     SyntaxKind::FuncKeyword,
 ];
 
-const FUNCTION_HEADER_START_KINDS: [SyntaxKind; 7] = [
-    SyntaxKind::ExternKeyword,
-    SyntaxKind::PublicKeyword,
-    SyntaxKind::InternalKeyword,
-    SyntaxKind::AsyncKeyword,
-    SyntaxKind::TrustedKeyword,
-    SyntaxKind::ConstKeyword,
-    SyntaxKind::FuncKeyword,
-];
-
 const FUNCTION_DIRECTIVE_ARGUMENT_RECOVERY_KINDS: [SyntaxKind; 8] = [
     SyntaxKind::AtToken,
     SyntaxKind::ExternKeyword,
@@ -77,8 +67,6 @@ impl Parser {
         let mut builder = FunctionDeclarationSyntax::builder(self.syntax_source(), start);
 
         builder.push_function_directives(self.parse_function_directives());
-        self.recover_until(&mut builder, &FUNCTION_HEADER_START_KINDS);
-
         builder.push_function_modifiers(self.parse_function_modifiers());
         builder.push_func_keyword(self.expect(SyntaxKind::FuncKeyword));
         builder.push_identifier_token(self.parse_identifier());
@@ -283,6 +271,7 @@ mod tests {
 
         let sources = source_store([source]);
         let result = parse_compilation_unit(&sources);
+
         let source_unit = &result.syntax_tree().root().source_units()[0];
         let declarations = source_unit.function_declarations().collect::<Vec<_>>();
 
@@ -355,6 +344,7 @@ mod tests {
         let source = "module main; func main(first: Int mut second: Bool) {}";
         let sources = source_store([source]);
         let result = parse_compilation_unit(&sources);
+
         let source_unit = &result.syntax_tree().root().source_units()[0];
         let declarations = source_unit.function_declarations().collect::<Vec<_>>();
 
@@ -391,6 +381,7 @@ mod tests {
         let source = "module main; extern func main()\nusing core;";
         let sources = source_store([source]);
         let result = parse_compilation_unit(&sources);
+
         let source_unit = &result.syntax_tree().root().source_units()[0];
         let declarations = source_unit.function_declarations().collect::<Vec<_>>();
 
@@ -425,6 +416,7 @@ mod tests {
         let source = "module main; func main() { return; }\nusing core;";
         let sources = source_store([source]);
         let result = parse_compilation_unit(&sources);
+
         let source_unit = &result.syntax_tree().root().source_units()[0];
         let declarations = source_unit.function_declarations().collect::<Vec<_>>();
 

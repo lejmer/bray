@@ -17,13 +17,6 @@ const TYPE_DECLARATION_START_KINDS: [SyntaxKind; 5] = [
     SyntaxKind::UnionKeyword,
 ];
 
-const TYPE_HEADER_START_KINDS: [SyntaxKind; 4] = [
-    SyntaxKind::PublicKeyword,
-    SyntaxKind::InternalKeyword,
-    SyntaxKind::StructKeyword,
-    SyntaxKind::UnionKeyword,
-];
-
 const TYPE_DIRECTIVE_ARGUMENT_RECOVERY_KINDS: [SyntaxKind; 5] = [
     SyntaxKind::AtToken,
     SyntaxKind::PublicKeyword,
@@ -81,9 +74,6 @@ impl Parser {
         keyword_kind: SyntaxKind,
     ) {
         builder.push_type_directives(self.parse_type_directives());
-
-        self.recover_until(builder, &TYPE_HEADER_START_KINDS);
-
         builder.push_type_modifiers(self.parse_type_modifiers());
         builder.push_declaration_keyword(self.expect(keyword_kind));
         builder.push_identifier_token(self.parse_identifier());

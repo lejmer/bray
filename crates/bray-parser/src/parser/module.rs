@@ -1,8 +1,9 @@
 use bray_syntax::{
-    BlockModuleDeclarationSyntax, BlockModuleDeclarationSyntaxBuilder, ExportDeclarationSyntax,
-    FunctionDeclarationSyntax, InherentImplementationDeclarationSyntax, ModuleBodySyntax,
-    ModuleBodySyntaxBuilder, ModuleDirectivesSyntax, ModuleDirectivesSyntaxBuilder,
-    ModuleModifiersSyntax, NamedTraitImplementationDeclarationSyntax, PathSyntax,
+    BlockModuleDeclarationSyntax, BlockModuleDeclarationSyntaxBuilder,
+    CallableContractDeclarationSyntax, ExportDeclarationSyntax, FunctionDeclarationSyntax,
+    InherentImplementationDeclarationSyntax, ModuleBodySyntax, ModuleBodySyntaxBuilder,
+    ModuleDirectivesSyntax, ModuleDirectivesSyntaxBuilder, ModuleModifiersSyntax,
+    NamedTraitImplementationDeclarationSyntax, PathSyntax, PredicateDeclarationSyntax,
     SourceUnitModuleDeclarationSyntax, SourceUnitModuleDeclarationSyntaxBuilder,
     SourceUnitSyntaxBuilder, StructDeclarationSyntax, SyntaxKind, SyntaxToken,
     TraitDeclarationSyntax, UnionDeclarationSyntax, UnnamedTraitImplementationDeclarationSyntax,
@@ -15,15 +16,15 @@ use super::directive::{LINK_DIRECTIVE_NAME, TARGET_DIRECTIVE_NAME, TEST_DIRECTIV
 use super::recovery::RecoverySyntaxSink;
 use super::state::Parser;
 
-const MODULE_HEADER_START_KINDS: [SyntaxKind; 4] = [
+const MODULE_DECLARATION_START_KINDS: [SyntaxKind; 5] = [
+    SyntaxKind::AtToken,
     SyntaxKind::TrustedKeyword,
     SyntaxKind::PublicKeyword,
     SyntaxKind::InternalKeyword,
     SyntaxKind::ModuleKeyword,
 ];
 
-const MODULE_DECLARATION_START_KINDS: [SyntaxKind; 5] = [
-    SyntaxKind::AtToken,
+const MODULE_HEADER_START_KINDS: [SyntaxKind; 4] = [
     SyntaxKind::TrustedKeyword,
     SyntaxKind::PublicKeyword,
     SyntaxKind::InternalKeyword,
@@ -47,7 +48,7 @@ const DIRECTIVE_ARGUMENT_RECOVERY_KINDS: [SyntaxKind; 5] = [
     SyntaxKind::ModuleKeyword,
 ];
 
-const PARSED_MODULE_ITEM_BOUNDARY_KINDS: [SyntaxKind; 17] = [
+const PARSED_MODULE_ITEM_BOUNDARY_KINDS: [SyntaxKind; 19] = [
     SyntaxKind::UsingKeyword,
     SyntaxKind::ExportKeyword,
     SyntaxKind::AtToken,
@@ -57,11 +58,13 @@ const PARSED_MODULE_ITEM_BOUNDARY_KINDS: [SyntaxKind; 17] = [
     SyntaxKind::ExternKeyword,
     SyntaxKind::AsyncKeyword,
     SyntaxKind::ConstKeyword,
+    SyntaxKind::CallableKeyword,
     SyntaxKind::FuncKeyword,
     SyntaxKind::StructKeyword,
     SyntaxKind::UnionKeyword,
     SyntaxKind::TraitKeyword,
     SyntaxKind::ImplKeyword,
+    SyntaxKind::PredicateKeyword,
     SyntaxKind::SemicolonToken,
     SyntaxKind::CloseBraceToken,
     SyntaxKind::EndOfFileToken,
@@ -101,7 +104,10 @@ impl Parser {
         let start = self.peek().full_range().start();
         let mut builder = SourceUnitModuleDeclarationSyntax::builder(self.syntax_source(), start);
 
-        self.parse_module_declaration_header(&mut builder);
+        self.recover_until(&mut builder, &MODULE_DECLARATION_START_KINDS);
+        builder.push_module_directives(self.parse_module_directives());
+        self.recover_until(&mut builder, &MODULE_HEADER_START_KINDS);
+        self.parse_module_declaration_header_after_directives(&mut builder);
         self.recover_until_module_item_declaration_end(&mut builder);
 
         builder.push_semicolon_token(self.expect(SyntaxKind::SemicolonToken));
@@ -144,11 +150,14 @@ impl Parser {
     }
 
     fn parse_module_declaration_header(&mut self, builder: &mut impl ModuleDeclarationSyntaxSink) {
-        self.recover_until(builder, &MODULE_DECLARATION_START_KINDS);
-
         builder.push_module_directives(self.parse_module_directives());
-        self.recover_until(builder, &MODULE_HEADER_START_KINDS);
+        self.parse_module_declaration_header_after_directives(builder);
+    }
 
+    fn parse_module_declaration_header_after_directives(
+        &mut self,
+        builder: &mut impl ModuleDeclarationSyntaxSink,
+    ) {
         builder.push_module_modifiers(self.parse_module_modifiers());
         builder.push_module_keyword(self.expect(SyntaxKind::ModuleKeyword));
         builder.push_module_path(self.parse_module_path());
@@ -251,6 +260,16 @@ impl Parser {
 
         if self.should_parse_function_declaration() {
             builder.push_function_declaration(self.parse_function_declaration());
+            return;
+        }
+
+        if self.should_parse_predicate_declaration() {
+            builder.push_predicate_declaration(self.parse_predicate_declaration());
+            return;
+        }
+
+        if self.should_parse_callable_contract_declaration() {
+            builder.push_callable_contract_declaration(self.parse_callable_contract_declaration());
             return;
         }
 
@@ -448,6 +467,13 @@ pub(super) trait ModuleItemSyntaxSink: RecoverySyntaxSink {
 
     fn push_function_declaration(&mut self, declaration: FunctionDeclarationSyntax);
 
+    fn push_predicate_declaration(&mut self, declaration: PredicateDeclarationSyntax);
+
+    fn push_callable_contract_declaration(
+        &mut self,
+        declaration: CallableContractDeclarationSyntax,
+    );
+
     fn push_struct_declaration(&mut self, declaration: StructDeclarationSyntax);
 
     fn push_union_declaration(&mut self, declaration: UnionDeclarationSyntax);
@@ -519,6 +545,17 @@ impl ModuleItemSyntaxSink for SourceUnitSyntaxBuilder {
         SourceUnitSyntaxBuilder::push_function_declaration(self, declaration);
     }
 
+    fn push_predicate_declaration(&mut self, declaration: PredicateDeclarationSyntax) {
+        SourceUnitSyntaxBuilder::push_predicate_declaration(self, declaration);
+    }
+
+    fn push_callable_contract_declaration(
+        &mut self,
+        declaration: CallableContractDeclarationSyntax,
+    ) {
+        SourceUnitSyntaxBuilder::push_callable_contract_declaration(self, declaration);
+    }
+
     fn push_struct_declaration(&mut self, declaration: StructDeclarationSyntax) {
         SourceUnitSyntaxBuilder::push_struct_declaration(self, declaration);
     }
@@ -564,6 +601,17 @@ impl ModuleItemSyntaxSink for ModuleBodySyntaxBuilder {
 
     fn push_function_declaration(&mut self, declaration: FunctionDeclarationSyntax) {
         ModuleBodySyntaxBuilder::push_function_declaration(self, declaration);
+    }
+
+    fn push_predicate_declaration(&mut self, declaration: PredicateDeclarationSyntax) {
+        ModuleBodySyntaxBuilder::push_predicate_declaration(self, declaration);
+    }
+
+    fn push_callable_contract_declaration(
+        &mut self,
+        declaration: CallableContractDeclarationSyntax,
+    ) {
+        ModuleBodySyntaxBuilder::push_callable_contract_declaration(self, declaration);
     }
 
     fn push_struct_declaration(&mut self, declaration: StructDeclarationSyntax) {
