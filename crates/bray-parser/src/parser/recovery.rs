@@ -1,8 +1,9 @@
 use bray_syntax::{
     BlockModuleDeclarationSyntaxBuilder, DirectiveArgumentListSyntaxBuilder,
-    IdentifierListSyntaxBuilder, ModuleBodySyntaxBuilder, ModuleDirectivesSyntaxBuilder,
-    SourceUnitModuleDeclarationSyntaxBuilder, SourceUnitSyntaxBuilder, SyntaxKind, SyntaxToken,
-    TargetDirectiveSyntaxBuilder,
+    ExportDeclarationSyntaxBuilder, IdentifierListSyntaxBuilder, ModuleBodySyntaxBuilder,
+    ModuleDirectivesSyntaxBuilder, SourceUnitModuleDeclarationSyntaxBuilder,
+    SourceUnitSyntaxBuilder, SyntaxKind, SyntaxToken, TargetDirectiveSyntaxBuilder,
+    UsingDeclarationSyntaxBuilder,
 };
 
 use crate::cursor::RecoverySet;
@@ -48,13 +49,19 @@ impl Parser {
         skipped_any
     }
 
-    pub(super) fn recover_until_balanced_close_brace(
+    pub(super) fn recover_until_balanced_close_brace_or_recovery(
         &mut self,
         builder: &mut impl RecoverySyntaxSink,
-    ) {
-        let skipped_tokens = self.skip_until_balanced_close_brace();
+        stop_kinds: &[SyntaxKind],
+    ) -> bool {
+        let skipped_tokens =
+            self.skip_until_balanced_close_brace_or_recovery(RecoverySet::new(stop_kinds));
+
+        let skipped_any = !skipped_tokens.is_empty();
 
         builder.push_skipped_tokens(skipped_tokens);
+
+        skipped_any
     }
 
     pub(super) fn recover_until_balanced_close_paren(
@@ -89,6 +96,18 @@ impl RecoverySyntaxSink for BlockModuleDeclarationSyntaxBuilder {
 impl RecoverySyntaxSink for ModuleBodySyntaxBuilder {
     fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
         ModuleBodySyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for UsingDeclarationSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        UsingDeclarationSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for ExportDeclarationSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        ExportDeclarationSyntaxBuilder::push_skipped_tokens(self, tokens);
     }
 }
 

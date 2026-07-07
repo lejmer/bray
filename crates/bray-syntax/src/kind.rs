@@ -27,6 +27,10 @@ pub enum SyntaxKind {
     ModuleModifiers,
     /// Braced module declaration body.
     ModuleBody,
+    /// Module item that imports names into the current module.
+    UsingDeclaration,
+    /// Module item that exports a path from the current module.
+    ExportDeclaration,
     /// Dotted identifier path syntax node.
     Path,
     /// Concrete comma-like identifier list syntax node.
@@ -179,6 +183,8 @@ impl SyntaxKind {
                 | Self::DirectiveArgumentList
                 | Self::ModuleModifiers
                 | Self::ModuleBody
+                | Self::UsingDeclaration
+                | Self::ExportDeclaration
                 | Self::Path
                 | Self::IdentifierList
                 | Self::IdentifierListItem
@@ -305,6 +311,8 @@ impl SyntaxKind {
             Self::DirectiveArgumentList => "directive_argument_list",
             Self::ModuleModifiers => "module_modifiers",
             Self::ModuleBody => "module_body",
+            Self::UsingDeclaration => "using_declaration",
+            Self::ExportDeclaration => "export_declaration",
             Self::Path => "path",
             Self::IdentifierList => "identifier_list",
             Self::IdentifierListItem => "identifier_list_item",
@@ -450,6 +458,8 @@ mod tests {
         assert!(SyntaxKind::DirectiveArgumentList.is_node());
         assert!(SyntaxKind::ModuleModifiers.is_node());
         assert!(SyntaxKind::ModuleBody.is_node());
+        assert!(SyntaxKind::UsingDeclaration.is_node());
+        assert!(SyntaxKind::ExportDeclaration.is_node());
         assert!(SyntaxKind::Path.is_node());
         assert!(SyntaxKind::IdentifierList.is_node());
         assert!(SyntaxKind::IdentifierListItem.is_node());
@@ -501,6 +511,8 @@ mod tests {
 
         assert_eq!(SyntaxKind::ModuleModifiers.as_str(), "module_modifiers");
         assert_eq!(SyntaxKind::ModuleBody.as_str(), "module_body");
+        assert_eq!(SyntaxKind::UsingDeclaration.as_str(), "using_declaration");
+        assert_eq!(SyntaxKind::ExportDeclaration.as_str(), "export_declaration");
         assert_eq!(SyntaxKind::Path.as_str(), "path");
         assert_eq!(SyntaxKind::IdentifierList.as_str(), "identifier_list");
 

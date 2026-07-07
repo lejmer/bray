@@ -29,6 +29,7 @@ macro_rules! define_source_syntax_node {
                 required_tokens: [$($required_tokens)*],
                 optional_tokens: [$($optional_tokens)*],
                 required_children: [$($required_children)*],
+                repeated_children: [],
                 node_recovery_methods: [
                     /// Returns descendant skipped-syntax recovery nodes in source order.
                     pub fn skipped_syntax(&self) -> impl Iterator<Item = $crate::SkippedSyntax> + '_ {
@@ -78,6 +79,96 @@ macro_rules! define_source_syntax_node {
                 required_tokens: [$($required_tokens)*],
                 optional_tokens: [$($optional_tokens)*],
                 required_children: [$($required_children)*],
+                repeated_children: [],
+                node_recovery_methods: [],
+                builder_recovery_methods: [],
+            }
+        }
+    };
+
+    (
+        $(#[$node_meta:meta])*
+        $visibility:vis struct $node_syntax:ident {
+            builder: $builder_syntax:ident,
+            kind: $node_kind:path,
+            source_slot: $source_slot:literal,
+            node_name: $node_name:literal,
+            range_description: $range_description:literal,
+            debug_name: $debug_name:literal,
+            builder_debug_name: $builder_debug_name:literal,
+            skipped_syntax: true,
+            required_tokens: [$($required_tokens:tt)*],
+            optional_tokens: [$($optional_tokens:tt)*],
+            required_children: [$($required_children:tt)*],
+            repeated_children: [$($repeated_children:tt)*] $(,)?
+        }
+    ) => {
+        define_source_syntax_node! {
+            @definition
+            $(#[$node_meta])*
+            $visibility struct $node_syntax {
+                builder: $builder_syntax,
+                kind: $node_kind,
+                source_slot: $source_slot,
+                node_name: $node_name,
+                range_description: $range_description,
+                debug_name: $debug_name,
+                builder_debug_name: $builder_debug_name,
+                required_tokens: [$($required_tokens)*],
+                optional_tokens: [$($optional_tokens)*],
+                required_children: [$($required_children)*],
+                repeated_children: [$($repeated_children)*],
+                node_recovery_methods: [
+                    /// Returns descendant skipped-syntax recovery nodes in source order.
+                    pub fn skipped_syntax(&self) -> impl Iterator<Item = $crate::SkippedSyntax> + '_ {
+                        $crate::node::skipped_syntax(&self.source, &self.node, self.start)
+                    }
+                ],
+                builder_recovery_methods: [
+                    /// Appends present source tokens under a skipped-syntax recovery node.
+                    pub fn push_skipped_tokens(
+                        &mut self,
+                        tokens: impl IntoIterator<Item = $crate::SyntaxToken>,
+                    ) {
+                        self.node.push_skipped_tokens(tokens);
+                    }
+                ],
+            }
+        }
+    };
+
+    (
+        $(#[$node_meta:meta])*
+        $visibility:vis struct $node_syntax:ident {
+            builder: $builder_syntax:ident,
+            kind: $node_kind:path,
+            source_slot: $source_slot:literal,
+            node_name: $node_name:literal,
+            range_description: $range_description:literal,
+            debug_name: $debug_name:literal,
+            builder_debug_name: $builder_debug_name:literal,
+            skipped_syntax: false,
+            required_tokens: [$($required_tokens:tt)*],
+            optional_tokens: [$($optional_tokens:tt)*],
+            required_children: [$($required_children:tt)*],
+            repeated_children: [$($repeated_children:tt)*] $(,)?
+        }
+    ) => {
+        define_source_syntax_node! {
+            @definition
+            $(#[$node_meta])*
+            $visibility struct $node_syntax {
+                builder: $builder_syntax,
+                kind: $node_kind,
+                source_slot: $source_slot,
+                node_name: $node_name,
+                range_description: $range_description,
+                debug_name: $debug_name,
+                builder_debug_name: $builder_debug_name,
+                required_tokens: [$($required_tokens)*],
+                optional_tokens: [$($optional_tokens)*],
+                required_children: [$($required_children)*],
+                repeated_children: [$($repeated_children)*],
                 node_recovery_methods: [],
                 builder_recovery_methods: [],
             }
@@ -128,6 +219,18 @@ macro_rules! define_source_syntax_node {
                         $required_child_push:ident;
                         ty: $required_child_type:ty;
                         kind: $required_child_kind:path;
+                    }
+                ),* $(,)?
+            ],
+            repeated_children: [
+                $(
+                    {
+                        $(#[$repeated_child_getter_meta:meta])*
+                        $repeated_child_getter:ident;
+                        $(#[$repeated_child_push_meta:meta])*
+                        $repeated_child_push:ident;
+                        ty: $repeated_child_type:ty;
+                        kind: $repeated_child_kind:path;
                     }
                 ),* $(,)?
             ],
@@ -221,6 +324,19 @@ macro_rules! define_source_syntax_node {
                         $required_child_kind,
                         <$required_child_type>::from_green,
                         $node_name,
+                    )
+                }
+            )*
+
+            $(
+                $(#[$repeated_child_getter_meta])*
+                pub fn $repeated_child_getter(&self) -> impl Iterator<Item = $repeated_child_type> + '_ {
+                    $crate::node::child_nodes(
+                        &self.source,
+                        &self.node,
+                        self.start,
+                        $repeated_child_kind,
+                        <$repeated_child_type>::from_green,
                     )
                 }
             )*
@@ -319,6 +435,13 @@ macro_rules! define_source_syntax_node {
             $(
                 $(#[$required_child_push_meta])*
                 pub fn $required_child_push(&mut self, child: $required_child_type) {
+                    self.node.push_node(child.into_green());
+                }
+            )*
+
+            $(
+                $(#[$repeated_child_push_meta])*
+                pub fn $repeated_child_push(&mut self, child: $repeated_child_type) {
                     self.node.push_node(child.into_green());
                 }
             )*

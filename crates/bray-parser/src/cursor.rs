@@ -23,6 +23,18 @@ impl<'kinds> RecoverySet<'kinds> {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct DelimiterPair {
+    open: SyntaxKind,
+    close: SyntaxKind,
+}
+
+impl DelimiterPair {
+    const fn new(open: SyntaxKind, close: SyntaxKind) -> Self {
+        Self { open, close }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct ParserCursorCheckpoint {
     cursor: ParserCursor,
@@ -148,7 +160,6 @@ impl ParserCursor {
         recovery_set: RecoverySet<'_>,
     ) -> Vec<SyntaxToken> {
         let skipped_tokens = self.skip_until_balanced_close_paren_unreported(recovery_set);
-
         self.record_skipped_syntax(&skipped_tokens);
 
         skipped_tokens
@@ -158,49 +169,44 @@ impl ParserCursor {
         &mut self,
         recovery_set: RecoverySet<'_>,
     ) -> Vec<SyntaxToken> {
-        let mut skipped_tokens = Vec::new();
-        let mut paren_depth = 0usize;
+        self.skip_until_balanced_close_unreported(
+            DelimiterPair::new(SyntaxKind::OpenParenToken, SyntaxKind::CloseParenToken),
+            recovery_set,
+        )
+    }
 
-        loop {
-            let token = self.peek();
+    /// Consumes tokens until an unmatched close brace, recovery token, or EOF.
+    ///
+    /// The close brace or recovery token at depth zero is left unconsumed so
+    /// the caller can use it for a named syntax slot or recovery boundary.
+    pub(crate) fn skip_until_balanced_close_brace_or_recovery(
+        &mut self,
+        recovery_set: RecoverySet<'_>,
+    ) -> Vec<SyntaxToken> {
+        let skipped_tokens = self.skip_until_balanced_close_unreported(
+            DelimiterPair::new(SyntaxKind::OpenBraceToken, SyntaxKind::CloseBraceToken),
+            recovery_set,
+        );
 
-            if token.is_end_of_file()
-                || (token.kind() == SyntaxKind::CloseParenToken && paren_depth == 0)
-                || (paren_depth == 0 && recovery_set.contains(token.kind()))
-            {
-                break;
-            }
-
-            let Some(skipped_token) = self.consume_skipped_token() else {
-                break;
-            };
-
-            match skipped_token.kind() {
-                SyntaxKind::OpenParenToken => paren_depth += 1,
-                SyntaxKind::CloseParenToken => paren_depth = paren_depth.saturating_sub(1),
-                _ => {}
-            }
-
-            skipped_tokens.push(skipped_token);
-        }
+        self.record_skipped_syntax(&skipped_tokens);
 
         skipped_tokens
     }
 
-    /// Consumes tokens until an unmatched close brace or EOF.
-    ///
-    /// The close brace at depth zero is left unconsumed so the caller can use it
-    /// for a named syntax slot. Consumed tokens are returned for attachment
-    /// under a skipped-syntax node.
-    pub(crate) fn skip_until_balanced_close_brace(&mut self) -> Vec<SyntaxToken> {
+    fn skip_until_balanced_close_unreported(
+        &mut self,
+        delimiters: DelimiterPair,
+        recovery_set: RecoverySet<'_>,
+    ) -> Vec<SyntaxToken> {
         let mut skipped_tokens = Vec::new();
-        let mut brace_depth = 0usize;
+        let mut depth = 0usize;
 
         loop {
             let token = self.peek();
 
             if token.is_end_of_file()
-                || (token.kind() == SyntaxKind::CloseBraceToken && brace_depth == 0)
+                || (token.kind() == delimiters.close && depth == 0)
+                || (depth == 0 && recovery_set.contains(token.kind()))
             {
                 break;
             }
@@ -210,15 +216,13 @@ impl ParserCursor {
             };
 
             match skipped_token.kind() {
-                SyntaxKind::OpenBraceToken => brace_depth += 1,
-                SyntaxKind::CloseBraceToken => brace_depth = brace_depth.saturating_sub(1),
+                kind if kind == delimiters.open => depth += 1,
+                kind if kind == delimiters.close => depth = depth.saturating_sub(1),
                 _ => {}
             }
 
             skipped_tokens.push(skipped_token);
         }
-
-        self.record_skipped_syntax(&skipped_tokens);
 
         skipped_tokens
     }
@@ -528,7 +532,7 @@ mod tests {
     fn cursor_skip_until_balanced_close_brace_leaves_outer_close_brace() {
         let mut cursor = cursor("func run() {} }");
 
-        let skipped = cursor.skip_until_balanced_close_brace();
+        let skipped = cursor.skip_until_balanced_close_brace_or_recovery(RecoverySet::new(&[]));
 
         assert_eq!(
             token_kinds(&skipped),

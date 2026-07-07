@@ -1,9 +1,10 @@
 use bray_syntax::{
     BlockModuleDeclarationSyntax, BlockModuleDeclarationSyntaxBuilder, DirectiveArgumentListSyntax,
-    LinkDirectiveSyntax, ModuleBodySyntax, ModuleDirectivesSyntax, ModuleDirectivesSyntaxBuilder,
-    ModuleModifiersSyntax, PathSyntax, SourceUnitModuleDeclarationSyntax,
-    SourceUnitModuleDeclarationSyntaxBuilder, SourceUnitSyntaxBuilder, SyntaxKind, SyntaxToken,
-    TargetDirectiveSyntax, TestDirectiveSyntax,
+    ExportDeclarationSyntax, LinkDirectiveSyntax, ModuleBodySyntax, ModuleBodySyntaxBuilder,
+    ModuleDirectivesSyntax, ModuleDirectivesSyntaxBuilder, ModuleModifiersSyntax, PathSyntax,
+    SourceUnitModuleDeclarationSyntax, SourceUnitModuleDeclarationSyntaxBuilder,
+    SourceUnitSyntaxBuilder, SyntaxKind, SyntaxToken, TargetDirectiveSyntax, TestDirectiveSyntax,
+    UsingDeclarationSyntax,
 };
 
 use super::recovery::RecoverySyntaxSink;
@@ -39,6 +40,22 @@ const DIRECTIVE_ARGUMENT_RECOVERY_KINDS: [SyntaxKind; 5] = [
     SyntaxKind::PublicKeyword,
     SyntaxKind::InternalKeyword,
     SyntaxKind::ModuleKeyword,
+];
+
+const MODULE_ITEM_BOUNDARY_KINDS: [SyntaxKind; 5] = [
+    SyntaxKind::UsingKeyword,
+    SyntaxKind::ExportKeyword,
+    SyntaxKind::SemicolonToken,
+    SyntaxKind::CloseBraceToken,
+    SyntaxKind::EndOfFileToken,
+];
+
+const MODULE_ITEM_DECLARATION_END_KINDS: [SyntaxKind; 5] = [
+    SyntaxKind::SemicolonToken,
+    SyntaxKind::UsingKeyword,
+    SyntaxKind::ExportKeyword,
+    SyntaxKind::CloseBraceToken,
+    SyntaxKind::EndOfFileToken,
 ];
 
 const TARGET_DIRECTIVE_NAME: &str = "target";
@@ -231,8 +248,7 @@ impl Parser {
         let mut builder = ModuleBodySyntax::builder(self.syntax_source(), start);
 
         builder.push_open_brace_token(self.expect(SyntaxKind::OpenBraceToken));
-        // TODO(parser): Parse module body items once declarations are implemented.
-        self.recover_until_balanced_close_brace(&mut builder);
+        self.parse_module_items(&mut builder, &[SyntaxKind::CloseBraceToken]);
         builder.push_close_brace_token(self.expect(SyntaxKind::CloseBraceToken));
 
         builder.build()
@@ -240,7 +256,7 @@ impl Parser {
 
     pub(super) fn parse_module_items(
         &mut self,
-        builder: &mut impl RecoverySyntaxSink,
+        builder: &mut impl ModuleItemSyntaxSink,
         terminators: &[SyntaxKind],
     ) {
         while !self.at_any(terminators) && !self.at(SyntaxKind::EndOfFileToken) {
@@ -250,17 +266,68 @@ impl Parser {
 
     fn parse_module_item(
         &mut self,
-        builder: &mut impl RecoverySyntaxSink,
+        builder: &mut impl ModuleItemSyntaxSink,
         terminators: &[SyntaxKind],
     ) {
         let start = self.peek().start();
 
-        // TODO(parser): Replace this with real module item parsing as declarations are implemented.
-        if self.recover_until(builder, terminators) || self.peek().start() != start {
+        if self.at(SyntaxKind::UsingKeyword) {
+            builder.push_using_declaration(self.parse_using_declaration());
+            return;
+        }
+
+        if self.at(SyntaxKind::ExportKeyword) {
+            builder.push_export_declaration(self.parse_export_declaration());
+            return;
+        }
+
+        // TODO(parser): Parse remaining module-level declarations as they are implemented.
+        if self.recover_until_module_item_boundary(builder, terminators)
+            || self.peek().start() != start
+        {
             return;
         }
 
         self.recover_current_token(builder);
+    }
+
+    fn parse_using_declaration(&mut self) -> UsingDeclarationSyntax {
+        let start = self.peek().full_range().start();
+        let mut builder = UsingDeclarationSyntax::builder(self.syntax_source(), start);
+
+        builder.push_using_keyword(self.expect(SyntaxKind::UsingKeyword));
+
+        if self.at(SyntaxKind::InternalKeyword) {
+            builder.push_internal_keyword(self.expect(SyntaxKind::InternalKeyword));
+        }
+
+        builder.push_path(self.parse_path());
+        self.recover_until(&mut builder, &MODULE_ITEM_DECLARATION_END_KINDS);
+        builder.push_semicolon_token(self.expect(SyntaxKind::SemicolonToken));
+
+        builder.build()
+    }
+
+    fn parse_export_declaration(&mut self) -> ExportDeclarationSyntax {
+        let start = self.peek().full_range().start();
+        let mut builder = ExportDeclarationSyntax::builder(self.syntax_source(), start);
+
+        builder.push_export_keyword(self.expect(SyntaxKind::ExportKeyword));
+        builder.push_path(self.parse_path());
+        self.recover_until(&mut builder, &MODULE_ITEM_DECLARATION_END_KINDS);
+        builder.push_semicolon_token(self.expect(SyntaxKind::SemicolonToken));
+
+        builder.build()
+    }
+
+    fn recover_until_module_item_boundary(
+        &mut self,
+        builder: &mut impl RecoverySyntaxSink,
+        terminators: &[SyntaxKind],
+    ) -> bool {
+        let recovery_kinds = module_item_recovery_kinds(terminators);
+
+        self.recover_until_balanced_close_brace_or_recovery(builder, &recovery_kinds)
     }
 
     pub(super) fn should_parse_block_module_declaration(&mut self) -> bool {
@@ -374,6 +441,12 @@ trait ModuleDeclarationSyntaxSink: RecoverySyntaxSink {
     fn push_module_path(&mut self, path: PathSyntax);
 }
 
+pub(super) trait ModuleItemSyntaxSink: RecoverySyntaxSink {
+    fn push_using_declaration(&mut self, declaration: UsingDeclarationSyntax);
+
+    fn push_export_declaration(&mut self, declaration: ExportDeclarationSyntax);
+}
+
 impl ModuleDeclarationSyntaxSink for SourceUnitModuleDeclarationSyntaxBuilder {
     fn push_module_directives(&mut self, directives: ModuleDirectivesSyntax) {
         SourceUnitModuleDeclarationSyntaxBuilder::push_module_directives(self, directives);
@@ -410,6 +483,36 @@ impl ModuleDeclarationSyntaxSink for BlockModuleDeclarationSyntaxBuilder {
     }
 }
 
+impl ModuleItemSyntaxSink for SourceUnitSyntaxBuilder {
+    fn push_using_declaration(&mut self, declaration: UsingDeclarationSyntax) {
+        SourceUnitSyntaxBuilder::push_using_declaration(self, declaration);
+    }
+
+    fn push_export_declaration(&mut self, declaration: ExportDeclarationSyntax) {
+        SourceUnitSyntaxBuilder::push_export_declaration(self, declaration);
+    }
+}
+
+impl ModuleItemSyntaxSink for ModuleBodySyntaxBuilder {
+    fn push_using_declaration(&mut self, declaration: UsingDeclarationSyntax) {
+        ModuleBodySyntaxBuilder::push_using_declaration(self, declaration);
+    }
+
+    fn push_export_declaration(&mut self, declaration: ExportDeclarationSyntax) {
+        ModuleBodySyntaxBuilder::push_export_declaration(self, declaration);
+    }
+}
+
+fn module_item_recovery_kinds(terminators: &[SyntaxKind]) -> Vec<SyntaxKind> {
+    let mut recovery_kinds =
+        Vec::with_capacity(MODULE_ITEM_BOUNDARY_KINDS.len() + terminators.len());
+
+    recovery_kinds.extend_from_slice(&MODULE_ITEM_BOUNDARY_KINDS);
+    recovery_kinds.extend_from_slice(terminators);
+
+    recovery_kinds
+}
+
 #[cfg(test)]
 mod tests {
     use bray_diagnostics::DiagnosticKind;
@@ -421,7 +524,7 @@ mod tests {
 
     #[test]
     fn parser_parses_source_unit_module_declarations() {
-        let sources = source_store(["trusted public module main.core; func main() {}"]);
+        let sources = source_store(["trusted public module main.core;"]);
         let result = parse_compilation_unit(&sources);
         let source_unit = &result.syntax_tree().root().source_units()[0];
 
@@ -432,14 +535,10 @@ mod tests {
 
         let modifiers = declaration.module_modifiers();
         let path = declaration.module_path();
-        let skipped_syntax = source_unit.skipped_syntax().collect::<Vec<_>>();
 
-        assert_eq!(
-            source_unit.full_text(),
-            "trusted public module main.core; func main() {}"
-        );
+        assert_eq!(source_unit.full_text(), "trusted public module main.core;");
 
-        assert_eq!(declaration.full_text(), "trusted public module main.core; ");
+        assert_eq!(declaration.full_text(), "trusted public module main.core;");
 
         assert_eq!(
             modifiers.trusted_token().map(|token| token.kind()),
@@ -454,17 +553,7 @@ mod tests {
         assert_eq!(path.full_text(), "main.core");
         assert_eq!(path.identifier_tokens().count(), 2);
         assert_eq!(path.dot_tokens().count(), 1);
-
-        let [skipped] = skipped_syntax.as_slice() else {
-            panic!("expected one skipped-syntax node: {skipped_syntax:?}");
-        };
-
-        assert_eq!(skipped.full_text(), "func main() {}");
-
-        assert_eq!(
-            parse_diagnostic_kinds(&result),
-            [DiagnosticKind::SyntaxSkippedSyntax]
-        );
+        assert!(result.diagnostics().is_empty());
     }
 
     #[test]
@@ -592,6 +681,114 @@ mod tests {
         assert_eq!(first.module_body().skipped_syntax().count(), 1);
         assert_eq!(second.module_path().full_text(), "extra ");
         assert!(second.module_body().skipped_syntax().next().is_none());
+
+        assert_eq!(
+            parse_diagnostic_kinds(&result),
+            [DiagnosticKind::SyntaxSkippedSyntax]
+        );
+    }
+
+    #[test]
+    fn parser_parses_using_and_export_declarations_after_source_unit_modules() {
+        let sources = source_store(["module main; using internal core.io; export api;"]);
+        let result = parse_compilation_unit(&sources);
+        let source_unit = &result.syntax_tree().root().source_units()[0];
+        let using_declarations = source_unit.using_declarations().collect::<Vec<_>>();
+        let export_declarations = source_unit.export_declarations().collect::<Vec<_>>();
+
+        let [using_declaration] = using_declarations.as_slice() else {
+            panic!("expected one using declaration: {using_declarations:?}");
+        };
+
+        let [export_declaration] = export_declarations.as_slice() else {
+            panic!("expected one export declaration: {export_declarations:?}");
+        };
+
+        assert_eq!(
+            source_unit.full_text(),
+            "module main; using internal core.io; export api;"
+        );
+
+        assert_eq!(using_declaration.full_text(), "using internal core.io; ");
+
+        assert_eq!(
+            using_declaration
+                .internal_keyword()
+                .map(|token| token.kind()),
+            Some(SyntaxKind::InternalKeyword)
+        );
+
+        assert_eq!(using_declaration.path().full_text(), "core.io");
+        assert_eq!(using_declaration.path().identifier_tokens().count(), 2);
+        assert_eq!(using_declaration.path().dot_tokens().count(), 1);
+        assert_eq!(export_declaration.full_text(), "export api;");
+        assert_eq!(export_declaration.path().full_text(), "api");
+        assert!(result.diagnostics().is_empty());
+    }
+
+    #[test]
+    fn parser_parses_using_and_export_declarations_inside_block_modules() {
+        let sources = source_store(["module main { using core; export api; }"]);
+        let result = parse_compilation_unit(&sources);
+        let source_unit = &result.syntax_tree().root().source_units()[0];
+        let declarations = source_unit.block_module_declarations().collect::<Vec<_>>();
+
+        let [declaration] = declarations.as_slice() else {
+            panic!("expected one block module declaration: {declarations:?}");
+        };
+
+        let body = declaration.module_body();
+        let using_declarations = body.using_declarations().collect::<Vec<_>>();
+        let export_declarations = body.export_declarations().collect::<Vec<_>>();
+
+        let [using_declaration] = using_declarations.as_slice() else {
+            panic!("expected one using declaration: {using_declarations:?}");
+        };
+
+        let [export_declaration] = export_declarations.as_slice() else {
+            panic!("expected one export declaration: {export_declarations:?}");
+        };
+
+        assert_eq!(
+            source_unit.full_text(),
+            "module main { using core; export api; }"
+        );
+
+        assert_eq!(body.full_text(), "{ using core; export api; }");
+        assert_eq!(using_declaration.full_text(), "using core; ");
+        assert!(using_declaration.internal_keyword().is_none());
+        assert_eq!(using_declaration.path().full_text(), "core");
+        assert_eq!(export_declaration.full_text(), "export api; ");
+        assert_eq!(export_declaration.path().full_text(), "api");
+        assert!(result.diagnostics().is_empty());
+    }
+
+    #[test]
+    fn parser_recovers_unimplemented_module_items_without_losing_later_items() {
+        let sources = source_store(["module main { func run() {} using core; }"]);
+        let result = parse_compilation_unit(&sources);
+        let source_unit = &result.syntax_tree().root().source_units()[0];
+        let declarations = source_unit.block_module_declarations().collect::<Vec<_>>();
+
+        let [declaration] = declarations.as_slice() else {
+            panic!("expected one block module declaration: {declarations:?}");
+        };
+
+        let body = declaration.module_body();
+        let skipped_syntax = body.skipped_syntax().collect::<Vec<_>>();
+
+        let [skipped] = skipped_syntax.as_slice() else {
+            panic!("expected one skipped-syntax node: {skipped_syntax:?}");
+        };
+
+        assert_eq!(
+            source_unit.full_text(),
+            "module main { func run() {} using core; }"
+        );
+
+        assert_eq!(body.using_declarations().count(), 1);
+        assert_eq!(body.export_declarations().count(), 0);
+        assert_eq!(skipped.full_text(), "func run() {} ");
 
         assert_eq!(
             parse_diagnostic_kinds(&result),

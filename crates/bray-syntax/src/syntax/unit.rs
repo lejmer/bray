@@ -6,11 +6,12 @@ use bray_source::{SourceSnapshot, TextRange, TextSize};
 
 use super::recovery::{SkippedSyntax, skipped_syntax_nodes};
 use super::{
-    BlockModuleDeclarationSyntax, IdentifierListSyntax, SourceUnitModuleDeclarationSyntax,
+    BlockModuleDeclarationSyntax, ExportDeclarationSyntax, IdentifierListSyntax,
+    SourceUnitModuleDeclarationSyntax, UsingDeclarationSyntax,
 };
 use crate::builder::{GreenNodeBuilder, RequiredSyntaxSlot, SyntaxListSlot, require_token_kind};
 use crate::green::GreenNode;
-use crate::node::{GreenSourceSyntaxNode, GreenSyntaxNode};
+use crate::node::{GreenSourceSyntaxNode, GreenSyntaxNode, child_nodes};
 use crate::{SyntaxKind, SyntaxNode, SyntaxText, SyntaxToken, SyntaxTokenPresence};
 
 /// Root syntax node for one compiler compilation unit.
@@ -163,35 +164,60 @@ impl SourceUnitSyntax {
 
     /// Returns direct identifier-list child nodes in source order.
     pub fn identifier_lists(&self) -> impl Iterator<Item = IdentifierListSyntax> + '_ {
-        self.node
-            .child_nodes(TextSize::ZERO, SyntaxKind::IdentifierList)
-            .map(|(node, start)| {
-                // SourceSnapshot clones share immutable source text with typed child nodes.
-                IdentifierListSyntax::from_green(self.source.clone(), node, start)
-            })
+        child_nodes(
+            &self.source,
+            &self.node,
+            TextSize::ZERO,
+            SyntaxKind::IdentifierList,
+            IdentifierListSyntax::from_green,
+        )
     }
 
     /// Returns the source-unit module declaration child when present.
     pub fn source_unit_module_declaration(&self) -> Option<SourceUnitModuleDeclarationSyntax> {
-        self.node
-            .child_nodes(TextSize::ZERO, SyntaxKind::SourceUnitModuleDeclaration)
-            .next()
-            .map(|(node, start)| {
-                // SourceSnapshot clones share immutable source text with typed child nodes.
-                SourceUnitModuleDeclarationSyntax::from_green(self.source.clone(), node, start)
-            })
+        child_nodes(
+            &self.source,
+            &self.node,
+            TextSize::ZERO,
+            SyntaxKind::SourceUnitModuleDeclaration,
+            SourceUnitModuleDeclarationSyntax::from_green,
+        )
+        .next()
     }
 
     /// Returns direct block module declaration children in source order.
     pub fn block_module_declarations(
         &self,
     ) -> impl Iterator<Item = BlockModuleDeclarationSyntax> + '_ {
-        self.node
-            .child_nodes(TextSize::ZERO, SyntaxKind::BlockModuleDeclaration)
-            .map(|(node, start)| {
-                // SourceSnapshot clones share immutable source text with typed child nodes.
-                BlockModuleDeclarationSyntax::from_green(self.source.clone(), node, start)
-            })
+        child_nodes(
+            &self.source,
+            &self.node,
+            TextSize::ZERO,
+            SyntaxKind::BlockModuleDeclaration,
+            BlockModuleDeclarationSyntax::from_green,
+        )
+    }
+
+    /// Returns direct `using` declaration children in source order.
+    pub fn using_declarations(&self) -> impl Iterator<Item = UsingDeclarationSyntax> + '_ {
+        child_nodes(
+            &self.source,
+            &self.node,
+            TextSize::ZERO,
+            SyntaxKind::UsingDeclaration,
+            UsingDeclarationSyntax::from_green,
+        )
+    }
+
+    /// Returns direct `export` declaration children in source order.
+    pub fn export_declarations(&self) -> impl Iterator<Item = ExportDeclarationSyntax> + '_ {
+        child_nodes(
+            &self.source,
+            &self.node,
+            TextSize::ZERO,
+            SyntaxKind::ExportDeclaration,
+            ExportDeclarationSyntax::from_green,
+        )
     }
 
     /// Returns the required EOF token for this source unit.
@@ -265,6 +291,16 @@ impl SourceUnitSyntaxBuilder {
         self.node.push_node(declaration.into_green());
     }
 
+    /// Appends a `using` declaration child in source order.
+    pub fn push_using_declaration(&mut self, declaration: UsingDeclarationSyntax) {
+        self.node.push_node(declaration.into_green());
+    }
+
+    /// Appends an `export` declaration child in source order.
+    pub fn push_export_declaration(&mut self, declaration: ExportDeclarationSyntax) {
+        self.node.push_node(declaration.into_green());
+    }
+
     /// Appends tokens to the source-unit token list.
     pub fn tokens(mut self, tokens: impl IntoIterator<Item = SyntaxToken>) -> Self {
         self.node.push_tokens(tokens);
@@ -303,6 +339,20 @@ impl SourceUnitSyntaxBuilder {
     /// Appends a block module declaration child in source order.
     pub fn block_module_declaration(mut self, declaration: BlockModuleDeclarationSyntax) -> Self {
         self.push_block_module_declaration(declaration);
+
+        self
+    }
+
+    /// Appends a `using` declaration child in source order.
+    pub fn using_declaration(mut self, declaration: UsingDeclarationSyntax) -> Self {
+        self.push_using_declaration(declaration);
+
+        self
+    }
+
+    /// Appends an `export` declaration child in source order.
+    pub fn export_declaration(mut self, declaration: ExportDeclarationSyntax) -> Self {
+        self.push_export_declaration(declaration);
 
         self
     }
@@ -351,10 +401,10 @@ mod tests {
 
     use super::{CompilationUnitSyntax, SourceUnitSyntax};
     use crate::{
-        BlockModuleDeclarationSyntax, IdentifierListItemSyntax, IdentifierListSyntax,
-        ModuleBodySyntax, ModuleDirectivesSyntax, ModuleModifiersSyntax, PathSyntax,
-        SourceSyntaxNode, SourceUnitModuleDeclarationSyntax, SyntaxKind, SyntaxNode, SyntaxText,
-        SyntaxToken, SyntaxTrivia,
+        BlockModuleDeclarationSyntax, ExportDeclarationSyntax, IdentifierListItemSyntax,
+        IdentifierListSyntax, ModuleBodySyntax, ModuleDirectivesSyntax, ModuleModifiersSyntax,
+        PathSyntax, SourceSyntaxNode, SourceUnitModuleDeclarationSyntax, SyntaxKind, SyntaxNode,
+        SyntaxText, SyntaxToken, SyntaxTrivia, UsingDeclarationSyntax,
     };
 
     #[test]
@@ -637,6 +687,37 @@ mod tests {
     }
 
     #[test]
+    fn source_units_expose_using_and_export_declaration_children() {
+        let snapshot = snapshot("using core; export api;");
+        let using_declaration = using_declaration(snapshot.clone(), 0);
+        let export_declaration = export_declaration(snapshot.clone(), 12);
+        let eof = SyntaxToken::end_of_file(TextSize::new(23));
+
+        let source_unit = SourceUnitSyntax::builder(snapshot)
+            .using_declaration(using_declaration)
+            .export_declaration(export_declaration)
+            .tokens([eof])
+            .build();
+
+        let using_declarations = source_unit.using_declarations().collect::<Vec<_>>();
+        let export_declarations = source_unit.export_declarations().collect::<Vec<_>>();
+
+        let [using_declaration] = using_declarations.as_slice() else {
+            panic!("expected one using declaration: {using_declarations:?}");
+        };
+
+        let [export_declaration] = export_declarations.as_slice() else {
+            panic!("expected one export declaration: {export_declarations:?}");
+        };
+
+        assert_eq!(source_unit.full_text(), "using core; export api;");
+        assert_eq!(using_declaration.full_text(), "using core; ");
+        assert_eq!(using_declaration.path().full_text(), "core");
+        assert_eq!(export_declaration.full_text(), "export api;");
+        assert_eq!(export_declaration.path().full_text(), "api");
+    }
+
+    #[test]
     fn source_unit_debug_does_not_expose_green_storage() {
         let source_unit = SourceUnitSyntax::builder(snapshot(""))
             .tokens([SyntaxToken::end_of_file(TextSize::ZERO)])
@@ -655,6 +736,8 @@ mod tests {
         assert_send_sync::<SourceUnitSyntax>();
         assert_send_sync::<SourceUnitModuleDeclarationSyntax>();
         assert_send_sync::<BlockModuleDeclarationSyntax>();
+        assert_send_sync::<UsingDeclarationSyntax>();
+        assert_send_sync::<ExportDeclarationSyntax>();
         assert_send_sync::<ModuleDirectivesSyntax>();
         assert_send_sync::<ModuleModifiersSyntax>();
         assert_send_sync::<ModuleBodySyntax>();
@@ -713,6 +796,60 @@ mod tests {
         builder.build()
     }
 
+    fn using_declaration(snapshot: SourceSnapshot, start: u32) -> UsingDeclarationSyntax {
+        let mut builder = UsingDeclarationSyntax::builder(snapshot.clone(), TextSize::new(start));
+
+        builder.push_using_keyword(
+            SyntaxToken::new(
+                SyntaxKind::UsingKeyword,
+                TextRange::new(TextSize::new(start), TextSize::new(start + 5)),
+            )
+            .with_trailing_trivia([SyntaxTrivia::whitespace(TextRange::new(
+                TextSize::new(start + 5),
+                TextSize::new(start + 6),
+            ))]),
+        );
+
+        builder.push_path(path_at(snapshot, start + 6, start + 10, false));
+
+        builder.push_semicolon_token(
+            SyntaxToken::new(
+                SyntaxKind::SemicolonToken,
+                TextRange::new(TextSize::new(start + 10), TextSize::new(start + 11)),
+            )
+            .with_trailing_trivia([SyntaxTrivia::whitespace(TextRange::new(
+                TextSize::new(start + 11),
+                TextSize::new(start + 12),
+            ))]),
+        );
+
+        builder.build()
+    }
+
+    fn export_declaration(snapshot: SourceSnapshot, start: u32) -> ExportDeclarationSyntax {
+        let mut builder = ExportDeclarationSyntax::builder(snapshot.clone(), TextSize::new(start));
+
+        builder.push_export_keyword(
+            SyntaxToken::new(
+                SyntaxKind::ExportKeyword,
+                TextRange::new(TextSize::new(start), TextSize::new(start + 6)),
+            )
+            .with_trailing_trivia([SyntaxTrivia::whitespace(TextRange::new(
+                TextSize::new(start + 6),
+                TextSize::new(start + 7),
+            ))]),
+        );
+
+        builder.push_path(path_at(snapshot, start + 7, start + 10, false));
+
+        builder.push_semicolon_token(SyntaxToken::new(
+            SyntaxKind::SemicolonToken,
+            TextRange::new(TextSize::new(start + 10), TextSize::new(start + 11)),
+        ));
+
+        builder.build()
+    }
+
     fn module_keyword() -> SyntaxToken {
         SyntaxToken::new(
             SyntaxKind::ModuleKeyword,
@@ -725,16 +862,26 @@ mod tests {
     }
 
     fn path(snapshot: SourceSnapshot, has_trailing_space: bool) -> PathSyntax {
+        path_at(snapshot, 7, 11, has_trailing_space)
+    }
+
+    fn path_at(
+        snapshot: SourceSnapshot,
+        start: u32,
+        end: u32,
+        has_trailing_space: bool,
+    ) -> PathSyntax {
         let mut builder = PathSyntax::builder(snapshot);
+
         let mut token = SyntaxToken::new(
             SyntaxKind::IdentifierToken,
-            TextRange::new(TextSize::new(7), TextSize::new(11)),
+            TextRange::new(TextSize::new(start), TextSize::new(end)),
         );
 
         if has_trailing_space {
             token = token.with_trailing_trivia([SyntaxTrivia::whitespace(TextRange::new(
-                TextSize::new(11),
-                TextSize::new(12),
+                TextSize::new(end),
+                TextSize::new(end + 1),
             ))]);
         }
 
@@ -750,6 +897,7 @@ mod tests {
             SyntaxKind::OpenBraceToken,
             TextRange::new(TextSize::new(12), TextSize::new(13)),
         ));
+
         builder.push_close_brace_token(SyntaxToken::new(
             SyntaxKind::CloseBraceToken,
             TextRange::new(TextSize::new(13), TextSize::new(14)),
