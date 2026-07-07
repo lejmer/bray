@@ -6,11 +6,12 @@ use bray_source::{SourceSnapshot, TextRange, TextSize};
 
 use super::recovery::{SkippedSyntax, skipped_syntax_nodes};
 use super::{
-    BlockModuleDeclarationSyntax, CallableContractDeclarationSyntax, ExportDeclarationSyntax,
-    FunctionDeclarationSyntax, IdentifierListSyntax, InherentImplementationDeclarationSyntax,
-    NamedTraitImplementationDeclarationSyntax, PredicateDeclarationSyntax,
-    SourceUnitModuleDeclarationSyntax, StructDeclarationSyntax, TraitDeclarationSyntax,
-    UnionDeclarationSyntax, UnnamedTraitImplementationDeclarationSyntax, UsingDeclarationSyntax,
+    BlockModuleDeclarationSyntax, CallableContractDeclarationSyntax, ConstantDeclarationSyntax,
+    ExportDeclarationSyntax, FunctionDeclarationSyntax, IdentifierListSyntax,
+    InherentImplementationDeclarationSyntax, NamedTraitImplementationDeclarationSyntax,
+    PredicateDeclarationSyntax, SourceUnitModuleDeclarationSyntax, StructDeclarationSyntax,
+    TraitDeclarationSyntax, UnionDeclarationSyntax, UnnamedTraitImplementationDeclarationSyntax,
+    UsingDeclarationSyntax,
 };
 use crate::builder::{GreenNodeBuilder, RequiredSyntaxSlot, SyntaxListSlot, require_token_kind};
 use crate::green::GreenNode;
@@ -223,6 +224,17 @@ impl SourceUnitSyntax {
         )
     }
 
+    /// Returns direct constant declaration children in source order.
+    pub fn constant_declarations(&self) -> impl Iterator<Item = ConstantDeclarationSyntax> + '_ {
+        child_nodes(
+            &self.source,
+            &self.node,
+            TextSize::ZERO,
+            SyntaxKind::ConstantDeclaration,
+            ConstantDeclarationSyntax::from_green,
+        )
+    }
+
     /// Returns direct function declaration children in source order.
     pub fn function_declarations(&self) -> impl Iterator<Item = FunctionDeclarationSyntax> + '_ {
         child_nodes(
@@ -411,6 +423,11 @@ impl SourceUnitSyntaxBuilder {
         self.node.push_node(declaration.into_green());
     }
 
+    /// Appends a constant declaration child in source order.
+    pub fn push_constant_declaration(&mut self, declaration: ConstantDeclarationSyntax) {
+        self.node.push_node(declaration.into_green());
+    }
+
     /// Appends a function declaration child in source order.
     pub fn push_function_declaration(&mut self, declaration: FunctionDeclarationSyntax) {
         self.node.push_node(declaration.into_green());
@@ -520,6 +537,13 @@ impl SourceUnitSyntaxBuilder {
     /// Appends an `export` declaration child in source order.
     pub fn export_declaration(mut self, declaration: ExportDeclarationSyntax) -> Self {
         self.push_export_declaration(declaration);
+
+        self
+    }
+
+    /// Appends a constant declaration child in source order.
+    pub fn constant_declaration(mut self, declaration: ConstantDeclarationSyntax) -> Self {
+        self.push_constant_declaration(declaration);
 
         self
     }
@@ -647,17 +671,18 @@ mod tests {
     };
     use crate::{
         BlockModuleDeclarationSyntax, CallableBodyBlockExpressionSyntax,
-        CallableContractDeclarationSyntax, CallableResultClauseSyntax, ExportDeclarationSyntax,
-        FunctionDeclarationSyntax, FunctionDirectivesSyntax, FunctionModifiersSyntax,
-        IdentifierListItemSyntax, IdentifierListSyntax, ImplementationSubjectSyntax,
-        InherentImplementationBodySyntax, InherentImplementationDeclarationSyntax,
-        ModuleBodySyntax, ModuleDirectivesSyntax, ModuleModifiersSyntax,
-        NamedTraitImplementationDeclarationSyntax, ParameterListSyntax, ParameterModifiersSyntax,
-        ParameterSyntax, PathSyntax, PredicateDeclarationSyntax, SourceSyntaxNode,
-        SourceUnitModuleDeclarationSyntax, StructDeclarationSyntax, SyntaxKind, SyntaxNode,
-        SyntaxText, SyntaxToken, SyntaxTrivia, TraitApplicationSyntax, TraitBodySyntax,
-        TraitDeclarationSyntax, TraitImplementationBodySyntax, TraitModifiersSyntax,
-        UnionDeclarationSyntax, UnnamedTraitImplementationDeclarationSyntax,
+        CallableContractDeclarationSyntax, CallableResultClauseSyntax, ConstantDeclarationSyntax,
+        ConstantModifiersSyntax, ExportDeclarationSyntax, FunctionDeclarationSyntax,
+        FunctionDirectivesSyntax, FunctionModifiersSyntax, IdentifierListItemSyntax,
+        IdentifierListSyntax, ImplementationSubjectSyntax, InherentImplementationBodySyntax,
+        InherentImplementationDeclarationSyntax, ModuleBodySyntax, ModuleDirectivesSyntax,
+        ModuleModifiersSyntax, NamedTraitImplementationDeclarationSyntax, ParameterListSyntax,
+        ParameterModifiersSyntax, ParameterSyntax, PathSyntax, PredicateDeclarationSyntax,
+        SourceSyntaxNode, SourceUnitModuleDeclarationSyntax, StructDeclarationSyntax, SyntaxKind,
+        SyntaxNode, SyntaxText, SyntaxToken, SyntaxTrivia, TraitApplicationSyntax, TraitBodySyntax,
+        TraitConstantMemberDeclarationSyntax, TraitDeclarationSyntax,
+        TraitImplementationBodySyntax, TraitImplementationConstantMemberDefinitionSyntax,
+        TraitModifiersSyntax, UnionDeclarationSyntax, UnnamedTraitImplementationDeclarationSyntax,
         UsingDeclarationSyntax,
     };
 
@@ -959,6 +984,39 @@ mod tests {
     }
 
     #[test]
+    fn source_units_expose_constant_declaration_children() {
+        let snapshot = test_snapshot("syntax-test", "const Answer: Int = 42;");
+        let declaration = constant_declaration(snapshot.clone());
+        let eof = SyntaxToken::end_of_file(TextSize::new(23));
+
+        let source_unit = SourceUnitSyntax::builder(snapshot)
+            .constant_declaration(declaration)
+            .tokens([eof])
+            .build();
+
+        let declarations = source_unit.constant_declarations().collect::<Vec<_>>();
+
+        let [declaration] = declarations.as_slice() else {
+            panic!("expected one constant declaration: {declarations:?}");
+        };
+
+        assert_eq!(source_unit.full_text(), "const Answer: Int = 42;");
+        assert_eq!(declaration.full_text(), "const Answer: Int = 42;");
+
+        assert!(
+            declaration
+                .constant_modifiers()
+                .visibility_token()
+                .is_none()
+        );
+
+        assert_eq!(
+            declaration.identifier_token().kind(),
+            SyntaxKind::IdentifierToken
+        );
+    }
+
+    #[test]
     fn source_units_expose_function_declaration_children() {
         let snapshot = test_snapshot("syntax-test", "func main() {}");
         let declaration = function_declaration(snapshot.clone());
@@ -1093,6 +1151,8 @@ mod tests {
         assert_send_sync::<BlockModuleDeclarationSyntax>();
         assert_send_sync::<UsingDeclarationSyntax>();
         assert_send_sync::<ExportDeclarationSyntax>();
+        assert_send_sync::<ConstantDeclarationSyntax>();
+        assert_send_sync::<ConstantModifiersSyntax>();
         assert_send_sync::<FunctionDeclarationSyntax>();
         assert_send_sync::<PredicateDeclarationSyntax>();
         assert_send_sync::<CallableContractDeclarationSyntax>();
@@ -1103,6 +1163,7 @@ mod tests {
         assert_send_sync::<TraitDeclarationSyntax>();
         assert_send_sync::<TraitModifiersSyntax>();
         assert_send_sync::<TraitBodySyntax>();
+        assert_send_sync::<TraitConstantMemberDeclarationSyntax>();
         assert_send_sync::<ImplementationSubjectSyntax>();
         assert_send_sync::<TraitApplicationSyntax>();
         assert_send_sync::<InherentImplementationDeclarationSyntax>();
@@ -1110,6 +1171,7 @@ mod tests {
         assert_send_sync::<UnnamedTraitImplementationDeclarationSyntax>();
         assert_send_sync::<NamedTraitImplementationDeclarationSyntax>();
         assert_send_sync::<TraitImplementationBodySyntax>();
+        assert_send_sync::<TraitImplementationConstantMemberDefinitionSyntax>();
         assert_send_sync::<ParameterListSyntax>();
         assert_send_sync::<ParameterSyntax>();
         assert_send_sync::<ParameterModifiersSyntax>();
@@ -1228,6 +1290,24 @@ mod tests {
             SyntaxKind::SemicolonToken,
             TextRange::new(TextSize::new(start + 10), TextSize::new(start + 11)),
         ));
+
+        builder.build()
+    }
+
+    fn constant_declaration(snapshot: SourceSnapshot) -> ConstantDeclarationSyntax {
+        let mut builder = ConstantDeclarationSyntax::builder(snapshot.clone(), TextSize::ZERO);
+
+        builder.push_constant_modifiers(
+            ConstantModifiersSyntax::builder(snapshot, TextSize::ZERO).build(),
+        );
+
+        builder.push_const_keyword(keyword(SyntaxKind::ConstKeyword, 0, 5, true));
+        builder.push_identifier_token(token(SyntaxKind::IdentifierToken, 6, 12));
+        builder.push_colon_token(keyword(SyntaxKind::ColonToken, 12, 13, true));
+        builder.push_skipped_tokens([keyword(SyntaxKind::IdentifierToken, 14, 17, true)]);
+        builder.push_equals_token(keyword(SyntaxKind::EqualsToken, 18, 19, true));
+        builder.push_skipped_tokens([token(SyntaxKind::DecimalIntegerLiteralToken, 20, 22)]);
+        builder.push_semicolon_token(token(SyntaxKind::SemicolonToken, 22, 23));
 
         builder.build()
     }

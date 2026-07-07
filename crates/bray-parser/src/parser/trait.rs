@@ -251,6 +251,60 @@ mod tests {
         assert!(result.diagnostics().is_empty());
     }
 
+    // TODO(parser): Update this when constant type and value expressions are parsed.
+    #[test]
+    fn parser_parses_trait_constant_members() {
+        let source = "module main; trait Config { const Size: Int; const Name: String = \"bray\"; func read(); }";
+        let sources = source_store([source]);
+        let result = parse_compilation_unit(&sources);
+
+        let source_unit = &result.syntax_tree().root().source_units()[0];
+        let declarations = source_unit.trait_declarations().collect::<Vec<_>>();
+
+        let [declaration] = declarations.as_slice() else {
+            panic!("expected one trait declaration: {declarations:?}");
+        };
+
+        let body = declaration.trait_body();
+
+        let constants = body
+            .trait_constant_member_declarations()
+            .collect::<Vec<_>>();
+
+        let callables = body
+            .trait_callable_member_declarations()
+            .collect::<Vec<_>>();
+
+        let [required_constant, defaulted_constant] = constants.as_slice() else {
+            panic!("expected two trait constant members: {constants:?}");
+        };
+
+        let [callable] = callables.as_slice() else {
+            panic!("expected one trait callable member: {callables:?}");
+        };
+
+        assert_eq!(source_unit.full_text(), source);
+        assert_eq!(required_constant.full_text(), "const Size: Int; ");
+        assert!(required_constant.equals_token().is_none());
+
+        assert_eq!(
+            defaulted_constant.full_text(),
+            "const Name: String = \"bray\"; "
+        );
+
+        assert!(defaulted_constant.equals_token().is_some());
+        assert_eq!(callable.full_text(), "func read(); ");
+
+        assert_eq!(
+            parse_diagnostic_kinds(&result),
+            [
+                DiagnosticKind::SyntaxSkippedSyntax,
+                DiagnosticKind::SyntaxSkippedSyntax,
+                DiagnosticKind::SyntaxSkippedSyntax
+            ]
+        );
+    }
+
     #[test]
     fn parser_scan_ahead_recognizes_trait_declarations_without_consuming_tokens() {
         let sources = source_store(["public trait Display {}"]);

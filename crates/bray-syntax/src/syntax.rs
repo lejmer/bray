@@ -1,5 +1,6 @@
 mod callable;
 mod callable_contract;
+mod constant;
 mod directive;
 mod field;
 mod function;
@@ -24,6 +25,12 @@ pub use callable::{
 pub use callable_contract::{
     CallableContractDeclarationSyntax, CallableContractDeclarationSyntaxBuilder,
     CallableContractModifiersSyntax, CallableContractModifiersSyntaxBuilder,
+};
+pub use constant::{
+    ConstantDeclarationSyntax, ConstantDeclarationSyntaxBuilder, ConstantModifiersSyntax,
+    ConstantModifiersSyntaxBuilder, TraitConstantMemberDeclarationSyntax,
+    TraitConstantMemberDeclarationSyntaxBuilder, TraitImplementationConstantMemberDefinitionSyntax,
+    TraitImplementationConstantMemberDefinitionSyntaxBuilder,
 };
 pub use directive::{
     AbiDirectiveSyntax, AbiDirectiveSyntaxBuilder, CopyDirectiveSyntax, CopyDirectiveSyntaxBuilder,

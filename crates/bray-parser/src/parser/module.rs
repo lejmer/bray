@@ -1,13 +1,13 @@
 use bray_syntax::{
     BlockModuleDeclarationSyntax, BlockModuleDeclarationSyntaxBuilder,
-    CallableContractDeclarationSyntax, ExportDeclarationSyntax, FunctionDeclarationSyntax,
-    InherentImplementationDeclarationSyntax, ModuleBodySyntax, ModuleBodySyntaxBuilder,
-    ModuleDirectivesSyntax, ModuleDirectivesSyntaxBuilder, ModuleModifiersSyntax,
-    NamedTraitImplementationDeclarationSyntax, PathSyntax, PredicateDeclarationSyntax,
-    SourceUnitModuleDeclarationSyntax, SourceUnitModuleDeclarationSyntaxBuilder,
-    SourceUnitSyntaxBuilder, StructDeclarationSyntax, SyntaxKind, SyntaxToken,
-    TraitDeclarationSyntax, UnionDeclarationSyntax, UnnamedTraitImplementationDeclarationSyntax,
-    UsingDeclarationSyntax,
+    CallableContractDeclarationSyntax, ConstantDeclarationSyntax, ExportDeclarationSyntax,
+    FunctionDeclarationSyntax, InherentImplementationDeclarationSyntax, ModuleBodySyntax,
+    ModuleBodySyntaxBuilder, ModuleDirectivesSyntax, ModuleDirectivesSyntaxBuilder,
+    ModuleModifiersSyntax, NamedTraitImplementationDeclarationSyntax, PathSyntax,
+    PredicateDeclarationSyntax, SourceUnitModuleDeclarationSyntax,
+    SourceUnitModuleDeclarationSyntaxBuilder, SourceUnitSyntaxBuilder, StructDeclarationSyntax,
+    SyntaxKind, SyntaxToken, TraitDeclarationSyntax, UnionDeclarationSyntax,
+    UnnamedTraitImplementationDeclarationSyntax, UsingDeclarationSyntax,
 };
 
 use crate::cursor::RecoverySet;
@@ -263,6 +263,11 @@ impl Parser {
             return;
         }
 
+        if self.should_parse_constant_declaration() {
+            builder.push_constant_declaration(self.parse_constant_declaration());
+            return;
+        }
+
         if self.should_parse_predicate_declaration() {
             builder.push_predicate_declaration(self.parse_predicate_declaration());
             return;
@@ -465,6 +470,8 @@ pub(super) trait ModuleItemSyntaxSink: RecoverySyntaxSink {
 
     fn push_export_declaration(&mut self, declaration: ExportDeclarationSyntax);
 
+    fn push_constant_declaration(&mut self, declaration: ConstantDeclarationSyntax);
+
     fn push_function_declaration(&mut self, declaration: FunctionDeclarationSyntax);
 
     fn push_predicate_declaration(&mut self, declaration: PredicateDeclarationSyntax);
@@ -541,6 +548,10 @@ impl ModuleItemSyntaxSink for SourceUnitSyntaxBuilder {
         SourceUnitSyntaxBuilder::push_export_declaration(self, declaration);
     }
 
+    fn push_constant_declaration(&mut self, declaration: ConstantDeclarationSyntax) {
+        SourceUnitSyntaxBuilder::push_constant_declaration(self, declaration);
+    }
+
     fn push_function_declaration(&mut self, declaration: FunctionDeclarationSyntax) {
         SourceUnitSyntaxBuilder::push_function_declaration(self, declaration);
     }
@@ -597,6 +608,10 @@ impl ModuleItemSyntaxSink for ModuleBodySyntaxBuilder {
 
     fn push_export_declaration(&mut self, declaration: ExportDeclarationSyntax) {
         ModuleBodySyntaxBuilder::push_export_declaration(self, declaration);
+    }
+
+    fn push_constant_declaration(&mut self, declaration: ConstantDeclarationSyntax) {
+        ModuleBodySyntaxBuilder::push_constant_declaration(self, declaration);
     }
 
     fn push_function_declaration(&mut self, declaration: FunctionDeclarationSyntax) {

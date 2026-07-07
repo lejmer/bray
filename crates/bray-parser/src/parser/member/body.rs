@@ -9,7 +9,7 @@ use super::callable::TraitCallableTailPolicy;
 use crate::parser::recovery::RecoverySyntaxSink;
 use crate::parser::state::Parser;
 
-const STRUCT_BODY_ITEM_RECOVERY_KINDS: [SyntaxKind; 8] = [
+const STRUCT_BODY_ITEM_RECOVERY_KINDS: [SyntaxKind; 9] = [
     SyntaxKind::PublicKeyword,
     SyntaxKind::InternalKeyword,
     SyntaxKind::AsyncKeyword,
@@ -17,10 +17,11 @@ const STRUCT_BODY_ITEM_RECOVERY_KINDS: [SyntaxKind; 8] = [
     SyntaxKind::StaticKeyword,
     SyntaxKind::ConsumeKeyword,
     SyntaxKind::MutKeyword,
+    SyntaxKind::ConstKeyword,
     SyntaxKind::FuncKeyword,
 ];
 
-pub(super) const UNION_BODY_ITEM_RECOVERY_KINDS: [SyntaxKind; 10] = [
+pub(super) const UNION_BODY_ITEM_RECOVERY_KINDS: [SyntaxKind; 11] = [
     SyntaxKind::AtToken,
     SyntaxKind::PublicKeyword,
     SyntaxKind::InternalKeyword,
@@ -29,6 +30,7 @@ pub(super) const UNION_BODY_ITEM_RECOVERY_KINDS: [SyntaxKind; 10] = [
     SyntaxKind::StaticKeyword,
     SyntaxKind::ConsumeKeyword,
     SyntaxKind::MutKeyword,
+    SyntaxKind::ConstKeyword,
     SyntaxKind::FuncKeyword,
     SyntaxKind::IdentifierToken,
 ];
@@ -109,6 +111,11 @@ impl Parser {
             return;
         }
 
+        if self.should_parse_constant_declaration() {
+            builder.push_constant_declaration(self.parse_constant_declaration());
+            return;
+        }
+
         if self.should_parse_struct_field_declaration() {
             builder.push_struct_field_declaration(self.parse_struct_field_declaration());
             return;
@@ -123,6 +130,11 @@ impl Parser {
             builder.push_type_callable_member_declaration(
                 self.parse_type_callable_member_declaration(),
             );
+            return;
+        }
+
+        if self.should_parse_constant_declaration() {
+            builder.push_constant_declaration(self.parse_constant_declaration());
             return;
         }
 
@@ -145,6 +157,13 @@ impl Parser {
             return;
         }
 
+        if self.should_parse_trait_constant_member_declaration() {
+            builder.push_trait_constant_member_declaration(
+                self.parse_trait_constant_member_declaration(),
+            );
+            return;
+        }
+
         // TODO(parser): Parse remaining trait member declarations as they are implemented.
         self.recover_body_item(builder, &TRAIT_BODY_ITEM_RECOVERY_KINDS);
     }
@@ -160,6 +179,11 @@ impl Parser {
             return;
         }
 
+        if self.should_parse_constant_declaration() {
+            builder.push_constant_declaration(self.parse_constant_declaration());
+            return;
+        }
+
         // TODO(parser): Parse remaining inherent implementation members as they are implemented.
         self.recover_body_item(builder, &IMPLEMENTATION_BODY_ITEM_RECOVERY_KINDS);
     }
@@ -171,6 +195,13 @@ impl Parser {
         if self.should_parse_trait_callable_member_declaration() {
             builder.push_trait_callable_member_declaration(
                 self.parse_trait_callable_member_declaration(TraitCallableTailPolicy::RequireBody),
+            );
+            return;
+        }
+
+        if self.should_parse_trait_implementation_constant_member_definition() {
+            builder.push_trait_implementation_constant_member_definition(
+                self.parse_trait_implementation_constant_member_definition(),
             );
             return;
         }

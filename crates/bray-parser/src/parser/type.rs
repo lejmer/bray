@@ -539,6 +539,76 @@ mod tests {
         );
     }
 
+    // TODO(parser): Update this when constant type and value expressions are parsed.
+    #[test]
+    fn parser_parses_constant_declarations_in_type_bodies() {
+        let source = concat!(
+            "module main; ",
+            "struct Config { public const Max: Int = 10; } ",
+            "union Maybe { const Tag: Int = 1; Some; }"
+        );
+
+        let sources = source_store([source]);
+        let result = parse_compilation_unit(&sources);
+
+        let source_unit = &result.syntax_tree().root().source_units()[0];
+        let structs = source_unit.struct_declarations().collect::<Vec<_>>();
+        let unions = source_unit.union_declarations().collect::<Vec<_>>();
+
+        let [struct_declaration] = structs.as_slice() else {
+            panic!("expected one struct declaration: {structs:?}");
+        };
+
+        let [union_declaration] = unions.as_slice() else {
+            panic!("expected one union declaration: {unions:?}");
+        };
+
+        let struct_constants = struct_declaration
+            .struct_body()
+            .constant_declarations()
+            .collect::<Vec<_>>();
+
+        let union_body = union_declaration.union_body();
+        let union_constants = union_body.constant_declarations().collect::<Vec<_>>();
+        let variants = union_body.union_variant_declarations().collect::<Vec<_>>();
+
+        let [struct_constant] = struct_constants.as_slice() else {
+            panic!("expected one struct constant declaration: {struct_constants:?}");
+        };
+
+        let [union_constant] = union_constants.as_slice() else {
+            panic!("expected one union constant declaration: {union_constants:?}");
+        };
+
+        let [variant] = variants.as_slice() else {
+            panic!("expected one union variant declaration: {variants:?}");
+        };
+
+        assert_eq!(source_unit.full_text(), source);
+        assert_eq!(struct_constant.full_text(), "public const Max: Int = 10; ");
+
+        assert_eq!(
+            struct_constant
+                .constant_modifiers()
+                .visibility_token()
+                .map(|token| token.kind()),
+            Some(SyntaxKind::PublicKeyword)
+        );
+
+        assert_eq!(union_constant.full_text(), "const Tag: Int = 1; ");
+        assert_eq!(variant.full_text(), "Some; ");
+
+        assert_eq!(
+            parse_diagnostic_kinds(&result),
+            [
+                DiagnosticKind::SyntaxSkippedSyntax,
+                DiagnosticKind::SyntaxSkippedSyntax,
+                DiagnosticKind::SyntaxSkippedSyntax,
+                DiagnosticKind::SyntaxSkippedSyntax
+            ]
+        );
+    }
+
     #[test]
     fn parser_struct_body_missing_open_brace_does_not_consume_following_item() {
         let source = "module main; struct Point\nusing core;";

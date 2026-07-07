@@ -2,7 +2,7 @@ use super::item::{ExportDeclarationSyntax, UsingDeclarationSyntax};
 use crate::SyntaxKind;
 use crate::node::define_source_syntax_node;
 use crate::{
-    CallableContractDeclarationSyntax, FunctionDeclarationSyntax,
+    CallableContractDeclarationSyntax, ConstantDeclarationSyntax, FunctionDeclarationSyntax,
     InherentImplementationDeclarationSyntax, NamedTraitImplementationDeclarationSyntax,
     PredicateDeclarationSyntax, StructDeclarationSyntax, TraitDeclarationSyntax,
     UnionDeclarationSyntax, UnnamedTraitImplementationDeclarationSyntax,
@@ -55,6 +55,14 @@ define_source_syntax_node! {
                 push_export_declaration;
                 ty: ExportDeclarationSyntax;
                 kind: SyntaxKind::ExportDeclaration;
+            },
+            {
+                /// Returns direct constant declaration children in source order.
+                constant_declarations;
+                /// Appends a constant declaration child in source order.
+                push_constant_declaration;
+                ty: ConstantDeclarationSyntax;
+                kind: SyntaxKind::ConstantDeclaration;
             },
             {
                 /// Returns direct function declaration children in source order.

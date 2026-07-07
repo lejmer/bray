@@ -540,6 +540,73 @@ mod tests {
         assert!(result.diagnostics().is_empty());
     }
 
+    // TODO(parser): Update this when constant type and value expressions are parsed.
+    #[test]
+    fn parser_parses_constant_members_in_implementation_bodies() {
+        let source = concat!(
+            "module main; ",
+            "impl Point { const Origin: Point = zero; } ",
+            "impl Point(Shape) { const Sides: Int = 4; }"
+        );
+
+        let sources = source_store([source]);
+        let result = parse_compilation_unit(&sources);
+
+        let source_unit = &result.syntax_tree().root().source_units()[0];
+        let inherent_declarations = source_unit
+            .inherent_implementation_declarations()
+            .collect::<Vec<_>>();
+
+        let trait_declarations = source_unit
+            .unnamed_trait_implementation_declarations()
+            .collect::<Vec<_>>();
+
+        let [inherent] = inherent_declarations.as_slice() else {
+            panic!("expected one inherent implementation declaration: {inherent_declarations:?}");
+        };
+
+        let [trait_implementation] = trait_declarations.as_slice() else {
+            panic!("expected one trait implementation declaration: {trait_declarations:?}");
+        };
+
+        let inherent_constants = inherent
+            .inherent_implementation_body()
+            .constant_declarations()
+            .collect::<Vec<_>>();
+
+        let trait_constants = trait_implementation
+            .trait_implementation_body()
+            .trait_implementation_constant_member_definitions()
+            .collect::<Vec<_>>();
+
+        let [inherent_constant] = inherent_constants.as_slice() else {
+            panic!("expected one inherent constant declaration: {inherent_constants:?}");
+        };
+
+        let [trait_constant] = trait_constants.as_slice() else {
+            panic!("expected one trait implementation constant definition: {trait_constants:?}");
+        };
+
+        assert_eq!(source_unit.full_text(), source);
+
+        assert_eq!(
+            inherent_constant.full_text(),
+            "const Origin: Point = zero; "
+        );
+
+        assert_eq!(trait_constant.full_text(), "const Sides: Int = 4; ");
+
+        assert_eq!(
+            parse_diagnostic_kinds(&result),
+            [
+                DiagnosticKind::SyntaxSkippedSyntax,
+                DiagnosticKind::SyntaxSkippedSyntax,
+                DiagnosticKind::SyntaxSkippedSyntax,
+                DiagnosticKind::SyntaxSkippedSyntax
+            ]
+        );
+    }
+
     #[test]
     fn parser_implementation_body_missing_open_brace_does_not_consume_following_item() {
         let source = "module main; impl Point\nusing core;";

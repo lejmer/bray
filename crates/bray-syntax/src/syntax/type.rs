@@ -3,7 +3,7 @@ use super::field::StructFieldDeclarationSyntax;
 use super::member::TypeCallableMemberDeclarationSyntax;
 use super::variant::UnionVariantDeclarationSyntax;
 use crate::node::define_source_syntax_node;
-use crate::{SyntaxKind, SyntaxToken};
+use crate::{ConstantDeclarationSyntax, SyntaxKind, SyntaxToken};
 
 define_source_syntax_node! {
     /// Type directives in source order.
@@ -261,6 +261,14 @@ define_source_syntax_node! {
                 kind: SyntaxKind::StructFieldDeclaration;
             },
             {
+                /// Returns constant declarations in source order.
+                constant_declarations;
+                /// Appends a constant declaration.
+                push_constant_declaration;
+                ty: ConstantDeclarationSyntax;
+                kind: SyntaxKind::ConstantDeclaration;
+            },
+            {
                 /// Returns type callable member declarations in source order.
                 type_callable_member_declarations;
                 /// Appends a type callable member declaration.
@@ -311,6 +319,14 @@ define_source_syntax_node! {
                 push_union_variant_declaration;
                 ty: UnionVariantDeclarationSyntax;
                 kind: SyntaxKind::UnionVariantDeclaration;
+            },
+            {
+                /// Returns constant declarations in source order.
+                constant_declarations;
+                /// Appends a constant declaration.
+                push_constant_declaration;
+                ty: ConstantDeclarationSyntax;
+                kind: SyntaxKind::ConstantDeclaration;
             },
             {
                 /// Returns type callable member declarations in source order.

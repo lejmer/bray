@@ -1,8 +1,9 @@
 use bray_syntax::{
     BlockModuleDeclarationSyntaxBuilder, CallableBodyBlockExpressionSyntaxBuilder,
     CallableContractDeclarationSyntaxBuilder, CallableResultClauseSyntaxBuilder,
-    DirectiveArgumentListSyntaxBuilder, ExportDeclarationSyntaxBuilder,
-    FunctionDeclarationSyntaxBuilder, FunctionDirectivesSyntaxBuilder, IdentifierListSyntaxBuilder,
+    ConstantDeclarationSyntaxBuilder, DirectiveArgumentListSyntaxBuilder,
+    ExportDeclarationSyntaxBuilder, FunctionDeclarationSyntaxBuilder,
+    FunctionDirectivesSyntaxBuilder, IdentifierListSyntaxBuilder,
     ImplementationSubjectSyntaxBuilder, InherentImplementationBodySyntaxBuilder,
     InherentImplementationDeclarationSyntaxBuilder, ModuleBodySyntaxBuilder,
     ModuleDirectivesSyntaxBuilder, NamedTraitImplementationDeclarationSyntaxBuilder,
@@ -11,12 +12,14 @@ use bray_syntax::{
     SourceUnitModuleDeclarationSyntaxBuilder, SourceUnitSyntaxBuilder, StructBodySyntaxBuilder,
     StructDeclarationSyntaxBuilder, StructFieldDeclarationSyntaxBuilder, SyntaxKind, SyntaxToken,
     TargetDirectiveSyntaxBuilder, TraitApplicationSyntaxBuilder, TraitBodySyntaxBuilder,
-    TraitCallableMemberDeclarationSyntaxBuilder, TraitDeclarationSyntaxBuilder,
-    TraitImplementationBodySyntaxBuilder, TypeCallableMemberDeclarationSyntaxBuilder,
-    TypeDirectivesSyntaxBuilder, UnionBodySyntaxBuilder, UnionDeclarationSyntaxBuilder,
-    UnionPayloadFieldSyntaxBuilder, UnionVariantDeclarationSyntaxBuilder,
-    UnionVariantPayloadSyntaxBuilder, UnnamedTraitImplementationDeclarationSyntaxBuilder,
-    UsingDeclarationSyntaxBuilder, VariantDirectivesSyntaxBuilder,
+    TraitCallableMemberDeclarationSyntaxBuilder, TraitConstantMemberDeclarationSyntaxBuilder,
+    TraitDeclarationSyntaxBuilder, TraitImplementationBodySyntaxBuilder,
+    TraitImplementationConstantMemberDefinitionSyntaxBuilder,
+    TypeCallableMemberDeclarationSyntaxBuilder, TypeDirectivesSyntaxBuilder,
+    UnionBodySyntaxBuilder, UnionDeclarationSyntaxBuilder, UnionPayloadFieldSyntaxBuilder,
+    UnionVariantDeclarationSyntaxBuilder, UnionVariantPayloadSyntaxBuilder,
+    UnnamedTraitImplementationDeclarationSyntaxBuilder, UsingDeclarationSyntaxBuilder,
+    VariantDirectivesSyntaxBuilder,
 };
 
 use crate::cursor::RecoverySet;
@@ -266,6 +269,12 @@ impl RecoverySyntaxSink for ExportDeclarationSyntaxBuilder {
     }
 }
 
+impl RecoverySyntaxSink for ConstantDeclarationSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        ConstantDeclarationSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
 impl RecoverySyntaxSink for ModuleDirectivesSyntaxBuilder {
     fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
         ModuleDirectivesSyntaxBuilder::push_skipped_tokens(self, tokens);
@@ -431,6 +440,18 @@ impl RecoverySyntaxSink for TypeCallableMemberDeclarationSyntaxBuilder {
 impl RecoverySyntaxSink for TraitCallableMemberDeclarationSyntaxBuilder {
     fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
         TraitCallableMemberDeclarationSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for TraitConstantMemberDeclarationSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        TraitConstantMemberDeclarationSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for TraitImplementationConstantMemberDefinitionSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        TraitImplementationConstantMemberDefinitionSyntaxBuilder::push_skipped_tokens(self, tokens);
     }
 }
 
