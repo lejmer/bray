@@ -11,6 +11,7 @@ define_source_syntax_node! {
         range_description: "module-body",
         debug_name: "ModuleBodySyntax",
         builder_debug_name: "ModuleBodySyntaxBuilder",
+        // TODO(syntax): Replace skipped syntax with typed module body items.
         skipped_syntax: true,
         required_tokens: [
             {

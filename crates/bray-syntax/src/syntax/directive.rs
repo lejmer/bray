@@ -11,6 +11,7 @@ define_source_syntax_node! {
         range_description: "directive-argument-list",
         debug_name: "DirectiveArgumentListSyntax",
         builder_debug_name: "DirectiveArgumentListSyntaxBuilder",
+        // TODO(syntax): Replace skipped syntax with typed directive argument items.
         skipped_syntax: true,
         required_tokens: [
             {
@@ -45,6 +46,7 @@ define_source_syntax_node! {
         range_description: "target-directive",
         debug_name: "TargetDirectiveSyntax",
         builder_debug_name: "TargetDirectiveSyntaxBuilder",
+        // TODO(syntax): Replace skipped syntax with typed target directive arguments.
         skipped_syntax: true,
         required_tokens: [
             {

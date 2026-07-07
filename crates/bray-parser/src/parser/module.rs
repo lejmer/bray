@@ -140,6 +140,7 @@ impl Parser {
         builder.push_directive_marker_token(self.expect(SyntaxKind::AtToken));
         builder.push_name_token(self.expect(SyntaxKind::IdentifierToken));
         builder.push_open_paren_token(self.expect(SyntaxKind::OpenParenToken));
+        // TODO(parser): Parse target directive arguments once directive arguments are implemented.
         self.recover_until_balanced_close_paren(&mut builder, &DIRECTIVE_ARGUMENT_RECOVERY_KINDS);
         builder.push_close_paren_token(self.expect(SyntaxKind::CloseParenToken));
 
@@ -172,6 +173,7 @@ impl Parser {
         let mut builder = DirectiveArgumentListSyntax::builder(self.syntax_source(), start);
 
         builder.push_open_paren_token(self.expect(SyntaxKind::OpenParenToken));
+        // TODO(parser): Parse directive argument items once directive arguments are implemented.
         self.recover_until_balanced_close_paren(&mut builder, &DIRECTIVE_ARGUMENT_RECOVERY_KINDS);
         builder.push_close_paren_token(self.expect(SyntaxKind::CloseParenToken));
 
@@ -229,6 +231,7 @@ impl Parser {
         let mut builder = ModuleBodySyntax::builder(self.syntax_source(), start);
 
         builder.push_open_brace_token(self.expect(SyntaxKind::OpenBraceToken));
+        // TODO(parser): Parse module body items once declarations are implemented.
         self.recover_until_balanced_close_brace(&mut builder);
         builder.push_close_brace_token(self.expect(SyntaxKind::CloseBraceToken));
 
@@ -252,6 +255,7 @@ impl Parser {
     ) {
         let start = self.peek().start();
 
+        // TODO(parser): Replace this with real module item parsing as declarations are implemented.
         if self.recover_until(builder, terminators) || self.peek().start() != start {
             return;
         }
