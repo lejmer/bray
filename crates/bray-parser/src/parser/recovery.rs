@@ -1,21 +1,28 @@
 use bray_syntax::{
     BlockModuleDeclarationSyntaxBuilder, CallableBodyBlockExpressionSyntaxBuilder,
     CallableContractDeclarationSyntaxBuilder, CallableResultClauseSyntaxBuilder,
-    ConstantDeclarationSyntaxBuilder, DirectiveArgumentListSyntaxBuilder,
-    ExportDeclarationSyntaxBuilder, FunctionDeclarationSyntaxBuilder,
+    ConstantDeclarationSyntaxBuilder, DestructorMemberDeclarationSyntaxBuilder,
+    DirectiveArgumentListSyntaxBuilder, ExportDeclarationSyntaxBuilder,
+    FinalizerMemberDeclarationSyntaxBuilder, FunctionDeclarationSyntaxBuilder,
     FunctionDirectivesSyntaxBuilder, IdentifierListSyntaxBuilder,
     ImplementationSubjectSyntaxBuilder, InherentImplementationBodySyntaxBuilder,
     InherentImplementationDeclarationSyntaxBuilder, ModuleBodySyntaxBuilder,
     ModuleDirectivesSyntaxBuilder, NamedTraitImplementationDeclarationSyntaxBuilder,
     ParameterListSyntaxBuilder, ParameterSyntaxBuilder, PredicateDeclarationSyntaxBuilder,
     PredicateParameterListSyntaxBuilder, PredicateParameterSyntaxBuilder,
+    ScopeEnterMemberDeclarationSyntaxBuilder, ScopeExitMemberDeclarationSyntaxBuilder,
     SourceUnitModuleDeclarationSyntaxBuilder, SourceUnitSyntaxBuilder, StructBodySyntaxBuilder,
     StructDeclarationSyntaxBuilder, StructFieldDeclarationSyntaxBuilder, SyntaxKind, SyntaxToken,
     TargetDirectiveSyntaxBuilder, TraitApplicationSyntaxBuilder, TraitBodySyntaxBuilder,
     TraitCallableMemberDeclarationSyntaxBuilder, TraitConstantMemberDeclarationSyntaxBuilder,
-    TraitDeclarationSyntaxBuilder, TraitImplementationBodySyntaxBuilder,
+    TraitDeclarationSyntaxBuilder, TraitDestructorRequirementDeclarationSyntaxBuilder,
+    TraitFinalizerRequirementDeclarationSyntaxBuilder, TraitImplementationBodySyntaxBuilder,
     TraitImplementationConstantMemberDefinitionSyntaxBuilder,
-    TypeCallableMemberDeclarationSyntaxBuilder, TypeDirectivesSyntaxBuilder,
+    TraitImplementationScopeEnterMemberDeclarationSyntaxBuilder,
+    TraitImplementationScopeExitMemberDeclarationSyntaxBuilder,
+    TraitScopeEnterRequirementDeclarationSyntaxBuilder,
+    TraitScopeExitRequirementDeclarationSyntaxBuilder, TypeCallableMemberDeclarationSyntaxBuilder,
+    TypeConstructorMemberDeclarationSyntaxBuilder, TypeDirectivesSyntaxBuilder,
     UnionBodySyntaxBuilder, UnionDeclarationSyntaxBuilder, UnionPayloadFieldSyntaxBuilder,
     UnionVariantDeclarationSyntaxBuilder, UnionVariantPayloadSyntaxBuilder,
     UnnamedTraitImplementationDeclarationSyntaxBuilder, UsingDeclarationSyntaxBuilder,
@@ -437,6 +444,36 @@ impl RecoverySyntaxSink for TypeCallableMemberDeclarationSyntaxBuilder {
     }
 }
 
+impl RecoverySyntaxSink for TypeConstructorMemberDeclarationSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        TypeConstructorMemberDeclarationSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for FinalizerMemberDeclarationSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        FinalizerMemberDeclarationSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for DestructorMemberDeclarationSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        DestructorMemberDeclarationSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for ScopeEnterMemberDeclarationSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        ScopeEnterMemberDeclarationSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for ScopeExitMemberDeclarationSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        ScopeExitMemberDeclarationSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
 impl RecoverySyntaxSink for TraitCallableMemberDeclarationSyntaxBuilder {
     fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
         TraitCallableMemberDeclarationSyntaxBuilder::push_skipped_tokens(self, tokens);
@@ -449,9 +486,49 @@ impl RecoverySyntaxSink for TraitConstantMemberDeclarationSyntaxBuilder {
     }
 }
 
+impl RecoverySyntaxSink for TraitFinalizerRequirementDeclarationSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        TraitFinalizerRequirementDeclarationSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for TraitDestructorRequirementDeclarationSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        TraitDestructorRequirementDeclarationSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for TraitScopeEnterRequirementDeclarationSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        TraitScopeEnterRequirementDeclarationSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for TraitScopeExitRequirementDeclarationSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        TraitScopeExitRequirementDeclarationSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
 impl RecoverySyntaxSink for TraitImplementationConstantMemberDefinitionSyntaxBuilder {
     fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
         TraitImplementationConstantMemberDefinitionSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for TraitImplementationScopeEnterMemberDeclarationSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        TraitImplementationScopeEnterMemberDeclarationSyntaxBuilder::push_skipped_tokens(
+            self, tokens,
+        );
+    }
+}
+
+impl RecoverySyntaxSink for TraitImplementationScopeExitMemberDeclarationSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        TraitImplementationScopeExitMemberDeclarationSyntaxBuilder::push_skipped_tokens(
+            self, tokens,
+        );
     }
 }
 

@@ -93,19 +93,26 @@ impl Parser {
             || self.at(SyntaxKind::CloseBraceToken)
             || self.at(SyntaxKind::EndOfFileToken)
             || self.at_probable_struct_field_start()
-            || self.should_parse_type_callable_member_declaration()
+            || self.at_following_type_member_start()
     }
 
     fn at_struct_field_type_boundary(&mut self) -> bool {
         self.at_any(&STRUCT_FIELD_TYPE_BOUNDARY_KINDS)
             || self.at_probable_struct_field_start()
-            || self.should_parse_type_callable_member_declaration()
+            || self.at_following_type_member_start()
     }
 
     fn at_struct_field_default_boundary(&mut self) -> bool {
         self.at_any(&STRUCT_FIELD_DEFAULT_BOUNDARY_KINDS)
             || self.at_probable_struct_field_start()
-            || self.should_parse_type_callable_member_declaration()
+            || self.at_following_type_member_start()
+    }
+
+    fn at_following_type_member_start(&mut self) -> bool {
+        self.should_parse_type_callable_member_declaration()
+            || self.should_parse_type_constructor_member_declaration()
+            || self.should_parse_type_lifecycle_member_declaration()
+            || self.should_parse_constant_declaration()
     }
 
     pub(super) fn should_parse_struct_field_declaration(&mut self) -> bool {

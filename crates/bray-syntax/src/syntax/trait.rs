@@ -1,5 +1,9 @@
 use super::constant::TraitConstantMemberDeclarationSyntax;
-use super::member::TraitCallableMemberDeclarationSyntax;
+use super::member::{
+    TraitCallableMemberDeclarationSyntax, TraitDestructorRequirementDeclarationSyntax,
+    TraitFinalizerRequirementDeclarationSyntax, TraitScopeEnterRequirementDeclarationSyntax,
+    TraitScopeExitRequirementDeclarationSyntax,
+};
 use crate::node::define_source_syntax_node;
 use crate::{SyntaxKind, SyntaxToken};
 
@@ -79,6 +83,38 @@ define_source_syntax_node! {
                 push_trait_constant_member_declaration;
                 ty: TraitConstantMemberDeclarationSyntax;
                 kind: SyntaxKind::TraitConstantMemberDeclaration;
+            },
+            {
+                /// Returns trait finalizer requirement declarations in source order.
+                trait_finalizer_requirement_declarations;
+                /// Appends a trait finalizer requirement declaration.
+                push_trait_finalizer_requirement_declaration;
+                ty: TraitFinalizerRequirementDeclarationSyntax;
+                kind: SyntaxKind::TraitFinalizerRequirementDeclaration;
+            },
+            {
+                /// Returns trait destructor requirement declarations in source order.
+                trait_destructor_requirement_declarations;
+                /// Appends a trait destructor requirement declaration.
+                push_trait_destructor_requirement_declaration;
+                ty: TraitDestructorRequirementDeclarationSyntax;
+                kind: SyntaxKind::TraitDestructorRequirementDeclaration;
+            },
+            {
+                /// Returns trait scope-enter requirement declarations in source order.
+                trait_scope_enter_requirement_declarations;
+                /// Appends a trait scope-enter requirement declaration.
+                push_trait_scope_enter_requirement_declaration;
+                ty: TraitScopeEnterRequirementDeclarationSyntax;
+                kind: SyntaxKind::TraitScopeEnterRequirementDeclaration;
+            },
+            {
+                /// Returns trait scope-exit requirement declarations in source order.
+                trait_scope_exit_requirement_declarations;
+                /// Appends a trait scope-exit requirement declaration.
+                push_trait_scope_exit_requirement_declaration;
+                ty: TraitScopeExitRequirementDeclarationSyntax;
+                kind: SyntaxKind::TraitScopeExitRequirementDeclaration;
             },
             {
                 /// Returns trait callable member declarations in source order.

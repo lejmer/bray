@@ -670,20 +670,28 @@ mod tests {
         keyword, snapshot as test_snapshot, token, trait_application, trait_implementation_body,
     };
     use crate::{
-        BlockModuleDeclarationSyntax, CallableBodyBlockExpressionSyntax,
-        CallableContractDeclarationSyntax, CallableResultClauseSyntax, ConstantDeclarationSyntax,
-        ConstantModifiersSyntax, ExportDeclarationSyntax, FunctionDeclarationSyntax,
+        AsyncCapableLifecycleMemberModifiersSyntax, BlockModuleDeclarationSyntax,
+        CallableBodyBlockExpressionSyntax, CallableContractDeclarationSyntax,
+        CallableResultClauseSyntax, ConstantDeclarationSyntax, ConstantModifiersSyntax,
+        ConstructorMemberModifiersSyntax, DestructorMemberDeclarationSyntax,
+        ExportDeclarationSyntax, FinalizerMemberDeclarationSyntax, FunctionDeclarationSyntax,
         FunctionDirectivesSyntax, FunctionModifiersSyntax, IdentifierListItemSyntax,
         IdentifierListSyntax, ImplementationSubjectSyntax, InherentImplementationBodySyntax,
         InherentImplementationDeclarationSyntax, ModuleBodySyntax, ModuleDirectivesSyntax,
         ModuleModifiersSyntax, NamedTraitImplementationDeclarationSyntax, ParameterListSyntax,
         ParameterModifiersSyntax, ParameterSyntax, PathSyntax, PredicateDeclarationSyntax,
-        SourceSyntaxNode, SourceUnitModuleDeclarationSyntax, StructDeclarationSyntax, SyntaxKind,
-        SyntaxNode, SyntaxText, SyntaxToken, SyntaxTrivia, TraitApplicationSyntax, TraitBodySyntax,
+        ScopeEnterMemberDeclarationSyntax, ScopeExitMemberDeclarationSyntax, SourceSyntaxNode,
+        SourceUnitModuleDeclarationSyntax, StructDeclarationSyntax,
+        SyncLifecycleMemberModifiersSyntax, SyntaxKind, SyntaxNode, SyntaxText, SyntaxToken,
+        SyntaxTrivia, TraitApplicationSyntax, TraitBodySyntax,
         TraitConstantMemberDeclarationSyntax, TraitDeclarationSyntax,
+        TraitDestructorRequirementDeclarationSyntax, TraitFinalizerRequirementDeclarationSyntax,
         TraitImplementationBodySyntax, TraitImplementationConstantMemberDefinitionSyntax,
-        TraitModifiersSyntax, UnionDeclarationSyntax, UnnamedTraitImplementationDeclarationSyntax,
-        UsingDeclarationSyntax,
+        TraitImplementationScopeEnterMemberDeclarationSyntax,
+        TraitImplementationScopeExitMemberDeclarationSyntax, TraitModifiersSyntax,
+        TraitScopeEnterRequirementDeclarationSyntax, TraitScopeExitRequirementDeclarationSyntax,
+        TypeConstructorMemberDeclarationSyntax, UnionDeclarationSyntax,
+        UnnamedTraitImplementationDeclarationSyntax, UsingDeclarationSyntax,
     };
 
     #[test]
@@ -1164,6 +1172,10 @@ mod tests {
         assert_send_sync::<TraitModifiersSyntax>();
         assert_send_sync::<TraitBodySyntax>();
         assert_send_sync::<TraitConstantMemberDeclarationSyntax>();
+        assert_send_sync::<TraitFinalizerRequirementDeclarationSyntax>();
+        assert_send_sync::<TraitDestructorRequirementDeclarationSyntax>();
+        assert_send_sync::<TraitScopeEnterRequirementDeclarationSyntax>();
+        assert_send_sync::<TraitScopeExitRequirementDeclarationSyntax>();
         assert_send_sync::<ImplementationSubjectSyntax>();
         assert_send_sync::<TraitApplicationSyntax>();
         assert_send_sync::<InherentImplementationDeclarationSyntax>();
@@ -1172,6 +1184,16 @@ mod tests {
         assert_send_sync::<NamedTraitImplementationDeclarationSyntax>();
         assert_send_sync::<TraitImplementationBodySyntax>();
         assert_send_sync::<TraitImplementationConstantMemberDefinitionSyntax>();
+        assert_send_sync::<TraitImplementationScopeEnterMemberDeclarationSyntax>();
+        assert_send_sync::<TraitImplementationScopeExitMemberDeclarationSyntax>();
+        assert_send_sync::<ConstructorMemberModifiersSyntax>();
+        assert_send_sync::<TypeConstructorMemberDeclarationSyntax>();
+        assert_send_sync::<AsyncCapableLifecycleMemberModifiersSyntax>();
+        assert_send_sync::<SyncLifecycleMemberModifiersSyntax>();
+        assert_send_sync::<FinalizerMemberDeclarationSyntax>();
+        assert_send_sync::<DestructorMemberDeclarationSyntax>();
+        assert_send_sync::<ScopeEnterMemberDeclarationSyntax>();
+        assert_send_sync::<ScopeExitMemberDeclarationSyntax>();
         assert_send_sync::<ParameterListSyntax>();
         assert_send_sync::<ParameterSyntax>();
         assert_send_sync::<ParameterModifiersSyntax>();
