@@ -18,13 +18,15 @@ pub use node::{SourceSyntaxNode, SyntaxNode};
 pub use syntax::{
     BlockModuleDeclarationSyntax, BlockModuleDeclarationSyntaxBuilder, CompilationUnitSyntax,
     CompilationUnitSyntaxBuilder, DirectiveArgumentListSyntax, DirectiveArgumentListSyntaxBuilder,
-    IdentifierListItemSyntax, IdentifierListItemSyntaxBuilder, IdentifierListSyntax,
-    IdentifierListSyntaxBuilder, LinkDirectiveSyntax, LinkDirectiveSyntaxBuilder, ModuleBodySyntax,
-    ModuleBodySyntaxBuilder, ModuleDirectivesSyntax, ModuleDirectivesSyntaxBuilder,
-    ModuleModifiersSyntax, ModuleModifiersSyntaxBuilder, PathSyntax, PathSyntaxBuilder,
-    SkippedSyntax, SourceUnitModuleDeclarationSyntax, SourceUnitModuleDeclarationSyntaxBuilder,
-    SourceUnitSyntax, SourceUnitSyntaxBuilder, TargetDirectiveSyntax, TargetDirectiveSyntaxBuilder,
-    TestDirectiveSyntax, TestDirectiveSyntaxBuilder,
+    ExportDeclarationSyntax, ExportDeclarationSyntaxBuilder, IdentifierListItemSyntax,
+    IdentifierListItemSyntaxBuilder, IdentifierListSyntax, IdentifierListSyntaxBuilder,
+    LinkDirectiveSyntax, LinkDirectiveSyntaxBuilder, ModuleBodySyntax, ModuleBodySyntaxBuilder,
+    ModuleDirectivesSyntax, ModuleDirectivesSyntaxBuilder, ModuleModifiersSyntax,
+    ModuleModifiersSyntaxBuilder, PathSyntax, PathSyntaxBuilder, SkippedSyntax,
+    SourceUnitModuleDeclarationSyntax, SourceUnitModuleDeclarationSyntaxBuilder, SourceUnitSyntax,
+    SourceUnitSyntaxBuilder, TargetDirectiveSyntax, TargetDirectiveSyntaxBuilder,
+    TestDirectiveSyntax, TestDirectiveSyntaxBuilder, UsingDeclarationSyntax,
+    UsingDeclarationSyntaxBuilder,
 };
 pub use text::SyntaxText;
 pub use token::{SyntaxToken, SyntaxTokenPresence};

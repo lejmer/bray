@@ -1,3 +1,4 @@
+use super::item::{ExportDeclarationSyntax, UsingDeclarationSyntax};
 use crate::SyntaxKind;
 use crate::node::define_source_syntax_node;
 
@@ -11,7 +12,6 @@ define_source_syntax_node! {
         range_description: "module-body",
         debug_name: "ModuleBodySyntax",
         builder_debug_name: "ModuleBodySyntaxBuilder",
-        // TODO(syntax): Replace skipped syntax with typed module body items.
         skipped_syntax: true,
         required_tokens: [
             {
@@ -33,5 +33,23 @@ define_source_syntax_node! {
         ],
         optional_tokens: [],
         required_children: [],
+        repeated_children: [
+            {
+                /// Returns direct `using` declaration children in source order.
+                using_declarations;
+                /// Appends a `using` declaration child in source order.
+                push_using_declaration;
+                ty: UsingDeclarationSyntax;
+                kind: SyntaxKind::UsingDeclaration;
+            },
+            {
+                /// Returns direct `export` declaration children in source order.
+                export_declarations;
+                /// Appends an `export` declaration child in source order.
+                push_export_declaration;
+                ty: ExportDeclarationSyntax;
+                kind: SyntaxKind::ExportDeclaration;
+            }
+        ],
     }
 }

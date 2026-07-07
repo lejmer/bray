@@ -15,10 +15,12 @@ pub use list::{
     IdentifierListSyntaxBuilder,
 };
 pub use module::{
-    BlockModuleDeclarationSyntax, BlockModuleDeclarationSyntaxBuilder, ModuleBodySyntax,
-    ModuleBodySyntaxBuilder, ModuleDirectivesSyntax, ModuleDirectivesSyntaxBuilder,
-    ModuleModifiersSyntax, ModuleModifiersSyntaxBuilder, SourceUnitModuleDeclarationSyntax,
-    SourceUnitModuleDeclarationSyntaxBuilder,
+    BlockModuleDeclarationSyntax, BlockModuleDeclarationSyntaxBuilder, ExportDeclarationSyntax,
+    ExportDeclarationSyntaxBuilder, ModuleBodySyntax, ModuleBodySyntaxBuilder,
+    ModuleDirectivesSyntax, ModuleDirectivesSyntaxBuilder, ModuleModifiersSyntax,
+    ModuleModifiersSyntaxBuilder, SourceUnitModuleDeclarationSyntax,
+    SourceUnitModuleDeclarationSyntaxBuilder, UsingDeclarationSyntax,
+    UsingDeclarationSyntaxBuilder,
 };
 pub use path::{PathSyntax, PathSyntaxBuilder};
 pub use recovery::SkippedSyntax;

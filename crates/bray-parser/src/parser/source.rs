@@ -14,7 +14,6 @@ impl Parser {
             let declaration = self.parse_source_unit_module_declaration();
 
             builder.push_source_unit_module_declaration(declaration);
-            // TODO(parser): Parse source-unit module items once declarations are implemented.
             self.parse_module_items(&mut builder, &SOURCE_UNIT_ITEM_TERMINATORS);
         }
 

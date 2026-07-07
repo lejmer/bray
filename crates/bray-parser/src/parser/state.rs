@@ -112,8 +112,12 @@ impl Parser {
         self.cursor.skip_one()
     }
 
-    pub(super) fn skip_until_balanced_close_brace(&mut self) -> Vec<SyntaxToken> {
-        self.cursor.skip_until_balanced_close_brace()
+    pub(super) fn skip_until_balanced_close_brace_or_recovery(
+        &mut self,
+        recovery_set: crate::cursor::RecoverySet<'_>,
+    ) -> Vec<SyntaxToken> {
+        self.cursor
+            .skip_until_balanced_close_brace_or_recovery(recovery_set)
     }
 
     pub(super) fn skip_until_balanced_close_paren(

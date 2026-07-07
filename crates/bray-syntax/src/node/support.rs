@@ -41,6 +41,19 @@ pub(crate) fn required_child_node<T>(
     }
 }
 
+pub(crate) fn child_nodes<'syntax, T>(
+    source: &'syntax SourceSnapshot,
+    node: &'syntax GreenNode,
+    start: TextSize,
+    kind: SyntaxKind,
+    wrap: impl Fn(SourceSnapshot, GreenNode, TextSize) -> T + 'syntax,
+) -> impl Iterator<Item = T> + 'syntax {
+    node.child_nodes(start, kind).map(move |(node, start)| {
+        // SourceSnapshot clones share immutable source text with typed child nodes.
+        wrap(source.clone(), node, start)
+    })
+}
+
 pub(crate) fn skipped_syntax<'syntax>(
     source: &'syntax SourceSnapshot,
     node: &'syntax GreenNode,
