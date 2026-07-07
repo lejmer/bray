@@ -352,9 +352,9 @@ mod tests {
     use super::{CompilationUnitSyntax, SourceUnitSyntax};
     use crate::{
         BlockModuleDeclarationSyntax, IdentifierListItemSyntax, IdentifierListSyntax,
-        ModuleBodySyntax, ModuleModifiersSyntax, PathSyntax, SourceSyntaxNode,
-        SourceUnitModuleDeclarationSyntax, SyntaxKind, SyntaxNode, SyntaxText, SyntaxToken,
-        SyntaxTrivia,
+        ModuleBodySyntax, ModuleDirectivesSyntax, ModuleModifiersSyntax, PathSyntax,
+        SourceSyntaxNode, SourceUnitModuleDeclarationSyntax, SyntaxKind, SyntaxNode, SyntaxText,
+        SyntaxToken, SyntaxTrivia,
     };
 
     #[test]
@@ -473,6 +473,7 @@ mod tests {
     #[test]
     fn source_units_attach_skipped_syntax_without_losing_source_text() {
         let snapshot = snapshot("func @ main");
+
         let func = SyntaxToken::new(
             SyntaxKind::FuncKeyword,
             TextRange::new(TextSize::ZERO, TextSize::new(4)),
@@ -506,6 +507,7 @@ mod tests {
         let skipped_syntax = source_unit.skipped_syntax().collect::<Vec<_>>();
 
         assert_eq!(source_unit.full_text(), "func @ main");
+
         assert_eq!(
             source_unit.tokens().collect::<Vec<_>>(),
             [func, skipped_token.clone(), main, eof]
@@ -517,10 +519,12 @@ mod tests {
 
         assert_eq!(skipped.kind(), SyntaxKind::SkippedSyntax);
         assert!(skipped.is_recovered());
+
         assert_eq!(
             skipped.full_range(),
             TextRange::new(TextSize::new(5), TextSize::new(7))
         );
+
         assert_eq!(skipped.tokens().collect::<Vec<_>>(), [skipped_token]);
         assert_eq!(skipped.full_text(), "@ ");
     }
@@ -588,14 +592,17 @@ mod tests {
 
         assert_eq!(source_unit.full_text(), "module main;");
         assert_eq!(declaration.full_text(), "module main;");
+
         assert_eq!(
             declaration.module_keyword().kind(),
             SyntaxKind::ModuleKeyword
         );
+
         assert_eq!(
             declaration.semicolon_token().kind(),
             SyntaxKind::SemicolonToken
         );
+
         assert_eq!(declaration.module_path().full_text(), "main");
         assert!(source_unit.block_module_declarations().next().is_none());
     }
@@ -619,10 +626,12 @@ mod tests {
 
         assert_eq!(source_unit.full_text(), "module main {}");
         assert!(source_unit.source_unit_module_declaration().is_none());
+
         assert_eq!(
             declaration.module_keyword().kind(),
             SyntaxKind::ModuleKeyword
         );
+
         assert_eq!(declaration.module_path().full_text(), "main ");
         assert_eq!(declaration.module_body().full_text(), "{}");
     }
@@ -646,6 +655,7 @@ mod tests {
         assert_send_sync::<SourceUnitSyntax>();
         assert_send_sync::<SourceUnitModuleDeclarationSyntax>();
         assert_send_sync::<BlockModuleDeclarationSyntax>();
+        assert_send_sync::<ModuleDirectivesSyntax>();
         assert_send_sync::<ModuleModifiersSyntax>();
         assert_send_sync::<ModuleBodySyntax>();
         assert_send_sync::<PathSyntax>();
@@ -671,6 +681,9 @@ mod tests {
         let mut builder =
             SourceUnitModuleDeclarationSyntax::builder(snapshot.clone(), TextSize::ZERO);
 
+        builder.push_module_directives(
+            ModuleDirectivesSyntax::builder(snapshot.clone(), TextSize::ZERO).build(),
+        );
         builder.push_module_modifiers(
             ModuleModifiersSyntax::builder(snapshot.clone(), TextSize::ZERO).build(),
         );
@@ -687,6 +700,9 @@ mod tests {
     fn block_module_declaration(snapshot: SourceSnapshot) -> BlockModuleDeclarationSyntax {
         let mut builder = BlockModuleDeclarationSyntax::builder(snapshot.clone(), TextSize::ZERO);
 
+        builder.push_module_directives(
+            ModuleDirectivesSyntax::builder(snapshot.clone(), TextSize::ZERO).build(),
+        );
         builder.push_module_modifiers(
             ModuleModifiersSyntax::builder(snapshot.clone(), TextSize::ZERO).build(),
         );

@@ -1,4 +1,5 @@
 use super::body::ModuleBodySyntax;
+use super::directives::ModuleDirectivesSyntax;
 use super::modifiers::ModuleModifiersSyntax;
 use crate::SyntaxKind;
 use crate::node::define_source_syntax_node;
@@ -35,6 +36,14 @@ define_source_syntax_node! {
         ],
         optional_tokens: [],
         required_children: [
+            {
+                /// Returns the module-directives child.
+                module_directives;
+                /// Appends the module-directives child.
+                push_module_directives;
+                ty: ModuleDirectivesSyntax;
+                kind: SyntaxKind::ModuleDirectives;
+            },
             {
                 /// Returns the module-modifiers child.
                 module_modifiers;
@@ -78,6 +87,14 @@ define_source_syntax_node! {
         ],
         optional_tokens: [],
         required_children: [
+            {
+                /// Returns the module-directives child.
+                module_directives;
+                /// Appends the module-directives child.
+                push_module_directives;
+                ty: ModuleDirectivesSyntax;
+                kind: SyntaxKind::ModuleDirectives;
+            },
             {
                 /// Returns the module-modifiers child.
                 module_modifiers;

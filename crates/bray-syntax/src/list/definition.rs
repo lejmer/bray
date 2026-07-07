@@ -1,4 +1,4 @@
-macro_rules! define_separated_list_syntax {
+macro_rules! define_list_syntax {
     (
         $(#[$list_meta:meta])*
         $visibility:vis struct $list_syntax:ident {
@@ -6,23 +6,120 @@ macro_rules! define_separated_list_syntax {
             item: $item_syntax:ident,
             kind: $list_kind:path,
             item_kind: $item_kind:path,
-            separator_kind: $separator_kind:path,
             items: $items_method:ident,
-            separators: $separator_tokens_method:ident,
             source_slot: $source_slot:literal,
             range_description: $range_description:literal,
             debug_name: $debug_name:literal,
             builder_debug_name: $builder_debug_name:literal $(,)?
         }
+        separator: {
+            kind: $separator_kind:path,
+            tokens: $separator_tokens_method:ident $(,)?
+        } $(,)?
+    ) => {
+        $crate::list::define_list_syntax! {
+            @definition
+            $(#[$list_meta])*
+            $visibility struct $list_syntax {
+                builder: $builder_syntax,
+                item: $item_syntax,
+                kind: $list_kind,
+                item_kind: $item_kind,
+                items: $items_method,
+                source_slot: $source_slot,
+                range_description: $range_description,
+                debug_name: $debug_name,
+                builder_debug_name: $builder_debug_name,
+                builder_new: $crate::list::SyntaxListBuilder::with_separator(
+                    $list_kind,
+                    $separator_kind,
+                ),
+                separator_methods: [
+                    /// Returns separator tokens in source order.
+                    pub fn $separator_tokens_method(
+                        &self,
+                    ) -> impl Iterator<Item = $crate::SyntaxToken> + '_ {
+                        self.list.separator_tokens($separator_kind)
+                    }
+                ],
+                builder_separator_methods: [
+                    /// Appends a separator token in source order.
+                    pub fn push_separator_token(&mut self, token: $crate::SyntaxToken) {
+                        self.list.push_separator_token(token);
+                    }
+
+                    /// Appends a separator token in source order.
+                    pub fn separator_token(mut self, token: $crate::SyntaxToken) -> Self {
+                        self.push_separator_token(token);
+
+                        self
+                    }
+                ],
+            }
+        }
+    };
+
+    (
+        $(#[$list_meta:meta])*
+        $visibility:vis struct $list_syntax:ident {
+            builder: $builder_syntax:ident,
+            item: $item_syntax:ident,
+            kind: $list_kind:path,
+            item_kind: $item_kind:path,
+            items: $items_method:ident,
+            source_slot: $source_slot:literal,
+            range_description: $range_description:literal,
+            debug_name: $debug_name:literal,
+            builder_debug_name: $builder_debug_name:literal $(,)?
+        }
+        separator: none $(,)?
+    ) => {
+        $crate::list::define_list_syntax! {
+            @definition
+            $(#[$list_meta])*
+            $visibility struct $list_syntax {
+                builder: $builder_syntax,
+                item: $item_syntax,
+                kind: $list_kind,
+                item_kind: $item_kind,
+                items: $items_method,
+                source_slot: $source_slot,
+                range_description: $range_description,
+                debug_name: $debug_name,
+                builder_debug_name: $builder_debug_name,
+                builder_new: $crate::list::SyntaxListBuilder::new($list_kind),
+                separator_methods: [],
+                builder_separator_methods: [],
+            }
+        }
+    };
+
+    (
+        @definition
+        $(#[$list_meta:meta])*
+        $visibility:vis struct $list_syntax:ident {
+            builder: $builder_syntax:ident,
+            item: $item_syntax:ident,
+            kind: $list_kind:path,
+            item_kind: $item_kind:path,
+            items: $items_method:ident,
+            source_slot: $source_slot:literal,
+            range_description: $range_description:literal,
+            debug_name: $debug_name:literal,
+            builder_debug_name: $builder_debug_name:literal,
+            builder_new: $builder_new:expr,
+            separator_methods: [$($separator_methods:item)*],
+            builder_separator_methods: [$($builder_separator_methods:item)*] $(,)?
+        }
     ) => {
         $(#[$list_meta])*
         #[derive(Clone, Eq, Hash, PartialEq)]
         $visibility struct $list_syntax {
-            list: $crate::separated::SeparatedSyntaxList,
+            list: $crate::list::SyntaxList,
         }
 
         impl $list_syntax {
-            /// Creates a builder for this separated-list node at `start`.
+            /// Creates a builder for this list node at `start`.
             ///
             /// `start` is the source offset where the list begins, including leading
             /// trivia for its first child when present.
@@ -39,7 +136,7 @@ macro_rules! define_separated_list_syntax {
                 start: bray_source::TextSize,
             ) -> Self {
                 Self {
-                    list: $crate::separated::SeparatedSyntaxList::from_green(
+                    list: $crate::list::SyntaxList::from_green(
                         source,
                         node,
                         start,
@@ -54,7 +151,7 @@ macro_rules! define_separated_list_syntax {
 
             fn from_builder(builder: $builder_syntax) -> Self {
                 Self {
-                    list: $crate::separated::SeparatedSyntaxList::from_green(
+                    list: $crate::list::SyntaxList::from_green(
                         builder.source.into_value(),
                         builder.list.build(),
                         builder.start,
@@ -81,12 +178,7 @@ macro_rules! define_separated_list_syntax {
                 })
             }
 
-            /// Returns separator tokens in source order.
-            pub fn $separator_tokens_method(
-                &self,
-            ) -> impl Iterator<Item = $crate::SyntaxToken> + '_ {
-                self.list.separator_tokens($separator_kind)
-            }
+            $($separator_methods)*
 
             /// Returns descendant syntax tokens in source order.
             pub fn tokens(&self) -> impl Iterator<Item = $crate::SyntaxToken> + '_ {
@@ -135,15 +227,15 @@ macro_rules! define_separated_list_syntax {
             }
         }
 
-        /// Builder for this separated-list syntax node.
+        /// Builder for this list syntax node.
         $visibility struct $builder_syntax {
             source: $crate::builder::RequiredSyntaxSlot<bray_source::SourceSnapshot>,
             start: bray_source::TextSize,
-            list: $crate::separated::SeparatedSyntaxListBuilder,
+            list: $crate::list::SyntaxListBuilder,
         }
 
         impl $builder_syntax {
-            /// Creates an empty separated-list builder starting at `start`.
+            /// Creates an empty list builder starting at `start`.
             pub fn new(source: bray_source::SourceSnapshot, start: bray_source::TextSize) -> Self {
                 let mut source_slot = $crate::builder::RequiredSyntaxSlot::new($source_slot);
 
@@ -152,10 +244,7 @@ macro_rules! define_separated_list_syntax {
                 Self {
                     source: source_slot,
                     start,
-                    list: $crate::separated::SeparatedSyntaxListBuilder::new(
-                        $list_kind,
-                        $separator_kind,
-                    ),
+                    list: $builder_new,
                 }
             }
 
@@ -164,10 +253,7 @@ macro_rules! define_separated_list_syntax {
                 self.list.push_item_node(item.into_green());
             }
 
-            /// Appends a separator token in source order.
-            pub fn push_separator_token(&mut self, token: $crate::SyntaxToken) {
-                self.list.push_separator_token(token);
-            }
+            $($builder_separator_methods)*
 
             /// Appends present source tokens under a skipped-syntax recovery node.
             ///
@@ -188,13 +274,6 @@ macro_rules! define_separated_list_syntax {
                 self
             }
 
-            /// Appends a separator token in source order.
-            pub fn separator_token(mut self, token: $crate::SyntaxToken) -> Self {
-                self.push_separator_token(token);
-
-                self
-            }
-
             /// Appends present source tokens under a skipped-syntax recovery node.
             ///
             /// Empty token lists do not add a recovery node.
@@ -209,7 +288,7 @@ macro_rules! define_separated_list_syntax {
                 self
             }
 
-            /// Builds the separated-list node.
+            /// Builds the list node.
             pub fn build(self) -> $list_syntax {
                 $list_syntax::from_builder(self)
             }
@@ -226,4 +305,4 @@ macro_rules! define_separated_list_syntax {
     };
 }
 
-pub(crate) use define_separated_list_syntax;
+pub(crate) use define_list_syntax;

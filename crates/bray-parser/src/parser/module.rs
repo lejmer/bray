@@ -1,7 +1,9 @@
 use bray_syntax::{
-    BlockModuleDeclarationSyntax, BlockModuleDeclarationSyntaxBuilder, ModuleBodySyntax,
+    BlockModuleDeclarationSyntax, BlockModuleDeclarationSyntaxBuilder, DirectiveArgumentListSyntax,
+    LinkDirectiveSyntax, ModuleBodySyntax, ModuleDirectivesSyntax, ModuleDirectivesSyntaxBuilder,
     ModuleModifiersSyntax, PathSyntax, SourceUnitModuleDeclarationSyntax,
     SourceUnitModuleDeclarationSyntaxBuilder, SourceUnitSyntaxBuilder, SyntaxKind, SyntaxToken,
+    TargetDirectiveSyntax, TestDirectiveSyntax,
 };
 
 use super::recovery::RecoverySyntaxSink;
@@ -30,6 +32,18 @@ const TOP_LEVEL_BLOCK_MODULE_RECOVERY_KINDS: [SyntaxKind; 6] = [
     SyntaxKind::ModuleKeyword,
     SyntaxKind::EndOfFileToken,
 ];
+
+const DIRECTIVE_ARGUMENT_RECOVERY_KINDS: [SyntaxKind; 5] = [
+    SyntaxKind::AtToken,
+    SyntaxKind::TrustedKeyword,
+    SyntaxKind::PublicKeyword,
+    SyntaxKind::InternalKeyword,
+    SyntaxKind::ModuleKeyword,
+];
+
+const TARGET_DIRECTIVE_NAME: &str = "target";
+const TEST_DIRECTIVE_NAME: &str = "test";
+const LINK_DIRECTIVE_NAME: &str = "link";
 
 impl Parser {
     pub(super) fn parse_source_unit_module_declaration(
@@ -83,11 +97,102 @@ impl Parser {
     }
 
     fn parse_module_declaration_header(&mut self, builder: &mut impl ModuleDeclarationSyntaxSink) {
+        self.recover_until(builder, &MODULE_DECLARATION_START_KINDS);
+
+        builder.push_module_directives(self.parse_module_directives());
         self.recover_until(builder, &MODULE_HEADER_START_KINDS);
 
         builder.push_module_modifiers(self.parse_module_modifiers());
         builder.push_module_keyword(self.expect(SyntaxKind::ModuleKeyword));
         builder.push_module_path(self.parse_module_path());
+    }
+
+    fn parse_module_directives(&mut self) -> ModuleDirectivesSyntax {
+        let start = self.peek().full_range().start();
+        let mut builder = ModuleDirectivesSyntax::builder(self.syntax_source(), start);
+
+        while self.at(SyntaxKind::AtToken) {
+            if self.at_directive_name(TARGET_DIRECTIVE_NAME) {
+                builder.push_target_directive(self.parse_target_directive());
+                continue;
+            }
+
+            if self.at_directive_name(TEST_DIRECTIVE_NAME) {
+                builder.push_test_directive(self.parse_test_directive());
+                continue;
+            }
+
+            if self.at_directive_name(LINK_DIRECTIVE_NAME) {
+                builder.push_link_directive(self.parse_link_directive());
+                continue;
+            }
+
+            self.recover_unknown_module_directive(&mut builder);
+        }
+
+        builder.build()
+    }
+
+    fn parse_target_directive(&mut self) -> TargetDirectiveSyntax {
+        let start = self.peek().full_range().start();
+        let mut builder = TargetDirectiveSyntax::builder(self.syntax_source(), start);
+
+        builder.push_directive_marker_token(self.expect(SyntaxKind::AtToken));
+        builder.push_name_token(self.expect(SyntaxKind::IdentifierToken));
+        builder.push_open_paren_token(self.expect(SyntaxKind::OpenParenToken));
+        // TODO(parser): Parse target directive arguments once directive arguments are implemented.
+        self.recover_until_balanced_close_paren(&mut builder, &DIRECTIVE_ARGUMENT_RECOVERY_KINDS);
+        builder.push_close_paren_token(self.expect(SyntaxKind::CloseParenToken));
+
+        builder.build()
+    }
+
+    fn parse_test_directive(&mut self) -> TestDirectiveSyntax {
+        let start = self.peek().full_range().start();
+        let mut builder = TestDirectiveSyntax::builder(self.syntax_source(), start);
+
+        builder.push_directive_marker_token(self.expect(SyntaxKind::AtToken));
+        builder.push_name_token(self.expect(SyntaxKind::IdentifierToken));
+
+        builder.build()
+    }
+
+    fn parse_link_directive(&mut self) -> LinkDirectiveSyntax {
+        let start = self.peek().full_range().start();
+        let mut builder = LinkDirectiveSyntax::builder(self.syntax_source(), start);
+
+        builder.push_directive_marker_token(self.expect(SyntaxKind::AtToken));
+        builder.push_name_token(self.expect(SyntaxKind::IdentifierToken));
+        builder.push_directive_argument_list(self.parse_directive_argument_list());
+
+        builder.build()
+    }
+
+    fn parse_directive_argument_list(&mut self) -> DirectiveArgumentListSyntax {
+        let start = self.peek().full_range().start();
+        let mut builder = DirectiveArgumentListSyntax::builder(self.syntax_source(), start);
+
+        builder.push_open_paren_token(self.expect(SyntaxKind::OpenParenToken));
+        // TODO(parser): Parse directive argument items once directive arguments are implemented.
+        self.recover_until_balanced_close_paren(&mut builder, &DIRECTIVE_ARGUMENT_RECOVERY_KINDS);
+        builder.push_close_paren_token(self.expect(SyntaxKind::CloseParenToken));
+
+        builder.build()
+    }
+
+    fn recover_unknown_module_directive(&mut self, builder: &mut ModuleDirectivesSyntaxBuilder) {
+        self.recover_current_and_until(builder, &MODULE_DECLARATION_START_KINDS);
+    }
+
+    fn at_directive_name(&mut self, name: &str) -> bool {
+        if !self.at(SyntaxKind::AtToken) {
+            return false;
+        }
+
+        let name_token = self.lookahead(1);
+
+        name_token.kind() == SyntaxKind::IdentifierToken
+            && self.token_text(&name_token) == Some(name)
     }
 
     fn parse_module_modifiers(&mut self) -> ModuleModifiersSyntax {
@@ -126,6 +231,7 @@ impl Parser {
         let mut builder = ModuleBodySyntax::builder(self.syntax_source(), start);
 
         builder.push_open_brace_token(self.expect(SyntaxKind::OpenBraceToken));
+        // TODO(parser): Parse module body items once declarations are implemented.
         self.recover_until_balanced_close_brace(&mut builder);
         builder.push_close_brace_token(self.expect(SyntaxKind::CloseBraceToken));
 
@@ -149,6 +255,7 @@ impl Parser {
     ) {
         let start = self.peek().start();
 
+        // TODO(parser): Replace this with real module item parsing as declarations are implemented.
         if self.recover_until(builder, terminators) || self.peek().start() != start {
             return;
         }
@@ -162,7 +269,7 @@ impl Parser {
         }
 
         self.scan_ahead(|scan| {
-            scan.skip_module_directives_for_scan();
+            scan.consume_module_directives_for_scan();
             scan.consume_module_modifiers_for_scan();
 
             if !scan.at(SyntaxKind::ModuleKeyword) {
@@ -179,8 +286,49 @@ impl Parser {
         })
     }
 
-    fn skip_module_directives_for_scan(&mut self) {
-        while !self.at_any(&MODULE_HEADER_START_KINDS) && !self.at(SyntaxKind::EndOfFileToken) {
+    fn consume_module_directives_for_scan(&mut self) {
+        while self.at(SyntaxKind::AtToken) {
+            self.consume();
+
+            if !self.at(SyntaxKind::IdentifierToken) {
+                continue;
+            }
+
+            let name_token = self.consume();
+            let directive_name = self.token_text(&name_token);
+
+            if directive_name == Some(TARGET_DIRECTIVE_NAME)
+                || directive_name == Some(LINK_DIRECTIVE_NAME)
+            {
+                self.consume_directive_argument_list_for_scan();
+                continue;
+            }
+
+            if directive_name != Some(TEST_DIRECTIVE_NAME) {
+                self.skip_unknown_module_directive_for_scan();
+            }
+        }
+    }
+
+    fn consume_directive_argument_list_for_scan(&mut self) {
+        if self.consume_if(SyntaxKind::OpenParenToken).is_none() {
+            return;
+        }
+
+        self.scan_until_balanced_close_paren(&MODULE_DECLARATION_START_KINDS);
+        self.consume_if(SyntaxKind::CloseParenToken);
+    }
+
+    fn skip_unknown_module_directive_for_scan(&mut self) {
+        if self.consume_if(SyntaxKind::OpenParenToken).is_some() {
+            self.scan_until_balanced_close_paren(&MODULE_DECLARATION_START_KINDS);
+            self.consume_if(SyntaxKind::CloseParenToken);
+
+            return;
+        }
+
+        while !self.at_any(&MODULE_DECLARATION_START_KINDS) && !self.at(SyntaxKind::EndOfFileToken)
+        {
             self.consume();
         }
     }
@@ -217,6 +365,8 @@ impl Parser {
 }
 
 trait ModuleDeclarationSyntaxSink: RecoverySyntaxSink {
+    fn push_module_directives(&mut self, directives: ModuleDirectivesSyntax);
+
     fn push_module_modifiers(&mut self, modifiers: ModuleModifiersSyntax);
 
     fn push_module_keyword(&mut self, token: SyntaxToken);
@@ -225,6 +375,10 @@ trait ModuleDeclarationSyntaxSink: RecoverySyntaxSink {
 }
 
 impl ModuleDeclarationSyntaxSink for SourceUnitModuleDeclarationSyntaxBuilder {
+    fn push_module_directives(&mut self, directives: ModuleDirectivesSyntax) {
+        SourceUnitModuleDeclarationSyntaxBuilder::push_module_directives(self, directives);
+    }
+
     fn push_module_modifiers(&mut self, modifiers: ModuleModifiersSyntax) {
         SourceUnitModuleDeclarationSyntaxBuilder::push_module_modifiers(self, modifiers);
     }
@@ -239,6 +393,10 @@ impl ModuleDeclarationSyntaxSink for SourceUnitModuleDeclarationSyntaxBuilder {
 }
 
 impl ModuleDeclarationSyntaxSink for BlockModuleDeclarationSyntaxBuilder {
+    fn push_module_directives(&mut self, directives: ModuleDirectivesSyntax) {
+        BlockModuleDeclarationSyntaxBuilder::push_module_directives(self, directives);
+    }
+
     fn push_module_modifiers(&mut self, modifiers: ModuleModifiersSyntax) {
         BlockModuleDeclarationSyntaxBuilder::push_module_modifiers(self, modifiers);
     }
@@ -310,8 +468,101 @@ mod tests {
     }
 
     #[test]
+    fn parser_parses_test_directives_on_source_unit_module_declarations() {
+        let sources = source_store(["@test module main;"]);
+        let result = parse_compilation_unit(&sources);
+        let source_unit = &result.syntax_tree().root().source_units()[0];
+
+        let declaration = match source_unit.source_unit_module_declaration() {
+            Some(declaration) => declaration,
+            None => panic!("expected source-unit module declaration"),
+        };
+
+        let directives = declaration.module_directives();
+
+        assert_eq!(source_unit.full_text(), "@test module main;");
+        assert_eq!(directives.full_text(), "@test ");
+        assert_eq!(directives.test_directives().count(), 1);
+        assert_eq!(directives.target_directives().count(), 0);
+        assert_eq!(directives.link_directives().count(), 0);
+        assert!(result.diagnostics().is_empty());
+    }
+
+    #[test]
+    fn parser_parses_target_and_link_module_directives() {
+        let sources = source_store(["@target(host) @link(\"m\") module main;"]);
+        let result = parse_compilation_unit(&sources);
+        let source_unit = &result.syntax_tree().root().source_units()[0];
+
+        let declaration = match source_unit.source_unit_module_declaration() {
+            Some(declaration) => declaration,
+            None => panic!("expected source-unit module declaration"),
+        };
+
+        let directives = declaration.module_directives();
+        let targets = directives.target_directives().collect::<Vec<_>>();
+        let links = directives.link_directives().collect::<Vec<_>>();
+
+        let [target] = targets.as_slice() else {
+            panic!("expected one target directive: {targets:?}");
+        };
+
+        let [link] = links.as_slice() else {
+            panic!("expected one link directive: {links:?}");
+        };
+
+        assert_eq!(
+            source_unit.full_text(),
+            "@target(host) @link(\"m\") module main;"
+        );
+        assert_eq!(directives.full_text(), "@target(host) @link(\"m\") ");
+        assert_eq!(target.full_text(), "@target(host) ");
+        assert_eq!(target.skipped_syntax().count(), 1);
+        assert_eq!(link.full_text(), "@link(\"m\") ");
+        assert_eq!(link.directive_argument_list().skipped_syntax().count(), 1);
+
+        assert_eq!(
+            parse_diagnostic_kinds(&result),
+            [
+                DiagnosticKind::SyntaxSkippedSyntax,
+                DiagnosticKind::SyntaxSkippedSyntax
+            ]
+        );
+    }
+
+    #[test]
+    fn parser_recovers_unknown_module_directives_without_losing_later_directives() {
+        let sources = source_store(["@unknown(foo) @test module main;"]);
+        let result = parse_compilation_unit(&sources);
+        let source_unit = &result.syntax_tree().root().source_units()[0];
+
+        let declaration = match source_unit.source_unit_module_declaration() {
+            Some(declaration) => declaration,
+            None => panic!("expected source-unit module declaration"),
+        };
+
+        let directives = declaration.module_directives();
+        let skipped_syntax = directives.skipped_syntax().collect::<Vec<_>>();
+
+        let [skipped] = skipped_syntax.as_slice() else {
+            panic!("expected one skipped-syntax node: {skipped_syntax:?}");
+        };
+
+        assert_eq!(source_unit.full_text(), "@unknown(foo) @test module main;");
+        assert_eq!(directives.full_text(), "@unknown(foo) @test ");
+        assert_eq!(skipped.full_text(), "@unknown(foo) ");
+        assert_eq!(directives.test_directives().count(), 1);
+
+        assert_eq!(
+            parse_diagnostic_kinds(&result),
+            [DiagnosticKind::SyntaxSkippedSyntax]
+        );
+    }
+
+    #[test]
     fn parser_parses_block_module_declarations_and_skips_body_items() {
-        let sources = source_store(["internal module main { func run() {} } module extra {}"]);
+        let sources =
+            source_store(["@test internal module main { func run() {} } module extra {}"]);
         let result = parse_compilation_unit(&sources);
         let source_unit = &result.syntax_tree().root().source_units()[0];
         let declarations = source_unit.block_module_declarations().collect::<Vec<_>>();
@@ -322,10 +573,11 @@ mod tests {
 
         assert_eq!(
             source_unit.full_text(),
-            "internal module main { func run() {} } module extra {}"
+            "@test internal module main { func run() {} } module extra {}"
         );
 
         assert!(source_unit.source_unit_module_declaration().is_none());
+        assert_eq!(first.module_directives().test_directives().count(), 1);
 
         assert_eq!(
             first

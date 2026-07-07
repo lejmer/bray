@@ -13,6 +13,16 @@ pub enum SyntaxKind {
     SourceUnitModuleDeclaration,
     /// Braced top-level module declaration.
     BlockModuleDeclaration,
+    /// Module directives in source order.
+    ModuleDirectives,
+    /// `@target(...)` module directive.
+    TargetDirective,
+    /// `@test` module directive.
+    TestDirective,
+    /// `@link(...)` module directive.
+    LinkDirective,
+    /// Parenthesized directive arguments.
+    DirectiveArgumentList,
     /// Optional module modifiers in source order.
     ModuleModifiers,
     /// Braced module declaration body.
@@ -162,6 +172,11 @@ impl SyntaxKind {
                 | Self::CompilationUnit
                 | Self::SourceUnitModuleDeclaration
                 | Self::BlockModuleDeclaration
+                | Self::ModuleDirectives
+                | Self::TargetDirective
+                | Self::TestDirective
+                | Self::LinkDirective
+                | Self::DirectiveArgumentList
                 | Self::ModuleModifiers
                 | Self::ModuleBody
                 | Self::Path
@@ -283,6 +298,11 @@ impl SyntaxKind {
             Self::CompilationUnit => "compilation_unit",
             Self::SourceUnitModuleDeclaration => "source_unit_module_declaration",
             Self::BlockModuleDeclaration => "block_module_declaration",
+            Self::ModuleDirectives => "module_directives",
+            Self::TargetDirective => "target_directive",
+            Self::TestDirective => "test_directive",
+            Self::LinkDirective => "link_directive",
+            Self::DirectiveArgumentList => "directive_argument_list",
             Self::ModuleModifiers => "module_modifiers",
             Self::ModuleBody => "module_body",
             Self::Path => "path",
@@ -423,6 +443,11 @@ mod tests {
         assert!(!SyntaxKind::SourceUnit.is_token());
         assert!(SyntaxKind::SourceUnitModuleDeclaration.is_node());
         assert!(SyntaxKind::BlockModuleDeclaration.is_node());
+        assert!(SyntaxKind::ModuleDirectives.is_node());
+        assert!(SyntaxKind::TargetDirective.is_node());
+        assert!(SyntaxKind::TestDirective.is_node());
+        assert!(SyntaxKind::LinkDirective.is_node());
+        assert!(SyntaxKind::DirectiveArgumentList.is_node());
         assert!(SyntaxKind::ModuleModifiers.is_node());
         assert!(SyntaxKind::ModuleBody.is_node());
         assert!(SyntaxKind::Path.is_node());
@@ -453,26 +478,42 @@ mod tests {
     #[test]
     fn syntax_kinds_expose_stable_machine_keys() {
         assert_eq!(SyntaxKind::SourceUnit.as_str(), "source_unit");
+
         assert_eq!(
             SyntaxKind::SourceUnitModuleDeclaration.as_str(),
             "source_unit_module_declaration"
         );
+
         assert_eq!(
             SyntaxKind::BlockModuleDeclaration.as_str(),
             "block_module_declaration"
         );
+
+        assert_eq!(SyntaxKind::ModuleDirectives.as_str(), "module_directives");
+        assert_eq!(SyntaxKind::TargetDirective.as_str(), "target_directive");
+        assert_eq!(SyntaxKind::TestDirective.as_str(), "test_directive");
+        assert_eq!(SyntaxKind::LinkDirective.as_str(), "link_directive");
+
+        assert_eq!(
+            SyntaxKind::DirectiveArgumentList.as_str(),
+            "directive_argument_list"
+        );
+
         assert_eq!(SyntaxKind::ModuleModifiers.as_str(), "module_modifiers");
         assert_eq!(SyntaxKind::ModuleBody.as_str(), "module_body");
         assert_eq!(SyntaxKind::Path.as_str(), "path");
         assert_eq!(SyntaxKind::IdentifierList.as_str(), "identifier_list");
+
         assert_eq!(
             SyntaxKind::IdentifierListItem.as_str(),
             "identifier_list_item"
         );
+
         assert_eq!(SyntaxKind::SkippedSyntax.as_str(), "skipped_syntax");
         assert_eq!(SyntaxKind::EndOfFileToken.as_str(), "end_of_file_token");
         assert_eq!(SyntaxKind::SelfTypeKeyword.as_str(), "self_type_keyword");
         assert_eq!(SyntaxKind::ArrowToken.as_str(), "arrow_token");
+
         assert_eq!(
             SyntaxKind::DocumentationBlockCommentTrivia.as_str(),
             "documentation_block_comment_trivia"

@@ -1,10 +1,10 @@
 use crate::SyntaxKind;
-use crate::separated::define_token_separated_list_syntax;
+use crate::list::define_token_list_syntax;
 
 #[cfg(test)]
-use crate::separated::test_token_separated_list_syntax;
+use crate::list::test_token_list_syntax;
 
-define_token_separated_list_syntax! {
+define_token_list_syntax! {
     list {
         /// Concrete comma-separated identifier list syntax node.
         ///
@@ -14,7 +14,6 @@ define_token_separated_list_syntax! {
             builder: IdentifierListSyntaxBuilder,
             kind: SyntaxKind::IdentifierList,
             items: items,
-            separators: separator_tokens,
             source_slot: "identifier_list.source",
             range_description: "identifier-list",
             debug_name: "IdentifierListSyntax",
@@ -37,11 +36,14 @@ define_token_separated_list_syntax! {
             missing_token_panic: "identifier-list item must contain an identifier token",
         }
     }
-    separator_kind: SyntaxKind::CommaToken,
+    separator: {
+        kind: SyntaxKind::CommaToken,
+        tokens: separator_tokens,
+    }
 }
 
 #[cfg(test)]
-test_token_separated_list_syntax! {
+test_token_list_syntax! {
     mod tests {
         list: IdentifierListSyntax,
         item: IdentifierListItemSyntax,
@@ -53,5 +55,51 @@ test_token_separated_list_syntax! {
         separators: separator_tokens,
         items: items,
         source_name: "syntax-test",
+    }
+}
+
+#[cfg(test)]
+define_token_list_syntax! {
+    list {
+        pub(crate) struct TestDirectiveListSyntax {
+            builder: TestDirectiveListSyntaxBuilder,
+            kind: SyntaxKind::IdentifierList,
+            items: items,
+            source_slot: "test_directive_list.source",
+            range_description: "test directive list",
+            debug_name: "TestDirectiveListSyntax",
+            builder_debug_name: "TestDirectiveListSyntaxBuilder",
+        }
+    }
+    item {
+        pub(crate) struct TestDirectiveItemSyntax {
+            builder: TestDirectiveItemSyntaxBuilder,
+            kind: SyntaxKind::IdentifierListItem,
+            token_kind: SyntaxKind::IdentifierToken,
+            token: directive_token,
+            push_token: push_directive_token,
+            source_slot: "test_directive_item.source",
+            token_slot: "test_directive_item.directive_token",
+            range_description: "test directive item",
+            debug_name: "TestDirectiveItemSyntax",
+            builder_debug_name: "TestDirectiveItemSyntaxBuilder",
+            missing_token_panic: "test directive item must contain an identifier token",
+        }
+    }
+    separator: none,
+}
+
+#[cfg(test)]
+test_token_list_syntax! {
+    mod unseparated_tests {
+        list: TestDirectiveListSyntax,
+        item: TestDirectiveItemSyntax,
+        list_kind: crate::SyntaxKind::IdentifierList,
+        item_kind: crate::SyntaxKind::IdentifierListItem,
+        token_kind: crate::SyntaxKind::IdentifierToken,
+        token: directive_token,
+        separator: none,
+        items: items,
+        source_name: "syntax-unseparated-list-test",
     }
 }
