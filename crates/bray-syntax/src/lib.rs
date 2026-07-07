@@ -8,6 +8,8 @@ mod kind;
 mod list;
 mod node;
 mod syntax;
+#[cfg(test)]
+mod test_support;
 mod text;
 mod token;
 mod tree;
@@ -33,7 +35,9 @@ pub use syntax::{
     SourceUnitModuleDeclarationSyntax, SourceUnitModuleDeclarationSyntaxBuilder, SourceUnitSyntax,
     SourceUnitSyntaxBuilder, SymbolDirectiveSyntax, SymbolDirectiveSyntaxBuilder,
     TargetDirectiveSyntax, TargetDirectiveSyntaxBuilder, TestDirectiveSyntax,
-    TestDirectiveSyntaxBuilder, UsingDeclarationSyntax, UsingDeclarationSyntaxBuilder,
+    TestDirectiveSyntaxBuilder, TraitBodySyntax, TraitBodySyntaxBuilder, TraitDeclarationSyntax,
+    TraitDeclarationSyntaxBuilder, TraitModifiersSyntax, TraitModifiersSyntaxBuilder,
+    UsingDeclarationSyntax, UsingDeclarationSyntaxBuilder,
 };
 pub use text::SyntaxText;
 pub use token::{SyntaxToken, SyntaxTokenPresence};

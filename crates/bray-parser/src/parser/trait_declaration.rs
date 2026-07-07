@@ -1,0 +1,322 @@
+use bray_syntax::{
+    SyntaxKind, TraitBodySyntax, TraitDeclarationSyntax, TraitDeclarationSyntaxBuilder,
+    TraitModifiersSyntax,
+};
+
+use crate::cursor::RecoverySet;
+
+use super::module::MODULE_ITEM_START_KINDS;
+use super::state::Parser;
+
+const TRAIT_DECLARATION_START_KINDS: [SyntaxKind; 3] = [
+    SyntaxKind::PublicKeyword,
+    SyntaxKind::InternalKeyword,
+    SyntaxKind::TraitKeyword,
+];
+
+const TRAIT_AFTER_NAME_RECOVERY_KINDS: [SyntaxKind; 5] = [
+    SyntaxKind::WithKeyword,
+    SyntaxKind::OpenBraceToken,
+    SyntaxKind::SemicolonToken,
+    SyntaxKind::CloseBraceToken,
+    SyntaxKind::EndOfFileToken,
+];
+
+const TRAIT_CONSTRAINT_BOUNDARY_KINDS: [SyntaxKind; 5] = [
+    SyntaxKind::WithKeyword,
+    SyntaxKind::OpenBraceToken,
+    SyntaxKind::SemicolonToken,
+    SyntaxKind::CloseBraceToken,
+    SyntaxKind::EndOfFileToken,
+];
+
+const TRAIT_BODY_MISSING_BOUNDARY_KINDS: [SyntaxKind; 3] = [
+    SyntaxKind::SemicolonToken,
+    SyntaxKind::CloseBraceToken,
+    SyntaxKind::EndOfFileToken,
+];
+
+impl Parser {
+    pub(super) fn parse_trait_declaration(&mut self) -> TraitDeclarationSyntax {
+        let start = self.peek().full_range().start();
+        let mut builder = TraitDeclarationSyntax::builder(self.syntax_source(), start);
+
+        builder.push_trait_modifiers(self.parse_trait_modifiers());
+        builder.push_trait_keyword(self.expect(SyntaxKind::TraitKeyword));
+        builder.push_identifier_token(self.parse_identifier());
+
+        if self.at(SyntaxKind::LessToken) {
+            // TODO(parser): Parse generic parameter lists once generic syntax is implemented.
+            self.recover_current_and_until(&mut builder, &TRAIT_AFTER_NAME_RECOVERY_KINDS);
+        }
+
+        self.parse_trait_constraints(&mut builder);
+        builder.push_trait_body(self.parse_trait_body());
+
+        builder.build()
+    }
+
+    fn parse_trait_modifiers(&mut self) -> TraitModifiersSyntax {
+        let start = self.peek().full_range().start();
+        let mut builder = TraitModifiersSyntax::builder(self.syntax_source(), start);
+
+        if self.at_visibility_modifier() {
+            builder.push_visibility_token(self.parse_visibility_modifier());
+        }
+
+        builder.build()
+    }
+
+    fn parse_trait_constraints(&mut self, builder: &mut TraitDeclarationSyntaxBuilder) {
+        while self.at(SyntaxKind::WithKeyword) {
+            // TODO(parser): Parse trait constraint clauses once expressions are implemented.
+            self.recover_current_and_until_predicate(builder, Parser::at_trait_constraint_boundary);
+        }
+    }
+
+    fn at_trait_constraint_boundary(&mut self) -> bool {
+        self.at_any(&TRAIT_CONSTRAINT_BOUNDARY_KINDS) || self.at_any(&MODULE_ITEM_START_KINDS)
+    }
+
+    fn parse_trait_body(&mut self) -> TraitBodySyntax {
+        let start = self.peek().full_range().start();
+
+        let mut builder = TraitBodySyntax::builder(self.syntax_source(), start);
+
+        let open_brace_token = self.expect(SyntaxKind::OpenBraceToken);
+        let open_brace_missing = open_brace_token.is_missing();
+
+        builder.push_open_brace_token(open_brace_token);
+
+        if open_brace_missing && self.at_trait_body_missing_boundary() {
+            builder.push_close_brace_token(self.expect(SyntaxKind::CloseBraceToken));
+
+            return builder.build();
+        }
+
+        // TODO(parser): Parse trait member declarations as they are implemented.
+        self.recover_until_balanced_close_brace_or_recovery_set(
+            &mut builder,
+            RecoverySet::new(&[]),
+        );
+
+        builder.push_close_brace_token(self.expect(SyntaxKind::CloseBraceToken));
+
+        builder.build()
+    }
+
+    fn at_trait_body_missing_boundary(&mut self) -> bool {
+        self.at_any(&TRAIT_BODY_MISSING_BOUNDARY_KINDS) || self.at_any(&MODULE_ITEM_START_KINDS)
+    }
+
+    pub(super) fn should_parse_trait_declaration(&mut self) -> bool {
+        if !self.at_any(&TRAIT_DECLARATION_START_KINDS) {
+            return false;
+        }
+
+        self.scan_ahead(|scan| {
+            scan.consume_trait_modifiers_for_scan();
+
+            scan.at(SyntaxKind::TraitKeyword)
+        })
+    }
+
+    fn consume_trait_modifiers_for_scan(&mut self) {
+        if self.at_visibility_modifier() {
+            self.consume();
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_diagnostics::DiagnosticKind;
+    use bray_source::TextSize;
+    use bray_syntax::{SyntaxKind, SyntaxText};
+    use bray_testing::test_source_store as source_store;
+
+    use crate::parser::parse_compilation_unit;
+    use crate::test_support::{parse_diagnostic_kinds, source};
+
+    use super::super::state::Parser;
+
+    #[test]
+    fn parser_parses_trait_declarations_after_source_unit_modules() {
+        let source = "module main; public trait Display {}";
+        let sources = source_store([source]);
+        let result = parse_compilation_unit(&sources);
+        let source_unit = &result.syntax_tree().root().source_units()[0];
+        let declarations = source_unit.trait_declarations().collect::<Vec<_>>();
+
+        let [declaration] = declarations.as_slice() else {
+            panic!("expected one trait declaration: {declarations:?}");
+        };
+
+        assert_eq!(source_unit.full_text(), source);
+        assert_eq!(declaration.full_text(), "public trait Display {}");
+
+        assert_eq!(
+            declaration
+                .trait_modifiers()
+                .visibility_token()
+                .map(|token| token.kind()),
+            Some(SyntaxKind::PublicKeyword)
+        );
+
+        assert_eq!(
+            declaration.identifier_token().kind(),
+            SyntaxKind::IdentifierToken
+        );
+
+        assert_eq!(declaration.trait_body().full_text(), "{}");
+        assert!(result.diagnostics().is_empty());
+    }
+
+    #[test]
+    fn parser_parses_trait_declarations_inside_block_modules() {
+        let source = "module main { trait Display {} }";
+        let sources = source_store([source]);
+        let result = parse_compilation_unit(&sources);
+        let source_unit = &result.syntax_tree().root().source_units()[0];
+        let declarations = source_unit.block_module_declarations().collect::<Vec<_>>();
+
+        let [declaration] = declarations.as_slice() else {
+            panic!("expected one block module declaration: {declarations:?}");
+        };
+
+        let body = declaration.module_body();
+        let traits = body.trait_declarations().collect::<Vec<_>>();
+
+        let [trait_declaration] = traits.as_slice() else {
+            panic!("expected one trait declaration: {traits:?}");
+        };
+
+        assert_eq!(source_unit.full_text(), source);
+        assert_eq!(body.full_text(), "{ trait Display {} }");
+        assert_eq!(trait_declaration.full_text(), "trait Display {} ");
+        assert!(result.diagnostics().is_empty());
+    }
+
+    #[test]
+    fn parser_skips_trait_generic_parameters_and_constraints_for_now() {
+        let source = "module main; trait Iterable<T> with(T: Item) {}";
+        let sources = source_store([source]);
+        let result = parse_compilation_unit(&sources);
+        let source_unit = &result.syntax_tree().root().source_units()[0];
+        let declarations = source_unit.trait_declarations().collect::<Vec<_>>();
+
+        let [declaration] = declarations.as_slice() else {
+            panic!("expected one trait declaration: {declarations:?}");
+        };
+
+        let skipped_syntax = declaration.skipped_syntax().collect::<Vec<_>>();
+
+        let [generics, constraint] = skipped_syntax.as_slice() else {
+            panic!(
+                "expected generic parameters and constraint as skipped syntax: {skipped_syntax:?}"
+            );
+        };
+
+        assert_eq!(source_unit.full_text(), source);
+        assert_eq!(generics.full_text(), "<T> ");
+        assert_eq!(constraint.full_text(), "with(T: Item) ");
+        assert_eq!(declaration.trait_body().full_text(), "{}");
+
+        assert_eq!(
+            parse_diagnostic_kinds(&result),
+            [
+                DiagnosticKind::SyntaxSkippedSyntax,
+                DiagnosticKind::SyntaxSkippedSyntax
+            ]
+        );
+    }
+
+    #[test]
+    fn parser_recovers_trait_bodies_without_losing_later_items() {
+        let source = "module main; trait Display { func show(); }\nusing core;";
+        let sources = source_store([source]);
+        let result = parse_compilation_unit(&sources);
+        let source_unit = &result.syntax_tree().root().source_units()[0];
+        let declarations = source_unit.trait_declarations().collect::<Vec<_>>();
+
+        let [declaration] = declarations.as_slice() else {
+            panic!("expected one trait declaration: {declarations:?}");
+        };
+
+        let body = declaration.trait_body();
+
+        assert_eq!(source_unit.full_text(), source);
+        assert_eq!(body.full_text(), "{ func show(); }\n");
+        assert_eq!(body.skipped_syntax().count(), 1);
+        assert_eq!(source_unit.using_declarations().count(), 1);
+
+        assert_eq!(
+            parse_diagnostic_kinds(&result),
+            [DiagnosticKind::SyntaxSkippedSyntax]
+        );
+    }
+
+    #[test]
+    fn parser_scan_ahead_recognizes_trait_declarations_without_consuming_tokens() {
+        let sources = source_store(["public trait Display {}"]);
+        let snapshot = source(&sources, 0);
+        let mut parser = Parser::new(snapshot);
+
+        assert!(parser.should_parse_trait_declaration());
+        assert_eq!(parser.peek().kind(), SyntaxKind::PublicKeyword);
+    }
+
+    #[test]
+    fn parser_trait_body_missing_open_brace_does_not_consume_following_item() {
+        let source = "module main; trait Display\nusing core;";
+        let sources = source_store([source]);
+        let result = parse_compilation_unit(&sources);
+        let source_unit = &result.syntax_tree().root().source_units()[0];
+        let declarations = source_unit.trait_declarations().collect::<Vec<_>>();
+
+        let [declaration] = declarations.as_slice() else {
+            panic!("expected one trait declaration: {declarations:?}");
+        };
+
+        let insertion = TextSize::new(
+            source
+                .find("using")
+                .expect("test source should contain using keyword")
+                .try_into()
+                .expect("test source offset should fit in TextSize"),
+        );
+
+        let body = declaration.trait_body();
+
+        assert_eq!(source_unit.full_text(), source);
+        assert_eq!(source_unit.using_declarations().count(), 1);
+
+        assert!(body.open_brace_token().is_missing());
+        assert!(body.close_brace_token().is_missing());
+
+        assert_eq!(body.open_brace_token().range().start(), insertion);
+        assert_eq!(body.close_brace_token().range().start(), insertion);
+
+        assert_eq!(
+            parse_diagnostic_kinds(&result),
+            [
+                DiagnosticKind::SyntaxExpectedToken,
+                DiagnosticKind::SyntaxExpectedToken
+            ]
+        );
+    }
+
+    #[test]
+    fn parser_trait_scan_rejects_visibility_on_other_declarations() {
+        let sources = source_store(["public func main() {}"]);
+        let snapshot = source(&sources, 0);
+
+        let mut parser = Parser::new(snapshot);
+
+        assert!(!parser.should_parse_trait_declaration());
+
+        let diagnostics = parser.finish();
+
+        assert!(diagnostics.is_empty());
+    }
+}

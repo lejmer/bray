@@ -31,7 +31,7 @@ impl ModuleModifiersSyntax {
     /// Returns the optional visibility modifier token.
     pub fn visibility_token(&self) -> Option<SyntaxToken> {
         self.tokens()
-            .find(|token| visibility_modifier_kinds().contains(&token.kind()))
+            .find(|token| token.kind().is_visibility_modifier())
     }
 }
 
@@ -39,14 +39,10 @@ impl ModuleModifiersSyntaxBuilder {
     /// Appends the optional visibility modifier token.
     pub fn push_visibility_token(&mut self, token: SyntaxToken) {
         assert!(
-            visibility_modifier_kinds().contains(&token.kind()),
+            token.kind().is_visibility_modifier(),
             "module_modifiers.visibility_token expected a visibility modifier"
         );
 
         self.node.push_token(token);
     }
-}
-
-fn visibility_modifier_kinds() -> &'static [SyntaxKind] {
-    &[SyntaxKind::PublicKeyword, SyntaxKind::InternalKeyword]
 }

@@ -4,7 +4,7 @@ use super::state::Parser;
 
 impl Parser {
     pub(super) fn at_visibility_modifier(&mut self) -> bool {
-        self.at(SyntaxKind::PublicKeyword) || self.at(SyntaxKind::InternalKeyword)
+        self.peek().kind().is_visibility_modifier()
     }
 
     pub(super) fn parse_visibility_modifier(&mut self) -> SyntaxToken {

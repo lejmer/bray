@@ -90,6 +90,7 @@ Parser implementation details live under `bray-parser/src/parser/`:
 - `path.rs` owns path and identifier grammar parsing,
 - `recovery.rs` owns grammar-neutral recovery sinks and helpers,
 - `separated.rs` owns parser-internal separated-list helpers.
+- `trait_declaration.rs` owns module-level trait declaration grammar parsing.
 
 Add new grammar areas as sibling parser submodules when the existing module would otherwise become broad or mixed.
 Do not put unrelated grammar in a module only because that module first needed it.
