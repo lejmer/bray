@@ -7,7 +7,7 @@ use bray_syntax::{
 
 use crate::cursor::RecoverySet;
 use crate::parser::directive::TAG_DIRECTIVE_NAME;
-use crate::parser::member::body::UNION_BODY_ITEM_RECOVERY_KINDS;
+use crate::parser::member::body::MEMBER_ITEM_RECOVERY_KINDS;
 use crate::parser::separated::{
     SeparatedListSpec, SeparatedListSyntaxSink, separated_list_recovery_kinds,
 };
@@ -236,7 +236,7 @@ impl Parser {
             SyntaxKind::CloseBraceToken,
             SyntaxKind::EndOfFileToken,
         ])
-        .with_additional(&UNION_BODY_ITEM_RECOVERY_KINDS);
+        .with_additional(&MEMBER_ITEM_RECOVERY_KINDS);
 
         self.recover_until_set(builder, recovery_set);
     }

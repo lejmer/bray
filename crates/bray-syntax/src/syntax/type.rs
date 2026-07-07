@@ -1,6 +1,10 @@
 use super::directive::{CopyDirectiveSyntax, LayoutDirectiveSyntax};
 use super::field::StructFieldDeclarationSyntax;
-use super::member::TypeCallableMemberDeclarationSyntax;
+use super::member::{
+    DestructorMemberDeclarationSyntax, FinalizerMemberDeclarationSyntax,
+    ScopeEnterMemberDeclarationSyntax, ScopeExitMemberDeclarationSyntax,
+    TypeCallableMemberDeclarationSyntax, TypeConstructorMemberDeclarationSyntax,
+};
 use super::variant::UnionVariantDeclarationSyntax;
 use crate::node::define_source_syntax_node;
 use crate::{ConstantDeclarationSyntax, SyntaxKind, SyntaxToken};
@@ -269,6 +273,46 @@ define_source_syntax_node! {
                 kind: SyntaxKind::ConstantDeclaration;
             },
             {
+                /// Returns type constructor member declarations in source order.
+                type_constructor_member_declarations;
+                /// Appends a type constructor member declaration.
+                push_type_constructor_member_declaration;
+                ty: TypeConstructorMemberDeclarationSyntax;
+                kind: SyntaxKind::TypeConstructorMemberDeclaration;
+            },
+            {
+                /// Returns finalizer member declarations in source order.
+                finalizer_member_declarations;
+                /// Appends a finalizer member declaration.
+                push_finalizer_member_declaration;
+                ty: FinalizerMemberDeclarationSyntax;
+                kind: SyntaxKind::FinalizerMemberDeclaration;
+            },
+            {
+                /// Returns destructor member declarations in source order.
+                destructor_member_declarations;
+                /// Appends a destructor member declaration.
+                push_destructor_member_declaration;
+                ty: DestructorMemberDeclarationSyntax;
+                kind: SyntaxKind::DestructorMemberDeclaration;
+            },
+            {
+                /// Returns scope-enter member declarations in source order.
+                scope_enter_member_declarations;
+                /// Appends a scope-enter member declaration.
+                push_scope_enter_member_declaration;
+                ty: ScopeEnterMemberDeclarationSyntax;
+                kind: SyntaxKind::ScopeEnterMemberDeclaration;
+            },
+            {
+                /// Returns scope-exit member declarations in source order.
+                scope_exit_member_declarations;
+                /// Appends a scope-exit member declaration.
+                push_scope_exit_member_declaration;
+                ty: ScopeExitMemberDeclarationSyntax;
+                kind: SyntaxKind::ScopeExitMemberDeclaration;
+            },
+            {
                 /// Returns type callable member declarations in source order.
                 type_callable_member_declarations;
                 /// Appends a type callable member declaration.
@@ -327,6 +371,46 @@ define_source_syntax_node! {
                 push_constant_declaration;
                 ty: ConstantDeclarationSyntax;
                 kind: SyntaxKind::ConstantDeclaration;
+            },
+            {
+                /// Returns type constructor member declarations in source order.
+                type_constructor_member_declarations;
+                /// Appends a type constructor member declaration.
+                push_type_constructor_member_declaration;
+                ty: TypeConstructorMemberDeclarationSyntax;
+                kind: SyntaxKind::TypeConstructorMemberDeclaration;
+            },
+            {
+                /// Returns finalizer member declarations in source order.
+                finalizer_member_declarations;
+                /// Appends a finalizer member declaration.
+                push_finalizer_member_declaration;
+                ty: FinalizerMemberDeclarationSyntax;
+                kind: SyntaxKind::FinalizerMemberDeclaration;
+            },
+            {
+                /// Returns destructor member declarations in source order.
+                destructor_member_declarations;
+                /// Appends a destructor member declaration.
+                push_destructor_member_declaration;
+                ty: DestructorMemberDeclarationSyntax;
+                kind: SyntaxKind::DestructorMemberDeclaration;
+            },
+            {
+                /// Returns scope-enter member declarations in source order.
+                scope_enter_member_declarations;
+                /// Appends a scope-enter member declaration.
+                push_scope_enter_member_declaration;
+                ty: ScopeEnterMemberDeclarationSyntax;
+                kind: SyntaxKind::ScopeEnterMemberDeclaration;
+            },
+            {
+                /// Returns scope-exit member declarations in source order.
+                scope_exit_member_declarations;
+                /// Appends a scope-exit member declaration.
+                push_scope_exit_member_declaration;
+                ty: ScopeExitMemberDeclarationSyntax;
+                kind: SyntaxKind::ScopeExitMemberDeclaration;
             },
             {
                 /// Returns type callable member declarations in source order.

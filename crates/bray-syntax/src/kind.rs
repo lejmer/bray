@@ -119,6 +119,34 @@ pub enum SyntaxKind {
     TraitImplementationBody,
     /// Trait implementation constant member definition.
     TraitImplementationConstantMemberDefinition,
+    /// Trait implementation scope-enter member declaration.
+    TraitImplementationScopeEnterMemberDeclaration,
+    /// Trait implementation scope-exit member declaration.
+    TraitImplementationScopeExitMemberDeclaration,
+    /// Optional constructor member modifiers in source order.
+    ConstructorMemberModifiers,
+    /// Type constructor member declaration.
+    TypeConstructorMemberDeclaration,
+    /// Optional async-capable lifecycle member modifiers in source order.
+    AsyncCapableLifecycleMemberModifiers,
+    /// Optional synchronous lifecycle member modifiers in source order.
+    SyncLifecycleMemberModifiers,
+    /// Finalizer lifecycle member declaration.
+    FinalizerMemberDeclaration,
+    /// Destructor lifecycle member declaration.
+    DestructorMemberDeclaration,
+    /// Scope-enter lifecycle member declaration.
+    ScopeEnterMemberDeclaration,
+    /// Scope-exit lifecycle member declaration.
+    ScopeExitMemberDeclaration,
+    /// Trait finalizer requirement declaration.
+    TraitFinalizerRequirementDeclaration,
+    /// Trait destructor requirement declaration.
+    TraitDestructorRequirementDeclaration,
+    /// Trait scope-enter requirement declaration.
+    TraitScopeEnterRequirementDeclaration,
+    /// Trait scope-exit requirement declaration.
+    TraitScopeExitRequirementDeclaration,
     /// Optional type callable member modifiers in source order.
     TypeCallableMemberModifiers,
     /// Type callable member declaration.
@@ -331,6 +359,20 @@ impl SyntaxKind {
                 | Self::NamedTraitImplementationDeclaration
                 | Self::TraitImplementationBody
                 | Self::TraitImplementationConstantMemberDefinition
+                | Self::TraitImplementationScopeEnterMemberDeclaration
+                | Self::TraitImplementationScopeExitMemberDeclaration
+                | Self::ConstructorMemberModifiers
+                | Self::TypeConstructorMemberDeclaration
+                | Self::AsyncCapableLifecycleMemberModifiers
+                | Self::SyncLifecycleMemberModifiers
+                | Self::FinalizerMemberDeclaration
+                | Self::DestructorMemberDeclaration
+                | Self::ScopeEnterMemberDeclaration
+                | Self::ScopeExitMemberDeclaration
+                | Self::TraitFinalizerRequirementDeclaration
+                | Self::TraitDestructorRequirementDeclaration
+                | Self::TraitScopeEnterRequirementDeclaration
+                | Self::TraitScopeExitRequirementDeclaration
                 | Self::TypeCallableMemberModifiers
                 | Self::TypeCallableMemberDeclaration
                 | Self::ParameterList
@@ -518,6 +560,32 @@ impl SyntaxKind {
             Self::TraitImplementationBody => "trait_implementation_body",
             Self::TraitImplementationConstantMemberDefinition => {
                 "trait_implementation_constant_member_definition"
+            }
+            Self::TraitImplementationScopeEnterMemberDeclaration => {
+                "trait_implementation_scope_enter_member_declaration"
+            }
+            Self::TraitImplementationScopeExitMemberDeclaration => {
+                "trait_implementation_scope_exit_member_declaration"
+            }
+            Self::ConstructorMemberModifiers => "constructor_member_modifiers",
+            Self::TypeConstructorMemberDeclaration => "type_constructor_member_declaration",
+            Self::AsyncCapableLifecycleMemberModifiers => {
+                "async_capable_lifecycle_member_modifiers"
+            }
+            Self::SyncLifecycleMemberModifiers => "sync_lifecycle_member_modifiers",
+            Self::FinalizerMemberDeclaration => "finalizer_member_declaration",
+            Self::DestructorMemberDeclaration => "destructor_member_declaration",
+            Self::ScopeEnterMemberDeclaration => "scope_enter_member_declaration",
+            Self::ScopeExitMemberDeclaration => "scope_exit_member_declaration",
+            Self::TraitFinalizerRequirementDeclaration => "trait_finalizer_requirement_declaration",
+            Self::TraitDestructorRequirementDeclaration => {
+                "trait_destructor_requirement_declaration"
+            }
+            Self::TraitScopeEnterRequirementDeclaration => {
+                "trait_scope_enter_requirement_declaration"
+            }
+            Self::TraitScopeExitRequirementDeclaration => {
+                "trait_scope_exit_requirement_declaration"
             }
             Self::TypeCallableMemberModifiers => "type_callable_member_modifiers",
             Self::TypeCallableMemberDeclaration => "type_callable_member_declaration",
@@ -727,6 +795,20 @@ mod tests {
         assert!(SyntaxKind::NamedTraitImplementationDeclaration.is_node());
         assert!(SyntaxKind::TraitImplementationBody.is_node());
         assert!(SyntaxKind::TraitImplementationConstantMemberDefinition.is_node());
+        assert!(SyntaxKind::TraitImplementationScopeEnterMemberDeclaration.is_node());
+        assert!(SyntaxKind::TraitImplementationScopeExitMemberDeclaration.is_node());
+        assert!(SyntaxKind::ConstructorMemberModifiers.is_node());
+        assert!(SyntaxKind::TypeConstructorMemberDeclaration.is_node());
+        assert!(SyntaxKind::AsyncCapableLifecycleMemberModifiers.is_node());
+        assert!(SyntaxKind::SyncLifecycleMemberModifiers.is_node());
+        assert!(SyntaxKind::FinalizerMemberDeclaration.is_node());
+        assert!(SyntaxKind::DestructorMemberDeclaration.is_node());
+        assert!(SyntaxKind::ScopeEnterMemberDeclaration.is_node());
+        assert!(SyntaxKind::ScopeExitMemberDeclaration.is_node());
+        assert!(SyntaxKind::TraitFinalizerRequirementDeclaration.is_node());
+        assert!(SyntaxKind::TraitDestructorRequirementDeclaration.is_node());
+        assert!(SyntaxKind::TraitScopeEnterRequirementDeclaration.is_node());
+        assert!(SyntaxKind::TraitScopeExitRequirementDeclaration.is_node());
         assert!(SyntaxKind::TypeCallableMemberModifiers.is_node());
         assert!(SyntaxKind::TypeCallableMemberDeclaration.is_node());
 
@@ -803,6 +885,7 @@ mod tests {
         assert_eq!(SyntaxKind::ModuleBody.as_str(), "module_body");
         assert_eq!(SyntaxKind::UsingDeclaration.as_str(), "using_declaration");
         assert_eq!(SyntaxKind::ExportDeclaration.as_str(), "export_declaration");
+
         assert_eq!(
             SyntaxKind::ConstantDeclaration.as_str(),
             "constant_declaration"
@@ -895,6 +978,7 @@ mod tests {
         assert_eq!(SyntaxKind::TraitDeclaration.as_str(), "trait_declaration");
         assert_eq!(SyntaxKind::TraitModifiers.as_str(), "trait_modifiers");
         assert_eq!(SyntaxKind::TraitBody.as_str(), "trait_body");
+
         assert_eq!(
             SyntaxKind::TraitConstantMemberDeclaration.as_str(),
             "trait_constant_member_declaration"
@@ -945,6 +1029,76 @@ mod tests {
         assert_eq!(
             SyntaxKind::TraitImplementationConstantMemberDefinition.as_str(),
             "trait_implementation_constant_member_definition"
+        );
+
+        assert_eq!(
+            SyntaxKind::TraitImplementationScopeEnterMemberDeclaration.as_str(),
+            "trait_implementation_scope_enter_member_declaration"
+        );
+
+        assert_eq!(
+            SyntaxKind::TraitImplementationScopeExitMemberDeclaration.as_str(),
+            "trait_implementation_scope_exit_member_declaration"
+        );
+
+        assert_eq!(
+            SyntaxKind::ConstructorMemberModifiers.as_str(),
+            "constructor_member_modifiers"
+        );
+
+        assert_eq!(
+            SyntaxKind::TypeConstructorMemberDeclaration.as_str(),
+            "type_constructor_member_declaration"
+        );
+
+        assert_eq!(
+            SyntaxKind::AsyncCapableLifecycleMemberModifiers.as_str(),
+            "async_capable_lifecycle_member_modifiers"
+        );
+
+        assert_eq!(
+            SyntaxKind::SyncLifecycleMemberModifiers.as_str(),
+            "sync_lifecycle_member_modifiers"
+        );
+
+        assert_eq!(
+            SyntaxKind::FinalizerMemberDeclaration.as_str(),
+            "finalizer_member_declaration"
+        );
+
+        assert_eq!(
+            SyntaxKind::DestructorMemberDeclaration.as_str(),
+            "destructor_member_declaration"
+        );
+
+        assert_eq!(
+            SyntaxKind::ScopeEnterMemberDeclaration.as_str(),
+            "scope_enter_member_declaration"
+        );
+
+        assert_eq!(
+            SyntaxKind::ScopeExitMemberDeclaration.as_str(),
+            "scope_exit_member_declaration"
+        );
+
+        assert_eq!(
+            SyntaxKind::TraitFinalizerRequirementDeclaration.as_str(),
+            "trait_finalizer_requirement_declaration"
+        );
+
+        assert_eq!(
+            SyntaxKind::TraitDestructorRequirementDeclaration.as_str(),
+            "trait_destructor_requirement_declaration"
+        );
+
+        assert_eq!(
+            SyntaxKind::TraitScopeEnterRequirementDeclaration.as_str(),
+            "trait_scope_enter_requirement_declaration"
+        );
+
+        assert_eq!(
+            SyntaxKind::TraitScopeExitRequirementDeclaration.as_str(),
+            "trait_scope_exit_requirement_declaration"
         );
 
         assert_eq!(

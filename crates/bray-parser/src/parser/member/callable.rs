@@ -6,6 +6,7 @@ use bray_syntax::{
 };
 
 use crate::cursor::RecoverySet;
+use crate::parser::member::body::{MEMBER_ITEM_RECOVERY_KINDS, MEMBER_KEYWORD_RECOVERY_KINDS};
 use crate::parser::recovery::RecoverySyntaxSink;
 use crate::parser::state::Parser;
 
@@ -270,10 +271,12 @@ impl Parser {
 
     fn at_callable_member_contract_boundary(&mut self) -> bool {
         self.at_any(&CALLABLE_MEMBER_CONTRACT_BOUNDARY_KINDS)
+            || self.at_any(&MEMBER_KEYWORD_RECOVERY_KINDS)
     }
 
     fn at_callable_member_body_missing_boundary(&mut self) -> bool {
         self.at_any(&CALLABLE_MEMBER_BODY_MISSING_BOUNDARY_KINDS)
+            || self.at_any(&MEMBER_ITEM_RECOVERY_KINDS)
     }
 
     pub(super) fn should_parse_type_callable_member_declaration(&mut self) -> bool {

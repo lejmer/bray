@@ -9,19 +9,7 @@ use super::callable::TraitCallableTailPolicy;
 use crate::parser::recovery::RecoverySyntaxSink;
 use crate::parser::state::Parser;
 
-const STRUCT_BODY_ITEM_RECOVERY_KINDS: [SyntaxKind; 9] = [
-    SyntaxKind::PublicKeyword,
-    SyntaxKind::InternalKeyword,
-    SyntaxKind::AsyncKeyword,
-    SyntaxKind::TrustedKeyword,
-    SyntaxKind::StaticKeyword,
-    SyntaxKind::ConsumeKeyword,
-    SyntaxKind::MutKeyword,
-    SyntaxKind::ConstKeyword,
-    SyntaxKind::FuncKeyword,
-];
-
-pub(super) const UNION_BODY_ITEM_RECOVERY_KINDS: [SyntaxKind; 11] = [
+ pub(super) const MEMBER_KEYWORD_RECOVERY_KINDS: [SyntaxKind; 19] = [
     SyntaxKind::AtToken,
     SyntaxKind::PublicKeyword,
     SyntaxKind::InternalKeyword,
@@ -32,20 +20,19 @@ pub(super) const UNION_BODY_ITEM_RECOVERY_KINDS: [SyntaxKind; 11] = [
     SyntaxKind::MutKeyword,
     SyntaxKind::ConstKeyword,
     SyntaxKind::FuncKeyword,
-    SyntaxKind::IdentifierToken,
+    SyntaxKind::ConstructKeyword,
+    SyntaxKind::FinalizeKeyword,
+    SyntaxKind::DestructKeyword,
+    SyntaxKind::EnterKeyword,
+    SyntaxKind::ExitKeyword,
+    SyntaxKind::TypeKeyword,
+    SyntaxKind::PredicateKeyword,
+    SyntaxKind::OverloadKeyword,
+    SyntaxKind::EndOfFileToken,
 ];
 
-const TRAIT_BODY_ITEM_RECOVERY_KINDS: [SyntaxKind; 7] = [
-    SyntaxKind::AsyncKeyword,
-    SyntaxKind::TrustedKeyword,
-    SyntaxKind::StaticKeyword,
-    SyntaxKind::ConsumeKeyword,
-    SyntaxKind::MutKeyword,
-    SyntaxKind::ConstKeyword,
-    SyntaxKind::FuncKeyword,
-];
-
-const IMPLEMENTATION_BODY_ITEM_RECOVERY_KINDS: [SyntaxKind; 9] = [
+pub(super) const MEMBER_ITEM_RECOVERY_KINDS: [SyntaxKind; 19] = [
+    SyntaxKind::AtToken,
     SyntaxKind::PublicKeyword,
     SyntaxKind::InternalKeyword,
     SyntaxKind::AsyncKeyword,
@@ -55,6 +42,15 @@ const IMPLEMENTATION_BODY_ITEM_RECOVERY_KINDS: [SyntaxKind; 9] = [
     SyntaxKind::MutKeyword,
     SyntaxKind::ConstKeyword,
     SyntaxKind::FuncKeyword,
+    SyntaxKind::ConstructKeyword,
+    SyntaxKind::FinalizeKeyword,
+    SyntaxKind::DestructKeyword,
+    SyntaxKind::EnterKeyword,
+    SyntaxKind::ExitKeyword,
+    SyntaxKind::TypeKeyword,
+    SyntaxKind::PredicateKeyword,
+    SyntaxKind::OverloadKeyword,
+    SyntaxKind::IdentifierToken,
 ];
 
 impl Parser {
@@ -111,6 +107,18 @@ impl Parser {
             return;
         }
 
+        if self.should_parse_type_constructor_member_declaration() {
+            builder.push_type_constructor_member_declaration(
+                self.parse_type_constructor_member_declaration(),
+            );
+            return;
+        }
+
+        if self.should_parse_type_lifecycle_member_declaration() {
+            self.parse_type_lifecycle_member_declaration(builder);
+            return;
+        }
+
         if self.should_parse_constant_declaration() {
             builder.push_constant_declaration(self.parse_constant_declaration());
             return;
@@ -122,7 +130,7 @@ impl Parser {
         }
 
         // TODO(parser): Parse remaining struct body items as they are implemented.
-        self.recover_body_item(builder, &STRUCT_BODY_ITEM_RECOVERY_KINDS);
+        self.recover_body_item(builder);
     }
 
     fn parse_union_body_item(&mut self, builder: &mut UnionBodySyntaxBuilder) {
@@ -130,6 +138,18 @@ impl Parser {
             builder.push_type_callable_member_declaration(
                 self.parse_type_callable_member_declaration(),
             );
+            return;
+        }
+
+        if self.should_parse_type_constructor_member_declaration() {
+            builder.push_type_constructor_member_declaration(
+                self.parse_type_constructor_member_declaration(),
+            );
+            return;
+        }
+
+        if self.should_parse_type_lifecycle_member_declaration() {
+            self.parse_type_lifecycle_member_declaration(builder);
             return;
         }
 
@@ -144,7 +164,7 @@ impl Parser {
         }
 
         // TODO(parser): Parse remaining union body items as they are implemented.
-        self.recover_body_item(builder, &UNION_BODY_ITEM_RECOVERY_KINDS);
+        self.recover_body_item(builder);
     }
 
     fn parse_trait_body_item(&mut self, builder: &mut TraitBodySyntaxBuilder) {
@@ -157,6 +177,11 @@ impl Parser {
             return;
         }
 
+        if self.should_parse_trait_lifecycle_requirement_declaration() {
+            self.parse_trait_lifecycle_requirement_declaration(builder);
+            return;
+        }
+
         if self.should_parse_trait_constant_member_declaration() {
             builder.push_trait_constant_member_declaration(
                 self.parse_trait_constant_member_declaration(),
@@ -165,7 +190,7 @@ impl Parser {
         }
 
         // TODO(parser): Parse remaining trait member declarations as they are implemented.
-        self.recover_body_item(builder, &TRAIT_BODY_ITEM_RECOVERY_KINDS);
+        self.recover_body_item(builder);
     }
 
     fn parse_inherent_implementation_body_item(
@@ -179,13 +204,25 @@ impl Parser {
             return;
         }
 
+        if self.should_parse_type_constructor_member_declaration() {
+            builder.push_type_constructor_member_declaration(
+                self.parse_type_constructor_member_declaration(),
+            );
+            return;
+        }
+
+        if self.should_parse_type_lifecycle_member_declaration() {
+            self.parse_type_lifecycle_member_declaration(builder);
+            return;
+        }
+
         if self.should_parse_constant_declaration() {
             builder.push_constant_declaration(self.parse_constant_declaration());
             return;
         }
 
         // TODO(parser): Parse remaining inherent implementation members as they are implemented.
-        self.recover_body_item(builder, &IMPLEMENTATION_BODY_ITEM_RECOVERY_KINDS);
+        self.recover_body_item(builder);
     }
 
     fn parse_trait_implementation_body_item(
@@ -199,6 +236,11 @@ impl Parser {
             return;
         }
 
+        if self.should_parse_trait_implementation_lifecycle_member_declaration() {
+            self.parse_trait_implementation_lifecycle_member_declaration(builder);
+            return;
+        }
+
         if self.should_parse_trait_implementation_constant_member_definition() {
             builder.push_trait_implementation_constant_member_definition(
                 self.parse_trait_implementation_constant_member_definition(),
@@ -207,17 +249,13 @@ impl Parser {
         }
 
         // TODO(parser): Parse remaining trait implementation members as they are implemented.
-        self.recover_body_item(builder, &IMPLEMENTATION_BODY_ITEM_RECOVERY_KINDS);
+        self.recover_body_item(builder);
     }
 
-    fn recover_body_item(
-        &mut self,
-        builder: &mut impl RecoverySyntaxSink,
-        recovery_kinds: &[SyntaxKind],
-    ) {
+    fn recover_body_item(&mut self, builder: &mut impl RecoverySyntaxSink) {
         self.recover_current_and_until_balanced_close_brace_or_recovery_set(
             builder,
-            RecoverySet::new(recovery_kinds),
+            RecoverySet::new(&MEMBER_ITEM_RECOVERY_KINDS),
         );
     }
 }

@@ -166,17 +166,21 @@ impl Parser {
     }
 
     pub(super) fn parse_callable_result_clause(&mut self) -> CallableResultClauseSyntax {
+        self.parse_callable_result_clause_until(Parser::at_callable_result_type_boundary)
+    }
+
+    pub(super) fn parse_callable_result_clause_until(
+        &mut self,
+        mut at_result_type_boundary: impl FnMut(&mut Parser) -> bool,
+    ) -> CallableResultClauseSyntax {
         let start = self.peek().full_range().start();
         let mut builder = CallableResultClauseSyntax::builder(self.syntax_source(), start);
 
         builder.push_arrow_token(self.expect(SyntaxKind::ArrowToken));
 
         // TODO(parser): Parse callable result type expressions once expression parsing is implemented.
-        if !self.at_callable_result_type_boundary() {
-            self.recover_current_and_until_predicate(
-                &mut builder,
-                Parser::at_callable_result_type_boundary,
-            );
+        if !at_result_type_boundary(self) {
+            self.recover_current_and_until_predicate(&mut builder, at_result_type_boundary);
         }
 
         builder.build()
