@@ -1,4 +1,8 @@
+mod callable;
+mod directive;
 mod entry;
+mod function;
+mod modifier;
 mod module;
 mod path;
 mod recovery;

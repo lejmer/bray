@@ -1,14 +1,28 @@
+mod callable;
 mod directive;
+mod function;
 mod list;
 mod module;
 mod path;
 mod recovery;
 mod unit;
 
+pub use callable::{
+    CallableBodyBlockExpressionSyntax, CallableBodyBlockExpressionSyntaxBuilder,
+    CallableResultClauseSyntax, CallableResultClauseSyntaxBuilder, ParameterListSyntax,
+    ParameterListSyntaxBuilder, ParameterModifiersSyntax, ParameterModifiersSyntaxBuilder,
+    ParameterSyntax, ParameterSyntaxBuilder,
+};
 pub use directive::{
-    DirectiveArgumentListSyntax, DirectiveArgumentListSyntaxBuilder, LinkDirectiveSyntax,
-    LinkDirectiveSyntaxBuilder, TargetDirectiveSyntax, TargetDirectiveSyntaxBuilder,
-    TestDirectiveSyntax, TestDirectiveSyntaxBuilder,
+    AbiDirectiveSyntax, AbiDirectiveSyntaxBuilder, DirectiveArgumentListSyntax,
+    DirectiveArgumentListSyntaxBuilder, EntrypointDirectiveSyntax,
+    EntrypointDirectiveSyntaxBuilder, LinkDirectiveSyntax, LinkDirectiveSyntaxBuilder,
+    SymbolDirectiveSyntax, SymbolDirectiveSyntaxBuilder, TargetDirectiveSyntax,
+    TargetDirectiveSyntaxBuilder, TestDirectiveSyntax, TestDirectiveSyntaxBuilder,
+};
+pub use function::{
+    FunctionDeclarationSyntax, FunctionDeclarationSyntaxBuilder, FunctionDirectivesSyntax,
+    FunctionDirectivesSyntaxBuilder, FunctionModifiersSyntax, FunctionModifiersSyntaxBuilder,
 };
 pub use list::{
     IdentifierListItemSyntax, IdentifierListItemSyntaxBuilder, IdentifierListSyntax,

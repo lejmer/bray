@@ -1,9 +1,11 @@
 use bray_syntax::{
-    BlockModuleDeclarationSyntaxBuilder, DirectiveArgumentListSyntaxBuilder,
-    ExportDeclarationSyntaxBuilder, IdentifierListSyntaxBuilder, ModuleBodySyntaxBuilder,
-    ModuleDirectivesSyntaxBuilder, SourceUnitModuleDeclarationSyntaxBuilder,
-    SourceUnitSyntaxBuilder, SyntaxKind, SyntaxToken, TargetDirectiveSyntaxBuilder,
-    UsingDeclarationSyntaxBuilder,
+    BlockModuleDeclarationSyntaxBuilder, CallableBodyBlockExpressionSyntaxBuilder,
+    CallableResultClauseSyntaxBuilder, DirectiveArgumentListSyntaxBuilder,
+    ExportDeclarationSyntaxBuilder, FunctionDeclarationSyntaxBuilder,
+    FunctionDirectivesSyntaxBuilder, IdentifierListSyntaxBuilder, ModuleBodySyntaxBuilder,
+    ModuleDirectivesSyntaxBuilder, ParameterListSyntaxBuilder, ParameterSyntaxBuilder,
+    SourceUnitModuleDeclarationSyntaxBuilder, SourceUnitSyntaxBuilder, SyntaxKind, SyntaxToken,
+    TargetDirectiveSyntaxBuilder, UsingDeclarationSyntaxBuilder,
 };
 
 use crate::cursor::RecoverySet;
@@ -52,6 +54,29 @@ impl Parser {
         let skipped_tokens = self.skip_current_and_until(RecoverySet::new(stop_kinds));
         let skipped_any = !skipped_tokens.is_empty();
 
+        builder.push_skipped_tokens(skipped_tokens);
+
+        skipped_any
+    }
+
+    pub(super) fn recover_current_and_until_predicate(
+        &mut self,
+        builder: &mut impl RecoverySyntaxSink,
+        mut at_stop: impl FnMut(&mut Parser) -> bool,
+    ) -> bool {
+        let mut skipped_tokens = Vec::new();
+
+        if !self.at(SyntaxKind::EndOfFileToken) {
+            skipped_tokens.push(self.consume());
+        }
+
+        while !self.at(SyntaxKind::EndOfFileToken) && !at_stop(self) {
+            skipped_tokens.push(self.consume());
+        }
+
+        let skipped_any = !skipped_tokens.is_empty();
+
+        self.record_skipped_syntax_for_tokens(&skipped_tokens);
         builder.push_skipped_tokens(skipped_tokens);
 
         skipped_any
@@ -120,6 +145,42 @@ impl RecoverySyntaxSink for ExportDeclarationSyntaxBuilder {
 impl RecoverySyntaxSink for ModuleDirectivesSyntaxBuilder {
     fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
         ModuleDirectivesSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for FunctionDirectivesSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        FunctionDirectivesSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for FunctionDeclarationSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        FunctionDeclarationSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for ParameterListSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        ParameterListSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for ParameterSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        ParameterSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for CallableResultClauseSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        CallableResultClauseSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for CallableBodyBlockExpressionSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        CallableBodyBlockExpressionSyntaxBuilder::push_skipped_tokens(self, tokens);
     }
 }
 

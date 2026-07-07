@@ -12,7 +12,7 @@ pub(super) struct Parser {
 
 impl Parser {
     pub(super) fn new(snapshot: SourceSnapshot) -> Self {
-        // LexerTokenSource owns a snapshot handle; cloning shares immutable source text.
+        // LexerTokenSource owns a snapshot handle, cloning shares immutable source text.
         let token_source = LexerTokenSource::new(snapshot.clone());
 
         Self {
@@ -110,6 +110,10 @@ impl Parser {
 
     pub(super) fn skip_one(&mut self) -> Option<SyntaxToken> {
         self.cursor.skip_one()
+    }
+
+    pub(super) fn record_skipped_syntax_for_tokens(&mut self, tokens: &[SyntaxToken]) {
+        self.cursor.record_skipped_syntax_for_tokens(tokens);
     }
 
     pub(super) fn skip_until_balanced_close_brace_or_recovery(

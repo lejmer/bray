@@ -1,17 +1,17 @@
-use bray_syntax::{
-    IdentifierListItemSyntax, IdentifierListSyntax, IdentifierListSyntaxBuilder, SyntaxKind,
-    SyntaxToken,
-};
+use bray_syntax::{SyntaxKind, SyntaxToken};
+
+#[cfg(test)]
+use bray_syntax::{IdentifierListItemSyntax, IdentifierListSyntax, IdentifierListSyntaxBuilder};
 
 use super::recovery::RecoverySyntaxSink;
 use super::state::Parser;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct SeparatedListSpec<'kinds> {
-    separator_kind: SyntaxKind,
-    terminators: &'kinds [SyntaxKind],
-    recovery_kinds: &'kinds [SyntaxKind],
-    allow_trailing_separator: bool,
+pub(super) struct SeparatedListSpec<'kinds> {
+    pub(super) separator_kind: SyntaxKind,
+    pub(super) terminators: &'kinds [SyntaxKind],
+    pub(super) recovery_kinds: &'kinds [SyntaxKind],
+    pub(super) allow_trailing_separator: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -20,7 +20,7 @@ enum SeparatedListPosition {
     Separator,
 }
 
-trait SeparatedListSyntaxSink<Item>: RecoverySyntaxSink {
+pub(super) trait SeparatedListSyntaxSink<Item>: RecoverySyntaxSink {
     fn push_item(&mut self, item: Item);
 
     fn push_separator(&mut self, separator: SyntaxToken);
@@ -35,14 +35,7 @@ impl Parser {
         self.at(spec.separator_kind) || self.at_list_end(spec.terminators)
     }
 
-    // TODO(parser): Remove this expectation once production grammar uses separated lists.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "TODO(parser): separated-list parser support is waiting for grammar use"
-        )
-    )]
+    #[cfg(test)]
     pub(super) fn parse_identifier_list(
         &mut self,
         terminators: &[SyntaxKind],
@@ -64,6 +57,7 @@ impl Parser {
         builder.build()
     }
 
+    #[cfg(test)]
     fn parse_identifier_list_item(&mut self) -> IdentifierListItemSyntax {
         let mut builder = IdentifierListItemSyntax::builder(self.syntax_source());
 
@@ -72,7 +66,7 @@ impl Parser {
         builder.build()
     }
 
-    fn parse_separated_list<Item>(
+    pub(super) fn parse_separated_list<Item>(
         &mut self,
         builder: &mut impl SeparatedListSyntaxSink<Item>,
         spec: SeparatedListSpec<'_>,
@@ -137,6 +131,7 @@ impl Parser {
     }
 }
 
+#[cfg(test)]
 impl SeparatedListSyntaxSink<IdentifierListItemSyntax> for IdentifierListSyntaxBuilder {
     fn push_item(&mut self, item: IdentifierListItemSyntax) {
         IdentifierListSyntaxBuilder::push_item(self, item);
@@ -147,6 +142,7 @@ impl SeparatedListSyntaxSink<IdentifierListItemSyntax> for IdentifierListSyntaxB
     }
 }
 
+#[cfg(test)]
 fn identifier_list_recovery_kinds(terminators: &[SyntaxKind]) -> Vec<SyntaxKind> {
     let mut recovery_kinds = Vec::with_capacity(terminators.len() + 2);
 
