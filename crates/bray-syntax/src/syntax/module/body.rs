@@ -1,7 +1,7 @@
 use super::item::{ExportDeclarationSyntax, UsingDeclarationSyntax};
-use crate::FunctionDeclarationSyntax;
 use crate::SyntaxKind;
 use crate::node::define_source_syntax_node;
+use crate::{FunctionDeclarationSyntax, TraitDeclarationSyntax};
 
 define_source_syntax_node! {
     /// Body of a braced module declaration.
@@ -58,6 +58,14 @@ define_source_syntax_node! {
                 push_function_declaration;
                 ty: FunctionDeclarationSyntax;
                 kind: SyntaxKind::FunctionDeclaration;
+            },
+            {
+                /// Returns direct trait declaration children in source order.
+                trait_declarations;
+                /// Appends a trait declaration child in source order.
+                push_trait_declaration;
+                ty: TraitDeclarationSyntax;
+                kind: SyntaxKind::TraitDeclaration;
             }
         ],
     }

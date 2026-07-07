@@ -461,20 +461,14 @@ mod tests {
     use bray_source::{TextRange, TextSize};
 
     use super::{GreenElement, GreenNode};
+    use crate::test_support::func_keyword_with_trailing_space;
     use crate::{SyntaxKind, SyntaxToken, SyntaxTrivia};
 
     #[test]
     fn green_nodes_store_tokens_and_nodes_in_source_order() {
         let source_text = "func main";
 
-        let func = SyntaxToken::new(
-            SyntaxKind::FuncKeyword,
-            TextRange::new(TextSize::ZERO, TextSize::new(4)),
-        )
-        .with_trailing_trivia([SyntaxTrivia::whitespace(TextRange::new(
-            TextSize::new(4),
-            TextSize::new(5),
-        ))]);
+        let func = func_keyword_with_trailing_space();
 
         let main = SyntaxToken::new(
             SyntaxKind::IdentifierToken,

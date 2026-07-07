@@ -121,7 +121,7 @@ impl FunctionModifiersSyntax {
     /// Returns the first visibility modifier token.
     pub fn visibility_token(&self) -> Option<SyntaxToken> {
         self.tokens()
-            .find(|token| visibility_modifier_kinds().contains(&token.kind()))
+            .find(|token| token.kind().is_visibility_modifier())
     }
 }
 
@@ -129,7 +129,7 @@ impl FunctionModifiersSyntaxBuilder {
     /// Appends a visibility modifier token.
     pub fn push_visibility_token(&mut self, token: SyntaxToken) {
         assert!(
-            visibility_modifier_kinds().contains(&token.kind()),
+            token.kind().is_visibility_modifier(),
             "function_modifiers.visibility_token expected a visibility modifier"
         );
 
@@ -247,10 +247,6 @@ impl FunctionDeclarationSyntax {
         )
         .next()
     }
-}
-
-fn visibility_modifier_kinds() -> &'static [SyntaxKind] {
-    &[SyntaxKind::PublicKeyword, SyntaxKind::InternalKeyword]
 }
 
 #[cfg(test)]

@@ -43,6 +43,12 @@ pub enum SyntaxKind {
     FunctionDirectives,
     /// Optional function modifiers in source order.
     FunctionModifiers,
+    /// Module-level trait declaration.
+    TraitDeclaration,
+    /// Optional trait modifiers in source order.
+    TraitModifiers,
+    /// Braced trait declaration body.
+    TraitBody,
     /// Callable parameter list including delimiters.
     ParameterList,
     /// Callable parameter item.
@@ -213,6 +219,9 @@ impl SyntaxKind {
                 | Self::FunctionDeclaration
                 | Self::FunctionDirectives
                 | Self::FunctionModifiers
+                | Self::TraitDeclaration
+                | Self::TraitModifiers
+                | Self::TraitBody
                 | Self::ParameterList
                 | Self::Parameter
                 | Self::ParameterModifiers
@@ -316,6 +325,11 @@ impl SyntaxKind {
         )
     }
 
+    /// Returns whether this kind represents a visibility modifier token.
+    pub const fn is_visibility_modifier(self) -> bool {
+        matches!(self, Self::PublicKeyword | Self::InternalKeyword)
+    }
+
     /// Returns whether this kind represents a literal token.
     pub const fn is_literal(self) -> bool {
         matches!(
@@ -352,6 +366,9 @@ impl SyntaxKind {
             Self::FunctionDeclaration => "function_declaration",
             Self::FunctionDirectives => "function_directives",
             Self::FunctionModifiers => "function_modifiers",
+            Self::TraitDeclaration => "trait_declaration",
+            Self::TraitModifiers => "trait_modifiers",
+            Self::TraitBody => "trait_body",
             Self::ParameterList => "parameter_list",
             Self::Parameter => "parameter",
             Self::ParameterModifiers => "parameter_modifiers",
@@ -516,6 +533,10 @@ mod tests {
         assert!(SyntaxKind::FunctionDirectives.is_node());
         assert!(SyntaxKind::FunctionModifiers.is_node());
 
+        assert!(SyntaxKind::TraitDeclaration.is_node());
+        assert!(SyntaxKind::TraitModifiers.is_node());
+        assert!(SyntaxKind::TraitBody.is_node());
+
         assert!(SyntaxKind::ParameterList.is_node());
         assert!(SyntaxKind::Parameter.is_node());
         assert!(SyntaxKind::ParameterModifiers.is_node());
@@ -544,6 +565,10 @@ mod tests {
         assert!(SyntaxKind::SelfValueKeyword.is_keyword());
         assert!(SyntaxKind::SelfTypeKeyword.is_keyword());
         assert!(!SyntaxKind::IdentifierToken.is_keyword());
+
+        assert!(SyntaxKind::PublicKeyword.is_visibility_modifier());
+        assert!(SyntaxKind::InternalKeyword.is_visibility_modifier());
+        assert!(!SyntaxKind::TrustedKeyword.is_visibility_modifier());
 
         assert!(SyntaxKind::RealLiteralToken.is_literal());
         assert!(SyntaxKind::ImaginaryLiteralToken.is_literal());
@@ -595,9 +620,16 @@ mod tests {
             SyntaxKind::FunctionDirectives.as_str(),
             "function_directives"
         );
+
         assert_eq!(SyntaxKind::FunctionModifiers.as_str(), "function_modifiers");
+
+        assert_eq!(SyntaxKind::TraitDeclaration.as_str(), "trait_declaration");
+        assert_eq!(SyntaxKind::TraitModifiers.as_str(), "trait_modifiers");
+        assert_eq!(SyntaxKind::TraitBody.as_str(), "trait_body");
+
         assert_eq!(SyntaxKind::ParameterList.as_str(), "parameter_list");
         assert_eq!(SyntaxKind::Parameter.as_str(), "parameter");
+
         assert_eq!(
             SyntaxKind::ParameterModifiers.as_str(),
             "parameter_modifiers"

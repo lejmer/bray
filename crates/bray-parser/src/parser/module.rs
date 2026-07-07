@@ -3,7 +3,8 @@ use bray_syntax::{
     FunctionDeclarationSyntax, ModuleBodySyntax, ModuleBodySyntaxBuilder, ModuleDirectivesSyntax,
     ModuleDirectivesSyntaxBuilder, ModuleModifiersSyntax, PathSyntax,
     SourceUnitModuleDeclarationSyntax, SourceUnitModuleDeclarationSyntaxBuilder,
-    SourceUnitSyntaxBuilder, SyntaxKind, SyntaxToken, UsingDeclarationSyntax,
+    SourceUnitSyntaxBuilder, SyntaxKind, SyntaxToken, TraitDeclarationSyntax,
+    UsingDeclarationSyntax,
 };
 
 use crate::cursor::RecoverySet;
@@ -44,7 +45,7 @@ const DIRECTIVE_ARGUMENT_RECOVERY_KINDS: [SyntaxKind; 5] = [
     SyntaxKind::ModuleKeyword,
 ];
 
-const PARSED_MODULE_ITEM_BOUNDARY_KINDS: [SyntaxKind; 13] = [
+const PARSED_MODULE_ITEM_BOUNDARY_KINDS: [SyntaxKind; 14] = [
     SyntaxKind::UsingKeyword,
     SyntaxKind::ExportKeyword,
     SyntaxKind::AtToken,
@@ -55,6 +56,7 @@ const PARSED_MODULE_ITEM_BOUNDARY_KINDS: [SyntaxKind; 13] = [
     SyntaxKind::AsyncKeyword,
     SyntaxKind::ConstKeyword,
     SyntaxKind::FuncKeyword,
+    SyntaxKind::TraitKeyword,
     SyntaxKind::SemicolonToken,
     SyntaxKind::CloseBraceToken,
     SyntaxKind::EndOfFileToken,
@@ -247,6 +249,11 @@ impl Parser {
             return;
         }
 
+        if self.should_parse_trait_declaration() {
+            builder.push_trait_declaration(self.parse_trait_declaration());
+            return;
+        }
+
         // TODO(parser): Parse remaining module-level declarations as they are implemented.
         if self.recover_until_module_item_boundary(builder, terminators)
             || self.peek().start() != start
@@ -376,7 +383,7 @@ impl Parser {
             self.consume();
         }
 
-        if self.at(SyntaxKind::PublicKeyword) || self.at(SyntaxKind::InternalKeyword) {
+        if self.at_visibility_modifier() {
             self.consume();
         }
     }
@@ -418,6 +425,8 @@ pub(super) trait ModuleItemSyntaxSink: RecoverySyntaxSink {
     fn push_export_declaration(&mut self, declaration: ExportDeclarationSyntax);
 
     fn push_function_declaration(&mut self, declaration: FunctionDeclarationSyntax);
+
+    fn push_trait_declaration(&mut self, declaration: TraitDeclarationSyntax);
 }
 
 impl ModuleDeclarationSyntaxSink for SourceUnitModuleDeclarationSyntaxBuilder {
@@ -468,6 +477,10 @@ impl ModuleItemSyntaxSink for SourceUnitSyntaxBuilder {
     fn push_function_declaration(&mut self, declaration: FunctionDeclarationSyntax) {
         SourceUnitSyntaxBuilder::push_function_declaration(self, declaration);
     }
+
+    fn push_trait_declaration(&mut self, declaration: TraitDeclarationSyntax) {
+        SourceUnitSyntaxBuilder::push_trait_declaration(self, declaration);
+    }
 }
 
 impl ModuleItemSyntaxSink for ModuleBodySyntaxBuilder {
@@ -481,6 +494,10 @@ impl ModuleItemSyntaxSink for ModuleBodySyntaxBuilder {
 
     fn push_function_declaration(&mut self, declaration: FunctionDeclarationSyntax) {
         ModuleBodySyntaxBuilder::push_function_declaration(self, declaration);
+    }
+
+    fn push_trait_declaration(&mut self, declaration: TraitDeclarationSyntax) {
+        ModuleBodySyntaxBuilder::push_trait_declaration(self, declaration);
     }
 }
 

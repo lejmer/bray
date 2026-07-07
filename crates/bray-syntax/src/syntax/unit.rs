@@ -7,7 +7,8 @@ use bray_source::{SourceSnapshot, TextRange, TextSize};
 use super::recovery::{SkippedSyntax, skipped_syntax_nodes};
 use super::{
     BlockModuleDeclarationSyntax, ExportDeclarationSyntax, FunctionDeclarationSyntax,
-    IdentifierListSyntax, SourceUnitModuleDeclarationSyntax, UsingDeclarationSyntax,
+    IdentifierListSyntax, SourceUnitModuleDeclarationSyntax, TraitDeclarationSyntax,
+    UsingDeclarationSyntax,
 };
 use crate::builder::{GreenNodeBuilder, RequiredSyntaxSlot, SyntaxListSlot, require_token_kind};
 use crate::green::GreenNode;
@@ -231,6 +232,17 @@ impl SourceUnitSyntax {
         )
     }
 
+    /// Returns direct trait declaration children in source order.
+    pub fn trait_declarations(&self) -> impl Iterator<Item = TraitDeclarationSyntax> + '_ {
+        child_nodes(
+            &self.source,
+            &self.node,
+            TextSize::ZERO,
+            SyntaxKind::TraitDeclaration,
+            TraitDeclarationSyntax::from_green,
+        )
+    }
+
     /// Returns the required EOF token for this source unit.
     pub fn eof_token(&self) -> SyntaxToken {
         match self.node.syntax_tokens(TextSize::ZERO).last() {
@@ -317,6 +329,11 @@ impl SourceUnitSyntaxBuilder {
         self.node.push_node(declaration.into_green());
     }
 
+    /// Appends a trait declaration child in source order.
+    pub fn push_trait_declaration(&mut self, declaration: TraitDeclarationSyntax) {
+        self.node.push_node(declaration.into_green());
+    }
+
     /// Appends tokens to the source-unit token list.
     pub fn tokens(mut self, tokens: impl IntoIterator<Item = SyntaxToken>) -> Self {
         self.node.push_tokens(tokens);
@@ -380,6 +397,13 @@ impl SourceUnitSyntaxBuilder {
         self
     }
 
+    /// Appends a trait declaration child in source order.
+    pub fn trait_declaration(mut self, declaration: TraitDeclarationSyntax) -> Self {
+        self.push_trait_declaration(declaration);
+
+        self
+    }
+
     /// Builds the source-unit node.
     ///
     /// Panics when the token list does not end in EOF.
@@ -423,6 +447,7 @@ mod tests {
     };
 
     use super::{CompilationUnitSyntax, SourceUnitSyntax};
+    use crate::test_support::{func_keyword, func_keyword_with_trailing_space};
     use crate::{
         BlockModuleDeclarationSyntax, CallableBodyBlockExpressionSyntax,
         CallableResultClauseSyntax, ExportDeclarationSyntax, FunctionDeclarationSyntax,
@@ -430,17 +455,15 @@ mod tests {
         IdentifierListSyntax, ModuleBodySyntax, ModuleDirectivesSyntax, ModuleModifiersSyntax,
         ParameterListSyntax, ParameterModifiersSyntax, ParameterSyntax, PathSyntax,
         SourceSyntaxNode, SourceUnitModuleDeclarationSyntax, SyntaxKind, SyntaxNode, SyntaxText,
-        SyntaxToken, SyntaxTrivia, UsingDeclarationSyntax,
+        SyntaxToken, SyntaxTrivia, TraitBodySyntax, TraitDeclarationSyntax, TraitModifiersSyntax,
+        UsingDeclarationSyntax,
     };
 
     #[test]
     fn source_units_store_source_snapshot_named_tokens_and_full_range() {
         let snapshot = snapshot("func");
 
-        let first = SyntaxToken::new(
-            SyntaxKind::FuncKeyword,
-            TextRange::new(TextSize::ZERO, TextSize::new(4)),
-        );
+        let first = func_keyword();
 
         let eof = SyntaxToken::end_of_file(TextSize::new(4));
 
@@ -526,10 +549,7 @@ mod tests {
     #[test]
     fn source_units_preserve_missing_tokens_in_named_slots() {
         let snapshot = snapshot("func");
-        let token = SyntaxToken::new(
-            SyntaxKind::FuncKeyword,
-            TextRange::new(TextSize::ZERO, TextSize::new(4)),
-        );
+        let token = func_keyword();
 
         let missing = SyntaxToken::missing(SyntaxKind::SemicolonToken, TextSize::new(4));
         let eof = SyntaxToken::end_of_file(TextSize::new(4));
@@ -550,14 +570,7 @@ mod tests {
     fn source_units_attach_skipped_syntax_without_losing_source_text() {
         let snapshot = snapshot("func @ main");
 
-        let func = SyntaxToken::new(
-            SyntaxKind::FuncKeyword,
-            TextRange::new(TextSize::ZERO, TextSize::new(4)),
-        )
-        .with_trailing_trivia([SyntaxTrivia::whitespace(TextRange::new(
-            TextSize::new(4),
-            TextSize::new(5),
-        ))]);
+        let func = func_keyword_with_trailing_space();
 
         let skipped_token =
             SyntaxToken::invalid(TextRange::new(TextSize::new(5), TextSize::new(6)))
@@ -771,6 +784,34 @@ mod tests {
     }
 
     #[test]
+    fn source_units_expose_trait_declaration_children() {
+        let snapshot = snapshot("trait Display {}");
+        let declaration = trait_declaration(snapshot.clone());
+        let eof = SyntaxToken::end_of_file(TextSize::new(16));
+
+        let source_unit = SourceUnitSyntax::builder(snapshot)
+            .trait_declaration(declaration)
+            .tokens([eof])
+            .build();
+
+        let declarations = source_unit.trait_declarations().collect::<Vec<_>>();
+
+        let [declaration] = declarations.as_slice() else {
+            panic!("expected one trait declaration: {declarations:?}");
+        };
+
+        assert_eq!(source_unit.full_text(), "trait Display {}");
+        assert_eq!(declaration.full_text(), "trait Display {}");
+
+        assert_eq!(
+            declaration.identifier_token().kind(),
+            SyntaxKind::IdentifierToken
+        );
+
+        assert_eq!(declaration.trait_body().full_text(), "{}");
+    }
+
+    #[test]
     fn source_unit_debug_does_not_expose_green_storage() {
         let source_unit = SourceUnitSyntax::builder(snapshot(""))
             .tokens([SyntaxToken::end_of_file(TextSize::ZERO)])
@@ -794,6 +835,9 @@ mod tests {
         assert_send_sync::<FunctionDeclarationSyntax>();
         assert_send_sync::<FunctionDirectivesSyntax>();
         assert_send_sync::<FunctionModifiersSyntax>();
+        assert_send_sync::<TraitDeclarationSyntax>();
+        assert_send_sync::<TraitModifiersSyntax>();
+        assert_send_sync::<TraitBodySyntax>();
         assert_send_sync::<ParameterListSyntax>();
         assert_send_sync::<ParameterSyntax>();
         assert_send_sync::<ParameterModifiersSyntax>();
@@ -921,16 +965,7 @@ mod tests {
             FunctionModifiersSyntax::builder(snapshot.clone(), TextSize::ZERO).build(),
         );
 
-        builder.push_func_keyword(
-            SyntaxToken::new(
-                SyntaxKind::FuncKeyword,
-                TextRange::new(TextSize::ZERO, TextSize::new(4)),
-            )
-            .with_trailing_trivia([SyntaxTrivia::whitespace(TextRange::new(
-                TextSize::new(4),
-                TextSize::new(5),
-            ))]),
-        );
+        builder.push_func_keyword(func_keyword_with_trailing_space());
 
         builder.push_identifier_token(SyntaxToken::new(
             SyntaxKind::IdentifierToken,
@@ -939,6 +974,40 @@ mod tests {
 
         builder.push_parameter_list(parameter_list(snapshot.clone()));
         builder.push_callable_body_block_expression(callable_body(snapshot));
+
+        builder.build()
+    }
+
+    fn trait_declaration(snapshot: SourceSnapshot) -> TraitDeclarationSyntax {
+        let mut builder = TraitDeclarationSyntax::builder(snapshot.clone(), TextSize::ZERO);
+
+        builder.push_trait_modifiers(
+            TraitModifiersSyntax::builder(snapshot.clone(), TextSize::ZERO).build(),
+        );
+
+        builder.push_trait_keyword(
+            SyntaxToken::new(
+                SyntaxKind::TraitKeyword,
+                TextRange::new(TextSize::ZERO, TextSize::new(5)),
+            )
+            .with_trailing_trivia([SyntaxTrivia::whitespace(TextRange::new(
+                TextSize::new(5),
+                TextSize::new(6),
+            ))]),
+        );
+
+        builder.push_identifier_token(
+            SyntaxToken::new(
+                SyntaxKind::IdentifierToken,
+                TextRange::new(TextSize::new(6), TextSize::new(13)),
+            )
+            .with_trailing_trivia([SyntaxTrivia::whitespace(TextRange::new(
+                TextSize::new(13),
+                TextSize::new(14),
+            ))]),
+        );
+
+        builder.push_trait_body(trait_body(snapshot));
 
         builder.build()
     }
@@ -976,6 +1045,22 @@ mod tests {
         builder.push_close_brace_token(SyntaxToken::new(
             SyntaxKind::CloseBraceToken,
             TextRange::new(TextSize::new(13), TextSize::new(14)),
+        ));
+
+        builder.build()
+    }
+
+    fn trait_body(snapshot: SourceSnapshot) -> TraitBodySyntax {
+        let mut builder = TraitBodySyntax::builder(snapshot, TextSize::new(14));
+
+        builder.push_open_brace_token(SyntaxToken::new(
+            SyntaxKind::OpenBraceToken,
+            TextRange::new(TextSize::new(14), TextSize::new(15)),
+        ));
+
+        builder.push_close_brace_token(SyntaxToken::new(
+            SyntaxKind::CloseBraceToken,
+            TextRange::new(TextSize::new(15), TextSize::new(16)),
         ));
 
         builder.build()

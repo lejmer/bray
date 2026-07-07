@@ -5,7 +5,8 @@ use bray_syntax::{
     FunctionDirectivesSyntaxBuilder, IdentifierListSyntaxBuilder, ModuleBodySyntaxBuilder,
     ModuleDirectivesSyntaxBuilder, ParameterListSyntaxBuilder, ParameterSyntaxBuilder,
     SourceUnitModuleDeclarationSyntaxBuilder, SourceUnitSyntaxBuilder, SyntaxKind, SyntaxToken,
-    TargetDirectiveSyntaxBuilder, UsingDeclarationSyntaxBuilder,
+    TargetDirectiveSyntaxBuilder, TraitBodySyntaxBuilder, TraitDeclarationSyntaxBuilder,
+    UsingDeclarationSyntaxBuilder,
 };
 
 use crate::cursor::RecoverySet;
@@ -157,6 +158,18 @@ impl RecoverySyntaxSink for FunctionDirectivesSyntaxBuilder {
 impl RecoverySyntaxSink for FunctionDeclarationSyntaxBuilder {
     fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
         FunctionDeclarationSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for TraitDeclarationSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        TraitDeclarationSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for TraitBodySyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        TraitBodySyntaxBuilder::push_skipped_tokens(self, tokens);
     }
 }
 
