@@ -1,10 +1,11 @@
 use bray_syntax::{
-    ImplementationSubjectSyntax, ImplementationSubjectSyntaxBuilder,
-    InherentImplementationBodySyntax, InherentImplementationDeclarationSyntax,
+    ImplementationBodySyntax, ImplementationSubjectSyntax, ImplementationSubjectSyntaxBuilder,
+    ImplementationTypeMemberBindingSyntax, InherentImplementationDeclarationSyntax,
     NamedTraitImplementationDeclarationSyntax, SyntaxKind, TraitApplicationSyntax,
-    TraitImplementationBodySyntax, UnnamedTraitImplementationDeclarationSyntax,
+    UnnamedTraitImplementationDeclarationSyntax,
 };
 
+use super::member::MEMBER_KEYWORD_RECOVERY_KINDS;
 use super::module::MODULE_ITEM_START_KINDS;
 use super::recovery::RecoverySyntaxSink;
 use super::state::Parser;
@@ -40,6 +41,12 @@ const IMPLEMENTATION_BODY_MISSING_BOUNDARY_KINDS: [SyntaxKind; 3] = [
     SyntaxKind::EndOfFileToken,
 ];
 
+const IMPLEMENTATION_TYPE_MEMBER_TYPE_BOUNDARY_KINDS: [SyntaxKind; 3] = [
+    SyntaxKind::SemicolonToken,
+    SyntaxKind::CloseBraceToken,
+    SyntaxKind::EndOfFileToken,
+];
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum BorrowPrefixPolicy {
     Allow,
@@ -62,7 +69,7 @@ impl Parser {
 
         self.parse_implementation_constraints(&mut builder);
 
-        builder.push_inherent_implementation_body(self.parse_inherent_implementation_body());
+        builder.push_implementation_body(self.parse_implementation_body());
 
         builder.build()
     }
@@ -86,7 +93,7 @@ impl Parser {
 
         self.parse_implementation_constraints(&mut builder);
 
-        builder.push_trait_implementation_body(self.parse_trait_implementation_body());
+        builder.push_implementation_body(self.parse_implementation_body());
 
         builder.build()
     }
@@ -112,7 +119,7 @@ impl Parser {
 
         self.parse_implementation_constraints(&mut builder);
 
-        builder.push_trait_implementation_body(self.parse_trait_implementation_body());
+        builder.push_implementation_body(self.parse_implementation_body());
 
         builder.build()
     }
@@ -191,30 +198,51 @@ impl Parser {
         }
     }
 
-    fn parse_inherent_implementation_body(&mut self) -> InherentImplementationBodySyntax {
+    fn parse_implementation_body(&mut self) -> ImplementationBodySyntax {
         let start = self.peek().full_range().start();
-        let mut builder = InherentImplementationBodySyntax::builder(self.syntax_source(), start);
+        let mut builder = ImplementationBodySyntax::builder(self.syntax_source(), start);
 
         self.parse_braced_body_contents(
             &mut builder,
             Parser::at_implementation_body_missing_boundary,
-            Parser::parse_inherent_implementation_body_items,
+            Parser::parse_implementation_body_items,
         );
 
         builder.build()
     }
 
-    fn parse_trait_implementation_body(&mut self) -> TraitImplementationBodySyntax {
+    pub(super) fn parse_implementation_type_member_binding(
+        &mut self,
+    ) -> ImplementationTypeMemberBindingSyntax {
         let start = self.peek().full_range().start();
-        let mut builder = TraitImplementationBodySyntax::builder(self.syntax_source(), start);
+        let mut builder =
+            ImplementationTypeMemberBindingSyntax::builder(self.syntax_source(), start);
 
-        self.parse_braced_body_contents(
+        builder.push_type_keyword(self.expect(SyntaxKind::TypeKeyword));
+        builder.push_identifier_token(self.parse_identifier());
+        builder.push_equals_token(self.expect(SyntaxKind::EqualsToken));
+
+        // TODO(parser): Parse implementation type member expressions once expression parsing is implemented.
+        if !self.at_implementation_type_member_type_boundary() {
+            self.recover_current_and_until_predicate(
+                &mut builder,
+                Parser::at_implementation_type_member_type_boundary,
+            );
+        }
+
+        self.recover_until_predicate(
             &mut builder,
-            Parser::at_implementation_body_missing_boundary,
-            Parser::parse_trait_implementation_body_items,
+            Parser::at_implementation_type_member_type_boundary,
         );
+        builder.push_semicolon_token(self.expect(SyntaxKind::SemicolonToken));
 
         builder.build()
+    }
+
+    fn at_implementation_type_member_type_boundary(&mut self) -> bool {
+        self.at_any(&IMPLEMENTATION_TYPE_MEMBER_TYPE_BOUNDARY_KINDS)
+            || self.at_any(&MEMBER_KEYWORD_RECOVERY_KINDS)
+            || self.at_any(&MODULE_ITEM_START_KINDS)
     }
 
     fn at_implementation_named_subject_or_boundary(&mut self) -> bool {
@@ -266,6 +294,10 @@ impl Parser {
 
     pub(super) fn should_parse_named_trait_implementation_declaration(&mut self) -> bool {
         self.at(SyntaxKind::ImplKeyword) && self.at_named_trait_implementation_prefix()
+    }
+
+    pub(super) fn should_parse_implementation_type_member_binding(&mut self) -> bool {
+        self.at(SyntaxKind::TypeKeyword)
     }
 
     fn at_named_trait_implementation_prefix(&mut self) -> bool {
@@ -351,7 +383,7 @@ mod tests {
             "Point "
         );
 
-        assert_eq!(declaration.inherent_implementation_body().full_text(), "{}");
+        assert_eq!(declaration.implementation_body().full_text(), "{}");
         assert!(result.diagnostics().is_empty());
     }
 
@@ -390,7 +422,7 @@ mod tests {
             "Equatable"
         );
 
-        assert_eq!(declaration.trait_implementation_body().full_text(), "{} ");
+        assert_eq!(declaration.implementation_body().full_text(), "{} ");
         assert!(result.diagnostics().is_empty());
     }
 
@@ -462,10 +494,8 @@ mod tests {
 
         let declaration_skipped = declaration.skipped_syntax().collect::<Vec<_>>();
 
-        let body = declaration.trait_implementation_body();
-        let members = body
-            .trait_callable_member_declarations()
-            .collect::<Vec<_>>();
+        let body = declaration.implementation_body();
+        let members = body.type_callable_member_declarations().collect::<Vec<_>>();
 
         let [subject_generics] = subject_skipped.as_slice() else {
             panic!("expected subject generics as skipped syntax: {subject_skipped:?}");
@@ -524,7 +554,7 @@ mod tests {
             panic!("expected one inherent implementation declaration: {declarations:?}");
         };
 
-        let body = declaration.inherent_implementation_body();
+        let body = declaration.implementation_body();
         let members = body.type_callable_member_declarations().collect::<Vec<_>>();
 
         let [member] = members.as_slice() else {
@@ -570,13 +600,13 @@ mod tests {
         };
 
         let inherent_constants = inherent
-            .inherent_implementation_body()
+            .implementation_body()
             .constant_declarations()
             .collect::<Vec<_>>();
 
         let trait_constants = trait_implementation
-            .trait_implementation_body()
-            .trait_implementation_constant_member_definitions()
+            .implementation_body()
+            .constant_declarations()
             .collect::<Vec<_>>();
 
         let [inherent_constant] = inherent_constants.as_slice() else {
@@ -584,7 +614,7 @@ mod tests {
         };
 
         let [trait_constant] = trait_constants.as_slice() else {
-            panic!("expected one trait implementation constant definition: {trait_constants:?}");
+            panic!("expected one trait implementation constant declaration: {trait_constants:?}");
         };
 
         assert_eq!(source_unit.full_text(), source);
@@ -600,6 +630,59 @@ mod tests {
             parse_diagnostic_kinds(&result),
             [
                 DiagnosticKind::SyntaxSkippedSyntax,
+                DiagnosticKind::SyntaxSkippedSyntax,
+                DiagnosticKind::SyntaxSkippedSyntax,
+                DiagnosticKind::SyntaxSkippedSyntax
+            ]
+        );
+    }
+
+    // TODO(parser): Update this when type and predicate expressions are parsed.
+    #[test]
+    fn parser_parses_shared_members_in_implementation_bodies() {
+        let source = concat!(
+            "module main; ",
+            "impl Point { type Item = Element; predicate valid(value: Int); } ",
+            "impl Point(Shape) { type Area = Float; predicate convex(); }"
+        );
+
+        let sources = source_store([source]);
+        let result = parse_compilation_unit(&sources);
+
+        let source_unit = &result.syntax_tree().root().source_units()[0];
+        let inherent_declarations = source_unit
+            .inherent_implementation_declarations()
+            .collect::<Vec<_>>();
+
+        let trait_declarations = source_unit
+            .unnamed_trait_implementation_declarations()
+            .collect::<Vec<_>>();
+
+        let [inherent] = inherent_declarations.as_slice() else {
+            panic!("expected one inherent implementation declaration: {inherent_declarations:?}");
+        };
+
+        let [trait_implementation] = trait_declarations.as_slice() else {
+            panic!("expected one trait implementation declaration: {trait_declarations:?}");
+        };
+
+        let inherent_body = inherent.implementation_body();
+        let trait_body = trait_implementation.implementation_body();
+
+        assert_eq!(source_unit.full_text(), source);
+
+        assert_eq!(
+            inherent_body.implementation_type_member_bindings().count(),
+            1
+        );
+
+        assert_eq!(inherent_body.predicate_declarations().count(), 1);
+        assert_eq!(trait_body.implementation_type_member_bindings().count(), 1);
+        assert_eq!(trait_body.predicate_declarations().count(), 1);
+
+        assert_eq!(
+            parse_diagnostic_kinds(&result),
+            [
                 DiagnosticKind::SyntaxSkippedSyntax,
                 DiagnosticKind::SyntaxSkippedSyntax,
                 DiagnosticKind::SyntaxSkippedSyntax
@@ -623,7 +706,7 @@ mod tests {
         };
 
         let insertion = marker_offset(source, "using");
-        let body = declaration.inherent_implementation_body();
+        let body = declaration.implementation_body();
 
         assert_eq!(source_unit.full_text(), source);
         assert_eq!(source_unit.using_declarations().count(), 1);

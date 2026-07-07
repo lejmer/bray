@@ -113,6 +113,7 @@ impl Parser {
             || self.should_parse_type_constructor_member_declaration()
             || self.should_parse_type_lifecycle_member_declaration()
             || self.should_parse_constant_declaration()
+            || self.should_parse_predicate_declaration()
     }
 
     pub(super) fn should_parse_struct_field_declaration(&mut self) -> bool {

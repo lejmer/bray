@@ -21,12 +21,7 @@ pub use lifecycle::{
     SyncLifecycleMemberModifiersSyntax, SyncLifecycleMemberModifiersSyntaxBuilder,
     TraitDestructorRequirementDeclarationSyntax,
     TraitDestructorRequirementDeclarationSyntaxBuilder, TraitFinalizerRequirementDeclarationSyntax,
-    TraitFinalizerRequirementDeclarationSyntaxBuilder,
-    TraitImplementationScopeEnterMemberDeclarationSyntax,
-    TraitImplementationScopeEnterMemberDeclarationSyntaxBuilder,
-    TraitImplementationScopeExitMemberDeclarationSyntax,
-    TraitImplementationScopeExitMemberDeclarationSyntaxBuilder,
-    TraitScopeEnterRequirementDeclarationSyntax,
+    TraitFinalizerRequirementDeclarationSyntaxBuilder, TraitScopeEnterRequirementDeclarationSyntax,
     TraitScopeEnterRequirementDeclarationSyntaxBuilder, TraitScopeExitRequirementDeclarationSyntax,
     TraitScopeExitRequirementDeclarationSyntaxBuilder,
 };

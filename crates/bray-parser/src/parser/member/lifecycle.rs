@@ -2,19 +2,13 @@ use bray_syntax::{
     AsyncCapableLifecycleMemberModifiersSyntax, CallableBodyBlockExpressionSyntax,
     CallableResultClauseSyntax, DestructorMemberDeclarationSyntax,
     DestructorMemberDeclarationSyntaxBuilder, FinalizerMemberDeclarationSyntax,
-    FinalizerMemberDeclarationSyntaxBuilder, InherentImplementationBodySyntaxBuilder,
-    ParameterListSyntax, ScopeEnterMemberDeclarationSyntax,
-    ScopeEnterMemberDeclarationSyntaxBuilder, ScopeExitMemberDeclarationSyntax,
-    ScopeExitMemberDeclarationSyntaxBuilder, StructBodySyntaxBuilder,
-    SyncLifecycleMemberModifiersSyntax, SyntaxKind, SyntaxToken, TraitBodySyntaxBuilder,
-    TraitDestructorRequirementDeclarationSyntax,
+    FinalizerMemberDeclarationSyntaxBuilder, ImplementationBodySyntaxBuilder, ParameterListSyntax,
+    ScopeEnterMemberDeclarationSyntax, ScopeEnterMemberDeclarationSyntaxBuilder,
+    ScopeExitMemberDeclarationSyntax, ScopeExitMemberDeclarationSyntaxBuilder,
+    StructBodySyntaxBuilder, SyncLifecycleMemberModifiersSyntax, SyntaxKind, SyntaxToken,
+    TraitBodySyntaxBuilder, TraitDestructorRequirementDeclarationSyntax,
     TraitDestructorRequirementDeclarationSyntaxBuilder, TraitFinalizerRequirementDeclarationSyntax,
-    TraitFinalizerRequirementDeclarationSyntaxBuilder, TraitImplementationBodySyntaxBuilder,
-    TraitImplementationScopeEnterMemberDeclarationSyntax,
-    TraitImplementationScopeEnterMemberDeclarationSyntaxBuilder,
-    TraitImplementationScopeExitMemberDeclarationSyntax,
-    TraitImplementationScopeExitMemberDeclarationSyntaxBuilder,
-    TraitScopeEnterRequirementDeclarationSyntax,
+    TraitFinalizerRequirementDeclarationSyntaxBuilder, TraitScopeEnterRequirementDeclarationSyntax,
     TraitScopeEnterRequirementDeclarationSyntaxBuilder, TraitScopeExitRequirementDeclarationSyntax,
     TraitScopeExitRequirementDeclarationSyntaxBuilder, UnionBodySyntaxBuilder,
 };
@@ -124,27 +118,6 @@ impl Parser {
         if self.should_parse_trait_scope_exit_requirement_declaration() {
             builder.push_trait_scope_exit_requirement_declaration(
                 self.parse_trait_scope_exit_requirement_declaration(),
-            );
-            return;
-        }
-
-        self.recover_current_token(builder);
-    }
-
-    pub(super) fn parse_trait_implementation_lifecycle_member_declaration(
-        &mut self,
-        builder: &mut impl TraitImplementationLifecycleMemberSyntaxSink,
-    ) {
-        if self.should_parse_trait_implementation_scope_enter_member_declaration() {
-            builder.push_trait_implementation_scope_enter_member_declaration(
-                self.parse_trait_implementation_scope_enter_member_declaration(),
-            );
-            return;
-        }
-
-        if self.should_parse_trait_implementation_scope_exit_member_declaration() {
-            builder.push_trait_implementation_scope_exit_member_declaration(
-                self.parse_trait_implementation_scope_exit_member_declaration(),
             );
             return;
         }
@@ -270,44 +243,6 @@ impl Parser {
         builder.build()
     }
 
-    fn parse_trait_implementation_scope_enter_member_declaration(
-        &mut self,
-    ) -> TraitImplementationScopeEnterMemberDeclarationSyntax {
-        let start = self.peek().full_range().start();
-        let mut builder = TraitImplementationScopeEnterMemberDeclarationSyntax::builder(
-            self.syntax_source(),
-            start,
-        );
-
-        builder.push_async_capable_lifecycle_member_modifiers(
-            self.parse_async_capable_lifecycle_member_modifiers(),
-        );
-
-        builder.push_enter_keyword(self.expect(SyntaxKind::EnterKeyword));
-        self.parse_lifecycle_body_tail(&mut builder, LifecycleResultPolicy::Required);
-
-        builder.build()
-    }
-
-    fn parse_trait_implementation_scope_exit_member_declaration(
-        &mut self,
-    ) -> TraitImplementationScopeExitMemberDeclarationSyntax {
-        let start = self.peek().full_range().start();
-        let mut builder = TraitImplementationScopeExitMemberDeclarationSyntax::builder(
-            self.syntax_source(),
-            start,
-        );
-
-        builder.push_async_capable_lifecycle_member_modifiers(
-            self.parse_async_capable_lifecycle_member_modifiers(),
-        );
-
-        builder.push_exit_keyword(self.expect(SyntaxKind::ExitKeyword));
-        self.parse_lifecycle_body_tail(&mut builder, LifecycleResultPolicy::Optional);
-
-        builder.build()
-    }
-
     fn parse_async_capable_lifecycle_member_modifiers(
         &mut self,
     ) -> AsyncCapableLifecycleMemberModifiersSyntax {
@@ -422,13 +357,6 @@ impl Parser {
             || self.should_parse_trait_scope_exit_requirement_declaration()
     }
 
-    pub(super) fn should_parse_trait_implementation_lifecycle_member_declaration(
-        &mut self,
-    ) -> bool {
-        self.should_parse_trait_implementation_scope_enter_member_declaration()
-            || self.should_parse_trait_implementation_scope_exit_member_declaration()
-    }
-
     fn should_parse_finalizer_member_declaration(&mut self) -> bool {
         self.at_async_capable_lifecycle_start(SyntaxKind::FinalizeKeyword)
     }
@@ -458,14 +386,6 @@ impl Parser {
     }
 
     fn should_parse_trait_scope_exit_requirement_declaration(&mut self) -> bool {
-        self.at_scope_lifecycle_start(SyntaxKind::ExitKeyword)
-    }
-
-    fn should_parse_trait_implementation_scope_enter_member_declaration(&mut self) -> bool {
-        self.at_scope_lifecycle_start(SyntaxKind::EnterKeyword)
-    }
-
-    fn should_parse_trait_implementation_scope_exit_member_declaration(&mut self) -> bool {
         self.at_scope_lifecycle_start(SyntaxKind::ExitKeyword)
     }
 
@@ -564,18 +484,6 @@ pub(super) trait TraitLifecycleRequirementSyntaxSink: RecoverySyntaxSink {
     );
 }
 
-pub(super) trait TraitImplementationLifecycleMemberSyntaxSink: RecoverySyntaxSink {
-    fn push_trait_implementation_scope_enter_member_declaration(
-        &mut self,
-        declaration: TraitImplementationScopeEnterMemberDeclarationSyntax,
-    );
-
-    fn push_trait_implementation_scope_exit_member_declaration(
-        &mut self,
-        declaration: TraitImplementationScopeExitMemberDeclarationSyntax,
-    );
-}
-
 trait LifecycleSignatureSyntaxSink: RecoverySyntaxSink {
     fn push_parameter_list(&mut self, parameter_list: ParameterListSyntax);
 
@@ -667,7 +575,7 @@ macro_rules! impl_lifecycle_requirement_sink {
 
 impl_type_lifecycle_member_sink!(StructBodySyntaxBuilder);
 impl_type_lifecycle_member_sink!(UnionBodySyntaxBuilder);
-impl_type_lifecycle_member_sink!(InherentImplementationBodySyntaxBuilder);
+impl_type_lifecycle_member_sink!(ImplementationBodySyntaxBuilder);
 
 impl TraitLifecycleRequirementSyntaxSink for TraitBodySyntaxBuilder {
     fn push_trait_finalizer_requirement_declaration(
@@ -699,34 +607,10 @@ impl TraitLifecycleRequirementSyntaxSink for TraitBodySyntaxBuilder {
     }
 }
 
-impl TraitImplementationLifecycleMemberSyntaxSink for TraitImplementationBodySyntaxBuilder {
-    fn push_trait_implementation_scope_enter_member_declaration(
-        &mut self,
-        declaration: TraitImplementationScopeEnterMemberDeclarationSyntax,
-    ) {
-        TraitImplementationBodySyntaxBuilder::push_trait_implementation_scope_enter_member_declaration(
-            self,
-            declaration,
-        );
-    }
-
-    fn push_trait_implementation_scope_exit_member_declaration(
-        &mut self,
-        declaration: TraitImplementationScopeExitMemberDeclarationSyntax,
-    ) {
-        TraitImplementationBodySyntaxBuilder::push_trait_implementation_scope_exit_member_declaration(
-            self,
-            declaration,
-        );
-    }
-}
-
 impl_lifecycle_body_sink!(FinalizerMemberDeclarationSyntaxBuilder);
 impl_lifecycle_body_sink!(DestructorMemberDeclarationSyntaxBuilder);
 impl_lifecycle_body_sink!(ScopeEnterMemberDeclarationSyntaxBuilder);
 impl_lifecycle_body_sink!(ScopeExitMemberDeclarationSyntaxBuilder);
-impl_lifecycle_body_sink!(TraitImplementationScopeEnterMemberDeclarationSyntaxBuilder);
-impl_lifecycle_body_sink!(TraitImplementationScopeExitMemberDeclarationSyntaxBuilder);
 
 impl_lifecycle_requirement_sink!(TraitFinalizerRequirementDeclarationSyntaxBuilder);
 impl_lifecycle_requirement_sink!(TraitDestructorRequirementDeclarationSyntaxBuilder);
@@ -881,21 +765,11 @@ mod tests {
             panic!("expected one trait implementation declaration: {declarations:?}");
         };
 
-        let body = declaration.trait_implementation_body();
+        let body = declaration.implementation_body();
 
         assert_eq!(source_unit.full_text(), source);
-
-        assert_eq!(
-            body.trait_implementation_scope_enter_member_declarations()
-                .count(),
-            1
-        );
-
-        assert_eq!(
-            body.trait_implementation_scope_exit_member_declarations()
-                .count(),
-            1
-        );
+        assert_eq!(body.scope_enter_member_declarations().count(), 1);
+        assert_eq!(body.scope_exit_member_declarations().count(), 1);
 
         assert_eq!(
             parse_diagnostic_kinds(&result),

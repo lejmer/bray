@@ -4,3 +4,5 @@ mod constructor;
 mod field;
 mod lifecycle;
 mod variant;
+
+pub(super) use body::MEMBER_KEYWORD_RECOVERY_KINDS;

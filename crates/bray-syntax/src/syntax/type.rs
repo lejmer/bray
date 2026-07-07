@@ -7,7 +7,7 @@ use super::member::{
 };
 use super::variant::UnionVariantDeclarationSyntax;
 use crate::node::define_source_syntax_node;
-use crate::{ConstantDeclarationSyntax, SyntaxKind, SyntaxToken};
+use crate::{ConstantDeclarationSyntax, PredicateDeclarationSyntax, SyntaxKind, SyntaxToken};
 
 define_source_syntax_node! {
     /// Type directives in source order.
@@ -273,6 +273,14 @@ define_source_syntax_node! {
                 kind: SyntaxKind::ConstantDeclaration;
             },
             {
+                /// Returns predicate declarations in source order.
+                predicate_declarations;
+                /// Appends a predicate declaration.
+                push_predicate_declaration;
+                ty: PredicateDeclarationSyntax;
+                kind: SyntaxKind::PredicateDeclaration;
+            },
+            {
                 /// Returns type constructor member declarations in source order.
                 type_constructor_member_declarations;
                 /// Appends a type constructor member declaration.
@@ -371,6 +379,14 @@ define_source_syntax_node! {
                 push_constant_declaration;
                 ty: ConstantDeclarationSyntax;
                 kind: SyntaxKind::ConstantDeclaration;
+            },
+            {
+                /// Returns predicate declarations in source order.
+                predicate_declarations;
+                /// Appends a predicate declaration.
+                push_predicate_declaration;
+                ty: PredicateDeclarationSyntax;
+                kind: SyntaxKind::PredicateDeclaration;
             },
             {
                 /// Returns type constructor member declarations in source order.

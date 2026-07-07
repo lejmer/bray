@@ -4,8 +4,8 @@ use bray_syntax::{
     ConstantDeclarationSyntaxBuilder, DestructorMemberDeclarationSyntaxBuilder,
     DirectiveArgumentListSyntaxBuilder, ExportDeclarationSyntaxBuilder,
     FinalizerMemberDeclarationSyntaxBuilder, FunctionDeclarationSyntaxBuilder,
-    FunctionDirectivesSyntaxBuilder, IdentifierListSyntaxBuilder,
-    ImplementationSubjectSyntaxBuilder, InherentImplementationBodySyntaxBuilder,
+    FunctionDirectivesSyntaxBuilder, IdentifierListSyntaxBuilder, ImplementationBodySyntaxBuilder,
+    ImplementationSubjectSyntaxBuilder, ImplementationTypeMemberBindingSyntaxBuilder,
     InherentImplementationDeclarationSyntaxBuilder, ModuleBodySyntaxBuilder,
     ModuleDirectivesSyntaxBuilder, NamedTraitImplementationDeclarationSyntaxBuilder,
     ParameterListSyntaxBuilder, ParameterSyntaxBuilder, PredicateDeclarationSyntaxBuilder,
@@ -16,10 +16,7 @@ use bray_syntax::{
     TargetDirectiveSyntaxBuilder, TraitApplicationSyntaxBuilder, TraitBodySyntaxBuilder,
     TraitCallableMemberDeclarationSyntaxBuilder, TraitConstantMemberDeclarationSyntaxBuilder,
     TraitDeclarationSyntaxBuilder, TraitDestructorRequirementDeclarationSyntaxBuilder,
-    TraitFinalizerRequirementDeclarationSyntaxBuilder, TraitImplementationBodySyntaxBuilder,
-    TraitImplementationConstantMemberDefinitionSyntaxBuilder,
-    TraitImplementationScopeEnterMemberDeclarationSyntaxBuilder,
-    TraitImplementationScopeExitMemberDeclarationSyntaxBuilder,
+    TraitFinalizerRequirementDeclarationSyntaxBuilder,
     TraitScopeEnterRequirementDeclarationSyntaxBuilder,
     TraitScopeExitRequirementDeclarationSyntaxBuilder, TypeCallableMemberDeclarationSyntaxBuilder,
     TypeConstructorMemberDeclarationSyntaxBuilder, TypeDirectivesSyntaxBuilder,
@@ -354,9 +351,9 @@ impl RecoverySyntaxSink for InherentImplementationDeclarationSyntaxBuilder {
     }
 }
 
-impl RecoverySyntaxSink for InherentImplementationBodySyntaxBuilder {
+impl RecoverySyntaxSink for ImplementationBodySyntaxBuilder {
     fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
-        InherentImplementationBodySyntaxBuilder::push_skipped_tokens(self, tokens);
+        ImplementationBodySyntaxBuilder::push_skipped_tokens(self, tokens);
     }
 }
 
@@ -372,9 +369,9 @@ impl RecoverySyntaxSink for NamedTraitImplementationDeclarationSyntaxBuilder {
     }
 }
 
-impl RecoverySyntaxSink for TraitImplementationBodySyntaxBuilder {
+impl RecoverySyntaxSink for ImplementationTypeMemberBindingSyntaxBuilder {
     fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
-        TraitImplementationBodySyntaxBuilder::push_skipped_tokens(self, tokens);
+        ImplementationTypeMemberBindingSyntaxBuilder::push_skipped_tokens(self, tokens);
     }
 }
 
@@ -510,28 +507,6 @@ impl RecoverySyntaxSink for TraitScopeExitRequirementDeclarationSyntaxBuilder {
     }
 }
 
-impl RecoverySyntaxSink for TraitImplementationConstantMemberDefinitionSyntaxBuilder {
-    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
-        TraitImplementationConstantMemberDefinitionSyntaxBuilder::push_skipped_tokens(self, tokens);
-    }
-}
-
-impl RecoverySyntaxSink for TraitImplementationScopeEnterMemberDeclarationSyntaxBuilder {
-    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
-        TraitImplementationScopeEnterMemberDeclarationSyntaxBuilder::push_skipped_tokens(
-            self, tokens,
-        );
-    }
-}
-
-impl RecoverySyntaxSink for TraitImplementationScopeExitMemberDeclarationSyntaxBuilder {
-    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
-        TraitImplementationScopeExitMemberDeclarationSyntaxBuilder::push_skipped_tokens(
-            self, tokens,
-        );
-    }
-}
-
 impl RecoverySyntaxSink for ParameterListSyntaxBuilder {
     fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
         ParameterListSyntaxBuilder::push_skipped_tokens(self, tokens);
@@ -584,23 +559,13 @@ impl BracedBodySyntaxSink for TraitBodySyntaxBuilder {
     }
 }
 
-impl BracedBodySyntaxSink for InherentImplementationBodySyntaxBuilder {
+impl BracedBodySyntaxSink for ImplementationBodySyntaxBuilder {
     fn push_open_brace_token(&mut self, token: SyntaxToken) {
-        InherentImplementationBodySyntaxBuilder::push_open_brace_token(self, token);
+        ImplementationBodySyntaxBuilder::push_open_brace_token(self, token);
     }
 
     fn push_close_brace_token(&mut self, token: SyntaxToken) {
-        InherentImplementationBodySyntaxBuilder::push_close_brace_token(self, token);
-    }
-}
-
-impl BracedBodySyntaxSink for TraitImplementationBodySyntaxBuilder {
-    fn push_open_brace_token(&mut self, token: SyntaxToken) {
-        TraitImplementationBodySyntaxBuilder::push_open_brace_token(self, token);
-    }
-
-    fn push_close_brace_token(&mut self, token: SyntaxToken) {
-        TraitImplementationBodySyntaxBuilder::push_close_brace_token(self, token);
+        ImplementationBodySyntaxBuilder::push_close_brace_token(self, token);
     }
 }
 

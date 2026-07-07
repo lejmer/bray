@@ -29,8 +29,7 @@ pub use callable_contract::{
 pub use constant::{
     ConstantDeclarationSyntax, ConstantDeclarationSyntaxBuilder, ConstantModifiersSyntax,
     ConstantModifiersSyntaxBuilder, TraitConstantMemberDeclarationSyntax,
-    TraitConstantMemberDeclarationSyntaxBuilder, TraitImplementationConstantMemberDefinitionSyntax,
-    TraitImplementationConstantMemberDefinitionSyntaxBuilder,
+    TraitConstantMemberDeclarationSyntaxBuilder,
 };
 pub use directive::{
     AbiDirectiveSyntax, AbiDirectiveSyntaxBuilder, CopyDirectiveSyntax, CopyDirectiveSyntaxBuilder,
@@ -50,12 +49,12 @@ pub use function::{
     FunctionDirectivesSyntaxBuilder, FunctionModifiersSyntax, FunctionModifiersSyntaxBuilder,
 };
 pub use implementation::{
-    ImplementationSubjectSyntax, ImplementationSubjectSyntaxBuilder,
-    InherentImplementationBodySyntax, InherentImplementationBodySyntaxBuilder,
-    InherentImplementationDeclarationSyntax, InherentImplementationDeclarationSyntaxBuilder,
-    NamedTraitImplementationDeclarationSyntax, NamedTraitImplementationDeclarationSyntaxBuilder,
-    TraitApplicationSyntax, TraitApplicationSyntaxBuilder, TraitImplementationBodySyntax,
-    TraitImplementationBodySyntaxBuilder, UnnamedTraitImplementationDeclarationSyntax,
+    ImplementationBodySyntax, ImplementationBodySyntaxBuilder, ImplementationSubjectSyntax,
+    ImplementationSubjectSyntaxBuilder, ImplementationTypeMemberBindingSyntax,
+    ImplementationTypeMemberBindingSyntaxBuilder, InherentImplementationDeclarationSyntax,
+    InherentImplementationDeclarationSyntaxBuilder, NamedTraitImplementationDeclarationSyntax,
+    NamedTraitImplementationDeclarationSyntaxBuilder, TraitApplicationSyntax,
+    TraitApplicationSyntaxBuilder, UnnamedTraitImplementationDeclarationSyntax,
     UnnamedTraitImplementationDeclarationSyntaxBuilder,
 };
 pub use list::{
@@ -74,12 +73,7 @@ pub use member::{
     TraitCallableMemberModifiersSyntax, TraitCallableMemberModifiersSyntaxBuilder,
     TraitDestructorRequirementDeclarationSyntax,
     TraitDestructorRequirementDeclarationSyntaxBuilder, TraitFinalizerRequirementDeclarationSyntax,
-    TraitFinalizerRequirementDeclarationSyntaxBuilder,
-    TraitImplementationScopeEnterMemberDeclarationSyntax,
-    TraitImplementationScopeEnterMemberDeclarationSyntaxBuilder,
-    TraitImplementationScopeExitMemberDeclarationSyntax,
-    TraitImplementationScopeExitMemberDeclarationSyntaxBuilder,
-    TraitScopeEnterRequirementDeclarationSyntax,
+    TraitFinalizerRequirementDeclarationSyntaxBuilder, TraitScopeEnterRequirementDeclarationSyntax,
     TraitScopeEnterRequirementDeclarationSyntaxBuilder, TraitScopeExitRequirementDeclarationSyntax,
     TraitScopeExitRequirementDeclarationSyntaxBuilder, TypeCallableMemberDeclarationSyntax,
     TypeCallableMemberDeclarationSyntaxBuilder, TypeCallableMemberModifiersSyntax,
