@@ -113,6 +113,10 @@ pub enum SyntaxKind {
     TraitConstantMemberDeclaration,
     /// Trait type-valued member declaration.
     TraitTypeMemberDeclaration,
+    /// Optional trait predicate member modifiers in source order.
+    TraitPredicateMemberModifiers,
+    /// Trait predicate member declaration.
+    TraitPredicateMemberDeclaration,
     /// Optional trait callable member modifiers in source order.
     TraitCallableMemberModifiers,
     /// Trait callable member declaration.
@@ -364,6 +368,8 @@ impl SyntaxKind {
                 | Self::TraitBody
                 | Self::TraitConstantMemberDeclaration
                 | Self::TraitTypeMemberDeclaration
+                | Self::TraitPredicateMemberModifiers
+                | Self::TraitPredicateMemberDeclaration
                 | Self::TraitCallableMemberModifiers
                 | Self::TraitCallableMemberDeclaration
                 | Self::ImplementationSubject
@@ -566,6 +572,8 @@ impl SyntaxKind {
             Self::TraitBody => "trait_body",
             Self::TraitConstantMemberDeclaration => "trait_constant_member_declaration",
             Self::TraitTypeMemberDeclaration => "trait_type_member_declaration",
+            Self::TraitPredicateMemberModifiers => "trait_predicate_member_modifiers",
+            Self::TraitPredicateMemberDeclaration => "trait_predicate_member_declaration",
             Self::TraitCallableMemberModifiers => "trait_callable_member_modifiers",
             Self::TraitCallableMemberDeclaration => "trait_callable_member_declaration",
             Self::ImplementationSubject => "implementation_subject",
@@ -801,6 +809,8 @@ mod tests {
         assert!(SyntaxKind::TraitBody.is_node());
         assert!(SyntaxKind::TraitConstantMemberDeclaration.is_node());
         assert!(SyntaxKind::TraitTypeMemberDeclaration.is_node());
+        assert!(SyntaxKind::TraitPredicateMemberModifiers.is_node());
+        assert!(SyntaxKind::TraitPredicateMemberDeclaration.is_node());
         assert!(SyntaxKind::TraitCallableMemberModifiers.is_node());
         assert!(SyntaxKind::TraitCallableMemberDeclaration.is_node());
 
@@ -1021,6 +1031,16 @@ mod tests {
         assert_eq!(
             SyntaxKind::TraitTypeMemberDeclaration.as_str(),
             "trait_type_member_declaration"
+        );
+
+        assert_eq!(
+            SyntaxKind::TraitPredicateMemberModifiers.as_str(),
+            "trait_predicate_member_modifiers"
+        );
+
+        assert_eq!(
+            SyntaxKind::TraitPredicateMemberDeclaration.as_str(),
+            "trait_predicate_member_declaration"
         );
 
         assert_eq!(

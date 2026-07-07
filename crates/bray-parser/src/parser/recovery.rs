@@ -19,6 +19,7 @@ use bray_syntax::{
     TraitCallableMemberDeclarationSyntaxBuilder, TraitConstantMemberDeclarationSyntaxBuilder,
     TraitDeclarationSyntaxBuilder, TraitDestructorRequirementDeclarationSyntaxBuilder,
     TraitFinalizerRequirementDeclarationSyntaxBuilder,
+    TraitPredicateMemberDeclarationSyntaxBuilder,
     TraitScopeEnterRequirementDeclarationSyntaxBuilder,
     TraitScopeExitRequirementDeclarationSyntaxBuilder, TraitTypeMemberDeclarationSyntaxBuilder,
     TypeCallableMemberDeclarationSyntaxBuilder, TypeConstructorMemberDeclarationSyntaxBuilder,
@@ -512,6 +513,12 @@ impl RecoverySyntaxSink for TraitConstantMemberDeclarationSyntaxBuilder {
 impl RecoverySyntaxSink for TraitTypeMemberDeclarationSyntaxBuilder {
     fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
         TraitTypeMemberDeclarationSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for TraitPredicateMemberDeclarationSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        TraitPredicateMemberDeclarationSyntaxBuilder::push_skipped_tokens(self, tokens);
     }
 }
 

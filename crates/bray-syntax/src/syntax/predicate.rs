@@ -210,6 +210,100 @@ define_source_syntax_node! {
     }
 }
 
+define_source_syntax_node! {
+    /// Optional trait predicate member modifiers in source order.
+    pub struct TraitPredicateMemberModifiersSyntax {
+        builder: TraitPredicateMemberModifiersSyntaxBuilder,
+        kind: SyntaxKind::TraitPredicateMemberModifiers,
+        source_slot: "trait_predicate_member_modifiers.source",
+        node_name: "trait predicate member modifiers",
+        range_description: "trait-predicate-member-modifiers",
+        debug_name: "TraitPredicateMemberModifiersSyntax",
+        builder_debug_name: "TraitPredicateMemberModifiersSyntaxBuilder",
+        skipped_syntax: false,
+        required_tokens: [],
+        optional_tokens: [
+            {
+                /// Returns the first optional `trusted` modifier token.
+                trusted_token;
+                /// Appends a `trusted` modifier token.
+                push_trusted_token;
+                kind: SyntaxKind::TrustedKeyword;
+                slot: "trait_predicate_member_modifiers.trusted_token";
+            }
+        ],
+        required_children: [],
+    }
+}
+
+define_source_syntax_node! {
+    /// Trait predicate member declaration.
+    pub struct TraitPredicateMemberDeclarationSyntax {
+        builder: TraitPredicateMemberDeclarationSyntaxBuilder,
+        kind: SyntaxKind::TraitPredicateMemberDeclaration,
+        source_slot: "trait_predicate_member_declaration.source",
+        node_name: "trait predicate member declaration",
+        range_description: "trait-predicate-member-declaration",
+        debug_name: "TraitPredicateMemberDeclarationSyntax",
+        builder_debug_name: "TraitPredicateMemberDeclarationSyntaxBuilder",
+        skipped_syntax: true,
+        required_tokens: [
+            {
+                /// Returns the required `predicate` keyword token.
+                predicate_keyword;
+                /// Appends the `predicate` keyword token.
+                push_predicate_keyword;
+                kind: SyntaxKind::PredicateKeyword;
+                slot: "trait_predicate_member_declaration.predicate_keyword";
+            },
+            {
+                /// Returns the required predicate member name token.
+                identifier_token;
+                /// Appends the predicate member name token.
+                push_identifier_token;
+                kind: SyntaxKind::IdentifierToken;
+                slot: "trait_predicate_member_declaration.identifier_token";
+            },
+            {
+                /// Returns the required semicolon tail token.
+                semicolon_token;
+                /// Appends the semicolon tail token.
+                push_semicolon_token;
+                kind: SyntaxKind::SemicolonToken;
+                slot: "trait_predicate_member_declaration.semicolon_token";
+            }
+        ],
+        optional_tokens: [
+            {
+                /// Returns the optional default predicate-body equals token.
+                equals_token;
+                /// Appends the default predicate-body equals token.
+                push_equals_token;
+                kind: SyntaxKind::EqualsToken;
+                slot: "trait_predicate_member_declaration.equals_token";
+            }
+        ],
+        required_children: [
+            {
+                /// Returns the trait predicate member modifiers child.
+                trait_predicate_member_modifiers;
+                /// Appends the trait predicate member modifiers child.
+                push_trait_predicate_member_modifiers;
+                ty: TraitPredicateMemberModifiersSyntax;
+                kind: SyntaxKind::TraitPredicateMemberModifiers;
+            },
+            {
+                /// Returns the predicate-parameter-list child.
+                predicate_parameter_list;
+                /// Appends the predicate-parameter-list child.
+                push_predicate_parameter_list;
+                ty: PredicateParameterListSyntax;
+                kind: SyntaxKind::PredicateParameterList;
+            }
+        ],
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use bray_source::{TextRange, TextSize};
@@ -218,6 +312,7 @@ mod tests {
     use crate::{
         PredicateDeclarationSyntax, PredicateModifiersSyntax, PredicateParameterListSyntax,
         PredicateParameterSyntax, SyntaxKind, SyntaxText, SyntaxTrivia,
+        TraitPredicateMemberDeclarationSyntax, TraitPredicateMemberModifiersSyntax,
     };
 
     // TODO(syntax): Update this when predicate parameter types and bodies are typed syntax.
@@ -285,8 +380,91 @@ mod tests {
         assert_eq!(declaration.skipped_syntax().count(), 2);
     }
 
+    // TODO(syntax): Update this when predicate parameter types and bodies are typed syntax.
+    #[test]
+    fn trait_predicate_member_declarations_store_modifiers_parameters_and_tail() {
+        let snapshot = test_snapshot(
+            "syntax-trait-predicate-test",
+            "trusted predicate valid(value: Int) = value > 0;",
+        );
+
+        let mut builder =
+            TraitPredicateMemberDeclarationSyntax::builder(snapshot.clone(), TextSize::ZERO);
+
+        builder.push_trait_predicate_member_modifiers(trait_predicate_member_modifiers(
+            snapshot.clone(),
+        ));
+
+        builder.push_predicate_keyword(
+            token(SyntaxKind::PredicateKeyword, 8, 17).with_trailing_trivia([
+                SyntaxTrivia::whitespace(TextRange::new(TextSize::new(17), TextSize::new(18))),
+            ]),
+        );
+
+        builder.push_identifier_token(token(SyntaxKind::IdentifierToken, 18, 23));
+        builder.push_predicate_parameter_list(predicate_parameter_list(snapshot.clone()));
+
+        builder.push_equals_token(
+            token(SyntaxKind::EqualsToken, 35, 36).with_trailing_trivia([
+                SyntaxTrivia::whitespace(TextRange::new(TextSize::new(36), TextSize::new(37))),
+            ]),
+        );
+
+        builder.push_skipped_tokens([
+            token(SyntaxKind::IdentifierToken, 37, 42).with_trailing_trivia([
+                SyntaxTrivia::whitespace(TextRange::new(TextSize::new(42), TextSize::new(43))),
+            ]),
+            token(SyntaxKind::GreaterToken, 43, 44).with_trailing_trivia([
+                SyntaxTrivia::whitespace(TextRange::new(TextSize::new(44), TextSize::new(45))),
+            ]),
+            token(SyntaxKind::DecimalIntegerLiteralToken, 45, 46),
+        ]);
+
+        builder.push_semicolon_token(token(SyntaxKind::SemicolonToken, 46, 47));
+
+        let declaration = builder.build();
+
+        assert_eq!(
+            declaration.full_text(),
+            "trusted predicate valid(value: Int) = value > 0;"
+        );
+
+        assert_eq!(
+            declaration
+                .trait_predicate_member_modifiers()
+                .trusted_token()
+                .map(|token| token.kind()),
+            Some(SyntaxKind::TrustedKeyword)
+        );
+
+        assert_eq!(
+            declaration
+                .predicate_parameter_list()
+                .predicate_parameters()
+                .count(),
+            1
+        );
+
+        assert!(declaration.equals_token().is_some());
+        assert_eq!(declaration.skipped_syntax().count(), 2);
+    }
+
     fn predicate_modifiers(snapshot: bray_source::SourceSnapshot) -> PredicateModifiersSyntax {
         let mut builder = PredicateModifiersSyntax::builder(snapshot, TextSize::ZERO);
+
+        builder.push_trusted_token(
+            token(SyntaxKind::TrustedKeyword, 0, 7).with_trailing_trivia([
+                SyntaxTrivia::whitespace(TextRange::new(TextSize::new(7), TextSize::new(8))),
+            ]),
+        );
+
+        builder.build()
+    }
+
+    fn trait_predicate_member_modifiers(
+        snapshot: bray_source::SourceSnapshot,
+    ) -> TraitPredicateMemberModifiersSyntax {
+        let mut builder = TraitPredicateMemberModifiersSyntax::builder(snapshot, TextSize::ZERO);
 
         builder.push_trusted_token(
             token(SyntaxKind::TrustedKeyword, 0, 7).with_trailing_trivia([

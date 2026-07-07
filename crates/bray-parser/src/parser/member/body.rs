@@ -204,7 +204,14 @@ impl Parser {
             return;
         }
 
-        // TODO(parser): Parse remaining trait member declarations as they are implemented.
+        if self.should_parse_trait_predicate_member_declaration() {
+            builder.push_trait_predicate_member_declaration(
+                self.parse_trait_predicate_member_declaration(),
+            );
+            return;
+        }
+
+        // Recover syntax that is not valid in a trait member position.
         self.recover_body_item(builder);
     }
 

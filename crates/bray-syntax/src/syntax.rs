@@ -102,6 +102,8 @@ pub use predicate::{
     PredicateDeclarationSyntax, PredicateDeclarationSyntaxBuilder, PredicateModifiersSyntax,
     PredicateModifiersSyntaxBuilder, PredicateParameterListSyntax,
     PredicateParameterListSyntaxBuilder, PredicateParameterSyntax, PredicateParameterSyntaxBuilder,
+    TraitPredicateMemberDeclarationSyntax, TraitPredicateMemberDeclarationSyntaxBuilder,
+    TraitPredicateMemberModifiersSyntax, TraitPredicateMemberModifiersSyntaxBuilder,
 };
 pub use recovery::SkippedSyntax;
 pub(crate) use recovery::skipped_syntax_nodes;
