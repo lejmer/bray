@@ -8,6 +8,7 @@ mod implementation;
 mod list;
 mod member;
 mod module;
+mod overload;
 mod path;
 mod predicate;
 mod recovery;
@@ -88,6 +89,13 @@ pub use module::{
     ModuleModifiersSyntaxBuilder, SourceUnitModuleDeclarationSyntax,
     SourceUnitModuleDeclarationSyntaxBuilder, UsingDeclarationSyntax,
     UsingDeclarationSyntaxBuilder,
+};
+pub use overload::{
+    CallableOverloadDeclarationSyntax, CallableOverloadDeclarationSyntaxBuilder,
+    ImplementationOverloadDeclarationSyntax, ImplementationOverloadDeclarationSyntaxBuilder,
+    ImplementationOverloadSubjectSyntax, ImplementationOverloadSubjectSyntaxBuilder,
+    OverloadArmListSyntax, OverloadArmListSyntaxBuilder, OverloadArmSyntax,
+    OverloadArmSyntaxBuilder, OverloadModifiersSyntax, OverloadModifiersSyntaxBuilder,
 };
 pub use path::{PathSyntax, PathSyntaxBuilder};
 pub use predicate::{

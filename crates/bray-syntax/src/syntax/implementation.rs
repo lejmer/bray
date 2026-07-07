@@ -7,7 +7,9 @@ use super::member::{
 use super::path::PathSyntax;
 use crate::SyntaxKind;
 use crate::node::define_source_syntax_node;
-use crate::{ConstantDeclarationSyntax, PredicateDeclarationSyntax};
+use crate::{
+    CallableOverloadDeclarationSyntax, ConstantDeclarationSyntax, PredicateDeclarationSyntax,
+};
 
 define_source_syntax_node! {
     /// Type subject named by an implementation declaration.
@@ -125,6 +127,14 @@ define_source_syntax_node! {
                 push_predicate_declaration;
                 ty: PredicateDeclarationSyntax;
                 kind: SyntaxKind::PredicateDeclaration;
+            },
+            {
+                /// Returns callable overload declarations in source order.
+                callable_overload_declarations;
+                /// Appends a callable overload declaration.
+                push_callable_overload_declaration;
+                ty: CallableOverloadDeclarationSyntax;
+                kind: SyntaxKind::CallableOverloadDeclaration;
             },
             {
                 /// Returns implementation type member bindings in source order.

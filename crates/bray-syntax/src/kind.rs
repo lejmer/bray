@@ -59,6 +59,18 @@ pub enum SyntaxKind {
     CallableContractDeclaration,
     /// Optional callable contract modifiers in source order.
     CallableContractModifiers,
+    /// Optional overload declaration modifiers in source order.
+    OverloadModifiers,
+    /// Callable overload declaration.
+    CallableOverloadDeclaration,
+    /// Implementation overload declaration.
+    ImplementationOverloadDeclaration,
+    /// Subject named by an implementation overload declaration.
+    ImplementationOverloadSubject,
+    /// Braced overload arm list.
+    OverloadArmList,
+    /// Single overload arm.
+    OverloadArm,
     /// Module-level struct declaration.
     StructDeclaration,
     /// Type directives in source order.
@@ -325,6 +337,12 @@ impl SyntaxKind {
                 | Self::PredicateParameter
                 | Self::CallableContractDeclaration
                 | Self::CallableContractModifiers
+                | Self::OverloadModifiers
+                | Self::CallableOverloadDeclaration
+                | Self::ImplementationOverloadDeclaration
+                | Self::ImplementationOverloadSubject
+                | Self::OverloadArmList
+                | Self::OverloadArm
                 | Self::StructDeclaration
                 | Self::TypeDirectives
                 | Self::LayoutDirective
@@ -521,6 +539,12 @@ impl SyntaxKind {
             Self::PredicateParameter => "predicate_parameter",
             Self::CallableContractDeclaration => "callable_contract_declaration",
             Self::CallableContractModifiers => "callable_contract_modifiers",
+            Self::OverloadModifiers => "overload_modifiers",
+            Self::CallableOverloadDeclaration => "callable_overload_declaration",
+            Self::ImplementationOverloadDeclaration => "implementation_overload_declaration",
+            Self::ImplementationOverloadSubject => "implementation_overload_subject",
+            Self::OverloadArmList => "overload_arm_list",
+            Self::OverloadArm => "overload_arm",
             Self::StructDeclaration => "struct_declaration",
             Self::TypeDirectives => "type_directives",
             Self::LayoutDirective => "layout_directive",
@@ -748,6 +772,12 @@ mod tests {
 
         assert!(SyntaxKind::CallableContractDeclaration.is_node());
         assert!(SyntaxKind::CallableContractModifiers.is_node());
+        assert!(SyntaxKind::OverloadModifiers.is_node());
+        assert!(SyntaxKind::CallableOverloadDeclaration.is_node());
+        assert!(SyntaxKind::ImplementationOverloadDeclaration.is_node());
+        assert!(SyntaxKind::ImplementationOverloadSubject.is_node());
+        assert!(SyntaxKind::OverloadArmList.is_node());
+        assert!(SyntaxKind::OverloadArm.is_node());
 
         assert!(SyntaxKind::StructDeclaration.is_node());
         assert!(SyntaxKind::TypeDirectives.is_node());
@@ -918,6 +948,26 @@ mod tests {
             SyntaxKind::CallableContractModifiers.as_str(),
             "callable_contract_modifiers"
         );
+
+        assert_eq!(SyntaxKind::OverloadModifiers.as_str(), "overload_modifiers");
+
+        assert_eq!(
+            SyntaxKind::CallableOverloadDeclaration.as_str(),
+            "callable_overload_declaration"
+        );
+
+        assert_eq!(
+            SyntaxKind::ImplementationOverloadDeclaration.as_str(),
+            "implementation_overload_declaration"
+        );
+
+        assert_eq!(
+            SyntaxKind::ImplementationOverloadSubject.as_str(),
+            "implementation_overload_subject"
+        );
+
+        assert_eq!(SyntaxKind::OverloadArmList.as_str(), "overload_arm_list");
+        assert_eq!(SyntaxKind::OverloadArm.as_str(), "overload_arm");
 
         assert_eq!(SyntaxKind::StructDeclaration.as_str(), "struct_declaration");
         assert_eq!(SyntaxKind::TypeDirectives.as_str(), "type_directives");

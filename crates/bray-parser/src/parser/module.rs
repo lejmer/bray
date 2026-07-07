@@ -1,13 +1,15 @@
 use bray_syntax::{
     BlockModuleDeclarationSyntax, BlockModuleDeclarationSyntaxBuilder,
-    CallableContractDeclarationSyntax, ConstantDeclarationSyntax, ExportDeclarationSyntax,
-    FunctionDeclarationSyntax, InherentImplementationDeclarationSyntax, ModuleBodySyntax,
-    ModuleBodySyntaxBuilder, ModuleDirectivesSyntax, ModuleDirectivesSyntaxBuilder,
-    ModuleModifiersSyntax, NamedTraitImplementationDeclarationSyntax, PathSyntax,
-    PredicateDeclarationSyntax, SourceUnitModuleDeclarationSyntax,
-    SourceUnitModuleDeclarationSyntaxBuilder, SourceUnitSyntaxBuilder, StructDeclarationSyntax,
-    SyntaxKind, SyntaxToken, TraitDeclarationSyntax, UnionDeclarationSyntax,
-    UnnamedTraitImplementationDeclarationSyntax, UsingDeclarationSyntax,
+    CallableContractDeclarationSyntax, CallableOverloadDeclarationSyntax,
+    ConstantDeclarationSyntax, ExportDeclarationSyntax, FunctionDeclarationSyntax,
+    ImplementationOverloadDeclarationSyntax, InherentImplementationDeclarationSyntax,
+    ModuleBodySyntax, ModuleBodySyntaxBuilder, ModuleDirectivesSyntax,
+    ModuleDirectivesSyntaxBuilder, ModuleModifiersSyntax,
+    NamedTraitImplementationDeclarationSyntax, PathSyntax, PredicateDeclarationSyntax,
+    SourceUnitModuleDeclarationSyntax, SourceUnitModuleDeclarationSyntaxBuilder,
+    SourceUnitSyntaxBuilder, StructDeclarationSyntax, SyntaxKind, SyntaxToken,
+    TraitDeclarationSyntax, UnionDeclarationSyntax, UnnamedTraitImplementationDeclarationSyntax,
+    UsingDeclarationSyntax,
 };
 
 use crate::cursor::RecoverySet;
@@ -48,7 +50,7 @@ const DIRECTIVE_ARGUMENT_RECOVERY_KINDS: [SyntaxKind; 5] = [
     SyntaxKind::ModuleKeyword,
 ];
 
-const PARSED_MODULE_ITEM_BOUNDARY_KINDS: [SyntaxKind; 19] = [
+const PARSED_MODULE_ITEM_BOUNDARY_KINDS: [SyntaxKind; 20] = [
     SyntaxKind::UsingKeyword,
     SyntaxKind::ExportKeyword,
     SyntaxKind::AtToken,
@@ -64,6 +66,7 @@ const PARSED_MODULE_ITEM_BOUNDARY_KINDS: [SyntaxKind; 19] = [
     SyntaxKind::UnionKeyword,
     SyntaxKind::TraitKeyword,
     SyntaxKind::ImplKeyword,
+    SyntaxKind::OverloadKeyword,
     SyntaxKind::PredicateKeyword,
     SyntaxKind::SemicolonToken,
     SyntaxKind::CloseBraceToken,
@@ -314,7 +317,19 @@ impl Parser {
             return;
         }
 
-        // TODO(parser): Parse remaining module-level declarations as they are implemented.
+        if self.should_parse_implementation_overload_declaration() {
+            builder.push_implementation_overload_declaration(
+                self.parse_implementation_overload_declaration(),
+            );
+            return;
+        }
+
+        if self.should_parse_callable_overload_declaration() {
+            builder.push_callable_overload_declaration(self.parse_callable_overload_declaration());
+            return;
+        }
+
+        // Recover syntax that is not valid in a module item position.
         if self.recover_until_module_item_boundary(builder, terminators)
             || self.peek().start() != start
         {
@@ -481,6 +496,16 @@ pub(super) trait ModuleItemSyntaxSink: RecoverySyntaxSink {
         declaration: CallableContractDeclarationSyntax,
     );
 
+    fn push_callable_overload_declaration(
+        &mut self,
+        declaration: CallableOverloadDeclarationSyntax,
+    );
+
+    fn push_implementation_overload_declaration(
+        &mut self,
+        declaration: ImplementationOverloadDeclarationSyntax,
+    );
+
     fn push_struct_declaration(&mut self, declaration: StructDeclarationSyntax);
 
     fn push_union_declaration(&mut self, declaration: UnionDeclarationSyntax);
@@ -567,6 +592,20 @@ impl ModuleItemSyntaxSink for SourceUnitSyntaxBuilder {
         SourceUnitSyntaxBuilder::push_callable_contract_declaration(self, declaration);
     }
 
+    fn push_callable_overload_declaration(
+        &mut self,
+        declaration: CallableOverloadDeclarationSyntax,
+    ) {
+        SourceUnitSyntaxBuilder::push_callable_overload_declaration(self, declaration);
+    }
+
+    fn push_implementation_overload_declaration(
+        &mut self,
+        declaration: ImplementationOverloadDeclarationSyntax,
+    ) {
+        SourceUnitSyntaxBuilder::push_implementation_overload_declaration(self, declaration);
+    }
+
     fn push_struct_declaration(&mut self, declaration: StructDeclarationSyntax) {
         SourceUnitSyntaxBuilder::push_struct_declaration(self, declaration);
     }
@@ -629,6 +668,20 @@ impl ModuleItemSyntaxSink for ModuleBodySyntaxBuilder {
         ModuleBodySyntaxBuilder::push_callable_contract_declaration(self, declaration);
     }
 
+    fn push_callable_overload_declaration(
+        &mut self,
+        declaration: CallableOverloadDeclarationSyntax,
+    ) {
+        ModuleBodySyntaxBuilder::push_callable_overload_declaration(self, declaration);
+    }
+
+    fn push_implementation_overload_declaration(
+        &mut self,
+        declaration: ImplementationOverloadDeclarationSyntax,
+    ) {
+        ModuleBodySyntaxBuilder::push_implementation_overload_declaration(self, declaration);
+    }
+
     fn push_struct_declaration(&mut self, declaration: StructDeclarationSyntax) {
         ModuleBodySyntaxBuilder::push_struct_declaration(self, declaration);
     }
@@ -679,6 +732,7 @@ mod tests {
     fn parser_parses_source_unit_module_declarations() {
         let sources = source_store(["trusted public module main.core;"]);
         let result = parse_compilation_unit(&sources);
+
         let source_unit = &result.syntax_tree().root().source_units()[0];
 
         let declaration = match source_unit.source_unit_module_declaration() {
@@ -713,6 +767,7 @@ mod tests {
         let source = "module main\nusing std.io;";
         let sources = source_store([source]);
         let result = parse_compilation_unit(&sources);
+
         let source_unit = &result.syntax_tree().root().source_units()[0];
 
         let declaration = match source_unit.source_unit_module_declaration() {
@@ -753,6 +808,7 @@ mod tests {
         let source = "module main\nmodule extra {}";
         let sources = source_store([source]);
         let result = parse_compilation_unit(&sources);
+
         let source_unit = &result.syntax_tree().root().source_units()[0];
 
         let declaration = match source_unit.source_unit_module_declaration() {
@@ -795,6 +851,7 @@ mod tests {
     fn parser_parses_test_directives_on_source_unit_module_declarations() {
         let sources = source_store(["@test module main;"]);
         let result = parse_compilation_unit(&sources);
+
         let source_unit = &result.syntax_tree().root().source_units()[0];
 
         let declaration = match source_unit.source_unit_module_declaration() {
@@ -819,6 +876,7 @@ mod tests {
     fn parser_parses_target_and_link_module_directives() {
         let sources = source_store(["@target(host) @link(\"m\") module main;"]);
         let result = parse_compilation_unit(&sources);
+
         let source_unit = &result.syntax_tree().root().source_units()[0];
 
         let declaration = match source_unit.source_unit_module_declaration() {
@@ -863,6 +921,7 @@ mod tests {
     fn parser_recovers_unknown_module_directives_without_losing_later_directives() {
         let sources = source_store(["@unknown(foo) @test module main;"]);
         let result = parse_compilation_unit(&sources);
+
         let source_unit = &result.syntax_tree().root().source_units()[0];
 
         let declaration = match source_unit.source_unit_module_declaration() {
@@ -894,6 +953,7 @@ mod tests {
         let sources =
             source_store(["@test internal module main { func run() {} } module extra {}"]);
         let result = parse_compilation_unit(&sources);
+
         let source_unit = &result.syntax_tree().root().source_units()[0];
         let declarations = source_unit.block_module_declarations().collect::<Vec<_>>();
 
@@ -931,6 +991,7 @@ mod tests {
     fn parser_parses_using_and_export_declarations_after_source_unit_modules() {
         let sources = source_store(["module main; using internal core.io; export api;"]);
         let result = parse_compilation_unit(&sources);
+
         let source_unit = &result.syntax_tree().root().source_units()[0];
         let using_declarations = source_unit.using_declarations().collect::<Vec<_>>();
         let export_declarations = source_unit.export_declarations().collect::<Vec<_>>();
@@ -970,6 +1031,7 @@ mod tests {
         let source = "module main; using std.io\nfunc main() {}";
         let sources = source_store([source]);
         let result = parse_compilation_unit(&sources);
+
         let source_unit = &result.syntax_tree().root().source_units()[0];
         let using_declarations = source_unit.using_declarations().collect::<Vec<_>>();
         let function_declarations = source_unit.function_declarations().collect::<Vec<_>>();
@@ -1010,6 +1072,7 @@ mod tests {
     fn parser_parses_using_and_export_declarations_inside_block_modules() {
         let sources = source_store(["module main { using core; export api; }"]);
         let result = parse_compilation_unit(&sources);
+
         let source_unit = &result.syntax_tree().root().source_units()[0];
         let declarations = source_unit.block_module_declarations().collect::<Vec<_>>();
 
@@ -1044,11 +1107,11 @@ mod tests {
         assert!(result.diagnostics().is_empty());
     }
 
-    // TODO(parser): Update this when remaining module-level declarations are parsed.
     #[test]
-    fn parser_recovers_unimplemented_module_items_without_losing_later_items() {
-        let sources = source_store(["module main { overload Run {} using core; }"]);
+    fn parser_recovers_invalid_module_items_without_losing_later_items() {
+        let sources = source_store(["module main { 123 using core; }"]);
         let result = parse_compilation_unit(&sources);
+
         let source_unit = &result.syntax_tree().root().source_units()[0];
         let declarations = source_unit.block_module_declarations().collect::<Vec<_>>();
 
@@ -1063,15 +1126,12 @@ mod tests {
             panic!("expected one skipped-syntax node: {skipped_syntax:?}");
         };
 
-        assert_eq!(
-            source_unit.full_text(),
-            "module main { overload Run {} using core; }"
-        );
+        assert_eq!(source_unit.full_text(), "module main { 123 using core; }");
 
         assert_eq!(body.using_declarations().count(), 1);
         assert_eq!(body.export_declarations().count(), 0);
 
-        assert_eq!(skipped.full_text(), "overload Run {} ");
+        assert_eq!(skipped.full_text(), "123 ");
 
         assert_eq!(
             parse_diagnostic_kinds(&result),

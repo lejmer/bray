@@ -8,6 +8,7 @@ mod implementation;
 mod member;
 mod modifier;
 mod module;
+mod overload;
 mod path;
 mod predicate;
 mod recovery;
