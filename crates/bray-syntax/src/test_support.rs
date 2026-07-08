@@ -5,6 +5,7 @@ use bray_source::{
 use crate::{
     ImplementationBodySyntax, ImplementationSubjectSyntax, ImplementationTypeMemberBindingSyntax,
     PathSyntax, SyntaxKind, SyntaxToken, SyntaxTrivia, TraitApplicationSyntax,
+    TypeExpressionSyntax,
 };
 
 pub(crate) fn func_keyword_with_trailing_space() -> SyntaxToken {
@@ -50,6 +51,22 @@ pub(crate) fn identifier_path_with_trailing_space(
     end: u32,
 ) -> PathSyntax {
     identifier_path_with_optional_trailing_space(snapshot, start, end, true)
+}
+
+pub(crate) fn identifier_type_expression(
+    snapshot: SourceSnapshot,
+    start: u32,
+    end: u32,
+) -> TypeExpressionSyntax {
+    identifier_type_expression_with_optional_trailing_space(snapshot, start, end, false)
+}
+
+pub(crate) fn identifier_type_expression_with_trailing_space(
+    snapshot: SourceSnapshot,
+    start: u32,
+    end: u32,
+) -> TypeExpressionSyntax {
+    identifier_type_expression_with_optional_trailing_space(snapshot, start, end, true)
 }
 
 pub(crate) fn implementation_subject(
@@ -100,7 +117,7 @@ pub(crate) fn implementation_type_member_binding(
     has_trailing_space: bool,
 ) -> ImplementationTypeMemberBindingSyntax {
     let mut builder =
-        ImplementationTypeMemberBindingSyntax::builder(snapshot, TextSize::new(start));
+        ImplementationTypeMemberBindingSyntax::builder(snapshot.clone(), TextSize::new(start));
 
     builder.push_type_keyword(keyword(SyntaxKind::TypeKeyword, start, start + 4, true));
     builder.push_identifier_token(keyword(
@@ -115,13 +132,30 @@ pub(crate) fn implementation_type_member_binding(
         start + 11,
         true,
     ));
-    builder.push_skipped_tokens([token(SyntaxKind::IdentifierToken, start + 12, start + 19)]);
+    builder.push_type_expression(identifier_type_expression(snapshot, start + 12, start + 19));
     builder.push_semicolon_token(keyword(
         SyntaxKind::SemicolonToken,
         start + 19,
         start + 20,
         has_trailing_space,
     ));
+
+    builder.build()
+}
+
+fn identifier_type_expression_with_optional_trailing_space(
+    snapshot: SourceSnapshot,
+    start: u32,
+    end: u32,
+    has_trailing_space: bool,
+) -> TypeExpressionSyntax {
+    let mut builder = TypeExpressionSyntax::builder(snapshot.clone(), TextSize::new(start));
+
+    if has_trailing_space {
+        builder.push_path(identifier_path_with_trailing_space(snapshot, start, end));
+    } else {
+        builder.push_path(identifier_path(snapshot, start, end));
+    }
 
     builder.build()
 }

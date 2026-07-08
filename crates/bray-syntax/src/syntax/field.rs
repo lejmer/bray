@@ -1,5 +1,5 @@
 use crate::node::define_source_syntax_node;
-use crate::{SyntaxKind, SyntaxToken};
+use crate::{SyntaxKind, SyntaxToken, TypeExpressionSyntax};
 
 define_source_syntax_node! {
     /// Optional struct field modifiers in source order.
@@ -102,6 +102,14 @@ define_source_syntax_node! {
                 push_field_modifiers;
                 ty: FieldModifiersSyntax;
                 kind: SyntaxKind::FieldModifiers;
+            },
+            {
+                /// Returns the field type-expression child.
+                type_expression;
+                /// Appends the field type-expression child.
+                push_type_expression;
+                ty: TypeExpressionSyntax;
+                kind: SyntaxKind::TypeExpression;
             }
         ],
     }

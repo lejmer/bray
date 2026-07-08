@@ -150,13 +150,9 @@ impl Parser {
         builder.push_identifier_token(self.parse_identifier());
         builder.push_colon_token(self.expect(SyntaxKind::ColonToken));
 
-        // TODO(parser): Parse predicate parameter type expressions once expression parsing is implemented.
-        if !self.at_predicate_parameter_type_boundary() {
-            self.recover_current_and_until_balanced_close_paren_or_predicate(
-                &mut builder,
-                Parser::at_predicate_parameter_type_boundary,
-            );
-        }
+        let mut at_type_boundary = Parser::at_predicate_parameter_type_boundary;
+
+        builder.push_type_expression(self.parse_type_expression_until(&mut at_type_boundary));
 
         builder.build()
     }
@@ -335,15 +331,13 @@ mod tests {
             SyntaxKind::IdentifierToken
         );
 
-        assert_eq!(parameter.skipped_syntax().count(), 1);
+        assert_eq!(parameter.type_expression().full_text(), "Int");
+        assert_eq!(parameter.skipped_syntax().count(), 0);
         assert!(declaration.equals_token().is_some());
 
         assert_eq!(
             parse_diagnostic_kinds(&result),
-            [
-                DiagnosticKind::SyntaxSkippedSyntax,
-                DiagnosticKind::SyntaxSkippedSyntax
-            ]
+            [DiagnosticKind::SyntaxSkippedSyntax]
         );
     }
 
@@ -375,7 +369,6 @@ mod tests {
         assert!(result.diagnostics().is_empty());
     }
 
-    // TODO(parser): Update this when predicate parameter type expressions are parsed.
     #[test]
     fn parser_parses_predicate_declarations_inside_type_bodies() {
         let source = concat!(
@@ -417,13 +410,10 @@ mod tests {
             1
         );
 
-        assert_eq!(
-            parse_diagnostic_kinds(&result),
-            [DiagnosticKind::SyntaxSkippedSyntax]
-        );
+        assert!(result.diagnostics().is_empty());
     }
 
-    // TODO(parser): Update this when predicate parameter type expressions and bodies are parsed.
+    // TODO(parser): Update this when predicate bodies are parsed.
     #[test]
     fn parser_parses_trait_predicate_member_declarations() {
         let source = concat!(
@@ -490,10 +480,7 @@ mod tests {
 
         assert_eq!(
             parse_diagnostic_kinds(&result),
-            [
-                DiagnosticKind::SyntaxSkippedSyntax,
-                DiagnosticKind::SyntaxSkippedSyntax
-            ]
+            [DiagnosticKind::SyntaxSkippedSyntax]
         );
     }
 
@@ -585,9 +572,8 @@ mod tests {
         );
     }
 
-    // TODO(parser): Update this when predicate parameter type expressions are parsed.
     #[test]
-    fn parser_skips_predicate_callable_type_parameters_for_now() {
+    fn parser_parses_predicate_callable_type_parameters() {
         let source = "module main; predicate accepts(callback: func(value: Int) -> Bool);";
         let sources = source_store([source]);
         let result = parse_compilation_unit(&sources);
@@ -608,18 +594,13 @@ mod tests {
             panic!("expected one predicate parameter: {parameters:?}");
         };
 
-        let skipped_syntax = parameter.skipped_syntax().collect::<Vec<_>>();
-
-        let [parameter_type] = skipped_syntax.as_slice() else {
-            panic!("expected callable type as skipped syntax: {skipped_syntax:?}");
-        };
-
         assert_eq!(source_unit.full_text(), source);
-        assert_eq!(parameter_type.full_text(), "func(value: Int) -> Bool");
 
         assert_eq!(
-            parse_diagnostic_kinds(&result),
-            [DiagnosticKind::SyntaxSkippedSyntax]
+            parameter.type_expression().full_text(),
+            "func(value: Int) -> Bool"
         );
+
+        assert!(result.diagnostics().is_empty());
     }
 }

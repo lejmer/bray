@@ -1,5 +1,5 @@
 use crate::node::define_source_syntax_node;
-use crate::{SyntaxKind, SyntaxToken};
+use crate::{SyntaxKind, SyntaxToken, TypeExpressionSyntax};
 
 define_source_syntax_node! {
     /// Optional predicate modifiers in source order.
@@ -77,7 +77,16 @@ define_source_syntax_node! {
             }
         ],
         optional_tokens: [],
-        required_children: [],
+        required_children: [
+            {
+                /// Returns the parameter type-expression child.
+                type_expression;
+                /// Appends the parameter type-expression child.
+                push_type_expression;
+                ty: TypeExpressionSyntax;
+                kind: SyntaxKind::TypeExpression;
+            }
+        ],
     }
 }
 
@@ -308,14 +317,14 @@ define_source_syntax_node! {
 mod tests {
     use bray_source::{TextRange, TextSize};
 
-    use crate::test_support::{snapshot as test_snapshot, token};
+    use crate::test_support::{identifier_type_expression, snapshot as test_snapshot, token};
     use crate::{
         PredicateDeclarationSyntax, PredicateModifiersSyntax, PredicateParameterListSyntax,
         PredicateParameterSyntax, SyntaxKind, SyntaxText, SyntaxTrivia,
         TraitPredicateMemberDeclarationSyntax, TraitPredicateMemberModifiersSyntax,
     };
 
-    // TODO(syntax): Update this when predicate parameter types and bodies are typed syntax.
+    // TODO(syntax): Update this when predicate bodies are typed syntax.
     #[test]
     fn predicate_declarations_store_modifiers_parameters_and_tail() {
         let snapshot = test_snapshot(
@@ -377,10 +386,10 @@ mod tests {
         );
 
         assert!(declaration.equals_token().is_some());
-        assert_eq!(declaration.skipped_syntax().count(), 2);
+        assert_eq!(declaration.skipped_syntax().count(), 1);
     }
 
-    // TODO(syntax): Update this when predicate parameter types and bodies are typed syntax.
+    // TODO(syntax): Update this when predicate bodies are typed syntax.
     #[test]
     fn trait_predicate_member_declarations_store_modifiers_parameters_and_tail() {
         let snapshot = test_snapshot(
@@ -446,7 +455,7 @@ mod tests {
         );
 
         assert!(declaration.equals_token().is_some());
-        assert_eq!(declaration.skipped_syntax().count(), 2);
+        assert_eq!(declaration.skipped_syntax().count(), 1);
     }
 
     fn predicate_modifiers(snapshot: bray_source::SourceSnapshot) -> PredicateModifiersSyntax {
@@ -494,7 +503,7 @@ mod tests {
     }
 
     fn predicate_parameter(snapshot: bray_source::SourceSnapshot) -> PredicateParameterSyntax {
-        let mut builder = PredicateParameterSyntax::builder(snapshot, TextSize::new(24));
+        let mut builder = PredicateParameterSyntax::builder(snapshot.clone(), TextSize::new(24));
 
         builder.push_identifier_token(token(SyntaxKind::IdentifierToken, 24, 29));
 
@@ -502,7 +511,7 @@ mod tests {
             SyntaxTrivia::whitespace(TextRange::new(TextSize::new(30), TextSize::new(31))),
         ]));
 
-        builder.push_skipped_tokens([token(SyntaxKind::IdentifierToken, 31, 34)]);
+        builder.push_type_expression(identifier_type_expression(snapshot, 31, 34));
 
         builder.build()
     }

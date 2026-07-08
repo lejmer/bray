@@ -1,5 +1,5 @@
-use crate::SyntaxKind;
 use crate::node::define_source_syntax_node;
+use crate::{SyntaxKind, TypeExpressionSyntax};
 
 define_source_syntax_node! {
     /// Type-valued member binding inside an implementation body.
@@ -47,7 +47,16 @@ define_source_syntax_node! {
             }
         ],
         optional_tokens: [],
-        required_children: [],
+        required_children: [
+            {
+                /// Returns the bound type-expression child.
+                type_expression;
+                /// Appends the bound type-expression child.
+                push_type_expression;
+                ty: TypeExpressionSyntax;
+                kind: SyntaxKind::TypeExpression;
+            }
+        ],
     }
 }
 
@@ -110,17 +119,13 @@ mod tests {
         );
 
         let binding = implementation_type_member_binding(snapshot, 0, false);
-        let skipped_syntax = binding.skipped_syntax().collect::<Vec<_>>();
-
-        let [type_value] = skipped_syntax.as_slice() else {
-            panic!("expected skipped implementation type member value: {skipped_syntax:?}");
-        };
 
         assert_eq!(binding.full_text(), "type Item = Element;");
         assert_eq!(binding.type_keyword().kind(), SyntaxKind::TypeKeyword);
         assert_eq!(binding.equals_token().kind(), SyntaxKind::EqualsToken);
         assert_eq!(binding.semicolon_token().kind(), SyntaxKind::SemicolonToken);
-        assert_eq!(type_value.full_text(), "Element");
+        assert_eq!(binding.type_expression().full_text(), "Element");
+        assert_eq!(binding.skipped_syntax().count(), 0);
     }
 
     #[test]

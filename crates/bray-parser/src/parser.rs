@@ -17,6 +17,7 @@ mod source;
 mod state;
 mod r#trait;
 mod r#type;
+mod type_expression;
 
 pub use entry::{
     SourceUnitSyntaxResult, SyntaxTreeResult, parse_compilation_unit, parse_source_unit,

@@ -373,7 +373,7 @@ mod tests {
         );
     }
 
-    // TODO(parser): Update this when type generics, constraints, and field type expressions are parsed.
+    // TODO(parser): Update this when type generics and constraints are parsed.
     #[test]
     fn parser_parses_struct_fields_after_skipping_type_generics_and_constraints() {
         let source = "module main; struct Box<T> with(T: Copy) { value: T; }";
@@ -390,27 +390,21 @@ mod tests {
         let declaration_skipped = declaration.skipped_syntax().collect::<Vec<_>>();
         let body = declaration.struct_body();
         let fields = body.struct_field_declarations().collect::<Vec<_>>();
-        let body_skipped = body.skipped_syntax().collect::<Vec<_>>();
 
         let [field] = fields.as_slice() else {
             panic!("expected one struct field declaration: {fields:?}");
         };
 
-        let [generics, constraint, field_type] = declaration_skipped.as_slice() else {
+        let [generics, constraint] = declaration_skipped.as_slice() else {
             panic!(
-                "expected generic parameters, constraint, and field type as skipped syntax: {declaration_skipped:?}"
+                "expected generic parameters and constraint as skipped syntax: {declaration_skipped:?}"
             );
-        };
-
-        let [body_field_type] = body_skipped.as_slice() else {
-            panic!("expected field type as skipped body syntax: {body_skipped:?}");
         };
 
         assert_eq!(source_unit.full_text(), source);
         assert_eq!(generics.full_text(), "<T> ");
         assert_eq!(constraint.full_text(), "with(T: Copy) ");
-        assert_eq!(field_type.full_text(), "T");
-        assert_eq!(body_field_type.full_text(), "T");
+        assert_eq!(field.type_expression().full_text(), "T");
         assert_eq!(field.full_text(), "value: T; ");
         assert_eq!(field.identifier_token().kind(), SyntaxKind::IdentifierToken);
         assert_eq!(declaration.struct_body().full_text(), "{ value: T; }");
@@ -418,7 +412,6 @@ mod tests {
         assert_eq!(
             parse_diagnostic_kinds(&result),
             [
-                DiagnosticKind::SyntaxSkippedSyntax,
                 DiagnosticKind::SyntaxSkippedSyntax,
                 DiagnosticKind::SyntaxSkippedSyntax
             ]
@@ -476,19 +469,19 @@ mod tests {
         );
 
         assert!(field.equals_token().is_some());
+        assert_eq!(field.type_expression().full_text(), "Int ");
         assert_eq!(none.full_text(), "None; ");
 
         assert_eq!(
             parse_diagnostic_kinds(&result),
             [
                 DiagnosticKind::SyntaxSkippedSyntax,
-                DiagnosticKind::SyntaxSkippedSyntax,
                 DiagnosticKind::SyntaxSkippedSyntax
             ]
         );
     }
 
-    // TODO(parser): Update this when callable result type expressions are parsed.
+    // TODO(parser): Update this when callable body expressions are parsed.
     #[test]
     fn parser_parses_type_callable_members_in_struct_bodies() {
         let source = "module main; struct Point { public static func make() -> Point {} }";
@@ -533,13 +526,10 @@ mod tests {
         assert!(member.callable_result_clause().is_some());
         assert!(member.callable_body_block_expression().is_some());
 
-        assert_eq!(
-            parse_diagnostic_kinds(&result),
-            [DiagnosticKind::SyntaxSkippedSyntax]
-        );
+        assert!(result.diagnostics().is_empty());
     }
 
-    // TODO(parser): Update this when constant type and value expressions are parsed.
+    // TODO(parser): Update this when constant value expressions are parsed.
     #[test]
     fn parser_parses_constant_declarations_in_type_bodies() {
         let source = concat!(
@@ -601,8 +591,6 @@ mod tests {
         assert_eq!(
             parse_diagnostic_kinds(&result),
             [
-                DiagnosticKind::SyntaxSkippedSyntax,
-                DiagnosticKind::SyntaxSkippedSyntax,
                 DiagnosticKind::SyntaxSkippedSyntax,
                 DiagnosticKind::SyntaxSkippedSyntax
             ]

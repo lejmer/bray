@@ -1,5 +1,5 @@
 use crate::node::define_source_syntax_node;
-use crate::{SyntaxKind, SyntaxToken};
+use crate::{SyntaxKind, SyntaxToken, TypeExpressionSyntax};
 
 define_source_syntax_node! {
     /// Optional callable contract modifiers in source order.
@@ -92,6 +92,14 @@ define_source_syntax_node! {
                 push_callable_contract_modifiers;
                 ty: CallableContractModifiersSyntax;
                 kind: SyntaxKind::CallableContractModifiers;
+            },
+            {
+                /// Returns the callable type-expression child.
+                type_expression;
+                /// Appends the callable type-expression child.
+                push_type_expression;
+                ty: TypeExpressionSyntax;
+                kind: SyntaxKind::TypeExpression;
             }
         ],
     }
@@ -104,10 +112,10 @@ mod tests {
     use crate::test_support::{snapshot as test_snapshot, token};
     use crate::{
         CallableContractDeclarationSyntax, CallableContractModifiersSyntax, SyntaxKind, SyntaxText,
-        SyntaxTrivia,
+        SyntaxTrivia, TypeExpressionSyntax,
     };
 
-    // TODO(syntax): Update this when callable contract generics, constraints, and type forms are typed syntax.
+    // TODO(syntax): Update this when callable contract generics and constraints are typed syntax.
     #[test]
     fn callable_contract_declarations_store_modifier_name_and_type_form() {
         let snapshot = test_snapshot(
@@ -138,22 +146,7 @@ mod tests {
             ]),
         );
 
-        builder.push_skipped_tokens([
-            token(SyntaxKind::FuncKeyword, 25, 29),
-            token(SyntaxKind::OpenParenToken, 29, 30),
-            token(SyntaxKind::IdentifierToken, 30, 35),
-            token(SyntaxKind::ColonToken, 35, 36).with_trailing_trivia([SyntaxTrivia::whitespace(
-                TextRange::new(TextSize::new(36), TextSize::new(37)),
-            )]),
-            token(SyntaxKind::IdentifierToken, 37, 40),
-            token(SyntaxKind::CloseParenToken, 40, 41).with_trailing_trivia([
-                SyntaxTrivia::whitespace(TextRange::new(TextSize::new(41), TextSize::new(42))),
-            ]),
-            token(SyntaxKind::ArrowToken, 42, 44).with_trailing_trivia([SyntaxTrivia::whitespace(
-                TextRange::new(TextSize::new(44), TextSize::new(45)),
-            )]),
-            token(SyntaxKind::IdentifierToken, 45, 49),
-        ]);
+        builder.push_type_expression(callable_type_expression(snapshot.clone()));
 
         builder.push_semicolon_token(token(SyntaxKind::SemicolonToken, 49, 50));
 
@@ -172,6 +165,11 @@ mod tests {
             Some(SyntaxKind::PublicKeyword)
         );
 
+        assert_eq!(
+            declaration.type_expression().full_text(),
+            "func(value: Int) -> Bool"
+        );
+
         assert_eq!(declaration.skipped_syntax().count(), 1);
     }
 
@@ -186,6 +184,29 @@ mod tests {
                 TextSize::new(7),
             ))],
         ));
+
+        builder.build()
+    }
+
+    fn callable_type_expression(snapshot: bray_source::SourceSnapshot) -> TypeExpressionSyntax {
+        let mut builder = TypeExpressionSyntax::builder(snapshot, TextSize::new(25));
+
+        builder.push_skipped_tokens([
+            token(SyntaxKind::FuncKeyword, 25, 29),
+            token(SyntaxKind::OpenParenToken, 29, 30),
+            token(SyntaxKind::IdentifierToken, 30, 35),
+            token(SyntaxKind::ColonToken, 35, 36).with_trailing_trivia([SyntaxTrivia::whitespace(
+                TextRange::new(TextSize::new(36), TextSize::new(37)),
+            )]),
+            token(SyntaxKind::IdentifierToken, 37, 40),
+            token(SyntaxKind::CloseParenToken, 40, 41).with_trailing_trivia([
+                SyntaxTrivia::whitespace(TextRange::new(TextSize::new(41), TextSize::new(42))),
+            ]),
+            token(SyntaxKind::ArrowToken, 42, 44).with_trailing_trivia([SyntaxTrivia::whitespace(
+                TextRange::new(TextSize::new(44), TextSize::new(45)),
+            )]),
+            token(SyntaxKind::IdentifierToken, 45, 49),
+        ]);
 
         builder.build()
     }

@@ -29,8 +29,9 @@ impl Parser {
         builder.push_identifier_token(self.parse_identifier());
         builder.push_colon_token(self.expect(SyntaxKind::ColonToken));
 
-        // TODO(parser): Parse field type expressions once expression parsing is implemented.
-        self.recover_struct_field_type_expression(&mut builder);
+        let mut at_type_boundary = Parser::at_struct_field_type_boundary;
+
+        builder.push_type_expression(self.parse_type_expression_until(&mut at_type_boundary));
 
         if self.at(SyntaxKind::EqualsToken) {
             builder.push_equals_token(self.expect(SyntaxKind::EqualsToken));
@@ -57,17 +58,6 @@ impl Parser {
         }
 
         builder.build()
-    }
-
-    fn recover_struct_field_type_expression(
-        &mut self,
-        builder: &mut StructFieldDeclarationSyntaxBuilder,
-    ) {
-        if self.at_struct_field_type_boundary() {
-            return;
-        }
-
-        self.recover_current_and_until_predicate(builder, Parser::at_struct_field_type_boundary);
     }
 
     fn recover_struct_field_default_expression(

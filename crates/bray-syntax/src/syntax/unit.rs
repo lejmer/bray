@@ -755,7 +755,7 @@ mod tests {
         TraitModifiersSyntax, TraitPredicateMemberDeclarationSyntax,
         TraitPredicateMemberModifiersSyntax, TraitScopeEnterRequirementDeclarationSyntax,
         TraitScopeExitRequirementDeclarationSyntax, TraitTypeMemberDeclarationSyntax,
-        TypeConstructorMemberDeclarationSyntax, UnionDeclarationSyntax,
+        TypeConstructorMemberDeclarationSyntax, TypeExpressionSyntax, UnionDeclarationSyntax,
         UnnamedTraitImplementationDeclarationSyntax, UsingDeclarationSyntax,
     };
 
@@ -1270,6 +1270,7 @@ mod tests {
         assert_send_sync::<ParameterModifiersSyntax>();
         assert_send_sync::<CallableResultClauseSyntax>();
         assert_send_sync::<CallableBodyBlockExpressionSyntax>();
+        assert_send_sync::<TypeExpressionSyntax>();
         assert_send_sync::<ModuleDirectivesSyntax>();
         assert_send_sync::<ModuleModifiersSyntax>();
         assert_send_sync::<ModuleBodySyntax>();

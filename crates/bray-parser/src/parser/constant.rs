@@ -1,7 +1,7 @@
 use bray_syntax::{
     ConstantDeclarationSyntax, ConstantDeclarationSyntaxBuilder, ConstantModifiersSyntax,
     SyntaxKind, SyntaxToken, TraitConstantMemberDeclarationSyntax,
-    TraitConstantMemberDeclarationSyntaxBuilder,
+    TraitConstantMemberDeclarationSyntaxBuilder, TypeExpressionSyntax,
 };
 
 use super::module::MODULE_ITEM_START_KINDS;
@@ -87,11 +87,13 @@ impl Parser {
         builder.push_identifier_token(self.parse_identifier());
         builder.push_colon_token(self.expect(SyntaxKind::ColonToken));
 
-        // TODO(parser): Parse constant type expressions once expression parsing is implemented.
-        self.recover_constant_type_expression(builder);
+        let mut at_type_boundary = Parser::at_constant_type_boundary;
+
+        builder.push_type_expression(self.parse_type_expression_until(&mut at_type_boundary));
 
         self.parse_constant_initializer(builder, initializer_policy);
         self.recover_until_constant_declaration_end(builder);
+
         builder.push_semicolon_token(self.expect(SyntaxKind::SemicolonToken));
     }
 
@@ -126,17 +128,6 @@ impl Parser {
 
         // TODO(parser): Parse constant value expressions once expression parsing is implemented.
         self.recover_constant_value_expression(builder);
-    }
-
-    fn recover_constant_type_expression(
-        &mut self,
-        builder: &mut impl ConstantDeclarationSyntaxSink,
-    ) {
-        if self.at_constant_type_boundary() {
-            return;
-        }
-
-        self.recover_current_and_until_predicate(builder, Parser::at_constant_type_boundary);
     }
 
     fn recover_constant_value_expression(
@@ -199,6 +190,8 @@ trait ConstantDeclarationSyntaxSink: RecoverySyntaxSink {
 
     fn push_colon_token(&mut self, token: SyntaxToken);
 
+    fn push_type_expression(&mut self, type_expression: TypeExpressionSyntax);
+
     fn push_equals_token(&mut self, token: SyntaxToken);
 
     fn push_semicolon_token(&mut self, token: SyntaxToken);
@@ -215,6 +208,10 @@ impl ConstantDeclarationSyntaxSink for ConstantDeclarationSyntaxBuilder {
 
     fn push_colon_token(&mut self, token: SyntaxToken) {
         ConstantDeclarationSyntaxBuilder::push_colon_token(self, token);
+    }
+
+    fn push_type_expression(&mut self, type_expression: TypeExpressionSyntax) {
+        ConstantDeclarationSyntaxBuilder::push_type_expression(self, type_expression);
     }
 
     fn push_equals_token(&mut self, token: SyntaxToken) {
@@ -237,6 +234,10 @@ impl ConstantDeclarationSyntaxSink for TraitConstantMemberDeclarationSyntaxBuild
 
     fn push_colon_token(&mut self, token: SyntaxToken) {
         TraitConstantMemberDeclarationSyntaxBuilder::push_colon_token(self, token);
+    }
+
+    fn push_type_expression(&mut self, type_expression: TypeExpressionSyntax) {
+        TraitConstantMemberDeclarationSyntaxBuilder::push_type_expression(self, type_expression);
     }
 
     fn push_equals_token(&mut self, token: SyntaxToken) {
@@ -262,7 +263,7 @@ mod tests {
 
     use super::super::state::Parser;
 
-    // TODO(parser): Update this when constant type and value expressions are parsed.
+    // TODO(parser): Update this when constant value expressions are parsed.
     #[test]
     fn parser_parses_constant_declarations_after_source_unit_modules() {
         let source = "module main; public const Answer: Int = 42;";
@@ -278,8 +279,8 @@ mod tests {
 
         let skipped_syntax = declaration.skipped_syntax().collect::<Vec<_>>();
 
-        let [type_expression, value_expression] = skipped_syntax.as_slice() else {
-            panic!("expected type and value expressions as skipped syntax: {skipped_syntax:?}");
+        let [value_expression] = skipped_syntax.as_slice() else {
+            panic!("expected value expression as skipped syntax: {skipped_syntax:?}");
         };
 
         assert_eq!(source_unit.full_text(), source);
@@ -293,19 +294,16 @@ mod tests {
             Some(SyntaxKind::PublicKeyword)
         );
 
-        assert_eq!(type_expression.full_text(), "Int ");
+        assert_eq!(declaration.type_expression().full_text(), "Int ");
         assert_eq!(value_expression.full_text(), "42");
 
         assert_eq!(
             parse_diagnostic_kinds(&result),
-            [
-                DiagnosticKind::SyntaxSkippedSyntax,
-                DiagnosticKind::SyntaxSkippedSyntax
-            ]
+            [DiagnosticKind::SyntaxSkippedSyntax]
         );
     }
 
-    // TODO(parser): Update this when constant type and value expressions are parsed.
+    // TODO(parser): Update this when constant value expressions are parsed.
     #[test]
     fn parser_parses_constant_declarations_inside_block_modules() {
         let source = "module main { const Answer: Int = 42; }";
@@ -332,14 +330,11 @@ mod tests {
 
         assert_eq!(
             parse_diagnostic_kinds(&result),
-            [
-                DiagnosticKind::SyntaxSkippedSyntax,
-                DiagnosticKind::SyntaxSkippedSyntax
-            ]
+            [DiagnosticKind::SyntaxSkippedSyntax]
         );
     }
 
-    // TODO(parser): Update this when constant type and value expressions are parsed.
+    // TODO(parser): Update this when constant value expressions are parsed.
     #[test]
     fn parser_reports_missing_constant_semicolon_before_following_item_start() {
         let source = "module main; const Answer: Int = 42\nfunc main() {}";
@@ -377,7 +372,6 @@ mod tests {
             "func",
             &[
                 DiagnosticKind::SyntaxSkippedSyntax,
-                DiagnosticKind::SyntaxSkippedSyntax,
                 DiagnosticKind::SyntaxExpectedToken,
             ],
         );
@@ -410,10 +404,7 @@ mod tests {
 
         assert_eq!(
             parse_diagnostic_kinds(&result),
-            [
-                DiagnosticKind::SyntaxSkippedSyntax,
-                DiagnosticKind::SyntaxExpectedToken
-            ]
+            [DiagnosticKind::SyntaxExpectedToken]
         );
     }
 

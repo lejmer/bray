@@ -23,10 +23,11 @@ use bray_syntax::{
     TraitScopeEnterRequirementDeclarationSyntaxBuilder,
     TraitScopeExitRequirementDeclarationSyntaxBuilder, TraitTypeMemberDeclarationSyntaxBuilder,
     TypeCallableMemberDeclarationSyntaxBuilder, TypeConstructorMemberDeclarationSyntaxBuilder,
-    TypeDirectivesSyntaxBuilder, UnionBodySyntaxBuilder, UnionDeclarationSyntaxBuilder,
-    UnionPayloadFieldSyntaxBuilder, UnionVariantDeclarationSyntaxBuilder,
-    UnionVariantPayloadSyntaxBuilder, UnnamedTraitImplementationDeclarationSyntaxBuilder,
-    UsingDeclarationSyntaxBuilder, VariantDirectivesSyntaxBuilder,
+    TypeDirectivesSyntaxBuilder, TypeExpressionSyntaxBuilder, UnionBodySyntaxBuilder,
+    UnionDeclarationSyntaxBuilder, UnionPayloadFieldSyntaxBuilder,
+    UnionVariantDeclarationSyntaxBuilder, UnionVariantPayloadSyntaxBuilder,
+    UnnamedTraitImplementationDeclarationSyntaxBuilder, UsingDeclarationSyntaxBuilder,
+    VariantDirectivesSyntaxBuilder,
 };
 
 use crate::cursor::RecoverySet;
@@ -99,44 +100,6 @@ impl Parser {
 
         while !self.at(SyntaxKind::EndOfFileToken) && !at_stop(self) {
             skipped_tokens.push(self.consume());
-        }
-
-        let skipped_any = !skipped_tokens.is_empty();
-
-        self.record_skipped_syntax_for_tokens(&skipped_tokens);
-        builder.push_skipped_tokens(skipped_tokens);
-
-        skipped_any
-    }
-
-    pub(super) fn recover_current_and_until_balanced_close_paren_or_predicate(
-        &mut self,
-        builder: &mut impl RecoverySyntaxSink,
-        mut at_stop: impl FnMut(&mut Parser) -> bool,
-    ) -> bool {
-        let mut skipped_tokens = Vec::new();
-        let mut paren_depth = 0usize;
-
-        if !self.at(SyntaxKind::EndOfFileToken) {
-            let skipped_token = self.consume();
-
-            if skipped_token.kind() == SyntaxKind::OpenParenToken {
-                paren_depth += 1;
-            }
-
-            skipped_tokens.push(skipped_token);
-        }
-
-        while !self.at(SyntaxKind::EndOfFileToken) && (paren_depth > 0 || !at_stop(self)) {
-            let skipped_token = self.consume();
-
-            match skipped_token.kind() {
-                SyntaxKind::OpenParenToken => paren_depth += 1,
-                SyntaxKind::CloseParenToken => paren_depth = paren_depth.saturating_sub(1),
-                _ => {}
-            }
-
-            skipped_tokens.push(skipped_token);
         }
 
         let skipped_any = !skipped_tokens.is_empty();
@@ -567,6 +530,12 @@ impl RecoverySyntaxSink for CallableResultClauseSyntaxBuilder {
 impl RecoverySyntaxSink for CallableBodyBlockExpressionSyntaxBuilder {
     fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
         CallableBodyBlockExpressionSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for TypeExpressionSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        TypeExpressionSyntaxBuilder::push_skipped_tokens(self, tokens);
     }
 }
 

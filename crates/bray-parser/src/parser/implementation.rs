@@ -524,7 +524,7 @@ mod tests {
         assert!(result.diagnostics().is_empty());
     }
 
-    // TODO(parser): Update this when constant type and value expressions are parsed.
+    // TODO(parser): Update this when constant value expressions are parsed.
     #[test]
     fn parser_parses_constant_members_in_implementation_bodies() {
         let source = concat!(
@@ -584,14 +584,11 @@ mod tests {
             parse_diagnostic_kinds(&result),
             [
                 DiagnosticKind::SyntaxSkippedSyntax,
-                DiagnosticKind::SyntaxSkippedSyntax,
-                DiagnosticKind::SyntaxSkippedSyntax,
                 DiagnosticKind::SyntaxSkippedSyntax
             ]
         );
     }
 
-    // TODO(parser): Update this when type and predicate expressions are parsed.
     #[test]
     fn parser_parses_shared_members_in_implementation_bodies() {
         let source = concat!(
@@ -634,14 +631,7 @@ mod tests {
         assert_eq!(trait_body.implementation_type_member_bindings().count(), 1);
         assert_eq!(trait_body.predicate_declarations().count(), 1);
 
-        assert_eq!(
-            parse_diagnostic_kinds(&result),
-            [
-                DiagnosticKind::SyntaxSkippedSyntax,
-                DiagnosticKind::SyntaxSkippedSyntax,
-                DiagnosticKind::SyntaxSkippedSyntax
-            ]
-        );
+        assert!(result.diagnostics().is_empty());
     }
 
     #[test]

@@ -625,11 +625,9 @@ mod tests {
     use bray_testing::test_source_store as source_store;
 
     use crate::parser::parse_compilation_unit;
-    use crate::test_support::{
-        assert_missing_semicolon_diagnostic, marker_offset, parse_diagnostic_kinds,
-    };
+    use crate::test_support::{assert_missing_semicolon_diagnostic, marker_offset};
 
-    // TODO(parser): Update this when callable result, parameter type, and body expressions are parsed.
+    // TODO(parser): Update this when callable body expressions are parsed.
     #[test]
     fn parser_parses_type_lifecycle_members() {
         let source = concat!(
@@ -660,17 +658,9 @@ mod tests {
         assert_eq!(body.scope_enter_member_declarations().count(), 1);
         assert_eq!(body.scope_exit_member_declarations().count(), 1);
 
-        assert_eq!(
-            parse_diagnostic_kinds(&result),
-            [
-                DiagnosticKind::SyntaxSkippedSyntax,
-                DiagnosticKind::SyntaxSkippedSyntax,
-                DiagnosticKind::SyntaxSkippedSyntax
-            ]
-        );
+        assert!(result.diagnostics().is_empty());
     }
 
-    // TODO(parser): Update this when callable result and parameter type expressions are parsed.
     #[test]
     fn parser_parses_trait_lifecycle_requirements() {
         let source = concat!(
@@ -694,13 +684,7 @@ mod tests {
         assert_eq!(body.trait_scope_enter_requirement_declarations().count(), 1);
         assert_eq!(body.trait_scope_exit_requirement_declarations().count(), 1);
 
-        assert_eq!(
-            parse_diagnostic_kinds(&result),
-            [
-                DiagnosticKind::SyntaxSkippedSyntax,
-                DiagnosticKind::SyntaxSkippedSyntax
-            ]
-        );
+        assert!(result.diagnostics().is_empty());
     }
 
     #[test]
@@ -737,15 +721,11 @@ mod tests {
             insertion,
             SyntaxKind::ConstKeyword,
             "const",
-            &[
-                DiagnosticKind::SyntaxSkippedSyntax,
-                DiagnosticKind::SyntaxExpectedToken,
-                DiagnosticKind::SyntaxSkippedSyntax,
-            ],
+            &[DiagnosticKind::SyntaxExpectedToken],
         );
     }
 
-    // TODO(parser): Update this when callable result, parameter type, and body expressions are parsed.
+    // TODO(parser): Update this when callable body expressions are parsed.
     #[test]
     fn parser_parses_trait_implementation_lifecycle_members() {
         let source = concat!(
@@ -771,12 +751,6 @@ mod tests {
         assert_eq!(body.scope_enter_member_declarations().count(), 1);
         assert_eq!(body.scope_exit_member_declarations().count(), 1);
 
-        assert_eq!(
-            parse_diagnostic_kinds(&result),
-            [
-                DiagnosticKind::SyntaxSkippedSyntax,
-                DiagnosticKind::SyntaxSkippedSyntax
-            ]
-        );
+        assert!(result.diagnostics().is_empty());
     }
 }

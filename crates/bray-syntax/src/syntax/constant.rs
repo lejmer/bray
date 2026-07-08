@@ -1,5 +1,5 @@
 use crate::node::define_source_syntax_node;
-use crate::{SyntaxKind, SyntaxToken};
+use crate::{SyntaxKind, SyntaxToken, TypeExpressionSyntax};
 
 define_source_syntax_node! {
     /// Optional constant declaration modifiers in source order.
@@ -100,6 +100,14 @@ define_source_syntax_node! {
                 push_constant_modifiers;
                 ty: ConstantModifiersSyntax;
                 kind: SyntaxKind::ConstantModifiers;
+            },
+            {
+                /// Returns the constant type-expression child.
+                type_expression;
+                /// Appends the constant type-expression child.
+                push_type_expression;
+                ty: TypeExpressionSyntax;
+                kind: SyntaxKind::TypeExpression;
             }
         ],
     }
@@ -160,6 +168,15 @@ define_source_syntax_node! {
                 slot: "trait_constant_member_declaration.equals_token";
             }
         ],
-        required_children: [],
+        required_children: [
+            {
+                /// Returns the constant type-expression child.
+                type_expression;
+                /// Appends the constant type-expression child.
+                push_type_expression;
+                ty: TypeExpressionSyntax;
+                kind: SyntaxKind::TypeExpression;
+            }
+        ],
     }
 }

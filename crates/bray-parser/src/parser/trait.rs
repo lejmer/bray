@@ -251,7 +251,7 @@ mod tests {
         assert!(result.diagnostics().is_empty());
     }
 
-    // TODO(parser): Update this when constant type and value expressions are parsed.
+    // TODO(parser): Update this when constant value expressions are parsed.
     #[test]
     fn parser_parses_trait_constant_members() {
         let source = "module main; trait Config { const Size: Int; const Name: String = \"bray\"; func read(); }";
@@ -297,11 +297,7 @@ mod tests {
 
         assert_eq!(
             parse_diagnostic_kinds(&result),
-            [
-                DiagnosticKind::SyntaxSkippedSyntax,
-                DiagnosticKind::SyntaxSkippedSyntax,
-                DiagnosticKind::SyntaxSkippedSyntax
-            ]
+            [DiagnosticKind::SyntaxSkippedSyntax]
         );
     }
 

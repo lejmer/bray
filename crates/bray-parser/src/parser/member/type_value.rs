@@ -29,14 +29,18 @@ impl Parser {
 
         builder.push_type_keyword(self.expect(SyntaxKind::TypeKeyword));
         builder.push_identifier_token(self.parse_identifier());
-        builder.push_equals_token(self.expect(SyntaxKind::EqualsToken));
 
-        // TODO(parser): Parse implementation type member expressions once type-expression parsing is implemented.
-        if !self.at_implementation_type_member_type_boundary() {
-            self.recover_current_and_until_predicate(
-                &mut builder,
-                Parser::at_implementation_type_member_type_boundary,
-            );
+        let equals_token = self.expect(SyntaxKind::EqualsToken);
+        let equals_missing = equals_token.is_missing();
+
+        builder.push_equals_token(equals_token);
+
+        let mut at_type_boundary = Parser::at_implementation_type_member_type_boundary;
+
+        if equals_missing && self.at_implementation_type_member_type_boundary() {
+            builder.push_type_expression(self.missing_type_expression());
+        } else {
+            builder.push_type_expression(self.parse_type_expression_until(&mut at_type_boundary));
         }
 
         self.recover_until_implementation_type_member_binding_end(&mut builder);
@@ -112,6 +116,7 @@ mod tests {
         let result = parse_compilation_unit(&sources);
 
         let source_unit = &result.syntax_tree().root().source_units()[0];
+
         let declarations = source_unit
             .inherent_implementation_declarations()
             .collect::<Vec<_>>();
@@ -129,22 +134,13 @@ mod tests {
             panic!("expected one implementation type member binding: {type_members:?}");
         };
 
-        let skipped_syntax = type_member.skipped_syntax().collect::<Vec<_>>();
-
-        let [type_value] = skipped_syntax.as_slice() else {
-            panic!("expected skipped implementation type member value: {skipped_syntax:?}");
-        };
-
         assert_eq!(source_unit.full_text(), source);
         assert_eq!(type_member.full_text(), "type Item = Element; ");
         assert_eq!(type_member.type_keyword().kind(), SyntaxKind::TypeKeyword);
         assert_eq!(type_member.equals_token().kind(), SyntaxKind::EqualsToken);
-        assert_eq!(type_value.full_text(), "Element");
+        assert_eq!(type_member.type_expression().full_text(), "Element");
 
-        assert_eq!(
-            parse_diagnostic_kinds(&result),
-            [DiagnosticKind::SyntaxSkippedSyntax]
-        );
+        assert!(result.diagnostics().is_empty());
     }
 
     #[test]
@@ -154,9 +150,11 @@ mod tests {
         let result = parse_compilation_unit(&sources);
 
         let source_unit = &result.syntax_tree().root().source_units()[0];
+
         let declarations = source_unit
             .inherent_implementation_declarations()
             .collect::<Vec<_>>();
+
         let insertion = marker_offset(source, "; }");
 
         let [declaration] = declarations.as_slice() else {
@@ -246,10 +244,7 @@ mod tests {
             insertion,
             SyntaxKind::ConstKeyword,
             "const",
-            &[
-                DiagnosticKind::SyntaxExpectedToken,
-                DiagnosticKind::SyntaxSkippedSyntax,
-            ],
+            &[DiagnosticKind::SyntaxExpectedToken],
         );
     }
 
