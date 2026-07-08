@@ -342,9 +342,10 @@ mod tests {
         TypeFormArgumentSyntax,
     };
     use crate::test_support::{
-        identifier_type_expression, keyword, snapshot as test_snapshot, token, typed_identifier,
+        identifier_type_expression, keyword, snapshot as test_snapshot, token, token_expression,
+        typed_identifier,
     };
-    use crate::{ExpressionSyntax, PrimaryExpressionSyntax, SyntaxKind, SyntaxText};
+    use crate::{SyntaxKind, SyntaxText};
 
     #[test]
     fn generic_parameter_lists_store_type_const_and_separator_children() {
@@ -416,7 +417,12 @@ mod tests {
         let mut constant_argument =
             GenericArgumentSyntax::builder(snapshot.clone(), TextSize::new(4));
 
-        constant_argument.push_expression(integer_expression(snapshot.clone(), 4, 5));
+        constant_argument.push_expression(token_expression(
+            snapshot.clone(),
+            SyntaxKind::DecimalIntegerLiteralToken,
+            4,
+            5,
+        ));
 
         let mut list = GenericArgumentListSyntax::builder(snapshot, TextSize::ZERO);
 
@@ -451,7 +457,12 @@ mod tests {
         let mut constant_argument =
             TypeFormArgumentSyntax::builder(snapshot.clone(), TextSize::new(4));
 
-        constant_argument.push_expression(integer_expression(snapshot.clone(), 4, 5));
+        constant_argument.push_expression(token_expression(
+            snapshot.clone(),
+            SyntaxKind::DecimalIntegerLiteralToken,
+            4,
+            5,
+        ));
 
         let mut list = TypeFormArgumentListSyntax::builder(snapshot, TextSize::ZERO);
 
@@ -474,21 +485,5 @@ mod tests {
         assert_eq!(list.separator_tokens().count(), 1);
         assert_eq!(type_argument.type_expressions().count(), 1);
         assert_eq!(constant_argument.expressions().count(), 1);
-    }
-
-    fn integer_expression(
-        snapshot: bray_source::SourceSnapshot,
-        start: u32,
-        end: u32,
-    ) -> ExpressionSyntax {
-        let mut primary = PrimaryExpressionSyntax::builder(snapshot.clone(), TextSize::new(start));
-
-        primary.push_token(token(SyntaxKind::DecimalIntegerLiteralToken, start, end));
-
-        let mut expression = ExpressionSyntax::builder(snapshot, TextSize::new(start));
-
-        expression.push_primary_expression(primary.build());
-
-        expression.build()
     }
 }

@@ -273,7 +273,7 @@ impl FunctionDeclarationSyntax {
 mod tests {
     use bray_source::{SourceSnapshot, TextRange, TextSize};
 
-    use crate::test_support::{snapshot as test_snapshot, token};
+    use crate::test_support::{directive_argument, snapshot as test_snapshot, token};
     use crate::{
         CallableBodyBlockExpressionSyntax, DirectiveArgumentListSyntax, FunctionDeclarationSyntax,
         FunctionDirectivesSyntax, FunctionModifiersSyntax, LinkDirectiveSyntax,
@@ -317,7 +317,6 @@ mod tests {
         assert!(declaration.callable_body_block_expression().is_some());
     }
 
-    // TODO(syntax): Update this when directive arguments are typed syntax.
     #[test]
     fn function_directives_store_directives_in_source_order() {
         let snapshot = test_snapshot("syntax-function-test", "@link(\"m\")");
@@ -328,7 +327,14 @@ mod tests {
             DirectiveArgumentListSyntax::builder(snapshot.clone(), TextSize::new(5));
 
         arguments.push_open_paren_token(token(SyntaxKind::OpenParenToken, 5, 6));
-        arguments.push_skipped_tokens([token(SyntaxKind::StringLiteralToken, 6, 9)]);
+
+        arguments.push_directive_argument(directive_argument(
+            snapshot.clone(),
+            SyntaxKind::StringLiteralToken,
+            6,
+            9,
+        ));
+
         arguments.push_close_paren_token(token(SyntaxKind::CloseParenToken, 9, 10));
 
         link.push_directive_marker_token(token(SyntaxKind::AtToken, 0, 1));
@@ -341,7 +347,7 @@ mod tests {
 
         assert_eq!(directives.full_text(), "@link(\"m\")");
         assert_eq!(directives.link_directives().count(), 1);
-        assert_eq!(directives.skipped_syntax().count(), 1);
+        assert_eq!(directives.skipped_syntax().count(), 0);
     }
 
     fn function_modifiers(snapshot: SourceSnapshot) -> FunctionModifiersSyntax {

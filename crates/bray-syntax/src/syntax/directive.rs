@@ -1,5 +1,5 @@
-use crate::SyntaxKind;
 use crate::node::define_source_syntax_node;
+use crate::{ExpressionSyntax, SyntaxKind, SyntaxToken};
 
 macro_rules! define_bare_directive_syntax {
     (
@@ -113,6 +113,49 @@ macro_rules! define_argument_list_directive_syntax {
 }
 
 define_source_syntax_node! {
+    /// Single directive argument.
+    pub struct DirectiveArgumentSyntax {
+        builder: DirectiveArgumentSyntaxBuilder,
+        kind: SyntaxKind::DirectiveArgument,
+        source_slot: "directive_argument.source",
+        node_name: "directive argument",
+        range_description: "directive-argument",
+        debug_name: "DirectiveArgumentSyntax",
+        builder_debug_name: "DirectiveArgumentSyntaxBuilder",
+        skipped_syntax: false,
+        required_tokens: [],
+        optional_tokens: [
+            {
+                /// Returns the optional argument name token.
+                name_token;
+                /// Appends an argument name token.
+                push_name_token;
+                kind: SyntaxKind::IdentifierToken;
+                slot: "directive_argument.name_token";
+            },
+            {
+                /// Returns the optional named-argument equals token.
+                equals_token;
+                /// Appends a named-argument equals token.
+                push_equals_token;
+                kind: SyntaxKind::EqualsToken;
+                slot: "directive_argument.equals_token";
+            }
+        ],
+        required_children: [
+            {
+                /// Returns the argument value expression child.
+                expression;
+                /// Appends the argument value expression child.
+                push_expression;
+                ty: ExpressionSyntax;
+                kind: SyntaxKind::Expression;
+            }
+        ],
+    }
+}
+
+define_source_syntax_node! {
     /// Parenthesized directive arguments.
     pub struct DirectiveArgumentListSyntax {
         builder: DirectiveArgumentListSyntaxBuilder,
@@ -122,7 +165,6 @@ define_source_syntax_node! {
         range_description: "directive-argument-list",
         debug_name: "DirectiveArgumentListSyntax",
         builder_debug_name: "DirectiveArgumentListSyntaxBuilder",
-        // TODO(syntax): Replace skipped syntax with typed directive argument items.
         skipped_syntax: true,
         required_tokens: [
             {
@@ -142,14 +184,41 @@ define_source_syntax_node! {
                 slot: "directive_argument_list.close_paren_token";
             }
         ],
-        optional_tokens: [],
+        optional_tokens: [
+            {
+                /// Returns the first comma separator token.
+                comma_token;
+                /// Appends a comma separator token.
+                push_separator_token;
+                kind: SyntaxKind::CommaToken;
+                slot: "directive_argument_list.comma_token";
+            }
+        ],
         required_children: [],
+        repeated_children: [
+            {
+                /// Returns directive arguments in source order.
+                directive_arguments;
+                /// Appends a directive argument.
+                push_directive_argument;
+                ty: DirectiveArgumentSyntax;
+                kind: SyntaxKind::DirectiveArgument;
+            }
+        ],
     }
 }
 
-define_source_syntax_node! {
+impl DirectiveArgumentListSyntax {
+    /// Returns comma separator tokens in source order.
+    pub fn separator_tokens(&self) -> impl Iterator<Item = SyntaxToken> + '_ {
+        self.tokens()
+            .filter(|token| token.kind() == SyntaxKind::CommaToken)
+    }
+}
+
+define_argument_list_directive_syntax! {
     /// `@target(...)` directive.
-    pub struct TargetDirectiveSyntax {
+    TargetDirectiveSyntax {
         builder: TargetDirectiveSyntaxBuilder,
         kind: SyntaxKind::TargetDirective,
         source_slot: "target_directive.source",
@@ -157,44 +226,8 @@ define_source_syntax_node! {
         range_description: "target-directive",
         debug_name: "TargetDirectiveSyntax",
         builder_debug_name: "TargetDirectiveSyntaxBuilder",
-        // TODO(syntax): Replace skipped syntax with typed target directive arguments.
-        skipped_syntax: true,
-        required_tokens: [
-            {
-                /// Returns the required directive marker token.
-                directive_marker_token;
-                /// Appends the directive marker token.
-                push_directive_marker_token;
-                kind: SyntaxKind::AtToken;
-                slot: "target_directive.directive_marker_token";
-            },
-            {
-                /// Returns the required directive name token.
-                name_token;
-                /// Appends the directive name token.
-                push_name_token;
-                kind: SyntaxKind::IdentifierToken;
-                slot: "target_directive.name_token";
-            },
-            {
-                /// Returns the required opening parenthesis token.
-                open_paren_token;
-                /// Appends the opening parenthesis token.
-                push_open_paren_token;
-                kind: SyntaxKind::OpenParenToken;
-                slot: "target_directive.open_paren_token";
-            },
-            {
-                /// Returns the required closing parenthesis token.
-                close_paren_token;
-                /// Appends the closing parenthesis token.
-                push_close_paren_token;
-                kind: SyntaxKind::CloseParenToken;
-                slot: "target_directive.close_paren_token";
-            }
-        ],
-        optional_tokens: [],
-        required_children: [],
+        marker_slot: "target_directive.directive_marker_token",
+        name_slot: "target_directive.name_token",
     }
 }
 

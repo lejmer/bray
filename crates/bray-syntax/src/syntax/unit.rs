@@ -737,17 +737,18 @@ mod tests {
         CallableBodyBlockExpressionSyntax, CallableContractDeclarationSyntax,
         CallableOverloadDeclarationSyntax, CallableResultClauseSyntax, ConstantDeclarationSyntax,
         ConstantModifiersSyntax, ConstructorMemberModifiersSyntax,
-        DestructorMemberDeclarationSyntax, ExportDeclarationSyntax, ExpressionSyntax,
-        FinalizerMemberDeclarationSyntax, FunctionDeclarationSyntax, FunctionDirectivesSyntax,
-        FunctionModifiersSyntax, GenericArgumentListSyntax, GenericArgumentSyntax,
-        GenericConstParameterSyntax, GenericParameterListSyntax, GenericTypeParameterSyntax,
-        IdentifierListItemSyntax, IdentifierListSyntax, ImplementationBodySyntax,
-        ImplementationOverloadDeclarationSyntax, ImplementationOverloadSubjectSyntax,
-        ImplementationSubjectSyntax, ImplementationTypeMemberBindingSyntax,
-        InherentImplementationDeclarationSyntax, ModuleBodySyntax, ModuleDirectivesSyntax,
-        ModuleModifiersSyntax, NamedTraitImplementationDeclarationSyntax, OverloadArmListSyntax,
-        OverloadArmSyntax, OverloadModifiersSyntax, ParameterListSyntax, ParameterModifiersSyntax,
-        ParameterSyntax, PathSyntax, PredicateDeclarationSyntax, PrimaryExpressionSyntax,
+        DestructorMemberDeclarationSyntax, DirectiveArgumentListSyntax, DirectiveArgumentSyntax,
+        ExportDeclarationSyntax, ExpressionSyntax, FinalizerMemberDeclarationSyntax,
+        FunctionDeclarationSyntax, FunctionDirectivesSyntax, FunctionModifiersSyntax,
+        GenericArgumentListSyntax, GenericArgumentSyntax, GenericConstParameterSyntax,
+        GenericParameterListSyntax, GenericTypeParameterSyntax, IdentifierListItemSyntax,
+        IdentifierListSyntax, ImplementationBodySyntax, ImplementationOverloadDeclarationSyntax,
+        ImplementationOverloadSubjectSyntax, ImplementationSubjectSyntax,
+        ImplementationTypeMemberBindingSyntax, InherentImplementationDeclarationSyntax,
+        ModuleBodySyntax, ModuleDirectivesSyntax, ModuleModifiersSyntax,
+        NamedTraitImplementationDeclarationSyntax, OverloadArmListSyntax, OverloadArmSyntax,
+        OverloadModifiersSyntax, ParameterListSyntax, ParameterModifiersSyntax, ParameterSyntax,
+        PathSyntax, PredicateDeclarationSyntax, PrimaryExpressionSyntax,
         ScopeEnterMemberDeclarationSyntax, ScopeExitMemberDeclarationSyntax, SourceSyntaxNode,
         SourceUnitModuleDeclarationSyntax, StructDeclarationSyntax,
         SyncLifecycleMemberModifiersSyntax, SyntaxKind, SyntaxNode, SyntaxText, SyntaxToken,
@@ -1240,6 +1241,8 @@ mod tests {
         assert_send_sync::<OverloadArmListSyntax>();
         assert_send_sync::<OverloadArmSyntax>();
         assert_send_sync::<FunctionDirectivesSyntax>();
+        assert_send_sync::<DirectiveArgumentListSyntax>();
+        assert_send_sync::<DirectiveArgumentSyntax>();
         assert_send_sync::<FunctionModifiersSyntax>();
         assert_send_sync::<StructDeclarationSyntax>();
         assert_send_sync::<UnionDeclarationSyntax>();

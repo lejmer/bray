@@ -132,13 +132,6 @@ impl Parser {
             .skip_current_and_until_balanced_close_brace_or_recovery(recovery_set)
     }
 
-    pub(super) fn skip_until_balanced_close_paren(
-        &mut self,
-        recovery_set: crate::cursor::RecoverySet<'_>,
-    ) -> Vec<SyntaxToken> {
-        self.cursor.skip_until_balanced_close_paren(recovery_set)
-    }
-
     pub(super) fn scan_until_balanced_close_paren(&mut self, stop_kinds: &[SyntaxKind]) {
         self.cursor
             .skip_until_balanced_close_paren_unreported(crate::cursor::RecoverySet::new(

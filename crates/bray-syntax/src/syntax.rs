@@ -38,12 +38,12 @@ pub use constant::{
 };
 pub use directive::{
     AbiDirectiveSyntax, AbiDirectiveSyntaxBuilder, CopyDirectiveSyntax, CopyDirectiveSyntaxBuilder,
-    DirectiveArgumentListSyntax, DirectiveArgumentListSyntaxBuilder, EntrypointDirectiveSyntax,
-    EntrypointDirectiveSyntaxBuilder, LayoutDirectiveSyntax, LayoutDirectiveSyntaxBuilder,
-    LinkDirectiveSyntax, LinkDirectiveSyntaxBuilder, SymbolDirectiveSyntax,
-    SymbolDirectiveSyntaxBuilder, TagDirectiveSyntax, TagDirectiveSyntaxBuilder,
-    TargetDirectiveSyntax, TargetDirectiveSyntaxBuilder, TestDirectiveSyntax,
-    TestDirectiveSyntaxBuilder,
+    DirectiveArgumentListSyntax, DirectiveArgumentListSyntaxBuilder, DirectiveArgumentSyntax,
+    DirectiveArgumentSyntaxBuilder, EntrypointDirectiveSyntax, EntrypointDirectiveSyntaxBuilder,
+    LayoutDirectiveSyntax, LayoutDirectiveSyntaxBuilder, LinkDirectiveSyntax,
+    LinkDirectiveSyntaxBuilder, SymbolDirectiveSyntax, SymbolDirectiveSyntaxBuilder,
+    TagDirectiveSyntax, TagDirectiveSyntaxBuilder, TargetDirectiveSyntax,
+    TargetDirectiveSyntaxBuilder, TestDirectiveSyntax, TestDirectiveSyntaxBuilder,
 };
 pub use expression::{
     ExpressionSyntax, ExpressionSyntaxBuilder, PrimaryExpressionSyntax,

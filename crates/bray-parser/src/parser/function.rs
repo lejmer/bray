@@ -254,7 +254,6 @@ mod tests {
         assert_missing_semicolon_diagnostic, marker_offset, parse_diagnostic_kinds,
     };
 
-    // TODO(parser): Update this when directive arguments are parsed.
     #[test]
     fn parser_parses_function_declarations_after_source_unit_modules() {
         let source = concat!(
@@ -299,6 +298,19 @@ mod tests {
         assert_eq!(directives.test_directives().count(), 1);
         assert_eq!(directives.abi_directives().count(), 1);
 
+        let abi_directive = match directives.abi_directives().next() {
+            Some(directive) => directive,
+            None => panic!("expected abi directive"),
+        };
+
+        assert_eq!(
+            abi_directive
+                .directive_argument_list()
+                .directive_arguments()
+                .count(),
+            1
+        );
+
         assert_eq!(
             modifiers.visibility_token().map(|token| token.kind()),
             Some(SyntaxKind::PublicKeyword)
@@ -340,10 +352,7 @@ mod tests {
         assert!(declaration.callable_result_clause().is_some());
         assert!(declaration.callable_body_block_expression().is_some());
 
-        assert_eq!(
-            parse_diagnostic_kinds(&result),
-            [DiagnosticKind::SyntaxSkippedSyntax]
-        );
+        assert!(result.diagnostics().is_empty());
     }
 
     #[test]

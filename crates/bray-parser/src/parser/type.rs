@@ -340,7 +340,6 @@ mod tests {
         assert!(result.diagnostics().is_empty());
     }
 
-    // TODO(parser): Update this when directive arguments are parsed.
     #[test]
     fn parser_parses_layout_type_directives() {
         let source = "module main; @layout(c) struct Point {}";
@@ -366,9 +365,14 @@ mod tests {
         assert_eq!(layout.directive_argument_list().full_text(), "(c) ");
 
         assert_eq!(
-            parse_diagnostic_kinds(&result),
-            [DiagnosticKind::SyntaxSkippedSyntax]
+            layout
+                .directive_argument_list()
+                .directive_arguments()
+                .count(),
+            1
         );
+
+        assert!(result.diagnostics().is_empty());
     }
 
     // TODO(parser): Update this when type constraints are parsed.
@@ -418,7 +422,6 @@ mod tests {
         );
     }
 
-    // TODO(parser): Update this when directive arguments are parsed.
     #[test]
     fn parser_parses_union_variants_with_payload_fields() {
         let source = "module main; union Maybe { @tag(1) Some(pos value: Int = fallback,); None; }";
@@ -457,6 +460,17 @@ mod tests {
         );
 
         assert_eq!(some.variant_directives().tag_directives().count(), 1);
+
+        let tag = match some.variant_directives().tag_directives().next() {
+            Some(tag) => tag,
+            None => panic!("expected tag directive"),
+        };
+
+        assert_eq!(
+            tag.directive_argument_list().directive_arguments().count(),
+            1
+        );
+
         assert_eq!(some.identifier_token().text(source), Some("Some"));
         assert_eq!(some_payload.separator_tokens().count(), 1);
 
@@ -478,10 +492,7 @@ mod tests {
 
         assert_eq!(none.full_text(), "None; ");
 
-        assert_eq!(
-            parse_diagnostic_kinds(&result),
-            [DiagnosticKind::SyntaxSkippedSyntax]
-        );
+        assert!(result.diagnostics().is_empty());
     }
 
     // TODO(parser): Update this when callable body expressions are parsed.

@@ -51,7 +51,7 @@ define_source_syntax_node! {
 mod tests {
     use bray_source::{SourceSnapshot, TextSize};
 
-    use crate::test_support::{keyword, snapshot as test_snapshot, token};
+    use crate::test_support::{directive_argument, keyword, snapshot as test_snapshot, token};
     use crate::{
         CopyDirectiveSyntax, DirectiveArgumentListSyntax, LayoutDirectiveSyntax, StructBodySyntax,
         StructDeclarationSyntax, SyntaxKind, SyntaxText, TypeDirectivesSyntax, TypeModifiersSyntax,
@@ -93,7 +93,6 @@ mod tests {
         assert_eq!(declaration.struct_body().full_text(), "{}");
     }
 
-    // TODO(syntax): Update this when directive arguments are typed syntax.
     #[test]
     fn union_declarations_store_layout_directives_name_and_body() {
         let snapshot = test_snapshot("syntax-type-declaration-test", "@layout(c) union Maybe {}");
@@ -114,7 +113,7 @@ mod tests {
 
         assert_eq!(declaration.full_text(), "@layout(c) union Maybe {}");
         assert_eq!(declaration.type_directives().layout_directives().count(), 1);
-        assert_eq!(declaration.type_directives().skipped_syntax().count(), 1);
+        assert_eq!(declaration.type_directives().skipped_syntax().count(), 0);
         assert_eq!(declaration.union_body().full_text(), "{}");
     }
 
@@ -154,10 +153,17 @@ mod tests {
     }
 
     fn layout_argument_list(snapshot: SourceSnapshot) -> DirectiveArgumentListSyntax {
-        let mut builder = DirectiveArgumentListSyntax::builder(snapshot, TextSize::new(7));
+        let mut builder = DirectiveArgumentListSyntax::builder(snapshot.clone(), TextSize::new(7));
 
         builder.push_open_paren_token(token(SyntaxKind::OpenParenToken, 7, 8));
-        builder.push_skipped_tokens([token(SyntaxKind::IdentifierToken, 8, 9)]);
+
+        builder.push_directive_argument(directive_argument(
+            snapshot,
+            SyntaxKind::IdentifierToken,
+            8,
+            9,
+        ));
+
         builder.push_close_paren_token(keyword(SyntaxKind::CloseParenToken, 9, 10, true));
 
         builder.build()

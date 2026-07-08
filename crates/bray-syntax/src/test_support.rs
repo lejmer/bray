@@ -3,8 +3,9 @@ use bray_source::{
 };
 
 use crate::{
-    ImplementationBodySyntax, ImplementationSubjectSyntax, ImplementationTypeMemberBindingSyntax,
-    PathSyntax, SyntaxKind, SyntaxToken, SyntaxTrivia, TraitApplicationSyntax,
+    DirectiveArgumentSyntax, ExpressionSyntax, ImplementationBodySyntax,
+    ImplementationSubjectSyntax, ImplementationTypeMemberBindingSyntax, PathSyntax,
+    PrimaryExpressionSyntax, SyntaxKind, SyntaxToken, SyntaxTrivia, TraitApplicationSyntax,
     TypeAnnotationSyntax, TypeExpressionSyntax, TypedIdentifierSyntax,
 };
 
@@ -96,6 +97,36 @@ pub(crate) fn typed_identifier(
     ));
 
     builder.build()
+}
+
+pub(crate) fn directive_argument(
+    snapshot: SourceSnapshot,
+    kind: SyntaxKind,
+    start: u32,
+    end: u32,
+) -> DirectiveArgumentSyntax {
+    let mut builder = DirectiveArgumentSyntax::builder(snapshot.clone(), TextSize::new(start));
+
+    builder.push_expression(token_expression(snapshot, kind, start, end));
+
+    builder.build()
+}
+
+pub(crate) fn token_expression(
+    snapshot: SourceSnapshot,
+    kind: SyntaxKind,
+    start: u32,
+    end: u32,
+) -> ExpressionSyntax {
+    let mut primary = PrimaryExpressionSyntax::builder(snapshot.clone(), TextSize::new(start));
+
+    primary.push_token(token(kind, start, end));
+
+    let mut expression = ExpressionSyntax::builder(snapshot, TextSize::new(start));
+
+    expression.push_primary_expression(primary.build());
+
+    expression.build()
 }
 
 pub(crate) fn implementation_subject(

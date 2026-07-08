@@ -17,10 +17,10 @@ use bray_syntax::{
     PrimaryExpressionSyntaxBuilder, ScopeEnterMemberDeclarationSyntaxBuilder,
     ScopeExitMemberDeclarationSyntaxBuilder, SourceUnitModuleDeclarationSyntaxBuilder,
     SourceUnitSyntaxBuilder, StructBodySyntaxBuilder, StructDeclarationSyntaxBuilder,
-    StructFieldDeclarationSyntaxBuilder, SyntaxKind, SyntaxToken, TargetDirectiveSyntaxBuilder,
-    TraitApplicationSyntaxBuilder, TraitBodySyntaxBuilder,
-    TraitCallableMemberDeclarationSyntaxBuilder, TraitConstantMemberDeclarationSyntaxBuilder,
-    TraitDeclarationSyntaxBuilder, TraitDestructorRequirementDeclarationSyntaxBuilder,
+    StructFieldDeclarationSyntaxBuilder, SyntaxKind, SyntaxToken, TraitApplicationSyntaxBuilder,
+    TraitBodySyntaxBuilder, TraitCallableMemberDeclarationSyntaxBuilder,
+    TraitConstantMemberDeclarationSyntaxBuilder, TraitDeclarationSyntaxBuilder,
+    TraitDestructorRequirementDeclarationSyntaxBuilder,
     TraitFinalizerRequirementDeclarationSyntaxBuilder,
     TraitPredicateMemberDeclarationSyntaxBuilder,
     TraitScopeEnterRequirementDeclarationSyntaxBuilder,
@@ -158,16 +158,6 @@ impl Parser {
         builder.push_skipped_tokens(skipped_tokens);
 
         skipped_any
-    }
-
-    pub(super) fn recover_until_balanced_close_paren(
-        &mut self,
-        builder: &mut impl RecoverySyntaxSink,
-        stop_kinds: &[SyntaxKind],
-    ) {
-        let skipped_tokens = self.skip_until_balanced_close_paren(RecoverySet::new(stop_kinds));
-
-        builder.push_skipped_tokens(skipped_tokens);
     }
 
     pub(super) fn parse_skipped_braced_body_tokens(
@@ -569,12 +559,6 @@ impl RecoverySyntaxSink for ExpressionSyntaxBuilder {
 impl RecoverySyntaxSink for PrimaryExpressionSyntaxBuilder {
     fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
         PrimaryExpressionSyntaxBuilder::push_skipped_tokens(self, tokens);
-    }
-}
-
-impl RecoverySyntaxSink for TargetDirectiveSyntaxBuilder {
-    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
-        TargetDirectiveSyntaxBuilder::push_skipped_tokens(self, tokens);
     }
 }
 

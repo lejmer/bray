@@ -29,6 +29,8 @@ pub enum SyntaxKind {
     EntrypointDirective,
     /// Parenthesized directive arguments.
     DirectiveArgumentList,
+    /// Single directive argument.
+    DirectiveArgument,
     /// Optional module modifiers in source order.
     ModuleModifiers,
     /// Braced module declaration body.
@@ -350,6 +352,7 @@ impl SyntaxKind {
                 | Self::SymbolDirective
                 | Self::EntrypointDirective
                 | Self::DirectiveArgumentList
+                | Self::DirectiveArgument
                 | Self::ModuleModifiers
                 | Self::ModuleBody
                 | Self::UsingDeclaration
@@ -566,6 +569,7 @@ impl SyntaxKind {
             Self::SymbolDirective => "symbol_directive",
             Self::EntrypointDirective => "entrypoint_directive",
             Self::DirectiveArgumentList => "directive_argument_list",
+            Self::DirectiveArgument => "directive_argument",
             Self::ModuleModifiers => "module_modifiers",
             Self::ModuleBody => "module_body",
             Self::UsingDeclaration => "using_declaration",
@@ -808,6 +812,7 @@ mod tests {
         assert!(SyntaxKind::SymbolDirective.is_node());
         assert!(SyntaxKind::EntrypointDirective.is_node());
         assert!(SyntaxKind::DirectiveArgumentList.is_node());
+        assert!(SyntaxKind::DirectiveArgument.is_node());
 
         assert!(SyntaxKind::ModuleModifiers.is_node());
         assert!(SyntaxKind::ModuleBody.is_node());
@@ -966,6 +971,7 @@ mod tests {
             SyntaxKind::DirectiveArgumentList.as_str(),
             "directive_argument_list"
         );
+        assert_eq!(SyntaxKind::DirectiveArgument.as_str(), "directive_argument");
 
         assert_eq!(SyntaxKind::ModuleModifiers.as_str(), "module_modifiers");
         assert_eq!(SyntaxKind::ModuleBody.as_str(), "module_body");
