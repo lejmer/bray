@@ -1,6 +1,6 @@
 use bray_syntax::{
-    CallableResultClauseSyntax, ParameterListSyntax, SyntaxKind, SyntaxToken,
-    TraitCallableMemberDeclarationSyntax, TraitCallableMemberDeclarationSyntaxBuilder,
+    CallableResultClauseSyntax, GenericParameterListSyntax, ParameterListSyntax, SyntaxKind,
+    SyntaxToken, TraitCallableMemberDeclarationSyntax, TraitCallableMemberDeclarationSyntaxBuilder,
     TraitCallableMemberModifiersSyntax, TypeCallableMemberDeclarationSyntax,
     TypeCallableMemberDeclarationSyntaxBuilder, TypeCallableMemberModifiersSyntax,
 };
@@ -30,18 +30,6 @@ const TRAIT_CALLABLE_MEMBER_START_KINDS: [SyntaxKind; 7] = [
     SyntaxKind::ConsumeKeyword,
     SyntaxKind::MutKeyword,
     SyntaxKind::FuncKeyword,
-];
-
-const CALLABLE_MEMBER_AFTER_NAME_RECOVERY_KINDS: [SyntaxKind; 9] = [
-    SyntaxKind::OpenParenToken,
-    SyntaxKind::ArrowToken,
-    SyntaxKind::RequiresKeyword,
-    SyntaxKind::EnsuresKeyword,
-    SyntaxKind::WithKeyword,
-    SyntaxKind::UsesKeyword,
-    SyntaxKind::OpenBraceToken,
-    SyntaxKind::SemicolonToken,
-    SyntaxKind::CloseBraceToken,
 ];
 
 const CALLABLE_MEMBER_CONTRACT_BOUNDARY_KINDS: [SyntaxKind; 13] = [
@@ -210,8 +198,7 @@ impl Parser {
         builder.push_identifier_token(self.parse_identifier());
 
         if self.at(SyntaxKind::LessToken) {
-            // TODO(parser): Parse generic parameter lists once generic syntax is implemented.
-            self.recover_current_and_until(builder, &CALLABLE_MEMBER_AFTER_NAME_RECOVERY_KINDS);
+            builder.push_generic_parameter_list(self.parse_generic_parameter_list());
         }
 
         builder.push_parameter_list(self.parse_parameter_list());
@@ -321,6 +308,8 @@ trait CallableMemberDeclarationSyntaxSink: RecoverySyntaxSink {
 
     fn push_identifier_token(&mut self, token: SyntaxToken);
 
+    fn push_generic_parameter_list(&mut self, list: GenericParameterListSyntax);
+
     fn push_parameter_list(&mut self, parameter_list: ParameterListSyntax);
 
     fn push_callable_result_clause(&mut self, clause: CallableResultClauseSyntax);
@@ -333,6 +322,10 @@ impl CallableMemberDeclarationSyntaxSink for TypeCallableMemberDeclarationSyntax
 
     fn push_identifier_token(&mut self, token: SyntaxToken) {
         TypeCallableMemberDeclarationSyntaxBuilder::push_identifier_token(self, token);
+    }
+
+    fn push_generic_parameter_list(&mut self, list: GenericParameterListSyntax) {
+        TypeCallableMemberDeclarationSyntaxBuilder::push_generic_parameter_list(self, list);
     }
 
     fn push_parameter_list(&mut self, parameter_list: ParameterListSyntax) {
@@ -351,6 +344,10 @@ impl CallableMemberDeclarationSyntaxSink for TraitCallableMemberDeclarationSynta
 
     fn push_identifier_token(&mut self, token: SyntaxToken) {
         TraitCallableMemberDeclarationSyntaxBuilder::push_identifier_token(self, token);
+    }
+
+    fn push_generic_parameter_list(&mut self, list: GenericParameterListSyntax) {
+        TraitCallableMemberDeclarationSyntaxBuilder::push_generic_parameter_list(self, list);
     }
 
     fn push_parameter_list(&mut self, parameter_list: ParameterListSyntax) {

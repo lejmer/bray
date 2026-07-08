@@ -33,17 +33,6 @@ const FUNCTION_DIRECTIVE_ARGUMENT_RECOVERY_KINDS: [SyntaxKind; 8] = [
     SyntaxKind::FuncKeyword,
 ];
 
-const FUNCTION_AFTER_NAME_RECOVERY_KINDS: [SyntaxKind; 8] = [
-    SyntaxKind::OpenParenToken,
-    SyntaxKind::ArrowToken,
-    SyntaxKind::RequiresKeyword,
-    SyntaxKind::EnsuresKeyword,
-    SyntaxKind::WithKeyword,
-    SyntaxKind::UsesKeyword,
-    SyntaxKind::OpenBraceToken,
-    SyntaxKind::SemicolonToken,
-];
-
 const CALLABLE_CONTRACT_CLAUSE_START_KINDS: [SyntaxKind; 4] = [
     SyntaxKind::RequiresKeyword,
     SyntaxKind::EnsuresKeyword,
@@ -73,8 +62,7 @@ impl Parser {
         builder.push_identifier_token(self.parse_identifier());
 
         if self.at(SyntaxKind::LessToken) {
-            // TODO(parser): Parse generic parameter lists once generic syntax is implemented.
-            self.recover_current_and_until(&mut builder, &FUNCTION_AFTER_NAME_RECOVERY_KINDS);
+            builder.push_generic_parameter_list(self.parse_generic_parameter_list());
         }
 
         builder.push_parameter_list(self.parse_parameter_list());
@@ -266,12 +254,12 @@ mod tests {
         assert_missing_semicolon_diagnostic, marker_offset, parse_diagnostic_kinds,
     };
 
-    // TODO(parser): Update this when directive arguments are parsed.
     #[test]
     fn parser_parses_function_declarations_after_source_unit_modules() {
         let source = concat!(
             "module main; ",
-            "@test @abi(\"C\") public async func main(pos value: Int = 1, mut tail: Bool,) ",
+            "@test @abi(\"C\") public async func main<T, const N: Int>",
+            "(pos value: Int = 1, mut tail: Bool,) ",
             "-> Unit {}"
         );
 
@@ -287,6 +275,12 @@ mod tests {
 
         let directives = declaration.function_directives();
         let modifiers = declaration.function_modifiers();
+
+        let generic_parameter_list = match declaration.generic_parameter_list() {
+            Some(list) => list,
+            None => panic!("expected generic parameter list"),
+        };
+
         let parameter_list = declaration.parameter_list();
         let parameters = parameter_list.parameters().collect::<Vec<_>>();
 
@@ -298,11 +292,24 @@ mod tests {
 
         assert_eq!(
             declaration.full_text(),
-            "@test @abi(\"C\") public async func main(pos value: Int = 1, mut tail: Bool,) -> Unit {}"
+            "@test @abi(\"C\") public async func main<T, const N: Int>(pos value: Int = 1, mut tail: Bool,) -> Unit {}"
         );
 
         assert_eq!(directives.test_directives().count(), 1);
         assert_eq!(directives.abi_directives().count(), 1);
+
+        let abi_directive = match directives.abi_directives().next() {
+            Some(directive) => directive,
+            None => panic!("expected abi directive"),
+        };
+
+        assert_eq!(
+            abi_directive
+                .directive_argument_list()
+                .directive_arguments()
+                .count(),
+            1
+        );
 
         assert_eq!(
             modifiers.visibility_token().map(|token| token.kind()),
@@ -314,6 +321,9 @@ mod tests {
             Some(SyntaxKind::AsyncKeyword)
         );
 
+        assert_eq!(generic_parameter_list.full_text(), "<T, const N: Int>");
+        assert_eq!(generic_parameter_list.generic_type_parameters().count(), 1);
+        assert_eq!(generic_parameter_list.generic_const_parameters().count(), 1);
         assert_eq!(parameter_list.separator_tokens().count(), 2);
 
         assert_eq!(
@@ -342,10 +352,7 @@ mod tests {
         assert!(declaration.callable_result_clause().is_some());
         assert!(declaration.callable_body_block_expression().is_some());
 
-        assert_eq!(
-            parse_diagnostic_kinds(&result),
-            [DiagnosticKind::SyntaxSkippedSyntax]
-        );
+        assert!(result.diagnostics().is_empty());
     }
 
     #[test]

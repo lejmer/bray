@@ -192,13 +192,12 @@ mod tests {
     use bray_source::{SourceSnapshot, TextRange, TextSize};
 
     use super::{ModuleDirectivesSyntax, ModuleDirectivesSyntaxBuilder};
-    use crate::test_support::{snapshot as test_snapshot, token};
+    use crate::test_support::{directive_argument, snapshot as test_snapshot, token};
     use crate::{
         DirectiveArgumentListSyntax, LinkDirectiveSyntax, SyntaxKind, SyntaxText, SyntaxTrivia,
         TargetDirectiveSyntax, TestDirectiveSyntax,
     };
 
-    // TODO(syntax): Update this when directive arguments are typed syntax.
     #[test]
     fn module_directives_preserve_mixed_directives_in_source_order() {
         let snapshot = test_snapshot(
@@ -219,8 +218,8 @@ mod tests {
         assert_eq!(directives.test_directives().count(), 1);
         assert_eq!(directives.target_directives().count(), 1);
         assert_eq!(directives.link_directives().count(), 1);
-        assert!(directives.is_recovered());
-        assert_eq!(directives.skipped_syntax().count(), 2);
+        assert!(!directives.is_recovered());
+        assert_eq!(directives.skipped_syntax().count(), 0);
     }
 
     impl ModuleDirectivesSyntaxBuilder {
@@ -261,8 +260,23 @@ mod tests {
 
         builder.push_directive_marker_token(token(SyntaxKind::AtToken, 6, 7));
         builder.push_name_token(token(SyntaxKind::IdentifierToken, 7, 13));
+        builder.push_directive_argument_list(target_argument_list(snapshot));
+
+        builder.build()
+    }
+
+    fn target_argument_list(snapshot: &SourceSnapshot) -> DirectiveArgumentListSyntax {
+        let mut builder = DirectiveArgumentListSyntax::builder(snapshot.clone(), TextSize::new(13));
+
         builder.push_open_paren_token(token(SyntaxKind::OpenParenToken, 13, 14));
-        builder.push_skipped_tokens([token(SyntaxKind::IdentifierToken, 14, 15)]);
+
+        builder.push_directive_argument(directive_argument(
+            snapshot.clone(),
+            SyntaxKind::IdentifierToken,
+            14,
+            15,
+        ));
+
         builder.push_close_paren_token(
             token(SyntaxKind::CloseParenToken, 15, 16).with_trailing_trivia([
                 SyntaxTrivia::whitespace(TextRange::new(TextSize::new(16), TextSize::new(17))),
@@ -286,7 +300,14 @@ mod tests {
         let mut builder = DirectiveArgumentListSyntax::builder(snapshot.clone(), TextSize::new(22));
 
         builder.push_open_paren_token(token(SyntaxKind::OpenParenToken, 22, 23));
-        builder.push_skipped_tokens([token(SyntaxKind::StringLiteralToken, 23, 26)]);
+
+        builder.push_directive_argument(directive_argument(
+            snapshot.clone(),
+            SyntaxKind::StringLiteralToken,
+            23,
+            26,
+        ));
+
         builder.push_close_paren_token(token(SyntaxKind::CloseParenToken, 26, 27));
 
         builder.build()

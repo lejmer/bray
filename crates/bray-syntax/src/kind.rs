@@ -29,6 +29,8 @@ pub enum SyntaxKind {
     EntrypointDirective,
     /// Parenthesized directive arguments.
     DirectiveArgumentList,
+    /// Single directive argument.
+    DirectiveArgument,
     /// Optional module modifiers in source order.
     ModuleModifiers,
     /// Braced module declaration body.
@@ -47,6 +49,20 @@ pub enum SyntaxKind {
     FunctionDirectives,
     /// Optional function modifiers in source order.
     FunctionModifiers,
+    /// Generic parameter list including delimiters.
+    GenericParameterList,
+    /// Generic type parameter.
+    GenericTypeParameter,
+    /// Generic const parameter.
+    GenericConstParameter,
+    /// Generic argument list including delimiters.
+    GenericArgumentList,
+    /// Generic argument item.
+    GenericArgument,
+    /// Type-form argument list including delimiters.
+    TypeFormArgumentList,
+    /// Type-form argument item.
+    TypeFormArgument,
     /// Module-level predicate declaration.
     PredicateDeclaration,
     /// Optional predicate modifiers in source order.
@@ -336,6 +352,7 @@ impl SyntaxKind {
                 | Self::SymbolDirective
                 | Self::EntrypointDirective
                 | Self::DirectiveArgumentList
+                | Self::DirectiveArgument
                 | Self::ModuleModifiers
                 | Self::ModuleBody
                 | Self::UsingDeclaration
@@ -345,6 +362,13 @@ impl SyntaxKind {
                 | Self::FunctionDeclaration
                 | Self::FunctionDirectives
                 | Self::FunctionModifiers
+                | Self::GenericParameterList
+                | Self::GenericTypeParameter
+                | Self::GenericConstParameter
+                | Self::GenericArgumentList
+                | Self::GenericArgument
+                | Self::TypeFormArgumentList
+                | Self::TypeFormArgument
                 | Self::PredicateDeclaration
                 | Self::PredicateModifiers
                 | Self::PredicateParameterList
@@ -545,6 +569,7 @@ impl SyntaxKind {
             Self::SymbolDirective => "symbol_directive",
             Self::EntrypointDirective => "entrypoint_directive",
             Self::DirectiveArgumentList => "directive_argument_list",
+            Self::DirectiveArgument => "directive_argument",
             Self::ModuleModifiers => "module_modifiers",
             Self::ModuleBody => "module_body",
             Self::UsingDeclaration => "using_declaration",
@@ -554,6 +579,13 @@ impl SyntaxKind {
             Self::FunctionDeclaration => "function_declaration",
             Self::FunctionDirectives => "function_directives",
             Self::FunctionModifiers => "function_modifiers",
+            Self::GenericParameterList => "generic_parameter_list",
+            Self::GenericTypeParameter => "generic_type_parameter",
+            Self::GenericConstParameter => "generic_const_parameter",
+            Self::GenericArgumentList => "generic_argument_list",
+            Self::GenericArgument => "generic_argument",
+            Self::TypeFormArgumentList => "type_form_argument_list",
+            Self::TypeFormArgument => "type_form_argument",
             Self::PredicateDeclaration => "predicate_declaration",
             Self::PredicateModifiers => "predicate_modifiers",
             Self::PredicateParameterList => "predicate_parameter_list",
@@ -780,6 +812,7 @@ mod tests {
         assert!(SyntaxKind::SymbolDirective.is_node());
         assert!(SyntaxKind::EntrypointDirective.is_node());
         assert!(SyntaxKind::DirectiveArgumentList.is_node());
+        assert!(SyntaxKind::DirectiveArgument.is_node());
 
         assert!(SyntaxKind::ModuleModifiers.is_node());
         assert!(SyntaxKind::ModuleBody.is_node());
@@ -792,6 +825,15 @@ mod tests {
         assert!(SyntaxKind::FunctionDeclaration.is_node());
         assert!(SyntaxKind::FunctionDirectives.is_node());
         assert!(SyntaxKind::FunctionModifiers.is_node());
+
+        assert!(SyntaxKind::GenericParameterList.is_node());
+        assert!(SyntaxKind::GenericTypeParameter.is_node());
+        assert!(SyntaxKind::GenericConstParameter.is_node());
+        assert!(SyntaxKind::GenericArgumentList.is_node());
+        assert!(SyntaxKind::GenericArgument.is_node());
+
+        assert!(SyntaxKind::TypeFormArgumentList.is_node());
+        assert!(SyntaxKind::TypeFormArgument.is_node());
 
         assert!(SyntaxKind::PredicateDeclaration.is_node());
         assert!(SyntaxKind::PredicateModifiers.is_node());
@@ -929,6 +971,7 @@ mod tests {
             SyntaxKind::DirectiveArgumentList.as_str(),
             "directive_argument_list"
         );
+        assert_eq!(SyntaxKind::DirectiveArgument.as_str(), "directive_argument");
 
         assert_eq!(SyntaxKind::ModuleModifiers.as_str(), "module_modifiers");
         assert_eq!(SyntaxKind::ModuleBody.as_str(), "module_body");
@@ -953,6 +996,35 @@ mod tests {
         );
 
         assert_eq!(SyntaxKind::FunctionModifiers.as_str(), "function_modifiers");
+
+        assert_eq!(
+            SyntaxKind::GenericParameterList.as_str(),
+            "generic_parameter_list"
+        );
+
+        assert_eq!(
+            SyntaxKind::GenericTypeParameter.as_str(),
+            "generic_type_parameter"
+        );
+
+        assert_eq!(
+            SyntaxKind::GenericConstParameter.as_str(),
+            "generic_const_parameter"
+        );
+
+        assert_eq!(
+            SyntaxKind::GenericArgumentList.as_str(),
+            "generic_argument_list"
+        );
+
+        assert_eq!(SyntaxKind::GenericArgument.as_str(), "generic_argument");
+
+        assert_eq!(
+            SyntaxKind::TypeFormArgumentList.as_str(),
+            "type_form_argument_list"
+        );
+
+        assert_eq!(SyntaxKind::TypeFormArgument.as_str(), "type_form_argument");
 
         assert_eq!(
             SyntaxKind::PredicateDeclaration.as_str(),

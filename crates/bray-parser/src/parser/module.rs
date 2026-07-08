@@ -871,7 +871,6 @@ mod tests {
         assert!(result.diagnostics().is_empty());
     }
 
-    // TODO(parser): Update this when directive arguments are parsed.
     #[test]
     fn parser_parses_target_and_link_module_directives() {
         let sources = source_store(["@target(host) @link(\"m\") module main;"]);
@@ -903,18 +902,23 @@ mod tests {
 
         assert_eq!(directives.full_text(), "@target(host) @link(\"m\") ");
         assert_eq!(target.full_text(), "@target(host) ");
-        assert_eq!(target.skipped_syntax().count(), 1);
-        assert_eq!(link.full_text(), "@link(\"m\") ");
-
-        assert_eq!(link.directive_argument_list().skipped_syntax().count(), 1);
 
         assert_eq!(
-            parse_diagnostic_kinds(&result),
-            [
-                DiagnosticKind::SyntaxSkippedSyntax,
-                DiagnosticKind::SyntaxSkippedSyntax
-            ]
+            target
+                .directive_argument_list()
+                .directive_arguments()
+                .count(),
+            1
         );
+
+        assert_eq!(link.full_text(), "@link(\"m\") ");
+
+        assert_eq!(
+            link.directive_argument_list().directive_arguments().count(),
+            1
+        );
+
+        assert!(result.diagnostics().is_empty());
     }
 
     #[test]

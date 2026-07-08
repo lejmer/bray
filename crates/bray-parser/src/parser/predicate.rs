@@ -17,14 +17,6 @@ const PREDICATE_DECLARATION_START_KINDS: [SyntaxKind; 4] = [
     SyntaxKind::PredicateKeyword,
 ];
 
-const PREDICATE_AFTER_NAME_BOUNDARY_KINDS: [SyntaxKind; 5] = [
-    SyntaxKind::OpenParenToken,
-    SyntaxKind::EqualsToken,
-    SyntaxKind::SemicolonToken,
-    SyntaxKind::CloseBraceToken,
-    SyntaxKind::EndOfFileToken,
-];
-
 const PREDICATE_PARAMETER_LIST_TERMINATORS: [SyntaxKind; 5] = [
     SyntaxKind::CloseParenToken,
     SyntaxKind::EqualsToken,
@@ -60,11 +52,7 @@ impl Parser {
         builder.push_identifier_token(self.parse_identifier());
 
         if self.at(SyntaxKind::LessToken) {
-            // TODO(parser): Parse predicate generic parameter lists once generic syntax is implemented.
-            self.recover_current_and_until_predicate(
-                &mut builder,
-                Parser::at_predicate_after_name_boundary,
-            );
+            builder.push_generic_parameter_list(self.parse_generic_parameter_list());
         }
 
         builder.push_predicate_parameter_list(self.parse_predicate_parameter_list());
@@ -166,12 +154,6 @@ impl Parser {
 
         self.recover_until_predicate_declaration_end(builder);
         builder.push_semicolon_token(self.expect(SyntaxKind::SemicolonToken));
-    }
-
-    fn at_predicate_after_name_boundary(&mut self) -> bool {
-        self.at_any(&PREDICATE_AFTER_NAME_BOUNDARY_KINDS)
-            || self.at_any(&MODULE_ITEM_START_KINDS)
-            || self.at_any(&MEMBER_KEYWORD_RECOVERY_KINDS)
     }
 
     fn at_predicate_parameter_type_boundary(&mut self) -> bool {
@@ -284,7 +266,7 @@ mod tests {
 
     #[test]
     fn parser_parses_predicate_declarations_after_source_unit_modules() {
-        let source = "module main; public trusted predicate positive(value: Int) = value > 0;";
+        let source = "module main; public trusted predicate positive<T, const N: Int>(value: T) = value > 0;";
         let sources = source_store([source]);
         let result = parse_compilation_unit(&sources);
 
@@ -308,7 +290,7 @@ mod tests {
 
         assert_eq!(
             declaration.full_text(),
-            "public trusted predicate positive(value: Int) = value > 0;"
+            "public trusted predicate positive<T, const N: Int>(value: T) = value > 0;"
         );
 
         assert_eq!(
@@ -327,12 +309,21 @@ mod tests {
             Some(SyntaxKind::TrustedKeyword)
         );
 
+        let generic_parameter_list = match declaration.generic_parameter_list() {
+            Some(list) => list,
+            None => panic!("expected generic parameter list"),
+        };
+
+        assert_eq!(generic_parameter_list.full_text(), "<T, const N: Int>");
+        assert_eq!(generic_parameter_list.generic_type_parameters().count(), 1);
+        assert_eq!(generic_parameter_list.generic_const_parameters().count(), 1);
+
         assert_eq!(
             parameter.identifier_token().kind(),
             SyntaxKind::IdentifierToken
         );
 
-        assert_eq!(parameter.type_expression().full_text(), "Int");
+        assert_eq!(parameter.type_expression().full_text(), "T");
         assert_eq!(parameter.skipped_syntax().count(), 0);
         assert!(declaration.equals_token().is_some());
 

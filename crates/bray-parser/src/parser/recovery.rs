@@ -5,27 +5,29 @@ use bray_syntax::{
     DestructorMemberDeclarationSyntaxBuilder, DirectiveArgumentListSyntaxBuilder,
     ExportDeclarationSyntaxBuilder, ExpressionSyntaxBuilder,
     FinalizerMemberDeclarationSyntaxBuilder, FunctionDeclarationSyntaxBuilder,
-    FunctionDirectivesSyntaxBuilder, IdentifierListSyntaxBuilder, ImplementationBodySyntaxBuilder,
-    ImplementationOverloadDeclarationSyntaxBuilder, ImplementationOverloadSubjectSyntaxBuilder,
-    ImplementationSubjectSyntaxBuilder, ImplementationTypeMemberBindingSyntaxBuilder,
-    InherentImplementationDeclarationSyntaxBuilder, ModuleBodySyntaxBuilder,
-    ModuleDirectivesSyntaxBuilder, NamedTraitImplementationDeclarationSyntaxBuilder,
-    OverloadArmListSyntaxBuilder, ParameterListSyntaxBuilder, ParameterSyntaxBuilder,
-    PredicateDeclarationSyntaxBuilder, PredicateParameterListSyntaxBuilder,
-    PredicateParameterSyntaxBuilder, PrimaryExpressionSyntaxBuilder,
-    ScopeEnterMemberDeclarationSyntaxBuilder, ScopeExitMemberDeclarationSyntaxBuilder,
-    SourceUnitModuleDeclarationSyntaxBuilder, SourceUnitSyntaxBuilder, StructBodySyntaxBuilder,
-    StructDeclarationSyntaxBuilder, StructFieldDeclarationSyntaxBuilder, SyntaxKind, SyntaxToken,
-    TargetDirectiveSyntaxBuilder, TraitApplicationSyntaxBuilder, TraitBodySyntaxBuilder,
-    TraitCallableMemberDeclarationSyntaxBuilder, TraitConstantMemberDeclarationSyntaxBuilder,
-    TraitDeclarationSyntaxBuilder, TraitDestructorRequirementDeclarationSyntaxBuilder,
+    FunctionDirectivesSyntaxBuilder, GenericArgumentListSyntaxBuilder,
+    GenericParameterListSyntaxBuilder, IdentifierListSyntaxBuilder,
+    ImplementationBodySyntaxBuilder, ImplementationOverloadDeclarationSyntaxBuilder,
+    ImplementationOverloadSubjectSyntaxBuilder, ImplementationSubjectSyntaxBuilder,
+    ImplementationTypeMemberBindingSyntaxBuilder, InherentImplementationDeclarationSyntaxBuilder,
+    ModuleBodySyntaxBuilder, ModuleDirectivesSyntaxBuilder,
+    NamedTraitImplementationDeclarationSyntaxBuilder, OverloadArmListSyntaxBuilder,
+    ParameterListSyntaxBuilder, ParameterSyntaxBuilder, PredicateDeclarationSyntaxBuilder,
+    PredicateParameterListSyntaxBuilder, PredicateParameterSyntaxBuilder,
+    PrimaryExpressionSyntaxBuilder, ScopeEnterMemberDeclarationSyntaxBuilder,
+    ScopeExitMemberDeclarationSyntaxBuilder, SourceUnitModuleDeclarationSyntaxBuilder,
+    SourceUnitSyntaxBuilder, StructBodySyntaxBuilder, StructDeclarationSyntaxBuilder,
+    StructFieldDeclarationSyntaxBuilder, SyntaxKind, SyntaxToken, TraitApplicationSyntaxBuilder,
+    TraitBodySyntaxBuilder, TraitCallableMemberDeclarationSyntaxBuilder,
+    TraitConstantMemberDeclarationSyntaxBuilder, TraitDeclarationSyntaxBuilder,
+    TraitDestructorRequirementDeclarationSyntaxBuilder,
     TraitFinalizerRequirementDeclarationSyntaxBuilder,
     TraitPredicateMemberDeclarationSyntaxBuilder,
     TraitScopeEnterRequirementDeclarationSyntaxBuilder,
     TraitScopeExitRequirementDeclarationSyntaxBuilder, TraitTypeMemberDeclarationSyntaxBuilder,
     TypeCallableMemberDeclarationSyntaxBuilder, TypeConstructorMemberDeclarationSyntaxBuilder,
-    TypeDirectivesSyntaxBuilder, TypeExpressionSyntaxBuilder, UnionBodySyntaxBuilder,
-    UnionDeclarationSyntaxBuilder, UnionPayloadFieldSyntaxBuilder,
+    TypeDirectivesSyntaxBuilder, TypeExpressionSyntaxBuilder, TypeFormArgumentListSyntaxBuilder,
+    UnionBodySyntaxBuilder, UnionDeclarationSyntaxBuilder, UnionPayloadFieldSyntaxBuilder,
     UnionVariantDeclarationSyntaxBuilder, UnionVariantPayloadSyntaxBuilder,
     UnnamedTraitImplementationDeclarationSyntaxBuilder, UsingDeclarationSyntaxBuilder,
     VariantDirectivesSyntaxBuilder,
@@ -158,16 +160,6 @@ impl Parser {
         skipped_any
     }
 
-    pub(super) fn recover_until_balanced_close_paren(
-        &mut self,
-        builder: &mut impl RecoverySyntaxSink,
-        stop_kinds: &[SyntaxKind],
-    ) {
-        let skipped_tokens = self.skip_until_balanced_close_paren(RecoverySet::new(stop_kinds));
-
-        builder.push_skipped_tokens(skipped_tokens);
-    }
-
     pub(super) fn parse_skipped_braced_body_tokens(
         &mut self,
         builder: &mut impl BracedBodySyntaxSink,
@@ -261,6 +253,24 @@ impl RecoverySyntaxSink for FunctionDirectivesSyntaxBuilder {
 impl RecoverySyntaxSink for FunctionDeclarationSyntaxBuilder {
     fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
         FunctionDeclarationSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for GenericParameterListSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        GenericParameterListSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for GenericArgumentListSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        GenericArgumentListSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for TypeFormArgumentListSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        TypeFormArgumentListSyntaxBuilder::push_skipped_tokens(self, tokens);
     }
 }
 
@@ -549,12 +559,6 @@ impl RecoverySyntaxSink for ExpressionSyntaxBuilder {
 impl RecoverySyntaxSink for PrimaryExpressionSyntaxBuilder {
     fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
         PrimaryExpressionSyntaxBuilder::push_skipped_tokens(self, tokens);
-    }
-}
-
-impl RecoverySyntaxSink for TargetDirectiveSyntaxBuilder {
-    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
-        TargetDirectiveSyntaxBuilder::push_skipped_tokens(self, tokens);
     }
 }
 

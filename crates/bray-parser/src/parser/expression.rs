@@ -7,6 +7,52 @@ use super::state::Parser;
 
 const PREFIX_RIGHT_BINDING_POWER: u8 = 20;
 
+pub(super) const EXPRESSION_START_KINDS: [SyntaxKind; 43] = [
+    SyntaxKind::AllKeyword,
+    SyntaxKind::AmpersandToken,
+    SyntaxKind::AnyKeyword,
+    SyntaxKind::AssertKeyword,
+    SyntaxKind::AsyncKeyword,
+    SyntaxKind::AwaitKeyword,
+    SyntaxKind::BangToken,
+    SyntaxKind::BinaryIntegerLiteralToken,
+    SyntaxKind::BreakKeyword,
+    SyntaxKind::CatchKeyword,
+    SyntaxKind::CharacterLiteralToken,
+    SyntaxKind::ContinueKeyword,
+    SyntaxKind::DecimalIntegerLiteralToken,
+    SyntaxKind::DotToken,
+    SyntaxKind::FalseKeyword,
+    SyntaxKind::ForKeyword,
+    SyntaxKind::HexadecimalIntegerLiteralToken,
+    SyntaxKind::IdentifierToken,
+    SyntaxKind::IfKeyword,
+    SyntaxKind::ImaginaryLiteralToken,
+    SyntaxKind::LambdaKeyword,
+    SyntaxKind::LoopKeyword,
+    SyntaxKind::MatchKeyword,
+    SyntaxKind::MinusToken,
+    SyntaxKind::NoneKeyword,
+    SyntaxKind::OpenBraceToken,
+    SyntaxKind::OpenBracketToken,
+    SyntaxKind::OpenParenToken,
+    SyntaxKind::PanicKeyword,
+    SyntaxKind::RealLiteralToken,
+    SyntaxKind::ReturnKeyword,
+    SyntaxKind::SelfValueKeyword,
+    SyntaxKind::SpawnKeyword,
+    SyntaxKind::StringLiteralToken,
+    SyntaxKind::TildeToken,
+    SyntaxKind::TrueKeyword,
+    SyntaxKind::TrustedKeyword,
+    SyntaxKind::TryKeyword,
+    SyntaxKind::TupleElementIndexToken,
+    SyntaxKind::UnitKeyword,
+    SyntaxKind::WhileKeyword,
+    SyntaxKind::WithKeyword,
+    SyntaxKind::YieldKeyword,
+];
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum OperatorAssociativity {
     Left,
@@ -272,9 +318,9 @@ impl Parser {
         let mut skipped_tokens = Vec::new();
         let mut depth = 0usize;
 
-        while !self.at(SyntaxKind::EndOfFileToken)
-            && !at_boundary(self)
-            && !(depth == 0 && self.at(close_kind))
+        while !(self.at(SyntaxKind::EndOfFileToken)
+            || at_boundary(self)
+            || depth == 0 && self.at(close_kind))
         {
             let token = self.consume();
 
@@ -401,39 +447,11 @@ fn at_unary_operator(kind: SyntaxKind) -> bool {
 }
 
 fn at_simple_primary_expression_start(kind: SyntaxKind) -> bool {
-    kind.is_literal()
-        || matches!(
+    EXPRESSION_START_KINDS.contains(&kind)
+        && !at_unary_operator(kind)
+        && !matches!(
             kind,
-            SyntaxKind::IdentifierToken
-                | SyntaxKind::TupleElementIndexToken
-                | SyntaxKind::TrueKeyword
-                | SyntaxKind::FalseKeyword
-                | SyntaxKind::UnitKeyword
-                | SyntaxKind::NoneKeyword
-                | SyntaxKind::SelfValueKeyword
-                | SyntaxKind::DotToken
-                | SyntaxKind::AmpersandToken
-                | SyntaxKind::TrustedKeyword
-                | SyntaxKind::AssertKeyword
-                | SyntaxKind::TryKeyword
-                | SyntaxKind::CatchKeyword
-                | SyntaxKind::AwaitKeyword
-                | SyntaxKind::WithKeyword
-                | SyntaxKind::AsyncKeyword
-                | SyntaxKind::SpawnKeyword
-                | SyntaxKind::AllKeyword
-                | SyntaxKind::AnyKeyword
-                | SyntaxKind::YieldKeyword
-                | SyntaxKind::ReturnKeyword
-                | SyntaxKind::PanicKeyword
-                | SyntaxKind::BreakKeyword
-                | SyntaxKind::ContinueKeyword
-                | SyntaxKind::IfKeyword
-                | SyntaxKind::MatchKeyword
-                | SyntaxKind::WhileKeyword
-                | SyntaxKind::ForKeyword
-                | SyntaxKind::LoopKeyword
-                | SyntaxKind::LambdaKeyword
+            SyntaxKind::OpenParenToken | SyntaxKind::OpenBracketToken | SyntaxKind::OpenBraceToken
         )
 }
 

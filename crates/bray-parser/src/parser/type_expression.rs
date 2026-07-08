@@ -1,20 +1,6 @@
-use bray_syntax::{
-    PathSyntax, SyntaxKind, SyntaxToken, TypeExpressionSyntax, TypeExpressionSyntaxBuilder,
-};
+use bray_syntax::{PathSyntax, SyntaxKind, SyntaxToken, TypeExpressionSyntax};
 
 use super::state::Parser;
-
-const TYPE_ARGUMENT_HARD_BOUNDARY_KINDS: [SyntaxKind; 9] = [
-    SyntaxKind::CloseParenToken,
-    SyntaxKind::CloseBracketToken,
-    SyntaxKind::ArrowToken,
-    SyntaxKind::EqualsToken,
-    SyntaxKind::SemicolonToken,
-    SyntaxKind::OpenBraceToken,
-    SyntaxKind::CloseBraceToken,
-    SyntaxKind::EndOfFileToken,
-    SyntaxKind::FuncKeyword,
-];
 
 const ARRAY_SIZE_BOUNDARY_KINDS: [SyntaxKind; 2] =
     [SyntaxKind::CloseBracketToken, SyntaxKind::EndOfFileToken];
@@ -77,9 +63,8 @@ impl Parser {
 
         builder.push_box_keyword(self.expect(SyntaxKind::BoxKeyword));
 
-        if self.at(SyntaxKind::LessToken) {
-            // TODO(parser): Parse type form argument lists once generic syntax is implemented.
-            self.recover_type_argument_list(&mut builder);
+        if self.at(SyntaxKind::OpenBracketToken) {
+            builder.push_type_form_argument_list(self.parse_type_form_argument_list());
         }
 
         builder.push_type_expression(self.parse_type_expression_until(at_boundary));
@@ -122,12 +107,11 @@ impl Parser {
                 break;
             }
 
-            // TODO(parser): Parse generic argument lists once generic syntax is implemented.
             let start = expression.full_range().start();
             let mut builder = TypeExpressionSyntax::builder(self.syntax_source(), start);
 
             builder.push_type_expression(expression);
-            self.recover_type_argument_list(&mut builder);
+            builder.push_generic_argument_list(self.parse_generic_argument_list());
 
             expression = builder.build();
         }
@@ -241,28 +225,6 @@ impl Parser {
         builder.build()
     }
 
-    fn recover_type_argument_list(&mut self, builder: &mut TypeExpressionSyntaxBuilder) {
-        let mut skipped_tokens = Vec::new();
-
-        if !self.at(SyntaxKind::EndOfFileToken) {
-            skipped_tokens.push(self.consume());
-        }
-
-        while !self.at(SyntaxKind::EndOfFileToken)
-            && !self.at(SyntaxKind::GreaterToken)
-            && !self.at_any(&TYPE_ARGUMENT_HARD_BOUNDARY_KINDS)
-        {
-            skipped_tokens.push(self.consume());
-        }
-
-        if self.at(SyntaxKind::GreaterToken) {
-            skipped_tokens.push(self.consume());
-        }
-
-        self.record_skipped_syntax_for_tokens(&skipped_tokens);
-        builder.push_skipped_tokens(skipped_tokens);
-    }
-
     fn at_type_tuple_boundary(&mut self, at_boundary: &mut dyn FnMut(&mut Parser) -> bool) -> bool {
         self.at(SyntaxKind::CommaToken) || self.at(SyntaxKind::CloseParenToken) || at_boundary(self)
     }
@@ -345,8 +307,8 @@ mod tests {
     }
 
     #[test]
-    fn parser_skips_generic_arguments_inside_type_expressions_for_now() {
-        let sources = source_store(["Vec<T>"]);
+    fn parser_parses_generic_arguments_inside_type_expressions() {
+        let sources = source_store(["Vec<Map<T>, 1 + 2>"]);
         let snapshot = source(&sources, 0);
 
         let mut parser = Parser::new(snapshot);
@@ -354,19 +316,56 @@ mod tests {
 
         let expression = parser.parse_type_expression_until(&mut boundary);
         let diagnostics = parser.finish();
-        let skipped_syntax = expression.skipped_syntax().collect::<Vec<_>>();
+        let generic_argument_lists = expression.generic_argument_lists().collect::<Vec<_>>();
 
-        let [generic_arguments] = skipped_syntax.as_slice() else {
-            panic!("expected skipped generic arguments: {skipped_syntax:?}");
+        let [generic_arguments] = generic_argument_lists.as_slice() else {
+            panic!("expected generic argument list: {generic_argument_lists:?}");
         };
 
-        assert_eq!(expression.full_text(), "Vec<T>");
-        assert_eq!(generic_arguments.full_text(), "<T>");
+        let arguments = generic_arguments.generic_arguments().collect::<Vec<_>>();
 
-        assert_eq!(
-            diagnostic_kinds(&diagnostics),
-            [DiagnosticKind::SyntaxSkippedSyntax]
-        );
+        let [type_argument, constant_argument] = arguments.as_slice() else {
+            panic!("expected two generic arguments: {arguments:?}");
+        };
+
+        assert_eq!(expression.full_text(), "Vec<Map<T>, 1 + 2>");
+        assert_eq!(generic_arguments.full_text(), "<Map<T>, 1 + 2>");
+        assert_eq!(generic_arguments.separator_tokens().count(), 1);
+        assert_eq!(type_argument.type_expressions().count(), 1);
+        assert_eq!(constant_argument.expressions().count(), 1);
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn parser_parses_type_form_arguments_inside_type_expressions() {
+        let sources = source_store(["box[Heap, 1] Point"]);
+        let snapshot = source(&sources, 0);
+
+        let mut parser = Parser::new(snapshot);
+        let mut boundary = |parser: &mut Parser| parser.at(SyntaxKind::EndOfFileToken);
+
+        let expression = parser.parse_type_expression_until(&mut boundary);
+        let diagnostics = parser.finish();
+        let type_form_argument_lists = expression.type_form_argument_lists().collect::<Vec<_>>();
+
+        let [type_form_arguments] = type_form_argument_lists.as_slice() else {
+            panic!("expected type-form argument list: {type_form_argument_lists:?}");
+        };
+
+        let arguments = type_form_arguments
+            .type_form_arguments()
+            .collect::<Vec<_>>();
+
+        let [type_argument, constant_argument] = arguments.as_slice() else {
+            panic!("expected two type-form arguments: {arguments:?}");
+        };
+
+        assert_eq!(expression.full_text(), "box[Heap, 1] Point");
+        assert_eq!(type_form_arguments.full_text(), "[Heap, 1] ");
+        assert_eq!(type_form_arguments.separator_tokens().count(), 1);
+        assert_eq!(type_argument.type_expressions().count(), 1);
+        assert_eq!(constant_argument.expressions().count(), 1);
+        assert!(diagnostics.is_empty());
     }
 
     #[test]

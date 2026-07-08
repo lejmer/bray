@@ -161,21 +161,6 @@ impl ParserCursor {
         skipped_tokens.into_iter().next()
     }
 
-    /// Consumes tokens until an unmatched close parenthesis, recovery token, or EOF.
-    ///
-    /// The close parenthesis or recovery token at depth zero is left unconsumed
-    /// so the caller can use it for a named syntax slot or a higher-level
-    /// recovery boundary.
-    pub(crate) fn skip_until_balanced_close_paren(
-        &mut self,
-        recovery_set: RecoverySet<'_>,
-    ) -> Vec<SyntaxToken> {
-        let skipped_tokens = self.skip_until_balanced_close_paren_unreported(recovery_set);
-        self.record_skipped_syntax(&skipped_tokens);
-
-        skipped_tokens
-    }
-
     pub(crate) fn skip_until_balanced_close_paren_unreported(
         &mut self,
         recovery_set: RecoverySet<'_>,

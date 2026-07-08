@@ -5,10 +5,10 @@ use super::member::{
     TypeConstructorMemberDeclarationSyntax,
 };
 use super::path::PathSyntax;
-use crate::SyntaxKind;
 use crate::node::define_source_syntax_node;
 use crate::{
-    CallableOverloadDeclarationSyntax, ConstantDeclarationSyntax, PredicateDeclarationSyntax,
+    CallableOverloadDeclarationSyntax, ConstantDeclarationSyntax, GenericArgumentListSyntax,
+    PredicateDeclarationSyntax, SyntaxKind,
 };
 
 define_source_syntax_node! {
@@ -51,6 +51,16 @@ define_source_syntax_node! {
                 kind: SyntaxKind::Path;
             }
         ],
+        repeated_children: [
+            {
+                /// Returns generic argument lists in source order.
+                generic_argument_lists;
+                /// Appends a generic argument list child.
+                push_generic_argument_list;
+                ty: GenericArgumentListSyntax;
+                kind: SyntaxKind::GenericArgumentList;
+            }
+        ],
     }
 }
 
@@ -75,6 +85,16 @@ define_source_syntax_node! {
                 push_path;
                 ty: PathSyntax;
                 kind: SyntaxKind::Path;
+            }
+        ],
+        repeated_children: [
+            {
+                /// Returns generic argument lists in source order.
+                generic_argument_lists;
+                /// Appends a generic argument list child.
+                push_generic_argument_list;
+                ty: GenericArgumentListSyntax;
+                kind: SyntaxKind::GenericArgumentList;
             }
         ],
     }
@@ -394,14 +414,15 @@ mod tests {
     use bray_source::TextSize;
 
     use crate::test_support::{
-        identifier_path, implementation_body, implementation_subject,
+        identifier_path, identifier_type_expression, implementation_body, implementation_subject,
         implementation_type_member_binding, keyword, snapshot as test_snapshot, token,
         trait_application,
     };
     use crate::{
-        ImplementationBodySyntax, ImplementationSubjectSyntax,
-        InherentImplementationDeclarationSyntax, NamedTraitImplementationDeclarationSyntax,
-        SyntaxKind, SyntaxText, UnnamedTraitImplementationDeclarationSyntax,
+        GenericArgumentListSyntax, GenericArgumentSyntax, ImplementationBodySyntax,
+        ImplementationSubjectSyntax, InherentImplementationDeclarationSyntax,
+        NamedTraitImplementationDeclarationSyntax, SyntaxKind, SyntaxText,
+        UnnamedTraitImplementationDeclarationSyntax,
     };
 
     #[test]
@@ -515,26 +536,35 @@ mod tests {
         assert_eq!(binding.full_text(), "type Item = Element; ");
     }
 
-    // TODO(syntax): Update this when generic argument lists are typed syntax.
     #[test]
-    fn implementation_subjects_store_borrow_prefix_and_skipped_generics() {
+    fn implementation_subjects_store_borrow_prefix_and_generic_arguments() {
         let snapshot = test_snapshot("syntax-implementation-test", "&mut Vec<T>");
         let mut builder = ImplementationSubjectSyntax::builder(snapshot.clone(), TextSize::ZERO);
 
         builder.push_ampersand_token(token(SyntaxKind::AmpersandToken, 0, 1));
         builder.push_mut_token(keyword(SyntaxKind::MutKeyword, 1, 4, true));
         builder.push_path(identifier_path(snapshot.clone(), 5, 8));
-
-        builder.push_skipped_tokens([
-            token(SyntaxKind::LessToken, 8, 9),
-            token(SyntaxKind::IdentifierToken, 9, 10),
-            token(SyntaxKind::GreaterToken, 10, 11),
-        ]);
+        builder.push_generic_argument_list(generic_argument_list(snapshot));
 
         let subject = builder.build();
 
         assert_eq!(subject.full_text(), "&mut Vec<T>");
         assert_eq!(subject.path().full_text(), "Vec");
-        assert_eq!(subject.skipped_syntax().count(), 1);
+        assert_eq!(subject.generic_argument_lists().count(), 1);
+        assert_eq!(subject.skipped_syntax().count(), 0);
+    }
+
+    fn generic_argument_list(snapshot: bray_source::SourceSnapshot) -> GenericArgumentListSyntax {
+        let mut argument = GenericArgumentSyntax::builder(snapshot.clone(), TextSize::new(9));
+
+        argument.push_type_expression(identifier_type_expression(snapshot.clone(), 9, 10));
+
+        let mut list = GenericArgumentListSyntax::builder(snapshot, TextSize::new(8));
+
+        list.push_less_token(token(SyntaxKind::LessToken, 8, 9));
+        list.push_generic_argument(argument.build());
+        list.push_greater_token(token(SyntaxKind::GreaterToken, 10, 11));
+
+        list.build()
     }
 }

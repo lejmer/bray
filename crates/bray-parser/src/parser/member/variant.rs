@@ -74,7 +74,6 @@ impl Parser {
         builder.push_identifier_token(self.parse_identifier());
 
         if self.at(SyntaxKind::LessToken) {
-            // TODO(parser): Parse variant generic arguments once generic syntax is implemented.
             self.recover_current_and_until(&mut builder, &UNION_VARIANT_AFTER_NAME_BOUNDARY_KINDS);
         }
 
