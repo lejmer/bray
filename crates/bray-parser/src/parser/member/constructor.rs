@@ -11,12 +11,10 @@ const TYPE_CONSTRUCTOR_MEMBER_START_KINDS: [SyntaxKind; 3] = [
     SyntaxKind::TrustedKeyword,
 ];
 
-const CONSTRUCTOR_CONTRACT_BOUNDARY_KINDS: [SyntaxKind; 6] = [
-    SyntaxKind::RequiresKeyword,
-    SyntaxKind::EnsuresKeyword,
-    SyntaxKind::WithKeyword,
-    SyntaxKind::UsesKeyword,
+const CONSTRUCTOR_CONTRACT_TAIL_BOUNDARY_KINDS: [SyntaxKind; 4] = [
     SyntaxKind::OpenBraceToken,
+    SyntaxKind::SemicolonToken,
+    SyntaxKind::CloseBraceToken,
     SyntaxKind::EndOfFileToken,
 ];
 
@@ -81,7 +79,8 @@ impl Parser {
     }
 
     fn at_constructor_contract_boundary(&mut self) -> bool {
-        self.at_any(&CONSTRUCTOR_CONTRACT_BOUNDARY_KINDS)
+        self.at_callable_contract_clause_start()
+            || self.at_any(&CONSTRUCTOR_CONTRACT_TAIL_BOUNDARY_KINDS)
             || self.at_any(&MEMBER_KEYWORD_RECOVERY_KINDS)
     }
 
@@ -117,11 +116,12 @@ impl Parser {
 
 #[cfg(test)]
 mod tests {
+    use bray_diagnostics::DiagnosticKind;
     use bray_syntax::{SyntaxKind, SyntaxText};
     use bray_testing::test_source_store as source_store;
 
     use crate::parser::parse_compilation_unit;
-    use crate::test_support::source;
+    use crate::test_support::{parse_diagnostic_kinds, source};
 
     use super::super::super::state::Parser;
 
@@ -196,5 +196,51 @@ mod tests {
         let diagnostics = parser.finish();
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn parser_constructor_contract_recovery_preserves_following_members() {
+        let source =
+            "module main; struct Point { construct() -> Self requires(valid; const Id: Int = 1; }";
+
+        let sources = source_store([source]);
+        let result = parse_compilation_unit(&sources);
+
+        let source_unit = &result.syntax_tree().root().source_units()[0];
+        let declarations = source_unit.struct_declarations().collect::<Vec<_>>();
+
+        let [declaration] = declarations.as_slice() else {
+            panic!("expected one struct declaration: {declarations:?}");
+        };
+
+        let body = declaration.struct_body();
+
+        let constructors = body
+            .type_constructor_member_declarations()
+            .collect::<Vec<_>>();
+
+        let constants = body.constant_declarations().collect::<Vec<_>>();
+
+        let [constructor] = constructors.as_slice() else {
+            panic!("expected one constructor declaration: {constructors:?}");
+        };
+
+        let [constant] = constants.as_slice() else {
+            panic!("expected one constant declaration: {constants:?}");
+        };
+
+        assert_eq!(source_unit.full_text(), source);
+        assert_eq!(constructor.requires_clauses().count(), 1);
+        assert_eq!(constant.full_text(), "const Id: Int = 1; ");
+
+        assert_eq!(
+            parse_diagnostic_kinds(&result),
+            [
+                DiagnosticKind::SyntaxExpectedToken,
+                DiagnosticKind::SyntaxExpectedToken,
+                DiagnosticKind::SyntaxExpectedToken,
+                DiagnosticKind::SyntaxSkippedSyntax
+            ]
+        );
     }
 }

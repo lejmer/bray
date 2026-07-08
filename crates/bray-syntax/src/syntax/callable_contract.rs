@@ -1,5 +1,7 @@
 use crate::node::{child_nodes, define_source_syntax_node};
-use crate::{GenericParameterListSyntax, SyntaxKind, SyntaxToken, TypeExpressionSyntax};
+use crate::{
+    GenericParameterListSyntax, SyntaxKind, SyntaxToken, TypeExpressionSyntax, WithClauseSyntax,
+};
 
 define_source_syntax_node! {
     /// Optional callable contract modifiers in source order.
@@ -110,6 +112,14 @@ define_source_syntax_node! {
                 push_generic_parameter_list;
                 ty: GenericParameterListSyntax;
                 kind: SyntaxKind::GenericParameterList;
+            },
+            {
+                /// Returns `with(...)` clauses in source order.
+                with_clauses;
+                /// Appends a `with(...)` clause.
+                push_with_clause;
+                ty: WithClauseSyntax;
+                kind: SyntaxKind::WithClause;
             }
         ],
     }
@@ -139,7 +149,6 @@ mod tests {
         SyntaxTrivia, TypeExpressionSyntax,
     };
 
-    // TODO(syntax): Update this when callable contract generics and constraints are typed syntax.
     #[test]
     fn callable_contract_declarations_store_modifier_name_and_type_form() {
         let snapshot = test_snapshot(

@@ -6,7 +6,7 @@ use super::member::{
 };
 use super::predicate::TraitPredicateMemberDeclarationSyntax;
 use crate::node::{child_nodes, define_source_syntax_node};
-use crate::{GenericParameterListSyntax, SyntaxKind, SyntaxToken};
+use crate::{GenericParameterListSyntax, SyntaxKind, SyntaxToken, WithClauseSyntax};
 
 define_source_syntax_node! {
     /// Optional trait modifiers in source order.
@@ -201,6 +201,14 @@ define_source_syntax_node! {
                 push_generic_parameter_list;
                 ty: GenericParameterListSyntax;
                 kind: SyntaxKind::GenericParameterList;
+            },
+            {
+                /// Returns `with(...)` clauses in source order.
+                with_clauses;
+                /// Appends a `with(...)` clause.
+                push_with_clause;
+                ty: WithClauseSyntax;
+                kind: SyntaxKind::WithClause;
             }
         ],
     }

@@ -5,6 +5,7 @@ use bray_syntax::{
     UnionDeclarationSyntaxBuilder,
 };
 
+use super::contract::{BRACED_DECLARATION_CONSTRAINT_BOUNDARY_KINDS, WithClauseSyntaxSink};
 use super::directive::{COPY_DIRECTIVE_NAME, LAYOUT_DIRECTIVE_NAME};
 use super::module::MODULE_ITEM_START_KINDS;
 use super::recovery::RecoverySyntaxSink;
@@ -24,14 +25,6 @@ const TYPE_DIRECTIVE_ARGUMENT_RECOVERY_KINDS: [SyntaxKind; 5] = [
     SyntaxKind::InternalKeyword,
     SyntaxKind::StructKeyword,
     SyntaxKind::UnionKeyword,
-];
-
-const TYPE_CONSTRAINT_BOUNDARY_KINDS: [SyntaxKind; 5] = [
-    SyntaxKind::WithKeyword,
-    SyntaxKind::OpenBraceToken,
-    SyntaxKind::SemicolonToken,
-    SyntaxKind::CloseBraceToken,
-    SyntaxKind::EndOfFileToken,
 ];
 
 const TYPE_BODY_MISSING_BOUNDARY_KINDS: [SyntaxKind; 3] = [
@@ -117,14 +110,12 @@ impl Parser {
     }
 
     fn parse_type_constraints(&mut self, builder: &mut impl TypeDeclarationSyntaxSink) {
-        while self.at(SyntaxKind::WithKeyword) {
-            // TODO(parser): Parse type constraint clauses once constraint syntax is implemented.
-            self.recover_current_and_until_predicate(builder, Parser::at_type_constraint_boundary);
-        }
+        self.parse_with_clauses(builder, Parser::at_type_constraint_boundary);
     }
 
     fn at_type_constraint_boundary(&mut self) -> bool {
-        self.at_any(&TYPE_CONSTRAINT_BOUNDARY_KINDS) || self.at_any(&MODULE_ITEM_START_KINDS)
+        self.at_any(&BRACED_DECLARATION_CONSTRAINT_BOUNDARY_KINDS)
+            || self.at_any(&MODULE_ITEM_START_KINDS)
     }
 
     fn parse_struct_body(&mut self) -> StructBodySyntax {
@@ -207,7 +198,7 @@ impl Parser {
     }
 }
 
-trait TypeDeclarationSyntaxSink: RecoverySyntaxSink {
+trait TypeDeclarationSyntaxSink: RecoverySyntaxSink + WithClauseSyntaxSink {
     fn push_type_directives(&mut self, directives: TypeDirectivesSyntax);
 
     fn push_type_modifiers(&mut self, modifiers: TypeModifiersSyntax);
@@ -375,10 +366,9 @@ mod tests {
         assert!(result.diagnostics().is_empty());
     }
 
-    // TODO(parser): Update this when type constraints are parsed.
     #[test]
-    fn parser_parses_type_generics_and_skips_constraints_for_now() {
-        let source = "module main; struct Box<T> with(T: Copy) { value: T; }";
+    fn parser_parses_type_generics_and_constraints() {
+        let source = "module main; struct Box<T> with(copyable) { value: T; }";
         let sources = source_store([source]);
         let result = parse_compilation_unit(&sources);
 
@@ -389,16 +379,11 @@ mod tests {
             panic!("expected one struct declaration: {declarations:?}");
         };
 
-        let declaration_skipped = declaration.skipped_syntax().collect::<Vec<_>>();
         let body = declaration.struct_body();
         let fields = body.struct_field_declarations().collect::<Vec<_>>();
 
         let [field] = fields.as_slice() else {
             panic!("expected one struct field declaration: {fields:?}");
-        };
-
-        let [constraint] = declaration_skipped.as_slice() else {
-            panic!("expected constraint as skipped syntax: {declaration_skipped:?}");
         };
 
         assert_eq!(source_unit.full_text(), source);
@@ -410,16 +395,14 @@ mod tests {
 
         assert_eq!(generic_parameter_list.full_text(), "<T> ");
         assert_eq!(generic_parameter_list.generic_type_parameters().count(), 1);
-        assert_eq!(constraint.full_text(), "with(T: Copy) ");
+        assert_eq!(declaration.with_clauses().count(), 1);
+        assert_eq!(declaration.skipped_syntax().count(), 0);
         assert_eq!(field.type_expression().full_text(), "T");
         assert_eq!(field.full_text(), "value: T; ");
         assert_eq!(field.identifier_token().kind(), SyntaxKind::IdentifierToken);
         assert_eq!(declaration.struct_body().full_text(), "{ value: T; }");
 
-        assert_eq!(
-            parse_diagnostic_kinds(&result),
-            [DiagnosticKind::SyntaxSkippedSyntax]
-        );
+        assert!(result.diagnostics().is_empty());
     }
 
     #[test]

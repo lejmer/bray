@@ -67,13 +67,7 @@ impl Parser {
         &mut self,
         builder: &mut CallableContractDeclarationSyntaxBuilder,
     ) {
-        while self.at(SyntaxKind::WithKeyword) {
-            // TODO(parser): Parse callable contract constraints once constraint syntax is implemented.
-            self.recover_current_and_until_predicate(
-                builder,
-                Parser::at_callable_contract_constraint_boundary,
-            );
-        }
+        self.parse_with_clauses(builder, Parser::at_callable_contract_constraint_boundary);
     }
 
     fn at_callable_contract_constraint_boundary(&mut self) -> bool {
@@ -157,10 +151,9 @@ mod tests {
         assert!(result.diagnostics().is_empty());
     }
 
-    // TODO(parser): Update this when callable contract constraints are parsed.
     #[test]
-    fn parser_parses_callable_contract_generics_and_skips_constraints_for_now() {
-        let source = "module main; callable Mapper<T> with(T: Copy) = func(value: T) -> Bool;";
+    fn parser_parses_callable_contract_generics_and_constraints() {
+        let source = "module main; callable Mapper<T> with(copyable) = func(value: T) -> Bool;";
         let sources = source_store([source]);
         let result = parse_compilation_unit(&sources);
 
@@ -174,17 +167,11 @@ mod tests {
             panic!("expected one callable contract declaration: {declarations:?}");
         };
 
-        let skipped_syntax = declaration.skipped_syntax().collect::<Vec<_>>();
-
-        let [constraint] = skipped_syntax.as_slice() else {
-            panic!("expected constraint as skipped syntax: {skipped_syntax:?}");
-        };
-
         assert_eq!(source_unit.full_text(), source);
 
         assert_eq!(
             declaration.full_text(),
-            "callable Mapper<T> with(T: Copy) = func(value: T) -> Bool;"
+            "callable Mapper<T> with(copyable) = func(value: T) -> Bool;"
         );
 
         let generic_parameter_list = match declaration.generic_parameter_list() {
@@ -194,17 +181,15 @@ mod tests {
 
         assert_eq!(generic_parameter_list.full_text(), "<T> ");
         assert_eq!(generic_parameter_list.generic_type_parameters().count(), 1);
-        assert_eq!(constraint.full_text(), "with(T: Copy) ");
+        assert_eq!(declaration.with_clauses().count(), 1);
+        assert_eq!(declaration.skipped_syntax().count(), 0);
 
         assert_eq!(
             declaration.type_expression().full_text(),
             "func(value: T) -> Bool"
         );
 
-        assert_eq!(
-            parse_diagnostic_kinds(&result),
-            [DiagnosticKind::SyntaxSkippedSyntax]
-        );
+        assert!(result.diagnostics().is_empty());
     }
 
     #[test]

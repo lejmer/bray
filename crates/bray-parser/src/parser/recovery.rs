@@ -3,7 +3,7 @@ use bray_syntax::{
     CallableContractDeclarationSyntaxBuilder, CallableOverloadDeclarationSyntaxBuilder,
     CallableResultClauseSyntaxBuilder, ConstantDeclarationSyntaxBuilder,
     DestructorMemberDeclarationSyntaxBuilder, DirectiveArgumentListSyntaxBuilder,
-    ExportDeclarationSyntaxBuilder, ExpressionSyntaxBuilder,
+    EnsuresClauseSyntaxBuilder, ExportDeclarationSyntaxBuilder, ExpressionSyntaxBuilder,
     FinalizerMemberDeclarationSyntaxBuilder, FunctionDeclarationSyntaxBuilder,
     FunctionDirectivesSyntaxBuilder, GenericArgumentListSyntaxBuilder,
     GenericParameterListSyntaxBuilder, IdentifierListSyntaxBuilder,
@@ -14,13 +14,13 @@ use bray_syntax::{
     NamedTraitImplementationDeclarationSyntaxBuilder, OverloadArmListSyntaxBuilder,
     ParameterListSyntaxBuilder, ParameterSyntaxBuilder, PredicateDeclarationSyntaxBuilder,
     PredicateParameterListSyntaxBuilder, PredicateParameterSyntaxBuilder,
-    PrimaryExpressionSyntaxBuilder, ScopeEnterMemberDeclarationSyntaxBuilder,
-    ScopeExitMemberDeclarationSyntaxBuilder, SourceUnitModuleDeclarationSyntaxBuilder,
-    SourceUnitSyntaxBuilder, StructBodySyntaxBuilder, StructDeclarationSyntaxBuilder,
-    StructFieldDeclarationSyntaxBuilder, SyntaxKind, SyntaxToken, TraitApplicationSyntaxBuilder,
-    TraitBodySyntaxBuilder, TraitCallableMemberDeclarationSyntaxBuilder,
-    TraitConstantMemberDeclarationSyntaxBuilder, TraitDeclarationSyntaxBuilder,
-    TraitDestructorRequirementDeclarationSyntaxBuilder,
+    PrimaryExpressionSyntaxBuilder, RequiresClauseSyntaxBuilder,
+    ScopeEnterMemberDeclarationSyntaxBuilder, ScopeExitMemberDeclarationSyntaxBuilder,
+    SourceUnitModuleDeclarationSyntaxBuilder, SourceUnitSyntaxBuilder, StructBodySyntaxBuilder,
+    StructDeclarationSyntaxBuilder, StructFieldDeclarationSyntaxBuilder, SyntaxKind, SyntaxToken,
+    TraitApplicationSyntaxBuilder, TraitBodySyntaxBuilder,
+    TraitCallableMemberDeclarationSyntaxBuilder, TraitConstantMemberDeclarationSyntaxBuilder,
+    TraitDeclarationSyntaxBuilder, TraitDestructorRequirementDeclarationSyntaxBuilder,
     TraitFinalizerRequirementDeclarationSyntaxBuilder,
     TraitPredicateMemberDeclarationSyntaxBuilder,
     TraitScopeEnterRequirementDeclarationSyntaxBuilder,
@@ -29,8 +29,8 @@ use bray_syntax::{
     TypeDirectivesSyntaxBuilder, TypeExpressionSyntaxBuilder, TypeFormArgumentListSyntaxBuilder,
     UnionBodySyntaxBuilder, UnionDeclarationSyntaxBuilder, UnionPayloadFieldSyntaxBuilder,
     UnionVariantDeclarationSyntaxBuilder, UnionVariantPayloadSyntaxBuilder,
-    UnnamedTraitImplementationDeclarationSyntaxBuilder, UsingDeclarationSyntaxBuilder,
-    VariantDirectivesSyntaxBuilder,
+    UnnamedTraitImplementationDeclarationSyntaxBuilder, UsesClauseSyntaxBuilder,
+    UsingDeclarationSyntaxBuilder, VariantDirectivesSyntaxBuilder, WithClauseSyntaxBuilder,
 };
 
 use crate::cursor::RecoverySet;
@@ -535,6 +535,30 @@ impl RecoverySyntaxSink for ParameterSyntaxBuilder {
 impl RecoverySyntaxSink for CallableResultClauseSyntaxBuilder {
     fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
         CallableResultClauseSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for RequiresClauseSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        RequiresClauseSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for EnsuresClauseSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        EnsuresClauseSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for WithClauseSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        WithClauseSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for UsesClauseSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        UsesClauseSyntaxBuilder::push_skipped_tokens(self, tokens);
     }
 }
 

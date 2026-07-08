@@ -3,6 +3,7 @@ use bray_syntax::{
     TraitModifiersSyntax,
 };
 
+use super::contract::BRACED_DECLARATION_CONSTRAINT_BOUNDARY_KINDS;
 use super::module::MODULE_ITEM_START_KINDS;
 use super::state::Parser;
 
@@ -10,14 +11,6 @@ const TRAIT_DECLARATION_START_KINDS: [SyntaxKind; 3] = [
     SyntaxKind::PublicKeyword,
     SyntaxKind::InternalKeyword,
     SyntaxKind::TraitKeyword,
-];
-
-const TRAIT_CONSTRAINT_BOUNDARY_KINDS: [SyntaxKind; 5] = [
-    SyntaxKind::WithKeyword,
-    SyntaxKind::OpenBraceToken,
-    SyntaxKind::SemicolonToken,
-    SyntaxKind::CloseBraceToken,
-    SyntaxKind::EndOfFileToken,
 ];
 
 const TRAIT_BODY_MISSING_BOUNDARY_KINDS: [SyntaxKind; 3] = [
@@ -57,14 +50,12 @@ impl Parser {
     }
 
     fn parse_trait_constraints(&mut self, builder: &mut TraitDeclarationSyntaxBuilder) {
-        while self.at(SyntaxKind::WithKeyword) {
-            // TODO(parser): Parse trait constraint clauses once constraint syntax is implemented.
-            self.recover_current_and_until_predicate(builder, Parser::at_trait_constraint_boundary);
-        }
+        self.parse_with_clauses(builder, Parser::at_trait_constraint_boundary);
     }
 
     fn at_trait_constraint_boundary(&mut self) -> bool {
-        self.at_any(&TRAIT_CONSTRAINT_BOUNDARY_KINDS) || self.at_any(&MODULE_ITEM_START_KINDS)
+        self.at_any(&BRACED_DECLARATION_CONSTRAINT_BOUNDARY_KINDS)
+            || self.at_any(&MODULE_ITEM_START_KINDS)
     }
 
     fn parse_trait_body(&mut self) -> TraitBodySyntax {
@@ -173,10 +164,9 @@ mod tests {
         assert!(result.diagnostics().is_empty());
     }
 
-    // TODO(parser): Update this when trait constraints are parsed.
     #[test]
-    fn parser_parses_trait_generics_and_skips_constraints_for_now() {
-        let source = "module main; trait Iterable<T> with(T: Item) {}";
+    fn parser_parses_trait_generics_and_constraints() {
+        let source = "module main; trait Iterable<T> with(item) {}";
         let sources = source_store([source]);
         let result = parse_compilation_unit(&sources);
 
@@ -185,12 +175,6 @@ mod tests {
 
         let [declaration] = declarations.as_slice() else {
             panic!("expected one trait declaration: {declarations:?}");
-        };
-
-        let skipped_syntax = declaration.skipped_syntax().collect::<Vec<_>>();
-
-        let [constraint] = skipped_syntax.as_slice() else {
-            panic!("expected constraint as skipped syntax: {skipped_syntax:?}");
         };
 
         assert_eq!(source_unit.full_text(), source);
@@ -202,13 +186,11 @@ mod tests {
 
         assert_eq!(generic_parameter_list.full_text(), "<T> ");
         assert_eq!(generic_parameter_list.generic_type_parameters().count(), 1);
-        assert_eq!(constraint.full_text(), "with(T: Item) ");
+        assert_eq!(declaration.with_clauses().count(), 1);
+        assert_eq!(declaration.skipped_syntax().count(), 0);
         assert_eq!(declaration.trait_body().full_text(), "{}");
 
-        assert_eq!(
-            parse_diagnostic_kinds(&result),
-            [DiagnosticKind::SyntaxSkippedSyntax]
-        );
+        assert!(result.diagnostics().is_empty());
     }
 
     #[test]

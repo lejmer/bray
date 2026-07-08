@@ -89,8 +89,10 @@ impl Parser {
         }
 
         if self.at_callable_contract_clause_start() {
-            // TODO(parser): Parse callable contract clauses once clause syntax is implemented.
-            self.recover_current_and_until_predicate(&mut builder, |parser| at_boundary(parser));
+            self.parse_callable_contract_clauses(
+                &mut builder,
+                Parser::at_callable_type_contract_boundary,
+            );
         }
 
         builder.build()
@@ -245,11 +247,16 @@ impl Parser {
         self.at_callable_contract_clause_start() || at_boundary(self)
     }
 
-    fn at_callable_contract_clause_start(&mut self) -> bool {
-        self.at(SyntaxKind::RequiresKeyword)
-            || self.at(SyntaxKind::EnsuresKeyword)
-            || self.at(SyntaxKind::WithKeyword)
-            || self.at(SyntaxKind::UsesKeyword)
+    fn at_callable_type_contract_boundary(&mut self) -> bool {
+        matches!(
+            self.peek().kind(),
+            SyntaxKind::CloseBracketToken
+                | SyntaxKind::EqualsToken
+                | SyntaxKind::SemicolonToken
+                | SyntaxKind::OpenBraceToken
+                | SyntaxKind::CloseBraceToken
+                | SyntaxKind::EndOfFileToken
+        )
     }
 
     fn at_type_expression_boundary_kind(&self, kind: SyntaxKind) -> bool {
@@ -369,8 +376,8 @@ mod tests {
     }
 
     #[test]
-    fn parser_skips_callable_contract_clauses_inside_type_expressions_for_now() {
-        let sources = source_store(["func() requires(valid)"]);
+    fn parser_parses_callable_contract_clauses_inside_type_expressions() {
+        let sources = source_store(["func() requires(valid) uses(core.io)"]);
         let snapshot = source(&sources, 0);
 
         let mut parser = Parser::new(snapshot);
@@ -378,18 +385,40 @@ mod tests {
 
         let expression = parser.parse_type_expression_until(&mut boundary);
         let diagnostics = parser.finish();
-        let skipped_syntax = expression.skipped_syntax().collect::<Vec<_>>();
 
-        let [contract_clause] = skipped_syntax.as_slice() else {
-            panic!("expected skipped callable contract clause: {skipped_syntax:?}");
-        };
+        assert_eq!(
+            expression.full_text(),
+            "func() requires(valid) uses(core.io)"
+        );
+        assert_eq!(expression.requires_clauses().count(), 1);
+        assert_eq!(expression.uses_clauses().count(), 1);
+        assert_eq!(expression.skipped_syntax().count(), 0);
 
-        assert_eq!(expression.full_text(), "func() requires(valid)");
-        assert_eq!(contract_clause.full_text(), "requires(valid)");
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn parser_callable_type_contract_recovery_stops_before_following_clause() {
+        let sources = source_store(["func() requires(valid ensures(done)"]);
+        let snapshot = source(&sources, 0);
+
+        let mut parser = Parser::new(snapshot);
+        let mut boundary = |parser: &mut Parser| parser.at(SyntaxKind::EndOfFileToken);
+
+        let expression = parser.parse_type_expression_until(&mut boundary);
+        let diagnostics = parser.finish();
+
+        assert_eq!(
+            expression.full_text(),
+            "func() requires(valid ensures(done)"
+        );
+        assert_eq!(expression.requires_clauses().count(), 1);
+        assert_eq!(expression.ensures_clauses().count(), 1);
+        assert_eq!(expression.skipped_syntax().count(), 0);
 
         assert_eq!(
             diagnostic_kinds(&diagnostics),
-            [DiagnosticKind::SyntaxSkippedSyntax]
+            [DiagnosticKind::SyntaxExpectedToken]
         );
     }
 
