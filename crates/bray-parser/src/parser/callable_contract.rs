@@ -12,14 +12,6 @@ const CALLABLE_CONTRACT_DECLARATION_START_KINDS: [SyntaxKind; 3] = [
     SyntaxKind::CallableKeyword,
 ];
 
-const CALLABLE_CONTRACT_AFTER_NAME_BOUNDARY_KINDS: [SyntaxKind; 5] = [
-    SyntaxKind::WithKeyword,
-    SyntaxKind::EqualsToken,
-    SyntaxKind::SemicolonToken,
-    SyntaxKind::CloseBraceToken,
-    SyntaxKind::EndOfFileToken,
-];
-
 const CALLABLE_CONTRACT_CONSTRAINT_BOUNDARY_KINDS: [SyntaxKind; 5] = [
     SyntaxKind::WithKeyword,
     SyntaxKind::EqualsToken,
@@ -46,11 +38,7 @@ impl Parser {
         builder.push_identifier_token(self.parse_identifier());
 
         if self.at(SyntaxKind::LessToken) {
-            // TODO(parser): Parse callable contract generic parameter lists once generic syntax is implemented.
-            self.recover_current_and_until_predicate(
-                &mut builder,
-                Parser::at_callable_contract_after_name_boundary,
-            );
+            builder.push_generic_parameter_list(self.parse_generic_parameter_list());
         }
 
         self.parse_callable_contract_constraints(&mut builder);
@@ -86,11 +74,6 @@ impl Parser {
                 Parser::at_callable_contract_constraint_boundary,
             );
         }
-    }
-
-    fn at_callable_contract_after_name_boundary(&mut self) -> bool {
-        self.at_any(&CALLABLE_CONTRACT_AFTER_NAME_BOUNDARY_KINDS)
-            || self.at_any(&MODULE_ITEM_START_KINDS)
     }
 
     fn at_callable_contract_constraint_boundary(&mut self) -> bool {
@@ -174,9 +157,9 @@ mod tests {
         assert!(result.diagnostics().is_empty());
     }
 
-    // TODO(parser): Update this when callable contract generics and constraints are parsed.
+    // TODO(parser): Update this when callable contract constraints are parsed.
     #[test]
-    fn parser_skips_callable_contract_generics_and_constraints_for_now() {
+    fn parser_parses_callable_contract_generics_and_skips_constraints_for_now() {
         let source = "module main; callable Mapper<T> with(T: Copy) = func(value: T) -> Bool;";
         let sources = source_store([source]);
         let result = parse_compilation_unit(&sources);
@@ -193,10 +176,8 @@ mod tests {
 
         let skipped_syntax = declaration.skipped_syntax().collect::<Vec<_>>();
 
-        let [generics, constraint] = skipped_syntax.as_slice() else {
-            panic!(
-                "expected generic parameters and constraint as skipped syntax: {skipped_syntax:?}"
-            );
+        let [constraint] = skipped_syntax.as_slice() else {
+            panic!("expected constraint as skipped syntax: {skipped_syntax:?}");
         };
 
         assert_eq!(source_unit.full_text(), source);
@@ -206,7 +187,13 @@ mod tests {
             "callable Mapper<T> with(T: Copy) = func(value: T) -> Bool;"
         );
 
-        assert_eq!(generics.full_text(), "<T> ");
+        let generic_parameter_list = match declaration.generic_parameter_list() {
+            Some(list) => list,
+            None => panic!("expected generic parameter list"),
+        };
+
+        assert_eq!(generic_parameter_list.full_text(), "<T> ");
+        assert_eq!(generic_parameter_list.generic_type_parameters().count(), 1);
         assert_eq!(constraint.full_text(), "with(T: Copy) ");
 
         assert_eq!(
@@ -216,10 +203,7 @@ mod tests {
 
         assert_eq!(
             parse_diagnostic_kinds(&result),
-            [
-                DiagnosticKind::SyntaxSkippedSyntax,
-                DiagnosticKind::SyntaxSkippedSyntax
-            ]
+            [DiagnosticKind::SyntaxSkippedSyntax]
         );
     }
 

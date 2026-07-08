@@ -2,7 +2,7 @@ use super::super::callable::{
     CallableBodyBlockExpressionSyntax, CallableResultClauseSyntax, ParameterListSyntax,
 };
 use crate::node::{child_nodes, define_source_syntax_node};
-use crate::{SyntaxKind, SyntaxToken};
+use crate::{GenericParameterListSyntax, SyntaxKind, SyntaxToken};
 
 define_source_syntax_node! {
     /// Optional type callable member modifiers in source order.
@@ -140,6 +140,14 @@ define_source_syntax_node! {
         ],
         repeated_children: [
             {
+                /// Returns generic parameter lists in source order.
+                generic_parameter_lists;
+                /// Appends a generic parameter list child.
+                push_generic_parameter_list;
+                ty: GenericParameterListSyntax;
+                kind: SyntaxKind::GenericParameterList;
+            },
+            {
                 /// Returns callable result clauses in source order.
                 callable_result_clauses;
                 /// Appends a callable result clause child.
@@ -160,6 +168,18 @@ define_source_syntax_node! {
 }
 
 impl TypeCallableMemberDeclarationSyntax {
+    /// Returns the generic parameter list child when present.
+    pub fn generic_parameter_list(&self) -> Option<GenericParameterListSyntax> {
+        child_nodes(
+            &self.source,
+            &self.node,
+            self.start,
+            SyntaxKind::GenericParameterList,
+            GenericParameterListSyntax::from_green,
+        )
+        .next()
+    }
+
     /// Returns the callable result clause child when present.
     pub fn callable_result_clause(&self) -> Option<CallableResultClauseSyntax> {
         child_nodes(
@@ -310,6 +330,14 @@ define_source_syntax_node! {
         ],
         repeated_children: [
             {
+                /// Returns generic parameter lists in source order.
+                generic_parameter_lists;
+                /// Appends a generic parameter list child.
+                push_generic_parameter_list;
+                ty: GenericParameterListSyntax;
+                kind: SyntaxKind::GenericParameterList;
+            },
+            {
                 /// Returns callable result clauses in source order.
                 callable_result_clauses;
                 /// Appends a callable result clause child.
@@ -330,6 +358,18 @@ define_source_syntax_node! {
 }
 
 impl TraitCallableMemberDeclarationSyntax {
+    /// Returns the generic parameter list child when present.
+    pub fn generic_parameter_list(&self) -> Option<GenericParameterListSyntax> {
+        child_nodes(
+            &self.source,
+            &self.node,
+            self.start,
+            SyntaxKind::GenericParameterList,
+            GenericParameterListSyntax::from_green,
+        )
+        .next()
+    }
+
     /// Returns the callable result clause child when present.
     pub fn callable_result_clause(&self) -> Option<CallableResultClauseSyntax> {
         child_nodes(

@@ -5,10 +5,10 @@ use super::member::{
     TypeConstructorMemberDeclarationSyntax,
 };
 use super::path::PathSyntax;
-use crate::SyntaxKind;
 use crate::node::define_source_syntax_node;
 use crate::{
-    CallableOverloadDeclarationSyntax, ConstantDeclarationSyntax, PredicateDeclarationSyntax,
+    CallableOverloadDeclarationSyntax, ConstantDeclarationSyntax, GenericArgumentListSyntax,
+    PredicateDeclarationSyntax, SyntaxKind,
 };
 
 define_source_syntax_node! {
@@ -51,6 +51,16 @@ define_source_syntax_node! {
                 kind: SyntaxKind::Path;
             }
         ],
+        repeated_children: [
+            {
+                /// Returns generic argument lists in source order.
+                generic_argument_lists;
+                /// Appends a generic argument list child.
+                push_generic_argument_list;
+                ty: GenericArgumentListSyntax;
+                kind: SyntaxKind::GenericArgumentList;
+            }
+        ],
     }
 }
 
@@ -75,6 +85,16 @@ define_source_syntax_node! {
                 push_path;
                 ty: PathSyntax;
                 kind: SyntaxKind::Path;
+            }
+        ],
+        repeated_children: [
+            {
+                /// Returns generic argument lists in source order.
+                generic_argument_lists;
+                /// Appends a generic argument list child.
+                push_generic_argument_list;
+                ty: GenericArgumentListSyntax;
+                kind: SyntaxKind::GenericArgumentList;
             }
         ],
     }

@@ -739,14 +739,15 @@ mod tests {
         ConstantModifiersSyntax, ConstructorMemberModifiersSyntax,
         DestructorMemberDeclarationSyntax, ExportDeclarationSyntax, ExpressionSyntax,
         FinalizerMemberDeclarationSyntax, FunctionDeclarationSyntax, FunctionDirectivesSyntax,
-        FunctionModifiersSyntax, IdentifierListItemSyntax, IdentifierListSyntax,
-        ImplementationBodySyntax, ImplementationOverloadDeclarationSyntax,
-        ImplementationOverloadSubjectSyntax, ImplementationSubjectSyntax,
-        ImplementationTypeMemberBindingSyntax, InherentImplementationDeclarationSyntax,
-        ModuleBodySyntax, ModuleDirectivesSyntax, ModuleModifiersSyntax,
-        NamedTraitImplementationDeclarationSyntax, OverloadArmListSyntax, OverloadArmSyntax,
-        OverloadModifiersSyntax, ParameterListSyntax, ParameterModifiersSyntax, ParameterSyntax,
-        PathSyntax, PredicateDeclarationSyntax, PrimaryExpressionSyntax,
+        FunctionModifiersSyntax, GenericArgumentListSyntax, GenericArgumentSyntax,
+        GenericConstParameterSyntax, GenericParameterListSyntax, GenericTypeParameterSyntax,
+        IdentifierListItemSyntax, IdentifierListSyntax, ImplementationBodySyntax,
+        ImplementationOverloadDeclarationSyntax, ImplementationOverloadSubjectSyntax,
+        ImplementationSubjectSyntax, ImplementationTypeMemberBindingSyntax,
+        InherentImplementationDeclarationSyntax, ModuleBodySyntax, ModuleDirectivesSyntax,
+        ModuleModifiersSyntax, NamedTraitImplementationDeclarationSyntax, OverloadArmListSyntax,
+        OverloadArmSyntax, OverloadModifiersSyntax, ParameterListSyntax, ParameterModifiersSyntax,
+        ParameterSyntax, PathSyntax, PredicateDeclarationSyntax, PrimaryExpressionSyntax,
         ScopeEnterMemberDeclarationSyntax, ScopeExitMemberDeclarationSyntax, SourceSyntaxNode,
         SourceUnitModuleDeclarationSyntax, StructDeclarationSyntax,
         SyncLifecycleMemberModifiersSyntax, SyntaxKind, SyntaxNode, SyntaxText, SyntaxToken,
@@ -757,7 +758,8 @@ mod tests {
         TraitPredicateMemberModifiersSyntax, TraitScopeEnterRequirementDeclarationSyntax,
         TraitScopeExitRequirementDeclarationSyntax, TraitTypeMemberDeclarationSyntax,
         TypeAnnotationSyntax, TypeConstructorMemberDeclarationSyntax, TypeExpressionSyntax,
-        TypedIdentifierSyntax, UnionDeclarationSyntax, UnnamedTraitImplementationDeclarationSyntax,
+        TypeFormArgumentListSyntax, TypeFormArgumentSyntax, TypedIdentifierSyntax,
+        UnionDeclarationSyntax, UnnamedTraitImplementationDeclarationSyntax,
         UsingDeclarationSyntax,
     };
 
@@ -1270,6 +1272,13 @@ mod tests {
         assert_send_sync::<ParameterListSyntax>();
         assert_send_sync::<ParameterSyntax>();
         assert_send_sync::<ParameterModifiersSyntax>();
+        assert_send_sync::<GenericParameterListSyntax>();
+        assert_send_sync::<GenericTypeParameterSyntax>();
+        assert_send_sync::<GenericConstParameterSyntax>();
+        assert_send_sync::<GenericArgumentListSyntax>();
+        assert_send_sync::<GenericArgumentSyntax>();
+        assert_send_sync::<TypeFormArgumentListSyntax>();
+        assert_send_sync::<TypeFormArgumentSyntax>();
         assert_send_sync::<CallableResultClauseSyntax>();
         assert_send_sync::<CallableBodyBlockExpressionSyntax>();
         assert_send_sync::<ExpressionSyntax>();

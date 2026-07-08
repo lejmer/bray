@@ -6,10 +6,10 @@ use super::member::{
     TypeCallableMemberDeclarationSyntax, TypeConstructorMemberDeclarationSyntax,
 };
 use super::variant::UnionVariantDeclarationSyntax;
-use crate::node::define_source_syntax_node;
+use crate::node::{child_nodes, define_source_syntax_node};
 use crate::{
-    CallableOverloadDeclarationSyntax, ConstantDeclarationSyntax, PredicateDeclarationSyntax,
-    SyntaxKind, SyntaxToken,
+    CallableOverloadDeclarationSyntax, ConstantDeclarationSyntax, GenericParameterListSyntax,
+    PredicateDeclarationSyntax, SyntaxKind, SyntaxToken,
 };
 
 define_source_syntax_node! {
@@ -515,6 +515,30 @@ define_source_syntax_node! {
                 kind: SyntaxKind::StructBody;
             }
         ],
+        repeated_children: [
+            {
+                /// Returns generic parameter lists in source order.
+                generic_parameter_lists;
+                /// Appends a generic parameter list child.
+                push_generic_parameter_list;
+                ty: GenericParameterListSyntax;
+                kind: SyntaxKind::GenericParameterList;
+            }
+        ],
+    }
+}
+
+impl StructDeclarationSyntax {
+    /// Returns the generic parameter list child when present.
+    pub fn generic_parameter_list(&self) -> Option<GenericParameterListSyntax> {
+        child_nodes(
+            &self.source,
+            &self.node,
+            self.start,
+            SyntaxKind::GenericParameterList,
+            GenericParameterListSyntax::from_green,
+        )
+        .next()
     }
 }
 
@@ -574,5 +598,29 @@ define_source_syntax_node! {
                 kind: SyntaxKind::UnionBody;
             }
         ],
+        repeated_children: [
+            {
+                /// Returns generic parameter lists in source order.
+                generic_parameter_lists;
+                /// Appends a generic parameter list child.
+                push_generic_parameter_list;
+                ty: GenericParameterListSyntax;
+                kind: SyntaxKind::GenericParameterList;
+            }
+        ],
+    }
+}
+
+impl UnionDeclarationSyntax {
+    /// Returns the generic parameter list child when present.
+    pub fn generic_parameter_list(&self) -> Option<GenericParameterListSyntax> {
+        child_nodes(
+            &self.source,
+            &self.node,
+            self.start,
+            SyntaxKind::GenericParameterList,
+            GenericParameterListSyntax::from_green,
+        )
+        .next()
     }
 }

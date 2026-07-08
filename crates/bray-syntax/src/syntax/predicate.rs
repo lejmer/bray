@@ -1,7 +1,8 @@
 use super::expression::first_expression;
-use crate::node::define_source_syntax_node;
+use crate::node::{child_nodes, define_source_syntax_node};
 use crate::{
-    ExpressionSyntax, SyntaxKind, SyntaxToken, TypeExpressionSyntax, TypedIdentifierSyntax,
+    ExpressionSyntax, GenericParameterListSyntax, SyntaxKind, SyntaxToken, TypeExpressionSyntax,
+    TypedIdentifierSyntax,
 };
 
 define_source_syntax_node! {
@@ -221,6 +222,14 @@ define_source_syntax_node! {
         ],
         repeated_children: [
             {
+                /// Returns generic parameter lists in source order.
+                generic_parameter_lists;
+                /// Appends a generic parameter list child.
+                push_generic_parameter_list;
+                ty: GenericParameterListSyntax;
+                kind: SyntaxKind::GenericParameterList;
+            },
+            {
                 /// Returns body expression children in source order.
                 expressions;
                 /// Appends a body expression child.
@@ -233,6 +242,18 @@ define_source_syntax_node! {
 }
 
 impl PredicateDeclarationSyntax {
+    /// Returns the generic parameter list child when present.
+    pub fn generic_parameter_list(&self) -> Option<GenericParameterListSyntax> {
+        child_nodes(
+            &self.source,
+            &self.node,
+            self.start,
+            SyntaxKind::GenericParameterList,
+            GenericParameterListSyntax::from_green,
+        )
+        .next()
+    }
+
     /// Returns the body expression child when present.
     pub fn expression(&self) -> Option<ExpressionSyntax> {
         first_expression(&self.source, &self.node, self.start)

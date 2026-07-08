@@ -1,7 +1,7 @@
 use crate::node::{child_nodes, define_source_syntax_node};
 use crate::{
-    CallableResultClauseSyntax, ExpressionSyntax, ParameterListSyntax, PathSyntax, SyntaxKind,
-    SyntaxToken,
+    CallableResultClauseSyntax, ExpressionSyntax, GenericArgumentListSyntax, ParameterListSyntax,
+    PathSyntax, SyntaxKind, SyntaxToken, TypeFormArgumentListSyntax,
 };
 
 define_source_syntax_node! {
@@ -115,6 +115,22 @@ define_source_syntax_node! {
                 push_type_expression;
                 ty: TypeExpressionSyntax;
                 kind: SyntaxKind::TypeExpression;
+            },
+            {
+                /// Returns direct type-form argument lists in source order.
+                type_form_argument_lists;
+                /// Appends a type-form argument list child.
+                push_type_form_argument_list;
+                ty: TypeFormArgumentListSyntax;
+                kind: SyntaxKind::TypeFormArgumentList;
+            },
+            {
+                /// Returns direct generic argument lists in source order.
+                generic_argument_lists;
+                /// Appends a generic argument list child.
+                push_generic_argument_list;
+                ty: GenericArgumentListSyntax;
+                kind: SyntaxKind::GenericArgumentList;
             },
             {
                 /// Returns direct path children in source order.

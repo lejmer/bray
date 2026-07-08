@@ -1,5 +1,5 @@
-use crate::node::define_source_syntax_node;
-use crate::{SyntaxKind, SyntaxToken, TypeExpressionSyntax};
+use crate::node::{child_nodes, define_source_syntax_node};
+use crate::{GenericParameterListSyntax, SyntaxKind, SyntaxToken, TypeExpressionSyntax};
 
 define_source_syntax_node! {
     /// Optional callable contract modifiers in source order.
@@ -102,6 +102,30 @@ define_source_syntax_node! {
                 kind: SyntaxKind::TypeExpression;
             }
         ],
+        repeated_children: [
+            {
+                /// Returns generic parameter lists in source order.
+                generic_parameter_lists;
+                /// Appends a generic parameter list child.
+                push_generic_parameter_list;
+                ty: GenericParameterListSyntax;
+                kind: SyntaxKind::GenericParameterList;
+            }
+        ],
+    }
+}
+
+impl CallableContractDeclarationSyntax {
+    /// Returns the generic parameter list child when present.
+    pub fn generic_parameter_list(&self) -> Option<GenericParameterListSyntax> {
+        child_nodes(
+            &self.source,
+            &self.node,
+            self.start,
+            SyntaxKind::GenericParameterList,
+            GenericParameterListSyntax::from_green,
+        )
+        .next()
     }
 }
 
@@ -147,7 +171,6 @@ mod tests {
         );
 
         builder.push_type_expression(callable_type_expression(snapshot.clone()));
-
         builder.push_semicolon_token(token(SyntaxKind::SemicolonToken, 49, 50));
 
         let declaration = builder.build();

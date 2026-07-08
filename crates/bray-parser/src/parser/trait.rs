@@ -12,14 +12,6 @@ const TRAIT_DECLARATION_START_KINDS: [SyntaxKind; 3] = [
     SyntaxKind::TraitKeyword,
 ];
 
-const TRAIT_AFTER_NAME_RECOVERY_KINDS: [SyntaxKind; 5] = [
-    SyntaxKind::WithKeyword,
-    SyntaxKind::OpenBraceToken,
-    SyntaxKind::SemicolonToken,
-    SyntaxKind::CloseBraceToken,
-    SyntaxKind::EndOfFileToken,
-];
-
 const TRAIT_CONSTRAINT_BOUNDARY_KINDS: [SyntaxKind; 5] = [
     SyntaxKind::WithKeyword,
     SyntaxKind::OpenBraceToken,
@@ -44,8 +36,7 @@ impl Parser {
         builder.push_identifier_token(self.parse_identifier());
 
         if self.at(SyntaxKind::LessToken) {
-            // TODO(parser): Parse generic parameter lists once generic syntax is implemented.
-            self.recover_current_and_until(&mut builder, &TRAIT_AFTER_NAME_RECOVERY_KINDS);
+            builder.push_generic_parameter_list(self.parse_generic_parameter_list());
         }
 
         self.parse_trait_constraints(&mut builder);
@@ -182,9 +173,9 @@ mod tests {
         assert!(result.diagnostics().is_empty());
     }
 
-    // TODO(parser): Update this when trait generics and constraints are parsed.
+    // TODO(parser): Update this when trait constraints are parsed.
     #[test]
-    fn parser_skips_trait_generic_parameters_and_constraints_for_now() {
+    fn parser_parses_trait_generics_and_skips_constraints_for_now() {
         let source = "module main; trait Iterable<T> with(T: Item) {}";
         let sources = source_store([source]);
         let result = parse_compilation_unit(&sources);
@@ -198,29 +189,31 @@ mod tests {
 
         let skipped_syntax = declaration.skipped_syntax().collect::<Vec<_>>();
 
-        let [generics, constraint] = skipped_syntax.as_slice() else {
-            panic!(
-                "expected generic parameters and constraint as skipped syntax: {skipped_syntax:?}"
-            );
+        let [constraint] = skipped_syntax.as_slice() else {
+            panic!("expected constraint as skipped syntax: {skipped_syntax:?}");
         };
 
         assert_eq!(source_unit.full_text(), source);
-        assert_eq!(generics.full_text(), "<T> ");
+
+        let generic_parameter_list = match declaration.generic_parameter_list() {
+            Some(list) => list,
+            None => panic!("expected generic parameter list"),
+        };
+
+        assert_eq!(generic_parameter_list.full_text(), "<T> ");
+        assert_eq!(generic_parameter_list.generic_type_parameters().count(), 1);
         assert_eq!(constraint.full_text(), "with(T: Item) ");
         assert_eq!(declaration.trait_body().full_text(), "{}");
 
         assert_eq!(
             parse_diagnostic_kinds(&result),
-            [
-                DiagnosticKind::SyntaxSkippedSyntax,
-                DiagnosticKind::SyntaxSkippedSyntax
-            ]
+            [DiagnosticKind::SyntaxSkippedSyntax]
         );
     }
 
     #[test]
     fn parser_parses_trait_callable_members_without_losing_later_items() {
-        let source = "module main; trait Display { func show(); }\nusing core;";
+        let source = "module main; trait Display { func show<T>(); }\nusing core;";
         let sources = source_store([source]);
         let result = parse_compilation_unit(&sources);
 
@@ -242,9 +235,17 @@ mod tests {
         };
 
         assert_eq!(source_unit.full_text(), source);
-        assert_eq!(body.full_text(), "{ func show(); }\n");
-        assert_eq!(member.full_text(), "func show(); ");
+        assert_eq!(body.full_text(), "{ func show<T>(); }\n");
+        assert_eq!(member.full_text(), "func show<T>(); ");
         assert!(member.semicolon_token().is_some());
+
+        let generic_parameter_list = match member.generic_parameter_list() {
+            Some(list) => list,
+            None => panic!("expected generic parameter list"),
+        };
+
+        assert_eq!(generic_parameter_list.full_text(), "<T>");
+        assert_eq!(generic_parameter_list.generic_type_parameters().count(), 1);
         assert_eq!(body.skipped_syntax().count(), 0);
         assert_eq!(source_unit.using_declarations().count(), 1);
 

@@ -17,14 +17,6 @@ const IMPLEMENTATION_AFTER_SUBJECT_BOUNDARY_KINDS: [SyntaxKind; 6] = [
     SyntaxKind::EndOfFileToken,
 ];
 
-const TRAIT_APPLICATION_BOUNDARY_KINDS: [SyntaxKind; 5] = [
-    SyntaxKind::CloseParenToken,
-    SyntaxKind::WithKeyword,
-    SyntaxKind::OpenBraceToken,
-    SyntaxKind::CloseBraceToken,
-    SyntaxKind::EndOfFileToken,
-];
-
 const IMPLEMENTATION_CONSTRAINT_BOUNDARY_KINDS: [SyntaxKind; 5] = [
     SyntaxKind::WithKeyword,
     SyntaxKind::OpenBraceToken,
@@ -138,11 +130,7 @@ impl Parser {
         builder.push_path(self.parse_path());
 
         if self.at(SyntaxKind::LessToken) {
-            // TODO(parser): Parse generic argument lists once generic syntax is implemented.
-            self.recover_current_and_until_predicate(
-                &mut builder,
-                Parser::at_implementation_subject_boundary,
-            );
+            builder.push_generic_argument_list(self.parse_generic_argument_list());
         }
 
         builder.build()
@@ -170,11 +158,7 @@ impl Parser {
         builder.push_path(self.parse_path());
 
         if self.at(SyntaxKind::LessToken) {
-            // TODO(parser): Parse generic argument lists once generic syntax is implemented.
-            self.recover_current_and_until_predicate(
-                &mut builder,
-                Parser::at_trait_application_boundary,
-            );
+            builder.push_generic_argument_list(self.parse_generic_argument_list());
         }
 
         builder.build()
@@ -210,10 +194,6 @@ impl Parser {
     fn at_implementation_subject_boundary(&mut self) -> bool {
         self.at_any(&IMPLEMENTATION_AFTER_SUBJECT_BOUNDARY_KINDS)
             || self.at_any(&MODULE_ITEM_START_KINDS)
-    }
-
-    fn at_trait_application_boundary(&mut self) -> bool {
-        self.at_any(&TRAIT_APPLICATION_BOUNDARY_KINDS) || self.at_any(&MODULE_ITEM_START_KINDS)
     }
 
     fn at_implementation_constraint_boundary(&mut self) -> bool {
@@ -420,14 +400,15 @@ mod tests {
         assert!(result.diagnostics().is_empty());
     }
 
-    // TODO(parser): Update this when implementation generics and constraints are parsed.
+    // TODO(parser): Update this when implementation constraints are parsed.
     #[test]
-    fn parser_parses_trait_implementation_callable_members_after_skipped_header_forms() {
+    fn parser_parses_trait_implementation_generic_arguments_and_skips_constraints_for_now() {
         let source = "module main; impl Buffer<T>(Reader<Bytes>) with(T: Copy) { func read() {} }";
         let sources = source_store([source]);
         let result = parse_compilation_unit(&sources);
 
         let source_unit = &result.syntax_tree().root().source_units()[0];
+
         let declarations = source_unit
             .unnamed_trait_implementation_declarations()
             .collect::<Vec<_>>();
@@ -436,38 +417,30 @@ mod tests {
             panic!("expected one unnamed trait implementation declaration: {declarations:?}");
         };
 
-        let subject_skipped = declaration
-            .implementation_subject()
-            .skipped_syntax()
-            .collect::<Vec<_>>();
-
-        let trait_skipped = declaration
-            .trait_application()
-            .skipped_syntax()
-            .collect::<Vec<_>>();
-
         let declaration_skipped = declaration.skipped_syntax().collect::<Vec<_>>();
 
         let body = declaration.implementation_body();
         let members = body.type_callable_member_declarations().collect::<Vec<_>>();
 
-        let [subject_generics] = subject_skipped.as_slice() else {
-            panic!("expected subject generics as skipped syntax: {subject_skipped:?}");
+        let subject = declaration.implementation_subject();
+        let subject_generics = subject.generic_argument_lists().collect::<Vec<_>>();
+
+        let [subject_generic_arguments] = subject_generics.as_slice() else {
+            panic!("expected subject generic arguments: {subject_generics:?}");
         };
 
-        let [trait_generics] = trait_skipped.as_slice() else {
-            panic!("expected trait generics as skipped syntax: {trait_skipped:?}");
+        let trait_application = declaration.trait_application();
+
+        let trait_generics = trait_application
+            .generic_argument_lists()
+            .collect::<Vec<_>>();
+
+        let [trait_generic_arguments] = trait_generics.as_slice() else {
+            panic!("expected trait generic arguments: {trait_generics:?}");
         };
 
-        let [
-            declaration_subject_generics,
-            declaration_trait_generics,
-            constraint,
-        ] = declaration_skipped.as_slice()
-        else {
-            panic!(
-                "expected generic arguments and constraint as skipped syntax: {declaration_skipped:?}"
-            );
+        let [constraint] = declaration_skipped.as_slice() else {
+            panic!("expected constraint as skipped syntax: {declaration_skipped:?}");
         };
 
         let [member] = members.as_slice() else {
@@ -475,21 +448,17 @@ mod tests {
         };
 
         assert_eq!(source_unit.full_text(), source);
-        assert_eq!(subject_generics.full_text(), "<T>");
-        assert_eq!(trait_generics.full_text(), "<Bytes>");
-        assert_eq!(declaration_subject_generics.full_text(), "<T>");
-        assert_eq!(declaration_trait_generics.full_text(), "<Bytes>");
+        assert_eq!(subject_generic_arguments.full_text(), "<T>");
+        assert_eq!(trait_generic_arguments.full_text(), "<Bytes>");
+        assert_eq!(subject_generic_arguments.generic_arguments().count(), 1);
+        assert_eq!(trait_generic_arguments.generic_arguments().count(), 1);
         assert_eq!(constraint.full_text(), "with(T: Copy) ");
         assert_eq!(member.full_text(), "func read() {} ");
         assert_eq!(body.skipped_syntax().count(), 0);
 
         assert_eq!(
             parse_diagnostic_kinds(&result),
-            [
-                DiagnosticKind::SyntaxSkippedSyntax,
-                DiagnosticKind::SyntaxSkippedSyntax,
-                DiagnosticKind::SyntaxSkippedSyntax
-            ]
+            [DiagnosticKind::SyntaxSkippedSyntax]
         );
     }
 
@@ -500,6 +469,7 @@ mod tests {
         let result = parse_compilation_unit(&sources);
 
         let source_unit = &result.syntax_tree().root().source_units()[0];
+
         let declarations = source_unit
             .inherent_implementation_declarations()
             .collect::<Vec<_>>();
@@ -536,6 +506,7 @@ mod tests {
         let result = parse_compilation_unit(&sources);
 
         let source_unit = &result.syntax_tree().root().source_units()[0];
+
         let inherent_declarations = source_unit
             .inherent_implementation_declarations()
             .collect::<Vec<_>>();
@@ -608,6 +579,7 @@ mod tests {
         let result = parse_compilation_unit(&sources);
 
         let source_unit = &result.syntax_tree().root().source_units()[0];
+
         let inherent_declarations = source_unit
             .inherent_implementation_declarations()
             .collect::<Vec<_>>();
@@ -648,6 +620,7 @@ mod tests {
         let result = parse_compilation_unit(&sources);
 
         let source_unit = &result.syntax_tree().root().source_units()[0];
+
         let declarations = source_unit
             .inherent_implementation_declarations()
             .collect::<Vec<_>>();

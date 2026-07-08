@@ -1,7 +1,8 @@
 use bray_syntax::{
-    StructBodySyntax, StructDeclarationSyntax, StructDeclarationSyntaxBuilder, SyntaxKind,
-    SyntaxToken, TypeDirectivesSyntax, TypeDirectivesSyntaxBuilder, TypeModifiersSyntax,
-    UnionBodySyntax, UnionDeclarationSyntax, UnionDeclarationSyntaxBuilder,
+    GenericParameterListSyntax, StructBodySyntax, StructDeclarationSyntax,
+    StructDeclarationSyntaxBuilder, SyntaxKind, SyntaxToken, TypeDirectivesSyntax,
+    TypeDirectivesSyntaxBuilder, TypeModifiersSyntax, UnionBodySyntax, UnionDeclarationSyntax,
+    UnionDeclarationSyntaxBuilder,
 };
 
 use super::directive::{COPY_DIRECTIVE_NAME, LAYOUT_DIRECTIVE_NAME};
@@ -23,14 +24,6 @@ const TYPE_DIRECTIVE_ARGUMENT_RECOVERY_KINDS: [SyntaxKind; 5] = [
     SyntaxKind::InternalKeyword,
     SyntaxKind::StructKeyword,
     SyntaxKind::UnionKeyword,
-];
-
-const TYPE_AFTER_NAME_BOUNDARY_KINDS: [SyntaxKind; 5] = [
-    SyntaxKind::WithKeyword,
-    SyntaxKind::OpenBraceToken,
-    SyntaxKind::SemicolonToken,
-    SyntaxKind::CloseBraceToken,
-    SyntaxKind::EndOfFileToken,
 ];
 
 const TYPE_CONSTRAINT_BOUNDARY_KINDS: [SyntaxKind; 5] = [
@@ -79,8 +72,7 @@ impl Parser {
         builder.push_identifier_token(self.parse_identifier());
 
         if self.at(SyntaxKind::LessToken) {
-            // TODO(parser): Parse generic parameter lists once generic syntax is implemented.
-            self.recover_current_and_until_predicate(builder, Parser::at_type_after_name_boundary);
+            builder.push_generic_parameter_list(self.parse_generic_parameter_list());
         }
 
         self.parse_type_constraints(builder);
@@ -129,10 +121,6 @@ impl Parser {
             // TODO(parser): Parse type constraint clauses once constraint syntax is implemented.
             self.recover_current_and_until_predicate(builder, Parser::at_type_constraint_boundary);
         }
-    }
-
-    fn at_type_after_name_boundary(&mut self) -> bool {
-        self.at_any(&TYPE_AFTER_NAME_BOUNDARY_KINDS) || self.at_any(&MODULE_ITEM_START_KINDS)
     }
 
     fn at_type_constraint_boundary(&mut self) -> bool {
@@ -227,6 +215,8 @@ trait TypeDeclarationSyntaxSink: RecoverySyntaxSink {
     fn push_declaration_keyword(&mut self, token: SyntaxToken);
 
     fn push_identifier_token(&mut self, token: SyntaxToken);
+
+    fn push_generic_parameter_list(&mut self, list: GenericParameterListSyntax);
 }
 
 impl TypeDeclarationSyntaxSink for StructDeclarationSyntaxBuilder {
@@ -245,6 +235,10 @@ impl TypeDeclarationSyntaxSink for StructDeclarationSyntaxBuilder {
     fn push_identifier_token(&mut self, token: SyntaxToken) {
         StructDeclarationSyntaxBuilder::push_identifier_token(self, token);
     }
+
+    fn push_generic_parameter_list(&mut self, list: GenericParameterListSyntax) {
+        StructDeclarationSyntaxBuilder::push_generic_parameter_list(self, list);
+    }
 }
 
 impl TypeDeclarationSyntaxSink for UnionDeclarationSyntaxBuilder {
@@ -262,6 +256,10 @@ impl TypeDeclarationSyntaxSink for UnionDeclarationSyntaxBuilder {
 
     fn push_identifier_token(&mut self, token: SyntaxToken) {
         UnionDeclarationSyntaxBuilder::push_identifier_token(self, token);
+    }
+
+    fn push_generic_parameter_list(&mut self, list: GenericParameterListSyntax) {
+        UnionDeclarationSyntaxBuilder::push_generic_parameter_list(self, list);
     }
 }
 
@@ -373,9 +371,9 @@ mod tests {
         );
     }
 
-    // TODO(parser): Update this when type generics and constraints are parsed.
+    // TODO(parser): Update this when type constraints are parsed.
     #[test]
-    fn parser_parses_struct_fields_after_skipping_type_generics_and_constraints() {
+    fn parser_parses_type_generics_and_skips_constraints_for_now() {
         let source = "module main; struct Box<T> with(T: Copy) { value: T; }";
         let sources = source_store([source]);
         let result = parse_compilation_unit(&sources);
@@ -395,14 +393,19 @@ mod tests {
             panic!("expected one struct field declaration: {fields:?}");
         };
 
-        let [generics, constraint] = declaration_skipped.as_slice() else {
-            panic!(
-                "expected generic parameters and constraint as skipped syntax: {declaration_skipped:?}"
-            );
+        let [constraint] = declaration_skipped.as_slice() else {
+            panic!("expected constraint as skipped syntax: {declaration_skipped:?}");
         };
 
         assert_eq!(source_unit.full_text(), source);
-        assert_eq!(generics.full_text(), "<T> ");
+
+        let generic_parameter_list = match declaration.generic_parameter_list() {
+            Some(list) => list,
+            None => panic!("expected generic parameter list"),
+        };
+
+        assert_eq!(generic_parameter_list.full_text(), "<T> ");
+        assert_eq!(generic_parameter_list.generic_type_parameters().count(), 1);
         assert_eq!(constraint.full_text(), "with(T: Copy) ");
         assert_eq!(field.type_expression().full_text(), "T");
         assert_eq!(field.full_text(), "value: T; ");
@@ -411,10 +414,7 @@ mod tests {
 
         assert_eq!(
             parse_diagnostic_kinds(&result),
-            [
-                DiagnosticKind::SyntaxSkippedSyntax,
-                DiagnosticKind::SyntaxSkippedSyntax
-            ]
+            [DiagnosticKind::SyntaxSkippedSyntax]
         );
     }
 
@@ -487,7 +487,7 @@ mod tests {
     // TODO(parser): Update this when callable body expressions are parsed.
     #[test]
     fn parser_parses_type_callable_members_in_struct_bodies() {
-        let source = "module main; struct Point { public static func make() -> Point {} }";
+        let source = "module main; struct Point { public static func make<T>() -> Point {} }";
         let sources = source_store([source]);
         let result = parse_compilation_unit(&sources);
 
@@ -508,7 +508,11 @@ mod tests {
         };
 
         assert_eq!(source_unit.full_text(), source);
-        assert_eq!(member.full_text(), "public static func make() -> Point {} ");
+
+        assert_eq!(
+            member.full_text(),
+            "public static func make<T>() -> Point {} "
+        );
 
         assert_eq!(
             member
@@ -528,6 +532,14 @@ mod tests {
 
         assert!(member.callable_result_clause().is_some());
         assert!(member.callable_body_block_expression().is_some());
+
+        let generic_parameter_list = match member.generic_parameter_list() {
+            Some(list) => list,
+            None => panic!("expected generic parameter list"),
+        };
+
+        assert_eq!(generic_parameter_list.full_text(), "<T>");
+        assert_eq!(generic_parameter_list.generic_type_parameters().count(), 1);
 
         assert!(result.diagnostics().is_empty());
     }

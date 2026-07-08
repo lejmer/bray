@@ -5,6 +5,7 @@ mod directive;
 mod entry;
 mod expression;
 mod function;
+mod generic;
 mod implementation;
 mod member;
 mod modifier;
