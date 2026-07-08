@@ -734,37 +734,42 @@ mod tests {
         typed_identifier,
     };
     use crate::{
-        AsyncCapableLifecycleMemberModifiersSyntax, BlockExpressionSyntax, BlockItemSyntax,
-        BlockModuleDeclarationSyntax, CallableBodyBlockExpressionSyntax,
-        CallableContractDeclarationSyntax, CallableOverloadDeclarationSyntax,
-        CallableResultClauseSyntax, CasePatternEntrySyntax, CasePatternSyntax,
-        ConstantDeclarationSyntax, ConstantModifiersSyntax, ConstructorMemberModifiersSyntax,
+        AbsenceExpressionSyntax, AccessExpressionSyntax, ArgumentListSyntax, ArgumentSyntax,
+        ArrayExpressionSyntax, AsyncCapableLifecycleMemberModifiersSyntax, BlockExpressionSyntax,
+        BlockItemSyntax, BlockModuleDeclarationSyntax, CallOperationSyntax,
+        CallableBodyBlockExpressionSyntax, CallableContractDeclarationSyntax,
+        CallableOverloadDeclarationSyntax, CallableResultClauseSyntax, CasePatternEntrySyntax,
+        CasePatternSyntax, ConstantDeclarationSyntax, ConstantModifiersSyntax,
+        ConstructorMemberModifiersSyntax, ConversionOperationSyntax,
         DestructorMemberDeclarationSyntax, DirectiveArgumentListSyntax, DirectiveArgumentSyntax,
-        ExportDeclarationSyntax, ExpressionSyntax, FinalizerMemberDeclarationSyntax,
-        FunctionDeclarationSyntax, FunctionDirectivesSyntax, FunctionModifiersSyntax,
-        GenericArgumentListSyntax, GenericArgumentSyntax, GenericConstParameterSyntax,
-        GenericParameterListSyntax, GenericTypeParameterSyntax, IdentifierListItemSyntax,
-        IdentifierListSyntax, ImplementationBodySyntax, ImplementationOverloadDeclarationSyntax,
+        ElementIndexOperationSyntax, ExportDeclarationSyntax, ExpressionSyntax,
+        FinalizerMemberDeclarationSyntax, FunctionDeclarationSyntax, FunctionDirectivesSyntax,
+        FunctionModifiersSyntax, GenericArgumentListSyntax, GenericArgumentSyntax,
+        GenericConstParameterSyntax, GenericParameterListSyntax, GenericTypeParameterSyntax,
+        GroupedExpressionSyntax, IdentifierListItemSyntax, IdentifierListSyntax,
+        ImplementationBodySyntax, ImplementationOverloadDeclarationSyntax,
         ImplementationOverloadSubjectSyntax, ImplementationSubjectSyntax,
         ImplementationTypeMemberBindingSyntax, InherentImplementationDeclarationSyntax,
-        IrrefutablePatternEntrySyntax, IrrefutablePatternSyntax, LocalBindingDeclarationSyntax,
+        IrrefutablePatternEntrySyntax, IrrefutablePatternSyntax, LeadingDotVariantExpressionSyntax,
+        LiteralExpressionSyntax, LocalBindingDeclarationSyntax, MemberAccessOperationSyntax,
         ModuleBodySyntax, ModuleDirectivesSyntax, ModuleModifiersSyntax,
-        NamedTraitImplementationDeclarationSyntax, OverloadArmListSyntax, OverloadArmSyntax,
-        OverloadModifiersSyntax, ParameterListSyntax, ParameterModifiersSyntax, ParameterSyntax,
-        PathSyntax, PredicateDeclarationSyntax, PrimaryExpressionSyntax,
-        ScopeEnterMemberDeclarationSyntax, ScopeExitMemberDeclarationSyntax,
-        SequencedExpressionSyntax, SourceSyntaxNode, SourceUnitModuleDeclarationSyntax,
-        StructDeclarationSyntax, SyncLifecycleMemberModifiersSyntax, SyntaxKind, SyntaxNode,
-        SyntaxText, SyntaxToken, SyntaxTrivia, TraitApplicationSyntax, TraitBodySyntax,
-        TraitConstantMemberDeclarationSyntax, TraitDeclarationSyntax,
+        NamedTraitImplementationDeclarationSyntax, NullablePropagationOperationSyntax,
+        OverloadArmListSyntax, OverloadArmSyntax, OverloadModifiersSyntax, ParameterListSyntax,
+        ParameterModifiersSyntax, ParameterSyntax, PathSyntax, PredicateDeclarationSyntax,
+        PrimaryExpressionSyntax, ScopeEnterMemberDeclarationSyntax,
+        ScopeExitMemberDeclarationSyntax, SequencedExpressionSyntax, SliceIndexOperationSyntax,
+        SourceSyntaxNode, SourceUnitModuleDeclarationSyntax, StructConstructionBodySyntax,
+        StructDeclarationSyntax, StructFieldInitializerSyntax, SyncLifecycleMemberModifiersSyntax,
+        SyntaxKind, SyntaxNode, SyntaxText, SyntaxToken, SyntaxTrivia, TraitApplicationSyntax,
+        TraitBodySyntax, TraitConstantMemberDeclarationSyntax, TraitDeclarationSyntax,
         TraitDestructorRequirementDeclarationSyntax, TraitFinalizerRequirementDeclarationSyntax,
         TraitModifiersSyntax, TraitPredicateMemberDeclarationSyntax,
-        TraitPredicateMemberModifiersSyntax, TraitScopeEnterRequirementDeclarationSyntax,
-        TraitScopeExitRequirementDeclarationSyntax, TraitTypeMemberDeclarationSyntax,
-        TypeAnnotationSyntax, TypeConstructorMemberDeclarationSyntax, TypeExpressionSyntax,
-        TypeFormArgumentListSyntax, TypeFormArgumentSyntax, TypedIdentifierSyntax,
-        UnionDeclarationSyntax, UnnamedTraitImplementationDeclarationSyntax,
-        UsingDeclarationSyntax,
+        TraitPredicateMemberModifiersSyntax, TraitQualifiedMemberOperationSyntax,
+        TraitScopeEnterRequirementDeclarationSyntax, TraitScopeExitRequirementDeclarationSyntax,
+        TraitTypeMemberDeclarationSyntax, TupleExpressionSyntax, TypeAnnotationSyntax,
+        TypeConstructorMemberDeclarationSyntax, TypeExpressionSyntax, TypeFormArgumentListSyntax,
+        TypeFormArgumentSyntax, TypedIdentifierSyntax, UnionDeclarationSyntax,
+        UnitExpressionSyntax, UnnamedTraitImplementationDeclarationSyntax, UsingDeclarationSyntax,
     };
 
     #[test]
@@ -1289,6 +1294,25 @@ mod tests {
         assert_send_sync::<CallableBodyBlockExpressionSyntax>();
         assert_send_sync::<ExpressionSyntax>();
         assert_send_sync::<PrimaryExpressionSyntax>();
+        assert_send_sync::<AccessExpressionSyntax>();
+        assert_send_sync::<MemberAccessOperationSyntax>();
+        assert_send_sync::<ElementIndexOperationSyntax>();
+        assert_send_sync::<CallOperationSyntax>();
+        assert_send_sync::<SliceIndexOperationSyntax>();
+        assert_send_sync::<NullablePropagationOperationSyntax>();
+        assert_send_sync::<ConversionOperationSyntax>();
+        assert_send_sync::<TraitQualifiedMemberOperationSyntax>();
+        assert_send_sync::<ArgumentListSyntax>();
+        assert_send_sync::<ArgumentSyntax>();
+        assert_send_sync::<StructConstructionBodySyntax>();
+        assert_send_sync::<StructFieldInitializerSyntax>();
+        assert_send_sync::<LiteralExpressionSyntax>();
+        assert_send_sync::<UnitExpressionSyntax>();
+        assert_send_sync::<AbsenceExpressionSyntax>();
+        assert_send_sync::<GroupedExpressionSyntax>();
+        assert_send_sync::<TupleExpressionSyntax>();
+        assert_send_sync::<ArrayExpressionSyntax>();
+        assert_send_sync::<LeadingDotVariantExpressionSyntax>();
         assert_send_sync::<BlockExpressionSyntax>();
         assert_send_sync::<BlockItemSyntax>();
         assert_send_sync::<LocalBindingDeclarationSyntax>();

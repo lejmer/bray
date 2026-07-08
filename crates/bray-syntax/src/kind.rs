@@ -203,8 +203,46 @@ pub enum SyntaxKind {
     CallableBodyBlockExpression,
     /// Runtime expression.
     Expression,
-    /// Opaque primary expression.
+    /// Primary expression wrapper.
     PrimaryExpression,
+    /// Access expression root and access-only postfix operations.
+    AccessExpression,
+    /// Member access postfix operation.
+    MemberAccessOperation,
+    /// Element index postfix operation.
+    ElementIndexOperation,
+    /// Call postfix operation.
+    CallOperation,
+    /// Slice index postfix operation.
+    SliceIndexOperation,
+    /// Nullable propagation postfix operation.
+    NullablePropagationOperation,
+    /// Conversion postfix operation.
+    ConversionOperation,
+    /// Trait-qualified member postfix operation.
+    TraitQualifiedMemberOperation,
+    /// Runtime argument list including delimiters.
+    ArgumentList,
+    /// Runtime argument entry.
+    Argument,
+    /// Struct construction body including delimiters.
+    StructConstructionBody,
+    /// Struct field initializer entry.
+    StructFieldInitializer,
+    /// Literal expression.
+    LiteralExpression,
+    /// Unit expression.
+    UnitExpression,
+    /// Absence expression.
+    AbsenceExpression,
+    /// Parenthesized grouped expression.
+    GroupedExpression,
+    /// Tuple expression.
+    TupleExpression,
+    /// Array expression.
+    ArrayExpression,
+    /// Leading-dot variant expression.
+    LeadingDotVariantExpression,
     /// Braced block expression.
     BlockExpression,
     /// Item inside a block expression.
@@ -468,6 +506,25 @@ impl SyntaxKind {
                 | Self::CallableBodyBlockExpression
                 | Self::Expression
                 | Self::PrimaryExpression
+                | Self::AccessExpression
+                | Self::MemberAccessOperation
+                | Self::ElementIndexOperation
+                | Self::CallOperation
+                | Self::SliceIndexOperation
+                | Self::NullablePropagationOperation
+                | Self::ConversionOperation
+                | Self::TraitQualifiedMemberOperation
+                | Self::ArgumentList
+                | Self::Argument
+                | Self::StructConstructionBody
+                | Self::StructFieldInitializer
+                | Self::LiteralExpression
+                | Self::UnitExpression
+                | Self::AbsenceExpression
+                | Self::GroupedExpression
+                | Self::TupleExpression
+                | Self::ArrayExpression
+                | Self::LeadingDotVariantExpression
                 | Self::BlockExpression
                 | Self::BlockItem
                 | Self::LocalBindingDeclaration
@@ -714,6 +771,25 @@ impl SyntaxKind {
             Self::CallableBodyBlockExpression => "callable_body_block_expression",
             Self::Expression => "expression",
             Self::PrimaryExpression => "primary_expression",
+            Self::AccessExpression => "access_expression",
+            Self::MemberAccessOperation => "member_access_operation",
+            Self::ElementIndexOperation => "element_index_operation",
+            Self::CallOperation => "call_operation",
+            Self::SliceIndexOperation => "slice_index_operation",
+            Self::NullablePropagationOperation => "nullable_propagation_operation",
+            Self::ConversionOperation => "conversion_operation",
+            Self::TraitQualifiedMemberOperation => "trait_qualified_member_operation",
+            Self::ArgumentList => "argument_list",
+            Self::Argument => "argument",
+            Self::StructConstructionBody => "struct_construction_body",
+            Self::StructFieldInitializer => "struct_field_initializer",
+            Self::LiteralExpression => "literal_expression",
+            Self::UnitExpression => "unit_expression",
+            Self::AbsenceExpression => "absence_expression",
+            Self::GroupedExpression => "grouped_expression",
+            Self::TupleExpression => "tuple_expression",
+            Self::ArrayExpression => "array_expression",
+            Self::LeadingDotVariantExpression => "leading_dot_variant_expression",
             Self::BlockExpression => "block_expression",
             Self::BlockItem => "block_item",
             Self::LocalBindingDeclaration => "local_binding_declaration",
@@ -973,6 +1049,25 @@ mod tests {
         assert!(SyntaxKind::CallableBodyBlockExpression.is_node());
         assert!(SyntaxKind::Expression.is_node());
         assert!(SyntaxKind::PrimaryExpression.is_node());
+        assert!(SyntaxKind::AccessExpression.is_node());
+        assert!(SyntaxKind::MemberAccessOperation.is_node());
+        assert!(SyntaxKind::ElementIndexOperation.is_node());
+        assert!(SyntaxKind::CallOperation.is_node());
+        assert!(SyntaxKind::SliceIndexOperation.is_node());
+        assert!(SyntaxKind::NullablePropagationOperation.is_node());
+        assert!(SyntaxKind::ConversionOperation.is_node());
+        assert!(SyntaxKind::TraitQualifiedMemberOperation.is_node());
+        assert!(SyntaxKind::ArgumentList.is_node());
+        assert!(SyntaxKind::Argument.is_node());
+        assert!(SyntaxKind::StructConstructionBody.is_node());
+        assert!(SyntaxKind::StructFieldInitializer.is_node());
+        assert!(SyntaxKind::LiteralExpression.is_node());
+        assert!(SyntaxKind::UnitExpression.is_node());
+        assert!(SyntaxKind::AbsenceExpression.is_node());
+        assert!(SyntaxKind::GroupedExpression.is_node());
+        assert!(SyntaxKind::TupleExpression.is_node());
+        assert!(SyntaxKind::ArrayExpression.is_node());
+        assert!(SyntaxKind::LeadingDotVariantExpression.is_node());
         assert!(SyntaxKind::BlockExpression.is_node());
         assert!(SyntaxKind::BlockItem.is_node());
         assert!(SyntaxKind::LocalBindingDeclaration.is_node());
@@ -1362,6 +1457,68 @@ mod tests {
 
         assert_eq!(SyntaxKind::Expression.as_str(), "expression");
         assert_eq!(SyntaxKind::PrimaryExpression.as_str(), "primary_expression");
+        assert_eq!(SyntaxKind::AccessExpression.as_str(), "access_expression");
+
+        assert_eq!(
+            SyntaxKind::MemberAccessOperation.as_str(),
+            "member_access_operation"
+        );
+
+        assert_eq!(
+            SyntaxKind::ElementIndexOperation.as_str(),
+            "element_index_operation"
+        );
+
+        assert_eq!(SyntaxKind::CallOperation.as_str(), "call_operation");
+
+        assert_eq!(
+            SyntaxKind::SliceIndexOperation.as_str(),
+            "slice_index_operation"
+        );
+
+        assert_eq!(
+            SyntaxKind::NullablePropagationOperation.as_str(),
+            "nullable_propagation_operation"
+        );
+
+        assert_eq!(
+            SyntaxKind::ConversionOperation.as_str(),
+            "conversion_operation"
+        );
+
+        assert_eq!(
+            SyntaxKind::TraitQualifiedMemberOperation.as_str(),
+            "trait_qualified_member_operation"
+        );
+
+        assert_eq!(SyntaxKind::ArgumentList.as_str(), "argument_list");
+        assert_eq!(SyntaxKind::Argument.as_str(), "argument");
+
+        assert_eq!(
+            SyntaxKind::StructConstructionBody.as_str(),
+            "struct_construction_body"
+        );
+
+        assert_eq!(
+            SyntaxKind::StructFieldInitializer.as_str(),
+            "struct_field_initializer"
+        );
+
+        assert_eq!(SyntaxKind::LiteralExpression.as_str(), "literal_expression");
+
+        assert_eq!(SyntaxKind::UnitExpression.as_str(), "unit_expression");
+        assert_eq!(SyntaxKind::AbsenceExpression.as_str(), "absence_expression");
+
+        assert_eq!(SyntaxKind::GroupedExpression.as_str(), "grouped_expression");
+
+        assert_eq!(SyntaxKind::TupleExpression.as_str(), "tuple_expression");
+        assert_eq!(SyntaxKind::ArrayExpression.as_str(), "array_expression");
+
+        assert_eq!(
+            SyntaxKind::LeadingDotVariantExpression.as_str(),
+            "leading_dot_variant_expression"
+        );
+
         assert_eq!(SyntaxKind::BlockExpression.as_str(), "block_expression");
         assert_eq!(SyntaxKind::BlockItem.as_str(), "block_item");
 

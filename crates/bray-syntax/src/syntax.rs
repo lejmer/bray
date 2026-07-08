@@ -61,8 +61,23 @@ pub use directive::{
     TargetDirectiveSyntaxBuilder, TestDirectiveSyntax, TestDirectiveSyntaxBuilder,
 };
 pub use expression::{
-    ExpressionSyntax, ExpressionSyntaxBuilder, PrimaryExpressionSyntax,
-    PrimaryExpressionSyntaxBuilder,
+    AbsenceExpressionSyntax, AbsenceExpressionSyntaxBuilder, AccessExpressionSyntax,
+    AccessExpressionSyntaxBuilder, ArgumentListSyntax, ArgumentListSyntaxBuilder, ArgumentSyntax,
+    ArgumentSyntaxBuilder, ArrayExpressionSyntax, ArrayExpressionSyntaxBuilder,
+    CallOperationSyntax, CallOperationSyntaxBuilder, ConversionOperationSyntax,
+    ConversionOperationSyntaxBuilder, ElementIndexOperationSyntax,
+    ElementIndexOperationSyntaxBuilder, ExpressionSyntax, ExpressionSyntaxBuilder,
+    GroupedExpressionSyntax, GroupedExpressionSyntaxBuilder, LeadingDotVariantExpressionSyntax,
+    LeadingDotVariantExpressionSyntaxBuilder, LiteralExpressionSyntax,
+    LiteralExpressionSyntaxBuilder, MemberAccessOperationSyntax,
+    MemberAccessOperationSyntaxBuilder, NullablePropagationOperationSyntax,
+    NullablePropagationOperationSyntaxBuilder, PrimaryExpressionSyntax,
+    PrimaryExpressionSyntaxBuilder, SliceIndexOperationSyntax, SliceIndexOperationSyntaxBuilder,
+    StructConstructionBodySyntax, StructConstructionBodySyntaxBuilder,
+    StructFieldInitializerSyntax, StructFieldInitializerSyntaxBuilder,
+    TraitQualifiedMemberOperationSyntax, TraitQualifiedMemberOperationSyntaxBuilder,
+    TupleExpressionSyntax, TupleExpressionSyntaxBuilder, UnitExpressionSyntax,
+    UnitExpressionSyntaxBuilder,
 };
 pub use field::{
     FieldModifiersSyntax, FieldModifiersSyntaxBuilder, StructFieldDeclarationSyntax,

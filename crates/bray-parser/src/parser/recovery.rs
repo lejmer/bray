@@ -1,35 +1,40 @@
 use bray_syntax::{
-    BlockExpressionSyntaxBuilder, BlockItemSyntaxBuilder, BlockModuleDeclarationSyntaxBuilder,
-    CallableContractDeclarationSyntaxBuilder, CallableDirectivesSyntaxBuilder,
-    CallableOverloadDeclarationSyntaxBuilder, CallableResultClauseSyntaxBuilder,
-    ConstantDeclarationSyntaxBuilder, DestructorMemberDeclarationSyntaxBuilder,
-    DirectiveArgumentListSyntaxBuilder, EnsuresClauseSyntaxBuilder, ExportDeclarationSyntaxBuilder,
-    ExpressionSyntaxBuilder, FinalizerMemberDeclarationSyntaxBuilder,
-    FunctionDeclarationSyntaxBuilder, FunctionDirectivesSyntaxBuilder,
-    GenericArgumentListSyntaxBuilder, GenericParameterListSyntaxBuilder,
-    IdentifierListSyntaxBuilder, ImplementationBodySyntaxBuilder,
-    ImplementationOverloadDeclarationSyntaxBuilder, ImplementationOverloadSubjectSyntaxBuilder,
-    ImplementationSubjectSyntaxBuilder, ImplementationTypeMemberBindingSyntaxBuilder,
-    InherentImplementationDeclarationSyntaxBuilder, LocalBindingDeclarationSyntaxBuilder,
+    AccessExpressionSyntaxBuilder, ArgumentListSyntaxBuilder, ArgumentSyntaxBuilder,
+    ArrayExpressionSyntaxBuilder, BlockExpressionSyntaxBuilder, BlockItemSyntaxBuilder,
+    BlockModuleDeclarationSyntaxBuilder, CallableContractDeclarationSyntaxBuilder,
+    CallableDirectivesSyntaxBuilder, CallableOverloadDeclarationSyntaxBuilder,
+    CallableResultClauseSyntaxBuilder, ConstantDeclarationSyntaxBuilder,
+    ConversionOperationSyntaxBuilder, DestructorMemberDeclarationSyntaxBuilder,
+    DirectiveArgumentListSyntaxBuilder, ElementIndexOperationSyntaxBuilder,
+    EnsuresClauseSyntaxBuilder, ExportDeclarationSyntaxBuilder, ExpressionSyntaxBuilder,
+    FinalizerMemberDeclarationSyntaxBuilder, FunctionDeclarationSyntaxBuilder,
+    FunctionDirectivesSyntaxBuilder, GenericArgumentListSyntaxBuilder,
+    GenericParameterListSyntaxBuilder, GroupedExpressionSyntaxBuilder, IdentifierListSyntaxBuilder,
+    ImplementationBodySyntaxBuilder, ImplementationOverloadDeclarationSyntaxBuilder,
+    ImplementationOverloadSubjectSyntaxBuilder, ImplementationSubjectSyntaxBuilder,
+    ImplementationTypeMemberBindingSyntaxBuilder, InherentImplementationDeclarationSyntaxBuilder,
+    LocalBindingDeclarationSyntaxBuilder, MemberAccessOperationSyntaxBuilder,
     ModuleBodySyntaxBuilder, ModuleDirectivesSyntaxBuilder,
     NamedTraitImplementationDeclarationSyntaxBuilder, OverloadArmListSyntaxBuilder,
     ParameterListSyntaxBuilder, ParameterSyntaxBuilder, PredicateDeclarationSyntaxBuilder,
     PredicateParameterListSyntaxBuilder, PredicateParameterSyntaxBuilder,
     PrimaryExpressionSyntaxBuilder, RequiresClauseSyntaxBuilder,
     ScopeEnterMemberDeclarationSyntaxBuilder, ScopeExitMemberDeclarationSyntaxBuilder,
-    SequencedExpressionSyntaxBuilder, SourceUnitModuleDeclarationSyntaxBuilder,
-    SourceUnitSyntaxBuilder, StructBodySyntaxBuilder, StructDeclarationSyntaxBuilder,
-    StructFieldDeclarationSyntaxBuilder, SyntaxKind, SyntaxToken, TraitApplicationSyntaxBuilder,
-    TraitBodySyntaxBuilder, TraitCallableMemberDeclarationSyntaxBuilder,
-    TraitConstantMemberDeclarationSyntaxBuilder, TraitDeclarationSyntaxBuilder,
-    TraitDestructorRequirementDeclarationSyntaxBuilder,
+    SequencedExpressionSyntaxBuilder, SliceIndexOperationSyntaxBuilder,
+    SourceUnitModuleDeclarationSyntaxBuilder, SourceUnitSyntaxBuilder, StructBodySyntaxBuilder,
+    StructConstructionBodySyntaxBuilder, StructDeclarationSyntaxBuilder,
+    StructFieldDeclarationSyntaxBuilder, StructFieldInitializerSyntaxBuilder, SyntaxKind,
+    SyntaxToken, TraitApplicationSyntaxBuilder, TraitBodySyntaxBuilder,
+    TraitCallableMemberDeclarationSyntaxBuilder, TraitConstantMemberDeclarationSyntaxBuilder,
+    TraitDeclarationSyntaxBuilder, TraitDestructorRequirementDeclarationSyntaxBuilder,
     TraitFinalizerRequirementDeclarationSyntaxBuilder,
-    TraitPredicateMemberDeclarationSyntaxBuilder,
+    TraitPredicateMemberDeclarationSyntaxBuilder, TraitQualifiedMemberOperationSyntaxBuilder,
     TraitScopeEnterRequirementDeclarationSyntaxBuilder,
     TraitScopeExitRequirementDeclarationSyntaxBuilder, TraitTypeMemberDeclarationSyntaxBuilder,
-    TypeCallableMemberDeclarationSyntaxBuilder, TypeConstructorMemberDeclarationSyntaxBuilder,
-    TypeDirectivesSyntaxBuilder, TypeExpressionSyntaxBuilder, TypeFormArgumentListSyntaxBuilder,
-    UnionBodySyntaxBuilder, UnionDeclarationSyntaxBuilder, UnionPayloadFieldSyntaxBuilder,
+    TupleExpressionSyntaxBuilder, TypeCallableMemberDeclarationSyntaxBuilder,
+    TypeConstructorMemberDeclarationSyntaxBuilder, TypeDirectivesSyntaxBuilder,
+    TypeExpressionSyntaxBuilder, TypeFormArgumentListSyntaxBuilder, UnionBodySyntaxBuilder,
+    UnionDeclarationSyntaxBuilder, UnionPayloadFieldSyntaxBuilder,
     UnionVariantDeclarationSyntaxBuilder, UnionVariantPayloadSyntaxBuilder,
     UnnamedTraitImplementationDeclarationSyntaxBuilder, UsesClauseSyntaxBuilder,
     UsingDeclarationSyntaxBuilder, VariantDirectivesSyntaxBuilder, WithClauseSyntaxBuilder,
@@ -598,6 +603,84 @@ impl RecoverySyntaxSink for ExpressionSyntaxBuilder {
 impl RecoverySyntaxSink for PrimaryExpressionSyntaxBuilder {
     fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
         PrimaryExpressionSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for AccessExpressionSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        AccessExpressionSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for MemberAccessOperationSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        MemberAccessOperationSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for ElementIndexOperationSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        ElementIndexOperationSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for ArgumentListSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        ArgumentListSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for ArgumentSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        ArgumentSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for SliceIndexOperationSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        SliceIndexOperationSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for ConversionOperationSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        ConversionOperationSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for TraitQualifiedMemberOperationSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        TraitQualifiedMemberOperationSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for StructConstructionBodySyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        StructConstructionBodySyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for StructFieldInitializerSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        StructFieldInitializerSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for GroupedExpressionSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        GroupedExpressionSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for TupleExpressionSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        TupleExpressionSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for ArrayExpressionSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        ArrayExpressionSyntaxBuilder::push_skipped_tokens(self, tokens);
     }
 }
 
