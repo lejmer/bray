@@ -318,9 +318,9 @@ impl Parser {
         let mut skipped_tokens = Vec::new();
         let mut depth = 0usize;
 
-        while !self.at(SyntaxKind::EndOfFileToken)
-            && !at_boundary(self)
-            && !(depth == 0 && self.at(close_kind))
+        while !(self.at(SyntaxKind::EndOfFileToken)
+            || at_boundary(self)
+            || depth == 0 && self.at(close_kind))
         {
             let token = self.consume();
 
