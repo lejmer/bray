@@ -118,11 +118,19 @@ pub(crate) fn token_expression(
     start: u32,
     end: u32,
 ) -> ExpressionSyntax {
-    let mut primary = PrimaryExpressionSyntax::builder(snapshot.clone(), TextSize::new(start));
+    token_expression_from_token(snapshot, token(kind, start, end))
+}
 
-    primary.push_token(token(kind, start, end));
+pub(crate) fn token_expression_from_token(
+    snapshot: SourceSnapshot,
+    token: SyntaxToken,
+) -> ExpressionSyntax {
+    let start = token.full_range().start();
+    let mut primary = PrimaryExpressionSyntax::builder(snapshot.clone(), start);
 
-    let mut expression = ExpressionSyntax::builder(snapshot, TextSize::new(start));
+    primary.push_token(token);
+
+    let mut expression = ExpressionSyntax::builder(snapshot, start);
 
     expression.push_primary_expression(primary.build());
 

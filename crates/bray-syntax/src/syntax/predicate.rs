@@ -375,14 +375,15 @@ impl TraitPredicateMemberDeclarationSyntax {
 mod tests {
     use bray_source::{TextRange, TextSize};
 
-    use crate::test_support::{snapshot as test_snapshot, token, typed_identifier};
+    use crate::test_support::{
+        snapshot as test_snapshot, token, token_expression_from_token, typed_identifier,
+    };
     use crate::{
-        PredicateDeclarationSyntax, PredicateModifiersSyntax, PredicateParameterListSyntax,
-        PredicateParameterSyntax, SyntaxKind, SyntaxText, SyntaxTrivia,
-        TraitPredicateMemberDeclarationSyntax, TraitPredicateMemberModifiersSyntax,
+        ExpressionSyntax, PredicateDeclarationSyntax, PredicateModifiersSyntax,
+        PredicateParameterListSyntax, PredicateParameterSyntax, SyntaxKind, SyntaxText,
+        SyntaxTrivia, TraitPredicateMemberDeclarationSyntax, TraitPredicateMemberModifiersSyntax,
     };
 
-    // TODO(syntax): Update this when predicate bodies are typed syntax.
     #[test]
     fn predicate_declarations_store_modifiers_parameters_and_tail() {
         let snapshot = test_snapshot(
@@ -408,16 +409,7 @@ mod tests {
             ]),
         );
 
-        builder.push_skipped_tokens([
-            token(SyntaxKind::IdentifierToken, 37, 42).with_trailing_trivia([
-                SyntaxTrivia::whitespace(TextRange::new(TextSize::new(42), TextSize::new(43))),
-            ]),
-            token(SyntaxKind::GreaterToken, 43, 44).with_trailing_trivia([
-                SyntaxTrivia::whitespace(TextRange::new(TextSize::new(44), TextSize::new(45))),
-            ]),
-            token(SyntaxKind::DecimalIntegerLiteralToken, 45, 46),
-        ]);
-
+        builder.push_expression(predicate_body_expression(snapshot.clone()));
         builder.push_semicolon_token(token(SyntaxKind::SemicolonToken, 46, 47));
 
         let declaration = builder.build();
@@ -444,10 +436,17 @@ mod tests {
         );
 
         assert!(declaration.equals_token().is_some());
-        assert_eq!(declaration.skipped_syntax().count(), 1);
+
+        assert_eq!(
+            declaration
+                .expression()
+                .map(|expression| expression.full_text()),
+            Some(String::from("value > 0"))
+        );
+
+        assert_eq!(declaration.skipped_syntax().count(), 0);
     }
 
-    // TODO(syntax): Update this when predicate bodies are typed syntax.
     #[test]
     fn trait_predicate_member_declarations_store_modifiers_parameters_and_tail() {
         let snapshot = test_snapshot(
@@ -477,16 +476,7 @@ mod tests {
             ]),
         );
 
-        builder.push_skipped_tokens([
-            token(SyntaxKind::IdentifierToken, 37, 42).with_trailing_trivia([
-                SyntaxTrivia::whitespace(TextRange::new(TextSize::new(42), TextSize::new(43))),
-            ]),
-            token(SyntaxKind::GreaterToken, 43, 44).with_trailing_trivia([
-                SyntaxTrivia::whitespace(TextRange::new(TextSize::new(44), TextSize::new(45))),
-            ]),
-            token(SyntaxKind::DecimalIntegerLiteralToken, 45, 46),
-        ]);
-
+        builder.push_expression(predicate_body_expression(snapshot.clone()));
         builder.push_semicolon_token(token(SyntaxKind::SemicolonToken, 46, 47));
 
         let declaration = builder.build();
@@ -513,7 +503,15 @@ mod tests {
         );
 
         assert!(declaration.equals_token().is_some());
-        assert_eq!(declaration.skipped_syntax().count(), 1);
+
+        assert_eq!(
+            declaration
+                .expression()
+                .map(|expression| expression.full_text()),
+            Some(String::from("value > 0"))
+        );
+
+        assert_eq!(declaration.skipped_syntax().count(), 0);
     }
 
     fn predicate_modifiers(snapshot: bray_source::SourceSnapshot) -> PredicateModifiersSyntax {
@@ -564,6 +562,30 @@ mod tests {
         let mut builder = PredicateParameterSyntax::builder(snapshot.clone(), TextSize::new(24));
 
         builder.push_typed_identifier(typed_identifier(snapshot, 24, 29, 31, 34, false));
+
+        builder.build()
+    }
+
+    fn predicate_body_expression(snapshot: bray_source::SourceSnapshot) -> ExpressionSyntax {
+        let mut builder = ExpressionSyntax::builder(snapshot.clone(), TextSize::new(37));
+
+        builder.push_expression(token_expression_from_token(
+            snapshot.clone(),
+            token(SyntaxKind::IdentifierToken, 37, 42).with_trailing_trivia([
+                SyntaxTrivia::whitespace(TextRange::new(TextSize::new(42), TextSize::new(43))),
+            ]),
+        ));
+
+        builder.push_operator_token(
+            token(SyntaxKind::GreaterToken, 43, 44).with_trailing_trivia([
+                SyntaxTrivia::whitespace(TextRange::new(TextSize::new(44), TextSize::new(45))),
+            ]),
+        );
+
+        builder.push_expression(token_expression_from_token(
+            snapshot,
+            token(SyntaxKind::DecimalIntegerLiteralToken, 45, 46),
+        ));
 
         builder.build()
     }
