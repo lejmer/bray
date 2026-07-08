@@ -4,20 +4,12 @@ use bray_syntax::{
     TraitApplicationSyntax, UnnamedTraitImplementationDeclarationSyntax,
 };
 
+use super::contract::{BRACED_DECLARATION_CONSTRAINT_BOUNDARY_KINDS, WithClauseSyntaxSink};
 use super::module::MODULE_ITEM_START_KINDS;
-use super::recovery::RecoverySyntaxSink;
 use super::state::Parser;
 
 const IMPLEMENTATION_AFTER_SUBJECT_BOUNDARY_KINDS: [SyntaxKind; 6] = [
     SyntaxKind::OpenParenToken,
-    SyntaxKind::WithKeyword,
-    SyntaxKind::OpenBraceToken,
-    SyntaxKind::SemicolonToken,
-    SyntaxKind::CloseBraceToken,
-    SyntaxKind::EndOfFileToken,
-];
-
-const IMPLEMENTATION_CONSTRAINT_BOUNDARY_KINDS: [SyntaxKind; 5] = [
     SyntaxKind::WithKeyword,
     SyntaxKind::OpenBraceToken,
     SyntaxKind::SemicolonToken,
@@ -164,14 +156,8 @@ impl Parser {
         builder.build()
     }
 
-    fn parse_implementation_constraints(&mut self, builder: &mut impl RecoverySyntaxSink) {
-        while self.at(SyntaxKind::WithKeyword) {
-            // TODO(parser): Parse implementation constraint clauses once constraint syntax is implemented.
-            self.recover_current_and_until_predicate(
-                builder,
-                Parser::at_implementation_constraint_boundary,
-            );
-        }
+    fn parse_implementation_constraints(&mut self, builder: &mut impl WithClauseSyntaxSink) {
+        self.parse_with_clauses(builder, Parser::at_implementation_constraint_boundary);
     }
 
     fn parse_implementation_body(&mut self) -> ImplementationBodySyntax {
@@ -197,7 +183,7 @@ impl Parser {
     }
 
     fn at_implementation_constraint_boundary(&mut self) -> bool {
-        self.at_any(&IMPLEMENTATION_CONSTRAINT_BOUNDARY_KINDS)
+        self.at_any(&BRACED_DECLARATION_CONSTRAINT_BOUNDARY_KINDS)
             || self.at_any(&MODULE_ITEM_START_KINDS)
     }
 
@@ -400,10 +386,9 @@ mod tests {
         assert!(result.diagnostics().is_empty());
     }
 
-    // TODO(parser): Update this when implementation constraints are parsed.
     #[test]
-    fn parser_parses_trait_implementation_generic_arguments_and_skips_constraints_for_now() {
-        let source = "module main; impl Buffer<T>(Reader<Bytes>) with(T: Copy) { func read() {} }";
+    fn parser_parses_trait_implementation_generic_arguments_and_constraints() {
+        let source = "module main; impl Buffer<T>(Reader<Bytes>) with(copyable) { func read() {} }";
         let sources = source_store([source]);
         let result = parse_compilation_unit(&sources);
 
@@ -416,8 +401,6 @@ mod tests {
         let [declaration] = declarations.as_slice() else {
             panic!("expected one unnamed trait implementation declaration: {declarations:?}");
         };
-
-        let declaration_skipped = declaration.skipped_syntax().collect::<Vec<_>>();
 
         let body = declaration.implementation_body();
         let members = body.type_callable_member_declarations().collect::<Vec<_>>();
@@ -439,10 +422,6 @@ mod tests {
             panic!("expected trait generic arguments: {trait_generics:?}");
         };
 
-        let [constraint] = declaration_skipped.as_slice() else {
-            panic!("expected constraint as skipped syntax: {declaration_skipped:?}");
-        };
-
         let [member] = members.as_slice() else {
             panic!("expected one trait implementation callable member: {members:?}");
         };
@@ -452,14 +431,12 @@ mod tests {
         assert_eq!(trait_generic_arguments.full_text(), "<Bytes>");
         assert_eq!(subject_generic_arguments.generic_arguments().count(), 1);
         assert_eq!(trait_generic_arguments.generic_arguments().count(), 1);
-        assert_eq!(constraint.full_text(), "with(T: Copy) ");
+        assert_eq!(declaration.with_clauses().count(), 1);
+        assert_eq!(declaration.skipped_syntax().count(), 0);
         assert_eq!(member.full_text(), "func read() {} ");
         assert_eq!(body.skipped_syntax().count(), 0);
 
-        assert_eq!(
-            parse_diagnostic_kinds(&result),
-            [DiagnosticKind::SyntaxSkippedSyntax]
-        );
+        assert!(result.diagnostics().is_empty());
     }
 
     #[test]

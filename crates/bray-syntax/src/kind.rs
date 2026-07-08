@@ -75,6 +75,14 @@ pub enum SyntaxKind {
     CallableContractDeclaration,
     /// Optional callable contract modifiers in source order.
     CallableContractModifiers,
+    /// `requires(...)` callable contract clause.
+    RequiresClause,
+    /// `ensures(...)` callable contract clause.
+    EnsuresClause,
+    /// `with(...)` static constraint clause.
+    WithClause,
+    /// `uses(...)` trusted capability clause.
+    UsesClause,
     /// Optional overload declaration modifiers in source order.
     OverloadModifiers,
     /// Callable overload declaration.
@@ -375,6 +383,10 @@ impl SyntaxKind {
                 | Self::PredicateParameter
                 | Self::CallableContractDeclaration
                 | Self::CallableContractModifiers
+                | Self::RequiresClause
+                | Self::EnsuresClause
+                | Self::WithClause
+                | Self::UsesClause
                 | Self::OverloadModifiers
                 | Self::CallableOverloadDeclaration
                 | Self::ImplementationOverloadDeclaration
@@ -592,6 +604,10 @@ impl SyntaxKind {
             Self::PredicateParameter => "predicate_parameter",
             Self::CallableContractDeclaration => "callable_contract_declaration",
             Self::CallableContractModifiers => "callable_contract_modifiers",
+            Self::RequiresClause => "requires_clause",
+            Self::EnsuresClause => "ensures_clause",
+            Self::WithClause => "with_clause",
+            Self::UsesClause => "uses_clause",
             Self::OverloadModifiers => "overload_modifiers",
             Self::CallableOverloadDeclaration => "callable_overload_declaration",
             Self::ImplementationOverloadDeclaration => "implementation_overload_declaration",
@@ -842,6 +858,10 @@ mod tests {
 
         assert!(SyntaxKind::CallableContractDeclaration.is_node());
         assert!(SyntaxKind::CallableContractModifiers.is_node());
+        assert!(SyntaxKind::RequiresClause.is_node());
+        assert!(SyntaxKind::EnsuresClause.is_node());
+        assert!(SyntaxKind::WithClause.is_node());
+        assert!(SyntaxKind::UsesClause.is_node());
         assert!(SyntaxKind::OverloadModifiers.is_node());
         assert!(SyntaxKind::CallableOverloadDeclaration.is_node());
         assert!(SyntaxKind::ImplementationOverloadDeclaration.is_node());
@@ -1055,6 +1075,11 @@ mod tests {
             SyntaxKind::CallableContractModifiers.as_str(),
             "callable_contract_modifiers"
         );
+
+        assert_eq!(SyntaxKind::RequiresClause.as_str(), "requires_clause");
+        assert_eq!(SyntaxKind::EnsuresClause.as_str(), "ensures_clause");
+        assert_eq!(SyntaxKind::WithClause.as_str(), "with_clause");
+        assert_eq!(SyntaxKind::UsesClause.as_str(), "uses_clause");
 
         assert_eq!(SyntaxKind::OverloadModifiers.as_str(), "overload_modifiers");
 

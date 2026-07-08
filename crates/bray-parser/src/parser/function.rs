@@ -8,7 +8,6 @@ use super::directive::{
     TEST_DIRECTIVE_NAME,
 };
 use super::module::MODULE_ITEM_START_KINDS;
-use super::recovery::RecoverySyntaxSink;
 use super::state::Parser;
 
 const FUNCTION_DECLARATION_START_KINDS: [SyntaxKind; 8] = [
@@ -33,18 +32,7 @@ const FUNCTION_DIRECTIVE_ARGUMENT_RECOVERY_KINDS: [SyntaxKind; 8] = [
     SyntaxKind::FuncKeyword,
 ];
 
-const CALLABLE_CONTRACT_CLAUSE_START_KINDS: [SyntaxKind; 4] = [
-    SyntaxKind::RequiresKeyword,
-    SyntaxKind::EnsuresKeyword,
-    SyntaxKind::WithKeyword,
-    SyntaxKind::UsesKeyword,
-];
-
-const CALLABLE_CONTRACT_BOUNDARY_KINDS: [SyntaxKind; 8] = [
-    SyntaxKind::RequiresKeyword,
-    SyntaxKind::EnsuresKeyword,
-    SyntaxKind::WithKeyword,
-    SyntaxKind::UsesKeyword,
+const FUNCTION_CONTRACT_TAIL_BOUNDARY_KINDS: [SyntaxKind; 4] = [
     SyntaxKind::OpenBraceToken,
     SyntaxKind::SemicolonToken,
     SyntaxKind::CloseBraceToken,
@@ -169,19 +157,10 @@ impl Parser {
             || self.at(SyntaxKind::ConstKeyword)
     }
 
-    pub(super) fn parse_callable_contract_clauses(
-        &mut self,
-        builder: &mut impl RecoverySyntaxSink,
-        mut at_boundary: impl FnMut(&mut Parser) -> bool,
-    ) {
-        while self.at_any(&CALLABLE_CONTRACT_CLAUSE_START_KINDS) {
-            // TODO(parser): Parse callable contract clauses once clause syntax is implemented.
-            self.recover_current_and_until_predicate(builder, |parser| at_boundary(parser));
-        }
-    }
-
     fn at_module_callable_contract_boundary(&mut self) -> bool {
-        self.at_any(&CALLABLE_CONTRACT_BOUNDARY_KINDS) || self.at_any(&MODULE_ITEM_START_KINDS)
+        self.at_callable_contract_clause_start()
+            || self.at_any(&FUNCTION_CONTRACT_TAIL_BOUNDARY_KINDS)
+            || self.at_any(&MODULE_ITEM_START_KINDS)
     }
 
     fn parse_function_declaration_tail(&mut self, builder: &mut FunctionDeclarationSyntaxBuilder) {

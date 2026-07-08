@@ -1,8 +1,10 @@
 use super::super::callable::{
     CallableBodyBlockExpressionSyntax, CallableResultClauseSyntax, ParameterListSyntax,
 };
-use crate::SyntaxKind;
 use crate::node::{child_nodes, define_source_syntax_node};
+use crate::{
+    EnsuresClauseSyntax, RequiresClauseSyntax, SyntaxKind, UsesClauseSyntax, WithClauseSyntax,
+};
 
 macro_rules! define_lifecycle_body_node_with_required_result {
     (
@@ -77,6 +79,40 @@ macro_rules! define_lifecycle_body_node_with_required_result {
                         push_callable_body_block_expression;
                         ty: CallableBodyBlockExpressionSyntax;
                         kind: SyntaxKind::CallableBodyBlockExpression;
+                    }
+                ],
+                repeated_children: [
+                    {
+                        /// Returns `requires(...)` clauses in source order.
+                        requires_clauses;
+                        /// Appends a `requires(...)` clause.
+                        push_requires_clause;
+                        ty: RequiresClauseSyntax;
+                        kind: SyntaxKind::RequiresClause;
+                    },
+                    {
+                        /// Returns `ensures(...)` clauses in source order.
+                        ensures_clauses;
+                        /// Appends an `ensures(...)` clause.
+                        push_ensures_clause;
+                        ty: EnsuresClauseSyntax;
+                        kind: SyntaxKind::EnsuresClause;
+                    },
+                    {
+                        /// Returns `with(...)` clauses in source order.
+                        with_clauses;
+                        /// Appends a `with(...)` clause.
+                        push_with_clause;
+                        ty: WithClauseSyntax;
+                        kind: SyntaxKind::WithClause;
+                    },
+                    {
+                        /// Returns `uses(...)` clauses in source order.
+                        uses_clauses;
+                        /// Appends a `uses(...)` clause.
+                        push_uses_clause;
+                        ty: UsesClauseSyntax;
+                        kind: SyntaxKind::UsesClause;
                     }
                 ],
             }
@@ -159,6 +195,38 @@ macro_rules! define_lifecycle_body_node_with_optional_result {
                         push_callable_result_clause;
                         ty: CallableResultClauseSyntax;
                         kind: SyntaxKind::CallableResultClause;
+                    },
+                    {
+                        /// Returns `requires(...)` clauses in source order.
+                        requires_clauses;
+                        /// Appends a `requires(...)` clause.
+                        push_requires_clause;
+                        ty: RequiresClauseSyntax;
+                        kind: SyntaxKind::RequiresClause;
+                    },
+                    {
+                        /// Returns `ensures(...)` clauses in source order.
+                        ensures_clauses;
+                        /// Appends an `ensures(...)` clause.
+                        push_ensures_clause;
+                        ty: EnsuresClauseSyntax;
+                        kind: SyntaxKind::EnsuresClause;
+                    },
+                    {
+                        /// Returns `with(...)` clauses in source order.
+                        with_clauses;
+                        /// Appends a `with(...)` clause.
+                        push_with_clause;
+                        ty: WithClauseSyntax;
+                        kind: SyntaxKind::WithClause;
+                    },
+                    {
+                        /// Returns `uses(...)` clauses in source order.
+                        uses_clauses;
+                        /// Appends a `uses(...)` clause.
+                        push_uses_clause;
+                        ty: UsesClauseSyntax;
+                        kind: SyntaxKind::UsesClause;
                     }
                 ],
             }
@@ -256,6 +324,40 @@ macro_rules! define_lifecycle_requirement_node_with_required_result {
                         kind: SyntaxKind::CallableResultClause;
                     }
                 ],
+                repeated_children: [
+                    {
+                        /// Returns `requires(...)` clauses in source order.
+                        requires_clauses;
+                        /// Appends a `requires(...)` clause.
+                        push_requires_clause;
+                        ty: RequiresClauseSyntax;
+                        kind: SyntaxKind::RequiresClause;
+                    },
+                    {
+                        /// Returns `ensures(...)` clauses in source order.
+                        ensures_clauses;
+                        /// Appends an `ensures(...)` clause.
+                        push_ensures_clause;
+                        ty: EnsuresClauseSyntax;
+                        kind: SyntaxKind::EnsuresClause;
+                    },
+                    {
+                        /// Returns `with(...)` clauses in source order.
+                        with_clauses;
+                        /// Appends a `with(...)` clause.
+                        push_with_clause;
+                        ty: WithClauseSyntax;
+                        kind: SyntaxKind::WithClause;
+                    },
+                    {
+                        /// Returns `uses(...)` clauses in source order.
+                        uses_clauses;
+                        /// Appends a `uses(...)` clause.
+                        push_uses_clause;
+                        ty: UsesClauseSyntax;
+                        kind: SyntaxKind::UsesClause;
+                    }
+                ],
             }
         }
     };
@@ -337,6 +439,38 @@ macro_rules! define_lifecycle_requirement_node_with_optional_result {
                         push_callable_result_clause;
                         ty: CallableResultClauseSyntax;
                         kind: SyntaxKind::CallableResultClause;
+                    },
+                    {
+                        /// Returns `requires(...)` clauses in source order.
+                        requires_clauses;
+                        /// Appends a `requires(...)` clause.
+                        push_requires_clause;
+                        ty: RequiresClauseSyntax;
+                        kind: SyntaxKind::RequiresClause;
+                    },
+                    {
+                        /// Returns `ensures(...)` clauses in source order.
+                        ensures_clauses;
+                        /// Appends an `ensures(...)` clause.
+                        push_ensures_clause;
+                        ty: EnsuresClauseSyntax;
+                        kind: SyntaxKind::EnsuresClause;
+                    },
+                    {
+                        /// Returns `with(...)` clauses in source order.
+                        with_clauses;
+                        /// Appends a `with(...)` clause.
+                        push_with_clause;
+                        ty: WithClauseSyntax;
+                        kind: SyntaxKind::WithClause;
+                    },
+                    {
+                        /// Returns `uses(...)` clauses in source order.
+                        uses_clauses;
+                        /// Appends a `uses(...)` clause.
+                        push_uses_clause;
+                        ty: UsesClauseSyntax;
+                        kind: SyntaxKind::UsesClause;
                     }
                 ],
             }

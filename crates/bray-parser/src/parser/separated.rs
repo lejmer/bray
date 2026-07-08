@@ -45,10 +45,6 @@ impl Parser {
         self.at_any(terminators) || self.at(SyntaxKind::EndOfFileToken)
     }
 
-    fn at_list_boundary(&mut self, spec: SeparatedListSpec<'_>) -> bool {
-        self.at(spec.separator_kind) || self.at_list_end(spec.terminators)
-    }
-
     #[cfg(test)]
     pub(super) fn parse_identifier_list(
         &mut self,
@@ -91,16 +87,31 @@ impl Parser {
         spec: SeparatedListSpec<'_>,
         mut parse_item: impl FnMut(&mut Parser) -> Item,
     ) {
+        self.parse_separated_list_until(
+            builder,
+            spec,
+            |parser| parser.at_list_end(spec.terminators),
+            &mut parse_item,
+        );
+    }
+
+    pub(super) fn parse_separated_list_until<Item>(
+        &mut self,
+        builder: &mut impl SeparatedListSyntaxSink<Item>,
+        spec: SeparatedListSpec<'_>,
+        mut at_end: impl FnMut(&mut Parser) -> bool,
+        mut parse_item: impl FnMut(&mut Parser) -> Item,
+    ) {
         let mut position = SeparatedListPosition::Item { allow_end: true };
 
         loop {
+            let at_end_now = at_end(self);
+
             match position {
-                SeparatedListPosition::Item { allow_end }
-                    if allow_end && self.at_list_end(spec.terminators) =>
-                {
+                SeparatedListPosition::Item { allow_end } if allow_end && at_end_now => {
                     return;
                 }
-                SeparatedListPosition::Separator if self.at_list_end(spec.terminators) => {
+                SeparatedListPosition::Separator if at_end_now => {
                     return;
                 }
                 _ => {}
@@ -108,7 +119,13 @@ impl Parser {
 
             match position {
                 SeparatedListPosition::Item { .. } => {
-                    self.parse_separated_list_item(builder, spec, &mut parse_item);
+                    self.parse_separated_list_item_until(
+                        builder,
+                        spec,
+                        &mut at_end,
+                        &mut parse_item,
+                    );
+
                     position = SeparatedListPosition::Separator;
                 }
                 SeparatedListPosition::Separator => {
@@ -127,10 +144,11 @@ impl Parser {
         }
     }
 
-    fn parse_separated_list_item<Item>(
+    fn parse_separated_list_item_until<Item>(
         &mut self,
         builder: &mut impl SeparatedListSyntaxSink<Item>,
         spec: SeparatedListSpec<'_>,
+        at_end: &mut impl FnMut(&mut Parser) -> bool,
         parse_item: &mut impl FnMut(&mut Parser) -> Item,
     ) {
         let item_start = self.peek().start();
@@ -138,15 +156,25 @@ impl Parser {
 
         builder.push_item(item);
 
-        if self.peek().start() != item_start || self.at_list_boundary(spec) {
+        if self.peek().start() != item_start || self.at_list_boundary_until(spec, at_end) {
             return;
         }
 
-        if self.recover_until(builder, spec.recovery_kinds) || self.at_list_boundary(spec) {
+        if self.recover_until(builder, spec.recovery_kinds)
+            || self.at_list_boundary_until(spec, at_end)
+        {
             return;
         }
 
         self.recover_current_token(builder);
+    }
+
+    fn at_list_boundary_until(
+        &mut self,
+        spec: SeparatedListSpec<'_>,
+        at_end: &mut impl FnMut(&mut Parser) -> bool,
+    ) -> bool {
+        self.at(spec.separator_kind) || at_end(self)
     }
 }
 
@@ -174,6 +202,7 @@ mod tests {
     fn parser_separated_list_helper_parses_valid_identifier_lists() {
         let sources = source_store(["a,b,"]);
         let snapshot = source(&sources, 0);
+
         let mut parser = Parser::new(snapshot.clone());
 
         let list = parser.parse_identifier_list(&[SyntaxKind::EndOfFileToken]);
@@ -200,6 +229,7 @@ mod tests {
     fn parser_separated_list_helper_represents_missing_separators() {
         let sources = source_store(["a b"]);
         let snapshot = source(&sources, 0);
+
         let mut parser = Parser::new(snapshot.clone());
 
         let list = parser.parse_identifier_list(&[SyntaxKind::EndOfFileToken]);
@@ -225,6 +255,7 @@ mod tests {
     fn parser_separated_list_helper_recovers_bad_tokens_without_losing_later_items() {
         let sources = source_store(["a,$,b"]);
         let snapshot = source(&sources, 0);
+
         let mut parser = Parser::new(snapshot.clone());
 
         let list = parser.parse_identifier_list(&[SyntaxKind::EndOfFileToken]);

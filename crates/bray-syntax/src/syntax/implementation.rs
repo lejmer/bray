@@ -8,7 +8,7 @@ use super::path::PathSyntax;
 use crate::node::define_source_syntax_node;
 use crate::{
     CallableOverloadDeclarationSyntax, ConstantDeclarationSyntax, GenericArgumentListSyntax,
-    PredicateDeclarationSyntax, SyntaxKind,
+    PredicateDeclarationSyntax, SyntaxKind, WithClauseSyntax,
 };
 
 define_source_syntax_node! {
@@ -256,6 +256,16 @@ define_source_syntax_node! {
                 kind: SyntaxKind::ImplementationBody;
             }
         ],
+        repeated_children: [
+            {
+                /// Returns `with(...)` clauses in source order.
+                with_clauses;
+                /// Appends a `with(...)` clause.
+                push_with_clause;
+                ty: WithClauseSyntax;
+                kind: SyntaxKind::WithClause;
+            }
+        ],
     }
 }
 
@@ -321,6 +331,16 @@ define_source_syntax_node! {
                 push_implementation_body;
                 ty: ImplementationBodySyntax;
                 kind: SyntaxKind::ImplementationBody;
+            }
+        ],
+        repeated_children: [
+            {
+                /// Returns `with(...)` clauses in source order.
+                with_clauses;
+                /// Appends a `with(...)` clause.
+                push_with_clause;
+                ty: WithClauseSyntax;
+                kind: SyntaxKind::WithClause;
             }
         ],
     }
@@ -404,6 +424,16 @@ define_source_syntax_node! {
                 push_implementation_body;
                 ty: ImplementationBodySyntax;
                 kind: SyntaxKind::ImplementationBody;
+            }
+        ],
+        repeated_children: [
+            {
+                /// Returns `with(...)` clauses in source order.
+                with_clauses;
+                /// Appends a `with(...)` clause.
+                push_with_clause;
+                ty: WithClauseSyntax;
+                kind: SyntaxKind::WithClause;
             }
         ],
     }

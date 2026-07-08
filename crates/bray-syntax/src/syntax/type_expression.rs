@@ -1,7 +1,8 @@
 use crate::node::{child_nodes, define_source_syntax_node};
 use crate::{
-    CallableResultClauseSyntax, ExpressionSyntax, GenericArgumentListSyntax, ParameterListSyntax,
-    PathSyntax, SyntaxKind, SyntaxToken, TypeFormArgumentListSyntax,
+    CallableResultClauseSyntax, EnsuresClauseSyntax, ExpressionSyntax, GenericArgumentListSyntax,
+    ParameterListSyntax, PathSyntax, RequiresClauseSyntax, SyntaxKind, SyntaxToken,
+    TypeFormArgumentListSyntax, UsesClauseSyntax, WithClauseSyntax,
 };
 
 define_source_syntax_node! {
@@ -155,6 +156,38 @@ define_source_syntax_node! {
                 push_callable_result_clause;
                 ty: CallableResultClauseSyntax;
                 kind: SyntaxKind::CallableResultClause;
+            },
+            {
+                /// Returns direct `requires(...)` clauses in source order.
+                requires_clauses;
+                /// Appends a `requires(...)` clause.
+                push_requires_clause;
+                ty: RequiresClauseSyntax;
+                kind: SyntaxKind::RequiresClause;
+            },
+            {
+                /// Returns direct `ensures(...)` clauses in source order.
+                ensures_clauses;
+                /// Appends an `ensures(...)` clause.
+                push_ensures_clause;
+                ty: EnsuresClauseSyntax;
+                kind: SyntaxKind::EnsuresClause;
+            },
+            {
+                /// Returns direct `with(...)` clauses in source order.
+                with_clauses;
+                /// Appends a `with(...)` clause.
+                push_with_clause;
+                ty: WithClauseSyntax;
+                kind: SyntaxKind::WithClause;
+            },
+            {
+                /// Returns direct `uses(...)` clauses in source order.
+                uses_clauses;
+                /// Appends a `uses(...)` clause.
+                push_uses_clause;
+                ty: UsesClauseSyntax;
+                kind: SyntaxKind::UsesClause;
             },
             {
                 /// Returns direct runtime expression children in source order.

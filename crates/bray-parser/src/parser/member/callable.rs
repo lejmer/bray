@@ -6,6 +6,7 @@ use bray_syntax::{
 };
 
 use crate::cursor::RecoverySet;
+use crate::parser::contract::CallableContractClauseSyntaxSink;
 use crate::parser::member::body::{MEMBER_ITEM_RECOVERY_KINDS, MEMBER_KEYWORD_RECOVERY_KINDS};
 use crate::parser::recovery::RecoverySyntaxSink;
 use crate::parser::state::Parser;
@@ -32,20 +33,11 @@ const TRAIT_CALLABLE_MEMBER_START_KINDS: [SyntaxKind; 7] = [
     SyntaxKind::FuncKeyword,
 ];
 
-const CALLABLE_MEMBER_CONTRACT_BOUNDARY_KINDS: [SyntaxKind; 13] = [
-    SyntaxKind::RequiresKeyword,
-    SyntaxKind::EnsuresKeyword,
-    SyntaxKind::WithKeyword,
-    SyntaxKind::UsesKeyword,
+const CALLABLE_MEMBER_CONTRACT_TAIL_BOUNDARY_KINDS: [SyntaxKind; 4] = [
     SyntaxKind::OpenBraceToken,
     SyntaxKind::SemicolonToken,
     SyntaxKind::CloseBraceToken,
     SyntaxKind::EndOfFileToken,
-    SyntaxKind::PublicKeyword,
-    SyntaxKind::InternalKeyword,
-    SyntaxKind::StaticKeyword,
-    SyntaxKind::ConsumeKeyword,
-    SyntaxKind::FuncKeyword,
 ];
 
 const CALLABLE_MEMBER_BODY_MISSING_BOUNDARY_KINDS: [SyntaxKind; 17] = [
@@ -238,7 +230,8 @@ impl Parser {
     }
 
     fn at_callable_member_contract_boundary(&mut self) -> bool {
-        self.at_any(&CALLABLE_MEMBER_CONTRACT_BOUNDARY_KINDS)
+        self.at_callable_contract_clause_start()
+            || self.at_any(&CALLABLE_MEMBER_CONTRACT_TAIL_BOUNDARY_KINDS)
             || self.at_any(&MEMBER_KEYWORD_RECOVERY_KINDS)
     }
 
@@ -303,7 +296,9 @@ impl Parser {
     }
 }
 
-trait CallableMemberDeclarationSyntaxSink: RecoverySyntaxSink {
+trait CallableMemberDeclarationSyntaxSink:
+    RecoverySyntaxSink + CallableContractClauseSyntaxSink
+{
     fn push_func_keyword(&mut self, token: SyntaxToken);
 
     fn push_identifier_token(&mut self, token: SyntaxToken);

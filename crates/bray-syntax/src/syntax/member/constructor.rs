@@ -2,7 +2,10 @@ use super::super::callable::{
     CallableBodyBlockExpressionSyntax, CallableResultClauseSyntax, ParameterListSyntax,
 };
 use crate::node::define_source_syntax_node;
-use crate::{SyntaxKind, SyntaxToken};
+use crate::{
+    EnsuresClauseSyntax, RequiresClauseSyntax, SyntaxKind, SyntaxToken, UsesClauseSyntax,
+    WithClauseSyntax,
+};
 
 define_source_syntax_node! {
     /// Optional constructor member modifiers in source order.
@@ -113,6 +116,40 @@ define_source_syntax_node! {
                 push_callable_body_block_expression;
                 ty: CallableBodyBlockExpressionSyntax;
                 kind: SyntaxKind::CallableBodyBlockExpression;
+            }
+        ],
+        repeated_children: [
+            {
+                /// Returns `requires(...)` clauses in source order.
+                requires_clauses;
+                /// Appends a `requires(...)` clause.
+                push_requires_clause;
+                ty: RequiresClauseSyntax;
+                kind: SyntaxKind::RequiresClause;
+            },
+            {
+                /// Returns `ensures(...)` clauses in source order.
+                ensures_clauses;
+                /// Appends an `ensures(...)` clause.
+                push_ensures_clause;
+                ty: EnsuresClauseSyntax;
+                kind: SyntaxKind::EnsuresClause;
+            },
+            {
+                /// Returns `with(...)` clauses in source order.
+                with_clauses;
+                /// Appends a `with(...)` clause.
+                push_with_clause;
+                ty: WithClauseSyntax;
+                kind: SyntaxKind::WithClause;
+            },
+            {
+                /// Returns `uses(...)` clauses in source order.
+                uses_clauses;
+                /// Appends a `uses(...)` clause.
+                push_uses_clause;
+                ty: UsesClauseSyntax;
+                kind: SyntaxKind::UsesClause;
             }
         ],
     }

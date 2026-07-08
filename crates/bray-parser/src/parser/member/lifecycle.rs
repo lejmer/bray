@@ -13,6 +13,7 @@ use bray_syntax::{
     TraitScopeExitRequirementDeclarationSyntaxBuilder, UnionBodySyntaxBuilder,
 };
 
+use crate::parser::contract::CallableContractClauseSyntaxSink;
 use crate::parser::member::body::{MEMBER_ITEM_RECOVERY_KINDS, MEMBER_KEYWORD_RECOVERY_KINDS};
 use crate::parser::recovery::RecoverySyntaxSink;
 use crate::parser::state::Parser;
@@ -33,13 +34,10 @@ const SCOPE_LIFECYCLE_MEMBER_START_KINDS: [SyntaxKind; 4] = [
     SyntaxKind::ExitKeyword,
 ];
 
-const LIFECYCLE_CONTRACT_BOUNDARY_KINDS: [SyntaxKind; 7] = [
-    SyntaxKind::RequiresKeyword,
-    SyntaxKind::EnsuresKeyword,
-    SyntaxKind::WithKeyword,
-    SyntaxKind::UsesKeyword,
+const LIFECYCLE_CONTRACT_TAIL_BOUNDARY_KINDS: [SyntaxKind; 4] = [
     SyntaxKind::OpenBraceToken,
     SyntaxKind::SemicolonToken,
+    SyntaxKind::CloseBraceToken,
     SyntaxKind::EndOfFileToken,
 ];
 
@@ -330,7 +328,8 @@ impl Parser {
     }
 
     fn at_lifecycle_contract_boundary(&mut self) -> bool {
-        self.at_any(&LIFECYCLE_CONTRACT_BOUNDARY_KINDS)
+        self.at_callable_contract_clause_start()
+            || self.at_any(&LIFECYCLE_CONTRACT_TAIL_BOUNDARY_KINDS)
             || self.at_any(&MEMBER_KEYWORD_RECOVERY_KINDS)
     }
 
@@ -484,7 +483,7 @@ pub(super) trait TraitLifecycleRequirementSyntaxSink: RecoverySyntaxSink {
     );
 }
 
-trait LifecycleSignatureSyntaxSink: RecoverySyntaxSink {
+trait LifecycleSignatureSyntaxSink: RecoverySyntaxSink + CallableContractClauseSyntaxSink {
     fn push_parameter_list(&mut self, parameter_list: ParameterListSyntax);
 
     fn push_callable_result_clause(&mut self, clause: CallableResultClauseSyntax);

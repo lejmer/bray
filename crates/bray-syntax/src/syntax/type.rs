@@ -9,7 +9,7 @@ use super::variant::UnionVariantDeclarationSyntax;
 use crate::node::{child_nodes, define_source_syntax_node};
 use crate::{
     CallableOverloadDeclarationSyntax, ConstantDeclarationSyntax, GenericParameterListSyntax,
-    PredicateDeclarationSyntax, SyntaxKind, SyntaxToken,
+    PredicateDeclarationSyntax, SyntaxKind, SyntaxToken, WithClauseSyntax,
 };
 
 define_source_syntax_node! {
@@ -529,6 +529,14 @@ define_source_syntax_node! {
                 push_generic_parameter_list;
                 ty: GenericParameterListSyntax;
                 kind: SyntaxKind::GenericParameterList;
+            },
+            {
+                /// Returns `with(...)` clauses in source order.
+                with_clauses;
+                /// Appends a `with(...)` clause.
+                push_with_clause;
+                ty: WithClauseSyntax;
+                kind: SyntaxKind::WithClause;
             }
         ],
     }
@@ -612,6 +620,14 @@ define_source_syntax_node! {
                 push_generic_parameter_list;
                 ty: GenericParameterListSyntax;
                 kind: SyntaxKind::GenericParameterList;
+            },
+            {
+                /// Returns `with(...)` clauses in source order.
+                with_clauses;
+                /// Appends a `with(...)` clause.
+                push_with_clause;
+                ty: WithClauseSyntax;
+                kind: SyntaxKind::WithClause;
             }
         ],
     }
