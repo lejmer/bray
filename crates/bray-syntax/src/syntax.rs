@@ -13,6 +13,7 @@ mod member;
 mod module;
 mod overload;
 mod path;
+mod pattern;
 mod predicate;
 mod recovery;
 mod r#trait;
@@ -120,6 +121,11 @@ pub use overload::{
     OverloadArmSyntaxBuilder, OverloadModifiersSyntax, OverloadModifiersSyntaxBuilder,
 };
 pub use path::{PathSyntax, PathSyntaxBuilder};
+pub use pattern::{
+    CasePatternEntrySyntax, CasePatternEntrySyntaxBuilder, CasePatternSyntax,
+    CasePatternSyntaxBuilder, IrrefutablePatternEntrySyntax, IrrefutablePatternEntrySyntaxBuilder,
+    IrrefutablePatternSyntax, IrrefutablePatternSyntaxBuilder,
+};
 pub use predicate::{
     PredicateDeclarationSyntax, PredicateDeclarationSyntaxBuilder, PredicateModifiersSyntax,
     PredicateModifiersSyntaxBuilder, PredicateParameterListSyntax,

@@ -205,6 +205,14 @@ pub enum SyntaxKind {
     Expression,
     /// Opaque primary expression.
     PrimaryExpression,
+    /// Pattern used by binding-like positions.
+    IrrefutablePattern,
+    /// Entry inside an irrefutable pattern body.
+    IrrefutablePatternEntry,
+    /// Pattern used by match case positions.
+    CasePattern,
+    /// Entry inside a case pattern body.
+    CasePatternEntry,
     /// Type expression.
     TypeExpression,
     /// Required type annotation on a named declaration item.
@@ -452,6 +460,10 @@ impl SyntaxKind {
                 | Self::CallableBodyBlockExpression
                 | Self::Expression
                 | Self::PrimaryExpression
+                | Self::IrrefutablePattern
+                | Self::IrrefutablePatternEntry
+                | Self::CasePattern
+                | Self::CasePatternEntry
                 | Self::TypeExpression
                 | Self::TypeAnnotation
                 | Self::TypedIdentifier
@@ -572,6 +584,11 @@ impl SyntaxKind {
         )
     }
 
+    /// Returns whether this kind represents a literal-pattern token.
+    pub const fn is_pattern_literal(self) -> bool {
+        self.is_literal() || matches!(self, Self::TrueKeyword | Self::FalseKeyword)
+    }
+
     /// Returns the stable machine key for this syntax kind.
     pub const fn as_str(self) -> &'static str {
         match self {
@@ -685,6 +702,10 @@ impl SyntaxKind {
             Self::CallableBodyBlockExpression => "callable_body_block_expression",
             Self::Expression => "expression",
             Self::PrimaryExpression => "primary_expression",
+            Self::IrrefutablePattern => "irrefutable_pattern",
+            Self::IrrefutablePatternEntry => "irrefutable_pattern_entry",
+            Self::CasePattern => "case_pattern",
+            Self::CasePatternEntry => "case_pattern_entry",
             Self::TypeExpression => "type_expression",
             Self::TypeAnnotation => "type_annotation",
             Self::TypedIdentifier => "typed_identifier",
@@ -936,6 +957,10 @@ mod tests {
         assert!(SyntaxKind::CallableBodyBlockExpression.is_node());
         assert!(SyntaxKind::Expression.is_node());
         assert!(SyntaxKind::PrimaryExpression.is_node());
+        assert!(SyntaxKind::IrrefutablePattern.is_node());
+        assert!(SyntaxKind::IrrefutablePatternEntry.is_node());
+        assert!(SyntaxKind::CasePattern.is_node());
+        assert!(SyntaxKind::CasePatternEntry.is_node());
         assert!(SyntaxKind::TypeExpression.is_node());
         assert!(SyntaxKind::TypeAnnotation.is_node());
         assert!(SyntaxKind::TypedIdentifier.is_node());
@@ -969,6 +994,11 @@ mod tests {
         assert!(SyntaxKind::RealLiteralToken.is_literal());
         assert!(SyntaxKind::ImaginaryLiteralToken.is_literal());
         assert!(!SyntaxKind::TupleElementIndexToken.is_literal());
+
+        assert!(SyntaxKind::TrueKeyword.is_pattern_literal());
+        assert!(SyntaxKind::FalseKeyword.is_pattern_literal());
+        assert!(SyntaxKind::StringLiteralToken.is_pattern_literal());
+        assert!(!SyntaxKind::NoneKeyword.is_pattern_literal());
     }
 
     #[test]
@@ -1312,6 +1342,19 @@ mod tests {
 
         assert_eq!(SyntaxKind::Expression.as_str(), "expression");
         assert_eq!(SyntaxKind::PrimaryExpression.as_str(), "primary_expression");
+
+        assert_eq!(
+            SyntaxKind::IrrefutablePattern.as_str(),
+            "irrefutable_pattern"
+        );
+
+        assert_eq!(
+            SyntaxKind::IrrefutablePatternEntry.as_str(),
+            "irrefutable_pattern_entry"
+        );
+
+        assert_eq!(SyntaxKind::CasePattern.as_str(), "case_pattern");
+        assert_eq!(SyntaxKind::CasePatternEntry.as_str(), "case_pattern_entry");
         assert_eq!(SyntaxKind::TypeExpression.as_str(), "type_expression");
         assert_eq!(SyntaxKind::TypeAnnotation.as_str(), "type_annotation");
         assert_eq!(SyntaxKind::TypedIdentifier.as_str(), "typed_identifier");
