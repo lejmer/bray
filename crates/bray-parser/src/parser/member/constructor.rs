@@ -125,7 +125,6 @@ mod tests {
 
     use super::super::super::state::Parser;
 
-    // TODO(parser): Update this when callable body expressions are parsed.
     #[test]
     fn parser_parses_type_constructor_members() {
         let source = concat!(

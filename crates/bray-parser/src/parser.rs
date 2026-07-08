@@ -1,3 +1,4 @@
+mod block;
 mod callable;
 mod callable_contract;
 mod constant;

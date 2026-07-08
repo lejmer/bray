@@ -626,7 +626,6 @@ mod tests {
     use crate::parser::parse_compilation_unit;
     use crate::test_support::{assert_missing_semicolon_diagnostic, marker_offset};
 
-    // TODO(parser): Update this when callable body expressions are parsed.
     #[test]
     fn parser_parses_type_lifecycle_members() {
         let source = concat!(
@@ -724,7 +723,6 @@ mod tests {
         );
     }
 
-    // TODO(parser): Update this when callable body expressions are parsed.
     #[test]
     fn parser_parses_trait_implementation_lifecycle_members() {
         let source = concat!(

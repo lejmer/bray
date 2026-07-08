@@ -1,8 +1,8 @@
 use super::expression::first_expression;
 use crate::node::define_source_syntax_node;
 use crate::{
-    AbiDirectiveSyntax, ExpressionSyntax, SyntaxKind, SyntaxToken, TypeExpressionSyntax,
-    TypedIdentifierSyntax,
+    AbiDirectiveSyntax, BlockExpressionSyntax, ExpressionSyntax, SyntaxKind, SyntaxToken,
+    TypeExpressionSyntax, TypedIdentifierSyntax,
 };
 
 define_source_syntax_node! {
@@ -280,7 +280,7 @@ define_source_syntax_node! {
 }
 
 define_source_syntax_node! {
-    /// Callable body block expression with skipped expression contents.
+    /// Callable body block expression.
     pub struct CallableBodyBlockExpressionSyntax {
         builder: CallableBodyBlockExpressionSyntaxBuilder,
         kind: SyntaxKind::CallableBodyBlockExpression,
@@ -289,27 +289,19 @@ define_source_syntax_node! {
         range_description: "callable-body-block-expression",
         debug_name: "CallableBodyBlockExpressionSyntax",
         builder_debug_name: "CallableBodyBlockExpressionSyntaxBuilder",
-        skipped_syntax: true,
-        required_tokens: [
+        skipped_syntax: false,
+        required_tokens: [],
+        optional_tokens: [],
+        required_children: [
             {
-                /// Returns the required opening brace token.
-                open_brace_token;
-                /// Appends the opening brace token.
-                push_open_brace_token;
-                kind: SyntaxKind::OpenBraceToken;
-                slot: "callable_body_block_expression.open_brace_token";
-            },
-            {
-                /// Returns the required closing brace token.
-                close_brace_token;
-                /// Appends the closing brace token.
-                push_close_brace_token;
-                kind: SyntaxKind::CloseBraceToken;
-                slot: "callable_body_block_expression.close_brace_token";
+                /// Returns the block-expression child.
+                block_expression;
+                /// Appends the block-expression child.
+                push_block_expression;
+                ty: BlockExpressionSyntax;
+                kind: SyntaxKind::BlockExpression;
             }
         ],
-        optional_tokens: [],
-        required_children: [],
     }
 }
 
@@ -318,7 +310,8 @@ mod tests {
     use bray_source::{SourceSnapshot, TextRange, TextSize};
 
     use crate::test_support::{
-        identifier_type_expression, keyword, snapshot as test_snapshot, token, typed_identifier,
+        block_expression, identifier_type_expression, keyword, snapshot as test_snapshot, token,
+        typed_identifier,
     };
     use crate::{
         AbiDirectiveSyntax, CallableBodyBlockExpressionSyntax, CallableDirectivesSyntax,
@@ -399,10 +392,9 @@ mod tests {
         assert_eq!(list.full_text(), "pos value: Int = 1, tail: Bool");
     }
 
-    // TODO(syntax): Update this when callable block contents are typed syntax.
     #[test]
-    fn callable_result_clauses_store_type_and_body_blocks_store_skipped_contents() {
-        let snapshot = test_snapshot("syntax-callable-test", "-> Int { return }");
+    fn callable_result_clauses_store_type_and_body_blocks() {
+        let snapshot = test_snapshot("syntax-callable-test", "-> Int {}");
 
         let mut result_builder =
             CallableResultClauseSyntax::builder(snapshot.clone(), TextSize::ZERO);
@@ -419,29 +411,17 @@ mod tests {
         let result = result_builder.build();
 
         let mut body_builder =
-            CallableBodyBlockExpressionSyntax::builder(snapshot, TextSize::new(7));
+            CallableBodyBlockExpressionSyntax::builder(snapshot.clone(), TextSize::new(7));
 
-        body_builder.push_open_brace_token(
-            token(SyntaxKind::OpenBraceToken, 7, 8).with_trailing_trivia([
-                SyntaxTrivia::whitespace(TextRange::new(TextSize::new(8), TextSize::new(9))),
-            ]),
-        );
-
-        body_builder.push_skipped_tokens([token(SyntaxKind::ReturnKeyword, 9, 15)
-            .with_trailing_trivia([SyntaxTrivia::whitespace(TextRange::new(
-                TextSize::new(15),
-                TextSize::new(16),
-            ))])]);
-
-        body_builder.push_close_brace_token(token(SyntaxKind::CloseBraceToken, 16, 17));
+        body_builder.push_block_expression(block_expression(snapshot, 7, false));
 
         let body = body_builder.build();
 
         assert_eq!(result.full_text(), "-> Int");
         assert_eq!(result.type_expression().full_text(), "Int");
         assert_eq!(result.skipped_syntax().count(), 0);
-        assert_eq!(body.full_text(), "{ return }");
-        assert_eq!(body.skipped_syntax().count(), 1);
+        assert_eq!(body.full_text(), "{}");
+        assert_eq!(body.block_expression().full_text(), "{}");
     }
 
     fn parameter(snapshot: SourceSnapshot, start: u32, has_default: bool) -> ParameterSyntax {

@@ -201,11 +201,7 @@ impl Parser {
                 SyntaxKind::CloseBracketToken,
                 at_boundary,
             ),
-            SyntaxKind::OpenBraceToken => self.parse_opaque_delimited_primary_expression(
-                SyntaxKind::OpenBraceToken,
-                SyntaxKind::CloseBraceToken,
-                at_boundary,
-            ),
+            SyntaxKind::OpenBraceToken => self.parse_block_primary_expression(at_boundary),
             _ => self.parse_unknown_primary_expression(at_boundary),
         }
     }
@@ -218,6 +214,19 @@ impl Parser {
         let mut builder = PrimaryExpressionSyntax::builder(self.syntax_source(), start);
 
         builder.push_token(self.consume());
+        self.recover_opaque_primary_tail_for_now(&mut builder, at_boundary);
+
+        builder.build()
+    }
+
+    fn parse_block_primary_expression(
+        &mut self,
+        at_boundary: &mut dyn FnMut(&mut Parser) -> bool,
+    ) -> PrimaryExpressionSyntax {
+        let start = self.peek().full_range().start();
+        let mut builder = PrimaryExpressionSyntax::builder(self.syntax_source(), start);
+
+        builder.push_block_expression(self.parse_block_expression_until(at_boundary));
         self.recover_opaque_primary_tail_for_now(&mut builder, at_boundary);
 
         builder.build()

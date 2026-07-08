@@ -1,5 +1,5 @@
 use crate::node::{child_nodes, define_source_syntax_node};
-use crate::{SyntaxKind, SyntaxToken};
+use crate::{BlockExpressionSyntax, SyntaxKind, SyntaxToken};
 
 pub(super) fn first_expression(
     source: &bray_source::SourceSnapshot,
@@ -105,6 +105,14 @@ define_source_syntax_node! {
                 push_expression;
                 ty: ExpressionSyntax;
                 kind: SyntaxKind::Expression;
+            },
+            {
+                /// Returns block-expression children in source order.
+                block_expressions;
+                /// Appends a block-expression child.
+                push_block_expression;
+                ty: BlockExpressionSyntax;
+                kind: SyntaxKind::BlockExpression;
             }
         ],
     }
@@ -114,6 +122,18 @@ impl PrimaryExpressionSyntax {
     /// Returns the first direct primary token.
     pub fn primary_token(&self) -> Option<SyntaxToken> {
         self.tokens().next()
+    }
+
+    /// Returns the block-expression child when this is a block primary.
+    pub fn block_expression(&self) -> Option<BlockExpressionSyntax> {
+        child_nodes(
+            &self.source,
+            &self.node,
+            self.start,
+            SyntaxKind::BlockExpression,
+            BlockExpressionSyntax::from_green,
+        )
+        .next()
     }
 }
 
