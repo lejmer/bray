@@ -1,7 +1,7 @@
 use bray_syntax::{
     ConstantDeclarationSyntax, ConstantDeclarationSyntaxBuilder, ConstantModifiersSyntax,
-    SyntaxKind, SyntaxToken, TraitConstantMemberDeclarationSyntax,
-    TraitConstantMemberDeclarationSyntaxBuilder, TypeExpressionSyntax,
+    ExpressionSyntax, SyntaxKind, SyntaxToken, TraitConstantMemberDeclarationSyntax,
+    TraitConstantMemberDeclarationSyntaxBuilder, TypedIdentifierSyntax,
 };
 
 use super::module::MODULE_ITEM_START_KINDS;
@@ -84,12 +84,10 @@ impl Parser {
         initializer_policy: ConstantInitializerPolicy,
     ) {
         builder.push_const_keyword(self.expect(SyntaxKind::ConstKeyword));
-        builder.push_identifier_token(self.parse_identifier());
-        builder.push_colon_token(self.expect(SyntaxKind::ColonToken));
 
         let mut at_type_boundary = Parser::at_constant_type_boundary;
 
-        builder.push_type_expression(self.parse_type_expression_until(&mut at_type_boundary));
+        builder.push_typed_identifier(self.parse_typed_identifier_until(&mut at_type_boundary));
 
         self.parse_constant_initializer(builder, initializer_policy);
         self.recover_until_constant_declaration_end(builder);
@@ -115,7 +113,14 @@ impl Parser {
     ) {
         match initializer_policy {
             ConstantInitializerPolicy::Required => {
-                builder.push_equals_token(self.expect(SyntaxKind::EqualsToken));
+                let equals_token = self.expect(SyntaxKind::EqualsToken);
+                let equals_missing = equals_token.is_missing();
+
+                builder.push_equals_token(equals_token);
+
+                if equals_missing && self.at_constant_value_boundary() {
+                    return;
+                }
             }
             ConstantInitializerPolicy::Optional => {
                 if !self.at(SyntaxKind::EqualsToken) {
@@ -126,19 +131,9 @@ impl Parser {
             }
         }
 
-        // TODO(parser): Parse constant value expressions once expression parsing is implemented.
-        self.recover_constant_value_expression(builder);
-    }
+        let mut at_value_boundary = Parser::at_constant_value_boundary;
 
-    fn recover_constant_value_expression(
-        &mut self,
-        builder: &mut impl ConstantDeclarationSyntaxSink,
-    ) {
-        if self.at_constant_value_boundary() {
-            return;
-        }
-
-        self.recover_current_and_until_predicate(builder, Parser::at_constant_value_boundary);
+        builder.push_expression(self.parse_non_assignment_expression_until(&mut at_value_boundary));
     }
 
     fn recover_until_constant_declaration_end(
@@ -186,13 +181,11 @@ impl Parser {
 trait ConstantDeclarationSyntaxSink: RecoverySyntaxSink {
     fn push_const_keyword(&mut self, token: SyntaxToken);
 
-    fn push_identifier_token(&mut self, token: SyntaxToken);
-
-    fn push_colon_token(&mut self, token: SyntaxToken);
-
-    fn push_type_expression(&mut self, type_expression: TypeExpressionSyntax);
+    fn push_typed_identifier(&mut self, typed_identifier: TypedIdentifierSyntax);
 
     fn push_equals_token(&mut self, token: SyntaxToken);
+
+    fn push_expression(&mut self, expression: ExpressionSyntax);
 
     fn push_semicolon_token(&mut self, token: SyntaxToken);
 }
@@ -202,20 +195,16 @@ impl ConstantDeclarationSyntaxSink for ConstantDeclarationSyntaxBuilder {
         ConstantDeclarationSyntaxBuilder::push_const_keyword(self, token);
     }
 
-    fn push_identifier_token(&mut self, token: SyntaxToken) {
-        ConstantDeclarationSyntaxBuilder::push_identifier_token(self, token);
-    }
-
-    fn push_colon_token(&mut self, token: SyntaxToken) {
-        ConstantDeclarationSyntaxBuilder::push_colon_token(self, token);
-    }
-
-    fn push_type_expression(&mut self, type_expression: TypeExpressionSyntax) {
-        ConstantDeclarationSyntaxBuilder::push_type_expression(self, type_expression);
+    fn push_typed_identifier(&mut self, typed_identifier: TypedIdentifierSyntax) {
+        ConstantDeclarationSyntaxBuilder::push_typed_identifier(self, typed_identifier);
     }
 
     fn push_equals_token(&mut self, token: SyntaxToken) {
         ConstantDeclarationSyntaxBuilder::push_equals_token(self, token);
+    }
+
+    fn push_expression(&mut self, expression: ExpressionSyntax) {
+        ConstantDeclarationSyntaxBuilder::push_expression(self, expression);
     }
 
     fn push_semicolon_token(&mut self, token: SyntaxToken) {
@@ -228,20 +217,16 @@ impl ConstantDeclarationSyntaxSink for TraitConstantMemberDeclarationSyntaxBuild
         TraitConstantMemberDeclarationSyntaxBuilder::push_const_keyword(self, token);
     }
 
-    fn push_identifier_token(&mut self, token: SyntaxToken) {
-        TraitConstantMemberDeclarationSyntaxBuilder::push_identifier_token(self, token);
-    }
-
-    fn push_colon_token(&mut self, token: SyntaxToken) {
-        TraitConstantMemberDeclarationSyntaxBuilder::push_colon_token(self, token);
-    }
-
-    fn push_type_expression(&mut self, type_expression: TypeExpressionSyntax) {
-        TraitConstantMemberDeclarationSyntaxBuilder::push_type_expression(self, type_expression);
+    fn push_typed_identifier(&mut self, typed_identifier: TypedIdentifierSyntax) {
+        TraitConstantMemberDeclarationSyntaxBuilder::push_typed_identifier(self, typed_identifier);
     }
 
     fn push_equals_token(&mut self, token: SyntaxToken) {
         TraitConstantMemberDeclarationSyntaxBuilder::push_equals_token(self, token);
+    }
+
+    fn push_expression(&mut self, expression: ExpressionSyntax) {
+        TraitConstantMemberDeclarationSyntaxBuilder::push_expression(self, expression);
     }
 
     fn push_semicolon_token(&mut self, token: SyntaxToken) {
@@ -263,7 +248,6 @@ mod tests {
 
     use super::super::state::Parser;
 
-    // TODO(parser): Update this when constant value expressions are parsed.
     #[test]
     fn parser_parses_constant_declarations_after_source_unit_modules() {
         let source = "module main; public const Answer: Int = 42;";
@@ -277,10 +261,9 @@ mod tests {
             panic!("expected one constant declaration: {declarations:?}");
         };
 
-        let skipped_syntax = declaration.skipped_syntax().collect::<Vec<_>>();
-
-        let [value_expression] = skipped_syntax.as_slice() else {
-            panic!("expected value expression as skipped syntax: {skipped_syntax:?}");
+        let value_expression = match declaration.expression() {
+            Some(expression) => expression,
+            None => panic!("expected value expression"),
         };
 
         assert_eq!(source_unit.full_text(), source);
@@ -297,13 +280,9 @@ mod tests {
         assert_eq!(declaration.type_expression().full_text(), "Int ");
         assert_eq!(value_expression.full_text(), "42");
 
-        assert_eq!(
-            parse_diagnostic_kinds(&result),
-            [DiagnosticKind::SyntaxSkippedSyntax]
-        );
+        assert!(result.diagnostics().is_empty());
     }
 
-    // TODO(parser): Update this when constant value expressions are parsed.
     #[test]
     fn parser_parses_constant_declarations_inside_block_modules() {
         let source = "module main { const Answer: Int = 42; }";
@@ -329,12 +308,15 @@ mod tests {
         assert_eq!(declaration.full_text(), "const Answer: Int = 42; ");
 
         assert_eq!(
-            parse_diagnostic_kinds(&result),
-            [DiagnosticKind::SyntaxSkippedSyntax]
+            declaration
+                .expression()
+                .map(|expression| expression.full_text()),
+            Some(String::from("42"))
         );
+
+        assert!(result.diagnostics().is_empty());
     }
 
-    // TODO(parser): Update this when constant value expressions are parsed.
     #[test]
     fn parser_reports_missing_constant_semicolon_before_following_item_start() {
         let source = "module main; const Answer: Int = 42\nfunc main() {}";
@@ -359,6 +341,14 @@ mod tests {
 
         assert_eq!(source_unit.full_text(), source);
         assert_eq!(declaration.full_text(), "const Answer: Int = 42\n");
+
+        assert_eq!(
+            declaration
+                .expression()
+                .map(|expression| expression.full_text()),
+            Some(String::from("42\n"))
+        );
+
         assert_eq!(function.full_text(), "func main() {}");
 
         assert!(semicolon_token.is_missing());
@@ -370,10 +360,7 @@ mod tests {
             insertion,
             SyntaxKind::FuncKeyword,
             "func",
-            &[
-                DiagnosticKind::SyntaxSkippedSyntax,
-                DiagnosticKind::SyntaxExpectedToken,
-            ],
+            &[DiagnosticKind::SyntaxExpectedToken],
         );
     }
 

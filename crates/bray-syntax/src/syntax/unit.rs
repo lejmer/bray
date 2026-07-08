@@ -730,14 +730,14 @@ mod tests {
     use crate::test_support::{
         func_keyword, func_keyword_with_trailing_space, identifier_path,
         identifier_path_with_trailing_space, implementation_body, implementation_subject, keyword,
-        snapshot as test_snapshot, token, trait_application,
+        snapshot as test_snapshot, token, trait_application, typed_identifier,
     };
     use crate::{
         AsyncCapableLifecycleMemberModifiersSyntax, BlockModuleDeclarationSyntax,
         CallableBodyBlockExpressionSyntax, CallableContractDeclarationSyntax,
         CallableOverloadDeclarationSyntax, CallableResultClauseSyntax, ConstantDeclarationSyntax,
         ConstantModifiersSyntax, ConstructorMemberModifiersSyntax,
-        DestructorMemberDeclarationSyntax, ExportDeclarationSyntax,
+        DestructorMemberDeclarationSyntax, ExportDeclarationSyntax, ExpressionSyntax,
         FinalizerMemberDeclarationSyntax, FunctionDeclarationSyntax, FunctionDirectivesSyntax,
         FunctionModifiersSyntax, IdentifierListItemSyntax, IdentifierListSyntax,
         ImplementationBodySyntax, ImplementationOverloadDeclarationSyntax,
@@ -746,17 +746,19 @@ mod tests {
         ModuleBodySyntax, ModuleDirectivesSyntax, ModuleModifiersSyntax,
         NamedTraitImplementationDeclarationSyntax, OverloadArmListSyntax, OverloadArmSyntax,
         OverloadModifiersSyntax, ParameterListSyntax, ParameterModifiersSyntax, ParameterSyntax,
-        PathSyntax, PredicateDeclarationSyntax, ScopeEnterMemberDeclarationSyntax,
-        ScopeExitMemberDeclarationSyntax, SourceSyntaxNode, SourceUnitModuleDeclarationSyntax,
-        StructDeclarationSyntax, SyncLifecycleMemberModifiersSyntax, SyntaxKind, SyntaxNode,
-        SyntaxText, SyntaxToken, SyntaxTrivia, TraitApplicationSyntax, TraitBodySyntax,
+        PathSyntax, PredicateDeclarationSyntax, PrimaryExpressionSyntax,
+        ScopeEnterMemberDeclarationSyntax, ScopeExitMemberDeclarationSyntax, SourceSyntaxNode,
+        SourceUnitModuleDeclarationSyntax, StructDeclarationSyntax,
+        SyncLifecycleMemberModifiersSyntax, SyntaxKind, SyntaxNode, SyntaxText, SyntaxToken,
+        SyntaxTrivia, TraitApplicationSyntax, TraitBodySyntax,
         TraitConstantMemberDeclarationSyntax, TraitDeclarationSyntax,
         TraitDestructorRequirementDeclarationSyntax, TraitFinalizerRequirementDeclarationSyntax,
         TraitModifiersSyntax, TraitPredicateMemberDeclarationSyntax,
         TraitPredicateMemberModifiersSyntax, TraitScopeEnterRequirementDeclarationSyntax,
         TraitScopeExitRequirementDeclarationSyntax, TraitTypeMemberDeclarationSyntax,
-        TypeConstructorMemberDeclarationSyntax, TypeExpressionSyntax, UnionDeclarationSyntax,
-        UnnamedTraitImplementationDeclarationSyntax, UsingDeclarationSyntax,
+        TypeAnnotationSyntax, TypeConstructorMemberDeclarationSyntax, TypeExpressionSyntax,
+        TypedIdentifierSyntax, UnionDeclarationSyntax, UnnamedTraitImplementationDeclarationSyntax,
+        UsingDeclarationSyntax,
     };
 
     #[test]
@@ -1270,7 +1272,11 @@ mod tests {
         assert_send_sync::<ParameterModifiersSyntax>();
         assert_send_sync::<CallableResultClauseSyntax>();
         assert_send_sync::<CallableBodyBlockExpressionSyntax>();
+        assert_send_sync::<ExpressionSyntax>();
+        assert_send_sync::<PrimaryExpressionSyntax>();
         assert_send_sync::<TypeExpressionSyntax>();
+        assert_send_sync::<TypeAnnotationSyntax>();
+        assert_send_sync::<TypedIdentifierSyntax>();
         assert_send_sync::<ModuleDirectivesSyntax>();
         assert_send_sync::<ModuleModifiersSyntax>();
         assert_send_sync::<ModuleBodySyntax>();
@@ -1389,6 +1395,7 @@ mod tests {
     }
 
     fn constant_declaration(snapshot: SourceSnapshot) -> ConstantDeclarationSyntax {
+        let typed_source = snapshot.clone();
         let mut builder = ConstantDeclarationSyntax::builder(snapshot.clone(), TextSize::ZERO);
 
         builder.push_constant_modifiers(
@@ -1396,9 +1403,7 @@ mod tests {
         );
 
         builder.push_const_keyword(keyword(SyntaxKind::ConstKeyword, 0, 5, true));
-        builder.push_identifier_token(token(SyntaxKind::IdentifierToken, 6, 12));
-        builder.push_colon_token(keyword(SyntaxKind::ColonToken, 12, 13, true));
-        builder.push_skipped_tokens([keyword(SyntaxKind::IdentifierToken, 14, 17, true)]);
+        builder.push_typed_identifier(typed_identifier(typed_source, 6, 12, 14, 17, true));
         builder.push_equals_token(keyword(SyntaxKind::EqualsToken, 18, 19, true));
         builder.push_skipped_tokens([token(SyntaxKind::DecimalIntegerLiteralToken, 20, 22)]);
         builder.push_semicolon_token(token(SyntaxKind::SemicolonToken, 22, 23));

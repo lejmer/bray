@@ -1,7 +1,7 @@
 use bray_syntax::{
-    PredicateDeclarationSyntax, PredicateDeclarationSyntaxBuilder, PredicateModifiersSyntax,
-    PredicateParameterListSyntax, PredicateParameterListSyntaxBuilder, PredicateParameterSyntax,
-    SyntaxKind, SyntaxToken, TraitPredicateMemberDeclarationSyntax,
+    ExpressionSyntax, PredicateDeclarationSyntax, PredicateDeclarationSyntaxBuilder,
+    PredicateModifiersSyntax, PredicateParameterListSyntax, PredicateParameterListSyntaxBuilder,
+    PredicateParameterSyntax, SyntaxKind, SyntaxToken, TraitPredicateMemberDeclarationSyntax,
     TraitPredicateMemberDeclarationSyntaxBuilder, TraitPredicateMemberModifiersSyntax,
 };
 
@@ -147,12 +147,9 @@ impl Parser {
         let start = self.peek().full_range().start();
         let mut builder = PredicateParameterSyntax::builder(self.syntax_source(), start);
 
-        builder.push_identifier_token(self.parse_identifier());
-        builder.push_colon_token(self.expect(SyntaxKind::ColonToken));
-
         let mut at_type_boundary = Parser::at_predicate_parameter_type_boundary;
 
-        builder.push_type_expression(self.parse_type_expression_until(&mut at_type_boundary));
+        builder.push_typed_identifier(self.parse_typed_identifier_until(&mut at_type_boundary));
 
         builder.build()
     }
@@ -161,13 +158,10 @@ impl Parser {
         if self.at(SyntaxKind::EqualsToken) {
             builder.push_equals_token(self.expect(SyntaxKind::EqualsToken));
 
-            // TODO(parser): Parse predicate expressions once expression parsing is implemented.
-            if !self.at_predicate_body_boundary() {
-                self.recover_current_and_until_predicate(
-                    builder,
-                    Parser::at_predicate_body_boundary,
-                );
-            }
+            let mut at_body_boundary = Parser::at_predicate_body_boundary;
+
+            builder
+                .push_expression(self.parse_non_assignment_expression_until(&mut at_body_boundary));
         }
 
         self.recover_until_predicate_declaration_end(builder);
@@ -235,12 +229,18 @@ impl Parser {
 trait PredicateSyntaxSink: crate::parser::recovery::RecoverySyntaxSink {
     fn push_equals_token(&mut self, token: SyntaxToken);
 
+    fn push_expression(&mut self, expression: ExpressionSyntax);
+
     fn push_semicolon_token(&mut self, token: SyntaxToken);
 }
 
 impl PredicateSyntaxSink for PredicateDeclarationSyntaxBuilder {
     fn push_equals_token(&mut self, token: SyntaxToken) {
         PredicateDeclarationSyntaxBuilder::push_equals_token(self, token);
+    }
+
+    fn push_expression(&mut self, expression: ExpressionSyntax) {
+        PredicateDeclarationSyntaxBuilder::push_expression(self, expression);
     }
 
     fn push_semicolon_token(&mut self, token: SyntaxToken) {
@@ -251,6 +251,10 @@ impl PredicateSyntaxSink for PredicateDeclarationSyntaxBuilder {
 impl PredicateSyntaxSink for TraitPredicateMemberDeclarationSyntaxBuilder {
     fn push_equals_token(&mut self, token: SyntaxToken) {
         TraitPredicateMemberDeclarationSyntaxBuilder::push_equals_token(self, token);
+    }
+
+    fn push_expression(&mut self, expression: ExpressionSyntax) {
+        TraitPredicateMemberDeclarationSyntaxBuilder::push_expression(self, expression);
     }
 
     fn push_semicolon_token(&mut self, token: SyntaxToken) {
@@ -276,11 +280,8 @@ mod tests {
     use bray_testing::test_source_store as source_store;
 
     use crate::parser::parse_compilation_unit;
-    use crate::test_support::{
-        assert_missing_semicolon_diagnostic, marker_offset, parse_diagnostic_kinds,
-    };
+    use crate::test_support::{assert_missing_semicolon_diagnostic, marker_offset};
 
-    // TODO(parser): Update this when predicate parameter types and bodies are parsed.
     #[test]
     fn parser_parses_predicate_declarations_after_source_unit_modules() {
         let source = "module main; public trusted predicate positive(value: Int) = value > 0;";
@@ -336,9 +337,13 @@ mod tests {
         assert!(declaration.equals_token().is_some());
 
         assert_eq!(
-            parse_diagnostic_kinds(&result),
-            [DiagnosticKind::SyntaxSkippedSyntax]
+            declaration
+                .expression()
+                .map(|expression| expression.full_text()),
+            Some(String::from("value > 0"))
         );
+
+        assert!(result.diagnostics().is_empty());
     }
 
     #[test]
@@ -365,6 +370,7 @@ mod tests {
 
         assert_eq!(source_unit.full_text(), source);
         assert_eq!(declaration.full_text(), "trusted predicate opaque(); ");
+
         assert!(declaration.equals_token().is_none());
         assert!(result.diagnostics().is_empty());
     }
@@ -413,7 +419,6 @@ mod tests {
         assert!(result.diagnostics().is_empty());
     }
 
-    // TODO(parser): Update this when predicate bodies are parsed.
     #[test]
     fn parser_parses_trait_predicate_member_declarations() {
         let source = concat!(
@@ -476,12 +481,17 @@ mod tests {
         );
 
         assert!(defaulted_predicate.equals_token().is_some());
-        assert_eq!(callable.full_text(), "func check(); ");
 
         assert_eq!(
-            parse_diagnostic_kinds(&result),
-            [DiagnosticKind::SyntaxSkippedSyntax]
+            defaulted_predicate
+                .expression()
+                .map(|expression| expression.full_text()),
+            Some(String::from("value > 0"))
         );
+
+        assert_eq!(callable.full_text(), "func check(); ");
+
+        assert!(result.diagnostics().is_empty());
     }
 
     #[test]

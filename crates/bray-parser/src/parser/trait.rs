@@ -67,7 +67,7 @@ impl Parser {
 
     fn parse_trait_constraints(&mut self, builder: &mut TraitDeclarationSyntaxBuilder) {
         while self.at(SyntaxKind::WithKeyword) {
-            // TODO(parser): Parse trait constraint clauses once expressions are implemented.
+            // TODO(parser): Parse trait constraint clauses once constraint syntax is implemented.
             self.recover_current_and_until_predicate(builder, Parser::at_trait_constraint_boundary);
         }
     }
@@ -251,7 +251,6 @@ mod tests {
         assert!(result.diagnostics().is_empty());
     }
 
-    // TODO(parser): Update this when constant value expressions are parsed.
     #[test]
     fn parser_parses_trait_constant_members() {
         let source = "module main; trait Config { const Size: Int; const Name: String = \"bray\"; func read(); }";
@@ -293,12 +292,17 @@ mod tests {
         );
 
         assert!(defaulted_constant.equals_token().is_some());
-        assert_eq!(callable.full_text(), "func read(); ");
 
         assert_eq!(
-            parse_diagnostic_kinds(&result),
-            [DiagnosticKind::SyntaxSkippedSyntax]
+            defaulted_constant
+                .expression()
+                .map(|expression| expression.full_text()),
+            Some(String::from("\"bray\""))
         );
+
+        assert_eq!(callable.full_text(), "func read(); ");
+
+        assert!(result.diagnostics().is_empty());
     }
 
     #[test]

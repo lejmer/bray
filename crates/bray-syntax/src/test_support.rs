@@ -5,7 +5,7 @@ use bray_source::{
 use crate::{
     ImplementationBodySyntax, ImplementationSubjectSyntax, ImplementationTypeMemberBindingSyntax,
     PathSyntax, SyntaxKind, SyntaxToken, SyntaxTrivia, TraitApplicationSyntax,
-    TypeExpressionSyntax,
+    TypeAnnotationSyntax, TypeExpressionSyntax, TypedIdentifierSyntax,
 };
 
 pub(crate) fn func_keyword_with_trailing_space() -> SyntaxToken {
@@ -67,6 +67,35 @@ pub(crate) fn identifier_type_expression_with_trailing_space(
     end: u32,
 ) -> TypeExpressionSyntax {
     identifier_type_expression_with_optional_trailing_space(snapshot, start, end, true)
+}
+
+pub(crate) fn typed_identifier(
+    snapshot: SourceSnapshot,
+    identifier_start: u32,
+    identifier_end: u32,
+    type_start: u32,
+    type_end: u32,
+    type_has_trailing_space: bool,
+) -> TypedIdentifierSyntax {
+    let mut builder =
+        TypedIdentifierSyntax::builder(snapshot.clone(), TextSize::new(identifier_start));
+
+    builder.push_identifier_token(token(
+        SyntaxKind::IdentifierToken,
+        identifier_start,
+        identifier_end,
+    ));
+
+    builder.push_type_annotation(type_annotation(
+        snapshot,
+        identifier_end,
+        identifier_end + 1,
+        type_start,
+        type_end,
+        type_has_trailing_space,
+    ));
+
+    builder.build()
 }
 
 pub(crate) fn implementation_subject(
@@ -155,6 +184,34 @@ fn identifier_type_expression_with_optional_trailing_space(
         builder.push_path(identifier_path_with_trailing_space(snapshot, start, end));
     } else {
         builder.push_path(identifier_path(snapshot, start, end));
+    }
+
+    builder.build()
+}
+
+fn type_annotation(
+    snapshot: SourceSnapshot,
+    colon_start: u32,
+    colon_end: u32,
+    type_start: u32,
+    type_end: u32,
+    type_has_trailing_space: bool,
+) -> TypeAnnotationSyntax {
+    let mut builder = TypeAnnotationSyntax::builder(snapshot.clone(), TextSize::new(colon_start));
+
+    builder.push_colon_token(keyword(
+        SyntaxKind::ColonToken,
+        colon_start,
+        colon_end,
+        true,
+    ));
+
+    if type_has_trailing_space {
+        builder.push_type_expression(identifier_type_expression_with_trailing_space(
+            snapshot, type_start, type_end,
+        ));
+    } else {
+        builder.push_type_expression(identifier_type_expression(snapshot, type_start, type_end));
     }
 
     builder.build()

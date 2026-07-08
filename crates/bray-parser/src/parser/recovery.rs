@@ -3,15 +3,16 @@ use bray_syntax::{
     CallableContractDeclarationSyntaxBuilder, CallableOverloadDeclarationSyntaxBuilder,
     CallableResultClauseSyntaxBuilder, ConstantDeclarationSyntaxBuilder,
     DestructorMemberDeclarationSyntaxBuilder, DirectiveArgumentListSyntaxBuilder,
-    ExportDeclarationSyntaxBuilder, FinalizerMemberDeclarationSyntaxBuilder,
-    FunctionDeclarationSyntaxBuilder, FunctionDirectivesSyntaxBuilder, IdentifierListSyntaxBuilder,
-    ImplementationBodySyntaxBuilder, ImplementationOverloadDeclarationSyntaxBuilder,
-    ImplementationOverloadSubjectSyntaxBuilder, ImplementationSubjectSyntaxBuilder,
-    ImplementationTypeMemberBindingSyntaxBuilder, InherentImplementationDeclarationSyntaxBuilder,
-    ModuleBodySyntaxBuilder, ModuleDirectivesSyntaxBuilder,
-    NamedTraitImplementationDeclarationSyntaxBuilder, OverloadArmListSyntaxBuilder,
-    ParameterListSyntaxBuilder, ParameterSyntaxBuilder, PredicateDeclarationSyntaxBuilder,
-    PredicateParameterListSyntaxBuilder, PredicateParameterSyntaxBuilder,
+    ExportDeclarationSyntaxBuilder, ExpressionSyntaxBuilder,
+    FinalizerMemberDeclarationSyntaxBuilder, FunctionDeclarationSyntaxBuilder,
+    FunctionDirectivesSyntaxBuilder, IdentifierListSyntaxBuilder, ImplementationBodySyntaxBuilder,
+    ImplementationOverloadDeclarationSyntaxBuilder, ImplementationOverloadSubjectSyntaxBuilder,
+    ImplementationSubjectSyntaxBuilder, ImplementationTypeMemberBindingSyntaxBuilder,
+    InherentImplementationDeclarationSyntaxBuilder, ModuleBodySyntaxBuilder,
+    ModuleDirectivesSyntaxBuilder, NamedTraitImplementationDeclarationSyntaxBuilder,
+    OverloadArmListSyntaxBuilder, ParameterListSyntaxBuilder, ParameterSyntaxBuilder,
+    PredicateDeclarationSyntaxBuilder, PredicateParameterListSyntaxBuilder,
+    PredicateParameterSyntaxBuilder, PrimaryExpressionSyntaxBuilder,
     ScopeEnterMemberDeclarationSyntaxBuilder, ScopeExitMemberDeclarationSyntaxBuilder,
     SourceUnitModuleDeclarationSyntaxBuilder, SourceUnitSyntaxBuilder, StructBodySyntaxBuilder,
     StructDeclarationSyntaxBuilder, StructFieldDeclarationSyntaxBuilder, SyntaxKind, SyntaxToken,
@@ -536,6 +537,18 @@ impl RecoverySyntaxSink for CallableBodyBlockExpressionSyntaxBuilder {
 impl RecoverySyntaxSink for TypeExpressionSyntaxBuilder {
     fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
         TypeExpressionSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for ExpressionSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        ExpressionSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for PrimaryExpressionSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        PrimaryExpressionSyntaxBuilder::push_skipped_tokens(self, tokens);
     }
 }
 

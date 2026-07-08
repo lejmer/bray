@@ -1,7 +1,6 @@
 use bray_syntax::{
     CallableBodyBlockExpressionSyntax, CallableResultClauseSyntax, ParameterListSyntax,
-    ParameterListSyntaxBuilder, ParameterModifiersSyntax, ParameterSyntax, ParameterSyntaxBuilder,
-    SyntaxKind, SyntaxToken,
+    ParameterListSyntaxBuilder, ParameterModifiersSyntax, ParameterSyntax, SyntaxKind, SyntaxToken,
 };
 
 use super::separated::{SeparatedListSpec, SeparatedListSyntaxSink, separated_list_recovery_kinds};
@@ -96,17 +95,15 @@ impl Parser {
         let mut builder = ParameterSyntax::builder(self.syntax_source(), start);
 
         builder.push_parameter_modifiers(self.parse_parameter_modifiers());
-        builder.push_identifier_token(self.parse_identifier());
-        builder.push_colon_token(self.expect(SyntaxKind::ColonToken));
 
         let mut at_type_boundary = Parser::at_parameter_type_boundary;
 
-        builder.push_type_expression(self.parse_type_expression_until(&mut at_type_boundary));
+        builder.push_typed_identifier(self.parse_typed_identifier_until(&mut at_type_boundary));
 
         if self.at(SyntaxKind::EqualsToken) {
             builder.push_equals_token(self.expect(SyntaxKind::EqualsToken));
-            // TODO(parser): Parse parameter default expressions once expression parsing is implemented.
-            self.recover_parameter_default_expression(&mut builder);
+            let mut at_default_boundary = Parser::at_parameter_default_boundary;
+            builder.push_expression(self.parse_expression_until(&mut at_default_boundary));
         }
 
         builder.build()
@@ -126,14 +123,6 @@ impl Parser {
         }
 
         builder.build()
-    }
-
-    fn recover_parameter_default_expression(&mut self, builder: &mut ParameterSyntaxBuilder) {
-        if self.at_parameter_default_boundary() {
-            return;
-        }
-
-        self.recover_current_and_until_predicate(builder, Parser::at_parameter_default_boundary);
     }
 
     fn at_parameter_type_boundary(&mut self) -> bool {
@@ -194,7 +183,7 @@ impl Parser {
         let start = self.peek().full_range().start();
         let mut builder = CallableBodyBlockExpressionSyntax::builder(self.syntax_source(), start);
 
-        // TODO(parser): Parse block expressions once expression parsing is implemented.
+        // TODO(parser): Parse callable body block contents once block-item parsing is implemented.
         self.parse_skipped_braced_body_tokens(&mut builder, at_missing_body_boundary);
 
         builder.build()
@@ -220,7 +209,6 @@ mod tests {
     use super::super::state::Parser;
     use crate::test_support::{diagnostic_kinds, source};
 
-    // TODO(parser): Update this when parameter default expressions are parsed.
     #[test]
     fn parser_parses_valid_parameter_lists() {
         let sources = source_store(["(pos value: Int = 1, mut tail: Bool,)"]);
@@ -251,6 +239,11 @@ mod tests {
         assert_eq!(first.type_expression().full_text(), "Int ");
 
         assert_eq!(
+            first.expression().map(|expression| expression.full_text()),
+            Some(String::from("1"))
+        );
+
+        assert_eq!(
             second
                 .parameter_modifiers()
                 .mut_token()
@@ -260,10 +253,7 @@ mod tests {
 
         assert_eq!(second.type_expression().full_text(), "Bool");
 
-        assert_eq!(
-            diagnostic_kinds(&diagnostics),
-            [DiagnosticKind::SyntaxSkippedSyntax]
-        );
+        assert!(diagnostics.is_empty());
     }
 
     #[test]

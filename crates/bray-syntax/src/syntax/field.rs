@@ -1,5 +1,8 @@
+use super::expression::first_expression;
 use crate::node::define_source_syntax_node;
-use crate::{SyntaxKind, SyntaxToken, TypeExpressionSyntax};
+use crate::{
+    ExpressionSyntax, SyntaxKind, SyntaxToken, TypeExpressionSyntax, TypedIdentifierSyntax,
+};
 
 define_source_syntax_node! {
     /// Optional struct field modifiers in source order.
@@ -60,22 +63,6 @@ define_source_syntax_node! {
         skipped_syntax: true,
         required_tokens: [
             {
-                /// Returns the required field name token.
-                identifier_token;
-                /// Appends the field name token.
-                push_identifier_token;
-                kind: SyntaxKind::IdentifierToken;
-                slot: "struct_field_declaration.identifier_token";
-            },
-            {
-                /// Returns the required colon token.
-                colon_token;
-                /// Appends the colon token.
-                push_colon_token;
-                kind: SyntaxKind::ColonToken;
-                slot: "struct_field_declaration.colon_token";
-            },
-            {
                 /// Returns the required semicolon token.
                 semicolon_token;
                 /// Appends the semicolon token.
@@ -104,13 +91,45 @@ define_source_syntax_node! {
                 kind: SyntaxKind::FieldModifiers;
             },
             {
-                /// Returns the field type-expression child.
-                type_expression;
-                /// Appends the field type-expression child.
-                push_type_expression;
-                ty: TypeExpressionSyntax;
-                kind: SyntaxKind::TypeExpression;
+                /// Returns the typed-identifier child.
+                typed_identifier;
+                /// Appends the typed-identifier child.
+                push_typed_identifier;
+                ty: TypedIdentifierSyntax;
+                kind: SyntaxKind::TypedIdentifier;
             }
         ],
+        repeated_children: [
+            {
+                /// Returns default expression children in source order.
+                expressions;
+                /// Appends a default expression child.
+                push_expression;
+                ty: ExpressionSyntax;
+                kind: SyntaxKind::Expression;
+            }
+        ],
+    }
+}
+
+impl StructFieldDeclarationSyntax {
+    /// Returns the required field name token.
+    pub fn identifier_token(&self) -> SyntaxToken {
+        self.typed_identifier().identifier_token()
+    }
+
+    /// Returns the required colon token.
+    pub fn colon_token(&self) -> SyntaxToken {
+        self.typed_identifier().colon_token()
+    }
+
+    /// Returns the field type-expression child.
+    pub fn type_expression(&self) -> TypeExpressionSyntax {
+        self.typed_identifier().type_expression()
+    }
+
+    /// Returns the default expression child when present.
+    pub fn expression(&self) -> Option<ExpressionSyntax> {
+        first_expression(&self.source, &self.node, self.start)
     }
 }

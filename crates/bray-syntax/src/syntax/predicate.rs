@@ -1,5 +1,8 @@
+use super::expression::first_expression;
 use crate::node::define_source_syntax_node;
-use crate::{SyntaxKind, SyntaxToken, TypeExpressionSyntax};
+use crate::{
+    ExpressionSyntax, SyntaxKind, SyntaxToken, TypeExpressionSyntax, TypedIdentifierSyntax,
+};
 
 define_source_syntax_node! {
     /// Optional predicate modifiers in source order.
@@ -58,35 +61,35 @@ define_source_syntax_node! {
         debug_name: "PredicateParameterSyntax",
         builder_debug_name: "PredicateParameterSyntaxBuilder",
         skipped_syntax: true,
-        required_tokens: [
-            {
-                /// Returns the required parameter name token.
-                identifier_token;
-                /// Appends the parameter name token.
-                push_identifier_token;
-                kind: SyntaxKind::IdentifierToken;
-                slot: "predicate_parameter.identifier_token";
-            },
-            {
-                /// Returns the required colon token.
-                colon_token;
-                /// Appends the colon token.
-                push_colon_token;
-                kind: SyntaxKind::ColonToken;
-                slot: "predicate_parameter.colon_token";
-            }
-        ],
+        required_tokens: [],
         optional_tokens: [],
         required_children: [
             {
-                /// Returns the parameter type-expression child.
-                type_expression;
-                /// Appends the parameter type-expression child.
-                push_type_expression;
-                ty: TypeExpressionSyntax;
-                kind: SyntaxKind::TypeExpression;
+                /// Returns the typed-identifier child.
+                typed_identifier;
+                /// Appends the typed-identifier child.
+                push_typed_identifier;
+                ty: TypedIdentifierSyntax;
+                kind: SyntaxKind::TypedIdentifier;
             }
         ],
+    }
+}
+
+impl PredicateParameterSyntax {
+    /// Returns the required parameter name token.
+    pub fn identifier_token(&self) -> SyntaxToken {
+        self.typed_identifier().identifier_token()
+    }
+
+    /// Returns the required colon token.
+    pub fn colon_token(&self) -> SyntaxToken {
+        self.typed_identifier().colon_token()
+    }
+
+    /// Returns the parameter type-expression child.
+    pub fn type_expression(&self) -> TypeExpressionSyntax {
+        self.typed_identifier().type_expression()
     }
 }
 
@@ -216,6 +219,23 @@ define_source_syntax_node! {
                 kind: SyntaxKind::PredicateParameterList;
             }
         ],
+        repeated_children: [
+            {
+                /// Returns body expression children in source order.
+                expressions;
+                /// Appends a body expression child.
+                push_expression;
+                ty: ExpressionSyntax;
+                kind: SyntaxKind::Expression;
+            }
+        ],
+    }
+}
+
+impl PredicateDeclarationSyntax {
+    /// Returns the body expression child when present.
+    pub fn expression(&self) -> Option<ExpressionSyntax> {
+        first_expression(&self.source, &self.node, self.start)
     }
 }
 
@@ -310,6 +330,23 @@ define_source_syntax_node! {
                 kind: SyntaxKind::PredicateParameterList;
             }
         ],
+        repeated_children: [
+            {
+                /// Returns body expression children in source order.
+                expressions;
+                /// Appends a body expression child.
+                push_expression;
+                ty: ExpressionSyntax;
+                kind: SyntaxKind::Expression;
+            }
+        ],
+    }
+}
+
+impl TraitPredicateMemberDeclarationSyntax {
+    /// Returns the body expression child when present.
+    pub fn expression(&self) -> Option<ExpressionSyntax> {
+        first_expression(&self.source, &self.node, self.start)
     }
 }
 
@@ -317,7 +354,7 @@ define_source_syntax_node! {
 mod tests {
     use bray_source::{TextRange, TextSize};
 
-    use crate::test_support::{identifier_type_expression, snapshot as test_snapshot, token};
+    use crate::test_support::{snapshot as test_snapshot, token, typed_identifier};
     use crate::{
         PredicateDeclarationSyntax, PredicateModifiersSyntax, PredicateParameterListSyntax,
         PredicateParameterSyntax, SyntaxKind, SyntaxText, SyntaxTrivia,
@@ -505,13 +542,7 @@ mod tests {
     fn predicate_parameter(snapshot: bray_source::SourceSnapshot) -> PredicateParameterSyntax {
         let mut builder = PredicateParameterSyntax::builder(snapshot.clone(), TextSize::new(24));
 
-        builder.push_identifier_token(token(SyntaxKind::IdentifierToken, 24, 29));
-
-        builder.push_colon_token(token(SyntaxKind::ColonToken, 29, 30).with_trailing_trivia([
-            SyntaxTrivia::whitespace(TextRange::new(TextSize::new(30), TextSize::new(31))),
-        ]));
-
-        builder.push_type_expression(identifier_type_expression(snapshot, 31, 34));
+        builder.push_typed_identifier(typed_identifier(snapshot, 24, 29, 31, 34, false));
 
         builder.build()
     }

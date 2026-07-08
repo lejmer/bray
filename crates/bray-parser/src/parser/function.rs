@@ -187,7 +187,7 @@ impl Parser {
         mut at_boundary: impl FnMut(&mut Parser) -> bool,
     ) {
         while self.at_any(&CALLABLE_CONTRACT_CLAUSE_START_KINDS) {
-            // TODO(parser): Parse callable contract clauses once expressions are implemented.
+            // TODO(parser): Parse callable contract clauses once clause syntax is implemented.
             self.recover_current_and_until_predicate(builder, |parser| at_boundary(parser));
         }
     }
@@ -266,7 +266,7 @@ mod tests {
         assert_missing_semicolon_diagnostic, marker_offset, parse_diagnostic_kinds,
     };
 
-    // TODO(parser): Update this when callable expressions and directive arguments are parsed.
+    // TODO(parser): Update this when directive arguments are parsed.
     #[test]
     fn parser_parses_function_declarations_after_source_unit_modules() {
         let source = concat!(
@@ -295,6 +295,7 @@ mod tests {
         };
 
         assert_eq!(source_unit.full_text(), source);
+
         assert_eq!(
             declaration.full_text(),
             "@test @abi(\"C\") public async func main(pos value: Int = 1, mut tail: Bool,) -> Unit {}"
@@ -314,6 +315,7 @@ mod tests {
         );
 
         assert_eq!(parameter_list.separator_tokens().count(), 2);
+
         assert_eq!(
             first
                 .parameter_modifiers()
@@ -321,7 +323,14 @@ mod tests {
                 .map(|token| token.kind()),
             Some(SyntaxKind::PosKeyword)
         );
+
         assert!(first.equals_token().is_some());
+
+        assert_eq!(
+            first.expression().map(|expression| expression.full_text()),
+            Some(String::from("1"))
+        );
+
         assert_eq!(
             second
                 .parameter_modifiers()
@@ -329,15 +338,13 @@ mod tests {
                 .map(|token| token.kind()),
             Some(SyntaxKind::MutKeyword)
         );
+
         assert!(declaration.callable_result_clause().is_some());
         assert!(declaration.callable_body_block_expression().is_some());
 
         assert_eq!(
             parse_diagnostic_kinds(&result),
-            [
-                DiagnosticKind::SyntaxSkippedSyntax,
-                DiagnosticKind::SyntaxSkippedSyntax
-            ]
+            [DiagnosticKind::SyntaxSkippedSyntax]
         );
     }
 

@@ -80,7 +80,7 @@ impl Parser {
         builder: &mut CallableContractDeclarationSyntaxBuilder,
     ) {
         while self.at(SyntaxKind::WithKeyword) {
-            // TODO(parser): Parse callable contract constraints once expressions are implemented.
+            // TODO(parser): Parse callable contract constraints once constraint syntax is implemented.
             self.recover_current_and_until_predicate(
                 builder,
                 Parser::at_callable_contract_constraint_boundary,

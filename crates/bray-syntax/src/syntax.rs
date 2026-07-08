@@ -2,6 +2,7 @@ mod callable;
 mod callable_contract;
 mod constant;
 mod directive;
+mod expression;
 mod field;
 mod function;
 mod implementation;
@@ -15,6 +16,7 @@ mod recovery;
 mod r#trait;
 mod r#type;
 mod type_expression;
+mod typed_identifier;
 mod unit;
 mod variant;
 
@@ -41,6 +43,10 @@ pub use directive::{
     SymbolDirectiveSyntaxBuilder, TagDirectiveSyntax, TagDirectiveSyntaxBuilder,
     TargetDirectiveSyntax, TargetDirectiveSyntaxBuilder, TestDirectiveSyntax,
     TestDirectiveSyntaxBuilder,
+};
+pub use expression::{
+    ExpressionSyntax, ExpressionSyntaxBuilder, PrimaryExpressionSyntax,
+    PrimaryExpressionSyntaxBuilder,
 };
 pub use field::{
     FieldModifiersSyntax, FieldModifiersSyntaxBuilder, StructFieldDeclarationSyntax,
@@ -119,6 +125,10 @@ pub use r#type::{
     UnionDeclarationSyntax, UnionDeclarationSyntaxBuilder,
 };
 pub use type_expression::{TypeExpressionSyntax, TypeExpressionSyntaxBuilder};
+pub use typed_identifier::{
+    TypeAnnotationSyntax, TypeAnnotationSyntaxBuilder, TypedIdentifierSyntax,
+    TypedIdentifierSyntaxBuilder,
+};
 pub use unit::{
     CompilationUnitSyntax, CompilationUnitSyntaxBuilder, SourceUnitSyntax, SourceUnitSyntaxBuilder,
 };
