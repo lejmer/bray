@@ -5,6 +5,7 @@ use bray_syntax::{
     TypeFormArgumentListSyntaxBuilder, TypeFormArgumentSyntax,
 };
 
+use super::delimiter::DelimiterDepth;
 use super::separated::{SeparatedListSpec, SeparatedListSyntaxSink, separated_list_recovery_kinds};
 use super::state::Parser;
 
@@ -255,45 +256,23 @@ impl Parser {
         &mut self,
         terminators: &[SyntaxKind],
     ) -> bool {
-        let mut paren_depth = 0usize;
-        let mut bracket_depth = 0usize;
-        let mut brace_depth = 0usize;
-        let mut angle_depth = 0usize;
+        let mut depth = DelimiterDepth::default();
 
         while !self.at(SyntaxKind::EndOfFileToken) {
             let kind = self.peek().kind();
 
-            let at_outer_boundary = paren_depth == 0
-                && bracket_depth == 0
-                && brace_depth == 0
-                && angle_depth == 0
+            let at_outer_boundary = depth.is_at_root()
                 && (kind == SyntaxKind::CommaToken || terminators.contains(&kind));
 
             if at_outer_boundary {
                 return false;
             }
 
-            if paren_depth == 0
-                && bracket_depth == 0
-                && brace_depth == 0
-                && angle_depth == 0
-                && at_generic_argument_expression_operator(kind)
-            {
+            if depth.is_at_root() && at_generic_argument_expression_operator(kind) {
                 return true;
             }
 
-            match kind {
-                SyntaxKind::OpenParenToken => paren_depth += 1,
-                SyntaxKind::CloseParenToken => paren_depth = paren_depth.saturating_sub(1),
-                SyntaxKind::OpenBracketToken => bracket_depth += 1,
-                SyntaxKind::CloseBracketToken => bracket_depth = bracket_depth.saturating_sub(1),
-                SyntaxKind::OpenBraceToken => brace_depth += 1,
-                SyntaxKind::CloseBraceToken => brace_depth = brace_depth.saturating_sub(1),
-                SyntaxKind::LessToken => angle_depth += 1,
-                SyntaxKind::GreaterToken => angle_depth = angle_depth.saturating_sub(1),
-                _ => {}
-            }
-
+            depth.observe_grouping_or_angle(kind);
             self.consume();
         }
 

@@ -3,6 +3,7 @@ mod callable;
 mod callable_contract;
 mod constant;
 mod contract;
+mod delimiter;
 mod directive;
 mod entry;
 mod expression;
