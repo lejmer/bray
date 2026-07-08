@@ -488,7 +488,6 @@ mod tests {
         assert_eq!(declaration.trait_application().full_text(), "Equatable");
     }
 
-    // TODO(syntax): Update this when type expressions are typed syntax.
     #[test]
     fn implementation_bodies_store_type_member_bindings() {
         let snapshot = test_snapshot("syntax-implementation-test", "{ type Item = Element; }");

@@ -14,6 +14,7 @@ mod predicate;
 mod recovery;
 mod r#trait;
 mod r#type;
+mod type_expression;
 mod unit;
 mod variant;
 
@@ -117,6 +118,7 @@ pub use r#type::{
     TypeModifiersSyntax, TypeModifiersSyntaxBuilder, UnionBodySyntax, UnionBodySyntaxBuilder,
     UnionDeclarationSyntax, UnionDeclarationSyntaxBuilder,
 };
+pub use type_expression::{TypeExpressionSyntax, TypeExpressionSyntaxBuilder};
 pub use unit::{
     CompilationUnitSyntax, CompilationUnitSyntaxBuilder, SourceUnitSyntax, SourceUnitSyntaxBuilder,
 };

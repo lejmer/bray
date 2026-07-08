@@ -336,15 +336,11 @@ mod tests {
             parse_diagnostic_kinds(&result),
             [
                 DiagnosticKind::SyntaxSkippedSyntax,
-                DiagnosticKind::SyntaxSkippedSyntax,
-                DiagnosticKind::SyntaxSkippedSyntax,
-                DiagnosticKind::SyntaxSkippedSyntax,
                 DiagnosticKind::SyntaxSkippedSyntax
             ]
         );
     }
 
-    // TODO(parser): Update this when parameter type expressions are parsed.
     #[test]
     fn parser_represents_missing_parameter_separators_in_function_declarations() {
         let source = "module main; func main(first: Int mut second: Bool) {}";
@@ -374,11 +370,7 @@ mod tests {
 
         assert_eq!(
             parse_diagnostic_kinds(&result),
-            [
-                DiagnosticKind::SyntaxSkippedSyntax,
-                DiagnosticKind::SyntaxExpectedToken,
-                DiagnosticKind::SyntaxSkippedSyntax
-            ]
+            [DiagnosticKind::SyntaxExpectedToken]
         );
     }
 

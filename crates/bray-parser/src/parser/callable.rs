@@ -99,8 +99,9 @@ impl Parser {
         builder.push_identifier_token(self.parse_identifier());
         builder.push_colon_token(self.expect(SyntaxKind::ColonToken));
 
-        // TODO(parser): Parse parameter type expressions once expression parsing is implemented.
-        self.recover_parameter_type_expression(&mut builder);
+        let mut at_type_boundary = Parser::at_parameter_type_boundary;
+
+        builder.push_type_expression(self.parse_type_expression_until(&mut at_type_boundary));
 
         if self.at(SyntaxKind::EqualsToken) {
             builder.push_equals_token(self.expect(SyntaxKind::EqualsToken));
@@ -125,14 +126,6 @@ impl Parser {
         }
 
         builder.build()
-    }
-
-    fn recover_parameter_type_expression(&mut self, builder: &mut ParameterSyntaxBuilder) {
-        if self.at_parameter_type_boundary() {
-            return;
-        }
-
-        self.recover_current_and_until_predicate(builder, Parser::at_parameter_type_boundary);
     }
 
     fn recover_parameter_default_expression(&mut self, builder: &mut ParameterSyntaxBuilder) {
@@ -178,10 +171,8 @@ impl Parser {
 
         builder.push_arrow_token(self.expect(SyntaxKind::ArrowToken));
 
-        // TODO(parser): Parse callable result type expressions once expression parsing is implemented.
-        if !at_result_type_boundary(self) {
-            self.recover_current_and_until_predicate(&mut builder, at_result_type_boundary);
-        }
+        builder
+            .push_type_expression(self.parse_type_expression_until(&mut at_result_type_boundary));
 
         builder.build()
     }
@@ -229,7 +220,7 @@ mod tests {
     use super::super::state::Parser;
     use crate::test_support::{diagnostic_kinds, source};
 
-    // TODO(parser): Update this when parameter type and default expressions are parsed.
+    // TODO(parser): Update this when parameter default expressions are parsed.
     #[test]
     fn parser_parses_valid_parameter_lists() {
         let sources = source_store(["(pos value: Int = 1, mut tail: Bool,)"]);
@@ -257,6 +248,7 @@ mod tests {
         );
 
         assert!(first.equals_token().is_some());
+        assert_eq!(first.type_expression().full_text(), "Int ");
 
         assert_eq!(
             second
@@ -266,17 +258,14 @@ mod tests {
             Some(SyntaxKind::MutKeyword)
         );
 
+        assert_eq!(second.type_expression().full_text(), "Bool");
+
         assert_eq!(
             diagnostic_kinds(&diagnostics),
-            [
-                DiagnosticKind::SyntaxSkippedSyntax,
-                DiagnosticKind::SyntaxSkippedSyntax,
-                DiagnosticKind::SyntaxSkippedSyntax
-            ]
+            [DiagnosticKind::SyntaxSkippedSyntax]
         );
     }
 
-    // TODO(parser): Update this when parameter type expressions are parsed.
     #[test]
     fn parser_parameter_lists_represent_missing_separators() {
         let sources = source_store(["(first: Int mut second: Bool)"]);
@@ -299,15 +288,10 @@ mod tests {
 
         assert_eq!(
             diagnostic_kinds(&diagnostics),
-            [
-                DiagnosticKind::SyntaxSkippedSyntax,
-                DiagnosticKind::SyntaxExpectedToken,
-                DiagnosticKind::SyntaxSkippedSyntax
-            ]
+            [DiagnosticKind::SyntaxExpectedToken]
         );
     }
 
-    // TODO(parser): Update this when parameter type expressions are parsed.
     #[test]
     fn parser_parameter_lists_recover_bad_tokens_without_losing_later_items() {
         let sources = source_store(["(first: Int, $, second: Bool)"]);
@@ -320,28 +304,26 @@ mod tests {
         let parameters = list.parameters().collect::<Vec<_>>();
         let skipped_syntax = list.skipped_syntax().collect::<Vec<_>>();
 
-        let [_, recovered, _] = parameters.as_slice() else {
+        let [first, recovered, second] = parameters.as_slice() else {
             panic!("expected three parameter slots: {parameters:?}");
         };
 
-        let [first_type, skipped, second_type] = skipped_syntax.as_slice() else {
-            panic!("expected three skipped-syntax nodes: {skipped_syntax:?}");
+        let [skipped] = skipped_syntax.as_slice() else {
+            panic!("expected one skipped-syntax node: {skipped_syntax:?}");
         };
 
         assert_eq!(list.full_text(), "(first: Int, $, second: Bool)");
         assert!(recovered.identifier_token().is_missing());
-        assert_eq!(first_type.full_text(), "Int");
+        assert_eq!(first.type_expression().full_text(), "Int");
         assert_eq!(skipped.full_text(), "$");
-        assert_eq!(second_type.full_text(), "Bool");
+        assert_eq!(second.type_expression().full_text(), "Bool");
 
         assert_eq!(
             diagnostic_kinds(&diagnostics),
             [
                 DiagnosticKind::LexicalInvalidCharacter,
-                DiagnosticKind::SyntaxSkippedSyntax,
                 DiagnosticKind::SyntaxExpectedToken,
                 DiagnosticKind::SyntaxExpectedToken,
-                DiagnosticKind::SyntaxSkippedSyntax,
                 DiagnosticKind::SyntaxSkippedSyntax
             ]
         );

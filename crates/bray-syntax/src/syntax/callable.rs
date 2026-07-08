@@ -1,5 +1,5 @@
 use crate::node::define_source_syntax_node;
-use crate::{SyntaxKind, SyntaxToken};
+use crate::{SyntaxKind, SyntaxToken, TypeExpressionSyntax};
 
 define_source_syntax_node! {
     /// Optional callable parameter modifiers in source order.
@@ -82,6 +82,14 @@ define_source_syntax_node! {
                 push_parameter_modifiers;
                 ty: ParameterModifiersSyntax;
                 kind: SyntaxKind::ParameterModifiers;
+            },
+            {
+                /// Returns the parameter type-expression child.
+                type_expression;
+                /// Appends the parameter type-expression child.
+                push_type_expression;
+                ty: TypeExpressionSyntax;
+                kind: SyntaxKind::TypeExpression;
             }
         ],
     }
@@ -170,7 +178,16 @@ define_source_syntax_node! {
             }
         ],
         optional_tokens: [],
-        required_children: [],
+        required_children: [
+            {
+                /// Returns the result type-expression child.
+                type_expression;
+                /// Appends the result type-expression child.
+                push_type_expression;
+                ty: TypeExpressionSyntax;
+                kind: SyntaxKind::TypeExpression;
+            }
+        ],
     }
 }
 
@@ -212,7 +229,10 @@ define_source_syntax_node! {
 mod tests {
     use bray_source::{SourceSnapshot, TextRange, TextSize};
 
-    use crate::test_support::{snapshot as test_snapshot, token};
+    use crate::test_support::{
+        identifier_type_expression, identifier_type_expression_with_trailing_space,
+        snapshot as test_snapshot, token,
+    };
     use crate::{
         CallableBodyBlockExpressionSyntax, CallableResultClauseSyntax, ParameterListSyntax,
         ParameterModifiersSyntax, ParameterSyntax, SyntaxKind, SyntaxText, SyntaxToken,
@@ -252,9 +272,9 @@ mod tests {
         assert_eq!(list.full_text(), "pos value: Int = 1, tail: Bool");
     }
 
-    // TODO(syntax): Update this when callable result and block contents are typed syntax.
+    // TODO(syntax): Update this when callable block contents are typed syntax.
     #[test]
-    fn callable_result_clauses_and_body_blocks_store_skipped_contents() {
+    fn callable_result_clauses_store_type_and_body_blocks_store_skipped_contents() {
         let snapshot = test_snapshot("syntax-callable-test", "-> Int { return }");
         let mut result_builder =
             CallableResultClauseSyntax::builder(snapshot.clone(), TextSize::ZERO);
@@ -265,7 +285,8 @@ mod tests {
                 TextSize::new(3),
             ))],
         ));
-        result_builder.push_skipped_tokens([token(SyntaxKind::IdentifierToken, 3, 6)]);
+
+        result_builder.push_type_expression(identifier_type_expression(snapshot.clone(), 3, 6));
 
         let result = result_builder.build();
 
@@ -277,22 +298,27 @@ mod tests {
                 SyntaxTrivia::whitespace(TextRange::new(TextSize::new(8), TextSize::new(9))),
             ]),
         );
+
         body_builder.push_skipped_tokens([token(SyntaxKind::ReturnKeyword, 9, 15)
             .with_trailing_trivia([SyntaxTrivia::whitespace(TextRange::new(
                 TextSize::new(15),
                 TextSize::new(16),
             ))])]);
+
         body_builder.push_close_brace_token(token(SyntaxKind::CloseBraceToken, 16, 17));
 
         let body = body_builder.build();
 
         assert_eq!(result.full_text(), "-> Int");
-        assert_eq!(result.skipped_syntax().count(), 1);
+        assert_eq!(result.type_expression().full_text(), "Int");
+        assert_eq!(result.skipped_syntax().count(), 0);
         assert_eq!(body.full_text(), "{ return }");
         assert_eq!(body.skipped_syntax().count(), 1);
     }
 
     fn parameter(snapshot: SourceSnapshot, start: u32, has_default: bool) -> ParameterSyntax {
+        let builder_source = snapshot.clone();
+
         let mut builder = ParameterSyntax::builder(snapshot.clone(), TextSize::new(start));
         let mut modifiers = ParameterModifiersSyntax::builder(snapshot, TextSize::new(start));
 
@@ -305,8 +331,10 @@ mod tests {
                     )),
                 ]),
             );
+
             builder.push_parameter_modifiers(modifiers.build());
             builder.push_identifier_token(token(SyntaxKind::IdentifierToken, start + 4, start + 9));
+
             builder.push_colon_token(
                 token(SyntaxKind::ColonToken, start + 9, start + 10).with_trailing_trivia([
                     SyntaxTrivia::whitespace(TextRange::new(
@@ -315,15 +343,13 @@ mod tests {
                     )),
                 ]),
             );
-            builder.push_skipped_tokens([token(
-                SyntaxKind::IdentifierToken,
+
+            builder.push_type_expression(identifier_type_expression_with_trailing_space(
+                builder_source.clone(),
                 start + 11,
                 start + 14,
-            )
-            .with_trailing_trivia([SyntaxTrivia::whitespace(TextRange::new(
-                TextSize::new(start + 14),
-                TextSize::new(start + 15),
-            ))])]);
+            ));
+
             builder.push_equals_token(
                 token(SyntaxKind::EqualsToken, start + 15, start + 16).with_trailing_trivia([
                     SyntaxTrivia::whitespace(TextRange::new(
@@ -332,6 +358,7 @@ mod tests {
                     )),
                 ]),
             );
+
             builder.push_skipped_tokens([token(
                 SyntaxKind::DecimalIntegerLiteralToken,
                 start + 17,
@@ -340,6 +367,7 @@ mod tests {
         } else {
             builder.push_parameter_modifiers(modifiers.build());
             builder.push_identifier_token(token(SyntaxKind::IdentifierToken, start, start + 4));
+
             builder.push_colon_token(
                 token(SyntaxKind::ColonToken, start + 4, start + 5).with_trailing_trivia([
                     SyntaxTrivia::whitespace(TextRange::new(
@@ -348,11 +376,12 @@ mod tests {
                     )),
                 ]),
             );
-            builder.push_skipped_tokens([token(
-                SyntaxKind::IdentifierToken,
+
+            builder.push_type_expression(identifier_type_expression(
+                builder_source,
                 start + 6,
                 start + 10,
-            )]);
+            ));
         }
 
         builder.build()

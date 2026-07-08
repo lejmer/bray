@@ -117,16 +117,15 @@ impl Parser {
 
 #[cfg(test)]
 mod tests {
-    use bray_diagnostics::DiagnosticKind;
     use bray_syntax::{SyntaxKind, SyntaxText};
     use bray_testing::test_source_store as source_store;
 
     use crate::parser::parse_compilation_unit;
-    use crate::test_support::{parse_diagnostic_kinds, source};
+    use crate::test_support::source;
 
     use super::super::super::state::Parser;
 
-    // TODO(parser): Update this when callable result and body expressions are parsed.
+    // TODO(parser): Update this when callable body expressions are parsed.
     #[test]
     fn parser_parses_type_constructor_members() {
         let source = concat!(
@@ -154,6 +153,7 @@ mod tests {
         };
 
         assert_eq!(source_unit.full_text(), source);
+
         assert_eq!(
             constructor.full_text(),
             "public trusted construct origin() -> Self {} "
@@ -180,10 +180,7 @@ mod tests {
             Some(SyntaxKind::IdentifierToken)
         );
 
-        assert_eq!(
-            parse_diagnostic_kinds(&result),
-            [DiagnosticKind::SyntaxSkippedSyntax]
-        );
+        assert!(result.diagnostics().is_empty());
     }
 
     #[test]

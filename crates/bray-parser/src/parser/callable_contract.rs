@@ -56,7 +56,9 @@ impl Parser {
         self.parse_callable_contract_constraints(&mut builder);
         builder.push_equals_token(self.expect(SyntaxKind::EqualsToken));
 
-        self.recover_callable_contract_type_expression(&mut builder);
+        let mut at_type_boundary = Parser::at_callable_contract_type_recovery_boundary;
+
+        builder.push_type_expression(self.parse_type_expression_until(&mut at_type_boundary));
         builder.push_semicolon_token(self.expect(SyntaxKind::SemicolonToken));
 
         builder.build()
@@ -84,21 +86,6 @@ impl Parser {
                 Parser::at_callable_contract_constraint_boundary,
             );
         }
-    }
-
-    fn recover_callable_contract_type_expression(
-        &mut self,
-        builder: &mut CallableContractDeclarationSyntaxBuilder,
-    ) {
-        if self.at_callable_contract_type_boundary() {
-            return;
-        }
-
-        // TODO(parser): Parse callable type expressions once type expression parsing is implemented.
-        self.recover_current_and_until_balanced_close_paren_or_predicate(
-            builder,
-            Parser::at_callable_contract_type_recovery_boundary,
-        );
     }
 
     fn at_callable_contract_after_name_boundary(&mut self) -> bool {
@@ -147,7 +134,6 @@ mod tests {
     use crate::parser::parse_compilation_unit;
     use crate::test_support::parse_diagnostic_kinds;
 
-    // TODO(parser): Update this when callable type expressions are parsed.
     #[test]
     fn parser_parses_callable_contract_declarations_after_source_unit_modules() {
         let source = "module main; public callable Mapper = func(value: Int) -> Bool;";
@@ -155,6 +141,7 @@ mod tests {
         let result = parse_compilation_unit(&sources);
 
         let source_unit = &result.syntax_tree().root().source_units()[0];
+
         let declarations = source_unit
             .callable_contract_declarations()
             .collect::<Vec<_>>();
@@ -178,22 +165,24 @@ mod tests {
             Some(SyntaxKind::PublicKeyword)
         );
 
-        assert_eq!(declaration.skipped_syntax().count(), 1);
-
         assert_eq!(
-            parse_diagnostic_kinds(&result),
-            [DiagnosticKind::SyntaxSkippedSyntax]
+            declaration.type_expression().full_text(),
+            "func(value: Int) -> Bool"
         );
+        assert_eq!(declaration.skipped_syntax().count(), 0);
+
+        assert!(result.diagnostics().is_empty());
     }
 
-    // TODO(parser): Update this when callable contract generics, constraints, and type forms are parsed.
+    // TODO(parser): Update this when callable contract generics and constraints are parsed.
     #[test]
-    fn parser_skips_callable_contract_generics_constraints_and_type_forms_for_now() {
+    fn parser_skips_callable_contract_generics_and_constraints_for_now() {
         let source = "module main; callable Mapper<T> with(T: Copy) = func(value: T) -> Bool;";
         let sources = source_store([source]);
         let result = parse_compilation_unit(&sources);
 
         let source_unit = &result.syntax_tree().root().source_units()[0];
+
         let declarations = source_unit
             .callable_contract_declarations()
             .collect::<Vec<_>>();
@@ -204,9 +193,9 @@ mod tests {
 
         let skipped_syntax = declaration.skipped_syntax().collect::<Vec<_>>();
 
-        let [generics, constraint, callable_type] = skipped_syntax.as_slice() else {
+        let [generics, constraint] = skipped_syntax.as_slice() else {
             panic!(
-                "expected generic parameters, constraint, and type form as skipped syntax: {skipped_syntax:?}"
+                "expected generic parameters and constraint as skipped syntax: {skipped_syntax:?}"
             );
         };
 
@@ -219,12 +208,15 @@ mod tests {
 
         assert_eq!(generics.full_text(), "<T> ");
         assert_eq!(constraint.full_text(), "with(T: Copy) ");
-        assert_eq!(callable_type.full_text(), "func(value: T) -> Bool");
+
+        assert_eq!(
+            declaration.type_expression().full_text(),
+            "func(value: T) -> Bool"
+        );
 
         assert_eq!(
             parse_diagnostic_kinds(&result),
             [
-                DiagnosticKind::SyntaxSkippedSyntax,
                 DiagnosticKind::SyntaxSkippedSyntax,
                 DiagnosticKind::SyntaxSkippedSyntax
             ]
@@ -261,9 +253,10 @@ mod tests {
         );
 
         assert_eq!(
-            parse_diagnostic_kinds(&result),
-            [DiagnosticKind::SyntaxSkippedSyntax]
+            declaration.type_expression().full_text(),
+            "func(value: Int)"
         );
+        assert!(result.diagnostics().is_empty());
     }
 
     #[test]
@@ -288,24 +281,15 @@ mod tests {
             panic!("expected one function declaration: {functions:?}");
         };
 
-        let skipped_syntax = contract.skipped_syntax().collect::<Vec<_>>();
-
-        let [callable_type] = skipped_syntax.as_slice() else {
-            panic!("expected callable type as skipped syntax: {skipped_syntax:?}");
-        };
-
         assert_eq!(source_unit.full_text(), source);
         assert_eq!(contract.full_text(), "callable Mapper = func(value: Int)\n");
-        assert_eq!(callable_type.full_text(), "func(value: Int)\n");
+        assert_eq!(contract.type_expression().full_text(), "func(value: Int)\n");
         assert!(contract.semicolon_token().is_missing());
         assert_eq!(function.full_text(), "func main() {}");
 
         assert_eq!(
             parse_diagnostic_kinds(&result),
-            [
-                DiagnosticKind::SyntaxSkippedSyntax,
-                DiagnosticKind::SyntaxExpectedToken
-            ]
+            [DiagnosticKind::SyntaxExpectedToken]
         );
     }
 }

@@ -1,6 +1,6 @@
 use super::directive::TagDirectiveSyntax;
 use crate::node::{child_nodes, define_source_syntax_node};
-use crate::{SyntaxKind, SyntaxToken};
+use crate::{SyntaxKind, SyntaxToken, TypeExpressionSyntax};
 
 define_source_syntax_node! {
     /// Union variant directives in source order.
@@ -238,6 +238,14 @@ define_source_syntax_node! {
                 push_payload_field_modifiers;
                 ty: PayloadFieldModifiersSyntax;
                 kind: SyntaxKind::PayloadFieldModifiers;
+            },
+            {
+                /// Returns the payload field type-expression child.
+                type_expression;
+                /// Appends the payload field type-expression child.
+                push_type_expression;
+                ty: TypeExpressionSyntax;
+                kind: SyntaxKind::TypeExpression;
             }
         ],
     }

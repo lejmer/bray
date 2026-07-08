@@ -173,6 +173,8 @@ pub enum SyntaxKind {
     CallableResultClause,
     /// Callable body block expression with skipped expression contents.
     CallableBodyBlockExpression,
+    /// Type expression.
+    TypeExpression,
     /// Dotted identifier path syntax node.
     Path,
     /// Concrete comma-like identifier list syntax node.
@@ -398,6 +400,7 @@ impl SyntaxKind {
                 | Self::ParameterModifiers
                 | Self::CallableResultClause
                 | Self::CallableBodyBlockExpression
+                | Self::TypeExpression
                 | Self::Path
                 | Self::IdentifierList
                 | Self::IdentifierListItem
@@ -612,6 +615,7 @@ impl SyntaxKind {
             Self::ParameterModifiers => "parameter_modifiers",
             Self::CallableResultClause => "callable_result_clause",
             Self::CallableBodyBlockExpression => "callable_body_block_expression",
+            Self::TypeExpression => "type_expression",
             Self::Path => "path",
             Self::IdentifierList => "identifier_list",
             Self::IdentifierListItem => "identifier_list_item",
@@ -842,6 +846,7 @@ mod tests {
 
         assert!(SyntaxKind::CallableResultClause.is_node());
         assert!(SyntaxKind::CallableBodyBlockExpression.is_node());
+        assert!(SyntaxKind::TypeExpression.is_node());
 
         assert!(SyntaxKind::Path.is_node());
 
@@ -1173,6 +1178,7 @@ mod tests {
             "callable_body_block_expression"
         );
 
+        assert_eq!(SyntaxKind::TypeExpression.as_str(), "type_expression");
         assert_eq!(SyntaxKind::Path.as_str(), "path");
         assert_eq!(SyntaxKind::IdentifierList.as_str(), "identifier_list");
 
