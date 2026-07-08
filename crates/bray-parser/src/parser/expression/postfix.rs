@@ -1,0 +1,357 @@
+use bray_syntax::{
+    CallOperationSyntax, ConversionOperationSyntax, ElementIndexOperationSyntax, ExpressionSyntax,
+    MemberAccessOperationSyntax, NullablePropagationOperationSyntax, PrimaryExpressionSyntax,
+    SliceIndexOperationSyntax, SyntaxKind, TraitQualifiedMemberOperationSyntax,
+};
+
+use crate::parser::state::Parser;
+
+impl Parser {
+    pub(in crate::parser::expression) fn parse_postfix_expression_until(
+        &mut self,
+        at_boundary: &mut dyn FnMut(&mut Parser) -> bool,
+    ) -> ExpressionSyntax {
+        let primary = self.parse_primary_expression_until(at_boundary);
+        let mut expression = self.primary_to_expression(primary);
+
+        loop {
+            if at_boundary(self) {
+                break;
+            }
+
+            expression = match self.peek().kind() {
+                SyntaxKind::DotToken => self.parse_member_access_postfix(expression),
+                SyntaxKind::OpenBracketToken if self.should_parse_slice_index_operation() => {
+                    self.parse_slice_index_postfix(expression, at_boundary)
+                }
+                SyntaxKind::OpenBracketToken => {
+                    self.parse_element_index_postfix(expression, at_boundary)
+                }
+                SyntaxKind::OpenParenToken
+                    if self.should_parse_trait_qualified_member_operation() =>
+                {
+                    self.parse_trait_qualified_member_postfix(expression)
+                }
+                SyntaxKind::OpenParenToken => self.parse_call_postfix(expression),
+                SyntaxKind::QuestionToken => self.parse_nullable_propagation_postfix(expression),
+                SyntaxKind::AsKeyword => self.parse_conversion_postfix(expression, at_boundary),
+                _ => break,
+            };
+        }
+
+        expression
+    }
+
+    pub(in crate::parser::expression) fn primary_to_expression(
+        &mut self,
+        primary: PrimaryExpressionSyntax,
+    ) -> ExpressionSyntax {
+        let start = primary.full_range().start();
+        let mut builder = ExpressionSyntax::builder(self.syntax_source(), start);
+
+        builder.push_primary_expression(primary);
+
+        builder.build()
+    }
+
+    fn parse_member_access_postfix(&mut self, expression: ExpressionSyntax) -> ExpressionSyntax {
+        let start = expression.full_range().start();
+        let mut builder = ExpressionSyntax::builder(self.syntax_source(), start);
+
+        builder.push_expression(expression);
+        builder.push_member_access_operation(self.parse_member_access_operation());
+
+        builder.build()
+    }
+
+    fn parse_element_index_postfix(
+        &mut self,
+        expression: ExpressionSyntax,
+        at_boundary: &mut dyn FnMut(&mut Parser) -> bool,
+    ) -> ExpressionSyntax {
+        let start = expression.full_range().start();
+        let mut builder = ExpressionSyntax::builder(self.syntax_source(), start);
+
+        builder.push_expression(expression);
+        builder.push_element_index_operation(self.parse_element_index_operation(at_boundary));
+
+        builder.build()
+    }
+
+    fn parse_call_postfix(&mut self, expression: ExpressionSyntax) -> ExpressionSyntax {
+        let start = expression.full_range().start();
+        let mut builder = ExpressionSyntax::builder(self.syntax_source(), start);
+
+        builder.push_expression(expression);
+        builder.push_call_operation(self.parse_call_operation());
+
+        builder.build()
+    }
+
+    fn parse_slice_index_postfix(
+        &mut self,
+        expression: ExpressionSyntax,
+        at_boundary: &mut dyn FnMut(&mut Parser) -> bool,
+    ) -> ExpressionSyntax {
+        let start = expression.full_range().start();
+        let mut builder = ExpressionSyntax::builder(self.syntax_source(), start);
+
+        builder.push_expression(expression);
+        builder.push_slice_index_operation(self.parse_slice_index_operation(at_boundary));
+
+        builder.build()
+    }
+
+    fn parse_nullable_propagation_postfix(
+        &mut self,
+        expression: ExpressionSyntax,
+    ) -> ExpressionSyntax {
+        let start = expression.full_range().start();
+        let mut builder = ExpressionSyntax::builder(self.syntax_source(), start);
+
+        builder.push_expression(expression);
+        builder.push_nullable_propagation_operation(self.parse_nullable_propagation_operation());
+
+        builder.build()
+    }
+
+    fn parse_conversion_postfix(
+        &mut self,
+        expression: ExpressionSyntax,
+        at_boundary: &mut dyn FnMut(&mut Parser) -> bool,
+    ) -> ExpressionSyntax {
+        let start = expression.full_range().start();
+        let mut builder = ExpressionSyntax::builder(self.syntax_source(), start);
+
+        builder.push_expression(expression);
+        builder.push_conversion_operation(self.parse_conversion_operation(at_boundary));
+
+        builder.build()
+    }
+
+    fn parse_trait_qualified_member_postfix(
+        &mut self,
+        expression: ExpressionSyntax,
+    ) -> ExpressionSyntax {
+        let start = expression.full_range().start();
+        let mut builder = ExpressionSyntax::builder(self.syntax_source(), start);
+
+        builder.push_expression(expression);
+        builder
+            .push_trait_qualified_member_operation(self.parse_trait_qualified_member_operation());
+
+        builder.build()
+    }
+
+    pub(in crate::parser::expression) fn parse_member_access_operation(
+        &mut self,
+    ) -> MemberAccessOperationSyntax {
+        let start = self.peek().full_range().start();
+        let mut builder = MemberAccessOperationSyntax::builder(self.syntax_source(), start);
+
+        builder.push_dot_token(self.expect(SyntaxKind::DotToken));
+
+        match self.peek().kind() {
+            SyntaxKind::TupleElementIndexToken => {
+                builder.push_tuple_element_index_token(
+                    self.expect(SyntaxKind::TupleElementIndexToken),
+                );
+            }
+            _ => builder.push_identifier_token(self.parse_identifier()),
+        }
+
+        builder.build()
+    }
+
+    pub(in crate::parser::expression) fn parse_element_index_operation(
+        &mut self,
+        at_boundary: &mut dyn FnMut(&mut Parser) -> bool,
+    ) -> ElementIndexOperationSyntax {
+        let start = self.peek().full_range().start();
+        let mut builder = ElementIndexOperationSyntax::builder(self.syntax_source(), start);
+
+        builder.push_open_bracket_token(self.expect(SyntaxKind::OpenBracketToken));
+        builder.push_expression(
+            self.parse_expression_until(&mut |parser| {
+                parser.at_element_index_boundary(at_boundary)
+            }),
+        );
+        builder.push_close_bracket_token(self.expect(SyntaxKind::CloseBracketToken));
+
+        builder.build()
+    }
+
+    fn parse_call_operation(&mut self) -> CallOperationSyntax {
+        let start = self.peek().full_range().start();
+        let mut builder = CallOperationSyntax::builder(self.syntax_source(), start);
+
+        builder.push_argument_list(self.parse_argument_list());
+
+        builder.build()
+    }
+
+    fn parse_slice_index_operation(
+        &mut self,
+        at_boundary: &mut dyn FnMut(&mut Parser) -> bool,
+    ) -> SliceIndexOperationSyntax {
+        let start = self.peek().full_range().start();
+        let mut builder = SliceIndexOperationSyntax::builder(self.syntax_source(), start);
+
+        builder.push_open_bracket_token(self.expect(SyntaxKind::OpenBracketToken));
+
+        if !self.at(SyntaxKind::DotDotToken) {
+            let mut at_start_boundary =
+                |parser: &mut Parser| parser.at_slice_selector_start_boundary(at_boundary);
+
+            builder.push_expression(self.parse_expression_until(&mut at_start_boundary));
+        }
+
+        builder.push_dot_dot_token(self.expect(SyntaxKind::DotDotToken));
+
+        if !self.at(SyntaxKind::CloseBracketToken) && !at_boundary(self) {
+            let mut at_end_boundary =
+                |parser: &mut Parser| parser.at_slice_selector_end_boundary(at_boundary);
+
+            builder.push_expression(self.parse_expression_until(&mut at_end_boundary));
+        }
+
+        builder.push_close_bracket_token(self.expect(SyntaxKind::CloseBracketToken));
+
+        builder.build()
+    }
+
+    fn parse_nullable_propagation_operation(&mut self) -> NullablePropagationOperationSyntax {
+        let start = self.peek().full_range().start();
+        let mut builder = NullablePropagationOperationSyntax::builder(self.syntax_source(), start);
+
+        builder.push_question_token(self.expect(SyntaxKind::QuestionToken));
+
+        builder.build()
+    }
+
+    fn parse_conversion_operation(
+        &mut self,
+        at_boundary: &mut dyn FnMut(&mut Parser) -> bool,
+    ) -> ConversionOperationSyntax {
+        let start = self.peek().full_range().start();
+
+        let mut builder = ConversionOperationSyntax::builder(self.syntax_source(), start);
+        let mut at_type_boundary =
+            |parser: &mut Parser| parser.at_conversion_type_boundary(at_boundary);
+
+        builder.push_as_keyword(self.expect(SyntaxKind::AsKeyword));
+        builder.push_type_expression(self.parse_type_expression_until(&mut at_type_boundary));
+
+        builder.build()
+    }
+
+    fn parse_trait_qualified_member_operation(&mut self) -> TraitQualifiedMemberOperationSyntax {
+        let start = self.peek().full_range().start();
+        let mut builder = TraitQualifiedMemberOperationSyntax::builder(self.syntax_source(), start);
+
+        builder.push_open_paren_token(self.expect(SyntaxKind::OpenParenToken));
+        builder.push_trait_application(self.parse_trait_application());
+        builder.push_close_paren_token(self.expect(SyntaxKind::CloseParenToken));
+        builder.push_member_access_operation(self.parse_member_access_operation());
+
+        builder.build()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_syntax::{ExpressionSyntax, SyntaxKind, SyntaxText};
+    use bray_testing::test_source_store as source_store;
+
+    use crate::parser::state::Parser;
+    use crate::test_support::source;
+
+    #[test]
+    fn parser_parses_typed_access_call_index_slice_and_conversion_postfixes() {
+        let sources = source_store(["target.call(1, named = value)[0][start..end]? as Result;"]);
+        let snapshot = source(&sources, 0);
+
+        let mut parser = Parser::new(snapshot);
+        let mut boundary = |parser: &mut Parser| parser.at(SyntaxKind::SemicolonToken);
+
+        let expression = parser.parse_expression_until(&mut boundary);
+        let diagnostics = parser.finish();
+
+        assert_eq!(
+            expression.full_text(),
+            "target.call(1, named = value)[0][start..end]? as Result"
+        );
+
+        assert_eq!(count_call_operations(&expression), 1);
+        assert_eq!(count_element_index_operations(&expression), 1);
+        assert_eq!(count_slice_index_operations(&expression), 1);
+        assert_eq!(count_nullable_propagation_operations(&expression), 1);
+        assert_eq!(count_conversion_operations(&expression), 1);
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn parser_parses_trait_qualified_member_postfix() {
+        let sources = source_store(["target(Display).format;"]);
+        let snapshot = source(&sources, 0);
+
+        let mut parser = Parser::new(snapshot);
+        let mut boundary = |parser: &mut Parser| parser.at(SyntaxKind::SemicolonToken);
+
+        let expression = parser.parse_expression_until(&mut boundary);
+        let diagnostics = parser.finish();
+
+        assert_eq!(expression.full_text(), "target(Display).format");
+        assert_eq!(count_trait_qualified_member_operations(&expression), 1);
+        assert!(diagnostics.is_empty());
+    }
+
+    fn count_call_operations(expression: &ExpressionSyntax) -> usize {
+        expression.call_operations().count()
+            + expression
+                .expressions()
+                .map(|child| count_call_operations(&child))
+                .sum::<usize>()
+    }
+
+    fn count_element_index_operations(expression: &ExpressionSyntax) -> usize {
+        expression.element_index_operations().count()
+            + expression
+                .expressions()
+                .map(|child| count_element_index_operations(&child))
+                .sum::<usize>()
+    }
+
+    fn count_slice_index_operations(expression: &ExpressionSyntax) -> usize {
+        expression.slice_index_operations().count()
+            + expression
+                .expressions()
+                .map(|child| count_slice_index_operations(&child))
+                .sum::<usize>()
+    }
+
+    fn count_nullable_propagation_operations(expression: &ExpressionSyntax) -> usize {
+        expression.nullable_propagation_operations().count()
+            + expression
+                .expressions()
+                .map(|child| count_nullable_propagation_operations(&child))
+                .sum::<usize>()
+    }
+
+    fn count_conversion_operations(expression: &ExpressionSyntax) -> usize {
+        expression.conversion_operations().count()
+            + expression
+                .expressions()
+                .map(|child| count_conversion_operations(&child))
+                .sum::<usize>()
+    }
+
+    fn count_trait_qualified_member_operations(expression: &ExpressionSyntax) -> usize {
+        expression.trait_qualified_member_operations().count()
+            + expression
+                .expressions()
+                .map(|child| count_trait_qualified_member_operations(&child))
+                .sum::<usize>()
+    }
+}
