@@ -1,5 +1,8 @@
 use crate::node::{child_nodes, define_source_syntax_node};
-use crate::{CallableResultClauseSyntax, ParameterListSyntax, PathSyntax, SyntaxKind, SyntaxToken};
+use crate::{
+    CallableResultClauseSyntax, ExpressionSyntax, ParameterListSyntax, PathSyntax, SyntaxKind,
+    SyntaxToken,
+};
 
 define_source_syntax_node! {
     /// Type expression.
@@ -136,6 +139,14 @@ define_source_syntax_node! {
                 push_callable_result_clause;
                 ty: CallableResultClauseSyntax;
                 kind: SyntaxKind::CallableResultClause;
+            },
+            {
+                /// Returns direct runtime expression children in source order.
+                expressions;
+                /// Appends a runtime expression child.
+                push_expression;
+                ty: ExpressionSyntax;
+                kind: SyntaxKind::Expression;
             }
         ],
     }

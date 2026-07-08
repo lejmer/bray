@@ -182,7 +182,7 @@ impl Parser {
 
     fn parse_implementation_constraints(&mut self, builder: &mut impl RecoverySyntaxSink) {
         while self.at(SyntaxKind::WithKeyword) {
-            // TODO(parser): Parse implementation constraint clauses once expressions are implemented.
+            // TODO(parser): Parse implementation constraint clauses once constraint syntax is implemented.
             self.recover_current_and_until_predicate(
                 builder,
                 Parser::at_implementation_constraint_boundary,
@@ -524,7 +524,6 @@ mod tests {
         assert!(result.diagnostics().is_empty());
     }
 
-    // TODO(parser): Update this when constant value expressions are parsed.
     #[test]
     fn parser_parses_constant_members_in_implementation_bodies() {
         let source = concat!(
@@ -581,12 +580,20 @@ mod tests {
         assert_eq!(trait_constant.full_text(), "const Sides: Int = 4; ");
 
         assert_eq!(
-            parse_diagnostic_kinds(&result),
-            [
-                DiagnosticKind::SyntaxSkippedSyntax,
-                DiagnosticKind::SyntaxSkippedSyntax
-            ]
+            inherent_constant
+                .expression()
+                .map(|expression| expression.full_text()),
+            Some(String::from("zero"))
         );
+
+        assert_eq!(
+            trait_constant
+                .expression()
+                .map(|expression| expression.full_text()),
+            Some(String::from("4"))
+        );
+
+        assert!(result.diagnostics().is_empty());
     }
 
     #[test]

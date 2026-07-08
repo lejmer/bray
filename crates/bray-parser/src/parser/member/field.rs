@@ -26,17 +26,15 @@ impl Parser {
         let mut builder = StructFieldDeclarationSyntax::builder(self.syntax_source(), start);
 
         builder.push_field_modifiers(self.parse_field_modifiers());
-        builder.push_identifier_token(self.parse_identifier());
-        builder.push_colon_token(self.expect(SyntaxKind::ColonToken));
 
         let mut at_type_boundary = Parser::at_struct_field_type_boundary;
 
-        builder.push_type_expression(self.parse_type_expression_until(&mut at_type_boundary));
+        builder.push_typed_identifier(self.parse_typed_identifier_until(&mut at_type_boundary));
 
         if self.at(SyntaxKind::EqualsToken) {
             builder.push_equals_token(self.expect(SyntaxKind::EqualsToken));
-            // TODO(parser): Parse field default expressions once expression parsing is implemented.
-            self.recover_struct_field_default_expression(&mut builder);
+            let mut at_default_boundary = Parser::at_struct_field_default_boundary;
+            builder.push_expression(self.parse_expression_until(&mut at_default_boundary));
         }
 
         self.recover_until_struct_field_declaration_end(&mut builder);
@@ -58,17 +56,6 @@ impl Parser {
         }
 
         builder.build()
-    }
-
-    fn recover_struct_field_default_expression(
-        &mut self,
-        builder: &mut StructFieldDeclarationSyntaxBuilder,
-    ) {
-        if self.at_struct_field_default_boundary() {
-            return;
-        }
-
-        self.recover_current_and_until_predicate(builder, Parser::at_struct_field_default_boundary);
     }
 
     fn recover_until_struct_field_declaration_end(

@@ -3,6 +3,7 @@ mod callable_contract;
 mod constant;
 mod directive;
 mod entry;
+mod expression;
 mod function;
 mod implementation;
 mod member;
@@ -18,6 +19,7 @@ mod state;
 mod r#trait;
 mod r#type;
 mod type_expression;
+mod typed_identifier;
 
 pub use entry::{
     SourceUnitSyntaxResult, SyntaxTreeResult, parse_compilation_unit, parse_source_unit,

@@ -1,5 +1,8 @@
+use super::expression::first_expression;
 use crate::node::define_source_syntax_node;
-use crate::{SyntaxKind, SyntaxToken, TypeExpressionSyntax};
+use crate::{
+    ExpressionSyntax, SyntaxKind, SyntaxToken, TypeExpressionSyntax, TypedIdentifierSyntax,
+};
 
 define_source_syntax_node! {
     /// Optional callable parameter modifiers in source order.
@@ -46,24 +49,7 @@ define_source_syntax_node! {
         debug_name: "ParameterSyntax",
         builder_debug_name: "ParameterSyntaxBuilder",
         skipped_syntax: true,
-        required_tokens: [
-            {
-                /// Returns the required parameter name token.
-                identifier_token;
-                /// Appends the parameter name token.
-                push_identifier_token;
-                kind: SyntaxKind::IdentifierToken;
-                slot: "parameter.identifier_token";
-            },
-            {
-                /// Returns the required colon token.
-                colon_token;
-                /// Appends the colon token.
-                push_colon_token;
-                kind: SyntaxKind::ColonToken;
-                slot: "parameter.colon_token";
-            }
-        ],
+        required_tokens: [],
         optional_tokens: [
             {
                 /// Returns the optional default-value equals token.
@@ -84,14 +70,46 @@ define_source_syntax_node! {
                 kind: SyntaxKind::ParameterModifiers;
             },
             {
-                /// Returns the parameter type-expression child.
-                type_expression;
-                /// Appends the parameter type-expression child.
-                push_type_expression;
-                ty: TypeExpressionSyntax;
-                kind: SyntaxKind::TypeExpression;
+                /// Returns the typed-identifier child.
+                typed_identifier;
+                /// Appends the typed-identifier child.
+                push_typed_identifier;
+                ty: TypedIdentifierSyntax;
+                kind: SyntaxKind::TypedIdentifier;
             }
         ],
+        repeated_children: [
+            {
+                /// Returns default expression children in source order.
+                expressions;
+                /// Appends a default expression child.
+                push_expression;
+                ty: ExpressionSyntax;
+                kind: SyntaxKind::Expression;
+            }
+        ],
+    }
+}
+
+impl ParameterSyntax {
+    /// Returns the required parameter name token.
+    pub fn identifier_token(&self) -> SyntaxToken {
+        self.typed_identifier().identifier_token()
+    }
+
+    /// Returns the required colon token.
+    pub fn colon_token(&self) -> SyntaxToken {
+        self.typed_identifier().colon_token()
+    }
+
+    /// Returns the parameter type-expression child.
+    pub fn type_expression(&self) -> TypeExpressionSyntax {
+        self.typed_identifier().type_expression()
+    }
+
+    /// Returns the default expression child when present.
+    pub fn expression(&self) -> Option<ExpressionSyntax> {
+        first_expression(&self.source, &self.node, self.start)
     }
 }
 
@@ -230,8 +248,7 @@ mod tests {
     use bray_source::{SourceSnapshot, TextRange, TextSize};
 
     use crate::test_support::{
-        identifier_type_expression, identifier_type_expression_with_trailing_space,
-        snapshot as test_snapshot, token,
+        identifier_type_expression, snapshot as test_snapshot, token, typed_identifier,
     };
     use crate::{
         CallableBodyBlockExpressionSyntax, CallableResultClauseSyntax, ParameterListSyntax,
@@ -242,8 +259,10 @@ mod tests {
     #[test]
     fn parameter_lists_store_parameters_separators_and_defaults() {
         let snapshot = test_snapshot("syntax-callable-test", "pos value: Int = 1, tail: Bool");
+
         let first = parameter(snapshot.clone(), 0, true);
         let second = parameter(snapshot.clone(), 20, false);
+
         let comma =
             token(SyntaxKind::CommaToken, 18, 19).with_trailing_trivia([SyntaxTrivia::whitespace(
                 TextRange::new(TextSize::new(19), TextSize::new(20)),
@@ -276,6 +295,7 @@ mod tests {
     #[test]
     fn callable_result_clauses_store_type_and_body_blocks_store_skipped_contents() {
         let snapshot = test_snapshot("syntax-callable-test", "-> Int { return }");
+
         let mut result_builder =
             CallableResultClauseSyntax::builder(snapshot.clone(), TextSize::ZERO);
 
@@ -333,21 +353,13 @@ mod tests {
             );
 
             builder.push_parameter_modifiers(modifiers.build());
-            builder.push_identifier_token(token(SyntaxKind::IdentifierToken, start + 4, start + 9));
-
-            builder.push_colon_token(
-                token(SyntaxKind::ColonToken, start + 9, start + 10).with_trailing_trivia([
-                    SyntaxTrivia::whitespace(TextRange::new(
-                        TextSize::new(start + 10),
-                        TextSize::new(start + 11),
-                    )),
-                ]),
-            );
-
-            builder.push_type_expression(identifier_type_expression_with_trailing_space(
+            builder.push_typed_identifier(typed_identifier(
                 builder_source.clone(),
+                start + 4,
+                start + 9,
                 start + 11,
                 start + 14,
+                true,
             ));
 
             builder.push_equals_token(
@@ -366,21 +378,13 @@ mod tests {
             )]);
         } else {
             builder.push_parameter_modifiers(modifiers.build());
-            builder.push_identifier_token(token(SyntaxKind::IdentifierToken, start, start + 4));
-
-            builder.push_colon_token(
-                token(SyntaxKind::ColonToken, start + 4, start + 5).with_trailing_trivia([
-                    SyntaxTrivia::whitespace(TextRange::new(
-                        TextSize::new(start + 5),
-                        TextSize::new(start + 6),
-                    )),
-                ]),
-            );
-
-            builder.push_type_expression(identifier_type_expression(
+            builder.push_typed_identifier(typed_identifier(
                 builder_source,
+                start,
+                start + 4,
                 start + 6,
                 start + 10,
+                false,
             ));
         }
 

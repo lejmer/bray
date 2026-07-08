@@ -1,6 +1,9 @@
 use super::directive::TagDirectiveSyntax;
+use super::expression::first_expression;
 use crate::node::{child_nodes, define_source_syntax_node};
-use crate::{SyntaxKind, SyntaxToken, TypeExpressionSyntax};
+use crate::{
+    ExpressionSyntax, SyntaxKind, SyntaxToken, TypeExpressionSyntax, TypedIdentifierSyntax,
+};
 
 define_source_syntax_node! {
     /// Union variant directives in source order.
@@ -202,24 +205,7 @@ define_source_syntax_node! {
         debug_name: "UnionPayloadFieldSyntax",
         builder_debug_name: "UnionPayloadFieldSyntaxBuilder",
         skipped_syntax: true,
-        required_tokens: [
-            {
-                /// Returns the required payload field name token.
-                identifier_token;
-                /// Appends the payload field name token.
-                push_identifier_token;
-                kind: SyntaxKind::IdentifierToken;
-                slot: "union_payload_field.identifier_token";
-            },
-            {
-                /// Returns the required colon token.
-                colon_token;
-                /// Appends the colon token.
-                push_colon_token;
-                kind: SyntaxKind::ColonToken;
-                slot: "union_payload_field.colon_token";
-            }
-        ],
+        required_tokens: [],
         optional_tokens: [
             {
                 /// Returns the optional default-value equals token.
@@ -240,13 +226,45 @@ define_source_syntax_node! {
                 kind: SyntaxKind::PayloadFieldModifiers;
             },
             {
-                /// Returns the payload field type-expression child.
-                type_expression;
-                /// Appends the payload field type-expression child.
-                push_type_expression;
-                ty: TypeExpressionSyntax;
-                kind: SyntaxKind::TypeExpression;
+                /// Returns the typed-identifier child.
+                typed_identifier;
+                /// Appends the typed-identifier child.
+                push_typed_identifier;
+                ty: TypedIdentifierSyntax;
+                kind: SyntaxKind::TypedIdentifier;
             }
         ],
+        repeated_children: [
+            {
+                /// Returns default expression children in source order.
+                expressions;
+                /// Appends a default expression child.
+                push_expression;
+                ty: ExpressionSyntax;
+                kind: SyntaxKind::Expression;
+            }
+        ],
+    }
+}
+
+impl UnionPayloadFieldSyntax {
+    /// Returns the required payload field name token.
+    pub fn identifier_token(&self) -> SyntaxToken {
+        self.typed_identifier().identifier_token()
+    }
+
+    /// Returns the required colon token.
+    pub fn colon_token(&self) -> SyntaxToken {
+        self.typed_identifier().colon_token()
+    }
+
+    /// Returns the payload field type-expression child.
+    pub fn type_expression(&self) -> TypeExpressionSyntax {
+        self.typed_identifier().type_expression()
+    }
+
+    /// Returns the default expression child when present.
+    pub fn expression(&self) -> Option<ExpressionSyntax> {
+        first_expression(&self.source, &self.node, self.start)
     }
 }

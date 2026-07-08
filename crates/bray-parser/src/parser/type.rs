@@ -126,7 +126,7 @@ impl Parser {
 
     fn parse_type_constraints(&mut self, builder: &mut impl TypeDeclarationSyntaxSink) {
         while self.at(SyntaxKind::WithKeyword) {
-            // TODO(parser): Parse type constraint clauses once expressions are implemented.
+            // TODO(parser): Parse type constraint clauses once constraint syntax is implemented.
             self.recover_current_and_until_predicate(builder, Parser::at_type_constraint_boundary);
         }
     }
@@ -418,7 +418,7 @@ mod tests {
         );
     }
 
-    // TODO(parser): Update this when directive arguments and payload field expressions are parsed.
+    // TODO(parser): Update this when directive arguments are parsed.
     #[test]
     fn parser_parses_union_variants_with_payload_fields() {
         let source = "module main; union Maybe { @tag(1) Some(pos value: Int = fallback,); None; }";
@@ -470,14 +470,17 @@ mod tests {
 
         assert!(field.equals_token().is_some());
         assert_eq!(field.type_expression().full_text(), "Int ");
+
+        assert_eq!(
+            field.expression().map(|expression| expression.full_text()),
+            Some(String::from("fallback"))
+        );
+
         assert_eq!(none.full_text(), "None; ");
 
         assert_eq!(
             parse_diagnostic_kinds(&result),
-            [
-                DiagnosticKind::SyntaxSkippedSyntax,
-                DiagnosticKind::SyntaxSkippedSyntax
-            ]
+            [DiagnosticKind::SyntaxSkippedSyntax]
         );
     }
 
@@ -529,7 +532,6 @@ mod tests {
         assert!(result.diagnostics().is_empty());
     }
 
-    // TODO(parser): Update this when constant value expressions are parsed.
     #[test]
     fn parser_parses_constant_declarations_in_type_bodies() {
         let source = concat!(
@@ -586,15 +588,24 @@ mod tests {
         );
 
         assert_eq!(union_constant.full_text(), "const Tag: Int = 1; ");
-        assert_eq!(variant.full_text(), "Some; ");
 
         assert_eq!(
-            parse_diagnostic_kinds(&result),
-            [
-                DiagnosticKind::SyntaxSkippedSyntax,
-                DiagnosticKind::SyntaxSkippedSyntax
-            ]
+            struct_constant
+                .expression()
+                .map(|expression| expression.full_text()),
+            Some(String::from("10"))
         );
+
+        assert_eq!(
+            union_constant
+                .expression()
+                .map(|expression| expression.full_text()),
+            Some(String::from("1"))
+        );
+
+        assert_eq!(variant.full_text(), "Some; ");
+
+        assert!(result.diagnostics().is_empty());
     }
 
     #[test]

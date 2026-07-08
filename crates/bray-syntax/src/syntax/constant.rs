@@ -1,5 +1,8 @@
+use super::expression::first_expression;
 use crate::node::define_source_syntax_node;
-use crate::{SyntaxKind, SyntaxToken, TypeExpressionSyntax};
+use crate::{
+    ExpressionSyntax, SyntaxKind, SyntaxToken, TypeExpressionSyntax, TypedIdentifierSyntax,
+};
 
 define_source_syntax_node! {
     /// Optional constant declaration modifiers in source order.
@@ -59,22 +62,6 @@ define_source_syntax_node! {
                 slot: "constant_declaration.const_keyword";
             },
             {
-                /// Returns the required constant name token.
-                identifier_token;
-                /// Appends the constant name token.
-                push_identifier_token;
-                kind: SyntaxKind::IdentifierToken;
-                slot: "constant_declaration.identifier_token";
-            },
-            {
-                /// Returns the required colon token.
-                colon_token;
-                /// Appends the colon token.
-                push_colon_token;
-                kind: SyntaxKind::ColonToken;
-                slot: "constant_declaration.colon_token";
-            },
-            {
                 /// Returns the required initializer equals token.
                 equals_token;
                 /// Appends the initializer equals token.
@@ -102,14 +89,46 @@ define_source_syntax_node! {
                 kind: SyntaxKind::ConstantModifiers;
             },
             {
-                /// Returns the constant type-expression child.
-                type_expression;
-                /// Appends the constant type-expression child.
-                push_type_expression;
-                ty: TypeExpressionSyntax;
-                kind: SyntaxKind::TypeExpression;
+                /// Returns the typed-identifier child.
+                typed_identifier;
+                /// Appends the typed-identifier child.
+                push_typed_identifier;
+                ty: TypedIdentifierSyntax;
+                kind: SyntaxKind::TypedIdentifier;
             }
         ],
+        repeated_children: [
+            {
+                /// Returns value expression children in source order.
+                expressions;
+                /// Appends a value expression child.
+                push_expression;
+                ty: ExpressionSyntax;
+                kind: SyntaxKind::Expression;
+            }
+        ],
+    }
+}
+
+impl ConstantDeclarationSyntax {
+    /// Returns the required constant name token.
+    pub fn identifier_token(&self) -> SyntaxToken {
+        self.typed_identifier().identifier_token()
+    }
+
+    /// Returns the required colon token.
+    pub fn colon_token(&self) -> SyntaxToken {
+        self.typed_identifier().colon_token()
+    }
+
+    /// Returns the constant type-expression child.
+    pub fn type_expression(&self) -> TypeExpressionSyntax {
+        self.typed_identifier().type_expression()
+    }
+
+    /// Returns the value expression child.
+    pub fn expression(&self) -> Option<ExpressionSyntax> {
+        first_expression(&self.source, &self.node, self.start)
     }
 }
 
@@ -134,22 +153,6 @@ define_source_syntax_node! {
                 slot: "trait_constant_member_declaration.const_keyword";
             },
             {
-                /// Returns the required constant name token.
-                identifier_token;
-                /// Appends the constant name token.
-                push_identifier_token;
-                kind: SyntaxKind::IdentifierToken;
-                slot: "trait_constant_member_declaration.identifier_token";
-            },
-            {
-                /// Returns the required colon token.
-                colon_token;
-                /// Appends the colon token.
-                push_colon_token;
-                kind: SyntaxKind::ColonToken;
-                slot: "trait_constant_member_declaration.colon_token";
-            },
-            {
                 /// Returns the required semicolon token.
                 semicolon_token;
                 /// Appends the semicolon token.
@@ -170,13 +173,45 @@ define_source_syntax_node! {
         ],
         required_children: [
             {
-                /// Returns the constant type-expression child.
-                type_expression;
-                /// Appends the constant type-expression child.
-                push_type_expression;
-                ty: TypeExpressionSyntax;
-                kind: SyntaxKind::TypeExpression;
+                /// Returns the typed-identifier child.
+                typed_identifier;
+                /// Appends the typed-identifier child.
+                push_typed_identifier;
+                ty: TypedIdentifierSyntax;
+                kind: SyntaxKind::TypedIdentifier;
             }
         ],
+        repeated_children: [
+            {
+                /// Returns default value expression children in source order.
+                expressions;
+                /// Appends a default value expression child.
+                push_expression;
+                ty: ExpressionSyntax;
+                kind: SyntaxKind::Expression;
+            }
+        ],
+    }
+}
+
+impl TraitConstantMemberDeclarationSyntax {
+    /// Returns the required constant name token.
+    pub fn identifier_token(&self) -> SyntaxToken {
+        self.typed_identifier().identifier_token()
+    }
+
+    /// Returns the required colon token.
+    pub fn colon_token(&self) -> SyntaxToken {
+        self.typed_identifier().colon_token()
+    }
+
+    /// Returns the constant type-expression child.
+    pub fn type_expression(&self) -> TypeExpressionSyntax {
+        self.typed_identifier().type_expression()
+    }
+
+    /// Returns the default value expression child when present.
+    pub fn expression(&self) -> Option<ExpressionSyntax> {
+        first_expression(&self.source, &self.node, self.start)
     }
 }

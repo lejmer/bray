@@ -104,7 +104,7 @@ impl Parser {
         }
 
         if self.at_callable_contract_clause_start() {
-            // TODO(parser): Parse callable contract clauses once expressions are implemented.
+            // TODO(parser): Parse callable contract clauses once clause syntax is implemented.
             self.recover_current_and_until_predicate(&mut builder, |parser| at_boundary(parser));
         }
 
@@ -216,8 +216,12 @@ impl Parser {
 
         if self.at(SyntaxKind::SemicolonToken) {
             builder.push_semicolon_token(self.expect(SyntaxKind::SemicolonToken));
-            // TODO(parser): Parse array constant expressions once constant-expression parsing is implemented.
-            self.recover_until(&mut builder, &ARRAY_SIZE_BOUNDARY_KINDS);
+
+            let mut at_size_boundary =
+                |parser: &mut Parser| parser.at_any(&ARRAY_SIZE_BOUNDARY_KINDS);
+
+            builder
+                .push_expression(self.parse_non_assignment_expression_until(&mut at_size_boundary));
         }
 
         builder.push_close_bracket_token(self.expect(SyntaxKind::CloseBracketToken));

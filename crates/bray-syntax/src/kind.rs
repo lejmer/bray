@@ -173,8 +173,16 @@ pub enum SyntaxKind {
     CallableResultClause,
     /// Callable body block expression with skipped expression contents.
     CallableBodyBlockExpression,
+    /// Runtime expression.
+    Expression,
+    /// Opaque primary expression.
+    PrimaryExpression,
     /// Type expression.
     TypeExpression,
+    /// Required type annotation on a named declaration item.
+    TypeAnnotation,
+    /// Identifier with a required type annotation.
+    TypedIdentifier,
     /// Dotted identifier path syntax node.
     Path,
     /// Concrete comma-like identifier list syntax node.
@@ -400,7 +408,11 @@ impl SyntaxKind {
                 | Self::ParameterModifiers
                 | Self::CallableResultClause
                 | Self::CallableBodyBlockExpression
+                | Self::Expression
+                | Self::PrimaryExpression
                 | Self::TypeExpression
+                | Self::TypeAnnotation
+                | Self::TypedIdentifier
                 | Self::Path
                 | Self::IdentifierList
                 | Self::IdentifierListItem
@@ -615,7 +627,11 @@ impl SyntaxKind {
             Self::ParameterModifiers => "parameter_modifiers",
             Self::CallableResultClause => "callable_result_clause",
             Self::CallableBodyBlockExpression => "callable_body_block_expression",
+            Self::Expression => "expression",
+            Self::PrimaryExpression => "primary_expression",
             Self::TypeExpression => "type_expression",
+            Self::TypeAnnotation => "type_annotation",
+            Self::TypedIdentifier => "typed_identifier",
             Self::Path => "path",
             Self::IdentifierList => "identifier_list",
             Self::IdentifierListItem => "identifier_list_item",
@@ -846,7 +862,11 @@ mod tests {
 
         assert!(SyntaxKind::CallableResultClause.is_node());
         assert!(SyntaxKind::CallableBodyBlockExpression.is_node());
+        assert!(SyntaxKind::Expression.is_node());
+        assert!(SyntaxKind::PrimaryExpression.is_node());
         assert!(SyntaxKind::TypeExpression.is_node());
+        assert!(SyntaxKind::TypeAnnotation.is_node());
+        assert!(SyntaxKind::TypedIdentifier.is_node());
 
         assert!(SyntaxKind::Path.is_node());
 
@@ -1178,7 +1198,11 @@ mod tests {
             "callable_body_block_expression"
         );
 
+        assert_eq!(SyntaxKind::Expression.as_str(), "expression");
+        assert_eq!(SyntaxKind::PrimaryExpression.as_str(), "primary_expression");
         assert_eq!(SyntaxKind::TypeExpression.as_str(), "type_expression");
+        assert_eq!(SyntaxKind::TypeAnnotation.as_str(), "type_annotation");
+        assert_eq!(SyntaxKind::TypedIdentifier.as_str(), "typed_identifier");
         assert_eq!(SyntaxKind::Path.as_str(), "path");
         assert_eq!(SyntaxKind::IdentifierList.as_str(), "identifier_list");
 
