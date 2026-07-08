@@ -13,6 +13,7 @@ mod modifier;
 mod module;
 mod overload;
 mod path;
+mod pattern;
 mod predicate;
 mod recovery;
 mod separated;

@@ -735,24 +735,25 @@ mod tests {
     use crate::{
         AsyncCapableLifecycleMemberModifiersSyntax, BlockModuleDeclarationSyntax,
         CallableBodyBlockExpressionSyntax, CallableContractDeclarationSyntax,
-        CallableOverloadDeclarationSyntax, CallableResultClauseSyntax, ConstantDeclarationSyntax,
-        ConstantModifiersSyntax, ConstructorMemberModifiersSyntax,
-        DestructorMemberDeclarationSyntax, DirectiveArgumentListSyntax, DirectiveArgumentSyntax,
-        ExportDeclarationSyntax, ExpressionSyntax, FinalizerMemberDeclarationSyntax,
-        FunctionDeclarationSyntax, FunctionDirectivesSyntax, FunctionModifiersSyntax,
-        GenericArgumentListSyntax, GenericArgumentSyntax, GenericConstParameterSyntax,
-        GenericParameterListSyntax, GenericTypeParameterSyntax, IdentifierListItemSyntax,
-        IdentifierListSyntax, ImplementationBodySyntax, ImplementationOverloadDeclarationSyntax,
+        CallableOverloadDeclarationSyntax, CallableResultClauseSyntax, CasePatternEntrySyntax,
+        CasePatternSyntax, ConstantDeclarationSyntax, ConstantModifiersSyntax,
+        ConstructorMemberModifiersSyntax, DestructorMemberDeclarationSyntax,
+        DirectiveArgumentListSyntax, DirectiveArgumentSyntax, ExportDeclarationSyntax,
+        ExpressionSyntax, FinalizerMemberDeclarationSyntax, FunctionDeclarationSyntax,
+        FunctionDirectivesSyntax, FunctionModifiersSyntax, GenericArgumentListSyntax,
+        GenericArgumentSyntax, GenericConstParameterSyntax, GenericParameterListSyntax,
+        GenericTypeParameterSyntax, IdentifierListItemSyntax, IdentifierListSyntax,
+        ImplementationBodySyntax, ImplementationOverloadDeclarationSyntax,
         ImplementationOverloadSubjectSyntax, ImplementationSubjectSyntax,
         ImplementationTypeMemberBindingSyntax, InherentImplementationDeclarationSyntax,
-        ModuleBodySyntax, ModuleDirectivesSyntax, ModuleModifiersSyntax,
-        NamedTraitImplementationDeclarationSyntax, OverloadArmListSyntax, OverloadArmSyntax,
-        OverloadModifiersSyntax, ParameterListSyntax, ParameterModifiersSyntax, ParameterSyntax,
-        PathSyntax, PredicateDeclarationSyntax, PrimaryExpressionSyntax,
-        ScopeEnterMemberDeclarationSyntax, ScopeExitMemberDeclarationSyntax, SourceSyntaxNode,
-        SourceUnitModuleDeclarationSyntax, StructDeclarationSyntax,
-        SyncLifecycleMemberModifiersSyntax, SyntaxKind, SyntaxNode, SyntaxText, SyntaxToken,
-        SyntaxTrivia, TraitApplicationSyntax, TraitBodySyntax,
+        IrrefutablePatternEntrySyntax, IrrefutablePatternSyntax, ModuleBodySyntax,
+        ModuleDirectivesSyntax, ModuleModifiersSyntax, NamedTraitImplementationDeclarationSyntax,
+        OverloadArmListSyntax, OverloadArmSyntax, OverloadModifiersSyntax, ParameterListSyntax,
+        ParameterModifiersSyntax, ParameterSyntax, PathSyntax, PredicateDeclarationSyntax,
+        PrimaryExpressionSyntax, ScopeEnterMemberDeclarationSyntax,
+        ScopeExitMemberDeclarationSyntax, SourceSyntaxNode, SourceUnitModuleDeclarationSyntax,
+        StructDeclarationSyntax, SyncLifecycleMemberModifiersSyntax, SyntaxKind, SyntaxNode,
+        SyntaxText, SyntaxToken, SyntaxTrivia, TraitApplicationSyntax, TraitBodySyntax,
         TraitConstantMemberDeclarationSyntax, TraitDeclarationSyntax,
         TraitDestructorRequirementDeclarationSyntax, TraitFinalizerRequirementDeclarationSyntax,
         TraitModifiersSyntax, TraitPredicateMemberDeclarationSyntax,
@@ -1286,6 +1287,10 @@ mod tests {
         assert_send_sync::<CallableBodyBlockExpressionSyntax>();
         assert_send_sync::<ExpressionSyntax>();
         assert_send_sync::<PrimaryExpressionSyntax>();
+        assert_send_sync::<IrrefutablePatternSyntax>();
+        assert_send_sync::<IrrefutablePatternEntrySyntax>();
+        assert_send_sync::<CasePatternSyntax>();
+        assert_send_sync::<CasePatternEntrySyntax>();
         assert_send_sync::<TypeExpressionSyntax>();
         assert_send_sync::<TypeAnnotationSyntax>();
         assert_send_sync::<TypedIdentifierSyntax>();
