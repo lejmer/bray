@@ -1,5 +1,6 @@
 use bray_syntax::{PathSyntax, SyntaxKind, SyntaxToken, TypeExpressionSyntax};
 
+use super::callable::CALLABLE_FORM_START_KINDS;
 use super::state::Parser;
 
 const ARRAY_SIZE_BOUNDARY_KINDS: [SyntaxKind; 2] =
@@ -31,7 +32,12 @@ impl Parser {
         match self.peek().kind() {
             SyntaxKind::AmpersandToken => self.parse_borrow_type_expression(at_boundary),
             SyntaxKind::BoxKeyword => self.parse_box_type_expression(at_boundary),
-            SyntaxKind::FuncKeyword => self.parse_callable_type_expression(at_boundary),
+            SyntaxKind::ViewKeyword => self.parse_view_type_expression(),
+            kind if self.is_callable_type_expression_start_kind(kind)
+                && self.should_parse_callable_type_expression() =>
+            {
+                self.parse_callable_type_expression(at_boundary)
+            }
             _ => self.parse_postfix_type_expression(at_boundary),
         }
     }
@@ -72,6 +78,16 @@ impl Parser {
         builder.build()
     }
 
+    fn parse_view_type_expression(&mut self) -> TypeExpressionSyntax {
+        let start = self.peek().full_range().start();
+        let mut builder = TypeExpressionSyntax::builder(self.syntax_source(), start);
+
+        builder.push_view_keyword(self.expect(SyntaxKind::ViewKeyword));
+        builder.push_trait_application(self.parse_trait_application());
+
+        builder.build()
+    }
+
     fn parse_callable_type_expression(
         &mut self,
         at_boundary: &mut dyn FnMut(&mut Parser) -> bool,
@@ -79,6 +95,8 @@ impl Parser {
         let start = self.peek().full_range().start();
         let mut builder = TypeExpressionSyntax::builder(self.syntax_source(), start);
 
+        builder.push_callable_directives(self.parse_callable_directives());
+        builder.push_callable_modifiers(self.parse_callable_modifiers());
         builder.push_func_keyword(self.expect(SyntaxKind::FuncKeyword));
         builder.push_parameter_list(self.parse_parameter_list());
 
@@ -105,20 +123,68 @@ impl Parser {
         let mut expression = self.parse_type_primary_expression(at_boundary);
 
         loop {
-            if !self.at(SyntaxKind::LessToken) {
-                break;
+            if self.at(SyntaxKind::LessToken) {
+                expression = self.parse_generic_type_operation(expression);
+                continue;
             }
 
-            let start = expression.full_range().start();
-            let mut builder = TypeExpressionSyntax::builder(self.syntax_source(), start);
+            if self.at(SyntaxKind::QuestionToken) {
+                expression = self.parse_nullable_type_operation(expression);
+                continue;
+            }
 
-            builder.push_type_expression(expression);
-            builder.push_generic_argument_list(self.parse_generic_argument_list());
+            if self.at(SyntaxKind::OpenParenToken) {
+                expression = self.parse_qualified_type_member_operation(expression);
+                continue;
+            }
 
-            expression = builder.build();
+            break;
         }
 
         expression
+    }
+
+    fn parse_generic_type_operation(
+        &mut self,
+        expression: TypeExpressionSyntax,
+    ) -> TypeExpressionSyntax {
+        let start = expression.full_range().start();
+        let mut builder = TypeExpressionSyntax::builder(self.syntax_source(), start);
+
+        builder.push_type_expression(expression);
+        builder.push_generic_argument_list(self.parse_generic_argument_list());
+
+        builder.build()
+    }
+
+    fn parse_nullable_type_operation(
+        &mut self,
+        expression: TypeExpressionSyntax,
+    ) -> TypeExpressionSyntax {
+        let start = expression.full_range().start();
+        let mut builder = TypeExpressionSyntax::builder(self.syntax_source(), start);
+
+        builder.push_type_expression(expression);
+        builder.push_question_token(self.expect(SyntaxKind::QuestionToken));
+
+        builder.build()
+    }
+
+    fn parse_qualified_type_member_operation(
+        &mut self,
+        expression: TypeExpressionSyntax,
+    ) -> TypeExpressionSyntax {
+        let start = expression.full_range().start();
+        let mut builder = TypeExpressionSyntax::builder(self.syntax_source(), start);
+
+        builder.push_type_expression(expression);
+        builder.push_open_paren_token(self.expect(SyntaxKind::OpenParenToken));
+        builder.push_trait_application(self.parse_trait_application());
+        builder.push_close_paren_token(self.expect(SyntaxKind::CloseParenToken));
+        builder.push_dot_token(self.expect(SyntaxKind::DotToken));
+        builder.push_identifier_token(self.parse_identifier());
+
+        builder.build()
     }
 
     fn parse_type_primary_expression(
@@ -259,6 +325,19 @@ impl Parser {
         )
     }
 
+    fn is_callable_type_expression_start_kind(&self, kind: SyntaxKind) -> bool {
+        CALLABLE_FORM_START_KINDS.contains(&kind)
+    }
+
+    fn should_parse_callable_type_expression(&mut self) -> bool {
+        self.scan_ahead(|scan| {
+            scan.consume_callable_directives_for_scan();
+            scan.consume_callable_modifiers_for_scan();
+
+            scan.at(SyntaxKind::FuncKeyword)
+        })
+    }
+
     fn at_type_expression_boundary_kind(&self, kind: SyntaxKind) -> bool {
         matches!(
             kind,
@@ -344,6 +423,81 @@ mod tests {
     }
 
     #[test]
+    fn parser_parses_view_nullable_and_qualified_type_expressions() {
+        let cases = [
+            ("view core.Display<T>", 0, 1, 0),
+            ("Value?(Display).Output", 1, 1, 1),
+        ];
+
+        for (source_text, nested_count, trait_application_count, question_count) in cases {
+            let sources = source_store([source_text]);
+            let snapshot = source(&sources, 0);
+
+            let mut parser = Parser::new(snapshot);
+            let mut boundary = |parser: &mut Parser| parser.at(SyntaxKind::EndOfFileToken);
+
+            let expression = parser.parse_type_expression_until(&mut boundary);
+            let diagnostics = parser.finish();
+
+            assert_eq!(expression.full_text(), source_text);
+            assert_eq!(expression.type_expressions().count(), nested_count);
+
+            assert_eq!(
+                expression.trait_applications().count(),
+                trait_application_count
+            );
+
+            assert_eq!(
+                expression
+                    .tokens()
+                    .filter(|token| token.kind() == SyntaxKind::QuestionToken)
+                    .count(),
+                question_count
+            );
+
+            assert!(diagnostics.is_empty(), "{source_text}: {diagnostics:?}");
+        }
+    }
+
+    #[test]
+    fn parser_parses_callable_type_directives_and_modifiers() {
+        let sources = source_store(["@abi(\"C\") async trusted const func(value: Int) -> Bool"]);
+        let snapshot = source(&sources, 0);
+
+        let mut parser = Parser::new(snapshot);
+        let mut boundary = |parser: &mut Parser| parser.at(SyntaxKind::EndOfFileToken);
+
+        let expression = parser.parse_type_expression_until(&mut boundary);
+        let diagnostics = parser.finish();
+        let callable_directives = expression.callable_directives().collect::<Vec<_>>();
+        let callable_modifiers = expression.callable_modifiers().collect::<Vec<_>>();
+
+        let [directives] = callable_directives.as_slice() else {
+            panic!("expected callable directives: {callable_directives:?}");
+        };
+
+        let [modifiers] = callable_modifiers.as_slice() else {
+            panic!("expected callable modifiers: {callable_modifiers:?}");
+        };
+
+        assert_eq!(
+            expression.full_text(),
+            "@abi(\"C\") async trusted const func(value: Int) -> Bool"
+        );
+
+        assert_eq!(directives.abi_directives().count(), 1);
+
+        assert!(modifiers.async_token().is_some());
+        assert!(modifiers.trusted_token().is_some());
+        assert!(modifiers.const_token().is_some());
+
+        assert_eq!(expression.parameter_lists().count(), 1);
+        assert_eq!(expression.callable_result_clauses().count(), 1);
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
     fn parser_parses_type_form_arguments_inside_type_expressions() {
         let sources = source_store(["box[Heap, 1] Point"]);
         let snapshot = source(&sources, 0);
@@ -372,6 +526,7 @@ mod tests {
         assert_eq!(type_form_arguments.separator_tokens().count(), 1);
         assert_eq!(type_argument.type_expressions().count(), 1);
         assert_eq!(constant_argument.expressions().count(), 1);
+
         assert!(diagnostics.is_empty());
     }
 

@@ -4,8 +4,8 @@ use bray_syntax::{
 };
 
 use super::directive::{
-    ABI_DIRECTIVE_NAME, ENTRYPOINT_DIRECTIVE_NAME, LINK_DIRECTIVE_NAME, SYMBOL_DIRECTIVE_NAME,
-    TEST_DIRECTIVE_NAME,
+    ABI_DIRECTIVE_NAME, DirectiveScanKind, ENTRYPOINT_DIRECTIVE_NAME, LINK_DIRECTIVE_NAME,
+    SYMBOL_DIRECTIVE_NAME, TEST_DIRECTIVE_NAME,
 };
 use super::module::MODULE_ITEM_START_KINDS;
 use super::state::Parser;
@@ -188,30 +188,15 @@ impl Parser {
     }
 
     fn consume_function_directives_for_scan(&mut self) {
-        while self.at(SyntaxKind::AtToken) {
-            self.consume();
-
-            if !self.at(SyntaxKind::IdentifierToken) {
-                continue;
+        self.consume_directives_for_scan(&FUNCTION_DECLARATION_START_KINDS, |directive_name| {
+            match directive_name {
+                ABI_DIRECTIVE_NAME | LINK_DIRECTIVE_NAME | SYMBOL_DIRECTIVE_NAME => {
+                    DirectiveScanKind::ArgumentList
+                }
+                ENTRYPOINT_DIRECTIVE_NAME | TEST_DIRECTIVE_NAME => DirectiveScanKind::Bare,
+                _ => DirectiveScanKind::Unknown,
             }
-
-            let name_token = self.consume();
-            let directive_name = self.token_text(&name_token);
-
-            if directive_name == Some(ABI_DIRECTIVE_NAME)
-                || directive_name == Some(LINK_DIRECTIVE_NAME)
-                || directive_name == Some(SYMBOL_DIRECTIVE_NAME)
-            {
-                self.consume_directive_argument_list_for_scan(&FUNCTION_DECLARATION_START_KINDS);
-                continue;
-            }
-
-            if directive_name != Some(ENTRYPOINT_DIRECTIVE_NAME)
-                && directive_name != Some(TEST_DIRECTIVE_NAME)
-            {
-                self.skip_unknown_directive_for_scan(&FUNCTION_DECLARATION_START_KINDS);
-            }
-        }
+        });
     }
 
     fn consume_function_modifiers_for_scan(&mut self) {

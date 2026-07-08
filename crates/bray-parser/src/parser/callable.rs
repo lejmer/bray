@@ -1,10 +1,20 @@
 use bray_syntax::{
-    CallableBodyBlockExpressionSyntax, CallableResultClauseSyntax, ParameterListSyntax,
+    CallableBodyBlockExpressionSyntax, CallableDirectivesSyntax, CallableDirectivesSyntaxBuilder,
+    CallableModifiersSyntax, CallableResultClauseSyntax, ParameterListSyntax,
     ParameterListSyntaxBuilder, ParameterModifiersSyntax, ParameterSyntax, SyntaxKind, SyntaxToken,
 };
 
+use super::directive::{ABI_DIRECTIVE_NAME, DirectiveScanKind};
 use super::separated::{SeparatedListSpec, SeparatedListSyntaxSink, separated_list_recovery_kinds};
 use super::state::Parser;
+
+pub(super) const CALLABLE_FORM_START_KINDS: [SyntaxKind; 5] = [
+    SyntaxKind::AtToken,
+    SyntaxKind::AsyncKeyword,
+    SyntaxKind::TrustedKeyword,
+    SyntaxKind::ConstKeyword,
+    SyntaxKind::FuncKeyword,
+];
 
 const PARAMETER_START_KINDS: [SyntaxKind; 3] = [
     SyntaxKind::PosKeyword,
@@ -65,6 +75,71 @@ const CALLABLE_RESULT_TYPE_BOUNDARY_KINDS: [SyntaxKind; 8] = [
 ];
 
 impl Parser {
+    pub(super) fn parse_callable_directives(&mut self) -> CallableDirectivesSyntax {
+        let start = self.peek().full_range().start();
+        let mut builder = CallableDirectivesSyntax::builder(self.syntax_source(), start);
+
+        while self.at(SyntaxKind::AtToken) {
+            if self.at_directive_name(ABI_DIRECTIVE_NAME) {
+                builder.push_abi_directive(self.parse_abi_directive(&CALLABLE_FORM_START_KINDS));
+                continue;
+            }
+
+            self.recover_unknown_callable_directive(&mut builder);
+        }
+
+        builder.build()
+    }
+
+    fn recover_unknown_callable_directive(
+        &mut self,
+        builder: &mut CallableDirectivesSyntaxBuilder,
+    ) {
+        self.recover_current_and_until(builder, &CALLABLE_FORM_START_KINDS);
+    }
+
+    pub(super) fn parse_callable_modifiers(&mut self) -> CallableModifiersSyntax {
+        let start = self.peek().full_range().start();
+        let mut builder = CallableModifiersSyntax::builder(self.syntax_source(), start);
+
+        while self.at_callable_modifier() {
+            if self.at(SyntaxKind::AsyncKeyword) {
+                builder.push_async_token(self.expect(SyntaxKind::AsyncKeyword));
+                continue;
+            }
+
+            if self.at(SyntaxKind::TrustedKeyword) {
+                builder.push_trusted_token(self.expect(SyntaxKind::TrustedKeyword));
+                continue;
+            }
+
+            builder.push_const_token(self.expect(SyntaxKind::ConstKeyword));
+        }
+
+        builder.build()
+    }
+
+    pub(super) fn consume_callable_directives_for_scan(&mut self) {
+        self.consume_directives_for_scan(&CALLABLE_FORM_START_KINDS, |directive_name| {
+            match directive_name {
+                ABI_DIRECTIVE_NAME => DirectiveScanKind::ArgumentList,
+                _ => DirectiveScanKind::Unknown,
+            }
+        });
+    }
+
+    pub(super) fn consume_callable_modifiers_for_scan(&mut self) {
+        while self.at_callable_modifier() {
+            self.consume();
+        }
+    }
+
+    fn at_callable_modifier(&mut self) -> bool {
+        self.at(SyntaxKind::AsyncKeyword)
+            || self.at(SyntaxKind::TrustedKeyword)
+            || self.at(SyntaxKind::ConstKeyword)
+    }
+
     pub(super) fn parse_parameter_list(&mut self) -> ParameterListSyntax {
         let start = self.peek().full_range().start();
 

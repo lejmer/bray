@@ -16,6 +16,7 @@ mod path;
 mod predicate;
 mod recovery;
 mod r#trait;
+mod trait_application;
 mod r#type;
 mod type_expression;
 mod typed_identifier;
@@ -24,9 +25,10 @@ mod variant;
 
 pub use callable::{
     CallableBodyBlockExpressionSyntax, CallableBodyBlockExpressionSyntaxBuilder,
-    CallableResultClauseSyntax, CallableResultClauseSyntaxBuilder, ParameterListSyntax,
-    ParameterListSyntaxBuilder, ParameterModifiersSyntax, ParameterModifiersSyntaxBuilder,
-    ParameterSyntax, ParameterSyntaxBuilder,
+    CallableDirectivesSyntax, CallableDirectivesSyntaxBuilder, CallableModifiersSyntax,
+    CallableModifiersSyntaxBuilder, CallableResultClauseSyntax, CallableResultClauseSyntaxBuilder,
+    ParameterListSyntax, ParameterListSyntaxBuilder, ParameterModifiersSyntax,
+    ParameterModifiersSyntaxBuilder, ParameterSyntax, ParameterSyntaxBuilder,
 };
 pub use callable_contract::{
     CallableContractDeclarationSyntax, CallableContractDeclarationSyntaxBuilder,
@@ -74,8 +76,7 @@ pub use implementation::{
     ImplementationBodySyntax, ImplementationBodySyntaxBuilder, ImplementationSubjectSyntax,
     ImplementationSubjectSyntaxBuilder, InherentImplementationDeclarationSyntax,
     InherentImplementationDeclarationSyntaxBuilder, NamedTraitImplementationDeclarationSyntax,
-    NamedTraitImplementationDeclarationSyntaxBuilder, TraitApplicationSyntax,
-    TraitApplicationSyntaxBuilder, UnnamedTraitImplementationDeclarationSyntax,
+    NamedTraitImplementationDeclarationSyntaxBuilder, UnnamedTraitImplementationDeclarationSyntax,
     UnnamedTraitImplementationDeclarationSyntaxBuilder,
 };
 pub use list::{
@@ -132,6 +133,7 @@ pub use r#trait::{
     TraitBodySyntax, TraitBodySyntaxBuilder, TraitDeclarationSyntax, TraitDeclarationSyntaxBuilder,
     TraitModifiersSyntax, TraitModifiersSyntaxBuilder,
 };
+pub use trait_application::{TraitApplicationSyntax, TraitApplicationSyntaxBuilder};
 pub use r#type::{
     StructBodySyntax, StructBodySyntaxBuilder, StructDeclarationSyntax,
     StructDeclarationSyntaxBuilder, TypeDirectivesSyntax, TypeDirectivesSyntaxBuilder,

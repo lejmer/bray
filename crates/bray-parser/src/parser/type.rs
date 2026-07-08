@@ -6,7 +6,7 @@ use bray_syntax::{
 };
 
 use super::contract::{BRACED_DECLARATION_CONSTRAINT_BOUNDARY_KINDS, WithClauseSyntaxSink};
-use super::directive::{COPY_DIRECTIVE_NAME, LAYOUT_DIRECTIVE_NAME};
+use super::directive::{COPY_DIRECTIVE_NAME, DirectiveScanKind, LAYOUT_DIRECTIVE_NAME};
 use super::module::MODULE_ITEM_START_KINDS;
 use super::recovery::RecoverySyntaxSink;
 use super::state::Parser;
@@ -170,25 +170,13 @@ impl Parser {
     }
 
     fn consume_type_directives_for_scan(&mut self) {
-        while self.at(SyntaxKind::AtToken) {
-            self.consume();
-
-            if !self.at(SyntaxKind::IdentifierToken) {
-                continue;
+        self.consume_directives_for_scan(&TYPE_DECLARATION_START_KINDS, |directive_name| {
+            match directive_name {
+                LAYOUT_DIRECTIVE_NAME => DirectiveScanKind::ArgumentList,
+                COPY_DIRECTIVE_NAME => DirectiveScanKind::Bare,
+                _ => DirectiveScanKind::Unknown,
             }
-
-            let name_token = self.consume();
-            let directive_name = self.token_text(&name_token);
-
-            if directive_name == Some(LAYOUT_DIRECTIVE_NAME) {
-                self.consume_directive_argument_list_for_scan(&TYPE_DECLARATION_START_KINDS);
-                continue;
-            }
-
-            if directive_name != Some(COPY_DIRECTIVE_NAME) {
-                self.skip_unknown_directive_for_scan(&TYPE_DECLARATION_START_KINDS);
-            }
-        }
+        });
     }
 
     fn consume_type_modifiers_for_scan(&mut self) {

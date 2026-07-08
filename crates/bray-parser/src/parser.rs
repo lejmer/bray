@@ -19,6 +19,7 @@ mod separated;
 mod source;
 mod state;
 mod r#trait;
+mod trait_application;
 mod r#type;
 mod type_expression;
 mod typed_identifier;

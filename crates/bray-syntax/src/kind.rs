@@ -187,6 +187,10 @@ pub enum SyntaxKind {
     TypeCallableMemberModifiers,
     /// Type callable member declaration.
     TypeCallableMemberDeclaration,
+    /// Callable directives in source order.
+    CallableDirectives,
+    /// Optional callable modifiers in source order.
+    CallableModifiers,
     /// Callable parameter list including delimiters.
     ParameterList,
     /// Callable parameter item.
@@ -439,6 +443,8 @@ impl SyntaxKind {
                 | Self::TraitScopeExitRequirementDeclaration
                 | Self::TypeCallableMemberModifiers
                 | Self::TypeCallableMemberDeclaration
+                | Self::CallableDirectives
+                | Self::CallableModifiers
                 | Self::ParameterList
                 | Self::Parameter
                 | Self::ParameterModifiers
@@ -670,6 +676,8 @@ impl SyntaxKind {
             }
             Self::TypeCallableMemberModifiers => "type_callable_member_modifiers",
             Self::TypeCallableMemberDeclaration => "type_callable_member_declaration",
+            Self::CallableDirectives => "callable_directives",
+            Self::CallableModifiers => "callable_modifiers",
             Self::ParameterList => "parameter_list",
             Self::Parameter => "parameter",
             Self::ParameterModifiers => "parameter_modifiers",
@@ -918,6 +926,8 @@ mod tests {
         assert!(SyntaxKind::TypeCallableMemberModifiers.is_node());
         assert!(SyntaxKind::TypeCallableMemberDeclaration.is_node());
 
+        assert!(SyntaxKind::CallableDirectives.is_node());
+        assert!(SyntaxKind::CallableModifiers.is_node());
         assert!(SyntaxKind::ParameterList.is_node());
         assert!(SyntaxKind::Parameter.is_node());
         assert!(SyntaxKind::ParameterModifiers.is_node());
@@ -1277,6 +1287,11 @@ mod tests {
             "type_callable_member_declaration"
         );
 
+        assert_eq!(
+            SyntaxKind::CallableDirectives.as_str(),
+            "callable_directives"
+        );
+        assert_eq!(SyntaxKind::CallableModifiers.as_str(), "callable_modifiers");
         assert_eq!(SyntaxKind::ParameterList.as_str(), "parameter_list");
         assert_eq!(SyntaxKind::Parameter.as_str(), "parameter");
 

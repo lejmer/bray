@@ -1,7 +1,7 @@
 use bray_syntax::{
     ImplementationBodySyntax, ImplementationSubjectSyntax, ImplementationSubjectSyntaxBuilder,
     InherentImplementationDeclarationSyntax, NamedTraitImplementationDeclarationSyntax, SyntaxKind,
-    TraitApplicationSyntax, UnnamedTraitImplementationDeclarationSyntax,
+    UnnamedTraitImplementationDeclarationSyntax,
 };
 
 use super::contract::{BRACED_DECLARATION_CONSTRAINT_BOUNDARY_KINDS, WithClauseSyntaxSink};
@@ -141,19 +141,6 @@ impl Parser {
         if self.at(SyntaxKind::MutKeyword) {
             builder.push_mut_token(self.expect(SyntaxKind::MutKeyword));
         }
-    }
-
-    fn parse_trait_application(&mut self) -> TraitApplicationSyntax {
-        let start = self.peek().full_range().start();
-        let mut builder = TraitApplicationSyntax::builder(self.syntax_source(), start);
-
-        builder.push_path(self.parse_path());
-
-        if self.at(SyntaxKind::LessToken) {
-            builder.push_generic_argument_list(self.parse_generic_argument_list());
-        }
-
-        builder.build()
     }
 
     fn parse_implementation_constraints(&mut self, builder: &mut impl WithClauseSyntaxSink) {

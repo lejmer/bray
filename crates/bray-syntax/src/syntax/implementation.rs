@@ -8,7 +8,7 @@ use super::path::PathSyntax;
 use crate::node::define_source_syntax_node;
 use crate::{
     CallableOverloadDeclarationSyntax, ConstantDeclarationSyntax, GenericArgumentListSyntax,
-    PredicateDeclarationSyntax, SyntaxKind, WithClauseSyntax,
+    PredicateDeclarationSyntax, SyntaxKind, TraitApplicationSyntax, WithClauseSyntax,
 };
 
 define_source_syntax_node! {
@@ -46,42 +46,6 @@ define_source_syntax_node! {
                 /// Returns the subject path child.
                 path;
                 /// Appends the subject path child.
-                push_path;
-                ty: PathSyntax;
-                kind: SyntaxKind::Path;
-            }
-        ],
-        repeated_children: [
-            {
-                /// Returns generic argument lists in source order.
-                generic_argument_lists;
-                /// Appends a generic argument list child.
-                push_generic_argument_list;
-                ty: GenericArgumentListSyntax;
-                kind: SyntaxKind::GenericArgumentList;
-            }
-        ],
-    }
-}
-
-define_source_syntax_node! {
-    /// Trait application named by a trait implementation declaration.
-    pub struct TraitApplicationSyntax {
-        builder: TraitApplicationSyntaxBuilder,
-        kind: SyntaxKind::TraitApplication,
-        source_slot: "trait_application.source",
-        node_name: "trait application",
-        range_description: "trait-application",
-        debug_name: "TraitApplicationSyntax",
-        builder_debug_name: "TraitApplicationSyntaxBuilder",
-        skipped_syntax: true,
-        required_tokens: [],
-        optional_tokens: [],
-        required_children: [
-            {
-                /// Returns the trait path child.
-                path;
-                /// Appends the trait path child.
                 push_path;
                 ty: PathSyntax;
                 kind: SyntaxKind::Path;

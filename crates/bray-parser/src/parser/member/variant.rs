@@ -5,7 +5,7 @@ use bray_syntax::{
 };
 
 use crate::cursor::RecoverySet;
-use crate::parser::directive::TAG_DIRECTIVE_NAME;
+use crate::parser::directive::{DirectiveScanKind, TAG_DIRECTIVE_NAME};
 use crate::parser::member::body::MEMBER_ITEM_RECOVERY_KINDS;
 use crate::parser::separated::{
     SeparatedListSpec, SeparatedListSyntaxSink, separated_list_recovery_kinds,
@@ -223,25 +223,13 @@ impl Parser {
     }
 
     fn consume_variant_directives_for_scan(&mut self) {
-        while self.at(SyntaxKind::AtToken) {
-            self.consume();
-
-            if !self.at(SyntaxKind::IdentifierToken) {
-                continue;
-            }
-
-            let name_token = self.consume();
-            let directive_name = self.token_text(&name_token);
-
-            if directive_name == Some(TAG_DIRECTIVE_NAME) {
-                self.consume_directive_argument_list_for_scan(
-                    &UNION_VARIANT_DECLARATION_START_KINDS,
-                );
-                continue;
-            }
-
-            self.skip_unknown_directive_for_scan(&UNION_VARIANT_DECLARATION_START_KINDS);
-        }
+        self.consume_directives_for_scan(
+            &UNION_VARIANT_DECLARATION_START_KINDS,
+            |directive_name| match directive_name {
+                TAG_DIRECTIVE_NAME => DirectiveScanKind::ArgumentList,
+                _ => DirectiveScanKind::Unknown,
+            },
+        );
     }
 }
 
