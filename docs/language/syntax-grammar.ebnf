@@ -805,6 +805,12 @@ type-form-argument =
       type-expression
     | constant-expression ;
 
+typed-identifier =
+    identifier type-annotation ;
+
+type-annotation =
+    ":" type-expression ;
+
 parameter-list =
     "(" [ parameter-sequence [ "," ] ] ")" ;
 
@@ -812,7 +818,7 @@ parameter-sequence =
     parameter { "," parameter } ;
 
 parameter =
-    parameter-modifiers identifier ":" type-expression [ parameter-default ] ;
+    parameter-modifiers typed-identifier [ parameter-default ] ;
 
 parameter-modifiers =
     { parameter-modifier } ;
@@ -861,7 +867,7 @@ trusted-capability =
     path ;
 
 constant-declaration =
-    constant-modifiers "const" identifier ":" type-expression "=" constant-expression ";" ;
+    constant-modifiers "const" typed-identifier "=" constant-expression ";" ;
 
 constant-modifiers =
     [ visibility-modifier ] ;
@@ -880,7 +886,7 @@ generic-type-parameter =
     identifier ;
 
 generic-const-parameter =
-    "const" identifier ":" type-expression ;
+    "const" typed-identifier ;
 
 predicate-declaration =
     predicate-modifiers "predicate" identifier [ generic-parameter-list ]
@@ -904,7 +910,7 @@ predicate-parameter-sequence =
     predicate-parameter { "," predicate-parameter } ;
 
 predicate-parameter =
-    identifier ":" type-expression ;
+    typed-identifier ;
 
 callable-contract-declaration =
     callable-contract-modifiers "callable" identifier [ generic-parameter-list ]
@@ -955,7 +961,7 @@ struct-body-item =
     | type-member-declaration ;
 
 struct-field-declaration =
-    field-modifiers identifier ":" type-expression [ field-default ] ";" ;
+    field-modifiers typed-identifier [ field-default ] ";" ;
 
 field-modifiers =
     [ visibility-modifier ] [ "mut" ] ;
@@ -989,7 +995,7 @@ union-payload-field-sequence =
     union-payload-field { "," union-payload-field } ;
 
 union-payload-field =
-    payload-field-modifiers identifier ":" type-expression [ field-default ] ;
+    payload-field-modifiers typed-identifier [ field-default ] ;
 
 payload-field-modifiers =
     [ "pos" ] [ "mut" ] ;
@@ -1093,7 +1099,7 @@ trait-callable-member-tail =
     | ";" ;
 
 trait-constant-member-declaration =
-    "const" identifier ":" type-expression [ "=" constant-expression ] ";" ;
+    "const" typed-identifier [ "=" constant-expression ] ";" ;
 
 trait-type-member-declaration =
     "type" identifier ";" ;

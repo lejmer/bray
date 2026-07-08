@@ -1137,6 +1137,23 @@ Callable type forms use the shared callable roots without a name or body.
 
 ---
 
+## Typed identifiers and type annotations
+
+Several declarations bind a required name to a required type expression.
+
+```ebnf
+typed-identifier =
+    identifier type-annotation ;
+
+type-annotation =
+    ":" type-expression ;
+```
+
+The grammar uses `typed-identifier` only where a plain identifier name and a required type annotation are part of the same
+declaration item. Patterns that may include an optional type annotation keep their own grammar.
+
+---
+
 ## Callable parameters
 
 Callable parameter lists are shared by callable declarations, callable type forms, named callable contracts, lifecycle declarations,
@@ -1150,7 +1167,7 @@ parameter-sequence =
     parameter { "," parameter } ;
 
 parameter =
-    parameter-modifiers identifier ":" type-expression [ parameter-default ] ;
+    parameter-modifiers typed-identifier [ parameter-default ] ;
 
 parameter-modifiers =
     { parameter-modifier } ;
@@ -1239,7 +1256,7 @@ An ordinary constant declaration introduces a named compile-time value.
 
 ```ebnf
 constant-declaration =
-    constant-modifiers "const" identifier ":" type-expression "=" constant-expression ";" ;
+    constant-modifiers "const" typed-identifier "=" constant-expression ";" ;
 
 constant-modifiers =
     [ visibility-modifier ] ;
@@ -1274,7 +1291,7 @@ generic-type-parameter =
     identifier ;
 
 generic-const-parameter =
-    "const" identifier ":" type-expression ;
+    "const" typed-identifier ;
 ```
 
 A generic parameter list contains at least one parameter and can include a trailing comma.
@@ -1312,7 +1329,7 @@ predicate-parameter-sequence =
     predicate-parameter { "," predicate-parameter } ;
 
 predicate-parameter =
-    identifier ":" type-expression ;
+    typed-identifier ;
 ```
 
 The declaration name follows `predicate`.
@@ -1422,7 +1439,7 @@ struct-body-item =
     | type-member-declaration ;
 
 struct-field-declaration =
-    field-modifiers identifier ":" type-expression [ field-default ] ";" ;
+    field-modifiers typed-identifier [ field-default ] ";" ;
 
 field-modifiers =
     [ visibility-modifier ] [ "mut" ] ;
@@ -1469,7 +1486,7 @@ union-payload-field-sequence =
     union-payload-field { "," union-payload-field } ;
 
 union-payload-field =
-    payload-field-modifiers identifier ":" type-expression [ field-default ] ;
+    payload-field-modifiers typed-identifier [ field-default ] ;
 
 payload-field-modifiers =
     [ "pos" ] [ "mut" ] ;
@@ -1694,7 +1711,7 @@ modifier combinations, and invalid receiver-mode combinations are semantic error
 
 ```ebnf
 trait-constant-member-declaration =
-    "const" identifier ":" type-expression [ "=" constant-expression ] ";" ;
+    "const" typed-identifier [ "=" constant-expression ] ";" ;
 ```
 
 A trait constant member without an initializer is required.
