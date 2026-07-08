@@ -1,20 +1,20 @@
 use bray_syntax::{
     BlockModuleDeclarationSyntaxBuilder, CallableBodyBlockExpressionSyntaxBuilder,
-    CallableContractDeclarationSyntaxBuilder, CallableOverloadDeclarationSyntaxBuilder,
-    CallableResultClauseSyntaxBuilder, ConstantDeclarationSyntaxBuilder,
-    DestructorMemberDeclarationSyntaxBuilder, DirectiveArgumentListSyntaxBuilder,
-    EnsuresClauseSyntaxBuilder, ExportDeclarationSyntaxBuilder, ExpressionSyntaxBuilder,
-    FinalizerMemberDeclarationSyntaxBuilder, FunctionDeclarationSyntaxBuilder,
-    FunctionDirectivesSyntaxBuilder, GenericArgumentListSyntaxBuilder,
-    GenericParameterListSyntaxBuilder, IdentifierListSyntaxBuilder,
-    ImplementationBodySyntaxBuilder, ImplementationOverloadDeclarationSyntaxBuilder,
-    ImplementationOverloadSubjectSyntaxBuilder, ImplementationSubjectSyntaxBuilder,
-    ImplementationTypeMemberBindingSyntaxBuilder, InherentImplementationDeclarationSyntaxBuilder,
-    ModuleBodySyntaxBuilder, ModuleDirectivesSyntaxBuilder,
-    NamedTraitImplementationDeclarationSyntaxBuilder, OverloadArmListSyntaxBuilder,
-    ParameterListSyntaxBuilder, ParameterSyntaxBuilder, PredicateDeclarationSyntaxBuilder,
-    PredicateParameterListSyntaxBuilder, PredicateParameterSyntaxBuilder,
-    PrimaryExpressionSyntaxBuilder, RequiresClauseSyntaxBuilder,
+    CallableContractDeclarationSyntaxBuilder, CallableDirectivesSyntaxBuilder,
+    CallableOverloadDeclarationSyntaxBuilder, CallableResultClauseSyntaxBuilder,
+    ConstantDeclarationSyntaxBuilder, DestructorMemberDeclarationSyntaxBuilder,
+    DirectiveArgumentListSyntaxBuilder, EnsuresClauseSyntaxBuilder, ExportDeclarationSyntaxBuilder,
+    ExpressionSyntaxBuilder, FinalizerMemberDeclarationSyntaxBuilder,
+    FunctionDeclarationSyntaxBuilder, FunctionDirectivesSyntaxBuilder,
+    GenericArgumentListSyntaxBuilder, GenericParameterListSyntaxBuilder,
+    IdentifierListSyntaxBuilder, ImplementationBodySyntaxBuilder,
+    ImplementationOverloadDeclarationSyntaxBuilder, ImplementationOverloadSubjectSyntaxBuilder,
+    ImplementationSubjectSyntaxBuilder, ImplementationTypeMemberBindingSyntaxBuilder,
+    InherentImplementationDeclarationSyntaxBuilder, ModuleBodySyntaxBuilder,
+    ModuleDirectivesSyntaxBuilder, NamedTraitImplementationDeclarationSyntaxBuilder,
+    OverloadArmListSyntaxBuilder, ParameterListSyntaxBuilder, ParameterSyntaxBuilder,
+    PredicateDeclarationSyntaxBuilder, PredicateParameterListSyntaxBuilder,
+    PredicateParameterSyntaxBuilder, PrimaryExpressionSyntaxBuilder, RequiresClauseSyntaxBuilder,
     ScopeEnterMemberDeclarationSyntaxBuilder, ScopeExitMemberDeclarationSyntaxBuilder,
     SourceUnitModuleDeclarationSyntaxBuilder, SourceUnitSyntaxBuilder, StructBodySyntaxBuilder,
     StructDeclarationSyntaxBuilder, StructFieldDeclarationSyntaxBuilder, SyntaxKind, SyntaxToken,
@@ -253,6 +253,12 @@ impl RecoverySyntaxSink for FunctionDirectivesSyntaxBuilder {
 impl RecoverySyntaxSink for FunctionDeclarationSyntaxBuilder {
     fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
         FunctionDeclarationSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for CallableDirectivesSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        CallableDirectivesSyntaxBuilder::push_skipped_tokens(self, tokens);
     }
 }
 

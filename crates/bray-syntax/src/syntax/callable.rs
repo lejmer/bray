@@ -1,8 +1,78 @@
 use super::expression::first_expression;
 use crate::node::define_source_syntax_node;
 use crate::{
-    ExpressionSyntax, SyntaxKind, SyntaxToken, TypeExpressionSyntax, TypedIdentifierSyntax,
+    AbiDirectiveSyntax, ExpressionSyntax, SyntaxKind, SyntaxToken, TypeExpressionSyntax,
+    TypedIdentifierSyntax,
 };
+
+define_source_syntax_node! {
+    /// Callable directives in source order.
+    pub struct CallableDirectivesSyntax {
+        builder: CallableDirectivesSyntaxBuilder,
+        kind: SyntaxKind::CallableDirectives,
+        source_slot: "callable_directives.source",
+        node_name: "callable directives",
+        range_description: "callable-directives",
+        debug_name: "CallableDirectivesSyntax",
+        builder_debug_name: "CallableDirectivesSyntaxBuilder",
+        skipped_syntax: true,
+        required_tokens: [],
+        optional_tokens: [],
+        required_children: [],
+        repeated_children: [
+            {
+                /// Returns `@abi(...)` directives in source order.
+                abi_directives;
+                /// Appends an `@abi(...)` directive.
+                push_abi_directive;
+                ty: AbiDirectiveSyntax;
+                kind: SyntaxKind::AbiDirective;
+            }
+        ],
+    }
+}
+
+define_source_syntax_node! {
+    /// Optional callable modifiers in source order.
+    pub struct CallableModifiersSyntax {
+        builder: CallableModifiersSyntaxBuilder,
+        kind: SyntaxKind::CallableModifiers,
+        source_slot: "callable_modifiers.source",
+        node_name: "callable modifiers",
+        range_description: "callable-modifiers",
+        debug_name: "CallableModifiersSyntax",
+        builder_debug_name: "CallableModifiersSyntaxBuilder",
+        skipped_syntax: false,
+        required_tokens: [],
+        optional_tokens: [
+            {
+                /// Returns the first optional `async` modifier token.
+                async_token;
+                /// Appends an `async` modifier token.
+                push_async_token;
+                kind: SyntaxKind::AsyncKeyword;
+                slot: "callable_modifiers.async_token";
+            },
+            {
+                /// Returns the first optional `trusted` modifier token.
+                trusted_token;
+                /// Appends a `trusted` modifier token.
+                push_trusted_token;
+                kind: SyntaxKind::TrustedKeyword;
+                slot: "callable_modifiers.trusted_token";
+            },
+            {
+                /// Returns the first optional `const` modifier token.
+                const_token;
+                /// Appends a `const` modifier token.
+                push_const_token;
+                kind: SyntaxKind::ConstKeyword;
+                slot: "callable_modifiers.const_token";
+            }
+        ],
+        required_children: [],
+    }
+}
 
 define_source_syntax_node! {
     /// Optional callable parameter modifiers in source order.
@@ -248,13 +318,51 @@ mod tests {
     use bray_source::{SourceSnapshot, TextRange, TextSize};
 
     use crate::test_support::{
-        identifier_type_expression, snapshot as test_snapshot, token, typed_identifier,
+        identifier_type_expression, keyword, snapshot as test_snapshot, token, typed_identifier,
     };
     use crate::{
-        CallableBodyBlockExpressionSyntax, CallableResultClauseSyntax, ParameterListSyntax,
-        ParameterModifiersSyntax, ParameterSyntax, SyntaxKind, SyntaxText, SyntaxToken,
-        SyntaxTrivia,
+        AbiDirectiveSyntax, CallableBodyBlockExpressionSyntax, CallableDirectivesSyntax,
+        CallableModifiersSyntax, CallableResultClauseSyntax, DirectiveArgumentListSyntax,
+        ParameterListSyntax, ParameterModifiersSyntax, ParameterSyntax, SyntaxKind, SyntaxText,
+        SyntaxToken, SyntaxTrivia,
     };
+
+    #[test]
+    fn callable_roots_store_directives_and_modifiers() {
+        let snapshot = test_snapshot("syntax-callable-test", "@abi() async trusted const");
+
+        let mut arguments =
+            DirectiveArgumentListSyntax::builder(snapshot.clone(), TextSize::new(4));
+
+        arguments.push_open_paren_token(token(SyntaxKind::OpenParenToken, 4, 5));
+        arguments.push_close_paren_token(keyword(SyntaxKind::CloseParenToken, 5, 6, true));
+
+        let mut abi = AbiDirectiveSyntax::builder(snapshot.clone(), TextSize::ZERO);
+
+        abi.push_directive_marker_token(token(SyntaxKind::AtToken, 0, 1));
+        abi.push_name_token(token(SyntaxKind::IdentifierToken, 1, 4));
+        abi.push_directive_argument_list(arguments.build());
+
+        let mut directives = CallableDirectivesSyntax::builder(snapshot.clone(), TextSize::ZERO);
+        let mut modifiers = CallableModifiersSyntax::builder(snapshot, TextSize::new(7));
+
+        directives.push_abi_directive(abi.build());
+
+        modifiers.push_async_token(keyword(SyntaxKind::AsyncKeyword, 7, 12, true));
+        modifiers.push_trusted_token(keyword(SyntaxKind::TrustedKeyword, 13, 20, true));
+        modifiers.push_const_token(token(SyntaxKind::ConstKeyword, 21, 26));
+
+        let directives = directives.build();
+        let modifiers = modifiers.build();
+
+        assert_eq!(directives.full_text(), "@abi() ");
+        assert_eq!(directives.abi_directives().count(), 1);
+        assert_eq!(modifiers.full_text(), "async trusted const");
+
+        assert!(modifiers.async_token().is_some());
+        assert!(modifiers.trusted_token().is_some());
+        assert!(modifiers.const_token().is_some());
+    }
 
     #[test]
     fn parameter_lists_store_parameters_separators_and_defaults() {

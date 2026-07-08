@@ -1,7 +1,8 @@
 use crate::node::{child_nodes, define_source_syntax_node};
 use crate::{
-    CallableResultClauseSyntax, EnsuresClauseSyntax, ExpressionSyntax, GenericArgumentListSyntax,
-    ParameterListSyntax, PathSyntax, RequiresClauseSyntax, SyntaxKind, SyntaxToken,
+    CallableDirectivesSyntax, CallableModifiersSyntax, CallableResultClauseSyntax,
+    EnsuresClauseSyntax, ExpressionSyntax, GenericArgumentListSyntax, ParameterListSyntax,
+    PathSyntax, RequiresClauseSyntax, SyntaxKind, SyntaxToken, TraitApplicationSyntax,
     TypeFormArgumentListSyntax, UsesClauseSyntax, WithClauseSyntax,
 };
 
@@ -41,6 +42,14 @@ define_source_syntax_node! {
                 push_box_keyword;
                 kind: SyntaxKind::BoxKeyword;
                 slot: "type_expression.box_keyword";
+            },
+            {
+                /// Returns the optional `view` keyword token.
+                view_keyword;
+                /// Appends a `view` keyword token.
+                push_view_keyword;
+                kind: SyntaxKind::ViewKeyword;
+                slot: "type_expression.view_keyword";
             },
             {
                 /// Returns the optional `func` keyword token.
@@ -105,10 +114,50 @@ define_source_syntax_node! {
                 push_close_bracket_token;
                 kind: SyntaxKind::CloseBracketToken;
                 slot: "type_expression.close_bracket_token";
+            },
+            {
+                /// Returns the optional nullable type-expression question token.
+                question_token;
+                /// Appends a nullable type-expression question token.
+                push_question_token;
+                kind: SyntaxKind::QuestionToken;
+                slot: "type_expression.question_token";
+            },
+            {
+                /// Returns the optional qualified type-member dot token.
+                dot_token;
+                /// Appends a qualified type-member dot token.
+                push_dot_token;
+                kind: SyntaxKind::DotToken;
+                slot: "type_expression.dot_token";
+            },
+            {
+                /// Returns the optional qualified type-member identifier token.
+                identifier_token;
+                /// Appends a qualified type-member identifier token.
+                push_identifier_token;
+                kind: SyntaxKind::IdentifierToken;
+                slot: "type_expression.identifier_token";
             }
         ],
         required_children: [],
         repeated_children: [
+            {
+                /// Returns direct callable-directives children in source order.
+                callable_directives;
+                /// Appends a callable-directives child.
+                push_callable_directives;
+                ty: CallableDirectivesSyntax;
+                kind: SyntaxKind::CallableDirectives;
+            },
+            {
+                /// Returns direct callable-modifiers children in source order.
+                callable_modifiers;
+                /// Appends a callable-modifiers child.
+                push_callable_modifiers;
+                ty: CallableModifiersSyntax;
+                kind: SyntaxKind::CallableModifiers;
+            },
             {
                 /// Returns direct nested type-expression children in source order.
                 type_expressions;
@@ -132,6 +181,14 @@ define_source_syntax_node! {
                 push_generic_argument_list;
                 ty: GenericArgumentListSyntax;
                 kind: SyntaxKind::GenericArgumentList;
+            },
+            {
+                /// Returns direct trait-application children in source order.
+                trait_applications;
+                /// Appends a trait-application child.
+                push_trait_application;
+                ty: TraitApplicationSyntax;
+                kind: SyntaxKind::TraitApplication;
             },
             {
                 /// Returns direct path children in source order.
@@ -225,7 +282,9 @@ impl TypeExpressionSyntax {
 mod tests {
     use bray_source::{TextRange, TextSize};
 
-    use crate::test_support::{identifier_path, keyword, snapshot as test_snapshot, token};
+    use crate::test_support::{
+        identifier_path, keyword, snapshot as test_snapshot, token, trait_application,
+    };
     use crate::{PathSyntax, SyntaxKind, SyntaxText, SyntaxTrivia, TypeExpressionSyntax};
 
     #[test]
@@ -333,5 +392,54 @@ mod tests {
         assert_eq!(expression.full_text(), "func() -> Value");
         assert_eq!(expression.parameter_lists().count(), 1);
         assert_eq!(expression.callable_result_clauses().count(), 1);
+    }
+
+    #[test]
+    fn type_expressions_store_view_nullable_and_qualified_member_children() {
+        let snapshot = test_snapshot("syntax-type-expression-test", "Value?(Display).Output");
+
+        let mut base = TypeExpressionSyntax::builder(snapshot.clone(), TextSize::ZERO);
+        let mut nullable = TypeExpressionSyntax::builder(snapshot.clone(), TextSize::ZERO);
+        let mut qualified = TypeExpressionSyntax::builder(snapshot.clone(), TextSize::ZERO);
+
+        base.push_path(identifier_path(snapshot.clone(), 0, 5));
+
+        nullable.push_type_expression(base.build());
+        nullable.push_question_token(token(SyntaxKind::QuestionToken, 5, 6));
+
+        qualified.push_type_expression(nullable.build());
+        qualified.push_open_paren_token(token(SyntaxKind::OpenParenToken, 6, 7));
+        qualified.push_trait_application(trait_application(snapshot, 7, 14));
+        qualified.push_close_paren_token(token(SyntaxKind::CloseParenToken, 14, 15));
+        qualified.push_dot_token(token(SyntaxKind::DotToken, 15, 16));
+        qualified.push_identifier_token(token(SyntaxKind::IdentifierToken, 16, 22));
+
+        let expression = qualified.build();
+        let nested_expressions = expression.type_expressions().collect::<Vec<_>>();
+
+        let [nested] = nested_expressions.as_slice() else {
+            panic!("expected nullable nested type expression");
+        };
+
+        assert_eq!(expression.full_text(), "Value?(Display).Output");
+        assert!(nested.question_token().is_some());
+        assert_eq!(expression.trait_applications().count(), 1);
+        assert!(expression.dot_token().is_some());
+        assert!(expression.identifier_token().is_some());
+    }
+
+    #[test]
+    fn type_expressions_store_view_type_children() {
+        let snapshot = test_snapshot("syntax-type-expression-test", "view Display");
+        let mut builder = TypeExpressionSyntax::builder(snapshot.clone(), TextSize::ZERO);
+
+        builder.push_view_keyword(keyword(SyntaxKind::ViewKeyword, 0, 4, true));
+        builder.push_trait_application(trait_application(snapshot, 5, 12));
+
+        let expression = builder.build();
+
+        assert_eq!(expression.full_text(), "view Display");
+        assert!(expression.view_keyword().is_some());
+        assert_eq!(expression.trait_applications().count(), 1);
     }
 }

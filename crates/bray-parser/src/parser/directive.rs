@@ -19,6 +19,13 @@ pub(super) const TAG_DIRECTIVE_NAME: &str = "tag";
 pub(super) const TARGET_DIRECTIVE_NAME: &str = "target";
 pub(super) const TEST_DIRECTIVE_NAME: &str = "test";
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum DirectiveScanKind {
+    ArgumentList,
+    Bare,
+    Unknown,
+}
+
 impl Parser {
     pub(super) fn parse_target_directive(
         &mut self,
@@ -230,6 +237,34 @@ impl Parser {
 
         self.scan_until_balanced_close_paren(stop_kinds);
         self.consume_if(SyntaxKind::CloseParenToken);
+    }
+
+    pub(super) fn consume_directives_for_scan(
+        &mut self,
+        stop_kinds: &[SyntaxKind],
+        mut classify_directive: impl FnMut(&str) -> DirectiveScanKind,
+    ) {
+        while self.at(SyntaxKind::AtToken) {
+            self.consume();
+
+            if !self.at(SyntaxKind::IdentifierToken) {
+                continue;
+            }
+
+            let name_token = self.consume();
+
+            let directive_kind = self
+                .token_text(&name_token)
+                .map_or(DirectiveScanKind::Unknown, &mut classify_directive);
+
+            match directive_kind {
+                DirectiveScanKind::ArgumentList => {
+                    self.consume_directive_argument_list_for_scan(stop_kinds);
+                }
+                DirectiveScanKind::Bare => {}
+                DirectiveScanKind::Unknown => self.skip_unknown_directive_for_scan(stop_kinds),
+            }
+        }
     }
 
     pub(super) fn skip_unknown_directive_for_scan(&mut self, stop_kinds: &[SyntaxKind]) {
