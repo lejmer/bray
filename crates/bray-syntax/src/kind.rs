@@ -199,12 +199,20 @@ pub enum SyntaxKind {
     ParameterModifiers,
     /// Callable result clause.
     CallableResultClause,
-    /// Callable body block expression with skipped expression contents.
+    /// Callable body block expression.
     CallableBodyBlockExpression,
     /// Runtime expression.
     Expression,
     /// Opaque primary expression.
     PrimaryExpression,
+    /// Braced block expression.
+    BlockExpression,
+    /// Item inside a block expression.
+    BlockItem,
+    /// Local binding declaration.
+    LocalBindingDeclaration,
+    /// Expression sequenced by a semicolon.
+    SequencedExpression,
     /// Pattern used by binding-like positions.
     IrrefutablePattern,
     /// Entry inside an irrefutable pattern body.
@@ -460,6 +468,10 @@ impl SyntaxKind {
                 | Self::CallableBodyBlockExpression
                 | Self::Expression
                 | Self::PrimaryExpression
+                | Self::BlockExpression
+                | Self::BlockItem
+                | Self::LocalBindingDeclaration
+                | Self::SequencedExpression
                 | Self::IrrefutablePattern
                 | Self::IrrefutablePatternEntry
                 | Self::CasePattern
@@ -702,6 +714,10 @@ impl SyntaxKind {
             Self::CallableBodyBlockExpression => "callable_body_block_expression",
             Self::Expression => "expression",
             Self::PrimaryExpression => "primary_expression",
+            Self::BlockExpression => "block_expression",
+            Self::BlockItem => "block_item",
+            Self::LocalBindingDeclaration => "local_binding_declaration",
+            Self::SequencedExpression => "sequenced_expression",
             Self::IrrefutablePattern => "irrefutable_pattern",
             Self::IrrefutablePatternEntry => "irrefutable_pattern_entry",
             Self::CasePattern => "case_pattern",
@@ -957,6 +973,10 @@ mod tests {
         assert!(SyntaxKind::CallableBodyBlockExpression.is_node());
         assert!(SyntaxKind::Expression.is_node());
         assert!(SyntaxKind::PrimaryExpression.is_node());
+        assert!(SyntaxKind::BlockExpression.is_node());
+        assert!(SyntaxKind::BlockItem.is_node());
+        assert!(SyntaxKind::LocalBindingDeclaration.is_node());
+        assert!(SyntaxKind::SequencedExpression.is_node());
         assert!(SyntaxKind::IrrefutablePattern.is_node());
         assert!(SyntaxKind::IrrefutablePatternEntry.is_node());
         assert!(SyntaxKind::CasePattern.is_node());
@@ -1342,6 +1362,18 @@ mod tests {
 
         assert_eq!(SyntaxKind::Expression.as_str(), "expression");
         assert_eq!(SyntaxKind::PrimaryExpression.as_str(), "primary_expression");
+        assert_eq!(SyntaxKind::BlockExpression.as_str(), "block_expression");
+        assert_eq!(SyntaxKind::BlockItem.as_str(), "block_item");
+
+        assert_eq!(
+            SyntaxKind::LocalBindingDeclaration.as_str(),
+            "local_binding_declaration"
+        );
+
+        assert_eq!(
+            SyntaxKind::SequencedExpression.as_str(),
+            "sequenced_expression"
+        );
 
         assert_eq!(
             SyntaxKind::IrrefutablePattern.as_str(),

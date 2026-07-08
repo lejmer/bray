@@ -1,4 +1,4 @@
-// TODO(parser): Remove this allow when local bindings or match arms call the shared pattern parser.
+// TODO(parser): Remove this allow when match arms call the case-pattern parser.
 #![allow(dead_code)]
 
 use bray_syntax::{

@@ -1,3 +1,4 @@
+mod block;
 mod callable;
 mod callable_contract;
 mod constant;
@@ -24,6 +25,11 @@ mod typed_identifier;
 mod unit;
 mod variant;
 
+pub use block::{
+    BlockExpressionSyntax, BlockExpressionSyntaxBuilder, BlockItemSyntax, BlockItemSyntaxBuilder,
+    LocalBindingDeclarationSyntax, LocalBindingDeclarationSyntaxBuilder, SequencedExpressionSyntax,
+    SequencedExpressionSyntaxBuilder,
+};
 pub use callable::{
     CallableBodyBlockExpressionSyntax, CallableBodyBlockExpressionSyntaxBuilder,
     CallableDirectivesSyntax, CallableDirectivesSyntaxBuilder, CallableModifiersSyntax,

@@ -308,11 +308,13 @@ impl FunctionDeclarationSyntax {
 mod tests {
     use bray_source::{SourceSnapshot, TextRange, TextSize};
 
-    use crate::test_support::{directive_argument, snapshot as test_snapshot, token};
+    use crate::test_support::{
+        callable_body_block_expression, directive_argument, snapshot as test_snapshot, token,
+    };
     use crate::{
-        CallableBodyBlockExpressionSyntax, DirectiveArgumentListSyntax, FunctionDeclarationSyntax,
-        FunctionDirectivesSyntax, FunctionModifiersSyntax, LinkDirectiveSyntax,
-        ParameterListSyntax, SyntaxKind, SyntaxText, SyntaxTrivia,
+        DirectiveArgumentListSyntax, FunctionDeclarationSyntax, FunctionDirectivesSyntax,
+        FunctionModifiersSyntax, LinkDirectiveSyntax, ParameterListSyntax, SyntaxKind, SyntaxText,
+        SyntaxTrivia,
     };
 
     #[test]
@@ -333,7 +335,9 @@ mod tests {
         builder.push_identifier_token(token(SyntaxKind::IdentifierToken, 12, 16));
         builder.push_parameter_list(parameter_list(snapshot.clone()));
 
-        builder.push_callable_body_block_expression(body(snapshot));
+        builder.push_callable_body_block_expression(callable_body_block_expression(
+            snapshot, 19, false,
+        ));
 
         let declaration = builder.build();
 
@@ -407,15 +411,6 @@ mod tests {
                 SyntaxTrivia::whitespace(TextRange::new(TextSize::new(18), TextSize::new(19))),
             ]),
         );
-
-        builder.build()
-    }
-
-    fn body(snapshot: SourceSnapshot) -> CallableBodyBlockExpressionSyntax {
-        let mut builder = CallableBodyBlockExpressionSyntax::builder(snapshot, TextSize::new(19));
-
-        builder.push_open_brace_token(token(SyntaxKind::OpenBraceToken, 19, 20));
-        builder.push_close_brace_token(token(SyntaxKind::CloseBraceToken, 20, 21));
 
         builder.build()
     }

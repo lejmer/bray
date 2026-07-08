@@ -1,5 +1,5 @@
 use bray_syntax::{
-    BlockModuleDeclarationSyntaxBuilder, CallableBodyBlockExpressionSyntaxBuilder,
+    BlockExpressionSyntaxBuilder, BlockItemSyntaxBuilder, BlockModuleDeclarationSyntaxBuilder,
     CallableContractDeclarationSyntaxBuilder, CallableDirectivesSyntaxBuilder,
     CallableOverloadDeclarationSyntaxBuilder, CallableResultClauseSyntaxBuilder,
     ConstantDeclarationSyntaxBuilder, DestructorMemberDeclarationSyntaxBuilder,
@@ -10,17 +10,19 @@ use bray_syntax::{
     IdentifierListSyntaxBuilder, ImplementationBodySyntaxBuilder,
     ImplementationOverloadDeclarationSyntaxBuilder, ImplementationOverloadSubjectSyntaxBuilder,
     ImplementationSubjectSyntaxBuilder, ImplementationTypeMemberBindingSyntaxBuilder,
-    InherentImplementationDeclarationSyntaxBuilder, ModuleBodySyntaxBuilder,
-    ModuleDirectivesSyntaxBuilder, NamedTraitImplementationDeclarationSyntaxBuilder,
-    OverloadArmListSyntaxBuilder, ParameterListSyntaxBuilder, ParameterSyntaxBuilder,
-    PredicateDeclarationSyntaxBuilder, PredicateParameterListSyntaxBuilder,
-    PredicateParameterSyntaxBuilder, PrimaryExpressionSyntaxBuilder, RequiresClauseSyntaxBuilder,
+    InherentImplementationDeclarationSyntaxBuilder, LocalBindingDeclarationSyntaxBuilder,
+    ModuleBodySyntaxBuilder, ModuleDirectivesSyntaxBuilder,
+    NamedTraitImplementationDeclarationSyntaxBuilder, OverloadArmListSyntaxBuilder,
+    ParameterListSyntaxBuilder, ParameterSyntaxBuilder, PredicateDeclarationSyntaxBuilder,
+    PredicateParameterListSyntaxBuilder, PredicateParameterSyntaxBuilder,
+    PrimaryExpressionSyntaxBuilder, RequiresClauseSyntaxBuilder,
     ScopeEnterMemberDeclarationSyntaxBuilder, ScopeExitMemberDeclarationSyntaxBuilder,
-    SourceUnitModuleDeclarationSyntaxBuilder, SourceUnitSyntaxBuilder, StructBodySyntaxBuilder,
-    StructDeclarationSyntaxBuilder, StructFieldDeclarationSyntaxBuilder, SyntaxKind, SyntaxToken,
-    TraitApplicationSyntaxBuilder, TraitBodySyntaxBuilder,
-    TraitCallableMemberDeclarationSyntaxBuilder, TraitConstantMemberDeclarationSyntaxBuilder,
-    TraitDeclarationSyntaxBuilder, TraitDestructorRequirementDeclarationSyntaxBuilder,
+    SequencedExpressionSyntaxBuilder, SourceUnitModuleDeclarationSyntaxBuilder,
+    SourceUnitSyntaxBuilder, StructBodySyntaxBuilder, StructDeclarationSyntaxBuilder,
+    StructFieldDeclarationSyntaxBuilder, SyntaxKind, SyntaxToken, TraitApplicationSyntaxBuilder,
+    TraitBodySyntaxBuilder, TraitCallableMemberDeclarationSyntaxBuilder,
+    TraitConstantMemberDeclarationSyntaxBuilder, TraitDeclarationSyntaxBuilder,
+    TraitDestructorRequirementDeclarationSyntaxBuilder,
     TraitFinalizerRequirementDeclarationSyntaxBuilder,
     TraitPredicateMemberDeclarationSyntaxBuilder,
     TraitScopeEnterRequirementDeclarationSyntaxBuilder,
@@ -158,17 +160,6 @@ impl Parser {
         builder.push_skipped_tokens(skipped_tokens);
 
         skipped_any
-    }
-
-    pub(super) fn parse_skipped_braced_body_tokens(
-        &mut self,
-        builder: &mut impl BracedBodySyntaxSink,
-        at_missing_body_boundary: impl FnMut(&mut Parser) -> bool,
-    ) {
-        self.parse_braced_body_contents(builder, at_missing_body_boundary, |parser, builder| {
-            parser
-                .recover_until_balanced_close_brace_or_recovery_set(builder, RecoverySet::new(&[]));
-        });
     }
 
     pub(super) fn parse_braced_body_contents<Builder>(
@@ -568,9 +559,27 @@ impl RecoverySyntaxSink for UsesClauseSyntaxBuilder {
     }
 }
 
-impl RecoverySyntaxSink for CallableBodyBlockExpressionSyntaxBuilder {
+impl RecoverySyntaxSink for BlockExpressionSyntaxBuilder {
     fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
-        CallableBodyBlockExpressionSyntaxBuilder::push_skipped_tokens(self, tokens);
+        BlockExpressionSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for BlockItemSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        BlockItemSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for LocalBindingDeclarationSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        LocalBindingDeclarationSyntaxBuilder::push_skipped_tokens(self, tokens);
+    }
+}
+
+impl RecoverySyntaxSink for SequencedExpressionSyntaxBuilder {
+    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+        SequencedExpressionSyntaxBuilder::push_skipped_tokens(self, tokens);
     }
 }
 
@@ -644,13 +653,13 @@ impl BracedBodySyntaxSink for UnionBodySyntaxBuilder {
     }
 }
 
-impl BracedBodySyntaxSink for CallableBodyBlockExpressionSyntaxBuilder {
+impl BracedBodySyntaxSink for BlockExpressionSyntaxBuilder {
     fn push_open_brace_token(&mut self, token: SyntaxToken) {
-        CallableBodyBlockExpressionSyntaxBuilder::push_open_brace_token(self, token);
+        BlockExpressionSyntaxBuilder::push_open_brace_token(self, token);
     }
 
     fn push_close_brace_token(&mut self, token: SyntaxToken) {
-        CallableBodyBlockExpressionSyntaxBuilder::push_close_brace_token(self, token);
+        BlockExpressionSyntaxBuilder::push_close_brace_token(self, token);
     }
 }
 

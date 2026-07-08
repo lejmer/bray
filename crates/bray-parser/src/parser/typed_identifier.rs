@@ -16,7 +16,7 @@ impl Parser {
         builder.build()
     }
 
-    fn parse_type_annotation_until(
+    pub(super) fn parse_type_annotation_until(
         &mut self,
         at_type_boundary: &mut dyn FnMut(&mut Parser) -> bool,
     ) -> TypeAnnotationSyntax {

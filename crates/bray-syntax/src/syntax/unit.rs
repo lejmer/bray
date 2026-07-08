@@ -728,30 +728,32 @@ mod tests {
 
     use super::{CompilationUnitSyntax, SourceUnitSyntax};
     use crate::test_support::{
-        func_keyword, func_keyword_with_trailing_space, identifier_path,
-        identifier_path_with_trailing_space, implementation_body, implementation_subject, keyword,
-        snapshot as test_snapshot, token, trait_application, typed_identifier,
+        callable_body_block_expression, func_keyword, func_keyword_with_trailing_space,
+        identifier_path, identifier_path_with_trailing_space, implementation_body,
+        implementation_subject, keyword, snapshot as test_snapshot, token, trait_application,
+        typed_identifier,
     };
     use crate::{
-        AsyncCapableLifecycleMemberModifiersSyntax, BlockModuleDeclarationSyntax,
-        CallableBodyBlockExpressionSyntax, CallableContractDeclarationSyntax,
-        CallableOverloadDeclarationSyntax, CallableResultClauseSyntax, CasePatternEntrySyntax,
-        CasePatternSyntax, ConstantDeclarationSyntax, ConstantModifiersSyntax,
-        ConstructorMemberModifiersSyntax, DestructorMemberDeclarationSyntax,
-        DirectiveArgumentListSyntax, DirectiveArgumentSyntax, ExportDeclarationSyntax,
-        ExpressionSyntax, FinalizerMemberDeclarationSyntax, FunctionDeclarationSyntax,
-        FunctionDirectivesSyntax, FunctionModifiersSyntax, GenericArgumentListSyntax,
-        GenericArgumentSyntax, GenericConstParameterSyntax, GenericParameterListSyntax,
-        GenericTypeParameterSyntax, IdentifierListItemSyntax, IdentifierListSyntax,
-        ImplementationBodySyntax, ImplementationOverloadDeclarationSyntax,
+        AsyncCapableLifecycleMemberModifiersSyntax, BlockExpressionSyntax, BlockItemSyntax,
+        BlockModuleDeclarationSyntax, CallableBodyBlockExpressionSyntax,
+        CallableContractDeclarationSyntax, CallableOverloadDeclarationSyntax,
+        CallableResultClauseSyntax, CasePatternEntrySyntax, CasePatternSyntax,
+        ConstantDeclarationSyntax, ConstantModifiersSyntax, ConstructorMemberModifiersSyntax,
+        DestructorMemberDeclarationSyntax, DirectiveArgumentListSyntax, DirectiveArgumentSyntax,
+        ExportDeclarationSyntax, ExpressionSyntax, FinalizerMemberDeclarationSyntax,
+        FunctionDeclarationSyntax, FunctionDirectivesSyntax, FunctionModifiersSyntax,
+        GenericArgumentListSyntax, GenericArgumentSyntax, GenericConstParameterSyntax,
+        GenericParameterListSyntax, GenericTypeParameterSyntax, IdentifierListItemSyntax,
+        IdentifierListSyntax, ImplementationBodySyntax, ImplementationOverloadDeclarationSyntax,
         ImplementationOverloadSubjectSyntax, ImplementationSubjectSyntax,
         ImplementationTypeMemberBindingSyntax, InherentImplementationDeclarationSyntax,
-        IrrefutablePatternEntrySyntax, IrrefutablePatternSyntax, ModuleBodySyntax,
-        ModuleDirectivesSyntax, ModuleModifiersSyntax, NamedTraitImplementationDeclarationSyntax,
-        OverloadArmListSyntax, OverloadArmSyntax, OverloadModifiersSyntax, ParameterListSyntax,
-        ParameterModifiersSyntax, ParameterSyntax, PathSyntax, PredicateDeclarationSyntax,
-        PrimaryExpressionSyntax, ScopeEnterMemberDeclarationSyntax,
-        ScopeExitMemberDeclarationSyntax, SourceSyntaxNode, SourceUnitModuleDeclarationSyntax,
+        IrrefutablePatternEntrySyntax, IrrefutablePatternSyntax, LocalBindingDeclarationSyntax,
+        ModuleBodySyntax, ModuleDirectivesSyntax, ModuleModifiersSyntax,
+        NamedTraitImplementationDeclarationSyntax, OverloadArmListSyntax, OverloadArmSyntax,
+        OverloadModifiersSyntax, ParameterListSyntax, ParameterModifiersSyntax, ParameterSyntax,
+        PathSyntax, PredicateDeclarationSyntax, PrimaryExpressionSyntax,
+        ScopeEnterMemberDeclarationSyntax, ScopeExitMemberDeclarationSyntax,
+        SequencedExpressionSyntax, SourceSyntaxNode, SourceUnitModuleDeclarationSyntax,
         StructDeclarationSyntax, SyncLifecycleMemberModifiersSyntax, SyntaxKind, SyntaxNode,
         SyntaxText, SyntaxToken, SyntaxTrivia, TraitApplicationSyntax, TraitBodySyntax,
         TraitConstantMemberDeclarationSyntax, TraitDeclarationSyntax,
@@ -1287,6 +1289,10 @@ mod tests {
         assert_send_sync::<CallableBodyBlockExpressionSyntax>();
         assert_send_sync::<ExpressionSyntax>();
         assert_send_sync::<PrimaryExpressionSyntax>();
+        assert_send_sync::<BlockExpressionSyntax>();
+        assert_send_sync::<BlockItemSyntax>();
+        assert_send_sync::<LocalBindingDeclarationSyntax>();
+        assert_send_sync::<SequencedExpressionSyntax>();
         assert_send_sync::<IrrefutablePatternSyntax>();
         assert_send_sync::<IrrefutablePatternEntrySyntax>();
         assert_send_sync::<CasePatternSyntax>();
@@ -1446,7 +1452,10 @@ mod tests {
         ));
 
         builder.push_parameter_list(parameter_list(snapshot.clone()));
-        builder.push_callable_body_block_expression(callable_body(snapshot));
+
+        builder.push_callable_body_block_expression(callable_body_block_expression(
+            snapshot, 12, false,
+        ));
 
         builder.build()
     }
@@ -1616,22 +1625,6 @@ mod tests {
                 TextSize::new(12),
             ))]),
         );
-
-        builder.build()
-    }
-
-    fn callable_body(snapshot: SourceSnapshot) -> CallableBodyBlockExpressionSyntax {
-        let mut builder = CallableBodyBlockExpressionSyntax::builder(snapshot, TextSize::new(12));
-
-        builder.push_open_brace_token(SyntaxToken::new(
-            SyntaxKind::OpenBraceToken,
-            TextRange::new(TextSize::new(12), TextSize::new(13)),
-        ));
-
-        builder.push_close_brace_token(SyntaxToken::new(
-            SyntaxKind::CloseBraceToken,
-            TextRange::new(TextSize::new(13), TextSize::new(14)),
-        ));
 
         builder.build()
     }

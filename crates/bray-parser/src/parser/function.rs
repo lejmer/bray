@@ -386,9 +386,8 @@ mod tests {
         );
     }
 
-    // TODO(parser): Update this when function body expressions are parsed.
     #[test]
-    fn parser_recovers_function_bodies_without_losing_later_items() {
+    fn parser_parses_function_body_block_items_without_losing_later_items() {
         let source = "module main; func main() { return; }\nusing core;";
         let sources = source_store([source]);
         let result = parse_compilation_unit(&sources);
@@ -407,12 +406,9 @@ mod tests {
 
         assert_eq!(source_unit.full_text(), source);
         assert_eq!(body.full_text(), "{ return; }\n");
-        assert_eq!(body.skipped_syntax().count(), 1);
+        assert_eq!(body.block_expression().block_items().count(), 1);
         assert_eq!(source_unit.using_declarations().count(), 1);
 
-        assert_eq!(
-            parse_diagnostic_kinds(&result),
-            [DiagnosticKind::SyntaxSkippedSyntax]
-        );
+        assert!(result.diagnostics().is_empty());
     }
 }

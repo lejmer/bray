@@ -466,7 +466,6 @@ mod tests {
         assert!(result.diagnostics().is_empty());
     }
 
-    // TODO(parser): Update this when callable body expressions are parsed.
     #[test]
     fn parser_parses_type_callable_members_in_struct_bodies() {
         let source = "module main; struct Point { public static func make<T>() -> Point {} }";

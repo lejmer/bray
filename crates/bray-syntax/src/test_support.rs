@@ -3,10 +3,11 @@ use bray_source::{
 };
 
 use crate::{
-    DirectiveArgumentSyntax, ExpressionSyntax, ImplementationBodySyntax,
-    ImplementationSubjectSyntax, ImplementationTypeMemberBindingSyntax, PathSyntax,
-    PrimaryExpressionSyntax, SyntaxKind, SyntaxToken, SyntaxTrivia, TraitApplicationSyntax,
-    TypeAnnotationSyntax, TypeExpressionSyntax, TypedIdentifierSyntax,
+    BlockExpressionSyntax, CallableBodyBlockExpressionSyntax, DirectiveArgumentSyntax,
+    ExpressionSyntax, ImplementationBodySyntax, ImplementationSubjectSyntax,
+    ImplementationTypeMemberBindingSyntax, PathSyntax, PrimaryExpressionSyntax, SyntaxKind,
+    SyntaxToken, SyntaxTrivia, TraitApplicationSyntax, TypeAnnotationSyntax, TypeExpressionSyntax,
+    TypedIdentifierSyntax,
 };
 
 pub(crate) fn func_keyword_with_trailing_space() -> SyntaxToken {
@@ -175,6 +176,32 @@ pub(crate) fn implementation_body(
 
     builder.push_open_brace_token(token(SyntaxKind::OpenBraceToken, start, start + 1));
     builder.push_close_brace_token(close_brace_token(start, has_trailing_space));
+
+    builder.build()
+}
+
+pub(crate) fn block_expression(
+    snapshot: SourceSnapshot,
+    start: u32,
+    has_trailing_space: bool,
+) -> BlockExpressionSyntax {
+    let mut builder = BlockExpressionSyntax::builder(snapshot, TextSize::new(start));
+
+    builder.push_open_brace_token(token(SyntaxKind::OpenBraceToken, start, start + 1));
+    builder.push_close_brace_token(close_brace_token(start, has_trailing_space));
+
+    builder.build()
+}
+
+pub(crate) fn callable_body_block_expression(
+    snapshot: SourceSnapshot,
+    start: u32,
+    has_trailing_space: bool,
+) -> CallableBodyBlockExpressionSyntax {
+    let mut builder =
+        CallableBodyBlockExpressionSyntax::builder(snapshot.clone(), TextSize::new(start));
+
+    builder.push_block_expression(block_expression(snapshot, start, has_trailing_space));
 
     builder.build()
 }

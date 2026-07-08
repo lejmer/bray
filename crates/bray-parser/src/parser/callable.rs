@@ -256,10 +256,13 @@ impl Parser {
         at_missing_body_boundary: impl FnMut(&mut Parser) -> bool,
     ) -> CallableBodyBlockExpressionSyntax {
         let start = self.peek().full_range().start();
-        let mut builder = CallableBodyBlockExpressionSyntax::builder(self.syntax_source(), start);
 
-        // TODO(parser): Parse callable body block contents once block-item parsing is implemented.
-        self.parse_skipped_braced_body_tokens(&mut builder, at_missing_body_boundary);
+        let mut builder = CallableBodyBlockExpressionSyntax::builder(self.syntax_source(), start);
+        let mut at_missing_body_boundary = at_missing_body_boundary;
+
+        builder.push_block_expression(
+            self.parse_block_expression_until(&mut at_missing_body_boundary),
+        );
 
         builder.build()
     }

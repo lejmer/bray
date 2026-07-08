@@ -8,12 +8,6 @@ use super::module::MODULE_ITEM_START_KINDS;
 use super::recovery::RecoverySyntaxSink;
 use super::state::Parser;
 
-const CONSTANT_DECLARATION_START_KINDS: [SyntaxKind; 3] = [
-    SyntaxKind::PublicKeyword,
-    SyntaxKind::InternalKeyword,
-    SyntaxKind::ConstKeyword,
-];
-
 const CONSTANT_TYPE_BOUNDARY_KINDS: [SyntaxKind; 4] = [
     SyntaxKind::EqualsToken,
     SyntaxKind::SemicolonToken,
@@ -29,7 +23,7 @@ const CONSTANT_VALUE_BOUNDARY_KINDS: [SyntaxKind; 3] = [
 
 // Identifier starts are omitted because placeholder expressions can also start
 // with identifiers.
-const CONSTANT_FOLLOWING_MEMBER_START_KINDS: [SyntaxKind; 17] = [
+const CONSTANT_FOLLOWING_MEMBER_START_KINDS: [SyntaxKind; 19] = [
     SyntaxKind::AtToken,
     SyntaxKind::PublicKeyword,
     SyntaxKind::InternalKeyword,
@@ -39,6 +33,8 @@ const CONSTANT_FOLLOWING_MEMBER_START_KINDS: [SyntaxKind; 17] = [
     SyntaxKind::ConsumeKeyword,
     SyntaxKind::MutKeyword,
     SyntaxKind::ConstKeyword,
+    SyntaxKind::LetKeyword,
+    SyntaxKind::EachKeyword,
     SyntaxKind::FuncKeyword,
     SyntaxKind::ConstructKeyword,
     SyntaxKind::FinalizeKeyword,
@@ -160,17 +156,15 @@ impl Parser {
     }
 
     pub(super) fn should_parse_constant_declaration(&mut self) -> bool {
-        if !self.at_any(&CONSTANT_DECLARATION_START_KINDS) {
-            return false;
+        self.at_constant_declaration_start()
+    }
+
+    pub(super) fn at_constant_declaration_start(&mut self) -> bool {
+        if self.at(SyntaxKind::ConstKeyword) {
+            return true;
         }
 
-        self.scan_ahead(|scan| {
-            if scan.at_visibility_modifier() {
-                scan.consume();
-            }
-
-            scan.at(SyntaxKind::ConstKeyword)
-        })
+        self.at_visibility_modifier() && self.lookahead(1).kind() == SyntaxKind::ConstKeyword
     }
 
     pub(super) fn should_parse_trait_constant_member_declaration(&mut self) -> bool {
@@ -396,7 +390,7 @@ mod tests {
     }
 
     #[test]
-    fn parser_scan_ahead_recognizes_constants_without_consuming_tokens() {
+    fn parser_recognizes_constants_without_consuming_tokens() {
         let sources = source_store(["public const Answer: Int = 42;"]);
         let snapshot = source(&sources, 0);
 
