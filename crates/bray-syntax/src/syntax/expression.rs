@@ -1,8 +1,11 @@
 mod access;
+mod assertion;
+mod boolean;
 mod call;
 mod collection;
 mod conditional;
 mod construction;
+mod effect;
 mod flow;
 mod generator;
 mod lambda;
@@ -12,12 +15,15 @@ mod r#match;
 mod postfix;
 mod primary;
 mod root;
+mod type_form;
 
 pub use access::{
     AccessExpressionSyntax, AccessExpressionSyntaxBuilder, ElementIndexOperationSyntax,
     ElementIndexOperationSyntaxBuilder, MemberAccessOperationSyntax,
     MemberAccessOperationSyntaxBuilder,
 };
+pub use assertion::{AssertionExpressionSyntax, AssertionExpressionSyntaxBuilder};
+pub use boolean::{BooleanFoldExpressionSyntax, BooleanFoldExpressionSyntaxBuilder};
 pub use call::{
     ArgumentListSyntax, ArgumentListSyntaxBuilder, ArgumentSyntax, ArgumentSyntaxBuilder,
     CallOperationSyntax, CallOperationSyntaxBuilder,
@@ -33,6 +39,12 @@ pub use conditional::{
 pub use construction::{
     StructConstructionBodySyntax, StructConstructionBodySyntaxBuilder,
     StructFieldInitializerSyntax, StructFieldInitializerSyntaxBuilder,
+};
+pub use effect::{
+    AwaitExpressionSyntax, AwaitExpressionSyntaxBuilder, BorrowExpressionSyntax,
+    BorrowExpressionSyntaxBuilder, CatchExpressionSyntax, CatchExpressionSyntaxBuilder,
+    ResultPropagationExpressionSyntax, ResultPropagationExpressionSyntaxBuilder,
+    TrustBoundaryExpressionSyntax, TrustBoundaryExpressionSyntaxBuilder,
 };
 pub use flow::{
     AsyncBlockExpressionSyntax, AsyncBlockExpressionSyntaxBuilder, BreakExpressionSyntax,
@@ -70,5 +82,8 @@ pub use postfix::{
 };
 pub use primary::{PrimaryExpressionSyntax, PrimaryExpressionSyntaxBuilder};
 pub use root::{ExpressionSyntax, ExpressionSyntaxBuilder};
+pub use type_form::{
+    TypeFormConstructionExpressionSyntax, TypeFormConstructionExpressionSyntaxBuilder,
+};
 
 pub(super) use root::first_expression;

@@ -735,18 +735,19 @@ mod tests {
     };
     use crate::{
         AbsenceExpressionSyntax, AccessExpressionSyntax, ArgumentListSyntax, ArgumentSyntax,
-        ArrayExpressionSyntax, AsyncBlockExpressionSyntax,
-        AsyncCapableLifecycleMemberModifiersSyntax, BlockExpressionSyntax, BlockItemSyntax,
-        BlockModuleDeclarationSyntax, BreakExpressionSyntax, CallOperationSyntax,
+        ArrayExpressionSyntax, AssertionExpressionSyntax, AsyncBlockExpressionSyntax,
+        AsyncCapableLifecycleMemberModifiersSyntax, AwaitExpressionSyntax, BlockExpressionSyntax,
+        BlockItemSyntax, BlockModuleDeclarationSyntax, BooleanFoldExpressionSyntax,
+        BorrowExpressionSyntax, BreakExpressionSyntax, CallOperationSyntax,
         CallableBodyBlockExpressionSyntax, CallableContractDeclarationSyntax,
         CallableOverloadDeclarationSyntax, CallableResultClauseSyntax, CasePatternEntrySyntax,
-        CasePatternSyntax, ConditionalElseSyntax, ConditionalExpressionSyntax,
-        ConstantDeclarationSyntax, ConstantModifiersSyntax, ConstructorMemberModifiersSyntax,
-        ContinueExpressionSyntax, ConversionOperationSyntax, DestructorMemberDeclarationSyntax,
-        DirectiveArgumentListSyntax, DirectiveArgumentSyntax, ElementIndexOperationSyntax,
-        ExportDeclarationSyntax, ExpressionSyntax, FinalizerMemberDeclarationSyntax,
-        ForExpressionSyntax, FunctionDeclarationSyntax, FunctionDirectivesSyntax,
-        FunctionModifiersSyntax, GeneralGeneratorExpressionSyntax,
+        CasePatternSyntax, CatchExpressionSyntax, ConditionalElseSyntax,
+        ConditionalExpressionSyntax, ConstantDeclarationSyntax, ConstantModifiersSyntax,
+        ConstructorMemberModifiersSyntax, ContinueExpressionSyntax, ConversionOperationSyntax,
+        DestructorMemberDeclarationSyntax, DirectiveArgumentListSyntax, DirectiveArgumentSyntax,
+        ElementIndexOperationSyntax, ExportDeclarationSyntax, ExpressionSyntax,
+        FinalizerMemberDeclarationSyntax, ForExpressionSyntax, FunctionDeclarationSyntax,
+        FunctionDirectivesSyntax, FunctionModifiersSyntax, GeneralGeneratorExpressionSyntax,
         GeneratorIterationExpressionSyntax, GenericArgumentListSyntax, GenericArgumentSyntax,
         GenericConstParameterSyntax, GenericParameterListSyntax, GenericTypeParameterSyntax,
         GroupedExpressionSyntax, IdentifierListItemSyntax, IdentifierListSyntax,
@@ -761,22 +762,23 @@ mod tests {
         NullablePropagationOperationSyntax, OverloadArmListSyntax, OverloadArmSyntax,
         OverloadModifiersSyntax, PanicExpressionSyntax, ParameterListSyntax,
         ParameterModifiersSyntax, ParameterSyntax, PathSyntax, PredicateDeclarationSyntax,
-        PrimaryExpressionSyntax, ReturnExpressionSyntax, ScopeEnterMemberDeclarationSyntax,
-        ScopeExitMemberDeclarationSyntax, SequencedExpressionSyntax, SliceIndexOperationSyntax,
-        SourceSyntaxNode, SourceUnitModuleDeclarationSyntax, SpawnExpressionSyntax,
-        StructConstructionBodySyntax, StructDeclarationSyntax, StructFieldInitializerSyntax,
-        SyncLifecycleMemberModifiersSyntax, SyntaxKind, SyntaxNode, SyntaxText, SyntaxToken,
-        SyntaxTrivia, TraitApplicationSyntax, TraitBodySyntax,
-        TraitConstantMemberDeclarationSyntax, TraitDeclarationSyntax,
+        PrimaryExpressionSyntax, ResultPropagationExpressionSyntax, ReturnExpressionSyntax,
+        ScopeEnterMemberDeclarationSyntax, ScopeExitMemberDeclarationSyntax,
+        SequencedExpressionSyntax, SliceIndexOperationSyntax, SourceSyntaxNode,
+        SourceUnitModuleDeclarationSyntax, SpawnExpressionSyntax, StructConstructionBodySyntax,
+        StructDeclarationSyntax, StructFieldInitializerSyntax, SyncLifecycleMemberModifiersSyntax,
+        SyntaxKind, SyntaxNode, SyntaxText, SyntaxToken, SyntaxTrivia, TraitApplicationSyntax,
+        TraitBodySyntax, TraitConstantMemberDeclarationSyntax, TraitDeclarationSyntax,
         TraitDestructorRequirementDeclarationSyntax, TraitFinalizerRequirementDeclarationSyntax,
         TraitModifiersSyntax, TraitPredicateMemberDeclarationSyntax,
         TraitPredicateMemberModifiersSyntax, TraitQualifiedMemberOperationSyntax,
         TraitScopeEnterRequirementDeclarationSyntax, TraitScopeExitRequirementDeclarationSyntax,
-        TraitTypeMemberDeclarationSyntax, TupleExpressionSyntax, TypeAnnotationSyntax,
-        TypeConstructorMemberDeclarationSyntax, TypeExpressionSyntax, TypeFormArgumentListSyntax,
-        TypeFormArgumentSyntax, TypedIdentifierSyntax, UnionDeclarationSyntax,
-        UnitExpressionSyntax, UnnamedTraitImplementationDeclarationSyntax, UsingDeclarationSyntax,
-        WhileExpressionSyntax, WithExpressionSyntax, YieldExpressionSyntax,
+        TraitTypeMemberDeclarationSyntax, TrustBoundaryExpressionSyntax, TupleExpressionSyntax,
+        TypeAnnotationSyntax, TypeConstructorMemberDeclarationSyntax, TypeExpressionSyntax,
+        TypeFormArgumentListSyntax, TypeFormArgumentSyntax, TypeFormConstructionExpressionSyntax,
+        TypedIdentifierSyntax, UnionDeclarationSyntax, UnitExpressionSyntax,
+        UnnamedTraitImplementationDeclarationSyntax, UsingDeclarationSyntax, WhileExpressionSyntax,
+        WithExpressionSyntax, YieldExpressionSyntax,
     };
 
     #[test]
@@ -1338,8 +1340,16 @@ mod tests {
         assert_send_sync::<LoopExpressionSyntax>();
         assert_send_sync::<WithExpressionSyntax>();
         assert_send_sync::<LambdaExpressionSyntax>();
+        assert_send_sync::<BorrowExpressionSyntax>();
+        assert_send_sync::<TrustBoundaryExpressionSyntax>();
+        assert_send_sync::<AssertionExpressionSyntax>();
+        assert_send_sync::<ResultPropagationExpressionSyntax>();
+        assert_send_sync::<CatchExpressionSyntax>();
+        assert_send_sync::<AwaitExpressionSyntax>();
         assert_send_sync::<AsyncBlockExpressionSyntax>();
         assert_send_sync::<SpawnExpressionSyntax>();
+        assert_send_sync::<TypeFormConstructionExpressionSyntax>();
+        assert_send_sync::<BooleanFoldExpressionSyntax>();
         assert_send_sync::<YieldExpressionSyntax>();
         assert_send_sync::<ReturnExpressionSyntax>();
         assert_send_sync::<PanicExpressionSyntax>();

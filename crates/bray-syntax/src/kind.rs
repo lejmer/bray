@@ -279,10 +279,26 @@ pub enum SyntaxKind {
     WithExpression,
     /// Lambda expression.
     LambdaExpression,
+    /// Borrow expression.
+    BorrowExpression,
+    /// Trusted boundary expression.
+    TrustBoundaryExpression,
+    /// Assertion expression.
+    AssertionExpression,
+    /// Result propagation expression.
+    ResultPropagationExpression,
+    /// Catch expression.
+    CatchExpression,
+    /// Await expression.
+    AwaitExpression,
     /// Async block expression.
     AsyncBlockExpression,
     /// Spawn expression.
     SpawnExpression,
+    /// Type-form construction expression.
+    TypeFormConstructionExpression,
+    /// Boolean fold expression.
+    BooleanFoldExpression,
     /// Yield expression.
     YieldExpression,
     /// Return expression.
@@ -585,8 +601,16 @@ impl SyntaxKind {
                 | Self::LoopExpression
                 | Self::WithExpression
                 | Self::LambdaExpression
+                | Self::BorrowExpression
+                | Self::TrustBoundaryExpression
+                | Self::AssertionExpression
+                | Self::ResultPropagationExpression
+                | Self::CatchExpression
+                | Self::AwaitExpression
                 | Self::AsyncBlockExpression
                 | Self::SpawnExpression
+                | Self::TypeFormConstructionExpression
+                | Self::BooleanFoldExpression
                 | Self::YieldExpression
                 | Self::ReturnExpression
                 | Self::PanicExpression
@@ -871,8 +895,16 @@ impl SyntaxKind {
             Self::LoopExpression => "loop_expression",
             Self::WithExpression => "with_expression",
             Self::LambdaExpression => "lambda_expression",
+            Self::BorrowExpression => "borrow_expression",
+            Self::TrustBoundaryExpression => "trust_boundary_expression",
+            Self::AssertionExpression => "assertion_expression",
+            Self::ResultPropagationExpression => "result_propagation_expression",
+            Self::CatchExpression => "catch_expression",
+            Self::AwaitExpression => "await_expression",
             Self::AsyncBlockExpression => "async_block_expression",
             Self::SpawnExpression => "spawn_expression",
+            Self::TypeFormConstructionExpression => "type_form_construction_expression",
+            Self::BooleanFoldExpression => "boolean_fold_expression",
             Self::YieldExpression => "yield_expression",
             Self::ReturnExpression => "return_expression",
             Self::PanicExpression => "panic_expression",
@@ -1170,8 +1202,16 @@ mod tests {
         assert!(SyntaxKind::LoopExpression.is_node());
         assert!(SyntaxKind::WithExpression.is_node());
         assert!(SyntaxKind::LambdaExpression.is_node());
+        assert!(SyntaxKind::BorrowExpression.is_node());
+        assert!(SyntaxKind::TrustBoundaryExpression.is_node());
+        assert!(SyntaxKind::AssertionExpression.is_node());
+        assert!(SyntaxKind::ResultPropagationExpression.is_node());
+        assert!(SyntaxKind::CatchExpression.is_node());
+        assert!(SyntaxKind::AwaitExpression.is_node());
         assert!(SyntaxKind::AsyncBlockExpression.is_node());
         assert!(SyntaxKind::SpawnExpression.is_node());
+        assert!(SyntaxKind::TypeFormConstructionExpression.is_node());
+        assert!(SyntaxKind::BooleanFoldExpression.is_node());
         assert!(SyntaxKind::YieldExpression.is_node());
         assert!(SyntaxKind::ReturnExpression.is_node());
         assert!(SyntaxKind::PanicExpression.is_node());
@@ -1663,6 +1703,25 @@ mod tests {
         assert_eq!(SyntaxKind::LoopExpression.as_str(), "loop_expression");
         assert_eq!(SyntaxKind::WithExpression.as_str(), "with_expression");
         assert_eq!(SyntaxKind::LambdaExpression.as_str(), "lambda_expression");
+        assert_eq!(SyntaxKind::BorrowExpression.as_str(), "borrow_expression");
+
+        assert_eq!(
+            SyntaxKind::TrustBoundaryExpression.as_str(),
+            "trust_boundary_expression"
+        );
+
+        assert_eq!(
+            SyntaxKind::AssertionExpression.as_str(),
+            "assertion_expression"
+        );
+
+        assert_eq!(
+            SyntaxKind::ResultPropagationExpression.as_str(),
+            "result_propagation_expression"
+        );
+
+        assert_eq!(SyntaxKind::CatchExpression.as_str(), "catch_expression");
+        assert_eq!(SyntaxKind::AwaitExpression.as_str(), "await_expression");
 
         assert_eq!(
             SyntaxKind::AsyncBlockExpression.as_str(),
@@ -1670,6 +1729,17 @@ mod tests {
         );
 
         assert_eq!(SyntaxKind::SpawnExpression.as_str(), "spawn_expression");
+
+        assert_eq!(
+            SyntaxKind::TypeFormConstructionExpression.as_str(),
+            "type_form_construction_expression"
+        );
+
+        assert_eq!(
+            SyntaxKind::BooleanFoldExpression.as_str(),
+            "boolean_fold_expression"
+        );
+
         assert_eq!(SyntaxKind::YieldExpression.as_str(), "yield_expression");
         assert_eq!(SyntaxKind::ReturnExpression.as_str(), "return_expression");
         assert_eq!(SyntaxKind::PanicExpression.as_str(), "panic_expression");

@@ -45,8 +45,18 @@ impl Parser {
             SyntaxKind::LoopKeyword => self.parse_loop_primary_expression(),
             SyntaxKind::WithKeyword => self.parse_with_primary_expression(),
             _ if self.should_parse_lambda_expression() => self.parse_lambda_primary_expression(),
+            SyntaxKind::AmpersandToken => self.parse_borrow_primary_expression(at_boundary),
+            SyntaxKind::TrustedKeyword => self.parse_trust_boundary_primary_expression(at_boundary),
+            SyntaxKind::AssertKeyword => self.parse_assertion_primary_expression(),
+            SyntaxKind::TryKeyword => self.parse_result_propagation_primary_expression(at_boundary),
+            SyntaxKind::CatchKeyword => self.parse_catch_primary_expression(at_boundary),
+            SyntaxKind::AwaitKeyword => self.parse_await_primary_expression(at_boundary),
             SyntaxKind::AsyncKeyword => self.parse_async_block_primary_expression(),
             SyntaxKind::SpawnKeyword => self.parse_spawn_primary_expression(at_boundary),
+            SyntaxKind::BoxKeyword => self.parse_type_form_construction_primary_expression(),
+            SyntaxKind::AllKeyword | SyntaxKind::AnyKeyword => {
+                self.parse_boolean_fold_primary_expression()
+            }
             SyntaxKind::YieldKeyword => self.parse_yield_primary_expression(at_boundary),
             SyntaxKind::ReturnKeyword => self.parse_return_primary_expression(at_boundary),
             SyntaxKind::PanicKeyword => self.parse_panic_primary_expression(),
@@ -320,11 +330,101 @@ impl Parser {
         primary.build()
     }
 
+    fn parse_borrow_primary_expression(
+        &mut self,
+        at_boundary: &mut dyn FnMut(&mut Parser) -> bool,
+    ) -> PrimaryExpressionSyntax {
+        let start = self.peek().full_range().start();
+        let mut primary = PrimaryExpressionSyntax::builder(self.syntax_source(), start);
+
+        primary.push_borrow_expression(self.parse_borrow_expression(at_boundary));
+
+        primary.build()
+    }
+
+    fn parse_trust_boundary_primary_expression(
+        &mut self,
+        at_boundary: &mut dyn FnMut(&mut Parser) -> bool,
+    ) -> PrimaryExpressionSyntax {
+        let start = self.peek().full_range().start();
+        let mut primary = PrimaryExpressionSyntax::builder(self.syntax_source(), start);
+
+        primary.push_trust_boundary_expression(self.parse_trust_boundary_expression(at_boundary));
+
+        primary.build()
+    }
+
+    fn parse_assertion_primary_expression(&mut self) -> PrimaryExpressionSyntax {
+        let start = self.peek().full_range().start();
+        let mut primary = PrimaryExpressionSyntax::builder(self.syntax_source(), start);
+
+        primary.push_assertion_expression(self.parse_assertion_expression());
+
+        primary.build()
+    }
+
+    fn parse_result_propagation_primary_expression(
+        &mut self,
+        at_boundary: &mut dyn FnMut(&mut Parser) -> bool,
+    ) -> PrimaryExpressionSyntax {
+        let start = self.peek().full_range().start();
+        let mut primary = PrimaryExpressionSyntax::builder(self.syntax_source(), start);
+
+        primary.push_result_propagation_expression(
+            self.parse_result_propagation_expression(at_boundary),
+        );
+
+        primary.build()
+    }
+
+    fn parse_catch_primary_expression(
+        &mut self,
+        at_boundary: &mut dyn FnMut(&mut Parser) -> bool,
+    ) -> PrimaryExpressionSyntax {
+        let start = self.peek().full_range().start();
+        let mut primary = PrimaryExpressionSyntax::builder(self.syntax_source(), start);
+
+        primary.push_catch_expression(self.parse_catch_expression(at_boundary));
+
+        primary.build()
+    }
+
+    fn parse_await_primary_expression(
+        &mut self,
+        at_boundary: &mut dyn FnMut(&mut Parser) -> bool,
+    ) -> PrimaryExpressionSyntax {
+        let start = self.peek().full_range().start();
+        let mut primary = PrimaryExpressionSyntax::builder(self.syntax_source(), start);
+
+        primary.push_await_expression(self.parse_await_expression(at_boundary));
+
+        primary.build()
+    }
+
     fn parse_async_block_primary_expression(&mut self) -> PrimaryExpressionSyntax {
         let start = self.peek().full_range().start();
         let mut primary = PrimaryExpressionSyntax::builder(self.syntax_source(), start);
 
         primary.push_async_block_expression(self.parse_async_block_expression());
+
+        primary.build()
+    }
+
+    fn parse_type_form_construction_primary_expression(&mut self) -> PrimaryExpressionSyntax {
+        let start = self.peek().full_range().start();
+        let mut primary = PrimaryExpressionSyntax::builder(self.syntax_source(), start);
+
+        primary
+            .push_type_form_construction_expression(self.parse_type_form_construction_expression());
+
+        primary.build()
+    }
+
+    fn parse_boolean_fold_primary_expression(&mut self) -> PrimaryExpressionSyntax {
+        let start = self.peek().full_range().start();
+        let mut primary = PrimaryExpressionSyntax::builder(self.syntax_source(), start);
+
+        primary.push_boolean_fold_expression(self.parse_boolean_fold_expression());
 
         primary.build()
     }
@@ -402,7 +502,6 @@ impl Parser {
         let start = self.peek().full_range().start();
         let mut builder = PrimaryExpressionSyntax::builder(self.syntax_source(), start);
 
-        // TODO(parser): Parse remaining primary-expression roots as typed syntax.
         builder.push_token(self.consume());
 
         builder.build()
@@ -503,7 +602,9 @@ mod tests {
     use bray_source::{TextRange, TextSize};
     use bray_syntax::{ExpressionSyntax, PrimaryExpressionSyntax, SyntaxKind, SyntaxText};
 
-    use crate::parser::expression::test_support::parse_expression_until_semicolon_for_test;
+    use crate::parser::expression::test_support::{
+        parse_expression_until_semicolon_for_test, primary_contains_child_kind_for_test,
+    };
     use crate::test_support::diagnostic_kinds;
 
     #[test]
@@ -560,8 +661,9 @@ mod tests {
             );
 
             assert!(
-                first_primary_expression(&expression)
-                    .is_some_and(|primary| primary_contains_child_kind(&primary, expected_kind)),
+                first_primary_expression(&expression).is_some_and(|primary| {
+                    primary_contains_child_kind_for_test(&primary, expected_kind)
+                }),
                 "{source_text}"
             );
 
@@ -593,24 +695,6 @@ mod tests {
                 DiagnosticKind::SyntaxExpectedToken
             ]
         );
-    }
-
-    fn primary_contains_child_kind(primary: &PrimaryExpressionSyntax, kind: SyntaxKind) -> bool {
-        match kind {
-            SyntaxKind::AbsenceExpression => primary.absence_expressions().next().is_some(),
-            SyntaxKind::ArrayExpression => primary.array_expressions().next().is_some(),
-            SyntaxKind::GroupedExpression => primary.grouped_expressions().next().is_some(),
-            SyntaxKind::LeadingDotVariantExpression => {
-                primary.leading_dot_variant_expressions().next().is_some()
-            }
-            SyntaxKind::LiteralExpression => primary.literal_expressions().next().is_some(),
-            SyntaxKind::StructConstructionBody => {
-                primary.struct_construction_bodies().next().is_some()
-            }
-            SyntaxKind::TupleExpression => primary.tuple_expressions().next().is_some(),
-            SyntaxKind::UnitExpression => primary.unit_expressions().next().is_some(),
-            _ => false,
-        }
     }
 
     fn first_primary_expression(expression: &ExpressionSyntax) -> Option<PrimaryExpressionSyntax> {

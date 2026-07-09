@@ -91,11 +91,6 @@ const SYNTAX_EXPECTED_TOKEN: &[MessageTemplatePart] = &[
     MessageTemplatePart::Arg(DiagnosticArgName::ExpectedSyntaxKind),
 ];
 
-const SYNTAX_UNEXPECTED_TOKEN: &[MessageTemplatePart] = &[
-    MessageTemplatePart::Text("unexpected "),
-    MessageTemplatePart::Arg(DiagnosticArgName::ActualSyntaxKind),
-];
-
 const SYNTAX_UNEXPECTED_EOF: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("unexpected end of file while expecting "),
     MessageTemplatePart::Arg(DiagnosticArgName::ExpectedSyntaxKind),
@@ -151,11 +146,6 @@ const LABEL_EXPECTED_TOKEN_INSERTION_POINT: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("insert "),
     MessageTemplatePart::Arg(DiagnosticArgName::ExpectedSyntaxKind),
     MessageTemplatePart::Text(" here"),
-];
-
-const LABEL_UNEXPECTED_TOKEN: &[MessageTemplatePart] = &[
-    MessageTemplatePart::Text("unexpected "),
-    MessageTemplatePart::Arg(DiagnosticArgName::ActualSyntaxKind),
 ];
 
 const LABEL_UNEXPECTED_EOF: &[MessageTemplatePart] =
@@ -341,7 +331,6 @@ pub(super) const fn english_diagnostic_template(kind: DiagnosticKind) -> Message
             MessageTemplate::new(LEXICAL_UNTERMINATED_BLOCK_COMMENT)
         }
         DiagnosticKind::SyntaxExpectedToken => MessageTemplate::new(SYNTAX_EXPECTED_TOKEN),
-        DiagnosticKind::SyntaxUnexpectedToken => MessageTemplate::new(SYNTAX_UNEXPECTED_TOKEN),
         DiagnosticKind::SyntaxUnexpectedEof => MessageTemplate::new(SYNTAX_UNEXPECTED_EOF),
         DiagnosticKind::SyntaxSkippedSyntax => MessageTemplate::new(SYNTAX_SKIPPED_SYNTAX),
     }
@@ -378,7 +367,6 @@ pub(super) const fn english_label_template(kind: DiagnosticLabelKind) -> Message
         DiagnosticLabelKind::ExpectedTokenInsertionPoint => {
             MessageTemplate::new(LABEL_EXPECTED_TOKEN_INSERTION_POINT)
         }
-        DiagnosticLabelKind::UnexpectedToken => MessageTemplate::new(LABEL_UNEXPECTED_TOKEN),
         DiagnosticLabelKind::UnexpectedEof => MessageTemplate::new(LABEL_UNEXPECTED_EOF),
         DiagnosticLabelKind::SkippedSyntax => MessageTemplate::new(LABEL_SKIPPED_SYNTAX),
     }

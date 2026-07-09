@@ -1,13 +1,16 @@
 use crate::node::{child_nodes, define_source_syntax_node};
 use crate::{
     AbsenceExpressionSyntax, AccessExpressionSyntax, ArrayExpressionSyntax,
-    AsyncBlockExpressionSyntax, BlockExpressionSyntax, BreakExpressionSyntax,
-    ConditionalExpressionSyntax, ContinueExpressionSyntax, ForExpressionSyntax,
-    GeneralGeneratorExpressionSyntax, GroupedExpressionSyntax, LambdaExpressionSyntax,
-    LeadingDotVariantExpressionSyntax, LiteralExpressionSyntax, LoopExpressionSyntax,
-    MatchExpressionSyntax, PanicExpressionSyntax, ReturnExpressionSyntax, SpawnExpressionSyntax,
-    StructConstructionBodySyntax, SyntaxKind, SyntaxToken, TupleExpressionSyntax,
-    UnitExpressionSyntax, WhileExpressionSyntax, WithExpressionSyntax, YieldExpressionSyntax,
+    AssertionExpressionSyntax, AsyncBlockExpressionSyntax, AwaitExpressionSyntax,
+    BlockExpressionSyntax, BooleanFoldExpressionSyntax, BorrowExpressionSyntax,
+    BreakExpressionSyntax, CatchExpressionSyntax, ConditionalExpressionSyntax,
+    ContinueExpressionSyntax, ForExpressionSyntax, GeneralGeneratorExpressionSyntax,
+    GroupedExpressionSyntax, LambdaExpressionSyntax, LeadingDotVariantExpressionSyntax,
+    LiteralExpressionSyntax, LoopExpressionSyntax, MatchExpressionSyntax, PanicExpressionSyntax,
+    ResultPropagationExpressionSyntax, ReturnExpressionSyntax, SpawnExpressionSyntax,
+    StructConstructionBodySyntax, SyntaxKind, SyntaxToken, TrustBoundaryExpressionSyntax,
+    TupleExpressionSyntax, TypeFormConstructionExpressionSyntax, UnitExpressionSyntax,
+    WhileExpressionSyntax, WithExpressionSyntax, YieldExpressionSyntax,
 };
 
 define_source_syntax_node! {
@@ -170,6 +173,54 @@ define_source_syntax_node! {
                 kind: SyntaxKind::LambdaExpression;
             },
             {
+                /// Returns borrow-expression children in source order.
+                borrow_expressions;
+                /// Appends a borrow-expression child.
+                push_borrow_expression;
+                ty: BorrowExpressionSyntax;
+                kind: SyntaxKind::BorrowExpression;
+            },
+            {
+                /// Returns trust-boundary-expression children in source order.
+                trust_boundary_expressions;
+                /// Appends a trust-boundary-expression child.
+                push_trust_boundary_expression;
+                ty: TrustBoundaryExpressionSyntax;
+                kind: SyntaxKind::TrustBoundaryExpression;
+            },
+            {
+                /// Returns assertion-expression children in source order.
+                assertion_expressions;
+                /// Appends an assertion-expression child.
+                push_assertion_expression;
+                ty: AssertionExpressionSyntax;
+                kind: SyntaxKind::AssertionExpression;
+            },
+            {
+                /// Returns result-propagation-expression children in source order.
+                result_propagation_expressions;
+                /// Appends a result-propagation-expression child.
+                push_result_propagation_expression;
+                ty: ResultPropagationExpressionSyntax;
+                kind: SyntaxKind::ResultPropagationExpression;
+            },
+            {
+                /// Returns catch-expression children in source order.
+                catch_expressions;
+                /// Appends a catch-expression child.
+                push_catch_expression;
+                ty: CatchExpressionSyntax;
+                kind: SyntaxKind::CatchExpression;
+            },
+            {
+                /// Returns await-expression children in source order.
+                await_expressions;
+                /// Appends an await-expression child.
+                push_await_expression;
+                ty: AwaitExpressionSyntax;
+                kind: SyntaxKind::AwaitExpression;
+            },
+            {
                 /// Returns async-block-expression children in source order.
                 async_block_expressions;
                 /// Appends an async-block-expression child.
@@ -184,6 +235,22 @@ define_source_syntax_node! {
                 push_spawn_expression;
                 ty: SpawnExpressionSyntax;
                 kind: SyntaxKind::SpawnExpression;
+            },
+            {
+                /// Returns type-form-construction-expression children in source order.
+                type_form_construction_expressions;
+                /// Appends a type-form-construction-expression child.
+                push_type_form_construction_expression;
+                ty: TypeFormConstructionExpressionSyntax;
+                kind: SyntaxKind::TypeFormConstructionExpression;
+            },
+            {
+                /// Returns boolean-fold-expression children in source order.
+                boolean_fold_expressions;
+                /// Appends a boolean-fold-expression child.
+                push_boolean_fold_expression;
+                ty: BooleanFoldExpressionSyntax;
+                kind: SyntaxKind::BooleanFoldExpression;
             },
             {
                 /// Returns yield-expression children in source order.
