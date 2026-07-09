@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use bray_syntax::SyntaxKind;
+
 /// Syntactic dotted module path discovered before name binding.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ModulePath {
@@ -41,6 +43,8 @@ impl ModulePath {
 pub enum DeclarationName {
     /// Single identifier declaration name.
     Identifier(String),
+    /// Fixed keyword-shaped declaration name.
+    Keyword(SyntaxKind),
     /// Dotted path used by path-shaped declarations.
     Path(ModulePath),
     /// Subject and optional trait path for implementation-shaped declarations.
@@ -79,14 +83,22 @@ impl DeclarationName {
     pub fn as_identifier(&self) -> Option<&str> {
         match self {
             Self::Identifier(identifier) => Some(identifier),
-            Self::Path(_) | Self::Implementation(_) => None,
+            Self::Keyword(_) | Self::Path(_) | Self::Implementation(_) => None,
+        }
+    }
+
+    /// Returns the keyword kind when this name is keyword-shaped.
+    pub const fn as_keyword(&self) -> Option<SyntaxKind> {
+        match self {
+            Self::Keyword(kind) => Some(*kind),
+            Self::Identifier(_) | Self::Path(_) | Self::Implementation(_) => None,
         }
     }
 
     /// Returns the path name when this is a path.
     pub const fn as_path(&self) -> Option<&ModulePath> {
         match self {
-            Self::Identifier(_) | Self::Implementation(_) => None,
+            Self::Identifier(_) | Self::Keyword(_) | Self::Implementation(_) => None,
             Self::Path(path) => Some(path),
         }
     }
@@ -94,7 +106,7 @@ impl DeclarationName {
     /// Returns the implementation name when this is implementation-shaped.
     pub const fn as_implementation(&self) -> Option<&ImplementationDeclarationName> {
         match self {
-            Self::Identifier(_) | Self::Path(_) => None,
+            Self::Identifier(_) | Self::Keyword(_) | Self::Path(_) => None,
             Self::Implementation(name) => Some(name),
         }
     }
@@ -102,6 +114,8 @@ impl DeclarationName {
 
 #[cfg(test)]
 mod tests {
+    use bray_syntax::SyntaxKind;
+
     use super::{DeclarationName, ImplementationDeclarationName, ModulePath};
 
     #[test]
@@ -116,6 +130,7 @@ mod tests {
     #[test]
     fn declaration_names_expose_their_shape() {
         let identifier = DeclarationName::Identifier(String::from("main"));
+        let keyword = DeclarationName::Keyword(SyntaxKind::ConstructKeyword);
         let path = DeclarationName::Path(ModulePath::new(["core"]));
 
         let implementation = DeclarationName::Implementation(ImplementationDeclarationName::new(
@@ -124,10 +139,17 @@ mod tests {
         ));
 
         assert_eq!(identifier.as_identifier(), Some("main"));
+        assert_eq!(identifier.as_keyword(), None);
         assert_eq!(identifier.as_path(), None);
         assert_eq!(identifier.as_implementation(), None);
 
+        assert_eq!(keyword.as_identifier(), None);
+        assert_eq!(keyword.as_keyword(), Some(SyntaxKind::ConstructKeyword));
+        assert_eq!(keyword.as_path(), None);
+        assert_eq!(keyword.as_implementation(), None);
+
         assert_eq!(path.as_identifier(), None);
+        assert_eq!(path.as_keyword(), None);
 
         assert_eq!(
             path.as_path().map(ModulePath::dotted),
@@ -142,6 +164,7 @@ mod tests {
         };
 
         assert_eq!(implementation.as_identifier(), None);
+        assert_eq!(implementation.as_keyword(), None);
         assert_eq!(implementation.as_path(), None);
         assert_eq!(implementation_name.subject().dotted(), "Point");
 

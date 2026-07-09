@@ -95,7 +95,7 @@ impl DiscoveredModulePart {
     }
 }
 
-/// Immutable source-order declaration discovered inside one module part.
+/// Immutable source-order declaration discovered inside a declaration container.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DiscoveredDeclaration {
     pub(crate) kind: DeclarationKind,
@@ -104,6 +104,7 @@ pub struct DiscoveredDeclaration {
     pub(crate) syntax_kind: SyntaxKind,
     pub(crate) full_range: TextRange,
     pub(crate) is_recovered: bool,
+    pub(crate) children: Box<[DiscoveredDeclaration]>,
 }
 
 impl DiscoveredDeclaration {
@@ -114,6 +115,7 @@ impl DiscoveredDeclaration {
         syntax_kind: SyntaxKind,
         full_range: TextRange,
         is_recovered: bool,
+        children: Box<[DiscoveredDeclaration]>,
     ) -> Self {
         Self {
             kind,
@@ -122,6 +124,7 @@ impl DiscoveredDeclaration {
             syntax_kind,
             full_range,
             is_recovered,
+            children,
         }
     }
 
@@ -153,5 +156,10 @@ impl DiscoveredDeclaration {
     /// Returns whether this declaration syntax contains parser recovery.
     pub const fn is_recovered(&self) -> bool {
         self.is_recovered
+    }
+
+    /// Returns direct declarations discovered inside this declaration's child container.
+    pub fn children(&self) -> &[DiscoveredDeclaration] {
+        &self.children
     }
 }
