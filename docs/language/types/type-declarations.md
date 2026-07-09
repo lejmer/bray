@@ -25,6 +25,10 @@ A type declaration defines the type’s primary semantic surface.
 
 A type declaration can contain representation members, lifecycle declarations, constructors, and other type-owned declarations according to the rules for that type category.
 
+The complete type-associated surface combines those direct members with members from inherent implementations owned by the type's
+semantic owner. Aggregation preserves each member's original declaration identity and follows the conflict, applicability,
+visibility, and ordering rules defined by [Implementations](implementations.md#type-associated-member-aggregation).
+
 A type declaration can be `public` or `internal`.
 
 `public` is the default visibility.

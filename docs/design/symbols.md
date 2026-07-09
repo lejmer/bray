@@ -634,6 +634,63 @@ A union exposes:
 
 A variant exposes ordered payload fields.
 
+### Type-Associated Surface Aggregation
+
+Every named type definition has one lazy immutable type-associated surface fact. The fact aggregates:
+
+- representation and behavior members declared directly in the type body,
+- members contributed by enabled inherent implementations associated with the type,
+- callable overload families from either declaration location,
+- typed lifecycle slots,
+- the inherent implementation symbols that contributed members.
+
+A source type's defining package is its semantic owner. A compiler-known type is owned by the compiler-known environment. Only the
+semantic owner can contribute inherent implementations unless a language rule explicitly defines another owner. All enabled inherent
+implementations from the owning package's selected source graph contribute automatically, regardless of their source module. A
+`using` declaration or export does not activate or deactivate an inherent implementation.
+
+Trait implementation fulfillments are not added to the type-associated surface. Trait method and member resolution query exact
+participating trait implementations separately. Union payload fields remain in their variant payload scope rather than the
+union-wide surface.
+
+Aggregation stores existing typed symbol IDs. It does not clone or reparent symbols. A direct member remains contained by its type,
+an inherent member remains contained by its inherent implementation, and both expose the associated type-definition ID. This keeps
+source provenance and implementation ownership available to diagnostics, navigation, and public API analysis.
+
+The aggregate ordinary-name index enforces one name across direct members and every contributing inherent implementation. Member
+kind, source location, visibility, and generic constraints do not partition that index. A direct declaration has no precedence over
+an inherent declaration, and one inherent implementation has no precedence over another. An explicit callable overload family is
+the only mechanism that places separately named callables behind a shared call name.
+
+Primary construction, finalization, destruction, scope entry, and scope exit use typed lifecycle slots rather than the ordinary-name
+index. One declaration template can occupy each slot for a type definition. Named constructors occupy ordinary names. Generic
+constraints do not create alternative declarations for the same ordinary name or lifecycle slot.
+
+Aggregation occurs at the type-definition level. Generic inherent members remain declaration templates in that fact. A constructed
+`TypeId` requests an applicable view that substitutes the type arguments, matches the implementation subject, and proves the
+implementation constraints. A member with unproved constraints is not applicable, but its declaration still reserves its ordinary
+name or lifecycle slot in the definition-level surface. A generic checking context can use the member only when its available static
+facts prove those constraints.
+
+The full surface retains inaccessible and inapplicable entries so lookup can distinguish not found, wrong semantic category,
+inaccessible, unsatisfied constraints, malformed, and conflicting declarations. Effective reachability is capped by the associated
+type, the member's declaring module, and the member's own visibility. An inherent implementation does not create another visibility
+or activation boundary.
+
+Stable enumeration lists direct members in source order, followed by inherent implementations in canonical declaration-table order
+and each implementation's members in source order. This order is observable only for deterministic metadata, diagnostics, tooling,
+and tests. It is never lookup precedence. A conflict retains every candidate and emits diagnostics in canonical order rather than
+selecting the first declaration.
+
+The type-associated surface fact owns aggregation diagnostics. Successful publication caches the immutable surface and its
+diagnostic bag together so concurrent requests cannot observe a member index without the diagnostics produced while building it.
+
+If an inherent implementation subject cannot be resolved to an owned named type definition, the implementation remains an
+error-aware symbol with its own diagnostics and is not attached to an arbitrary type surface.
+
+Public APIs over this fact remain kind-specific. Types expose typed field, variant, callable, constructor, lifecycle, constant,
+predicate, type-valued-member, overload-family, and inherent-implementation collections rather than a canonical generic child list.
+
 ### Trait Relationships
 
 A trait exposes:
@@ -953,7 +1010,8 @@ A symbol can be declaration-surface complete while its executable body has never
 
 ### Force Complete
 
-`force_complete(symbol)` requests declaration-surface completion for the symbol and every symbol it semantically contains.
+`force_complete(symbol)` requests declaration-surface completion for the symbol, every symbol it semantically contains, and any
+explicitly owned declaration-surface relationship defined for that symbol kind.
 
 It traverses typed containment relationships in deterministic order.
 
@@ -962,7 +1020,8 @@ It does not recursively complete symbols that are only referenced.
 Examples:
 
 - completing a function completes its generic parameters, receiver, and ordinary parameters,
-- completing a struct completes its fields and type-owned members,
+- completing a struct or union materializes its type-associated surface and completes the direct and inherent members that
+  contribute to that surface without changing their containment,
 - completing an implementation completes its own parameters and fulfillment members but does not recursively complete the trait it
   references,
 - completing an overload family resolves and validates its arm references but does not reparent those arms,
@@ -1265,12 +1324,6 @@ Integration tests should verify that `Compilation` exposes symbol roots and diag
 ## Decisions Requiring Follow-Up
 
 The following language or API details need to be settled before the corresponding implementation surface is finalized.
-
-### Type-Associated Member Aggregation
-
-The language states that inherent implementation members become associated with the implementing type. The exact conflict and
-ordering rules between directly declared type members and members from one or more inherent implementations should be written as a
-single lookup contract.
 
 ### Declaration-Level Defaults
 

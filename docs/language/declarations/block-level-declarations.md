@@ -26,4 +26,4 @@ Named function declarations, type declarations, trait declarations, implementati
 - [Language index](../index.md)
 - [Declarations index](../declarations.md)
 - Previous: [Member declarations](member-declarations.md)
-- Next: [Declaration names and identity](declaration-names-and-identity.md)
+- Next: [Declaration names, lookup, and identity](declaration-names-and-identity.md)

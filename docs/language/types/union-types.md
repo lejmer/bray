@@ -23,6 +23,9 @@ The declared variant set is closed.
 
 The variant set is part of the union type's definition.
 
+Additional inherent implementation blocks owned by the type's defining package can define behavior associated with the union. They
+cannot add variants or payload fields to the union's closed representation.
+
 A union value is fully initialized when its active variant tag is initialized and the active variant payload, if any, is fully initialized.
 
 Inactive variant payloads have no initialized values.

@@ -49,10 +49,11 @@ The primary representation determines:
 - field destruction order,
 - field access paths.
 
-Additional implementation blocks can define constructors, methods, static functions, constants, predicates, type-valued members,
-trait implementations, and other behavior for the type.
+Additional inherent implementation blocks owned by the type's defining package can define constructors, methods, static functions,
+constants, predicates, type-valued members, and other behavior for the type. Separate trait implementation blocks can make the type
+satisfy trait applications.
 
-Additional implementation blocks do not add fields to the primary representation.
+Inherent and trait implementation blocks do not add fields to the primary representation.
 
 ## Field declarations
 

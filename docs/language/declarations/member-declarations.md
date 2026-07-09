@@ -31,6 +31,9 @@ Implementation bodies can contain implementation members.
 
 In an inherent implementation, members introduce declarations associated with the implementation subject.
 
+Only the semantic owner of a named type can contribute inherent implementations. Direct type members and inherent implementation
+members participate in one type-associated surface while retaining their original declaration identities and containment.
+
 In a trait implementation, members fulfill the implemented trait application.
 
 Implementation member rules are defined in [Implementations](../types/implementations.md).
