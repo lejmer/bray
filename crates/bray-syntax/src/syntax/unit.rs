@@ -130,6 +130,13 @@ impl SourceUnitSyntax {
         SourceUnitSyntaxBuilder::new(source)
     }
 
+    pub(crate) fn from_green(source: SourceSnapshot, node: GreenNode, start: TextSize) -> Self {
+        assert_eq!(node.kind(), SyntaxKind::SourceUnit);
+        assert_eq!(start, TextSize::ZERO);
+
+        Self { source, node }
+    }
+
     fn from_builder(builder: SourceUnitSyntaxBuilder) -> Self {
         let source = builder.source.into_value();
 
@@ -719,6 +726,14 @@ impl GreenSyntaxNode for SourceUnitSyntax {
 impl GreenSourceSyntaxNode for SourceUnitSyntax {
     fn source(&self) -> &SourceSnapshot {
         &self.source
+    }
+}
+
+impl crate::SyntaxCast for SourceUnitSyntax {
+    const KIND: SyntaxKind = SyntaxKind::SourceUnit;
+
+    fn cast_from(view: crate::SyntaxNodeView<'_>) -> Option<Self> {
+        crate::walk::cast_source_node(view, Self::KIND, Self::from_green)
     }
 }
 

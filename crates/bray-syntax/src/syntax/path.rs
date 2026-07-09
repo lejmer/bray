@@ -112,6 +112,14 @@ impl GreenSourceSyntaxNode for PathSyntax {
     }
 }
 
+impl crate::SyntaxCast for PathSyntax {
+    const KIND: SyntaxKind = SyntaxKind::Path;
+
+    fn cast_from(view: crate::SyntaxNodeView<'_>) -> Option<Self> {
+        crate::walk::cast_source_node(view, Self::KIND, Self::from_green)
+    }
+}
+
 /// Builder for a path node.
 pub struct PathSyntaxBuilder {
     source: RequiredSyntaxSlot<SourceSnapshot>,

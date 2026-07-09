@@ -79,6 +79,14 @@ impl GreenSourceSyntaxNode for SkippedSyntax {
     }
 }
 
+impl crate::SyntaxCast for SkippedSyntax {
+    const KIND: SyntaxKind = SyntaxKind::SkippedSyntax;
+
+    fn cast_from(view: crate::SyntaxNodeView<'_>) -> Option<Self> {
+        crate::walk::cast_source_node(view, Self::KIND, Self::from_green)
+    }
+}
+
 pub(crate) fn skipped_syntax_nodes<'syntax>(
     source: &'syntax SourceSnapshot,
     node: &'syntax GreenNode,

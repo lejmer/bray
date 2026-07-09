@@ -559,6 +559,10 @@ early with an explicit result.
 Walkers belong with the representation they walk. Syntax walkers belong in the syntax layer, bound walkers belong in the bound
 representation layer, and IR walkers belong in the IR layer.
 
+Whole-tree walkers can exist as serial convenience APIs. Parallel phases should schedule independent traversal roots, use the
+representation-owned per-root walker inside each task, keep walker state task-local, and merge phase outputs through deterministic
+sinks.
+
 ### Visitors
 
 A visitor performs typed dispatch over nodes, tokens, or IR operations.
