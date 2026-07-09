@@ -241,6 +241,10 @@ pub enum SyntaxKind {
     TupleExpression,
     /// Array expression.
     ArrayExpression,
+    /// Braced generator expression.
+    GeneralGeneratorExpression,
+    /// Generator iteration expression.
+    GeneratorIterationExpression,
     /// Leading-dot variant expression.
     LeadingDotVariantExpression,
     /// Braced block expression.
@@ -251,6 +255,42 @@ pub enum SyntaxKind {
     LocalBindingDeclaration,
     /// Expression sequenced by a semicolon.
     SequencedExpression,
+    /// Conditional `if` expression.
+    ConditionalExpression,
+    /// Conditional else clause.
+    ConditionalElse,
+    /// Match expression.
+    MatchExpression,
+    /// Match subject.
+    MatchSubject,
+    /// Match body.
+    MatchBody,
+    /// Match arm.
+    MatchArm,
+    /// While expression.
+    WhileExpression,
+    /// For expression.
+    ForExpression,
+    /// Iteration source.
+    IterationSource,
+    /// Infinite loop expression.
+    LoopExpression,
+    /// Scoped `with` expression.
+    WithExpression,
+    /// Async block expression.
+    AsyncBlockExpression,
+    /// Spawn expression.
+    SpawnExpression,
+    /// Yield expression.
+    YieldExpression,
+    /// Return expression.
+    ReturnExpression,
+    /// Panic expression.
+    PanicExpression,
+    /// Break expression.
+    BreakExpression,
+    /// Continue expression.
+    ContinueExpression,
     /// Pattern used by binding-like positions.
     IrrefutablePattern,
     /// Entry inside an irrefutable pattern body.
@@ -524,11 +564,31 @@ impl SyntaxKind {
                 | Self::GroupedExpression
                 | Self::TupleExpression
                 | Self::ArrayExpression
+                | Self::GeneralGeneratorExpression
+                | Self::GeneratorIterationExpression
                 | Self::LeadingDotVariantExpression
                 | Self::BlockExpression
                 | Self::BlockItem
                 | Self::LocalBindingDeclaration
                 | Self::SequencedExpression
+                | Self::ConditionalExpression
+                | Self::ConditionalElse
+                | Self::MatchExpression
+                | Self::MatchSubject
+                | Self::MatchBody
+                | Self::MatchArm
+                | Self::WhileExpression
+                | Self::ForExpression
+                | Self::IterationSource
+                | Self::LoopExpression
+                | Self::WithExpression
+                | Self::AsyncBlockExpression
+                | Self::SpawnExpression
+                | Self::YieldExpression
+                | Self::ReturnExpression
+                | Self::PanicExpression
+                | Self::BreakExpression
+                | Self::ContinueExpression
                 | Self::IrrefutablePattern
                 | Self::IrrefutablePatternEntry
                 | Self::CasePattern
@@ -789,11 +849,31 @@ impl SyntaxKind {
             Self::GroupedExpression => "grouped_expression",
             Self::TupleExpression => "tuple_expression",
             Self::ArrayExpression => "array_expression",
+            Self::GeneralGeneratorExpression => "general_generator_expression",
+            Self::GeneratorIterationExpression => "generator_iteration_expression",
             Self::LeadingDotVariantExpression => "leading_dot_variant_expression",
             Self::BlockExpression => "block_expression",
             Self::BlockItem => "block_item",
             Self::LocalBindingDeclaration => "local_binding_declaration",
             Self::SequencedExpression => "sequenced_expression",
+            Self::ConditionalExpression => "conditional_expression",
+            Self::ConditionalElse => "conditional_else",
+            Self::MatchExpression => "match_expression",
+            Self::MatchSubject => "match_subject",
+            Self::MatchBody => "match_body",
+            Self::MatchArm => "match_arm",
+            Self::WhileExpression => "while_expression",
+            Self::ForExpression => "for_expression",
+            Self::IterationSource => "iteration_source",
+            Self::LoopExpression => "loop_expression",
+            Self::WithExpression => "with_expression",
+            Self::AsyncBlockExpression => "async_block_expression",
+            Self::SpawnExpression => "spawn_expression",
+            Self::YieldExpression => "yield_expression",
+            Self::ReturnExpression => "return_expression",
+            Self::PanicExpression => "panic_expression",
+            Self::BreakExpression => "break_expression",
+            Self::ContinueExpression => "continue_expression",
             Self::IrrefutablePattern => "irrefutable_pattern",
             Self::IrrefutablePatternEntry => "irrefutable_pattern_entry",
             Self::CasePattern => "case_pattern",
@@ -1067,11 +1147,31 @@ mod tests {
         assert!(SyntaxKind::GroupedExpression.is_node());
         assert!(SyntaxKind::TupleExpression.is_node());
         assert!(SyntaxKind::ArrayExpression.is_node());
+        assert!(SyntaxKind::GeneralGeneratorExpression.is_node());
+        assert!(SyntaxKind::GeneratorIterationExpression.is_node());
         assert!(SyntaxKind::LeadingDotVariantExpression.is_node());
         assert!(SyntaxKind::BlockExpression.is_node());
         assert!(SyntaxKind::BlockItem.is_node());
         assert!(SyntaxKind::LocalBindingDeclaration.is_node());
         assert!(SyntaxKind::SequencedExpression.is_node());
+        assert!(SyntaxKind::ConditionalExpression.is_node());
+        assert!(SyntaxKind::ConditionalElse.is_node());
+        assert!(SyntaxKind::MatchExpression.is_node());
+        assert!(SyntaxKind::MatchSubject.is_node());
+        assert!(SyntaxKind::MatchBody.is_node());
+        assert!(SyntaxKind::MatchArm.is_node());
+        assert!(SyntaxKind::WhileExpression.is_node());
+        assert!(SyntaxKind::ForExpression.is_node());
+        assert!(SyntaxKind::IterationSource.is_node());
+        assert!(SyntaxKind::LoopExpression.is_node());
+        assert!(SyntaxKind::WithExpression.is_node());
+        assert!(SyntaxKind::AsyncBlockExpression.is_node());
+        assert!(SyntaxKind::SpawnExpression.is_node());
+        assert!(SyntaxKind::YieldExpression.is_node());
+        assert!(SyntaxKind::ReturnExpression.is_node());
+        assert!(SyntaxKind::PanicExpression.is_node());
+        assert!(SyntaxKind::BreakExpression.is_node());
+        assert!(SyntaxKind::ContinueExpression.is_node());
         assert!(SyntaxKind::IrrefutablePattern.is_node());
         assert!(SyntaxKind::IrrefutablePatternEntry.is_node());
         assert!(SyntaxKind::CasePattern.is_node());
@@ -1515,6 +1615,16 @@ mod tests {
         assert_eq!(SyntaxKind::ArrayExpression.as_str(), "array_expression");
 
         assert_eq!(
+            SyntaxKind::GeneralGeneratorExpression.as_str(),
+            "general_generator_expression"
+        );
+
+        assert_eq!(
+            SyntaxKind::GeneratorIterationExpression.as_str(),
+            "generator_iteration_expression"
+        );
+
+        assert_eq!(
             SyntaxKind::LeadingDotVariantExpression.as_str(),
             "leading_dot_variant_expression"
         );
@@ -1530,6 +1640,37 @@ mod tests {
         assert_eq!(
             SyntaxKind::SequencedExpression.as_str(),
             "sequenced_expression"
+        );
+
+        assert_eq!(
+            SyntaxKind::ConditionalExpression.as_str(),
+            "conditional_expression"
+        );
+
+        assert_eq!(SyntaxKind::ConditionalElse.as_str(), "conditional_else");
+        assert_eq!(SyntaxKind::MatchExpression.as_str(), "match_expression");
+        assert_eq!(SyntaxKind::MatchSubject.as_str(), "match_subject");
+        assert_eq!(SyntaxKind::MatchBody.as_str(), "match_body");
+        assert_eq!(SyntaxKind::MatchArm.as_str(), "match_arm");
+        assert_eq!(SyntaxKind::WhileExpression.as_str(), "while_expression");
+        assert_eq!(SyntaxKind::ForExpression.as_str(), "for_expression");
+        assert_eq!(SyntaxKind::IterationSource.as_str(), "iteration_source");
+        assert_eq!(SyntaxKind::LoopExpression.as_str(), "loop_expression");
+        assert_eq!(SyntaxKind::WithExpression.as_str(), "with_expression");
+
+        assert_eq!(
+            SyntaxKind::AsyncBlockExpression.as_str(),
+            "async_block_expression"
+        );
+
+        assert_eq!(SyntaxKind::SpawnExpression.as_str(), "spawn_expression");
+        assert_eq!(SyntaxKind::YieldExpression.as_str(), "yield_expression");
+        assert_eq!(SyntaxKind::ReturnExpression.as_str(), "return_expression");
+        assert_eq!(SyntaxKind::PanicExpression.as_str(), "panic_expression");
+        assert_eq!(SyntaxKind::BreakExpression.as_str(), "break_expression");
+        assert_eq!(
+            SyntaxKind::ContinueExpression.as_str(),
+            "continue_expression"
         );
 
         assert_eq!(

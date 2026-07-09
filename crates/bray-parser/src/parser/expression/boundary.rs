@@ -85,6 +85,12 @@ impl Parser {
             && self.lookahead(2).kind() == SyntaxKind::EqualsToken
     }
 
+    pub(in crate::parser::expression) fn should_parse_general_generator_expression(
+        &mut self,
+    ) -> bool {
+        self.at(SyntaxKind::OpenBraceToken) && self.lookahead(1).kind() == SyntaxKind::EachKeyword
+    }
+
     pub(in crate::parser::expression) fn at_named_argument_start(&mut self) -> bool {
         self.at(SyntaxKind::IdentifierToken) && self.lookahead(1).kind() == SyntaxKind::EqualsToken
     }
@@ -165,6 +171,63 @@ impl Parser {
 
     pub(in crate::parser::expression) fn at_struct_field_initializer_boundary(&mut self) -> bool {
         self.at(SyntaxKind::CommaToken) || self.at_any(&STRUCT_CONSTRUCTION_BODY_TERMINATORS)
+    }
+
+    pub(in crate::parser::expression) fn at_expression_before_block_boundary(&mut self) -> bool {
+        self.at(SyntaxKind::OpenBraceToken) || self.at(SyntaxKind::EndOfFileToken)
+    }
+
+    pub(in crate::parser::expression) fn at_expression_before_block_recovery_boundary(
+        &mut self,
+    ) -> bool {
+        let kind = self.peek().kind();
+
+        self.at_expression_before_block_boundary()
+            || at_primary_hard_boundary(kind)
+            || matches!(
+                kind,
+                SyntaxKind::CaseKeyword | SyntaxKind::ElseKeyword | SyntaxKind::WhenKeyword
+            )
+    }
+
+    pub(in crate::parser::expression) fn at_flow_block_missing_boundary(&mut self) -> bool {
+        let kind = self.peek().kind();
+
+        EXPRESSION_START_KINDS.contains(&kind)
+            || at_primary_hard_boundary(kind)
+            || matches!(
+                kind,
+                SyntaxKind::CaseKeyword | SyntaxKind::ElseKeyword | SyntaxKind::WhenKeyword
+            )
+    }
+
+    pub(in crate::parser::expression) fn at_optional_flow_operand_boundary(
+        &mut self,
+        at_boundary: &mut dyn FnMut(&mut Parser) -> bool,
+    ) -> bool {
+        at_boundary(self) || at_primary_hard_boundary(self.peek().kind())
+    }
+
+    pub(in crate::parser::expression) fn at_match_arm_boundary(&mut self) -> bool {
+        self.at(SyntaxKind::CaseKeyword)
+            || self.at(SyntaxKind::CloseBraceToken)
+            || self.at(SyntaxKind::EndOfFileToken)
+    }
+
+    pub(in crate::parser::expression) fn at_match_arm_pattern_boundary(&mut self) -> bool {
+        self.at(SyntaxKind::WhenKeyword)
+            || self.at(SyntaxKind::OpenBraceToken)
+            || self.at_match_arm_boundary()
+    }
+
+    pub(in crate::parser::expression) fn at_match_arm_guard_boundary(&mut self) -> bool {
+        self.at(SyntaxKind::OpenBraceToken) || self.at_match_arm_boundary()
+    }
+
+    pub(in crate::parser::expression) fn at_iteration_pattern_boundary(&mut self) -> bool {
+        self.at(SyntaxKind::InKeyword)
+            || self.at(SyntaxKind::OpenBraceToken)
+            || self.at(SyntaxKind::EndOfFileToken)
     }
 
     pub(in crate::parser::expression) fn at_primary_tail_boundary(

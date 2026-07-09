@@ -26,6 +26,16 @@ impl Parser {
 
         if self.at(SyntaxKind::CloseBracketToken) {
             builder.push_expression(self.missing_expression());
+        } else if self.at(SyntaxKind::EachKeyword) {
+            builder
+                .push_generator_iteration_expression(self.parse_generator_iteration_expression());
+
+            self.recover_until_predicate(&mut builder, |parser| {
+                parser.at(SyntaxKind::CloseBracketToken)
+                    || parser.at(SyntaxKind::SemicolonToken)
+                    || parser.at(SyntaxKind::EndOfFileToken)
+                    || at_boundary(parser)
+            });
         } else {
             self.parse_array_expression_items(&mut builder, at_boundary);
         }

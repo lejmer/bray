@@ -1,8 +1,13 @@
 mod access;
 mod call;
 mod collection;
+mod conditional;
 mod construction;
+mod flow;
+mod generator;
 mod literal;
+mod looping;
+mod r#match;
 mod postfix;
 mod primary;
 mod root;
@@ -20,14 +25,40 @@ pub use collection::{
     ArrayExpressionSyntax, ArrayExpressionSyntaxBuilder, GroupedExpressionSyntax,
     GroupedExpressionSyntaxBuilder, TupleExpressionSyntax, TupleExpressionSyntaxBuilder,
 };
+pub use conditional::{
+    ConditionalElseSyntax, ConditionalElseSyntaxBuilder, ConditionalExpressionSyntax,
+    ConditionalExpressionSyntaxBuilder,
+};
 pub use construction::{
     StructConstructionBodySyntax, StructConstructionBodySyntaxBuilder,
     StructFieldInitializerSyntax, StructFieldInitializerSyntaxBuilder,
+};
+pub use flow::{
+    AsyncBlockExpressionSyntax, AsyncBlockExpressionSyntaxBuilder, BreakExpressionSyntax,
+    BreakExpressionSyntaxBuilder, ContinueExpressionSyntax, ContinueExpressionSyntaxBuilder,
+    PanicExpressionSyntax, PanicExpressionSyntaxBuilder, ReturnExpressionSyntax,
+    ReturnExpressionSyntaxBuilder, SpawnExpressionSyntax, SpawnExpressionSyntaxBuilder,
+    WithExpressionSyntax, WithExpressionSyntaxBuilder, YieldExpressionSyntax,
+    YieldExpressionSyntaxBuilder,
+};
+pub use generator::{
+    GeneralGeneratorExpressionSyntax, GeneralGeneratorExpressionSyntaxBuilder,
+    GeneratorIterationExpressionSyntax, GeneratorIterationExpressionSyntaxBuilder,
 };
 pub use literal::{
     AbsenceExpressionSyntax, AbsenceExpressionSyntaxBuilder, LeadingDotVariantExpressionSyntax,
     LeadingDotVariantExpressionSyntaxBuilder, LiteralExpressionSyntax,
     LiteralExpressionSyntaxBuilder, UnitExpressionSyntax, UnitExpressionSyntaxBuilder,
+};
+pub use looping::{
+    ForExpressionSyntax, ForExpressionSyntaxBuilder, IterationSourceSyntax,
+    IterationSourceSyntaxBuilder, LoopExpressionSyntax, LoopExpressionSyntaxBuilder,
+    WhileExpressionSyntax, WhileExpressionSyntaxBuilder,
+};
+pub use r#match::{
+    MatchArmSyntax, MatchArmSyntaxBuilder, MatchBodySyntax, MatchBodySyntaxBuilder,
+    MatchExpressionSyntax, MatchExpressionSyntaxBuilder, MatchSubjectSyntax,
+    MatchSubjectSyntaxBuilder,
 };
 pub use postfix::{
     ConversionOperationSyntax, ConversionOperationSyntaxBuilder,

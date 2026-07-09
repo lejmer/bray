@@ -1,27 +1,33 @@
 use bray_syntax::{
     AccessExpressionSyntaxBuilder, ArgumentListSyntaxBuilder, ArgumentSyntaxBuilder,
-    ArrayExpressionSyntaxBuilder, BlockExpressionSyntaxBuilder, BlockItemSyntaxBuilder,
-    BlockModuleDeclarationSyntaxBuilder, CallableContractDeclarationSyntaxBuilder,
-    CallableDirectivesSyntaxBuilder, CallableOverloadDeclarationSyntaxBuilder,
-    CallableResultClauseSyntaxBuilder, ConstantDeclarationSyntaxBuilder,
+    ArrayExpressionSyntaxBuilder, AsyncBlockExpressionSyntaxBuilder, BlockExpressionSyntaxBuilder,
+    BlockItemSyntaxBuilder, BlockModuleDeclarationSyntaxBuilder, BreakExpressionSyntaxBuilder,
+    CallableContractDeclarationSyntaxBuilder, CallableDirectivesSyntaxBuilder,
+    CallableOverloadDeclarationSyntaxBuilder, CallableResultClauseSyntaxBuilder,
+    ConditionalElseSyntaxBuilder, ConditionalExpressionSyntaxBuilder,
+    ConstantDeclarationSyntaxBuilder, ContinueExpressionSyntaxBuilder,
     ConversionOperationSyntaxBuilder, DestructorMemberDeclarationSyntaxBuilder,
     DirectiveArgumentListSyntaxBuilder, ElementIndexOperationSyntaxBuilder,
     EnsuresClauseSyntaxBuilder, ExportDeclarationSyntaxBuilder, ExpressionSyntaxBuilder,
-    FinalizerMemberDeclarationSyntaxBuilder, FunctionDeclarationSyntaxBuilder,
-    FunctionDirectivesSyntaxBuilder, GenericArgumentListSyntaxBuilder,
-    GenericParameterListSyntaxBuilder, GroupedExpressionSyntaxBuilder, IdentifierListSyntaxBuilder,
-    ImplementationBodySyntaxBuilder, ImplementationOverloadDeclarationSyntaxBuilder,
-    ImplementationOverloadSubjectSyntaxBuilder, ImplementationSubjectSyntaxBuilder,
-    ImplementationTypeMemberBindingSyntaxBuilder, InherentImplementationDeclarationSyntaxBuilder,
-    LocalBindingDeclarationSyntaxBuilder, MemberAccessOperationSyntaxBuilder,
-    ModuleBodySyntaxBuilder, ModuleDirectivesSyntaxBuilder,
+    FinalizerMemberDeclarationSyntaxBuilder, ForExpressionSyntaxBuilder,
+    FunctionDeclarationSyntaxBuilder, FunctionDirectivesSyntaxBuilder,
+    GeneralGeneratorExpressionSyntaxBuilder, GeneratorIterationExpressionSyntaxBuilder,
+    GenericArgumentListSyntaxBuilder, GenericParameterListSyntaxBuilder,
+    GroupedExpressionSyntaxBuilder, IdentifierListSyntaxBuilder, ImplementationBodySyntaxBuilder,
+    ImplementationOverloadDeclarationSyntaxBuilder, ImplementationOverloadSubjectSyntaxBuilder,
+    ImplementationSubjectSyntaxBuilder, ImplementationTypeMemberBindingSyntaxBuilder,
+    InherentImplementationDeclarationSyntaxBuilder, IterationSourceSyntaxBuilder,
+    LocalBindingDeclarationSyntaxBuilder, LoopExpressionSyntaxBuilder, MatchArmSyntaxBuilder,
+    MatchBodySyntaxBuilder, MatchExpressionSyntaxBuilder, MatchSubjectSyntaxBuilder,
+    MemberAccessOperationSyntaxBuilder, ModuleBodySyntaxBuilder, ModuleDirectivesSyntaxBuilder,
     NamedTraitImplementationDeclarationSyntaxBuilder, OverloadArmListSyntaxBuilder,
-    ParameterListSyntaxBuilder, ParameterSyntaxBuilder, PredicateDeclarationSyntaxBuilder,
-    PredicateParameterListSyntaxBuilder, PredicateParameterSyntaxBuilder,
-    PrimaryExpressionSyntaxBuilder, RequiresClauseSyntaxBuilder,
-    ScopeEnterMemberDeclarationSyntaxBuilder, ScopeExitMemberDeclarationSyntaxBuilder,
-    SequencedExpressionSyntaxBuilder, SliceIndexOperationSyntaxBuilder,
-    SourceUnitModuleDeclarationSyntaxBuilder, SourceUnitSyntaxBuilder, StructBodySyntaxBuilder,
+    PanicExpressionSyntaxBuilder, ParameterListSyntaxBuilder, ParameterSyntaxBuilder,
+    PredicateDeclarationSyntaxBuilder, PredicateParameterListSyntaxBuilder,
+    PredicateParameterSyntaxBuilder, PrimaryExpressionSyntaxBuilder, RequiresClauseSyntaxBuilder,
+    ReturnExpressionSyntaxBuilder, ScopeEnterMemberDeclarationSyntaxBuilder,
+    ScopeExitMemberDeclarationSyntaxBuilder, SequencedExpressionSyntaxBuilder,
+    SliceIndexOperationSyntaxBuilder, SourceUnitModuleDeclarationSyntaxBuilder,
+    SourceUnitSyntaxBuilder, SpawnExpressionSyntaxBuilder, StructBodySyntaxBuilder,
     StructConstructionBodySyntaxBuilder, StructDeclarationSyntaxBuilder,
     StructFieldDeclarationSyntaxBuilder, StructFieldInitializerSyntaxBuilder, SyntaxKind,
     SyntaxToken, TraitApplicationSyntaxBuilder, TraitBodySyntaxBuilder,
@@ -37,7 +43,8 @@ use bray_syntax::{
     UnionDeclarationSyntaxBuilder, UnionPayloadFieldSyntaxBuilder,
     UnionVariantDeclarationSyntaxBuilder, UnionVariantPayloadSyntaxBuilder,
     UnnamedTraitImplementationDeclarationSyntaxBuilder, UsesClauseSyntaxBuilder,
-    UsingDeclarationSyntaxBuilder, VariantDirectivesSyntaxBuilder, WithClauseSyntaxBuilder,
+    UsingDeclarationSyntaxBuilder, VariantDirectivesSyntaxBuilder, WhileExpressionSyntaxBuilder,
+    WithClauseSyntaxBuilder, WithExpressionSyntaxBuilder, YieldExpressionSyntaxBuilder,
 };
 
 use crate::cursor::RecoverySet;
@@ -52,6 +59,18 @@ pub(super) trait BracedBodySyntaxSink: RecoverySyntaxSink {
     fn push_open_brace_token(&mut self, token: SyntaxToken);
 
     fn push_close_brace_token(&mut self, token: SyntaxToken);
+}
+
+macro_rules! impl_recovery_syntax_sink {
+    ($($builder:ident),+ $(,)?) => {
+        $(
+            impl RecoverySyntaxSink for $builder {
+                fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
+                    $builder::push_skipped_tokens(self, tokens);
+                }
+            }
+        )+
+    };
 }
 
 impl Parser {
@@ -684,6 +703,29 @@ impl RecoverySyntaxSink for ArrayExpressionSyntaxBuilder {
     }
 }
 
+impl_recovery_syntax_sink!(
+    GeneralGeneratorExpressionSyntaxBuilder,
+    GeneratorIterationExpressionSyntaxBuilder,
+    ConditionalExpressionSyntaxBuilder,
+    ConditionalElseSyntaxBuilder,
+    MatchExpressionSyntaxBuilder,
+    MatchSubjectSyntaxBuilder,
+    MatchBodySyntaxBuilder,
+    MatchArmSyntaxBuilder,
+    WhileExpressionSyntaxBuilder,
+    ForExpressionSyntaxBuilder,
+    IterationSourceSyntaxBuilder,
+    LoopExpressionSyntaxBuilder,
+    WithExpressionSyntaxBuilder,
+    AsyncBlockExpressionSyntaxBuilder,
+    SpawnExpressionSyntaxBuilder,
+    YieldExpressionSyntaxBuilder,
+    ReturnExpressionSyntaxBuilder,
+    PanicExpressionSyntaxBuilder,
+    BreakExpressionSyntaxBuilder,
+    ContinueExpressionSyntaxBuilder,
+);
+
 impl RecoverySyntaxSink for DirectiveArgumentListSyntaxBuilder {
     fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
         DirectiveArgumentListSyntaxBuilder::push_skipped_tokens(self, tokens);
@@ -743,6 +785,16 @@ impl BracedBodySyntaxSink for BlockExpressionSyntaxBuilder {
 
     fn push_close_brace_token(&mut self, token: SyntaxToken) {
         BlockExpressionSyntaxBuilder::push_close_brace_token(self, token);
+    }
+}
+
+impl BracedBodySyntaxSink for MatchBodySyntaxBuilder {
+    fn push_open_brace_token(&mut self, token: SyntaxToken) {
+        MatchBodySyntaxBuilder::push_open_brace_token(self, token);
+    }
+
+    fn push_close_brace_token(&mut self, token: SyntaxToken) {
+        MatchBodySyntaxBuilder::push_close_brace_token(self, token);
     }
 }
 
