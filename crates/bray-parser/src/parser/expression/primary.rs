@@ -30,11 +30,27 @@ impl Parser {
             }
             SyntaxKind::OpenParenToken => self.parse_parenthesized_primary_expression(at_boundary),
             SyntaxKind::OpenBracketToken => self.parse_array_primary_expression(at_boundary),
+            SyntaxKind::OpenBraceToken if self.should_parse_general_generator_expression() => {
+                self.parse_general_generator_primary_expression()
+            }
             SyntaxKind::OpenBraceToken if self.should_parse_expected_type_struct_construction() => {
                 self.parse_expected_type_struct_construction_primary()
             }
             SyntaxKind::OpenBraceToken => self.parse_block_primary_expression(at_boundary),
             SyntaxKind::DotToken => self.parse_leading_dot_variant_primary_expression(),
+            SyntaxKind::IfKeyword => self.parse_conditional_primary_expression(),
+            SyntaxKind::MatchKeyword => self.parse_match_primary_expression(),
+            SyntaxKind::WhileKeyword => self.parse_while_primary_expression(),
+            SyntaxKind::ForKeyword => self.parse_for_primary_expression(),
+            SyntaxKind::LoopKeyword => self.parse_loop_primary_expression(),
+            SyntaxKind::WithKeyword => self.parse_with_primary_expression(),
+            SyntaxKind::AsyncKeyword => self.parse_async_block_primary_expression(),
+            SyntaxKind::SpawnKeyword => self.parse_spawn_primary_expression(at_boundary),
+            SyntaxKind::YieldKeyword => self.parse_yield_primary_expression(at_boundary),
+            SyntaxKind::ReturnKeyword => self.parse_return_primary_expression(at_boundary),
+            SyntaxKind::PanicKeyword => self.parse_panic_primary_expression(),
+            SyntaxKind::BreakKeyword => self.parse_break_primary_expression(at_boundary),
+            SyntaxKind::ContinueKeyword => self.parse_continue_primary_expression(),
             kind if EXPRESSION_START_KINDS.contains(&kind) => {
                 self.parse_unsupported_primary_expression(at_boundary)
             }
@@ -87,7 +103,7 @@ impl Parser {
 
         primary.push_access_expression(self.parse_access_expression(at_boundary));
 
-        if self.at(SyntaxKind::OpenBraceToken) {
+        if self.at(SyntaxKind::OpenBraceToken) && !at_boundary(self) {
             primary.push_struct_construction_body(self.parse_struct_construction_body());
         }
 
@@ -218,6 +234,15 @@ impl Parser {
         primary.build()
     }
 
+    fn parse_general_generator_primary_expression(&mut self) -> PrimaryExpressionSyntax {
+        let start = self.peek().full_range().start();
+        let mut primary = PrimaryExpressionSyntax::builder(self.syntax_source(), start);
+
+        primary.push_general_generator_expression(self.parse_general_generator_expression());
+
+        primary.build()
+    }
+
     fn parse_leading_dot_variant_primary_expression(&mut self) -> PrimaryExpressionSyntax {
         let start = self.peek().full_range().start();
 
@@ -227,6 +252,135 @@ impl Parser {
         variant.push_dot_token(self.expect(SyntaxKind::DotToken));
         variant.push_identifier_token(self.parse_identifier());
         primary.push_leading_dot_variant_expression(variant.build());
+
+        primary.build()
+    }
+
+    fn parse_conditional_primary_expression(&mut self) -> PrimaryExpressionSyntax {
+        let start = self.peek().full_range().start();
+        let mut primary = PrimaryExpressionSyntax::builder(self.syntax_source(), start);
+
+        primary.push_conditional_expression(self.parse_conditional_expression());
+
+        primary.build()
+    }
+
+    fn parse_match_primary_expression(&mut self) -> PrimaryExpressionSyntax {
+        let start = self.peek().full_range().start();
+        let mut primary = PrimaryExpressionSyntax::builder(self.syntax_source(), start);
+
+        primary.push_match_expression(self.parse_match_expression());
+
+        primary.build()
+    }
+
+    fn parse_while_primary_expression(&mut self) -> PrimaryExpressionSyntax {
+        let start = self.peek().full_range().start();
+        let mut primary = PrimaryExpressionSyntax::builder(self.syntax_source(), start);
+
+        primary.push_while_expression(self.parse_while_expression());
+
+        primary.build()
+    }
+
+    fn parse_for_primary_expression(&mut self) -> PrimaryExpressionSyntax {
+        let start = self.peek().full_range().start();
+        let mut primary = PrimaryExpressionSyntax::builder(self.syntax_source(), start);
+
+        primary.push_for_expression(self.parse_for_expression());
+
+        primary.build()
+    }
+
+    fn parse_loop_primary_expression(&mut self) -> PrimaryExpressionSyntax {
+        let start = self.peek().full_range().start();
+        let mut primary = PrimaryExpressionSyntax::builder(self.syntax_source(), start);
+
+        primary.push_loop_expression(self.parse_loop_expression());
+
+        primary.build()
+    }
+
+    fn parse_with_primary_expression(&mut self) -> PrimaryExpressionSyntax {
+        let start = self.peek().full_range().start();
+        let mut primary = PrimaryExpressionSyntax::builder(self.syntax_source(), start);
+
+        primary.push_with_expression(self.parse_with_expression());
+
+        primary.build()
+    }
+
+    fn parse_async_block_primary_expression(&mut self) -> PrimaryExpressionSyntax {
+        let start = self.peek().full_range().start();
+        let mut primary = PrimaryExpressionSyntax::builder(self.syntax_source(), start);
+
+        primary.push_async_block_expression(self.parse_async_block_expression());
+
+        primary.build()
+    }
+
+    fn parse_spawn_primary_expression(
+        &mut self,
+        at_boundary: &mut dyn FnMut(&mut Parser) -> bool,
+    ) -> PrimaryExpressionSyntax {
+        let start = self.peek().full_range().start();
+        let mut primary = PrimaryExpressionSyntax::builder(self.syntax_source(), start);
+
+        primary.push_spawn_expression(self.parse_spawn_expression(at_boundary));
+
+        primary.build()
+    }
+
+    fn parse_yield_primary_expression(
+        &mut self,
+        at_boundary: &mut dyn FnMut(&mut Parser) -> bool,
+    ) -> PrimaryExpressionSyntax {
+        let start = self.peek().full_range().start();
+        let mut primary = PrimaryExpressionSyntax::builder(self.syntax_source(), start);
+
+        primary.push_yield_expression(self.parse_yield_expression(at_boundary));
+
+        primary.build()
+    }
+
+    fn parse_return_primary_expression(
+        &mut self,
+        at_boundary: &mut dyn FnMut(&mut Parser) -> bool,
+    ) -> PrimaryExpressionSyntax {
+        let start = self.peek().full_range().start();
+        let mut primary = PrimaryExpressionSyntax::builder(self.syntax_source(), start);
+
+        primary.push_return_expression(self.parse_return_expression(at_boundary));
+
+        primary.build()
+    }
+
+    fn parse_panic_primary_expression(&mut self) -> PrimaryExpressionSyntax {
+        let start = self.peek().full_range().start();
+        let mut primary = PrimaryExpressionSyntax::builder(self.syntax_source(), start);
+
+        primary.push_panic_expression(self.parse_panic_expression());
+
+        primary.build()
+    }
+
+    fn parse_break_primary_expression(
+        &mut self,
+        at_boundary: &mut dyn FnMut(&mut Parser) -> bool,
+    ) -> PrimaryExpressionSyntax {
+        let start = self.peek().full_range().start();
+        let mut primary = PrimaryExpressionSyntax::builder(self.syntax_source(), start);
+
+        primary.push_break_expression(self.parse_break_expression(at_boundary));
+
+        primary.build()
+    }
+
+    fn parse_continue_primary_expression(&mut self) -> PrimaryExpressionSyntax {
+        let start = self.peek().full_range().start();
+        let mut primary = PrimaryExpressionSyntax::builder(self.syntax_source(), start);
+
+        primary.push_continue_expression(self.parse_continue_expression());
 
         primary.build()
     }
@@ -338,10 +492,9 @@ mod tests {
     use bray_diagnostics::DiagnosticKind;
     use bray_source::{TextRange, TextSize};
     use bray_syntax::{ExpressionSyntax, PrimaryExpressionSyntax, SyntaxKind, SyntaxText};
-    use bray_testing::test_source_store as source_store;
 
-    use crate::parser::state::Parser;
-    use crate::test_support::{diagnostic_kinds, source};
+    use crate::parser::expression::test_support::parse_expression_until_semicolon_for_test;
+    use crate::test_support::diagnostic_kinds;
 
     #[test]
     fn parser_parses_grouped_tuple_array_literals_structs_and_leading_dot_variants() {
@@ -379,14 +532,7 @@ mod tests {
         ];
 
         for (source_text, expected_text, expected_kind) in cases {
-            let sources = source_store([source_text]);
-            let snapshot = source(&sources, 0);
-
-            let mut parser = Parser::new(snapshot);
-            let mut boundary = |parser: &mut Parser| parser.at(SyntaxKind::SemicolonToken);
-
-            let expression = parser.parse_expression_until(&mut boundary);
-            let diagnostics = parser.finish();
+            let (expression, diagnostics) = parse_expression_until_semicolon_for_test(source_text);
 
             assert_eq!(expression.full_text(), expected_text, "{source_text}");
 
@@ -415,14 +561,7 @@ mod tests {
 
     #[test]
     fn parser_reports_missing_close_for_grouped_expression_at_insertion_point() {
-        let sources = source_store(["(value next;"]);
-        let snapshot = source(&sources, 0);
-
-        let mut parser = Parser::new(snapshot);
-        let mut boundary = |parser: &mut Parser| parser.at(SyntaxKind::SemicolonToken);
-
-        let expression = parser.parse_expression_until(&mut boundary);
-        let diagnostics = parser.finish();
+        let (expression, diagnostics) = parse_expression_until_semicolon_for_test("(value next;");
 
         let token = match expression
             .primary_expression()

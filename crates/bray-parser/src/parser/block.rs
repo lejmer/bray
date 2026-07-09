@@ -1,6 +1,6 @@
 use bray_syntax::{
     BlockExpressionSyntax, BlockExpressionSyntaxBuilder, BlockItemSyntax, BlockItemSyntaxBuilder,
-    LocalBindingDeclarationSyntax, SequencedExpressionSyntax, SyntaxKind,
+    LocalBindingDeclarationSyntax, SequencedExpressionSyntax, SyntaxKind, SyntaxToken,
 };
 
 use super::expression::EXPRESSION_START_KINDS;
@@ -46,6 +46,16 @@ impl Parser {
         builder.build()
     }
 
+    pub(in crate::parser) fn missing_block_expression(&mut self) -> BlockExpressionSyntax {
+        let start = self.peek().full_range().start();
+        let mut builder = BlockExpressionSyntax::builder(self.syntax_source(), start);
+
+        builder.push_open_brace_token(self.expect(SyntaxKind::OpenBraceToken));
+        builder.push_close_brace_token(SyntaxToken::missing(SyntaxKind::CloseBraceToken, start));
+
+        builder.build()
+    }
+
     fn parse_block_items(&mut self, builder: &mut BlockExpressionSyntaxBuilder) {
         while !self.at(SyntaxKind::CloseBraceToken) && !self.at(SyntaxKind::EndOfFileToken) {
             builder.push_block_item(self.parse_block_item());
@@ -61,8 +71,8 @@ impl Parser {
         } else if self.at_constant_declaration_start() {
             builder.push_constant_declaration(self.parse_constant_declaration());
         } else if self.at(SyntaxKind::EachKeyword) {
-            // TODO(parser): Parse generator-iteration items once generators are implemented.
-            self.recover_unknown_block_item(&mut builder);
+            builder
+                .push_generator_iteration_expression(self.parse_generator_iteration_expression());
         } else if self.at_block_expression_item_start() {
             builder.push_sequenced_expression(self.parse_sequenced_expression());
         } else {

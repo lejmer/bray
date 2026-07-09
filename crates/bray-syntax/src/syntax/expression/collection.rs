@@ -1,5 +1,5 @@
 use crate::node::define_source_syntax_node;
-use crate::{ExpressionSyntax, SyntaxKind, SyntaxToken};
+use crate::{ExpressionSyntax, GeneratorIterationExpressionSyntax, SyntaxKind, SyntaxToken};
 
 define_source_syntax_node! {
     /// Parenthesized grouped expression.
@@ -161,6 +161,14 @@ define_source_syntax_node! {
                 push_expression;
                 ty: ExpressionSyntax;
                 kind: SyntaxKind::Expression;
+            },
+            {
+                /// Returns array generator-iteration children in source order.
+                generator_iteration_expressions;
+                /// Appends an array generator-iteration child.
+                push_generator_iteration_expression;
+                ty: GeneratorIterationExpressionSyntax;
+                kind: SyntaxKind::GeneratorIterationExpression;
             }
         ],
     }

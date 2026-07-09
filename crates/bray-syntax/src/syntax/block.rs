@@ -1,8 +1,8 @@
 use super::expression::first_expression;
 use crate::node::{child_nodes, define_source_syntax_node};
 use crate::{
-    ConstantDeclarationSyntax, ExpressionSyntax, IrrefutablePatternSyntax, SyntaxKind,
-    TypeAnnotationSyntax,
+    ConstantDeclarationSyntax, ExpressionSyntax, GeneratorIterationExpressionSyntax,
+    IrrefutablePatternSyntax, SyntaxKind, TypeAnnotationSyntax,
 };
 
 define_source_syntax_node! {
@@ -87,6 +87,14 @@ define_source_syntax_node! {
                 push_sequenced_expression;
                 ty: SequencedExpressionSyntax;
                 kind: SyntaxKind::SequencedExpression;
+            },
+            {
+                /// Returns generator-iteration-expression children in source order.
+                generator_iteration_expressions;
+                /// Appends a generator-iteration-expression child.
+                push_generator_iteration_expression;
+                ty: GeneratorIterationExpressionSyntax;
+                kind: SyntaxKind::GeneratorIterationExpression;
             }
         ],
     }
@@ -125,6 +133,18 @@ impl BlockItemSyntax {
             self.start,
             SyntaxKind::SequencedExpression,
             SequencedExpressionSyntax::from_green,
+        )
+        .next()
+    }
+
+    /// Returns the generator iteration expression child when present.
+    pub fn generator_iteration_expression(&self) -> Option<GeneratorIterationExpressionSyntax> {
+        child_nodes(
+            &self.source,
+            &self.node,
+            self.start,
+            SyntaxKind::GeneratorIterationExpression,
+            GeneratorIterationExpressionSyntax::from_green,
         )
         .next()
     }

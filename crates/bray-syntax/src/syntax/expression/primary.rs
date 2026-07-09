@@ -1,9 +1,13 @@
 use crate::node::{child_nodes, define_source_syntax_node};
 use crate::{
-    AbsenceExpressionSyntax, AccessExpressionSyntax, ArrayExpressionSyntax, BlockExpressionSyntax,
-    GroupedExpressionSyntax, LeadingDotVariantExpressionSyntax, LiteralExpressionSyntax,
-    StructConstructionBodySyntax, SyntaxKind, SyntaxToken, TupleExpressionSyntax,
-    UnitExpressionSyntax,
+    AbsenceExpressionSyntax, AccessExpressionSyntax, ArrayExpressionSyntax,
+    AsyncBlockExpressionSyntax, BlockExpressionSyntax, BreakExpressionSyntax,
+    ConditionalExpressionSyntax, ContinueExpressionSyntax, ForExpressionSyntax,
+    GeneralGeneratorExpressionSyntax, GroupedExpressionSyntax, LeadingDotVariantExpressionSyntax,
+    LiteralExpressionSyntax, LoopExpressionSyntax, MatchExpressionSyntax, PanicExpressionSyntax,
+    ReturnExpressionSyntax, SpawnExpressionSyntax, StructConstructionBodySyntax, SyntaxKind,
+    SyntaxToken, TupleExpressionSyntax, UnitExpressionSyntax, WhileExpressionSyntax,
+    WithExpressionSyntax, YieldExpressionSyntax,
 };
 
 define_source_syntax_node! {
@@ -86,6 +90,14 @@ define_source_syntax_node! {
                 kind: SyntaxKind::ArrayExpression;
             },
             {
+                /// Returns general-generator-expression children in source order.
+                general_generator_expressions;
+                /// Appends a general-generator-expression child.
+                push_general_generator_expression;
+                ty: GeneralGeneratorExpressionSyntax;
+                kind: SyntaxKind::GeneralGeneratorExpression;
+            },
+            {
                 /// Returns leading-dot variant-expression children in source order.
                 leading_dot_variant_expressions;
                 /// Appends a leading-dot variant-expression child.
@@ -100,6 +112,110 @@ define_source_syntax_node! {
                 push_block_expression;
                 ty: BlockExpressionSyntax;
                 kind: SyntaxKind::BlockExpression;
+            },
+            {
+                /// Returns conditional-expression children in source order.
+                conditional_expressions;
+                /// Appends a conditional-expression child.
+                push_conditional_expression;
+                ty: ConditionalExpressionSyntax;
+                kind: SyntaxKind::ConditionalExpression;
+            },
+            {
+                /// Returns match-expression children in source order.
+                match_expressions;
+                /// Appends a match-expression child.
+                push_match_expression;
+                ty: MatchExpressionSyntax;
+                kind: SyntaxKind::MatchExpression;
+            },
+            {
+                /// Returns while-expression children in source order.
+                while_expressions;
+                /// Appends a while-expression child.
+                push_while_expression;
+                ty: WhileExpressionSyntax;
+                kind: SyntaxKind::WhileExpression;
+            },
+            {
+                /// Returns for-expression children in source order.
+                for_expressions;
+                /// Appends a for-expression child.
+                push_for_expression;
+                ty: ForExpressionSyntax;
+                kind: SyntaxKind::ForExpression;
+            },
+            {
+                /// Returns loop-expression children in source order.
+                loop_expressions;
+                /// Appends a loop-expression child.
+                push_loop_expression;
+                ty: LoopExpressionSyntax;
+                kind: SyntaxKind::LoopExpression;
+            },
+            {
+                /// Returns with-expression children in source order.
+                with_expressions;
+                /// Appends a with-expression child.
+                push_with_expression;
+                ty: WithExpressionSyntax;
+                kind: SyntaxKind::WithExpression;
+            },
+            {
+                /// Returns async-block-expression children in source order.
+                async_block_expressions;
+                /// Appends an async-block-expression child.
+                push_async_block_expression;
+                ty: AsyncBlockExpressionSyntax;
+                kind: SyntaxKind::AsyncBlockExpression;
+            },
+            {
+                /// Returns spawn-expression children in source order.
+                spawn_expressions;
+                /// Appends a spawn-expression child.
+                push_spawn_expression;
+                ty: SpawnExpressionSyntax;
+                kind: SyntaxKind::SpawnExpression;
+            },
+            {
+                /// Returns yield-expression children in source order.
+                yield_expressions;
+                /// Appends a yield-expression child.
+                push_yield_expression;
+                ty: YieldExpressionSyntax;
+                kind: SyntaxKind::YieldExpression;
+            },
+            {
+                /// Returns return-expression children in source order.
+                return_expressions;
+                /// Appends a return-expression child.
+                push_return_expression;
+                ty: ReturnExpressionSyntax;
+                kind: SyntaxKind::ReturnExpression;
+            },
+            {
+                /// Returns panic-expression children in source order.
+                panic_expressions;
+                /// Appends a panic-expression child.
+                push_panic_expression;
+                ty: PanicExpressionSyntax;
+                kind: SyntaxKind::PanicExpression;
+            },
+            {
+                /// Returns break-expression children in source order.
+                break_expressions;
+                /// Appends a break-expression child.
+                push_break_expression;
+                ty: BreakExpressionSyntax;
+                kind: SyntaxKind::BreakExpression;
+            },
+            {
+                /// Returns continue-expression children in source order.
+                continue_expressions;
+                /// Appends a continue-expression child.
+                push_continue_expression;
+                ty: ContinueExpressionSyntax;
+                kind: SyntaxKind::ContinueExpression;
             }
         ],
     }
