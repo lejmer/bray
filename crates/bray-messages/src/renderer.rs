@@ -277,6 +277,38 @@ mod tests {
     }
 
     #[test]
+    fn renderer_renders_expected_expression_diagnostics_from_catalog() {
+        let span = SourceSpan::new(
+            SourceId::new(0),
+            TextRange::new(TextSize::ZERO, TextSize::new(1)),
+        );
+
+        let diagnostic = Diagnostic::new(
+            DiagnosticId::new(0),
+            DiagnosticKind::SyntaxExpectedExpression,
+            SeverityKind::Error,
+        )
+        .with_primary_span(span)
+        .with_arg(DiagnosticArg::expected_syntax_kind(SyntaxKind::Expression))
+        .with_arg(DiagnosticArg::actual_syntax_kind(SyntaxKind::AtToken))
+        .with_arg(DiagnosticArg::token_text("@"))
+        .with_label(
+            DiagnosticLabel::primary(DiagnosticLabelKind::ExpectedExpression, span)
+                .with_arg(DiagnosticArg::expected_syntax_kind(SyntaxKind::Expression)),
+        );
+
+        let rendered = DiagnosticRenderer::english().render(&diagnostic);
+
+        assert_eq!(rendered.message(), "expected expression");
+
+        let [label] = rendered.labels() else {
+            panic!("expected one rendered label: {rendered:?}");
+        };
+
+        assert_eq!(label.message(), "expected expression here");
+    }
+
+    #[test]
     fn renderer_keeps_diagnostic_bag_order() {
         let first = Diagnostic::new(
             DiagnosticId::new(0),

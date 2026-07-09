@@ -151,7 +151,6 @@ impl Parser {
             skipped_tokens.push(self.consume());
         }
 
-        self.record_skipped_syntax_for_tokens(&skipped_tokens);
         builder.push_skipped_tokens(skipped_tokens);
     }
 
@@ -312,10 +311,7 @@ mod tests {
 
         assert_eq!(
             diagnostic_kinds(&diagnostics),
-            [
-                DiagnosticKind::LexicalInvalidCharacter,
-                DiagnosticKind::SyntaxSkippedSyntax
-            ]
+            [DiagnosticKind::LexicalInvalidCharacter]
         );
     }
 }

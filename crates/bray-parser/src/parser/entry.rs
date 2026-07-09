@@ -168,7 +168,6 @@ mod tests {
             diagnostic_kinds(result.diagnostics()),
             [
                 DiagnosticKind::LexicalInvalidCharacter,
-                DiagnosticKind::SyntaxSkippedSyntax,
                 DiagnosticKind::SyntaxUnexpectedEof,
                 DiagnosticKind::SyntaxUnexpectedEof,
                 DiagnosticKind::SyntaxUnexpectedEof

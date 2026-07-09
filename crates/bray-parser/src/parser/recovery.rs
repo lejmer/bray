@@ -138,7 +138,6 @@ impl Parser {
 
         let skipped_any = !skipped_tokens.is_empty();
 
-        self.record_skipped_syntax_for_tokens(&skipped_tokens);
         builder.push_skipped_tokens(skipped_tokens);
 
         skipped_any
@@ -170,7 +169,6 @@ impl Parser {
 
         let skipped_any = !skipped_tokens.is_empty();
 
-        self.record_skipped_syntax_for_tokens(&skipped_tokens);
         builder.push_skipped_tokens(skipped_tokens);
 
         skipped_any
@@ -833,7 +831,6 @@ mod tests {
             parse_diagnostic_kinds(&result),
             [
                 DiagnosticKind::LexicalInvalidCharacter,
-                DiagnosticKind::SyntaxSkippedSyntax,
                 DiagnosticKind::SyntaxUnexpectedEof,
                 DiagnosticKind::SyntaxUnexpectedEof,
                 DiagnosticKind::SyntaxUnexpectedEof
@@ -871,9 +868,6 @@ mod tests {
         assert_eq!(skipped.full_text(), "main");
         assert_eq!(source_unit.full_text(), "main;");
 
-        assert_eq!(
-            diagnostic_kinds(&diagnostics),
-            [DiagnosticKind::SyntaxSkippedSyntax]
-        );
+        assert_eq!(diagnostic_kinds(&diagnostics), []);
     }
 }

@@ -5,6 +5,7 @@ use bray_syntax::{
     UnitExpressionSyntax,
 };
 
+use crate::diagnostic;
 use crate::parser::state::Parser;
 
 use super::grammar::{
@@ -63,7 +64,7 @@ impl Parser {
             SyntaxKind::BreakKeyword => self.parse_break_primary_expression(at_boundary),
             SyntaxKind::ContinueKeyword => self.parse_continue_primary_expression(),
             kind if EXPRESSION_START_KINDS.contains(&kind) => {
-                self.parse_unsupported_primary_expression(at_boundary)
+                self.parse_invalid_primary_expression_start(at_boundary)
             }
             _ => self.parse_unknown_primary_expression(at_boundary),
         }
@@ -495,14 +496,22 @@ impl Parser {
         primary.build()
     }
 
-    fn parse_unsupported_primary_expression(
+    fn parse_invalid_primary_expression_start(
         &mut self,
-        _at_boundary: &mut dyn FnMut(&mut Parser) -> bool,
+        at_boundary: &mut dyn FnMut(&mut Parser) -> bool,
     ) -> PrimaryExpressionSyntax {
         let start = self.peek().full_range().start();
+
         let mut builder = PrimaryExpressionSyntax::builder(self.syntax_source(), start);
 
-        builder.push_token(self.consume());
+        let actual = self.peek();
+        let source = self.syntax_source();
+
+        self.record_syntax_diagnostic(diagnostic::expected_expression(&source, &actual));
+
+        self.recover_current_and_until_predicate(&mut builder, |parser| {
+            parser.at_primary_tail_boundary(at_boundary)
+        });
 
         builder.build()
     }
@@ -694,6 +703,30 @@ mod tests {
                 DiagnosticKind::SyntaxExpectedToken,
                 DiagnosticKind::SyntaxExpectedToken
             ]
+        );
+    }
+
+    #[test]
+    fn parser_reports_expected_expression_for_invalid_primary_expression_start() {
+        let (expression, diagnostics) = parse_expression_until_semicolon_for_test("@value;");
+
+        let primary = match expression.primary_expression() {
+            Some(primary) => primary,
+            None => panic!("expected primary expression"),
+        };
+
+        let skipped_syntax = primary.skipped_syntax().collect::<Vec<_>>();
+
+        let [skipped] = skipped_syntax.as_slice() else {
+            panic!("expected skipped invalid primary syntax: {skipped_syntax:?}");
+        };
+
+        assert_eq!(expression.full_text(), "@value");
+        assert_eq!(skipped.full_text(), "@value");
+
+        assert_eq!(
+            diagnostic_kinds(&diagnostics),
+            [DiagnosticKind::SyntaxExpectedExpression]
         );
     }
 

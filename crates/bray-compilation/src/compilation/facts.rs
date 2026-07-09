@@ -271,7 +271,6 @@ mod tests {
             diagnostic_kinds(compilation.check_diagnostics()),
             [
                 DiagnosticKind::LexicalInvalidCharacter,
-                DiagnosticKind::SyntaxSkippedSyntax,
                 DiagnosticKind::SyntaxUnexpectedEof,
                 DiagnosticKind::SyntaxUnexpectedEof,
                 DiagnosticKind::SyntaxUnexpectedEof
@@ -300,7 +299,6 @@ mod tests {
             [
                 DiagnosticKind::SourceInvalidUtf8,
                 DiagnosticKind::LexicalInvalidCharacter,
-                DiagnosticKind::SyntaxSkippedSyntax,
                 DiagnosticKind::SyntaxUnexpectedEof,
                 DiagnosticKind::SyntaxUnexpectedEof,
                 DiagnosticKind::SyntaxUnexpectedEof
@@ -419,7 +417,6 @@ mod tests {
             [
                 DiagnosticKind::SourceInvalidUtf8,
                 DiagnosticKind::LexicalInvalidCharacter,
-                DiagnosticKind::SyntaxSkippedSyntax,
                 DiagnosticKind::SyntaxUnexpectedEof,
                 DiagnosticKind::SyntaxUnexpectedEof,
                 DiagnosticKind::SyntaxUnexpectedEof

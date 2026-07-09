@@ -238,7 +238,6 @@ mod tests {
                 DiagnosticKind::SyntaxExpectedToken,
                 DiagnosticKind::SyntaxExpectedToken,
                 DiagnosticKind::SyntaxExpectedToken,
-                DiagnosticKind::SyntaxSkippedSyntax
             ]
         );
     }

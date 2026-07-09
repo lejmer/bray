@@ -49,10 +49,10 @@ pub enum DiagnosticKind {
     LexicalUnterminatedBlockComment,
     /// The parser expected a token that is missing at this source position.
     SyntaxExpectedToken,
+    /// The parser expected an expression at this source position.
+    SyntaxExpectedExpression,
     /// The parser reached the end of input before the current syntax construct was complete.
     SyntaxUnexpectedEof,
-    /// The parser skipped invalid syntax while recovering.
-    SyntaxSkippedSyntax,
 }
 
 impl DiagnosticKind {
@@ -81,8 +81,8 @@ impl DiagnosticKind {
             Self::LexicalInvalidUnicodeEscape => 2013,
             Self::LexicalUnterminatedBlockComment => 2014,
             Self::SyntaxExpectedToken => 3001,
+            Self::SyntaxExpectedExpression => 3005,
             Self::SyntaxUnexpectedEof => 3003,
-            Self::SyntaxSkippedSyntax => 3004,
         };
 
         DiagnosticCode::new(raw)
@@ -113,8 +113,8 @@ impl DiagnosticKind {
             Self::LexicalInvalidUnicodeEscape => "lexical_invalid_unicode_escape",
             Self::LexicalUnterminatedBlockComment => "lexical_unterminated_block_comment",
             Self::SyntaxExpectedToken => "syntax_expected_token",
+            Self::SyntaxExpectedExpression => "syntax_expected_expression",
             Self::SyntaxUnexpectedEof => "syntax_unexpected_eof",
-            Self::SyntaxSkippedSyntax => "syntax_skipped_syntax",
         }
     }
 }
@@ -145,7 +145,7 @@ mod tests {
             2014
         );
 
-        assert_eq!(DiagnosticKind::SyntaxSkippedSyntax.code().raw(), 3004);
+        assert_eq!(DiagnosticKind::SyntaxExpectedExpression.code().raw(), 3005);
     }
 
     #[test]
@@ -186,8 +186,8 @@ mod tests {
             DiagnosticKind::LexicalInvalidUnicodeEscape,
             DiagnosticKind::LexicalUnterminatedBlockComment,
             DiagnosticKind::SyntaxExpectedToken,
+            DiagnosticKind::SyntaxExpectedExpression,
             DiagnosticKind::SyntaxUnexpectedEof,
-            DiagnosticKind::SyntaxSkippedSyntax,
         ]
     }
 }

@@ -114,9 +114,10 @@ mod tests {
                 "{source_text}: {skipped:?}"
             );
 
-            assert!(
-                diagnostic_kinds(&diagnostics).contains(&DiagnosticKind::SyntaxSkippedSyntax),
-                "{source_text}: {diagnostics:?}"
+            assert_eq!(
+                diagnostic_kinds(&diagnostics),
+                [DiagnosticKind::LexicalInvalidOperatorOrPunctuation],
+                "{source_text}"
             );
         }
     }
