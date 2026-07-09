@@ -13,6 +13,10 @@ Crate ownership rules live in `docs/contributing/crates.md`.
 
 Parser implementation rules live in `docs/design/parser.md`.
 
+Declaration discovery implementation rules live in `docs/design/declaration-discovery.md`.
+
+Symbol and symbol-construction implementation rules live in `docs/design/symbols.md`.
+
 This document is the design-level contract those implementation documents should follow.
 
 ---
@@ -344,6 +348,8 @@ split module parts. Recovered declarations are excluded from these checks to avo
 
 Symbol construction creates stable semantic identities for declarations.
 
+The implementation contract is defined in `docs/design/symbols.md`.
+
 A symbol answers "which declared thing is this?".
 
 Symbols are not source strings.
@@ -354,6 +360,20 @@ Different concepts need different ID types.
 
 For example, module symbols, type symbols, function symbols, trait symbols, implementation symbols, field symbols, local symbols,
 and overload symbols should not be interchangeable raw integers.
+
+Bray uses kind-specific symbol records and typed relationships rather than an inheritance hierarchy or one generic child-symbol
+list. Modules, types, traits, implementations, callables, variants, overload families, and parameters expose the children and facts
+meaningful to their exact semantic category.
+
+A deterministic eager identity skeleton makes symbol IDs independent of lazy request order and worker scheduling. Expensive symbol
+facts are evaluated on demand through compilation-owned queries and publish immutable values with fact-owned diagnostics.
+
+Source, imported, compiler-known, compiler-provided, synthesized, and body-local symbols follow the same typed identity contracts.
+Constructed types, trait applications, callable instances, and selected implementation witnesses use separate semantic identities
+and do not pretend to be declaration symbols.
+
+Force completion requests all declaration-surface facts for a symbol and its semantically contained children in deterministic order.
+It does not bind or check executable bodies, which remain separate lazy bound-body facts.
 
 ### Binding
 

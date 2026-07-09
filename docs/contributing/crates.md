@@ -38,8 +38,13 @@
 
 - `bray-symbols`
     - Semantic identities for declared things.
-    - Owns symbols and symbol-related structures: modules, types, functions, fields, locals, parameters, traits, impls, and associated items.
+    - Owns typed symbol IDs, kind-specific symbol models, semantic containment, typed member relationships, lookup contracts, and
+      lazy symbol-fact contracts.
+    - Covers modules, types, functions, fields, locals, parameters, traits, implementations, overload families, and associated
+      items without using a generic child-symbol model.
     - Symbols answer "what declared thing is this?"
+    - Binding-dependent symbol facts are computed by the owning binder or checker service and coordinated through compilation
+      queries.
 
 - `bray-binder`
     - Name binding and semantic-analysis orchestration.
