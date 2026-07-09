@@ -44,6 +44,7 @@ impl Parser {
             SyntaxKind::ForKeyword => self.parse_for_primary_expression(),
             SyntaxKind::LoopKeyword => self.parse_loop_primary_expression(),
             SyntaxKind::WithKeyword => self.parse_with_primary_expression(),
+            _ if self.should_parse_lambda_expression() => self.parse_lambda_primary_expression(),
             SyntaxKind::AsyncKeyword => self.parse_async_block_primary_expression(),
             SyntaxKind::SpawnKeyword => self.parse_spawn_primary_expression(at_boundary),
             SyntaxKind::YieldKeyword => self.parse_yield_primary_expression(at_boundary),
@@ -306,6 +307,15 @@ impl Parser {
         let mut primary = PrimaryExpressionSyntax::builder(self.syntax_source(), start);
 
         primary.push_with_expression(self.parse_with_expression());
+
+        primary.build()
+    }
+
+    fn parse_lambda_primary_expression(&mut self) -> PrimaryExpressionSyntax {
+        let start = self.peek().full_range().start();
+        let mut primary = PrimaryExpressionSyntax::builder(self.syntax_source(), start);
+
+        primary.push_lambda_expression(self.parse_lambda_expression());
 
         primary.build()
     }

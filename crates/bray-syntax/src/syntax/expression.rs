@@ -5,6 +5,7 @@ mod conditional;
 mod construction;
 mod flow;
 mod generator;
+mod lambda;
 mod literal;
 mod looping;
 mod r#match;
@@ -45,6 +46,7 @@ pub use generator::{
     GeneralGeneratorExpressionSyntax, GeneralGeneratorExpressionSyntaxBuilder,
     GeneratorIterationExpressionSyntax, GeneratorIterationExpressionSyntaxBuilder,
 };
+pub use lambda::{LambdaExpressionSyntax, LambdaExpressionSyntaxBuilder};
 pub use literal::{
     AbsenceExpressionSyntax, AbsenceExpressionSyntaxBuilder, LeadingDotVariantExpressionSyntax,
     LeadingDotVariantExpressionSyntaxBuilder, LiteralExpressionSyntax,

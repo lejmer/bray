@@ -277,6 +277,8 @@ pub enum SyntaxKind {
     LoopExpression,
     /// Scoped `with` expression.
     WithExpression,
+    /// Lambda expression.
+    LambdaExpression,
     /// Async block expression.
     AsyncBlockExpression,
     /// Spawn expression.
@@ -582,6 +584,7 @@ impl SyntaxKind {
                 | Self::IterationSource
                 | Self::LoopExpression
                 | Self::WithExpression
+                | Self::LambdaExpression
                 | Self::AsyncBlockExpression
                 | Self::SpawnExpression
                 | Self::YieldExpression
@@ -867,6 +870,7 @@ impl SyntaxKind {
             Self::IterationSource => "iteration_source",
             Self::LoopExpression => "loop_expression",
             Self::WithExpression => "with_expression",
+            Self::LambdaExpression => "lambda_expression",
             Self::AsyncBlockExpression => "async_block_expression",
             Self::SpawnExpression => "spawn_expression",
             Self::YieldExpression => "yield_expression",
@@ -1165,6 +1169,7 @@ mod tests {
         assert!(SyntaxKind::IterationSource.is_node());
         assert!(SyntaxKind::LoopExpression.is_node());
         assert!(SyntaxKind::WithExpression.is_node());
+        assert!(SyntaxKind::LambdaExpression.is_node());
         assert!(SyntaxKind::AsyncBlockExpression.is_node());
         assert!(SyntaxKind::SpawnExpression.is_node());
         assert!(SyntaxKind::YieldExpression.is_node());
@@ -1657,6 +1662,7 @@ mod tests {
         assert_eq!(SyntaxKind::IterationSource.as_str(), "iteration_source");
         assert_eq!(SyntaxKind::LoopExpression.as_str(), "loop_expression");
         assert_eq!(SyntaxKind::WithExpression.as_str(), "with_expression");
+        assert_eq!(SyntaxKind::LambdaExpression.as_str(), "lambda_expression");
 
         assert_eq!(
             SyntaxKind::AsyncBlockExpression.as_str(),

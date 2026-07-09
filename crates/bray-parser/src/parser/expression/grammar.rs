@@ -1,17 +1,19 @@
 use bray_syntax::SyntaxKind;
 
-pub(in crate::parser) const EXPRESSION_START_KINDS: [SyntaxKind; 43] = [
+pub(in crate::parser) const EXPRESSION_START_KINDS: [SyntaxKind; 45] = [
     SyntaxKind::AllKeyword,
     SyntaxKind::AmpersandToken,
     SyntaxKind::AnyKeyword,
     SyntaxKind::AssertKeyword,
     SyntaxKind::AsyncKeyword,
+    SyntaxKind::AtToken,
     SyntaxKind::AwaitKeyword,
     SyntaxKind::BangToken,
     SyntaxKind::BinaryIntegerLiteralToken,
     SyntaxKind::BreakKeyword,
     SyntaxKind::CatchKeyword,
     SyntaxKind::CharacterLiteralToken,
+    SyntaxKind::ConstKeyword,
     SyntaxKind::ContinueKeyword,
     SyntaxKind::DecimalIntegerLiteralToken,
     SyntaxKind::DotToken,

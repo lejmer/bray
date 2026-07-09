@@ -3,6 +3,7 @@ mod control;
 mod flow;
 mod generator;
 mod grammar;
+mod lambda;
 mod list;
 mod r#match;
 mod operator;

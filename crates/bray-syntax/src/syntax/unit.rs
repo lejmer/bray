@@ -754,10 +754,10 @@ mod tests {
         ImplementationOverloadSubjectSyntax, ImplementationSubjectSyntax,
         ImplementationTypeMemberBindingSyntax, InherentImplementationDeclarationSyntax,
         IrrefutablePatternEntrySyntax, IrrefutablePatternSyntax, IterationSourceSyntax,
-        LeadingDotVariantExpressionSyntax, LiteralExpressionSyntax, LocalBindingDeclarationSyntax,
-        LoopExpressionSyntax, MatchArmSyntax, MatchBodySyntax, MatchExpressionSyntax,
-        MatchSubjectSyntax, MemberAccessOperationSyntax, ModuleBodySyntax, ModuleDirectivesSyntax,
-        ModuleModifiersSyntax, NamedTraitImplementationDeclarationSyntax,
+        LambdaExpressionSyntax, LeadingDotVariantExpressionSyntax, LiteralExpressionSyntax,
+        LocalBindingDeclarationSyntax, LoopExpressionSyntax, MatchArmSyntax, MatchBodySyntax,
+        MatchExpressionSyntax, MatchSubjectSyntax, MemberAccessOperationSyntax, ModuleBodySyntax,
+        ModuleDirectivesSyntax, ModuleModifiersSyntax, NamedTraitImplementationDeclarationSyntax,
         NullablePropagationOperationSyntax, OverloadArmListSyntax, OverloadArmSyntax,
         OverloadModifiersSyntax, PanicExpressionSyntax, ParameterListSyntax,
         ParameterModifiersSyntax, ParameterSyntax, PathSyntax, PredicateDeclarationSyntax,
@@ -1337,6 +1337,7 @@ mod tests {
         assert_send_sync::<IterationSourceSyntax>();
         assert_send_sync::<LoopExpressionSyntax>();
         assert_send_sync::<WithExpressionSyntax>();
+        assert_send_sync::<LambdaExpressionSyntax>();
         assert_send_sync::<AsyncBlockExpressionSyntax>();
         assert_send_sync::<SpawnExpressionSyntax>();
         assert_send_sync::<YieldExpressionSyntax>();
