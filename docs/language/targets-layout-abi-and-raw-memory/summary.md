@@ -16,7 +16,7 @@ Default physical layout is compiler-defined and not public ABI.
 
 `RawPointer<T>` is a copyable raw pointer value, not a reference or owner.
 
-`core.memory` is the compiler-known raw memory namespace.
+`core.memory` is the compiler-known raw memory declaration scope and reserved path.
 
 Raw memory operations require trusted facts, trusted capabilities, or both.
 

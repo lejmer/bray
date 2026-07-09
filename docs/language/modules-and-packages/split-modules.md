@@ -10,7 +10,7 @@ Declaration merging is deterministic.
 
 Duplicate declarations in the same module are rejected unless the declaration form explicitly defines merging behavior.
 
-All declarations contributed to the same module share the module's declaration namespace.
+All declarations contributed to the same module share the module's ordinary declaration scope.
 
 Order between source units does not affect name resolution.
 

@@ -11,7 +11,7 @@ Declarations introduce named program entities, members, module contributions, co
 - [Module body declarations](declarations/module-body-declarations.md)
 - [Member declarations](declarations/member-declarations.md)
 - [Block-level declarations](declarations/block-level-declarations.md)
-- [Declaration names and identity](declarations/declaration-names-and-identity.md)
+- [Declaration names, lookup, and identity](declarations/declaration-names-and-identity.md)
 - [Visibility and reachability](declarations/visibility-and-reachability.md)
 - [Directives](declarations/directives.md)
 - [Modifiers](declarations/modifiers.md)

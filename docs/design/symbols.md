@@ -370,7 +370,7 @@ The initial model should cover the full language even when implementation procee
 - `ModuleSymbol`
 
 A package symbol represents package identity supplied by the package layer. A product is a selected compilation surface and does not
-create a namespace, so a product is not a symbol.
+create a declaration container or lookup scope, so a product is not a symbol.
 
 A module symbol represents one logical package-relative module path and aggregates all enabled split-module contributions.
 
@@ -690,15 +690,42 @@ Callable contract symbols describe callable surfaces and do not own executable b
 
 ## Names And Lookup
 
-### Explicit Lookup Namespaces
+### Ordinary Lookup Namespace
 
-Lookup indexes must key by both name and lookup namespace.
+Bray currently has one general identifier lookup namespace: the ordinary lookup namespace.
 
-The symbol layer must not rely on one `Map<String, AnySymbolId>` for all declarations.
+The namespace determines whether the same spelling may identify more than one entity in the same lookup scope. Symbol kind and
+lookup context do not create additional namespaces. Types, values, traits, predicates, callable contracts, named implementations,
+members, generic parameters, callable parameters, local bindings, and other named declarations therefore compete for the same
+ordinary name in a scope.
 
-The exact `LookupNamespace` variants must follow the language's name-resolution rules. The language already distinguishes at least
-value lookup and package or module declaration lookup, and future implementation must finish documenting the complete namespace
-partition before lookup APIs are finalized.
+For example, a type and constant cannot share a name in one module, a generic type parameter and generic const parameter cannot
+share a name on one declaration, and a field and callable member cannot share a name on one type. An explicit overload family
+occupies its ordinary name once. Its arms retain separate identities without introducing the family name again.
+
+Packages and modules require specialized path indexes, but they are not additional lookup namespaces. A visible package identity,
+module path component, or declaration that can occupy the same path position participates in the same ordinary name surface. A
+module remains a declaration container and lookup provider rather than a separate name-collision partition.
+
+The implementation need not introduce a one-variant `LookupNamespace` enum. Such an enum should be added only if the language later
+introduces a name category, such as labels, whose spelling may legally coexist with an ordinary name in the same scope.
+
+The symbol layer must not interpret the ordinary namespace as permission to use one global `Map<String, AnySymbolId>`. Lookup remains
+owner-specific and typed. The namespace defines collision behavior, while the owner and lookup operation define which index is
+queried and which result kinds are valid.
+
+The following relationships are not ordinary name lookup:
+
+- unnamed implementation selection by coherence key,
+- overload-arm selection by family and signature,
+- implementation fulfillment lookup by trait member identity,
+- lifecycle member selection through typed owner slots,
+- tuple element selection by ordinal,
+- contextual `Self`, `self`, and `result` bindings,
+- directives and `using` declarations, which introduce no ordinary names.
+
+An export does not create a symbol or introduce an unqualified name inside the exporting module. It projects the target symbol's
+ordinary name into the module's exported lookup surface, where that name participates in ordinary collision checking.
 
 ### Typed Indexes
 
@@ -706,15 +733,19 @@ Symbol owners should expose typed lookup operations and typed collections.
 
 Examples:
 
-- module lookup by declaration namespace and name,
+- module declaration lookup by ordinary name,
 - type field lookup by field name,
 - type-associated callable lookup by name,
-- trait member lookup by member category and name,
+- trait member lookup by ordinary name followed by typed classification,
 - callable parameter lookup by name and ordinal,
 - implementation fulfillment lookup by the trait member being fulfilled,
 - overload family arm lookup by stable arm order.
 
 Indexes are derived facts over canonical typed child collections.
+
+A context-specific lookup such as type lookup or value lookup first resolves the ordinary name and then validates the resolved
+entity's semantic category. Finding an entity of the wrong category must remain distinguishable from not finding the name. Typed
+entry points should expose that distinction without creating parallel type and value namespaces.
 
 ### Lookup Results
 
@@ -1234,14 +1265,6 @@ Integration tests should verify that `Compilation` exposes symbol roots and diag
 ## Decisions Requiring Follow-Up
 
 The following language or API details need to be settled before the corresponding implementation surface is finalized.
-
-### Complete Lookup Namespace Taxonomy
-
-The language documents refer to value lookup, declaration namespaces, and module namespaces, but do not yet define one exhaustive
-lookup-namespace taxonomy.
-
-Before implementing general lookup indexes, Bray needs an explicit list of lookup namespaces and the declaration categories that
-occupy each namespace.
 
 ### Type-Associated Member Aggregation
 

@@ -12,6 +12,8 @@ Block expressions accept only local binding declarations and constant declaratio
 
 Declaration identity is separate from source unit origin.
 
+All source names occupy one ordinary lookup namespace within their respective lookup scopes.
+
 Visibility is public by default where visibility is supported.
 
 Internal use requires explicit acknowledgement.

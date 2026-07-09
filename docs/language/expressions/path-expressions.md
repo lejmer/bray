@@ -47,7 +47,7 @@ The result of a path expression can be:
 
 ## Package and module paths
 
-A package or module path selects a declaration within a package or module namespace.
+A package or module path selects a module path component or declaration from the preceding package or module's ordinary name surface.
 
 ```bray
 pkg.module.Type
@@ -56,6 +56,9 @@ math.sin
 ```
 
 Package and module paths are compile-time paths.
+
+Packages and modules are path lookup providers and declaration containers. They are not separate lookup namespaces in which a name
+can coexist with an otherwise conflicting ordinary name.
 
 They do not execute code.
 

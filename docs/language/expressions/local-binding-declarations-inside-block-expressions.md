@@ -84,7 +84,7 @@ A pattern-introduced binding name must be unique within that pattern.
 
 A local binding declaration introduces one or more unqualified lookup names into the current scope.
 
-Each introduced unqualified lookup name must not already resolve in the same lookup namespace from that scope.
+Each introduced unqualified lookup name must not already resolve in the ordinary lookup namespace from that scope.
 
 A local binding declaration introduces each pattern binding exactly once.
 

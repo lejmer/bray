@@ -2,7 +2,7 @@
 
 The `core.memory` declarations are compiler-provided compiler-known declarations.
 
-`core.memory` is a compiler-known namespace.
+`core.memory` is a compiler-known declaration scope and reserved path.
 
 It is not a source package.
 

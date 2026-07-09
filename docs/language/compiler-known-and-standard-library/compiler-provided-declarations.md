@@ -6,7 +6,7 @@ Compiler-provided declarations have ordinary declaration surfaces.
 
 Their declaration surface includes:
 
-- namespace,
+- owning declaration scope,
 - name,
 - generic parameters,
 - parameter names,
@@ -41,9 +41,10 @@ Compiler-provided declarations exist in the compiler-known environment before so
 
 Their fully qualified names and declaration identities are reserved.
 
-If source declares the same fully qualified name in the same namespace, the source declaration is rejected.
+If source declares the same fully qualified ordinary name, the source declaration is rejected.
 
-If source declares a name that is textually similar but has a different namespace or declaration identity, it is an ordinary source declaration and does not gain compiler-provided behavior.
+If source declares a textually similar name with a different fully qualified ordinary name or declaration identity, it is an ordinary
+source declaration and does not gain compiler-provided behavior.
 
 The owning language rules define the observable semantics of each compiler-provided declaration.
 
@@ -91,7 +92,7 @@ Compiler-provided declarations can be used by the standard library like ordinary
 
 Standard-library wrappers over compiler-provided declarations are ordinary standard-library declarations unless an owning language rule explicitly makes the wrapper compiler-known.
 
-Compiler-specific extensions must not appear in compiler-known namespaces.
+Compiler-specific extensions must not appear in compiler-known declaration scopes.
 
 Compiler-specific extensions must not change name resolution, overload resolution, type checking, ownership checking, contract checking, trusted fact checking, or code generation for conforming Bray source.
 

@@ -66,7 +66,7 @@ The language-defined target fact groups are:
 - `std.target.allocation`: allocation size and alignment support facts,
 - `std.target.linkage`: symbol encoding, linkage kind, and external artifact facts exposed by the target profile.
 
-The target fact namespace includes these language-defined facts:
+The target fact surface includes these language-defined facts:
 
 ```bray
 std.target.identity.name

@@ -14,7 +14,8 @@ Order between source units does not affect name resolution.
 
 Within a declaration body, source order matters where the containing grammar or semantic rule makes it matter.
 
-Duplicate declarations in the same declaration namespace are rejected unless the declaration form explicitly defines merging or overload-family behavior.
+Declarations that introduce the same ordinary name in the same declaration scope are rejected unless the declaration form explicitly
+defines merging or overload-family behavior.
 
 Declarations are checked against:
 

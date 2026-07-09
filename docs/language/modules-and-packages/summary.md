@@ -6,7 +6,7 @@ Package identity belongs to the package and build layer.
 
 Package products select explicit source and dependency graphs.
 
-Modules are namespaces, not runtime objects.
+Modules are named declaration containers, not runtime objects.
 
 Using declarations and exports do not execute code.
 

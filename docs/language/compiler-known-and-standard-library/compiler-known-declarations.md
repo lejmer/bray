@@ -16,9 +16,9 @@ They participate in ordinary:
 - contract checking,
 - code generation.
 
-Compiler-known names occupy their normal namespace before source declarations are checked.
+Compiler-known names occupy the ordinary lookup namespace before source declarations are checked.
 
-User code cannot declare another entity with the same name in the same namespace as a compiler-known declaration.
+User code cannot declare another entity with the same ordinary name in the same declaration scope as a compiler-known declaration.
 
 Compiler-known declarations are not dependencies.
 
