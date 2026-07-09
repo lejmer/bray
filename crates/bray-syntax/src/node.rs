@@ -9,4 +9,4 @@ pub(crate) use support::{
     child_nodes, contains_recovery, first_token, required_child_node, required_token,
     skipped_syntax,
 };
-pub(crate) use traits::{GreenSourceSyntaxNode, GreenSyntaxNode};
+pub(crate) use traits::{GreenSourceSyntaxNode, GreenSyntaxNode, full_range_from_width};

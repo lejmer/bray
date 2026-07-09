@@ -14,6 +14,7 @@ mod text;
 mod token;
 mod tree;
 mod trivia;
+mod walk;
 
 pub use kind::SyntaxKind;
 pub use node::{SourceSyntaxNode, SyntaxNode};
@@ -147,3 +148,7 @@ pub use text::SyntaxText;
 pub use token::{SyntaxToken, SyntaxTokenPresence};
 pub use tree::SyntaxTree;
 pub use trivia::SyntaxTrivia;
+pub use walk::{
+    SyntaxCast, SyntaxNodeView, SyntaxWalkControl, SyntaxWalkEvent, walk_source_unit,
+    walk_syntax_tree,
+};

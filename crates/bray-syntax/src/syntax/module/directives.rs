@@ -127,6 +127,14 @@ impl GreenSourceSyntaxNode for ModuleDirectivesSyntax {
     }
 }
 
+impl crate::SyntaxCast for ModuleDirectivesSyntax {
+    const KIND: SyntaxKind = SyntaxKind::ModuleDirectives;
+
+    fn cast_from(view: crate::SyntaxNodeView<'_>) -> Option<Self> {
+        crate::walk::cast_source_node(view, Self::KIND, Self::from_green)
+    }
+}
+
 /// Builder for module directives.
 pub struct ModuleDirectivesSyntaxBuilder {
     source: RequiredSyntaxSlot<SourceSnapshot>,

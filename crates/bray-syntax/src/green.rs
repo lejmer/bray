@@ -226,7 +226,7 @@ impl GreenToken {
         self.full_width
     }
 
-    fn syntax_token(&self, start: TextSize) -> SyntaxToken {
+    pub(crate) fn syntax_token(&self, start: TextSize) -> SyntaxToken {
         let (leading_trivia, token_start) = syntax_trivia_list(&self.leading_trivia, start);
         let token_end = checked_add(token_start, self.width, "green token end");
         let (trailing_trivia, _) = syntax_trivia_list(&self.trailing_trivia, token_end);
@@ -469,7 +469,7 @@ fn syntax_trivia_list(trivia: &[GreenTrivia], start: TextSize) -> (Vec<SyntaxTri
     (values, offset)
 }
 
-fn checked_add(lhs: TextSize, rhs: TextSize, message: &'static str) -> TextSize {
+pub(crate) fn checked_add(lhs: TextSize, rhs: TextSize, message: &'static str) -> TextSize {
     match lhs.checked_add(rhs) {
         Some(value) => value,
         None => panic!("{message} overflow"),

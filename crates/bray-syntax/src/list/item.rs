@@ -125,6 +125,14 @@ macro_rules! define_token_item_syntax {
             }
         }
 
+        impl $crate::SyntaxCast for $item_syntax {
+            const KIND: $crate::SyntaxKind = $item_kind;
+
+            fn cast_from(view: $crate::SyntaxNodeView<'_>) -> Option<Self> {
+                $crate::walk::cast_source_node(view, Self::KIND, Self::from_green)
+            }
+        }
+
         /// Builder for this required-token item syntax node.
         $visibility struct $builder_syntax {
             source: $crate::builder::RequiredSyntaxSlot<bray_source::SourceSnapshot>,
