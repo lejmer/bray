@@ -23,21 +23,6 @@ pub(crate) fn expected_token(
         )
 }
 
-// TODO(parser): Remove this allow once production grammar emits unexpected-token diagnostics.
-#[allow(dead_code)]
-pub(crate) fn unexpected_token(snapshot: &SourceSnapshot, actual: &SyntaxToken) -> Diagnostic {
-    let span = SourceSpan::new(snapshot.source_id(), actual.range());
-    let actual_arg = DiagnosticArg::actual_syntax_kind(actual.kind());
-
-    diagnostic(span, DiagnosticKind::SyntaxUnexpectedToken)
-        .with_arg(actual_arg.clone())
-        .with_optional_arg(token_text_arg(snapshot, actual))
-        .with_label(
-            DiagnosticLabel::primary(DiagnosticLabelKind::UnexpectedToken, span)
-                .with_arg(actual_arg),
-        )
-}
-
 pub(crate) fn unexpected_eof(
     snapshot: &SourceSnapshot,
     expected: SyntaxKind,
@@ -104,7 +89,7 @@ mod tests {
     use bray_syntax::{SyntaxKind, SyntaxToken};
     use bray_testing::test_source_snapshot as snapshot;
 
-    use super::{expected_token, skipped_syntax, unexpected_eof, unexpected_token};
+    use super::{expected_token, skipped_syntax, unexpected_eof};
 
     #[test]
     fn expected_token_diagnostic_uses_an_insertion_point_span() {
@@ -138,30 +123,6 @@ mod tests {
                 ),
             ]
         );
-    }
-
-    #[test]
-    fn unexpected_token_diagnostic_covers_the_actual_token() {
-        let snapshot = snapshot(";");
-        let token = SyntaxToken::new(
-            SyntaxKind::SemicolonToken,
-            TextRange::new(TextSize::ZERO, TextSize::new(1)),
-        );
-
-        let diagnostic = unexpected_token(&snapshot, &token);
-
-        assert_eq!(diagnostic.kind(), DiagnosticKind::SyntaxUnexpectedToken);
-        assert_eq!(
-            diagnostic.primary_span().map(|span| span.range()),
-            Some(token.range())
-        );
-
-        let [label] = diagnostic.labels() else {
-            panic!("expected one syntax label: {diagnostic:?}");
-        };
-
-        assert_eq!(label.kind(), DiagnosticLabelKind::UnexpectedToken);
-        assert_eq!(label.span().range(), token.range());
     }
 
     #[test]
