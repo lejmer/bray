@@ -312,10 +312,22 @@ The parser should preserve enough syntax structure for later phases to produce p
 
 Declaration discovery walks syntax trees and records declared surfaces.
 
-It owns the early catalog of modules, imports, exports, functions, constants, predicates, types, traits, implementations, overloads,
-fields, variants, parameters, and member declarations.
+The implementation contract is defined in `docs/design/declaration-discovery.md`.
+
+It owns the early catalog of modules, imports, exports, functions, constants, predicates, callable contracts, types, traits,
+implementations, overloads, fields, variants, parameters, and member declarations.
 
 Declaration discovery does not bind expression bodies.
+
+Declaration discovery produces immutable declaration tables from immutable per-source-unit discovery chunks.
+Source-unit discovery can run in parallel with task-local builders. The deterministic merge step consumes the chunks, assigns
+declaration and container IDs, aggregates partial modules, and publishes the final immutable table.
+
+Declarations are not symbols. `DeclarationId` identifies discovered syntax. Symbol construction later decides which declarations
+create semantic symbols.
+
+Partial modules are represented as logical module containers with one or more source module parts.
+Other declaration spaces, such as type, trait, and implementation bodies, are represented as containers before symbols exist.
 
 Declaration discovery can report duplicate declarations and declaration-shape errors that do not require body checking.
 
