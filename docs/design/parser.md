@@ -239,7 +239,7 @@ Terminator sets should include EOF when the caller can finish at end of source.
 Delimiter-specific recovery should stop before the delimiter so the caller can consume or expect it in the normal
 grammar position.
 
-Skipped-syntax diagnostics cover the skipped source range.
+Skipped tokens should be attached under skipped-syntax recovery nodes.
 Missing-token diagnostics use an insertion-point span.
 
 ---
@@ -353,6 +353,11 @@ Parser helpers that can demand tokens may take `&mut self` and should not use `i
 ## Tests
 
 Parser changes should include focused tests near the parser code.
+
+`docs/design/parser-coverage.md` maps grammar nonterminals to parser entry points and primary parser tests.
+The `bray-parser` integration test `parser_coverage_matrix_matches_syntax_grammar_nonterminals` checks that the
+matrix covers every nonterminal in `syntax-grammar.ebnf`.
+Update the matrix when grammar or parser coverage changes.
 
 For each meaningful grammar feature, cover:
 

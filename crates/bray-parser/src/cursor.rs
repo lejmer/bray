@@ -172,13 +172,11 @@ impl ParserCursor {
         &mut self,
         recovery_set: RecoverySet<'_>,
     ) -> Vec<SyntaxToken> {
-        let skipped_tokens = self.skip_until_balanced_close(
+        self.skip_until_balanced_close(
             DelimiterPair::new(SyntaxKind::OpenBraceToken, SyntaxKind::CloseBraceToken),
             recovery_set,
             0,
-        );
-
-        skipped_tokens
+        )
     }
 
     pub(crate) fn skip_current_and_until_balanced_close_brace_or_recovery(
