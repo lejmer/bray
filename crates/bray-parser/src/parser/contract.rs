@@ -2,7 +2,7 @@ use bray_syntax::{
     CallableContractDeclarationSyntaxBuilder, DestructorMemberDeclarationSyntaxBuilder,
     EnsuresClauseSyntax, EnsuresClauseSyntaxBuilder, ExpressionSyntax,
     FinalizerMemberDeclarationSyntaxBuilder, FunctionDeclarationSyntaxBuilder,
-    InherentImplementationDeclarationSyntaxBuilder,
+    InherentImplementationDeclarationSyntaxBuilder, LambdaExpressionSyntaxBuilder,
     NamedTraitImplementationDeclarationSyntaxBuilder, PathSyntax, RequiresClauseSyntax,
     RequiresClauseSyntaxBuilder, ScopeEnterMemberDeclarationSyntaxBuilder,
     ScopeExitMemberDeclarationSyntaxBuilder, StructDeclarationSyntaxBuilder, SyntaxKind,
@@ -378,6 +378,7 @@ macro_rules! impl_with_clause_sink {
 
 impl_callable_contract_clause_sink!(FunctionDeclarationSyntaxBuilder);
 impl_callable_contract_clause_sink!(TypeExpressionSyntaxBuilder);
+impl_callable_contract_clause_sink!(LambdaExpressionSyntaxBuilder);
 impl_callable_contract_clause_sink!(TypeCallableMemberDeclarationSyntaxBuilder);
 impl_callable_contract_clause_sink!(TraitCallableMemberDeclarationSyntaxBuilder);
 impl_callable_contract_clause_sink!(TypeConstructorMemberDeclarationSyntaxBuilder);

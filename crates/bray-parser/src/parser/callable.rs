@@ -76,16 +76,23 @@ const CALLABLE_RESULT_TYPE_BOUNDARY_KINDS: [SyntaxKind; 8] = [
 
 impl Parser {
     pub(super) fn parse_callable_directives(&mut self) -> CallableDirectivesSyntax {
+        self.parse_callable_directives_until(&CALLABLE_FORM_START_KINDS)
+    }
+
+    pub(super) fn parse_callable_directives_until(
+        &mut self,
+        form_start_kinds: &[SyntaxKind],
+    ) -> CallableDirectivesSyntax {
         let start = self.peek().full_range().start();
         let mut builder = CallableDirectivesSyntax::builder(self.syntax_source(), start);
 
         while self.at(SyntaxKind::AtToken) {
             if self.at_directive_name(ABI_DIRECTIVE_NAME) {
-                builder.push_abi_directive(self.parse_abi_directive(&CALLABLE_FORM_START_KINDS));
+                builder.push_abi_directive(self.parse_abi_directive(form_start_kinds));
                 continue;
             }
 
-            self.recover_unknown_callable_directive(&mut builder);
+            self.recover_unknown_callable_directive(&mut builder, form_start_kinds);
         }
 
         builder.build()
@@ -94,8 +101,9 @@ impl Parser {
     fn recover_unknown_callable_directive(
         &mut self,
         builder: &mut CallableDirectivesSyntaxBuilder,
+        form_start_kinds: &[SyntaxKind],
     ) {
-        self.recover_current_and_until(builder, &CALLABLE_FORM_START_KINDS);
+        self.recover_current_and_until(builder, form_start_kinds);
     }
 
     pub(super) fn parse_callable_modifiers(&mut self) -> CallableModifiersSyntax {
@@ -120,11 +128,16 @@ impl Parser {
     }
 
     pub(super) fn consume_callable_directives_for_scan(&mut self) {
-        self.consume_directives_for_scan(&CALLABLE_FORM_START_KINDS, |directive_name| {
-            match directive_name {
-                ABI_DIRECTIVE_NAME => DirectiveScanKind::ArgumentList,
-                _ => DirectiveScanKind::Unknown,
-            }
+        self.consume_callable_directives_for_scan_until(&CALLABLE_FORM_START_KINDS);
+    }
+
+    pub(super) fn consume_callable_directives_for_scan_until(
+        &mut self,
+        form_start_kinds: &[SyntaxKind],
+    ) {
+        self.consume_directives_for_scan(form_start_kinds, |directive_name| match directive_name {
+            ABI_DIRECTIVE_NAME => DirectiveScanKind::ArgumentList,
+            _ => DirectiveScanKind::Unknown,
         });
     }
 

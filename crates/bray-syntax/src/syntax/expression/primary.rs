@@ -3,11 +3,11 @@ use crate::{
     AbsenceExpressionSyntax, AccessExpressionSyntax, ArrayExpressionSyntax,
     AsyncBlockExpressionSyntax, BlockExpressionSyntax, BreakExpressionSyntax,
     ConditionalExpressionSyntax, ContinueExpressionSyntax, ForExpressionSyntax,
-    GeneralGeneratorExpressionSyntax, GroupedExpressionSyntax, LeadingDotVariantExpressionSyntax,
-    LiteralExpressionSyntax, LoopExpressionSyntax, MatchExpressionSyntax, PanicExpressionSyntax,
-    ReturnExpressionSyntax, SpawnExpressionSyntax, StructConstructionBodySyntax, SyntaxKind,
-    SyntaxToken, TupleExpressionSyntax, UnitExpressionSyntax, WhileExpressionSyntax,
-    WithExpressionSyntax, YieldExpressionSyntax,
+    GeneralGeneratorExpressionSyntax, GroupedExpressionSyntax, LambdaExpressionSyntax,
+    LeadingDotVariantExpressionSyntax, LiteralExpressionSyntax, LoopExpressionSyntax,
+    MatchExpressionSyntax, PanicExpressionSyntax, ReturnExpressionSyntax, SpawnExpressionSyntax,
+    StructConstructionBodySyntax, SyntaxKind, SyntaxToken, TupleExpressionSyntax,
+    UnitExpressionSyntax, WhileExpressionSyntax, WithExpressionSyntax, YieldExpressionSyntax,
 };
 
 define_source_syntax_node! {
@@ -160,6 +160,14 @@ define_source_syntax_node! {
                 push_with_expression;
                 ty: WithExpressionSyntax;
                 kind: SyntaxKind::WithExpression;
+            },
+            {
+                /// Returns lambda-expression children in source order.
+                lambda_expressions;
+                /// Appends a lambda-expression child.
+                push_lambda_expression;
+                ty: LambdaExpressionSyntax;
+                kind: SyntaxKind::LambdaExpression;
             },
             {
                 /// Returns async-block-expression children in source order.
