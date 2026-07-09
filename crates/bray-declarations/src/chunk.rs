@@ -1,8 +1,8 @@
-use bray_source::{SourceId, TextRange};
-use bray_syntax::SyntaxKind;
+use bray_source::SourceId;
 
 use crate::name::{DeclarationName, ModulePath};
 use crate::record::DeclarationKind;
+use crate::surface::{DeclarationSurface, SyntaxAnchor};
 
 /// Immutable declaration discovery output for one source unit.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -38,28 +38,22 @@ impl DeclarationChunk {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DiscoveredModulePart {
     pub(crate) path: ModulePath,
-    pub(crate) source_id: SourceId,
-    pub(crate) syntax_kind: SyntaxKind,
-    pub(crate) full_range: TextRange,
-    pub(crate) is_recovered: bool,
+    pub(crate) syntax: SyntaxAnchor,
+    pub(crate) surface: DeclarationSurface,
     pub(crate) declarations: Box<[DiscoveredDeclaration]>,
 }
 
 impl DiscoveredModulePart {
     pub(crate) fn new(
         path: ModulePath,
-        source_id: SourceId,
-        syntax_kind: SyntaxKind,
-        full_range: TextRange,
-        is_recovered: bool,
+        syntax: SyntaxAnchor,
+        surface: DeclarationSurface,
         declarations: Box<[DiscoveredDeclaration]>,
     ) -> Self {
         Self {
             path,
-            source_id,
-            syntax_kind,
-            full_range,
-            is_recovered,
+            syntax,
+            surface,
             declarations,
         }
     }
@@ -71,22 +65,32 @@ impl DiscoveredModulePart {
 
     /// Returns the source snapshot that contains this module part.
     pub const fn source_id(&self) -> SourceId {
-        self.source_id
+        self.syntax.source_id()
     }
 
     /// Returns the concrete syntax node kind this module part came from.
-    pub const fn syntax_kind(&self) -> SyntaxKind {
-        self.syntax_kind
+    pub const fn syntax_kind(&self) -> bray_syntax::SyntaxKind {
+        self.syntax.syntax_kind()
     }
 
     /// Returns the full source range covered by this module declaration syntax.
-    pub const fn full_range(&self) -> TextRange {
-        self.full_range
+    pub const fn full_range(&self) -> bray_source::TextRange {
+        self.syntax.full_range()
     }
 
     /// Returns whether this module part syntax contains parser recovery.
     pub const fn is_recovered(&self) -> bool {
-        self.is_recovered
+        self.syntax.is_recovered()
+    }
+
+    /// Returns the stable syntax anchor for this module part.
+    pub const fn syntax_anchor(&self) -> SyntaxAnchor {
+        self.syntax
+    }
+
+    /// Returns syntax-backed surface metadata for this module part.
+    pub const fn surface(&self) -> &DeclarationSurface {
+        &self.surface
     }
 
     /// Returns module-level declarations contributed by this part in source order.
@@ -100,10 +104,8 @@ impl DiscoveredModulePart {
 pub struct DiscoveredDeclaration {
     pub(crate) kind: DeclarationKind,
     pub(crate) name: Option<DeclarationName>,
-    pub(crate) source_id: SourceId,
-    pub(crate) syntax_kind: SyntaxKind,
-    pub(crate) full_range: TextRange,
-    pub(crate) is_recovered: bool,
+    pub(crate) syntax: SyntaxAnchor,
+    pub(crate) surface: DeclarationSurface,
     pub(crate) children: Box<[DiscoveredDeclaration]>,
 }
 
@@ -111,19 +113,15 @@ impl DiscoveredDeclaration {
     pub(crate) fn new(
         kind: DeclarationKind,
         name: Option<DeclarationName>,
-        source_id: SourceId,
-        syntax_kind: SyntaxKind,
-        full_range: TextRange,
-        is_recovered: bool,
+        syntax: SyntaxAnchor,
+        surface: DeclarationSurface,
         children: Box<[DiscoveredDeclaration]>,
     ) -> Self {
         Self {
             kind,
             name,
-            source_id,
-            syntax_kind,
-            full_range,
-            is_recovered,
+            syntax,
+            surface,
             children,
         }
     }
@@ -140,22 +138,32 @@ impl DiscoveredDeclaration {
 
     /// Returns the source snapshot that contains this declaration.
     pub const fn source_id(&self) -> SourceId {
-        self.source_id
+        self.syntax.source_id()
     }
 
     /// Returns the concrete syntax node kind this declaration came from.
-    pub const fn syntax_kind(&self) -> SyntaxKind {
-        self.syntax_kind
+    pub const fn syntax_kind(&self) -> bray_syntax::SyntaxKind {
+        self.syntax.syntax_kind()
     }
 
     /// Returns the full source range covered by this declaration syntax.
-    pub const fn full_range(&self) -> TextRange {
-        self.full_range
+    pub const fn full_range(&self) -> bray_source::TextRange {
+        self.syntax.full_range()
     }
 
     /// Returns whether this declaration syntax contains parser recovery.
     pub const fn is_recovered(&self) -> bool {
-        self.is_recovered
+        self.syntax.is_recovered()
+    }
+
+    /// Returns the stable syntax anchor for this declaration.
+    pub const fn syntax_anchor(&self) -> SyntaxAnchor {
+        self.syntax
+    }
+
+    /// Returns syntax-backed surface metadata for this declaration.
+    pub const fn surface(&self) -> &DeclarationSurface {
+        &self.surface
     }
 
     /// Returns direct declarations discovered inside this declaration's child container.

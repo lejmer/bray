@@ -1,4 +1,4 @@
-use bray_source::{SourceId, TextRange};
+use bray_source::SourceId;
 use bray_syntax::{
     BlockModuleDeclarationSyntax, SourceSyntaxNode, SourceUnitModuleDeclarationSyntax,
     SourceUnitSyntax, SyntaxKind, SyntaxNodeView, SyntaxWalkControl, SyntaxWalkEvent,
@@ -7,9 +7,11 @@ use bray_syntax::{
 
 use super::children::declaration_children;
 use super::names::{declaration_kind_for_syntax, declaration_name, path_from_syntax};
+use super::surface::{declaration_surface, module_surface};
 use crate::chunk::{DeclarationChunk, DiscoveredDeclaration, DiscoveredModulePart};
 use crate::name::{DeclarationName, ModulePath};
 use crate::record::DeclarationKind;
+use crate::{DeclarationSurface, SyntaxAnchor};
 
 /// Discovers module parts and declarations from one source unit.
 pub fn discover_source_unit_declarations(source_unit: &SourceUnitSyntax) -> DeclarationChunk {
@@ -94,10 +96,8 @@ impl SourceUnitDiscoverer {
 
         let part = ModulePartBuilder::new(
             path_from_syntax(&declaration.module_path()),
-            self.source_id,
-            view.kind(),
-            view.full_range(),
-            view.is_recovered(),
+            SyntaxAnchor::from_node(&view),
+            module_surface(view),
         );
 
         let part_index = self.push_module_part(part);
@@ -113,10 +113,8 @@ impl SourceUnitDiscoverer {
 
         let part = ModulePartBuilder::new(
             path_from_syntax(&declaration.module_path()),
-            self.source_id,
-            view.kind(),
-            view.full_range(),
-            view.is_recovered(),
+            SyntaxAnchor::from_node(&view),
+            module_surface(view),
         );
 
         let part_index = self.push_module_part(part);
@@ -136,10 +134,8 @@ impl SourceUnitDiscoverer {
         let mut declaration = DeclarationBuilder::new(
             declaration_kind,
             declaration_name(view, declaration_kind),
-            view.source().source_id(),
-            view.kind(),
-            view.full_range(),
-            view.is_recovered(),
+            SyntaxAnchor::from_node(&view),
+            declaration_surface(view, declaration_kind),
         );
 
         declaration.extend_children(declaration_children(view, declaration_kind));
@@ -214,10 +210,8 @@ impl SourceUnitDiscoverer {
 struct DeclarationBuilder {
     kind: DeclarationKind,
     name: Option<DeclarationName>,
-    source_id: SourceId,
-    syntax_kind: SyntaxKind,
-    full_range: TextRange,
-    is_recovered: bool,
+    syntax: SyntaxAnchor,
+    surface: DeclarationSurface,
     children: Vec<DiscoveredDeclaration>,
 }
 
@@ -225,18 +219,14 @@ impl DeclarationBuilder {
     fn new(
         kind: DeclarationKind,
         name: Option<DeclarationName>,
-        source_id: SourceId,
-        syntax_kind: SyntaxKind,
-        full_range: TextRange,
-        is_recovered: bool,
+        syntax: SyntaxAnchor,
+        surface: DeclarationSurface,
     ) -> Self {
         Self {
             kind,
             name,
-            source_id,
-            syntax_kind,
-            full_range,
-            is_recovered,
+            syntax,
+            surface,
             children: Vec::new(),
         }
     }
@@ -245,10 +235,8 @@ impl DeclarationBuilder {
         DiscoveredDeclaration::new(
             self.kind,
             self.name,
-            self.source_id,
-            self.syntax_kind,
-            self.full_range,
-            self.is_recovered,
+            self.syntax,
+            self.surface,
             self.children.into_boxed_slice(),
         )
     }
@@ -260,27 +248,17 @@ impl DeclarationBuilder {
 
 struct ModulePartBuilder {
     path: ModulePath,
-    source_id: SourceId,
-    syntax_kind: SyntaxKind,
-    full_range: TextRange,
-    is_recovered: bool,
+    syntax: SyntaxAnchor,
+    surface: DeclarationSurface,
     declarations: Vec<DiscoveredDeclaration>,
 }
 
 impl ModulePartBuilder {
-    fn new(
-        path: ModulePath,
-        source_id: SourceId,
-        syntax_kind: SyntaxKind,
-        full_range: TextRange,
-        is_recovered: bool,
-    ) -> Self {
+    fn new(path: ModulePath, syntax: SyntaxAnchor, surface: DeclarationSurface) -> Self {
         Self {
             path,
-            source_id,
-            syntax_kind,
-            full_range,
-            is_recovered,
+            syntax,
+            surface,
             declarations: Vec::new(),
         }
     }
@@ -288,10 +266,8 @@ impl ModulePartBuilder {
     fn finish(self) -> DiscoveredModulePart {
         DiscoveredModulePart::new(
             self.path,
-            self.source_id,
-            self.syntax_kind,
-            self.full_range,
-            self.is_recovered,
+            self.syntax,
+            self.surface,
             self.declarations.into_boxed_slice(),
         )
     }
@@ -619,6 +595,146 @@ mod tests {
         assert_eq!(identifier_names(function.children()), ["T", "N", "value"]);
     }
 
+    #[test]
+    fn source_unit_discovery_records_syntax_anchors_and_surface_metadata() {
+        let source_text = concat!(
+            "@test internal module core { ",
+            "@copy public struct Resource<T> with(copyable) { public mut value: T; } ",
+            "@test @abi(\"C\") public async trusted func main<T, const N: Int>",
+            "(pos value: Int = 1, mut tail: Bool,) -> Unit ",
+            "requires(valid) ensures(done) with(static_ok) uses(core.io) {} ",
+            "public callable Mapper<T> with(copyable) = func(value: T) -> Bool; ",
+            "union Maybe { @tag(1) Some(pos value: Int); } ",
+            "}"
+        );
+
+        let sources = source_store([source_text]);
+        let snapshot = source(&sources, 0);
+        let source_unit = parse_valid_source_unit(snapshot);
+        let chunk = discover_source_unit_declarations(&source_unit);
+
+        let [part] = chunk.module_parts() else {
+            panic!("expected one module part: {:?}", chunk.module_parts());
+        };
+
+        assert_eq!(part.syntax_anchor().source_id(), snapshot.source_id());
+
+        assert_eq!(
+            part.syntax_anchor().syntax_kind(),
+            SyntaxKind::BlockModuleDeclaration
+        );
+
+        assert_eq!(
+            part.surface().visibility(),
+            Some(SyntaxKind::InternalKeyword)
+        );
+
+        assert_eq!(part.surface().modifiers(), &[]);
+
+        assert_eq!(
+            anchor_kinds(part.surface().directives()),
+            [SyntaxKind::TestDirective]
+        );
+
+        let resource = identifier_declaration(part.declarations(), "Resource");
+
+        assert_eq!(
+            resource.syntax_anchor().syntax_kind(),
+            SyntaxKind::StructDeclaration
+        );
+
+        assert_eq!(
+            resource.surface().visibility(),
+            Some(SyntaxKind::PublicKeyword)
+        );
+
+        assert_eq!(
+            anchor_kinds(resource.surface().directives()),
+            [SyntaxKind::CopyDirective]
+        );
+
+        assert_eq!(
+            anchor_kinds(resource.surface().constraints()),
+            [SyntaxKind::WithClause]
+        );
+
+        let field = identifier_declaration(resource.children(), "value");
+
+        assert_eq!(
+            field.surface().visibility(),
+            Some(SyntaxKind::PublicKeyword)
+        );
+
+        assert_eq!(field.surface().modifiers(), &[SyntaxKind::MutKeyword]);
+
+        let function = identifier_declaration(part.declarations(), "main");
+
+        assert_eq!(
+            function.surface().visibility(),
+            Some(SyntaxKind::PublicKeyword)
+        );
+
+        assert_eq!(
+            function.surface().modifiers(),
+            &[SyntaxKind::AsyncKeyword, SyntaxKind::TrustedKeyword]
+        );
+
+        assert_eq!(
+            anchor_kinds(function.surface().directives()),
+            [SyntaxKind::TestDirective, SyntaxKind::AbiDirective]
+        );
+
+        assert_eq!(
+            anchor_kinds(function.surface().contract_clauses()),
+            [
+                SyntaxKind::RequiresClause,
+                SyntaxKind::EnsuresClause,
+                SyntaxKind::WithClause,
+                SyntaxKind::UsesClause
+            ]
+        );
+
+        let value_parameter = identifier_declaration(function.children(), "value");
+        let tail_parameter = identifier_declaration(function.children(), "tail");
+
+        assert_eq!(
+            value_parameter.surface().modifiers(),
+            &[SyntaxKind::PosKeyword]
+        );
+
+        assert_eq!(
+            tail_parameter.surface().modifiers(),
+            &[SyntaxKind::MutKeyword]
+        );
+
+        let callable_contract = identifier_declaration(part.declarations(), "Mapper");
+
+        assert_eq!(
+            callable_contract.surface().visibility(),
+            Some(SyntaxKind::PublicKeyword)
+        );
+
+        assert_eq!(
+            anchor_kinds(callable_contract.surface().constraints()),
+            [SyntaxKind::WithClause]
+        );
+
+        let union = identifier_declaration(part.declarations(), "Maybe");
+        let variant = identifier_declaration(union.children(), "Some");
+
+        assert_eq!(
+            anchor_kinds(variant.surface().directives()),
+            [SyntaxKind::TagDirective]
+        );
+
+        let payload_field = identifier_declaration(variant.children(), "value");
+
+        assert_eq!(
+            payload_field.surface().modifiers(),
+            &[SyntaxKind::PosKeyword]
+        );
+    }
+
     fn declaration_kinds(declarations: &[crate::DiscoveredDeclaration]) -> Vec<DeclarationKind> {
         declarations
             .iter()
@@ -678,6 +794,10 @@ mod tests {
             )
             | None => None,
         }
+    }
+
+    fn anchor_kinds(anchors: &[crate::SyntaxAnchor]) -> Vec<SyntaxKind> {
+        anchors.iter().map(|anchor| anchor.syntax_kind()).collect()
     }
 
     fn implementation_name(

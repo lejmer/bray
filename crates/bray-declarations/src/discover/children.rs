@@ -14,10 +14,12 @@ use bray_syntax::{
 };
 
 use super::names::identifier_declaration_name;
-use super::syntax::{cast_node, discovered_declaration};
+use super::surface::modifier_token_surface;
+use super::syntax::{cast_node, discovered_declaration, discovered_declaration_with_surface};
 use crate::chunk::DiscoveredDeclaration;
 use crate::name::DeclarationName;
 use crate::record::DeclarationKind;
+use crate::surface::DeclarationSurface;
 
 pub(super) fn declaration_children(
     view: SyntaxNodeView<'_>,
@@ -338,10 +340,11 @@ fn generic_const_parameter_declaration(
 }
 
 fn callable_parameter_declaration(parameter: ParameterSyntax) -> DiscoveredDeclaration {
-    identifier_node_declaration(
+    identifier_node_declaration_with_surface(
         DeclarationKind::CallableParameter,
         &parameter,
         parameter.identifier_token(),
+        modifier_token_surface(parameter.parameter_modifiers().tokens()),
     )
 }
 
@@ -354,10 +357,11 @@ fn predicate_parameter_declaration(parameter: PredicateParameterSyntax) -> Disco
 }
 
 fn union_payload_field_declaration(field: UnionPayloadFieldSyntax) -> DiscoveredDeclaration {
-    identifier_node_declaration(
+    identifier_node_declaration_with_surface(
         DeclarationKind::UnionPayloadField,
         &field,
         field.identifier_token(),
+        modifier_token_surface(field.payload_field_modifiers().tokens()),
     )
 }
 
@@ -370,6 +374,18 @@ where
     N: SourceSyntaxNode,
 {
     discovered_declaration(kind, identifier_node_name(node, token), node)
+}
+
+fn identifier_node_declaration_with_surface<N>(
+    kind: DeclarationKind,
+    node: &N,
+    token: SyntaxToken,
+    surface: DeclarationSurface,
+) -> DiscoveredDeclaration
+where
+    N: SourceSyntaxNode,
+{
+    discovered_declaration_with_surface(kind, identifier_node_name(node, token), node, surface)
 }
 
 fn identifier_node_name<N>(node: &N, token: SyntaxToken) -> Option<DeclarationName>

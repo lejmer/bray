@@ -63,15 +63,16 @@ impl TableBuilder {
         // ModulePath clones share immutable segment storage across records and indexes.
         let module_name = Some(DeclarationName::Path(part.path.clone()));
 
+        // Module parts and their module declarations expose the same syntax surface.
+        let module_part_surface = part.surface.clone();
+
         let module_declaration = self.push_declaration_record(DeclarationRecordInput {
             id: self.next_declaration_id(),
             kind: DeclarationKind::Module,
             owning_container: self.root_container_id(),
             name: module_name,
-            source_id: part.source_id,
-            syntax_kind: part.syntax_kind,
-            full_range: part.full_range,
-            is_recovered: part.is_recovered,
+            syntax: part.syntax,
+            surface: part.surface,
             child_container: Some(module_container),
         });
 
@@ -94,10 +95,8 @@ impl TableBuilder {
                 id: module_part_id,
                 module_container,
                 declaration: module_declaration,
-                source_id: part.source_id,
-                syntax_kind: part.syntax_kind,
-                full_range: part.full_range,
-                is_recovered: part.is_recovered,
+                syntax: part.syntax,
+                surface: module_part_surface,
                 declarations: part_declarations.into_boxed_slice(),
             }));
 
@@ -121,10 +120,8 @@ impl TableBuilder {
             kind: declaration.kind,
             owning_container,
             name: declaration.name,
-            source_id: declaration.source_id,
-            syntax_kind: declaration.syntax_kind,
-            full_range: declaration.full_range,
-            is_recovered: declaration.is_recovered,
+            syntax: declaration.syntax,
+            surface: declaration.surface,
             child_container,
         });
 
@@ -549,6 +546,107 @@ mod tests {
         );
     }
 
+    #[test]
+    fn merge_preserves_syntax_anchors_and_surface_metadata() {
+        let sources = source_store([concat!(
+            "@test internal module core;\n",
+            "@copy public struct Resource { public mut value: Int; }\n",
+        )]);
+
+        let snapshot = source(&sources, 0);
+        let chunk = discover_source_unit_declarations(&parse_valid_source_unit(snapshot));
+        let table = merge_declaration_chunks([chunk]);
+
+        let module = match table.module_container(&ModulePath::new(["core"])) {
+            Some(module) => module,
+            None => panic!("expected core module container"),
+        };
+
+        let [module_part_id] = module.module_parts() else {
+            panic!("expected one module part: {:?}", module.module_parts());
+        };
+
+        let module_part = match table.module_part(*module_part_id) {
+            Some(part) => part,
+            None => panic!("module part ID should exist: {module_part_id:?}"),
+        };
+
+        let module_declaration = match table.declaration(module_part.declaration()) {
+            Some(declaration) => declaration,
+            None => panic!("module declaration ID should exist"),
+        };
+
+        assert_eq!(
+            module_part.syntax_anchor().source_id(),
+            snapshot.source_id()
+        );
+
+        assert_eq!(
+            module_part.syntax_anchor().syntax_kind(),
+            SyntaxKind::SourceUnitModuleDeclaration
+        );
+
+        assert_eq!(
+            module_declaration.syntax_anchor(),
+            module_part.syntax_anchor()
+        );
+
+        assert_eq!(module_declaration.surface(), module_part.surface());
+
+        assert_eq!(
+            module_part.surface().visibility(),
+            Some(SyntaxKind::InternalKeyword)
+        );
+
+        assert_eq!(
+            anchor_kinds(module_part.surface().directives()),
+            [SyntaxKind::TestDirective]
+        );
+
+        let [struct_id] = module.declarations() else {
+            panic!(
+                "expected one module declaration: {:?}",
+                module.declarations()
+            );
+        };
+
+        let struct_declaration = match table.declaration(*struct_id) {
+            Some(declaration) => declaration,
+            None => panic!("struct declaration ID should exist"),
+        };
+
+        assert_eq!(
+            struct_declaration.syntax_kind(),
+            SyntaxKind::StructDeclaration
+        );
+
+        assert_eq!(
+            struct_declaration.surface().visibility(),
+            Some(SyntaxKind::PublicKeyword)
+        );
+
+        assert_eq!(
+            anchor_kinds(struct_declaration.surface().directives()),
+            [SyntaxKind::CopyDirective]
+        );
+
+        let [field_id] = child_declaration_ids(&table, *struct_id) else {
+            panic!("expected one struct field");
+        };
+
+        let field = match table.declaration(*field_id) {
+            Some(declaration) => declaration,
+            None => panic!("field declaration ID should exist"),
+        };
+
+        assert_eq!(
+            field.surface().visibility(),
+            Some(SyntaxKind::PublicKeyword)
+        );
+
+        assert_eq!(field.surface().modifiers(), &[SyntaxKind::MutKeyword]);
+    }
+
     fn declaration_kind(
         table: &crate::DeclarationTable,
         id: crate::DeclarationId,
@@ -662,5 +760,9 @@ mod tests {
         declaration
             .name()
             .and_then(crate::DeclarationName::as_keyword)
+    }
+
+    fn anchor_kinds(anchors: &[crate::SyntaxAnchor]) -> Vec<SyntaxKind> {
+        anchors.iter().map(|anchor| anchor.syntax_kind()).collect()
     }
 }

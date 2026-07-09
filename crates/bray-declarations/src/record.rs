@@ -1,8 +1,6 @@
-use bray_source::{SourceId, TextRange};
-use bray_syntax::SyntaxKind;
-
 use crate::id::{ContainerId, DeclarationId, ModulePartId};
 use crate::name::{DeclarationName, ModulePath};
+use crate::surface::{DeclarationSurface, SyntaxAnchor};
 
 /// Syntax declaration category recorded before symbols exist.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -165,10 +163,8 @@ pub struct DeclarationRecord {
     kind: DeclarationKind,
     owning_container: ContainerId,
     name: Option<DeclarationName>,
-    source_id: SourceId,
-    syntax_kind: SyntaxKind,
-    full_range: TextRange,
-    is_recovered: bool,
+    syntax: SyntaxAnchor,
+    surface: DeclarationSurface,
     child_container: Option<ContainerId>,
 }
 
@@ -179,10 +175,8 @@ impl DeclarationRecord {
             kind: input.kind,
             owning_container: input.owning_container,
             name: input.name,
-            source_id: input.source_id,
-            syntax_kind: input.syntax_kind,
-            full_range: input.full_range,
-            is_recovered: input.is_recovered,
+            syntax: input.syntax,
+            surface: input.surface,
             child_container: input.child_container,
         }
     }
@@ -208,23 +202,33 @@ impl DeclarationRecord {
     }
 
     /// Returns the source snapshot that contains this declaration.
-    pub const fn source_id(&self) -> SourceId {
-        self.source_id
+    pub const fn source_id(&self) -> bray_source::SourceId {
+        self.syntax.source_id()
     }
 
     /// Returns the concrete syntax node kind this record came from.
-    pub const fn syntax_kind(&self) -> SyntaxKind {
-        self.syntax_kind
+    pub const fn syntax_kind(&self) -> bray_syntax::SyntaxKind {
+        self.syntax.syntax_kind()
     }
 
     /// Returns the full source range covered by this declaration syntax.
-    pub const fn full_range(&self) -> TextRange {
-        self.full_range
+    pub const fn full_range(&self) -> bray_source::TextRange {
+        self.syntax.full_range()
     }
 
     /// Returns whether this declaration syntax contains parser recovery.
     pub const fn is_recovered(&self) -> bool {
-        self.is_recovered
+        self.syntax.is_recovered()
+    }
+
+    /// Returns the stable syntax anchor for this declaration.
+    pub const fn syntax_anchor(&self) -> SyntaxAnchor {
+        self.syntax
+    }
+
+    /// Returns syntax-backed surface metadata for this declaration.
+    pub const fn surface(&self) -> &DeclarationSurface {
+        &self.surface
     }
 
     /// Returns the child declaration container introduced by this declaration.
@@ -238,10 +242,8 @@ pub(crate) struct DeclarationRecordInput {
     pub(crate) kind: DeclarationKind,
     pub(crate) owning_container: ContainerId,
     pub(crate) name: Option<DeclarationName>,
-    pub(crate) source_id: SourceId,
-    pub(crate) syntax_kind: SyntaxKind,
-    pub(crate) full_range: TextRange,
-    pub(crate) is_recovered: bool,
+    pub(crate) syntax: SyntaxAnchor,
+    pub(crate) surface: DeclarationSurface,
     pub(crate) child_container: Option<ContainerId>,
 }
 
@@ -314,10 +316,8 @@ pub struct ModulePartRecord {
     id: ModulePartId,
     module_container: ContainerId,
     declaration: DeclarationId,
-    source_id: SourceId,
-    syntax_kind: SyntaxKind,
-    full_range: TextRange,
-    is_recovered: bool,
+    syntax: SyntaxAnchor,
+    surface: DeclarationSurface,
     declarations: Box<[DeclarationId]>,
 }
 
@@ -327,10 +327,8 @@ impl ModulePartRecord {
             id: input.id,
             module_container: input.module_container,
             declaration: input.declaration,
-            source_id: input.source_id,
-            syntax_kind: input.syntax_kind,
-            full_range: input.full_range,
-            is_recovered: input.is_recovered,
+            syntax: input.syntax,
+            surface: input.surface,
             declarations: input.declarations,
         }
     }
@@ -351,23 +349,33 @@ impl ModulePartRecord {
     }
 
     /// Returns the source snapshot that contains this module part.
-    pub const fn source_id(&self) -> SourceId {
-        self.source_id
+    pub const fn source_id(&self) -> bray_source::SourceId {
+        self.syntax.source_id()
     }
 
     /// Returns the concrete syntax node kind this module part came from.
-    pub const fn syntax_kind(&self) -> SyntaxKind {
-        self.syntax_kind
+    pub const fn syntax_kind(&self) -> bray_syntax::SyntaxKind {
+        self.syntax.syntax_kind()
     }
 
     /// Returns the full source range covered by this module declaration syntax.
-    pub const fn full_range(&self) -> TextRange {
-        self.full_range
+    pub const fn full_range(&self) -> bray_source::TextRange {
+        self.syntax.full_range()
     }
 
     /// Returns whether this module part syntax contains parser recovery.
     pub const fn is_recovered(&self) -> bool {
-        self.is_recovered
+        self.syntax.is_recovered()
+    }
+
+    /// Returns the stable syntax anchor for this module part.
+    pub const fn syntax_anchor(&self) -> SyntaxAnchor {
+        self.syntax
+    }
+
+    /// Returns syntax-backed surface metadata for this module part.
+    pub const fn surface(&self) -> &DeclarationSurface {
+        &self.surface
     }
 
     /// Returns declarations contributed by this module part in source order.
@@ -380,9 +388,7 @@ pub(crate) struct ModulePartRecordInput {
     pub(crate) id: ModulePartId,
     pub(crate) module_container: ContainerId,
     pub(crate) declaration: DeclarationId,
-    pub(crate) source_id: SourceId,
-    pub(crate) syntax_kind: SyntaxKind,
-    pub(crate) full_range: TextRange,
-    pub(crate) is_recovered: bool,
+    pub(crate) syntax: SyntaxAnchor,
+    pub(crate) surface: DeclarationSurface,
     pub(crate) declarations: Box<[DeclarationId]>,
 }
