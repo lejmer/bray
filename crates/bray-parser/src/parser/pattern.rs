@@ -740,10 +740,7 @@ mod tests {
 
         assert_eq!(
             diagnostic_kinds(&diagnostics),
-            [
-                DiagnosticKind::LexicalInvalidCharacter,
-                DiagnosticKind::SyntaxSkippedSyntax
-            ]
+            [DiagnosticKind::LexicalInvalidCharacter]
         );
     }
 

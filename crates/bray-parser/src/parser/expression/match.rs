@@ -163,7 +163,6 @@ mod tests {
         let diagnostic_kinds = diagnostic_kinds(&diagnostics);
 
         assert!(diagnostic_kinds.contains(&DiagnosticKind::LexicalInvalidCharacter));
-        assert!(diagnostic_kinds.contains(&DiagnosticKind::SyntaxSkippedSyntax));
     }
 
     #[test]

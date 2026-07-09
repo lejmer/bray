@@ -2,7 +2,7 @@ use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticId, DiagnosticKind, DiagnosticLabel, DiagnosticLabelKind,
     SeverityKind,
 };
-use bray_source::{SourceSnapshot, SourceSpan, TextRange, TextSize};
+use bray_source::{SourceSnapshot, SourceSpan, TextSize};
 use bray_syntax::{SyntaxKind, SyntaxToken};
 
 pub(crate) fn expected_token(
@@ -40,13 +40,18 @@ pub(crate) fn unexpected_eof(
         ))
 }
 
-pub(crate) fn skipped_syntax(snapshot: &SourceSnapshot, range: TextRange) -> Diagnostic {
-    let span = SourceSpan::new(snapshot.source_id(), range);
+pub(crate) fn expected_expression(snapshot: &SourceSnapshot, actual: &SyntaxToken) -> Diagnostic {
+    let span = SourceSpan::new(snapshot.source_id(), actual.range());
+    let expected_arg = DiagnosticArg::expected_syntax_kind(SyntaxKind::Expression);
 
-    diagnostic(span, DiagnosticKind::SyntaxSkippedSyntax).with_label(DiagnosticLabel::primary(
-        DiagnosticLabelKind::SkippedSyntax,
-        span,
-    ))
+    diagnostic(span, DiagnosticKind::SyntaxExpectedExpression)
+        .with_arg(expected_arg.clone())
+        .with_arg(DiagnosticArg::actual_syntax_kind(actual.kind()))
+        .with_optional_arg(token_text_arg(snapshot, actual))
+        .with_label(
+            DiagnosticLabel::primary(DiagnosticLabelKind::ExpectedExpression, span)
+                .with_arg(expected_arg),
+        )
 }
 
 trait WithOptionalArg {
@@ -82,14 +87,12 @@ fn token_text_arg(snapshot: &SourceSnapshot, token: &SyntaxToken) -> Option<Diag
 
 #[cfg(test)]
 mod tests {
-    use bray_diagnostics::{
-        DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticKind, DiagnosticLabelKind,
-    };
+    use bray_diagnostics::{DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticKind};
     use bray_source::{TextRange, TextSize};
     use bray_syntax::{SyntaxKind, SyntaxToken};
     use bray_testing::test_source_snapshot as snapshot;
 
-    use super::{expected_token, skipped_syntax, unexpected_eof};
+    use super::{expected_expression, expected_token, unexpected_eof};
 
     #[test]
     fn expected_token_diagnostic_uses_an_insertion_point_span() {
@@ -143,23 +146,36 @@ mod tests {
     }
 
     #[test]
-    fn skipped_syntax_diagnostic_covers_the_skipped_range() {
-        let snapshot = snapshot("abc");
-        let skipped = TextRange::new(TextSize::new(1), TextSize::new(3));
+    fn expected_expression_diagnostic_covers_the_actual_token() {
+        let snapshot = snapshot("@value");
 
-        let diagnostic = skipped_syntax(&snapshot, skipped);
-
-        assert_eq!(diagnostic.kind(), DiagnosticKind::SyntaxSkippedSyntax);
-        assert_eq!(
-            diagnostic.primary_span(),
-            Some(bray_source::SourceSpan::new(snapshot.source_id(), skipped))
+        let token = SyntaxToken::new(
+            SyntaxKind::AtToken,
+            TextRange::new(TextSize::ZERO, TextSize::new(1)),
         );
 
-        let [label] = diagnostic.labels() else {
-            panic!("expected one skipped-syntax label: {diagnostic:?}");
-        };
+        let diagnostic = expected_expression(&snapshot, &token);
 
-        assert_eq!(label.kind(), DiagnosticLabelKind::SkippedSyntax);
-        assert_eq!(label.span().range(), skipped);
+        assert_eq!(diagnostic.kind(), DiagnosticKind::SyntaxExpectedExpression);
+
+        assert_eq!(
+            diagnostic.primary_span(),
+            Some(bray_source::SourceSpan::new(
+                snapshot.source_id(),
+                TextRange::new(TextSize::ZERO, TextSize::new(1))
+            ))
+        );
+
+        assert_eq!(
+            diagnostic.args(),
+            &[
+                DiagnosticArg::expected_syntax_kind(SyntaxKind::Expression),
+                DiagnosticArg::actual_syntax_kind(SyntaxKind::AtToken),
+                DiagnosticArg::new(
+                    DiagnosticArgName::TokenText,
+                    DiagnosticArgValue::TokenText(String::from("@"))
+                ),
+            ]
+        );
     }
 }

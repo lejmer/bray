@@ -1,4 +1,4 @@
-use bray_diagnostics::DiagnosticBag;
+use bray_diagnostics::{Diagnostic, DiagnosticBag};
 use bray_source::SourceSnapshot;
 use bray_syntax::{SyntaxKind, SyntaxToken};
 
@@ -112,8 +112,8 @@ impl Parser {
         self.cursor.skip_one()
     }
 
-    pub(super) fn record_skipped_syntax_for_tokens(&mut self, tokens: &[SyntaxToken]) {
-        self.cursor.record_skipped_syntax_for_tokens(tokens);
+    pub(super) fn record_syntax_diagnostic(&mut self, diagnostic: Diagnostic) {
+        self.cursor.record_syntax_diagnostic(diagnostic);
     }
 
     pub(super) fn skip_until_balanced_close_brace_or_recovery(
@@ -134,9 +134,7 @@ impl Parser {
 
     pub(super) fn scan_until_balanced_close_paren(&mut self, stop_kinds: &[SyntaxKind]) {
         self.cursor
-            .skip_until_balanced_close_paren_unreported(crate::cursor::RecoverySet::new(
-                stop_kinds,
-            ));
+            .skip_until_balanced_close_paren(crate::cursor::RecoverySet::new(stop_kinds));
     }
 }
 

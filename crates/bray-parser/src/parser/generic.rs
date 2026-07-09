@@ -427,7 +427,6 @@ mod tests {
             [
                 DiagnosticKind::LexicalInvalidCharacter,
                 DiagnosticKind::SyntaxExpectedToken,
-                DiagnosticKind::SyntaxSkippedSyntax
             ]
         );
     }

@@ -93,10 +93,10 @@ pub enum DiagnosticLabelKind {
     UnterminatedBlockCommentStart,
     /// Label for a missing token insertion point.
     ExpectedTokenInsertionPoint,
+    /// Label for source text where an expression was expected.
+    ExpectedExpression,
     /// Label for an end-of-file position reached before syntax was complete.
     UnexpectedEof,
-    /// Label for source text skipped during parser recovery.
-    SkippedSyntax,
 }
 
 impl DiagnosticLabelKind {
@@ -118,8 +118,8 @@ impl DiagnosticLabelKind {
             Self::InvalidUnicodeEscape => "invalid_unicode_escape",
             Self::UnterminatedBlockCommentStart => "unterminated_block_comment_start",
             Self::ExpectedTokenInsertionPoint => "expected_token_insertion_point",
+            Self::ExpectedExpression => "expected_expression",
             Self::UnexpectedEof => "unexpected_eof",
-            Self::SkippedSyntax => "skipped_syntax",
         }
     }
 }

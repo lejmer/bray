@@ -1,5 +1,4 @@
 use bray_diagnostics::DiagnosticBag;
-use bray_source::TextRange;
 use bray_syntax::{SyntaxKind, SyntaxToken};
 
 use crate::diagnostic;
@@ -125,18 +124,14 @@ impl ParserCursor {
     /// named syntax slot. Consumed tokens are returned for attachment under a
     /// skipped-syntax node.
     pub(crate) fn skip_until(&mut self, recovery_set: RecoverySet<'_>) -> Vec<SyntaxToken> {
-        let skipped_tokens = self.skip_until_unreported(recovery_set);
-
-        self.record_skipped_syntax(&skipped_tokens);
-
-        skipped_tokens
+        self.skip_until_tokens(recovery_set)
     }
 
     /// Consumes one non-EOF token and then consumes until a recovery token or EOF.
     ///
     /// The recovery token is left unconsumed so the caller can use it for a
     /// named syntax slot. Consumed tokens are returned for attachment under a
-    /// skipped-syntax node and reported as one contiguous skipped range.
+    /// skipped-syntax node.
     pub(crate) fn skip_current_and_until(
         &mut self,
         recovery_set: RecoverySet<'_>,
@@ -144,28 +139,25 @@ impl ParserCursor {
         let mut skipped_tokens = Vec::new();
 
         self.consume_skipped_token_into(&mut skipped_tokens);
-        skipped_tokens.extend(self.skip_until_unreported(recovery_set));
-
-        self.record_skipped_syntax(&skipped_tokens);
+        skipped_tokens.extend(self.skip_until_tokens(recovery_set));
 
         skipped_tokens
     }
 
-    /// Consumes one non-EOF token and records it as skipped syntax.
+    /// Consumes one non-EOF token for attachment as skipped syntax.
     pub(crate) fn skip_one(&mut self) -> Option<SyntaxToken> {
         let mut skipped_tokens = Vec::new();
 
         self.consume_skipped_token_into(&mut skipped_tokens);
-        self.record_skipped_syntax(&skipped_tokens);
 
         skipped_tokens.into_iter().next()
     }
 
-    pub(crate) fn skip_until_balanced_close_paren_unreported(
+    pub(crate) fn skip_until_balanced_close_paren(
         &mut self,
         recovery_set: RecoverySet<'_>,
     ) -> Vec<SyntaxToken> {
-        self.skip_until_balanced_close_unreported(
+        self.skip_until_balanced_close(
             DelimiterPair::new(SyntaxKind::OpenParenToken, SyntaxKind::CloseParenToken),
             recovery_set,
             0,
@@ -180,13 +172,11 @@ impl ParserCursor {
         &mut self,
         recovery_set: RecoverySet<'_>,
     ) -> Vec<SyntaxToken> {
-        let skipped_tokens = self.skip_until_balanced_close_unreported(
+        let skipped_tokens = self.skip_until_balanced_close(
             DelimiterPair::new(SyntaxKind::OpenBraceToken, SyntaxKind::CloseBraceToken),
             recovery_set,
             0,
         );
-
-        self.record_skipped_syntax(&skipped_tokens);
 
         skipped_tokens
     }
@@ -209,18 +199,12 @@ impl ParserCursor {
             skipped_tokens.push(skipped_token);
         }
 
-        skipped_tokens.extend(self.skip_until_balanced_close_unreported(
-            delimiters,
-            recovery_set,
-            depth,
-        ));
-
-        self.record_skipped_syntax(&skipped_tokens);
+        skipped_tokens.extend(self.skip_until_balanced_close(delimiters, recovery_set, depth));
 
         skipped_tokens
     }
 
-    fn skip_until_balanced_close_unreported(
+    fn skip_until_balanced_close(
         &mut self,
         delimiters: DelimiterPair,
         recovery_set: RecoverySet<'_>,
@@ -266,17 +250,13 @@ impl ParserCursor {
             .merge_diagnostics_from(cursor.token_source.diagnostics());
     }
 
-    pub(crate) fn record_skipped_syntax_for_tokens(&mut self, tokens: &[SyntaxToken]) {
-        self.record_skipped_syntax(tokens);
-    }
-
-    fn record_syntax_diagnostic(&mut self, diagnostic: bray_diagnostics::Diagnostic) {
+    pub(crate) fn record_syntax_diagnostic(&mut self, diagnostic: bray_diagnostics::Diagnostic) {
         self.syntax_diagnostics = self
             .syntax_diagnostics
             .merged(&DiagnosticBag::single(diagnostic));
     }
 
-    fn skip_until_unreported(&mut self, recovery_set: RecoverySet<'_>) -> Vec<SyntaxToken> {
+    fn skip_until_tokens(&mut self, recovery_set: RecoverySet<'_>) -> Vec<SyntaxToken> {
         let mut skipped_tokens = Vec::new();
 
         loop {
@@ -312,27 +292,6 @@ impl ParserCursor {
             None => panic!("parser cursor token changed between peek and consume"),
         }
     }
-
-    fn record_skipped_syntax(&mut self, tokens: &[SyntaxToken]) {
-        let Some(range) = skipped_syntax_range(tokens) else {
-            return;
-        };
-
-        let diagnostic = diagnostic::skipped_syntax(self.token_source.source(), range);
-
-        self.record_syntax_diagnostic(diagnostic);
-    }
-}
-
-fn skipped_syntax_range(tokens: &[SyntaxToken]) -> Option<TextRange> {
-    let (first, rest) = tokens.split_first()?;
-    let mut range = first.full_range();
-
-    for token in rest {
-        range = range.cover(token.full_range());
-    }
-
-    Some(range)
 }
 
 #[cfg(test)]
@@ -503,18 +462,8 @@ mod tests {
         assert_eq!(cursor.peek().kind(), SyntaxKind::CloseBraceToken);
 
         let diagnostics = cursor.finish();
-        let diagnostic = match diagnostics
-            .by_kind(DiagnosticKind::SyntaxSkippedSyntax)
-            .next()
-        {
-            Some(diagnostic) => diagnostic,
-            None => panic!("skipped syntax diagnostic should be present"),
-        };
 
-        assert_eq!(
-            diagnostic.primary_span().map(|span| span.range()),
-            Some(TextRange::new(TextSize::ZERO, TextSize::new(5)))
-        );
+        assert!(diagnostics.is_empty());
     }
 
     #[test]
@@ -594,10 +543,7 @@ mod tests {
 
         let diagnostics = cursor.finish();
 
-        assert_eq!(
-            diagnostic_kinds(&diagnostics),
-            [DiagnosticKind::SyntaxSkippedSyntax]
-        );
+        assert!(diagnostics.is_empty());
     }
 
     #[test]
@@ -623,10 +569,7 @@ mod tests {
 
         let diagnostics = cursor.finish();
 
-        assert_eq!(
-            diagnostic_kinds(&diagnostics),
-            [DiagnosticKind::SyntaxSkippedSyntax]
-        );
+        assert!(diagnostics.is_empty());
     }
 
     #[test]
@@ -641,7 +584,7 @@ mod tests {
     }
 
     #[test]
-    fn cursor_skip_one_consumes_one_token_and_records_skipped_syntax() {
+    fn cursor_skip_one_consumes_one_token_without_syntax_diagnostics() {
         let mut cursor = cursor("main tail");
 
         let skipped = match cursor.skip_one() {
@@ -654,10 +597,7 @@ mod tests {
 
         let diagnostics = cursor.finish();
 
-        assert_eq!(
-            diagnostic_kinds(&diagnostics),
-            [DiagnosticKind::SyntaxSkippedSyntax]
-        );
+        assert!(diagnostics.is_empty());
     }
 
     #[test]
@@ -672,10 +612,7 @@ mod tests {
 
         assert_eq!(
             diagnostic_kinds(&diagnostics),
-            [
-                DiagnosticKind::LexicalInvalidCharacter,
-                DiagnosticKind::SyntaxSkippedSyntax
-            ]
+            [DiagnosticKind::LexicalInvalidCharacter]
         );
     }
 

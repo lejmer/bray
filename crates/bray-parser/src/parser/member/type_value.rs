@@ -279,9 +279,6 @@ mod tests {
         assert_eq!(source_unit.full_text(), source);
         assert_eq!(default.full_text(), "= Value");
 
-        assert_eq!(
-            parse_diagnostic_kinds(&result),
-            [DiagnosticKind::SyntaxSkippedSyntax]
-        );
+        assert_eq!(parse_diagnostic_kinds(&result), []);
     }
 }

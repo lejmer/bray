@@ -828,10 +828,7 @@ mod tests {
             insertion,
             SyntaxKind::ModuleKeyword,
             "module",
-            &[
-                DiagnosticKind::SyntaxExpectedToken,
-                DiagnosticKind::SyntaxSkippedSyntax,
-            ],
+            &[DiagnosticKind::SyntaxExpectedToken],
         );
     }
 
@@ -934,10 +931,7 @@ mod tests {
 
         assert_eq!(directives.test_directives().count(), 1);
 
-        assert_eq!(
-            parse_diagnostic_kinds(&result),
-            [DiagnosticKind::SyntaxSkippedSyntax]
-        );
+        assert_eq!(parse_diagnostic_kinds(&result), []);
     }
 
     #[test]
@@ -1125,9 +1119,6 @@ mod tests {
 
         assert_eq!(skipped.full_text(), "123 ");
 
-        assert_eq!(
-            parse_diagnostic_kinds(&result),
-            [DiagnosticKind::SyntaxSkippedSyntax]
-        );
+        assert_eq!(parse_diagnostic_kinds(&result), []);
     }
 }
