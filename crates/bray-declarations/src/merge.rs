@@ -269,6 +269,7 @@ impl ContainerBuilder {
 
 #[cfg(test)]
 mod tests {
+    use bray_source::{TextRange, TextSize};
     use bray_syntax::SyntaxKind;
     use bray_testing::{test_source_at as source, test_source_store as source_store};
 
@@ -276,7 +277,7 @@ mod tests {
     use crate::discover_source_unit_declarations;
     use crate::name::ModulePath;
     use crate::record::{ContainerKind, DeclarationKind};
-    use crate::test_support::parse_valid_source_unit;
+    use crate::test_support::{parse_recovered_source_unit_for_test, parse_valid_source_unit_for_test};
 
     #[test]
     fn merge_combines_multiple_source_units_that_contribute_to_one_module() {
@@ -286,10 +287,10 @@ mod tests {
         ]);
 
         let first =
-            discover_source_unit_declarations(&parse_valid_source_unit(source(&sources, 0)));
+            discover_source_unit_declarations(&parse_valid_source_unit_for_test(source(&sources, 0)));
 
         let second =
-            discover_source_unit_declarations(&parse_valid_source_unit(source(&sources, 1)));
+            discover_source_unit_declarations(&parse_valid_source_unit_for_test(source(&sources, 1)));
 
         let forward = merge_declaration_chunks([first.clone(), second.clone()]);
         let reverse = merge_declaration_chunks([second, first]);
@@ -333,6 +334,251 @@ mod tests {
     }
 
     #[test]
+    fn merge_combines_multiple_block_module_parts_for_one_module() {
+        let sources = source_store([concat!(
+            "module core { struct Point { x: Int; } }\n",
+            "module core { impl Point { func translate() {} } }",
+        )]);
+
+        let chunk =
+            discover_source_unit_declarations(&parse_valid_source_unit_for_test(source(&sources, 0)));
+        let table = merge_declaration_chunks([chunk]);
+
+        let module = match table.module_container(&ModulePath::new(["core"])) {
+            Some(module) => module,
+            None => panic!("expected core module container"),
+        };
+
+        assert_eq!(
+            module.module_parts(),
+            [crate::ModulePartId::new(0), crate::ModulePartId::new(1)]
+        );
+
+        assert_eq!(
+            module
+                .module_parts()
+                .iter()
+                .map(|id| table.module_part(*id).map(|part| part.syntax_kind()))
+                .collect::<Vec<_>>(),
+            [
+                Some(SyntaxKind::BlockModuleDeclaration),
+                Some(SyntaxKind::BlockModuleDeclaration)
+            ]
+        );
+
+        assert_eq!(
+            module
+                .declarations()
+                .iter()
+                .map(|id| declaration_kind(&table, *id))
+                .collect::<Vec<_>>(),
+            [
+                DeclarationKind::Struct,
+                DeclarationKind::InherentImplementation
+            ]
+        );
+    }
+
+    #[test]
+    fn merge_is_deterministic_for_reversed_chunks_with_nested_child_containers() {
+        let sources = source_store([
+            "module core; struct Point { x: Int; }\n",
+            "module core; union Maybe { Some(value: Int); }\n",
+        ]);
+
+        let first =
+            discover_source_unit_declarations(&parse_valid_source_unit_for_test(source(&sources, 0)));
+        let second =
+            discover_source_unit_declarations(&parse_valid_source_unit_for_test(source(&sources, 1)));
+
+        let forward = merge_declaration_chunks([first.clone(), second.clone()]);
+        let reverse = merge_declaration_chunks([second, first]);
+
+        assert_eq!(forward, reverse);
+
+        let module = match forward.module_container(&ModulePath::new(["core"])) {
+            Some(module) => module,
+            None => panic!("expected core module container"),
+        };
+
+        let [struct_id, union_id] = module.declarations() else {
+            panic!(
+                "expected struct and union declarations: {:?}",
+                module.declarations()
+            );
+        };
+
+        assert_eq!(
+            child_container_kind(&forward, *struct_id),
+            Some(ContainerKind::Type)
+        );
+
+        assert_eq!(
+            child_declaration_kinds(&forward, *struct_id),
+            [DeclarationKind::StructField]
+        );
+
+        assert_eq!(
+            child_container_kind(&forward, *union_id),
+            Some(ContainerKind::Type)
+        );
+
+        let [variant_id] = child_declaration_ids(&forward, *union_id) else {
+            panic!("expected one union variant");
+        };
+
+        assert_eq!(
+            child_container_kind(&forward, *variant_id),
+            Some(ContainerKind::Variant)
+        );
+
+        assert_eq!(
+            child_declaration_kinds(&forward, *variant_id),
+            [DeclarationKind::UnionPayloadField]
+        );
+    }
+
+    #[test]
+    fn merge_assigns_stable_ids_for_mixed_source_unit_and_block_module_parts() {
+        let sources = source_store([
+            "module core; struct Point { x: Int; }\n",
+            "module core { union Maybe { Some(value: Int); } }\n",
+        ]);
+
+        let source_unit_part =
+            discover_source_unit_declarations(&parse_valid_source_unit_for_test(source(&sources, 0)));
+
+        let block_part =
+            discover_source_unit_declarations(&parse_valid_source_unit_for_test(source(&sources, 1)));
+
+        let forward = merge_declaration_chunks([source_unit_part.clone(), block_part.clone()]);
+        let reverse = merge_declaration_chunks([block_part, source_unit_part]);
+
+        assert_eq!(forward, reverse);
+
+        assert_eq!(
+            forward
+                .declarations()
+                .iter()
+                .map(|declaration| (
+                    declaration.id().raw(),
+                    declaration.kind(),
+                    declaration.owning_container().raw()
+                ))
+                .collect::<Vec<_>>(),
+            [
+                (0, DeclarationKind::Module, 0),
+                (1, DeclarationKind::Struct, 1),
+                (2, DeclarationKind::StructField, 2),
+                (3, DeclarationKind::Module, 0),
+                (4, DeclarationKind::Union, 1),
+                (5, DeclarationKind::UnionVariant, 3),
+                (6, DeclarationKind::UnionPayloadField, 4),
+            ]
+        );
+
+        assert_eq!(
+            forward
+                .containers()
+                .iter()
+                .map(|container| {
+                    (
+                        container.id().raw(),
+                        container.kind(),
+                        container.parent().map(crate::ContainerId::raw),
+                    )
+                })
+                .collect::<Vec<_>>(),
+            [
+                (0, ContainerKind::Root, None),
+                (1, ContainerKind::Module, Some(0)),
+                (2, ContainerKind::Type, Some(1)),
+                (3, ContainerKind::Type, Some(1)),
+                (4, ContainerKind::Variant, Some(3)),
+            ]
+        );
+
+        assert_eq!(
+            forward
+                .module_parts()
+                .iter()
+                .map(|part| {
+                    (
+                        part.id().raw(),
+                        part.syntax_kind(),
+                        part.module_container().raw(),
+                    )
+                })
+                .collect::<Vec<_>>(),
+            [
+                (0, SyntaxKind::SourceUnitModuleDeclaration, 1),
+                (1, SyntaxKind::BlockModuleDeclaration, 1),
+            ]
+        );
+    }
+
+    #[test]
+    fn merge_preserves_recovered_declaration_names_ranges_and_container_placement() {
+        let source_text = "module main; struct Point\nusing core;";
+        let sources = source_store([source_text]);
+        let snapshot = source(&sources, 0);
+        let chunk = discover_source_unit_declarations(&parse_recovered_source_unit_for_test(snapshot));
+        let table = merge_declaration_chunks([chunk]);
+
+        let module = match table.module_container(&ModulePath::new(["main"])) {
+            Some(module) => module,
+            None => panic!("expected main module container"),
+        };
+
+        let [struct_id, using_id] = module.declarations() else {
+            panic!(
+                "expected recovered struct and following using declaration: {:?}",
+                module.declarations()
+            );
+        };
+
+        let struct_declaration = match table.declaration(*struct_id) {
+            Some(declaration) => declaration,
+            None => panic!("struct declaration ID should exist"),
+        };
+
+        let using_declaration = match table.declaration(*using_id) {
+            Some(declaration) => declaration,
+            None => panic!("using declaration ID should exist"),
+        };
+
+        assert_eq!(
+            struct_declaration
+                .name()
+                .and_then(crate::DeclarationName::as_identifier),
+            Some("Point")
+        );
+
+        assert_eq!(
+            struct_declaration.full_range(),
+            TextRange::new(TextSize::new(13), TextSize::new(26))
+        );
+
+        assert!(struct_declaration.is_recovered());
+        assert_eq!(struct_declaration.owning_container(), module.id());
+
+        assert_eq!(
+            child_container_kind(&table, *struct_id),
+            Some(ContainerKind::Type)
+        );
+
+        assert_eq!(using_declaration.kind(), DeclarationKind::Using);
+
+        assert_eq!(
+            using_declaration.full_range(),
+            TextRange::new(TextSize::new(26), TextSize::new(37))
+        );
+
+        assert!(!using_declaration.is_recovered());
+        assert_eq!(using_declaration.owning_container(), module.id());
+    }
+
+    #[test]
     fn merge_populates_child_containers_for_container_owning_declarations() {
         let sources = source_store([concat!(
             "module core;\n",
@@ -343,7 +589,7 @@ mod tests {
         )]);
 
         let chunk =
-            discover_source_unit_declarations(&parse_valid_source_unit(source(&sources, 0)));
+            discover_source_unit_declarations(&parse_valid_source_unit_for_test(source(&sources, 0)));
 
         let table = merge_declaration_chunks([chunk]);
 
@@ -427,10 +673,10 @@ mod tests {
         ]);
 
         let first =
-            discover_source_unit_declarations(&parse_valid_source_unit(source(&sources, 0)));
+            discover_source_unit_declarations(&parse_valid_source_unit_for_test(source(&sources, 0)));
 
         let second =
-            discover_source_unit_declarations(&parse_valid_source_unit(source(&sources, 1)));
+            discover_source_unit_declarations(&parse_valid_source_unit_for_test(source(&sources, 1)));
 
         let table = merge_declaration_chunks([first, second]);
 
@@ -469,7 +715,7 @@ mod tests {
         )]);
 
         let chunk =
-            discover_source_unit_declarations(&parse_valid_source_unit(source(&sources, 0)));
+            discover_source_unit_declarations(&parse_valid_source_unit_for_test(source(&sources, 0)));
 
         let table = merge_declaration_chunks([chunk]);
 
@@ -554,7 +800,7 @@ mod tests {
         )]);
 
         let snapshot = source(&sources, 0);
-        let chunk = discover_source_unit_declarations(&parse_valid_source_unit(snapshot));
+        let chunk = discover_source_unit_declarations(&parse_valid_source_unit_for_test(snapshot));
         let table = merge_declaration_chunks([chunk]);
 
         let module = match table.module_container(&ModulePath::new(["core"])) {
