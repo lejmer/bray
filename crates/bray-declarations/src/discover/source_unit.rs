@@ -275,13 +275,54 @@ impl ModulePartBuilder {
 
 #[cfg(test)]
 mod tests {
+    use bray_source::{TextRange, TextSize};
     use bray_syntax::SyntaxKind;
     use bray_testing::{test_source_at as source, test_source_store as source_store};
 
     use super::discover_source_unit_declarations;
     use crate::name::{DeclarationName, ImplementationDeclarationName, ModulePath};
     use crate::record::DeclarationKind;
-    use crate::test_support::parse_valid_source_unit;
+    use crate::test_support::{parse_recovered_source_unit_for_test, parse_valid_source_unit_for_test};
+
+    #[test]
+    fn source_unit_discovery_preserves_recovered_module_parts_and_following_declarations() {
+        let source_text = "module core\nusing std.io;";
+        let sources = source_store([source_text]);
+        let snapshot = source(&sources, 0);
+        let source_unit = parse_recovered_source_unit_for_test(snapshot);
+        let chunk = discover_source_unit_declarations(&source_unit);
+
+        let [part] = chunk.module_parts() else {
+            panic!("expected one module part: {:?}", chunk.module_parts());
+        };
+
+        assert_eq!(part.path().dotted(), "core");
+        assert_eq!(part.source_id(), snapshot.source_id());
+        assert_eq!(part.syntax_kind(), SyntaxKind::SourceUnitModuleDeclaration);
+
+        assert_eq!(
+            part.full_range(),
+            TextRange::new(TextSize::ZERO, TextSize::new(12))
+        );
+
+        assert!(part.is_recovered());
+
+        let [using_declaration] = part.declarations() else {
+            panic!(
+                "expected one declaration after the recovered module: {:?}",
+                part.declarations()
+            );
+        };
+
+        assert_eq!(using_declaration.kind(), DeclarationKind::Using);
+
+        assert_eq!(
+            using_declaration.full_range(),
+            TextRange::new(TextSize::new(12), TextSize::new(25))
+        );
+
+        assert!(!using_declaration.is_recovered());
+    }
 
     #[test]
     fn source_unit_discovery_records_module_level_declarations_in_source_order() {
@@ -297,7 +338,7 @@ mod tests {
             "impl PointDisplay = Point(Display) {}\n",
         )]);
 
-        let source_unit = parse_valid_source_unit(source(&sources, 0));
+        let source_unit = parse_valid_source_unit_for_test(source(&sources, 0));
         let chunk = discover_source_unit_declarations(&source_unit);
 
         let [part] = chunk.module_parts() else {
@@ -366,7 +407,7 @@ mod tests {
             "impl Resource { type Item = Element; const Size: Int = 1; predicate ready(); construct() -> Self {} exit() {} func make() {} }",
         )]);
 
-        let source_unit = parse_valid_source_unit(source(&sources, 0));
+        let source_unit = parse_valid_source_unit_for_test(source(&sources, 0));
         let chunk = discover_source_unit_declarations(&source_unit);
 
         let [part] = chunk.module_parts() else {
@@ -481,7 +522,7 @@ mod tests {
             "func main<T, const N: Int>(value: T) {}",
         )]);
 
-        let source_unit = parse_valid_source_unit(source(&sources, 0));
+        let source_unit = parse_valid_source_unit_for_test(source(&sources, 0));
         let chunk = discover_source_unit_declarations(&source_unit);
 
         let [part] = chunk.module_parts() else {
@@ -610,7 +651,7 @@ mod tests {
 
         let sources = source_store([source_text]);
         let snapshot = source(&sources, 0);
-        let source_unit = parse_valid_source_unit(snapshot);
+        let source_unit = parse_valid_source_unit_for_test(snapshot);
         let chunk = discover_source_unit_declarations(&source_unit);
 
         let [part] = chunk.module_parts() else {
