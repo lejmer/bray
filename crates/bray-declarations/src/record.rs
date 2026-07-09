@@ -37,6 +37,79 @@ pub enum DeclarationKind {
     UnnamedTraitImplementation,
     /// Named trait implementation declaration.
     NamedTraitImplementation,
+    /// Struct field member declaration.
+    StructField,
+    /// Union variant member declaration.
+    UnionVariant,
+    /// Trait constant member declaration.
+    TraitConstantMember,
+    /// Trait type-valued member declaration.
+    TraitTypeMember,
+    /// Trait predicate member declaration.
+    TraitPredicateMember,
+    /// Trait callable member declaration.
+    TraitCallableMember,
+    /// Trait finalizer requirement declaration.
+    TraitFinalizerRequirement,
+    /// Trait destructor requirement declaration.
+    TraitDestructorRequirement,
+    /// Trait scope-enter requirement declaration.
+    TraitScopeEnterRequirement,
+    /// Trait scope-exit requirement declaration.
+    TraitScopeExitRequirement,
+    /// Implementation type-valued member binding.
+    ImplementationTypeMemberBinding,
+    /// Type constructor member declaration.
+    TypeConstructorMember,
+    /// Finalizer lifecycle member declaration.
+    FinalizerMember,
+    /// Destructor lifecycle member declaration.
+    DestructorMember,
+    /// Scope-enter lifecycle member declaration.
+    ScopeEnterMember,
+    /// Scope-exit lifecycle member declaration.
+    ScopeExitMember,
+    /// Type callable member declaration.
+    TypeCallableMember,
+}
+
+impl DeclarationKind {
+    /// Returns the child container category introduced by this declaration.
+    pub const fn child_container_kind(self) -> Option<ContainerKind> {
+        match self {
+            Self::Struct | Self::Union => Some(ContainerKind::Type),
+            Self::Trait => Some(ContainerKind::Trait),
+            Self::InherentImplementation
+            | Self::UnnamedTraitImplementation
+            | Self::NamedTraitImplementation => Some(ContainerKind::Implementation),
+            Self::Module
+            | Self::Using
+            | Self::Export
+            | Self::Constant
+            | Self::Function
+            | Self::Predicate
+            | Self::CallableContract
+            | Self::CallableOverload
+            | Self::ImplementationOverload
+            | Self::StructField
+            | Self::UnionVariant
+            | Self::TraitConstantMember
+            | Self::TraitTypeMember
+            | Self::TraitPredicateMember
+            | Self::TraitCallableMember
+            | Self::TraitFinalizerRequirement
+            | Self::TraitDestructorRequirement
+            | Self::TraitScopeEnterRequirement
+            | Self::TraitScopeExitRequirement
+            | Self::ImplementationTypeMemberBinding
+            | Self::TypeConstructorMember
+            | Self::FinalizerMember
+            | Self::DestructorMember
+            | Self::ScopeEnterMember
+            | Self::ScopeExitMember
+            | Self::TypeCallableMember => None,
+        }
+    }
 }
 
 /// Declaration container category used before symbols exist.

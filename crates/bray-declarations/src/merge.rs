@@ -82,7 +82,7 @@ impl TableBuilder {
         let mut part_declarations = Vec::with_capacity(part.declarations.len());
 
         for declaration in part.declarations {
-            let declaration_id = self.push_module_declaration(module_container, declaration);
+            let declaration_id = self.push_discovered_declaration(module_container, declaration);
 
             part_declarations.push(declaration_id);
         }
@@ -106,13 +106,15 @@ impl TableBuilder {
             .push(module_part_id);
     }
 
-    fn push_module_declaration(
+    fn push_discovered_declaration(
         &mut self,
         owning_container: ContainerId,
         declaration: DiscoveredDeclaration,
     ) -> DeclarationId {
         let child_container =
             self.child_container_for_declaration(declaration.kind, owning_container);
+
+        let children = declaration.children;
 
         let declaration_id = self.push_declaration_record(DeclarationRecordInput {
             id: self.next_declaration_id(),
@@ -129,6 +131,12 @@ impl TableBuilder {
         self.container_mut(owning_container)
             .declarations
             .push(declaration_id);
+
+        if let Some(child_container) = child_container {
+            for child in children {
+                self.push_discovered_declaration(child_container, child);
+            }
+        }
 
         declaration_id
     }
@@ -168,22 +176,7 @@ impl TableBuilder {
         kind: DeclarationKind,
         parent: ContainerId,
     ) -> Option<ContainerId> {
-        let container_kind = match kind {
-            DeclarationKind::Struct | DeclarationKind::Union => ContainerKind::Type,
-            DeclarationKind::Trait => ContainerKind::Trait,
-            DeclarationKind::InherentImplementation
-            | DeclarationKind::UnnamedTraitImplementation
-            | DeclarationKind::NamedTraitImplementation => ContainerKind::Implementation,
-            DeclarationKind::Module
-            | DeclarationKind::Using
-            | DeclarationKind::Export
-            | DeclarationKind::Constant
-            | DeclarationKind::Function
-            | DeclarationKind::Predicate
-            | DeclarationKind::CallableContract
-            | DeclarationKind::CallableOverload
-            | DeclarationKind::ImplementationOverload => return None,
-        };
+        let container_kind = kind.child_container_kind()?;
 
         let container_id = self.next_container_id();
 
@@ -279,6 +272,7 @@ impl ContainerBuilder {
 
 #[cfg(test)]
 mod tests {
+    use bray_syntax::SyntaxKind;
     use bray_testing::{test_source_at as source, test_source_store as source_store};
 
     use super::merge_declaration_chunks;
@@ -342,9 +336,14 @@ mod tests {
     }
 
     #[test]
-    fn merge_creates_empty_child_containers_for_container_owning_declarations() {
-        let sources =
-            source_store(["module core;\nstruct Point {}\ntrait Display {}\nimpl Point {}\n"]);
+    fn merge_populates_child_containers_for_container_owning_declarations() {
+        let sources = source_store([concat!(
+            "module core;\n",
+            "struct Resource { value: Int; construct() -> Self {} func make() {} }\n",
+            "union Maybe { Some(value: Int); None; }\n",
+            "trait Scope { type Item; const Size: Int; enter() -> Guard; func show(); }\n",
+            "impl Resource { type Item = Element; const Size: Int = 1; construct() -> Self {} exit() {} func make() {} }",
+        )]);
 
         let chunk =
             discover_source_unit_declarations(&parse_valid_source_unit(source(&sources, 0)));
@@ -356,19 +355,110 @@ mod tests {
             None => panic!("expected core module container"),
         };
 
-        let child_container_kinds = module
-            .declarations()
-            .iter()
-            .filter_map(|id| child_container_kind(&table, *id))
-            .collect::<Vec<_>>();
-
         assert_eq!(
-            child_container_kinds,
+            module
+                .declarations()
+                .iter()
+                .filter_map(|id| child_container_kind(&table, *id))
+                .collect::<Vec<_>>(),
             [
+                ContainerKind::Type,
                 ContainerKind::Type,
                 ContainerKind::Trait,
                 ContainerKind::Implementation
             ]
+        );
+
+        let [struct_id, union_id, trait_id, implementation_id] = module.declarations() else {
+            panic!(
+                "expected four module declarations: {:?}",
+                module.declarations()
+            );
+        };
+
+        assert_eq!(
+            child_declaration_kinds(&table, *struct_id),
+            [
+                DeclarationKind::StructField,
+                DeclarationKind::TypeConstructorMember,
+                DeclarationKind::TypeCallableMember,
+            ]
+        );
+
+        assert_eq!(
+            child_declaration_kinds(&table, *union_id),
+            [DeclarationKind::UnionVariant, DeclarationKind::UnionVariant]
+        );
+
+        assert_eq!(
+            child_declaration_kinds(&table, *trait_id),
+            [
+                DeclarationKind::TraitTypeMember,
+                DeclarationKind::TraitConstantMember,
+                DeclarationKind::TraitScopeEnterRequirement,
+                DeclarationKind::TraitCallableMember,
+            ]
+        );
+
+        assert_eq!(
+            child_declaration_kinds(&table, *implementation_id),
+            [
+                DeclarationKind::ImplementationTypeMemberBinding,
+                DeclarationKind::Constant,
+                DeclarationKind::TypeConstructorMember,
+                DeclarationKind::ScopeExitMember,
+                DeclarationKind::TypeCallableMember,
+            ]
+        );
+
+        assert_eq!(
+            child_identifier_names(&table, *struct_id),
+            ["value", "make"]
+        );
+
+        assert_eq!(
+            child_keyword_names(&table, *implementation_id),
+            [SyntaxKind::ConstructKeyword, SyntaxKind::ExitKeyword]
+        );
+    }
+
+    #[test]
+    fn merge_preserves_member_containers_from_multiple_module_parts() {
+        let sources = source_store([
+            "module core;\nstruct Point { x: Int; }\n",
+            "module core;\nimpl Point { func translate() {} }\n",
+        ]);
+
+        let first =
+            discover_source_unit_declarations(&parse_valid_source_unit(source(&sources, 0)));
+
+        let second =
+            discover_source_unit_declarations(&parse_valid_source_unit(source(&sources, 1)));
+
+        let table = merge_declaration_chunks([first, second]);
+
+        let module = match table.module_container(&ModulePath::new(["core"])) {
+            Some(module) => module,
+            None => panic!("expected core module container"),
+        };
+
+        let [struct_id, implementation_id] = module.declarations() else {
+            panic!(
+                "expected two module declarations: {:?}",
+                module.declarations()
+            );
+        };
+
+        assert_eq!(module.module_parts().len(), 2);
+
+        assert_eq!(
+            child_declaration_kinds(&table, *struct_id),
+            [DeclarationKind::StructField]
+        );
+
+        assert_eq!(
+            child_declaration_kinds(&table, *implementation_id),
+            [DeclarationKind::TypeCallableMember]
         );
     }
 
@@ -407,5 +497,83 @@ mod tests {
             Some(container) => Some(container.kind()),
             None => panic!("child container ID should exist: {child_container:?}"),
         }
+    }
+
+    fn child_declaration_kinds(
+        table: &crate::DeclarationTable,
+        declaration_id: crate::DeclarationId,
+    ) -> Vec<DeclarationKind> {
+        child_declaration_ids(table, declaration_id)
+            .iter()
+            .map(|id| declaration_kind(table, *id))
+            .collect()
+    }
+
+    fn child_identifier_names(
+        table: &crate::DeclarationTable,
+        declaration_id: crate::DeclarationId,
+    ) -> Vec<&str> {
+        child_declaration_ids(table, declaration_id)
+            .iter()
+            .filter_map(|id| declaration_identifier_name(table, *id))
+            .collect()
+    }
+
+    fn child_keyword_names(
+        table: &crate::DeclarationTable,
+        declaration_id: crate::DeclarationId,
+    ) -> Vec<SyntaxKind> {
+        child_declaration_ids(table, declaration_id)
+            .iter()
+            .filter_map(|id| declaration_keyword_name(table, *id))
+            .collect()
+    }
+
+    fn child_declaration_ids(
+        table: &crate::DeclarationTable,
+        declaration_id: crate::DeclarationId,
+    ) -> &[crate::DeclarationId] {
+        let declaration = match table.declaration(declaration_id) {
+            Some(declaration) => declaration,
+            None => panic!("declaration ID should exist: {declaration_id:?}"),
+        };
+
+        let child_container = match declaration.child_container() {
+            Some(child_container) => child_container,
+            None => panic!("declaration should have a child container: {declaration_id:?}"),
+        };
+
+        match table.container(child_container) {
+            Some(container) => container.declarations(),
+            None => panic!("child container ID should exist: {child_container:?}"),
+        }
+    }
+
+    fn declaration_identifier_name(
+        table: &crate::DeclarationTable,
+        declaration_id: crate::DeclarationId,
+    ) -> Option<&str> {
+        let declaration = match table.declaration(declaration_id) {
+            Some(declaration) => declaration,
+            None => panic!("declaration ID should exist: {declaration_id:?}"),
+        };
+
+        declaration
+            .name()
+            .and_then(crate::DeclarationName::as_identifier)
+    }
+
+    fn declaration_keyword_name(
+        table: &crate::DeclarationTable,
+        declaration_id: crate::DeclarationId,
+    ) -> Option<SyntaxKind> {
+        let declaration = match table.declaration(declaration_id) {
+            Some(declaration) => declaration,
+            None => panic!("declaration ID should exist: {declaration_id:?}"),
+        };
+
+        declaration
+            .name()
+            .and_then(crate::DeclarationName::as_keyword)
     }
 }
