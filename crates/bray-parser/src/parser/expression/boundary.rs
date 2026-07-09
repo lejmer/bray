@@ -201,7 +201,7 @@ impl Parser {
             )
     }
 
-    pub(in crate::parser::expression) fn at_optional_flow_operand_boundary(
+    pub(in crate::parser::expression) fn at_expression_operand_boundary(
         &mut self,
         at_boundary: &mut dyn FnMut(&mut Parser) -> bool,
     ) -> bool {

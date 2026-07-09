@@ -96,7 +96,7 @@ impl Parser {
 
         builder.push_yield_keyword(self.expect(SyntaxKind::YieldKeyword));
 
-        if !self.at_optional_flow_operand_boundary(at_boundary) {
+        if !self.at_expression_operand_boundary(at_boundary) {
             builder.push_expression(self.parse_expression_until(at_boundary));
         }
 
@@ -112,7 +112,7 @@ impl Parser {
 
         builder.push_return_keyword(self.expect(SyntaxKind::ReturnKeyword));
 
-        if !self.at_optional_flow_operand_boundary(at_boundary) {
+        if !self.at_expression_operand_boundary(at_boundary) {
             builder.push_expression(self.parse_expression_until(at_boundary));
         }
 
@@ -140,7 +140,7 @@ impl Parser {
 
         builder.push_break_keyword(self.expect(SyntaxKind::BreakKeyword));
 
-        if !self.at_optional_flow_operand_boundary(at_boundary) {
+        if !self.at_expression_operand_boundary(at_boundary) {
             builder.push_expression(self.parse_expression_until(at_boundary));
         }
 
