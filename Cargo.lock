@@ -85,6 +85,12 @@ dependencies = [
 [[package]]
 name = "bray-declarations"
 version = "0.0.0"
+dependencies = [
+ "bray-parser",
+ "bray-source",
+ "bray-syntax",
+ "bray-testing",
+]
 
 [[package]]
 name = "bray-diagnostics"

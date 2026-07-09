@@ -1,16 +1,14 @@
 use std::borrow::Borrow;
 
 use bray_diagnostics::{DiagnosticArg, DiagnosticBag, DiagnosticKind, SeverityKind};
-use bray_source::{SourceId, SourceSnapshot, SourceStore, TextRange, TextSize};
+use bray_source::{SourceSnapshot, SourceStore, TextRange, TextSize};
 use bray_syntax::{SyntaxKind, SyntaxToken};
+use bray_testing::test_source_at;
 
 use crate::SyntaxTreeResult;
 
 pub(crate) fn source(sources: &SourceStore, index: u32) -> SourceSnapshot {
-    match sources.get(SourceId::new(index)) {
-        Some(snapshot) => snapshot.clone(),
-        None => panic!("source should exist"),
-    }
+    test_source_at(sources, index).clone()
 }
 
 pub(crate) fn token_kinds<Token>(tokens: impl IntoIterator<Item = Token>) -> Vec<SyntaxKind>
