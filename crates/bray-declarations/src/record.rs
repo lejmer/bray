@@ -71,6 +71,16 @@ pub enum DeclarationKind {
     ScopeExitMember,
     /// Type callable member declaration.
     TypeCallableMember,
+    /// Generic type parameter declaration.
+    GenericTypeParameter,
+    /// Generic const parameter declaration.
+    GenericConstParameter,
+    /// Callable parameter declaration.
+    CallableParameter,
+    /// Predicate parameter declaration.
+    PredicateParameter,
+    /// Union variant payload field declaration.
+    UnionPayloadField,
 }
 
 impl DeclarationKind {
@@ -82,33 +92,50 @@ impl DeclarationKind {
             Self::InherentImplementation
             | Self::UnnamedTraitImplementation
             | Self::NamedTraitImplementation => Some(ContainerKind::Implementation),
-            Self::Module
-            | Self::Using
-            | Self::Export
-            | Self::Constant
+            Self::CallableContract
             | Self::Function
             | Self::Predicate
-            | Self::CallableContract
-            | Self::CallableOverload
-            | Self::ImplementationOverload
-            | Self::StructField
-            | Self::UnionVariant
-            | Self::TraitConstantMember
-            | Self::TraitTypeMember
             | Self::TraitPredicateMember
             | Self::TraitCallableMember
             | Self::TraitFinalizerRequirement
             | Self::TraitDestructorRequirement
             | Self::TraitScopeEnterRequirement
             | Self::TraitScopeExitRequirement
-            | Self::ImplementationTypeMemberBinding
             | Self::TypeConstructorMember
             | Self::FinalizerMember
             | Self::DestructorMember
             | Self::ScopeEnterMember
             | Self::ScopeExitMember
-            | Self::TypeCallableMember => None,
+            | Self::TypeCallableMember => Some(ContainerKind::Signature),
+            Self::UnionVariant => Some(ContainerKind::Variant),
+            Self::Module
+            | Self::Using
+            | Self::Export
+            | Self::Constant
+            | Self::CallableOverload
+            | Self::ImplementationOverload
+            | Self::StructField
+            | Self::TraitConstantMember
+            | Self::TraitTypeMember
+            | Self::ImplementationTypeMemberBinding
+            | Self::GenericTypeParameter
+            | Self::GenericConstParameter
+            | Self::CallableParameter
+            | Self::PredicateParameter
+            | Self::UnionPayloadField => None,
         }
+    }
+
+    pub(crate) const fn walks_child_declarations(self) -> bool {
+        matches!(
+            self,
+            Self::Struct
+                | Self::Union
+                | Self::Trait
+                | Self::InherentImplementation
+                | Self::UnnamedTraitImplementation
+                | Self::NamedTraitImplementation
+        )
     }
 }
 
@@ -125,6 +152,10 @@ pub enum ContainerKind {
     Trait,
     /// Implementation body container.
     Implementation,
+    /// Callable, predicate, contract, or lifecycle signature container.
+    Signature,
+    /// Union variant payload container.
+    Variant,
 }
 
 /// Immutable record for one discovered syntax declaration.

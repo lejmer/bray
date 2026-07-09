@@ -462,6 +462,93 @@ mod tests {
         );
     }
 
+    #[test]
+    fn merge_populates_child_containers_for_signatures_and_variants() {
+        let sources = source_store([concat!(
+            "module core;\n",
+            "func main<T, const N: Int>(value: T) {}\n",
+            "predicate valid<T, const N: Int>(value: T);\n",
+            "union Maybe { Some(value: Int, fallback: Int); }",
+        )]);
+
+        let chunk =
+            discover_source_unit_declarations(&parse_valid_source_unit(source(&sources, 0)));
+
+        let table = merge_declaration_chunks([chunk]);
+
+        let module = match table.module_container(&ModulePath::new(["core"])) {
+            Some(module) => module,
+            None => panic!("expected core module container"),
+        };
+
+        let [function_id, predicate_id, union_id] = module.declarations() else {
+            panic!(
+                "expected three module declarations: {:?}",
+                module.declarations()
+            );
+        };
+
+        assert_eq!(
+            child_container_kind(&table, *function_id),
+            Some(ContainerKind::Signature)
+        );
+
+        assert_eq!(
+            child_container_kind(&table, *predicate_id),
+            Some(ContainerKind::Signature)
+        );
+
+        assert_eq!(
+            child_declaration_kinds(&table, *function_id),
+            [
+                DeclarationKind::GenericTypeParameter,
+                DeclarationKind::GenericConstParameter,
+                DeclarationKind::CallableParameter,
+            ]
+        );
+
+        assert_eq!(
+            child_identifier_names(&table, *function_id),
+            ["T", "N", "value"]
+        );
+
+        assert_eq!(
+            child_declaration_kinds(&table, *predicate_id),
+            [
+                DeclarationKind::GenericTypeParameter,
+                DeclarationKind::GenericConstParameter,
+                DeclarationKind::PredicateParameter,
+            ]
+        );
+
+        assert_eq!(
+            child_identifier_names(&table, *predicate_id),
+            ["T", "N", "value"]
+        );
+
+        let [variant_id] = child_declaration_ids(&table, *union_id) else {
+            panic!("expected one union variant");
+        };
+
+        assert_eq!(
+            child_container_kind(&table, *variant_id),
+            Some(ContainerKind::Variant)
+        );
+
+        assert_eq!(
+            child_declaration_kinds(&table, *variant_id),
+            [
+                DeclarationKind::UnionPayloadField,
+                DeclarationKind::UnionPayloadField
+            ]
+        );
+
+        assert_eq!(
+            child_identifier_names(&table, *variant_id),
+            ["value", "fallback"]
+        );
+    }
+
     fn declaration_kind(
         table: &crate::DeclarationTable,
         id: crate::DeclarationId,

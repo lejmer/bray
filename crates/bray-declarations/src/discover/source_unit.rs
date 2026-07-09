@@ -5,6 +5,7 @@ use bray_syntax::{
     walk_source_unit,
 };
 
+use super::children::declaration_children;
 use super::names::{declaration_kind_for_syntax, declaration_name, path_from_syntax};
 use crate::chunk::{DeclarationChunk, DiscoveredDeclaration, DiscoveredModulePart};
 use crate::name::{DeclarationName, ModulePath};
@@ -70,7 +71,7 @@ impl SourceUnitDiscoverer {
 
     fn exit_node(&mut self, view: SyntaxNodeView<'_>) -> SyntaxWalkControl {
         if let Some(declaration_kind) = declaration_kind_for_syntax(view.kind())
-            && declaration_kind.child_container_kind().is_some()
+            && declaration_kind.walks_child_declarations()
         {
             self.exit_container_declaration(declaration_kind);
         }
@@ -132,7 +133,7 @@ impl SourceUnitDiscoverer {
             return SyntaxWalkControl::SkipChildren;
         }
 
-        let declaration = DeclarationBuilder::new(
+        let mut declaration = DeclarationBuilder::new(
             declaration_kind,
             declaration_name(view, declaration_kind),
             view.source().source_id(),
@@ -141,7 +142,9 @@ impl SourceUnitDiscoverer {
             view.is_recovered(),
         );
 
-        if declaration_kind.child_container_kind().is_some() {
+        declaration.extend_children(declaration_children(view, declaration_kind));
+
+        if declaration_kind.walks_child_declarations() {
             self.declaration_stack.push(declaration);
 
             return SyntaxWalkControl::Continue;
@@ -248,6 +251,10 @@ impl DeclarationBuilder {
             self.is_recovered,
             self.children.into_boxed_slice(),
         )
+    }
+
+    fn extend_children(&mut self, children: impl IntoIterator<Item = DiscoveredDeclaration>) {
+        self.children.extend(children);
     }
 }
 
@@ -476,11 +483,177 @@ mod tests {
         );
     }
 
+    #[test]
+    fn source_unit_discovery_records_signature_and_payload_children() {
+        let sources = source_store([concat!(
+            "module core;\n",
+            "struct Resource<T, const N: Int> { ",
+            "construct origin(value: T, count: Int) -> Self {} ",
+            "async finalize(value: T) -> Unit {} ",
+            "trusted destruct(item: T) {} ",
+            "enter(scope: T) -> Guard {} ",
+            "exit(scope: Guard) {} ",
+            "func make<U, const M: Int>(value: U) {} ",
+            "}\n",
+            "union Maybe<T> { Some(value: T, fallback: T); }\n",
+            "trait Scope<T> { ",
+            "predicate ready(value: T); ",
+            "enter(scope: T) -> Guard; ",
+            "func show<U, const M: Int>(value: U); ",
+            "}\n",
+            "predicate valid<T, const N: Int>(value: T);\n",
+            "func main<T, const N: Int>(value: T) {}",
+        )]);
+
+        let source_unit = parse_valid_source_unit(source(&sources, 0));
+        let chunk = discover_source_unit_declarations(&source_unit);
+
+        let [part] = chunk.module_parts() else {
+            panic!("expected one module part: {:?}", chunk.module_parts());
+        };
+
+        let resource = identifier_declaration(part.declarations(), "Resource");
+
+        assert_eq!(
+            declaration_kinds(resource.children()),
+            [
+                DeclarationKind::GenericTypeParameter,
+                DeclarationKind::GenericConstParameter,
+                DeclarationKind::TypeConstructorMember,
+                DeclarationKind::FinalizerMember,
+                DeclarationKind::DestructorMember,
+                DeclarationKind::ScopeEnterMember,
+                DeclarationKind::ScopeExitMember,
+                DeclarationKind::TypeCallableMember,
+            ]
+        );
+
+        let constructor =
+            kind_declaration(resource.children(), DeclarationKind::TypeConstructorMember);
+
+        assert_eq!(
+            declaration_kinds(constructor.children()),
+            [
+                DeclarationKind::CallableParameter,
+                DeclarationKind::CallableParameter
+            ]
+        );
+
+        assert_eq!(identifier_names(constructor.children()), ["value", "count"]);
+
+        let method = identifier_declaration(resource.children(), "make");
+
+        assert_eq!(
+            declaration_kinds(method.children()),
+            [
+                DeclarationKind::GenericTypeParameter,
+                DeclarationKind::GenericConstParameter,
+                DeclarationKind::CallableParameter,
+            ]
+        );
+
+        assert_eq!(identifier_names(method.children()), ["U", "M", "value"]);
+
+        let maybe = identifier_declaration(part.declarations(), "Maybe");
+        let some = identifier_declaration(maybe.children(), "Some");
+
+        assert_eq!(
+            declaration_kinds(some.children()),
+            [
+                DeclarationKind::UnionPayloadField,
+                DeclarationKind::UnionPayloadField
+            ]
+        );
+
+        assert_eq!(identifier_names(some.children()), ["value", "fallback"]);
+
+        let scope = identifier_declaration(part.declarations(), "Scope");
+        let trait_predicate = identifier_declaration(scope.children(), "ready");
+        let trait_callable = identifier_declaration(scope.children(), "show");
+
+        assert_eq!(
+            declaration_kinds(trait_predicate.children()),
+            [DeclarationKind::PredicateParameter]
+        );
+
+        assert_eq!(identifier_names(trait_predicate.children()), ["value"]);
+
+        assert_eq!(
+            declaration_kinds(trait_callable.children()),
+            [
+                DeclarationKind::GenericTypeParameter,
+                DeclarationKind::GenericConstParameter,
+                DeclarationKind::CallableParameter,
+            ]
+        );
+
+        assert_eq!(
+            identifier_names(trait_callable.children()),
+            ["U", "M", "value"]
+        );
+
+        let predicate = identifier_declaration(part.declarations(), "valid");
+
+        assert_eq!(
+            declaration_kinds(predicate.children()),
+            [
+                DeclarationKind::GenericTypeParameter,
+                DeclarationKind::GenericConstParameter,
+                DeclarationKind::PredicateParameter,
+            ]
+        );
+
+        assert_eq!(identifier_names(predicate.children()), ["T", "N", "value"]);
+
+        let function = identifier_declaration(part.declarations(), "main");
+
+        assert_eq!(
+            declaration_kinds(function.children()),
+            [
+                DeclarationKind::GenericTypeParameter,
+                DeclarationKind::GenericConstParameter,
+                DeclarationKind::CallableParameter,
+            ]
+        );
+
+        assert_eq!(identifier_names(function.children()), ["T", "N", "value"]);
+    }
+
     fn declaration_kinds(declarations: &[crate::DiscoveredDeclaration]) -> Vec<DeclarationKind> {
         declarations
             .iter()
             .map(crate::DiscoveredDeclaration::kind)
             .collect()
+    }
+
+    fn identifier_names(declarations: &[crate::DiscoveredDeclaration]) -> Vec<&str> {
+        declarations.iter().filter_map(identifier_name).collect()
+    }
+
+    fn identifier_declaration<'declarations>(
+        declarations: &'declarations [crate::DiscoveredDeclaration],
+        name: &str,
+    ) -> &'declarations crate::DiscoveredDeclaration {
+        match declarations
+            .iter()
+            .find(|declaration| identifier_name(declaration) == Some(name))
+        {
+            Some(declaration) => declaration,
+            None => panic!("expected identifier declaration named {name}: {declarations:?}"),
+        }
+    }
+
+    fn kind_declaration(
+        declarations: &[crate::DiscoveredDeclaration],
+        kind: DeclarationKind,
+    ) -> &crate::DiscoveredDeclaration {
+        match declarations
+            .iter()
+            .find(|declaration| declaration.kind() == kind)
+        {
+            Some(declaration) => declaration,
+            None => panic!("expected declaration kind {kind:?}: {declarations:?}"),
+        }
     }
 
     fn identifier_name(declaration: &crate::DiscoveredDeclaration) -> Option<&str> {
