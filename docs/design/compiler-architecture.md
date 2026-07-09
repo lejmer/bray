@@ -326,6 +326,9 @@ declaration and container IDs, aggregates partial modules, and publishes the fin
 Declarations are not symbols. `DeclarationId` identifies discovered syntax. Symbol construction later decides which declarations
 create semantic symbols.
 
+Declaration records carry stable syntax anchors and syntax-backed surface facts such as visibility, modifiers, directives,
+constraints, and callable contract clauses. Those facts are still syntax-level data, not bound semantics.
+
 Partial modules are represented as logical module containers with one or more source module parts.
 Other declaration spaces, such as type, trait, and implementation bodies, are represented as containers before symbols exist.
 

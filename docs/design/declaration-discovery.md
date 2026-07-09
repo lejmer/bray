@@ -102,11 +102,8 @@ DeclarationRecord
   kind
   owning_container
   name
-  source_id
-  syntax_kind
-  full_range
-  is_recovered
-  syntax
+  syntax_anchor
+  surface
   child_container
 
 ContainerRecord
@@ -120,9 +117,9 @@ ContainerRecord
 ModulePartRecord
   id
   module_container
-  source_id
-  syntax_kind
-  full_range
+  declaration
+  syntax_anchor
+  surface
   declarations
 ```
 
@@ -133,9 +130,22 @@ The exact Rust fields can be refined during implementation, but the ownership sh
 - module parts represent syntax contributions to a logical module,
 - the final table is immutable.
 
-Syntax references should not expose green internals.
-Use typed syntax nodes or a syntax-owned handle shape when the record needs to preserve access to the original declaration
-syntax.
+Syntax references should not expose green internals or store typed syntax wrappers in the declaration table.
+Declaration records and module part records use `SyntaxAnchor`, a compact source-backed reference containing `source_id`,
+`syntax_kind`, `full_range`, and `is_recovered`.
+
+Surface facts are syntax-backed and intentionally pre-semantic.
+`DeclarationSurface` records:
+
+- declaration visibility as the visibility token kind when present,
+- non-visibility modifier token kinds in source order,
+- directive syntax anchors in source order,
+- static or generic constraint clause anchors in source order,
+- callable contract clause anchors in source order.
+
+Symbol construction can inspect those anchors when it needs directive arguments, constraint expressions, or contract clause
+contents. It should not re-walk declaration syntax merely to recover visibility, modifiers, directive locations, or clause
+locations already captured by discovery.
 
 ---
 

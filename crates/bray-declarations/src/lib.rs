@@ -8,6 +8,7 @@ mod id;
 mod merge;
 mod name;
 mod record;
+mod surface;
 mod table;
 #[cfg(test)]
 mod test_support;
@@ -20,4 +21,5 @@ pub use name::{DeclarationName, ImplementationDeclarationName, ModulePath};
 pub use record::{
     ContainerKind, ContainerRecord, DeclarationKind, DeclarationRecord, ModulePartRecord,
 };
+pub use surface::{DeclarationSurface, SyntaxAnchor};
 pub use table::DeclarationTable;
