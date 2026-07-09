@@ -142,6 +142,9 @@ Construction-time payload default behavior is defined in [Union variant construc
 
 A variant payload default is checked in the union declaration context.
 
+A payload default is a [declaration-owned runtime default](../declarations/declaration-owned-expressions.md#runtime-defaults). It is
+checked even when every current construction supplies that payload field explicitly.
+
 A variant payload default cannot reference sibling payload fields.
 
 A variant payload default cannot reference `self`.

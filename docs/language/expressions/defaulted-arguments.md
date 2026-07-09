@@ -25,7 +25,15 @@ A parameter without a default must be supplied by an argument.
 
 Default expressions are checked in the declaration context where they are written.
 
+They are [declaration-owned expressions](../declarations/declaration-owned-expressions.md) and are checked even when every current call
+supplies an explicit argument.
+
 A default expression cannot depend on call-site local bindings unless those bindings are supplied through explicit arguments or otherwise available through the callable’s declared context.
+
+A parameter default can reference the receiver where applicable, the callable's generic context, declarations visible from the
+declaration context, and parameters declared before it.
+
+A parameter default cannot reference itself or a later parameter.
 
 A default expression is evaluated when the corresponding argument is omitted.
 
@@ -44,6 +52,8 @@ A default expression must satisfy the parameter type and contract.
 A default expression for a parameter is evaluated only when the parameter is omitted.
 
 Supplying an explicit argument suppresses evaluation of that parameter’s default expression.
+
+It does not suppress declaration checking of the default expression.
 
 Default arguments are applied to direct calls after the callable has been selected.
 

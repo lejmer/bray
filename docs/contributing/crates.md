@@ -40,6 +40,8 @@
     - Semantic identities for declared things.
     - Owns typed symbol IDs, kind-specific symbol models, semantic containment, typed member relationships, lookup contracts, and
       lazy symbol-fact contracts.
+    - Owns typed synthesized runtime-default-provider identities and symbol-facing declaration-owned-expression summary contracts,
+      but not checked bound expression storage.
     - Covers modules, types, functions, fields, locals, parameters, traits, implementations, overload families, and associated
       items without using a generic child-symbol model.
     - Symbols answer "what declared thing is this?"
@@ -49,12 +51,14 @@
 - `bray-binder`
     - Name binding and semantic-analysis orchestration.
     - Converts syntax references into bound references to symbols.
+    - Binds declaration-owned expressions and computes their binder-owned checked representations through compilation queries.
     - Calls focused checker services while constructing checked bound units.
     - Produces immutable `bray-bound-tree` structures where names, members, calls, fields, storages, and required semantic facts are resolved.
 
 - `bray-bound-tree`
     - Immutable source-shaped semantic representation after binding and semantic analysis.
     - Represents bound expressions, statements, items, storages, projections, calls, locals, temporaries, resolved references, selected semantic facts, and other source-correlated semantic nodes.
+    - Owns checked declaration-owned-expression nodes without making bound-node IDs part of `bray-symbols` records.
     - Owns reusable bound-representation walkers and visitors.
     - This is still high-level enough to produce good user diagnostics.
 
@@ -66,6 +70,7 @@
 - `bray-lowering`
     - Lowers checked bound trees into a more explicit compiler IR.
     - Makes implicit semantics explicit: temporaries, drops, moves, control-flow normalization, pattern lowering, short-circuiting, and other desugaring.
+    - Materializes reachable runtime-default providers from their checked declaration-owned expressions.
 
 - `bray-ir`
     - Backend-independent intermediate representation.
@@ -84,6 +89,7 @@
 - `bray-compilation`
     - Main compiler entry point and compilation context.
     - Owns compile requests, options, package/file inputs, target settings, session-like state, and lazy compiler fact coordination.
+    - Owns declaration-owned-expression query keys, caches, dependency scheduling, cancellation, and immutable fact publication.
     - Coordinates parsing, declaration discovery, binding and semantic analysis, lowering, codegen, and emission through explicit fact APIs.
 
 - `bray-driver`

@@ -24,6 +24,10 @@ Modifiers alter declaration surfaces and checking contexts.
 
 Generic declaration surfaces contain type parameters and const parameters.
 
+Declaration-owned defaults, constants, predicates, constraints, and contracts are checked with their declaration surfaces.
+
+Executable callable and lifecycle bodies remain separate from declaration-owned expression checking.
+
 Constant declarations introduce named compile-time values.
 
 Predicate declarations introduce contract-level relations.

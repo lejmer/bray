@@ -479,6 +479,27 @@ and ownership behavior. It is not part of the written ordinary parameter list.
 
 Inferred implementation parameters are generic parameter symbols with synthesized origin and syntax-correlated inference sources.
 
+### Runtime Default Provider Symbols
+
+- `CallableParameterDefaultProviderSymbol`
+- `StructFieldDefaultProviderSymbol`
+- `UnionPayloadDefaultProviderSymbol`
+
+A runtime default provider is a synthesized declaration-surface callable used to preserve runtime default behavior across package
+boundaries. It has a typed symbol ID and deterministic synthesized key derived from the exact parameter, struct field, or union
+payload field that owns the default.
+
+A parameter provider is semantically contained by the callable that owns the parameter and references that parameter. A struct field
+provider is contained by the struct and references its field. A union payload provider is contained by the union variant and
+references its payload field.
+
+Providers do not have source-level names, do not enter ordinary lookup, and do not appear in typed member collections. The owning
+parameter or field exposes the provider through its checked default fact. Any-symbol erasure can include providers for diagnostics,
+debugging, interface serialization, and tooling that explicitly requests synthesized symbols.
+
+The provider body is the already checked declaration-owned default expression. It is not checked again as an ordinary callable body.
+Lowering and emission request the provider lazily only when a reachable call or construction can use the default.
+
 ### Body-Local Symbols
 
 - `LocalBindingSymbol`
@@ -922,8 +943,12 @@ Examples:
 - callable signature,
 - callable contracts,
 - constant declared type,
-- constant value,
-- field type and default,
+- constant definition template,
+- constant instance value,
+- callable parameter default,
+- struct field type and default,
+- union payload field type and default,
+- predicate definition,
 - union variant payload,
 - implementation subject,
 - implemented trait application,
@@ -948,12 +973,243 @@ Some symbol properties require name binding or checking:
 - generic constraint meanings,
 - implementation subjects and trait applications,
 - overload arm targets,
-- constant values,
-- checked default values,
+- checked constant definition templates and instance values,
+- checked parameter, struct field, and union payload defaults,
+- checked predicate definitions,
 - decoded contract meanings.
 
 These remain symbol-facing facts but are computed by the compiler phase that owns the semantic operation. The compilation query graph
 bridges the symbol API to the binder or checker without introducing a crate cycle.
+
+### Declaration-Owned Expression Facts
+
+Declaration-owned expressions are symbol-facing semantic facts even when their full checked representation belongs to binding and
+checking. They include runtime defaults, constant definition templates, predicate definitions, constraints, and contract clauses.
+
+The completion boundary is based on semantic ownership rather than syntax shape:
+
+| Expression category | Declaration-surface result | Deferred operation |
+| --- | --- | --- |
+| parameter default | checked parameter-default surface and provider | runtime evaluation when omitted |
+| struct field default | checked field-default surface and provider | runtime evaluation when omitted |
+| union payload default | checked payload-default surface and provider | runtime evaluation when omitted |
+| constant initializer | checked constant definition template | concrete constant-instance evaluation |
+| trait constant default | checked selected-value template | evaluation after implementation selection |
+| predicate body | checked semantic predicate definition | application or proof for concrete arguments |
+| constraints and contracts | checked semantic predicate facts | use during checking and inference |
+| default trait callable body | body-presence fact only | ordinary executable-body checking |
+
+#### Crate Ownership
+
+`bray-symbols` owns:
+
+- typed owner and provider symbol IDs,
+- default-presence and predicate-definition state enums,
+- immutable symbol-facing semantic summary contracts,
+- typed context-bound view methods,
+- completion requirements for each symbol kind.
+
+`bray-compilation` owns exact query keys, thread-safe caches, dependency scheduling, cancellation, and publication of immutable fact
+results.
+
+`bray-binder` and checker services bind and validate declaration-owned expressions. `bray-bound-tree` owns their full checked
+source-shaped representation. A symbol record or `bray-symbols` summary must not store or depend on a bound-tree node ID because the
+bound tree already depends on symbols.
+
+Lowering consumes the binder-owned checked representation when it materializes a reachable runtime default provider. Symbol-facing
+summaries are not a second executable representation.
+
+#### Runtime Default API
+
+Default presence is cheap identity-level information derived from the declaration syntax. It must distinguish absence from written
+or recovered default syntax without forcing semantic checking.
+
+Conceptually:
+
+```rust
+pub enum RuntimeDefaultPresence {
+    Absent,
+    Present,
+    Recovered,
+}
+```
+
+Context-bound symbol views expose kind-specific methods:
+
+```rust
+impl CallableParameterSymbolView<'_> {
+    pub fn default_presence(&self) -> RuntimeDefaultPresence;
+
+    pub fn default(
+        &self,
+    ) -> Option<Arc<SymbolFactResult<CheckedCallableParameterDefault>>>;
+}
+
+impl StructFieldSymbolView<'_> {
+    pub fn default_presence(&self) -> RuntimeDefaultPresence;
+
+    pub fn default(
+        &self,
+    ) -> Option<Arc<SymbolFactResult<CheckedStructFieldDefault>>>;
+}
+
+impl UnionPayloadFieldSymbolView<'_> {
+    pub fn default_presence(&self) -> RuntimeDefaultPresence;
+
+    pub fn default(
+        &self,
+    ) -> Option<Arc<SymbolFactResult<CheckedUnionPayloadDefault>>>;
+}
+```
+
+The exact implementation can avoid `Arc` in the public signature when a borrowed immutable result has a sufficient lifetime. It must
+not return an untyped `CheckedDefault` that forces callers to inspect the owner kind.
+
+`default()` returns `None` exactly when `default_presence()` is `Absent` and must not create or request a default fact in that case.
+Both `Present` and `Recovered` return `Some(...)`. Recovered or semantically invalid defaults publish their diagnostics and an
+error-aware value through the same owner-specific fact contract.
+
+Each checked result exposes its exact provider ID and an error-aware typed value. Conceptually:
+
+```rust
+pub struct CheckedCallableParameterDefault {
+    provider: CallableParameterDefaultProviderSymbolId,
+    value: CallableParameterDefaultValue,
+}
+
+pub enum CallableParameterDefaultValue {
+    Valid(CallableParameterDefaultSurface),
+    Error(ErrorCallableParameterDefault),
+}
+
+impl CheckedCallableParameterDefault {
+    pub const fn provider(&self) -> CallableParameterDefaultProviderSymbolId;
+    pub const fn value(&self) -> &CallableParameterDefaultValue;
+}
+```
+
+Struct field and union payload defaults use their corresponding provider IDs, valid surface types, and error types. A macro can
+generate common storage and accessors, but the public result types remain specific.
+
+A valid runtime-default surface contains at least:
+
+- resulting type,
+- ordered generic and contextual dependencies,
+- receiver and earlier-parameter dependencies where permitted,
+- ownership and borrowing behavior,
+- effects and capabilities,
+- trusted obligations,
+- finalization obligations,
+- source and declaration anchors needed by diagnostics and tooling.
+
+The provider ID is assigned deterministically from the owner identity when written or recovered default syntax is discovered. An
+erroneous default retains that provider identity but cannot be lowered or emitted as a valid provider.
+
+#### Constant Definition And Instance API
+
+Constant checking is split between a definition template and a concrete instance value.
+
+Context-bound constant, trait constant member, and trait constant fulfillment views expose kind-specific definition methods returning
+checked template facts. The constant evaluator accepts an internal constant-definition erasure only at the shared evaluation
+boundary.
+
+Conceptually, a concrete value query uses:
+
+```rust
+pub struct ConstantInstanceKey {
+    definition: AnyConstantDefinitionId,
+    substitution: GenericSubstitutionId,
+    selected_implementation: Option<ImplementationInstanceId>,
+    target_profile: TargetProfileId,
+}
+
+impl Compilation {
+    pub fn constant_value(
+        &self,
+        key: ConstantInstanceKey,
+    ) -> Arc<SymbolFactResult<ConstantValue>>;
+}
+```
+
+`AnyConstantDefinitionId` is a closed internal adapter over ordinary constant, trait constant member, and trait constant fulfillment
+IDs. The fields of `ConstantInstanceKey` remain private and category-specific symbol views construct the key. Typed symbol APIs must
+not expose the erased definition ID when the exact constant category is known.
+
+A non-generic closed constant uses an empty substitution and no selected implementation. Declaration-surface completion evaluates
+that one concrete instance. Generic and trait-selected templates are checked at definition completion but produce concrete values
+only for requested instance keys.
+
+Definition diagnostics belong to the checked template fact. Substitution-, implementation-, or target-specific diagnostics belong
+to the concrete instance fact and are not published as diagnostics for unrelated instances.
+
+#### Predicate And Contract API
+
+Predicate symbols and trait predicate members expose a typed definition state:
+
+```rust
+pub enum PredicateDefinitionState<T> {
+    Defined(T),
+    Required,
+    OpaqueTrusted,
+    Error(ErrorPredicateDefinition),
+}
+```
+
+The public implementation can use separate ordinary-predicate and trait-predicate state enums if that prevents impossible variants
+for either category. A defined state contains a checked semantic predicate summary, not one evaluated Boolean value.
+
+Callable and declaration views expose checked contract and constraint collections through their existing typed `contracts()` and
+`constraints()` facts. Predicate application and proof queries are separate facts keyed by the checked definition and exact semantic
+arguments.
+
+#### Runtime Default Provider Surface
+
+A runtime default provider exposes only the compiler-facing callable surface needed by interface emission, lowering, and codegen:
+
+- its typed provider symbol ID,
+- its owning parameter or field ID,
+- ordered provider inputs,
+- generic parameters and substitutions,
+- result type,
+- effects, capabilities, trusted obligations, and finalization behavior,
+- source-independent checked provider representation or stable interface reference.
+
+Provider inputs are explicit. A parameter default can depend on the receiver and earlier parameters, but not itself, later parameters,
+or arbitrary call-site locals. Field and payload defaults cannot depend on `self` or sibling fields.
+
+Imported package interfaces reconstruct provider symbols and their checked surfaces without dependency source syntax. Generic
+providers include a source-independent checked or lowerable template sufficient for downstream instantiation. The consuming compiler
+must not rebind a dependency's default expression.
+
+Compiler-known runtime construction defaults use the same checked-default and provider contract through their compiler-known
+construction surfaces. Their typed parameter and provider categories must be finalized with the compiler-known root shape rather than
+being forced into a source callable parameter ID.
+
+#### Fact Dependencies And Cycles
+
+Declaration-owned expression queries depend on identity, generic parameters, declared types, and the minimum contract facts needed by
+that expression. They must use signature-only facts when resolving a recursive reference to the owning declaration rather than
+forcing the owner's defaults again.
+
+Parameter defaults are checked in parameter declaration order and can depend only on the receiver and earlier parameters. Field and
+payload defaults are checked in their declaration order but cannot depend on siblings.
+
+Constant definition templates form a checked dependency graph. Concrete constant instances form a separate evaluation graph. Illegal
+constant cycles produce structured diagnostics and error constant values. Predicate recursion and termination follow predicate
+checking rules rather than being treated as cache deadlocks.
+
+A declaration-owned fact can request a checked executable body when its semantics require execution. Constant evaluation can, for
+example, request a const callable body. The body remains a body-checker-owned fact and is not added to every symbol's declaration
+completion boundary.
+
+#### Diagnostics And Publication
+
+Each checked default, constant template, constant instance, predicate definition, and contract fact owns its diagnostic bag.
+Definition diagnostics are published once with the definition fact. A call or construction that encounters an error-aware default
+uses the error result without duplicating the original definition diagnostic.
+
+Successful publication caches the immutable semantic summary, provider relationship where applicable, and diagnostics together.
+Canceled work and failed speculative work publish none of them.
 
 ---
 
@@ -991,8 +1247,8 @@ applicable to that symbol kind:
 - callable contracts, ABI, effects, and capabilities,
 - implementation subject and trait application,
 - overload family membership and arms,
-- constant values,
-- checked declaration-level defaults,
+- checked declaration-owned runtime defaults,
+- checked constant definition templates and closed constant values,
 - checked predicate bodies and other non-executable contract expressions,
 - declaration-surface diagnostics.
 
@@ -1004,7 +1260,7 @@ Executable body binding and checking are not symbol completion.
 
 Body completion belongs to checked bound-body facts owned by binding and checker services.
 
-This includes function, method, constructor, lifecycle, lambda, and default executable trait-member bodies.
+This includes function, method, constructor, lifecycle, lambda, and defaulted executable trait-member bodies.
 
 A symbol can be declaration-surface complete while its executable body has never been requested.
 
@@ -1019,9 +1275,12 @@ It does not recursively complete symbols that are only referenced.
 
 Examples:
 
-- completing a function completes its generic parameters, receiver, and ordinary parameters,
+- completing a function completes its generic parameters, receiver, ordinary parameters, parameter defaults, and contracts,
 - completing a struct or union materializes its type-associated surface and completes the direct and inherent members that
   contribute to that surface without changing their containment,
+- completing a struct or union checks its field or payload defaults in declaration order,
+- completing a constant checks its definition template and evaluates its value when the instance is closed,
+- completing a predicate checks its predicate definition but does not evaluate it once to a Boolean value,
 - completing an implementation completes its own parameters and fulfillment members but does not recursively complete the trait it
   references,
 - completing an overload family resolves and validates its arm references but does not reparent those arms,
@@ -1303,6 +1562,16 @@ Required coverage includes:
 - parameter owner and ordinal identity,
 - receiver parameter synthesis,
 - inferred implementation parameter synthesis,
+- deterministic callable parameter, struct field, and union payload default-provider IDs,
+- runtime default providers remaining absent from ordinary lookup and typed member collections,
+- kind-specific default APIs retaining recovered and error-aware defaults,
+- invalid runtime defaults diagnosing even when every use supplies an explicit value,
+- parameter defaults accepting receiver and earlier-parameter dependencies while rejecting self and later-parameter dependencies,
+- force completion checking declaration-owned defaults, predicates, contracts, and closed constants,
+- force completion recording but not checking defaulted trait callable bodies,
+- generic constant definition templates producing separately cached concrete instance values,
+- substitution- and target-specific constant diagnostics remaining isolated to their exact instance facts,
+- imported runtime defaults remaining usable without dependency syntax rebinding,
 - anonymous callable and pattern-binding local symbols,
 - overload family symbols retaining independent arm identities,
 - trait implementation fulfillments linking to exact trait members,
@@ -1324,14 +1593,6 @@ Integration tests should verify that `Compilation` exposes symbol roots and diag
 ## Decisions Requiring Follow-Up
 
 The following language or API details need to be settled before the corresponding implementation surface is finalized.
-
-### Declaration-Level Defaults
-
-This design treats constant values, parameter defaults, field defaults, and contract-level predicate bodies as declaration-surface
-completion because they affect the usable declared surface and can produce declaration diagnostics.
-
-Executable callable and lifecycle bodies remain separate checked-body facts. This boundary should be confirmed against the planned
-constant evaluator and checker APIs.
 
 ### Body-Local Symbol Storage
 

@@ -57,9 +57,16 @@ A constant declared in a trait body or trait implementation is a constant-valued
 
 A constant declaration is evaluated in compile-time constant context.
 
+The initializer is checked as a [declaration-owned constant definition template](declaration-owned-expressions.md#constant-definition-templates-and-instances).
+
 The value of a constant declaration is fixed for the declaration instance.
 
 For a generic declaration, a constant declaration that depends on generic parameters is fixed for each concrete generic instantiation.
+
+A closed non-generic constant has one instance with an empty generic substitution. A generic, trait-selected, or target-dependent
+constant is evaluated separately for each exact substitution, selected implementation, and target profile required by a use.
+
+Checking the generic definition template does not eagerly enumerate or evaluate every possible concrete constant instance.
 
 A constant has no runtime storage identity.
 

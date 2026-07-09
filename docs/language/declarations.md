@@ -16,6 +16,7 @@ Declarations introduce named program entities, members, module contributions, co
 - [Directives](declarations/directives.md)
 - [Modifiers](declarations/modifiers.md)
 - [Generic declarations and constraints](declarations/generic-declarations-and-constraints.md)
+- [Declaration-owned expressions](declarations/declaration-owned-expressions.md)
 - [Declaration bodies and requirements](declarations/declaration-bodies-and-requirements.md)
 - [Constant declarations](declarations/constant-declarations.md)
 - [Predicate declarations](declarations/predicate-declarations.md)

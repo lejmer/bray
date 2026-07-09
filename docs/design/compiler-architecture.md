@@ -375,6 +375,11 @@ and do not pretend to be declaration symbols.
 Force completion requests all declaration-surface facts for a symbol and its semantically contained children in deterministic order.
 It does not bind or check executable bodies, which remain separate lazy bound-body facts.
 
+Declaration-owned expressions such as runtime defaults, constant definition templates, predicate definitions, generic constraints,
+and contract clauses are declaration-surface facts. Their full checked representations are binder-owned, requested through
+compilation queries, and summarized through typed symbol APIs. Runtime-default providers are synthesized semantic symbols and are
+lowered only when reachable. The exact fact contracts and provider APIs are defined in `docs/design/symbols.md`.
+
 ### Binding
 
 Binding resolves names, paths, member references, local bindings, declarations, and reference targets.

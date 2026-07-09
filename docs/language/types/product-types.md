@@ -313,6 +313,9 @@ Construction-time field default behavior is defined in [Struct construction expr
 
 A field default is checked in the struct declaration context.
 
+A field default is a [declaration-owned runtime default](../declarations/declaration-owned-expressions.md#runtime-defaults). It is
+checked even when every current construction supplies that field explicitly.
+
 A field default cannot reference sibling fields.
 
 A field default cannot reference `self`.
