@@ -12,7 +12,10 @@ mod label;
 mod note;
 mod severity;
 
-pub use argument::{DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticIoErrorKind};
+pub use argument::{
+    DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticIoErrorKind,
+    DiagnosticModuleTrust, DiagnosticVisibility,
+};
 pub use bag::DiagnosticBag;
 pub use code::DiagnosticCode;
 pub use diagnostic::Diagnostic;

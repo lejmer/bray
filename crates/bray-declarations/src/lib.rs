@@ -3,6 +3,7 @@
 #![forbid(unsafe_code)]
 
 mod chunk;
+mod diagnostic;
 mod discover;
 mod id;
 mod merge;

@@ -549,6 +549,27 @@ mod tests {
     }
 
     #[test]
+    fn declaration_diagnostics_flow_into_check_diagnostics() {
+        let compilation = match Compilation::load_sources(vec![source_input(
+            "module core; struct Point {} struct Point {}",
+            0,
+        )]) {
+            Ok(compilation) => compilation,
+            Err(error) => panic!("test compilation should load: {error:?}"),
+        };
+
+        assert_eq!(
+            diagnostic_kinds(compilation.declaration_diagnostics()),
+            [DiagnosticKind::DeclarationDuplicateName]
+        );
+
+        assert_eq!(
+            diagnostic_kinds(compilation.check_diagnostics()),
+            [DiagnosticKind::DeclarationDuplicateName]
+        );
+    }
+
+    #[test]
     fn check_diagnostics_merge_available_phase_diagnostics() {
         let invalid = SourceInput::file_bytes(
             SourceIdentity::new(11),

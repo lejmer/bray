@@ -97,6 +97,14 @@ pub enum DiagnosticLabelKind {
     ExpectedExpression,
     /// Label for an end-of-file position reached before syntax was complete.
     UnexpectedEof,
+    /// Label for the declaration that repeats an existing name.
+    DuplicateDeclaration,
+    /// Label for the first declaration of a repeated name.
+    FirstDeclaration,
+    /// Label for a split module declaration with a conflicting surface.
+    ConflictingModuleDeclaration,
+    /// Label for the split module declaration that established the surface.
+    FirstModuleDeclaration,
 }
 
 impl DiagnosticLabelKind {
@@ -120,6 +128,10 @@ impl DiagnosticLabelKind {
             Self::ExpectedTokenInsertionPoint => "expected_token_insertion_point",
             Self::ExpectedExpression => "expected_expression",
             Self::UnexpectedEof => "unexpected_eof",
+            Self::DuplicateDeclaration => "duplicate_declaration",
+            Self::FirstDeclaration => "first_declaration",
+            Self::ConflictingModuleDeclaration => "conflicting_module_declaration",
+            Self::FirstModuleDeclaration => "first_module_declaration",
         }
     }
 }

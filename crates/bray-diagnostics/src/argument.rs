@@ -84,6 +84,46 @@ impl DiagnosticArg {
         )
     }
 
+    /// Creates a declaration-name argument.
+    pub fn declaration_name(name: impl Into<String>) -> Self {
+        Self::new(
+            DiagnosticArgName::DeclarationName,
+            DiagnosticArgValue::DeclarationName(name.into()),
+        )
+    }
+
+    /// Creates an expected declaration-visibility argument.
+    pub const fn expected_visibility(visibility: DiagnosticVisibility) -> Self {
+        Self::new(
+            DiagnosticArgName::ExpectedVisibility,
+            DiagnosticArgValue::Visibility(visibility),
+        )
+    }
+
+    /// Creates an actual declaration-visibility argument.
+    pub const fn actual_visibility(visibility: DiagnosticVisibility) -> Self {
+        Self::new(
+            DiagnosticArgName::ActualVisibility,
+            DiagnosticArgValue::Visibility(visibility),
+        )
+    }
+
+    /// Creates an expected module-trust argument.
+    pub const fn expected_module_trust(trust: DiagnosticModuleTrust) -> Self {
+        Self::new(
+            DiagnosticArgName::ExpectedModuleTrust,
+            DiagnosticArgValue::ModuleTrust(trust),
+        )
+    }
+
+    /// Creates an actual module-trust argument.
+    pub const fn actual_module_trust(trust: DiagnosticModuleTrust) -> Self {
+        Self::new(
+            DiagnosticArgName::ActualModuleTrust,
+            DiagnosticArgValue::ModuleTrust(trust),
+        )
+    }
+
     /// Creates a source-name argument.
     pub fn source_name(name: impl Into<String>) -> Self {
         Self::new(
@@ -143,10 +183,20 @@ pub enum DiagnosticArgName {
     Character,
     /// Start location of a block comment or another paired source construct.
     ConstructStart,
+    /// Source-level declaration name.
+    DeclarationName,
     /// Syntax kind that was present in source.
     ActualSyntaxKind,
     /// Syntax kind that was expected by the compiler phase.
     ExpectedSyntaxKind,
+    /// Effective visibility established by an earlier declaration.
+    ExpectedVisibility,
+    /// Effective visibility supplied by the current declaration.
+    ActualVisibility,
+    /// Module trust state established by an earlier declaration.
+    ExpectedModuleTrust,
+    /// Module trust state supplied by the current declaration.
+    ActualModuleTrust,
     /// Path of a source file or external artifact.
     FilePath,
     /// Zero-based source input index from the request boundary.
@@ -179,8 +229,13 @@ impl DiagnosticArgName {
             Self::ByteCount => "byte_count",
             Self::Character => "character",
             Self::ConstructStart => "construct_start",
+            Self::DeclarationName => "declaration_name",
             Self::ActualSyntaxKind => "actual_syntax_kind",
             Self::ExpectedSyntaxKind => "expected_syntax_kind",
+            Self::ExpectedVisibility => "expected_visibility",
+            Self::ActualVisibility => "actual_visibility",
+            Self::ExpectedModuleTrust => "expected_module_trust",
+            Self::ActualModuleTrust => "actual_module_trust",
             Self::FilePath => "file_path",
             Self::InputIndex => "input_index",
             Self::IoErrorKind => "io_error_kind",
@@ -205,12 +260,18 @@ pub enum DiagnosticArgValue {
     ByteCount(u64),
     /// Source character.
     Character(char),
+    /// Source-level declaration name.
+    DeclarationName(String),
     /// Source file or external artifact path.
     FilePath(PathBuf),
     /// Zero-based source input index.
     InputIndex(u64),
     /// Stable I/O error category from the host.
     IoErrorKind(DiagnosticIoErrorKind),
+    /// Effective declaration visibility.
+    Visibility(DiagnosticVisibility),
+    /// Effective module trust state.
+    ModuleTrust(DiagnosticModuleTrust),
     /// Source name.
     SourceName(String),
     /// Source input count.
@@ -229,6 +290,44 @@ pub enum DiagnosticArgValue {
     SourceSpan(SourceSpan),
     /// Requested worker count.
     WorkerCount(u64),
+}
+
+/// Locale-neutral effective visibility used by declaration diagnostics.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum DiagnosticVisibility {
+    /// Public declaration visibility.
+    Public,
+    /// Internal declaration visibility.
+    Internal,
+}
+
+impl DiagnosticVisibility {
+    /// Returns the stable machine key for this visibility.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Public => "public",
+            Self::Internal => "internal",
+        }
+    }
+}
+
+/// Locale-neutral module trust state used by declaration diagnostics.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum DiagnosticModuleTrust {
+    /// Module permits trusted declarations.
+    Trusted,
+    /// Module does not permit trusted declarations.
+    Ordinary,
+}
+
+impl DiagnosticModuleTrust {
+    /// Returns the stable machine key for this trust state.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Trusted => "trusted",
+            Self::Ordinary => "ordinary",
+        }
+    }
 }
 
 /// Stable subset of host I/O error categories used in diagnostics.
@@ -333,6 +432,34 @@ mod tests {
             arg.value(),
             &DiagnosticArgValue::SyntaxKind(SyntaxKind::FuncKeyword)
         );
+    }
+
+    #[test]
+    fn declaration_args_keep_names_and_module_surface_values_typed() {
+        let name = DiagnosticArg::declaration_name("Point");
+        let visibility = DiagnosticArg::expected_visibility(super::DiagnosticVisibility::Public);
+        let trust = DiagnosticArg::actual_module_trust(super::DiagnosticModuleTrust::Ordinary);
+
+        assert_eq!(name.name(), DiagnosticArgName::DeclarationName);
+        assert_eq!(name.name().as_str(), "declaration_name");
+
+        assert_eq!(
+            name.value(),
+            &DiagnosticArgValue::DeclarationName(String::from("Point"))
+        );
+
+        assert_eq!(
+            visibility.value(),
+            &DiagnosticArgValue::Visibility(super::DiagnosticVisibility::Public)
+        );
+
+        assert_eq!(
+            trust.value(),
+            &DiagnosticArgValue::ModuleTrust(super::DiagnosticModuleTrust::Ordinary)
+        );
+
+        assert_eq!(super::DiagnosticVisibility::Internal.as_str(), "internal");
+        assert_eq!(super::DiagnosticModuleTrust::Trusted.as_str(), "trusted");
     }
 
     #[test]

@@ -1,5 +1,6 @@
 use bray_diagnostics::{
     DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticIoErrorKind,
+    DiagnosticModuleTrust,
 };
 use bray_source::{SourceInputKind, SourceLocation, SourceOrigin, SourceSpan};
 use bray_syntax::SyntaxKind;
@@ -62,9 +63,12 @@ fn format_english_value(value: &DiagnosticArgValue) -> String {
         DiagnosticArgValue::Byte(byte) => format!("0x{byte:02X}"),
         DiagnosticArgValue::ByteCount(byte_count) => byte_count.to_string(),
         DiagnosticArgValue::Character(character) => format_english_character(*character),
+        DiagnosticArgValue::DeclarationName(name) => format_english_quoted_text(name),
         DiagnosticArgValue::FilePath(path) => path.display().to_string(),
         DiagnosticArgValue::InputIndex(input_index) => input_index.to_string(),
         DiagnosticArgValue::IoErrorKind(kind) => format_english_io_error_kind(*kind).to_owned(),
+        DiagnosticArgValue::Visibility(visibility) => visibility.as_str().to_owned(),
+        DiagnosticArgValue::ModuleTrust(trust) => format_english_module_trust(*trust).to_owned(),
         DiagnosticArgValue::SourceName(name) => name.clone(),
         DiagnosticArgValue::SourceCount(source_count) => source_count.to_string(),
         DiagnosticArgValue::SourceInputKind(kind) => {
@@ -72,7 +76,7 @@ fn format_english_value(value: &DiagnosticArgValue) -> String {
         }
         DiagnosticArgValue::SyntaxKind(kind) => format_english_syntax_kind(*kind),
         DiagnosticArgValue::TextOffset(offset) => offset.bytes().to_string(),
-        DiagnosticArgValue::TokenText(text) => format_english_token_text(text),
+        DiagnosticArgValue::TokenText(text) => format_english_quoted_text(text),
         DiagnosticArgValue::Uri(uri) => uri.clone(),
         DiagnosticArgValue::SourceSpan(span) => {
             format_source_span(DiagnosticLocale::English, *span)
@@ -93,8 +97,15 @@ fn format_english_syntax_kind(kind: SyntaxKind) -> String {
     kind.as_str().replace('_', " ")
 }
 
-fn format_english_token_text(text: &str) -> String {
+fn format_english_quoted_text(text: &str) -> String {
     format!("'{}'", text.escape_default())
+}
+
+const fn format_english_module_trust(trust: DiagnosticModuleTrust) -> &'static str {
+    match trust {
+        DiagnosticModuleTrust::Trusted => "trusted",
+        DiagnosticModuleTrust::Ordinary => "non-trusted",
+    }
 }
 
 const fn format_english_io_error_kind(kind: DiagnosticIoErrorKind) -> &'static str {

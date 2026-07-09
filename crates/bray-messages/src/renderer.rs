@@ -138,7 +138,8 @@ mod tests {
     use bray_diagnostics::{
         Diagnostic, DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticBag,
         DiagnosticId, DiagnosticIoErrorKind, DiagnosticKind, DiagnosticLabel, DiagnosticLabelKind,
-        DiagnosticLabelStyle, DiagnosticNote, DiagnosticNoteKind, SeverityKind,
+        DiagnosticLabelStyle, DiagnosticModuleTrust, DiagnosticNote, DiagnosticNoteKind,
+        DiagnosticVisibility, SeverityKind,
     };
     use bray_source::{SourceId, SourceSpan, TextRange, TextSize};
     use bray_syntax::SyntaxKind;
@@ -274,6 +275,82 @@ mod tests {
         };
 
         assert_eq!(label.message(), "insert func keyword here");
+    }
+
+    #[test]
+    fn renderer_renders_declaration_diagnostics_from_catalog() {
+        let first_span = SourceSpan::new(
+            SourceId::new(0),
+            TextRange::new(TextSize::ZERO, TextSize::new(5)),
+        );
+
+        let duplicate_span = SourceSpan::new(
+            SourceId::new(0),
+            TextRange::new(TextSize::new(6), TextSize::new(11)),
+        );
+
+        let duplicate = Diagnostic::new(
+            DiagnosticId::new(6),
+            DiagnosticKind::DeclarationDuplicateName,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::declaration_name("Point"))
+        .with_label(DiagnosticLabel::primary(
+            DiagnosticLabelKind::DuplicateDeclaration,
+            duplicate_span,
+        ))
+        .with_label(DiagnosticLabel::secondary(
+            DiagnosticLabelKind::FirstDeclaration,
+            first_span,
+        ));
+
+        let visibility = Diagnostic::new(
+            DiagnosticId::new(12),
+            DiagnosticKind::DeclarationConflictingModuleVisibility,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::declaration_name("core"))
+        .with_arg(DiagnosticArg::expected_visibility(
+            DiagnosticVisibility::Public,
+        ))
+        .with_arg(DiagnosticArg::actual_visibility(
+            DiagnosticVisibility::Internal,
+        ));
+
+        let trust = Diagnostic::new(
+            DiagnosticId::new(13),
+            DiagnosticKind::DeclarationConflictingModuleTrust,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::declaration_name("core"))
+        .with_arg(DiagnosticArg::expected_module_trust(
+            DiagnosticModuleTrust::Trusted,
+        ))
+        .with_arg(DiagnosticArg::actual_module_trust(
+            DiagnosticModuleTrust::Ordinary,
+        ));
+
+        let renderer = DiagnosticRenderer::english();
+        let duplicate = renderer.render(&duplicate);
+
+        assert_eq!(duplicate.message(), "duplicate declaration of 'Point'");
+
+        let [duplicate_label, first_label] = duplicate.labels() else {
+            panic!("expected duplicate declaration labels: {duplicate:?}");
+        };
+
+        assert_eq!(duplicate_label.message(), "duplicate declaration");
+        assert_eq!(first_label.message(), "first declared here");
+
+        assert_eq!(
+            renderer.render(&visibility).message(),
+            "module 'core' has conflicting visibility: expected public, found internal"
+        );
+
+        assert_eq!(
+            renderer.render(&trust).message(),
+            "module 'core' has conflicting trust state: expected trusted, found non-trusted"
+        );
     }
 
     #[test]
