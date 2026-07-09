@@ -1,5 +1,7 @@
 use std::collections::BTreeMap;
 
+use bray_diagnostics::DiagnosticBag;
+
 use crate::chunk::{DeclarationChunk, DiscoveredDeclaration, DiscoveredModulePart};
 use crate::id::{ContainerId, DeclarationId, ModulePartId};
 use crate::name::{DeclarationName, ModulePath};
@@ -7,27 +9,32 @@ use crate::record::{
     ContainerKind, ContainerRecord, ContainerRecordInput, DeclarationKind, DeclarationRecord,
     DeclarationRecordInput, ModulePartRecord, ModulePartRecordInput,
 };
+use crate::result::{DeclarationChunkResult, DeclarationTableResult};
 use crate::table::DeclarationTable;
 
-/// Merges source-unit declaration chunks into one deterministic declaration table.
-pub fn merge_declaration_chunks(
-    chunks: impl IntoIterator<Item = DeclarationChunk>,
-) -> DeclarationTable {
+/// Merges borrowed source-unit declaration results into one deterministic table result.
+pub fn merge_declaration_chunks<'chunk>(
+    chunks: impl IntoIterator<Item = &'chunk DeclarationChunkResult>,
+) -> DeclarationTableResult {
     let mut builder = TableBuilder::new();
+    let ordered_chunks = source_order_chunks(chunks);
 
-    for chunk in source_order_chunks(chunks) {
-        builder.push_chunk(chunk);
+    for result in &ordered_chunks {
+        builder.push_chunk(result.chunk());
     }
 
-    builder.finish()
+    let diagnostics =
+        DiagnosticBag::merged_all(ordered_chunks.iter().map(|result| result.diagnostics()));
+
+    DeclarationTableResult::new(builder.finish(), diagnostics)
 }
 
-fn source_order_chunks(
-    chunks: impl IntoIterator<Item = DeclarationChunk>,
-) -> Vec<DeclarationChunk> {
+fn source_order_chunks<'chunk>(
+    chunks: impl IntoIterator<Item = &'chunk DeclarationChunkResult>,
+) -> Vec<&'chunk DeclarationChunkResult> {
     let mut indexed_chunks = chunks.into_iter().enumerate().collect::<Vec<_>>();
 
-    indexed_chunks.sort_by_key(|(index, chunk)| (chunk.source_id(), *index));
+    indexed_chunks.sort_by_key(|(index, result)| (result.chunk().source_id(), *index));
     indexed_chunks.into_iter().map(|(_, chunk)| chunk).collect()
 }
 
@@ -51,19 +58,20 @@ impl TableBuilder {
         }
     }
 
-    fn push_chunk(&mut self, chunk: DeclarationChunk) {
-        for part in chunk.into_module_parts() {
+    fn push_chunk(&mut self, chunk: &DeclarationChunk) {
+        for part in chunk.module_parts() {
             self.push_module_part(part);
         }
     }
 
-    fn push_module_part(&mut self, part: DiscoveredModulePart) {
+    fn push_module_part(&mut self, part: &DiscoveredModulePart) {
         let module_container = self.module_container_for(&part.path);
 
         // ModulePath clones share immutable segment storage across records and indexes.
         let module_name = Some(DeclarationName::Path(part.path.clone()));
 
-        // Module parts and their module declarations expose the same syntax surface.
+        // Cached chunks and table records are independent immutable facts.
+        let module_declaration_surface = part.surface.clone();
         let module_part_surface = part.surface.clone();
 
         let module_declaration = self.push_declaration_record(DeclarationRecordInput {
@@ -72,7 +80,7 @@ impl TableBuilder {
             owning_container: self.root_container_id(),
             name: module_name,
             syntax: part.syntax,
-            surface: part.surface,
+            surface: module_declaration_surface,
             child_container: Some(module_container),
         });
 
@@ -82,7 +90,7 @@ impl TableBuilder {
 
         let mut part_declarations = Vec::with_capacity(part.declarations.len());
 
-        for declaration in part.declarations {
+        for declaration in &part.declarations {
             let declaration_id = self.push_discovered_declaration(module_container, declaration);
 
             part_declarations.push(declaration_id);
@@ -108,20 +116,22 @@ impl TableBuilder {
     fn push_discovered_declaration(
         &mut self,
         owning_container: ContainerId,
-        declaration: DiscoveredDeclaration,
+        declaration: &DiscoveredDeclaration,
     ) -> DeclarationId {
         let child_container =
             self.child_container_for_declaration(declaration.kind, owning_container);
 
-        let children = declaration.children;
+        // Cached chunks and table records are independent immutable facts.
+        let name = declaration.name.clone();
+        let surface = declaration.surface.clone();
 
         let declaration_id = self.push_declaration_record(DeclarationRecordInput {
             id: self.next_declaration_id(),
             kind: declaration.kind,
             owning_container,
-            name: declaration.name,
+            name,
             syntax: declaration.syntax,
-            surface: declaration.surface,
+            surface,
             child_container,
         });
 
@@ -130,7 +140,7 @@ impl TableBuilder {
             .push(declaration_id);
 
         if let Some(child_container) = child_container {
-            for child in children {
+            for child in &declaration.children {
                 self.push_discovered_declaration(child_container, child);
             }
         }
@@ -277,7 +287,9 @@ mod tests {
     use crate::discover_source_unit_declarations;
     use crate::name::ModulePath;
     use crate::record::{ContainerKind, DeclarationKind};
-    use crate::test_support::{parse_recovered_source_unit_for_test, parse_valid_source_unit_for_test};
+    use crate::test_support::{
+        parse_recovered_source_unit_for_test, parse_valid_source_unit_for_test,
+    };
 
     #[test]
     fn merge_combines_multiple_source_units_that_contribute_to_one_module() {
@@ -286,14 +298,16 @@ mod tests {
             "module core.io {\nconst Size: Int = 1;\n}\n",
         ]);
 
-        let first =
-            discover_source_unit_declarations(&parse_valid_source_unit_for_test(source(&sources, 0)));
+        let first = discover_source_unit_declarations(&parse_valid_source_unit_for_test(source(
+            &sources, 0,
+        )));
 
-        let second =
-            discover_source_unit_declarations(&parse_valid_source_unit_for_test(source(&sources, 1)));
+        let second = discover_source_unit_declarations(&parse_valid_source_unit_for_test(source(
+            &sources, 1,
+        )));
 
-        let forward = merge_declaration_chunks([first.clone(), second.clone()]);
-        let reverse = merge_declaration_chunks([second, first]);
+        let forward = merge_table_for_test([&first, &second]);
+        let reverse = merge_table_for_test([&second, &first]);
 
         assert_eq!(forward, reverse);
 
@@ -340,9 +354,11 @@ mod tests {
             "module core { impl Point { func translate() {} } }",
         )]);
 
-        let chunk =
-            discover_source_unit_declarations(&parse_valid_source_unit_for_test(source(&sources, 0)));
-        let table = merge_declaration_chunks([chunk]);
+        let chunk = discover_source_unit_declarations(&parse_valid_source_unit_for_test(source(
+            &sources, 0,
+        )));
+
+        let table = merge_table_for_test([&chunk]);
 
         let module = match table.module_container(&ModulePath::new(["core"])) {
             Some(module) => module,
@@ -386,13 +402,16 @@ mod tests {
             "module core; union Maybe { Some(value: Int); }\n",
         ]);
 
-        let first =
-            discover_source_unit_declarations(&parse_valid_source_unit_for_test(source(&sources, 0)));
-        let second =
-            discover_source_unit_declarations(&parse_valid_source_unit_for_test(source(&sources, 1)));
+        let first = discover_source_unit_declarations(&parse_valid_source_unit_for_test(source(
+            &sources, 0,
+        )));
 
-        let forward = merge_declaration_chunks([first.clone(), second.clone()]);
-        let reverse = merge_declaration_chunks([second, first]);
+        let second = discover_source_unit_declarations(&parse_valid_source_unit_for_test(source(
+            &sources, 1,
+        )));
+
+        let forward = merge_table_for_test([&first, &second]);
+        let reverse = merge_table_for_test([&second, &first]);
 
         assert_eq!(forward, reverse);
 
@@ -445,14 +464,16 @@ mod tests {
             "module core { union Maybe { Some(value: Int); } }\n",
         ]);
 
-        let source_unit_part =
-            discover_source_unit_declarations(&parse_valid_source_unit_for_test(source(&sources, 0)));
+        let source_unit_part = discover_source_unit_declarations(
+            &parse_valid_source_unit_for_test(source(&sources, 0)),
+        );
 
-        let block_part =
-            discover_source_unit_declarations(&parse_valid_source_unit_for_test(source(&sources, 1)));
+        let block_part = discover_source_unit_declarations(&parse_valid_source_unit_for_test(
+            source(&sources, 1),
+        ));
 
-        let forward = merge_declaration_chunks([source_unit_part.clone(), block_part.clone()]);
-        let reverse = merge_declaration_chunks([block_part, source_unit_part]);
+        let forward = merge_table_for_test([&source_unit_part, &block_part]);
+        let reverse = merge_table_for_test([&block_part, &source_unit_part]);
 
         assert_eq!(forward, reverse);
 
@@ -522,8 +543,11 @@ mod tests {
         let source_text = "module main; struct Point\nusing core;";
         let sources = source_store([source_text]);
         let snapshot = source(&sources, 0);
-        let chunk = discover_source_unit_declarations(&parse_recovered_source_unit_for_test(snapshot));
-        let table = merge_declaration_chunks([chunk]);
+
+        let chunk =
+            discover_source_unit_declarations(&parse_recovered_source_unit_for_test(snapshot));
+
+        let table = merge_table_for_test([&chunk]);
 
         let module = match table.module_container(&ModulePath::new(["main"])) {
             Some(module) => module,
@@ -588,10 +612,11 @@ mod tests {
             "impl Resource { type Item = Element; const Size: Int = 1; construct() -> Self {} exit() {} func make() {} }",
         )]);
 
-        let chunk =
-            discover_source_unit_declarations(&parse_valid_source_unit_for_test(source(&sources, 0)));
+        let chunk = discover_source_unit_declarations(&parse_valid_source_unit_for_test(source(
+            &sources, 0,
+        )));
 
-        let table = merge_declaration_chunks([chunk]);
+        let table = merge_table_for_test([&chunk]);
 
         let module = match table.module_container(&ModulePath::new(["core"])) {
             Some(module) => module,
@@ -672,13 +697,15 @@ mod tests {
             "module core;\nimpl Point { func translate() {} }\n",
         ]);
 
-        let first =
-            discover_source_unit_declarations(&parse_valid_source_unit_for_test(source(&sources, 0)));
+        let first = discover_source_unit_declarations(&parse_valid_source_unit_for_test(source(
+            &sources, 0,
+        )));
 
-        let second =
-            discover_source_unit_declarations(&parse_valid_source_unit_for_test(source(&sources, 1)));
+        let second = discover_source_unit_declarations(&parse_valid_source_unit_for_test(source(
+            &sources, 1,
+        )));
 
-        let table = merge_declaration_chunks([first, second]);
+        let table = merge_table_for_test([&first, &second]);
 
         let module = match table.module_container(&ModulePath::new(["core"])) {
             Some(module) => module,
@@ -714,10 +741,11 @@ mod tests {
             "union Maybe { Some(value: Int, fallback: Int); }",
         )]);
 
-        let chunk =
-            discover_source_unit_declarations(&parse_valid_source_unit_for_test(source(&sources, 0)));
+        let chunk = discover_source_unit_declarations(&parse_valid_source_unit_for_test(source(
+            &sources, 0,
+        )));
 
-        let table = merge_declaration_chunks([chunk]);
+        let table = merge_table_for_test([&chunk]);
 
         let module = match table.module_container(&ModulePath::new(["core"])) {
             Some(module) => module,
@@ -801,7 +829,7 @@ mod tests {
 
         let snapshot = source(&sources, 0);
         let chunk = discover_source_unit_declarations(&parse_valid_source_unit_for_test(snapshot));
-        let table = merge_declaration_chunks([chunk]);
+        let table = merge_table_for_test([&chunk]);
 
         let module = match table.module_container(&ModulePath::new(["core"])) {
             Some(module) => module,
@@ -1010,5 +1038,17 @@ mod tests {
 
     fn anchor_kinds(anchors: &[crate::SyntaxAnchor]) -> Vec<SyntaxKind> {
         anchors.iter().map(|anchor| anchor.syntax_kind()).collect()
+    }
+
+    fn merge_table_for_test<'chunk>(
+        chunks: impl IntoIterator<Item = &'chunk crate::DeclarationChunkResult>,
+    ) -> crate::DeclarationTable {
+        let result = merge_declaration_chunks(chunks);
+
+        assert!(result.diagnostics().is_empty());
+
+        let (table, _diagnostics) = result.into_parts();
+
+        table
     }
 }

@@ -109,6 +109,11 @@ Lazy evaluation should use ordinary compiler APIs. If computing the type of an e
 surfaces, symbols, binding, and constraint solving, the type API obtains those dependencies internally through the owning phase
 APIs.
 
+`Compilation` exposes declaration chunks and the merged declaration table as cached facts. A source-unit chunk query requests that
+source unit's syntax. A declaration-table query requests all source-unit chunks and performs one deterministic merge. Declaration
+diagnostics are a projection of the merged result, so a check-diagnostics query materializes declaration discovery through that
+fact dependency rather than through a phase-execution command.
+
 Compiler facts should generally be lazy across stable compiler boundaries:
 
 - source units,

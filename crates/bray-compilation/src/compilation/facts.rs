@@ -1,5 +1,9 @@
 use std::sync::{Arc, OnceLock};
 
+use bray_declarations::{
+    DeclarationChunkResult, DeclarationTable, DeclarationTableResult,
+    discover_source_unit_declarations, merge_declaration_chunks,
+};
 use bray_diagnostics::DiagnosticBag;
 use bray_parser::{SourceUnitSyntaxResult, SyntaxTreeResult, parse_source_unit};
 use bray_source::{SourceId, SourceInput, SourceLoadError, SourceSnapshot, SourceStore};
@@ -26,6 +30,8 @@ struct CompilationState {
     source_diagnostics: DiagnosticBag,
     source_unit_syntax: Vec<OnceLock<SourceUnitSyntaxResult>>,
     syntax_tree_result: OnceLock<SyntaxTreeResult>,
+    declaration_chunks: Vec<OnceLock<DeclarationChunkResult>>,
+    declaration_table_result: OnceLock<DeclarationTableResult>,
     check_diagnostics: OnceLock<DiagnosticBag>,
 }
 
@@ -76,6 +82,8 @@ impl Compilation {
                 source_diagnostics: diagnostics,
                 source_unit_syntax: empty_fact_caches(source_count),
                 syntax_tree_result: OnceLock::new(),
+                declaration_chunks: empty_fact_caches(source_count),
+                declaration_table_result: OnceLock::new(),
                 check_diagnostics: OnceLock::new(),
             }),
         })
@@ -107,13 +115,16 @@ impl Compilation {
     }
 
     /// TODO: Replace this temporary command-facing API with a checked-program
-    ///       result fact once declaration, binding, and checking facts exist.
+    ///       result fact once binding and checking facts exist.
     ///
     /// Returns diagnostics for the current check command behavior.
     pub fn check_diagnostics(&self) -> &DiagnosticBag {
         self.state.check_diagnostics.get_or_init(|| {
-            self.source_diagnostics()
-                .merged(self.syntax_tree_result().diagnostics())
+            DiagnosticBag::merged_all([
+                self.source_diagnostics(),
+                self.syntax_tree_result().diagnostics(),
+                self.declaration_diagnostics(),
+            ])
         })
     }
 
@@ -146,6 +157,38 @@ impl Compilation {
         self.syntax_tree_result().syntax_tree()
     }
 
+    /// Returns the declaration-discovery result for one source unit.
+    pub fn declaration_chunk(&self, source_id: SourceId) -> Option<&DeclarationChunkResult> {
+        let syntax = self.source_unit_syntax(source_id)?;
+        let cache = self.state.declaration_chunks.get(source_id.to_index()?)?;
+
+        Some(cache.get_or_init(|| discover_source_unit_declarations(syntax.source_unit())))
+    }
+
+    /// Returns the merged declaration-discovery result for this compilation.
+    pub fn declaration_table_result(&self) -> &DeclarationTableResult {
+        self.state.declaration_table_result.get_or_init(|| {
+            let chunks = self.sources().iter().map(|snapshot| {
+                match self.declaration_chunk(snapshot.source_id()) {
+                    Some(chunk) => chunk,
+                    None => panic!("declaration chunk cache should match source store"),
+                }
+            });
+
+            merge_declaration_chunks(chunks)
+        })
+    }
+
+    /// Returns the merged declaration table for this compilation.
+    pub fn declaration_table(&self) -> &DeclarationTable {
+        self.declaration_table_result().table()
+    }
+
+    /// Returns diagnostics produced by declaration discovery and merge.
+    pub fn declaration_diagnostics(&self) -> &DiagnosticBag {
+        self.declaration_table_result().diagnostics()
+    }
+
     /// Returns the loaded source snapshot for `source_id`.
     pub fn source(&self, source_id: SourceId) -> Option<&SourceSnapshot> {
         self.state.sources.get(source_id)
@@ -173,6 +216,7 @@ fn empty_fact_caches<T>(len: usize) -> Vec<OnceLock<T>> {
 
 #[cfg(test)]
 mod tests {
+    use bray_declarations::{DeclarationKind, ModulePath};
     use bray_diagnostics::{
         DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticBag, DiagnosticId,
         DiagnosticKind, DiagnosticNote, DiagnosticNoteKind, SeverityKind,
@@ -279,7 +323,7 @@ mod tests {
     }
 
     #[test]
-    fn check_diagnostics_request_syntax_and_merge_syntax_diagnostics() {
+    fn check_diagnostics_request_syntax_and_declaration_facts() {
         let invalid_utf8 = SourceInput::file_bytes(
             SourceIdentity::new(20),
             "bad-utf8.bray",
@@ -291,6 +335,8 @@ mod tests {
             Ok(compilation) => compilation,
             Err(error) => panic!("compilation should load: {error:?}"),
         };
+
+        assert!(compilation.state.declaration_table_result.get().is_none());
 
         assert_eq!(compilation.syntax_tree().source_units().len(), 1);
 
@@ -304,6 +350,9 @@ mod tests {
                 DiagnosticKind::SyntaxUnexpectedEof
             ]
         );
+
+        assert!(compilation.state.declaration_table_result.get().is_some());
+        assert!(compilation.declaration_diagnostics().is_empty());
     }
 
     #[test]
@@ -399,7 +448,108 @@ mod tests {
     }
 
     #[test]
-    fn check_diagnostics_merge_source_and_syntax_diagnostics() {
+    fn declaration_chunk_facts_are_lazy_and_cached_by_source_id() {
+        let compilation = declaration_compilation();
+
+        let [first_syntax_cache, second_syntax_cache] =
+            compilation.state.source_unit_syntax.as_slice()
+        else {
+            panic!("expected two source-unit syntax caches");
+        };
+
+        let [first_declaration_cache, second_declaration_cache] =
+            compilation.state.declaration_chunks.as_slice()
+        else {
+            panic!("expected two declaration chunk caches");
+        };
+
+        assert!(
+            compilation
+                .state
+                .source_unit_syntax
+                .iter()
+                .all(|cache| cache.get().is_none())
+        );
+
+        assert!(
+            compilation
+                .state
+                .declaration_chunks
+                .iter()
+                .all(|cache| cache.get().is_none())
+        );
+
+        assert!(compilation.state.declaration_table_result.get().is_none());
+
+        let first = match compilation.declaration_chunk(SourceId::new(0)) {
+            Some(result) => result,
+            None => panic!("first source should have a declaration chunk"),
+        };
+
+        assert!(first.diagnostics().is_empty());
+        assert_eq!(first.chunk().module_parts().len(), 1);
+        assert!(first_syntax_cache.get().is_some());
+        assert!(second_syntax_cache.get().is_none());
+        assert!(first_declaration_cache.get().is_some());
+        assert!(second_declaration_cache.get().is_none());
+        assert!(compilation.state.declaration_table_result.get().is_none());
+
+        let second = match compilation.declaration_chunk(SourceId::new(0)) {
+            Some(result) => result,
+            None => panic!("first source should have the same declaration chunk"),
+        };
+
+        assert!(std::ptr::eq(first, second));
+    }
+
+    #[test]
+    fn declaration_table_fact_requests_all_chunks_and_is_cached() {
+        let compilation = declaration_compilation();
+
+        let first = compilation.declaration_table_result();
+        let second = compilation.declaration_table_result();
+
+        assert!(std::ptr::eq(first, second));
+        assert!(first.diagnostics().is_empty());
+
+        assert!(
+            compilation
+                .state
+                .declaration_chunks
+                .iter()
+                .all(|cache| cache.get().is_some())
+        );
+
+        assert!(compilation.state.check_diagnostics.get().is_none());
+        assert!(std::ptr::eq(first.table(), compilation.declaration_table()));
+
+        assert!(std::ptr::eq(
+            first.diagnostics(),
+            compilation.declaration_diagnostics()
+        ));
+
+        let module = match first.table().module_container(&ModulePath::new(["core"])) {
+            Some(module) => module,
+            None => panic!("core module should exist"),
+        };
+
+        assert_eq!(module.module_parts().len(), 2);
+
+        assert_eq!(
+            module
+                .declarations()
+                .iter()
+                .map(|id| match first.table().declaration(*id) {
+                    Some(record) => record.kind(),
+                    None => panic!("module declaration ID should exist: {id:?}"),
+                })
+                .collect::<Vec<_>>(),
+            [DeclarationKind::Function, DeclarationKind::Constant]
+        );
+    }
+
+    #[test]
+    fn check_diagnostics_merge_available_phase_diagnostics() {
         let invalid = SourceInput::file_bytes(
             SourceIdentity::new(11),
             "bad.bray",
@@ -436,6 +586,16 @@ mod tests {
             .iter()
             .map(|diagnostic| diagnostic.kind())
             .collect()
+    }
+
+    fn declaration_compilation() -> Compilation {
+        match Compilation::load_sources(vec![
+            source_input("module core; func first() {}", 0),
+            source_input("module core { const Size: Int = 1; }", 1),
+        ]) {
+            Ok(compilation) => compilation,
+            Err(error) => panic!("test compilation should load: {error:?}"),
+        }
     }
 
     fn source_input(text: &str, version: u32) -> SourceInput {
