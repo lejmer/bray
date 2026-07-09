@@ -249,7 +249,7 @@ mod tests {
     }
 
     #[test]
-    fn parser_skips_trait_type_member_defaults_for_now() {
+    fn parser_recovers_disallowed_trait_type_member_defaults_as_skipped_syntax() {
         let source = "module main; trait Iterator { type Item = Value; }";
         let sources = source_store([source]);
         let result = parse_compilation_unit(&sources);
