@@ -6,7 +6,7 @@ use bray_syntax::{
     InherentImplementationDeclarationSyntax, NamedTraitImplementationDeclarationSyntax, PathSyntax,
     PredicateDeclarationSyntax, ScopeEnterMemberDeclarationSyntax,
     ScopeExitMemberDeclarationSyntax, SourceSyntaxNode, StructDeclarationSyntax,
-    StructFieldDeclarationSyntax, SyntaxCast, SyntaxKind, SyntaxNodeView, SyntaxToken,
+    StructFieldDeclarationSyntax, SyntaxKind, SyntaxNodeView, SyntaxToken,
     TraitCallableMemberDeclarationSyntax, TraitConstantMemberDeclarationSyntax,
     TraitDeclarationSyntax, TraitDestructorRequirementDeclarationSyntax,
     TraitFinalizerRequirementDeclarationSyntax, TraitPredicateMemberDeclarationSyntax,
@@ -16,6 +16,7 @@ use bray_syntax::{
     UnnamedTraitImplementationDeclarationSyntax, UsingDeclarationSyntax,
 };
 
+use super::syntax::cast_node;
 use crate::name::{DeclarationName, ImplementationDeclarationName, ModulePath};
 use crate::record::DeclarationKind;
 
@@ -310,17 +311,12 @@ pub(super) fn declaration_name(
 
             identifier_declaration_name(view.source().text(), declaration.identifier_token())
         }
-        DeclarationKind::Module => None,
-    }
-}
-
-fn cast_node<T>(view: SyntaxNodeView<'_>, description: &'static str) -> T
-where
-    T: SyntaxCast,
-{
-    match view.cast::<T>() {
-        Some(node) => node,
-        None => panic!("{description} view should cast"),
+        DeclarationKind::Module
+        | DeclarationKind::GenericTypeParameter
+        | DeclarationKind::GenericConstParameter
+        | DeclarationKind::CallableParameter
+        | DeclarationKind::PredicateParameter
+        | DeclarationKind::UnionPayloadField => None,
     }
 }
 
@@ -334,7 +330,10 @@ fn path_declaration_name(path: &PathSyntax) -> Option<DeclarationName> {
     }
 }
 
-fn identifier_declaration_name(source_text: &str, token: SyntaxToken) -> Option<DeclarationName> {
+pub(super) fn identifier_declaration_name(
+    source_text: &str,
+    token: SyntaxToken,
+) -> Option<DeclarationName> {
     token_text(source_text, token).map(DeclarationName::Identifier)
 }
 

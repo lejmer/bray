@@ -150,10 +150,13 @@ Expected container kinds:
 - logical module,
 - type body,
 - trait body,
-- implementation body.
+- implementation body,
+- callable, predicate, contract, and lifecycle signatures,
+- union variant payloads.
 
 Function and expression-local declarations can be added later if the binder needs a declaration surface before body binding.
-Do not add them speculatively to the first implementation.
+Signature containers record declaration-surface children such as generic parameters and callable or predicate parameters, but
+they do not imply that callable bodies are walked during discovery.
 
 Every declaration belongs to exactly one owning container.
 Declarations that introduce nested declaration spaces also point at a child container.
@@ -179,6 +182,18 @@ trait Display { func show(); }
 ```text
 TraitContainer Display
   Declaration TraitCallableMember show
+    SignatureContainer show
+```
+
+```text
+union Maybe { Some(value: Int); }
+```
+
+```text
+TypeContainer Maybe
+  Declaration UnionVariant Some
+    VariantContainer Some
+      Declaration PayloadField value
 ```
 
 ---
