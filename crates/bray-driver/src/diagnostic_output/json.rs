@@ -178,9 +178,12 @@ enum DiagnosticArgValueJson {
     Byte(u8),
     ByteCount(u64),
     Character(char),
+    DeclarationName(String),
     FilePath(String),
     InputIndex(u64),
     IoErrorKind(&'static str),
+    Visibility(&'static str),
+    ModuleTrust(&'static str),
     SourceName(String),
     SourceCount(u64),
     SourceInputKind(&'static str),
@@ -198,9 +201,12 @@ impl DiagnosticArgValueJson {
             DiagnosticArgValue::Byte(byte) => Self::Byte(*byte),
             DiagnosticArgValue::ByteCount(byte_count) => Self::ByteCount(*byte_count),
             DiagnosticArgValue::Character(character) => Self::Character(*character),
+            DiagnosticArgValue::DeclarationName(name) => Self::DeclarationName(name.to_owned()),
             DiagnosticArgValue::FilePath(path) => Self::FilePath(path_to_output_string(path)),
             DiagnosticArgValue::InputIndex(input_index) => Self::InputIndex(*input_index),
             DiagnosticArgValue::IoErrorKind(kind) => Self::IoErrorKind((*kind).as_str()),
+            DiagnosticArgValue::Visibility(visibility) => Self::Visibility((*visibility).as_str()),
+            DiagnosticArgValue::ModuleTrust(trust) => Self::ModuleTrust((*trust).as_str()),
             DiagnosticArgValue::SourceName(name) => Self::SourceName(name.clone()),
             DiagnosticArgValue::SourceCount(source_count) => Self::SourceCount(*source_count),
             DiagnosticArgValue::SourceInputKind(kind) => Self::SourceInputKind((*kind).as_str()),
@@ -256,8 +262,9 @@ impl SourceSpanJson {
 #[cfg(test)]
 mod tests {
     use bray_diagnostics::{
-        Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind, DiagnosticNote,
-        DiagnosticNoteKind, SeverityKind,
+        Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind,
+        DiagnosticModuleTrust, DiagnosticNote, DiagnosticNoteKind, DiagnosticVisibility,
+        SeverityKind,
     };
     use bray_source::{SourceSpan, TextRange, TextSize};
     use bray_syntax::SyntaxKind;
@@ -365,6 +372,67 @@ mod tests {
         assert_eq!(args[2]["name"], "token_text");
         assert_eq!(args[2]["value"]["kind"], "token_text");
         assert_eq!(args[2]["value"]["value"], "main");
+    }
+
+    #[test]
+    fn json_output_serializes_declaration_diagnostic_args() {
+        let visibility = Diagnostic::new(
+            DiagnosticId::new(0),
+            DiagnosticKind::DeclarationConflictingModuleVisibility,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::declaration_name("core"))
+        .with_arg(DiagnosticArg::expected_visibility(
+            DiagnosticVisibility::Public,
+        ))
+        .with_arg(DiagnosticArg::actual_visibility(
+            DiagnosticVisibility::Internal,
+        ));
+
+        let trust = Diagnostic::new(
+            DiagnosticId::new(1),
+            DiagnosticKind::DeclarationConflictingModuleTrust,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::expected_module_trust(
+            DiagnosticModuleTrust::Trusted,
+        ))
+        .with_arg(DiagnosticArg::actual_module_trust(
+            DiagnosticModuleTrust::Ordinary,
+        ));
+
+        let bag = DiagnosticBag::from(vec![visibility, trust]);
+        let mut output = Vec::new();
+
+        match write_json_diagnostics(&bag, None, &mut output) {
+            Ok(()) => {}
+            Err(error) => panic!("JSON diagnostics should write: {error:?}"),
+        }
+
+        let output = match String::from_utf8(output) {
+            Ok(output) => output,
+            Err(error) => panic!("JSON diagnostics should be UTF-8: {error:?}"),
+        };
+
+        let output_json: serde_json::Value = match serde_json::from_str(&output) {
+            Ok(value) => value,
+            Err(error) => panic!("JSON diagnostics should parse: {error:?}"),
+        };
+
+        let visibility_args = &output_json["diagnostics"][0]["args"];
+
+        assert_eq!(visibility_args[0]["name"], "declaration_name");
+        assert_eq!(visibility_args[0]["value"]["kind"], "declaration_name");
+        assert_eq!(visibility_args[0]["value"]["value"], "core");
+        assert_eq!(visibility_args[1]["value"]["kind"], "visibility");
+        assert_eq!(visibility_args[1]["value"]["value"], "public");
+        assert_eq!(visibility_args[2]["value"]["value"], "internal");
+
+        let trust_args = &output_json["diagnostics"][1]["args"];
+
+        assert_eq!(trust_args[0]["value"]["kind"], "module_trust");
+        assert_eq!(trust_args[0]["value"]["value"], "trusted");
+        assert_eq!(trust_args[1]["value"]["value"], "ordinary");
     }
 
     #[test]

@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use bray_diagnostics::DiagnosticBag;
 
 use crate::chunk::{DeclarationChunk, DiscoveredDeclaration, DiscoveredModulePart};
+use crate::diagnostic::declaration_diagnostics;
 use crate::id::{ContainerId, DeclarationId, ModulePartId};
 use crate::name::{DeclarationName, ModulePath};
 use crate::record::{
@@ -23,10 +24,14 @@ pub fn merge_declaration_chunks<'chunk>(
         builder.push_chunk(result.chunk());
     }
 
-    let diagnostics =
+    let chunk_diagnostics =
         DiagnosticBag::merged_all(ordered_chunks.iter().map(|result| result.diagnostics()));
 
-    DeclarationTableResult::new(builder.finish(), diagnostics)
+    let table = builder.finish();
+    let table_diagnostics = declaration_diagnostics(&table);
+    let diagnostics = chunk_diagnostics.merged(&table_diagnostics);
+
+    DeclarationTableResult::new(table, diagnostics)
 }
 
 fn source_order_chunks<'chunk>(

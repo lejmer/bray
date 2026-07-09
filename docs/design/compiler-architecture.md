@@ -325,7 +325,7 @@ implementations, overloads, fields, variants, parameters, and member declaration
 Declaration discovery does not bind expression bodies.
 
 Declaration discovery produces immutable declaration tables from immutable per-source-unit discovery chunks.
-Source-unit discovery can run in parallel with task-local builders. The deterministic merge step consumes the chunks, assigns
+Source-unit discovery can run in parallel with task-local builders. The deterministic merge step borrows the chunks, assigns
 declaration and container IDs, aggregates partial modules, and publishes the final immutable table.
 
 Declarations are not symbols. `DeclarationId` identifies discovered syntax. Symbol construction later decides which declarations
@@ -337,7 +337,8 @@ constraints, and callable contract clauses. Those facts are still syntax-level d
 Partial modules are represented as logical module containers with one or more source module parts.
 Other declaration spaces, such as type, trait, and implementation bodies, are represented as containers before symbols exist.
 
-Declaration discovery can report duplicate declarations and declaration-shape errors that do not require body checking.
+Declaration discovery reports duplicate names within explicit declaration domains and conflicting visibility or trust state across
+split module parts. Recovered declarations are excluded from these checks to avoid cascading diagnostics.
 
 ### Symbols
 

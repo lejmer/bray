@@ -147,6 +147,34 @@ mod tests {
     }
 
     #[test]
+    fn text_output_renders_declaration_diagnostics() {
+        let sources = file_source_store("struct Point {}\nstruct Point {}");
+
+        let duplicate_span = SourceSpan::new(
+            SourceId::new(0),
+            TextRange::new(TextSize::new(16), TextSize::new(31)),
+        );
+
+        let diagnostic = Diagnostic::new(
+            DiagnosticId::new(16),
+            DiagnosticKind::DeclarationDuplicateName,
+            SeverityKind::Error,
+        )
+        .with_primary_span(duplicate_span)
+        .with_arg(DiagnosticArg::declaration_name("Point"))
+        .with_label(DiagnosticLabel::primary(
+            DiagnosticLabelKind::DuplicateDeclaration,
+            duplicate_span,
+        ));
+
+        let output = render(&DiagnosticBag::single(diagnostic), Some(&sources));
+
+        assert!(output.contains("error E4001"));
+        assert!(output.contains("duplicate declaration of 'Point'"));
+        assert!(output.contains("main.bray:2:1..2:15"));
+    }
+
+    #[test]
     fn text_output_omits_label_list() {
         let sources = file_source_store("bad é");
 

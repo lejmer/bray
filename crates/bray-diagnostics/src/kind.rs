@@ -53,6 +53,12 @@ pub enum DiagnosticKind {
     SyntaxExpectedExpression,
     /// The parser reached the end of input before the current syntax construct was complete.
     SyntaxUnexpectedEof,
+    /// A declaration name is repeated in the same declaration domain.
+    DeclarationDuplicateName,
+    /// Split declarations of one module disagree on effective visibility.
+    DeclarationConflictingModuleVisibility,
+    /// Split declarations of one module disagree on trusted-module state.
+    DeclarationConflictingModuleTrust,
 }
 
 impl DiagnosticKind {
@@ -83,6 +89,9 @@ impl DiagnosticKind {
             Self::SyntaxExpectedToken => 3001,
             Self::SyntaxExpectedExpression => 3005,
             Self::SyntaxUnexpectedEof => 3003,
+            Self::DeclarationDuplicateName => 4001,
+            Self::DeclarationConflictingModuleVisibility => 4002,
+            Self::DeclarationConflictingModuleTrust => 4003,
         };
 
         DiagnosticCode::new(raw)
@@ -115,6 +124,11 @@ impl DiagnosticKind {
             Self::SyntaxExpectedToken => "syntax_expected_token",
             Self::SyntaxExpectedExpression => "syntax_expected_expression",
             Self::SyntaxUnexpectedEof => "syntax_unexpected_eof",
+            Self::DeclarationDuplicateName => "declaration_duplicate_name",
+            Self::DeclarationConflictingModuleVisibility => {
+                "declaration_conflicting_module_visibility"
+            }
+            Self::DeclarationConflictingModuleTrust => "declaration_conflicting_module_trust",
         }
     }
 }
@@ -134,6 +148,11 @@ mod tests {
             DiagnosticKind::SyntaxExpectedToken.as_str(),
             "syntax_expected_token"
         );
+
+        assert_eq!(
+            DiagnosticKind::DeclarationConflictingModuleVisibility.as_str(),
+            "declaration_conflicting_module_visibility"
+        );
     }
 
     #[test]
@@ -146,6 +165,7 @@ mod tests {
         );
 
         assert_eq!(DiagnosticKind::SyntaxExpectedExpression.code().raw(), 3005);
+        assert_eq!(DiagnosticKind::DeclarationDuplicateName.code().raw(), 4001);
     }
 
     #[test]
@@ -162,7 +182,7 @@ mod tests {
         }
     }
 
-    fn all_diagnostic_kinds() -> [DiagnosticKind; 24] {
+    fn all_diagnostic_kinds() -> [DiagnosticKind; 27] {
         [
             DiagnosticKind::SourceFileReadFailed,
             DiagnosticKind::SourceInvalidUtf8,
@@ -188,6 +208,9 @@ mod tests {
             DiagnosticKind::SyntaxExpectedToken,
             DiagnosticKind::SyntaxExpectedExpression,
             DiagnosticKind::SyntaxUnexpectedEof,
+            DiagnosticKind::DeclarationDuplicateName,
+            DiagnosticKind::DeclarationConflictingModuleVisibility,
+            DiagnosticKind::DeclarationConflictingModuleTrust,
         ]
     }
 }

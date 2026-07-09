@@ -299,6 +299,13 @@ Diagnostics must be structured records with typed arguments. User-facing English
 Source-unit discovery diagnostics are stored on `DeclarationChunkResult`. The deterministic merge combines those bags in source
 order with diagnostics owned by table-wide validation and stores the result on `DeclarationTableResult`.
 
+Table-wide validation reports duplicate identifier or keyword names within explicit module, member, generic-parameter,
+callable-parameter, and variant-payload domains. It also reports split module parts that disagree on effective visibility or
+trusted-module state. Path-shaped import/export names and implementation-shaped identities are not reduced to identifier duplicate
+keys. Recovered declarations and module parts are skipped so parser recovery does not produce cascading declaration diagnostics.
+Directive-bearing declarations and module contributions are deferred until contribution gates can be evaluated for a selected
+product and target, which prevents disabled contributions from producing false conflicts.
+
 When an error depends on symbol construction, name resolution, type binding, or body checking, discovery should record the
 surface and leave the diagnostic to the owning later phase.
 

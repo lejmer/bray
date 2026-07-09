@@ -101,6 +101,29 @@ const SYNTAX_UNEXPECTED_EOF: &[MessageTemplatePart] = &[
     MessageTemplatePart::Arg(DiagnosticArgName::ExpectedSyntaxKind),
 ];
 
+const DECLARATION_DUPLICATE_NAME: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("duplicate declaration of "),
+    MessageTemplatePart::Arg(DiagnosticArgName::DeclarationName),
+];
+
+const DECLARATION_CONFLICTING_MODULE_VISIBILITY: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("module "),
+    MessageTemplatePart::Arg(DiagnosticArgName::DeclarationName),
+    MessageTemplatePart::Text(" has conflicting visibility: expected "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ExpectedVisibility),
+    MessageTemplatePart::Text(", found "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ActualVisibility),
+];
+
+const DECLARATION_CONFLICTING_MODULE_TRUST: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("module "),
+    MessageTemplatePart::Arg(DiagnosticArgName::DeclarationName),
+    MessageTemplatePart::Text(" has conflicting trust state: expected "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ExpectedModuleTrust),
+    MessageTemplatePart::Text(", found "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ActualModuleTrust),
+];
+
 const LABEL_INVALID_UTF8_BYTES: &[MessageTemplatePart] =
     &[MessageTemplatePart::Text("invalid UTF-8 bytes")];
 
@@ -158,6 +181,18 @@ const LABEL_EXPECTED_EXPRESSION: &[MessageTemplatePart] = &[
 
 const LABEL_UNEXPECTED_EOF: &[MessageTemplatePart] =
     &[MessageTemplatePart::Text("source ends here")];
+
+const LABEL_DUPLICATE_DECLARATION: &[MessageTemplatePart] =
+    &[MessageTemplatePart::Text("duplicate declaration")];
+
+const LABEL_FIRST_DECLARATION: &[MessageTemplatePart] =
+    &[MessageTemplatePart::Text("first declared here")];
+
+const LABEL_CONFLICTING_MODULE_DECLARATION: &[MessageTemplatePart] =
+    &[MessageTemplatePart::Text("conflicting module declaration")];
+
+const LABEL_FIRST_MODULE_DECLARATION: &[MessageTemplatePart] =
+    &[MessageTemplatePart::Text("module surface established here")];
 
 const NOTE_SOURCE_FILE_MUST_BE_READABLE: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
     "source files must be readable before compilation",
@@ -341,6 +376,15 @@ pub(super) const fn english_diagnostic_template(kind: DiagnosticKind) -> Message
             MessageTemplate::new(SYNTAX_EXPECTED_EXPRESSION)
         }
         DiagnosticKind::SyntaxUnexpectedEof => MessageTemplate::new(SYNTAX_UNEXPECTED_EOF),
+        DiagnosticKind::DeclarationDuplicateName => {
+            MessageTemplate::new(DECLARATION_DUPLICATE_NAME)
+        }
+        DiagnosticKind::DeclarationConflictingModuleVisibility => {
+            MessageTemplate::new(DECLARATION_CONFLICTING_MODULE_VISIBILITY)
+        }
+        DiagnosticKind::DeclarationConflictingModuleTrust => {
+            MessageTemplate::new(DECLARATION_CONFLICTING_MODULE_TRUST)
+        }
     }
 }
 
@@ -377,6 +421,16 @@ pub(super) const fn english_label_template(kind: DiagnosticLabelKind) -> Message
         }
         DiagnosticLabelKind::ExpectedExpression => MessageTemplate::new(LABEL_EXPECTED_EXPRESSION),
         DiagnosticLabelKind::UnexpectedEof => MessageTemplate::new(LABEL_UNEXPECTED_EOF),
+        DiagnosticLabelKind::DuplicateDeclaration => {
+            MessageTemplate::new(LABEL_DUPLICATE_DECLARATION)
+        }
+        DiagnosticLabelKind::FirstDeclaration => MessageTemplate::new(LABEL_FIRST_DECLARATION),
+        DiagnosticLabelKind::ConflictingModuleDeclaration => {
+            MessageTemplate::new(LABEL_CONFLICTING_MODULE_DECLARATION)
+        }
+        DiagnosticLabelKind::FirstModuleDeclaration => {
+            MessageTemplate::new(LABEL_FIRST_MODULE_DECLARATION)
+        }
     }
 }
 
