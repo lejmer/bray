@@ -28,10 +28,6 @@ impl DeclarationChunk {
     pub fn module_parts(&self) -> &[DiscoveredModulePart] {
         &self.module_parts
     }
-
-    pub(crate) fn into_module_parts(self) -> Box<[DiscoveredModulePart]> {
-        self.module_parts
-    }
 }
 
 /// Immutable source-unit contribution to a logical module.

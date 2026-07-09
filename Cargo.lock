@@ -76,6 +76,7 @@ version = "0.0.0"
 name = "bray-compilation"
 version = "0.0.0"
 dependencies = [
+ "bray-declarations",
  "bray-diagnostics",
  "bray-parser",
  "bray-source",
@@ -86,6 +87,7 @@ dependencies = [
 name = "bray-declarations"
 version = "0.0.0"
 dependencies = [
+ "bray-diagnostics",
  "bray-parser",
  "bray-source",
  "bray-syntax",

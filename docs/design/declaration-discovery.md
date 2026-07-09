@@ -84,7 +84,9 @@ Per-source-unit discovery chunks should use local IDs or source-order records th
 
 ## Core Data Model
 
-The published output should be an immutable `DeclarationTable`.
+The phase publishes immutable result values at both discovery boundaries.
+`DeclarationChunkResult` contains one source unit's `DeclarationChunk` and diagnostics.
+`DeclarationTableResult` contains the merged `DeclarationTable` and diagnostics from source-unit discovery and table merge.
 
 The table should contain:
 
@@ -241,7 +243,11 @@ Do not resolve imports, aliases, package roots, or visibility through them in th
 Discovery should run in two stages.
 
 1. Source-unit discovery walks one source unit and produces an immutable `DeclarationChunk`.
-2. Table merge consumes immutable chunks and constructs a new immutable `DeclarationTable`.
+2. Table merge borrows immutable chunks and constructs a new immutable `DeclarationTable`.
+
+The public operations return `DeclarationChunkResult` and `DeclarationTableResult` so each boundary carries its diagnostics with
+the fact that produced them. Merge borrows cached chunk results and publishes independently owned table records. It does not
+consume or mutate cached chunks.
 
 Source-unit discovery may use mutable local builders internally.
 Once a chunk is published, it must not be mutated.
@@ -289,6 +295,9 @@ Declaration discovery can report diagnostics for errors it has enough informatio
 - conflicting declaration surfaces that do not require name binding or type checking.
 
 Diagnostics must be structured records with typed arguments. User-facing English must be rendered through `bray-messages`.
+
+Source-unit discovery diagnostics are stored on `DeclarationChunkResult`. The deterministic merge combines those bags in source
+order with diagnostics owned by table-wide validation and stores the result on `DeclarationTableResult`.
 
 When an error depends on symbol construction, name resolution, type binding, or body checking, discovery should record the
 surface and leave the diagnostic to the owning later phase.

@@ -8,6 +8,7 @@ mod id;
 mod merge;
 mod name;
 mod record;
+mod result;
 mod surface;
 mod table;
 #[cfg(test)]
@@ -21,5 +22,6 @@ pub use name::{DeclarationName, ImplementationDeclarationName, ModulePath};
 pub use record::{
     ContainerKind, ContainerRecord, DeclarationKind, DeclarationRecord, ModulePartRecord,
 };
+pub use result::{DeclarationChunkResult, DeclarationTableResult};
 pub use surface::{DeclarationSurface, SyntaxAnchor};
 pub use table::DeclarationTable;

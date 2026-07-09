@@ -1,3 +1,4 @@
+use bray_diagnostics::DiagnosticBag;
 use bray_source::SourceId;
 use bray_syntax::{
     BlockModuleDeclarationSyntax, SourceSyntaxNode, SourceUnitModuleDeclarationSyntax,
@@ -11,15 +12,15 @@ use super::surface::{declaration_surface, module_surface};
 use crate::chunk::{DeclarationChunk, DiscoveredDeclaration, DiscoveredModulePart};
 use crate::name::{DeclarationName, ModulePath};
 use crate::record::DeclarationKind;
-use crate::{DeclarationSurface, SyntaxAnchor};
+use crate::{DeclarationChunkResult, DeclarationSurface, SyntaxAnchor};
 
 /// Discovers module parts and declarations from one source unit.
-pub fn discover_source_unit_declarations(source_unit: &SourceUnitSyntax) -> DeclarationChunk {
+pub fn discover_source_unit_declarations(source_unit: &SourceUnitSyntax) -> DeclarationChunkResult {
     let mut discoverer = SourceUnitDiscoverer::new(source_unit.source().source_id());
 
     walk_source_unit(source_unit, |event| discoverer.visit(event));
 
-    discoverer.finish()
+    DeclarationChunkResult::new(discoverer.finish(), DiagnosticBag::new())
 }
 
 struct SourceUnitDiscoverer {
@@ -282,15 +283,22 @@ mod tests {
     use super::discover_source_unit_declarations;
     use crate::name::{DeclarationName, ImplementationDeclarationName, ModulePath};
     use crate::record::DeclarationKind;
-    use crate::test_support::{parse_recovered_source_unit_for_test, parse_valid_source_unit_for_test};
+    use crate::test_support::{
+        parse_recovered_source_unit_for_test, parse_valid_source_unit_for_test,
+    };
 
     #[test]
     fn source_unit_discovery_preserves_recovered_module_parts_and_following_declarations() {
         let source_text = "module core\nusing std.io;";
         let sources = source_store([source_text]);
         let snapshot = source(&sources, 0);
+
         let source_unit = parse_recovered_source_unit_for_test(snapshot);
-        let chunk = discover_source_unit_declarations(&source_unit);
+        let result = discover_source_unit_declarations(&source_unit);
+
+        let chunk = result.chunk();
+
+        assert!(result.diagnostics().is_empty());
 
         let [part] = chunk.module_parts() else {
             panic!("expected one module part: {:?}", chunk.module_parts());
@@ -339,7 +347,8 @@ mod tests {
         )]);
 
         let source_unit = parse_valid_source_unit_for_test(source(&sources, 0));
-        let chunk = discover_source_unit_declarations(&source_unit);
+        let result = discover_source_unit_declarations(&source_unit);
+        let chunk = result.chunk();
 
         let [part] = chunk.module_parts() else {
             panic!("expected one module part: {:?}", chunk.module_parts());
@@ -408,7 +417,9 @@ mod tests {
         )]);
 
         let source_unit = parse_valid_source_unit_for_test(source(&sources, 0));
-        let chunk = discover_source_unit_declarations(&source_unit);
+        let result = discover_source_unit_declarations(&source_unit);
+
+        let chunk = result.chunk();
 
         let [part] = chunk.module_parts() else {
             panic!("expected one module part: {:?}", chunk.module_parts());
@@ -523,7 +534,9 @@ mod tests {
         )]);
 
         let source_unit = parse_valid_source_unit_for_test(source(&sources, 0));
-        let chunk = discover_source_unit_declarations(&source_unit);
+        let result = discover_source_unit_declarations(&source_unit);
+
+        let chunk = result.chunk();
 
         let [part] = chunk.module_parts() else {
             panic!("expected one module part: {:?}", chunk.module_parts());
@@ -652,7 +665,9 @@ mod tests {
         let sources = source_store([source_text]);
         let snapshot = source(&sources, 0);
         let source_unit = parse_valid_source_unit_for_test(snapshot);
-        let chunk = discover_source_unit_declarations(&source_unit);
+        let result = discover_source_unit_declarations(&source_unit);
+
+        let chunk = result.chunk();
 
         let [part] = chunk.module_parts() else {
             panic!("expected one module part: {:?}", chunk.module_parts());
