@@ -112,6 +112,7 @@ dependencies = [
  "bray-diagnostics",
  "bray-parser",
  "bray-source",
+ "bray-symbols",
  "bray-syntax",
 ]
 

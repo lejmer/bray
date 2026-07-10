@@ -11,6 +11,7 @@ mod interface;
 mod kind;
 mod label;
 mod note;
+mod result;
 mod severity;
 
 pub use argument::{
@@ -25,4 +26,5 @@ pub use interface::{DiagnosticInterfaceLimit, DiagnosticInterfaceSection};
 pub use kind::DiagnosticKind;
 pub use label::{DiagnosticLabel, DiagnosticLabelKind, DiagnosticLabelStyle};
 pub use note::{DiagnosticNote, DiagnosticNoteKind};
+pub use result::DiagnosticResult;
 pub use severity::SeverityKind;

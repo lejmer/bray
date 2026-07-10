@@ -6,6 +6,7 @@ mod build;
 mod collection;
 mod error;
 mod external;
+mod fact;
 mod graph;
 mod id;
 mod imported;
@@ -22,6 +23,7 @@ pub use error::SymbolGraphBuildError;
 pub use graph::{SymbolGraph, SymbolGraphRoots};
 
 pub use external::{ExternalDeclarationIdentity, ExternalSymbolKey, ExternalSymbolKeyData};
+pub use fact::{SymbolCompletionLevel, SymbolFactKind};
 pub use id::{
     AnySymbolId, CallableContractSymbolId, CallableOverloadSymbolId,
     CallableParameterDefaultProviderSymbolId, CallableParameterSymbolId,

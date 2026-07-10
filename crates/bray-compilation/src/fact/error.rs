@@ -1,0 +1,90 @@
+use super::CompilationFactKey;
+
+/// One detected cycle in the compilation fact dependency graph.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FactCycle {
+    facts: Box<[CompilationFactKey]>,
+}
+
+impl FactCycle {
+    pub(crate) fn new(facts: impl Into<Box<[CompilationFactKey]>>) -> Self {
+        Self {
+            facts: canonical_cycle(facts.into()),
+        }
+    }
+
+    /// Returns the dependency path, including the repeated closing fact.
+    pub fn facts(&self) -> &[CompilationFactKey] {
+        &self.facts
+    }
+}
+
+fn canonical_cycle(facts: Box<[CompilationFactKey]>) -> Box<[CompilationFactKey]> {
+    let mut facts = facts.into_vec();
+
+    let Some(closing) = facts.last().copied() else {
+        return facts.into_boxed_slice();
+    };
+
+    let Some(start) = facts[..facts.len().saturating_sub(1)]
+        .iter()
+        .position(|fact| *fact == closing)
+    else {
+        return facts.into_boxed_slice();
+    };
+
+    facts.drain(..start);
+
+    let cycle_len = facts.len().saturating_sub(1);
+
+    let Some((canonical_start, _)) = facts[..cycle_len]
+        .iter()
+        .enumerate()
+        .min_by_key(|(_, fact)| **fact)
+    else {
+        return facts.into_boxed_slice();
+    };
+
+    let mut canonical = facts[..cycle_len]
+        .iter()
+        .cycle()
+        .skip(canonical_start)
+        .take(cycle_len)
+        .copied()
+        .collect::<Vec<_>>();
+
+    if let Some(first) = canonical.first().copied() {
+        canonical.push(first);
+    }
+
+    canonical.into_boxed_slice()
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_source::SourceId;
+
+    use super::{CompilationFactKey, FactCycle};
+
+    #[test]
+    fn cycle_paths_remove_prefixes_and_use_a_canonical_start() {
+        let syntax = CompilationFactKey::SyntaxTree;
+        let declaration = CompilationFactKey::DeclarationTable;
+        let prefix = CompilationFactKey::SourceUnitSyntax(SourceId::new(0));
+
+        let cycle = FactCycle::new([prefix, syntax, declaration, syntax]);
+
+        assert_eq!(cycle.facts(), &[declaration, syntax, declaration]);
+    }
+}
+
+/// An outer compiler-query outcome that must not be represented as a source diagnostic.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum FactQueryError {
+    /// The requesting operation was cancelled before publication.
+    Cancelled,
+    /// Evaluation encountered a same-worker or cross-worker dependency cycle.
+    Cycle(FactCycle),
+    /// Synchronized query state was poisoned or violated an internal publication invariant.
+    InfrastructureFailure,
+}
