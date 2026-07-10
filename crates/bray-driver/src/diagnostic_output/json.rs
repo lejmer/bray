@@ -175,12 +175,15 @@ impl DiagnosticArgJson {
 #[derive(Serialize)]
 #[serde(tag = "kind", content = "value", rename_all = "snake_case")]
 enum DiagnosticArgValueJson {
+    Count(u64),
     Byte(u8),
     ByteCount(u64),
     Character(char),
     DeclarationName(String),
     FilePath(String),
     InputIndex(u64),
+    InterfaceLimit(&'static str),
+    InterfaceSection(&'static str),
     IoErrorKind(&'static str),
     Visibility(&'static str),
     ModuleTrust(&'static str),
@@ -193,17 +196,23 @@ enum DiagnosticArgValueJson {
     Uri(String),
     SourceSpan(SourceSpanJson),
     WorkerCount(u64),
+    Revision(u64),
 }
 
 impl DiagnosticArgValueJson {
     fn from_value(value: &DiagnosticArgValue, source_map: &DiagnosticSourceMap<'_>) -> Self {
         match value {
+            DiagnosticArgValue::Count(count) => Self::Count(*count),
             DiagnosticArgValue::Byte(byte) => Self::Byte(*byte),
             DiagnosticArgValue::ByteCount(byte_count) => Self::ByteCount(*byte_count),
             DiagnosticArgValue::Character(character) => Self::Character(*character),
             DiagnosticArgValue::DeclarationName(name) => Self::DeclarationName(name.to_owned()),
             DiagnosticArgValue::FilePath(path) => Self::FilePath(path_to_output_string(path)),
             DiagnosticArgValue::InputIndex(input_index) => Self::InputIndex(*input_index),
+            DiagnosticArgValue::InterfaceLimit(limit) => Self::InterfaceLimit((*limit).as_str()),
+            DiagnosticArgValue::InterfaceSection(section) => {
+                Self::InterfaceSection((*section).as_str())
+            }
             DiagnosticArgValue::IoErrorKind(kind) => Self::IoErrorKind((*kind).as_str()),
             DiagnosticArgValue::Visibility(visibility) => Self::Visibility((*visibility).as_str()),
             DiagnosticArgValue::ModuleTrust(trust) => Self::ModuleTrust((*trust).as_str()),
@@ -218,6 +227,7 @@ impl DiagnosticArgValueJson {
                 Self::SourceSpan(SourceSpanJson::from_span(*span, source_map))
             }
             DiagnosticArgValue::WorkerCount(worker_count) => Self::WorkerCount(*worker_count),
+            DiagnosticArgValue::Revision(revision) => Self::Revision(*revision),
         }
     }
 }
@@ -262,7 +272,8 @@ impl SourceSpanJson {
 #[cfg(test)]
 mod tests {
     use bray_diagnostics::{
-        Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind,
+        Diagnostic, DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticBag,
+        DiagnosticId, DiagnosticInterfaceLimit, DiagnosticInterfaceSection, DiagnosticKind,
         DiagnosticModuleTrust, DiagnosticNote, DiagnosticNoteKind, DiagnosticVisibility,
         SeverityKind,
     };
@@ -319,6 +330,56 @@ mod tests {
         assert_eq!(arg_json["value"]["value"], 5);
 
         assert!(!output.contains("source input contains invalid UTF-8 at byte offset"));
+    }
+
+    #[test]
+    fn json_output_serializes_package_interface_diagnostic_args() {
+        let diagnostic = Diagnostic::new(
+            DiagnosticId::new(0),
+            DiagnosticKind::InterfaceResourceLimitExceeded,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::new(
+            DiagnosticArgName::InterfaceLimit,
+            DiagnosticArgValue::InterfaceLimit(DiagnosticInterfaceLimit::RecordCount),
+        ))
+        .with_arg(DiagnosticArg::new(
+            DiagnosticArgName::InterfaceSection,
+            DiagnosticArgValue::InterfaceSection(DiagnosticInterfaceSection::Contracts),
+        ))
+        .with_arg(DiagnosticArg::new(
+            DiagnosticArgName::ActualCount,
+            DiagnosticArgValue::Count(12),
+        ))
+        .with_arg(DiagnosticArg::new(
+            DiagnosticArgName::ExpectedRevision,
+            DiagnosticArgValue::Revision(1),
+        ));
+
+        let bag = DiagnosticBag::single(diagnostic);
+
+        let mut output = Vec::new();
+
+        match write_json_diagnostics(&bag, None, &mut output) {
+            Ok(()) => {}
+            Err(error) => panic!("JSON diagnostics should write: {error:?}"),
+        }
+
+        let output: serde_json::Value = match serde_json::from_slice(&output) {
+            Ok(value) => value,
+            Err(error) => panic!("JSON diagnostics should parse: {error:?}"),
+        };
+
+        let args = &output["diagnostics"][0]["args"];
+
+        assert_eq!(args[0]["value"]["kind"], "interface_limit");
+        assert_eq!(args[0]["value"]["value"], "record_count");
+        assert_eq!(args[1]["value"]["kind"], "interface_section");
+        assert_eq!(args[1]["value"]["value"], "contracts");
+        assert_eq!(args[2]["value"]["kind"], "count");
+        assert_eq!(args[2]["value"]["value"], 12);
+        assert_eq!(args[3]["value"]["kind"], "revision");
+        assert_eq!(args[3]["value"]["value"], 1);
     }
 
     #[test]

@@ -1,4 +1,5 @@
 mod english;
+mod interface;
 mod registry;
 mod template;
 

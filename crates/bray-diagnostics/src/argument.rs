@@ -3,6 +3,8 @@ use std::path::PathBuf;
 use bray_source::{SourceInputKind, SourceSpan, TextSize};
 use bray_syntax::SyntaxKind;
 
+use crate::{DiagnosticInterfaceLimit, DiagnosticInterfaceSection};
+
 /// Stable typed argument attached to a diagnostic message component.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct DiagnosticArg {
@@ -175,6 +177,10 @@ impl DiagnosticArg {
 /// Stable name for a diagnostic argument.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum DiagnosticArgName {
+    /// Actual externally supplied count or size.
+    ActualCount,
+    /// Actual interface or language revision.
+    ActualRevision,
     /// Byte that participates in the diagnostic.
     Byte,
     /// Number of bytes that participate in the diagnostic.
@@ -201,8 +207,16 @@ pub enum DiagnosticArgName {
     FilePath,
     /// Zero-based source input index from the request boundary.
     InputIndex,
+    /// Package-interface resource category.
+    InterfaceLimit,
+    /// Package-interface section category.
+    InterfaceSection,
     /// Stable I/O error category from the host.
     IoErrorKind,
+    /// Maximum accepted count or size.
+    MaximumCount,
+    /// Expected interface or language revision.
+    ExpectedRevision,
     /// Name of a virtual, generated, or test-fixture source.
     SourceName,
     /// Number of source inputs involved in the diagnostic.
@@ -225,6 +239,8 @@ impl DiagnosticArgName {
     /// Returns the stable machine key for this argument name.
     pub const fn as_str(self) -> &'static str {
         match self {
+            Self::ActualCount => "actual_count",
+            Self::ActualRevision => "actual_revision",
             Self::Byte => "byte",
             Self::ByteCount => "byte_count",
             Self::Character => "character",
@@ -238,7 +254,11 @@ impl DiagnosticArgName {
             Self::ActualModuleTrust => "actual_module_trust",
             Self::FilePath => "file_path",
             Self::InputIndex => "input_index",
+            Self::InterfaceLimit => "interface_limit",
+            Self::InterfaceSection => "interface_section",
             Self::IoErrorKind => "io_error_kind",
+            Self::MaximumCount => "maximum_count",
+            Self::ExpectedRevision => "expected_revision",
             Self::SourceName => "source_name",
             Self::SourceCount => "source_count",
             Self::SourceInputKind => "source_input_kind",
@@ -254,6 +274,8 @@ impl DiagnosticArgName {
 /// Locale-neutral typed value for a diagnostic argument.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum DiagnosticArgValue {
+    /// Externally supplied or configured count.
+    Count(u64),
     /// Raw source byte.
     Byte(u8),
     /// Source byte count.
@@ -266,6 +288,10 @@ pub enum DiagnosticArgValue {
     FilePath(PathBuf),
     /// Zero-based source input index.
     InputIndex(u64),
+    /// Package-interface resource category.
+    InterfaceLimit(DiagnosticInterfaceLimit),
+    /// Package-interface section category.
+    InterfaceSection(DiagnosticInterfaceSection),
     /// Stable I/O error category from the host.
     IoErrorKind(DiagnosticIoErrorKind),
     /// Effective declaration visibility.
@@ -290,6 +316,8 @@ pub enum DiagnosticArgValue {
     SourceSpan(SourceSpan),
     /// Requested worker count.
     WorkerCount(u64),
+    /// Interface or language revision.
+    Revision(u64),
 }
 
 /// Locale-neutral effective visibility used by declaration diagnostics.
