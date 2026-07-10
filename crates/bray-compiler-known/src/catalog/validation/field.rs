@@ -150,6 +150,7 @@ fn set_once<'entry, T>(
             value.anchor,
             CatalogDiagnosticKind::DuplicateField { field },
         ));
+
         return;
     }
 

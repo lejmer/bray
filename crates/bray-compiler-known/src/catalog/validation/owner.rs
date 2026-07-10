@@ -130,6 +130,7 @@ fn resolve_kind(
                 states,
             ) else {
                 states[index] = VisitState::Complete;
+
                 return None;
             };
 
@@ -137,6 +138,7 @@ fn resolve_kind(
         }
         None => {
             states[index] = VisitState::Complete;
+
             return None;
         }
     };

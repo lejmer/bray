@@ -208,10 +208,12 @@ fn collect_entries(
                             entry: CatalogEntryKind::Value,
                         },
                     ));
+
                     continue;
                 }
 
                 let fields = value_fields(value, diagnostics);
+
                 let (Some(spelling), Some(type_surface), Some(representation_spelling)) =
                     (fields.spelling, fields.type_surface, fields.representation)
                 else {

@@ -292,6 +292,7 @@ impl CatalogParser {
                         | SyntaxKind::CloseBraceToken
                 ) {
                     self.record_unexpected(&token, CatalogExpectation::TokenSpelling);
+
                     return None;
                 }
 
@@ -362,6 +363,7 @@ impl CatalogParser {
 
                     if depth == 0 {
                         let close = self.tokens.consume();
+
                         return Some(self.anchor(TextRange::new(start, close.start())));
                     }
 
@@ -369,6 +371,7 @@ impl CatalogParser {
                 }
                 SyntaxKind::EndOfFileToken => {
                     self.record_unexpected(&token, CatalogExpectation::CloseBrace);
+
                     return None;
                 }
                 _ => {
@@ -426,6 +429,7 @@ impl CatalogParser {
     fn skip_unknown_field(&mut self) {
         if self.at(SyntaxKind::OpenBraceToken) {
             let _ = self.parse_braced_fragment();
+
             return;
         }
 
