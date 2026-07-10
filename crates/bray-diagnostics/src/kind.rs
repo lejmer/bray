@@ -59,6 +59,24 @@ pub enum DiagnosticKind {
     DeclarationConflictingModuleVisibility,
     /// Split declarations of one module disagree on trusted-module state.
     DeclarationConflictingModuleTrust,
+    /// A package interface does not start with the required magic bytes.
+    InterfaceInvalidMagic,
+    /// A package interface uses a wire-format revision this compiler does not implement.
+    InterfaceUnsupportedFormatRevision,
+    /// A package interface requires a different language semantic revision.
+    InterfaceUnsupportedLanguageRevision,
+    /// A package interface declares an invalid byte order or unsupported required flags.
+    InterfaceUnsupportedEncoding,
+    /// A package interface ends before a required structural value is complete.
+    InterfaceTruncated,
+    /// A package-interface header or section directory is malformed.
+    InterfaceMalformed,
+    /// A package interface does not match its declared artifact or content hash.
+    InterfaceHashMismatch,
+    /// One package-interface section does not match its declared checksum.
+    InterfaceSectionChecksumMismatch,
+    /// Untrusted package-interface input exceeds a configured resource ceiling.
+    InterfaceResourceLimitExceeded,
 }
 
 impl DiagnosticKind {
@@ -92,6 +110,15 @@ impl DiagnosticKind {
             Self::DeclarationDuplicateName => 4001,
             Self::DeclarationConflictingModuleVisibility => 4002,
             Self::DeclarationConflictingModuleTrust => 4003,
+            Self::InterfaceInvalidMagic => 5001,
+            Self::InterfaceUnsupportedFormatRevision => 5002,
+            Self::InterfaceUnsupportedLanguageRevision => 5003,
+            Self::InterfaceUnsupportedEncoding => 5004,
+            Self::InterfaceTruncated => 5005,
+            Self::InterfaceMalformed => 5006,
+            Self::InterfaceHashMismatch => 5007,
+            Self::InterfaceSectionChecksumMismatch => 5008,
+            Self::InterfaceResourceLimitExceeded => 5009,
         };
 
         DiagnosticCode::new(raw)
@@ -129,6 +156,15 @@ impl DiagnosticKind {
                 "declaration_conflicting_module_visibility"
             }
             Self::DeclarationConflictingModuleTrust => "declaration_conflicting_module_trust",
+            Self::InterfaceInvalidMagic => "interface_invalid_magic",
+            Self::InterfaceUnsupportedFormatRevision => "interface_unsupported_format_revision",
+            Self::InterfaceUnsupportedLanguageRevision => "interface_unsupported_language_revision",
+            Self::InterfaceUnsupportedEncoding => "interface_unsupported_encoding",
+            Self::InterfaceTruncated => "interface_truncated",
+            Self::InterfaceMalformed => "interface_malformed",
+            Self::InterfaceHashMismatch => "interface_hash_mismatch",
+            Self::InterfaceSectionChecksumMismatch => "interface_section_checksum_mismatch",
+            Self::InterfaceResourceLimitExceeded => "interface_resource_limit_exceeded",
         }
     }
 }
@@ -182,7 +218,7 @@ mod tests {
         }
     }
 
-    fn all_diagnostic_kinds() -> [DiagnosticKind; 27] {
+    fn all_diagnostic_kinds() -> [DiagnosticKind; 36] {
         [
             DiagnosticKind::SourceFileReadFailed,
             DiagnosticKind::SourceInvalidUtf8,
@@ -211,6 +247,15 @@ mod tests {
             DiagnosticKind::DeclarationDuplicateName,
             DiagnosticKind::DeclarationConflictingModuleVisibility,
             DiagnosticKind::DeclarationConflictingModuleTrust,
+            DiagnosticKind::InterfaceInvalidMagic,
+            DiagnosticKind::InterfaceUnsupportedFormatRevision,
+            DiagnosticKind::InterfaceUnsupportedLanguageRevision,
+            DiagnosticKind::InterfaceUnsupportedEncoding,
+            DiagnosticKind::InterfaceTruncated,
+            DiagnosticKind::InterfaceMalformed,
+            DiagnosticKind::InterfaceHashMismatch,
+            DiagnosticKind::InterfaceSectionChecksumMismatch,
+            DiagnosticKind::InterfaceResourceLimitExceeded,
         ]
     }
 }

@@ -6,6 +6,7 @@ use bray_diagnostics::{
 use crate::rendered_diagnostic::RenderedDiagnosticNoteKind;
 
 use super::{MessageTemplate, MessageTemplatePart};
+use crate::catalog::interface::english_interface_diagnostic_template;
 
 const SOURCE_FILE_READ_FAILED: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("could not read source file "),
@@ -384,6 +385,17 @@ pub(super) const fn english_diagnostic_template(kind: DiagnosticKind) -> Message
         }
         DiagnosticKind::DeclarationConflictingModuleTrust => {
             MessageTemplate::new(DECLARATION_CONFLICTING_MODULE_TRUST)
+        }
+        DiagnosticKind::InterfaceInvalidMagic
+        | DiagnosticKind::InterfaceUnsupportedFormatRevision
+        | DiagnosticKind::InterfaceUnsupportedLanguageRevision
+        | DiagnosticKind::InterfaceUnsupportedEncoding
+        | DiagnosticKind::InterfaceTruncated
+        | DiagnosticKind::InterfaceMalformed
+        | DiagnosticKind::InterfaceHashMismatch
+        | DiagnosticKind::InterfaceSectionChecksumMismatch
+        | DiagnosticKind::InterfaceResourceLimitExceeded => {
+            english_interface_diagnostic_template(kind)
         }
     }
 }

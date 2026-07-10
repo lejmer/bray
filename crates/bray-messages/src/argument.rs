@@ -1,6 +1,6 @@
 use bray_diagnostics::{
-    DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticIoErrorKind,
-    DiagnosticModuleTrust,
+    DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticInterfaceLimit,
+    DiagnosticInterfaceSection, DiagnosticIoErrorKind, DiagnosticModuleTrust,
 };
 use bray_source::{SourceInputKind, SourceLocation, SourceOrigin, SourceSpan};
 use bray_syntax::SyntaxKind;
@@ -60,12 +60,19 @@ fn format_missing_arg(name: DiagnosticArgName) -> String {
 
 fn format_english_value(value: &DiagnosticArgValue) -> String {
     match value {
+        DiagnosticArgValue::Count(count) => count.to_string(),
         DiagnosticArgValue::Byte(byte) => format!("0x{byte:02X}"),
         DiagnosticArgValue::ByteCount(byte_count) => byte_count.to_string(),
         DiagnosticArgValue::Character(character) => format_english_character(*character),
         DiagnosticArgValue::DeclarationName(name) => format_english_quoted_text(name),
         DiagnosticArgValue::FilePath(path) => path.display().to_string(),
         DiagnosticArgValue::InputIndex(input_index) => input_index.to_string(),
+        DiagnosticArgValue::InterfaceLimit(limit) => {
+            format_english_interface_limit(*limit).to_owned()
+        }
+        DiagnosticArgValue::InterfaceSection(section) => {
+            format_english_interface_section(*section).to_owned()
+        }
         DiagnosticArgValue::IoErrorKind(kind) => format_english_io_error_kind(*kind).to_owned(),
         DiagnosticArgValue::Visibility(visibility) => visibility.as_str().to_owned(),
         DiagnosticArgValue::ModuleTrust(trust) => format_english_module_trust(*trust).to_owned(),
@@ -82,6 +89,41 @@ fn format_english_value(value: &DiagnosticArgValue) -> String {
             format_source_span(DiagnosticLocale::English, *span)
         }
         DiagnosticArgValue::WorkerCount(worker_count) => worker_count.to_string(),
+        DiagnosticArgValue::Revision(revision) => revision.to_string(),
+    }
+}
+
+const fn format_english_interface_limit(limit: DiagnosticInterfaceLimit) -> &'static str {
+    match limit {
+        DiagnosticInterfaceLimit::FileSize => "file size",
+        DiagnosticInterfaceLimit::SectionCount => "section count",
+        DiagnosticInterfaceLimit::RecordCount => "record count",
+        DiagnosticInterfaceLimit::StringLength => "string length",
+        DiagnosticInterfaceLimit::BlobLength => "blob length",
+        DiagnosticInterfaceLimit::DecodedAllocation => "decoded allocation",
+        DiagnosticInterfaceLimit::SemanticTypeDepth => "semantic type depth",
+        DiagnosticInterfaceLimit::TemplateGraphSize => "template graph size",
+        DiagnosticInterfaceLimit::ExternalReferenceCount => "external reference count",
+    }
+}
+
+const fn format_english_interface_section(section: DiagnosticInterfaceSection) -> &'static str {
+    match section {
+        DiagnosticInterfaceSection::Strings => "strings",
+        DiagnosticInterfaceSection::PackageMetadata => "package metadata",
+        DiagnosticInterfaceSection::Dependencies => "dependencies",
+        DiagnosticInterfaceSection::SymbolIdentities => "symbol identities",
+        DiagnosticInterfaceSection::Relationships => "relationships",
+        DiagnosticInterfaceSection::ExportedLookup => "exported lookup",
+        DiagnosticInterfaceSection::SymbolFactDirectory => "symbol fact directory",
+        DiagnosticInterfaceSection::SemanticTypes => "semantic types",
+        DiagnosticInterfaceSection::Constants => "constants",
+        DiagnosticInterfaceSection::Contracts => "contracts",
+        DiagnosticInterfaceSection::DeclarationTemplates => "declaration templates",
+        DiagnosticInterfaceSection::Implementations => "implementations",
+        DiagnosticInterfaceSection::TargetDependencies => "target dependencies",
+        DiagnosticInterfaceSection::SourceProvenance => "source provenance",
+        DiagnosticInterfaceSection::SupportGraph => "support graph",
     }
 }
 

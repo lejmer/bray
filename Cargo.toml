@@ -14,6 +14,7 @@ members = [
     "crates/bray-ir",
     "crates/bray-lowering",
     "crates/bray-messages",
+    "crates/bray-package-interface",
     "crates/bray-parser",
     "crates/bray-source",
     "crates/bray-symbols",
