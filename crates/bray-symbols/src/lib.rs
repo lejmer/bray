@@ -12,6 +12,8 @@ mod imported;
 mod interface;
 mod key;
 mod kind;
+mod member;
+mod name;
 mod origin;
 mod record;
 mod value;
@@ -19,9 +21,7 @@ mod value;
 pub use error::SymbolGraphBuildError;
 pub use graph::{SymbolGraph, SymbolGraphRoots};
 
-pub use external::{
-    ExternalDeclarationIdentity, ExternalSymbolKey, ExternalSymbolKeyData, ExternalSymbolName,
-};
+pub use external::{ExternalDeclarationIdentity, ExternalSymbolKey, ExternalSymbolKeyData};
 pub use id::{
     AnySymbolId, CallableContractSymbolId, CallableOverloadSymbolId,
     CallableParameterDefaultProviderSymbolId, CallableParameterSymbolId,
@@ -53,6 +53,11 @@ pub use key::{
     SynthesizedSymbolKey, SynthesizedSymbolRole,
 };
 pub use kind::SymbolKind;
+pub use member::{
+    MemberCollectionBuildError, MemberEntry, MemberLookupIndex, MemberLookupResult, MemberValidity,
+    MemberVisibility, TypedMemberCollection,
+};
+pub use name::SymbolName;
 pub use origin::SymbolOrigin;
 pub use record::{
     CallableContractSymbol, CallableOverloadSymbol, CallableParameterSymbol,

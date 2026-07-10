@@ -434,9 +434,8 @@ fn validate_containment(
 #[cfg(test)]
 mod tests {
     use crate::{
-        ExternalSymbolKey, ExternalSymbolName, FunctionSymbolId, ImportedInterfaceId,
-        InterfaceSymbolId, ModulePathKey, PackageIdentity, PredicateSymbolId, SymbolKind,
-        SymbolOrigin,
+        ExternalSymbolKey, FunctionSymbolId, ImportedInterfaceId, InterfaceSymbolId, ModulePathKey,
+        PackageIdentity, PredicateSymbolId, SymbolKind, SymbolName, SymbolOrigin,
     };
 
     use super::{
@@ -450,8 +449,8 @@ mod tests {
         }
     }
 
-    fn symbol_name(value: &str) -> ExternalSymbolName {
-        match ExternalSymbolName::try_new(value) {
+    fn symbol_name(value: &str) -> SymbolName {
+        match SymbolName::try_new(value) {
             Some(name) => name,
             None => panic!("test symbol name must be valid"),
         }
