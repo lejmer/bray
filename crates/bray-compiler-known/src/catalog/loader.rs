@@ -843,6 +843,7 @@ mod tests {
         ) -> Result<CatalogDeclarationKind, CatalogDiagnostics> {
             let text = fragment_text(source, surface.anchor());
             let sources = fragment_sources(source.relative_path(), &text);
+
             let Some(snapshot) = sources.iter().next() else {
                 panic!("fragment source should exist");
             };
@@ -875,6 +876,7 @@ mod tests {
         ) -> Result<(), CatalogDiagnostics> {
             let text = fragment_text(source, surface.anchor());
             let sources = fragment_sources(source.relative_path(), &text);
+
             let Some(snapshot) = sources.iter().next() else {
                 panic!("fragment source should exist");
             };
