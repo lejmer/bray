@@ -4,7 +4,7 @@ use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 /// Whole-unit checker completion data available before language rules exist.
 ///
 /// This service-output stub retains the unit identity so binder orchestration
-/// cannot apply a completed result to another draft. Future fields will refer
+/// cannot apply a completed result to another bound unit. Future fields will refer
 /// to durable conclusion types owned by `bray-bound-tree`; this transfer value
 /// is not itself published as bound state.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]

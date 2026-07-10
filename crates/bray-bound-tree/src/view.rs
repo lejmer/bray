@@ -6,28 +6,28 @@ use crate::{BoundUnitId, BoundUnitKey, BoundUnitKind};
 /// mutate binder-owned construction state. Bound node and side-table accessors
 /// will be added here as those representations are introduced.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct BoundUnitDraft<'unit> {
+pub struct BoundUnitView<'unit> {
     unit: BoundUnitId,
     key: &'unit BoundUnitKey,
 }
 
-impl<'unit> BoundUnitDraft<'unit> {
-    /// Creates a read-only draft view for one exact semantic unit.
+impl<'unit> BoundUnitView<'unit> {
+    /// Creates a read-only view for one exact semantic unit.
     pub const fn new(unit: BoundUnitId, key: &'unit BoundUnitKey) -> Self {
         Self { unit, key }
     }
 
-    /// Returns the compilation-local identity of the draft unit.
+    /// Returns the compilation-local identity of the bound unit.
     pub const fn unit(self) -> BoundUnitId {
         self.unit
     }
 
-    /// Returns the stable construction key of the draft unit.
+    /// Returns the stable construction key of the bound unit.
     pub const fn key(self) -> &'unit BoundUnitKey {
         self.key
     }
 
-    /// Returns the exact semantic category of the draft unit.
+    /// Returns the exact semantic category of the bound unit.
     pub fn kind(self) -> BoundUnitKind {
         self.key.kind()
     }
@@ -38,25 +38,25 @@ mod tests {
     use bray_declarations::DeclarationId;
     use bray_symbols::{ModulePathKey, PackageIdentity, SymbolKey, SymbolKind, SymbolRootKey};
 
-    use super::BoundUnitDraft;
+    use super::BoundUnitView;
     use crate::test_support::source_anchor;
     use crate::{BoundUnitId, BoundUnitKey, BoundUnitKind};
 
     #[test]
-    fn drafts_borrow_exact_unit_identity_without_cloning_keys() {
+    fn views_borrow_exact_unit_identity_without_cloning_keys() {
         let key = callable_body_key();
-        let draft = BoundUnitDraft::new(BoundUnitId::new(7), &key);
+        let view = BoundUnitView::new(BoundUnitId::new(7), &key);
 
-        assert_eq!(draft.unit(), BoundUnitId::new(7));
-        assert!(std::ptr::eq(draft.key(), &key));
-        assert_eq!(draft.kind(), BoundUnitKind::CallableBody);
+        assert_eq!(view.unit(), BoundUnitId::new(7));
+        assert!(std::ptr::eq(view.key(), &key));
+        assert_eq!(view.kind(), BoundUnitKind::CallableBody);
     }
 
     #[test]
-    fn drafts_are_send_and_sync() {
+    fn views_are_send_and_sync() {
         fn assert_send_sync<T: Send + Sync>() {}
 
-        assert_send_sync::<BoundUnitDraft<'static>>();
+        assert_send_sync::<BoundUnitView<'static>>();
     }
 
     fn callable_body_key() -> BoundUnitKey {

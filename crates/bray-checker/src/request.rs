@@ -1,29 +1,26 @@
-use bray_bound_tree::BoundUnitDraft;
+use bray_bound_tree::BoundUnitView;
 
 use crate::CheckerCancellation;
 
 /// Typed inputs for whole-unit semantic checking.
 #[derive(Clone, Copy)]
-pub struct UnitCheckRequest<'draft> {
-    draft: BoundUnitDraft<'draft>,
-    cancellation: &'draft dyn CheckerCancellation,
+pub struct UnitCheckRequest<'view> {
+    view: BoundUnitView<'view>,
+    cancellation: &'view dyn CheckerCancellation,
 }
 
-impl<'draft> UnitCheckRequest<'draft> {
+impl<'view> UnitCheckRequest<'view> {
     /// Creates a checker request over committed read-only bound structure.
     pub const fn new(
-        draft: BoundUnitDraft<'draft>,
-        cancellation: &'draft dyn CheckerCancellation,
+        view: BoundUnitView<'view>,
+        cancellation: &'view dyn CheckerCancellation,
     ) -> Self {
-        Self {
-            draft,
-            cancellation,
-        }
+        Self { view, cancellation }
     }
 
-    /// Returns the read-only bound draft to analyze.
-    pub const fn draft(self) -> BoundUnitDraft<'draft> {
-        self.draft
+    /// Returns the read-only bound unit view to analyze.
+    pub const fn view(self) -> BoundUnitView<'view> {
+        self.view
     }
 
     /// Returns whether compilation cancellation has been requested.
