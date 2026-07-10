@@ -7,7 +7,8 @@ identities and typed symbol relationships to binding, checking, tooling, lowerin
 
 The compiler architecture overview is defined in `docs/design/compiler-architecture.md`. Declaration discovery is defined in
 `docs/design/declaration-discovery.md`. The compiler-known catalog is defined in
-`docs/design/compiler-known-catalog.md`. This document is the implementation contract for symbols and symbol-owned lazy facts.
+`docs/design/compiler-known-catalog.md`. Compiled package interfaces are defined in
+`docs/design/compiled-package-interfaces.md`. This document is the implementation contract for symbols and symbol-owned lazy facts.
 
 ---
 
@@ -988,6 +989,12 @@ tooling references.
 
 Import loading must not require executable dependency bodies.
 
+The complete artifact, stable-key, identity-skeleton, lazy-decoding, target-compatibility, and checked-template contracts are defined
+in `docs/design/compiled-package-interfaces.md`.
+
+`bray-symbols` owns imported identity-surface input values and imported fact keys, but it does not depend on the package-interface
+codec. `bray-package-interface` depends on symbol contracts and translates validated wire records into those inputs.
+
 ---
 
 ## Lazy Facts
@@ -1874,7 +1881,8 @@ Required coverage includes:
 - cancellation not publishing partial facts,
 - stable diagnostics under different worker schedules.
 
-Integration tests should verify that `Compilation` exposes symbol roots and diagnostics as lazy facts derived from declaration tables.
+Integration tests should verify that `Compilation` exposes symbol roots and diagnostics as lazy facts derived from declaration
+tables, the compiler-known catalog, and compiled dependency interfaces.
 
 ---
 

@@ -11,6 +11,8 @@ The language documents define Bray semantics.
 
 `docs/design/compiler-known-catalog.md` defines compiler-known declaration surfaces and typed compiler-provided behavior roles.
 
+`docs/design/compiled-package-interfaces.md` defines source-independent imported surfaces and checked declaration-owned templates.
+
 This document defines how syntax and symbols become complete source-correlated semantic facts without moving checker policy into the
 binder or making lowering reinterpret source.
 

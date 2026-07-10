@@ -78,6 +78,14 @@
     - Owns reusable bound-representation walkers and visitors.
     - This is still high-level enough to produce good user diagnostics.
 
+- `bray-package-interface`
+    - Owns deterministic encoding, bounded decoding, validation, content hashing, and lazy fact access for compiled `.brayi`
+      package interfaces.
+    - Converts wire records into imported identity surfaces and fact values owned by `bray-symbols` and `bray-bound-tree`.
+    - Must not define metadata-specific symbol kinds, expose codec internals through semantic APIs, or depend on compilation,
+      binder, checker, lowering, code generation, or emission orchestration.
+    - Treats dependency interfaces as untrusted external input and reports structured diagnostics rather than panicking.
+
 - `bray-checker`
     - Focused semantic checker services used by `bray-binder`.
     - Depends on lower semantic representations and must not depend back on binder orchestration.
@@ -102,6 +110,7 @@
 - `bray-emitter`
     - Artifact emission.
     - Owns object/executable/library output, output paths, linking handoff, and final emitted build products.
+    - Writes completed package-interface artifacts but does not select their semantic surface or encode their records.
 
 - `bray-compilation`
     - Main compiler entry point and compilation context.
@@ -109,6 +118,7 @@
     - Owns exact fact-key composition, caches, dependency scheduling, cancellation, and immutable fact publication around typed
       domain keys supplied by lower compiler representations.
     - Caches checked-region results without maintaining a mutable compilation-wide local symbol registry.
+    - Coordinates lazy package-interface loading, imported symbol facts, export-bundle construction, and interface encoding.
     - Coordinates parsing, declaration discovery, binding and semantic analysis, lowering, codegen, and emission through explicit fact APIs.
 
 - `bray-driver`

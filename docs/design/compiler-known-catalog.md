@@ -671,6 +671,9 @@ loading.
 Recognition proceeds only after an imported package interface supplies the expected stable declaration identity. Spelling, path,
 or signature resemblance alone is insufficient.
 
+Compiled package interface identity and stable external symbol keys are defined in
+`docs/design/compiled-package-interfaces.md`.
+
 The recognized descriptor can associate that imported identity with checking, lowering, optimization, const-eligibility, contract,
 or availability roles. The imported symbol remains an ordinary imported symbol for lookup, visibility, imports, overloads, and
 implementation participation.
@@ -743,7 +746,7 @@ Tests should cover:
 
 - valid compiler-known declaration and value entries,
 - embedded fragments using generics, constraints, contracts, directives, and defaults,
-- bodyless compiler-provided callable surfaces in every supported owner context,
+- body-less compiler-provided callable surfaces in every supported owner context,
 - explicit nested declaration ownership,
 - declarations split across several catalog files,
 - duplicate and unknown stable keys,

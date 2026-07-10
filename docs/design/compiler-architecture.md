@@ -17,6 +17,8 @@ Declaration discovery implementation rules live in `docs/design/declaration-disc
 
 Compiler-known catalog implementation rules live in `docs/design/compiler-known-catalog.md`.
 
+Compiled package interface implementation rules live in `docs/design/compiled-package-interfaces.md`.
+
 Symbol and symbol-construction implementation rules live in `docs/design/symbols.md`.
 
 Binder and bound-tree implementation rules live in `docs/design/binder.md`.
@@ -123,6 +125,11 @@ APIs.
 source unit's syntax. A declaration-table query requests all source-unit chunks and performs one deterministic merge. Declaration
 diagnostics are a projection of the merged result, so a check-diagnostics query materializes declaration discovery through that
 fact dependency rather than through a phase-execution command.
+
+Dependency interfaces and the current library product's encoded package interface are also lazy facts. An imported identity-skeleton
+query requests structural interface validation and deterministic external-key mapping. An imported symbol fact requests only its
+length-delimited semantic payload. An interface-artifact query requests the reachable completed public surface and deterministic
+encoding without requiring callers to sequence those phases manually.
 
 Compiler facts should generally be lazy across stable compiler boundaries:
 
@@ -364,6 +371,11 @@ Compiler-known and compiler-provided declaration surfaces come from the immutabl
 `docs/design/compiler-known-catalog.md`. The catalog supplies stable language identities, embedded Bray declaration surfaces, typed
 representation roles, compiler-provided implementation hooks, and target-availability rules. It does not construct symbols itself.
 
+Imported declaration surfaces come from immutable compiled package interfaces defined in
+`docs/design/compiled-package-interfaces.md`. Imported symbols use the same kind-specific symbol records as source symbols. The
+interface codec remains outside `bray-symbols`, and compilation maps stable external keys to deterministic compilation-local symbol
+IDs before lazy imported facts are requested.
+
 A symbol answers "which declared thing is this?".
 
 Symbols are not source strings.
@@ -562,6 +574,10 @@ should not duplicate trivia.
 
 Compiler-known declaration descriptors and typed compiler-known behavior roles belong to `bray-compiler-known`. The catalog is an
 immutable language-definition input to symbol construction and later semantic facts, not source syntax or a source package.
+
+Compiled package interface bytes, validated section directories, artifact hashes, and lazy wire decoders belong to
+`bray-package-interface`. Imported semantic identities and normalized symbol-facing facts still belong to `bray-symbols`, while
+serializable checked-template value contracts belong to their bound-representation owner.
 
 Symbols belong to symbol construction and semantic reference layers.
 
