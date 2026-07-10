@@ -23,7 +23,7 @@ pub struct CatalogSource {
 }
 
 impl CatalogSource {
-    const fn new(
+    pub(super) const fn new(
         id: CatalogSourceId,
         kind: CatalogKind,
         relative_path: &'static str,
@@ -61,7 +61,7 @@ impl CatalogSource {
 /// The complete canonical sequence of catalog sources embedded in the compiler.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct CatalogSourceInventory {
-    sources: &'static [CatalogSource],
+    pub(super) sources: &'static [CatalogSource],
 }
 
 impl CatalogSourceInventory {

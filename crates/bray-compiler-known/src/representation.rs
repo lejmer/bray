@@ -78,6 +78,50 @@ pub enum RepresentationRole {
     NoneValue,
 }
 
+impl RepresentationRole {
+    pub(crate) fn from_catalog_spelling(spelling: &str) -> Option<Self> {
+        match spelling {
+            "ScalarBool" => Some(Self::ScalarBool),
+            "ScalarChar" => Some(Self::ScalarChar),
+            "ScalarI8" => Some(Self::ScalarI8),
+            "ScalarI16" => Some(Self::ScalarI16),
+            "ScalarI32" => Some(Self::ScalarI32),
+            "ScalarI64" => Some(Self::ScalarI64),
+            "ScalarI128" => Some(Self::ScalarI128),
+            "ScalarU8" => Some(Self::ScalarU8),
+            "ScalarU16" => Some(Self::ScalarU16),
+            "ScalarU32" => Some(Self::ScalarU32),
+            "ScalarU64" => Some(Self::ScalarU64),
+            "ScalarU128" => Some(Self::ScalarU128),
+            "ScalarIsize" => Some(Self::ScalarIsize),
+            "ScalarUsize" => Some(Self::ScalarUsize),
+            "ScalarR16" => Some(Self::ScalarR16),
+            "ScalarR32" => Some(Self::ScalarR32),
+            "ScalarR64" => Some(Self::ScalarR64),
+            "ScalarR128" => Some(Self::ScalarR128),
+            "ScalarC32" => Some(Self::ScalarC32),
+            "ScalarC64" => Some(Self::ScalarC64),
+            "ScalarC128" => Some(Self::ScalarC128),
+            "ScalarC256" => Some(Self::ScalarC256),
+            "Unit" => Some(Self::Unit),
+            "Never" => Some(Self::Never),
+            "String" => Some(Self::String),
+            "RawPointer" => Some(Self::RawPointer),
+            "Result" => Some(Self::Result),
+            "RunResult" => Some(Self::RunResult),
+            "PanicReport" => Some(Self::PanicReport),
+            "ConversionError" => Some(Self::ConversionError),
+            "Task" => Some(Self::Task),
+            "Thread" => Some(Self::Thread),
+            "BooleanTrue" => Some(Self::BooleanTrue),
+            "BooleanFalse" => Some(Self::BooleanFalse),
+            "UnitValue" => Some(Self::UnitValue),
+            "NoneValue" => Some(Self::NoneValue),
+            _ => None,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::RepresentationRole;

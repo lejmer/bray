@@ -41,6 +41,31 @@ pub enum ImplementationHook {
     Deallocate,
 }
 
+impl ImplementationHook {
+    pub(crate) fn from_catalog_spelling(spelling: &str) -> Option<Self> {
+        match spelling {
+            "AddressOf" => Some(Self::AddressOf),
+            "AddressOfMut" => Some(Self::AddressOfMut),
+            "RawPointerNull" => Some(Self::RawPointerNull),
+            "RawPointerIsNull" => Some(Self::RawPointerIsNull),
+            "RawPointerOffset" => Some(Self::RawPointerOffset),
+            "RawPointerByteOffset" => Some(Self::RawPointerByteOffset),
+            "RawPointerReinterpret" => Some(Self::RawPointerReinterpret),
+            "RawPointerRead" => Some(Self::RawPointerRead),
+            "RawPointerWrite" => Some(Self::RawPointerWrite),
+            "MemoryCopy" => Some(Self::MemoryCopy),
+            "MemoryCopyOverlapping" => Some(Self::MemoryCopyOverlapping),
+            "MemorySizeOf" => Some(Self::MemorySizeOf),
+            "MemoryAlignOf" => Some(Self::MemoryAlignOf),
+            "MemoryStrideOf" => Some(Self::MemoryStrideOf),
+            "MemoryLayoutOf" => Some(Self::MemoryLayoutOf),
+            "Allocate" => Some(Self::Allocate),
+            "Deallocate" => Some(Self::Deallocate),
+            _ => None,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::ImplementationHook;
