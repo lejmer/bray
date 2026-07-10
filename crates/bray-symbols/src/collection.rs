@@ -1,12 +1,12 @@
 use std::collections::BTreeMap;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct TypedSymbolCollection<I, R> {
+pub(crate) struct TypedSymbolRecords<I, R> {
     records: Box<[R]>,
     indexes: BTreeMap<I, usize>,
 }
 
-impl<I, R> TypedSymbolCollection<I, R>
+impl<I, R> TypedSymbolRecords<I, R>
 where
     I: Copy + Ord,
 {
@@ -34,14 +34,14 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::TypedSymbolCollection;
+    use super::TypedSymbolRecords;
 
     #[derive(Clone, Debug, Eq, PartialEq)]
     struct Record(u32);
 
     #[test]
     fn typed_collections_reject_unassigned_ids() {
-        let collection = TypedSymbolCollection::new(vec![Record(2), Record(5)], |record| record.0);
+        let collection = TypedSymbolRecords::new(vec![Record(2), Record(5)], |record| record.0);
 
         assert_eq!(collection.get(2), Some(&Record(2)));
         assert_eq!(collection.get(3), None);

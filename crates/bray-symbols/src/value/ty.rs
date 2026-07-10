@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use bray_base::{shared_slice, shared_str};
+use bray_base::shared_slice;
 
 use crate::{GenericTypeParameterSymbolId, NamedTypeSymbolId, TraitTypeMemberSymbolId};
 
@@ -75,23 +75,17 @@ pub enum CallableParameterMode {
 
 /// A validated semantic callable-parameter name.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct CallableParameterName(Arc<str>);
+pub struct CallableParameterName(crate::SymbolName);
 
 impl CallableParameterName {
     /// Creates a parameter name unless the canonical name is empty.
     pub fn try_new(name: impl Into<Arc<str>>) -> Option<Self> {
-        let name = shared_str(name);
-
-        if name.is_empty() {
-            return None;
-        }
-
-        Some(Self(name))
+        crate::SymbolName::try_new(name).map(Self)
     }
 
     /// Returns the canonical parameter name.
     pub fn as_str(&self) -> &str {
-        &self.0
+        self.0.as_str()
     }
 }
 

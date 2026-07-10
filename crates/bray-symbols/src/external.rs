@@ -1,41 +1,14 @@
 use std::sync::Arc;
 
-use bray_base::shared_str;
-
-use crate::{ModulePathKey, PackageIdentity, SymbolKind, SymbolOrdinal, SynthesizedSymbolRole};
-
-/// A canonical source-level name used as one component of an external symbol identity.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct ExternalSymbolName(Arc<str>);
-
-impl ExternalSymbolName {
-    /// Creates a name unless its canonical representation is empty.
-    pub fn try_new(value: impl Into<Arc<str>>) -> Option<Self> {
-        let value = shared_str(value);
-        if value.is_empty() {
-            return None;
-        }
-
-        Some(Self(value))
-    }
-
-    /// Returns the canonical name text.
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl AsRef<str> for ExternalSymbolName {
-    fn as_ref(&self) -> &str {
-        self.as_str()
-    }
-}
+use crate::{
+    ModulePathKey, PackageIdentity, SymbolKind, SymbolName, SymbolOrdinal, SynthesizedSymbolRole,
+};
 
 /// The external identity rule used for a declaration under a semantic owner.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum ExternalDeclarationIdentity {
     /// Identity is determined by the declaration's ordinary name.
-    Name(ExternalSymbolName),
+    Name(SymbolName),
     /// Identity is determined by a stable owner-relative ordinal.
     Ordinal(SymbolOrdinal),
 }
@@ -110,11 +83,7 @@ impl ExternalSymbolKey {
     }
 
     /// Creates a named declaration key when the kind can be interface-addressable.
-    pub fn named(
-        owner: ExternalSymbolKey,
-        kind: SymbolKind,
-        name: ExternalSymbolName,
-    ) -> Option<Self> {
+    pub fn named(owner: ExternalSymbolKey, kind: SymbolKind, name: SymbolName) -> Option<Self> {
         Self::declaration(owner, kind, ExternalDeclarationIdentity::Name(name))
     }
 
@@ -221,10 +190,11 @@ const fn role_requires_ordinal(role: SynthesizedSymbolRole) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        ExternalDeclarationIdentity, ExternalSymbolKey, ExternalSymbolKeyData, ExternalSymbolName,
+    use super::{ExternalDeclarationIdentity, ExternalSymbolKey, ExternalSymbolKeyData};
+    use crate::{
+        ModulePathKey, PackageIdentity, SymbolKind, SymbolName, SymbolOrdinal,
+        SynthesizedSymbolRole,
     };
-    use crate::{ModulePathKey, PackageIdentity, SymbolKind, SymbolOrdinal, SynthesizedSymbolRole};
 
     fn package_identity() -> PackageIdentity {
         match PackageIdentity::try_new("example.package") {
@@ -233,8 +203,8 @@ mod tests {
         }
     }
 
-    fn name(value: &str) -> ExternalSymbolName {
-        match ExternalSymbolName::try_new(value) {
+    fn name(value: &str) -> SymbolName {
+        match SymbolName::try_new(value) {
             Some(name) => name,
             None => panic!("test symbol name must be valid"),
         }
@@ -281,10 +251,8 @@ mod tests {
     #[test]
     fn external_key_components_affect_identity() {
         let named = ExternalSymbolKey::named(module_key(), SymbolKind::Function, name("run"));
-
         let ordinal =
             ExternalSymbolKey::ordinal(module_key(), SymbolKind::Function, SymbolOrdinal::new(0));
-
         let other_kind = ExternalSymbolKey::named(module_key(), SymbolKind::Predicate, name("run"));
 
         assert_ne!(named, ordinal);
@@ -293,7 +261,7 @@ mod tests {
 
     #[test]
     fn invalid_external_key_shapes_are_rejected() {
-        assert_eq!(ExternalSymbolName::try_new(""), None);
+        assert_eq!(SymbolName::try_new(""), None);
 
         assert_eq!(
             ExternalSymbolKey::named(module_key(), SymbolKind::LocalBinding, name("local")),
@@ -346,6 +314,6 @@ mod tests {
         fn assert_send_sync<T: Send + Sync>() {}
 
         assert_send_sync::<ExternalSymbolKey>();
-        assert_send_sync::<ExternalSymbolName>();
+        assert_send_sync::<SymbolName>();
     }
 }

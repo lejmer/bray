@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use bray_declarations::DeclarationId;
 
-use crate::collection::TypedSymbolCollection;
+use crate::collection::TypedSymbolRecords;
 use crate::record::{
     CompilerKnownEnvironmentSymbol, ModuleSymbol, PackageSymbol, SourceSymbolIdentity,
     for_each_source_symbol,
@@ -54,12 +54,12 @@ macro_rules! define_symbol_graph {
         pub struct SymbolGraph {
             roots: SymbolGraphRoots,
             compiler_known: CompilerKnownEnvironmentSymbol,
-            packages: TypedSymbolCollection<PackageSymbolId, PackageSymbol>,
-            modules: TypedSymbolCollection<ModuleSymbolId, ModuleSymbol>,
+            packages: TypedSymbolRecords<PackageSymbolId, PackageSymbol>,
+            modules: TypedSymbolRecords<ModuleSymbolId, ModuleSymbol>,
             module_index: BTreeMap<ModuleOwnerId, BTreeMap<ModulePathKey, ModuleSymbolId>>,
             declaration_index: BTreeMap<DeclarationId, AnySymbolId>,
             $(
-                $plural: TypedSymbolCollection<crate::$id, crate::$record>,
+                $plural: TypedSymbolRecords<crate::$id, crate::$record>,
             )+
         }
 
@@ -184,8 +184,8 @@ macro_rules! define_symbol_graph {
             }
 
             pub(crate) fn finish(self) -> SymbolGraph {
-                let packages = TypedSymbolCollection::new(self.packages, PackageSymbol::id);
-                let modules = TypedSymbolCollection::new(self.modules, ModuleSymbol::id);
+                let packages = TypedSymbolRecords::new(self.packages, PackageSymbol::id);
+                let modules = TypedSymbolRecords::new(self.modules, ModuleSymbol::id);
 
                 let module_index = modules
                     .records()
@@ -207,7 +207,7 @@ macro_rules! define_symbol_graph {
                     module_index,
                     declaration_index: self.declaration_index,
                     $(
-                        $plural: TypedSymbolCollection::new(self.$plural, crate::$record::id),
+                        $plural: TypedSymbolRecords::new(self.$plural, crate::$record::id),
                     )+
                 }
             }
