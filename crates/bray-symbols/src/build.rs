@@ -20,7 +20,9 @@ pub(crate) fn build_source_symbol_graph(
     declarations: &DeclarationTable,
 ) -> Result<SymbolGraph, SymbolGraphBuildError> {
     let mut allocator = SymbolIdAllocator::new();
+
     let roots = build_roots_and_modules(package_identity, declarations, &mut allocator)?;
+
     let container_declarations = containing_declarations(declarations);
 
     let mut graph = SymbolGraphBuilder::new(
@@ -73,6 +75,7 @@ fn build_roots_and_modules(
         // Structured keys share immutable owner and path storage with their records and indexes.
         let key = SymbolKey::module(package_root_key.clone(), path.clone());
         let owner = ModuleOwnerId::from(package_id);
+
         let declaration_ids = module_declaration_ids(declarations, container.id())?;
         let is_recovered = module_is_recovered(declarations, container.id())?;
 
@@ -146,6 +149,7 @@ fn push_source_symbols(
         };
 
         let raw_id = allocator.next()?;
+
         let id = match source_symbol_id(raw_id, symbol_kind) {
             Some(id) => id,
             None => {
@@ -213,6 +217,7 @@ impl SymbolIdAllocator {
 
     fn next(&mut self) -> Result<SymbolId, SymbolGraphBuildError> {
         let index = self.next_index;
+
         let Some(id) = SymbolId::try_from_index(index) else {
             return Err(SymbolGraphBuildError::SymbolCapacityExceeded { index });
         };
@@ -331,6 +336,7 @@ fn declaration_owner(
     source_identities: &BTreeMap<DeclarationId, OwnerIdentity>,
 ) -> Result<OwnerIdentity, SymbolGraphBuildError> {
     let container_id = declaration.owning_container();
+
     let Some(container) = table.container(container_id) else {
         return Err(SymbolGraphBuildError::MissingContainer {
             declaration: declaration.id(),
@@ -487,6 +493,7 @@ mod tests {
 
         let package = &graph.packages()[0];
         let module = &graph.modules()[0];
+
         assert_eq!(module.id().symbol_id().raw(), 2);
         assert_eq!(package.modules(), [module.id()]);
         assert_eq!(module.owner(), ModuleOwnerId::from(package.id()));
@@ -495,6 +502,7 @@ mod tests {
         assert_eq!(module.module_parts().len(), 2);
 
         let path = valid_module_path(["core", "io"]);
+
         assert_eq!(
             graph.module_by_path(ModuleOwnerId::from(package.id()), &path),
             Some(module)
@@ -513,6 +521,7 @@ mod tests {
         assert_eq!(graph.function(function.id()), Some(function));
 
         let forged = FunctionSymbolId::from_symbol_id(SymbolId::new(100));
+
         assert_eq!(graph.function(forged), None);
     }
 
@@ -529,17 +538,20 @@ mod tests {
         let structure = &graph.structures()[0];
         let field = &graph.struct_fields()[0];
         let generic = &graph.generic_type_parameters()[0];
+
         assert_eq!(field.containing_symbol(), structure.id().into());
         assert_eq!(generic.containing_symbol(), structure.id().into());
 
         let union = &graph.unions()[0];
         let variant = &graph.union_variants()[0];
         let payload = &graph.union_payload_fields()[0];
+
         assert_eq!(variant.containing_symbol(), union.id().into());
         assert_eq!(payload.containing_symbol(), variant.id().into());
 
         let function = &graph.functions()[0];
         let parameter = &graph.callable_parameters()[0];
+
         assert_eq!(parameter.containing_symbol(), function.id().into());
     }
 
@@ -547,12 +559,14 @@ mod tests {
     fn conflicting_source_declarations_keep_distinct_identities() {
         let table = declaration_table(&["module app; func same() {} func same() {}"]);
         let graph = build_graph(&table);
+
         let [first, second] = graph.functions() else {
             panic!("expected both conflicting functions to remain in the graph");
         };
 
         assert_ne!(first.id(), second.id());
         assert_ne!(first.key(), second.key());
+
         assert_eq!(
             graph.symbol_for_declaration(first.declaration()),
             Some(AnySymbolId::from(first.id()))
@@ -567,6 +581,7 @@ mod tests {
     fn recovered_declarations_keep_source_identity_and_containment() {
         let table = declaration_table(&["module app; struct Point\nusing core;"]);
         let graph = build_graph(&table);
+
         let [structure] = graph.structures() else {
             panic!("expected the recovered struct declaration to produce a symbol");
         };
@@ -595,6 +610,7 @@ mod tests {
     fn recovered_empty_module_paths_use_structured_declaration_anchors() {
         let table = declaration_table(&["module ; func main() {}"]);
         let graph = build_graph(&table);
+
         let [module] = graph.modules() else {
             panic!("expected one recovered logical module");
         };
@@ -615,10 +631,13 @@ mod tests {
             "module core; struct Point { x: Int; }",
             "module core; union Maybe { Some(value: Int); }",
         ]);
+
         let first = declaration_chunk(&sources, 0);
         let second = declaration_chunk(&sources, 1);
+
         let forward = merge_declaration_chunks([&first, &second]);
         let reverse = merge_declaration_chunks([&second, &first]);
+
         let forward_graph = build_graph(forward.table());
         let reverse_graph = build_graph(reverse.table());
 
@@ -626,6 +645,7 @@ mod tests {
 
         let table = Arc::new(forward.table().clone());
         let expected = Arc::new(forward_graph);
+
         let workers = (0..4)
             .map(|_| {
                 let table = Arc::clone(&table);
@@ -633,6 +653,7 @@ mod tests {
 
                 std::thread::spawn(move || {
                     let actual = build_graph(&table);
+
                     assert_eq!(actual, *expected);
                 })
             })
@@ -654,6 +675,7 @@ mod tests {
             ),
             Some(SymbolKind::TraitCallableFulfillment)
         );
+
         assert_eq!(
             source_symbol_kind(
                 DeclarationKind::ImplementationTypeMemberBinding,
@@ -661,6 +683,7 @@ mod tests {
             ),
             Some(SymbolKind::TraitTypeFulfillment)
         );
+
         assert_eq!(
             source_symbol_kind(
                 DeclarationKind::TypeCallableMember,

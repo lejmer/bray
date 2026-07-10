@@ -16,6 +16,7 @@ impl PackageIdentity {
     /// Creates a package identity unless the canonical representation is empty.
     pub fn try_new(value: impl Into<Arc<str>>) -> Option<Self> {
         let value = shared_str(value);
+
         if value.is_empty() {
             return None;
         }
@@ -56,6 +57,7 @@ impl ModulePathKey {
         S: Into<Arc<str>>,
     {
         let segments: Vec<Arc<str>> = segments.into_iter().map(Into::into).collect();
+
         if segments.is_empty() || segments.iter().any(|segment| segment.is_empty()) {
             return None;
         }
@@ -397,6 +399,7 @@ mod tests {
         assert_eq!(ModulePathKey::try_new(["example", ""]), None);
 
         let path = module_path();
+
         assert_eq!(path.segments().len(), 2);
         assert_eq!(path.segments().collect::<Vec<_>>(), ["example", "module"]);
         assert!(!path.is_recovered());
@@ -427,8 +430,10 @@ mod tests {
             SymbolKey::module(SymbolRootKey::CompilerKnownEnvironment, module_path());
 
         assert_ne!(package_module, compiler_module);
+
         assert_eq!(package_module.kind(), SymbolKind::Module);
         assert_eq!(compiler_module.kind(), SymbolKind::Module);
+
         assert_ne!(
             SymbolKey::package(package_identity()),
             SymbolKey::compiler_known_environment()
@@ -456,6 +461,7 @@ mod tests {
     #[test]
     fn synthesized_roles_determine_kinds_and_ordinals() {
         let implementation = source_key(SymbolKind::InherentImplementation, 8);
+
         let first = SynthesizedSymbolKey::inferred_implementation_type_parameter(
             implementation.clone(),
             SymbolOrdinal::new(0),
@@ -475,8 +481,10 @@ mod tests {
 
         let receiver =
             SynthesizedSymbolKey::receiver_parameter(source_key(SymbolKind::TypeCallableMember, 9));
+
         assert_eq!(receiver.kind(), SymbolKind::ReceiverParameter);
         assert_eq!(receiver.ordinal(), None);
+
         assert_eq!(
             SymbolKey::synthesized(receiver).kind(),
             SymbolKind::ReceiverParameter
