@@ -1,8 +1,4 @@
-/// Read-only cancellation observation supplied by checker orchestration.
-///
-/// The compilation layer owns cancellation state. Binder orchestration can
-/// adapt its narrow fact context with a thread-safe closure rather than making
-/// checker services depend on compilation internals.
+/// Read-only cancellation observation for checker operations.
 pub trait CheckerCancellation: Sync {
     /// Returns whether the current compiler operation should stop.
     fn is_cancelled(&self) -> bool;

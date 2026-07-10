@@ -3,8 +3,9 @@ use crate::{BoundUnitId, BoundUnitKey, BoundUnitKind};
 /// A read-only view of committed task-local bound structure before publication.
 ///
 /// The view borrows the stable unit key so checker services cannot retain or
-/// mutate binder-owned construction state. Bound node and side-table accessors
-/// will be added here as those representations are introduced.
+/// mutate binder-owned construction state.
+// TODO(bound-tree): Add read-only bound node and side-table accessors as those
+// representations land.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct BoundUnitView<'unit> {
     unit: BoundUnitId,
