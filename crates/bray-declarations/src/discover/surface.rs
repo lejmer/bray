@@ -92,7 +92,10 @@ pub(super) fn declaration_surface(
                 "callable overload declaration",
             );
 
-            modifier_token_surface(declaration.overload_modifiers().tokens())
+            overload_surface(
+                modifier_token_surface(declaration.overload_modifiers().tokens()),
+                declaration.overload_arm_list(),
+            )
         }
         DeclarationKind::ImplementationOverload => {
             let declaration = cast_node::<ImplementationOverloadDeclarationSyntax>(
@@ -100,7 +103,10 @@ pub(super) fn declaration_surface(
                 "implementation overload declaration",
             );
 
-            modifier_token_surface(declaration.overload_modifiers().tokens())
+            overload_surface(
+                modifier_token_surface(declaration.overload_modifiers().tokens()),
+                declaration.overload_arm_list(),
+            )
         }
         DeclarationKind::Struct => {
             let declaration = cast_node::<StructDeclarationSyntax>(view, "struct declaration");
@@ -160,7 +166,12 @@ pub(super) fn declaration_surface(
             let declaration =
                 cast_node::<StructFieldDeclarationSyntax>(view, "struct field declaration");
 
-            modifier_token_surface(declaration.field_modifiers().tokens())
+            runtime_default_surface(
+                modifier_token_surface(declaration.field_modifiers().tokens()),
+                &declaration,
+                declaration.equals_token(),
+                declaration.expression(),
+            )
         }
         DeclarationKind::UnionVariant => {
             let declaration =
@@ -360,7 +371,12 @@ pub(super) fn declaration_surface(
         DeclarationKind::CallableParameter => {
             let declaration = cast_node::<bray_syntax::ParameterSyntax>(view, "parameter");
 
-            modifier_token_surface(declaration.parameter_modifiers().tokens())
+            runtime_default_surface(
+                modifier_token_surface(declaration.parameter_modifiers().tokens()),
+                &declaration,
+                declaration.equals_token(),
+                declaration.expression(),
+            )
         }
         DeclarationKind::PredicateParameter => {
             let _ = cast_node::<PredicateParameterSyntax>(view, "predicate parameter");
@@ -370,7 +386,12 @@ pub(super) fn declaration_surface(
         DeclarationKind::UnionPayloadField => {
             let declaration = cast_node::<UnionPayloadFieldSyntax>(view, "union payload field");
 
-            modifier_token_surface(declaration.payload_field_modifiers().tokens())
+            runtime_default_surface(
+                modifier_token_surface(declaration.payload_field_modifiers().tokens()),
+                &declaration,
+                declaration.equals_token(),
+                declaration.expression(),
+            )
         }
         DeclarationKind::Module
         | DeclarationKind::Using
@@ -387,6 +408,39 @@ pub(super) fn modifier_token_surface(
     tokens: impl IntoIterator<Item = SyntaxToken>,
 ) -> DeclarationSurface {
     declaration_surface_from_parts(tokens, [], [], [])
+}
+
+pub(super) fn runtime_default_surface<N, E>(
+    surface: DeclarationSurface,
+    owner: &N,
+    equals_token: Option<SyntaxToken>,
+    expression: Option<E>,
+) -> DeclarationSurface
+where
+    N: SourceSyntaxNode,
+    E: SourceSyntaxNode,
+{
+    let has_equals = equals_token.is_some_and(|token| !token.is_missing());
+    let runtime_default = match expression.as_ref() {
+        Some(expression) if has_equals && !expression.is_recovered() => {
+            Some(SyntaxAnchor::from_node(expression))
+        }
+        Some(_) => Some(SyntaxAnchor::from_node(owner)),
+        None if has_equals => Some(SyntaxAnchor::from_node(owner)),
+        None => None,
+    };
+
+    surface.with_runtime_default(runtime_default)
+}
+
+fn overload_surface(
+    surface: DeclarationSurface,
+    arms: bray_syntax::OverloadArmListSyntax,
+) -> DeclarationSurface {
+    surface.with_overload_arms(
+        arms.overload_arms()
+            .map(|arm| SyntaxAnchor::from_node(&arm.path())),
+    )
 }
 
 fn module_declaration_surface(

@@ -4,15 +4,19 @@ use bray_declarations::{
     ContainerId, ContainerKind, DeclarationId, DeclarationKind, DeclarationRecord, DeclarationTable,
 };
 
-use crate::graph::{SymbolGraphBuilder, SymbolGraphRoots};
+use crate::graph::{DefaultProviderRecord, SymbolGraphBuilder, SymbolGraphRoots};
 use crate::record::{
-    CompilerKnownEnvironmentSymbol, ModuleSymbol, ModuleSymbolInput, PackageSymbol,
-    SourceSymbolIdentity, for_each_source_symbol,
+    CallableParameterDefaultProviderSymbol, CompilerKnownEnvironmentSymbol, ModuleSymbol,
+    ModuleSymbolInput, PackageSymbol, ReceiverParameterSymbol, SourceSymbolIdentity,
+    StructFieldDefaultProviderSymbol, UnionPayloadDefaultProviderSymbol, for_each_source_symbol,
 };
 use crate::{
-    AnySymbolId, CompilerKnownEnvironmentSymbolId, ModuleOwnerId, ModulePathKey, ModuleSymbolId,
-    PackageIdentity, PackageSymbolId, SymbolGraph, SymbolGraphBuildError, SymbolId, SymbolKey,
-    SymbolKind, SymbolOrigin, SymbolRootKey,
+    AnySymbolId, CallableParameterDefaultProviderSymbolId, CallableSymbolId,
+    CompilerKnownEnvironmentSymbolId, ModuleOwnerId, ModulePathKey, ModuleSymbolId,
+    PackageIdentity, PackageSymbolId, ReceiverParameterSymbolId,
+    StructFieldDefaultProviderSymbolId, SymbolGraph, SymbolGraphBuildError, SymbolId, SymbolKey,
+    SymbolKind, SymbolOrigin, SymbolRootKey, SynthesizedSymbolKey,
+    UnionPayloadDefaultProviderSymbolId,
 };
 
 pub(crate) fn build_source_symbol_graph(
@@ -40,7 +44,20 @@ pub(crate) fn build_source_symbol_graph(
         &mut allocator,
     )?;
 
-    Ok(graph.finish())
+    match graph.finish() {
+        Ok(graph) => Ok(graph),
+        Err((declaration_id, symbol_kind)) => {
+            let declaration_kind = declarations
+                .declaration(declaration_id)
+                .map_or(DeclarationKind::Module, DeclarationRecord::kind);
+
+            Err(SymbolGraphBuildError::InvalidSourceSymbolKind {
+                declaration: declaration_id,
+                declaration_kind,
+                symbol_kind,
+            })
+        }
+    }
 }
 
 struct RootSkeleton {
@@ -185,6 +202,8 @@ fn push_source_symbols(
 
         graph.map_declaration(declaration.id(), id);
 
+        // Synthesized children retain the same Arc-backed subject key after identity publication.
+        let synthesized_subject_key = key.clone();
         let identity =
             SourceSymbolIdentity::new(key, owner.id, declaration.id(), declaration.syntax_anchor());
 
@@ -195,9 +214,109 @@ fn push_source_symbols(
                 symbol_kind,
             });
         }
+
+        if let Some(owner) = receiver_owner(id, declaration.surface().has_static_modifier()) {
+            let receiver_id = ReceiverParameterSymbolId::from_symbol_id(allocator.next()?);
+            let receiver_key = SymbolKey::synthesized(SynthesizedSymbolKey::receiver_parameter(
+                synthesized_subject_key.clone(),
+            ));
+
+            graph.push_receiver(ReceiverParameterSymbol::new(
+                receiver_id,
+                receiver_key,
+                owner,
+            ));
+        }
+
+        if let Some(default) = declaration.surface().runtime_default() {
+            graph.add_runtime_default(id, default);
+
+            if let Some(provider) =
+                default_provider_record(id, synthesized_subject_key, owner.id, allocator)?
+            {
+                graph.push_default_provider(provider);
+            }
+        }
+
+        if !declaration.surface().overload_arms().is_empty() {
+            graph.add_overload_arms(id, declaration.surface().overload_arms().into());
+        }
     }
 
     Ok(())
+}
+
+fn receiver_owner(symbol: AnySymbolId, is_static: bool) -> Option<CallableSymbolId> {
+    match symbol {
+        AnySymbolId::TypeCallableMember(id) if !is_static => Some(id.into()),
+        AnySymbolId::TraitCallableMember(id) if !is_static => Some(id.into()),
+        AnySymbolId::TraitCallableFulfillment(id) if !is_static => Some(id.into()),
+        AnySymbolId::Finalizer(id) => Some(id.into()),
+        AnySymbolId::Destructor(id) => Some(id.into()),
+        AnySymbolId::ScopeEnter(id) => Some(id.into()),
+        AnySymbolId::ScopeExit(id) => Some(id.into()),
+        AnySymbolId::TraitFinalizerRequirement(id) => Some(id.into()),
+        AnySymbolId::TraitDestructorRequirement(id) => Some(id.into()),
+        AnySymbolId::TraitScopeEnterRequirement(id) => Some(id.into()),
+        AnySymbolId::TraitScopeExitRequirement(id) => Some(id.into()),
+        AnySymbolId::TraitScopeEnterFulfillment(id) => Some(id.into()),
+        AnySymbolId::TraitScopeExitFulfillment(id) => Some(id.into()),
+        _ => None,
+    }
+}
+
+fn default_provider_record(
+    subject: AnySymbolId,
+    subject_key: SymbolKey,
+    containing_symbol: AnySymbolId,
+    allocator: &mut SymbolIdAllocator,
+) -> Result<Option<DefaultProviderRecord>, SymbolGraphBuildError> {
+    let raw_id = allocator.next()?;
+
+    let provider = match subject {
+        AnySymbolId::CallableParameter(subject) => {
+            let id = CallableParameterDefaultProviderSymbolId::from_symbol_id(raw_id);
+            let key = SymbolKey::synthesized(
+                SynthesizedSymbolKey::callable_parameter_default_provider(subject_key),
+            );
+
+            DefaultProviderRecord::CallableParameter(CallableParameterDefaultProviderSymbol::new(
+                id,
+                key,
+                containing_symbol,
+                subject,
+            ))
+        }
+        AnySymbolId::StructField(subject) => {
+            let id = StructFieldDefaultProviderSymbolId::from_symbol_id(raw_id);
+            let key = SymbolKey::synthesized(SynthesizedSymbolKey::struct_field_default_provider(
+                subject_key,
+            ));
+
+            DefaultProviderRecord::StructField(StructFieldDefaultProviderSymbol::new(
+                id,
+                key,
+                containing_symbol,
+                subject,
+            ))
+        }
+        AnySymbolId::UnionPayloadField(subject) => {
+            let id = UnionPayloadDefaultProviderSymbolId::from_symbol_id(raw_id);
+            let key = SymbolKey::synthesized(SynthesizedSymbolKey::union_payload_default_provider(
+                subject_key,
+            ));
+
+            DefaultProviderRecord::UnionPayload(UnionPayloadDefaultProviderSymbol::new(
+                id,
+                key,
+                containing_symbol,
+                subject,
+            ))
+        }
+        _ => return Ok(None),
+    };
+
+    Ok(Some(provider))
 }
 
 #[derive(Clone)]
@@ -232,7 +351,7 @@ impl SymbolIdAllocator {
 }
 
 macro_rules! define_source_symbol_allocator {
-    ($($record:ident, $id:ident, $variant:ident, $singular:ident, $plural:ident;)+) => {
+    ($($record:ident, $id:ident, $variant:ident, $singular:ident, $plural:ident, $relationships:ty;)+) => {
         fn source_symbol_id(id: SymbolId, kind: SymbolKind) -> Option<AnySymbolId> {
             match kind {
                 $(
@@ -474,8 +593,8 @@ mod tests {
 
     use super::source_symbol_kind;
     use crate::{
-        AnySymbolId, FunctionSymbolId, ModuleOwnerId, ModulePathKey, PackageIdentity, SymbolGraph,
-        SymbolId, SymbolKind, SymbolOrigin,
+        AnySymbolId, CallableSymbolId, FunctionSymbolId, ModuleOwnerId, ModulePathKey,
+        PackageIdentity, RuntimeDefaultPresence, SymbolGraph, SymbolId, SymbolKind, SymbolOrigin,
     };
 
     #[test]
@@ -553,6 +672,125 @@ mod tests {
         let parameter = &graph.callable_parameters()[0];
 
         assert_eq!(parameter.containing_symbol(), function.id().into());
+    }
+
+    #[test]
+    fn kind_specific_records_publish_typed_declaration_relationships() {
+        let table = declaration_table(&[concat!(
+            "module app; ",
+            "func make<T, const N: Int>(first: T = 1, second: T) {} ",
+            "struct Config<U> { value: U = 1; func read() {} static func create() {} } ",
+            "union Maybe { Some(value: Int = 1); None; } ",
+            "overload create = {make}",
+        )]);
+        let graph = build_graph(&table);
+        let module = &graph.modules()[0];
+        let function = &graph.functions()[0];
+
+        assert_eq!(module.functions(), [function.id()]);
+        assert_eq!(module.structures(), [graph.structures()[0].id()]);
+        assert_eq!(module.unions(), [graph.unions()[0].id()]);
+        assert_eq!(
+            module.callable_overloads(),
+            [graph.callable_overloads()[0].id()]
+        );
+
+        assert_eq!(function.generic_type_parameters().len(), 1);
+        assert_eq!(function.generic_const_parameters().len(), 1);
+        assert_eq!(function.parameters().len(), 2);
+
+        let first_parameter = graph.callable_parameter(function.parameters()[0]);
+        let Some(first_parameter) = first_parameter else {
+            panic!("function parameter relationship must resolve to its typed record");
+        };
+
+        assert_eq!(
+            first_parameter.owner(),
+            CallableSymbolId::from(function.id())
+        );
+        assert_eq!(first_parameter.ordinal(), 0);
+        assert_eq!(
+            first_parameter.default_presence(),
+            RuntimeDefaultPresence::Present
+        );
+
+        let Some(parameter_provider_id) = first_parameter.default_provider() else {
+            panic!("written callable default must have a provider identity");
+        };
+        let parameter_provider = graph.callable_parameter_default_provider(parameter_provider_id);
+        let Some(parameter_provider) = parameter_provider else {
+            panic!("provider identity must resolve to its kind-specific record");
+        };
+
+        assert_eq!(parameter_provider.subject(), first_parameter.id());
+        assert_eq!(parameter_provider.containing_symbol(), function.id().into());
+        assert_eq!(parameter_provider.origin(), SymbolOrigin::Synthesized);
+
+        let structure = &graph.structures()[0];
+        let field = graph.struct_field(structure.fields()[0]);
+        let Some(field) = field else {
+            panic!("struct field relationship must resolve to its typed record");
+        };
+
+        assert_eq!(field.ordinal(), 0);
+        assert_eq!(field.default_presence(), RuntimeDefaultPresence::Present);
+        assert!(field.default_provider().is_some());
+        assert_eq!(field.structure(), structure.id());
+
+        let [instance_member, static_member] = structure.callable_members() else {
+            panic!("expected one instance and one static callable member");
+        };
+        let instance_member = graph.type_callable_member(*instance_member);
+        let static_member = graph.type_callable_member(*static_member);
+        let (Some(instance_member), Some(static_member)) = (instance_member, static_member) else {
+            panic!("callable member relationships must resolve to typed records");
+        };
+
+        let Some(receiver_id) = instance_member.receiver() else {
+            panic!("instance callable member must synthesize a receiver");
+        };
+        let receiver = graph.receiver_parameter(receiver_id);
+        let Some(receiver) = receiver else {
+            panic!("receiver identity must resolve to its typed record");
+        };
+
+        assert_eq!(
+            receiver.owner(),
+            CallableSymbolId::from(instance_member.id())
+        );
+        assert_eq!(receiver.origin(), SymbolOrigin::Synthesized);
+        assert_eq!(static_member.receiver(), None);
+
+        let union = &graph.unions()[0];
+        let variant = graph.union_variant(union.variants()[0]);
+        let Some(variant) = variant else {
+            panic!("union variant relationship must resolve to its typed record");
+        };
+        assert_eq!(variant.union(), union.id());
+        let payload = graph.union_payload_field(variant.payload_fields()[0]);
+        let Some(payload) = payload else {
+            panic!("payload relationship must resolve to its typed record");
+        };
+
+        assert_eq!(payload.ordinal(), 0);
+        assert_eq!(payload.variant(), variant.id());
+        assert_eq!(payload.default_presence(), RuntimeDefaultPresence::Present);
+        assert!(payload.default_provider().is_some());
+        assert_eq!(graph.callable_overloads()[0].arm_syntax().len(), 1);
+    }
+
+    #[test]
+    fn recovered_runtime_defaults_keep_deterministic_provider_identities() {
+        let table = declaration_table(&["module app; func make(value: Int = ) {}"]);
+        let graph = build_graph(&table);
+        let parameter = &graph.callable_parameters()[0];
+
+        assert_eq!(
+            parameter.default_presence(),
+            RuntimeDefaultPresence::Recovered
+        );
+        assert!(parameter.default_provider().is_some());
+        assert_eq!(graph.callable_parameter_default_providers().len(), 1);
     }
 
     #[test]
