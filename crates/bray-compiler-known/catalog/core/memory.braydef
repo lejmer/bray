@@ -1,0 +1,16 @@
+catalog compiler_known;
+
+scope CoreMemory at core.memory {
+    declaration MemoryCopy {
+        availability RawMemory;
+        implementation MemoryCopy;
+
+        surface {
+            trusted func copy(
+                destination: RawPointer<u8>,
+                source: RawPointer<u8>,
+                count: usize,
+            );
+        }
+    }
+}

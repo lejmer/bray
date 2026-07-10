@@ -8,6 +8,8 @@ mod implementation;
 mod representation;
 
 pub use availability::AvailabilityRule;
+#[cfg(test)]
+pub use catalog::generator_input_inventory;
 pub use catalog::{
     CatalogBuildResult, CatalogDeclarationKind, CatalogDeclarationSurface, CatalogDiagnostic,
     CatalogDiagnosticKind, CatalogDiagnostics, CatalogEntryKind, CatalogExpectation, CatalogField,
@@ -21,7 +23,6 @@ pub use catalog::{
     RecognizedStandardLibraryDeclarationId, RecognizedStandardLibraryDeclarationKey,
     RecognizedStandardLibraryDeclarationOwner, RecognizedStandardLibraryScopeDescriptor,
     RecognizedStandardLibraryScopeId, RecognizedStandardLibraryScopeKey, build_catalog,
-    embedded_source_inventory,
 };
 pub use implementation::ImplementationHook;
 pub use representation::RepresentationRole;

@@ -1,0 +1,13 @@
+catalog compiler_known;
+
+scope Ambient at ambient {
+    declaration BoolStorageImplementation {
+        surface { impl BoolStorage = bool(Storage<bool>) {} }
+    }
+
+    declaration BoolStorageItem {
+        owner BoolStorageImplementation;
+
+        surface { type Item = bool; }
+    }
+}

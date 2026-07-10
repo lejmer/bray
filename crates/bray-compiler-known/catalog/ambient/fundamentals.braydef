@@ -1,1 +1,45 @@
 catalog compiler_known;
+
+scope Ambient at ambient {
+    declaration Bool {
+        representation ScalarBool;
+
+        surface { struct bool {} }
+    }
+
+    declaration RawPointer {
+        representation RawPointer;
+
+        surface { struct RawPointer<T> {} }
+    }
+
+    declaration RawPointerElement {
+        owner RawPointer;
+
+        surface { element: T; }
+    }
+
+    declaration Result {
+        representation Result;
+
+        surface { union Result<T, E> {} }
+    }
+
+    value True {
+        spelling true;
+        type { bool }
+        representation BooleanTrue;
+    }
+
+    value False {
+        spelling false;
+        type { bool }
+        representation BooleanFalse;
+    }
+
+    value None {
+        spelling none;
+        type { bool? }
+        representation NoneValue;
+    }
+}

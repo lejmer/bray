@@ -1,0 +1,23 @@
+catalog compiler_known;
+
+scope Ambient at ambient {
+    declaration Storage {
+        surface { trait Storage<T> {} }
+    }
+
+    declaration StorageItem {
+        owner Storage;
+
+        surface { type Item; }
+    }
+
+    declaration StorageLoad {
+        owner Storage;
+
+        surface { func load() -> T; }
+    }
+
+    declaration UnaryCallable {
+        surface { callable UnaryCallable<T> = func(value: T) -> T; }
+    }
+}
