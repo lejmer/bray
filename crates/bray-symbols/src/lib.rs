@@ -1,4 +1,4 @@
-//! Semantic identities for declared Bray program items.
+//! Semantic identities and canonical values for Bray programs.
 
 #![forbid(unsafe_code)]
 
@@ -9,6 +9,7 @@ mod interface;
 mod key;
 mod kind;
 mod origin;
+mod value;
 
 pub use external::{
     ExternalDeclarationIdentity, ExternalSymbolKey, ExternalSymbolKeyData, ExternalSymbolName,
@@ -45,3 +46,19 @@ pub use key::{
 };
 pub use kind::SymbolKind;
 pub use origin::SymbolOrigin;
+pub use value::{
+    AnyConstantDefinitionId, BorrowKind, CallableAbi, CallableConstness, CallableDefinitionId,
+    CallableExecution, CallableInstanceData, CallableInstanceId, CallableParameterData,
+    CallableParameterMode, CallableParameterName, CallablePosition, CallableTrust,
+    CallableTypeData, ConcreteGenericSubstitutionId, ConstantBinaryOperation, ConstantProjection,
+    ConstantProjectionKind, ConstantTermData, ConstantTermId, ConstantUnaryOperation,
+    ConstantValueData, ConstantValueId, ConstantValueKind, DependencyContractTemplateData,
+    DependencyContractTemplateId, DependencyGuard, DependencyProjection, DependencyRequirement,
+    DependencyRequirementKind, DependencySubject, DependencySubjectRoot, GenericArgument,
+    GenericArgumentKind, GenericBinding, GenericOwnerId, GenericSubstitutionData,
+    GenericSubstitutionId, GenericSubstitutionShapeError, GuardedDependencyRequirement,
+    ImplementationInstanceData, ImplementationInstanceId, IntegerConstant, IntegerSign,
+    LifecycleObligationKind, RealConstantBits, SemanticValueKind, SemanticValueStore,
+    SemanticValueStoreCreateError, SemanticValueStoreError, SemanticValueStoreId,
+    TraitApplicationData, TraitApplicationId, TypeData, TypeId,
+};
