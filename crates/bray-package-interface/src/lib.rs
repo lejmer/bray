@@ -7,6 +7,7 @@ mod hash;
 mod header;
 mod limits;
 mod section;
+mod surface;
 mod validation;
 mod wire;
 
@@ -18,4 +19,10 @@ pub use header::{
 };
 pub use limits::{InterfaceLimit, InterfaceValidationLimits, InterfaceValidationPolicy};
 pub use section::{InterfaceSectionTag, ValidatedInterfaceSection};
+pub use surface::{
+    DependencyInterfaceId, ExportedLookupEdge, ExportedLookupKind, InterfaceDependency,
+    InterfaceProductIdentity, InterfaceProductKind, InterfaceSymbolReference,
+    PackageInterfaceIdentity, PackageInterfaceSurface, PackageInterfaceSurfaceBuildError,
+    SymbolRelationship, SymbolRelationshipKind,
+};
 pub use validation::ValidatedPackageInterface;

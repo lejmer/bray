@@ -194,6 +194,7 @@ dependencies = [
  "blake3",
  "bray-diagnostics",
  "bray-messages",
+ "bray-symbols",
 ]
 
 [[package]]
