@@ -372,6 +372,10 @@ Source, imported, compiler-known, compiler-provided, synthesized, and body-local
 Constructed types, trait applications, callable instances, and selected implementation witnesses use separate semantic identities
 and do not pretend to be declaration symbols.
 
+Local symbols use region-scoped typed IDs and immutable local symbol snapshots rather than consuming compilation-wide declaration
+symbol IDs. A checked body or declaration-owned expression publishes its bound representation, local snapshot, and diagnostics as
+one immutable fact. This keeps lazy and parallel body checking from mutating the global symbol graph.
+
 Force completion requests all declaration-surface facts for a symbol and its semantically contained children in deterministic order.
 It does not bind or check executable bodies, which remain separate lazy bound-body facts.
 
@@ -394,6 +398,10 @@ The binder calls semantic checker services during bound-tree construction whenev
 
 The binder can use mutable builders internally, but the published bound representation is immutable. The compiler should not
 recreate equivalent bound nodes only to add semantic information later.
+
+The binder can construct a mutable lexical scope graph and local symbol tables while checking one semantic region. The published
+scope graph and local symbols are immutable, region-owned data attached to that checked region. Lexical scopes are not symbols, and
+semantic symbol containment does not imply lexical lookup ancestry.
 
 Bound nodes preserve source correlation and carry resolved references plus completed semantic facts for their checked unit.
 
@@ -530,6 +538,8 @@ Syntax tokens retain trivia as syntax-owned data. Later phases can refer to synt
 should not duplicate trivia.
 
 Symbols belong to symbol construction and semantic reference layers.
+
+Local symbol snapshots belong to their checked semantic regions and are published with the corresponding bound representation.
 
 Bound nodes belong to the bound representation layer.
 

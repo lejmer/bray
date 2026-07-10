@@ -505,15 +505,17 @@ Lowering and emission request the provider lazily only when a reachable call or 
 - `LocalBindingSymbol`
 - `LocalConstantSymbol`
 - `AnonymousCallableSymbol`
+- `AnonymousCallableParameterSymbol`
 - `PostconditionResultSymbol`
-- parameters owned by an anonymous callable,
 - pattern-introduced local binding symbols,
 - contextual postcondition result bindings where semantic lookup requires identity.
 
-A binding pattern creates one local binding symbol for each binding name, not one symbol for the entire pattern.
+A binding pattern creates one local binding symbol for each logical binding name, not one symbol for the entire pattern. Occurrences of
+the same coherent binding across alternative patterns contribute syntax anchors to one symbol rather than creating competing locals.
 
-Body-local symbols are created deterministically by body binding and belong to body-local symbol tables. They can participate in the
-same erased symbol and diagnostic APIs without forcing every local into the global declaration symbol table.
+Body-local and contextual local symbols are created deterministically by binding and belong to immutable local semantic-region
+snapshots. They use a separate typed local identity space rather than consuming compilation-wide declaration `SymbolId` values.
+They can still participate in erased symbol and diagnostic APIs.
 
 Lambdas receive anonymous callable symbols because they own callable parameters, result and contract facts, an execution scope, and
 a body. Their lack of a source-level name does not remove semantic identity.
@@ -988,16 +990,16 @@ checking. They include runtime defaults, constant definition templates, predicat
 
 The completion boundary is based on semantic ownership rather than syntax shape:
 
-| Expression category | Declaration-surface result | Deferred operation |
-| --- | --- | --- |
-| parameter default | checked parameter-default surface and provider | runtime evaluation when omitted |
-| struct field default | checked field-default surface and provider | runtime evaluation when omitted |
-| union payload default | checked payload-default surface and provider | runtime evaluation when omitted |
-| constant initializer | checked constant definition template | concrete constant-instance evaluation |
-| trait constant default | checked selected-value template | evaluation after implementation selection |
-| predicate body | checked semantic predicate definition | application or proof for concrete arguments |
-| constraints and contracts | checked semantic predicate facts | use during checking and inference |
-| default trait callable body | body-presence fact only | ordinary executable-body checking |
+| Expression category         | Declaration-surface result                     | Deferred operation                          |
+|-----------------------------|------------------------------------------------|---------------------------------------------|
+| parameter default           | checked parameter-default surface and provider | runtime evaluation when omitted             |
+| struct field default        | checked field-default surface and provider     | runtime evaluation when omitted             |
+| union payload default       | checked payload-default surface and provider   | runtime evaluation when omitted             |
+| constant initializer        | checked constant definition template           | concrete constant-instance evaluation       |
+| trait constant default      | checked selected-value template                | evaluation after implementation selection   |
+| predicate body              | checked semantic predicate definition          | application or proof for concrete arguments |
+| constraints and contracts   | checked semantic predicate facts               | use during checking and inference           |
+| default trait callable body | body-presence fact only                        | ordinary executable-body checking           |
 
 #### Crate Ownership
 
@@ -1448,6 +1450,198 @@ invalid internal ID or impossible symbol-kind/table mismatch.
 
 ---
 
+## Local Symbol Storage
+
+### Storage Boundary
+
+Compilation-wide symbol storage contains declaration-surface, imported, compiler-known, compiler-provided, and synthesized surface
+symbols. It does not append locals when an executable body or declaration-owned expression is requested.
+
+Each independently checked semantic region owns an immutable `LocalSymbolSnapshot`. Regions include:
+
+- a declared executable body,
+- an anonymous callable together with its signature and body,
+- a declaration-owned expression that introduces contextual lookup symbols.
+
+The binder constructs the local snapshot together with the region's checked bound representation. The compilation query publishes
+the bound representation, local snapshot, and diagnostic bag atomically as one immutable fact result. Cancellation, failed
+speculation, or abandoned work publishes none of them.
+
+This boundary allows bodies and declaration-owned expressions to be requested, cached, replaced, and checked in parallel without
+mutating the compilation-wide symbol graph.
+
+### Region Identity
+
+`LocalSymbolRegionId` identifies one exact local semantic region in one compilation snapshot. It is not a symbol ID.
+
+Every region has a deterministic `LocalSymbolRegionKey` derived from:
+
+- the exact declared or synthesized semantic owner,
+- the bound fact category,
+- the region's stable `SyntaxAnchor`,
+- a canonical role or ordinal when one owner has multiple regions at the same anchor.
+
+A declared callable body uses its callable symbol and body anchor. An anonymous callable region uses the nearest declared or
+synthesized root plus the canonical path of lambda anchors leading to that lambda. A declaration-owned expression uses its owning
+symbol, exact fact category, and expression anchor.
+
+The lambda region owns the anonymous callable symbol, its parameter symbols, its contracts, and its body-local symbols. The enclosing
+bound lambda expression references that deterministic anonymous callable ID. The ID can therefore be derived before the lambda body
+is checked without publishing a partial enclosing snapshot or allocating a global symbol.
+
+Region keys must not contain memory addresses, worker IDs, cache insertion order, or lazy request order. Numeric region IDs are
+compilation-local handles and need not survive source edits.
+
+### Typed Local IDs
+
+Local IDs contain the owning region ID and a category-specific slot. They do not wrap the compilation-wide `SymbolId`.
+
+Conceptually:
+
+```rust
+pub struct LocalBindingSymbolId {
+    region: LocalSymbolRegionId,
+    slot: LocalBindingSlot,
+}
+
+pub struct LocalConstantSymbolId {
+    region: LocalSymbolRegionId,
+    slot: LocalConstantSlot,
+}
+
+pub struct AnonymousCallableSymbolId {
+    region: LocalSymbolRegionId,
+    slot: AnonymousCallableSlot,
+}
+
+pub struct AnonymousCallableParameterSymbolId {
+    region: LocalSymbolRegionId,
+    slot: AnonymousCallableParameterSlot,
+}
+
+pub struct PostconditionResultSymbolId {
+    region: LocalSymbolRegionId,
+    slot: PostconditionResultSlot,
+}
+
+pub struct LocalScopeId {
+    region: LocalSymbolRegionId,
+    slot: LocalScopeSlot,
+}
+```
+
+Fields remain private. Typed constructors are available only to the local-symbol builder. Public accessors can expose the region ID
+when routing a reference to its owning snapshot is necessary.
+
+`LocalScopeId` uses the same region protection but is not a symbol ID.
+
+`AnyLocalSymbolId` is a closed erasure over the exact local categories. `AnySymbolId` can include local variants for diagnostics,
+debugging, visitors, and tooling, but core binding and checking APIs use exact IDs or narrow family IDs.
+
+An ID from one region is never valid against another region's snapshot. Checked accessors return `None` or a typed lookup error for
+a mismatched region. Unchecked indexing is crate-private and reserved for compiler invariants already established by the caller.
+
+### Snapshot Shape And API
+
+Conceptually:
+
+```rust
+pub struct LocalSymbolSnapshot {
+    region: LocalSymbolRegionId,
+    scopes: Box<[LocalScope]>,
+    bindings: Box<[LocalBindingSymbol]>,
+    constants: Box<[LocalConstantSymbol]>,
+    anonymous_callables: Box<[AnonymousCallableSymbol]>,
+    anonymous_parameters: Box<[AnonymousCallableParameterSymbol]>,
+    postcondition_results: Box<[PostconditionResultSymbol]>,
+}
+
+impl LocalSymbolSnapshot {
+    pub const fn region(&self) -> LocalSymbolRegionId;
+    pub fn scope(&self, id: LocalScopeId) -> Option<&LocalScope>;
+    pub fn binding(&self, id: LocalBindingSymbolId) -> Option<&LocalBindingSymbol>;
+    pub fn constant(&self, id: LocalConstantSymbolId) -> Option<&LocalConstantSymbol>;
+    pub fn anonymous_callable(
+        &self,
+        id: AnonymousCallableSymbolId,
+    ) -> Option<&AnonymousCallableSymbol>;
+    pub fn anonymous_parameter(
+        &self,
+        id: AnonymousCallableParameterSymbolId,
+    ) -> Option<&AnonymousCallableParameterSymbol>;
+    pub fn postcondition_result(
+        &self,
+        id: PostconditionResultSymbolId,
+    ) -> Option<&PostconditionResultSymbol>;
+}
+```
+
+The exact storage can use dense per-category tables generated by shared infrastructure. Public APIs remain category-specific and do
+not expose one canonical heterogeneous child list.
+
+The checked-region API exposes its local snapshot directly. Lowering receives the checked bound representation and its local snapshot
+together rather than resolving locals through a mutable compilation-wide registry.
+
+### Lexical Scopes
+
+`LocalScopeId` identifies a lexical lookup scope inside one local snapshot. A scope is not a symbol.
+
+The immutable scope graph records:
+
+- the parent lexical scope where one exists,
+- callable, pattern-arm, guard, block, and contract-context boundaries,
+- source visibility start points,
+- typed ordinary-name indexes,
+- source anchors needed by tooling and diagnostics.
+
+Published scope indexes support deterministic tooling queries. The binder can use a mutable scope stack while constructing them, but
+that mutable stack is not durable compiler state.
+
+Semantic containment and lexical lookup ancestry are separate relationships. An anonymous callable symbol is semantically contained
+by its nearest declared or anonymous callable owner, while its symbols are stored in its own lambda region snapshot. Its body begins a
+new callable lookup boundary. Because Bray lambdas are capture-free, the lambda body does not inherit the enclosing region's local
+names or receiver. It receives only its own parameters and the declarations available from its declaration context.
+
+Named callable parameters, predicate parameters, generic parameters, and receiver parameters remain declaration-surface symbols.
+The root local scope references the applicable surface symbols without cloning them into local storage.
+
+### Deterministic Construction And Recovery
+
+Local slots are assigned in canonical syntax order within each category. Pattern bindings use their language-defined logical binding
+order. Stable keys combine the region key, introducing syntax anchor, exact local category, and a role or ordinal where one syntax
+form introduces multiple symbols.
+
+Construction follows these rules:
+
+- discard patterns create no symbol,
+- a simple binding occurrence creates one local binding symbol,
+- destructuring creates one symbol for each logical binding name,
+- alternative-pattern occurrences for one coherent binding share one symbol and retain all contributing anchors,
+- duplicate or incompatible bindings retain distinct error-aware records for diagnostics,
+- a missing name does not create an empty-string symbol,
+- recovered names create recovered symbols when their identity remains usable,
+- synthesized contextual symbols use fixed semantic roles rather than invented source names as identity.
+
+Name-index insertion and symbol retention are separate. An invalid duplicate remains addressable for diagnostics and bound recovery
+without silently replacing the valid lookup entry.
+
+### Local Symbol Lifetime And Resolution
+
+A local ID is valid only while its owning `LocalSymbolSnapshot` and compilation snapshot are valid. Persisted tooling data uses the
+region key, local stable key, and source anchors rather than raw local slots.
+
+Bound name, declaration, pattern, and callable nodes store exact typed local or surface symbol references. A narrow resolved-value or
+resolved-callable family can close over both identity spaces where a language operation accepts either. It must not erase every
+reference to `AnySymbolId` merely for storage convenience.
+
+Diagnostics owned by a checked region can carry local IDs because the local snapshot and diagnostic bag are published and retained
+together. External diagnostic formats use source locations, rendered names, and stable keys according to their lifetime contract.
+
+Local bindings are symbols, but storage places, projections, temporaries, control-flow blocks, and borrow-state records are not.
+Those remain owned by the bound representation, checker state, or IR as appropriate.
+
+---
+
 ## Binding Integration
 
 Binding should receive typed symbol APIs designed around its actual questions.
@@ -1468,8 +1662,8 @@ Binding must not reconstruct symbol ownership or declaration groups by walking s
 
 Symbol APIs should return typed facts and typed lookup results rather than loosely structured maps or strings.
 
-The binder can create body-local symbols while constructing a bound body. Those local symbols use the same identity and diagnostic
-principles but remain owned by the body-local semantic snapshot.
+The binder creates local symbols while constructing a checked semantic region. Those symbols remain owned by the region's immutable
+local snapshot and are published atomically with the checked bound representation.
 
 ---
 
@@ -1572,7 +1766,16 @@ Required coverage includes:
 - generic constant definition templates producing separately cached concrete instance values,
 - substitution- and target-specific constant diagnostics remaining isolated to their exact instance facts,
 - imported runtime defaults remaining usable without dependency syntax rebinding,
-- anonymous callable and pattern-binding local symbols,
+- local symbol IDs remaining separate from compilation-wide declaration `SymbolId` values,
+- deterministic local region and symbol keys under different body request and worker orders,
+- local snapshots being published atomically with their bound region and diagnostics,
+- mismatched-region local IDs being rejected by checked accessors,
+- scopes remaining distinct from symbols and retaining deterministic parent and visibility relationships,
+- named callable parameters remaining surface symbols referenced by body scopes rather than copied locals,
+- anonymous callables introducing capture-free callable lookup boundaries,
+- alternative-pattern occurrences sharing one logical binding symbol,
+- duplicate, recovered, and malformed local bindings retaining error-aware identities without corrupting lookup indexes,
+- cancellation and abandoned speculative work publishing no local snapshot or local diagnostics,
 - overload family symbols retaining independent arm identities,
 - trait implementation fulfillments linking to exact trait members,
 - type definitions remaining distinct from constructed type IDs,
@@ -1594,11 +1797,15 @@ Integration tests should verify that `Compilation` exposes symbol roots and diag
 
 The following language or API details need to be settled before the corresponding implementation surface is finalized.
 
-### Body-Local Symbol Storage
+### Binder And Bound Tree Contract
 
-This design keeps body-local symbols in immutable body-local tables while allowing them to participate in shared erased-symbol and
-diagnostic APIs. The bound-tree design should confirm whether local IDs wrap global `SymbolId` values or use a separate typed local
-identity space.
+Before symbol construction implementation reaches binding-dependent facts or local symbol integration, `docs/design/binder.md` must
+define the binder and bound-tree contract. At minimum it must settle checked-region result types, bound-node ownership and IDs,
+surface-versus-local resolved-reference families, local-snapshot attachment, scope references, checker fact placement, diagnostic
+publication, speculative binding, cancellation, and lowering inputs.
+
+That design must preserve the local identity and publication boundaries established here rather than moving locals into the global
+symbol graph or making bound-node IDs part of symbol records.
 
 ### Compiler-Known Root Shape
 
@@ -1617,8 +1824,9 @@ Implementation should proceed in dependency order:
 4. Define the compilation-owned lazy fact and completion protocol with cycle and concurrency contracts.
 5. Add named type, trait, implementation, overload, member, and parameter symbol records.
 6. Add compiler-known and imported symbol providers through the same typed contracts.
-7. Add binding-dependent signature, constraint, contract, implementation, and constant fact queries.
-8. Add body-local and anonymous callable symbols with bound-body integration.
-9. Add recursive force completion and deterministic symbol diagnostics.
+7. Finalize `docs/design/binder.md` before implementing binding-dependent and local-symbol integration.
+8. Add binding-dependent signature, constraint, contract, implementation, and constant fact queries.
+9. Add local semantic-region snapshots, anonymous callable symbols, and checked-region integration.
+10. Add recursive force completion and deterministic symbol diagnostics.
 
 Each step should preserve lazy evaluation and avoid temporary eager APIs that callers would later depend on.

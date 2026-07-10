@@ -42,6 +42,8 @@
       lazy symbol-fact contracts.
     - Owns typed synthesized runtime-default-provider identities and symbol-facing declaration-owned-expression summary contracts,
       but not checked bound expression storage.
+    - Owns region-scoped local symbol IDs, immutable local symbol snapshot contracts, lexical-scope records, and typed local symbol
+      access without placing locals in the compilation-wide declaration symbol graph.
     - Covers modules, types, functions, fields, locals, parameters, traits, implementations, overload families, and associated
       items without using a generic child-symbol model.
     - Symbols answer "what declared thing is this?"
@@ -52,6 +54,7 @@
     - Name binding and semantic-analysis orchestration.
     - Converts syntax references into bound references to symbols.
     - Binds declaration-owned expressions and computes their binder-owned checked representations through compilation queries.
+    - Builds local symbol snapshots and lexical scope graphs together with each checked semantic region.
     - Calls focused checker services while constructing checked bound units.
     - Produces immutable `bray-bound-tree` structures where names, members, calls, fields, storages, and required semantic facts are resolved.
 
@@ -59,6 +62,7 @@
     - Immutable source-shaped semantic representation after binding and semantic analysis.
     - Represents bound expressions, statements, items, storages, projections, calls, locals, temporaries, resolved references, selected semantic facts, and other source-correlated semantic nodes.
     - Owns checked declaration-owned-expression nodes without making bound-node IDs part of `bray-symbols` records.
+    - Publishes checked regions with their immutable local symbol snapshots and diagnostics.
     - Owns reusable bound-representation walkers and visitors.
     - This is still high-level enough to produce good user diagnostics.
 
@@ -90,6 +94,7 @@
     - Main compiler entry point and compilation context.
     - Owns compile requests, options, package/file inputs, target settings, session-like state, and lazy compiler fact coordination.
     - Owns declaration-owned-expression query keys, caches, dependency scheduling, cancellation, and immutable fact publication.
+    - Caches checked-region results without maintaining a mutable compilation-wide local symbol registry.
     - Coordinates parsing, declaration discovery, binding and semantic analysis, lowering, codegen, and emission through explicit fact APIs.
 
 - `bray-driver`
