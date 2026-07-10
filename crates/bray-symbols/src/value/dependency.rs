@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use bray_base::shared_slice;
+use bray_base::{shared_slice, sorted_unique_shared_slice};
 
 use crate::{StructFieldSymbolId, SymbolOrdinal, UnionPayloadFieldSymbolId, UnionVariantSymbolId};
 
@@ -132,7 +132,7 @@ impl GuardedDependencyRequirement {
     ) -> Self {
         Self {
             guard,
-            requirements: normalize_requirements(requirements),
+            requirements: sorted_unique_shared_slice(requirements),
         }
     }
 
@@ -186,7 +186,7 @@ impl DependencyContractTemplateData {
     /// Creates a template after deterministic sorting and deduplication.
     pub fn new(requirements: impl IntoIterator<Item = DependencyRequirement>) -> Self {
         Self {
-            requirements: normalize_requirements(requirements),
+            requirements: sorted_unique_shared_slice(requirements),
         }
     }
 
@@ -194,17 +194,6 @@ impl DependencyContractTemplateData {
     pub fn requirements(&self) -> &[DependencyRequirement] {
         &self.requirements
     }
-}
-
-fn normalize_requirements(
-    requirements: impl IntoIterator<Item = DependencyRequirement>,
-) -> Arc<[DependencyRequirement]> {
-    let mut requirements: Vec<_> = requirements.into_iter().collect();
-
-    requirements.sort_unstable();
-    requirements.dedup();
-
-    shared_slice(requirements)
 }
 
 #[cfg(test)]

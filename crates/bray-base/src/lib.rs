@@ -5,5 +5,5 @@
 mod slice;
 mod text;
 
-pub use slice::shared_slice;
+pub use slice::{shared_slice, sorted_unique_shared_slice};
 pub use text::shared_str;
