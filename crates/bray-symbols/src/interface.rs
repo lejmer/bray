@@ -54,6 +54,7 @@ mod tests {
         let Some(id) = InterfaceSymbolId::try_from_index(17) else {
             panic!("small interface symbol index must fit in u32");
         };
+
         assert_eq!(id.raw(), 17);
         assert_eq!(id.to_index(), Some(17));
 

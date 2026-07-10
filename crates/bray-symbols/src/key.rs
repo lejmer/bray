@@ -366,6 +366,7 @@ mod tests {
         assert_eq!(ModulePathKey::try_new(["example", ""]), None);
 
         let path = module_path();
+
         assert_eq!(path.segments().len(), 2);
         assert_eq!(path.segments().collect::<Vec<_>>(), ["example", "module"]);
     }
@@ -390,12 +391,14 @@ mod tests {
     #[test]
     fn roots_and_module_owners_participate_in_identity() {
         let package_module = module_key();
+
         let compiler_module =
             SymbolKey::module(SymbolRootKey::CompilerKnownEnvironment, module_path());
 
         assert_ne!(package_module, compiler_module);
         assert_eq!(package_module.kind(), SymbolKind::Module);
         assert_eq!(compiler_module.kind(), SymbolKind::Module);
+
         assert_ne!(
             SymbolKey::package(package_identity()),
             SymbolKey::compiler_known_environment()
@@ -414,6 +417,7 @@ mod tests {
             ),
             None
         );
+
         assert_eq!(
             SymbolKey::source_declaration(owner, SymbolKind::LocalBinding, DeclarationId::new(1)),
             None
@@ -423,10 +427,12 @@ mod tests {
     #[test]
     fn synthesized_roles_determine_kinds_and_ordinals() {
         let implementation = source_key(SymbolKind::InherentImplementation, 8);
+
         let first = SynthesizedSymbolKey::inferred_implementation_type_parameter(
             implementation.clone(),
             SymbolOrdinal::new(0),
         );
+
         let second = SynthesizedSymbolKey::inferred_implementation_type_parameter(
             implementation,
             SymbolOrdinal::new(1),
@@ -436,14 +442,17 @@ mod tests {
             first.role(),
             SynthesizedSymbolRole::InferredImplementationTypeParameter
         );
+
         assert_eq!(first.kind(), SymbolKind::GenericTypeParameter);
         assert_eq!(first.ordinal(), Some(SymbolOrdinal::new(0)));
         assert_ne!(first, second);
 
         let receiver =
             SynthesizedSymbolKey::receiver_parameter(source_key(SymbolKind::TypeCallableMember, 9));
+
         assert_eq!(receiver.kind(), SymbolKind::ReceiverParameter);
         assert_eq!(receiver.ordinal(), None);
+
         assert_eq!(
             SymbolKey::synthesized(receiver).kind(),
             SymbolKind::ReceiverParameter

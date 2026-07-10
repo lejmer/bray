@@ -182,7 +182,9 @@ impl ImportedPackageIdentitySurface {
         symbols: impl IntoIterator<Item = ImportedSymbolIdentityInput>,
     ) -> Result<Self, ImportedIdentitySurfaceError> {
         let inputs: Vec<ImportedSymbolIdentityInput> = symbols.into_iter().collect();
+
         validate_surface(&package, &inputs)?;
+
         let symbols: Vec<ImportedSymbolIdentity> = inputs
             .into_iter()
             .map(ImportedSymbolIdentity::from_validated)
@@ -272,9 +274,11 @@ fn validate_surface(
     let Some(root) = symbols.first() else {
         return Err(ImportedIdentitySurfaceError::Empty);
     };
+
     validate_package_root(package, root)?;
 
     let mut keys = BTreeMap::new();
+
     for (index, symbol) in symbols.iter().enumerate() {
         validate_symbol_position(index, symbol)?;
         validate_symbol_package(package, symbol)?;
@@ -298,9 +302,11 @@ fn validate_package_root(
             actual: root.kind(),
         });
     }
+
     if let Some(container) = root.container() {
         return Err(ImportedIdentitySurfaceError::PackageRootHasContainer { container });
     }
+
     if root.key().package_identity() != package
         || !matches!(root.key().data(), ExternalSymbolKeyData::Package(_))
     {
@@ -317,6 +323,7 @@ fn validate_symbol_position(
     let Some(expected) = InterfaceSymbolId::try_from_index(index) else {
         return Err(ImportedIdentitySurfaceError::SymbolCountOverflow);
     };
+
     if symbol.id() != expected {
         return Err(ImportedIdentitySurfaceError::NonCanonicalSymbolId {
             expected,
@@ -344,6 +351,7 @@ fn validate_symbol_kind(
     symbol: &ImportedSymbolIdentityInput,
 ) -> Result<(), ImportedIdentitySurfaceError> {
     let keyed = symbol.key().kind();
+
     if symbol.kind() != keyed {
         return Err(ImportedIdentitySurfaceError::SymbolKindMismatch {
             symbol: symbol.id(),
@@ -351,6 +359,7 @@ fn validate_symbol_kind(
             keyed,
         });
     }
+
     if symbol.id().raw() > 0
         && matches!(
             symbol.kind(),
@@ -390,24 +399,28 @@ fn validate_containment(
             symbol: symbol.id(),
         });
     };
+
     let Some(container_index) = container.to_index() else {
         return Err(ImportedIdentitySurfaceError::InvalidContainer {
             symbol: symbol.id(),
             container,
         });
     };
+
     if container_index >= index {
         return Err(ImportedIdentitySurfaceError::InvalidContainer {
             symbol: symbol.id(),
             container,
         });
     }
+
     let Some(container_symbol) = symbols.get(container_index) else {
         return Err(ImportedIdentitySurfaceError::InvalidContainer {
             symbol: symbol.id(),
             container,
         });
     };
+
     if symbol.key().owner() != Some(container_symbol.key()) {
         return Err(ImportedIdentitySurfaceError::ContainerKeyMismatch {
             symbol: symbol.id(),
@@ -447,12 +460,15 @@ mod tests {
     fn valid_records() -> (PackageIdentity, Vec<ImportedSymbolIdentityInput>) {
         let package = package_identity("example.package");
         let package_key = ExternalSymbolKey::package(package_identity("example.package"));
+
         let Some(path) = ModulePathKey::try_new(["example"]) else {
             panic!("test module path must be valid");
         };
+
         let Some(module_key) = ExternalSymbolKey::module(package_key.clone(), path) else {
             panic!("package key must own a module");
         };
+
         let Some(function_key) =
             ExternalSymbolKey::named(module_key.clone(), SymbolKind::Function, symbol_name("run"))
         else {
@@ -485,6 +501,7 @@ mod tests {
 
     fn valid_surface() -> ImportedPackageIdentitySurface {
         let (package, records) = valid_records();
+
         match ImportedPackageIdentitySurface::try_new(package, records) {
             Ok(surface) => surface,
             Err(error) => panic!("valid test surface was rejected: {error:?}"),
@@ -498,9 +515,11 @@ mod tests {
 
         assert_eq!(first, second);
         assert_eq!(first.symbols().len(), 3);
+
         let Some(function) = first.symbol(InterfaceSymbolId::new(2)) else {
             panic!("function identity must exist");
         };
+
         assert_eq!(function.kind(), SymbolKind::Function);
         assert_eq!(function.origin(), SymbolOrigin::Imported);
     }
@@ -509,15 +528,18 @@ mod tests {
     fn fact_keys_are_validated_and_category_typed() {
         let surface = valid_surface();
         let interface = ImportedInterfaceId::new(4);
+
         let function =
             surface.symbol_fact_key::<FunctionSymbolId>(interface, InterfaceSymbolId::new(2));
 
         let Some(function) = function else {
             panic!("function identity must produce a function fact key");
         };
+
         assert_eq!(function.interface(), interface);
         assert_eq!(function.symbol(), InterfaceSymbolId::new(2));
         assert_eq!(function.kind(), SymbolKind::Function);
+
         assert_eq!(
             surface.symbol_fact_key::<PredicateSymbolId>(interface, InterfaceSymbolId::new(2)),
             None
@@ -527,9 +549,11 @@ mod tests {
     #[test]
     fn noncanonical_ids_are_rejected() {
         let (package, mut records) = valid_records();
+
         let Some(function) = records.pop() else {
             panic!("valid test records must contain a function");
         };
+
         records.push(ImportedSymbolIdentityInput::new(
             InterfaceSymbolId::new(8),
             function.key().clone(),
@@ -549,9 +573,11 @@ mod tests {
     #[test]
     fn kind_and_key_mismatches_are_rejected() {
         let (package, mut records) = valid_records();
+
         let Some(function) = records.pop() else {
             panic!("valid test records must contain a function");
         };
+
         records.push(ImportedSymbolIdentityInput::new(
             InterfaceSymbolId::new(2),
             function.key().clone(),
@@ -572,10 +598,13 @@ mod tests {
     #[test]
     fn duplicate_keys_are_rejected_deterministically() {
         let (package, mut records) = valid_records();
+
         let Some(function) = records.last() else {
             panic!("valid test records must contain a function");
         };
+
         let function_key = function.key().clone();
+
         records.push(ImportedSymbolIdentityInput::new(
             InterfaceSymbolId::new(3),
             function_key,
@@ -595,9 +624,11 @@ mod tests {
     #[test]
     fn invalid_containment_is_rejected_without_indexing_panics() {
         let (package, mut records) = valid_records();
+
         let Some(function) = records.pop() else {
             panic!("valid test records must contain a function");
         };
+
         records.push(ImportedSymbolIdentityInput::new(
             InterfaceSymbolId::new(2),
             function.key().clone(),

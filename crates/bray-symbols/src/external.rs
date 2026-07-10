@@ -248,6 +248,7 @@ mod tests {
         let Some(path) = ModulePathKey::try_new(["example", "module"]) else {
             panic!("test module path must be valid");
         };
+
         match ExternalSymbolKey::module(package_key(), path) {
             Some(key) => key,
             None => panic!("package root must be a valid module owner"),
@@ -260,11 +261,14 @@ mod tests {
         let second = ExternalSymbolKey::named(module_key(), SymbolKind::Function, name("run"));
 
         assert_eq!(first, second);
+
         let Some(first) = first else {
             panic!("function must support named external identity");
         };
+
         assert_eq!(first.kind(), SymbolKind::Function);
         assert_eq!(first.package_identity(), &package_identity());
+
         assert!(matches!(
             first.data(),
             ExternalSymbolKeyData::Declaration {
@@ -277,8 +281,10 @@ mod tests {
     #[test]
     fn external_key_components_affect_identity() {
         let named = ExternalSymbolKey::named(module_key(), SymbolKind::Function, name("run"));
+
         let ordinal =
             ExternalSymbolKey::ordinal(module_key(), SymbolKind::Function, SymbolOrdinal::new(0));
+
         let other_kind = ExternalSymbolKey::named(module_key(), SymbolKind::Predicate, name("run"));
 
         assert_ne!(named, ordinal);
@@ -288,14 +294,18 @@ mod tests {
     #[test]
     fn invalid_external_key_shapes_are_rejected() {
         assert_eq!(ExternalSymbolName::try_new(""), None);
+
         assert_eq!(
             ExternalSymbolKey::named(module_key(), SymbolKind::LocalBinding, name("local")),
             None
         );
+
         let Some(path) = ModulePathKey::try_new(["nested"]) else {
             panic!("test module path must be valid");
         };
+
         assert_eq!(ExternalSymbolKey::module(module_key(), path), None);
+
         assert_eq!(
             ExternalSymbolKey::synthesized(
                 module_key(),
@@ -313,9 +323,11 @@ mod tests {
             SymbolKind::InherentImplementation,
             SymbolOrdinal::new(0),
         );
+
         let Some(implementation) = implementation else {
             panic!("implementation must support owner-relative identity");
         };
+
         let inferred = ExternalSymbolKey::synthesized(
             implementation,
             SynthesizedSymbolRole::InferredImplementationTypeParameter,
@@ -325,6 +337,7 @@ mod tests {
         let Some(inferred) = inferred else {
             panic!("inferred parameter role requires an ordinal");
         };
+
         assert_eq!(inferred.kind(), SymbolKind::GenericTypeParameter);
     }
 
