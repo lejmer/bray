@@ -349,12 +349,15 @@ mod tests {
 
         assert_eq!(descriptor.id().raw(), 0);
         assert_eq!(descriptor.key().as_str(), "RawPointerRead");
+
         assert_eq!(
             descriptor.owner(),
             CompilerKnownDeclarationOwner::Declaration(declaration_id(1))
         );
+
         assert_eq!(descriptor.kind(), CatalogDeclarationKind::Function);
         assert_eq!(descriptor.surface().anchor().source().raw(), 0);
+
         assert_eq!(
             descriptor.representation_role(),
             Some(RepresentationRole::RawPointer)
@@ -392,6 +395,7 @@ mod tests {
 
     fn declaration_surface() -> CatalogDeclarationSurface {
         let source = embedded_source_inventory().sources()[0].id();
+
         let anchor = CatalogSourceAnchor {
             source,
             range: TextRange::new(TextSize::new(1), TextSize::new(5)),

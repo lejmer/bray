@@ -50,6 +50,7 @@ mod tests {
         fn assert_copy<T: Copy>() {}
 
         assert_copy::<ImplementationHook>();
+
         assert_ne!(
             ImplementationHook::RawPointerRead,
             ImplementationHook::RawPointerWrite

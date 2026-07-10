@@ -73,6 +73,7 @@ mod tests {
         assert_eq!(size_of::<CatalogSourceId>(), size_of::<u32>());
 
         let source = CatalogSourceId::try_from_index(3);
+
         assert_eq!(source.map(CatalogSourceId::raw), Some(3));
         assert_eq!(source.and_then(CatalogSourceId::to_index), Some(3));
     }

@@ -192,6 +192,7 @@ mod tests {
             catalog.compiler_known_declaration(CompilerKnownDeclarationId::new(2)),
             None
         );
+
         assert_eq!(
             catalog
                 .compiler_known_declaration_by_key(&declaration_key("RawPointerRead"))
@@ -202,6 +203,7 @@ mod tests {
             catalog.compiler_known_declaration_by_key(&declaration_key("Missing")),
             None
         );
+
         assert_eq!(catalog.source_inventory(), embedded_source_inventory());
     }
 
@@ -210,6 +212,7 @@ mod tests {
         fn assert_send_sync<T: Send + Sync>() {}
 
         assert_send_sync::<CompilerKnownCatalog>();
+
         assert_eq!(catalog(), catalog());
     }
 
@@ -255,6 +258,7 @@ mod tests {
 
     fn declaration_surface() -> CatalogDeclarationSurface {
         let source = embedded_source_inventory().sources()[0].id();
+
         let anchor = CatalogSourceAnchor {
             source,
             range: TextRange::new(TextSize::new(1), TextSize::new(5)),

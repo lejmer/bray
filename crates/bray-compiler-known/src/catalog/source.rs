@@ -169,9 +169,12 @@ mod tests {
         let sources = inventory.sources();
 
         assert_eq!(sources.len(), 2);
+
         assert_eq!(sources[0].kind(), CatalogKind::CompilerKnown);
         assert_eq!(sources[1].kind(), CatalogKind::RecognizedStandardLibrary);
+
         assert!(sources[0].relative_path() < sources[1].relative_path());
+
         assert!(sources[0].text().starts_with("catalog compiler_known;"));
         assert!(
             sources[1]
@@ -188,10 +191,12 @@ mod tests {
     #[test]
     fn declaration_and_type_surfaces_are_distinct_exact_anchors() {
         let source = embedded_source_inventory().sources()[0].id();
+
         let anchor = CatalogSourceAnchor {
             source,
             range: TextRange::new(TextSize::new(1), TextSize::new(4)),
         };
+
         let declaration = CatalogDeclarationSurface(anchor);
         let type_surface = CatalogTypeSurface(anchor);
 

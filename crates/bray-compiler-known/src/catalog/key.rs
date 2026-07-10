@@ -84,6 +84,7 @@ impl CatalogPath {
 
 fn is_catalog_identifier(value: &str) -> bool {
     let mut bytes = value.bytes();
+
     let Some(first) = bytes.next() else {
         return false;
     };
@@ -101,6 +102,7 @@ mod tests {
     #[test]
     fn stable_keys_accept_only_catalog_identifiers() {
         assert_eq!(key("RawPointer").as_str(), "RawPointer");
+
         assert_eq!(CompilerKnownDeclarationKey::try_new(""), None);
         assert_eq!(CompilerKnownDeclarationKey::try_new("_RawPointer"), None);
         assert_eq!(CompilerKnownDeclarationKey::try_new("raw-pointer"), None);
@@ -127,6 +129,7 @@ mod tests {
             Some(path) => path,
             None => panic!("test path is valid"),
         };
+
         assert_eq!(path.segments().collect::<Vec<_>>(), ["core", "memory"]);
     }
 
