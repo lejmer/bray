@@ -3,9 +3,11 @@
 #![forbid(unsafe_code)]
 
 mod compilation;
+mod fact;
 mod request;
 mod worker;
 
 pub use compilation::{Compilation, CompilationLoadError};
+pub use fact::{CancellationToken, CompilationFactKey, FactCycle, FactQueryError, SymbolFactKey};
 pub use request::{CompilationOptions, CompilationRequest};
 pub use worker::{WorkerBudget, WorkerBudgetError};

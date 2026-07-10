@@ -10,6 +10,7 @@ bray-declarations = { path = "../bray-declarations" }
 bray-diagnostics = { path = "../bray-diagnostics" }
 bray-parser = { path = "../bray-parser" }
 bray-source = { path = "../bray-source" }
+bray-symbols = { path = "../bray-symbols" }
 bray-syntax = { path = "../bray-syntax" }
 
 [lints]

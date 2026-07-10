@@ -1,4 +1,4 @@
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
 use bray_declarations::{
     DeclarationChunkResult, DeclarationTable, DeclarationTableResult,
@@ -9,6 +9,7 @@ use bray_parser::{SourceUnitSyntaxResult, SyntaxTreeResult, parse_source_unit};
 use bray_source::{SourceId, SourceInput, SourceLoadError, SourceSnapshot, SourceStore};
 use bray_syntax::SyntaxTree;
 
+use crate::fact::{CancellationToken, CompilationFactKey, FactCell, FactQueryError, FactRuntime};
 use crate::request::{CompilationOptions, CompilationRequest};
 use crate::worker::WorkerBudget;
 
@@ -28,11 +29,13 @@ struct CompilationState {
     options: CompilationOptions,
     sources: SourceStore,
     source_diagnostics: DiagnosticBag,
-    source_unit_syntax: Vec<OnceLock<SourceUnitSyntaxResult>>,
-    syntax_tree_result: OnceLock<SyntaxTreeResult>,
-    declaration_chunks: Vec<OnceLock<DeclarationChunkResult>>,
-    declaration_table_result: OnceLock<DeclarationTableResult>,
-    check_diagnostics: OnceLock<DiagnosticBag>,
+    fact_runtime: FactRuntime,
+    cancellation: CancellationToken,
+    source_unit_syntax: Vec<FactCell<SourceUnitSyntaxResult>>,
+    syntax_tree_result: FactCell<SyntaxTreeResult>,
+    declaration_chunks: Vec<FactCell<DeclarationChunkResult>>,
+    declaration_table_result: FactCell<DeclarationTableResult>,
+    check_diagnostics: FactCell<DiagnosticBag>,
 }
 
 impl Compilation {
@@ -80,11 +83,13 @@ impl Compilation {
                 options,
                 sources,
                 source_diagnostics: diagnostics,
+                fact_runtime: FactRuntime::default(),
+                cancellation: CancellationToken::new(),
                 source_unit_syntax: empty_fact_caches(source_count),
-                syntax_tree_result: OnceLock::new(),
+                syntax_tree_result: FactCell::new(),
                 declaration_chunks: empty_fact_caches(source_count),
-                declaration_table_result: OnceLock::new(),
-                check_diagnostics: OnceLock::new(),
+                declaration_table_result: FactCell::new(),
+                check_diagnostics: FactCell::new(),
             }),
         })
     }
@@ -119,13 +124,17 @@ impl Compilation {
     ///
     /// Returns diagnostics for the current check command behavior.
     pub fn check_diagnostics(&self) -> &DiagnosticBag {
-        self.state.check_diagnostics.get_or_init(|| {
-            DiagnosticBag::merged_all([
-                self.source_diagnostics(),
-                self.syntax_tree_result().diagnostics(),
-                self.declaration_diagnostics(),
-            ])
-        })
+        self.fact(
+            CompilationFactKey::CheckDiagnostics,
+            &self.state.check_diagnostics,
+            || {
+                DiagnosticBag::merged_all([
+                    self.source_diagnostics(),
+                    self.syntax_tree_result().diagnostics(),
+                    self.declaration_diagnostics(),
+                ])
+            },
+        )
     }
 
     /// Returns the syntax result for one source unit.
@@ -133,23 +142,31 @@ impl Compilation {
         let snapshot = self.source(source_id)?;
         let cache = self.state.source_unit_syntax.get(source_id.to_index()?)?;
 
-        Some(cache.get_or_init(|| parse_source_unit(snapshot)))
+        Some(self.fact(
+            CompilationFactKey::SourceUnitSyntax(source_id),
+            cache,
+            || parse_source_unit(snapshot),
+        ))
     }
 
     /// Returns the syntax tree result for all loaded source units.
     pub fn syntax_tree_result(&self) -> &SyntaxTreeResult {
-        self.state.syntax_tree_result.get_or_init(|| {
-            let source_units = self.sources().iter().map(|snapshot| {
-                // Source stores and fact caches share the loaded source count.
-                // The whole-source syntax result owns the composed source units.
-                match self.source_unit_syntax(snapshot.source_id()) {
-                    Some(result) => result.clone(),
-                    None => panic!("source unit fact cache should match source store"),
-                }
-            });
+        self.fact(
+            CompilationFactKey::SyntaxTree,
+            &self.state.syntax_tree_result,
+            || {
+                let source_units = self.sources().iter().map(|snapshot| {
+                    // Source stores and fact caches share the loaded source count.
+                    // The whole-source syntax result owns the composed source units.
+                    match self.source_unit_syntax(snapshot.source_id()) {
+                        Some(result) => result.clone(),
+                        None => panic!("source unit fact cache should match source store"),
+                    }
+                });
 
-            SyntaxTreeResult::from_source_unit_results(source_units)
-        })
+                SyntaxTreeResult::from_source_unit_results(source_units)
+            },
+        )
     }
 
     /// Returns the syntax tree for all loaded source units.
@@ -162,21 +179,29 @@ impl Compilation {
         let syntax = self.source_unit_syntax(source_id)?;
         let cache = self.state.declaration_chunks.get(source_id.to_index()?)?;
 
-        Some(cache.get_or_init(|| discover_source_unit_declarations(syntax.source_unit())))
+        Some(self.fact(
+            CompilationFactKey::DeclarationChunk(source_id),
+            cache,
+            || discover_source_unit_declarations(syntax.source_unit()),
+        ))
     }
 
     /// Returns the merged declaration-discovery result for this compilation.
     pub fn declaration_table_result(&self) -> &DeclarationTableResult {
-        self.state.declaration_table_result.get_or_init(|| {
-            let chunks = self.sources().iter().map(|snapshot| {
-                match self.declaration_chunk(snapshot.source_id()) {
-                    Some(chunk) => chunk,
-                    None => panic!("declaration chunk cache should match source store"),
-                }
-            });
+        self.fact(
+            CompilationFactKey::DeclarationTable,
+            &self.state.declaration_table_result,
+            || {
+                let chunks = self.sources().iter().map(|snapshot| {
+                    match self.declaration_chunk(snapshot.source_id()) {
+                        Some(chunk) => chunk,
+                        None => panic!("declaration chunk cache should match source store"),
+                    }
+                });
 
-            merge_declaration_chunks(chunks)
-        })
+                merge_declaration_chunks(chunks)
+            },
+        )
     }
 
     /// Returns the merged declaration table for this compilation.
@@ -208,10 +233,35 @@ impl Compilation {
     pub fn is_empty(&self) -> bool {
         self.state.sources.is_empty()
     }
+
+    fn fact<'a, T>(
+        &self,
+        key: CompilationFactKey,
+        cache: &'a FactCell<T>,
+        compute: impl FnOnce() -> T,
+    ) -> &'a T {
+        match cache.get_or_compute(
+            &self.state.fact_runtime,
+            key,
+            &self.state.cancellation,
+            || Ok(compute()),
+        ) {
+            Ok(value) => value,
+            Err(FactQueryError::Cancelled) => {
+                panic!("uncancellable compilation fact was unexpectedly cancelled")
+            }
+            Err(FactQueryError::Cycle(cycle)) => {
+                panic!("acyclic compilation fact dependency formed a cycle: {cycle:?}")
+            }
+            Err(FactQueryError::InfrastructureFailure) => {
+                panic!("compilation fact infrastructure failed")
+            }
+        }
+    }
 }
 
-fn empty_fact_caches<T>(len: usize) -> Vec<OnceLock<T>> {
-    (0..len).map(|_| OnceLock::new()).collect()
+fn empty_fact_caches<T>(len: usize) -> Vec<FactCell<T>> {
+    (0..len).map(|_| FactCell::new()).collect()
 }
 
 #[cfg(test)]
