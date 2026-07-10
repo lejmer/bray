@@ -84,6 +84,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "bray-compiler-known"
+version = "0.0.0"
+dependencies = [
+ "bray-base",
+ "bray-source",
+]
+
+[[package]]
 name = "bray-declarations"
 version = "0.0.0"
 dependencies = [
