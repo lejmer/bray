@@ -2,10 +2,18 @@
 
 #![forbid(unsafe_code)]
 
+mod build;
+mod collection;
+mod error;
+mod graph;
 mod id;
 mod key;
 mod kind;
 mod origin;
+mod record;
+
+pub use error::SymbolGraphBuildError;
+pub use graph::{SymbolGraph, SymbolGraphRoots};
 
 pub use id::{
     AnySymbolId, CallableContractSymbolId, CallableOverloadSymbolId,
@@ -33,3 +41,18 @@ pub use key::{
 };
 pub use kind::SymbolKind;
 pub use origin::SymbolOrigin;
+pub use record::{
+    CallableContractSymbol, CallableOverloadSymbol, CallableParameterSymbol,
+    CompilerKnownEnvironmentSymbol, ConstantSymbol, ConstructorSymbol, DestructorSymbol,
+    FinalizerSymbol, FunctionSymbol, GenericConstParameterSymbol, GenericTypeParameterSymbol,
+    ImplementationOverloadSymbol, InherentImplementationSymbol, InherentTypeMemberSymbol,
+    ModuleSymbol, NamedTraitImplementationSymbol, PackageSymbol, PredicateParameterSymbol,
+    PredicateSymbol, ScopeEnterSymbol, ScopeExitSymbol, StructFieldSymbol, StructSymbol,
+    TraitCallableFulfillmentSymbol, TraitCallableMemberSymbol, TraitConstantFulfillmentSymbol,
+    TraitConstantMemberSymbol, TraitDestructorRequirementSymbol, TraitFinalizerRequirementSymbol,
+    TraitPredicateFulfillmentSymbol, TraitPredicateMemberSymbol, TraitScopeEnterFulfillmentSymbol,
+    TraitScopeEnterRequirementSymbol, TraitScopeExitFulfillmentSymbol,
+    TraitScopeExitRequirementSymbol, TraitSymbol, TraitTypeFulfillmentSymbol,
+    TraitTypeMemberSymbol, TypeCallableMemberSymbol, UnionPayloadFieldSymbol, UnionSymbol,
+    UnionVariantSymbol, UnnamedTraitImplementationSymbol,
+};
