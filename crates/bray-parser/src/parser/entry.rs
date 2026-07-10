@@ -302,6 +302,7 @@ pub fn parse_declaration_fragment(
 ) -> DeclarationFragmentSyntaxResult {
     // Parser owns a snapshot handle; cloning shares immutable source text.
     let mut parser = Parser::new(snapshot.clone());
+
     let (declaration, is_recovered) = parser.parse_declaration_fragment(context);
     let diagnostics = parser.finish();
 
@@ -356,6 +357,7 @@ pub fn parse_type_expression_fragment(
 ) -> TypeExpressionFragmentSyntaxResult {
     // Parser owns a snapshot handle; cloning shares immutable source text.
     let mut parser = Parser::new(snapshot.clone());
+
     let (type_expression, is_recovered) = parser.parse_type_expression_fragment();
     let diagnostics = parser.finish();
 

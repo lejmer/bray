@@ -43,6 +43,7 @@ impl Parser {
         }
 
         self.finish_fragment(&mut sink);
+
         sink.is_recovered |= sink
             .declaration
             .as_ref()
@@ -56,6 +57,7 @@ impl Parser {
     ) -> (bray_syntax::TypeExpressionSyntax, bool) {
         let mut at_end = |parser: &mut Parser| parser.at(SyntaxKind::EndOfFileToken);
         let type_expression = self.parse_type_expression_until(&mut at_end);
+
         let mut sink = DeclarationFragmentSink::new();
 
         self.finish_fragment(&mut sink);
@@ -271,6 +273,7 @@ mod tests {
     #[test]
     fn declaration_fragment_entry_point_parses_one_module_declaration() {
         let sources = source_store(["trusted func copy<T>(value: T) -> T;"]);
+
         let result =
             parse_declaration_fragment(&source(&sources, 0), DeclarationFragmentContext::Module);
 
@@ -348,6 +351,7 @@ mod tests {
     #[test]
     fn declaration_fragment_entry_point_preserves_syntax_diagnostics_and_recovery() {
         let sources = source_store(["func copy(value Int);"]);
+
         let result =
             parse_declaration_fragment(&source(&sources, 0), DeclarationFragmentContext::Module);
 
@@ -378,6 +382,7 @@ mod tests {
 
         assert!(wrong_context.declaration().is_none());
         assert!(wrong_context.is_recovered());
+
         assert!(matches!(
             extra.declaration(),
             Some(DeclarationFragmentSyntax::Struct(_))
