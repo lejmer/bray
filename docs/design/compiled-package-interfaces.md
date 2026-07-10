@@ -434,6 +434,15 @@ normalized interface records.
 Consumers do not parse contract source or infer an exported dependency contract again. They instantiate and check the published
 semantic contract against local arguments and selected implementations.
 
+An exported dependency contract encodes the structural form of a `DependencyContractTemplateId`, not its compilation-local numeric
+ID. Its formal subjects reference receivers, parameters by stable ordinal, results, projections, scoped capabilities, and required
+implementation witnesses through interface-stable identities. It contains no bound-unit storage identities, storage-access IDs,
+borrow-capability IDs, or checker-local flow state.
+
+The consuming compiler decodes the structural template into its local `bray-symbols` semantic store. Binding then instantiates that
+portable template into a unit-local `BoundDependencyContractId` using the exact receiver, argument, result, capability, and selected
+implementation facts for the use site.
+
 ### Checked Declaration-Owned Templates
 
 Runtime defaults, generic constant definitions, predicate definitions, contract expressions, and other declaration-owned facts that

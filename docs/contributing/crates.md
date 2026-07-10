@@ -49,8 +49,8 @@
     - Semantic identities for declared things.
     - Owns typed symbol IDs, kind-specific symbol models, semantic containment, typed member relationships, lookup contracts, and
       lazy symbol-fact contracts.
-    - Owns canonical semantic types, closed constant values, open constant terms, generic substitutions, trait applications,
-      callable and implementation instances, and their typed interner and view APIs.
+    - Owns canonical semantic types, closed constant values, open constant terms, generic substitutions, portable dependency-contract
+      templates, trait applications, callable and implementation instances, and their typed interner and view APIs.
     - Owns typed synthesized runtime-default-provider identities and symbol-facing declaration-owned-expression summary contracts,
       but not checked bound expression storage.
     - Owns region-scoped local symbol IDs, immutable local symbol snapshot contracts, lexical-scope records, and typed local symbol
@@ -68,11 +68,14 @@
     - Binds declaration-owned expressions and computes their binder-owned checked representations through compilation queries.
     - Builds local symbol snapshots and lexical scope graphs together with each checked semantic region.
     - Calls focused checker services while constructing checked bound units.
-    - Produces immutable `bray-bound-tree` structures where names, members, calls, fields, storages, and required semantic facts are resolved.
+    - Produces immutable `bray-bound-tree` structures where names, members, calls, fields, storage accesses, and required semantic
+      facts are resolved.
 
 - `bray-bound-tree`
     - Owns the checked source-shaped high-level IR produced by binding and semantic analysis.
-    - Represents bound expressions, statements, items, storages, projections, calls, locals, temporaries, resolved references, selected semantic facts, and other source-correlated semantic nodes.
+    - Represents bound expressions, statements, items, storage identities, storage accesses, projections, calls, locals,
+      temporaries, resolved references, selected semantic facts, and other source-correlated semantic nodes.
+    - Owns unit-local borrow-capability identities and instantiated dependency contracts without making those IDs symbol facts.
     - Owns the normalized lowered-bound node representation produced before `bray-ir` construction.
     - Owns checked declaration-owned-expression nodes without making bound-node IDs part of `bray-symbols` records.
     - Owns category-specific checked-region value types that retain their immutable local symbol snapshots.

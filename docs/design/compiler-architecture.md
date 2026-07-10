@@ -476,6 +476,18 @@ Checker services own:
 Semantic facts such as expression types, selected overloads, selected trait implementations, move states, borrow states,
 conversion choices, contract facts, and capability facts belong to the checked bound HIR.
 
+The bound HIR uses Bray's storage terminology rather than a separate compiler-theory "place" model. Unit-local storage identities
+represent exact or symbolic storage origins. Storage-access identities represent evaluated access-path occurrences and retain ordered
+projections. They are distinct because ID equality between access occurrences cannot establish storage equality or disjointness.
+
+Portable dependency-contract templates belong to `bray-symbols` and use formal receiver, parameter, result, capability, and witness
+subjects. The binder instantiates them into unit-local bound contracts that can reference exact storage, access, borrow-capability,
+and obligation identities. Compiled package interfaces encode template structure rather than compilation-local IDs.
+
+Initialization, movement, active borrows, alias relationships, and other facts that vary by program point remain checker-local
+analysis state. The checker publishes the immutable storage, access, borrow, dependency-contract, and operation conclusions promised
+by the checked-unit contract, not its complete transfer state or work lists.
+
 The checked program state is the bound HIR with all required semantic facts completed.
 
 Checker services should make the bound HIR complete enough that lowering can consume it without re-checking source

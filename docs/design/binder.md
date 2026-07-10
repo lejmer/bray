@@ -95,7 +95,7 @@ merely because they have their own lexical scopes.
 A bound tree is one immutable source-shaped high-level IR arena for one semantic unit.
 
 It owns typed bound nodes and the semantic facts stored on those nodes. It references symbols, types, local symbols, source anchors,
-places, and other semantic identities through typed IDs.
+storage identities, storage accesses, and other semantic identities through typed IDs.
 
 ### Checked Unit
 
@@ -757,7 +757,7 @@ Facts stored on or indexed by bound nodes include, where meaningful:
 - selected overload arms and callable instances,
 - selected implementations and trait applications,
 - implicit and explicit conversion decisions,
-- value, place, access, and storage categories,
+- value, storage-access, and other expression-result categories,
 - ownership, move, borrow, mutation, and initialization outcomes,
 - effect, capability, trust, and lifecycle outcomes,
 - constant or predicate context validity,
@@ -772,6 +772,187 @@ bound facts unless a later phase or tooling contract requires them. Publish the 
 
 Bound nodes are immutable after publication. Later analysis must not mutate nodes to add a type, selected target, conversion, or
 ownership state that the checked-unit contract already promised.
+
+---
+
+## Storage Access And Dependency Contracts
+
+### Terminology
+
+The binder and bound representation use the language terminology defined in
+`docs/language/ownership-and-borrowing/storage-and-access-paths.md`:
+
+- storage is a runtime entity that can hold a value or part of a value,
+- substorage is a potentially distinct part of storage,
+- a storage access is one evaluated access-path occurrence that reaches storage or substorage,
+- a projection is one component of an access path,
+- a value is distinct from the storage that currently contains it.
+
+The compiler-theory term "place" is not part of the Bray semantic model or public API. Using storage identity and storage access
+separately makes the relevant distinction without introducing a second term for the same language concept.
+
+### Typed Identities And Ownership
+
+`bray-bound-tree` owns unit-scoped typed identities for storage and instantiated dependency facts. Conceptually:
+
+```rust
+pub struct StorageIdentityId {
+    unit: BoundUnitId,
+    slot: StorageIdentitySlot,
+}
+
+pub struct StorageAccessId {
+    unit: BoundUnitId,
+    slot: StorageAccessSlot,
+}
+
+pub struct BorrowCapabilityId {
+    unit: BoundUnitId,
+    slot: BorrowCapabilitySlot,
+}
+
+pub struct BoundDependencyContractId {
+    unit: BoundUnitId,
+    slot: BoundDependencyContractSlot,
+}
+```
+
+Fields remain private. Task-local builders issue IDs, checked accessors reject IDs from another unit, and publication freezes the
+records with the rest of the checked unit. Raw slots are never persisted or used as cross-compilation identity.
+
+A `StorageIdentityId` represents one exact or symbolic storage origin in the unit. Origins include local owned storage,
+parameter-provided storage, receiver storage, source-correlated temporaries, allocation results, compiler-created storage, and
+error storage used for recovery. An origin record retains its introducing symbol or bound node where one exists, but that provenance
+does not make the symbol or node itself the storage identity.
+
+A local binding is a symbol, not storage. Its checked binding fact records whether the binding introduces owned storage, names an
+existing storage access, or binds another non-storage result. Destructuring can therefore introduce new storage for some bindings
+and derived accesses for others without conflating binding identity with storage identity.
+
+A storage identity for an allocation or other storage owned through indirection remains associated with the movable owner value's
+semantic ownership and dependency facts. Moving the owner changes the access through which the owned storage is reached. It does not
+manufacture a second identity for that allocation. The destination storage that contains the moved owner value remains a separate
+storage identity.
+
+### Storage Accesses And Projections
+
+A `StorageAccessId` identifies one evaluated access-path occurrence. Its immutable record contains an access root, ordered
+projections, reached type, source anchor, and recovery state. Conceptually:
+
+```rust
+pub struct StorageAccess {
+    root: StorageAccessRoot,
+    projections: Box<[StorageProjection]>,
+    reached_type: TypeId,
+    source: SyntaxAnchor,
+    is_recovered: bool,
+}
+```
+
+Roots can reference a unit storage identity directly or derive access through an active borrow capability or an owning value that
+carries indirection storage. Recovery roots preserve an error storage identity. Projections include fields, tuple elements, active
+union payload fields, array or slice elements, slice ranges, nullable contents, owned-indirection contents, and compiler-known
+type-form projections.
+
+Projection records retain exact typed semantic operands. For example, a field projection references its field symbol, while a
+dynamic index or range projection references the checked selector expressions needed by overlap analysis. They do not reduce
+selectors to source text.
+
+Storage accesses are occurrence identities and are not structurally interned. Two evaluations of `items[index]` can reach different
+storage even when their syntax is identical because `index` can change between evaluations. Conversely, different access paths can
+reach the same storage. ID equality therefore never substitutes for alias or overlap analysis.
+
+Equal `StorageIdentityId` values name the same modeled origin. Unequal IDs for symbolic or externally supplied origins do not prove
+that the runtime storage is disjoint. Parameter modes, borrow derivation, projection semantics, and current flow facts still
+determine the relationship between accesses.
+
+Checker APIs return a typed storage relationship such as identical, disjoint, potentially overlapping, or error. A stronger result
+requires a proof from projection semantics and the current flow facts. Failure to prove disjointness produces potentially
+overlapping storage rather than an optimistic assumption.
+
+### Borrow Capabilities
+
+A borrow operation creates a distinct `BorrowCapabilityId` whose durable record identifies the borrow kind, reached storage access,
+source anchor, and dependency contract established by the operation. Storage reached through a reborrow records the capability from
+which it was derived.
+
+The ID names the semantic capability created by the operation. Whether that capability is active at a particular program point is
+checker-owned flow state. Ending, moving, shortening, or invalidating a borrow changes that flow state and does not mutate the
+published capability record.
+
+### Portable And Instantiated Dependency Contracts
+
+Dependency contracts have two representations with different identity domains.
+
+`bray-symbols` owns `DependencyContractTemplateId`. A template is a normalized, source-independent declaration contract whose formal
+subjects can reference the receiver, parameters by stable ordinal, result, projections from those subjects, scoped declaration
+capabilities, and required implementation witnesses. Templates are suitable for symbol facts, generic substitution, compiled
+package interfaces, and cross-compilation structural identity. Numeric template IDs remain semantic-store local and are not
+serialized.
+
+`bray-bound-tree` owns `BoundDependencyContractId`. A bound contract is the instantiated contract for a value, storage access,
+borrow, callable value, trait view, task, thread, or other result inside one checked unit. It can reference exact
+`StorageIdentityId`, `StorageAccessId`, `BorrowCapabilityId`, scoped capability, implementation witness, and lifecycle-obligation
+identities valid in that unit.
+
+Typed requirements cover at least:
+
+- storage that must remain alive,
+- storage or substorage that must remain initialized,
+- borrow capability that must remain active,
+- mutation authority that must remain exclusive,
+- scoped capability that must remain live,
+- lifecycle, destruction, finalization, cancellation, or joining obligations that must remain attached.
+
+A dependency contract can also retain guarded requirements. Guards represent semantic conditions such as nullable presence, an active
+union variant, or another checked state under which a nested dependency exists. Contracts must not flatten such requirements into an
+unconditional set when doing so would reject valid programs or lose required invalidation behavior.
+
+Contract records are immutable, normalized, deterministically ordered, and deduplicated. Equivalent contract structure can be
+interned within its owning identity domain. Formal templates and unit-local instantiated contracts are never assigned the same ID
+type or stored in one arena.
+
+Every checked value or storage-access expression result carries a dependency contract. A value contract describes the non-local
+requirements that must remain valid while the value is used. A storage-access contract describes the requirements for continuing to
+reach and operate on that storage. Moving a value moves its carried contract with the value rather than leaving the contract attached
+to the old access path.
+
+Instantiating a declaration contract maps formal subjects to exact argument, receiver, result, capability, and implementation facts.
+That operation is typed and checked. It does not substitute source strings, syntax nodes, or unvalidated numeric ordinals.
+
+### Durable Facts And Flow State
+
+The published checked unit retains durable semantic structure and conclusions:
+
+- storage origins and provenance,
+- evaluated storage accesses and ordered projections,
+- borrow-capability origins and derivation,
+- dependency contracts attached to checked results,
+- checked operation categories and final ownership or borrowing outcomes,
+- storage relationship proofs required by lowering or tooling.
+
+Checker-owned task-local state retains facts that change by program point:
+
+- initialization and partial-initialization state,
+- moved and partially moved state,
+- active variant and nullable-presence refinements,
+- active borrows and capabilities,
+- current mutation authority and exclusivity,
+- temporary alias, overlap, and dependency-propagation facts,
+- analysis work lists, transfer state, and merge state.
+
+The checker returns the immutable conclusions required by the checked-unit contract before publication. Full per-program-point state
+does not become fields on source-shaped nodes unless a later tooling or lowering contract specifically requires a durable projection.
+
+### Semantic And Query Dependencies
+
+A Bray dependency contract is a language-semantic fact. A compiler query dependency is an incremental-compilation edge between fact
+requests. APIs and records always use the complete names `DependencyContract`, `FactDependency`, or `QueryDependency` as
+appropriate. A generic `DependencyId` or `DependencySet` must not make the two concepts ambiguous.
+
+Requesting a symbol contract, storage-related target fact, or implementation witness can record query dependencies while producing a
+dependency contract. The query edges remain owned by `bray-compilation`; the semantic contract remains owned by `bray-symbols` or
+the checked unit according to its identity domain.
 
 ---
 
@@ -849,7 +1030,7 @@ scope and source-order rules during binding.
 
 The checked unit publishes the frozen `LocalSymbolSnapshot` with its bound tree. No compilation-wide mutable local registry exists.
 
-Bound scope references use `LocalScopeId`. Scopes are not symbols, storage places, or control-flow blocks.
+Bound scope references use `LocalScopeId`. Scopes are not symbols, storage identities, storage accesses, or control-flow blocks.
 
 ---
 
@@ -1122,7 +1303,7 @@ The bound representation must provide lowering with:
 - exact resolved callable, member, implementation, and symbol targets,
 - argument-to-parameter mapping and runtime default-provider choices,
 - explicit conversion decisions,
-- checked place, access, ownership, borrow, and movement behavior,
+- checked storage access, ownership, borrow, and movement behavior,
 - control-target and completion behavior,
 - effect, capability, trust, lifecycle, destruction, and finalization conclusions,
 - nested callable unit references,
@@ -1147,7 +1328,7 @@ binder or checker layer.
 Public cross-crate binder and bound-tree APIs should favor:
 
 - category-specific checked-unit types,
-- typed unit, node, scope, symbol, type, place, and target IDs,
+- typed unit, node, scope, symbol, type, storage, storage-access, and target IDs,
 - immutable borrowed access or shared immutable ownership,
 - exact root accessors,
 - typed node and relationship accessors,
@@ -1188,6 +1369,14 @@ Required unit coverage includes:
 - open term identity preserving selected operation and evaluation order,
 - contextual proofs relating open terms without globally merging canonical IDs,
 - numeric semantic ID assignment not affecting diagnostics or serialized ordering,
+- storage identity remaining distinct from binding, node, and storage-access identity,
+- dynamic access occurrences not becoming equal through structural interning,
+- identical, disjoint, and potentially overlapping storage relationships requiring typed checker outcomes,
+- borrow-capability identity remaining distinct from program-point activity,
+- portable dependency-contract templates instantiating into unit-local bound contracts,
+- guarded dependency requirements retaining their semantic conditions,
+- moving values transferring their dependency contracts without changing allocation identity,
+- query dependencies remaining distinct from language dependency contracts,
 - exact typed node and unit ID separation,
 - rejecting cross-unit node and scope IDs through checked accessors,
 - deterministic arena and local slot assignment,
@@ -1225,11 +1414,6 @@ structured diagnostics, never memory unsafety or user-triggered panics.
 
 ## Decisions Requiring Follow-Up
 
-### Place And Dependency Representation
-
-The bound representation needs a typed model for values, places, projections, storage identity, borrows, and dependency contracts.
-The exact split between durable bound facts and checker-owned data-flow state should be designed with ownership and borrowing.
-
 ### Control-Flow Analysis Representation
 
 Checker services will require control-flow and data-flow representations for reachability, initialization, ownership, borrowing,
@@ -1243,18 +1427,20 @@ normalized lowered-bound representation required before `bray-ir` construction.
 
 Implementation should proceed in dependency order:
 
-1. Define canonical type, constant, open-term, substitution, and semantic-store contracts in `bray-symbols`.
+1. Define canonical type, constant, open-term, substitution, dependency-contract-template, and semantic-store contracts in
+   `bray-symbols`.
 2. Define the injected binder fact context and binding-dependent symbol-fact provider contracts.
 3. Define bound unit kinds, typed IDs, stable keys, origins, and checked accessor behavior.
-4. Define immutable per-unit bound storage and category-specific error nodes.
-5. Define category-specific checked-unit results and `DiagnosticResult<T>` publication integration.
-6. Implement local snapshot and lexical-scope builders against the contracts in `docs/design/symbols.md`.
-7. Define binder request contexts, task-local builders, and deterministic dependency recording.
-8. Implement typed name and path resolution over surface and local symbol APIs.
-9. Implement patterns, locals, blocks, and anonymous callable unit boundaries.
-10. Add expression, call, member, conversion, and control-flow bound nodes incrementally by grammar category.
-11. Integrate focused checker services and whole-unit analysis finalization.
-12. Add deterministic diagnostic aggregation, cancellation, speculation, and parallel-query tests.
-13. Establish the checked-HIR-to-lowered-bound and lowered-bound-to-`bray-ir` boundaries before implementing production lowering.
+4. Define storage identities, storage accesses, borrow capabilities, and portable and bound dependency-contract identities.
+5. Define immutable per-unit bound storage and category-specific error nodes.
+6. Define category-specific checked-unit results and `DiagnosticResult<T>` publication integration.
+7. Implement local snapshot and lexical-scope builders against the contracts in `docs/design/symbols.md`.
+8. Define binder request contexts, task-local builders, and deterministic query-dependency recording.
+9. Implement typed name and path resolution over surface and local symbol APIs.
+10. Implement patterns, locals, blocks, and anonymous callable unit boundaries.
+11. Add expression, call, member, conversion, and control-flow bound nodes incrementally by grammar category.
+12. Integrate focused checker services and whole-unit analysis finalization.
+13. Add deterministic diagnostic aggregation, cancellation, speculation, and parallel-query tests.
+14. Establish the checked-HIR-to-lowered-bound and lowered-bound-to-`bray-ir` boundaries before implementing production lowering.
 
 Each step must publish only complete immutable facts and must not add temporary eager workflow APIs.

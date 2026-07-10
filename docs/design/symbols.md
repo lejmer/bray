@@ -42,7 +42,7 @@ The symbol layer does not:
 - expose one generic record with optional fields for every symbol category,
 - bind or check executable callable bodies as part of ordinary symbol completion,
 - perform expression flow analysis,
-- represent temporary values or storage places as symbols,
+- represent temporary values, storage identities, or storage accesses as symbols,
 - lower semantic behavior into IR,
 - assign backend names or emit artifacts,
 - make demand order observable through symbol IDs or diagnostics.
@@ -223,7 +223,7 @@ Examples include:
 - contextual postcondition result bindings,
 - compiler-generated declaration-surface helpers when the language contract requires them.
 
-Compiler implementation temporaries, lowering blocks, hidden storage places, and backend artifacts are not synthesized symbols.
+Compiler implementation temporaries, lowering blocks, hidden storage, and backend artifacts are not synthesized symbols.
 
 ### Lifetime Of IDs
 
@@ -584,7 +584,7 @@ The following concepts require precise semantic models but are not declaration s
 - a selected implementation instance or witness,
 - an overload candidate after generic substitution,
 - an expression value,
-- an access path or storage place,
+- a storage identity or storage access,
 - a temporary,
 - a module part,
 - a using edge,
@@ -600,18 +600,19 @@ These concepts should use separate typed identities where interning or cross-ref
 - `ConstantTermId`,
 - `GenericSubstitutionId`,
 - `ConcreteGenericSubstitutionId`,
+- `DependencyContractTemplateId`,
 - `TraitApplicationId`,
 - `CallableInstanceId`,
 - `ImplementationInstanceId`,
-- bound-node and place IDs owned by the bound representation.
+- bound-node, storage-identity, and storage-access IDs owned by the bound representation.
 
 A constructed entity references its original definition symbol and ordered arguments. It does not reuse the definition's symbol ID
 as though construction had not occurred.
 
-`bray-symbols` owns canonical semantic types, constant values, open constant terms, substitutions, and their interner APIs because
-they directly compose from typed symbol IDs and are returned by symbol facts. They remain separate semantic categories and do not
-become symbols merely because the symbol crate owns their dependency-safe representation. The full contract is defined in
-`docs/design/binder.md`.
+`bray-symbols` owns canonical semantic types, constant values, open constant terms, substitutions, portable dependency-contract
+templates, and their interner APIs because they directly compose from typed symbol IDs and are returned by symbol facts. They remain
+separate semantic categories and do not become symbols merely because the symbol crate owns their dependency-safe representation.
+The full contract is defined in `docs/design/binder.md`.
 
 ---
 
@@ -1734,7 +1735,8 @@ reference to `AnySymbolId` merely for storage convenience.
 Diagnostics owned by a checked region can carry local IDs because the local snapshot and diagnostic bag are published and retained
 together. External diagnostic formats use source locations, rendered names, and stable keys according to their lifetime contract.
 
-Local bindings are symbols, but storage places, projections, temporaries, control-flow blocks, and borrow-state records are not.
+Local bindings are symbols, but storage identities, storage accesses, projections, temporaries, control-flow blocks, and borrow-state
+records are not.
 Those remain owned by the source-shaped or lowered-bound representation, checker state, or lower-level IR as appropriate.
 
 ---
@@ -1797,6 +1799,10 @@ Inference variables are checker-local and never appear as `TypeId`. Closed const
 parameters and checked terms used in generic type identity use `ConstantTermId`. An open `GenericSubstitutionId` is distinct from a
 validated `ConcreteGenericSubstitutionId` required by concrete constant evaluation and code generation.
 
+Portable inferred dependency contracts use `DependencyContractTemplateId`. Their formal subjects use stable receiver, parameter,
+result, projection, capability, and implementation-witness identities. Unit-local storage identities, storage accesses, borrow
+capabilities, and instantiated contracts remain owned by `bray-bound-tree` and never enter symbol-store templates.
+
 The detailed representation, equality, ownership, and interning contract is defined in `docs/design/binder.md`.
 
 ---
@@ -1857,6 +1863,8 @@ Required coverage includes:
 - canonical semantic values reusing one ID per structural key within a store,
 - semantic value IDs remaining store-local and absent from persisted interfaces,
 - open and concrete generic substitutions remaining type-distinct,
+- dependency-contract templates using formal subjects and structural interface encoding,
+- dependency-contract templates containing no bound-unit storage, access, or borrow-capability IDs,
 - source, imported, and compiler-known facts sharing canonical type and constant APIs,
 - exactly one compiler-known environment root and no compilation-root symbol,
 - package and compiler-known module owners remaining distinguishable through `ModuleOwnerId`,
@@ -1914,7 +1922,8 @@ tables, the compiler-known catalog, and compiled dependency interfaces.
 Implementation should proceed in dependency order:
 
 1. Define symbol kinds, typed IDs, semantic value IDs, origins, keys, and common immutable identity data.
-2. Define canonical semantic type, constant value, open constant term, generic substitution, and semantic-store contracts.
+2. Define canonical semantic type, constant value, open constant term, generic substitution, dependency-contract-template, and
+   semantic-store contracts.
 3. Define the symbol graph, `SymbolRootId`, package roots, the compiler-known environment root ID, module owner families, module
    symbols, and deterministic source declaration-to-symbol identity mapping.
 4. Define typed module member collections and lookup-result primitives.
