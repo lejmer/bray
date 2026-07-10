@@ -6,6 +6,7 @@ members = [
     "crates/bray-checker",
     "crates/bray-codegen",
     "crates/bray-compilation",
+    "crates/bray-compiler-known",
     "crates/bray-declarations",
     "crates/bray-diagnostics",
     "crates/bray-driver",

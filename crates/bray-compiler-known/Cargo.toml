@@ -1,0 +1,13 @@
+[package]
+name = "bray-compiler-known"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+bray-base = { path = "../bray-base" }
+bray-source = { path = "../bray-source" }
+
+[lints]
+workspace = true
