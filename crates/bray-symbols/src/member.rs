@@ -543,6 +543,7 @@ mod tests {
     #[test]
     fn duplicate_semantic_ids_are_rejected_without_collapsing_entries() {
         let duplicate = TestMemberId::Function(1);
+
         let collection = TypedMemberCollection::new([duplicate, duplicate]);
         let lookup_index =
             MemberLookupIndex::new([member(duplicate, "first"), member(duplicate, "second")]);
@@ -551,7 +552,6 @@ mod tests {
             collection,
             Err(MemberCollectionBuildError::DuplicateMember(duplicate))
         );
-
         assert_eq!(
             lookup_index,
             Err(MemberCollectionBuildError::DuplicateMember(duplicate))

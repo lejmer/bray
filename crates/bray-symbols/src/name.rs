@@ -50,6 +50,7 @@ mod tests {
         assert_eq!(SymbolName::try_new(""), None);
 
         let text: Arc<str> = Arc::from("item");
+
         let Some(name) = SymbolName::try_new(Arc::clone(&text)) else {
             panic!("non-empty symbol name must be valid");
         };

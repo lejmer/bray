@@ -223,6 +223,7 @@ impl ImportedPackageIdentitySurface {
         symbol: InterfaceSymbolId,
     ) -> Option<ImportedSymbolFactKey<I>> {
         let identity = self.symbol(symbol)?;
+
         if identity.kind() != I::KIND {
             return None;
         }

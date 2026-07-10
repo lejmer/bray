@@ -251,10 +251,8 @@ mod tests {
     #[test]
     fn external_key_components_affect_identity() {
         let named = ExternalSymbolKey::named(module_key(), SymbolKind::Function, name("run"));
-
         let ordinal =
             ExternalSymbolKey::ordinal(module_key(), SymbolKind::Function, SymbolOrdinal::new(0));
-
         let other_kind = ExternalSymbolKey::named(module_key(), SymbolKind::Predicate, name("run"));
 
         assert_ne!(named, ordinal);
