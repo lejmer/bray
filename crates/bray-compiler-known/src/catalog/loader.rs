@@ -563,6 +563,7 @@ mod tests {
         );
 
         let recognized = &catalog.recognized_standard_library_declarations()[0];
+
         assert_eq!(recognized.key().as_str(), "StandardConvert");
         assert_eq!(recognized.kind(), CatalogDeclarationKind::Function);
     }
@@ -602,6 +603,7 @@ mod tests {
         );
 
         let scope = &catalog.compiler_known_scopes()[0];
+
         assert_eq!(
             scope
                 .declaration_ids()
@@ -612,11 +614,13 @@ mod tests {
         );
 
         let value = &catalog.compiler_known_values()[0];
+
         assert_eq!(value.key().as_str(), "True");
         assert_eq!(value.spelling().as_str(), "true");
         assert_eq!(value.representation_role(), RepresentationRole::BooleanTrue);
 
         let recognized = &catalog.recognized_standard_library_declarations()[0];
+
         assert_eq!(recognized.key().as_str(), "Length");
         assert_eq!(
             recognized.owner(),
