@@ -230,6 +230,7 @@ For crate layout, crate ownership, and workspace structure, see the crate respon
 - Do not use emojis.
 - Treat blank lines as paragraph boundaries between statements with different semantic purposes.
 - Use one blank line between logical phases such as setup, validation, transformation, I/O, and publication or return.
+- Start a new paragraph whenever the statement purpose changes, including transitions from deriving or assigning values to actions and transitions back to further derivation after actions.
 - Isolate `let ... else` and other guard clauses from both the setup before them and the work after them, even when the guard directly validates the preceding value.
 - Separate consecutive guard clauses when each enforces a different invariant.
 - Separate dependent construction layers when each introduces a distinct semantic level, such as package, module, and declaration identities.
