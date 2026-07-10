@@ -17,6 +17,8 @@ Declaration discovery implementation rules live in `docs/design/declaration-disc
 
 Symbol and symbol-construction implementation rules live in `docs/design/symbols.md`.
 
+Binder and bound-tree implementation rules live in `docs/design/binder.md`.
+
 This document is the design-level contract those implementation documents should follow.
 
 ---
@@ -67,7 +69,8 @@ source text
 -> declaration discovery
 -> symbol construction
 -> binding and semantic analysis
--> lowering
+-> lowering to normalized bound form
+-> lower-level IR construction
 -> IR validation
 -> code generation
 -> emission
@@ -92,10 +95,11 @@ No phase should rely on a later phase to repair invalid data.
 The main durable representations are:
 
 - a lossless syntax tree,
-- a bound representation,
-- IR.
+- a checked source-shaped bound high-level IR,
+- a normalized lowered-bound representation,
+- a backend-independent lower-level IR.
 
-The checked program state is the bound representation after the binder has completed semantic analysis and all required semantic
+The checked program state is the source-shaped bound HIR after the binder has completed semantic analysis and all required semantic
 facts have been populated.
 
 ---
@@ -131,7 +135,8 @@ Compiler facts should generally be lazy across stable compiler boundaries:
 - trait applications,
 - generic instantiations,
 - checked bound units,
-- lowered IR units,
+- lowered-bound units,
+- lower-level IR units,
 - backend codegen units.
 
 A lazy fact must be complete within the boundary promised by its API. If an API returns a checked callable body, the whole callable
@@ -169,7 +174,8 @@ Compiler work should be split at stable semantic boundaries:
 - implementation bodies,
 - generic instantiations,
 - checked bound units,
-- lowered IR units,
+- lowered-bound units,
+- lower-level IR units,
 - backend codegen units.
 
 The scheduler should run independent work in parallel whenever the dependency graph allows it.
@@ -186,7 +192,9 @@ Declaration discovery can run independently for syntax trees whose module contex
 Binding and checking can run independently for declarations and bodies once their required symbols, imported surfaces, target
 facts, and contract dependencies are available.
 
-Lowering and code generation can run independently for checked bound units whose semantic facts are complete.
+Lowered-bound construction can run independently for checked bound units whose semantic facts are complete. Lower-level IR
+construction can run independently for lowered-bound units, and code generation can run independently for validated `bray-ir`
+units.
 
 Parallel execution must be deterministic:
 
@@ -388,9 +396,9 @@ lowered only when reachable. The exact fact contracts and provider APIs are defi
 
 Binding resolves names, paths, member references, local bindings, declarations, and reference targets.
 
-Binding consumes syntax plus symbol tables and orchestrates semantic analysis to produce a bound representation.
+Binding consumes syntax plus symbol tables and orchestrates semantic analysis to produce a checked bound HIR.
 
-The bound representation is the compiler's source-shaped semantic representation.
+The checked bound tree is the compiler's source-shaped high-level intermediate representation.
 
 The binder owns bound-tree construction.
 
@@ -443,11 +451,11 @@ Checker services own:
 - target-availability checking.
 
 Semantic facts such as expression types, selected overloads, selected trait implementations, move states, borrow states,
-conversion choices, contract facts, and capability facts belong to the bound representation.
+conversion choices, contract facts, and capability facts belong to the checked bound HIR.
 
-The checked program state is the bound representation with all required semantic facts completed.
+The checked program state is the bound HIR with all required semantic facts completed.
 
-Checker services should make the bound representation complete enough that lowering can consume it without re-checking source
+Checker services should make the bound HIR complete enough that lowering can consume it without re-checking source
 semantics.
 
 Checker services should not lower control flow merely to make checking convenient unless that lowered form is an explicit
@@ -455,7 +463,8 @@ checker-local representation.
 
 ### Lowering
 
-Lowering converts the checked bound representation into explicit compiler IR.
+Lowering first converts the checked source-shaped bound HIR into a normalized lowered-bound representation. It then translates that
+representation into backend-independent lower-level IR.
 
 Lowering owns desugaring and normalization after semantic validity is established.
 
@@ -477,16 +486,19 @@ Lowering makes implicit behavior explicit:
 
 Lowering should not make new semantic decisions.
 
-If lowering discovers that it needs a semantic fact that the checked bound representation did not provide, the checker service
+If lowering discovers that it needs a semantic fact that the checked bound HIR did not provide, the checker service
 contract is incomplete.
+
+The normalized lowered-bound representation remains typed semantic compiler data, but it no longer mirrors source structure as
+closely as the checked HIR. It provides explicit operations and control flow that translate directly into `bray-ir`.
 
 ### IR
 
-The IR is backend-independent.
+`bray-ir` is the compiler's backend-independent lower-level IR.
 
-IR should represent explicit control flow, explicit storage, explicit operations, explicit calls, and explicit cleanup behavior.
+It should represent explicit control flow, explicit storage, explicit operations, explicit calls, and explicit cleanup behavior.
 
-IR should not contain parser-only syntax details.
+It should not contain parser-only syntax details.
 
 IR validation checks compiler invariants after lowering.
 
@@ -520,8 +532,8 @@ Shared data should be shared through typed IDs, typed references, immutable tabl
 
 Durable compiler representations are immutable after publication.
 
-This includes source inputs, syntax trees, syntax nodes, syntax tokens, symbol tables, bound nodes, checked semantic facts, IR
-nodes, emitted artifact descriptors, and diagnostic records.
+This includes source inputs, syntax trees, syntax nodes, syntax tokens, symbol tables, source-shaped bound nodes, lowered-bound nodes,
+checked semantic facts, lower-level IR nodes, emitted artifact descriptors, and diagnostic records.
 
 Mutable construction belongs inside local builders, task-local work state, or explicitly internal caches. Mutable construction
 state must not be exposed as shared compiler data.
@@ -541,13 +553,13 @@ Symbols belong to symbol construction and semantic reference layers.
 
 Local symbol snapshots belong to their checked semantic regions and are published with the corresponding bound representation.
 
-Bound nodes belong to the bound representation layer.
+Source-shaped and lowered-bound nodes belong to the bound representation layer.
 
 Resolved references on bound nodes belong to binding.
 
-Semantic facts on bound nodes belong to semantic checker services.
+Semantic facts on source-shaped checked bound nodes belong to semantic checker services.
 
-IR nodes belong to lowering and backend-independent codegen.
+Lower-level IR nodes belong to `bray-ir`. Lowering produces them and code generation consumes them.
 
 Emitted artifacts belong to emission.
 
@@ -612,8 +624,8 @@ Walker traversal order must be deterministic.
 Walker APIs should make descent behavior explicit. A walker can visit all children by default, skip a subtree deliberately, or stop
 early with an explicit result.
 
-Walkers belong with the representation they walk. Syntax walkers belong in the syntax layer, bound walkers belong in the bound
-representation layer, and IR walkers belong in the IR layer.
+Walkers belong with the representation they walk. Syntax walkers belong in the syntax layer, source-shaped and lowered-bound walkers
+belong in the bound representation layer, and lower-level IR walkers belong in the IR layer.
 
 Whole-tree walkers can exist as serial convenience APIs. Parallel phases should schedule independent traversal roots, use the
 representation-owned per-root walker inside each task, keep walker state task-local, and merge phase outputs through deterministic
@@ -780,7 +792,8 @@ If a feature can be added by changing only parser code and codegen, that is a wa
 
 Core language rules belong in the relevant model and checker contracts, not in backend-specific code.
 
-Backend support should be selected after the feature is represented in the checked bound representation and IR.
+Backend support should be selected after the feature is represented in the checked bound HIR, normalized lowered-bound form, and
+lower-level `bray-ir` representation.
 
 ---
 
@@ -823,9 +836,9 @@ Binding tests should validate symbol resolution and scope behavior.
 
 Checker tests should validate language semantics, diagnostics, and recovery behavior.
 
-Lowering tests should validate explicit control flow and cleanup behavior.
+Lowering tests should validate checked-HIR-to-lowered-bound normalization, including explicit control flow and cleanup behavior.
 
-IR tests should validate IR invariants.
+IR tests should validate lowered-bound-to-`bray-ir` translation and lower-level IR invariants.
 
 End-to-end tests should validate compiler behavior across phases.
 

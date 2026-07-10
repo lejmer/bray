@@ -58,6 +58,38 @@ phrase.
 
 ---
 
+## Diagnostic Results
+
+`bray-diagnostics` owns the neutral immutable value-plus-diagnostics wrapper used by lazy semantic facts.
+
+Conceptually:
+
+```rust
+pub struct DiagnosticResult<T> {
+    value: T,
+    diagnostics: DiagnosticBag,
+}
+
+impl<T> DiagnosticResult<T> {
+    pub const fn value(&self) -> &T;
+    pub const fn diagnostics(&self) -> &DiagnosticBag;
+    pub fn into_parts(self) -> (T, DiagnosticBag);
+}
+```
+
+The wrapper contains no phase logic, caching, or rendering policy. `bray-compilation` owns lazy evaluation, dependency tracking,
+cancellation, caching, and publication around it.
+
+Invalid user source can produce a valid `DiagnosticResult<T>` containing an error-aware semantic value and error diagnostics.
+Cancellation and compiler infrastructure failure are outer query outcomes and must not be represented as an absent value or an
+error-aware source result.
+
+Symbol facts, checked semantic units, and other lazy semantic facts use this shared wrapper rather than defining equivalent
+phase-named copies. A category-specific result type remains appropriate when it adds a stronger root, identity, or relationship
+contract rather than merely pairing one value with one diagnostic bag.
+
+---
+
 ## Identity
 
 A diagnostic identity is the stable kind of a compiler report.

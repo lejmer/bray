@@ -12,6 +12,7 @@
 - `bray-diagnostics`
     - Locale-neutral diagnostics infrastructure: errors, warnings, notes, labels, suggestions, diagnostic codes, message IDs, typed message arguments, and reporting structures.
     - Owns diagnostic rendering contracts consumed by the locale-aware `bray-messages` infrastructure.
+    - Owns the neutral immutable `DiagnosticResult<T>` value-plus-diagnostics wrapper used by lazy semantic facts.
     - Diagnostics must be structured so other locales can be added without changing compiler logic.
     - Should not own compiler logic; it only represents diagnostics and rendering data.
 
@@ -52,6 +53,7 @@
 
 - `bray-binder`
     - Name binding and semantic-analysis orchestration.
+    - Uses an injected read-only fact context and must not depend on `bray-compilation`.
     - Converts syntax references into bound references to symbols.
     - Binds declaration-owned expressions and computes their binder-owned checked representations through compilation queries.
     - Builds local symbol snapshots and lexical scope graphs together with each checked semantic region.
@@ -59,25 +61,28 @@
     - Produces immutable `bray-bound-tree` structures where names, members, calls, fields, storages, and required semantic facts are resolved.
 
 - `bray-bound-tree`
-    - Immutable source-shaped semantic representation after binding and semantic analysis.
+    - Owns the checked source-shaped high-level IR produced by binding and semantic analysis.
     - Represents bound expressions, statements, items, storages, projections, calls, locals, temporaries, resolved references, selected semantic facts, and other source-correlated semantic nodes.
+    - Owns the normalized lowered-bound node representation produced before `bray-ir` construction.
     - Owns checked declaration-owned-expression nodes without making bound-node IDs part of `bray-symbols` records.
-    - Publishes checked regions with their immutable local symbol snapshots and diagnostics.
+    - Owns category-specific checked-region value types that retain their immutable local symbol snapshots.
+    - Owns durable checker result types stored on bound nodes so it does not depend on checker algorithms.
     - Owns reusable bound-representation walkers and visitors.
     - This is still high-level enough to produce good user diagnostics.
 
 - `bray-checker`
     - Focused semantic checker services used by `bray-binder`.
+    - Depends on lower semantic representations and must not depend back on binder orchestration.
     - Owns type checking, ownership checking, borrow checking, alias checking, mutation authority, move/drop legality, initialization tracking, and effect/capability contract validation.
     - Returns structured diagnostics and semantic facts for the binder to place on bound nodes before publication.
 
 - `bray-lowering`
-    - Lowers checked bound trees into a more explicit compiler IR.
+    - Lowers checked source-shaped bound HIR into normalized lowered-bound nodes, then translates those nodes into `bray-ir`.
     - Makes implicit semantics explicit: temporaries, drops, moves, control-flow normalization, pattern lowering, short-circuiting, and other desugaring.
     - Materializes reachable runtime-default providers from their checked declaration-owned expressions.
 
 - `bray-ir`
-    - Backend-independent intermediate representation.
+    - Backend-independent lower-level intermediate representation.
     - Represents lowered control flow, locals, storages, explicit moves/drops, calls, branches, and other operations used by codegen.
     - Owns reusable IR walkers and visitors.
 
@@ -93,7 +98,8 @@
 - `bray-compilation`
     - Main compiler entry point and compilation context.
     - Owns compile requests, options, package/file inputs, target settings, session-like state, and lazy compiler fact coordination.
-    - Owns declaration-owned-expression query keys, caches, dependency scheduling, cancellation, and immutable fact publication.
+    - Owns exact fact-key composition, caches, dependency scheduling, cancellation, and immutable fact publication around typed
+      domain keys supplied by lower compiler representations.
     - Caches checked-region results without maintaining a mutable compilation-wide local symbol registry.
     - Coordinates parsing, declaration discovery, binding and semantic analysis, lowering, codegen, and emission through explicit fact APIs.
 
