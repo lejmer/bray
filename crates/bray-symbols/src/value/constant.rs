@@ -370,10 +370,12 @@ mod tests {
     #[test]
     fn integer_constants_normalize_leading_zeroes_and_negative_zero() {
         let zero = IntegerConstant::new(IntegerSign::Negative, [0, 0]);
+
         let positive = IntegerConstant::new(IntegerSign::NonNegative, [0, 0, 5]);
 
         assert_eq!(zero.sign(), IntegerSign::NonNegative);
         assert!(zero.magnitude().is_empty());
+
         assert_eq!(positive.magnitude(), &[5]);
     }
 }

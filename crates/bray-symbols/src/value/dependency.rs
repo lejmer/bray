@@ -200,8 +200,10 @@ fn normalize_requirements(
     requirements: impl IntoIterator<Item = DependencyRequirement>,
 ) -> Arc<[DependencyRequirement]> {
     let mut requirements: Vec<_> = requirements.into_iter().collect();
+
     requirements.sort_unstable();
     requirements.dedup();
+
     shared_slice(requirements)
 }
 
@@ -218,8 +220,10 @@ mod tests {
     fn dependency_templates_are_normalized() {
         let subject =
             DependencySubject::root(DependencySubjectRoot::Parameter(SymbolOrdinal::new(0)));
+
         let requirement =
             DependencyRequirement::direct(subject, DependencyRequirementKind::StorageAlive);
+
         let template =
             DependencyContractTemplateData::new([requirement.clone(), requirement.clone()]);
 

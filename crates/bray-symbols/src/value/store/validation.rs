@@ -42,7 +42,9 @@ pub(super) fn validate_type_data(
             for parameter in callable.parameters() {
                 tables.types.get(store, parameter.ty())?;
             }
+
             tables.types.get(store, callable.result())?;
+
             tables
                 .dependency_contracts
                 .get(store, callable.dependency_contract())?;
@@ -58,6 +60,7 @@ pub(super) fn validate_constant_value_data(
     data: &ConstantValueData,
 ) -> Result<(), SemanticValueStoreError> {
     tables.types.get(store, data.ty())?;
+
     match data.kind() {
         ConstantValueKind::NullablePresent(value) => {
             tables.constant_values.get(store, *value)?;
@@ -106,7 +109,9 @@ pub(super) fn validate_constant_term_data(
             else {
                 return Err(SemanticValueStoreError::OpenSubstitution);
             };
+
             validate_application_owner(tables, store, expected, *substitution)?;
+
             if let Some(implementation) = selected_implementation {
                 tables
                     .implementation_instances
@@ -118,12 +123,14 @@ pub(super) fn validate_constant_term_data(
             arguments,
         } => {
             tables.callable_instances.get(store, *callable)?;
+
             for argument in arguments.iter().copied() {
                 tables.constant_terms.get(store, argument)?;
             }
         }
         ConstantTermData::Projection(projection) => {
             tables.constant_terms.get(store, projection.subject())?;
+
             if let ConstantProjectionKind::ArrayElement(index) = projection.kind() {
                 tables.constant_terms.get(store, index)?;
             }
@@ -158,9 +165,11 @@ pub(super) fn validate_trait_application_data(
     data: TraitApplicationData,
 ) -> Result<(), SemanticValueStoreError> {
     let symbol = crate::AnySymbolId::from(data.definition());
+
     let Some(expected) = super::super::GenericOwnerId::try_new(symbol) else {
         return Err(SemanticValueStoreError::OpenSubstitution);
     };
+
     validate_application_owner(tables, store, expected, data.substitution())
 }
 
@@ -172,6 +181,7 @@ pub(super) fn validate_callable_instance_data(
     let Some(expected) = super::super::GenericOwnerId::try_new(data.definition().symbol()) else {
         return Err(SemanticValueStoreError::OpenSubstitution);
     };
+
     validate_application_owner(tables, store, expected, data.substitution())
 }
 
@@ -181,9 +191,11 @@ pub(super) fn validate_implementation_instance_data(
     data: ImplementationInstanceData,
 ) -> Result<(), SemanticValueStoreError> {
     let expected_symbol = data.definition().into_any();
+
     let Some(expected) = super::super::GenericOwnerId::try_new(expected_symbol) else {
         return Err(SemanticValueStoreError::OpenSubstitution);
     };
+
     validate_application_owner(tables, store, expected, data.substitution())
 }
 
@@ -195,6 +207,7 @@ fn validate_application_owner(
 ) -> Result<(), SemanticValueStoreError> {
     let substitution = tables.substitutions.get(store, substitution)?;
     let actual = substitution.owner();
+
     if actual != expected {
         return Err(SemanticValueStoreError::GenericOwnerMismatch { expected, actual });
     }
@@ -208,6 +221,7 @@ pub(super) fn validate_dependency_template_data(
     data: &DependencyContractTemplateData,
 ) -> Result<(), SemanticValueStoreError> {
     let mut pending: Vec<_> = data.requirements().iter().collect();
+
     while let Some(requirement) = pending.pop() {
         match requirement {
             DependencyRequirement::Direct { subject, .. } => {
@@ -244,6 +258,7 @@ fn validate_dependency_subject(
     if let DependencySubjectRoot::ImplementationWitness(instance) = subject.subject_root() {
         tables.implementation_instances.get(store, instance)?;
     }
+
     for projection in subject.projections() {
         if let DependencyProjection::Element(index) = projection {
             tables.constant_terms.get(store, *index)?;
@@ -259,13 +274,16 @@ pub(super) fn validate_concrete_substitution(
     root: GenericSubstitutionId,
 ) -> Result<(), SemanticValueStoreError> {
     let mut pending = vec![ConcreteWork::Substitution(root)];
+
     let mut types = HashSet::new();
     let mut substitutions = HashSet::new();
     let mut trait_applications = HashSet::new();
+
     while let Some(work) = pending.pop() {
         match work {
             ConcreteWork::Type(id) if types.insert(id) => {
                 let data = tables.types.get(store, id)?;
+
                 match data {
                     TypeData::Error
                     | TypeData::TypeParameter(_)
@@ -280,6 +298,7 @@ pub(super) fn validate_concrete_substitution(
                     }
                     TypeData::Array { element, length } => {
                         pending.push(ConcreteWork::Type(*element));
+
                         validate_closed_term(tables, store, *length, &mut pending)?;
                     }
                     TypeData::Slice(target)
@@ -301,12 +320,14 @@ pub(super) fn validate_concrete_substitution(
                                 .iter()
                                 .map(|parameter| ConcreteWork::Type(parameter.ty())),
                         );
+
                         pending.push(ConcreteWork::Type(callable.result()));
                     }
                 }
             }
             ConcreteWork::Substitution(id) if substitutions.insert(id) => {
                 let substitution = tables.substitutions.get(store, id)?;
+
                 for binding in substitution.bindings() {
                     match binding.argument() {
                         GenericArgument::Type(ty) => pending.push(ConcreteWork::Type(ty)),
@@ -318,6 +339,7 @@ pub(super) fn validate_concrete_substitution(
             }
             ConcreteWork::TraitApplication(id) if trait_applications.insert(id) => {
                 let application = tables.trait_applications.get(store, id)?;
+
                 pending.push(ConcreteWork::Substitution(application.substitution()));
             }
             ConcreteWork::Type(_)
@@ -338,10 +360,13 @@ fn validate_closed_term(
     let ConstantTermData::Value(value) = tables.constant_terms.get(store, term)? else {
         return Err(SemanticValueStoreError::OpenSubstitution);
     };
+
     let value = tables.constant_values.get(store, *value)?;
+
     if matches!(value.kind(), ConstantValueKind::Error) {
         return Err(SemanticValueStoreError::OpenSubstitution);
     }
+
     pending.push(ConcreteWork::Type(value.ty()));
 
     Ok(())

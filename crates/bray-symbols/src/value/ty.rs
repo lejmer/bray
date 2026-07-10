@@ -81,6 +81,7 @@ impl CallableParameterName {
     /// Creates a parameter name unless the canonical name is empty.
     pub fn try_new(name: impl Into<Arc<str>>) -> Option<Self> {
         let name = shared_str(name);
+
         if name.is_empty() {
             return None;
         }
@@ -278,9 +279,11 @@ mod tests {
     #[test]
     fn callable_parameter_names_reject_empty_text() {
         assert!(CallableParameterName::try_new("").is_none());
+
         let Some(name) = CallableParameterName::try_new("value") else {
             panic!("non-empty parameter name must be valid");
         };
+
         assert_eq!(name.as_str(), "value");
     }
 }

@@ -39,7 +39,9 @@ where
 
         let slot = u32::try_from(self.entries.len())
             .map_err(|_| SemanticValueStoreError::CapacityExhausted { kind: I::KIND })?;
+
         let data = Arc::new(data);
+
         // The ordered slot table and structural index retain the same immutable allocation.
         self.entries.push(Arc::clone(&data));
         self.indices.insert(data, slot);
@@ -53,10 +55,13 @@ where
         id: I,
     ) -> Result<&T, SemanticValueStoreError> {
         let id = id.value_id();
+
         validate_store(store, id)?;
+
         let Some(index) = id.to_index() else {
             return Err(SemanticValueStoreError::UnknownId { kind: I::KIND });
         };
+
         self.entries
             .get(index)
             .map(AsRef::as_ref)
@@ -69,10 +74,13 @@ where
         id: I,
     ) -> Result<Arc<T>, SemanticValueStoreError> {
         let id = id.value_id();
+
         validate_store(store, id)?;
+
         let Some(index) = id.to_index() else {
             return Err(SemanticValueStoreError::UnknownId { kind: I::KIND });
         };
+
         self.entries
             .get(index)
             .map(Arc::clone)
@@ -85,6 +93,7 @@ fn validate_store(
     id: SemanticValueId,
 ) -> Result<(), SemanticValueStoreError> {
     let actual = id.store();
+
     if actual != expected {
         return Err(SemanticValueStoreError::ForeignId { expected, actual });
     }

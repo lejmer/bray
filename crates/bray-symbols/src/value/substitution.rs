@@ -153,13 +153,16 @@ impl GenericSubstitutionData {
     {
         let parameters: Vec<_> = parameters.into_iter().collect();
         let arguments: Vec<_> = arguments.into_iter().collect();
+
         let maximum_parameter_count = match usize::try_from(u32::MAX) {
             Ok(count) => count,
             Err(_) => usize::MAX,
         };
+
         if parameters.len() > maximum_parameter_count {
             return Err(GenericSubstitutionShapeError::OrdinalOverflow);
         }
+
         if parameters.len() != arguments.len() {
             return Err(GenericSubstitutionShapeError::ArgumentCountMismatch {
                 parameter_count: parameters.len(),
@@ -168,14 +171,17 @@ impl GenericSubstitutionData {
         }
 
         let mut bindings = Vec::with_capacity(parameters.len());
+
         for (index, (parameter, argument)) in parameters.into_iter().zip(arguments).enumerate() {
             let expected = parameter_kind(parameter);
             let actual = argument.kind();
+
             if expected != actual {
                 let ordinal = match u32::try_from(index) {
                     Ok(ordinal) => ordinal,
                     Err(_) => return Err(GenericSubstitutionShapeError::OrdinalOverflow),
                 };
+
                 return Err(GenericSubstitutionShapeError::ArgumentKindMismatch {
                     ordinal,
                     expected,
@@ -241,6 +247,7 @@ mod tests {
 
         assert!(GenericOwnerId::try_new(function).is_some());
         assert!(GenericOwnerId::try_new(field).is_none());
+
         assert!(supports_generic_parameters(SymbolKind::Trait));
     }
 
@@ -259,15 +266,19 @@ mod tests {
     fn substitutions_validate_arity_and_argument_categories() {
         let symbol = SymbolId::new(8);
         let function = AnySymbolId::from(FunctionSymbolId::from_symbol_id(symbol));
+
         let Some(owner) = GenericOwnerId::try_new(function) else {
             panic!("function must support generic substitutions");
         };
+
         let type_parameter = GenericTypeParameterSymbolId::from_symbol_id(SymbolId::new(9));
         let const_parameter = GenericConstParameterSymbolId::from_symbol_id(SymbolId::new(10));
+
         let store = match SemanticValueStore::try_new() {
             Ok(store) => store,
             Err(error) => panic!("semantic store creation failed: {error:?}"),
         };
+
         let term = match store.intern_constant_term(ConstantTermData::Parameter(const_parameter)) {
             Ok(term) => term,
             Err(error) => panic!("constant parameter term interning failed: {error:?}"),
@@ -284,6 +295,7 @@ mod tests {
                 argument_count: 0,
             })
         );
+
         assert_eq!(
             GenericSubstitutionData::try_new(
                 owner,

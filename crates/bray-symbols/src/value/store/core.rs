@@ -55,7 +55,9 @@ impl SemanticValueStore {
     /// Interns one canonical semantic type.
     pub fn intern_type(&self, data: TypeData) -> Result<TypeId, SemanticValueStoreError> {
         let mut tables = self.tables();
+
         validate_type_data(&tables, self.id, &data)?;
+
         tables.types.intern(self.id, data)
     }
 
@@ -70,7 +72,9 @@ impl SemanticValueStore {
         data: ConstantValueData,
     ) -> Result<ConstantValueId, SemanticValueStoreError> {
         let mut tables = self.tables();
+
         validate_constant_value_data(&tables, self.id, &data)?;
+
         tables.constant_values.intern(self.id, data)
     }
 
@@ -88,7 +92,9 @@ impl SemanticValueStore {
         data: ConstantTermData,
     ) -> Result<ConstantTermId, SemanticValueStoreError> {
         let mut tables = self.tables();
+
         validate_constant_term_data(&tables, self.id, &data)?;
+
         tables.constant_terms.intern(self.id, data)
     }
 
@@ -106,7 +112,9 @@ impl SemanticValueStore {
         data: GenericSubstitutionData,
     ) -> Result<GenericSubstitutionId, SemanticValueStoreError> {
         let mut tables = self.tables();
+
         validate_substitution_data(&tables, self.id, &data)?;
+
         tables.substitutions.intern(self.id, data)
     }
 
@@ -124,7 +132,9 @@ impl SemanticValueStore {
         id: GenericSubstitutionId,
     ) -> Result<ConcreteGenericSubstitutionId, SemanticValueStoreError> {
         let tables = self.tables();
+
         validate_concrete_substitution(&tables, self.id, id)?;
+
         Ok(ConcreteGenericSubstitutionId::new(id))
     }
 
@@ -134,7 +144,9 @@ impl SemanticValueStore {
         data: TraitApplicationData,
     ) -> Result<TraitApplicationId, SemanticValueStoreError> {
         let mut tables = self.tables();
+
         validate_trait_application_data(&tables, self.id, data)?;
+
         tables.trait_applications.intern(self.id, data)
     }
 
@@ -152,7 +164,9 @@ impl SemanticValueStore {
         data: CallableInstanceData,
     ) -> Result<CallableInstanceId, SemanticValueStoreError> {
         let mut tables = self.tables();
+
         validate_callable_instance_data(&tables, self.id, data)?;
+
         tables.callable_instances.intern(self.id, data)
     }
 
@@ -170,7 +184,9 @@ impl SemanticValueStore {
         data: ImplementationInstanceData,
     ) -> Result<ImplementationInstanceId, SemanticValueStoreError> {
         let mut tables = self.tables();
+
         validate_implementation_instance_data(&tables, self.id, data)?;
+
         tables.implementation_instances.intern(self.id, data)
     }
 
@@ -190,7 +206,9 @@ impl SemanticValueStore {
         data: DependencyContractTemplateData,
     ) -> Result<DependencyContractTemplateId, SemanticValueStoreError> {
         let mut tables = self.tables();
+
         validate_dependency_template_data(&tables, self.id, &data)?;
+
         tables.dependency_contracts.intern(self.id, data)
     }
 
@@ -250,10 +268,12 @@ mod tests {
             std::iter::empty::<GenericParameterSymbolId>(),
             std::iter::empty::<GenericArgument>(),
         );
+
         let data = match data {
             Ok(data) => data,
             Err(error) => panic!("empty substitution construction failed: {error:?}"),
         };
+
         match store.intern_generic_substitution(data) {
             Ok(id) => id,
             Err(error) => panic!("empty substitution interning failed: {error:?}"),
@@ -262,11 +282,14 @@ mod tests {
 
     fn concrete_named_type(store: &SemanticValueStore, raw: u32) -> crate::TypeId {
         let definition = StructSymbolId::from_symbol_id(SymbolId::new(raw));
+
         let substitution = empty_substitution(store, definition.into());
+
         let data = TypeData::Named {
             definition: NamedTypeSymbolId::from(definition),
             substitution,
         };
+
         match store.intern_type(data) {
             Ok(id) => id,
             Err(error) => panic!("named type interning failed: {error:?}"),
@@ -286,6 +309,7 @@ mod tests {
     fn foreign_ids_are_rejected() {
         let first = store();
         let second = store();
+
         let Ok(id) = first.intern_type(TypeData::Error) else {
             panic!("error type interning must succeed");
         };
@@ -303,6 +327,7 @@ mod tests {
     fn foreign_references_are_rejected_before_interning() {
         let first = store();
         let second = store();
+
         let Ok(foreign) = first.intern_type(TypeData::Error) else {
             panic!("error type interning must succeed");
         };
@@ -319,79 +344,103 @@ mod tests {
     #[test]
     fn every_semantic_table_uses_structural_canonicalization() {
         let store = store();
+
         let dependency = DependencyContractTemplateData::new([]);
         let first_dependency = store.intern_dependency_contract_template(dependency.clone());
         let second_dependency = store.intern_dependency_contract_template(dependency);
+
         assert_eq!(first_dependency, second_dependency);
 
         let ty = concrete_named_type(&store, 10);
+
         let value = ConstantValueData::new(ty, ConstantValueKind::Boolean(true));
         let first_value = store.intern_constant_value(value.clone());
         let second_value = store.intern_constant_value(value);
+
         assert_eq!(first_value, second_value);
+
         let Ok(value) = first_value else {
             panic!("constant value interning must succeed");
         };
 
         let term = ConstantTermData::Value(value);
+
         assert_eq!(
             store.intern_constant_term(term.clone()),
             store.intern_constant_term(term)
         );
 
         let trait_definition = TraitSymbolId::from_symbol_id(SymbolId::new(11));
+
         let trait_substitution = empty_substitution(&store, trait_definition.into());
+
         let application = TraitApplicationData::new(trait_definition, trait_substitution);
+
         assert_eq!(
             store.intern_trait_application(application),
             store.intern_trait_application(application)
         );
 
         let function = FunctionSymbolId::from_symbol_id(SymbolId::new(12));
+
         let callable = match CallableDefinitionId::try_new(function.into()) {
             Some(callable) => callable,
             None => panic!("function must be a callable definition"),
         };
+
         let callable_substitution = empty_substitution(&store, function.into());
+
         let callable = CallableInstanceData::new(callable, callable_substitution);
+
         assert_eq!(
             store.intern_callable_instance(callable),
             store.intern_callable_instance(callable)
         );
 
         let implementation = InherentImplementationSymbolId::from_symbol_id(SymbolId::new(13));
+
         let implementation_substitution = empty_substitution(&store, implementation.into());
+
         let implementation = ImplementationInstanceData::new(
             ImplementationSymbolId::from(implementation),
             implementation_substitution,
         );
+
         assert_eq!(
             store.intern_implementation_instance(implementation),
             store.intern_implementation_instance(implementation)
         );
 
         let data = TypeData::Slice(ty);
+
         assert_eq!(store.intern_type(data.clone()), store.intern_type(data));
     }
 
     #[test]
     fn concrete_substitutions_are_distinct_from_open_substitutions() {
         let store = store();
+
         let function = FunctionSymbolId::from_symbol_id(SymbolId::new(20));
+
         let owner = generic_owner(function.into());
+
         let type_parameter = GenericTypeParameterSymbolId::from_symbol_id(SymbolId::new(21));
         let const_parameter = GenericConstParameterSymbolId::from_symbol_id(SymbolId::new(22));
+
         let ty = concrete_named_type(&store, 23);
+
         let value = match store
             .intern_constant_value(ConstantValueData::new(ty, ConstantValueKind::Boolean(true)))
         {
             Ok(value) => value,
             Err(error) => panic!("constant value interning failed: {error:?}"),
         };
+
         let term = match store.intern_constant_term(ConstantTermData::Value(value)) {
             Ok(term) => term,
             Err(error) => panic!("constant term interning failed: {error:?}"),
         };
+
         let concrete_data = GenericSubstitutionData::try_new(
             owner,
             [
@@ -400,10 +449,12 @@ mod tests {
             ],
             [GenericArgument::Type(ty), GenericArgument::Constant(term)],
         );
+
         let concrete_data = match concrete_data {
             Ok(data) => data,
             Err(error) => panic!("concrete substitution construction failed: {error:?}"),
         };
+
         let concrete = match store.intern_generic_substitution(concrete_data) {
             Ok(id) => id,
             Err(error) => panic!("concrete substitution interning failed: {error:?}"),
@@ -420,15 +471,18 @@ mod tests {
             Ok(ty) => ty,
             Err(error) => panic!("open type interning failed: {error:?}"),
         };
+
         let open_data = GenericSubstitutionData::try_new(
             owner,
             [GenericParameterSymbolId::from(type_parameter)],
             [GenericArgument::Type(open_type)],
         );
+
         let open_data = match open_data {
             Ok(data) => data,
             Err(error) => panic!("open substitution construction failed: {error:?}"),
         };
+
         let open = match store.intern_generic_substitution(open_data) {
             Ok(id) => id,
             Err(error) => panic!("open substitution interning failed: {error:?}"),
@@ -443,10 +497,15 @@ mod tests {
     #[test]
     fn application_substitutions_must_belong_to_the_definition() {
         let store = store();
+
         let function = FunctionSymbolId::from_symbol_id(SymbolId::new(30));
+
         let substitution = empty_substitution(&store, function.into());
+
         let trait_definition = TraitSymbolId::from_symbol_id(SymbolId::new(31));
+
         let application = TraitApplicationData::new(trait_definition, substitution);
+
         let expected = generic_owner(trait_definition.into());
         let actual = generic_owner(function.into());
 
@@ -459,22 +518,28 @@ mod tests {
     #[test]
     fn open_constant_term_order_is_part_of_identity() {
         let store = store();
+
         let parameter = GenericConstParameterSymbolId::from_symbol_id(SymbolId::new(40));
+
         let left = match store.intern_constant_term(ConstantTermData::Parameter(parameter)) {
             Ok(term) => term,
             Err(error) => panic!("parameter term interning failed: {error:?}"),
         };
+
         let ty = concrete_named_type(&store, 41);
+
         let value = match store
             .intern_constant_value(ConstantValueData::new(ty, ConstantValueKind::Boolean(true)))
         {
             Ok(value) => value,
             Err(error) => panic!("constant value interning failed: {error:?}"),
         };
+
         let right = match store.intern_constant_term(ConstantTermData::Value(value)) {
             Ok(term) => term,
             Err(error) => panic!("value term interning failed: {error:?}"),
         };
+
         let first = store.intern_constant_term(ConstantTermData::Binary {
             operation: ConstantBinaryOperation::Add,
             left,
@@ -492,15 +557,18 @@ mod tests {
     #[test]
     fn equivalent_dependency_templates_ignore_input_order_and_duplicates() {
         let store = store();
+
         let first_subject =
             DependencySubject::root(DependencySubjectRoot::Parameter(SymbolOrdinal::new(0)));
         let second_subject = DependencySubject::root(DependencySubjectRoot::Result);
+
         let first =
             DependencyRequirement::direct(first_subject, DependencyRequirementKind::StorageAlive);
         let second = DependencyRequirement::direct(
             second_subject,
             DependencyRequirementKind::StorageInitialized,
         );
+
         let left =
             DependencyContractTemplateData::new([first.clone(), second.clone(), first.clone()]);
         let right = DependencyContractTemplateData::new([second, first]);
@@ -514,22 +582,27 @@ mod tests {
     #[test]
     fn concurrent_equal_construction_reuses_one_id() {
         let store = Arc::new(store());
+
         let mut threads = Vec::new();
+
         for _ in 0..8 {
             let store = Arc::clone(&store);
             threads.push(thread::spawn(move || store.intern_type(TypeData::Error)));
         }
 
         let mut ids = Vec::new();
+
         for thread in threads {
             let result = match thread.join() {
                 Ok(result) => result,
                 Err(_) => panic!("semantic interning thread panicked"),
             };
+
             let id = match result {
                 Ok(id) => id,
                 Err(error) => panic!("semantic interning failed: {error:?}"),
             };
+
             ids.push(id);
         }
 
