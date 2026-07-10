@@ -25,6 +25,7 @@ pub(crate) fn decode_surface(
     let symbols_section = required_section(interface, InterfaceSectionTag::SymbolIdentities)?;
     let relationships_section = required_section(interface, InterfaceSectionTag::Relationships)?;
     let exports_section = required_section(interface, InterfaceSectionTag::ExportedLookup)?;
+
     decode_sections(
         IdentitySections {
             strings: strings_section,
@@ -129,6 +130,7 @@ fn decode_metadata(
     let product = product_identity(read_string(&mut reader, strings)?)?;
     let kind = read_tag(&mut reader)?;
     let public_surface = read_string(&mut reader, strings)?;
+
     reader.finish().map_err(map_wire_error)?;
 
     PackageInterfaceIdentity::try_new(package, product, kind, Arc::clone(public_surface))

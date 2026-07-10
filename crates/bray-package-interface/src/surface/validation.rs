@@ -32,6 +32,7 @@ impl PackageInterfaceSurface {
 
         let (dependencies, dependency_remap) = canonical_dependencies(dependencies)?;
         let symbols: Vec<_> = symbols.into_iter().collect();
+
         for pair in symbols.windows(2) {
             if pair[0].key() >= pair[1].key() {
                 return Err(PackageInterfaceSurfaceBuildError::NonCanonicalSymbolOrder {
@@ -49,6 +50,7 @@ impl PackageInterfaceSurface {
             .iter()
             .map(|symbol| (symbol.key().clone(), symbol.id()))
             .collect();
+
         let relationships = canonical_relationships(&symbols, relationships)?;
         let (exports, export_index) =
             canonical_exports(&symbols, &dependencies, &dependency_remap, exports)?;
@@ -92,6 +94,7 @@ fn canonical_dependencies(
         let Some(canonical) = DependencyInterfaceId::try_from_index(canonical_index) else {
             return Err(PackageInterfaceSurfaceBuildError::DependencyCountOverflow);
         };
+
         remap[*original_index] = canonical;
     }
 
@@ -185,6 +188,7 @@ fn canonical_exports(
         validate_export_target(symbols, dependencies, edge)?;
 
         let key = (edge.owner(), edge.name().clone());
+
         if index.insert(key, position).is_some() {
             return Err(PackageInterfaceSurfaceBuildError::DuplicateExportName {
                 owner: edge.owner(),

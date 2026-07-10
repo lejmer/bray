@@ -125,6 +125,7 @@ mod tests {
         );
 
         let mut reader = WireReader::new(encoder.bytes());
+
         assert_eq!(reader.read_u16(), Ok(0x1122));
         assert_eq!(reader.read_u32(), Ok(0x3344_5566));
         assert_eq!(reader.read_u64(), Ok(0x7788_99aa_bbcc_ddee));
@@ -134,6 +135,7 @@ mod tests {
     fn fixed_width_reads_reject_every_truncated_value() {
         for length in 0..8 {
             let mut reader = WireReader::new(&[0; 8][..length]);
+
             assert_eq!(reader.read_u64(), Err(WireDecodeError::Truncated));
         }
     }
@@ -146,6 +148,7 @@ mod tests {
         assert_eq!(reader.finish(), Err(WireDecodeError::TrailingBytes));
 
         let mut reader = WireReader::new(&[1, 2, 3]);
+
         assert_eq!(reader.read_bytes(3), Ok(&[1, 2, 3][..]));
         assert_eq!(reader.finish(), Ok(()));
     }

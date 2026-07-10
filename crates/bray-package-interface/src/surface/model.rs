@@ -315,6 +315,7 @@ impl ExportedLookupEdge {
     ) -> Result<Self, DependencyInterfaceId> {
         if let InterfaceSymbolReference::Dependency { dependency, .. } = &mut self.target {
             let original = *dependency;
+
             let Some(canonical) = original
                 .to_index()
                 .and_then(|index| remap.get(index))

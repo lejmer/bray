@@ -393,12 +393,14 @@ mod tests {
     #[test]
     fn malformed_export_references_and_string_limits_are_rejected() {
         let mut sections = encode_surface(&surface(false));
+
         let Some(exports) = sections
             .iter_mut()
             .find(|section| section.tag == InterfaceSectionTag::ExportedLookup)
         else {
             panic!("export section must be encoded");
         };
+
         exports.payload[16..20].copy_from_slice(&u32::MAX.to_le_bytes());
 
         assert_eq!(
@@ -407,6 +409,7 @@ mod tests {
         );
 
         let sections = encode_surface(&surface(false));
+
         assert!(matches!(
             decode(
                 &sections,
@@ -433,12 +436,14 @@ mod tests {
     #[test]
     fn typed_relationship_endpoint_mismatches_are_rejected() {
         let mut sections = encode_surface(&surface(false));
+
         let Some(relationships) = sections
             .iter_mut()
             .find(|section| section.tag == InterfaceSectionTag::Relationships)
         else {
             panic!("relationship section must be encoded");
         };
+
         relationships.payload[8..12].copy_from_slice(&0_u32.to_le_bytes());
 
         assert_eq!(
@@ -450,6 +455,7 @@ mod tests {
     fn surface(reverse: bool) -> PackageInterfaceSurface {
         let package = package_identity("example.package");
         let product = product_identity("library");
+
         let Some(identity) = PackageInterfaceIdentity::try_new(
             package.clone(),
             product,
@@ -458,8 +464,10 @@ mod tests {
         ) else {
             panic!("test interface identity must be valid");
         };
+
         let package_key = ExternalSymbolKey::package(package);
         let module_key = module_key(package_key.clone(), "api");
+
         let Some(struct_key) = ExternalSymbolKey::named(
             module_key.clone(),
             SymbolKind::Struct,
@@ -467,6 +475,7 @@ mod tests {
         ) else {
             panic!("struct key must be valid");
         };
+
         let Some(field_key) = ExternalSymbolKey::named(
             struct_key.clone(),
             SymbolKind::StructField,
@@ -474,6 +483,7 @@ mod tests {
         ) else {
             panic!("field key must be valid");
         };
+
         let symbols = vec![
             ImportedSymbolIdentityInput::new(
                 InterfaceSymbolId::new(0),
@@ -500,7 +510,9 @@ mod tests {
                 Some(InterfaceSymbolId::new(2)),
             ),
         ];
+
         let mut dependencies = dependencies();
+
         let mut relationships = vec![
             SymbolRelationship::new(
                 SymbolRelationshipKind::StructField,
@@ -515,6 +527,7 @@ mod tests {
                 0,
             ),
         ];
+
         let dependency_key = dependency_function_key();
         let dependency = DependencyInterfaceId::new(u32::from(reverse));
         let mut exports = vec![
