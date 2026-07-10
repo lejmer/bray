@@ -34,6 +34,9 @@ Bray does not support named result bindings.
 
 A `with(...)` clause lists static constraint facts required by a generic declaration.
 
+Predicate expressions in callable contract clauses are [declaration-owned expressions](../declarations/declaration-owned-expressions.md).
+They are checked with the declaration whose semantic contract they define.
+
 A `uses(...)` clause lists trusted implementation capabilities used by a trusted declaration body.
 
 Contract clauses are part of a declaration's semantic surface when they affect callers, implementers, dynamic dispatch, separate compilation, or public API compatibility.

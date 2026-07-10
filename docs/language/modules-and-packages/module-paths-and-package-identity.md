@@ -28,6 +28,18 @@ Other packages can refer to that module through the package path:
 geometry.shapes.Circle
 ```
 
+## Path lookup and ordinary names
+
+The first component of a package or module path participates in ordinary unqualified name resolution.
+
+After a package or module has been selected, each following identifier selects a module path component or declaration from that
+entity's ordinary name surface. Package and module path indexes are specialized lookup structures, but they do not form separate
+lookup namespaces.
+
+A visible package identity, module path component, or declaration cannot share an ordinary name in the same lookup surface when each
+could occupy the same path position. A selected package and source graph that would create such a conflict is rejected rather than
+resolved through a precedence rule.
+
 ## Package identity
 
 A package has a package identity supplied outside Bray source.

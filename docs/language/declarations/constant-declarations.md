@@ -43,11 +43,11 @@ A trait implementation constant-valued member definition supplies the value for 
 
 Constant declarations can be referenced from constant expressions, predicate expressions, type expressions where constant arguments are accepted, and ordinary expressions.
 
-The constant name must be unique in the value namespace of its declaration scope.
+The constant name must be unique in the ordinary lookup namespace of its declaration scope.
 
 A constant declaration introduces an unqualified lookup name into its declaration scope.
 
-That unqualified lookup name must not already resolve in the same lookup namespace from that scope.
+That unqualified lookup name must not already resolve as an ordinary name from that scope.
 
 A constant declared in a module is reached through ordinary module path resolution.
 
@@ -57,9 +57,16 @@ A constant declared in a trait body or trait implementation is a constant-valued
 
 A constant declaration is evaluated in compile-time constant context.
 
+The initializer is checked as a [declaration-owned constant definition template](declaration-owned-expressions.md#constant-definition-templates-and-instances).
+
 The value of a constant declaration is fixed for the declaration instance.
 
 For a generic declaration, a constant declaration that depends on generic parameters is fixed for each concrete generic instantiation.
+
+A closed non-generic constant has one instance with an empty generic substitution. A generic, trait-selected, or target-dependent
+constant is evaluated separately for each exact substitution, selected implementation, and target profile required by a use.
+
+Checking the generic definition template does not eagerly enumerate or evaluate every possible concrete constant instance.
 
 A constant has no runtime storage identity.
 

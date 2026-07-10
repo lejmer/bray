@@ -256,22 +256,22 @@ A binding cannot be rebound.
 
 A local binding declaration introduces one or more unqualified lookup names into the current scope.
 
-Each introduced unqualified lookup name must not already resolve in the same lookup namespace from that scope.
+Each introduced unqualified lookup name must not already resolve in the ordinary lookup namespace from that scope.
 
-Name shadowing is checked by unqualified lookup name and lookup namespace.
+Bray has one general identifier lookup namespace, so name shadowing is checked by unqualified ordinary name.
 
 Qualified paths distinguish declarations through their resolved left-hand entity.
 
 The first component of a qualified path participates in ordinary unqualified name resolution.
 
-Each component after `.` is resolved inside the namespace, type, value, access path, trait application, or other path-capable entity
-selected by the preceding component.
+Each component after `.` is resolved against the ordinary name surface or other typed selection surface exposed by the module, type,
+value, access path, trait application, or other path-capable entity selected by the preceding component.
 
 Therefore, a declaration reachable as `some.thing` and a declaration reachable as `thing` can both be visible in the same scope when
 `some` and `thing` are distinct unqualified lookup names.
 
 When a declaration is intentionally exposed through an unqualified name, that exposed name participates in the same shadowing rule
-as any other unqualified lookup name in that lookup namespace.
+as any other ordinary name.
 
 This rule keeps name expressions stable and prevents later local declarations from changing the meaning of earlier names in the same scope.
 

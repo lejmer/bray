@@ -54,4 +54,4 @@ Generic function rules are defined in [Generic functions](../callables/generic-f
 - [Language index](../index.md)
 - [Declarations index](../declarations.md)
 - Previous: [Modifiers](modifiers.md)
-- Next: [Declaration bodies and requirements](declaration-bodies-and-requirements.md)
+- Next: [Declaration-owned expressions](declaration-owned-expressions.md)

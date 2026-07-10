@@ -2,7 +2,7 @@
 
 Packages are build, versioning, distribution, and dependency units.
 
-Modules are namespaces and source-organization units inside a package.
+Modules are named declaration containers and source-organization units inside a package.
 
 A package owns a set of modules.
 

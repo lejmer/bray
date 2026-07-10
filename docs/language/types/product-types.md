@@ -49,10 +49,11 @@ The primary representation determines:
 - field destruction order,
 - field access paths.
 
-Additional implementation blocks can define constructors, methods, static functions, constants, predicates, type-valued members,
-trait implementations, and other behavior for the type.
+Additional inherent implementation blocks owned by the type's defining package can define constructors, methods, static functions,
+constants, predicates, type-valued members, and other behavior for the type. Separate trait implementation blocks can make the type
+satisfy trait applications.
 
-Additional implementation blocks do not add fields to the primary representation.
+Inherent and trait implementation blocks do not add fields to the primary representation.
 
 ## Field declarations
 
@@ -311,6 +312,9 @@ An omitted defaulted field is initialized from its default expression.
 Construction-time field default behavior is defined in [Struct construction expressions](../expressions/struct-construction-expressions.md).
 
 A field default is checked in the struct declaration context.
+
+A field default is a [declaration-owned runtime default](../declarations/declaration-owned-expressions.md#runtime-defaults). It is
+checked even when every current construction supplies that field explicitly.
 
 A field default cannot reference sibling fields.
 

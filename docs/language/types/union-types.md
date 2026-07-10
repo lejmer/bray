@@ -23,6 +23,9 @@ The declared variant set is closed.
 
 The variant set is part of the union type's definition.
 
+Additional inherent implementation blocks owned by the type's defining package can define behavior associated with the union. They
+cannot add variants or payload fields to the union's closed representation.
+
 A union value is fully initialized when its active variant tag is initialized and the active variant payload, if any, is fully initialized.
 
 Inactive variant payloads have no initialized values.
@@ -138,6 +141,9 @@ An omitted defaulted payload field is initialized from its default expression.
 Construction-time payload default behavior is defined in [Union variant construction expressions](../expressions/union-variant-construction-expressions.md).
 
 A variant payload default is checked in the union declaration context.
+
+A payload default is a [declaration-owned runtime default](../declarations/declaration-owned-expressions.md#runtime-defaults). It is
+checked even when every current construction supplies that payload field explicitly.
 
 A variant payload default cannot reference sibling payload fields.
 

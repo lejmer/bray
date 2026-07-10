@@ -68,6 +68,18 @@ func invalid(first: A, pos second: B); // invalid
 
 Parameter modifiers apply independently to the parameter.
 
+## Parameter defaults
+
+A callable parameter can declare a runtime default expression.
+
+The default is a [declaration-owned expression](../declarations/declaration-owned-expressions.md). It is checked with the callable
+declaration and evaluated only when a call omits that parameter.
+
+A parameter default can depend on the receiver, generic context, declarations visible from the callable declaration, and earlier
+parameters. It cannot depend on itself, a later parameter, or an arbitrary call-site local binding.
+
+Detailed omission and evaluation-order rules are defined by [Defaulted arguments](../expressions/defaulted-arguments.md).
+
 ## Owned parameters
 
 A parameter of plain type receives an owned value.

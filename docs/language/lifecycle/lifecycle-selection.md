@@ -4,7 +4,8 @@ Lifecycle declaration selection uses the type or implementation subject whose va
 
 In an inherent implementation, the implementation subject must be the declaring type for type-wide lifecycle declarations.
 
-For a given type, lifecycle kind, and lifecycle path, at most one participating lifecycle declaration can be visible in a coherence domain.
+For a given named type, the type body and all inherent implementations share typed lifecycle slots. At most one declaration template
+can occupy each slot. Visibility and generic constraints do not permit alternative declarations for the same slot.
 
 The lifecycle path is:
 
@@ -15,6 +16,8 @@ The lifecycle path is:
 Primary constructors are selected through the type construction surface.
 
 Named constructors are reached through the type path.
+
+Named constructors occupy ordinary associated names and follow ordinary type-associated name-conflict rules.
 
 ```bray
 let file = File.temp(directory, prefix = "log");

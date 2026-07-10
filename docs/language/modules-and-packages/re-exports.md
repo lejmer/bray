@@ -21,7 +21,8 @@ The exported declaration must be visible to the exporting module.
 
 An export declaration can appear only in a module body.
 
-The exported final name must not conflict with another declaration or export in the current module.
+The exported final name occupies the ordinary lookup namespace of the module's exported lookup surface and must not conflict with
+another declaration or export in that surface.
 
 An export does not create a new declaration identity.
 

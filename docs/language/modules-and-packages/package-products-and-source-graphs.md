@@ -16,7 +16,7 @@ Package identity is shared by all products of the package.
 
 Product identity, selected source inputs, selected dependencies, and target constraints are supplied by the package and build layer.
 
-A product is not a module and does not create a namespace.
+A product is not a module and does not create a declaration container or lookup scope.
 
 A source declaration can contribute to more than one product when it is present in each product's selected source graph and is valid
 under each product's product kind and target constraints.

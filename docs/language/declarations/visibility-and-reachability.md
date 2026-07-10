@@ -35,11 +35,14 @@ Trait visibility rules are defined in [Traits](../types/traits.md#trait-visibili
 
 Declarations in an internal module require internal-use acknowledgement to reach from outside the module's intended scope even when the declaration itself is public.
 
+The effective reachability of a type-associated member is capped by the associated type, the member's declaring module, and the
+member's own visibility. An inherent implementation does not create another visibility or activation boundary.
+
 A public API exposes internal declarations only through an explicit public wrapper whose public signature does not require internal access.
 
 ## Navigation
 
 - [Language index](../index.md)
 - [Declarations index](../declarations.md)
-- Previous: [Declaration names and identity](declaration-names-and-identity.md)
+- Previous: [Declaration names, lookup, and identity](declaration-names-and-identity.md)
 - Next: [Directives](directives.md)

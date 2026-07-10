@@ -14,7 +14,8 @@ Order between source units does not affect name resolution.
 
 Within a declaration body, source order matters where the containing grammar or semantic rule makes it matter.
 
-Duplicate declarations in the same declaration namespace are rejected unless the declaration form explicitly defines merging or overload-family behavior.
+Declarations that introduce the same ordinary name in the same declaration scope are rejected unless the declaration form explicitly
+defines merging or overload-family behavior.
 
 Declarations are checked against:
 
@@ -33,7 +34,9 @@ Declarations in disabled module contributions are not semantically checked for t
 
 They must still be lexically and syntactically valid Bray source.
 
-A declaration that exports public interface metadata exposes its public declaration surface, including visibility, name, generic parameters, parameter surfaces, result types, constraints, contracts, trusted obligations, effects, layout contracts, ABI contracts, and lifecycle obligations.
+A declaration that exports public interface metadata exposes its public declaration surface, including visibility, name, generic
+parameters, parameter surfaces, runtime default providers, result types, constant definition or value surfaces, predicate definitions,
+constraints, contracts, trusted obligations, effects, layout contracts, ABI contracts, and lifecycle obligations.
 
 ## Navigation
 

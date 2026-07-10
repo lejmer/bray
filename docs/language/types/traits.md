@@ -121,6 +121,10 @@ A defaulted member body provides default behavior for implementations that do no
 
 A defaulted member body is checked in trait context.
 
+A defaulted callable member body remains an executable body. It is not declaration-surface completion merely because it provides
+default behavior. The declaration surface records the body's presence and selection role, while ordinary callable body checking owns
+the checked body.
+
 A defaulted member body can use the trait’s declared surface, `self` when the member is an instance method, `Self`, trait
 parameters, type-valued members, constant-valued members, predicate members, available constraints, and declarations visible from
 the trait declaration context.
@@ -218,6 +222,9 @@ const identifier ':' type-expression ['=' constant-expression] ';'
 The type annotation is required.
 
 The initializer, when present, is checked in constant-initializer context.
+
+The initializer is a declaration-owned constant definition template. Its selected concrete value is evaluated after the exact
+implementing subject, trait application, implementation, generic substitution, and target facts are known.
 
 The initializer must be compatible with the declared constant type.
 

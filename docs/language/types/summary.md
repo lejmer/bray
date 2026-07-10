@@ -20,6 +20,10 @@ Traits define explicit behavioral contracts.
 
 An implementing subject satisfies a trait through an explicit implementation.
 
+A named type's direct members and owner-provided inherent implementation members form one type-associated surface.
+
+Trait implementation fulfillments remain separate from that inherent surface.
+
 Type forms exist only when the language needs compiler-known semantics that ordinary named types cannot express.
 
 Default layout is compiler-defined.

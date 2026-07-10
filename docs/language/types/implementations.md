@@ -91,6 +91,21 @@ An implementing subject satisfies a trait application through an accepted partic
 
 Matching member names and signatures alone gives no trait satisfaction.
 
+## Inherent implementation ownership
+
+A source type's defining package owns its inherent implementation surface.
+
+Only that package can declare an inherent implementation for the type. The implementation can appear in any module included in the
+selected source graph for the package product.
+
+A compiler-known type is owned by the compiler-known environment. Source and standard-library packages cannot add inherent
+implementations to a compiler-known type unless an owning language rule explicitly assigns that authority.
+
+Trait implementations remain the extension mechanism for behavior declared outside the semantic owner of a type.
+
+Every enabled inherent implementation from the owning package's selected source graph contributes automatically to the associated
+type. A `using` declaration or export does not activate or deactivate an inherent implementation.
+
 ## Trait implementation subjects
 
 An implementation subject is the entity being implemented for.
@@ -225,8 +240,7 @@ Buffer<u8>.Cursor
 
 An inherent type-valued member binding is not a module-level type alias.
 
-An inherent implementation cannot bind the same type-valued member more than once for the same implementation subject in the same
-coherence domain.
+An inherent type-valued member binding participates in the type-associated aggregation and conflict rules defined below.
 
 A trait implementation callable member must match the fulfilled trait member’s name, receiver mode, parameter names, parameter types, result type, execution mode, contract obligations, and caller-visible effects after type-valued member bindings have been applied.
 
@@ -269,11 +283,104 @@ A trait implementation cannot provide constructor declarations.
 
 A trait implementation cannot provide callable overload declarations.
 
-Implementation member visibility is governed by the implementation relationship and the implemented trait or inherent implementation context.
+An inherent member's effective reachability is governed by its associated type, declaring module, and member visibility.
 
 Individual trait implementation members cannot use `public` or `internal` modifiers.
 
 Implementation members in a trait implementation are fulfillments of a trait contract, not independent visibility surfaces.
+
+## Type-associated member aggregation
+
+A named type has one type-associated surface for each selected package product and target.
+
+That surface contains:
+
+- representation and behavior members declared directly in the type body,
+- members from every enabled inherent implementation owned by the type,
+- callable overload families declared in either location,
+- the type's lifecycle declarations,
+- the inherent implementation declarations that contributed those members.
+
+Trait implementation members are not part of this surface. They remain fulfillments of an exact trait application and participate
+through trait implementation and method-resolution rules.
+
+Union payload fields remain in the scope of their variant payload. They do not become union-wide associated members.
+
+### Member identity and ownership
+
+Aggregation does not create replacement declarations.
+
+A member declared directly in a type body remains declared by that type. A member declared in an inherent implementation remains
+declared by that implementation. Both are associated with the same type definition and participate in lookup through that type.
+
+Declaration identity, source location, effective visibility, implementation constraints, and declaring implementation remain
+observable for diagnostics, documentation, navigation, and public API compatibility.
+
+### Associated name conflicts
+
+Direct type members and inherent implementation members share the type's ordinary lookup namespace.
+
+The same ordinary name cannot be introduced by:
+
+- a direct member and an inherent member,
+- members from different inherent implementations,
+- members of different semantic categories,
+- members with different visibility,
+- members guarded by different generic constraints.
+
+A direct declaration does not take precedence over an inherent declaration. Source order, module order, visibility, and apparently
+more-specific constraints do not choose a winner.
+
+Different constrained inherent implementations cannot introduce the same associated name even when their valid substitutions can
+be proven disjoint. Such declarations would make ordinary lookup an implicit form of constraint-based overloading.
+
+Callable alternatives must use separately named callables and an explicit callable overload family. The overload family occupies
+its shared ordinary name once.
+
+A conflict is rejected and retains every conflicting declaration for diagnostics. Lookup does not select the first declaration.
+
+### Generic applicability
+
+Members are aggregated at the named type-definition level. A generic inherent member is a declaration template associated with that
+definition.
+
+For a constructed type, member applicability substitutes the type arguments, matches the inherent implementation subject, and
+proves the implementation's static constraints.
+
+If those constraints are not proven, the member is not applicable to that constructed type. In generic code, the surrounding static
+constraints must establish the member's implementation constraints before the member can be used.
+
+An inapplicable declaration still reserves its ordinary name in the type-definition surface. Another constrained implementation
+cannot reuse that name as an alternative.
+
+Name lookup distinguishes an absent member from an inaccessible member, a member of the wrong semantic category, a member whose
+constraints are not satisfied, a malformed member, and a conflicting member set.
+
+### Lifecycle slots
+
+The primary constructor, finalizer, destructor, scope enter declaration, and scope exit declaration occupy typed lifecycle slots
+rather than ordinary names.
+
+At most one declaration template can occupy each lifecycle slot across the type body and all inherent implementations. Generic
+constraints do not create alternative declarations for the same slot.
+
+A named constructor occupies an ordinary name and follows the ordinary associated-name conflict rules.
+
+### Visibility and deterministic order
+
+The associated surface retains both accessible and inaccessible members. Effective reachability is capped by the associated type,
+the member's declaring module, and the member's own visibility.
+
+An inherent implementation does not create another visibility boundary. It also does not make a member reachable when its type,
+declaring module, or member visibility prevents access.
+
+The deterministic enumeration order is:
+
+1. direct type members in source order,
+2. inherent implementations in canonical declaration order,
+3. members within each inherent implementation in source order.
+
+This order exists for deterministic metadata, diagnostics, tooling, and tests. It is not semantic lookup precedence.
 
 ## `Self` and `self`
 
@@ -1076,6 +1183,18 @@ func write_one(pos sink: &view Sink, pos message: string)
 
 The trait-view type form, view-surface rules, receiver restrictions, and ownership behavior are defined by the trait-view type form.
 
+## Inherent implementation API compatibility
+
+The reachable type-associated surface is part of a named type's API.
+
+Adding, removing, or changing a public or otherwise reachable inherent member can be an API change.
+
+Changing an inherent member's name, semantic category, generic applicability, effective reachability, callable surface, selected
+type or value, lifecycle slot, contract, or behavior can be an API change.
+
+Moving a member between the type body and an inherent implementation changes declaration identity and can affect diagnostics,
+documentation, navigation, and interface metadata even when its callable or value surface remains otherwise equivalent.
+
 ## Trait API compatibility
 
 A public trait is part of the public API.
@@ -1100,9 +1219,7 @@ Removing a type-valued member from a public trait is a public API change.
 
 Changing a type-valued member name is a public API change.
 
-Adding or removing a public or reachable inherent type-valued member can be a public API change.
-
-Changing the selected type for a public or reachable implementation can be a public API change.
+Changing a reachable trait implementation's selected type-valued member binding can be a public API change.
 
 Adding a required constant-valued member to a public trait is a public API change.
 
@@ -1129,7 +1246,7 @@ Changing a default member body can be a public API change when observable behavi
 
 Changing trait visibility is a public API change.
 
-Changing implementation visibility or reachability can be a public API change when it affects method resolution or generic satisfaction.
+Changing trait implementation reachability can be a public API change when it affects method resolution or generic satisfaction.
 
 Changing implementation overload family membership can be a public API change when it affects trait satisfaction, method resolution, type-valued member selection, predicate member selection, lifecycle requirement satisfaction, or generic satisfaction.
 
