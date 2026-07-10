@@ -4,7 +4,7 @@ use std::sync::Arc;
 use crate::diagnostic::InterfaceValidationError;
 use crate::hash::{compute_artifact_hash, compute_content_hash, compute_section_hash};
 use crate::header::{BYTE_ORDER_MARKER, CURRENT_FORMAT_REVISION, InterfaceHeader, MAGIC};
-use crate::limits::{InterfaceLimit, InterfaceValidationPolicy};
+use crate::limits::{InterfaceLimit, InterfaceValidationLimits, InterfaceValidationPolicy};
 use crate::section::{DirectoryEntry, InterfaceSectionTag, ValidatedInterfaceSection};
 use crate::wire::WireDecodeError;
 
@@ -14,6 +14,7 @@ pub struct ValidatedPackageInterface {
     bytes: Arc<[u8]>,
     header: InterfaceHeader,
     directory: Arc<[DirectoryEntry]>,
+    limits: InterfaceValidationLimits,
 }
 
 impl ValidatedPackageInterface {
@@ -49,6 +50,7 @@ impl ValidatedPackageInterface {
             bytes,
             header: decoded.header,
             directory: directory.into(),
+            limits: policy.limits(),
         })
     }
 
@@ -73,6 +75,13 @@ impl ValidatedPackageInterface {
         self.directory
             .iter()
             .filter_map(|entry| ValidatedInterfaceSection::new(*entry, &self.bytes))
+    }
+
+    /// Decodes and validates the eager package identity and symbol-surface sections.
+    pub fn decode_identity_surface(
+        &self,
+    ) -> Result<crate::PackageInterfaceSurface, InterfaceValidationError> {
+        crate::surface::decode_surface(self, self.limits)
     }
 }
 
@@ -276,6 +285,7 @@ const fn range_validation_error(error: CheckedRangeError) -> InterfaceValidation
 const fn map_wire_error(error: WireDecodeError) -> InterfaceValidationError {
     match error {
         WireDecodeError::Truncated => InterfaceValidationError::Truncated,
+        WireDecodeError::TrailingBytes => InterfaceValidationError::Malformed,
     }
 }
 

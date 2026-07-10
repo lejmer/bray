@@ -3,6 +3,7 @@ use std::array::TryFromSliceError;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum WireDecodeError {
     Truncated,
+    TrailingBytes,
 }
 
 pub(crate) struct WireReader<'bytes> {
@@ -25,6 +26,29 @@ impl<'bytes> WireReader<'bytes> {
 
     pub(crate) fn read_u64(&mut self) -> Result<u64, WireDecodeError> {
         Ok(u64::from_le_bytes(self.read_array()?))
+    }
+
+    pub(crate) fn read_bytes(&mut self, length: usize) -> Result<&'bytes [u8], WireDecodeError> {
+        let end = self
+            .position
+            .checked_add(length)
+            .ok_or(WireDecodeError::Truncated)?;
+        let bytes = self
+            .bytes
+            .get(self.position..end)
+            .ok_or(WireDecodeError::Truncated)?;
+
+        self.position = end;
+
+        Ok(bytes)
+    }
+
+    pub(crate) fn finish(self) -> Result<(), WireDecodeError> {
+        if self.position == self.bytes.len() {
+            Ok(())
+        } else {
+            Err(WireDecodeError::TrailingBytes)
+        }
     }
 
     pub(crate) fn read_array<const LENGTH: usize>(
@@ -69,7 +93,6 @@ impl WireEncoder {
         self.bytes.extend_from_slice(&value.to_le_bytes());
     }
 
-    #[cfg(test)]
     pub(crate) fn write_bytes(&mut self, bytes: &[u8]) {
         self.bytes.extend_from_slice(bytes);
     }
@@ -78,7 +101,6 @@ impl WireEncoder {
         &self.bytes
     }
 
-    #[cfg(test)]
     pub(crate) fn into_bytes(self) -> Vec<u8> {
         self.bytes
     }
@@ -114,5 +136,17 @@ mod tests {
             let mut reader = WireReader::new(&[0; 8][..length]);
             assert_eq!(reader.read_u64(), Err(WireDecodeError::Truncated));
         }
+    }
+
+    #[test]
+    fn length_delimited_reads_require_exact_consumption() {
+        let mut reader = WireReader::new(&[1, 2, 3]);
+
+        assert_eq!(reader.read_bytes(2), Ok(&[1, 2][..]));
+        assert_eq!(reader.finish(), Err(WireDecodeError::TrailingBytes));
+
+        let mut reader = WireReader::new(&[1, 2, 3]);
+        assert_eq!(reader.read_bytes(3), Ok(&[1, 2, 3][..]));
+        assert_eq!(reader.finish(), Ok(()));
     }
 }

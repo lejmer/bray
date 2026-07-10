@@ -205,6 +205,20 @@ impl<'bytes> ValidatedInterfaceSection<'bytes> {
         })
     }
 
+    #[cfg(test)]
+    pub(crate) const fn for_test(
+        tag: InterfaceSectionTag,
+        record_count: u64,
+        bytes: &'bytes [u8],
+    ) -> Self {
+        Self {
+            tag,
+            record_count,
+            checksum: InterfaceSectionHash::from_bytes([0; 32]),
+            bytes,
+        }
+    }
+
     /// Returns the section category.
     pub const fn tag(self) -> InterfaceSectionTag {
         self.tag
