@@ -1134,7 +1134,7 @@ Local checker services can use private analysis representations over task-local 
 checker-internal topology defined below. Both return conclusions for the binder to store before publication and neither publishes
 checker-owned intermediate state as bound or lowering data.
 
-When a checker needs whole-unit structure, it receives a read-only draft or analysis view whose type is owned by `bray-bound-tree`.
+When a checker needs whole-unit structure, it receives a read-only bound unit view whose type is owned by `bray-bound-tree`.
 It must not depend on binder-private builders. The binder freezes task-local structural nodes into that view, receives typed checker
 conclusions and side tables, and then finalizes the published tree without cloning the complete unit.
 
@@ -1149,8 +1149,8 @@ ownership shortcuts or mutable partially published nodes.
 ### Shared Analysis Topology
 
 `bray-checker` owns one checker-internal control-flow topology for each semantic unit that requires whole-unit flow analysis. The
-topology is built from the committed read-only bound draft after binding has fixed source-semantic evaluation order. It is immutable
-after construction and is shared by the focused analyses for that unit.
+topology is built from the committed read-only bound unit view after binding has fixed source-semantic evaluation order. It is
+immutable after construction and is shared by the focused analyses for that unit.
 
 The topology is not:
 
@@ -1205,8 +1205,8 @@ Fields and constructors remain checker-private. Numeric IDs are task-local imple
 serialized, placed on symbols, or used for deterministic external ordering.
 
 Blocks contain operations in exact semantic evaluation order. Operations reference exact typed bound nodes, storage accesses,
-borrow capabilities, scopes, and control targets from the read-only draft rather than copying their records. Program points identify
-the meaningful positions before and after operations so forward and backward analyses use the same topology.
+borrow capabilities, scopes, and control targets from the read-only bound unit view rather than copying their records. Program
+points identify the meaningful positions before and after operations so forward and backward analyses use the same topology.
 
 The graph records predecessor and successor relationships directly or through compact derived indexes. It supports deterministic
 forward and backward traversal without requiring each analysis to reconstruct reverse edges.
@@ -1272,7 +1272,7 @@ compiler invariant failure, not a user diagnostic.
 Whole-unit analysis follows this boundary:
 
 1. Binding commits all syntax and semantic decisions needed to establish source evaluation order.
-2. `bray-bound-tree` provides a read-only draft view over the task-local unit without cloning its arenas.
+2. `bray-bound-tree` provides a read-only bound unit view over the task-local unit without cloning its arenas.
 3. `bray-checker` builds one immutable analysis topology from that view.
 4. Focused domains run over the shared topology according to their explicit fact dependencies.
 5. The checker returns typed conclusions, side tables, and structured diagnostic bags.

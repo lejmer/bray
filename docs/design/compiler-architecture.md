@@ -491,7 +491,7 @@ analysis state. The checker publishes the immutable storage, access, borrow, dep
 by the checked-unit contract, not its complete transfer state or work lists.
 
 Each semantic unit that requires whole-unit flow analysis has one immutable checker-internal control-flow topology constructed from
-its committed read-only bound draft. Reachability, storage flow, ownership, borrowing, lifecycle, refinement, liveness, and
+its committed read-only bound unit view. Reachability, storage flow, ownership, borrowing, lifecycle, refinement, liveness, and
 dependency-contract propagation share that topology while retaining focused typed analysis states. Mutually dependent storage,
 ownership, movement, borrowing, mutation-authority, and lifecycle facts use one composite storage-flow domain rather than circular
 independent passes.
