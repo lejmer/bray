@@ -228,10 +228,15 @@ For crate layout, crate ownership, and workspace structure, see the crate respon
 - Use comments sparingly.
 - Use standard keyboard symbols only, except where mathematical notation is genuinely needed.
 - Do not use emojis.
-- Use blank lines to separate logical phases after setup, validation, transformation, I/O, and before returning constructed values.
+- Treat blank lines as paragraph boundaries between statements with different semantic purposes.
+- Use one blank line between logical phases such as setup, validation, transformation, I/O, and publication or return.
+- Isolate `let ... else` and other guard clauses from both the setup before them and the work after them, even when the guard directly validates the preceding value.
+- Separate consecutive guard clauses when each enforces a different invariant.
+- Separate dependent construction layers when each introduces a distinct semantic level, such as package, module, and declaration identities.
+- Keep homogeneous declarations or assertions together when they form one conceptual group. Separate groups that construct different cases or verify different properties.
 - Do not compress unrelated statements together just to minimize vertical space.
 - Do not add blank lines inside argument lists, parameter lists, struct literals, enum variants, match cases, or chains of near-identical statements.
-- Keep tightly related assignment plus immediate guard or check together when the assignment is short and the guard directly validates it.
+- Use one blank line as a separator. Do not add multiple consecutive blank lines for decoration.
 
 ## Documentation
 
