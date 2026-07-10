@@ -99,6 +99,10 @@ dependencies = [
 [[package]]
 name = "bray-checker"
 version = "0.0.0"
+dependencies = [
+ "bray-bound-tree",
+ "bray-diagnostics",
+]
 
 [[package]]
 name = "bray-codegen"

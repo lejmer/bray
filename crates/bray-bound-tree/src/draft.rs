@@ -1,0 +1,85 @@
+use crate::{BoundUnitId, BoundUnitKey, BoundUnitKind};
+
+/// A read-only view of committed task-local bound structure before publication.
+///
+/// The view borrows the stable unit key so checker services cannot retain or
+/// mutate binder-owned construction state. Bound node and side-table accessors
+/// will be added here as those representations are introduced.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct BoundUnitDraft<'unit> {
+    unit: BoundUnitId,
+    key: &'unit BoundUnitKey,
+}
+
+impl<'unit> BoundUnitDraft<'unit> {
+    /// Creates a read-only draft view for one exact semantic unit.
+    pub const fn new(unit: BoundUnitId, key: &'unit BoundUnitKey) -> Self {
+        Self { unit, key }
+    }
+
+    /// Returns the compilation-local identity of the draft unit.
+    pub const fn unit(self) -> BoundUnitId {
+        self.unit
+    }
+
+    /// Returns the stable construction key of the draft unit.
+    pub const fn key(self) -> &'unit BoundUnitKey {
+        self.key
+    }
+
+    /// Returns the exact semantic category of the draft unit.
+    pub fn kind(self) -> BoundUnitKind {
+        self.key.kind()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_declarations::DeclarationId;
+    use bray_symbols::{ModulePathKey, PackageIdentity, SymbolKey, SymbolKind, SymbolRootKey};
+
+    use super::BoundUnitDraft;
+    use crate::test_support::source_anchor;
+    use crate::{BoundUnitId, BoundUnitKey, BoundUnitKind};
+
+    #[test]
+    fn drafts_borrow_exact_unit_identity_without_cloning_keys() {
+        let key = callable_body_key();
+        let draft = BoundUnitDraft::new(BoundUnitId::new(7), &key);
+
+        assert_eq!(draft.unit(), BoundUnitId::new(7));
+        assert!(std::ptr::eq(draft.key(), &key));
+        assert_eq!(draft.kind(), BoundUnitKind::CallableBody);
+    }
+
+    #[test]
+    fn drafts_are_send_and_sync() {
+        fn assert_send_sync<T: Send + Sync>() {}
+
+        assert_send_sync::<BoundUnitDraft<'static>>();
+    }
+
+    fn callable_body_key() -> BoundUnitKey {
+        let Some(package) = PackageIdentity::try_new("example.package") else {
+            panic!("test package identity is non-empty");
+        };
+
+        let Some(path) = ModulePathKey::try_new(["example"]) else {
+            panic!("test module path is non-empty");
+        };
+
+        let module = SymbolKey::module(SymbolRootKey::Package(package), path);
+
+        let Some(owner) =
+            SymbolKey::source_declaration(module, SymbolKind::Function, DeclarationId::new(0))
+        else {
+            panic!("functions can own source declarations");
+        };
+
+        let Some(key) = BoundUnitKey::callable_body(owner, source_anchor()) else {
+            panic!("functions can own callable bodies");
+        };
+
+        key
+    }
+}

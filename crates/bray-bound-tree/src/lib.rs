@@ -2,12 +2,14 @@
 
 #![forbid(unsafe_code)]
 
+mod draft;
 mod node;
 mod origin;
 #[cfg(test)]
 mod test_support;
 mod unit;
 
+pub use draft::BoundUnitDraft;
 pub use node::{
     AnyBoundNodeId, BoundBlockId, BoundCallableBodyId, BoundExpressionId, BoundNodeKind,
     BoundPatternId, ExactBoundNodeId,
