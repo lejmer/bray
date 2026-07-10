@@ -395,13 +395,20 @@ fn first_inventory_anchor(inventory: &'static CatalogSourceInventory) -> Catalog
 
 #[cfg(test)]
 mod tests {
+    use bray_parser::{
+        DeclarationFragmentContext, DeclarationFragmentSyntax, parse_declaration_fragment,
+        parse_type_expression_fragment,
+    };
+    use bray_source::{SourceIdentity, SourceOrigin, SourceStore, SourceVersion};
+
     use super::{CatalogFragmentValidator, build_catalog};
     use crate::catalog::{
         CatalogDeclarationKind, CatalogDeclarationSurface, CatalogDiagnostic,
         CatalogDiagnosticKind, CatalogDiagnostics, CatalogField, CatalogKind, CatalogMetadataKind,
-        CatalogSource, CatalogSourceAnchor, CatalogSourceId, CatalogSourceInventory,
-        CatalogSurfaceContext, CatalogTypeSurface, CompilerKnownDeclarationOwner,
-        RecognizedStandardLibraryDeclarationOwner,
+        CatalogScopeLocation, CatalogSource, CatalogSourceAnchor, CatalogSourceId,
+        CatalogSourceInventory, CatalogSurfaceContext, CatalogTypeSurface,
+        CompilerKnownDeclarationOwner, RecognizedStandardLibraryDeclarationOwner,
+        generator_input_inventory,
     };
     use crate::{AvailabilityRule, ImplementationHook, RepresentationRole};
 
@@ -472,6 +479,96 @@ mod tests {
     };
 
     #[test]
+    fn representative_generator_inputs_build_with_real_bray_fragments() {
+        let mut validator = BrayFragmentValidator;
+        let catalog = match build_catalog(generator_input_inventory(), &mut validator) {
+            Ok(catalog) => catalog,
+            Err(diagnostics) => panic!("representative catalog should build: {diagnostics:#?}"),
+        };
+
+        assert_eq!(catalog.compiler_known_scopes().len(), 3);
+        assert_eq!(catalog.compiler_known_declarations().len(), 12);
+        assert_eq!(catalog.compiler_known_values().len(), 3);
+        assert_eq!(catalog.recognized_standard_library_scopes().len(), 1);
+        assert_eq!(catalog.recognized_standard_library_declarations().len(), 1);
+
+        let raw_pointer = declaration(&catalog, "RawPointer");
+        let element = declaration(&catalog, "RawPointerElement");
+        let storage = declaration(&catalog, "Storage");
+        let storage_load = declaration(&catalog, "StorageLoad");
+        let callable = declaration(&catalog, "UnaryCallable");
+        let implementation = declaration(&catalog, "BoolStorageImplementation");
+        let implementation_item = declaration(&catalog, "BoolStorageItem");
+        let memory_copy = declaration(&catalog, "MemoryCopy");
+        let target_real = declaration(&catalog, "TargetReal16");
+
+        assert_eq!(raw_pointer.kind(), CatalogDeclarationKind::Struct);
+        assert_eq!(
+            element.owner(),
+            CompilerKnownDeclarationOwner::Declaration(raw_pointer.id())
+        );
+        assert_eq!(storage.kind(), CatalogDeclarationKind::Trait);
+        assert_eq!(callable.kind(), CatalogDeclarationKind::CallableContract);
+        assert_eq!(
+            storage_load.owner(),
+            CompilerKnownDeclarationOwner::Declaration(storage.id())
+        );
+        assert_eq!(
+            implementation.kind(),
+            CatalogDeclarationKind::NamedTraitImplementation
+        );
+        assert_eq!(
+            implementation_item.owner(),
+            CompilerKnownDeclarationOwner::Declaration(implementation.id())
+        );
+        assert_eq!(
+            memory_copy.implementation_hook(),
+            Some(ImplementationHook::MemoryCopy)
+        );
+        assert_eq!(memory_copy.availability_rule(), AvailabilityRule::RawMemory);
+        assert_eq!(target_real.availability_rule(), AvailabilityRule::Real16);
+        assert_eq!(
+            target_real.representation_role(),
+            Some(RepresentationRole::ScalarR16)
+        );
+
+        let Some(core_memory) = catalog
+            .compiler_known_scopes()
+            .iter()
+            .find(|scope| scope.key().as_str() == "CoreMemory")
+        else {
+            panic!("core memory scope should exist");
+        };
+
+        let CatalogScopeLocation::Module(core_memory_path) = core_memory.location() else {
+            panic!("core memory should be a module scope");
+        };
+
+        assert_eq!(
+            core_memory_path.segments().collect::<Vec<_>>(),
+            ["core", "memory"]
+        );
+
+        assert_eq!(
+            catalog
+                .compiler_known_values()
+                .iter()
+                .map(|value| (value.key().as_str(), value.representation_role()))
+                .collect::<Vec<_>>(),
+            [
+                ("False", RepresentationRole::BooleanFalse),
+                ("None", RepresentationRole::NoneValue),
+                ("True", RepresentationRole::BooleanTrue),
+            ]
+        );
+
+        let recognized = &catalog.recognized_standard_library_declarations()[0];
+
+        assert_eq!(recognized.key().as_str(), "StandardConvert");
+        assert_eq!(recognized.kind(), CatalogDeclarationKind::Function);
+    }
+
+    #[test]
     fn builder_merges_scopes_and_assigns_canonical_typed_ids() {
         let mut validator = TestFragmentValidator;
         let catalog = match build_catalog(&VALID_INVENTORY, &mut validator) {
@@ -506,6 +603,7 @@ mod tests {
         );
 
         let scope = &catalog.compiler_known_scopes()[0];
+
         assert_eq!(
             scope
                 .declaration_ids()
@@ -516,11 +614,13 @@ mod tests {
         );
 
         let value = &catalog.compiler_known_values()[0];
+
         assert_eq!(value.key().as_str(), "True");
         assert_eq!(value.spelling().as_str(), "true");
         assert_eq!(value.representation_role(), RepresentationRole::BooleanTrue);
 
         let recognized = &catalog.recognized_standard_library_declarations()[0];
+
         assert_eq!(recognized.key().as_str(), "Length");
         assert_eq!(
             recognized.owner(),
@@ -734,6 +834,167 @@ mod tests {
             kind,
             CatalogDiagnosticKind::RecognizedRepresentation
         )));
+    }
+
+    struct BrayFragmentValidator;
+
+    impl CatalogFragmentValidator for BrayFragmentValidator {
+        fn validate_declaration_surface(
+            &mut self,
+            source: CatalogSource,
+            surface: CatalogDeclarationSurface,
+            context: CatalogSurfaceContext,
+        ) -> Result<CatalogDeclarationKind, CatalogDiagnostics> {
+            let text = fragment_text(source, surface.anchor());
+            let sources = fragment_sources(source.relative_path(), &text);
+
+            let Some(snapshot) = sources.iter().next() else {
+                panic!("fragment source should exist");
+            };
+
+            let result = parse_declaration_fragment(snapshot, parser_context(context));
+
+            assert!(
+                result.diagnostics().is_empty(),
+                "{} has parser diagnostics: {:?}",
+                source.relative_path(),
+                result.diagnostics()
+            );
+            assert!(
+                !result.is_recovered(),
+                "{} contains recovered declaration syntax",
+                source.relative_path()
+            );
+
+            let Some(declaration) = result.declaration() else {
+                panic!("catalog surface should contain one declaration");
+            };
+
+            Ok(catalog_declaration_kind(declaration))
+        }
+
+        fn validate_type_surface(
+            &mut self,
+            source: CatalogSource,
+            surface: CatalogTypeSurface,
+        ) -> Result<(), CatalogDiagnostics> {
+            let text = fragment_text(source, surface.anchor());
+            let sources = fragment_sources(source.relative_path(), &text);
+
+            let Some(snapshot) = sources.iter().next() else {
+                panic!("fragment source should exist");
+            };
+
+            let result = parse_type_expression_fragment(snapshot);
+
+            assert!(
+                result.diagnostics().is_empty(),
+                "{} has type parser diagnostics: {:?}",
+                source.relative_path(),
+                result.diagnostics()
+            );
+            assert!(
+                !result.is_recovered(),
+                "{} contains recovered type syntax in {text:?}",
+                source.relative_path(),
+            );
+
+            Ok(())
+        }
+    }
+
+    fn fragment_text(source: CatalogSource, anchor: CatalogSourceAnchor) -> String {
+        let Some(text) = anchor.range().slice_str(source.text()) else {
+            panic!("catalog parser should retain a valid fragment range");
+        };
+
+        text.to_owned()
+    }
+
+    fn fragment_sources(name: &str, text: &str) -> SourceStore {
+        let mut sources = SourceStore::new();
+
+        let loaded = sources.insert(
+            SourceIdentity::new(0),
+            SourceOrigin::test_fixture(name),
+            SourceVersion::new(0),
+            text.to_owned(),
+        );
+
+        if let Err(error) = loaded {
+            panic!("catalog fragment should load as UTF-8: {error:?}");
+        }
+
+        sources
+    }
+
+    fn parser_context(context: CatalogSurfaceContext) -> DeclarationFragmentContext {
+        match context {
+            CatalogSurfaceContext::Scope => DeclarationFragmentContext::Module,
+            CatalogSurfaceContext::Declaration(CatalogDeclarationKind::Struct) => {
+                DeclarationFragmentContext::Struct
+            }
+            CatalogSurfaceContext::Declaration(CatalogDeclarationKind::Union) => {
+                DeclarationFragmentContext::Union
+            }
+            CatalogSurfaceContext::Declaration(CatalogDeclarationKind::UnionVariant) => {
+                DeclarationFragmentContext::UnionVariant
+            }
+            CatalogSurfaceContext::Declaration(CatalogDeclarationKind::Trait) => {
+                DeclarationFragmentContext::Trait
+            }
+            CatalogSurfaceContext::Declaration(
+                CatalogDeclarationKind::InherentImplementation
+                | CatalogDeclarationKind::UnnamedTraitImplementation
+                | CatalogDeclarationKind::NamedTraitImplementation,
+            ) => DeclarationFragmentContext::Implementation,
+            CatalogSurfaceContext::Declaration(owner) => {
+                panic!("unsupported representative declaration owner: {owner:?}")
+            }
+        }
+    }
+
+    fn catalog_declaration_kind(declaration: &DeclarationFragmentSyntax) -> CatalogDeclarationKind {
+        match declaration {
+            DeclarationFragmentSyntax::Function(_) => CatalogDeclarationKind::Function,
+            DeclarationFragmentSyntax::CallableContract(_) => {
+                CatalogDeclarationKind::CallableContract
+            }
+            DeclarationFragmentSyntax::Struct(_) => CatalogDeclarationKind::Struct,
+            DeclarationFragmentSyntax::Union(_) => CatalogDeclarationKind::Union,
+            DeclarationFragmentSyntax::Trait(_) => CatalogDeclarationKind::Trait,
+            DeclarationFragmentSyntax::NamedTraitImplementation(_) => {
+                CatalogDeclarationKind::NamedTraitImplementation
+            }
+            DeclarationFragmentSyntax::StructField(_) => CatalogDeclarationKind::StructField,
+            DeclarationFragmentSyntax::TraitTypeMember(_) => {
+                CatalogDeclarationKind::TraitTypeMember
+            }
+            DeclarationFragmentSyntax::TraitCallableMember(_) => {
+                CatalogDeclarationKind::TraitCallableMember
+            }
+            DeclarationFragmentSyntax::ImplementationTypeMemberBinding(_) => {
+                CatalogDeclarationKind::ImplementationTypeMemberBinding
+            }
+            declaration => panic!(
+                "representative catalog contains an unclassified declaration: {declaration:?}"
+            ),
+        }
+    }
+
+    fn declaration<'catalog>(
+        catalog: &'catalog crate::CompilerKnownCatalog,
+        key: &str,
+    ) -> &'catalog crate::CompilerKnownDeclarationDescriptor {
+        let Some(declaration) = catalog
+            .compiler_known_declarations()
+            .iter()
+            .find(|declaration| declaration.key().as_str() == key)
+        else {
+            panic!("representative declaration should exist: {key}");
+        };
+
+        declaration
     }
 
     struct TestFragmentValidator;

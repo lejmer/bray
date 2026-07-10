@@ -23,6 +23,7 @@ pub struct CatalogSource {
 }
 
 impl CatalogSource {
+    #[cfg(test)]
     pub(super) const fn new(
         id: CatalogSourceId,
         kind: CatalogKind,
@@ -128,28 +129,52 @@ impl CatalogTokenSpelling {
     }
 }
 
-const COMPILER_KNOWN_SOURCE_ID: CatalogSourceId = CatalogSourceId::new(0);
-const RECOGNIZED_SOURCE_ID: CatalogSourceId = CatalogSourceId::new(1);
-
-const SOURCES: [CatalogSource; 2] = [
+#[cfg(test)]
+const SOURCES: [CatalogSource; 6] = [
     CatalogSource::new(
-        COMPILER_KNOWN_SOURCE_ID,
+        CatalogSourceId::new(0),
         CatalogKind::CompilerKnown,
         "catalog/ambient/fundamentals.braydef",
         include_str!("../../catalog/ambient/fundamentals.braydef"),
     ),
     CatalogSource::new(
-        RECOGNIZED_SOURCE_ID,
+        CatalogSourceId::new(1),
+        CatalogKind::CompilerKnown,
+        "catalog/ambient/implementations.braydef",
+        include_str!("../../catalog/ambient/implementations.braydef"),
+    ),
+    CatalogSource::new(
+        CatalogSourceId::new(2),
+        CatalogKind::CompilerKnown,
+        "catalog/ambient/traits.braydef",
+        include_str!("../../catalog/ambient/traits.braydef"),
+    ),
+    CatalogSource::new(
+        CatalogSourceId::new(3),
+        CatalogKind::CompilerKnown,
+        "catalog/core/memory.braydef",
+        include_str!("../../catalog/core/memory.braydef"),
+    ),
+    CatalogSource::new(
+        CatalogSourceId::new(4),
         CatalogKind::RecognizedStandardLibrary,
         "catalog/recognized/standard-library.braydef",
         include_str!("../../catalog/recognized/standard-library.braydef"),
     ),
+    CatalogSource::new(
+        CatalogSourceId::new(5),
+        CatalogKind::CompilerKnown,
+        "catalog/std/target-facts.braydef",
+        include_str!("../../catalog/std/target-facts.braydef"),
+    ),
 ];
 
+#[cfg(test)]
 static INVENTORY: CatalogSourceInventory = CatalogSourceInventory { sources: &SOURCES };
 
-/// Returns the complete target-independent embedded source inventory.
-pub const fn embedded_source_inventory() -> &'static CatalogSourceInventory {
+/// Returns the complete generator-input inventory for catalog tests.
+#[cfg(test)]
+pub const fn generator_input_inventory() -> &'static CatalogSourceInventory {
     &INVENTORY
 }
 
@@ -160,24 +185,24 @@ mod tests {
 
     use super::{
         CatalogDeclarationSurface, CatalogKind, CatalogSourceAnchor, CatalogTokenSpelling,
-        CatalogTypeSurface, embedded_source_inventory,
+        CatalogTypeSurface, generator_input_inventory,
     };
 
     #[test]
-    fn embedded_inventory_is_complete_and_canonical() {
-        let inventory = embedded_source_inventory();
+    fn generator_input_inventory_is_complete_and_canonical() {
+        let inventory = generator_input_inventory();
         let sources = inventory.sources();
 
-        assert_eq!(sources.len(), 2);
+        assert_eq!(sources.len(), 6);
 
         assert_eq!(sources[0].kind(), CatalogKind::CompilerKnown);
-        assert_eq!(sources[1].kind(), CatalogKind::RecognizedStandardLibrary);
+        assert_eq!(sources[4].kind(), CatalogKind::RecognizedStandardLibrary);
 
         assert!(sources[0].relative_path() < sources[1].relative_path());
 
         assert!(sources[0].text().starts_with("catalog compiler_known;"));
         assert!(
-            sources[1]
+            sources[4]
                 .text()
                 .starts_with("catalog recognized_standard_library;")
         );
@@ -190,7 +215,7 @@ mod tests {
 
     #[test]
     fn declaration_and_type_surfaces_are_distinct_exact_anchors() {
-        let source = embedded_source_inventory().sources()[0].id();
+        let source = generator_input_inventory().sources()[0].id();
 
         let anchor = CatalogSourceAnchor {
             source,

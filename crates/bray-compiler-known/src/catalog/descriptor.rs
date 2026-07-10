@@ -344,7 +344,7 @@ mod tests {
     };
     use crate::catalog::{
         CatalogDeclarationSurface, CatalogSourceAnchor, CompilerKnownDeclarationId,
-        CompilerKnownDeclarationKey, embedded_source_inventory,
+        CompilerKnownDeclarationKey, generator_input_inventory,
     };
     use crate::{AvailabilityRule, ImplementationHook, RepresentationRole};
 
@@ -403,7 +403,7 @@ mod tests {
     }
 
     fn declaration_surface() -> CatalogDeclarationSurface {
-        let source = embedded_source_inventory().sources()[0].id();
+        let source = generator_input_inventory().sources()[0].id();
 
         let anchor = CatalogSourceAnchor {
             source,

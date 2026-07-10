@@ -1,0 +1,10 @@
+catalog compiler_known;
+
+scope StandardTarget at std.target {
+    declaration TargetReal16 {
+        availability Real16;
+        representation ScalarR16;
+
+        surface { struct r16 {} }
+    }
+}

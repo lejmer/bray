@@ -30,7 +30,9 @@ pub use key::{
     RecognizedStandardLibraryDeclarationKey, RecognizedStandardLibraryScopeKey,
 };
 pub use loader::{CatalogBuildResult, CatalogFragmentValidator, build_catalog};
+#[cfg(test)]
+pub use source::generator_input_inventory;
 pub use source::{
     CatalogDeclarationSurface, CatalogKind, CatalogSource, CatalogSourceAnchor,
-    CatalogSourceInventory, CatalogTokenSpelling, CatalogTypeSurface, embedded_source_inventory,
+    CatalogSourceInventory, CatalogTokenSpelling, CatalogTypeSurface,
 };

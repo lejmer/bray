@@ -174,7 +174,7 @@ mod tests {
         CatalogDeclarationKind, CatalogDeclarationSurface, CatalogScopeLocation,
         CatalogSourceAnchor, CompilerKnownDeclarationDescriptor, CompilerKnownDeclarationId,
         CompilerKnownDeclarationKey, CompilerKnownDeclarationOwner, CompilerKnownScopeDescriptor,
-        CompilerKnownScopeId, CompilerKnownScopeKey, embedded_source_inventory,
+        CompilerKnownScopeId, CompilerKnownScopeKey, generator_input_inventory,
     };
     use crate::{AvailabilityRule, ImplementationHook, RepresentationRole};
 
@@ -204,7 +204,7 @@ mod tests {
             None
         );
 
-        assert_eq!(catalog.source_inventory(), embedded_source_inventory());
+        assert_eq!(catalog.source_inventory(), generator_input_inventory());
     }
 
     #[test]
@@ -218,7 +218,7 @@ mod tests {
 
     fn catalog() -> CompilerKnownCatalog {
         CompilerKnownCatalog {
-            source_inventory: embedded_source_inventory(),
+            source_inventory: generator_input_inventory(),
             compiler_known_scopes: Arc::from([scope_descriptor()]),
             compiler_known_declarations: Arc::from([
                 declaration_descriptor(0, "RawPointer"),
@@ -257,7 +257,7 @@ mod tests {
     }
 
     fn declaration_surface() -> CatalogDeclarationSurface {
-        let source = embedded_source_inventory().sources()[0].id();
+        let source = generator_input_inventory().sources()[0].id();
 
         let anchor = CatalogSourceAnchor {
             source,
