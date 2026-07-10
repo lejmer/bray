@@ -169,6 +169,9 @@ version = "0.0.0"
 dependencies = [
  "bray-base",
  "bray-declarations",
+ "bray-parser",
+ "bray-source",
+ "bray-testing",
 ]
 
 [[package]]

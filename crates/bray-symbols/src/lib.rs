@@ -2,14 +2,22 @@
 
 #![forbid(unsafe_code)]
 
+mod build;
+mod collection;
+mod error;
 mod external;
+mod graph;
 mod id;
 mod imported;
 mod interface;
 mod key;
 mod kind;
 mod origin;
+mod record;
 mod value;
+
+pub use error::SymbolGraphBuildError;
+pub use graph::{SymbolGraph, SymbolGraphRoots};
 
 pub use external::{
     ExternalDeclarationIdentity, ExternalSymbolKey, ExternalSymbolKeyData, ExternalSymbolName,
@@ -46,6 +54,21 @@ pub use key::{
 };
 pub use kind::SymbolKind;
 pub use origin::SymbolOrigin;
+pub use record::{
+    CallableContractSymbol, CallableOverloadSymbol, CallableParameterSymbol,
+    CompilerKnownEnvironmentSymbol, ConstantSymbol, ConstructorSymbol, DestructorSymbol,
+    FinalizerSymbol, FunctionSymbol, GenericConstParameterSymbol, GenericTypeParameterSymbol,
+    ImplementationOverloadSymbol, InherentImplementationSymbol, InherentTypeMemberSymbol,
+    ModuleSymbol, NamedTraitImplementationSymbol, PackageSymbol, PredicateParameterSymbol,
+    PredicateSymbol, ScopeEnterSymbol, ScopeExitSymbol, StructFieldSymbol, StructSymbol,
+    TraitCallableFulfillmentSymbol, TraitCallableMemberSymbol, TraitConstantFulfillmentSymbol,
+    TraitConstantMemberSymbol, TraitDestructorRequirementSymbol, TraitFinalizerRequirementSymbol,
+    TraitPredicateFulfillmentSymbol, TraitPredicateMemberSymbol, TraitScopeEnterFulfillmentSymbol,
+    TraitScopeEnterRequirementSymbol, TraitScopeExitFulfillmentSymbol,
+    TraitScopeExitRequirementSymbol, TraitSymbol, TraitTypeFulfillmentSymbol,
+    TraitTypeMemberSymbol, TypeCallableMemberSymbol, UnionPayloadFieldSymbol, UnionSymbol,
+    UnionVariantSymbol, UnnamedTraitImplementationSymbol,
+};
 pub use value::{
     AnyConstantDefinitionId, BorrowKind, CallableAbi, CallableConstness, CallableDefinitionId,
     CallableExecution, CallableInstanceData, CallableInstanceId, CallableParameterData,

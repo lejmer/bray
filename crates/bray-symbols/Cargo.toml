@@ -9,5 +9,10 @@ rust-version.workspace = true
 bray-base = { path = "../bray-base" }
 bray-declarations = { path = "../bray-declarations" }
 
+[dev-dependencies]
+bray-parser = { path = "../bray-parser" }
+bray-source = { path = "../bray-source" }
+bray-testing = { path = "../bray-testing" }
+
 [lints]
 workspace = true

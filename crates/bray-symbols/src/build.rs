@@ -1,0 +1,732 @@
+use std::collections::BTreeMap;
+
+use bray_declarations::{
+    ContainerId, ContainerKind, DeclarationId, DeclarationKind, DeclarationRecord, DeclarationTable,
+};
+
+use crate::graph::{SymbolGraphBuilder, SymbolGraphRoots};
+use crate::record::{
+    CompilerKnownEnvironmentSymbol, ModuleSymbol, ModuleSymbolInput, PackageSymbol,
+    SourceSymbolIdentity, for_each_source_symbol,
+};
+use crate::{
+    AnySymbolId, CompilerKnownEnvironmentSymbolId, ModuleOwnerId, ModulePathKey, ModuleSymbolId,
+    PackageIdentity, PackageSymbolId, SymbolGraph, SymbolGraphBuildError, SymbolId, SymbolKey,
+    SymbolKind, SymbolOrigin, SymbolRootKey,
+};
+
+pub(crate) fn build_source_symbol_graph(
+    package_identity: PackageIdentity,
+    declarations: &DeclarationTable,
+) -> Result<SymbolGraph, SymbolGraphBuildError> {
+    let mut allocator = SymbolIdAllocator::new();
+
+    let roots = build_roots_and_modules(package_identity, declarations, &mut allocator)?;
+
+    let container_declarations = containing_declarations(declarations);
+
+    let mut graph = SymbolGraphBuilder::new(
+        roots.roots,
+        roots.compiler_known,
+        vec![roots.package],
+        roots.modules,
+    );
+
+    push_source_symbols(
+        &mut graph,
+        declarations,
+        &roots.module_owners,
+        &container_declarations,
+        &mut allocator,
+    )?;
+
+    Ok(graph.finish())
+}
+
+struct RootSkeleton {
+    roots: SymbolGraphRoots,
+    compiler_known: CompilerKnownEnvironmentSymbol,
+    package: PackageSymbol,
+    modules: Vec<ModuleSymbol>,
+    module_owners: BTreeMap<ContainerId, OwnerIdentity>,
+}
+
+fn build_roots_and_modules(
+    package_identity: PackageIdentity,
+    declarations: &DeclarationTable,
+    allocator: &mut SymbolIdAllocator,
+) -> Result<RootSkeleton, SymbolGraphBuildError> {
+    let compiler_known_id = CompilerKnownEnvironmentSymbolId::from_symbol_id(allocator.next()?);
+    let package_id = PackageSymbolId::from_symbol_id(allocator.next()?);
+
+    // Package identities and root keys share immutable text storage across graph records.
+    let package_root_key = SymbolRootKey::Package(package_identity.clone());
+    let package_key = SymbolKey::package(package_identity.clone());
+    let compiler_known_key = SymbolKey::compiler_known_environment();
+
+    let mut module_ids = Vec::new();
+    let mut modules = Vec::new();
+    let mut module_owners = BTreeMap::new();
+
+    for container in declarations.module_containers() {
+        let id = ModuleSymbolId::from_symbol_id(allocator.next()?);
+        let path = module_path_key(declarations, container.id())?;
+
+        // Structured keys share immutable owner and path storage with their records and indexes.
+        let key = SymbolKey::module(package_root_key.clone(), path.clone());
+        let owner = ModuleOwnerId::from(package_id);
+
+        let declaration_ids = module_declaration_ids(declarations, container.id())?;
+        let is_recovered = module_is_recovered(declarations, container.id())?;
+
+        module_ids.push(id);
+
+        // Immediate-owner lookup retains the same cheaply shared structured key.
+        module_owners.insert(
+            container.id(),
+            OwnerIdentity {
+                id: id.into(),
+                key: key.clone(),
+            },
+        );
+
+        modules.push(ModuleSymbol::new(ModuleSymbolInput {
+            id,
+            key,
+            owner,
+            path,
+            origin: SymbolOrigin::Source,
+            declarations: declaration_ids,
+            module_parts: container.module_parts().into(),
+            is_recovered,
+        }));
+    }
+
+    let compiler_known =
+        CompilerKnownEnvironmentSymbol::new(compiler_known_id, compiler_known_key, Box::new([]));
+
+    let package = PackageSymbol::new(
+        package_id,
+        package_key,
+        package_identity,
+        SymbolOrigin::Source,
+        module_ids.into_boxed_slice(),
+    );
+
+    Ok(RootSkeleton {
+        roots: SymbolGraphRoots::new(compiler_known_id, vec![package_id].into_boxed_slice()),
+        compiler_known,
+        package,
+        modules,
+        module_owners,
+    })
+}
+
+fn push_source_symbols(
+    graph: &mut SymbolGraphBuilder,
+    declarations: &DeclarationTable,
+    module_owners: &BTreeMap<ContainerId, OwnerIdentity>,
+    container_declarations: &BTreeMap<ContainerId, DeclarationId>,
+    allocator: &mut SymbolIdAllocator,
+) -> Result<(), SymbolGraphBuildError> {
+    let mut source_identities = BTreeMap::new();
+
+    for declaration in declarations.declarations() {
+        if !declaration_creates_symbol(declaration.kind()) {
+            continue;
+        }
+
+        let owner = declaration_owner(
+            declaration,
+            declarations,
+            module_owners,
+            container_declarations,
+            &source_identities,
+        )?;
+
+        let Some(symbol_kind) = source_symbol_kind(declaration.kind(), owner.id.kind()) else {
+            continue;
+        };
+
+        let raw_id = allocator.next()?;
+
+        let id = match source_symbol_id(raw_id, symbol_kind) {
+            Some(id) => id,
+            None => {
+                return Err(SymbolGraphBuildError::InvalidSourceSymbolKind {
+                    declaration: declaration.id(),
+                    declaration_kind: declaration.kind(),
+                    symbol_kind,
+                });
+            }
+        };
+
+        // Source keys form an immutable owner chain and therefore share their owner key storage.
+        let key =
+            match SymbolKey::source_declaration(owner.key.clone(), symbol_kind, declaration.id()) {
+                Some(key) => key,
+                None => {
+                    return Err(SymbolGraphBuildError::InvalidSourceSymbolKind {
+                        declaration: declaration.id(),
+                        declaration_kind: declaration.kind(),
+                        symbol_kind,
+                    });
+                }
+            };
+
+        // Child identities need the same structured key after the record takes ownership.
+        source_identities.insert(
+            declaration.id(),
+            OwnerIdentity {
+                id,
+                key: key.clone(),
+            },
+        );
+
+        graph.map_declaration(declaration.id(), id);
+
+        let identity =
+            SourceSymbolIdentity::new(key, owner.id, declaration.id(), declaration.syntax_anchor());
+
+        if let Err(symbol_kind) = graph.push_source(id, identity) {
+            return Err(SymbolGraphBuildError::InvalidSourceSymbolKind {
+                declaration: declaration.id(),
+                declaration_kind: declaration.kind(),
+                symbol_kind,
+            });
+        }
+    }
+
+    Ok(())
+}
+
+#[derive(Clone)]
+struct OwnerIdentity {
+    id: AnySymbolId,
+    key: SymbolKey,
+}
+
+struct SymbolIdAllocator {
+    next_index: usize,
+}
+
+impl SymbolIdAllocator {
+    const fn new() -> Self {
+        Self { next_index: 0 }
+    }
+
+    fn next(&mut self) -> Result<SymbolId, SymbolGraphBuildError> {
+        let index = self.next_index;
+
+        let Some(id) = SymbolId::try_from_index(index) else {
+            return Err(SymbolGraphBuildError::SymbolCapacityExceeded { index });
+        };
+
+        self.next_index = match index.checked_add(1) {
+            Some(next) => next,
+            None => return Err(SymbolGraphBuildError::SymbolCapacityExceeded { index }),
+        };
+
+        Ok(id)
+    }
+}
+
+macro_rules! define_source_symbol_allocator {
+    ($($record:ident, $id:ident, $variant:ident, $singular:ident, $plural:ident;)+) => {
+        fn source_symbol_id(id: SymbolId, kind: SymbolKind) -> Option<AnySymbolId> {
+            match kind {
+                $(
+                    SymbolKind::$variant => Some(crate::$id::from_symbol_id(id).into()),
+                )+
+                _ => None,
+            }
+        }
+    };
+}
+
+for_each_source_symbol!(define_source_symbol_allocator);
+
+fn declaration_creates_symbol(kind: DeclarationKind) -> bool {
+    !matches!(
+        kind,
+        DeclarationKind::Module | DeclarationKind::Using | DeclarationKind::Export
+    )
+}
+
+fn source_symbol_kind(declaration: DeclarationKind, owner: SymbolKind) -> Option<SymbolKind> {
+    let trait_implementation = matches!(
+        owner,
+        SymbolKind::UnnamedTraitImplementation | SymbolKind::NamedTraitImplementation
+    );
+
+    match declaration {
+        DeclarationKind::Module | DeclarationKind::Using | DeclarationKind::Export => None,
+        DeclarationKind::Constant if trait_implementation => {
+            Some(SymbolKind::TraitConstantFulfillment)
+        }
+        DeclarationKind::Constant => Some(SymbolKind::Constant),
+        DeclarationKind::Function => Some(SymbolKind::Function),
+        DeclarationKind::Predicate if trait_implementation => {
+            Some(SymbolKind::TraitPredicateFulfillment)
+        }
+        DeclarationKind::Predicate => Some(SymbolKind::Predicate),
+        DeclarationKind::CallableContract => Some(SymbolKind::CallableContract),
+        DeclarationKind::CallableOverload => Some(SymbolKind::CallableOverload),
+        DeclarationKind::ImplementationOverload => Some(SymbolKind::ImplementationOverload),
+        DeclarationKind::Struct => Some(SymbolKind::Struct),
+        DeclarationKind::Union => Some(SymbolKind::Union),
+        DeclarationKind::Trait => Some(SymbolKind::Trait),
+        DeclarationKind::InherentImplementation => Some(SymbolKind::InherentImplementation),
+        DeclarationKind::UnnamedTraitImplementation => Some(SymbolKind::UnnamedTraitImplementation),
+        DeclarationKind::NamedTraitImplementation => Some(SymbolKind::NamedTraitImplementation),
+        DeclarationKind::StructField => Some(SymbolKind::StructField),
+        DeclarationKind::UnionVariant => Some(SymbolKind::UnionVariant),
+        DeclarationKind::TraitConstantMember => Some(SymbolKind::TraitConstantMember),
+        DeclarationKind::TraitTypeMember => Some(SymbolKind::TraitTypeMember),
+        DeclarationKind::TraitPredicateMember => Some(SymbolKind::TraitPredicateMember),
+        DeclarationKind::TraitCallableMember => Some(SymbolKind::TraitCallableMember),
+        DeclarationKind::TraitFinalizerRequirement => Some(SymbolKind::TraitFinalizerRequirement),
+        DeclarationKind::TraitDestructorRequirement => Some(SymbolKind::TraitDestructorRequirement),
+        DeclarationKind::TraitScopeEnterRequirement => Some(SymbolKind::TraitScopeEnterRequirement),
+        DeclarationKind::TraitScopeExitRequirement => Some(SymbolKind::TraitScopeExitRequirement),
+        DeclarationKind::ImplementationTypeMemberBinding if trait_implementation => {
+            Some(SymbolKind::TraitTypeFulfillment)
+        }
+        DeclarationKind::ImplementationTypeMemberBinding => Some(SymbolKind::InherentTypeMember),
+        DeclarationKind::TypeConstructorMember => Some(SymbolKind::Constructor),
+        DeclarationKind::FinalizerMember => Some(SymbolKind::Finalizer),
+        DeclarationKind::DestructorMember => Some(SymbolKind::Destructor),
+        DeclarationKind::ScopeEnterMember if trait_implementation => {
+            Some(SymbolKind::TraitScopeEnterFulfillment)
+        }
+        DeclarationKind::ScopeEnterMember => Some(SymbolKind::ScopeEnter),
+        DeclarationKind::ScopeExitMember if trait_implementation => {
+            Some(SymbolKind::TraitScopeExitFulfillment)
+        }
+        DeclarationKind::ScopeExitMember => Some(SymbolKind::ScopeExit),
+        DeclarationKind::TypeCallableMember if trait_implementation => {
+            Some(SymbolKind::TraitCallableFulfillment)
+        }
+        DeclarationKind::TypeCallableMember => Some(SymbolKind::TypeCallableMember),
+        DeclarationKind::GenericTypeParameter => Some(SymbolKind::GenericTypeParameter),
+        DeclarationKind::GenericConstParameter => Some(SymbolKind::GenericConstParameter),
+        DeclarationKind::CallableParameter => Some(SymbolKind::CallableParameter),
+        DeclarationKind::PredicateParameter => Some(SymbolKind::PredicateParameter),
+        DeclarationKind::UnionPayloadField => Some(SymbolKind::UnionPayloadField),
+    }
+}
+
+fn containing_declarations(table: &DeclarationTable) -> BTreeMap<ContainerId, DeclarationId> {
+    table
+        .declarations()
+        .iter()
+        .filter_map(|declaration| {
+            declaration
+                .child_container()
+                .map(|container| (container, declaration.id()))
+        })
+        .collect()
+}
+
+fn declaration_owner(
+    declaration: &DeclarationRecord,
+    table: &DeclarationTable,
+    modules: &BTreeMap<ContainerId, OwnerIdentity>,
+    containing_declarations: &BTreeMap<ContainerId, DeclarationId>,
+    source_identities: &BTreeMap<DeclarationId, OwnerIdentity>,
+) -> Result<OwnerIdentity, SymbolGraphBuildError> {
+    let container_id = declaration.owning_container();
+
+    let Some(container) = table.container(container_id) else {
+        return Err(SymbolGraphBuildError::MissingContainer {
+            declaration: declaration.id(),
+            container: container_id,
+        });
+    };
+
+    if container.kind() == ContainerKind::Module {
+        let Some(owner) = modules.get(&container_id) else {
+            return Err(SymbolGraphBuildError::MissingModuleOwner {
+                declaration: declaration.id(),
+                container: container_id,
+            });
+        };
+
+        // Owner identities contain Arc-backed structured keys and are cheap to share.
+        return Ok(owner.clone());
+    }
+
+    let Some(containing_declaration) = containing_declarations.get(&container_id).copied() else {
+        return Err(SymbolGraphBuildError::MissingContainingDeclaration {
+            declaration: declaration.id(),
+            container: container_id,
+        });
+    };
+
+    let Some(owner) = source_identities.get(&containing_declaration) else {
+        return Err(SymbolGraphBuildError::MissingContainingSymbol {
+            declaration: declaration.id(),
+            containing_declaration,
+        });
+    };
+
+    // Owner identities contain Arc-backed structured keys and are cheap to share.
+    Ok(owner.clone())
+}
+
+fn module_path_key(
+    table: &DeclarationTable,
+    container_id: ContainerId,
+) -> Result<ModulePathKey, SymbolGraphBuildError> {
+    let Some(container) = table.container(container_id) else {
+        return Err(SymbolGraphBuildError::MissingModulePath {
+            container: container_id,
+        });
+    };
+
+    let Some(path) = container.module_path() else {
+        return Err(SymbolGraphBuildError::MissingModulePath {
+            container: container_id,
+        });
+    };
+
+    if let Some(path) = ModulePathKey::try_new(path.segments().iter().map(String::as_str)) {
+        return Ok(path);
+    }
+
+    let Some(module_part_id) = container.module_parts().first().copied() else {
+        return Err(SymbolGraphBuildError::MissingRecoveredModuleAnchor {
+            container: container_id,
+        });
+    };
+
+    let Some(module_part) = table.module_part(module_part_id) else {
+        return Err(SymbolGraphBuildError::MissingModulePart {
+            container: container_id,
+            module_part: module_part_id,
+        });
+    };
+
+    Ok(ModulePathKey::recovered(module_part.declaration()))
+}
+
+fn module_declaration_ids(
+    table: &DeclarationTable,
+    container_id: ContainerId,
+) -> Result<Box<[DeclarationId]>, SymbolGraphBuildError> {
+    let Some(container) = table.container(container_id) else {
+        return Err(SymbolGraphBuildError::MissingModulePath {
+            container: container_id,
+        });
+    };
+
+    container
+        .module_parts()
+        .iter()
+        .map(|module_part_id| {
+            table
+                .module_part(*module_part_id)
+                .map(bray_declarations::ModulePartRecord::declaration)
+                .ok_or(SymbolGraphBuildError::MissingModulePart {
+                    container: container_id,
+                    module_part: *module_part_id,
+                })
+        })
+        .collect::<Result<Vec<_>, _>>()
+        .map(Vec::into_boxed_slice)
+}
+
+fn module_is_recovered(
+    table: &DeclarationTable,
+    container_id: ContainerId,
+) -> Result<bool, SymbolGraphBuildError> {
+    let Some(container) = table.container(container_id) else {
+        return Err(SymbolGraphBuildError::MissingModulePath {
+            container: container_id,
+        });
+    };
+
+    for module_part_id in container.module_parts() {
+        let Some(module_part) = table.module_part(*module_part_id) else {
+            return Err(SymbolGraphBuildError::MissingModulePart {
+                container: container_id,
+                module_part: *module_part_id,
+            });
+        };
+
+        if module_part.is_recovered() {
+            return Ok(true);
+        }
+    }
+
+    Ok(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use bray_declarations::{
+        DeclarationChunkResult, DeclarationKind, DeclarationTable,
+        discover_source_unit_declarations, merge_declaration_chunks,
+    };
+    use bray_testing::{test_source_at, test_source_store};
+
+    use super::source_symbol_kind;
+    use crate::{
+        AnySymbolId, FunctionSymbolId, ModuleOwnerId, ModulePathKey, PackageIdentity, SymbolGraph,
+        SymbolId, SymbolKind, SymbolOrigin,
+    };
+
+    #[test]
+    fn roots_and_partial_modules_form_one_deterministic_identity_tree() {
+        let table = declaration_table(&[
+            "module core.io; func read() {}",
+            "module core.io { const Size: Int = 1; }",
+        ]);
+        let graph = build_graph(&table);
+
+        assert_eq!(graph.roots().compiler_known().symbol_id().raw(), 0);
+        assert_eq!(graph.roots().packages().len(), 1);
+        assert_eq!(graph.roots().packages()[0].symbol_id().raw(), 1);
+        assert_eq!(graph.modules().len(), 1);
+
+        let package = &graph.packages()[0];
+        let module = &graph.modules()[0];
+
+        assert_eq!(module.id().symbol_id().raw(), 2);
+        assert_eq!(package.modules(), [module.id()]);
+        assert_eq!(module.owner(), ModuleOwnerId::from(package.id()));
+        assert_eq!(module.origin(), SymbolOrigin::Source);
+        assert_eq!(module.declarations().len(), 2);
+        assert_eq!(module.module_parts().len(), 2);
+
+        let path = valid_module_path(["core", "io"]);
+
+        assert_eq!(
+            graph.module_by_path(ModuleOwnerId::from(package.id()), &path),
+            Some(module)
+        );
+
+        assert_eq!(graph.functions().len(), 1);
+        assert_eq!(graph.constants().len(), 1);
+    }
+
+    #[test]
+    fn exact_access_is_checked_against_the_assigned_kind_collection() {
+        let table = declaration_table(&["module app; func main() {}"]);
+        let graph = build_graph(&table);
+        let function = &graph.functions()[0];
+
+        assert_eq!(graph.function(function.id()), Some(function));
+
+        let forged = FunctionSymbolId::from_symbol_id(SymbolId::new(100));
+
+        assert_eq!(graph.function(forged), None);
+    }
+
+    #[test]
+    fn nested_declarations_retain_immediate_semantic_containment() {
+        let table = declaration_table(&[concat!(
+            "module app; ",
+            "struct Point<T> { x: T; } ",
+            "union Maybe { Some(value: Int); } ",
+            "func make(value: Int) {}",
+        )]);
+        let graph = build_graph(&table);
+
+        let structure = &graph.structures()[0];
+        let field = &graph.struct_fields()[0];
+        let generic = &graph.generic_type_parameters()[0];
+
+        assert_eq!(field.containing_symbol(), structure.id().into());
+        assert_eq!(generic.containing_symbol(), structure.id().into());
+
+        let union = &graph.unions()[0];
+        let variant = &graph.union_variants()[0];
+        let payload = &graph.union_payload_fields()[0];
+
+        assert_eq!(variant.containing_symbol(), union.id().into());
+        assert_eq!(payload.containing_symbol(), variant.id().into());
+
+        let function = &graph.functions()[0];
+        let parameter = &graph.callable_parameters()[0];
+
+        assert_eq!(parameter.containing_symbol(), function.id().into());
+    }
+
+    #[test]
+    fn conflicting_source_declarations_keep_distinct_identities() {
+        let table = declaration_table(&["module app; func same() {} func same() {}"]);
+        let graph = build_graph(&table);
+
+        let [first, second] = graph.functions() else {
+            panic!("expected both conflicting functions to remain in the graph");
+        };
+
+        assert_ne!(first.id(), second.id());
+        assert_ne!(first.key(), second.key());
+
+        assert_eq!(
+            graph.symbol_for_declaration(first.declaration()),
+            Some(AnySymbolId::from(first.id()))
+        );
+        assert_eq!(
+            graph.symbol_for_declaration(second.declaration()),
+            Some(AnySymbolId::from(second.id()))
+        );
+    }
+
+    #[test]
+    fn recovered_declarations_keep_source_identity_and_containment() {
+        let table = declaration_table(&["module app; struct Point\nusing core;"]);
+        let graph = build_graph(&table);
+
+        let [structure] = graph.structures() else {
+            panic!("expected the recovered struct declaration to produce a symbol");
+        };
+        let module = &graph.modules()[0];
+
+        assert!(structure.is_recovered());
+        assert_eq!(structure.containing_symbol(), module.id().into());
+
+        let declaration = match table.declaration(structure.declaration()) {
+            Some(declaration) => declaration,
+            None => panic!("symbol declaration should remain in the declaration table"),
+        };
+
+        assert_eq!(
+            structure.syntax_anchor().full_range(),
+            declaration.full_range()
+        );
+        assert!(
+            graph
+                .symbol_for_declaration(structure.declaration())
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn recovered_empty_module_paths_use_structured_declaration_anchors() {
+        let table = declaration_table(&["module ; func main() {}"]);
+        let graph = build_graph(&table);
+
+        let [module] = graph.modules() else {
+            panic!("expected one recovered logical module");
+        };
+
+        assert!(module.is_recovered());
+        assert!(module.path().is_recovered());
+        assert_eq!(module.path().segments().len(), 0);
+        assert_eq!(
+            module.path().recovery_anchor(),
+            module.declarations().first().copied()
+        );
+        assert_eq!(graph.functions()[0].containing_symbol(), module.id().into());
+    }
+
+    #[test]
+    fn graph_identity_is_independent_of_chunk_and_worker_order() {
+        let sources = test_source_store([
+            "module core; struct Point { x: Int; }",
+            "module core; union Maybe { Some(value: Int); }",
+        ]);
+
+        let first = declaration_chunk(&sources, 0);
+        let second = declaration_chunk(&sources, 1);
+
+        let forward = merge_declaration_chunks([&first, &second]);
+        let reverse = merge_declaration_chunks([&second, &first]);
+
+        let forward_graph = build_graph(forward.table());
+        let reverse_graph = build_graph(reverse.table());
+
+        assert_eq!(forward_graph, reverse_graph);
+
+        let table = Arc::new(forward.table().clone());
+        let expected = Arc::new(forward_graph);
+
+        let workers = (0..4)
+            .map(|_| {
+                let table = Arc::clone(&table);
+                let expected = Arc::clone(&expected);
+
+                std::thread::spawn(move || {
+                    let actual = build_graph(&table);
+
+                    assert_eq!(actual, *expected);
+                })
+            })
+            .collect::<Vec<_>>();
+
+        for worker in workers {
+            if let Err(error) = worker.join() {
+                panic!("parallel graph construction failed: {error:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn implementation_context_selects_fulfillment_categories() {
+        assert_eq!(
+            source_symbol_kind(
+                DeclarationKind::TypeCallableMember,
+                SymbolKind::NamedTraitImplementation,
+            ),
+            Some(SymbolKind::TraitCallableFulfillment)
+        );
+
+        assert_eq!(
+            source_symbol_kind(
+                DeclarationKind::ImplementationTypeMemberBinding,
+                SymbolKind::UnnamedTraitImplementation,
+            ),
+            Some(SymbolKind::TraitTypeFulfillment)
+        );
+
+        assert_eq!(
+            source_symbol_kind(
+                DeclarationKind::TypeCallableMember,
+                SymbolKind::InherentImplementation,
+            ),
+            Some(SymbolKind::TypeCallableMember)
+        );
+    }
+
+    fn package_identity() -> PackageIdentity {
+        match PackageIdentity::try_new("test.package") {
+            Some(identity) => identity,
+            None => panic!("test package identity is valid"),
+        }
+    }
+
+    fn valid_module_path<const N: usize>(segments: [&str; N]) -> ModulePathKey {
+        match ModulePathKey::try_new(segments) {
+            Some(path) => path,
+            None => panic!("test module path is valid"),
+        }
+    }
+
+    fn declaration_table(source_texts: &[&str]) -> DeclarationTable {
+        let sources = test_source_store(source_texts);
+        let chunks = (0u32..)
+            .take(source_texts.len())
+            .map(|index| declaration_chunk(&sources, index))
+            .collect::<Vec<_>>();
+        let result = merge_declaration_chunks(chunks.iter());
+        let (table, _diagnostics) = result.into_parts();
+        table
+    }
+
+    fn declaration_chunk(sources: &bray_source::SourceStore, index: u32) -> DeclarationChunkResult {
+        let parsed = bray_parser::parse_source_unit(test_source_at(sources, index));
+        discover_source_unit_declarations(parsed.source_unit())
+    }
+
+    fn build_graph(table: &DeclarationTable) -> SymbolGraph {
+        match SymbolGraph::build_source(package_identity(), table) {
+            Ok(graph) => graph,
+            Err(error) => panic!("test symbol graph should build: {error:?}"),
+        }
+    }
+}

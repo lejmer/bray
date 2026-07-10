@@ -16,6 +16,7 @@ impl PackageIdentity {
     /// Creates a package identity unless the canonical representation is empty.
     pub fn try_new(value: impl Into<Arc<str>>) -> Option<Self> {
         let value = shared_str(value);
+
         if value.is_empty() {
             return None;
         }
@@ -35,9 +36,18 @@ impl AsRef<str> for PackageIdentity {
     }
 }
 
-/// A non-empty logical module path used in deterministic symbol keys.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct ModulePathKey(Arc<[Arc<str>]>);
+enum ModulePathKeyData {
+    Present(Arc<[Arc<str>]>),
+    Recovered(DeclarationId),
+}
+
+/// A logical module path used in deterministic symbol keys.
+///
+/// Present paths contain one or more non-empty segments. A recovered empty syntax path is
+/// anchored by its stable declaration ID without pretending a source spelling was present.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct ModulePathKey(ModulePathKeyData);
 
 impl ModulePathKey {
     /// Creates a logical path when it contains at least one non-empty segment.
@@ -47,16 +57,39 @@ impl ModulePathKey {
         S: Into<Arc<str>>,
     {
         let segments: Vec<Arc<str>> = segments.into_iter().map(Into::into).collect();
+
         if segments.is_empty() || segments.iter().any(|segment| segment.is_empty()) {
             return None;
         }
 
-        Some(Self(shared_slice(segments)))
+        Some(Self(ModulePathKeyData::Present(shared_slice(segments))))
     }
 
     /// Iterates over the path segments in semantic order.
     pub fn segments(&self) -> impl ExactSizeIterator<Item = &str> {
-        self.0.iter().map(AsRef::as_ref)
+        let segments = match &self.0 {
+            ModulePathKeyData::Present(segments) => segments.as_ref(),
+            ModulePathKeyData::Recovered(_) => &[],
+        };
+
+        segments.iter().map(AsRef::as_ref)
+    }
+
+    /// Returns whether this path represents recovered syntax without a present segment.
+    pub const fn is_recovered(&self) -> bool {
+        matches!(self.0, ModulePathKeyData::Recovered(_))
+    }
+
+    /// Returns the stable declaration anchor for a recovered path.
+    pub const fn recovery_anchor(&self) -> Option<DeclarationId> {
+        match self.0 {
+            ModulePathKeyData::Present(_) => None,
+            ModulePathKeyData::Recovered(declaration) => Some(declaration),
+        }
+    }
+
+    pub(crate) const fn recovered(declaration: DeclarationId) -> Self {
+        Self(ModulePathKeyData::Recovered(declaration))
     }
 }
 
@@ -369,6 +402,8 @@ mod tests {
 
         assert_eq!(path.segments().len(), 2);
         assert_eq!(path.segments().collect::<Vec<_>>(), ["example", "module"]);
+        assert!(!path.is_recovered());
+        assert_eq!(path.recovery_anchor(), None);
     }
 
     #[test]
@@ -396,6 +431,7 @@ mod tests {
             SymbolKey::module(SymbolRootKey::CompilerKnownEnvironment, module_path());
 
         assert_ne!(package_module, compiler_module);
+
         assert_eq!(package_module.kind(), SymbolKind::Module);
         assert_eq!(compiler_module.kind(), SymbolKind::Module);
 
