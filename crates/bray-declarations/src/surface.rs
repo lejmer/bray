@@ -54,6 +54,8 @@ pub struct DeclarationSurface {
     directives: Box<[SyntaxAnchor]>,
     constraints: Box<[SyntaxAnchor]>,
     contract_clauses: Box<[SyntaxAnchor]>,
+    runtime_default: Option<SyntaxAnchor>,
+    overload_arms: Box<[SyntaxAnchor]>,
 }
 
 impl DeclarationSurface {
@@ -70,7 +72,22 @@ impl DeclarationSurface {
             directives: directives.into_iter().collect(),
             constraints: constraints.into_iter().collect(),
             contract_clauses: contract_clauses.into_iter().collect(),
+            runtime_default: None,
+            overload_arms: Box::new([]),
         }
+    }
+
+    pub(crate) fn with_runtime_default(mut self, runtime_default: Option<SyntaxAnchor>) -> Self {
+        self.runtime_default = runtime_default;
+        self
+    }
+
+    pub(crate) fn with_overload_arms(
+        mut self,
+        overload_arms: impl IntoIterator<Item = SyntaxAnchor>,
+    ) -> Self {
+        self.overload_arms = overload_arms.into_iter().collect();
+        self
     }
 
     pub(crate) fn empty() -> Self {
@@ -87,6 +104,11 @@ impl DeclarationSurface {
         &self.modifiers
     }
 
+    /// Returns whether the declaration carries the `static` modifier.
+    pub fn has_static_modifier(&self) -> bool {
+        self.modifiers.contains(&SyntaxKind::StaticKeyword)
+    }
+
     /// Returns directive syntax anchors in source order.
     pub fn directives(&self) -> &[SyntaxAnchor] {
         &self.directives
@@ -100,5 +122,15 @@ impl DeclarationSurface {
     /// Returns syntax anchors for callable contract clauses in source order.
     pub fn contract_clauses(&self) -> &[SyntaxAnchor] {
         &self.contract_clauses
+    }
+
+    /// Returns the default expression anchor, or its recovered owner anchor, when present.
+    pub const fn runtime_default(&self) -> Option<SyntaxAnchor> {
+        self.runtime_default
+    }
+
+    /// Returns overload arm path anchors in source order.
+    pub fn overload_arms(&self) -> &[SyntaxAnchor] {
+        &self.overload_arms
     }
 }

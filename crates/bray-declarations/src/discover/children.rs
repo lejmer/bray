@@ -14,7 +14,7 @@ use bray_syntax::{
 };
 
 use super::names::identifier_declaration_name;
-use super::surface::modifier_token_surface;
+use super::surface::{modifier_token_surface, runtime_default_surface};
 use super::syntax::{cast_node, discovered_declaration, discovered_declaration_with_surface};
 use crate::chunk::DiscoveredDeclaration;
 use crate::name::DeclarationName;
@@ -340,11 +340,18 @@ fn generic_const_parameter_declaration(
 }
 
 fn callable_parameter_declaration(parameter: ParameterSyntax) -> DiscoveredDeclaration {
+    let surface = runtime_default_surface(
+        modifier_token_surface(parameter.parameter_modifiers().tokens()),
+        &parameter,
+        parameter.equals_token(),
+        parameter.expression(),
+    );
+
     identifier_node_declaration_with_surface(
         DeclarationKind::CallableParameter,
         &parameter,
         parameter.identifier_token(),
-        modifier_token_surface(parameter.parameter_modifiers().tokens()),
+        surface,
     )
 }
 
@@ -357,11 +364,18 @@ fn predicate_parameter_declaration(parameter: PredicateParameterSyntax) -> Disco
 }
 
 fn union_payload_field_declaration(field: UnionPayloadFieldSyntax) -> DiscoveredDeclaration {
+    let surface = runtime_default_surface(
+        modifier_token_surface(field.payload_field_modifiers().tokens()),
+        &field,
+        field.equals_token(),
+        field.expression(),
+    );
+
     identifier_node_declaration_with_surface(
         DeclarationKind::UnionPayloadField,
         &field,
         field.identifier_token(),
-        modifier_token_surface(field.payload_field_modifiers().tokens()),
+        surface,
     )
 }
 

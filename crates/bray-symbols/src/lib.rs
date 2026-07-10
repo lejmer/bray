@@ -17,6 +17,7 @@ mod member;
 mod name;
 mod origin;
 mod record;
+mod relationship;
 mod value;
 
 pub use error::SymbolGraphBuildError;
@@ -26,14 +27,14 @@ pub use external::{ExternalDeclarationIdentity, ExternalSymbolKey, ExternalSymbo
 pub use fact::{SymbolCompletionLevel, SymbolFactKind};
 pub use id::{
     AnySymbolId, CallableContractSymbolId, CallableOverloadSymbolId,
-    CallableParameterDefaultProviderSymbolId, CallableParameterSymbolId,
+    CallableParameterDefaultProviderSymbolId, CallableParameterSymbolId, CallableSymbolId,
     CompilerKnownEnvironmentSymbolId, ConstantSymbolId, ConstructorSymbolId, DestructorSymbolId,
     ExactSymbolId, FinalizerSymbolId, FunctionSymbolId, GenericConstParameterSymbolId,
     GenericParameterSymbolId, GenericTypeParameterSymbolId, ImplementationOverloadSymbolId,
     ImplementationSymbolId, InherentImplementationSymbolId, InherentTypeMemberSymbolId,
     ModuleOwnerId, ModuleSymbolId, NamedTraitImplementationSymbolId, NamedTypeSymbolId,
-    PackageSymbolId, ParameterSymbolId, PredicateParameterSymbolId, PredicateSymbolId,
-    ReceiverParameterSymbolId, ScopeEnterSymbolId, ScopeExitSymbolId,
+    PackageSymbolId, ParameterSymbolId, PredicateDefinitionSymbolId, PredicateParameterSymbolId,
+    PredicateSymbolId, ReceiverParameterSymbolId, ScopeEnterSymbolId, ScopeExitSymbolId,
     StructFieldDefaultProviderSymbolId, StructFieldSymbolId, StructSymbolId, SymbolId,
     SymbolRootId, TraitCallableFulfillmentSymbolId, TraitCallableMemberSymbolId,
     TraitConstantFulfillmentSymbolId, TraitConstantMemberSymbolId,
@@ -62,20 +63,22 @@ pub use member::{
 pub use name::SymbolName;
 pub use origin::SymbolOrigin;
 pub use record::{
-    CallableContractSymbol, CallableOverloadSymbol, CallableParameterSymbol,
-    CompilerKnownEnvironmentSymbol, ConstantSymbol, ConstructorSymbol, DestructorSymbol,
-    FinalizerSymbol, FunctionSymbol, GenericConstParameterSymbol, GenericTypeParameterSymbol,
-    ImplementationOverloadSymbol, InherentImplementationSymbol, InherentTypeMemberSymbol,
-    ModuleSymbol, NamedTraitImplementationSymbol, PackageSymbol, PredicateParameterSymbol,
-    PredicateSymbol, ScopeEnterSymbol, ScopeExitSymbol, StructFieldSymbol, StructSymbol,
+    CallableContractSymbol, CallableOverloadSymbol, CallableParameterDefaultProviderSymbol,
+    CallableParameterSymbol, CompilerKnownEnvironmentSymbol, ConstantSymbol, ConstructorSymbol,
+    DestructorSymbol, FinalizerSymbol, FunctionSymbol, GenericConstParameterSymbol,
+    GenericTypeParameterSymbol, ImplementationOverloadSymbol, InherentImplementationSymbol,
+    InherentTypeMemberSymbol, ModuleSymbol, NamedTraitImplementationSymbol, PackageSymbol,
+    PredicateParameterSymbol, PredicateSymbol, ReceiverParameterSymbol, ScopeEnterSymbol,
+    ScopeExitSymbol, StructFieldDefaultProviderSymbol, StructFieldSymbol, StructSymbol,
     TraitCallableFulfillmentSymbol, TraitCallableMemberSymbol, TraitConstantFulfillmentSymbol,
     TraitConstantMemberSymbol, TraitDestructorRequirementSymbol, TraitFinalizerRequirementSymbol,
     TraitPredicateFulfillmentSymbol, TraitPredicateMemberSymbol, TraitScopeEnterFulfillmentSymbol,
     TraitScopeEnterRequirementSymbol, TraitScopeExitFulfillmentSymbol,
     TraitScopeExitRequirementSymbol, TraitSymbol, TraitTypeFulfillmentSymbol,
-    TraitTypeMemberSymbol, TypeCallableMemberSymbol, UnionPayloadFieldSymbol, UnionSymbol,
-    UnionVariantSymbol, UnnamedTraitImplementationSymbol,
+    TraitTypeMemberSymbol, TypeCallableMemberSymbol, UnionPayloadDefaultProviderSymbol,
+    UnionPayloadFieldSymbol, UnionSymbol, UnionVariantSymbol, UnnamedTraitImplementationSymbol,
 };
+pub use relationship::RuntimeDefaultPresence;
 pub use value::{
     AnyConstantDefinitionId, BorrowKind, CallableAbi, CallableConstness, CallableDefinitionId,
     CallableExecution, CallableInstanceData, CallableInstanceId, CallableParameterData,

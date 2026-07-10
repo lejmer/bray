@@ -1,15 +1,19 @@
 use std::collections::BTreeMap;
 
-use bray_declarations::DeclarationId;
+use bray_declarations::{DeclarationId, SyntaxAnchor};
 
 use crate::collection::TypedSymbolRecords;
 use crate::record::{
-    CompilerKnownEnvironmentSymbol, ModuleSymbol, PackageSymbol, SourceSymbolIdentity,
-    for_each_source_symbol,
+    CallableParameterDefaultProviderSymbol, CompilerKnownEnvironmentSymbol, ModuleSymbol,
+    PackageSymbol, ReceiverParameterSymbol, SourceSymbolIdentity, StructFieldDefaultProviderSymbol,
+    UnionPayloadDefaultProviderSymbol, for_each_source_symbol,
 };
+use crate::relationship::{ModuleRelationships, RelationshipIndex};
 use crate::{
-    AnySymbolId, CompilerKnownEnvironmentSymbolId, ModuleOwnerId, ModulePathKey, ModuleSymbolId,
-    PackageIdentity, PackageSymbolId, SymbolGraphBuildError, SymbolKind, SymbolRootId,
+    AnySymbolId, CallableParameterDefaultProviderSymbolId, CompilerKnownEnvironmentSymbolId,
+    ModuleOwnerId, ModulePathKey, ModuleSymbolId, PackageIdentity, PackageSymbolId,
+    ReceiverParameterSymbolId, StructFieldDefaultProviderSymbolId, SymbolGraphBuildError,
+    SymbolKind, SymbolRootId, UnionPayloadDefaultProviderSymbolId,
 };
 
 /// The deterministic roots of an immutable compilation-wide symbol graph.
@@ -48,7 +52,7 @@ impl SymbolGraphRoots {
 }
 
 macro_rules! define_symbol_graph {
-    ($($record:ident, $id:ident, $variant:ident, $singular:ident, $plural:ident;)+) => {
+    ($($record:ident, $id:ident, $variant:ident, $singular:ident, $plural:ident, $relationships:ty;)+) => {
         /// An immutable deterministic identity graph for compilation-wide surface symbols.
         #[derive(Clone, Debug, Eq, PartialEq)]
         pub struct SymbolGraph {
@@ -58,6 +62,20 @@ macro_rules! define_symbol_graph {
             modules: TypedSymbolRecords<ModuleSymbolId, ModuleSymbol>,
             module_index: BTreeMap<ModuleOwnerId, BTreeMap<ModulePathKey, ModuleSymbolId>>,
             declaration_index: BTreeMap<DeclarationId, AnySymbolId>,
+            callable_parameter_default_providers: TypedSymbolRecords<
+                CallableParameterDefaultProviderSymbolId,
+                CallableParameterDefaultProviderSymbol,
+            >,
+            struct_field_default_providers: TypedSymbolRecords<
+                StructFieldDefaultProviderSymbolId,
+                StructFieldDefaultProviderSymbol,
+            >,
+            union_payload_default_providers: TypedSymbolRecords<
+                UnionPayloadDefaultProviderSymbolId,
+                UnionPayloadDefaultProviderSymbol,
+            >,
+            receiver_parameters:
+                TypedSymbolRecords<ReceiverParameterSymbolId, ReceiverParameterSymbol>,
             $(
                 $plural: TypedSymbolRecords<crate::$id, crate::$record>,
             )+
@@ -116,6 +134,62 @@ macro_rules! define_symbol_graph {
                 self.declaration_index.get(&declaration).copied()
             }
 
+            /// Returns synthesized receiver parameters in stable ID order.
+            pub fn receiver_parameters(&self) -> &[ReceiverParameterSymbol] {
+                self.receiver_parameters.records()
+            }
+
+            /// Returns a receiver parameter through checked exact-ID access.
+            pub fn receiver_parameter(
+                &self,
+                id: ReceiverParameterSymbolId,
+            ) -> Option<&ReceiverParameterSymbol> {
+                self.receiver_parameters.get(id)
+            }
+
+            /// Returns synthesized callable-parameter default providers in stable ID order.
+            pub fn callable_parameter_default_providers(
+                &self,
+            ) -> &[CallableParameterDefaultProviderSymbol] {
+                self.callable_parameter_default_providers.records()
+            }
+
+            /// Returns a callable-parameter provider through checked exact-ID access.
+            pub fn callable_parameter_default_provider(
+                &self,
+                id: CallableParameterDefaultProviderSymbolId,
+            ) -> Option<&CallableParameterDefaultProviderSymbol> {
+                self.callable_parameter_default_providers.get(id)
+            }
+
+            /// Returns synthesized struct-field default providers in stable ID order.
+            pub fn struct_field_default_providers(&self) -> &[StructFieldDefaultProviderSymbol] {
+                self.struct_field_default_providers.records()
+            }
+
+            /// Returns a struct-field provider through checked exact-ID access.
+            pub fn struct_field_default_provider(
+                &self,
+                id: StructFieldDefaultProviderSymbolId,
+            ) -> Option<&StructFieldDefaultProviderSymbol> {
+                self.struct_field_default_providers.get(id)
+            }
+
+            /// Returns synthesized union-payload default providers in stable ID order.
+            pub fn union_payload_default_providers(
+                &self,
+            ) -> &[UnionPayloadDefaultProviderSymbol] {
+                self.union_payload_default_providers.records()
+            }
+
+            /// Returns a union-payload provider through checked exact-ID access.
+            pub fn union_payload_default_provider(
+                &self,
+                id: UnionPayloadDefaultProviderSymbolId,
+            ) -> Option<&UnionPayloadDefaultProviderSymbol> {
+                self.union_payload_default_providers.get(id)
+            }
+
             $(
                 #[doc = concat!("Returns all `", stringify!($variant), "` records in stable identity order.")]
                 pub fn $plural(&self) -> &[crate::$record] {
@@ -135,6 +209,12 @@ macro_rules! define_symbol_graph {
             packages: Vec<PackageSymbol>,
             modules: Vec<ModuleSymbol>,
             declaration_index: BTreeMap<DeclarationId, AnySymbolId>,
+            pending_sources: Vec<(AnySymbolId, SourceSymbolIdentity)>,
+            relationship_index: RelationshipIndex,
+            callable_parameter_default_providers: Vec<CallableParameterDefaultProviderSymbol>,
+            struct_field_default_providers: Vec<StructFieldDefaultProviderSymbol>,
+            union_payload_default_providers: Vec<UnionPayloadDefaultProviderSymbol>,
+            receiver_parameters: Vec<ReceiverParameterSymbol>,
             $(
                 $plural: Vec<crate::$record>,
             )+
@@ -153,6 +233,12 @@ macro_rules! define_symbol_graph {
                     packages,
                     modules,
                     declaration_index: BTreeMap::new(),
+                    pending_sources: Vec::new(),
+                    relationship_index: RelationshipIndex::default(),
+                    callable_parameter_default_providers: Vec::new(),
+                    struct_field_default_providers: Vec::new(),
+                    union_payload_default_providers: Vec::new(),
+                    receiver_parameters: Vec::new(),
                     $(
                         $plural: Vec::new(),
                     )+
@@ -164,14 +250,55 @@ macro_rules! define_symbol_graph {
                 id: AnySymbolId,
                 identity: SourceSymbolIdentity,
             ) -> Result<(), SymbolKind> {
-                match id {
-                    $(
-                        AnySymbolId::$variant(id) => {
-                            self.$plural.push(crate::$record::new(id, identity));
-                            Ok(())
-                        }
-                    )+
-                    _ => Err(id.kind()),
+                if !matches!(id, $(AnySymbolId::$variant(_))|+) {
+                    return Err(id.kind());
+                }
+
+                self.relationship_index
+                    .add_symbol(id, identity.containing_symbol());
+                self.pending_sources.push((id, identity));
+                Ok(())
+            }
+
+            pub(crate) fn push_receiver(&mut self, receiver: ReceiverParameterSymbol) {
+                self.relationship_index
+                    .add_symbol(receiver.id().into(), receiver.owner().into_any());
+                self.receiver_parameters.push(receiver);
+            }
+
+            pub(crate) fn add_runtime_default(
+                &mut self,
+                owner: AnySymbolId,
+                syntax: SyntaxAnchor,
+            ) {
+                self.relationship_index.add_runtime_default(owner, syntax);
+            }
+
+            pub(crate) fn add_overload_arms(
+                &mut self,
+                owner: AnySymbolId,
+                arms: Box<[SyntaxAnchor]>,
+            ) {
+                self.relationship_index.add_overload_arms(owner, arms);
+            }
+
+            pub(crate) fn push_default_provider(&mut self, provider: DefaultProviderRecord) {
+                match provider {
+                    DefaultProviderRecord::CallableParameter(record) => {
+                        self.relationship_index
+                            .add_provider(record.subject().into(), record.id().into());
+                        self.callable_parameter_default_providers.push(record);
+                    }
+                    DefaultProviderRecord::StructField(record) => {
+                        self.relationship_index
+                            .add_provider(record.subject().into(), record.id().into());
+                        self.struct_field_default_providers.push(record);
+                    }
+                    DefaultProviderRecord::UnionPayload(record) => {
+                        self.relationship_index
+                            .add_provider(record.subject().into(), record.id().into());
+                        self.union_payload_default_providers.push(record);
+                    }
                 }
             }
 
@@ -183,9 +310,60 @@ macro_rules! define_symbol_graph {
                 self.declaration_index.insert(declaration, symbol);
             }
 
-            pub(crate) fn finish(self) -> SymbolGraph {
+            pub(crate) fn finish(
+                mut self,
+            ) -> Result<SymbolGraph, (DeclarationId, SymbolKind)> {
+                for (erased_id, identity) in std::mem::take(&mut self.pending_sources) {
+                    let declaration = identity.declaration();
+                    let kind = erased_id.kind();
+
+                    match erased_id {
+                        $(
+                            AnySymbolId::$variant(id) => {
+                                let Some(record) = crate::$record::new(
+                                    id,
+                                    identity,
+                                    &self.relationship_index,
+                                ) else {
+                                    return Err((declaration, kind));
+                                };
+
+                                self.$plural.push(record);
+                            }
+                        )+
+                        _ => return Err((declaration, kind)),
+                    }
+                }
+
                 let packages = TypedSymbolRecords::new(self.packages, PackageSymbol::id);
-                let modules = TypedSymbolRecords::new(self.modules, ModuleSymbol::id);
+                let modules = self
+                    .modules
+                    .into_iter()
+                    .map(|module| {
+                        let relationships = ModuleRelationships::new(
+                            module.id().into(),
+                            &self.relationship_index,
+                        );
+                        module.with_relationships(relationships)
+                    })
+                    .collect();
+                let modules = TypedSymbolRecords::new(modules, ModuleSymbol::id);
+                let callable_parameter_default_providers = TypedSymbolRecords::new(
+                    self.callable_parameter_default_providers,
+                    CallableParameterDefaultProviderSymbol::id,
+                );
+                let struct_field_default_providers = TypedSymbolRecords::new(
+                    self.struct_field_default_providers,
+                    StructFieldDefaultProviderSymbol::id,
+                );
+                let union_payload_default_providers = TypedSymbolRecords::new(
+                    self.union_payload_default_providers,
+                    UnionPayloadDefaultProviderSymbol::id,
+                );
+                let receiver_parameters = TypedSymbolRecords::new(
+                    self.receiver_parameters,
+                    ReceiverParameterSymbol::id,
+                );
 
                 let module_index = modules
                     .records()
@@ -199,20 +377,30 @@ macro_rules! define_symbol_graph {
                         index
                     });
 
-                SymbolGraph {
+                Ok(SymbolGraph {
                     roots: self.roots,
                     compiler_known: self.compiler_known,
                     packages,
                     modules,
                     module_index,
                     declaration_index: self.declaration_index,
+                    callable_parameter_default_providers,
+                    struct_field_default_providers,
+                    union_payload_default_providers,
+                    receiver_parameters,
                     $(
                         $plural: TypedSymbolRecords::new(self.$plural, crate::$record::id),
                     )+
-                }
+                })
             }
         }
     };
+}
+
+pub(crate) enum DefaultProviderRecord {
+    CallableParameter(CallableParameterDefaultProviderSymbol),
+    StructField(StructFieldDefaultProviderSymbol),
+    UnionPayload(UnionPayloadDefaultProviderSymbol),
 }
 
 for_each_source_symbol!(define_symbol_graph);

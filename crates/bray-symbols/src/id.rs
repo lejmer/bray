@@ -177,6 +177,36 @@ define_family_id! {
 }
 
 define_family_id! {
+    /// Identifies a declaration-surface callable that can own callable parameters.
+    CallableSymbolId {
+        Function(FunctionSymbolId),
+        TypeMember(TypeCallableMemberSymbolId),
+        TraitMember(TraitCallableMemberSymbolId),
+        TraitFulfillment(TraitCallableFulfillmentSymbolId),
+        Constructor(ConstructorSymbolId),
+        Finalizer(FinalizerSymbolId),
+        Destructor(DestructorSymbolId),
+        ScopeEnter(ScopeEnterSymbolId),
+        ScopeExit(ScopeExitSymbolId),
+        TraitFinalizer(TraitFinalizerRequirementSymbolId),
+        TraitDestructor(TraitDestructorRequirementSymbolId),
+        TraitScopeEnter(TraitScopeEnterRequirementSymbolId),
+        TraitScopeExit(TraitScopeExitRequirementSymbolId),
+        TraitScopeEnterFulfillment(TraitScopeEnterFulfillmentSymbolId),
+        TraitScopeExitFulfillment(TraitScopeExitFulfillmentSymbolId),
+    }
+}
+
+define_family_id! {
+    /// Identifies a predicate declaration that can own predicate parameters.
+    PredicateDefinitionSymbolId {
+        Predicate(PredicateSymbolId),
+        TraitMember(TraitPredicateMemberSymbolId),
+        TraitFulfillment(TraitPredicateFulfillmentSymbolId),
+    }
+}
+
+define_family_id! {
     /// Identifies the semantic owner of a logical module.
     ModuleOwnerId {
         Package(PackageSymbolId),
