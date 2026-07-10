@@ -488,6 +488,20 @@ Initialization, movement, active borrows, alias relationships, and other facts t
 analysis state. The checker publishes the immutable storage, access, borrow, dependency-contract, and operation conclusions promised
 by the checked-unit contract, not its complete transfer state or work lists.
 
+Each semantic unit that requires whole-unit flow analysis has one immutable checker-internal control-flow topology constructed from
+its committed read-only bound draft. Reachability, storage flow, ownership, borrowing, lifecycle, refinement, liveness, and
+dependency-contract propagation share that topology while retaining focused typed analysis states. Mutually dependent storage,
+ownership, movement, borrowing, mutation-authority, and lifecycle facts use one composite storage-flow domain rather than circular
+independent passes.
+
+The analysis topology is task-local checker infrastructure. It is neither canonical bound HIR nor normalized lowered-bound IR, and
+its block, edge, operation, and program-point IDs do not enter symbols, package interfaces, or published checked nodes. A separately
+requested tooling view can later project source-correlated control flow without exposing checker-private identity.
+
+Independent semantic units can build and analyze their topologies in parallel. Independent domains over one graph can run in
+parallel when their explicit input facts are available and doing so is profitable. Deterministic fixed points, diagnostics, and
+published conclusions must not depend on worker scheduling.
+
 The checked program state is the bound HIR with all required semantic facts completed.
 
 Checker services should make the bound HIR complete enough that lowering can consume it without re-checking source

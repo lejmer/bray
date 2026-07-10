@@ -94,7 +94,12 @@
 - `bray-checker`
     - Focused semantic checker services used by `bray-binder`.
     - Depends on lower semantic representations and must not depend back on binder orchestration.
-    - Owns type checking, ownership checking, borrow checking, alias checking, mutation authority, move/drop legality, initialization tracking, and effect/capability contract validation.
+    - Owns type checking, ownership checking, borrow checking, alias checking, mutation authority, move/drop legality,
+      initialization tracking, and effect/capability contract validation.
+    - Owns one immutable checker-internal control-flow topology per analyzed semantic unit and focused forward or backward data-flow
+      domains over that shared topology.
+    - Keeps graph IDs, fixed-point state, work lists, and intermediate flow facts task-local rather than publishing them as bound,
+      symbol, package-interface, or lowering identities.
     - Returns structured diagnostics and semantic facts for the binder to place on bound nodes before publication.
 
 - `bray-lowering`
