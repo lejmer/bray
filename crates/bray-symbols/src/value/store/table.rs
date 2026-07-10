@@ -40,6 +40,7 @@ where
         let slot = u32::try_from(self.entries.len())
             .map_err(|_| SemanticValueStoreError::CapacityExhausted { kind: I::KIND })?;
         let data = Arc::new(data);
+        // The ordered slot table and structural index retain the same immutable allocation.
         self.entries.push(Arc::clone(&data));
         self.indices.insert(data, slot);
 
