@@ -125,6 +125,7 @@ impl InterfaceValidationLimits {
         actual: u64,
     ) -> Result<(), crate::InterfaceValidationError> {
         let maximum = self.maximum(limit);
+
         if actual > maximum {
             return Err(crate::InterfaceValidationError::ResourceLimitExceeded {
                 limit,

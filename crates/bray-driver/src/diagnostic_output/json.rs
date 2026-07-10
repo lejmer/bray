@@ -357,7 +357,9 @@ mod tests {
         ));
 
         let bag = DiagnosticBag::single(diagnostic);
+
         let mut output = Vec::new();
+
         match write_json_diagnostics(&bag, None, &mut output) {
             Ok(()) => {}
             Err(error) => panic!("JSON diagnostics should write: {error:?}"),
@@ -367,6 +369,7 @@ mod tests {
             Ok(value) => value,
             Err(error) => panic!("JSON diagnostics should parse: {error:?}"),
         };
+
         let args = &output["diagnostics"][0]["args"];
 
         assert_eq!(args[0]["value"]["kind"], "interface_limit");

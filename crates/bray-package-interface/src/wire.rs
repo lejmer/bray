@@ -34,10 +34,12 @@ impl<'bytes> WireReader<'bytes> {
             .position
             .checked_add(LENGTH)
             .ok_or(WireDecodeError::Truncated)?;
+
         let bytes = self
             .bytes
             .get(self.position..end)
             .ok_or(WireDecodeError::Truncated)?;
+
         self.position = end;
 
         bytes

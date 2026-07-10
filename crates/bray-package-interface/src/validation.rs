@@ -23,6 +23,7 @@ impl ValidatedPackageInterface {
         policy: InterfaceValidationPolicy,
     ) -> Result<Self, InterfaceValidationError> {
         let bytes = bytes.into();
+
         validate_file_size(bytes.len(), policy)?;
 
         let decoded = InterfaceHeader::decode(&bytes).map_err(map_wire_error)?;
@@ -80,6 +81,7 @@ fn validate_file_size(
     policy: InterfaceValidationPolicy,
 ) -> Result<(), InterfaceValidationError> {
     let actual = usize_to_u64_saturating(byte_length);
+
     policy.limits().check(InterfaceLimit::FileSize, actual)
 }
 
@@ -117,6 +119,7 @@ fn validate_header(
     if header.declared_file_length() > actual_length {
         return Err(InterfaceValidationError::Truncated);
     }
+
     if header.declared_file_length() != actual_length {
         return Err(InterfaceValidationError::Malformed);
     }
@@ -138,6 +141,7 @@ fn decode_directory(
 ) -> Result<Vec<DirectoryEntry>, InterfaceValidationError> {
     let directory_length = usize_to_u64_saturating(directory_range.len());
     let section_count = directory_length / DirectoryEntry::WIRE_LENGTH;
+
     policy
         .limits()
         .check(InterfaceLimit::SectionCount, section_count)?;
@@ -156,6 +160,7 @@ fn decode_directory(
 
     for chunk in bytes[directory_range.clone()].chunks_exact(DirectoryEntry::LENGTH) {
         let decoded = DirectoryEntry::decode(chunk).map_err(map_wire_error)?;
+
         let Some(tag) = InterfaceSectionTag::from_wire_value(decoded.raw_tag) else {
             return Err(InterfaceValidationError::Malformed);
         };
@@ -169,6 +174,7 @@ fn decode_directory(
         policy
             .limits()
             .check(InterfaceLimit::RecordCount, decoded.record_count)?;
+
         decoded_allocation = decoded_allocation
             .checked_add(decoded.length)
             .ok_or_else(|| InterfaceValidationError::ResourceLimitExceeded {
@@ -176,12 +182,14 @@ fn decode_directory(
                 actual: u64::MAX,
                 maximum: policy.limits().maximum(InterfaceLimit::DecodedAllocation),
             })?;
+
         policy
             .limits()
             .check(InterfaceLimit::DecodedAllocation, decoded_allocation)?;
 
         let payload_range = checked_range(decoded.offset, decoded.length, bytes.len())
             .map_err(range_validation_error)?;
+
         if payload_range.start < InterfaceHeader::LENGTH
             || ranges_overlap(&payload_range, &directory_range)
             || payload_range.start < previous_end
@@ -207,6 +215,7 @@ fn validate_hashes(
         let payload = entry
             .payload(bytes)
             .ok_or(InterfaceValidationError::Malformed)?;
+
         if compute_section_hash(entry, payload) != entry.checksum() {
             return Err(InterfaceValidationError::SectionChecksumMismatch {
                 section: entry.tag(),
@@ -217,6 +226,7 @@ fn validate_hashes(
     let content_hash = compute_content_hash(&header, directory, bytes)
         .ok_or(InterfaceValidationError::Malformed)?;
     let artifact_hash = compute_artifact_hash(bytes).ok_or(InterfaceValidationError::Malformed)?;
+
     if content_hash != header.content_hash() || artifact_hash != header.artifact_hash() {
         return Err(InterfaceValidationError::HashMismatch);
     }
@@ -240,6 +250,7 @@ fn checked_range(
         .ok_or(CheckedRangeError::Overflow)?;
     let start = usize::try_from(offset).map_err(|_| CheckedRangeError::Overflow)?;
     let end = usize::try_from(end).map_err(|_| CheckedRangeError::Overflow)?;
+
     if end > file_length {
         return Err(CheckedRangeError::OutOfBounds);
     }
