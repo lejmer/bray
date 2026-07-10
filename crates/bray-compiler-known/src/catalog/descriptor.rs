@@ -78,6 +78,15 @@ pub enum CatalogDeclarationKind {
     ImplementationTypeMemberBinding,
 }
 
+/// Declaration context supplied when an embedded Bray surface is validated.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum CatalogSurfaceContext {
+    /// The declaration belongs directly to a catalog scope.
+    Scope,
+    /// The declaration belongs to a declaration of the given category.
+    Declaration(CatalogDeclarationKind),
+}
+
 /// Location represented by a compiler-known scope descriptor.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum CatalogScopeLocation {

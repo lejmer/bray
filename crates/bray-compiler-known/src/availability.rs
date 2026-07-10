@@ -27,6 +27,24 @@ pub enum AvailabilityRule {
     Allocation,
 }
 
+impl AvailabilityRule {
+    pub(crate) fn from_catalog_spelling(spelling: &str) -> Option<Self> {
+        match spelling {
+            "Always" => Some(Self::Always),
+            "Real16" => Some(Self::Real16),
+            "Real128" => Some(Self::Real128),
+            "Complex32" => Some(Self::Complex32),
+            "Complex256" => Some(Self::Complex256),
+            "RawMemory" => Some(Self::RawMemory),
+            "Atomics" => Some(Self::Atomics),
+            "ForeignAbi" => Some(Self::ForeignAbi),
+            "AddressSpaces" => Some(Self::AddressSpaces),
+            "Allocation" => Some(Self::Allocation),
+            _ => None,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::AvailabilityRule;
