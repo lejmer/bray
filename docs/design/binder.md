@@ -128,7 +128,8 @@ bray-ir -------------> bray-lowering
 
 The exact Cargo edges can be narrower, but these ownership rules are mandatory:
 
-- `bray-symbols` must not depend on `bray-binder`, `bray-bound-tree`, or `bray-checker`,
+- `bray-symbols` owns canonical semantic types, constant values, open constant terms, generic substitutions, and their typed IDs in
+  addition to declaration symbols, and must not depend on `bray-binder`, `bray-bound-tree`, or `bray-checker`,
 - `bray-bound-tree` owns published bound node types, typed node IDs, immutable arenas, and bound walkers,
 - `bray-checker` owns focused semantic rule services and checker-specific analysis state,
 - `bray-binder` owns name resolution, task-local construction state, checker orchestration, and final unit assembly,
@@ -144,6 +145,271 @@ Durable semantic fact value types required on bound nodes belong in `bray-bound-
 
 Binding-dependent symbol facts are exposed through symbol-facing APIs but computed through compilation queries implemented by the
 binder and checker services. This does not create a reverse crate dependency from `bray-symbols`.
+
+---
+
+## Semantic Types, Constants, And Substitutions
+
+### Ownership
+
+`bray-symbols` owns the canonical semantic identity substrate that directly composes with symbols:
+
+- `TypeId` and immutable semantic type records,
+- `ConstantValueId` and immutable closed typed constant values,
+- `ConstantTermId` and immutable open checked constant terms,
+- `GenericSubstitutionId`,
+- `ConcreteGenericSubstitutionId`,
+- trait applications, callable instances, implementation instances, and related canonical identities,
+- interner and read-only view APIs for those values.
+
+These values are not declaration symbols. They live in `bray-symbols` because their identities directly reference typed symbol IDs,
+symbol APIs return them, and placing them in a higher crate would create a dependency cycle. A separate type crate would require
+moving all typed symbol IDs into another lower identity crate without currently creating a clearer ownership boundary.
+
+Other responsibilities remain separate:
+
+- `bray-binder` resolves type syntax, constant references, and generic arguments,
+- `bray-bound-tree` owns checked constant-expression templates and source-shaped HIR,
+- `bray-checker` owns inference variables, unification, type relations, constraint proofs, and constant evaluation,
+- `bray-compilation` owns semantic-store instances, query caches, target-specific evaluation, cancellation, and publication,
+- `bray-package-interface` maps canonical values to and from stable interface encodings,
+- `bray-lowering` consumes finalized types and values without rerunning type checking or constant evaluation.
+
+`bray-symbols` owns pure structural construction, interning, inspection, and substitution over already validated semantic values. It
+does not own the semantic algorithms that determine whether a conversion, constraint, operation, or constant expression is valid.
+
+### Semantic Store
+
+One compilation or immutable symbol snapshot owns a `SemanticValueStore` associated with its symbol identity space.
+
+Conceptually, the store contains append-only canonical tables for:
+
+- types,
+- closed constant values,
+- open constant terms,
+- generic substitutions,
+- trait applications,
+- callable instances,
+- implementation instances.
+
+Entries are immutable after insertion. Internal synchronized mutation is permitted only to intern a new immutable entry or publish a
+completed lookup cache. Concurrent construction of the same structural key must return one canonical ID in that store.
+
+The store is not process-global because its records contain compilation-local symbol IDs. `TypeId`, `ConstantValueId`,
+`ConstantTermId`, and substitution IDs are valid only with the semantic store that issued them.
+
+Context-bound views provide checked access. Cross-store use is a compiler API error and must not be caused by ordinary malformed user
+source.
+
+### Type Representation
+
+`TypeId` identifies one canonical immutable `TypeData` record.
+
+Conceptually, durable variants include:
+
+```rust
+pub enum TypeData {
+    Error,
+    Named {
+        definition: NamedTypeSymbolId,
+        substitution: GenericSubstitutionId,
+    },
+    TypeParameter(GenericTypeParameterSymbolId),
+    AssociatedTypeProjection {
+        application: TraitApplicationId,
+        member: TraitTypeMemberSymbolId,
+    },
+    Tuple(Arc<[TypeId]>),
+    Array {
+        element: TypeId,
+        length: ConstantTermId,
+    },
+    Slice(TypeId),
+    Nullable(TypeId),
+    Borrow {
+        kind: BorrowKind,
+        target: TypeId,
+    },
+    TraitView(TraitApplicationId),
+    OwnedIndirection {
+        storage: TypeId,
+        target: TypeId,
+    },
+    Callable(CallableTypeData),
+}
+```
+
+The exact variants follow durable semantic type categories and language-defined type-form identity, not parser productions. Callable
+type data includes every parameter, result, contract, effect, capability, and ABI component that participates in callable type
+identity.
+
+A named constructed type retains its exact definition symbol and ordered generic substitution. Structural type records retain every
+subject type and compile-time argument that participates in identity.
+
+Associated type projections remain explicit canonical types while their selected type is not globally fixed. A context that selects
+an implementation can resolve the projection through an ordinary semantic fact without mutating the original `TypeId`.
+
+One canonical error type supports recovery. The diagnostic belongs to the fact that produced the error type. Error types do not
+embed diagnostic IDs or source text and are forbidden in successfully emitted package interfaces.
+
+### Inference Types
+
+Inference variables are checker-local work state, not canonical semantic types:
+
+```rust
+pub struct InferenceTypeId(u32);
+```
+
+Inference variables, unification parents, candidate sets, deferred constraints, and solver obligations remain in a checker-owned
+inference context. They must not be interned as `TypeId`, stored on published checked bound nodes, serialized into package interfaces,
+or exposed by completed symbol facts.
+
+Before publication, every inference variable is resolved to a canonical `TypeId` or the canonical error type with diagnostics owned
+by the checking fact.
+
+### Closed Constant Values
+
+`ConstantValueId` identifies one fully evaluated, typed, materializable constant value.
+
+Conceptually:
+
+```rust
+pub struct ConstantValueData {
+    ty: TypeId,
+    kind: ConstantValueKind,
+}
+```
+
+`ConstantValueKind` is a closed category-specific representation for language-permitted constant values, including:
+
+- Boolean and character values,
+- typed integer values,
+- selected-runtime-format real and complex values,
+- strings,
+- `unit` and nullable absence,
+- nullable presence,
+- tuples and arrays,
+- constant product values,
+- constant union variant values,
+- other aggregate forms explicitly permitted by constant materialization rules.
+
+Aggregate records reference child `ConstantValueId` values and form an immutable canonical DAG. They do not represent runtime storage
+identity.
+
+Integer evaluation can use exact intermediate arithmetic in checker-owned state. A published integer constant is normalized to its
+declared type after representability has been checked. Real and complex values retain the exact selected runtime-format bits. Strings
+use canonical string content. Aggregate identity includes exact type, variant where applicable, and ordered child values.
+
+A canonical error constant value supports recovery. Its diagnostics remain on the failed constant-instance fact. Error values are
+never valid generic arguments for concrete instantiation and are forbidden in emitted interfaces.
+
+Literal adaptation intermediates, unbounded evaluation integers, evaluation stacks, resource counters, and traces are checker-owned
+work values rather than `ConstantValueKind` variants.
+
+### Open Constant Terms
+
+A const parameter or an expression such as `N + 1` is not a closed `ConstantValueId`. Open compile-time expressions used in generic
+types, type forms, substitutions, and static facts use `ConstantTermId`.
+
+Conceptually, durable term variants include:
+
+```rust
+pub enum ConstantTermData {
+    Value(ConstantValueId),
+    Parameter(GenericConstParameterSymbolId),
+    TargetFact(TargetFactId),
+    Unary {
+        operation: ConstantUnaryOperation,
+        operand: ConstantTermId,
+    },
+    Binary {
+        operation: ConstantBinaryOperation,
+        left: ConstantTermId,
+        right: ConstantTermId,
+    },
+    DefinitionApplication {
+        definition: AnyConstantDefinitionId,
+        substitution: GenericSubstitutionId,
+        selected_implementation: Option<ImplementationInstanceId>,
+    },
+    Call {
+        callable: CallableInstanceId,
+        arguments: Arc<[ConstantTermId]>,
+    },
+    Projection(ConstantProjection),
+}
+```
+
+The exact variants cover checked constant forms required in semantic identity. They reference selected semantic operations and exact
+symbols, not syntax tokens or unresolved names.
+
+`DefinitionApplication` can remain open. `ConstantInstanceKey` is the separate concrete evaluation key and requires a
+`ConcreteGenericSubstitutionId` plus the selected target profile.
+
+This is a restricted canonical identity representation, not a second general bound tree. Full checked constant initializer,
+predicate, contract, and runtime-default templates remain in `bray-bound-tree`.
+
+Closed subterms are evaluated and interned as `Value`. Open terms preserve evaluation order and selected operations. Interning does
+not perform arbitrary algebraic rewriting. For example, `N + 1` and `1 + N` normally have different open term identities even if a
+particular checking context can prove them equal.
+
+### Generic Substitutions
+
+A substitution records its exact generic owner and ordered arguments:
+
+```rust
+pub struct GenericSubstitutionData {
+    owner: GenericOwnerId,
+    arguments: Arc<[GenericArgument]>,
+}
+
+pub enum GenericArgument {
+    Type(TypeId),
+    Constant(ConstantTermId),
+}
+```
+
+The owner lets canonical construction validate parameter count, order, and argument category. An empty substitution is canonical for
+its owner rather than an untyped globally reusable empty list.
+
+`GenericSubstitutionId` can describe an open generic context. `ConcreteGenericSubstitutionId` is a validated typed wrapper whose type
+arguments are concrete and whose constant terms have evaluated to valid closed values. Operations that require concrete
+instantiation, including concrete constant-instance evaluation and code generation, require the concrete ID rather than repeatedly
+checking an open substitution.
+
+Applying a substitution is a pure structural operation over canonical semantic values. It creates or reuses canonical types, terms,
+trait applications, and instances through the semantic store. It does not perform name lookup, overload resolution, constraint
+proof, or constant evaluation.
+
+### Equality And Contextual Proof
+
+Within one semantic store, equal canonical IDs guarantee equal canonical representations.
+
+Closed constructed types use exact definition identity and exact ordered type and constant values. Open types use canonical open
+terms. Different open `TypeId` values are not globally merged because one local generic constraint proves their const arguments
+equal.
+
+The checker owns context-sensitive type relations. A constraint context can prove two different open terms or open types equivalent
+for one operation without changing global interning. Consequently:
+
+- equal `TypeId` values are definitively the same canonical type,
+- unequal concrete `TypeId` values are different concrete types,
+- unequal open `TypeId` values can still be proven equivalent in an exact constraint context,
+- such a proof is a checker fact and does not mutate or alias either canonical ID.
+
+This keeps interning deterministic and context-independent while allowing generic proofs to establish the relationships required by
+the language.
+
+### IDs, Determinism, And Persistence
+
+Semantic value IDs are opaque store-local cache handles. Equivalent structural keys return the same ID within one store, but numeric
+ID values are not serialized and need not remain equal across compilations, snapshots, or different lazy demand orders.
+
+Compiler outputs, interface encoding, diagnostics, and deterministic ordering must use canonical structural keys or rendered
+semantic values rather than numeric ID order. Numeric assignment must never become observable language behavior.
+
+Incremental reuse across snapshots uses stable symbol keys, canonical type and constant keys, package-interface values, and explicit
+remapping. It does not persist raw `TypeId`, `ConstantValueId`, `ConstantTermId`, or substitution integers.
 
 ---
 
@@ -913,6 +1179,15 @@ Binder tests should validate semantic contracts rather than builder implementati
 
 Required unit coverage includes:
 
+- canonical type, constant value, constant term, and substitution interning,
+- concurrent interning returning one canonical ID per structural key,
+- checked access rejecting IDs from another semantic store,
+- inference variables never appearing in published types or interfaces,
+- concrete substitutions rejecting open, unresolved, or error arguments,
+- closed constant folding and exact typed value identity,
+- open term identity preserving selected operation and evaluation order,
+- contextual proofs relating open terms without globally merging canonical IDs,
+- numeric semantic ID assignment not affecting diagnostics or serialized ordering,
 - exact typed node and unit ID separation,
 - rejecting cross-unit node and scope IDs through checked accessors,
 - deterministic arena and local slot assignment,
@@ -950,11 +1225,6 @@ structured diagnostics, never memory unsafety or user-triggered panics.
 
 ## Decisions Requiring Follow-Up
 
-### Type And Constant Representation
-
-The exact `TypeId`, generic substitution, constant value, and type interning contracts must be finalized before concrete expression
-and signature node APIs are implemented. Their ownership must not introduce a dependency cycle through `bray-symbols`.
-
 ### Place And Dependency Representation
 
 The bound representation needs a typed model for values, places, projections, storage identity, borrows, and dependency contracts.
@@ -973,17 +1243,18 @@ normalized lowered-bound representation required before `bray-ir` construction.
 
 Implementation should proceed in dependency order:
 
-1. Define the injected binder fact context and binding-dependent symbol-fact provider contracts.
-2. Define bound unit kinds, typed IDs, stable keys, origins, and checked accessor behavior.
-3. Define immutable per-unit bound storage and category-specific error nodes.
-4. Define category-specific checked-unit results and `DiagnosticResult<T>` publication integration.
-5. Implement local snapshot and lexical-scope builders against the contracts in `docs/design/symbols.md`.
-6. Define binder request contexts, task-local builders, and deterministic dependency recording.
-7. Implement typed name and path resolution over surface and local symbol APIs.
-8. Implement patterns, locals, blocks, and anonymous callable unit boundaries.
-9. Add expression, call, member, conversion, and control-flow bound nodes incrementally by grammar category.
-10. Integrate focused checker services and whole-unit analysis finalization.
-11. Add deterministic diagnostic aggregation, cancellation, speculation, and parallel-query tests.
-12. Establish the checked-HIR-to-lowered-bound and lowered-bound-to-`bray-ir` boundaries before implementing production lowering.
+1. Define canonical type, constant, open-term, substitution, and semantic-store contracts in `bray-symbols`.
+2. Define the injected binder fact context and binding-dependent symbol-fact provider contracts.
+3. Define bound unit kinds, typed IDs, stable keys, origins, and checked accessor behavior.
+4. Define immutable per-unit bound storage and category-specific error nodes.
+5. Define category-specific checked-unit results and `DiagnosticResult<T>` publication integration.
+6. Implement local snapshot and lexical-scope builders against the contracts in `docs/design/symbols.md`.
+7. Define binder request contexts, task-local builders, and deterministic dependency recording.
+8. Implement typed name and path resolution over surface and local symbol APIs.
+9. Implement patterns, locals, blocks, and anonymous callable unit boundaries.
+10. Add expression, call, member, conversion, and control-flow bound nodes incrementally by grammar category.
+11. Integrate focused checker services and whole-unit analysis finalization.
+12. Add deterministic diagnostic aggregation, cancellation, speculation, and parallel-query tests.
+13. Establish the checked-HIR-to-lowered-bound and lowered-bound-to-`bray-ir` boundaries before implementing production lowering.
 
 Each step must publish only complete immutable facts and must not add temporary eager workflow APIs.

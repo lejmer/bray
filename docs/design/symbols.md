@@ -596,6 +596,10 @@ The following concepts require precise semantic models but are not declaration s
 These concepts should use separate typed identities where interning or cross-reference is needed:
 
 - `TypeId`,
+- `ConstantValueId`,
+- `ConstantTermId`,
+- `GenericSubstitutionId`,
+- `ConcreteGenericSubstitutionId`,
 - `TraitApplicationId`,
 - `CallableInstanceId`,
 - `ImplementationInstanceId`,
@@ -603,6 +607,11 @@ These concepts should use separate typed identities where interning or cross-ref
 
 A constructed entity references its original definition symbol and ordered arguments. It does not reuse the definition's symbol ID
 as though construction had not occurred.
+
+`bray-symbols` owns canonical semantic types, constant values, open constant terms, substitutions, and their interner APIs because
+they directly compose from typed symbol IDs and are returned by symbol facts. They remain separate semantic categories and do not
+become symbols merely because the symbol crate owns their dependency-safe representation. The full contract is defined in
+`docs/design/binder.md`.
 
 ---
 
@@ -1206,7 +1215,7 @@ Conceptually, a concrete value query uses:
 ```rust
 pub struct ConstantInstanceKey {
     definition: AnyConstantDefinitionId,
-    substitution: GenericSubstitutionId,
+    substitution: ConcreteGenericSubstitutionId,
     selected_implementation: Option<ImplementationInstanceId>,
     target_profile: TargetProfileId,
 }
@@ -1215,7 +1224,7 @@ impl Compilation {
     pub fn constant_value(
         &self,
         key: ConstantInstanceKey,
-    ) -> Arc<DiagnosticResult<ConstantValue>>;
+    ) -> Arc<DiagnosticResult<ConstantValueId>>;
 }
 ```
 
@@ -1780,6 +1789,16 @@ This prevents definition identity, generic substitution, and use-site selection 
 
 Original-definition queries are explicit on application values. They must not rely on stripping information from a reused symbol ID.
 
+Canonical semantic types, constant values, open constant terms, and generic substitutions are stored in a compilation- or immutable
+symbol-snapshot-scoped semantic value store owned by `bray-symbols`. The store interns immutable structural keys and returns opaque
+typed IDs. Numeric IDs are never persisted or used for deterministic output ordering.
+
+Inference variables are checker-local and never appear as `TypeId`. Closed constant values use `ConstantValueId`; open const
+parameters and checked terms used in generic type identity use `ConstantTermId`. An open `GenericSubstitutionId` is distinct from a
+validated `ConcreteGenericSubstitutionId` required by concrete constant evaluation and code generation.
+
+The detailed representation, equality, ownership, and interning contract is defined in `docs/design/binder.md`.
+
 ---
 
 ## Incrementality And Sharing
@@ -1835,6 +1854,10 @@ Symbol tests should validate semantic contracts rather than cache implementation
 Required coverage includes:
 
 - kind and exact-ID distinction,
+- canonical semantic values reusing one ID per structural key within a store,
+- semantic value IDs remaining store-local and absent from persisted interfaces,
+- open and concrete generic substitutions remaining type-distinct,
+- source, imported, and compiler-known facts sharing canonical type and constant APIs,
 - exactly one compiler-known environment root and no compilation-root symbol,
 - package and compiler-known module owners remaining distinguishable through `ModuleOwnerId`,
 - ambient compiler-known lookup not changing source-module package containment,
@@ -1890,16 +1913,17 @@ tables, the compiler-known catalog, and compiled dependency interfaces.
 
 Implementation should proceed in dependency order:
 
-1. Define symbol kinds, typed IDs, origins, keys, and common immutable identity data.
-2. Define the symbol graph, `SymbolRootId`, package roots, the compiler-known environment root ID, module owner families, module
+1. Define symbol kinds, typed IDs, semantic value IDs, origins, keys, and common immutable identity data.
+2. Define canonical semantic type, constant value, open constant term, generic substitution, and semantic-store contracts.
+3. Define the symbol graph, `SymbolRootId`, package roots, the compiler-known environment root ID, module owner families, module
    symbols, and deterministic source declaration-to-symbol identity mapping.
-3. Define typed module member collections and lookup-result primitives.
-4. Define the compilation-owned lazy fact and completion protocol with cycle and concurrency contracts.
-5. Add named type, trait, implementation, overload, member, and parameter symbol records.
-6. Add the compiler-known environment and imported symbol providers through the same typed contracts.
-7. Add binding-dependent signature, constraint, contract, implementation, and constant fact queries according to
+4. Define typed module member collections and lookup-result primitives.
+5. Define the compilation-owned lazy fact and completion protocol with cycle and concurrency contracts.
+6. Add named type, trait, implementation, overload, member, and parameter symbol records.
+7. Add the compiler-known environment and imported symbol providers through the same typed contracts.
+8. Add binding-dependent signature, constraint, contract, implementation, and constant fact queries according to
    `docs/design/binder.md`.
-8. Add local semantic-region snapshots, anonymous callable symbols, and checked-region integration.
-9. Add recursive force completion and deterministic symbol diagnostics.
+9. Add local semantic-region snapshots, anonymous callable symbols, and checked-region integration.
+10. Add recursive force completion and deterministic symbol diagnostics.
 
 Each step should preserve lazy evaluation and avoid temporary eager APIs that callers would later depend on.

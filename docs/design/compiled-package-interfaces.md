@@ -107,6 +107,7 @@ Support entities do not become public imported declarations merely because an ex
 `bray-symbols` owns:
 
 - `ExternalSymbolKey` and its category-specific construction rules,
+- canonical semantic type, constant value, open constant term, and generic substitution contracts,
 - typed imported symbol IDs and ordinary kind-specific symbol records,
 - `SymbolOrigin::Imported`,
 - artifact-local symbol and imported-fact key value types needed by symbol APIs,
@@ -403,6 +404,9 @@ checked. Reserved tags are rejected for the current exact format revision.
 The exact variants should mirror durable semantic type categories, not parser productions. Error, unresolved, inferred-placeholder, and
 recovery types are forbidden in a successfully emitted interface.
 
+Encoding traverses canonical semantic type records owned by `bray-symbols`. Decoding validates interface type records and interns
+equivalent local `TypeId` values in the consuming semantic store. Compilation-local numeric IDs never appear in the artifact.
+
 Recursive types use table references and are validated as graphs. The decoder must not recurse through untrusted nesting without a
 configured depth limit.
 
@@ -410,6 +414,10 @@ configured depth limit.
 
 Closed constant values use a canonical `InterfaceConstantValue` representation independent of host endianness and Rust primitive
 layout.
+
+Encoding traverses `ConstantValueId` records. Decoding interns equivalent local constant values and returns `ConstantValueId` values
+to imported symbol facts. Open const arguments use checked interface term records corresponding to `ConstantTermId`, not fake closed
+values.
 
 The representation distinguishes exact language value categories, including arbitrary-width integer or other numeric forms where
 the language requires them. Floating, real, and complex values use language-defined bit or canonical numeric encodings rather than

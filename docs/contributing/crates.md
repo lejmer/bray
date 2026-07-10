@@ -49,6 +49,8 @@
     - Semantic identities for declared things.
     - Owns typed symbol IDs, kind-specific symbol models, semantic containment, typed member relationships, lookup contracts, and
       lazy symbol-fact contracts.
+    - Owns canonical semantic types, closed constant values, open constant terms, generic substitutions, trait applications,
+      callable and implementation instances, and their typed interner and view APIs.
     - Owns typed synthesized runtime-default-provider identities and symbol-facing declaration-owned-expression summary contracts,
       but not checked bound expression storage.
     - Owns region-scoped local symbol IDs, immutable local symbol snapshot contracts, lexical-scope records, and typed local symbol

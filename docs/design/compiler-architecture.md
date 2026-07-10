@@ -735,6 +735,16 @@ Interners and canonical tables deduplicate stable compiler values.
 
 They should expose typed handles and deterministic behavior.
 
+Canonical semantic types, closed constant values, open constant terms, generic substitutions, trait applications, and callable or
+implementation instances use a semantic value store whose value types and APIs are owned by `bray-symbols`. The compilation or
+immutable symbol snapshot owns the store instance because its entries reference compilation-local symbol IDs.
+
+Inference variables, unification state, evaluation stacks, and solver traces are not interned semantic values. They remain local to
+the checker operation that owns them.
+
+Semantic value IDs are opaque store-local handles. Numeric assignment can vary with lazy demand without affecting semantics because
+serialization, diagnostics, sorting, and incremental reuse use canonical structural keys rather than numeric ID order.
+
 Interning should not be used to hide ownership boundaries or to avoid defining a real semantic identity.
 
 ---
