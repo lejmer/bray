@@ -9,6 +9,8 @@ The language documents define Bray semantics.
 
 `docs/design/symbols.md` defines semantic identities, symbol facts, completion, and local symbol snapshots.
 
+`docs/design/compiler-known-catalog.md` defines compiler-known declaration surfaces and typed compiler-provided behavior roles.
+
 This document defines how syntax and symbols become complete source-correlated semantic facts without moving checker policy into the
 binder or making lowering reinterpret source.
 

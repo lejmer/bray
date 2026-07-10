@@ -6,7 +6,8 @@ Symbols belong to `bray-symbols`. They consume declaration surfaces from `bray-d
 identities and typed symbol relationships to binding, checking, tooling, lowering, and emission.
 
 The compiler architecture overview is defined in `docs/design/compiler-architecture.md`. Declaration discovery is defined in
-`docs/design/declaration-discovery.md`. This document is the implementation contract for symbols and symbol-owned lazy facts.
+`docs/design/declaration-discovery.md`. The compiler-known catalog is defined in
+`docs/design/compiler-known-catalog.md`. This document is the implementation contract for symbols and symbol-owned lazy facts.
 
 ---
 
@@ -137,7 +138,7 @@ Symbol construction consumes:
 
 - the selected package and product identity,
 - the selected target profile,
-- compiler-known declaration catalogs,
+- the compiler-known declaration catalog,
 - imported package symbol surfaces,
 - the immutable declaration table,
 - the enabled module contributions for the selected product and target.
@@ -531,6 +532,11 @@ categories as source declarations.
 
 Compiler-provided implementation bodies are not Bray source bodies, but their declaration surfaces still produce ordinary typed
 symbols.
+
+Compiler-known surfaces are supplied by the immutable descriptor catalog defined in
+`docs/design/compiler-known-catalog.md`. Stable catalog keys identify language-defined entries across compilations. Symbol
+construction maps those keys to compilation-local typed symbol IDs and exposes catalog-backed facts through the same kind-specific
+contracts used by source and imported symbols.
 
 Imported package interfaces reconstruct the same public symbol categories and relationships without requiring source syntax.
 
@@ -1795,8 +1801,12 @@ The following language or API details need to be settled before the correspondin
 
 ### Compiler-Known Root Shape
 
-Compiler-known declarations need normal typed symbol APIs without pretending they belong to a source package dependency. The exact
-root representation should be finalized with package and imported-interface design.
+How should the compiler-known environment be rooted in the symbol graph?
+
+The remaining choice is whether it uses a dedicated `CompilerKnownRootSymbol` or a broader non-package root abstraction that can be
+shared with another semantically equivalent root category. The decision must define the root's typed ID, containment APIs, lookup
+integration, and relationship to compilation and package roots without pretending the compiler-known environment is a source or
+imported package.
 
 ---
 

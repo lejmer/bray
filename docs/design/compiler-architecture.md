@@ -15,6 +15,8 @@ Parser implementation rules live in `docs/design/parser.md`.
 
 Declaration discovery implementation rules live in `docs/design/declaration-discovery.md`.
 
+Compiler-known catalog implementation rules live in `docs/design/compiler-known-catalog.md`.
+
 Symbol and symbol-construction implementation rules live in `docs/design/symbols.md`.
 
 Binder and bound-tree implementation rules live in `docs/design/binder.md`.
@@ -358,6 +360,10 @@ Symbol construction creates stable semantic identities for declarations.
 
 The implementation contract is defined in `docs/design/symbols.md`.
 
+Compiler-known and compiler-provided declaration surfaces come from the immutable catalog defined in
+`docs/design/compiler-known-catalog.md`. The catalog supplies stable language identities, embedded Bray declaration surfaces, typed
+representation roles, compiler-provided implementation hooks, and target-availability rules. It does not construct symbols itself.
+
 A symbol answers "which declared thing is this?".
 
 Symbols are not source strings.
@@ -548,6 +554,9 @@ Typed syntax nodes are structured records of named token and child components, n
 
 Syntax tokens retain trivia as syntax-owned data. Later phases can refer to syntax spans, nodes, and tokens, but semantic facts
 should not duplicate trivia.
+
+Compiler-known declaration descriptors and typed compiler-known behavior roles belong to `bray-compiler-known`. The catalog is an
+immutable language-definition input to symbol construction and later semantic facts, not source syntax or a source package.
 
 Symbols belong to symbol construction and semantic reference layers.
 
