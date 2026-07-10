@@ -367,19 +367,49 @@ The initial model should cover the full language even when implementation procee
 
 ### Roots And Modules
 
+- `CompilerKnownEnvironmentSymbol`
 - `PackageSymbol`
 - `ModuleSymbol`
+
+A compiler-known environment symbol is the unnamed semantic owner of ambient compiler-known declarations and compiler-known module
+symbols. It has a dedicated `CompilerKnownEnvironmentSymbolId` and `SymbolKind::CompilerKnownEnvironment`. It is not a source or
+imported package, does not occupy the ordinary lookup namespace, and has no visibility or source declaration location.
 
 A package symbol represents package identity supplied by the package layer. A product is a selected compilation surface and does not
 create a declaration container or lookup scope, so a product is not a symbol.
 
-A module symbol represents one logical package-relative module path and aggregates all enabled split-module contributions.
+A module symbol represents one logical module path. A source or imported module aggregates enabled package module contributions. A
+compiler-known module is supplied by the compiler-known catalog.
 
-Module declarations are package-level and cannot nest. Every module symbol is semantically contained by its package symbol, including
-modules with dotted paths such as `net.http`. Path-prefix indexes support module path resolution but do not invent containing module
-symbols for undeclared path prefixes.
+Module declarations are package-level and cannot nest. Source and imported module symbols are semantically contained by their
+package symbol. Compiler-known module symbols such as `core.memory` and `std.target` are semantically contained by the compiler-known
+environment symbol. Modules with dotted paths remain directly contained by their semantic owner. Path-prefix indexes support module
+path resolution but do not invent containing module symbols for undeclared path prefixes.
 
-The compilation root and compiler-known environment can be graph roots without pretending they are source-declared packages.
+The compilation does not create a `CompilationRootSymbol`. An immutable symbol graph owns a forest of package roots plus exactly one
+compiler-known environment root. APIs that intentionally accept either root use a closed family:
+
+```rust
+pub enum SymbolRootId {
+    Package(PackageSymbolId),
+    CompilerKnown(CompilerKnownEnvironmentSymbolId),
+}
+```
+
+`SymbolRootId` is a typed family ID, not a generic root-symbol record. Package and compiler-known environment symbols retain their
+own kind-specific storage and APIs.
+
+Conceptually, the graph publishes its roots through:
+
+```rust
+pub struct SymbolGraphRoots {
+    compiler_known: CompilerKnownEnvironmentSymbolId,
+    packages: Arc<[PackageSymbolId]>,
+}
+```
+
+The process-wide compiler-known catalog is not a symbol and has no `SymbolId`. Each compilation or immutable symbol snapshot maps it
+to exactly one compilation-local compiler-known environment symbol.
 
 ### Module-Level Symbols
 
@@ -587,7 +617,9 @@ Semantic references create additional graph edges but do not change containment.
 
 Examples:
 
-- a module is contained by its package,
+- a source or imported module is contained by its package,
+- a compiler-known module is contained by the compiler-known environment,
+- an ambient compiler-known declaration is contained directly by the compiler-known environment,
 - a function is contained by its module,
 - a field is contained by its struct,
 - a callable parameter is contained by its callable,
@@ -607,6 +639,18 @@ binding or diagnostics.
 
 A package exposes logical modules by full package-relative module path.
 
+A module's semantic owner is represented by a closed family rather than an untyped symbol ID:
+
+```rust
+pub enum ModuleOwnerId {
+    Package(PackageSymbolId),
+    CompilerKnownEnvironment(CompilerKnownEnvironmentSymbolId),
+}
+```
+
+Only module symbols supplied by the compiler-known catalog can use the compiler-known environment owner. Ordinary source and
+imported modules always use a package owner.
+
 A module exposes typed collections such as:
 
 - constants,
@@ -623,6 +667,32 @@ A module exposes typed collections such as:
 - unnamed trait implementations,
 - using edges,
 - export edges.
+
+### Compiler-Known Environment Relationships
+
+The compiler-known environment exposes:
+
+- typed ambient declaration collections,
+- ordinary-name lookup over those ambient declarations,
+- compiler-known modules by full module path,
+- stable catalog-key-to-symbol-ID indexes,
+- typed accessors for compiler-known roles needed by semantic phases.
+
+Its ambient collections remain category-specific. They must not use a generic canonical child list merely because several symbol
+kinds are ambient.
+
+Declaration categories that can be owned either by a module or directly by the compiler-known environment use a closed owner family
+specific to that relationship. Conceptually:
+
+```rust
+pub enum ModuleLevelOwnerId {
+    Module(ModuleSymbolId),
+    CompilerKnownEnvironment(CompilerKnownEnvironmentSymbolId),
+}
+```
+
+An owner family should exist only where both cases are semantically legal. It must not become a replacement for precise
+kind-specific owner types throughout the symbol model.
 
 Using and export edges are typed module facts even though they are not symbols.
 
@@ -798,6 +868,13 @@ module remains a declaration container and lookup provider rather than a separat
 
 The implementation need not introduce a one-variant `LookupNamespace` enum. Such an enum should be added only if the language later
 introduces a name category, such as labels, whose spelling may legally coexist with an ordinary name in the same scope.
+
+Ambient compiler-known visibility is an explicit lookup relationship, not semantic containment. A source module remains contained
+by its package while its lookup context consults the compiler-known environment's ambient index. The compiler-known environment is
+not imported into, cloned into, or made the semantic parent of each source module.
+
+Ambient declarations participate in the module's effective ordinary-name surface according to the language's collision and lookup
+rules. The environment symbol itself has no ordinary name and is never returned as an ordinary lookup candidate.
 
 The symbol layer must not interpret the ordinary namespace as permission to use one global `Map<String, AnySymbolId>`. Lookup remains
 owner-specific and typed. The namespace defines collision behavior, while the owner and lookup operation define which index is
@@ -1186,8 +1263,9 @@ providers include a source-independent checked or lowerable template sufficient 
 must not rebind a dependency's default expression.
 
 Compiler-known runtime construction defaults use the same checked-default and provider contract through their compiler-known
-construction surfaces. Their typed parameter and provider categories must be finalized with the compiler-known root shape rather than
-being forced into a source callable parameter ID.
+construction surfaces. Their typed parameter and provider categories follow the owning declaration kind, and their symbols are
+contained beneath the compiler-known environment through ordinary typed owner relationships. They must not be forced into a source
+callable parameter ID.
 
 #### Fact Dependencies And Cycles
 
@@ -1289,12 +1367,13 @@ Examples:
   references,
 - completing an overload family resolves and validates its arm references but does not reparent those arms,
 - completing a package completes all active modules and their contained source symbols,
+- completing the compiler-known environment completes its ambient declarations and compiler-known modules,
 - completing a callable symbol does not bind its executable body.
 
 Force completion is idempotent. It returns or exposes diagnostics through the same cached fact results used by ordinary requests.
 
-Compilation-wide symbol diagnostics are obtained by forcing the selected package symbol roots to declaration-surface completion and
-deterministically merging the diagnostics of all requested symbol facts.
+Compilation-wide symbol diagnostics are obtained by forcing the compiler-known environment and selected package symbol roots to
+declaration-surface completion and deterministically merging the diagnostics of all requested symbol facts.
 
 ### Partial Completion
 
@@ -1718,6 +1797,7 @@ Numeric symbol IDs need not survive edits. Stable keys and explicit remapping su
 The public cross-crate API should favor:
 
 - typed IDs,
+- a closed `SymbolRootId` family with kind-specific root APIs,
 - immutable typed records or context-bound views,
 - typed child collections,
 - typed lookup results,
@@ -1748,6 +1828,9 @@ Symbol tests should validate semantic contracts rather than cache implementation
 Required coverage includes:
 
 - kind and exact-ID distinction,
+- exactly one compiler-known environment root and no compilation-root symbol,
+- package and compiler-known module owners remaining distinguishable through `ModuleOwnerId`,
+- ambient compiler-known lookup not changing source-module package containment,
 - deterministic IDs under different request orders,
 - deterministic IDs under serial and parallel construction,
 - multiple module parts producing one module symbol,
@@ -1795,31 +1878,17 @@ Integration tests should verify that `Compilation` exposes symbol roots and diag
 
 ---
 
-## Decisions Requiring Follow-Up
-
-The following language or API details need to be settled before the corresponding implementation surface is finalized.
-
-### Compiler-Known Root Shape
-
-How should the compiler-known environment be rooted in the symbol graph?
-
-The remaining choice is whether it uses a dedicated `CompilerKnownRootSymbol` or a broader non-package root abstraction that can be
-shared with another semantically equivalent root category. The decision must define the root's typed ID, containment APIs, lookup
-integration, and relationship to compilation and package roots without pretending the compiler-known environment is a source or
-imported package.
-
----
-
 ## Initial Implementation Sequence
 
 Implementation should proceed in dependency order:
 
 1. Define symbol kinds, typed IDs, origins, keys, and common immutable identity data.
-2. Define the symbol graph, package roots, module symbols, and deterministic source declaration-to-symbol identity mapping.
+2. Define the symbol graph, `SymbolRootId`, package roots, the compiler-known environment root ID, module owner families, module
+   symbols, and deterministic source declaration-to-symbol identity mapping.
 3. Define typed module member collections and lookup-result primitives.
 4. Define the compilation-owned lazy fact and completion protocol with cycle and concurrency contracts.
 5. Add named type, trait, implementation, overload, member, and parameter symbol records.
-6. Add compiler-known and imported symbol providers through the same typed contracts.
+6. Add the compiler-known environment and imported symbol providers through the same typed contracts.
 7. Add binding-dependent signature, constraint, contract, implementation, and constant fact queries according to
    `docs/design/binder.md`.
 8. Add local semantic-region snapshots, anonymous callable symbols, and checked-region integration.

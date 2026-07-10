@@ -386,6 +386,11 @@ Source, imported, compiler-known, compiler-provided, synthesized, and body-local
 Constructed types, trait applications, callable instances, and selected implementation witnesses use separate semantic identities
 and do not pretend to be declaration symbols.
 
+The immutable symbol graph is a forest rooted in package symbols and one dedicated compiler-known environment symbol. There is no
+compilation-root symbol. A closed root-ID family supports traversal and completion while package and compiler-known roots retain
+kind-specific APIs. Ambient compiler-known visibility is a lookup relationship and does not reparent source modules away from their
+packages.
+
 Local symbols use region-scoped typed IDs and immutable local symbol snapshots rather than consuming compilation-wide declaration
 symbol IDs. A checked body or declaration-owned expression publishes its bound representation, local snapshot, and diagnostics as
 one immutable fact. This keeps lazy and parallel body checking from mutating the global symbol graph.

@@ -639,7 +639,7 @@ receive source `DeclarationId` values.
 
 The provider:
 
-1. Builds the compiler-known root and module scope skeleton.
+1. Builds the dedicated `CompilerKnownEnvironmentSymbol` and compiler-known module scope skeleton.
 2. Assigns compilation-local typed symbol IDs from canonical catalog descriptor order.
 3. Creates ordinary kind-specific symbol records with `CompilerKnown` or `CompilerProvided` origin.
 4. Publishes stable catalog-key-to-symbol-ID indexes.
@@ -650,6 +650,13 @@ A compiler-known struct produces the same `StructSymbol` API as a source struct.
 `FunctionSymbol` API as a source function. Origin-specific storage remains behind symbol fact providers.
 
 Stable catalog keys are retained as origin identities but are not substitutes for typed symbol IDs in ordinary semantic APIs.
+
+The compiler-known environment is one root in the compilation's immutable symbol forest. It owns ambient compiler-known
+declarations and compiler-known modules, has no ordinary source name, and is not a package. Source modules consult its ambient lookup
+index through an explicit lookup relationship without changing their package containment.
+
+Root-wide operations use the closed `SymbolRootId` family defined by `bray-symbols`. They do not require a generic root-symbol record
+or a `CompilationRootSymbol`.
 
 Special value descriptors and structural type constructors use their own typed semantic APIs and are not forced into declaration
 symbol records when the language model does not define them as declarations.
