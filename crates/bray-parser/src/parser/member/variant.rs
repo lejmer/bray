@@ -133,7 +133,7 @@ impl Parser {
         builder.build()
     }
 
-    fn parse_union_payload_field(&mut self) -> UnionPayloadFieldSyntax {
+    pub(in crate::parser) fn parse_union_payload_field(&mut self) -> UnionPayloadFieldSyntax {
         let start = self.peek().full_range().start();
         let mut builder = UnionPayloadFieldSyntax::builder(self.syntax_source(), start);
 
