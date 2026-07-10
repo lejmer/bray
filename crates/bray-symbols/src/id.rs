@@ -1,5 +1,18 @@
 use crate::{SymbolKind, kind::for_each_compilation_symbol_kind};
 
+mod sealed {
+    pub trait Sealed {}
+}
+
+/// Identifies one exact compilation-wide symbol category at the type level.
+///
+/// This trait is sealed so imported fact keys cannot claim a category that does not correspond
+/// to one of Bray's exact typed symbol IDs.
+pub trait ExactSymbolId: sealed::Sealed + Copy {
+    /// The semantic kind represented by this exact ID type.
+    const KIND: SymbolKind;
+}
+
 /// A compact compilation-local handle identifying one exact surface symbol.
 ///
 /// Raw values are meaningful only within the compilation or immutable symbol snapshot that
@@ -51,6 +64,12 @@ macro_rules! define_symbol_ids {
                 pub const fn from_symbol_id(id: SymbolId) -> Self {
                     Self(id)
                 }
+            }
+
+            impl sealed::Sealed for $id {}
+
+            impl ExactSymbolId for $id {
+                const KIND: SymbolKind = SymbolKind::$kind;
             }
 
             impl From<$id> for SymbolId {
@@ -215,9 +234,11 @@ mod tests {
     #[test]
     fn exact_ids_retain_kind_after_erasure() {
         let raw = SymbolId::try_from_index(7);
+
         let Some(raw) = raw else {
             panic!("small symbol ID must fit in the target index type");
         };
+
         let function = FunctionSymbolId::from_symbol_id(raw);
         let structure = StructSymbolId::from_symbol_id(raw);
         let function = AnySymbolId::from(function);
@@ -237,6 +258,7 @@ mod tests {
         let Some(id) = SymbolId::try_from_index(42) else {
             panic!("small symbol ID must fit in u32");
         };
+
         assert_eq!(id.raw(), 42);
         assert_eq!(id.to_index(), Some(42));
 
@@ -250,14 +272,17 @@ mod tests {
         let Some(raw) = SymbolId::try_from_index(0) else {
             panic!("zero must fit in u32");
         };
+
         let package = PackageSymbolId::from_symbol_id(raw);
         let environment = CompilerKnownEnvironmentSymbolId::from_symbol_id(raw);
 
         assert_eq!(SymbolRootId::from(package).kind(), SymbolKind::Package);
+
         assert_eq!(
             SymbolRootId::from(environment).kind(),
             SymbolKind::CompilerKnownEnvironment
         );
+
         assert_ne!(
             ModuleOwnerId::from(package),
             ModuleOwnerId::from(environment)
@@ -269,11 +294,13 @@ mod tests {
         let Some(raw) = SymbolId::try_from_index(3) else {
             panic!("small symbol ID must fit in u32");
         };
+
         let receiver = ReceiverParameterSymbolId::from_symbol_id(raw);
         let parameter = ParameterSymbolId::from(receiver);
 
         assert_eq!(parameter.symbol_id(), raw);
         assert_eq!(parameter.kind(), SymbolKind::ReceiverParameter);
+
         assert_eq!(
             parameter.into_any(),
             AnySymbolId::ReceiverParameter(receiver)
