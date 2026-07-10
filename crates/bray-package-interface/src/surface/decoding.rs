@@ -86,18 +86,22 @@ fn decode_strings(
     budget: &mut DecodeBudget,
 ) -> Result<Vec<Arc<str>>, InterfaceValidationError> {
     let count = checked_count(section.record_count())?;
+
     budget.charge_items::<Arc<str>>(count)?;
+
     let mut reader = WireReader::new(section.bytes());
     let mut strings = Vec::with_capacity(count);
 
     for _ in 0..count {
         let length = usize::try_from(read_u32(&mut reader)?)
             .map_err(|_| InterfaceValidationError::Malformed)?;
+
         budget.limits.check(
             InterfaceLimit::StringLength,
             u64::try_from(length).unwrap_or(u64::MAX),
         )?;
         budget.charge(length)?;
+
         let bytes = reader.read_bytes(length).map_err(map_wire_error)?;
         let value = str::from_utf8(bytes).map_err(|_| InterfaceValidationError::Malformed)?;
 
@@ -143,7 +147,9 @@ fn decode_dependencies(
     budget: &mut DecodeBudget,
 ) -> Result<Vec<InterfaceDependency>, InterfaceValidationError> {
     let count = checked_count(section.record_count())?;
+
     budget.charge_items::<InterfaceDependency>(count)?;
+
     let mut reader = WireReader::new(section.bytes());
     let mut dependencies = Vec::with_capacity(count);
 
@@ -152,6 +158,7 @@ fn decode_dependencies(
         let product = product_identity(read_string(&mut reader, strings)?)?;
         let hash =
             InterfaceContentHash::from_bytes(reader.read_array::<32>().map_err(map_wire_error)?);
+
         dependencies.push(InterfaceDependency::new(package, product, hash));
     }
 
@@ -166,7 +173,9 @@ fn decode_symbols(
     budget: &mut DecodeBudget,
 ) -> Result<Vec<ImportedSymbolIdentityInput>, InterfaceValidationError> {
     let count = checked_count(section.record_count())?;
+
     budget.charge_items::<ImportedSymbolIdentityInput>(count)?;
+
     let mut reader = WireReader::new(section.bytes());
     let mut symbols = Vec::with_capacity(count);
 
@@ -182,6 +191,7 @@ fn decode_symbols(
         )?;
         let id =
             InterfaceSymbolId::try_from_index(index).ok_or(InterfaceValidationError::Malformed)?;
+
         symbols.push(ImportedSymbolIdentityInput::new(id, key, kind, container));
     }
 
@@ -195,7 +205,9 @@ fn decode_relationships(
     budget: &mut DecodeBudget,
 ) -> Result<Vec<SymbolRelationship>, InterfaceValidationError> {
     let count = checked_count(section.record_count())?;
+
     budget.charge_items::<SymbolRelationship>(count)?;
+
     let mut reader = WireReader::new(section.bytes());
     let mut relationships = Vec::with_capacity(count);
 
@@ -219,7 +231,9 @@ fn decode_exports(
     budget: &mut DecodeBudget,
 ) -> Result<Vec<ExportedLookupEdge>, InterfaceValidationError> {
     let count = checked_count(section.record_count())?;
+
     budget.charge_items::<ExportedLookupEdge>(count)?;
+
     let mut reader = WireReader::new(section.bytes());
     let mut exports = Vec::with_capacity(count);
 
@@ -323,7 +337,9 @@ impl DecodeBudget {
 
     fn charge(&mut self, bytes: usize) -> Result<(), InterfaceValidationError> {
         let bytes = u64::try_from(bytes).unwrap_or(u64::MAX);
+
         self.allocated = self.allocated.saturating_add(bytes);
+
         self.limits
             .check(InterfaceLimit::DecodedAllocation, self.allocated)
     }
@@ -333,7 +349,9 @@ impl DecodeBudget {
         component_count: usize,
     ) -> Result<(), InterfaceValidationError> {
         let count = u64::try_from(component_count).unwrap_or(u64::MAX);
+
         self.external_references = self.external_references.saturating_add(count);
+
         self.limits.check(
             InterfaceLimit::ExternalReferenceCount,
             self.external_references,

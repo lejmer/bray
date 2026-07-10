@@ -113,6 +113,7 @@ mod tests {
     #[test]
     fn fixed_width_values_use_little_endian_encoding() {
         let mut encoder = WireEncoder::new();
+
         encoder.write_u16(0x1122);
         encoder.write_u32(0x3344_5566);
         encoder.write_u64(0x7788_99aa_bbcc_ddee);

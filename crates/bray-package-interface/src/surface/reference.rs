@@ -53,6 +53,7 @@ pub(super) fn decode_external_key(
 
     budget.charge_external_reference(count)?;
     budget.charge_items::<ExternalSymbolKey>(count)?;
+
     let mut key = None;
 
     for _ in 0..count {

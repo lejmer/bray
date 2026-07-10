@@ -90,6 +90,7 @@ fn canonical_dependencies(
     }
 
     let mut remap = vec![DependencyInterfaceId::new(0); dependencies.len()];
+
     for (canonical_index, (original_index, _)) in dependencies.iter().enumerate() {
         let Some(canonical) = DependencyInterfaceId::try_from_index(canonical_index) else {
             return Err(PackageInterfaceSurfaceBuildError::DependencyCountOverflow);
@@ -112,7 +113,9 @@ fn canonical_relationships(
     relationships: impl IntoIterator<Item = SymbolRelationship>,
 ) -> Result<Vec<SymbolRelationship>, PackageInterfaceSurfaceBuildError> {
     let mut relationships: Vec<_> = relationships.into_iter().collect();
+
     relationships.sort();
+
     let mut positions = BTreeSet::new();
 
     for relationship in &relationships {
@@ -169,7 +172,9 @@ fn canonical_exports(
                 .map_err(PackageInterfaceSurfaceBuildError::DependencyOutOfBounds)
         })
         .collect::<Result<_, _>>()?;
+
     exports.sort();
+
     let mut index = BTreeMap::new();
 
     for (position, edge) in exports.iter().enumerate() {

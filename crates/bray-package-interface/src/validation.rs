@@ -28,6 +28,7 @@ impl ValidatedPackageInterface {
         validate_file_size(bytes.len(), policy)?;
 
         let decoded = InterfaceHeader::decode(&bytes).map_err(map_wire_error)?;
+
         validate_header(
             decoded.magic,
             decoded.byte_order_marker,
@@ -125,6 +126,7 @@ fn validate_header(
     }
 
     let actual_length = usize_to_u64_saturating(bytes.len());
+
     if header.declared_file_length() > actual_length {
         return Err(InterfaceValidationError::Truncated);
     }
@@ -207,6 +209,7 @@ fn decode_directory(
         }
 
         let entry = DirectoryEntry::from_decoded(decoded, tag);
+
         previous_tag = Some(decoded.raw_tag);
         previous_end = payload_range.end;
         entries.push(entry);
@@ -398,28 +401,36 @@ mod tests {
         }]);
 
         let mut truncated = bytes.clone();
+
         write_u64(&mut truncated, 24, wire_length(bytes.len()) + 1);
+
         assert_eq!(
             ValidatedPackageInterface::try_new(truncated, policy()),
             Err(InterfaceValidationError::Truncated)
         );
 
         let mut trailing = bytes.clone();
+
         write_u64(&mut trailing, 24, wire_length(bytes.len()) - 1);
+
         assert_eq!(
             ValidatedPackageInterface::try_new(trailing, policy()),
             Err(InterfaceValidationError::Malformed)
         );
 
         let mut invalid_directory_length = bytes.clone();
+
         write_u64(&mut invalid_directory_length, 40, 1);
+
         assert_eq!(
             ValidatedPackageInterface::try_new(invalid_directory_length, policy()),
             Err(InterfaceValidationError::Malformed)
         );
 
         let mut overflowing_directory = bytes;
+
         write_u64(&mut overflowing_directory, 32, u64::MAX);
+
         assert_eq!(
             ValidatedPackageInterface::try_new(overflowing_directory, policy()),
             Err(InterfaceValidationError::Malformed)
@@ -434,7 +445,9 @@ mod tests {
             payload: b"a",
         }]);
         let directory = unknown_tag.len() - DirectoryEntry::LENGTH;
+
         write_u32(&mut unknown_tag, directory, 99);
+
         assert_eq!(
             ValidatedPackageInterface::try_new(unknown_tag, policy()),
             Err(InterfaceValidationError::Malformed)
@@ -446,7 +459,9 @@ mod tests {
             payload: b"a",
         }]);
         let directory = encoded_section.len() - DirectoryEntry::LENGTH;
+
         write_u32(&mut encoded_section, directory + 4, 1);
+
         assert_eq!(
             ValidatedPackageInterface::try_new(encoded_section, policy()),
             Err(InterfaceValidationError::Malformed)
@@ -465,11 +480,13 @@ mod tests {
             },
         ]);
         let directory = duplicate.len() - 2 * DirectoryEntry::LENGTH;
+
         write_u32(
             &mut duplicate,
             directory + DirectoryEntry::LENGTH,
             InterfaceSectionTag::Strings.wire_value(),
         );
+
         assert_eq!(
             ValidatedPackageInterface::try_new(duplicate, policy()),
             Err(InterfaceValidationError::Malformed)
@@ -488,11 +505,13 @@ mod tests {
             },
         ]);
         let directory = overlap.len() - 2 * DirectoryEntry::LENGTH;
+
         write_u64(
             &mut overlap,
             directory + DirectoryEntry::LENGTH + 8,
             wire_length(InterfaceHeader::LENGTH),
         );
+
         assert_eq!(
             ValidatedPackageInterface::try_new(overlap, policy()),
             Err(InterfaceValidationError::Malformed)
@@ -504,7 +523,9 @@ mod tests {
             payload: b"aa",
         }]);
         let directory = overflow.len() - DirectoryEntry::LENGTH;
+
         write_u64(&mut overflow, directory + 8, u64::MAX);
+
         assert_eq!(
             ValidatedPackageInterface::try_new(overflow, policy()),
             Err(InterfaceValidationError::Malformed)
@@ -674,6 +695,7 @@ mod tests {
         let file_length = directory_offset + directory_length;
 
         let mut encoder = WireEncoder::new();
+
         encoder.write_bytes(&MAGIC);
         encoder.write_u16(CURRENT_FORMAT_REVISION.raw());
         encoder.write_u16(LANGUAGE_REVISION.raw());
@@ -687,6 +709,7 @@ mod tests {
 
         let mut entries = Vec::with_capacity(sections.len());
         let mut payload_offset = InterfaceHeader::LENGTH;
+
         for section in sections {
             let entry_without_checksum = DirectoryEntry::for_test(
                 section.tag,
@@ -696,6 +719,7 @@ mod tests {
                 crate::InterfaceSectionHash::from_bytes([0; 32]),
             );
             let checksum = compute_section_hash(&entry_without_checksum, section.payload);
+
             entries.push(DirectoryEntry::for_test(
                 section.tag,
                 wire_length(payload_offset),
@@ -725,12 +749,15 @@ mod tests {
             Some(hash) => hash,
             None => panic!("test content hash inputs must be valid"),
         };
+
         bytes[CONTENT_HASH_OFFSET..CONTENT_HASH_OFFSET + 32]
             .copy_from_slice(content_hash.as_bytes());
+
         let artifact_hash = match compute_artifact_hash(&bytes) {
             Some(hash) => hash,
             None => panic!("test artifact must include the artifact-hash field"),
         };
+
         bytes[ARTIFACT_HASH_OFFSET..ARTIFACT_HASH_OFFSET + 32]
             .copy_from_slice(artifact_hash.as_bytes());
 
@@ -755,6 +782,7 @@ mod tests {
         expected: InterfaceValidationError,
     ) {
         let mut mutated = bytes.to_vec();
+
         mutated[offset] = value;
 
         assert_eq!(

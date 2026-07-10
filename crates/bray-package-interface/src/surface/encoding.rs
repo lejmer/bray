@@ -51,6 +51,7 @@ struct StringEncoder {
 impl StringEncoder {
     fn new(surface: &PackageInterfaceSurface) -> Self {
         let mut values = BTreeSet::new();
+
         collect_identity_strings(surface.identity(), &mut values);
 
         for dependency in surface.dependencies() {
@@ -71,6 +72,7 @@ impl StringEncoder {
         }
 
         let values: Vec<_> = values.into_iter().collect();
+
         // Encoding owns this short-lived index; cloned strings avoid self-referential storage.
         let ids = values
             .iter()
@@ -148,6 +150,7 @@ fn encode_metadata(
 ) -> EncodedSurfaceSection {
     let identity = surface.identity();
     let mut encoder = WireEncoder::new();
+
     encoder.write_u32(strings.id(identity.package().as_str()));
     encoder.write_u32(strings.id(identity.product().as_str()));
     encoder.write_u32(identity.kind().to_wire());
@@ -302,6 +305,7 @@ fn encode_external_key(
     }
 
     components.reverse();
+
     encoder.write_u32(checked_u32(components.len()));
 
     for component in components {
