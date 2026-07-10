@@ -63,6 +63,12 @@ version = "0.0.0"
 [[package]]
 name = "bray-bound-tree"
 version = "0.0.0"
+dependencies = [
+ "bray-declarations",
+ "bray-source",
+ "bray-symbols",
+ "bray-syntax",
+]
 
 [[package]]
 name = "bray-checker"
