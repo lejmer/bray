@@ -1,12 +1,19 @@
 use bray_syntax::{
-    ImplementationBodySyntaxBuilder, StructBodySyntaxBuilder, SyntaxKind, TraitBodySyntaxBuilder,
-    UnionBodySyntaxBuilder,
+    CallableOverloadDeclarationSyntax, ConstantDeclarationSyntax, ImplementationBodySyntaxBuilder,
+    ImplementationTypeMemberBindingSyntax, PredicateDeclarationSyntax, StructBodySyntaxBuilder,
+    StructFieldDeclarationSyntax, SyntaxKind, TraitBodySyntaxBuilder,
+    TraitCallableMemberDeclarationSyntax, TraitConstantMemberDeclarationSyntax,
+    TraitPredicateMemberDeclarationSyntax, TraitTypeMemberDeclarationSyntax,
+    TypeCallableMemberDeclarationSyntax, TypeConstructorMemberDeclarationSyntax,
+    UnionBodySyntaxBuilder, UnionVariantDeclarationSyntax,
 };
 
 use crate::cursor::RecoverySet;
 
 use crate::parser::recovery::RecoverySyntaxSink;
 use crate::parser::state::Parser;
+
+use super::lifecycle::{TraitLifecycleRequirementSyntaxSink, TypeLifecycleMemberSyntaxSink};
 
 pub(in crate::parser) const MEMBER_KEYWORD_RECOVERY_KINDS: [SyntaxKind; 19] = [
     SyntaxKind::AtToken,
@@ -91,7 +98,10 @@ impl Parser {
         }
     }
 
-    fn parse_struct_body_item(&mut self, builder: &mut StructBodySyntaxBuilder) {
+    pub(in crate::parser) fn parse_struct_body_item(
+        &mut self,
+        builder: &mut impl StructBodyItemSyntaxSink,
+    ) {
         if self.should_parse_type_callable_member_declaration() {
             builder.push_type_callable_member_declaration(
                 self.parse_type_callable_member_declaration(),
@@ -135,7 +145,10 @@ impl Parser {
         self.recover_body_item(builder);
     }
 
-    fn parse_union_body_item(&mut self, builder: &mut UnionBodySyntaxBuilder) {
+    pub(in crate::parser) fn parse_union_body_item(
+        &mut self,
+        builder: &mut impl UnionBodyItemSyntaxSink,
+    ) {
         if self.should_parse_type_callable_member_declaration() {
             builder.push_type_callable_member_declaration(
                 self.parse_type_callable_member_declaration(),
@@ -179,7 +192,10 @@ impl Parser {
         self.recover_body_item(builder);
     }
 
-    fn parse_trait_body_item(&mut self, builder: &mut TraitBodySyntaxBuilder) {
+    pub(in crate::parser) fn parse_trait_body_item(
+        &mut self,
+        builder: &mut impl TraitBodyItemSyntaxSink,
+    ) {
         if self.should_parse_trait_callable_member_declaration() {
             builder.push_trait_callable_member_declaration(
                 self.parse_trait_callable_member_declaration(),
@@ -215,7 +231,10 @@ impl Parser {
         self.recover_body_item(builder);
     }
 
-    fn parse_implementation_body_item(&mut self, builder: &mut ImplementationBodySyntaxBuilder) {
+    pub(in crate::parser) fn parse_implementation_body_item(
+        &mut self,
+        builder: &mut impl ImplementationBodyItemSyntaxSink,
+    ) {
         if self.should_parse_type_callable_member_declaration() {
             builder.push_type_callable_member_declaration(
                 self.parse_type_callable_member_declaration(),
@@ -266,5 +285,160 @@ impl Parser {
             builder,
             RecoverySet::new(&MEMBER_ITEM_RECOVERY_KINDS),
         );
+    }
+}
+
+pub(in crate::parser) trait SharedTypeMemberSyntaxSink:
+    TypeLifecycleMemberSyntaxSink
+{
+    fn push_type_callable_member_declaration(
+        &mut self,
+        declaration: TypeCallableMemberDeclarationSyntax,
+    );
+
+    fn push_type_constructor_member_declaration(
+        &mut self,
+        declaration: TypeConstructorMemberDeclarationSyntax,
+    );
+
+    fn push_constant_declaration(&mut self, declaration: ConstantDeclarationSyntax);
+
+    fn push_predicate_declaration(&mut self, declaration: PredicateDeclarationSyntax);
+
+    fn push_callable_overload_declaration(
+        &mut self,
+        declaration: CallableOverloadDeclarationSyntax,
+    );
+}
+
+pub(in crate::parser) trait StructBodyItemSyntaxSink:
+    SharedTypeMemberSyntaxSink
+{
+    fn push_struct_field_declaration(&mut self, declaration: StructFieldDeclarationSyntax);
+}
+
+pub(in crate::parser) trait UnionBodyItemSyntaxSink:
+    SharedTypeMemberSyntaxSink
+{
+    fn push_union_variant_declaration(&mut self, declaration: UnionVariantDeclarationSyntax);
+}
+
+pub(in crate::parser) trait TraitBodyItemSyntaxSink:
+    TraitLifecycleRequirementSyntaxSink
+{
+    fn push_trait_callable_member_declaration(
+        &mut self,
+        declaration: TraitCallableMemberDeclarationSyntax,
+    );
+
+    fn push_trait_constant_member_declaration(
+        &mut self,
+        declaration: TraitConstantMemberDeclarationSyntax,
+    );
+
+    fn push_trait_type_member_declaration(&mut self, declaration: TraitTypeMemberDeclarationSyntax);
+
+    fn push_trait_predicate_member_declaration(
+        &mut self,
+        declaration: TraitPredicateMemberDeclarationSyntax,
+    );
+}
+
+pub(in crate::parser) trait ImplementationBodyItemSyntaxSink:
+    SharedTypeMemberSyntaxSink
+{
+    fn push_implementation_type_member_binding(
+        &mut self,
+        binding: ImplementationTypeMemberBindingSyntax,
+    );
+}
+
+macro_rules! impl_shared_type_member_syntax_sink {
+    ($builder:ty) => {
+        impl SharedTypeMemberSyntaxSink for $builder {
+            fn push_type_callable_member_declaration(
+                &mut self,
+                declaration: TypeCallableMemberDeclarationSyntax,
+            ) {
+                <$builder>::push_type_callable_member_declaration(self, declaration);
+            }
+
+            fn push_type_constructor_member_declaration(
+                &mut self,
+                declaration: TypeConstructorMemberDeclarationSyntax,
+            ) {
+                <$builder>::push_type_constructor_member_declaration(self, declaration);
+            }
+
+            fn push_constant_declaration(&mut self, declaration: ConstantDeclarationSyntax) {
+                <$builder>::push_constant_declaration(self, declaration);
+            }
+
+            fn push_predicate_declaration(&mut self, declaration: PredicateDeclarationSyntax) {
+                <$builder>::push_predicate_declaration(self, declaration);
+            }
+
+            fn push_callable_overload_declaration(
+                &mut self,
+                declaration: CallableOverloadDeclarationSyntax,
+            ) {
+                <$builder>::push_callable_overload_declaration(self, declaration);
+            }
+        }
+    };
+}
+
+impl_shared_type_member_syntax_sink!(StructBodySyntaxBuilder);
+impl_shared_type_member_syntax_sink!(UnionBodySyntaxBuilder);
+impl_shared_type_member_syntax_sink!(ImplementationBodySyntaxBuilder);
+
+impl StructBodyItemSyntaxSink for StructBodySyntaxBuilder {
+    fn push_struct_field_declaration(&mut self, declaration: StructFieldDeclarationSyntax) {
+        StructBodySyntaxBuilder::push_struct_field_declaration(self, declaration);
+    }
+}
+
+impl UnionBodyItemSyntaxSink for UnionBodySyntaxBuilder {
+    fn push_union_variant_declaration(&mut self, declaration: UnionVariantDeclarationSyntax) {
+        UnionBodySyntaxBuilder::push_union_variant_declaration(self, declaration);
+    }
+}
+
+impl TraitBodyItemSyntaxSink for TraitBodySyntaxBuilder {
+    fn push_trait_callable_member_declaration(
+        &mut self,
+        declaration: TraitCallableMemberDeclarationSyntax,
+    ) {
+        TraitBodySyntaxBuilder::push_trait_callable_member_declaration(self, declaration);
+    }
+
+    fn push_trait_constant_member_declaration(
+        &mut self,
+        declaration: TraitConstantMemberDeclarationSyntax,
+    ) {
+        TraitBodySyntaxBuilder::push_trait_constant_member_declaration(self, declaration);
+    }
+
+    fn push_trait_type_member_declaration(
+        &mut self,
+        declaration: TraitTypeMemberDeclarationSyntax,
+    ) {
+        TraitBodySyntaxBuilder::push_trait_type_member_declaration(self, declaration);
+    }
+
+    fn push_trait_predicate_member_declaration(
+        &mut self,
+        declaration: TraitPredicateMemberDeclarationSyntax,
+    ) {
+        TraitBodySyntaxBuilder::push_trait_predicate_member_declaration(self, declaration);
+    }
+}
+
+impl ImplementationBodyItemSyntaxSink for ImplementationBodySyntaxBuilder {
+    fn push_implementation_type_member_binding(
+        &mut self,
+        binding: ImplementationTypeMemberBindingSyntax,
+    ) {
+        ImplementationBodySyntaxBuilder::push_implementation_type_member_binding(self, binding);
     }
 }

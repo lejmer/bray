@@ -1,6 +1,22 @@
 use bray_diagnostics::DiagnosticBag;
 use bray_source::{SourceId, SourceSnapshot, SourceStore};
-use bray_syntax::{SourceUnitSyntax, SyntaxTree};
+use bray_syntax::{
+    CallableContractDeclarationSyntax, CallableOverloadDeclarationSyntax,
+    ConstantDeclarationSyntax, DestructorMemberDeclarationSyntax, FinalizerMemberDeclarationSyntax,
+    FunctionDeclarationSyntax, ImplementationOverloadDeclarationSyntax,
+    ImplementationTypeMemberBindingSyntax, InherentImplementationDeclarationSyntax,
+    NamedTraitImplementationDeclarationSyntax, PredicateDeclarationSyntax,
+    ScopeEnterMemberDeclarationSyntax, ScopeExitMemberDeclarationSyntax, SourceUnitSyntax,
+    StructDeclarationSyntax, StructFieldDeclarationSyntax, SyntaxTree,
+    TraitCallableMemberDeclarationSyntax, TraitConstantMemberDeclarationSyntax,
+    TraitDeclarationSyntax, TraitDestructorRequirementDeclarationSyntax,
+    TraitFinalizerRequirementDeclarationSyntax, TraitPredicateMemberDeclarationSyntax,
+    TraitScopeEnterRequirementDeclarationSyntax, TraitScopeExitRequirementDeclarationSyntax,
+    TraitTypeMemberDeclarationSyntax, TypeCallableMemberDeclarationSyntax,
+    TypeConstructorMemberDeclarationSyntax, TypeExpressionSyntax, UnionDeclarationSyntax,
+    UnionPayloadFieldSyntax, UnionVariantDeclarationSyntax,
+    UnnamedTraitImplementationDeclarationSyntax,
+};
 
 use super::state::Parser;
 
@@ -115,6 +131,235 @@ pub fn parse_source_unit(snapshot: &SourceSnapshot) -> SourceUnitSyntaxResult {
     let diagnostics = parser.finish();
 
     SourceUnitSyntaxResult::new(source_id, source_unit, diagnostics)
+}
+
+/// Selects the declaration grammar used for an exact fragment snapshot.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum DeclarationFragmentContext {
+    /// Module-level declaration grammar.
+    Module,
+    /// Struct member declaration grammar.
+    Struct,
+    /// Union member declaration grammar.
+    Union,
+    /// Union variant payload-field grammar.
+    UnionVariant,
+    /// Trait member declaration grammar.
+    Trait,
+    /// Implementation member declaration grammar.
+    Implementation,
+}
+
+/// One declaration parsed outside a source unit.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum DeclarationFragmentSyntax {
+    /// Constant declaration.
+    Constant(ConstantDeclarationSyntax),
+    /// Function declaration.
+    Function(FunctionDeclarationSyntax),
+    /// Predicate declaration.
+    Predicate(PredicateDeclarationSyntax),
+    /// Callable contract declaration.
+    CallableContract(CallableContractDeclarationSyntax),
+    /// Callable overload declaration.
+    CallableOverload(CallableOverloadDeclarationSyntax),
+    /// Implementation overload declaration.
+    ImplementationOverload(ImplementationOverloadDeclarationSyntax),
+    /// Struct declaration.
+    Struct(StructDeclarationSyntax),
+    /// Union declaration.
+    Union(UnionDeclarationSyntax),
+    /// Trait declaration.
+    Trait(TraitDeclarationSyntax),
+    /// Inherent implementation declaration.
+    InherentImplementation(InherentImplementationDeclarationSyntax),
+    /// Unnamed trait implementation declaration.
+    UnnamedTraitImplementation(UnnamedTraitImplementationDeclarationSyntax),
+    /// Named trait implementation declaration.
+    NamedTraitImplementation(NamedTraitImplementationDeclarationSyntax),
+    /// Struct field declaration.
+    StructField(StructFieldDeclarationSyntax),
+    /// Union variant declaration.
+    UnionVariant(UnionVariantDeclarationSyntax),
+    /// Union payload field.
+    UnionPayloadField(UnionPayloadFieldSyntax),
+    /// Type constructor member declaration.
+    TypeConstructorMember(TypeConstructorMemberDeclarationSyntax),
+    /// Type callable member declaration.
+    TypeCallableMember(TypeCallableMemberDeclarationSyntax),
+    /// Finalizer member declaration.
+    FinalizerMember(FinalizerMemberDeclarationSyntax),
+    /// Destructor member declaration.
+    DestructorMember(DestructorMemberDeclarationSyntax),
+    /// Scope-enter member declaration.
+    ScopeEnterMember(ScopeEnterMemberDeclarationSyntax),
+    /// Scope-exit member declaration.
+    ScopeExitMember(ScopeExitMemberDeclarationSyntax),
+    /// Trait constant member declaration.
+    TraitConstantMember(TraitConstantMemberDeclarationSyntax),
+    /// Trait type-valued member declaration.
+    TraitTypeMember(TraitTypeMemberDeclarationSyntax),
+    /// Trait predicate member declaration.
+    TraitPredicateMember(TraitPredicateMemberDeclarationSyntax),
+    /// Trait callable member declaration.
+    TraitCallableMember(TraitCallableMemberDeclarationSyntax),
+    /// Trait finalizer requirement declaration.
+    TraitFinalizerRequirement(TraitFinalizerRequirementDeclarationSyntax),
+    /// Trait destructor requirement declaration.
+    TraitDestructorRequirement(TraitDestructorRequirementDeclarationSyntax),
+    /// Trait scope-enter requirement declaration.
+    TraitScopeEnterRequirement(TraitScopeEnterRequirementDeclarationSyntax),
+    /// Trait scope-exit requirement declaration.
+    TraitScopeExitRequirement(TraitScopeExitRequirementDeclarationSyntax),
+    /// Implementation type-valued member binding.
+    ImplementationTypeMemberBinding(ImplementationTypeMemberBindingSyntax),
+}
+
+impl DeclarationFragmentSyntax {
+    /// Returns whether the declaration contains missing or skipped syntax.
+    pub fn is_recovered(&self) -> bool {
+        match self {
+            Self::Constant(syntax) => syntax.is_recovered(),
+            Self::Function(syntax) => syntax.is_recovered(),
+            Self::Predicate(syntax) => syntax.is_recovered(),
+            Self::CallableContract(syntax) => syntax.is_recovered(),
+            Self::CallableOverload(syntax) => syntax.is_recovered(),
+            Self::ImplementationOverload(syntax) => syntax.is_recovered(),
+            Self::Struct(syntax) => syntax.is_recovered(),
+            Self::Union(syntax) => syntax.is_recovered(),
+            Self::Trait(syntax) => syntax.is_recovered(),
+            Self::InherentImplementation(syntax) => syntax.is_recovered(),
+            Self::UnnamedTraitImplementation(syntax) => syntax.is_recovered(),
+            Self::NamedTraitImplementation(syntax) => syntax.is_recovered(),
+            Self::StructField(syntax) => syntax.is_recovered(),
+            Self::UnionVariant(syntax) => syntax.is_recovered(),
+            Self::UnionPayloadField(syntax) => syntax.is_recovered(),
+            Self::TypeConstructorMember(syntax) => syntax.is_recovered(),
+            Self::TypeCallableMember(syntax) => syntax.is_recovered(),
+            Self::FinalizerMember(syntax) => syntax.is_recovered(),
+            Self::DestructorMember(syntax) => syntax.is_recovered(),
+            Self::ScopeEnterMember(syntax) => syntax.is_recovered(),
+            Self::ScopeExitMember(syntax) => syntax.is_recovered(),
+            Self::TraitConstantMember(syntax) => syntax.is_recovered(),
+            Self::TraitTypeMember(syntax) => syntax.is_recovered(),
+            Self::TraitPredicateMember(syntax) => syntax.is_recovered(),
+            Self::TraitCallableMember(syntax) => syntax.is_recovered(),
+            Self::TraitFinalizerRequirement(syntax) => syntax.is_recovered(),
+            Self::TraitDestructorRequirement(syntax) => syntax.is_recovered(),
+            Self::TraitScopeEnterRequirement(syntax) => syntax.is_recovered(),
+            Self::TraitScopeExitRequirement(syntax) => syntax.is_recovered(),
+            Self::ImplementationTypeMemberBinding(syntax) => syntax.is_recovered(),
+        }
+    }
+}
+
+/// Declaration-fragment syntax plus ordinary parser diagnostics and recovery state.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DeclarationFragmentSyntaxResult {
+    declaration: Option<DeclarationFragmentSyntax>,
+    diagnostics: DiagnosticBag,
+    is_recovered: bool,
+}
+
+impl DeclarationFragmentSyntaxResult {
+    pub(crate) const fn new(
+        declaration: Option<DeclarationFragmentSyntax>,
+        diagnostics: DiagnosticBag,
+        is_recovered: bool,
+    ) -> Self {
+        Self {
+            declaration,
+            diagnostics,
+            is_recovered,
+        }
+    }
+
+    /// Returns the parsed declaration, or `None` when the fragment has no declaration in context.
+    pub const fn declaration(&self) -> Option<&DeclarationFragmentSyntax> {
+        self.declaration.as_ref()
+    }
+
+    /// Returns diagnostics produced while parsing the fragment.
+    pub const fn diagnostics(&self) -> &DiagnosticBag {
+        &self.diagnostics
+    }
+
+    /// Returns whether parsing inserted missing syntax, skipped syntax, or found extra syntax.
+    pub const fn is_recovered(&self) -> bool {
+        self.is_recovered
+    }
+
+    /// Consumes the result and returns its declaration, diagnostics, and recovery state.
+    pub fn into_parts(self) -> (Option<DeclarationFragmentSyntax>, DiagnosticBag, bool) {
+        (self.declaration, self.diagnostics, self.is_recovered)
+    }
+}
+
+/// Parses one exact source snapshot as a declaration fragment in `context`.
+pub fn parse_declaration_fragment(
+    snapshot: &SourceSnapshot,
+    context: DeclarationFragmentContext,
+) -> DeclarationFragmentSyntaxResult {
+    // Parser owns a snapshot handle; cloning shares immutable source text.
+    let mut parser = Parser::new(snapshot.clone());
+    let (declaration, is_recovered) = parser.parse_declaration_fragment(context);
+    let diagnostics = parser.finish();
+
+    DeclarationFragmentSyntaxResult::new(declaration, diagnostics, is_recovered)
+}
+
+/// Type-expression syntax plus ordinary parser diagnostics and recovery state.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TypeExpressionFragmentSyntaxResult {
+    type_expression: TypeExpressionSyntax,
+    diagnostics: DiagnosticBag,
+    is_recovered: bool,
+}
+
+impl TypeExpressionFragmentSyntaxResult {
+    pub(crate) const fn new(
+        type_expression: TypeExpressionSyntax,
+        diagnostics: DiagnosticBag,
+        is_recovered: bool,
+    ) -> Self {
+        Self {
+            type_expression,
+            diagnostics,
+            is_recovered,
+        }
+    }
+
+    /// Returns the parsed type expression.
+    pub const fn type_expression(&self) -> &TypeExpressionSyntax {
+        &self.type_expression
+    }
+
+    /// Returns diagnostics produced while parsing the fragment.
+    pub const fn diagnostics(&self) -> &DiagnosticBag {
+        &self.diagnostics
+    }
+
+    /// Returns whether parsing inserted missing syntax, skipped syntax, or found extra syntax.
+    pub const fn is_recovered(&self) -> bool {
+        self.is_recovered
+    }
+
+    /// Consumes the result and returns its type expression, diagnostics, and recovery state.
+    pub fn into_parts(self) -> (TypeExpressionSyntax, DiagnosticBag, bool) {
+        (self.type_expression, self.diagnostics, self.is_recovered)
+    }
+}
+
+/// Parses one exact source snapshot as a type-expression fragment.
+pub fn parse_type_expression_fragment(
+    snapshot: &SourceSnapshot,
+) -> TypeExpressionFragmentSyntaxResult {
+    // Parser owns a snapshot handle; cloning shares immutable source text.
+    let mut parser = Parser::new(snapshot.clone());
+    let (type_expression, is_recovered) = parser.parse_type_expression_fragment();
+    let diagnostics = parser.finish();
+
+    TypeExpressionFragmentSyntaxResult::new(type_expression, diagnostics, is_recovered)
 }
 
 #[cfg(test)]

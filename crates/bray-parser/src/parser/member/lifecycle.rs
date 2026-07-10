@@ -445,7 +445,9 @@ impl Parser {
     }
 }
 
-pub(super) trait TypeLifecycleMemberSyntaxSink: RecoverySyntaxSink {
+pub(in crate::parser) trait TypeLifecycleMemberSyntaxSink:
+    RecoverySyntaxSink
+{
     fn push_finalizer_member_declaration(&mut self, declaration: FinalizerMemberDeclarationSyntax);
 
     fn push_destructor_member_declaration(
@@ -461,7 +463,9 @@ pub(super) trait TypeLifecycleMemberSyntaxSink: RecoverySyntaxSink {
     fn push_scope_exit_member_declaration(&mut self, declaration: ScopeExitMemberDeclarationSyntax);
 }
 
-pub(super) trait TraitLifecycleRequirementSyntaxSink: RecoverySyntaxSink {
+pub(in crate::parser) trait TraitLifecycleRequirementSyntaxSink:
+    RecoverySyntaxSink
+{
     fn push_trait_finalizer_requirement_declaration(
         &mut self,
         declaration: TraitFinalizerRequirementDeclarationSyntax,

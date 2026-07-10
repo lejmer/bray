@@ -17,6 +17,7 @@ use crate::cursor::RecoverySet;
 use super::directive::{
     DirectiveScanKind, LINK_DIRECTIVE_NAME, TARGET_DIRECTIVE_NAME, TEST_DIRECTIVE_NAME,
 };
+use super::entry::DeclarationFragmentSyntax;
 use super::recovery::RecoverySyntaxSink;
 use super::state::Parser;
 
@@ -263,71 +264,8 @@ impl Parser {
             return;
         }
 
-        if self.should_parse_function_declaration() {
-            builder.push_function_declaration(self.parse_function_declaration());
-            return;
-        }
-
-        if self.should_parse_constant_declaration() {
-            builder.push_constant_declaration(self.parse_constant_declaration());
-            return;
-        }
-
-        if self.should_parse_predicate_declaration() {
-            builder.push_predicate_declaration(self.parse_predicate_declaration());
-            return;
-        }
-
-        if self.should_parse_callable_contract_declaration() {
-            builder.push_callable_contract_declaration(self.parse_callable_contract_declaration());
-            return;
-        }
-
-        if self.should_parse_struct_declaration() {
-            builder.push_struct_declaration(self.parse_struct_declaration());
-            return;
-        }
-
-        if self.should_parse_union_declaration() {
-            builder.push_union_declaration(self.parse_union_declaration());
-            return;
-        }
-
-        if self.should_parse_trait_declaration() {
-            builder.push_trait_declaration(self.parse_trait_declaration());
-            return;
-        }
-
-        if self.should_parse_named_trait_implementation_declaration() {
-            builder.push_named_trait_implementation_declaration(
-                self.parse_named_trait_implementation_declaration(),
-            );
-            return;
-        }
-
-        if self.should_parse_unnamed_trait_implementation_declaration() {
-            builder.push_unnamed_trait_implementation_declaration(
-                self.parse_unnamed_trait_implementation_declaration(),
-            );
-            return;
-        }
-
-        if self.should_parse_inherent_implementation_declaration() {
-            builder.push_inherent_implementation_declaration(
-                self.parse_inherent_implementation_declaration(),
-            );
-            return;
-        }
-
-        if self.should_parse_implementation_overload_declaration() {
-            builder.push_implementation_overload_declaration(
-                self.parse_implementation_overload_declaration(),
-            );
-            return;
-        }
-
-        if self.should_parse_callable_overload_declaration() {
-            builder.push_callable_overload_declaration(self.parse_callable_overload_declaration());
+        if let Some(declaration) = self.parse_module_declaration() {
+            builder.push_declaration(declaration);
             return;
         }
 
@@ -339,6 +277,84 @@ impl Parser {
         }
 
         self.recover_current_token(builder);
+    }
+
+    pub(in crate::parser) fn parse_module_declaration(
+        &mut self,
+    ) -> Option<DeclarationFragmentSyntax> {
+        if self.should_parse_function_declaration() {
+            return Some(DeclarationFragmentSyntax::Function(
+                self.parse_function_declaration(),
+            ));
+        }
+
+        if self.should_parse_constant_declaration() {
+            return Some(DeclarationFragmentSyntax::Constant(
+                self.parse_constant_declaration(),
+            ));
+        }
+
+        if self.should_parse_predicate_declaration() {
+            return Some(DeclarationFragmentSyntax::Predicate(
+                self.parse_predicate_declaration(),
+            ));
+        }
+
+        if self.should_parse_callable_contract_declaration() {
+            return Some(DeclarationFragmentSyntax::CallableContract(
+                self.parse_callable_contract_declaration(),
+            ));
+        }
+
+        if self.should_parse_struct_declaration() {
+            return Some(DeclarationFragmentSyntax::Struct(
+                self.parse_struct_declaration(),
+            ));
+        }
+
+        if self.should_parse_union_declaration() {
+            return Some(DeclarationFragmentSyntax::Union(
+                self.parse_union_declaration(),
+            ));
+        }
+
+        if self.should_parse_trait_declaration() {
+            return Some(DeclarationFragmentSyntax::Trait(
+                self.parse_trait_declaration(),
+            ));
+        }
+
+        if self.should_parse_named_trait_implementation_declaration() {
+            return Some(DeclarationFragmentSyntax::NamedTraitImplementation(
+                self.parse_named_trait_implementation_declaration(),
+            ));
+        }
+
+        if self.should_parse_unnamed_trait_implementation_declaration() {
+            return Some(DeclarationFragmentSyntax::UnnamedTraitImplementation(
+                self.parse_unnamed_trait_implementation_declaration(),
+            ));
+        }
+
+        if self.should_parse_inherent_implementation_declaration() {
+            return Some(DeclarationFragmentSyntax::InherentImplementation(
+                self.parse_inherent_implementation_declaration(),
+            ));
+        }
+
+        if self.should_parse_implementation_overload_declaration() {
+            return Some(DeclarationFragmentSyntax::ImplementationOverload(
+                self.parse_implementation_overload_declaration(),
+            ));
+        }
+
+        if self.should_parse_callable_overload_declaration() {
+            return Some(DeclarationFragmentSyntax::CallableOverload(
+                self.parse_callable_overload_declaration(),
+            ));
+        }
+
+        None
     }
 
     fn parse_using_declaration(&mut self) -> UsingDeclarationSyntax {
@@ -469,6 +485,48 @@ trait ModuleDeclarationSyntaxSink: RecoverySyntaxSink {
 }
 
 pub(super) trait ModuleItemSyntaxSink: RecoverySyntaxSink {
+    fn push_declaration(&mut self, declaration: DeclarationFragmentSyntax) {
+        match declaration {
+            DeclarationFragmentSyntax::Constant(declaration) => {
+                self.push_constant_declaration(declaration);
+            }
+            DeclarationFragmentSyntax::Function(declaration) => {
+                self.push_function_declaration(declaration);
+            }
+            DeclarationFragmentSyntax::Predicate(declaration) => {
+                self.push_predicate_declaration(declaration);
+            }
+            DeclarationFragmentSyntax::CallableContract(declaration) => {
+                self.push_callable_contract_declaration(declaration);
+            }
+            DeclarationFragmentSyntax::CallableOverload(declaration) => {
+                self.push_callable_overload_declaration(declaration);
+            }
+            DeclarationFragmentSyntax::ImplementationOverload(declaration) => {
+                self.push_implementation_overload_declaration(declaration);
+            }
+            DeclarationFragmentSyntax::Struct(declaration) => {
+                self.push_struct_declaration(declaration);
+            }
+            DeclarationFragmentSyntax::Union(declaration) => {
+                self.push_union_declaration(declaration);
+            }
+            DeclarationFragmentSyntax::Trait(declaration) => {
+                self.push_trait_declaration(declaration);
+            }
+            DeclarationFragmentSyntax::InherentImplementation(declaration) => {
+                self.push_inherent_implementation_declaration(declaration);
+            }
+            DeclarationFragmentSyntax::UnnamedTraitImplementation(declaration) => {
+                self.push_unnamed_trait_implementation_declaration(declaration);
+            }
+            DeclarationFragmentSyntax::NamedTraitImplementation(declaration) => {
+                self.push_named_trait_implementation_declaration(declaration);
+            }
+            _ => panic!("parser produced a non-module declaration for a module item"),
+        }
+    }
+
     fn push_using_declaration(&mut self, declaration: UsingDeclarationSyntax);
 
     fn push_export_declaration(&mut self, declaration: ExportDeclarationSyntax);
