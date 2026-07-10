@@ -19,6 +19,7 @@ The compiler-known catalog should:
 - represent protected storage and runtime forms through closed typed Rust representation roles,
 - support target-conditional availability without making the catalog executable,
 - publish one immutable, process-shareable catalog,
+- keep catalog parsing and structural validation out of production compiler startup,
 - support compiler-known symbol construction through the same kind-specific APIs as source and imported symbols,
 - keep recognized standard-library declarations separate from ambient compiler-known declarations,
 - fail as a compiler invariant when the checked-in catalog is invalid.
@@ -40,6 +41,8 @@ The catalog language does not:
 - make recognized standard-library declarations ambient,
 - expose catalog syntax through `bray-syntax`,
 - provide recovery for malformed checked-in catalog files,
+- parse catalog definitions in production compiler processes,
+- require `.braydef` files beside an installed compiler,
 - preserve compatibility with obsolete catalog formats.
 
 Bray is greenfield. The catalog format can be changed coherently with its checked-in definitions and compiler implementation.
@@ -118,7 +121,8 @@ The catalog belongs to a dedicated `bray-compiler-known` crate.
 - implementation-hook enums,
 - availability-rule enums,
 - structural catalog validation,
-- lazy process-wide catalog publication.
+- deterministic generated Rust output,
+- static process-wide catalog publication.
 
 It can depend on:
 
@@ -170,6 +174,11 @@ crates/bray-compiler-known/
     |-- catalog/
     |   |-- descriptor.rs
     |   |-- entry.rs
+    |   |-- generated.rs
+    |   |-- generated/
+    |   |   |-- compiler_known.rs
+    |   |   `-- recognized.rs
+    |   |-- generation.rs
     |   |-- key.rs
     |   |-- loader.rs
     |   |-- parser.rs
@@ -186,6 +195,9 @@ submodules.
 Catalog parser types remain private unless another compiler tool has a concrete need for them. Consumers use immutable descriptor
 APIs, not the catalog parse tree.
 
+Generated catalog modules contain compiler-owned derived data and are never edited by hand. They may be split by semantic domain
+when that keeps generated diffs and incremental Rust compilation focused.
+
 ### Definition Location
 
 Checked-in definitions live under `crates/bray-compiler-known/catalog/` because they are owned by the compiler-known catalog crate.
@@ -200,9 +212,12 @@ Files should be grouped by semantic domain rather than by implementation consume
 - `std.target` declarations,
 - recognized standard-library identities.
 
-The crate owns a canonical embedded source inventory using `include_str!`. That inventory is the complete ordered list of catalog
-source files shipped with the compiler. The loader must not enumerate the build machine's filesystem or depend on directory
-iteration order.
+The crate owns a canonical source manifest that explicitly lists every `.braydef` input consumed by the generator. Generation must
+not enumerate the build machine's filesystem or depend on directory iteration order.
+
+The generator emits checked-in Rust modules under `crates/bray-compiler-known/src/catalog/generated/`. Those modules contain the
+canonical descriptor tables, indexes, and prevalidated surface data shipped in the compiler binary. Production compiler binaries do
+not embed the raw `.braydef` files and do not require them at runtime.
 
 Catalog source order is retained for developer diagnostics and review only. Semantic identity and descriptor IDs are derived from
 stable keys in canonical key order.
@@ -289,8 +304,8 @@ They do not become new public `SyntaxKind` values.
 Whitespace and comments are insignificant to catalog semantics but remain available in the internal source snapshot for developer
 diagnostics.
 
-Catalog files use UTF-8. Include paths are not part of the initial language because the canonical embedded source inventory is owned
-by Rust and must work in an installed compiler without filesystem access.
+Catalog files use UTF-8. Include paths are not part of the initial language because the canonical source manifest is owned by Rust.
+The generated catalog must work in an installed compiler without filesystem access.
 
 ### Grammar
 
@@ -559,44 +574,51 @@ CompilerKnownValueDescriptor
 The actual Rust API should use typed IDs and closed owner enums. It should not expose one untyped property map or one generic list of
 heterogeneous children.
 
-Catalog descriptors can retain internal syntax handles or catalog-specific syntax anchors for lazy binding of type expressions,
-constraints, contracts, and declaration-owned expressions. Those anchors refer to catalog-owned source snapshots, not user source
-IDs.
+Generation converts validated Bray fragments into deterministic pre-parsed surface records or equivalent static syntax tables for
+lazy binding of type expressions, constraints, contracts, and declaration-owned expressions. Production consumers must not recover
+those surfaces by parsing embedded source text.
+
+Generated descriptors may retain catalog-specific source paths and ranges for provenance, developer tooling, and invariant reports.
+They do not require the corresponding source text to be embedded in the production binary and never use user source IDs.
 
 Catalog source anchors are for compiler development and invariant reporting. They must never be emitted as locations in ordinary
 user diagnostics.
 
 ---
 
-## Loading And Validation
+## Generation And Publication
 
-### Lazy Process-Wide Publication
+### Static Process-Wide Publication
 
-The initial implementation should embed catalog source text with `include_str!` and initialize one immutable catalog through
-`OnceLock` on first request.
+The production compiler links deterministic generated Rust tables and exposes them directly through one immutable
+`CompilerKnownCatalog`. It does not parse `.braydef` text, parse embedded Bray fragments, perform structural catalog validation, or
+deserialize a catalog blob during compiler startup.
 
 The catalog is target-independent and can be shared by all compilations in the process. A target-specific available-surface view is
 a separate compilation-owned lazy fact.
 
-Concurrent first requests must publish one equivalent catalog. Demand order, worker count, and source inventory order must not alter
-stable keys, descriptor IDs, or validation results.
+Generated tables include canonical typed indexes so publication requires no mutable global construction. If a derived runtime view
+genuinely requires allocation, it may use one-time immutable initialization, but catalog parsing and validation remain build-time
+work. Demand order, worker count, and source manifest order must not alter stable keys or descriptor IDs.
 
-### Structural Loading Stages
+### Structural Generation Stages
 
-Catalog loading proceeds in deterministic stages:
+Catalog generation proceeds in deterministic stages:
 
-1. Parse every embedded catalog source independently.
-2. Parse each embedded Bray fragment through `bray-parser`.
-3. Reject syntax diagnostics and recovered syntax.
-4. Validate required fields, field cardinality, and typed metadata spellings.
-5. Build the complete stable-key skeleton.
-6. Resolve scope contributions and declaration owners.
-7. Validate ownership cycles and owner-to-child declaration contexts.
-8. Assign compact descriptor IDs in canonical stable-key order.
-9. Build immutable typed indexes.
-10. Publish the catalog atomically.
+1. Read every source named by the canonical manifest.
+2. Parse every catalog source independently.
+3. Parse each embedded Bray fragment through `bray-parser`.
+4. Reject syntax diagnostics and recovered syntax.
+5. Validate required fields, field cardinality, and typed metadata spellings.
+6. Build the complete stable-key skeleton.
+7. Resolve scope contributions and declaration owners.
+8. Validate ownership cycles and owner-to-child declaration contexts.
+9. Assign compact descriptor IDs in canonical stable-key order.
+10. Build immutable typed indexes and pre-parsed surface records.
+11. Render deterministic Rust modules and a source-manifest digest.
+12. Verify that rendering the generated model again produces byte-identical output.
 
-No partially validated catalog is observable.
+No partially validated catalog is emitted or observable to production compiler code.
 
 ### Semantic Validation
 
@@ -626,9 +648,9 @@ The catalog parser and validator should still produce structured internal errors
 - typed arguments,
 - related catalog keys where applicable.
 
-Tests and `xtask` render those errors for compiler developers. Runtime initialization fails the compiler invariant after rendering
-or summarizing the complete deterministic error set. Catalog errors are not merged into the user's compilation diagnostic bag and
-do not use user source locations.
+Tests and `xtask` render those errors for compiler developers. Generation fails after rendering or summarizing the complete
+deterministic error set. Catalog errors are not merged into the user's compilation diagnostic bag and do not use user source
+locations. A released compiler cannot encounter malformed `.braydef` input because it consumes only generated validated tables.
 
 ---
 
@@ -687,16 +709,30 @@ published descriptor families and symbol-materialization behavior remain separat
 
 Project automation belongs in `xtask`.
 
-The initial command should be:
+The catalog automation commands are:
 
 ```text
+cargo xtask compiler-known generate
+cargo xtask compiler-known generate --check
 cargo xtask compiler-known check
 ```
 
-It should:
+`generate` should:
 
-- load every embedded catalog source,
+- read every source in the canonical manifest,
 - report all structural catalog errors deterministically,
+- parse and validate embedded Bray surfaces through ordinary parser APIs,
+- emit deterministic checked-in Rust descriptor and surface tables,
+- stamp the generated output with a digest of the canonical source manifest and source contents,
+- avoid rewriting files whose contents are unchanged.
+
+`generate --check` should perform the same work without writing and fail when generated output differs. A lightweight Cargo build
+freshness check must also fail when the stamped source digest does not match the current manifest and `.braydef` contents. The build
+check verifies freshness only and must not duplicate catalog parsing or generation outside `xtask`.
+
+`check` should:
+
+- verify generated output is current,
 - construct the compiler-known symbol environment,
 - force all catalog-owned semantic facts,
 - validate exhaustive implementation-hook coverage,
@@ -704,20 +740,21 @@ It should:
 - validate recognized standard-library fixtures where available,
 - exit unsuccessfully when any invariant fails.
 
-The command orchestrates existing crate APIs. Catalog parsing and domain validation remain in their owning crates rather than being
-implemented directly in `xtask`.
+The commands orchestrate existing crate APIs. Catalog parsing, domain validation, and deterministic rendering remain in their owning
+crate modules rather than being implemented directly in `xtask`.
 
-### Future Precompilation
+### Generated Catalog Policy
 
-The initial implementation should parse the small embedded catalog once per process. It should not introduce checked-in generated
-Rust, a build script, a binary descriptor blob, or a second serialization format without measured need.
+`.braydef` files are compiler build inputs, not production runtime inputs. Checked-in generated Rust is the only catalog
+representation linked into production compiler binaries.
 
-If catalog loading becomes measurable, `xtask` can later generate immutable descriptors from the same validated source model. The
-consumer boundary must remain `CompilerKnownCatalog`, so changing the loading strategy does not change symbol, binder, checker, or
-lowering APIs.
+Generated Rust is preferred over a binary descriptor blob because it requires no runtime decoder, format-version contract,
+structural validation, or startup allocation merely to recover trusted compiler data. The generated modules use typed catalog
+constructors and static tables rather than a parallel serialized schema.
 
-Any future generator must provide a check mode that detects stale generated output and must preserve deterministic, reviewable
-artifacts.
+The consumer boundary remains `CompilerKnownCatalog`, so generation details do not leak into symbol, binder, checker, or lowering
+APIs. Runtime laziness remains appropriate for target-dependent availability and semantic facts that genuinely depend on a
+compilation. It is not used to defer parsing or validating the compiler's own catalog sources.
 
 ---
 
@@ -755,6 +792,9 @@ Tests should cover:
 - invalid owner kinds and ownership cycles,
 - malformed embedded Bray fragments,
 - rejection of recovered embedded syntax,
+- deterministic generated Rust under repeated generation and reordered source inputs,
+- stale generated output detection through `generate --check` and the Cargo freshness check,
+- production catalog access without catalog or Bray-fragment parsing,
 - deterministic descriptors under reversed source inventory order,
 - deterministic errors under different worker schedules,
 - target-specific views leaving the global catalog unchanged,
@@ -771,11 +811,11 @@ Tests should compare stable keys and typed relationships rather than relying on 
 
 Implementation should proceed in dependency order:
 
-1. Add `bray-compiler-known` with stable keys, metadata enums, immutable descriptor types, and the embedded source inventory.
+1. Add `bray-compiler-known` with stable keys, metadata enums, immutable descriptor types, and the canonical source manifest.
 2. Add the private catalog lexer cursor, parser, structural validation, and deterministic descriptor builder.
 3. Add declaration and type-expression fragment entry points to `bray-parser` using existing parser methods.
 4. Add representative ambient, module-scoped, nested, compiler-provided, and special-value catalog entries.
-5. Publish the immutable process-wide catalog through `OnceLock`.
+5. Add deterministic `xtask` generation, checked-in Rust tables, stale-output enforcement, and static process-wide publication.
 6. Add the compiler-known symbol provider and compilation-local stable-key-to-symbol-ID map.
 7. Add lazy target-availability views.
 8. Add checker and lowering registries for typed representation and implementation roles.

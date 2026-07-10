@@ -40,9 +40,11 @@
 - `bray-compiler-known`
     - Owns the checked-in compiler-known and recognized standard-library catalog format, parser, validation, and immutable
       descriptors.
+    - Owns deterministic generation of checked-in Rust descriptor and surface tables from `.braydef` sources.
     - Owns stable catalog key types and closed representation, compiler-provided implementation, and target-availability roles.
     - Reuses `bray-parser` for embedded Bray declaration and type-expression surfaces.
-    - Publishes one immutable target-independent catalog. Compilation-owned facts derive target-specific available views.
+    - Publishes one static immutable target-independent catalog without runtime catalog parsing or structural validation.
+      Compilation-owned facts derive target-specific available views.
     - Must not construct symbols, bind surfaces, implement checker rules, or lower compiler-provided behavior.
 
 - `bray-symbols`

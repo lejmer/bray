@@ -368,8 +368,10 @@ Symbol construction creates stable semantic identities for declarations.
 The implementation contract is defined in `docs/design/symbols.md`.
 
 Compiler-known and compiler-provided declaration surfaces come from the immutable catalog defined in
-`docs/design/compiler-known-catalog.md`. The catalog supplies stable language identities, embedded Bray declaration surfaces, typed
-representation roles, compiler-provided implementation hooks, and target-availability rules. It does not construct symbols itself.
+`docs/design/compiler-known-catalog.md`. Checked-in `.braydef` sources are parsed and validated by development tooling, which emits
+deterministic checked-in Rust tables. Production compiler processes consume those static tables without parsing catalog sources or
+embedded Bray fragments. The catalog supplies stable language identities, prevalidated declaration surfaces, typed representation
+roles, compiler-provided implementation hooks, and target-availability rules. It does not construct symbols itself.
 
 Imported declaration surfaces come from immutable compiled package interfaces defined in
 `docs/design/compiled-package-interfaces.md`. Imported symbols use the same kind-specific symbol records as source symbols. The
@@ -598,8 +600,9 @@ Typed syntax nodes are structured records of named token and child components, n
 Syntax tokens retain trivia as syntax-owned data. Later phases can refer to syntax spans, nodes, and tokens, but semantic facts
 should not duplicate trivia.
 
-Compiler-known declaration descriptors and typed compiler-known behavior roles belong to `bray-compiler-known`. The catalog is an
-immutable language-definition input to symbol construction and later semantic facts, not source syntax or a source package.
+Compiler-known declaration descriptors and typed compiler-known behavior roles belong to `bray-compiler-known`. The generated
+catalog is an immutable language-definition input to symbol construction and later semantic facts, not source syntax or a source
+package. Runtime compiler work does not parse or structurally validate the checked-in catalog definitions.
 
 Compiled package interface bytes, validated section directories, artifact hashes, and lazy wire decoders belong to
 `bray-package-interface`. Imported semantic identities and normalized symbol-facing facts still belong to `bray-symbols`, while
