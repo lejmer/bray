@@ -470,12 +470,10 @@ mod tests {
             BoundUnitKey::callable_body(symbol_key(SymbolKind::Constant, 0), source),
             None
         );
-
         assert_eq!(
             BoundUnitKey::runtime_default(symbol_key(SymbolKind::CallableParameter, 1), source),
             None
         );
-
         assert_eq!(
             BoundUnitKey::predicate_definition(symbol_key(SymbolKind::Function, 2), source),
             None
@@ -485,6 +483,7 @@ mod tests {
     #[test]
     fn source_version_participates_in_unit_identity() {
         let source = source_anchor();
+
         let next_source = crate::BoundSourceAnchor::new(
             source.syntax(),
             bray_source::SourceVersion::new(source.source_version().raw() + 1),
@@ -494,7 +493,6 @@ mod tests {
             symbol_key(SymbolKind::Predicate, 4),
             source,
         ));
-
         let next = valid_key(BoundUnitKey::predicate_definition(
             symbol_key(SymbolKind::Predicate, 4),
             next_source,
@@ -520,6 +518,7 @@ mod tests {
         };
 
         let owner = bray_symbols::SymbolKey::module(SymbolRootKey::Package(package), path);
+
         let key = bray_symbols::SymbolKey::source_declaration(
             owner,
             kind,
@@ -534,6 +533,7 @@ mod tests {
 
     fn runtime_default_key(declaration: u32) -> bray_symbols::SymbolKey {
         let parameter = symbol_key(SymbolKind::CallableParameter, declaration);
+
         let provider = SynthesizedSymbolKey::callable_parameter_default_provider(parameter);
 
         bray_symbols::SymbolKey::synthesized(provider)

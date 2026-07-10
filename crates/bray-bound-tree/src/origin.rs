@@ -126,6 +126,7 @@ mod tests {
     #[test]
     fn source_and_synthesized_origins_retain_source_correlation() {
         let source = source_anchor();
+
         let source_origin = BoundNodeOrigin::source(source);
         let synthesized = BoundNodeOrigin::synthesized(
             source,
@@ -148,12 +149,12 @@ mod tests {
     #[test]
     fn synthesized_ordinals_distinguish_repeated_roles() {
         let source = source_anchor();
+
         let first = BoundNodeOrigin::synthesized(
             source,
             BoundSynthesisRole::Temporary,
             BoundNodeOrdinal::new(0),
         );
-
         let second = BoundNodeOrigin::synthesized(
             source,
             BoundSynthesisRole::Temporary,

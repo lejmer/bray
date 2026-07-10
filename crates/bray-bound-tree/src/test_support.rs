@@ -17,6 +17,7 @@ pub(crate) fn source_anchor() -> BoundSourceAnchor {
     };
 
     let source_unit = source_unit(snapshot.clone());
+
     let declarations = discover_source_unit_declarations(&source_unit);
 
     assert!(declarations.diagnostics().is_empty());
@@ -48,11 +49,9 @@ fn module_declaration(snapshot: SourceSnapshot) -> SourceUnitModuleDeclarationSy
     declaration.push_module_directives(
         ModuleDirectivesSyntax::builder(snapshot.clone(), TextSize::ZERO).build(),
     );
-
     declaration.push_module_modifiers(
         ModuleModifiersSyntax::builder(snapshot.clone(), TextSize::ZERO).build(),
     );
-
     declaration.push_module_keyword(
         token(SyntaxKind::ModuleKeyword, 0, 6).with_trailing_trivia([SyntaxTrivia::whitespace(
             TextRange::new(TextSize::new(6), TextSize::new(7)),
@@ -62,6 +61,7 @@ fn module_declaration(snapshot: SourceSnapshot) -> SourceUnitModuleDeclarationSy
     let mut path = PathSyntax::builder(snapshot);
 
     path.push_identifier_token(token(SyntaxKind::IdentifierToken, 7, 14));
+
     declaration.push_module_path(path.build());
     declaration.push_semicolon_token(token(SyntaxKind::SemicolonToken, 14, 15));
 

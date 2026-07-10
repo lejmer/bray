@@ -65,7 +65,6 @@ macro_rules! define_bound_node_ids {
                     self.unit()
                 }
             }
-
         )+
 
         /// A closed type-erased reference to any substantial bound node.
@@ -128,6 +127,7 @@ mod tests {
         let unit = BoundUnitId::new(7);
         let expression = BoundExpressionId::from_slot(unit, 3);
         let pattern = BoundPatternId::from_slot(unit, 3);
+
         let expression = AnyBoundNodeId::from(expression);
         let pattern = AnyBoundNodeId::from(pattern);
 
