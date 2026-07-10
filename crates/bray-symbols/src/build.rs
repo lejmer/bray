@@ -593,8 +593,9 @@ mod tests {
 
     use super::source_symbol_kind;
     use crate::{
-        AnySymbolId, CallableSymbolId, FunctionSymbolId, ModuleOwnerId, ModulePathKey,
-        PackageIdentity, RuntimeDefaultPresence, SymbolGraph, SymbolId, SymbolKind, SymbolOrigin,
+        AnySymbolId, CallableSymbolId, CompilerKnownEnvironmentSymbolId, FunctionSymbolId,
+        ModuleOwnerId, ModulePathKey, PackageIdentity, RuntimeDefaultPresence, SymbolGraph,
+        SymbolId, SymbolKind, SymbolOrigin, SymbolProvider, SymbolRecordId,
     };
 
     #[test]
@@ -642,6 +643,28 @@ mod tests {
         let forged = FunctionSymbolId::from_symbol_id(SymbolId::new(100));
 
         assert_eq!(graph.function(forged), None);
+    }
+
+    #[test]
+    fn source_symbols_are_available_through_the_origin_neutral_provider_contract() {
+        let table = declaration_table(&["module app; func main() {}"]);
+        let graph = build_graph(&table);
+        let function = &graph.functions()[0];
+
+        assert_eq!(provided_symbol(&graph, function.id()), Some(function));
+
+        let forged_function = FunctionSymbolId::from_symbol_id(SymbolId::new(100));
+
+        assert_eq!(provided_symbol(&graph, forged_function), None);
+
+        let environment = graph.compiler_known_environment();
+
+        assert_eq!(provided_symbol(&graph, environment.id()), Some(environment));
+
+        let forged_environment =
+            CompilerKnownEnvironmentSymbolId::from_symbol_id(SymbolId::new(100));
+
+        assert_eq!(provided_symbol(&graph, forged_environment), None);
     }
 
     #[test]
@@ -966,5 +989,12 @@ mod tests {
             Ok(graph) => graph,
             Err(error) => panic!("test symbol graph should build: {error:?}"),
         }
+    }
+
+    fn provided_symbol<I>(provider: &impl SymbolProvider<I>, id: I) -> Option<&I::Record>
+    where
+        I: SymbolRecordId,
+    {
+        provider.symbol(id)
     }
 }
