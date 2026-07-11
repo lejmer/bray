@@ -194,14 +194,12 @@ where
 mod tests {
     use std::borrow::Cow;
 
-    use bray_source::{TextRange, TextSize};
-
     use super::CompilerKnownCatalog;
+    use crate::catalog::test_support::{declaration_key, declaration_surface};
     use crate::catalog::{
-        CatalogDeclarationKind, CatalogDeclarationSurface, CatalogScopeLocation,
-        CatalogSourceAnchor, CompilerKnownDeclarationDescriptor, CompilerKnownDeclarationId,
-        CompilerKnownDeclarationKey, CompilerKnownDeclarationOwner, CompilerKnownScopeDescriptor,
-        CompilerKnownScopeId, CompilerKnownScopeKey, generator_input_inventory,
+        CatalogDeclarationKind, CatalogScopeLocation, CompilerKnownDeclarationDescriptor,
+        CompilerKnownDeclarationId, CompilerKnownDeclarationOwner, CompilerKnownScopeDescriptor,
+        CompilerKnownScopeId, CompilerKnownScopeKey,
     };
     use crate::{AvailabilityRule, COMPILER_KNOWN_CATALOG, ImplementationHook, RepresentationRole};
 
@@ -306,28 +304,10 @@ mod tests {
         }
     }
 
-    fn declaration_surface() -> CatalogDeclarationSurface {
-        let source = generator_input_inventory().sources()[0].id();
-
-        let anchor = CatalogSourceAnchor {
-            source,
-            range: TextRange::new(TextSize::new(1), TextSize::new(5)),
-        };
-
-        CatalogDeclarationSurface(anchor)
-    }
-
     fn scope_key(value: &str) -> CompilerKnownScopeKey {
         match CompilerKnownScopeKey::try_new(value) {
             Some(key) => key,
             None => panic!("test scope key is valid"),
-        }
-    }
-
-    fn declaration_key(value: &str) -> CompilerKnownDeclarationKey {
-        match CompilerKnownDeclarationKey::try_new(value) {
-            Some(key) => key,
-            None => panic!("test declaration key is valid"),
         }
     }
 }

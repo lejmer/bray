@@ -506,13 +506,11 @@ fn module_is_recovered(
 mod tests {
     use std::sync::Arc;
 
-    use bray_declarations::{
-        DeclarationChunkResult, DeclarationKind, DeclarationTable,
-        discover_source_unit_declarations, merge_declaration_chunks,
-    };
-    use bray_testing::{test_source_at, test_source_store};
+    use bray_declarations::{DeclarationKind, DeclarationTable, merge_declaration_chunks};
+    use bray_testing::test_source_store;
 
     use crate::surface_kind::{DeclarationSurfaceKind, declaration_symbol_kind};
+    use crate::test_support::{declaration_chunk, declaration_table};
     use crate::{
         AnySymbolId, CallableSymbolId, CompilerKnownEnvironmentSymbolId, FunctionSymbolId,
         ModuleOwnerId, ModulePathKey, PackageIdentity, RuntimeDefaultPresence, SymbolGraph,
@@ -929,22 +927,6 @@ mod tests {
             Some(path) => path,
             None => panic!("test module path is valid"),
         }
-    }
-
-    fn declaration_table(source_texts: &[&str]) -> DeclarationTable {
-        let sources = test_source_store(source_texts);
-        let chunks = (0u32..)
-            .take(source_texts.len())
-            .map(|index| declaration_chunk(&sources, index))
-            .collect::<Vec<_>>();
-        let result = merge_declaration_chunks(chunks.iter());
-        let (table, _diagnostics) = result.into_parts();
-        table
-    }
-
-    fn declaration_chunk(sources: &bray_source::SourceStore, index: u32) -> DeclarationChunkResult {
-        let parsed = bray_parser::parse_source_unit(test_source_at(sources, index));
-        discover_source_unit_declarations(parsed.source_unit())
     }
 
     fn build_graph(table: &DeclarationTable) -> SymbolGraph {
