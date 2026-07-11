@@ -37,8 +37,9 @@ pub use template::{
     CheckedTemplate, CheckedTemplateBehavior, CheckedTemplateBuildError, CheckedTemplateBuilder,
     CheckedTemplateCapability, CheckedTemplateCompletion, CheckedTemplateEffect,
     CheckedTemplateInput, CheckedTemplateInputId, CheckedTemplateInputKind, CheckedTemplateKind,
-    CheckedTemplateNode, CheckedTemplateNodeId, CheckedTemplateOperation, CheckedTemplateTemporary,
-    CheckedTemplateTemporaryId, CheckedTemplateTrustedObligation, CheckedTemplateWitness,
+    CheckedTemplateNode, CheckedTemplateNodeId, CheckedTemplateOperation,
+    CheckedTemplateShortCircuitKind, CheckedTemplateTemporary, CheckedTemplateTemporaryId,
+    CheckedTemplateTrustedObligation, CheckedTemplateWitness,
 };
 pub use tree::{
     BoundTree, BoundTreeBuildError, BoundTreeBuilder, BoundWalkControl, BoundWalkEvent,

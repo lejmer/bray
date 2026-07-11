@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use bray_base::shared_slice;
+use bray_base::{shared_slice, sorted_unique_shared_slice};
 use bray_symbols::{
     ConstantTermId, DependencyContractTemplateId, ExternalSymbolKey, LifecycleObligationKind,
     SymbolOrdinal, TypeId,
@@ -120,7 +120,7 @@ pub struct CheckedTemplateBehavior {
 }
 
 impl CheckedTemplateBehavior {
-    /// Creates portable behavior in deterministic published semantic order.
+    /// Creates portable behavior as canonical sorted semantic sets.
     pub fn new(
         effects: impl IntoIterator<Item = CheckedTemplateEffect>,
         capabilities: impl IntoIterator<Item = CheckedTemplateCapability>,
@@ -130,31 +130,31 @@ impl CheckedTemplateBehavior {
         witnesses: impl IntoIterator<Item = CheckedTemplateWitness>,
     ) -> Self {
         Self {
-            effects: shared_slice(effects),
-            capabilities: shared_slice(capabilities),
-            trusted_obligations: shared_slice(trusted_obligations),
-            lifecycle_obligations: shared_slice(lifecycle_obligations),
+            effects: sorted_unique_shared_slice(effects),
+            capabilities: sorted_unique_shared_slice(capabilities),
+            trusted_obligations: sorted_unique_shared_slice(trusted_obligations),
+            lifecycle_obligations: sorted_unique_shared_slice(lifecycle_obligations),
             dependency_contract,
-            witnesses: shared_slice(witnesses),
+            witnesses: sorted_unique_shared_slice(witnesses),
         }
     }
 
-    /// Returns checked effects in published semantic order.
+    /// Returns checked effects in canonical semantic-set order.
     pub fn effects(&self) -> &[CheckedTemplateEffect] {
         &self.effects
     }
 
-    /// Returns checked capabilities in published semantic order.
+    /// Returns checked capabilities in canonical semantic-set order.
     pub fn capabilities(&self) -> &[CheckedTemplateCapability] {
         &self.capabilities
     }
 
-    /// Returns trusted obligations in published semantic order.
+    /// Returns trusted obligations in canonical semantic-set order.
     pub fn trusted_obligations(&self) -> &[CheckedTemplateTrustedObligation] {
         &self.trusted_obligations
     }
 
-    /// Returns lifecycle obligations in published semantic order.
+    /// Returns lifecycle obligations in canonical semantic-set order.
     pub fn lifecycle_obligations(&self) -> &[LifecycleObligationKind] {
         &self.lifecycle_obligations
     }
@@ -164,10 +164,19 @@ impl CheckedTemplateBehavior {
         self.dependency_contract
     }
 
-    /// Returns selected implementation witnesses in published semantic order.
+    /// Returns selected implementation witnesses in canonical semantic-set order.
     pub fn witnesses(&self) -> &[CheckedTemplateWitness] {
         &self.witnesses
     }
+}
+
+/// The exact lazy boolean evaluation rule of a short-circuit operation.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum CheckedTemplateShortCircuitKind {
+    /// Evaluates the right operand only when the left operand is true.
+    And,
+    /// Evaluates the right operand only when the left operand is false.
+    Or,
 }
 
 /// The closed normalized operation vocabulary of a checked template.
@@ -206,6 +215,24 @@ pub enum CheckedTemplateOperation {
         /// The selected field, payload, or associated declaration.
         member: ExternalSymbolKey,
     },
+    /// Evaluates a condition once and then exactly one selected branch.
+    Conditional {
+        /// The condition evaluated before either branch.
+        condition: CheckedTemplateNodeId,
+        /// The result evaluated only when the condition is true.
+        when_true: CheckedTemplateNodeId,
+        /// The result evaluated only when the condition is false.
+        when_false: CheckedTemplateNodeId,
+    },
+    /// Evaluates the left operand and evaluates the right operand only when required.
+    ShortCircuit {
+        /// The exact conjunction or disjunction evaluation rule.
+        kind: CheckedTemplateShortCircuitKind,
+        /// The operand evaluated first.
+        left: CheckedTemplateNodeId,
+        /// The operand evaluated conditionally.
+        right: CheckedTemplateNodeId,
+    },
     /// Reads one explicitly materialized template-local temporary.
     Temporary(CheckedTemplateTemporaryId),
 }
@@ -234,19 +261,39 @@ impl CheckedTemplateOperation {
         Self::Array(shared_slice(elements))
     }
 
-    pub(crate) fn node_references(&self) -> &[CheckedTemplateNodeId] {
+    pub(crate) fn try_for_each_node_reference<E>(
+        &self,
+        mut visit: impl FnMut(CheckedTemplateNodeId) -> Result<(), E>,
+    ) -> Result<(), E> {
         match self {
             Self::Call { arguments, .. } | Self::Tuple(arguments) | Self::Array(arguments) => {
-                arguments
+                for argument in arguments.iter() {
+                    visit(*argument)?;
+                }
             }
-            Self::Convert { value, .. } => std::slice::from_ref(value),
-            Self::Project { subject, .. } => std::slice::from_ref(subject),
-            Self::Input(_) | Self::Constant(_) | Self::Declaration(_) | Self::Temporary(_) => &[],
+            Self::Convert { value, .. } => visit(*value)?,
+            Self::Project { subject, .. } => visit(*subject)?,
+            Self::Conditional {
+                condition,
+                when_true,
+                when_false,
+            } => {
+                visit(*condition)?;
+                visit(*when_true)?;
+                visit(*when_false)?;
+            }
+            Self::ShortCircuit { left, right, .. } => {
+                visit(*left)?;
+                visit(*right)?;
+            }
+            Self::Input(_) | Self::Constant(_) | Self::Declaration(_) | Self::Temporary(_) => {}
         }
+
+        Ok(())
     }
 }
 
-/// One typed normalized operation in deterministic evaluation order.
+/// One typed normalized operation in deterministic dependency order.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CheckedTemplateNode {
     operation: CheckedTemplateOperation,
@@ -352,7 +399,10 @@ impl CheckedTemplate {
         &self.inputs
     }
 
-    /// Returns normalized operations in deterministic evaluation order.
+    /// Returns normalized operations in deterministic dependency order.
+    ///
+    /// Consumers begin with [`Self::result`] and follow operation semantics. Table order alone is
+    /// not an evaluation schedule because conditional and short-circuit children are lazy.
     pub fn nodes(&self) -> &[CheckedTemplateNode] {
         &self.nodes
     }
@@ -370,5 +420,107 @@ impl CheckedTemplate {
     /// Returns effects, capabilities, dependencies, and implementation witnesses.
     pub const fn behavior(&self) -> &CheckedTemplateBehavior {
         &self.behavior
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_symbols::{
+        DependencyContractTemplateData, ExternalSymbolKey, LifecycleObligationKind,
+        PackageIdentity, SemanticValueStore,
+    };
+
+    use super::{
+        CheckedTemplateBehavior, CheckedTemplateCapability, CheckedTemplateEffect,
+        CheckedTemplateTrustedObligation, CheckedTemplateWitness,
+    };
+
+    #[test]
+    fn behavior_sets_are_canonical_across_permutations_and_duplicates() {
+        let dependencies = dependencies();
+        let first_key = external_key("example.first");
+        let second_key = external_key("example.second");
+
+        let first = CheckedTemplateBehavior::new(
+            [
+                CheckedTemplateEffect::new(second_key.clone()),
+                CheckedTemplateEffect::new(first_key.clone()),
+                CheckedTemplateEffect::new(first_key.clone()),
+            ],
+            [
+                CheckedTemplateCapability::new(second_key.clone()),
+                CheckedTemplateCapability::new(first_key.clone()),
+                CheckedTemplateCapability::new(second_key.clone()),
+            ],
+            [
+                CheckedTemplateTrustedObligation::new(first_key.clone()),
+                CheckedTemplateTrustedObligation::new(second_key.clone()),
+                CheckedTemplateTrustedObligation::new(first_key.clone()),
+            ],
+            [
+                LifecycleObligationKind::Joining,
+                LifecycleObligationKind::Destruction,
+                LifecycleObligationKind::Joining,
+            ],
+            dependencies,
+            [
+                CheckedTemplateWitness::new(second_key.clone()),
+                CheckedTemplateWitness::new(first_key.clone()),
+                CheckedTemplateWitness::new(second_key.clone()),
+            ],
+        );
+
+        let second = CheckedTemplateBehavior::new(
+            [
+                CheckedTemplateEffect::new(first_key.clone()),
+                CheckedTemplateEffect::new(second_key.clone()),
+            ],
+            [
+                CheckedTemplateCapability::new(first_key.clone()),
+                CheckedTemplateCapability::new(second_key.clone()),
+            ],
+            [
+                CheckedTemplateTrustedObligation::new(second_key.clone()),
+                CheckedTemplateTrustedObligation::new(first_key.clone()),
+            ],
+            [
+                LifecycleObligationKind::Destruction,
+                LifecycleObligationKind::Joining,
+            ],
+            dependencies,
+            [
+                CheckedTemplateWitness::new(first_key),
+                CheckedTemplateWitness::new(second_key),
+            ],
+        );
+
+        assert_eq!(first, second);
+        assert_eq!(first.effects().len(), 2);
+        assert_eq!(first.capabilities().len(), 2);
+        assert_eq!(first.trusted_obligations().len(), 2);
+        assert_eq!(first.lifecycle_obligations().len(), 2);
+        assert_eq!(first.witnesses().len(), 2);
+    }
+
+    fn dependencies() -> bray_symbols::DependencyContractTemplateId {
+        let Ok(store) = SemanticValueStore::try_new() else {
+            panic!("semantic value store identity must be available");
+        };
+
+        let Ok(dependencies) =
+            store.intern_dependency_contract_template(DependencyContractTemplateData::new([]))
+        else {
+            panic!("empty dependency contract must be valid");
+        };
+
+        dependencies
+    }
+
+    fn external_key(package: &str) -> ExternalSymbolKey {
+        let Some(package) = PackageIdentity::try_new(package) else {
+            panic!("test package identity must be valid");
+        };
+
+        ExternalSymbolKey::package(package)
     }
 }

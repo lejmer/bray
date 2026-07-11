@@ -1,48 +1,17 @@
 use bray_symbols::{DependencyContractTemplateId, TypeId};
 
 use super::{
-    CheckedTemplate, CheckedTemplateBehavior, CheckedTemplateCompletion, CheckedTemplateInput,
-    CheckedTemplateInputId, CheckedTemplateKind, CheckedTemplateNode, CheckedTemplateNodeId,
-    CheckedTemplateOperation, CheckedTemplateTemporary, CheckedTemplateTemporaryId,
+    CheckedTemplate, CheckedTemplateBehavior, CheckedTemplateBuildError, CheckedTemplateCompletion,
+    CheckedTemplateInput, CheckedTemplateInputId, CheckedTemplateKind, CheckedTemplateNode,
+    CheckedTemplateNodeId, CheckedTemplateOperation, CheckedTemplateTemporary,
+    CheckedTemplateTemporaryId,
 };
 
-/// A typed failure while validating a source-independent checked template.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum CheckedTemplateBuildError {
-    /// A template-local identity table cannot represent another entry.
-    CapacityExceeded,
-    /// Semantic recovery contributed to a template that must be portable and lowerable.
-    RecoveredTemplate,
-    /// An operation references an input that is not declared by the template.
-    MissingInput(CheckedTemplateInputId),
-    /// Two inputs declare the same contextual or generic role.
-    DuplicateInput {
-        /// The first declaration of the input role.
-        first: CheckedTemplateInputId,
-        /// The repeated declaration of the input role.
-        duplicate: CheckedTemplateInputId,
-    },
-    /// An operation or result references a node outside the template.
-    MissingNode(CheckedTemplateNodeId),
-    /// An operation references a node that has not yet been evaluated.
-    ForwardNodeReference {
-        /// The operation containing the invalid reference.
-        node: CheckedTemplateNodeId,
-        /// The referenced node at or after the operation.
-        referenced: CheckedTemplateNodeId,
-    },
-    /// An operation references a temporary that is not declared by the template.
-    MissingTemporary(CheckedTemplateTemporaryId),
-    /// A temporary is read before its initializer has been evaluated.
-    UninitializedTemporary {
-        /// The operation reading the temporary.
-        node: CheckedTemplateNodeId,
-        /// The temporary whose initializer is not available.
-        temporary: CheckedTemplateTemporaryId,
-    },
-}
-
 /// Task-local validated construction for one portable checked template.
+///
+/// Construction validates template-local references and type equalities. The checker or interface
+/// decoder remains responsible for facts that require semantic lookup, including canonical
+/// boolean identity, callable signatures, member types, and structural result-type expansion.
 #[derive(Debug)]
 pub struct CheckedTemplateBuilder {
     kind: CheckedTemplateKind,
@@ -105,6 +74,7 @@ impl CheckedTemplateBuilder {
         validate_operation(
             id,
             node.operation(),
+            node.ty(),
             &self.inputs,
             &self.nodes,
             &self.temporaries,
@@ -123,6 +93,18 @@ impl CheckedTemplateBuilder {
         dependency_contract: DependencyContractTemplateId,
     ) -> Result<CheckedTemplateTemporaryId, CheckedTemplateBuildError> {
         validate_present_node(initializer, self.nodes.len())?;
+
+        let expected = referenced_node_type(initializer, &self.nodes)?;
+
+        if expected != ty {
+            return Err(
+                CheckedTemplateBuildError::TemporaryInitializerTypeMismatch {
+                    initializer,
+                    expected,
+                    actual: ty,
+                },
+            );
+        }
 
         let Some(id) = CheckedTemplateTemporaryId::try_from_index(self.temporaries.len()) else {
             return Err(CheckedTemplateBuildError::CapacityExceeded);
@@ -163,6 +145,7 @@ impl CheckedTemplateBuilder {
 fn validate_operation(
     node: CheckedTemplateNodeId,
     operation: &CheckedTemplateOperation,
+    actual: TypeId,
     inputs: &[CheckedTemplateInput],
     nodes: &[CheckedTemplateNode],
     temporaries: &[CheckedTemplateTemporary],
@@ -171,15 +154,204 @@ fn validate_operation(
         validate_input(*input, inputs.len())?;
     }
 
-    for referenced in operation.node_references() {
-        validate_prior_node(node, *referenced, nodes.len())?;
-    }
+    operation.try_for_each_node_reference(|referenced| {
+        validate_prior_node(node, referenced, nodes.len())
+    })?;
 
     if let CheckedTemplateOperation::Temporary(temporary) = operation {
         validate_temporary(node, *temporary, temporaries)?;
     }
 
+    validate_operation_types(node, operation, actual, inputs, nodes, temporaries)?;
+
     Ok(())
+}
+
+fn validate_operation_types(
+    node: CheckedTemplateNodeId,
+    operation: &CheckedTemplateOperation,
+    actual: TypeId,
+    inputs: &[CheckedTemplateInput],
+    nodes: &[CheckedTemplateNode],
+    temporaries: &[CheckedTemplateTemporary],
+) -> Result<(), CheckedTemplateBuildError> {
+    match operation {
+        CheckedTemplateOperation::Input(input) => {
+            let expected = input_type(*input, inputs)?;
+
+            if expected != actual {
+                return Err(CheckedTemplateBuildError::InputTypeMismatch {
+                    node,
+                    input: *input,
+                    expected,
+                    actual,
+                });
+            }
+        }
+        CheckedTemplateOperation::Temporary(temporary) => {
+            let expected = temporary_type(*temporary, temporaries)?;
+
+            if expected != actual {
+                return Err(CheckedTemplateBuildError::TemporaryTypeMismatch {
+                    node,
+                    temporary: *temporary,
+                    expected,
+                    actual,
+                });
+            }
+        }
+        CheckedTemplateOperation::Convert { target, .. } if *target != actual => {
+            return Err(CheckedTemplateBuildError::ConversionTypeMismatch {
+                node,
+                expected: *target,
+                actual,
+            });
+        }
+        CheckedTemplateOperation::Conditional {
+            when_true,
+            when_false,
+            ..
+        } => validate_conditional_types(node, *when_true, *when_false, actual, nodes)?,
+        CheckedTemplateOperation::ShortCircuit { left, right, .. } => {
+            validate_short_circuit_types(node, *left, *right, actual, nodes)?;
+        }
+        CheckedTemplateOperation::Array(elements) => validate_array_types(node, elements, nodes)?,
+        CheckedTemplateOperation::Constant(_)
+        | CheckedTemplateOperation::Declaration(_)
+        | CheckedTemplateOperation::Call { .. }
+        | CheckedTemplateOperation::Convert { .. }
+        | CheckedTemplateOperation::Tuple(_)
+        | CheckedTemplateOperation::Project { .. } => {}
+    }
+
+    Ok(())
+}
+
+fn validate_array_types(
+    node: CheckedTemplateNodeId,
+    elements: &[CheckedTemplateNodeId],
+    nodes: &[CheckedTemplateNode],
+) -> Result<(), CheckedTemplateBuildError> {
+    let Some((first, remaining)) = elements.split_first() else {
+        return Ok(());
+    };
+
+    let expected = referenced_node_type(*first, nodes)?;
+
+    for element in remaining {
+        let actual = referenced_node_type(*element, nodes)?;
+
+        if actual != expected {
+            return Err(CheckedTemplateBuildError::ArrayElementTypeMismatch {
+                node,
+                element: *element,
+                expected,
+                actual,
+            });
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_conditional_types(
+    node: CheckedTemplateNodeId,
+    when_true: CheckedTemplateNodeId,
+    when_false: CheckedTemplateNodeId,
+    actual: TypeId,
+    nodes: &[CheckedTemplateNode],
+) -> Result<(), CheckedTemplateBuildError> {
+    let true_type = referenced_node_type(when_true, nodes)?;
+    let false_type = referenced_node_type(when_false, nodes)?;
+
+    if true_type != false_type {
+        return Err(CheckedTemplateBuildError::ConditionalBranchTypeMismatch {
+            node,
+            when_true: true_type,
+            when_false: false_type,
+        });
+    }
+
+    if true_type != actual {
+        return Err(CheckedTemplateBuildError::ConditionalResultTypeMismatch {
+            node,
+            expected: true_type,
+            actual,
+        });
+    }
+
+    Ok(())
+}
+
+fn validate_short_circuit_types(
+    node: CheckedTemplateNodeId,
+    left: CheckedTemplateNodeId,
+    right: CheckedTemplateNodeId,
+    actual: TypeId,
+    nodes: &[CheckedTemplateNode],
+) -> Result<(), CheckedTemplateBuildError> {
+    let left_type = referenced_node_type(left, nodes)?;
+    let right_type = referenced_node_type(right, nodes)?;
+
+    if left_type != right_type {
+        return Err(CheckedTemplateBuildError::ShortCircuitOperandTypeMismatch {
+            node,
+            left: left_type,
+            right: right_type,
+        });
+    }
+
+    if left_type != actual {
+        return Err(CheckedTemplateBuildError::ShortCircuitResultTypeMismatch {
+            node,
+            expected: left_type,
+            actual,
+        });
+    }
+
+    Ok(())
+}
+
+fn input_type(
+    input: CheckedTemplateInputId,
+    inputs: &[CheckedTemplateInput],
+) -> Result<TypeId, CheckedTemplateBuildError> {
+    let Some(index) = input.to_index() else {
+        return Err(CheckedTemplateBuildError::MissingInput(input));
+    };
+
+    inputs
+        .get(index)
+        .map(CheckedTemplateInput::ty)
+        .ok_or(CheckedTemplateBuildError::MissingInput(input))
+}
+
+fn temporary_type(
+    temporary: CheckedTemplateTemporaryId,
+    temporaries: &[CheckedTemplateTemporary],
+) -> Result<TypeId, CheckedTemplateBuildError> {
+    let Some(index) = temporary.to_index() else {
+        return Err(CheckedTemplateBuildError::MissingTemporary(temporary));
+    };
+
+    temporaries
+        .get(index)
+        .map(|temporary| temporary.ty())
+        .ok_or(CheckedTemplateBuildError::MissingTemporary(temporary))
+}
+
+fn referenced_node_type(
+    node: CheckedTemplateNodeId,
+    nodes: &[CheckedTemplateNode],
+) -> Result<TypeId, CheckedTemplateBuildError> {
+    let Some(index) = node.to_index() else {
+        return Err(CheckedTemplateBuildError::MissingNode(node));
+    };
+
+    nodes
+        .get(index)
+        .map(CheckedTemplateNode::ty)
+        .ok_or(CheckedTemplateBuildError::MissingNode(node))
 }
 
 fn validate_input(
@@ -261,7 +433,8 @@ mod tests {
     use crate::{
         CheckedTemplateBehavior, CheckedTemplateCompletion, CheckedTemplateInput,
         CheckedTemplateInputId, CheckedTemplateInputKind, CheckedTemplateKind, CheckedTemplateNode,
-        CheckedTemplateNodeId, CheckedTemplateOperation, CheckedTemplateTemporaryId,
+        CheckedTemplateNodeId, CheckedTemplateOperation, CheckedTemplateShortCircuitKind,
+        CheckedTemplateTemporaryId,
     };
 
     #[test]
@@ -320,6 +493,36 @@ mod tests {
         );
 
         assert_eq!(
+            builder.push_node(CheckedTemplateNode::new(
+                CheckedTemplateOperation::Conditional {
+                    condition: CheckedTemplateNodeId::new(0),
+                    when_true: CheckedTemplateNodeId::new(1),
+                    when_false: CheckedTemplateNodeId::new(2),
+                },
+                ty,
+            )),
+            Err(CheckedTemplateBuildError::ForwardNodeReference {
+                node: CheckedTemplateNodeId::new(0),
+                referenced: CheckedTemplateNodeId::new(0),
+            })
+        );
+
+        assert_eq!(
+            builder.push_node(CheckedTemplateNode::new(
+                CheckedTemplateOperation::ShortCircuit {
+                    kind: CheckedTemplateShortCircuitKind::And,
+                    left: CheckedTemplateNodeId::new(0),
+                    right: CheckedTemplateNodeId::new(1),
+                },
+                ty,
+            )),
+            Err(CheckedTemplateBuildError::ForwardNodeReference {
+                node: CheckedTemplateNodeId::new(0),
+                referenced: CheckedTemplateNodeId::new(0),
+            })
+        );
+
+        assert_eq!(
             builder.finish(
                 CheckedTemplateNodeId::new(0),
                 CheckedTemplateCompletion::Complete,
@@ -351,6 +554,44 @@ mod tests {
             Err(CheckedTemplateBuildError::DuplicateInput {
                 first,
                 duplicate: CheckedTemplateInputId::new(1),
+            })
+        );
+    }
+
+    #[test]
+    fn control_flow_reference_validation_uses_semantic_child_order() {
+        let (ty, behavior) = semantic_values();
+        let mut builder =
+            CheckedTemplateBuilder::new(CheckedTemplateKind::PredicateDefinition, behavior);
+        let condition = push_declaration(&mut builder, ty);
+
+        assert_eq!(
+            builder.push_node(CheckedTemplateNode::new(
+                CheckedTemplateOperation::Conditional {
+                    condition,
+                    when_true: CheckedTemplateNodeId::new(1),
+                    when_false: CheckedTemplateNodeId::new(2),
+                },
+                ty,
+            )),
+            Err(CheckedTemplateBuildError::ForwardNodeReference {
+                node: CheckedTemplateNodeId::new(1),
+                referenced: CheckedTemplateNodeId::new(1),
+            })
+        );
+
+        assert_eq!(
+            builder.push_node(CheckedTemplateNode::new(
+                CheckedTemplateOperation::ShortCircuit {
+                    kind: CheckedTemplateShortCircuitKind::And,
+                    left: condition,
+                    right: CheckedTemplateNodeId::new(1),
+                },
+                ty,
+            )),
+            Err(CheckedTemplateBuildError::ForwardNodeReference {
+                node: CheckedTemplateNodeId::new(1),
+                referenced: CheckedTemplateNodeId::new(1),
             })
         );
     }
@@ -435,6 +676,150 @@ mod tests {
     }
 
     #[test]
+    fn conditional_and_short_circuit_operations_retain_lazy_children() {
+        let (ty, behavior) = semantic_values();
+        let mut builder =
+            CheckedTemplateBuilder::new(CheckedTemplateKind::PredicateDefinition, behavior);
+
+        let condition = push_declaration(&mut builder, ty);
+        let when_true = push_declaration(&mut builder, ty);
+        let when_false = push_declaration(&mut builder, ty);
+
+        let Ok(conditional) = builder.push_node(CheckedTemplateNode::new(
+            CheckedTemplateOperation::Conditional {
+                condition,
+                when_true,
+                when_false,
+            },
+            ty,
+        )) else {
+            panic!("coherent conditional must be valid");
+        };
+
+        let right = push_declaration(&mut builder, ty);
+
+        let Ok(short_circuit) = builder.push_node(CheckedTemplateNode::new(
+            CheckedTemplateOperation::ShortCircuit {
+                kind: CheckedTemplateShortCircuitKind::Or,
+                left: conditional,
+                right,
+            },
+            ty,
+        )) else {
+            panic!("coherent short-circuit operation must be valid");
+        };
+
+        let Ok(template) = builder.finish(short_circuit, CheckedTemplateCompletion::Complete)
+        else {
+            panic!("complete control-flow template must be valid");
+        };
+
+        let Some(conditional_index) = conditional.to_index() else {
+            panic!("small conditional ID must be indexable");
+        };
+
+        let Some(conditional_node) = template.nodes().get(conditional_index) else {
+            panic!("conditional node must be present");
+        };
+
+        assert!(matches!(
+            conditional_node.operation(),
+            CheckedTemplateOperation::Conditional {
+                condition: stored_condition,
+                when_true: stored_true,
+                when_false: stored_false,
+            } if *stored_condition == condition
+                && *stored_true == when_true
+                && *stored_false == when_false
+        ));
+
+        let Some(short_circuit_index) = short_circuit.to_index() else {
+            panic!("small short-circuit ID must be indexable");
+        };
+
+        let Some(short_circuit_node) = template.nodes().get(short_circuit_index) else {
+            panic!("short-circuit node must be present");
+        };
+
+        assert!(matches!(
+            short_circuit_node.operation(),
+            CheckedTemplateOperation::ShortCircuit {
+                kind: CheckedTemplateShortCircuitKind::Or,
+                left,
+                right: stored_right,
+            } if *left == conditional && *stored_right == right
+        ));
+    }
+
+    #[test]
+    fn input_and_temporary_types_must_match_their_declarations() {
+        let (expected, actual, behavior) = semantic_values_with_alternative();
+        let dependencies = behavior.dependency_contract();
+        let mut builder =
+            CheckedTemplateBuilder::new(CheckedTemplateKind::RuntimeDefault, behavior);
+
+        let Ok(input) = builder.push_input(CheckedTemplateInput::new(
+            CheckedTemplateInputKind::Receiver,
+            expected,
+        )) else {
+            panic!("receiver input must be valid");
+        };
+
+        assert_eq!(
+            builder.push_node(CheckedTemplateNode::new(
+                CheckedTemplateOperation::Input(input),
+                actual,
+            )),
+            Err(CheckedTemplateBuildError::InputTypeMismatch {
+                node: CheckedTemplateNodeId::new(0),
+                input,
+                expected,
+                actual,
+            })
+        );
+
+        let initializer = push_declaration(&mut builder, expected);
+
+        assert_eq!(
+            builder.push_temporary(initializer, actual, dependencies),
+            Err(
+                CheckedTemplateBuildError::TemporaryInitializerTypeMismatch {
+                    initializer,
+                    expected,
+                    actual,
+                }
+            )
+        );
+
+        let Ok(temporary) = builder.push_temporary(initializer, expected, dependencies) else {
+            panic!("matching temporary must be valid");
+        };
+
+        assert_eq!(
+            builder.push_node(CheckedTemplateNode::new(
+                CheckedTemplateOperation::Temporary(temporary),
+                actual,
+            )),
+            Err(CheckedTemplateBuildError::TemporaryTypeMismatch {
+                node: CheckedTemplateNodeId::new(1),
+                temporary,
+                expected,
+                actual,
+            })
+        );
+    }
+
+    #[test]
+    fn control_flow_and_conversion_types_must_be_locally_coherent() {
+        let (expected, actual, behavior) = semantic_values_with_alternative();
+
+        assert_conversion_type_mismatch(expected, actual, behavior.clone());
+        assert_conditional_type_mismatches(expected, actual, behavior.clone());
+        assert_short_circuit_type_mismatches(expected, actual, behavior.clone());
+        assert_array_type_mismatch(expected, actual, behavior);
+    }
+
+    #[test]
     fn portable_templates_are_send_and_sync() {
         fn assert_send_sync<T: Send + Sync>() {}
 
@@ -477,6 +862,16 @@ mod tests {
     }
 
     fn semantic_values() -> (bray_symbols::TypeId, CheckedTemplateBehavior) {
+        let (ty, _, behavior) = semantic_values_with_alternative();
+
+        (ty, behavior)
+    }
+
+    fn semantic_values_with_alternative() -> (
+        bray_symbols::TypeId,
+        bray_symbols::TypeId,
+        CheckedTemplateBehavior,
+    ) {
         let Ok(store) = SemanticValueStore::try_new() else {
             panic!("semantic value store identity must be available");
         };
@@ -485,16 +880,178 @@ mod tests {
             panic!("unit tuple type must be valid test data");
         };
 
+        let Ok(alternative) = store.intern_type(TypeData::Nullable(ty)) else {
+            panic!("nullable unit type must be valid test data");
+        };
+
         let Ok(dependencies) =
             store.intern_dependency_contract_template(DependencyContractTemplateData::new([]))
         else {
             panic!("empty dependency contract must be valid");
         };
 
-        (
+        let behavior = CheckedTemplateBehavior::new([], [], [], [], dependencies, []);
+
+        (ty, alternative, behavior)
+    }
+
+    fn push_declaration(
+        builder: &mut CheckedTemplateBuilder,
+        ty: bray_symbols::TypeId,
+    ) -> CheckedTemplateNodeId {
+        let Ok(node) = builder.push_node(CheckedTemplateNode::new(
+            CheckedTemplateOperation::Declaration(external_symbol()),
             ty,
-            CheckedTemplateBehavior::new([], [], [], [], dependencies, []),
-        )
+        )) else {
+            panic!("declaration node must be valid");
+        };
+
+        node
+    }
+
+    fn assert_conversion_type_mismatch(
+        expected: bray_symbols::TypeId,
+        actual: bray_symbols::TypeId,
+        behavior: CheckedTemplateBehavior,
+    ) {
+        let mut builder =
+            CheckedTemplateBuilder::new(CheckedTemplateKind::RuntimeDefault, behavior);
+        let value = push_declaration(&mut builder, expected);
+
+        assert_eq!(
+            builder.push_node(CheckedTemplateNode::new(
+                CheckedTemplateOperation::Convert {
+                    value,
+                    target: expected,
+                },
+                actual,
+            )),
+            Err(CheckedTemplateBuildError::ConversionTypeMismatch {
+                node: CheckedTemplateNodeId::new(1),
+                expected,
+                actual,
+            })
+        );
+    }
+
+    fn assert_conditional_type_mismatches(
+        expected: bray_symbols::TypeId,
+        actual: bray_symbols::TypeId,
+        behavior: CheckedTemplateBehavior,
+    ) {
+        let mut branch_builder =
+            CheckedTemplateBuilder::new(CheckedTemplateKind::PredicateDefinition, behavior.clone());
+        let condition = push_declaration(&mut branch_builder, expected);
+        let when_true = push_declaration(&mut branch_builder, expected);
+        let when_false = push_declaration(&mut branch_builder, actual);
+
+        assert_eq!(
+            branch_builder.push_node(CheckedTemplateNode::new(
+                CheckedTemplateOperation::Conditional {
+                    condition,
+                    when_true,
+                    when_false,
+                },
+                expected,
+            )),
+            Err(CheckedTemplateBuildError::ConditionalBranchTypeMismatch {
+                node: CheckedTemplateNodeId::new(3),
+                when_true: expected,
+                when_false: actual,
+            })
+        );
+
+        let mut result_builder =
+            CheckedTemplateBuilder::new(CheckedTemplateKind::PredicateDefinition, behavior);
+        let condition = push_declaration(&mut result_builder, expected);
+        let branch = push_declaration(&mut result_builder, expected);
+
+        assert_eq!(
+            result_builder.push_node(CheckedTemplateNode::new(
+                CheckedTemplateOperation::Conditional {
+                    condition,
+                    when_true: branch,
+                    when_false: branch,
+                },
+                actual,
+            )),
+            Err(CheckedTemplateBuildError::ConditionalResultTypeMismatch {
+                node: CheckedTemplateNodeId::new(2),
+                expected,
+                actual,
+            })
+        );
+    }
+
+    fn assert_short_circuit_type_mismatches(
+        expected: bray_symbols::TypeId,
+        actual: bray_symbols::TypeId,
+        behavior: CheckedTemplateBehavior,
+    ) {
+        let mut operand_builder =
+            CheckedTemplateBuilder::new(CheckedTemplateKind::PredicateDefinition, behavior.clone());
+        let left = push_declaration(&mut operand_builder, expected);
+        let right = push_declaration(&mut operand_builder, actual);
+
+        assert_eq!(
+            operand_builder.push_node(CheckedTemplateNode::new(
+                CheckedTemplateOperation::ShortCircuit {
+                    kind: CheckedTemplateShortCircuitKind::And,
+                    left,
+                    right,
+                },
+                expected,
+            )),
+            Err(CheckedTemplateBuildError::ShortCircuitOperandTypeMismatch {
+                node: CheckedTemplateNodeId::new(2),
+                left: expected,
+                right: actual,
+            })
+        );
+
+        let mut result_builder =
+            CheckedTemplateBuilder::new(CheckedTemplateKind::PredicateDefinition, behavior);
+        let operand = push_declaration(&mut result_builder, expected);
+
+        assert_eq!(
+            result_builder.push_node(CheckedTemplateNode::new(
+                CheckedTemplateOperation::ShortCircuit {
+                    kind: CheckedTemplateShortCircuitKind::Or,
+                    left: operand,
+                    right: operand,
+                },
+                actual,
+            )),
+            Err(CheckedTemplateBuildError::ShortCircuitResultTypeMismatch {
+                node: CheckedTemplateNodeId::new(1),
+                expected,
+                actual,
+            })
+        );
+    }
+
+    fn assert_array_type_mismatch(
+        expected: bray_symbols::TypeId,
+        actual: bray_symbols::TypeId,
+        behavior: CheckedTemplateBehavior,
+    ) {
+        let mut builder =
+            CheckedTemplateBuilder::new(CheckedTemplateKind::RuntimeDefault, behavior);
+        let first = push_declaration(&mut builder, expected);
+        let second = push_declaration(&mut builder, actual);
+
+        assert_eq!(
+            builder.push_node(CheckedTemplateNode::new(
+                CheckedTemplateOperation::array([first, second]),
+                actual,
+            )),
+            Err(CheckedTemplateBuildError::ArrayElementTypeMismatch {
+                node: CheckedTemplateNodeId::new(2),
+                element: second,
+                expected,
+                actual,
+            })
+        );
     }
 
     fn external_symbol() -> ExternalSymbolKey {
