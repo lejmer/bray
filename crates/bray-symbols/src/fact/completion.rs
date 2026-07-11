@@ -8,6 +8,3 @@ pub use plan::{
 };
 pub use policy::{SymbolCompletionLevel, SymbolFactKind};
 pub use provider::{NeverCancelSymbolCompletion, SymbolCompletionCancellation, SymbolFactForcer};
-
-#[cfg(test)]
-mod tests;

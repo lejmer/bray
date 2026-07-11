@@ -42,3 +42,40 @@ where
         self(request)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use bray_diagnostics::DiagnosticBag;
+
+    use super::{NeverCancelSymbolCompletion, SymbolCompletionCancellation, SymbolFactForcer};
+    use crate::{
+        AnySymbolId, FunctionSymbolId, SymbolFactCompletionRequest, SymbolFactKind, SymbolId,
+    };
+
+    #[test]
+    fn never_cancel_source_remains_active() {
+        assert!(!NeverCancelSymbolCompletion.is_cancelled());
+    }
+
+    #[test]
+    fn closures_adapt_typed_fact_forcing() {
+        let symbol = AnySymbolId::from(FunctionSymbolId::from_symbol_id(SymbolId::new(1)));
+        let request = SymbolFactCompletionRequest::new(symbol, SymbolFactKind::CallableSignature);
+        let forcer = |requested| -> Result<DiagnosticBag, ()> {
+            assert_eq!(requested, request);
+
+            Ok(DiagnosticBag::new())
+        };
+
+        let result = forcer.force(request);
+
+        assert!(matches!(result, Ok(diagnostics) if diagnostics.is_empty()));
+    }
+
+    #[test]
+    fn provider_contracts_are_send_and_sync() {
+        fn assert_send_sync<T: Send + Sync>() {}
+
+        assert_send_sync::<NeverCancelSymbolCompletion>();
+    }
+}

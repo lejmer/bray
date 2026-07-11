@@ -176,6 +176,7 @@ where
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
+    use std::sync::{Condvar, Mutex};
     use std::time::Duration;
 
     use bray_diagnostics::{
@@ -264,6 +265,63 @@ mod tests {
                 .map(DiagnosticId::new)
                 .collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn parallel_completion_selects_the_first_plan_error_after_later_error_finishes() {
+        let graph = graph("module app; func main() {}");
+        let package = AnySymbolId::from(graph.packages()[0].id());
+
+        let plan = match graph.completion_plan(
+            package,
+            SymbolCompletionLevel::DeclarationSurface,
+            &bray_symbols::NeverCancelSymbolCompletion,
+        ) {
+            Ok(plan) => plan,
+            Err(error) => panic!("completion plan should build: {error:?}"),
+        };
+
+        let [first_request, second_request, ..] = plan.requests() else {
+            panic!("test completion plan should contain multiple fact requests");
+        };
+
+        let first_request = *first_request;
+        let second_request = *second_request;
+        let serial_forcer = |request| -> Result<DiagnosticBag, ForcedFactError> {
+            if request == first_request || request == second_request {
+                return Err(ForcedFactError::Request(request));
+            }
+
+            Ok(DiagnosticBag::new())
+        };
+
+        let serial = force_complete_symbol(
+            &graph,
+            package,
+            SymbolCompletionLevel::DeclarationSurface,
+            WorkerBudget::serial(),
+            &CancellationToken::new(),
+            &serial_forcer,
+        );
+
+        let parallel_forcer = LaterErrorFirstForcer::new(first_request, second_request);
+        let parallel = force_complete_symbol(
+            &graph,
+            package,
+            SymbolCompletionLevel::DeclarationSurface,
+            worker_budget(2),
+            &CancellationToken::new(),
+            &parallel_forcer,
+        );
+
+        let expected = Err(SymbolCompletionError::Fact {
+            request: first_request,
+            error: ForcedFactError::Request(first_request),
+        });
+
+        assert_eq!(serial, expected);
+        assert_eq!(parallel, expected);
+        assert!(parallel_forcer.later_error_completed());
     }
 
     #[test]
@@ -371,6 +429,79 @@ mod tests {
         let recovered = force(&graph, constant, WorkerBudget::serial(), &recovering);
 
         assert_eq!(recovered.len(), 1);
+    }
+
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    enum ForcedFactError {
+        Coordination,
+        Request(SymbolFactCompletionRequest),
+    }
+
+    struct LaterErrorFirstForcer {
+        first_request: SymbolFactCompletionRequest,
+        later_request: SymbolFactCompletionRequest,
+        later_completed: Mutex<bool>,
+        later_changed: Condvar,
+    }
+
+    impl LaterErrorFirstForcer {
+        fn new(
+            first_request: SymbolFactCompletionRequest,
+            later_request: SymbolFactCompletionRequest,
+        ) -> Self {
+            Self {
+                first_request,
+                later_request,
+                later_completed: Mutex::new(false),
+                later_changed: Condvar::new(),
+            }
+        }
+
+        fn later_error_completed(&self) -> bool {
+            match self.later_completed.lock() {
+                Ok(completed) => *completed,
+                Err(_) => false,
+            }
+        }
+    }
+
+    impl bray_symbols::SymbolFactForcer for LaterErrorFirstForcer {
+        type Error = ForcedFactError;
+
+        fn force(
+            &self,
+            request: SymbolFactCompletionRequest,
+        ) -> Result<DiagnosticBag, Self::Error> {
+            if request == self.first_request {
+                let mut later_completed = self
+                    .later_completed
+                    .lock()
+                    .map_err(|_| ForcedFactError::Coordination)?;
+
+                while !*later_completed {
+                    later_completed = self
+                        .later_changed
+                        .wait(later_completed)
+                        .map_err(|_| ForcedFactError::Coordination)?;
+                }
+
+                return Err(ForcedFactError::Request(request));
+            }
+
+            if request == self.later_request {
+                let mut later_completed = self
+                    .later_completed
+                    .lock()
+                    .map_err(|_| ForcedFactError::Coordination)?;
+
+                *later_completed = true;
+                self.later_changed.notify_all();
+
+                return Err(ForcedFactError::Request(request));
+            }
+
+            Ok(DiagnosticBag::new())
+        }
     }
 
     fn force<F>(

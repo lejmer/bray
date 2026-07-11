@@ -200,3 +200,52 @@ const fn supports_implementation_facts(kind: SymbolKind) -> bool {
             | SymbolKind::NamedTraitImplementation
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{SymbolCompletionLevel, SymbolFactKind};
+    use crate::{
+        AnySymbolId, CallableParameterSymbolId, CompilerKnownEnvironmentSymbolId, ConstantSymbolId,
+        FunctionSymbolId, PackageSymbolId, SymbolId,
+    };
+
+    #[test]
+    fn completion_levels_select_fact_work() {
+        assert!(
+            SymbolFactKind::CallableSignature
+                .is_required_for(SymbolCompletionLevel::DeclarationSurface)
+        );
+        assert!(
+            !SymbolFactKind::CallableSignature.is_required_for(SymbolCompletionLevel::Identity)
+        );
+    }
+
+    #[test]
+    fn fact_applicability_uses_exact_symbol_categories() {
+        let function = AnySymbolId::from(FunctionSymbolId::from_symbol_id(SymbolId::new(1)));
+        let constant = AnySymbolId::from(ConstantSymbolId::from_symbol_id(SymbolId::new(2)));
+        let parameter =
+            AnySymbolId::from(CallableParameterSymbolId::from_symbol_id(SymbolId::new(3)));
+        let compiler_known = AnySymbolId::from(CompilerKnownEnvironmentSymbolId::from_symbol_id(
+            SymbolId::new(4),
+        ));
+        let package = AnySymbolId::from(PackageSymbolId::from_symbol_id(SymbolId::new(5)));
+
+        assert!(SymbolFactKind::Directives.is_applicable_to(function));
+        assert!(!SymbolFactKind::Directives.is_applicable_to(parameter));
+        assert!(SymbolFactKind::CallableSignature.is_applicable_to(function));
+        assert!(!SymbolFactKind::CallableSignature.is_applicable_to(constant));
+        assert!(SymbolFactKind::ConstantDefinition.is_applicable_to(constant));
+        assert!(SymbolFactKind::GenericConstraints.is_applicable_to(function));
+        assert!(SymbolFactKind::Members.is_applicable_to(compiler_known));
+        assert!(!SymbolFactKind::Members.is_applicable_to(package));
+    }
+
+    #[test]
+    fn policy_contracts_are_send_and_sync() {
+        fn assert_send_sync<T: Send + Sync>() {}
+
+        assert_send_sync::<SymbolCompletionLevel>();
+        assert_send_sync::<SymbolFactKind>();
+    }
+}
