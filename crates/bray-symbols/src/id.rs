@@ -109,6 +109,13 @@ macro_rules! define_symbol_ids {
         }
 
         impl AnySymbolId {
+            pub(crate) const fn from_kind(kind: SymbolKind, id: SymbolId) -> Option<Self> {
+                match kind {
+                    $(SymbolKind::$kind => Some(Self::$variant($id::from_symbol_id(id))),)+
+                    _ => None,
+                }
+            }
+
             /// Returns the underlying compilation-wide symbol ID.
             pub const fn symbol_id(self) -> SymbolId {
                 match self {

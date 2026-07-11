@@ -4,7 +4,7 @@ use bray_base::{shared_slice, shared_str};
 use bray_compiler_known::CompilerKnownDeclarationKey;
 use bray_declarations::DeclarationId;
 
-use crate::SymbolKind;
+use crate::{ExternalSymbolKey, SymbolKind};
 
 /// A canonical package identity supplied by the package layer.
 ///
@@ -292,17 +292,20 @@ pub enum SymbolKeyData {
     },
     /// A symbol synthesized from another semantic surface symbol.
     Synthesized(SynthesizedSymbolKey),
+    /// An imported symbol identified by its stable cross-compilation key.
+    External(ExternalSymbolKey),
 }
 
 impl SymbolKeyData {
     /// Returns the semantic symbol kind represented by this key data.
-    pub const fn kind(&self) -> SymbolKind {
+    pub fn kind(&self) -> SymbolKind {
         match self {
             Self::Root(root) => root.kind(),
             Self::Module { .. } => SymbolKind::Module,
             Self::CompilerKnownDeclaration { kind, .. } => *kind,
             Self::SourceDeclaration { kind, .. } => *kind,
             Self::Synthesized(key) => key.kind(),
+            Self::External(key) => key.kind(),
         }
     }
 }
@@ -364,6 +367,11 @@ impl SymbolKey {
     /// Creates a key for a synthesized declaration-surface symbol.
     pub fn synthesized(key: SynthesizedSymbolKey) -> Self {
         Self(Arc::new(SymbolKeyData::Synthesized(key)))
+    }
+
+    /// Creates a construction key for an imported interface symbol.
+    pub fn external(key: ExternalSymbolKey) -> Self {
+        Self(Arc::new(SymbolKeyData::External(key)))
     }
 
     /// Returns the structured data forming this key.

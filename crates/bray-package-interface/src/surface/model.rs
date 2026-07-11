@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+pub use bray_symbols::SymbolRelationshipKind;
 use bray_symbols::{
     ExternalSymbolKey, ImportedIdentitySurfaceError, ImportedPackageIdentitySurface,
     InterfaceSymbolId, PackageIdentity, SymbolName,
@@ -160,39 +161,6 @@ impl InterfaceDependency {
     pub const fn content_hash(&self) -> InterfaceContentHash {
         self.content_hash
     }
-}
-
-/// Closed typed relationship represented by one interface edge.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum SymbolRelationshipKind {
-    /// A logical module exposed by a package root.
-    PackageModule,
-    /// A module-level declaration exposed by a logical module.
-    ModuleMember,
-    /// A callable, lifecycle, or type-valued member owned by a product type.
-    TypeMember,
-    /// A requirement member owned by a trait.
-    TraitMember,
-    /// A declaration member owned by an inherent implementation.
-    ImplementationMember,
-    /// A field owned by a struct.
-    StructField,
-    /// A variant owned by a union.
-    UnionVariant,
-    /// A payload field owned by a union variant.
-    UnionPayloadField,
-    /// A generic type or constant parameter owned by a generic declaration.
-    GenericParameter,
-    /// A callable or receiver parameter owned by a callable declaration.
-    CallableParameter,
-    /// A predicate parameter owned by a predicate declaration.
-    PredicateParameter,
-    /// An independently declared arm referenced by an overload family.
-    OverloadArm,
-    /// A typed trait-member fulfillment owned by an implementation.
-    ImplementationFulfillment,
-    /// A synthesized runtime-default provider owned by its subject.
-    DefaultProvider,
 }
 
 /// One ordered typed relationship between interface-local symbols.

@@ -164,6 +164,7 @@ pub(crate) struct UnionPayloadFieldRelationships {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct OverloadRelationships {
     pub(crate) arm_syntax: Box<[SyntaxAnchor]>,
+    pub(crate) arms: Box<[AnySymbolId]>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -171,6 +172,7 @@ pub(crate) struct RelationshipIndex {
     children: BTreeMap<AnySymbolId, Vec<AnySymbolId>>,
     runtime_defaults: BTreeMap<AnySymbolId, SyntaxAnchor>,
     overload_arms: BTreeMap<AnySymbolId, Box<[SyntaxAnchor]>>,
+    imported_overload_arms: BTreeMap<AnySymbolId, Vec<AnySymbolId>>,
     providers: BTreeMap<AnySymbolId, AnySymbolId>,
 }
 
@@ -193,6 +195,13 @@ impl RelationshipIndex {
 
     pub(crate) fn add_provider(&mut self, owner: AnySymbolId, provider: AnySymbolId) {
         self.providers.insert(owner, provider);
+    }
+
+    pub(crate) fn add_imported_overload_arm(&mut self, owner: AnySymbolId, arm: AnySymbolId) {
+        self.imported_overload_arms
+            .entry(owner)
+            .or_default()
+            .push(arm);
     }
 
     pub(crate) fn children(&self, owner: AnySymbolId) -> &[AnySymbolId] {
@@ -429,6 +438,12 @@ impl OverloadRelationships {
         Self {
             // The record owns its immutable source-order view independently of builder storage.
             arm_syntax: index.overload_arms.get(&owner).cloned().unwrap_or_default(),
+            arms: index
+                .imported_overload_arms
+                .get(&owner)
+                .cloned()
+                .unwrap_or_default()
+                .into_boxed_slice(),
         }
     }
 }
@@ -457,7 +472,7 @@ fn ordinal_within_kind(child: AnySymbolId, index: &RelationshipIndex) -> u32 {
         .unwrap_or(0)
 }
 
-fn callable_owner(owner: AnySymbolId) -> Option<CallableSymbolId> {
+pub(crate) fn callable_owner(owner: AnySymbolId) -> Option<CallableSymbolId> {
     match owner {
         AnySymbolId::Function(id) => Some(id.into()),
         AnySymbolId::TypeCallableMember(id) => Some(id.into()),

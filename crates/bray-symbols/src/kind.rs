@@ -159,6 +159,203 @@ impl SymbolKind {
     }
 }
 
+/// Closed typed relationship between ordinary semantic symbols.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum SymbolRelationshipKind {
+    /// A logical module exposed by a package root.
+    PackageModule,
+    /// A module-level declaration exposed by a logical module.
+    ModuleMember,
+    /// A callable, lifecycle, or type-valued member owned by a product type.
+    TypeMember,
+    /// A requirement member owned by a trait.
+    TraitMember,
+    /// A declaration member owned by an inherent implementation.
+    ImplementationMember,
+    /// A field owned by a struct.
+    StructField,
+    /// A variant owned by a union.
+    UnionVariant,
+    /// A payload field owned by a union variant.
+    UnionPayloadField,
+    /// A generic type or constant parameter owned by a generic declaration.
+    GenericParameter,
+    /// A callable or receiver parameter owned by a callable declaration.
+    CallableParameter,
+    /// A predicate parameter owned by a predicate declaration.
+    PredicateParameter,
+    /// An independently declared arm referenced by an overload family.
+    OverloadArm,
+    /// A typed trait-member fulfillment owned by an implementation.
+    ImplementationFulfillment,
+    /// A synthesized runtime-default provider owned by its subject.
+    DefaultProvider,
+}
+
+impl SymbolRelationshipKind {
+    /// Returns whether the owner and member categories satisfy this relationship contract.
+    pub fn supports(self, owner: SymbolKind, member: SymbolKind) -> bool {
+        match self {
+            Self::PackageModule => owner == SymbolKind::Package && member == SymbolKind::Module,
+            Self::ModuleMember => owner == SymbolKind::Module && is_module_member(member),
+            Self::TypeMember => {
+                matches!(owner, SymbolKind::Struct | SymbolKind::Union)
+                    && is_type_or_implementation_member(member)
+            }
+            Self::TraitMember => owner == SymbolKind::Trait && is_trait_member(member),
+            Self::ImplementationMember => {
+                owner == SymbolKind::InherentImplementation
+                    && is_type_or_implementation_member(member)
+            }
+            Self::StructField => owner == SymbolKind::Struct && member == SymbolKind::StructField,
+            Self::UnionVariant => owner == SymbolKind::Union && member == SymbolKind::UnionVariant,
+            Self::UnionPayloadField => {
+                owner == SymbolKind::UnionVariant && member == SymbolKind::UnionPayloadField
+            }
+            Self::GenericParameter => {
+                supports_interface_generic_parameters(owner)
+                    && matches!(
+                        member,
+                        SymbolKind::GenericTypeParameter | SymbolKind::GenericConstParameter
+                    )
+            }
+            Self::CallableParameter => {
+                is_interface_callable(owner)
+                    && matches!(
+                        member,
+                        SymbolKind::CallableParameter | SymbolKind::ReceiverParameter
+                    )
+            }
+            Self::PredicateParameter => {
+                owner == SymbolKind::Predicate && member == SymbolKind::PredicateParameter
+            }
+            Self::OverloadArm => matches!(
+                owner,
+                SymbolKind::CallableOverload | SymbolKind::ImplementationOverload
+            ),
+            Self::ImplementationFulfillment => {
+                matches!(
+                    owner,
+                    SymbolKind::NamedTraitImplementation | SymbolKind::UnnamedTraitImplementation
+                ) && is_trait_fulfillment(member)
+            }
+            Self::DefaultProvider => is_default_provider_pair(owner, member),
+        }
+    }
+}
+
+const fn is_module_member(kind: SymbolKind) -> bool {
+    matches!(
+        kind,
+        SymbolKind::Constant
+            | SymbolKind::Function
+            | SymbolKind::Predicate
+            | SymbolKind::CallableContract
+            | SymbolKind::CallableOverload
+            | SymbolKind::ImplementationOverload
+            | SymbolKind::Struct
+            | SymbolKind::Union
+            | SymbolKind::Trait
+            | SymbolKind::InherentImplementation
+            | SymbolKind::UnnamedTraitImplementation
+            | SymbolKind::NamedTraitImplementation
+    )
+}
+
+const fn is_type_or_implementation_member(kind: SymbolKind) -> bool {
+    matches!(
+        kind,
+        SymbolKind::TypeCallableMember
+            | SymbolKind::Constructor
+            | SymbolKind::Finalizer
+            | SymbolKind::Destructor
+            | SymbolKind::ScopeEnter
+            | SymbolKind::ScopeExit
+            | SymbolKind::InherentTypeMember
+    )
+}
+
+const fn is_trait_member(kind: SymbolKind) -> bool {
+    matches!(
+        kind,
+        SymbolKind::TraitCallableMember
+            | SymbolKind::TraitConstantMember
+            | SymbolKind::TraitTypeMember
+            | SymbolKind::TraitPredicateMember
+            | SymbolKind::TraitFinalizerRequirement
+            | SymbolKind::TraitDestructorRequirement
+            | SymbolKind::TraitScopeEnterRequirement
+            | SymbolKind::TraitScopeExitRequirement
+    )
+}
+
+const fn supports_interface_generic_parameters(kind: SymbolKind) -> bool {
+    matches!(
+        kind,
+        SymbolKind::Function
+            | SymbolKind::Predicate
+            | SymbolKind::CallableContract
+            | SymbolKind::CallableOverload
+            | SymbolKind::ImplementationOverload
+            | SymbolKind::Struct
+            | SymbolKind::Union
+            | SymbolKind::Trait
+            | SymbolKind::InherentImplementation
+            | SymbolKind::UnnamedTraitImplementation
+            | SymbolKind::NamedTraitImplementation
+            | SymbolKind::TypeCallableMember
+            | SymbolKind::Constructor
+    )
+}
+
+const fn is_interface_callable(kind: SymbolKind) -> bool {
+    matches!(
+        kind,
+        SymbolKind::Function
+            | SymbolKind::CallableContract
+            | SymbolKind::TypeCallableMember
+            | SymbolKind::TraitCallableMember
+            | SymbolKind::TraitCallableFulfillment
+            | SymbolKind::Constructor
+            | SymbolKind::Finalizer
+            | SymbolKind::Destructor
+            | SymbolKind::ScopeEnter
+            | SymbolKind::ScopeExit
+            | SymbolKind::TraitFinalizerRequirement
+            | SymbolKind::TraitDestructorRequirement
+            | SymbolKind::TraitScopeEnterRequirement
+            | SymbolKind::TraitScopeExitRequirement
+    )
+}
+
+const fn is_trait_fulfillment(kind: SymbolKind) -> bool {
+    matches!(
+        kind,
+        SymbolKind::TraitCallableFulfillment
+            | SymbolKind::TraitConstantFulfillment
+            | SymbolKind::TraitTypeFulfillment
+            | SymbolKind::TraitPredicateFulfillment
+            | SymbolKind::TraitScopeEnterFulfillment
+            | SymbolKind::TraitScopeExitFulfillment
+    )
+}
+
+const fn is_default_provider_pair(owner: SymbolKind, member: SymbolKind) -> bool {
+    matches!(
+        (owner, member),
+        (
+            SymbolKind::CallableParameter,
+            SymbolKind::CallableParameterDefaultProvider
+        ) | (
+            SymbolKind::StructField,
+            SymbolKind::StructFieldDefaultProvider
+        ) | (
+            SymbolKind::UnionPayloadField,
+            SymbolKind::UnionPayloadDefaultProvider
+        )
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::SymbolKind;

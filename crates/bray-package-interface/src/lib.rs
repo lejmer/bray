@@ -2,6 +2,7 @@
 
 #![forbid(unsafe_code)]
 
+mod construction;
 mod diagnostic;
 mod hash;
 mod header;
@@ -11,6 +12,9 @@ mod surface;
 mod validation;
 mod wire;
 
+pub use construction::{
+    ImportedSymbolConstructionError, LoadedInterfaceSurface, construct_imported_symbol_skeletons,
+};
 pub use diagnostic::InterfaceValidationError;
 pub use hash::{InterfaceArtifactHash, InterfaceContentHash, InterfaceSectionHash};
 pub use header::{
