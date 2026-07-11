@@ -18,9 +18,6 @@ bray-parser = { path = "../bray-parser" }
 bray-source = { path = "../bray-source" }
 bray-declarations = { path = "../bray-declarations" }
 bray-symbols = { path = "../bray-symbols" }
-
-[dev-dependencies]
-bray-parser = { path = "../bray-parser" }
 bray-testing = { path = "../bray-testing" }
 
 [lints]
