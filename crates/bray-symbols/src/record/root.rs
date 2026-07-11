@@ -12,6 +12,7 @@ pub struct CompilerKnownEnvironmentSymbol {
     id: CompilerKnownEnvironmentSymbolId,
     key: SymbolKey,
     modules: Box<[ModuleSymbolId]>,
+    relationships: ModuleRelationships,
 }
 
 impl CompilerKnownEnvironmentSymbol {
@@ -19,8 +20,14 @@ impl CompilerKnownEnvironmentSymbol {
         id: CompilerKnownEnvironmentSymbolId,
         key: SymbolKey,
         modules: Box<[ModuleSymbolId]>,
+        relationships: ModuleRelationships,
     ) -> Self {
-        Self { id, key, modules }
+        Self {
+            id,
+            key,
+            modules,
+            relationships,
+        }
     }
 
     /// Returns this root's exact compilation-local ID.
@@ -41,6 +48,66 @@ impl CompilerKnownEnvironmentSymbol {
     /// Returns compiler-known modules in stable identity order.
     pub fn modules(&self) -> &[ModuleSymbolId] {
         &self.modules
+    }
+
+    /// Returns ambient compiler-known constants in canonical descriptor order.
+    pub fn constants(&self) -> &[crate::ConstantSymbolId] {
+        &self.relationships.constants
+    }
+
+    /// Returns ambient compiler-known functions in canonical descriptor order.
+    pub fn functions(&self) -> &[crate::FunctionSymbolId] {
+        &self.relationships.functions
+    }
+
+    /// Returns ambient compiler-known predicates in canonical descriptor order.
+    pub fn predicates(&self) -> &[crate::PredicateSymbolId] {
+        &self.relationships.predicates
+    }
+
+    /// Returns ambient compiler-known callable contracts in canonical descriptor order.
+    pub fn callable_contracts(&self) -> &[crate::CallableContractSymbolId] {
+        &self.relationships.callable_contracts
+    }
+
+    /// Returns ambient callable overloads in canonical descriptor order.
+    pub fn callable_overloads(&self) -> &[crate::CallableOverloadSymbolId] {
+        &self.relationships.callable_overloads
+    }
+
+    /// Returns ambient implementation overloads in canonical descriptor order.
+    pub fn implementation_overloads(&self) -> &[crate::ImplementationOverloadSymbolId] {
+        &self.relationships.implementation_overloads
+    }
+
+    /// Returns ambient compiler-known structs in canonical descriptor order.
+    pub fn structures(&self) -> &[crate::StructSymbolId] {
+        &self.relationships.structures
+    }
+
+    /// Returns ambient compiler-known unions in canonical descriptor order.
+    pub fn unions(&self) -> &[crate::UnionSymbolId] {
+        &self.relationships.unions
+    }
+
+    /// Returns ambient compiler-known traits in canonical descriptor order.
+    pub fn traits(&self) -> &[crate::TraitSymbolId] {
+        &self.relationships.traits
+    }
+
+    /// Returns ambient inherent implementations in canonical descriptor order.
+    pub fn inherent_implementations(&self) -> &[crate::InherentImplementationSymbolId] {
+        &self.relationships.inherent_implementations
+    }
+
+    /// Returns ambient unnamed trait implementations in canonical descriptor order.
+    pub fn unnamed_trait_implementations(&self) -> &[crate::UnnamedTraitImplementationSymbolId] {
+        &self.relationships.unnamed_trait_implementations
+    }
+
+    /// Returns ambient named trait implementations in canonical descriptor order.
+    pub fn named_trait_implementations(&self) -> &[crate::NamedTraitImplementationSymbolId] {
+        &self.relationships.named_trait_implementations
     }
 }
 

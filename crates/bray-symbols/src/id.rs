@@ -11,6 +11,12 @@ mod sealed {
 pub trait ExactSymbolId: sealed::Sealed + Copy {
     /// The semantic kind represented by this exact ID type.
     const KIND: SymbolKind;
+
+    /// Recovers this exact category from type-erased infrastructure identity.
+    fn try_from_any(id: AnySymbolId) -> Option<Self>;
+
+    /// Returns the underlying compilation-wide symbol ID.
+    fn symbol_id(self) -> SymbolId;
 }
 
 /// A compact compilation-local handle identifying one exact surface symbol.
@@ -70,6 +76,17 @@ macro_rules! define_symbol_ids {
 
             impl ExactSymbolId for $id {
                 const KIND: SymbolKind = SymbolKind::$kind;
+
+                fn try_from_any(id: AnySymbolId) -> Option<Self> {
+                    match id {
+                        AnySymbolId::$variant(id) => Some(id),
+                        _ => None,
+                    }
+                }
+
+                fn symbol_id(self) -> SymbolId {
+                    self.symbol_id()
+                }
             }
 
             impl From<$id> for SymbolId {

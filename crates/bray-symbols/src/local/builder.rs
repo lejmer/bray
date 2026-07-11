@@ -506,7 +506,7 @@ mod tests {
     use crate::{
         AnyLocalSymbolId, AnySymbolId, LocalBindingSymbolId, LocalScopeBoundary, LocalScopeId,
         LocalSymbolRegionId, LocalSymbolRegionKey, LocalSymbolRegionRole, LocalSymbolSnapshot,
-        PackageIdentity, SymbolGraph, SymbolKey, SymbolName, SymbolOrdinal,
+        PackageIdentity, SymbolGraph, SymbolKey, SymbolName, SymbolOrdinal, SymbolOrigin,
     };
 
     #[test]
@@ -872,11 +872,18 @@ mod tests {
             Err(error) => panic!("test symbol graph must build: {error:?}"),
         };
 
-        let [function] = graph.functions() else {
+        let source_functions = graph
+            .functions()
+            .iter()
+            .filter(|function| function.origin() == SymbolOrigin::Source)
+            .collect::<Vec<_>>();
+        let [function] = source_functions.as_slice() else {
             panic!("test source must declare one function");
         };
 
-        let syntax = function.syntax_anchor();
+        let Some(syntax) = function.syntax_anchor() else {
+            panic!("source function must retain its syntax anchor");
+        };
 
         // The region key intentionally shares the function's immutable surface identity.
         let key = region_key(function.key().clone(), SymbolOrdinal::new(0), syntax);

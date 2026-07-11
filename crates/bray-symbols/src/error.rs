@@ -1,6 +1,6 @@
 use bray_declarations::{ContainerId, DeclarationId, DeclarationKind, ModulePartId};
 
-use crate::SymbolKind;
+use crate::{CompilerKnownSymbolBuildError, SymbolKind, allocator::SymbolIdCapacityError};
 
 /// A structural failure while constructing an immutable symbol identity graph.
 ///
@@ -8,6 +8,8 @@ use crate::SymbolKind;
 /// contracts or exhausted compact identity space rather than ordinary source diagnostics.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SymbolGraphBuildError {
+    /// The generated compiler-known catalog violated its trusted symbol contract.
+    CompilerKnown(CompilerKnownSymbolBuildError),
     /// The number of compilation-wide symbols exceeded the compact ID representation.
     SymbolCapacityExceeded {
         /// The collection index that could not be represented.
@@ -67,4 +69,16 @@ pub enum SymbolGraphBuildError {
         /// The affected logical module container.
         container: ContainerId,
     },
+}
+
+impl From<CompilerKnownSymbolBuildError> for SymbolGraphBuildError {
+    fn from(error: CompilerKnownSymbolBuildError) -> Self {
+        Self::CompilerKnown(error)
+    }
+}
+
+impl From<SymbolIdCapacityError> for SymbolGraphBuildError {
+    fn from(error: SymbolIdCapacityError) -> Self {
+        Self::SymbolCapacityExceeded { index: error.index }
+    }
 }

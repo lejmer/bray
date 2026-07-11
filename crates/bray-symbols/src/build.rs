@@ -4,34 +4,41 @@ use bray_declarations::{
     ContainerId, ContainerKind, DeclarationId, DeclarationKind, DeclarationRecord, DeclarationTable,
 };
 
+use crate::allocator::SymbolIdAllocator;
 use crate::graph::{DefaultProviderRecord, SymbolGraphBuilder, SymbolGraphRoots};
 use crate::record::{
-    CallableParameterDefaultProviderSymbol, CompilerKnownEnvironmentSymbol, ModuleSymbol,
-    ModuleSymbolInput, PackageSymbol, ReceiverParameterSymbol, SourceSymbolIdentity,
-    StructFieldDefaultProviderSymbol, UnionPayloadDefaultProviderSymbol, for_each_source_symbol,
+    CallableParameterDefaultProviderSymbol, DeclarationSymbolIdentity, ModuleSymbol,
+    ModuleSymbolInput, PackageSymbol, ReceiverParameterSymbol, StructFieldDefaultProviderSymbol,
+    UnionPayloadDefaultProviderSymbol, for_each_declaration_symbol,
 };
+use crate::surface_kind::declaration_symbol_kind;
 use crate::{
     AnySymbolId, CallableParameterDefaultProviderSymbolId, CallableSymbolId,
-    CompilerKnownEnvironmentSymbolId, ModuleOwnerId, ModulePathKey, ModuleSymbolId,
-    PackageIdentity, PackageSymbolId, ReceiverParameterSymbolId,
-    StructFieldDefaultProviderSymbolId, SymbolGraph, SymbolGraphBuildError, SymbolId, SymbolKey,
-    SymbolKind, SymbolOrigin, SymbolRootKey, SynthesizedSymbolKey,
-    UnionPayloadDefaultProviderSymbolId,
+    CompilerKnownSymbolProvider, ModuleOwnerId, ModulePathKey, ModuleSymbolId, PackageIdentity,
+    PackageSymbolId, ReceiverParameterSymbolId, StructFieldDefaultProviderSymbolId, SymbolGraph,
+    SymbolGraphBuildError, SymbolId, SymbolKey, SymbolKind, SymbolOrigin, SymbolRootKey,
+    SynthesizedSymbolKey, UnionPayloadDefaultProviderSymbolId,
 };
 
 pub(crate) fn build_source_symbol_graph(
     package_identity: PackageIdentity,
     declarations: &DeclarationTable,
 ) -> Result<SymbolGraph, SymbolGraphBuildError> {
-    let mut allocator = SymbolIdAllocator::new();
+    let compiler_known = CompilerKnownSymbolProvider::build()?;
+    let mut allocator = SymbolIdAllocator::starting_at(compiler_known.next_symbol_index());
 
-    let roots = build_roots_and_modules(package_identity, declarations, &mut allocator)?;
+    let roots = build_roots_and_modules(
+        package_identity,
+        declarations,
+        &compiler_known,
+        &mut allocator,
+    )?;
 
     let container_declarations = containing_declarations(declarations);
 
     let mut graph = SymbolGraphBuilder::new(
         roots.roots,
-        roots.compiler_known,
+        compiler_known,
         vec![roots.package],
         roots.modules,
     );
@@ -62,7 +69,6 @@ pub(crate) fn build_source_symbol_graph(
 
 struct RootSkeleton {
     roots: SymbolGraphRoots,
-    compiler_known: CompilerKnownEnvironmentSymbol,
     package: PackageSymbol,
     modules: Vec<ModuleSymbol>,
     module_owners: BTreeMap<ContainerId, OwnerIdentity>,
@@ -71,18 +77,19 @@ struct RootSkeleton {
 fn build_roots_and_modules(
     package_identity: PackageIdentity,
     declarations: &DeclarationTable,
+    compiler_known: &CompilerKnownSymbolProvider,
     allocator: &mut SymbolIdAllocator,
 ) -> Result<RootSkeleton, SymbolGraphBuildError> {
-    let compiler_known_id = CompilerKnownEnvironmentSymbolId::from_symbol_id(allocator.next()?);
+    let compiler_known_id = compiler_known.environment().id();
     let package_id = PackageSymbolId::from_symbol_id(allocator.next()?);
 
     // Package identities and root keys share immutable text storage across graph records.
     let package_root_key = SymbolRootKey::Package(package_identity.clone());
     let package_key = SymbolKey::package(package_identity.clone());
-    let compiler_known_key = SymbolKey::compiler_known_environment();
-
     let mut module_ids = Vec::new();
-    let mut modules = Vec::new();
+    // Compiler-known module records are immutable and small; graph storage clones them so its
+    // existing ordered all-module view remains contiguous.
+    let mut modules = compiler_known.modules().to_vec();
     let mut module_owners = BTreeMap::new();
 
     for container in declarations.module_containers() {
@@ -119,9 +126,6 @@ fn build_roots_and_modules(
         }));
     }
 
-    let compiler_known =
-        CompilerKnownEnvironmentSymbol::new(compiler_known_id, compiler_known_key, Box::new([]));
-
     let package = PackageSymbol::new(
         package_id,
         package_key,
@@ -132,7 +136,6 @@ fn build_roots_and_modules(
 
     Ok(RootSkeleton {
         roots: SymbolGraphRoots::new(compiler_known_id, vec![package_id].into_boxed_slice()),
-        compiler_known,
         package,
         modules,
         module_owners,
@@ -161,13 +164,15 @@ fn push_source_symbols(
             &source_identities,
         )?;
 
-        let Some(symbol_kind) = source_symbol_kind(declaration.kind(), owner.id.kind()) else {
+        let Ok(surface_kind) = declaration.kind().try_into() else {
             continue;
         };
 
+        let symbol_kind = declaration_symbol_kind(surface_kind, owner.id.kind());
+
         let raw_id = allocator.next()?;
 
-        let id = match source_symbol_id(raw_id, symbol_kind) {
+        let id = match declaration_symbol_id(raw_id, symbol_kind) {
             Some(id) => id,
             None => {
                 return Err(SymbolGraphBuildError::InvalidSourceSymbolKind {
@@ -204,8 +209,12 @@ fn push_source_symbols(
 
         // Synthesized children retain the same Arc-backed subject key after identity publication.
         let synthesized_subject_key = key.clone();
-        let identity =
-            SourceSymbolIdentity::new(key, owner.id, declaration.id(), declaration.syntax_anchor());
+        let identity = DeclarationSymbolIdentity::new(
+            key,
+            owner.id,
+            declaration.id(),
+            declaration.syntax_anchor(),
+        );
 
         if let Err(symbol_kind) = graph.push_source(id, identity) {
             return Err(SymbolGraphBuildError::InvalidSourceSymbolKind {
@@ -325,34 +334,9 @@ struct OwnerIdentity {
     key: SymbolKey,
 }
 
-struct SymbolIdAllocator {
-    next_index: usize,
-}
-
-impl SymbolIdAllocator {
-    const fn new() -> Self {
-        Self { next_index: 0 }
-    }
-
-    fn next(&mut self) -> Result<SymbolId, SymbolGraphBuildError> {
-        let index = self.next_index;
-
-        let Some(id) = SymbolId::try_from_index(index) else {
-            return Err(SymbolGraphBuildError::SymbolCapacityExceeded { index });
-        };
-
-        self.next_index = match index.checked_add(1) {
-            Some(next) => next,
-            None => return Err(SymbolGraphBuildError::SymbolCapacityExceeded { index }),
-        };
-
-        Ok(id)
-    }
-}
-
 macro_rules! define_source_symbol_allocator {
     ($($record:ident, $id:ident, $variant:ident, $singular:ident, $plural:ident, $relationships:ty;)+) => {
-        fn source_symbol_id(id: SymbolId, kind: SymbolKind) -> Option<AnySymbolId> {
+        pub(crate) fn declaration_symbol_id(id: SymbolId, kind: SymbolKind) -> Option<AnySymbolId> {
             match kind {
                 $(
                     SymbolKind::$variant => Some(crate::$id::from_symbol_id(id).into()),
@@ -363,76 +347,13 @@ macro_rules! define_source_symbol_allocator {
     };
 }
 
-for_each_source_symbol!(define_source_symbol_allocator);
+for_each_declaration_symbol!(define_source_symbol_allocator);
 
 fn declaration_creates_symbol(kind: DeclarationKind) -> bool {
     !matches!(
         kind,
         DeclarationKind::Module | DeclarationKind::Using | DeclarationKind::Export
     )
-}
-
-fn source_symbol_kind(declaration: DeclarationKind, owner: SymbolKind) -> Option<SymbolKind> {
-    let trait_implementation = matches!(
-        owner,
-        SymbolKind::UnnamedTraitImplementation | SymbolKind::NamedTraitImplementation
-    );
-
-    match declaration {
-        DeclarationKind::Module | DeclarationKind::Using | DeclarationKind::Export => None,
-        DeclarationKind::Constant if trait_implementation => {
-            Some(SymbolKind::TraitConstantFulfillment)
-        }
-        DeclarationKind::Constant => Some(SymbolKind::Constant),
-        DeclarationKind::Function => Some(SymbolKind::Function),
-        DeclarationKind::Predicate if trait_implementation => {
-            Some(SymbolKind::TraitPredicateFulfillment)
-        }
-        DeclarationKind::Predicate => Some(SymbolKind::Predicate),
-        DeclarationKind::CallableContract => Some(SymbolKind::CallableContract),
-        DeclarationKind::CallableOverload => Some(SymbolKind::CallableOverload),
-        DeclarationKind::ImplementationOverload => Some(SymbolKind::ImplementationOverload),
-        DeclarationKind::Struct => Some(SymbolKind::Struct),
-        DeclarationKind::Union => Some(SymbolKind::Union),
-        DeclarationKind::Trait => Some(SymbolKind::Trait),
-        DeclarationKind::InherentImplementation => Some(SymbolKind::InherentImplementation),
-        DeclarationKind::UnnamedTraitImplementation => Some(SymbolKind::UnnamedTraitImplementation),
-        DeclarationKind::NamedTraitImplementation => Some(SymbolKind::NamedTraitImplementation),
-        DeclarationKind::StructField => Some(SymbolKind::StructField),
-        DeclarationKind::UnionVariant => Some(SymbolKind::UnionVariant),
-        DeclarationKind::TraitConstantMember => Some(SymbolKind::TraitConstantMember),
-        DeclarationKind::TraitTypeMember => Some(SymbolKind::TraitTypeMember),
-        DeclarationKind::TraitPredicateMember => Some(SymbolKind::TraitPredicateMember),
-        DeclarationKind::TraitCallableMember => Some(SymbolKind::TraitCallableMember),
-        DeclarationKind::TraitFinalizerRequirement => Some(SymbolKind::TraitFinalizerRequirement),
-        DeclarationKind::TraitDestructorRequirement => Some(SymbolKind::TraitDestructorRequirement),
-        DeclarationKind::TraitScopeEnterRequirement => Some(SymbolKind::TraitScopeEnterRequirement),
-        DeclarationKind::TraitScopeExitRequirement => Some(SymbolKind::TraitScopeExitRequirement),
-        DeclarationKind::ImplementationTypeMemberBinding if trait_implementation => {
-            Some(SymbolKind::TraitTypeFulfillment)
-        }
-        DeclarationKind::ImplementationTypeMemberBinding => Some(SymbolKind::InherentTypeMember),
-        DeclarationKind::TypeConstructorMember => Some(SymbolKind::Constructor),
-        DeclarationKind::FinalizerMember => Some(SymbolKind::Finalizer),
-        DeclarationKind::DestructorMember => Some(SymbolKind::Destructor),
-        DeclarationKind::ScopeEnterMember if trait_implementation => {
-            Some(SymbolKind::TraitScopeEnterFulfillment)
-        }
-        DeclarationKind::ScopeEnterMember => Some(SymbolKind::ScopeEnter),
-        DeclarationKind::ScopeExitMember if trait_implementation => {
-            Some(SymbolKind::TraitScopeExitFulfillment)
-        }
-        DeclarationKind::ScopeExitMember => Some(SymbolKind::ScopeExit),
-        DeclarationKind::TypeCallableMember if trait_implementation => {
-            Some(SymbolKind::TraitCallableFulfillment)
-        }
-        DeclarationKind::TypeCallableMember => Some(SymbolKind::TypeCallableMember),
-        DeclarationKind::GenericTypeParameter => Some(SymbolKind::GenericTypeParameter),
-        DeclarationKind::GenericConstParameter => Some(SymbolKind::GenericConstParameter),
-        DeclarationKind::CallableParameter => Some(SymbolKind::CallableParameter),
-        DeclarationKind::PredicateParameter => Some(SymbolKind::PredicateParameter),
-        DeclarationKind::UnionPayloadField => Some(SymbolKind::UnionPayloadField),
-    }
 }
 
 fn containing_declarations(table: &DeclarationTable) -> BTreeMap<ContainerId, DeclarationId> {
@@ -591,7 +512,7 @@ mod tests {
     };
     use bray_testing::{test_source_at, test_source_store};
 
-    use super::source_symbol_kind;
+    use crate::surface_kind::{DeclarationSurfaceKind, declaration_symbol_kind};
     use crate::{
         AnySymbolId, CallableSymbolId, CompilerKnownEnvironmentSymbolId, FunctionSymbolId,
         ModuleOwnerId, ModulePathKey, PackageIdentity, RuntimeDefaultPresence, SymbolGraph,
@@ -608,13 +529,13 @@ mod tests {
 
         assert_eq!(graph.roots().compiler_known().symbol_id().raw(), 0);
         assert_eq!(graph.roots().packages().len(), 1);
-        assert_eq!(graph.roots().packages()[0].symbol_id().raw(), 1);
-        assert_eq!(graph.modules().len(), 1);
+        assert_eq!(graph.roots().packages()[0].symbol_id().raw(), 15);
+        assert_eq!(graph.modules().len(), 3);
 
         let package = &graph.packages()[0];
-        let module = &graph.modules()[0];
+        let module = source_module(&graph);
 
-        assert_eq!(module.id().symbol_id().raw(), 2);
+        assert_eq!(module.id().symbol_id().raw(), 16);
         assert_eq!(package.modules(), [module.id()]);
         assert_eq!(module.owner(), ModuleOwnerId::from(package.id()));
         assert_eq!(module.origin(), SymbolOrigin::Source);
@@ -628,7 +549,7 @@ mod tests {
             Some(module)
         );
 
-        assert_eq!(graph.functions().len(), 1);
+        assert_eq!(graph.functions().len(), 2);
         assert_eq!(graph.constants().len(), 1);
     }
 
@@ -636,7 +557,7 @@ mod tests {
     fn exact_access_is_checked_against_the_assigned_kind_collection() {
         let table = declaration_table(&["module app; func main() {}"]);
         let graph = build_graph(&table);
-        let function = &graph.functions()[0];
+        let function = source_function(&graph);
 
         assert_eq!(graph.function(function.id()), Some(function));
 
@@ -649,7 +570,7 @@ mod tests {
     fn source_symbols_are_available_through_the_origin_neutral_provider_contract() {
         let table = declaration_table(&["module app; func main() {}"]);
         let graph = build_graph(&table);
-        let function = &graph.functions()[0];
+        let function = source_function(&graph);
 
         assert_eq!(provided_symbol(&graph, function.id()), Some(function));
 
@@ -677,21 +598,28 @@ mod tests {
         )]);
         let graph = build_graph(&table);
 
-        let structure = &graph.structures()[0];
-        let field = &graph.struct_fields()[0];
+        let module = source_module(&graph);
+        let Some(structure) = graph.structure(module.structures()[0]) else {
+            panic!("source structure relationship must resolve");
+        };
+        let Some(field) = graph.struct_field(structure.fields()[0]) else {
+            panic!("source field relationship must resolve");
+        };
         let generic = &graph.generic_type_parameters()[0];
 
         assert_eq!(field.containing_symbol(), structure.id().into());
         assert_eq!(generic.containing_symbol(), structure.id().into());
 
-        let union = &graph.unions()[0];
+        let Some(union) = graph.union(module.unions()[0]) else {
+            panic!("source union relationship must resolve");
+        };
         let variant = &graph.union_variants()[0];
         let payload = &graph.union_payload_fields()[0];
 
         assert_eq!(variant.containing_symbol(), union.id().into());
         assert_eq!(payload.containing_symbol(), variant.id().into());
 
-        let function = &graph.functions()[0];
+        let function = source_function(&graph);
         let parameter = &graph.callable_parameters()[0];
 
         assert_eq!(parameter.containing_symbol(), function.id().into());
@@ -707,12 +635,12 @@ mod tests {
             "overload create = {make}",
         )]);
         let graph = build_graph(&table);
-        let module = &graph.modules()[0];
-        let function = &graph.functions()[0];
+        let module = source_module(&graph);
+        let function = source_function(&graph);
 
         assert_eq!(module.functions(), [function.id()]);
-        assert_eq!(module.structures(), [graph.structures()[0].id()]);
-        assert_eq!(module.unions(), [graph.unions()[0].id()]);
+        assert_eq!(module.structures().len(), 1);
+        assert_eq!(module.unions().len(), 1);
         assert_eq!(
             module.callable_overloads(),
             [graph.callable_overloads()[0].id()]
@@ -749,7 +677,9 @@ mod tests {
         assert_eq!(parameter_provider.containing_symbol(), function.id().into());
         assert_eq!(parameter_provider.origin(), SymbolOrigin::Synthesized);
 
-        let structure = &graph.structures()[0];
+        let Some(structure) = graph.structure(module.structures()[0]) else {
+            panic!("source structure relationship must resolve");
+        };
         let field = graph.struct_field(structure.fields()[0]);
         let Some(field) = field else {
             panic!("struct field relationship must resolve to its typed record");
@@ -784,7 +714,9 @@ mod tests {
         assert_eq!(receiver.origin(), SymbolOrigin::Synthesized);
         assert_eq!(static_member.receiver(), None);
 
-        let union = &graph.unions()[0];
+        let Some(union) = graph.union(module.unions()[0]) else {
+            panic!("source union relationship must resolve");
+        };
         let variant = graph.union_variant(union.variants()[0]);
         let Some(variant) = variant else {
             panic!("union variant relationship must resolve to its typed record");
@@ -821,19 +753,32 @@ mod tests {
         let table = declaration_table(&["module app; func same() {} func same() {}"]);
         let graph = build_graph(&table);
 
-        let [first, second] = graph.functions() else {
+        let source_functions = graph
+            .functions()
+            .iter()
+            .filter(|function| function.origin() == SymbolOrigin::Source)
+            .collect::<Vec<_>>();
+        let [first, second] = source_functions.as_slice() else {
             panic!("expected both conflicting functions to remain in the graph");
         };
 
         assert_ne!(first.id(), second.id());
         assert_ne!(first.key(), second.key());
 
+        let Some(first_declaration) = first.declaration() else {
+            panic!("source function must retain its declaration");
+        };
+
+        let Some(second_declaration) = second.declaration() else {
+            panic!("source function must retain its declaration");
+        };
+
         assert_eq!(
-            graph.symbol_for_declaration(first.declaration()),
+            graph.symbol_for_declaration(first_declaration),
             Some(AnySymbolId::from(first.id()))
         );
         assert_eq!(
-            graph.symbol_for_declaration(second.declaration()),
+            graph.symbol_for_declaration(second_declaration),
             Some(AnySymbolId::from(second.id()))
         );
     }
@@ -843,26 +788,36 @@ mod tests {
         let table = declaration_table(&["module app; struct Point\nusing core;"]);
         let graph = build_graph(&table);
 
-        let [structure] = graph.structures() else {
+        let source_structures = graph
+            .structures()
+            .iter()
+            .filter(|structure| structure.origin() == SymbolOrigin::Source)
+            .collect::<Vec<_>>();
+        let [structure] = source_structures.as_slice() else {
             panic!("expected the recovered struct declaration to produce a symbol");
         };
-        let module = &graph.modules()[0];
+        let module = source_module(&graph);
 
         assert!(structure.is_recovered());
         assert_eq!(structure.containing_symbol(), module.id().into());
 
-        let declaration = match table.declaration(structure.declaration()) {
+        let Some(structure_declaration) = structure.declaration() else {
+            panic!("source structure must retain its declaration");
+        };
+
+        let declaration = match table.declaration(structure_declaration) {
             Some(declaration) => declaration,
             None => panic!("symbol declaration should remain in the declaration table"),
         };
 
-        assert_eq!(
-            structure.syntax_anchor().full_range(),
-            declaration.full_range()
-        );
+        let Some(syntax) = structure.syntax_anchor() else {
+            panic!("source structure must retain its syntax anchor");
+        };
+
+        assert_eq!(syntax.full_range(), declaration.full_range());
         assert!(
             graph
-                .symbol_for_declaration(structure.declaration())
+                .symbol_for_declaration(structure_declaration)
                 .is_some()
         );
     }
@@ -872,9 +827,7 @@ mod tests {
         let table = declaration_table(&["module ; func main() {}"]);
         let graph = build_graph(&table);
 
-        let [module] = graph.modules() else {
-            panic!("expected one recovered logical module");
-        };
+        let module = source_module(&graph);
 
         assert!(module.is_recovered());
         assert!(module.path().is_recovered());
@@ -883,7 +836,10 @@ mod tests {
             module.path().recovery_anchor(),
             module.declarations().first().copied()
         );
-        assert_eq!(graph.functions()[0].containing_symbol(), module.id().into());
+        assert_eq!(
+            source_function(&graph).containing_symbol(),
+            module.id().into()
+        );
     }
 
     #[test]
@@ -930,27 +886,27 @@ mod tests {
     #[test]
     fn implementation_context_selects_fulfillment_categories() {
         assert_eq!(
-            source_symbol_kind(
-                DeclarationKind::TypeCallableMember,
+            declaration_symbol_kind(
+                surface_kind(DeclarationKind::TypeCallableMember),
                 SymbolKind::NamedTraitImplementation,
             ),
-            Some(SymbolKind::TraitCallableFulfillment)
+            SymbolKind::TraitCallableFulfillment
         );
 
         assert_eq!(
-            source_symbol_kind(
-                DeclarationKind::ImplementationTypeMemberBinding,
+            declaration_symbol_kind(
+                surface_kind(DeclarationKind::ImplementationTypeMemberBinding),
                 SymbolKind::UnnamedTraitImplementation,
             ),
-            Some(SymbolKind::TraitTypeFulfillment)
+            SymbolKind::TraitTypeFulfillment
         );
 
         assert_eq!(
-            source_symbol_kind(
-                DeclarationKind::TypeCallableMember,
+            declaration_symbol_kind(
+                surface_kind(DeclarationKind::TypeCallableMember),
                 SymbolKind::InherentImplementation,
             ),
-            Some(SymbolKind::TypeCallableMember)
+            SymbolKind::TypeCallableMember
         );
     }
 
@@ -958,6 +914,13 @@ mod tests {
         match PackageIdentity::try_new("test.package") {
             Some(identity) => identity,
             None => panic!("test package identity is valid"),
+        }
+    }
+
+    fn surface_kind(kind: DeclarationKind) -> DeclarationSurfaceKind {
+        match kind.try_into() {
+            Ok(kind) => kind,
+            Err(()) => panic!("test declaration kind must produce a symbol"),
         }
     }
 
@@ -989,6 +952,36 @@ mod tests {
             Ok(graph) => graph,
             Err(error) => panic!("test symbol graph should build: {error:?}"),
         }
+    }
+
+    fn source_module(graph: &SymbolGraph) -> &crate::ModuleSymbol {
+        let Some(package) = graph.packages().first() else {
+            panic!("source graph must retain its package root");
+        };
+
+        let Some(module_id) = package.modules().first().copied() else {
+            panic!("test package must retain its source module");
+        };
+
+        let Some(module) = graph.module(module_id) else {
+            panic!("source module ID must resolve in the graph");
+        };
+
+        module
+    }
+
+    fn source_function(graph: &SymbolGraph) -> &crate::FunctionSymbol {
+        let module = source_module(graph);
+
+        let Some(function_id) = module.functions().first().copied() else {
+            panic!("test source module must retain its function");
+        };
+
+        let Some(function) = graph.function(function_id) else {
+            panic!("source function ID must resolve in the graph");
+        };
+
+        function
     }
 
     fn provided_symbol<I>(provider: &impl SymbolProvider<I>, id: I) -> Option<&I::Record>
