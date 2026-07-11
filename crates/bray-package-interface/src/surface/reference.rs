@@ -5,11 +5,9 @@ use bray_symbols::{
     ModulePathKey, SymbolKind, SymbolOrdinal, SynthesizedSymbolRole,
 };
 
-use super::decoding::{
-    package_identity, read_optional_u32, read_string, read_tag, read_u32, symbol_name,
-};
+use super::decoding::{package_identity, read_string, read_tag, symbol_name};
 use crate::InterfaceValidationError;
-use crate::decode::DecodeBudget;
+use crate::decode::{DecodeBudget, read_optional_u32, read_u32};
 use crate::wire::WireReader;
 
 pub(super) fn decode_local_key_component(

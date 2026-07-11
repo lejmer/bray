@@ -7,8 +7,9 @@ use bray_symbols::{
 };
 
 use crate::decode::DecodeBudget;
+pub(super) use crate::decode::{map_wire_error, read_optional_u32, read_u32};
 use crate::tag::WireTag;
-use crate::wire::{WireDecodeError, WireEncoder, WireReader};
+use crate::wire::{WireEncoder, WireReader};
 use crate::{
     DependencyInterfaceId, InterfaceLimit, InterfaceSymbolReference, InterfaceValidationError,
     InterfaceValidationLimits,
@@ -257,26 +258,5 @@ pub(super) fn write_optional_u32(encoder: &mut WireEncoder, value: Option<u32>) 
             encoder.write_u32(value);
         }
         None => encoder.write_u32(0),
-    }
-}
-
-pub(super) fn read_optional_u32(
-    reader: &mut WireReader<'_>,
-) -> Result<Option<u32>, InterfaceValidationError> {
-    match read_u32(reader)? {
-        0 => Ok(None),
-        1 => Ok(Some(read_u32(reader)?)),
-        _ => Err(InterfaceValidationError::Malformed),
-    }
-}
-
-pub(super) fn read_u32(reader: &mut WireReader<'_>) -> Result<u32, InterfaceValidationError> {
-    reader.read_u32().map_err(map_wire_error)
-}
-
-pub(super) const fn map_wire_error(error: WireDecodeError) -> InterfaceValidationError {
-    match error {
-        WireDecodeError::Truncated => InterfaceValidationError::Truncated,
-        WireDecodeError::TrailingBytes => InterfaceValidationError::Malformed,
     }
 }

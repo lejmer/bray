@@ -8,9 +8,9 @@ use super::{
     InterfaceProductIdentity, InterfaceSymbolReference, PackageInterfaceIdentity,
     PackageInterfaceSurface, SymbolRelationship,
 };
-use crate::decode::DecodeBudget;
+use crate::decode::{DecodeBudget, map_wire_error, read_optional_u32, read_u32};
 use crate::tag::WireTag;
-use crate::wire::{WireDecodeError, WireReader};
+use crate::wire::WireReader;
 use crate::{
     InterfaceContentHash, InterfaceLimit, InterfaceSectionTag, InterfaceValidationError,
     InterfaceValidationLimits, ValidatedInterfaceSection, ValidatedPackageInterface,
@@ -293,24 +293,6 @@ pub(super) fn read_tag<T: WireTag>(
     reader: &mut WireReader<'_>,
 ) -> Result<T, InterfaceValidationError> {
     T::from_wire(read_u32(reader)?).ok_or(InterfaceValidationError::Malformed)
-}
-
-pub(super) fn read_optional_u32(
-    reader: &mut WireReader<'_>,
-) -> Result<Option<u32>, InterfaceValidationError> {
-    match read_u32(reader)? {
-        0 => Ok(None),
-        1 => Ok(Some(read_u32(reader)?)),
-        _ => Err(InterfaceValidationError::Malformed),
-    }
-}
-
-pub(super) fn read_u32(reader: &mut WireReader<'_>) -> Result<u32, InterfaceValidationError> {
-    reader.read_u32().map_err(map_wire_error)
-}
-
-const fn map_wire_error(_: WireDecodeError) -> InterfaceValidationError {
-    InterfaceValidationError::Malformed
 }
 
 fn checked_count(count: u64) -> Result<usize, InterfaceValidationError> {
