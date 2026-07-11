@@ -4,16 +4,18 @@ use bray_declarations::{DeclarationId, SyntaxAnchor};
 
 use crate::collection::TypedSymbolRecords;
 use crate::record::{
-    CallableParameterDefaultProviderSymbol, CompilerKnownEnvironmentSymbol, ModuleSymbol,
-    PackageSymbol, ReceiverParameterSymbol, SourceSymbolIdentity, StructFieldDefaultProviderSymbol,
-    UnionPayloadDefaultProviderSymbol, for_each_source_symbol,
+    CallableParameterDefaultProviderSymbol, CompilerKnownEnvironmentSymbol,
+    DeclarationSymbolIdentity, ModuleSymbol, PackageSymbol, ReceiverParameterSymbol,
+    StructFieldDefaultProviderSymbol, UnionPayloadDefaultProviderSymbol,
+    for_each_declaration_symbol,
 };
 use crate::relationship::{ModuleRelationships, RelationshipIndex};
 use crate::{
     AnySymbolId, CallableParameterDefaultProviderSymbolId, CompilerKnownEnvironmentSymbolId,
-    ModuleOwnerId, ModulePathKey, ModuleSymbolId, PackageIdentity, PackageSymbolId,
-    ReceiverParameterSymbolId, StructFieldDefaultProviderSymbolId, SymbolGraphBuildError,
-    SymbolKind, SymbolProvider, SymbolRecordId, SymbolRootId, UnionPayloadDefaultProviderSymbolId,
+    CompilerKnownSymbolProvider, ModuleOwnerId, ModulePathKey, ModuleSymbolId, PackageIdentity,
+    PackageSymbolId, ReceiverParameterSymbolId, StructFieldDefaultProviderSymbolId,
+    SymbolGraphBuildError, SymbolKind, SymbolProvider, SymbolRecordId, SymbolRootId,
+    UnionPayloadDefaultProviderSymbolId,
 };
 
 /// The deterministic roots of an immutable compilation-wide symbol graph.
@@ -57,7 +59,7 @@ macro_rules! define_symbol_graph {
         #[derive(Clone, Debug, Eq, PartialEq)]
         pub struct SymbolGraph {
             roots: SymbolGraphRoots,
-            compiler_known: CompilerKnownEnvironmentSymbol,
+            compiler_known: CompilerKnownSymbolProvider,
             packages: TypedSymbolRecords<PackageSymbolId, PackageSymbol>,
             modules: TypedSymbolRecords<ModuleSymbolId, ModuleSymbol>,
             module_index: BTreeMap<ModuleOwnerId, BTreeMap<ModulePathKey, ModuleSymbolId>>,
@@ -97,6 +99,11 @@ macro_rules! define_symbol_graph {
 
             /// Returns the single compiler-known environment record.
             pub const fn compiler_known_environment(&self) -> &CompilerKnownEnvironmentSymbol {
+                self.compiler_known.environment()
+            }
+
+            /// Returns the catalog-backed compiler-known symbol and fact provider.
+            pub const fn compiler_known_provider(&self) -> &CompilerKnownSymbolProvider {
                 &self.compiler_known
             }
 
@@ -198,7 +205,9 @@ macro_rules! define_symbol_graph {
 
                 #[doc = concat!("Returns a `", stringify!($variant), "` record through checked exact-ID access.")]
                 pub fn $singular(&self, id: crate::$id) -> Option<&crate::$record> {
-                    self.$plural.get(id)
+                    self.$plural
+                        .get(id)
+                        .or_else(|| SymbolProvider::<crate::$id>::symbol(&self.compiler_known, id))
                 }
             )+
         }
@@ -217,11 +226,11 @@ macro_rules! define_symbol_graph {
 
         pub(crate) struct SymbolGraphBuilder {
             roots: SymbolGraphRoots,
-            compiler_known: CompilerKnownEnvironmentSymbol,
+            compiler_known: CompilerKnownSymbolProvider,
             packages: Vec<PackageSymbol>,
             modules: Vec<ModuleSymbol>,
             declaration_index: BTreeMap<DeclarationId, AnySymbolId>,
-            pending_sources: Vec<(AnySymbolId, SourceSymbolIdentity)>,
+            pending_sources: Vec<(AnySymbolId, DeclarationSymbolIdentity)>,
             relationship_index: RelationshipIndex,
             callable_parameter_default_providers: Vec<CallableParameterDefaultProviderSymbol>,
             struct_field_default_providers: Vec<StructFieldDefaultProviderSymbol>,
@@ -235,10 +244,12 @@ macro_rules! define_symbol_graph {
         impl SymbolGraphBuilder {
             pub(crate) fn new(
                 roots: SymbolGraphRoots,
-                compiler_known: CompilerKnownEnvironmentSymbol,
+                compiler_known: CompilerKnownSymbolProvider,
                 packages: Vec<PackageSymbol>,
                 modules: Vec<ModuleSymbol>,
             ) -> Self {
+                $(let $plural = compiler_known.$plural();)+
+
                 Self {
                     roots,
                     compiler_known,
@@ -252,7 +263,7 @@ macro_rules! define_symbol_graph {
                     union_payload_default_providers: Vec::new(),
                     receiver_parameters: Vec::new(),
                     $(
-                        $plural: Vec::new(),
+                        $plural,
                     )+
                 }
             }
@@ -260,7 +271,7 @@ macro_rules! define_symbol_graph {
             pub(crate) fn push_source(
                 &mut self,
                 id: AnySymbolId,
-                identity: SourceSymbolIdentity,
+                identity: DeclarationSymbolIdentity,
             ) -> Result<(), SymbolKind> {
                 if !matches!(id, $(AnySymbolId::$variant(_))|+) {
                     return Err(id.kind());
@@ -326,7 +337,9 @@ macro_rules! define_symbol_graph {
                 mut self,
             ) -> Result<SymbolGraph, (DeclarationId, SymbolKind)> {
                 for (erased_id, identity) in std::mem::take(&mut self.pending_sources) {
-                    let declaration = identity.declaration();
+                    let Some(declaration) = identity.source_declaration() else {
+                        continue;
+                    };
                     let kind = erased_id.kind();
 
                     match erased_id {
@@ -432,7 +445,7 @@ impl SymbolProvider<CompilerKnownEnvironmentSymbolId> for SymbolGraph {
         &self,
         id: CompilerKnownEnvironmentSymbolId,
     ) -> Option<&CompilerKnownEnvironmentSymbol> {
-        (self.compiler_known.id() == id).then_some(&self.compiler_known)
+        SymbolProvider::<CompilerKnownEnvironmentSymbolId>::symbol(&self.compiler_known, id)
     }
 }
 
@@ -465,7 +478,7 @@ pub(crate) enum DefaultProviderRecord {
     UnionPayload(UnionPayloadDefaultProviderSymbol),
 }
 
-for_each_source_symbol!(define_symbol_graph);
+for_each_declaration_symbol!(define_symbol_graph);
 
 #[cfg(test)]
 mod tests {

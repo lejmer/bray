@@ -1,3 +1,4 @@
+use bray_compiler_known::{CatalogDeclarationSurface, CompilerKnownDeclarationId};
 use bray_declarations::{DeclarationId, SyntaxAnchor};
 
 use crate::relationship::{
@@ -10,7 +11,7 @@ use crate::relationship::{
 };
 use crate::{AnySymbolId, SymbolKey, SymbolOrigin};
 
-macro_rules! for_each_source_symbol {
+macro_rules! for_each_declaration_symbol {
     ($consumer:ident) => {
         $consumer! {
             ConstantSymbol, ConstantSymbolId, Constant, constant, constants, LeafRelationships;
@@ -57,24 +58,33 @@ macro_rules! for_each_source_symbol {
     };
 }
 
-pub(crate) use for_each_source_symbol;
+pub(crate) use for_each_declaration_symbol;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct SourceSymbolIdentity {
-    key: SymbolKey,
-    containing_symbol: AnySymbolId,
-    declaration: DeclarationId,
-    syntax: SyntaxAnchor,
+pub(crate) enum DeclarationSymbolIdentity {
+    Source {
+        key: SymbolKey,
+        containing_symbol: AnySymbolId,
+        declaration: DeclarationId,
+        syntax: SyntaxAnchor,
+    },
+    CompilerKnown {
+        key: SymbolKey,
+        containing_symbol: AnySymbolId,
+        declaration: CompilerKnownDeclarationId,
+        surface: CatalogDeclarationSurface,
+        origin: SymbolOrigin,
+    },
 }
 
-impl SourceSymbolIdentity {
+impl DeclarationSymbolIdentity {
     pub(crate) const fn new(
         key: SymbolKey,
         containing_symbol: AnySymbolId,
         declaration: DeclarationId,
         syntax: SyntaxAnchor,
     ) -> Self {
-        Self {
+        Self::Source {
             key,
             containing_symbol,
             declaration,
@@ -82,30 +92,69 @@ impl SourceSymbolIdentity {
         }
     }
 
-    pub(crate) const fn containing_symbol(&self) -> AnySymbolId {
-        self.containing_symbol
+    pub(crate) const fn compiler_known(
+        key: SymbolKey,
+        containing_symbol: AnySymbolId,
+        declaration: CompilerKnownDeclarationId,
+        surface: CatalogDeclarationSurface,
+        origin: SymbolOrigin,
+    ) -> Self {
+        Self::CompilerKnown {
+            key,
+            containing_symbol,
+            declaration,
+            surface,
+            origin,
+        }
     }
 
-    pub(crate) const fn declaration(&self) -> DeclarationId {
-        self.declaration
+    pub(crate) const fn containing_symbol(&self) -> AnySymbolId {
+        match self {
+            Self::Source {
+                containing_symbol, ..
+            }
+            | Self::CompilerKnown {
+                containing_symbol, ..
+            } => *containing_symbol,
+        }
+    }
+
+    pub(crate) const fn source_declaration(&self) -> Option<DeclarationId> {
+        match self {
+            Self::Source { declaration, .. } => Some(*declaration),
+            Self::CompilerKnown { .. } => None,
+        }
+    }
+
+    const fn key(&self) -> &SymbolKey {
+        match self {
+            Self::Source { key, .. } | Self::CompilerKnown { key, .. } => key,
+        }
+    }
+
+    const fn origin(&self) -> SymbolOrigin {
+        match self {
+            Self::Source { .. } => SymbolOrigin::Source,
+            Self::CompilerKnown { origin, .. } => *origin,
+        }
     }
 }
 
-macro_rules! define_source_symbol_records {
+macro_rules! define_declaration_symbol_records {
     ($($record:ident, $id:ident, $variant:ident, $singular:ident, $plural:ident, $relationships:ty;)+) => {
         $(
             #[doc = concat!("The immutable identity record for a source `", stringify!($variant), "` symbol.")]
             #[derive(Clone, Debug, Eq, PartialEq)]
             pub struct $record {
                 id: crate::$id,
-                identity: SourceSymbolIdentity,
+                identity: DeclarationSymbolIdentity,
                 relationships: $relationships,
             }
 
             impl $record {
                 pub(crate) fn new(
                     id: crate::$id,
-                    identity: SourceSymbolIdentity,
+                    identity: DeclarationSymbolIdentity,
                     relationship_index: &RelationshipIndex,
                 ) -> Option<Self> {
                     let relationships =
@@ -124,39 +173,65 @@ macro_rules! define_source_symbol_records {
 
                 /// Returns this symbol's deterministic construction key.
                 pub const fn key(&self) -> &SymbolKey {
-                    &self.identity.key
+                    self.identity.key()
                 }
 
                 /// Returns this symbol's origin.
                 pub const fn origin(&self) -> SymbolOrigin {
-                    SymbolOrigin::Source
+                    self.identity.origin()
                 }
 
                 /// Returns this symbol's immediate semantic container.
                 pub const fn containing_symbol(&self) -> AnySymbolId {
-                    self.identity.containing_symbol
+                    self.identity.containing_symbol()
                 }
 
                 /// Returns the declaration that introduced this symbol.
-                pub const fn declaration(&self) -> DeclarationId {
-                    self.identity.declaration
+                pub const fn declaration(&self) -> Option<DeclarationId> {
+                    self.identity.source_declaration()
                 }
 
                 /// Returns the stable syntax anchor that introduced this symbol.
-                pub const fn syntax_anchor(&self) -> SyntaxAnchor {
-                    self.identity.syntax
+                pub const fn syntax_anchor(&self) -> Option<SyntaxAnchor> {
+                    match &self.identity {
+                        DeclarationSymbolIdentity::Source { syntax, .. } => Some(*syntax),
+                        DeclarationSymbolIdentity::CompilerKnown { .. } => None,
+                    }
+                }
+
+                /// Returns the catalog-local declaration identity for compiler-known symbols.
+                pub const fn compiler_known_declaration(
+                    &self,
+                ) -> Option<CompilerKnownDeclarationId> {
+                    match &self.identity {
+                        DeclarationSymbolIdentity::Source { .. } => None,
+                        DeclarationSymbolIdentity::CompilerKnown { declaration, .. } => {
+                            Some(*declaration)
+                        }
+                    }
+                }
+
+                /// Returns the generated declaration surface for compiler-known symbols.
+                pub const fn compiler_known_surface(&self) -> Option<CatalogDeclarationSurface> {
+                    match &self.identity {
+                        DeclarationSymbolIdentity::Source { .. } => None,
+                        DeclarationSymbolIdentity::CompilerKnown { surface, .. } => Some(*surface),
+                    }
                 }
 
                 /// Returns whether the introducing syntax contains parser recovery.
                 pub const fn is_recovered(&self) -> bool {
-                    self.identity.syntax.is_recovered()
+                    match &self.identity {
+                        DeclarationSymbolIdentity::Source { syntax, .. } => syntax.is_recovered(),
+                        DeclarationSymbolIdentity::CompilerKnown { .. } => false,
+                    }
                 }
             }
         )+
     };
 }
 
-for_each_source_symbol!(define_source_symbol_records);
+for_each_declaration_symbol!(define_declaration_symbol_records);
 
 macro_rules! impl_generic_relationships {
     ($($record:ident),+ $(,)?) => {

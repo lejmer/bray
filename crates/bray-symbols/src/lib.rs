@@ -2,8 +2,10 @@
 
 #![forbid(unsafe_code)]
 
+mod allocator;
 mod build;
 mod collection;
+mod compiler_known;
 mod error;
 mod external;
 mod fact;
@@ -20,8 +22,13 @@ mod origin;
 mod provider;
 mod record;
 mod relationship;
+mod surface_kind;
 mod value;
 
+pub use compiler_known::{
+    CompilerKnownDeclarationFact, CompilerKnownScopeSymbolId, CompilerKnownSymbolBuildError,
+    CompilerKnownSymbolFactKey, CompilerKnownSymbolProvider,
+};
 pub use error::SymbolGraphBuildError;
 pub use graph::{SymbolGraph, SymbolGraphRoots};
 

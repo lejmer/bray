@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use bray_base::{shared_slice, shared_str};
+use bray_compiler_known::CompilerKnownDeclarationKey;
 use bray_declarations::DeclarationId;
 
 use crate::SymbolKind;
@@ -273,6 +274,13 @@ pub enum SymbolKeyData {
         /// The module's complete logical path.
         path: ModulePathKey,
     },
+    /// A declaration supplied by the immutable compiler-known catalog.
+    CompilerKnownDeclaration {
+        /// The stable language identity assigned by the catalog.
+        key: CompilerKnownDeclarationKey,
+        /// The ordinary semantic symbol kind materialized for the declaration.
+        kind: SymbolKind,
+    },
     /// A source declaration under its immediate semantic owner.
     SourceDeclaration {
         /// The immediate semantic owner.
@@ -292,6 +300,7 @@ impl SymbolKeyData {
         match self {
             Self::Root(root) => root.kind(),
             Self::Module { .. } => SymbolKind::Module,
+            Self::CompilerKnownDeclaration { kind, .. } => *kind,
             Self::SourceDeclaration { kind, .. } => *kind,
             Self::Synthesized(key) => key.kind(),
         }
@@ -334,6 +343,21 @@ impl SymbolKey {
             owner,
             kind,
             declaration,
+        })))
+    }
+
+    /// Creates a key for one compiler-known declaration.
+    pub fn compiler_known_declaration(
+        key: CompilerKnownDeclarationKey,
+        kind: SymbolKind,
+    ) -> Option<Self> {
+        if !kind.can_be_source_declared() {
+            return None;
+        }
+
+        Some(Self(Arc::new(SymbolKeyData::CompilerKnownDeclaration {
+            key,
+            kind,
         })))
     }
 
