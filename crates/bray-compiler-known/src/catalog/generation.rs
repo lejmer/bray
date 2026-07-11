@@ -18,7 +18,7 @@ use super::{
 };
 use crate::catalog_digest::source_digest;
 
-const MANIFEST: &str = include_str!("../../catalog/manifest.txt");
+const MANIFEST: &str = include_str!("../../catalog/catalog.braydef-manifest");
 
 /// Failure to validate or render checked-in compiler-known definitions.
 #[derive(Debug)]

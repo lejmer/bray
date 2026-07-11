@@ -5,7 +5,8 @@ use bray_compiler_known::generate_catalog_output;
 
 const GENERATED_SOURCE_PATH: &str =
     "crates/bray-compiler-known/src/catalog/generated/compiler_known.rs";
-const GENERATED_DIGEST_PATH: &str = "crates/bray-compiler-known/src/catalog/generated/digest.txt";
+const GENERATED_DIGEST_PATH: &str =
+    "crates/bray-compiler-known/src/catalog/generated/catalog.sha256";
 
 pub(crate) fn run(mut arguments: impl Iterator<Item = String>) -> ExitCode {
     let Some(command) = arguments.next() else {

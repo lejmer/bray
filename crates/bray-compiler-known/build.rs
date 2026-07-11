@@ -3,12 +3,12 @@ mod catalog_digest;
 
 use std::path::PathBuf;
 
-const EXPECTED_DIGEST: &str = include_str!("src/catalog/generated/digest.txt");
-const MANIFEST: &str = include_str!("catalog/manifest.txt");
+const EXPECTED_DIGEST: &str = include_str!("src/catalog/generated/catalog.sha256");
+const MANIFEST: &str = include_str!("catalog/catalog.braydef-manifest");
 
 fn main() {
-    println!("cargo::rerun-if-changed=catalog/manifest.txt");
-    println!("cargo::rerun-if-changed=src/catalog/generated/digest.txt");
+    println!("cargo::rerun-if-changed=catalog/catalog.braydef-manifest");
+    println!("cargo::rerun-if-changed=src/catalog/generated/catalog.sha256");
 
     for relative_path in catalog_digest::manifest_paths(MANIFEST) {
         println!("cargo::rerun-if-changed=catalog/{relative_path}");

@@ -209,7 +209,7 @@ mod tests {
     fn generator_input_inventory_is_complete_and_canonical() {
         let inventory = generator_input_inventory();
         let sources = inventory.sources();
-        let manifest_paths = include_str!("../../catalog/manifest.txt")
+        let manifest_paths = include_str!("../../catalog/catalog.braydef-manifest")
             .lines()
             .map(|path| format!("catalog/{path}"))
             .collect::<Vec<_>>();
