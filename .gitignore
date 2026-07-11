@@ -30,6 +30,7 @@ target
 # Codex
 .agents/
 .codex/
+.worktrees/
 
 # Scratch/temp/local files
 scratch/
