@@ -144,6 +144,7 @@ fn resolve_kind(
     };
 
     let source = inventory.source(surface.anchor().source())?;
+
     let kind = match validator.validate_declaration_surface(*source, surface, context) {
         Ok(kind) => Some(kind),
         Err(fragment_diagnostics) => {
@@ -175,6 +176,7 @@ fn resolve_kind(
     }
 
     states[index] = VisitState::Complete;
+
     kind
 }
 

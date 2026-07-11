@@ -221,6 +221,7 @@ impl CatalogDiagnostic {
         related_keys: impl IntoIterator<Item = CatalogRelatedKey>,
     ) -> Self {
         self.related_keys = related_keys.into_iter().collect();
+
         self
     }
 
@@ -253,6 +254,7 @@ impl CatalogDiagnostics {
     pub(super) fn from_unsorted(mut diagnostics: Vec<CatalogDiagnostic>) -> Self {
         diagnostics.sort();
         diagnostics.dedup();
+
         Self(diagnostics.into())
     }
 

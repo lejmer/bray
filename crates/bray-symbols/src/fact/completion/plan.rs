@@ -101,7 +101,6 @@ impl SymbolCompletionPlan {
             );
 
             units.push(SymbolCompletionUnit { symbol, facts });
-
             pending.extend(graph.completion_children(symbol).iter().rev().copied());
         }
 
@@ -200,6 +199,7 @@ mod tests {
         let package = AnySymbolId::from(graph.packages()[0].id());
 
         let plan = completion_plan(&graph, package);
+
         let symbols = plan
             .units()
             .iter()
@@ -371,6 +371,7 @@ mod tests {
 
     fn declaration_table(source_texts: &[&str]) -> DeclarationTable {
         let sources = test_source_store(source_texts);
+
         let chunks = (0u32..)
             .take(source_texts.len())
             .map(|index| declaration_chunk(&sources, index))

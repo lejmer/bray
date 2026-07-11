@@ -215,6 +215,7 @@ mod tests {
                 .map(|descriptor| descriptor.key().as_str()),
             Some("RawPointer")
         );
+
         assert_eq!(
             catalog.compiler_known_declaration(CompilerKnownDeclarationId::new(2)),
             None
@@ -226,6 +227,7 @@ mod tests {
                 .map(CompilerKnownDeclarationDescriptor::id),
             Some(CompilerKnownDeclarationId::new(1))
         );
+
         assert_eq!(
             catalog.compiler_known_declaration_by_key(&declaration_key("Missing")),
             None

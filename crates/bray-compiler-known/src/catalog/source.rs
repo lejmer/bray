@@ -209,12 +209,14 @@ mod tests {
     fn generator_input_inventory_is_complete_and_canonical() {
         let inventory = generator_input_inventory();
         let sources = inventory.sources();
+
         let manifest_paths = include_str!("../../catalog/catalog.braydef-manifest")
             .lines()
             .map(|path| format!("catalog/{path}"))
             .collect::<Vec<_>>();
 
         assert_eq!(sources.len(), 6);
+
         assert_eq!(
             sources
                 .iter()
@@ -229,6 +231,7 @@ mod tests {
         assert!(sources[0].relative_path() < sources[1].relative_path());
 
         assert!(sources[0].text().starts_with("catalog compiler_known;"));
+
         assert!(
             sources[4]
                 .text()

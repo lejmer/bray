@@ -62,6 +62,7 @@ pub(super) fn interface_fixture(
         Ok(symbols) => symbols,
         Err(error) => panic!("test identity surface must be valid: {error:?}"),
     };
+
     let relationships = [
         ImportedSymbolRelationship::new(
             SymbolRelationshipKind::PackageModule,
@@ -76,11 +77,13 @@ pub(super) fn interface_fixture(
             0,
         ),
     ];
+
     let lookups = [ImportedLookupEdge::new(
         InterfaceSymbolId::new(1),
         symbol_name(function_name),
         function_key.clone(),
     )];
+
     let input = ImportedSymbolSkeletonInput::new(
         ImportedInterfaceId::new(interface),
         symbols,

@@ -224,11 +224,14 @@ mod tests {
     fn fact_applicability_uses_exact_symbol_categories() {
         let function = AnySymbolId::from(FunctionSymbolId::from_symbol_id(SymbolId::new(1)));
         let constant = AnySymbolId::from(ConstantSymbolId::from_symbol_id(SymbolId::new(2)));
+
         let parameter =
             AnySymbolId::from(CallableParameterSymbolId::from_symbol_id(SymbolId::new(3)));
+
         let compiler_known = AnySymbolId::from(CompilerKnownEnvironmentSymbolId::from_symbol_id(
             SymbolId::new(4),
         ));
+
         let package = AnySymbolId::from(PackageSymbolId::from_symbol_id(SymbolId::new(5)));
 
         assert!(SymbolFactKind::Directives.is_applicable_to(function));

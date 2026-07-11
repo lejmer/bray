@@ -70,24 +70,28 @@ fn build_descriptors(
         first_anchor(inventory, &validated.compiler_known_scopes),
         &mut diagnostics,
     );
+
     validate_descriptor_count(
         validated.compiler_known_declarations.len(),
         CatalogKeyDomain::CompilerKnownDeclaration,
         first_anchor(inventory, &validated.compiler_known_declarations),
         &mut diagnostics,
     );
+
     validate_descriptor_count(
         validated.compiler_known_values.len(),
         CatalogKeyDomain::CompilerKnownValue,
         first_anchor(inventory, &validated.compiler_known_values),
         &mut diagnostics,
     );
+
     validate_descriptor_count(
         validated.recognized_scopes.len(),
         CatalogKeyDomain::RecognizedStandardLibraryScope,
         first_anchor(inventory, &validated.recognized_scopes),
         &mut diagnostics,
     );
+
     validate_descriptor_count(
         validated.recognized_declarations.len(),
         CatalogKeyDomain::RecognizedStandardLibraryDeclaration,
@@ -101,12 +105,15 @@ fn build_descriptors(
 
     let compiler_known_declarations =
         build_compiler_known_declarations(&validated.compiler_known_declarations);
+
     let compiler_known_values = build_compiler_known_values(&validated.compiler_known_values);
+
     let compiler_known_scopes = build_compiler_known_scopes(
         &validated.compiler_known_scopes,
         &compiler_known_declarations,
         &compiler_known_values,
     );
+
     let recognized_declarations = build_recognized_declarations(&validated.recognized_declarations);
     let recognized_scopes =
         build_recognized_scopes(&validated.recognized_scopes, &recognized_declarations);
@@ -118,6 +125,7 @@ fn build_descriptors(
         inventory,
         &mut diagnostics,
     );
+
     record_construction_mismatch(
         compiler_known_declarations.len(),
         validated.compiler_known_declarations.len(),
@@ -125,6 +133,7 @@ fn build_descriptors(
         inventory,
         &mut diagnostics,
     );
+
     record_construction_mismatch(
         compiler_known_values.len(),
         validated.compiler_known_values.len(),
@@ -132,6 +141,7 @@ fn build_descriptors(
         inventory,
         &mut diagnostics,
     );
+
     record_construction_mismatch(
         recognized_scopes.len(),
         validated.recognized_scopes.len(),
@@ -139,6 +149,7 @@ fn build_descriptors(
         inventory,
         &mut diagnostics,
     );
+
     record_construction_mismatch(
         recognized_declarations.len(),
         validated.recognized_declarations.len(),
@@ -480,6 +491,7 @@ mod tests {
     #[test]
     fn representative_generator_inputs_build_with_real_bray_fragments() {
         let mut validator = BrayFragmentValidator;
+
         let catalog = match build_catalog(generator_input_inventory(), &mut validator) {
             Ok(catalog) => catalog,
             Err(diagnostics) => panic!("representative catalog should build: {diagnostics:#?}"),
@@ -502,30 +514,38 @@ mod tests {
         let target_real = declaration(&catalog, "TargetReal16");
 
         assert_eq!(raw_pointer.kind(), CatalogDeclarationKind::Struct);
+
         assert_eq!(
             element.owner(),
             CompilerKnownDeclarationOwner::Declaration(raw_pointer.id())
         );
+
         assert_eq!(storage.kind(), CatalogDeclarationKind::Trait);
         assert_eq!(callable.kind(), CatalogDeclarationKind::CallableContract);
+
         assert_eq!(
             storage_load.owner(),
             CompilerKnownDeclarationOwner::Declaration(storage.id())
         );
+
         assert_eq!(
             implementation.kind(),
             CatalogDeclarationKind::NamedTraitImplementation
         );
+
         assert_eq!(
             implementation_item.owner(),
             CompilerKnownDeclarationOwner::Declaration(implementation.id())
         );
+
         assert_eq!(
             memory_copy.implementation_hook(),
             Some(ImplementationHook::MemoryCopy)
         );
+
         assert_eq!(memory_copy.availability_rule(), AvailabilityRule::RawMemory);
         assert_eq!(target_real.availability_rule(), AvailabilityRule::Real16);
+
         assert_eq!(
             target_real.representation_role(),
             Some(RepresentationRole::ScalarR16)
@@ -570,6 +590,7 @@ mod tests {
     #[test]
     fn builder_merges_scopes_and_assigns_canonical_typed_ids() {
         let mut validator = TestFragmentValidator;
+
         let catalog = match build_catalog(&VALID_INVENTORY, &mut validator) {
             Ok(catalog) => catalog,
             Err(diagnostics) => panic!("test catalog should build: {diagnostics:?}"),
@@ -579,6 +600,7 @@ mod tests {
         assert_eq!(catalog.compiler_known_declarations().len(), 3);
         assert_eq!(catalog.compiler_known_values().len(), 1);
         assert_eq!(catalog.recognized_standard_library_scopes().len(), 1);
+
         assert_eq!(
             catalog
                 .compiler_known_declarations()
@@ -594,8 +616,10 @@ mod tests {
             read.owner(),
             CompilerKnownDeclarationOwner::Declaration(crate::CompilerKnownDeclarationId::new(2))
         );
+
         assert_eq!(read.kind(), CatalogDeclarationKind::Function);
         assert_eq!(read.availability_rule(), AvailabilityRule::RawMemory);
+
         assert_eq!(
             read.implementation_hook(),
             Some(ImplementationHook::RawPointerRead)
@@ -621,6 +645,7 @@ mod tests {
         let recognized = &catalog.recognized_standard_library_declarations()[0];
 
         assert_eq!(recognized.key().as_str(), "Length");
+
         assert_eq!(
             recognized.owner(),
             RecognizedStandardLibraryDeclarationOwner::Scope(
@@ -632,12 +657,14 @@ mod tests {
     #[test]
     fn descriptor_ids_do_not_depend_on_source_inventory_order() {
         let mut validator = TestFragmentValidator;
+
         let forward = match build_catalog(&ORDERED_INVENTORY, &mut validator) {
             Ok(catalog) => catalog,
             Err(diagnostics) => panic!("ordered catalog should build: {diagnostics:?}"),
         };
 
         let mut validator = TestFragmentValidator;
+
         let reversed = match build_catalog(&REVERSED_INVENTORY, &mut validator) {
             Ok(catalog) => catalog,
             Err(diagnostics) => panic!("reversed catalog should build: {diagnostics:?}"),
@@ -668,6 +695,7 @@ mod tests {
         );
 
         let mut validator = TestFragmentValidator;
+
         let diagnostics = match build_catalog(inventory, &mut validator) {
             Ok(_) => panic!("invalid catalog should not build"),
             Err(diagnostics) => diagnostics,
@@ -679,14 +707,17 @@ mod tests {
                 field: CatalogField::Availability
             }
         )));
+
         assert!(contains_kind(&diagnostics, |kind| matches!(
             kind,
             CatalogDiagnosticKind::DuplicateKey { .. }
         )));
+
         assert!(contains_kind(&diagnostics, |kind| matches!(
             kind,
             CatalogDiagnosticKind::UnknownMetadata { .. }
         )));
+
         assert!(contains_kind(&diagnostics, |kind| matches!(
             kind,
             CatalogDiagnosticKind::MissingField {
@@ -727,6 +758,7 @@ mod tests {
         );
 
         let mut validator = TestFragmentValidator;
+
         let diagnostics = match build_catalog(inventory, &mut validator) {
             Ok(_) => panic!("invalid metadata should not build"),
             Err(diagnostics) => diagnostics,
@@ -739,6 +771,7 @@ mod tests {
                 ..
             }
         )));
+
         assert!(contains_kind(&diagnostics, |kind| matches!(
             kind,
             CatalogDiagnosticKind::UnknownMetadata {
@@ -746,6 +779,7 @@ mod tests {
                 ..
             }
         )));
+
         assert!(contains_kind(&diagnostics, |kind| matches!(
             kind,
             CatalogDiagnosticKind::IncompatibleImplementationHook {
@@ -753,6 +787,7 @@ mod tests {
                 declaration: CatalogDeclarationKind::Struct
             }
         )));
+
         assert!(contains_kind(&diagnostics, |kind| matches!(
             kind,
             CatalogDiagnosticKind::DuplicateRepresentationRole {
@@ -777,6 +812,7 @@ mod tests {
         );
 
         let mut validator = TestFragmentValidator;
+
         let diagnostics = match build_catalog(inventory, &mut validator) {
             Ok(_) => panic!("invalid ownership should not build"),
             Err(diagnostics) => diagnostics,
@@ -786,10 +822,12 @@ mod tests {
             kind,
             CatalogDiagnosticKind::UnknownOwner
         )));
+
         assert!(contains_kind(&diagnostics, |kind| matches!(
             kind,
             CatalogDiagnosticKind::OwnershipCycle
         )));
+
         assert!(contains_kind(&diagnostics, |kind| matches!(
             kind,
             CatalogDiagnosticKind::InvalidDeclarationContext {
@@ -816,6 +854,7 @@ mod tests {
         );
 
         let mut validator = TestFragmentValidator;
+
         let diagnostics = match build_catalog(inventory, &mut validator) {
             Ok(_) => panic!("invalid recognized catalog should not build"),
             Err(diagnostics) => diagnostics,
@@ -825,10 +864,12 @@ mod tests {
             kind,
             CatalogDiagnosticKind::UnsupportedScopeLocation { .. }
         )));
+
         assert!(contains_kind(&diagnostics, |kind| matches!(
             kind,
             CatalogDiagnosticKind::UnsupportedEntry { .. }
         )));
+
         assert!(contains_kind(&diagnostics, |kind| matches!(
             kind,
             CatalogDiagnosticKind::RecognizedRepresentation
@@ -859,6 +900,7 @@ mod tests {
                 source.relative_path(),
                 result.diagnostics()
             );
+
             assert!(
                 !result.is_recovered(),
                 "{} contains recovered declaration syntax",
@@ -892,6 +934,7 @@ mod tests {
                 source.relative_path(),
                 result.diagnostics()
             );
+
             assert!(
                 !result.is_recovered(),
                 "{} contains recovered type syntax in {text:?}",
@@ -1149,12 +1192,14 @@ mod tests {
         }
 
         let mut validator = RejectingValidator;
+
         let diagnostics = match build_catalog(&ORDERED_INVENTORY, &mut validator) {
             Ok(_) => panic!("rejecting validator should fail the build"),
             Err(diagnostics) => diagnostics,
         };
 
         assert_eq!(diagnostics.diagnostics().len(), 2);
+
         assert!(
             diagnostics
                 .diagnostics()
@@ -1169,6 +1214,7 @@ mod tests {
             source: CatalogSourceId::new(4),
             range: bray_source::TextRange::EMPTY,
         };
+
         let diagnostic = CatalogDiagnostic::new(anchor, CatalogDiagnosticKind::UnknownOwner);
 
         assert_eq!(diagnostic.anchor(), anchor);

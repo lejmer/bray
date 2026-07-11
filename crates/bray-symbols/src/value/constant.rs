@@ -76,6 +76,7 @@ impl IntegerConstant {
             .into_iter()
             .skip_while(|byte| *byte == 0)
             .collect();
+
         let sign = if magnitude.is_empty() {
             IntegerSign::NonNegative
         } else {

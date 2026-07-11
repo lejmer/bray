@@ -95,10 +95,12 @@ mod tests {
         assert_eq!(scope.map(CompilerKnownScopeId::raw), Some(0));
         assert_eq!(declaration.map(CompilerKnownDeclarationId::raw), Some(0));
         assert_eq!(value.map(CompilerKnownValueId::raw), Some(0));
+
         assert_eq!(
             recognized_scope.map(RecognizedStandardLibraryScopeId::raw),
             Some(0)
         );
+
         assert_eq!(
             recognized_declaration.map(RecognizedStandardLibraryDeclarationId::raw),
             Some(0)

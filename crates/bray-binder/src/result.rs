@@ -44,6 +44,7 @@ mod tests {
             DiagnosticKind::DeclarationDuplicateName,
             SeverityKind::Error,
         );
+
         let outcome = BindingOutcome::complete(7_u32, DiagnosticBag::single(diagnostic.clone()));
 
         let Some(result) = outcome.result() else {

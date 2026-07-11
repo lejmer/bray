@@ -245,6 +245,7 @@ impl<'facts, C: BinderFactContext + ?Sized> BinderRequestContext<'facts, C> {
     pub(crate) fn finish(self) -> Result<BinderRequestResult, BoundUnitConstructionError> {
         let unit = self.unit.finish()?;
         let diagnostics = DiagnosticBag::from(self.diagnostics);
+
         let dependencies = self
             .dependencies
             .into_iter()
@@ -298,9 +299,12 @@ mod tests {
     fn request_contexts_expose_typed_inputs_and_nested_expectations() {
         let fact_fixture = FactFixture::new();
         let facts = fact_fixture.context();
+
         let unit_fixture = fixture();
         let unit = builder(&unit_fixture, LocalSymbolRegionId::new(20));
+
         let mut request = BinderRequestContext::new(&facts, BindingContext::CallableBody, unit);
+
         let target = ControlTarget::new(
             ControlTargetKind::Callable,
             unit_fixture.first,
@@ -312,22 +316,27 @@ mod tests {
         request.push_control_target(target);
 
         assert_eq!(request.binding_context(), BindingContext::CallableBody);
+
         assert_eq!(
             request.facts().semantic_values().id(),
             fact_fixture.semantic_values.id()
         );
+
         assert_eq!(
             request.expected(),
             Some(ExpectedContext::Type(fact_fixture.declared_type))
         );
+
         assert_eq!(request.control_target(), Some(target));
         assert_eq!(target.kind(), ControlTargetKind::Callable);
         assert_eq!(target.syntax(), unit_fixture.first);
         assert_eq!(target.expected_value(), Some(fact_fixture.declared_type));
+
         assert_eq!(
             request.pop_expected(),
             Some(ExpectedContext::Type(fact_fixture.declared_type))
         );
+
         assert_eq!(request.pop_control_target(), Some(target));
     }
 
@@ -335,21 +344,27 @@ mod tests {
     fn rollback_discards_candidate_state_and_reuses_deterministic_slots() {
         let fact_fixture = FactFixture::new();
         let facts = fact_fixture.context();
+
         let unit_fixture = fixture();
         let unit = builder(&unit_fixture, LocalSymbolRegionId::new(21));
+
         let mut request = BinderRequestContext::new(&facts, BindingContext::Expression, unit);
+
         let root = request.unit_mut().root_scope();
         let checkpoint = request.checkpoint();
+
         let abandoned = push_binding(request.unit_mut(), root, unit_fixture.first, false);
 
         assert_eq!(request.unit_mut().activate_local(root, abandoned), Ok(()));
 
         request.push_expected(ExpectedContext::Type(fact_fixture.declared_type));
+
         request.push_control_target(ControlTarget::new(
             ControlTargetKind::Loop,
             unit_fixture.first,
             None,
         ));
+
         request.add_diagnostic(diagnostic(0));
         request.record_dependency(BinderDependency::Target(fact_fixture.constant));
 
@@ -357,6 +372,7 @@ mod tests {
             checkpoint,
             AbandonedDependencyDisposition::DiscardProvenIrrelevant
         ));
+
         assert_eq!(request.expected(), None);
         assert_eq!(request.control_target(), None);
 
@@ -387,14 +403,18 @@ mod tests {
     fn observed_dependencies_are_deduplicated_sorted_and_retained_when_relevant() {
         let fact_fixture = FactFixture::new();
         let facts = fact_fixture.context();
+
         let unit_fixture = fixture();
         let unit = builder(&unit_fixture, LocalSymbolRegionId::new(22));
+
         let mut request = BinderRequestContext::new(&facts, BindingContext::Expression, unit);
+
         let symbol = fact_fixture.constant.into();
         let symbol_dependency = BinderDependency::Symbol {
             symbol,
             kind: SymbolFactKind::ConstantDeclaredType,
         };
+
         let target_dependency = BinderDependency::Target(fact_fixture.constant);
         let candidate_dependency = BinderDependency::Symbol {
             symbol,
@@ -421,6 +441,7 @@ mod tests {
             result.dependencies(),
             &[symbol_dependency, candidate_dependency, target_dependency]
         );
+
         assert!(result.diagnostics().is_empty());
     }
 

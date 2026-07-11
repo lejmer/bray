@@ -61,6 +61,7 @@ mod tests {
     fn closures_adapt_typed_fact_forcing() {
         let symbol = AnySymbolId::from(FunctionSymbolId::from_symbol_id(SymbolId::new(1)));
         let request = SymbolFactCompletionRequest::new(symbol, SymbolFactKind::CallableSignature);
+
         let forcer = |requested| -> Result<DiagnosticBag, ()> {
             assert_eq!(requested, request);
 

@@ -56,6 +56,7 @@ impl BoundUnitLocalBuilder {
     ) -> Result<Self, BoundUnitConstructionError> {
         let region_key = local_region_key(&key);
         let root_syntax = key.source().syntax();
+
         let mut local_symbols = LocalSymbolSnapshotBuilder::new(region, region_key);
 
         let root_scope = local_symbols.push_scope(
@@ -273,6 +274,7 @@ impl BoundUnitLocalBuilder {
 
         self.activated_locals.insert(parameter.into());
         self.activated_local_log.push(parameter.into());
+
         self.anonymous_parameters.insert(identity);
         self.anonymous_parameter_log.push(identity);
 
@@ -421,8 +423,11 @@ mod tests {
     #[test]
     fn recovered_identities_remain_hidden_until_activated_once() {
         let fixture = fixture();
+
         let mut builder = new_builder(&fixture, LocalSymbolRegionId::new(5));
+
         let root = builder.root_scope();
+
         let block = push_scope(
             &mut builder,
             root,
@@ -430,9 +435,11 @@ mod tests {
             fixture.first,
             3,
         );
+
         let binding = push_binding(&mut builder, block, fixture.first, true);
 
         assert_eq!(builder.activate_local(block, binding), Ok(()));
+
         assert_eq!(
             builder.activate_local(block, binding),
             Err(BoundUnitConstructionError::LocalAlreadyActivated(
@@ -447,10 +454,12 @@ mod tests {
         };
 
         assert_eq!(scope.visibility_start(), TextSize::new(3));
+
         assert_eq!(
             scope.local_symbols_named("value"),
             &[AnyLocalSymbolId::from(binding)]
         );
+
         assert!(
             result
                 .local_symbols()
@@ -462,7 +471,9 @@ mod tests {
     #[test]
     fn malformed_pattern_identity_is_reported_without_panicking() {
         let fixture = fixture();
+
         let mut builder = new_builder(&fixture, LocalSymbolRegionId::new(6));
+
         let root = builder.root_scope();
 
         assert_eq!(
@@ -478,7 +489,9 @@ mod tests {
     #[test]
     fn contextual_results_require_contract_scopes() {
         let fixture = fixture();
+
         let mut builder = new_builder(&fixture, LocalSymbolRegionId::new(7));
+
         let root = builder.root_scope();
 
         assert_eq!(
@@ -495,6 +508,7 @@ mod tests {
             fixture.first,
             4,
         );
+
         let result = match builder.push_postcondition_result(
             contract,
             fixture.first,
@@ -519,6 +533,7 @@ mod tests {
     #[test]
     fn anonymous_boundaries_reject_a_different_enclosing_unit() {
         let fixture = fixture();
+
         let (_, _, boundary) = builder_with_boundary(&fixture, LocalSymbolRegionId::new(8));
 
         let mut wrong_unit = match BoundUnitLocalBuilder::new(
@@ -553,7 +568,9 @@ mod tests {
     #[test]
     fn anonymous_boundaries_reject_a_builder_for_another_region() {
         let fixture = fixture();
+
         let (_, _, boundary) = builder_with_boundary(&fixture, LocalSymbolRegionId::new(8));
+
         let mut wrong_region = new_builder(&fixture, LocalSymbolRegionId::new(9));
 
         assert_eq!(
@@ -580,6 +597,7 @@ mod tests {
     #[test]
     fn anonymous_callable_and_parameter_identities_cannot_be_reused() {
         let fixture = fixture();
+
         let (mut builder, root, boundary) =
             builder_with_boundary(&fixture, LocalSymbolRegionId::new(10));
 
@@ -640,13 +658,17 @@ mod tests {
 
         assert_eq!(snapshot.local_symbols().scopes().len(), 2);
         assert_eq!(snapshot.local_symbols().anonymous_parameters().len(), 1);
+
         assert_eq!(scope.boundary(), LocalScopeBoundary::Callable);
         assert_eq!(scope.parent(), Some(root));
+
         assert!(scope.local_symbols_named("value").is_empty());
+
         assert_eq!(
             scope.local_symbols_named("parameter"),
             &[AnyLocalSymbolId::from(parameter)]
         );
+
         assert_eq!(
             snapshot
                 .local_symbols()
@@ -659,9 +681,12 @@ mod tests {
     #[test]
     fn mismatched_callable_sources_leave_no_partial_boundary() {
         let fixture = fixture();
+
         let mut builder = new_builder(&fixture, LocalSymbolRegionId::new(10));
+
         let root = builder.root_scope();
         let foreign = BoundSourceAnchor::new(fixture.foreign, fixture.version);
+
         let mismatched =
             BoundSourceAnchor::new(fixture.first, SourceVersion::new(fixture.version.raw() + 1));
 
@@ -694,7 +719,9 @@ mod tests {
     #[test]
     fn checkpoints_restore_local_identity_and_visibility_state() {
         let fixture = fixture();
+
         let mut builder = new_builder(&fixture, LocalSymbolRegionId::new(13));
+
         let root = builder.root_scope();
         let checkpoint = builder.checkpoint();
         let abandoned = push_binding(&mut builder, root, fixture.first, false);
@@ -722,7 +749,9 @@ mod tests {
     fn rejected_composite_checkpoints_leave_tree_and_locals_unchanged() {
         let fixture = fixture();
         let region = LocalSymbolRegionId::new(14);
+
         let mut builder = new_builder(&fixture, region);
+
         let root = builder.root_scope();
         let retained = push_binding(&mut builder, root, fixture.first, false);
 
@@ -730,6 +759,7 @@ mod tests {
 
         let expression = push_error_expression(&mut builder, &fixture);
         let mut other = new_builder(&fixture, region);
+
         let other_root = other.root_scope();
 
         push_binding(&mut other, other_root, fixture.first, false);
@@ -749,6 +779,7 @@ mod tests {
         let result = finish(builder);
 
         assert!(result.local_symbols().binding(retained).is_some());
+
         assert_eq!(
             result
                 .local_symbols()
@@ -774,6 +805,7 @@ mod tests {
         crate::unit::AnonymousCallableBoundary,
     ) {
         let mut builder = new_builder(fixture, region);
+
         let root = builder.root_scope();
         let boundary = push_anonymous_callable(&mut builder, root, fixture);
 
@@ -798,6 +830,7 @@ mod tests {
 
         let origin =
             BoundNodeOrigin::source(BoundSourceAnchor::new(fixture.first, fixture.version));
+
         let expression = BoundExpression::Error(BoundErrorExpression::new(origin, error_type));
 
         match builder.tree_mut().push_expression(expression) {
