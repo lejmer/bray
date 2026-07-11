@@ -93,6 +93,8 @@ impl CheckedAnonymousCallable {
             nested_units,
         )?;
 
+        validate_anonymous_callable(&data, callable)?;
+
         validate_callable_root(&data, root)?;
 
         Ok(Self {
@@ -181,6 +183,26 @@ define_checked_expression_unit!(
     ContractClause,
     "A fully checked callable contract-clause expression."
 );
+
+fn validate_anonymous_callable(
+    data: &CheckedUnitData,
+    callable: AnonymousCallableSymbolId,
+) -> Result<(), CheckedUnitBuildError> {
+    let expected = data.local_symbols().region();
+
+    if callable.region() != expected {
+        return Err(CheckedUnitBuildError::AnonymousCallableRegionMismatch {
+            expected,
+            actual: callable.region(),
+        });
+    }
+
+    if data.local_symbols().anonymous_callable(callable).is_none() {
+        return Err(CheckedUnitBuildError::MissingAnonymousCallable { callable });
+    }
+
+    Ok(())
+}
 
 fn validate_callable_root(
     data: &CheckedUnitData,
@@ -385,23 +407,84 @@ mod tests {
             enclosing,
             source_anchor_with_version(source.source_version().raw() + 1),
         );
-        let callable = anonymous_callable(owner.clone(), source.syntax());
-        let local_symbols = local_snapshot(
-            31,
-            owner,
-            LocalSymbolRegionRole::AnonymousCallable,
-            [source.syntax()],
-        );
+        let (local_symbols, callables) = anonymous_callable_snapshot(31, owner, source.syntax(), 1);
+
+        let [callable] = callables.as_slice() else {
+            panic!("test snapshot must contain exactly one anonymous callable");
+        };
+
         let (tree, root) = callable_tree(BoundUnitId::new(31));
 
         let Ok(unit) =
-            CheckedAnonymousCallable::try_new(&key, tree, local_symbols, [], callable, root)
+            CheckedAnonymousCallable::try_new(&key, tree, local_symbols, [], *callable, root)
         else {
             panic!("a matching anonymous callable unit must be publishable");
         };
 
-        assert_eq!(unit.callable(), callable);
+        assert_eq!(unit.callable(), *callable);
         assert_eq!(unit.root(), root);
+    }
+
+    #[test]
+    fn anonymous_callable_units_reject_foreign_and_missing_callable_ids() {
+        let source = source_anchor();
+        let owner = symbol_key(SymbolKind::Function, 0);
+        let enclosing = valid_key(BoundUnitKey::callable_body(owner.clone(), source));
+        let key = BoundUnitKey::anonymous_callable(
+            enclosing,
+            source_anchor_with_version(source.source_version().raw() + 1),
+        );
+        let (foreign_snapshot, foreign_callables) =
+            anonymous_callable_snapshot(30, owner.clone(), source.syntax(), 1);
+
+        let [foreign_callable] = foreign_callables.as_slice() else {
+            panic!("test snapshot must contain exactly one foreign callable");
+        };
+
+        let (local_symbols, _) = anonymous_callable_snapshot(31, owner.clone(), source.syntax(), 1);
+        let (tree, root) = callable_tree(BoundUnitId::new(31));
+
+        let wrong_region = CheckedAnonymousCallable::try_new(
+            &key,
+            tree,
+            local_symbols,
+            [],
+            *foreign_callable,
+            root,
+        );
+
+        assert_eq!(
+            wrong_region,
+            Err(CheckedUnitBuildError::AnonymousCallableRegionMismatch {
+                expected: LocalSymbolRegionId::new(31),
+                actual: foreign_snapshot.region(),
+            })
+        );
+
+        let (local_symbols, _) = anonymous_callable_snapshot(31, owner.clone(), source.syntax(), 1);
+        let (_, two_callables) = anonymous_callable_snapshot(31, owner, source.syntax(), 2);
+
+        let [_, missing_callable] = two_callables.as_slice() else {
+            panic!("test snapshot must construct a second callable slot");
+        };
+
+        let (tree, root) = callable_tree(BoundUnitId::new(31));
+
+        let missing = CheckedAnonymousCallable::try_new(
+            &key,
+            tree,
+            local_symbols,
+            [],
+            *missing_callable,
+            root,
+        );
+
+        assert_eq!(
+            missing,
+            Err(CheckedUnitBuildError::MissingAnonymousCallable {
+                callable: *missing_callable,
+            })
+        );
     }
 
     #[test]
@@ -575,39 +658,69 @@ mod tests {
         )
     }
 
-    fn anonymous_callable(
+    fn anonymous_callable_snapshot(
+        region: u32,
         owner: bray_symbols::SymbolKey,
         syntax: bray_declarations::SyntaxAnchor,
-    ) -> AnonymousCallableSymbolId {
+        callable_count: usize,
+    ) -> (
+        bray_symbols::LocalSymbolSnapshot,
+        Vec<AnonymousCallableSymbolId>,
+    ) {
         let Some(key) = LocalSymbolRegionKey::try_new(
             owner,
-            LocalSymbolRegionRole::CallableBody,
+            LocalSymbolRegionRole::AnonymousCallable,
             [syntax],
             None,
         ) else {
-            panic!("test enclosing region must have a source anchor");
+            panic!("test anonymous region must have a source anchor");
         };
 
-        let mut builder = LocalSymbolSnapshotBuilder::new(LocalSymbolRegionId::new(30), key);
+        let mut builder = LocalSymbolSnapshotBuilder::new(LocalSymbolRegionId::new(region), key);
         let root = match builder.push_scope(None, LocalScopeBoundary::Root, syntax, TextSize::ZERO)
         {
             Ok(scope) => scope,
             Err(error) => panic!("test root scope must be valid: {error:?}"),
         };
-        let callable_scope = match builder.push_scope(
-            Some(root),
-            LocalScopeBoundary::Callable,
-            syntax,
-            TextSize::ZERO,
-        ) {
-            Ok(scope) => scope,
-            Err(error) => panic!("test callable scope must be valid: {error:?}"),
+        let mut callables = Vec::new();
+
+        for index in 0..callable_count {
+            let callable_scope = match builder.push_scope(
+                Some(root),
+                LocalScopeBoundary::Callable,
+                syntax,
+                TextSize::ZERO,
+            ) {
+                Ok(scope) => scope,
+                Err(error) => panic!("test callable scope must be valid: {error:?}"),
+            };
+
+            let Ok(index) = u32::try_from(index) else {
+                panic!("test callable ordinal must fit in u32");
+            };
+
+            let ordinal = Some(bray_symbols::SymbolOrdinal::new(index));
+
+            let callable = match builder.push_anonymous_callable(
+                root,
+                callable_scope,
+                [syntax],
+                ordinal,
+                false,
+            ) {
+                Ok(callable) => callable,
+                Err(error) => panic!("test anonymous callable must be valid: {error:?}"),
+            };
+
+            callables.push(callable);
+        }
+
+        let snapshot = match builder.finish() {
+            Ok(snapshot) => snapshot,
+            Err(error) => panic!("test anonymous snapshot must be valid: {error:?}"),
         };
 
-        match builder.push_anonymous_callable(root, callable_scope, [syntax], None, false) {
-            Ok(callable) => callable,
-            Err(error) => panic!("test anonymous callable must be valid: {error:?}"),
-        }
+        (snapshot, callables)
     }
 
     fn publish_expression_unit<T>(result: Result<T, CheckedUnitBuildError>) -> T {

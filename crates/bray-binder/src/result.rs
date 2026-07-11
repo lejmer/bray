@@ -28,8 +28,6 @@ pub type CheckedContractClauseResult = DiagnosticResult<CheckedContractClauseUni
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicBool, Ordering};
-
     use bray_diagnostics::{Diagnostic, DiagnosticBag, DiagnosticId, DiagnosticKind, SeverityKind};
 
     use super::{
@@ -37,7 +35,7 @@ mod tests {
         CheckedConstraintResult, CheckedContractClauseResult, CheckedPredicateDefinitionResult,
         CheckedRuntimeDefaultResult,
     };
-    use crate::{BinderCancellation, BindingOutcome};
+    use crate::BindingOutcome;
 
     #[test]
     fn binding_outcomes_publish_values_and_diagnostics_together() {
@@ -58,15 +56,6 @@ mod tests {
 
     #[test]
     fn binding_cancellation_exposes_no_partial_fact_payload() {
-        let cancelled = AtomicBool::new(false);
-        let observe = || cancelled.load(Ordering::Acquire);
-
-        assert!(!observe.is_cancelled());
-
-        cancelled.store(true, Ordering::Release);
-
-        assert!(observe.is_cancelled());
-
         let outcome = BindingOutcome::<u32>::Cancelled;
 
         assert!(outcome.is_cancelled());

@@ -1,3 +1,5 @@
+use bray_symbols::{AnonymousCallableSymbolId, LocalSymbolRegionId};
+
 use crate::{BoundNodeKind, BoundUnitId, BoundUnitKind};
 
 /// A contract violation that prevents publication of a checked semantic unit.
@@ -19,6 +21,18 @@ pub enum CheckedUnitBuildError {
     },
     /// The local snapshot key does not correspond to the semantic unit key.
     LocalSymbolRegionMismatch,
+    /// The anonymous callable belongs to a different local symbol region.
+    AnonymousCallableRegionMismatch {
+        /// The region owned by the checked unit's local snapshot.
+        expected: LocalSymbolRegionId,
+        /// The region carried by the anonymous callable ID.
+        actual: LocalSymbolRegionId,
+    },
+    /// The anonymous callable does not resolve in the checked unit's local snapshot.
+    MissingAnonymousCallable {
+        /// The exact callable ID that failed typed snapshot lookup.
+        callable: AnonymousCallableSymbolId,
+    },
     /// A nested-unit key is not an anonymous callable directly enclosed by this unit.
     InvalidNestedUnit {
         /// The position of the invalid nested-unit key.

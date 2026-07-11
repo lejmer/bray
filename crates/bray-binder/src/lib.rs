@@ -4,9 +4,7 @@
 
 mod result;
 
-pub use bray_checker::{
-    CheckerCancellation as BinderCancellation, CheckerOutcome as BindingOutcome,
-};
+pub use bray_checker::CheckerOutcome as BindingOutcome;
 pub use result::{
     CheckedAnonymousCallableResult, CheckedCallableBodyResult, CheckedConstantTemplateResult,
     CheckedConstraintResult, CheckedContractClauseResult, CheckedPredicateDefinitionResult,
