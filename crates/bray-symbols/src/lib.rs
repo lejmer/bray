@@ -13,6 +13,7 @@ mod imported;
 mod interface;
 mod key;
 mod kind;
+mod local;
 mod member;
 mod name;
 mod origin;
@@ -56,6 +57,14 @@ pub use key::{
     SynthesizedSymbolKey, SynthesizedSymbolRole,
 };
 pub use kind::SymbolKind;
+pub use local::{
+    AnonymousCallableParameterSymbol, AnonymousCallableParameterSymbolId, AnonymousCallableSymbol,
+    AnonymousCallableSymbolId, AnyLocalSymbolId, LocalBindingSymbol, LocalBindingSymbolId,
+    LocalConstantSymbol, LocalConstantSymbolId, LocalScope, LocalScopeBoundary, LocalScopeId,
+    LocalSymbolBuildError, LocalSymbolKey, LocalSymbolRegionId, LocalSymbolRegionKey,
+    LocalSymbolRegionRole, LocalSymbolSnapshot, LocalSymbolSnapshotBuilder,
+    PostconditionResultSymbol, PostconditionResultSymbolId,
+};
 pub use member::{
     MemberCollectionBuildError, MemberEntry, MemberLookupIndex, MemberLookupResult, MemberValidity,
     MemberVisibility, TypedMemberCollection,
