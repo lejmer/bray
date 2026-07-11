@@ -2,6 +2,7 @@
 
 #![forbid(unsafe_code)]
 
+mod checked;
 mod dependency;
 mod identity;
 mod node;
@@ -14,6 +15,11 @@ mod tree;
 mod unit;
 mod view;
 
+pub use checked::{
+    CheckedAnonymousCallable, CheckedCallableBody, CheckedConstantTemplateUnit,
+    CheckedConstraintUnit, CheckedContractClauseUnit, CheckedPredicateDefinitionUnit,
+    CheckedRuntimeDefaultUnit, CheckedUnitBuildError,
+};
 pub use dependency::{
     BoundDependencyContract, BoundDependencyContractId, BoundDependencyGuard,
     BoundDependencyRequirement, BoundDependencyRequirementKind, BoundDependencySubject,

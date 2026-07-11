@@ -1,9 +1,13 @@
-use bray_declarations::{SyntaxAnchor, discover_source_unit_declarations};
+use bray_declarations::{DeclarationId, SyntaxAnchor, discover_source_unit_declarations};
 use bray_source::{
     SourceId, SourceIdentity, SourceOrigin, SourceSnapshot, SourceVersion, TextRange, TextSize,
     TextSizeOverflow,
 };
-use bray_symbols::{SemanticValueStore, TypeData};
+use bray_symbols::{
+    LocalScopeBoundary, LocalSymbolRegionId, LocalSymbolRegionKey, LocalSymbolRegionRole,
+    LocalSymbolSnapshot, LocalSymbolSnapshotBuilder, ModulePathKey, PackageIdentity,
+    SemanticValueStore, SymbolKey, SymbolKind, SymbolRootKey, SynthesizedSymbolKey, TypeData,
+};
 use bray_syntax::{
     ModuleDirectivesSyntax, ModuleModifiersSyntax, PathSyntax, SourceUnitModuleDeclarationSyntax,
     SourceUnitSyntax, SyntaxKind, SyntaxToken, SyntaxTrivia,
@@ -31,6 +35,10 @@ pub(crate) fn error_type() -> bray_symbols::TypeId {
 }
 
 pub(crate) fn source_anchor() -> BoundSourceAnchor {
+    source_anchor_with_version(1)
+}
+
+pub(crate) fn source_anchor_with_version(version: u64) -> BoundSourceAnchor {
     let snapshot = match test_source() {
         Ok(snapshot) => snapshot,
         Err(error) => panic!("test source must fit in the source range representation: {error:?}"),
@@ -42,7 +50,67 @@ pub(crate) fn source_anchor() -> BoundSourceAnchor {
 
     assert!(declarations.diagnostics().is_empty());
 
-    BoundSourceAnchor::new(module_anchor(declarations.chunk()), snapshot.version())
+    BoundSourceAnchor::new(
+        module_anchor(declarations.chunk()),
+        SourceVersion::new(version),
+    )
+}
+
+pub(crate) fn symbol_key(kind: SymbolKind, declaration: u32) -> SymbolKey {
+    let Some(package) = PackageIdentity::try_new("example.package") else {
+        panic!("test package identity is non-empty");
+    };
+
+    let Some(path) = ModulePathKey::try_new(["example"]) else {
+        panic!("test module path is non-empty");
+    };
+
+    let owner = SymbolKey::module(SymbolRootKey::Package(package), path);
+
+    let Some(key) = SymbolKey::source_declaration(owner, kind, DeclarationId::new(declaration))
+    else {
+        panic!("test symbol kind must be source-declared");
+    };
+
+    key
+}
+
+pub(crate) fn runtime_default_key(declaration: u32) -> SymbolKey {
+    let parameter = symbol_key(SymbolKind::CallableParameter, declaration);
+    let provider = SynthesizedSymbolKey::callable_parameter_default_provider(parameter);
+
+    SymbolKey::synthesized(provider)
+}
+
+pub(crate) fn local_snapshot(
+    region: u32,
+    owner: SymbolKey,
+    role: LocalSymbolRegionRole,
+    anchors: impl IntoIterator<Item = SyntaxAnchor>,
+) -> LocalSymbolSnapshot {
+    let anchors = anchors.into_iter().collect::<Box<[_]>>();
+
+    let Some(key) = LocalSymbolRegionKey::try_new(owner, role, anchors.iter().copied(), None)
+    else {
+        panic!("test local region must have at least one source anchor");
+    };
+
+    let mut builder = LocalSymbolSnapshotBuilder::new(LocalSymbolRegionId::new(region), key);
+
+    let Some(root_anchor) = anchors.first().copied() else {
+        panic!("test local region must retain its first source anchor");
+    };
+
+    if let Err(error) =
+        builder.push_scope(None, LocalScopeBoundary::Root, root_anchor, TextSize::ZERO)
+    {
+        panic!("test root scope must be valid: {error:?}");
+    }
+
+    match builder.finish() {
+        Ok(snapshot) => snapshot,
+        Err(error) => panic!("test local snapshot must be valid: {error:?}"),
+    }
 }
 
 fn module_anchor(chunk: &bray_declarations::DeclarationChunk) -> SyntaxAnchor {
