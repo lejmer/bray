@@ -79,6 +79,7 @@ pub enum RepresentationRole {
 }
 
 impl RepresentationRole {
+    #[cfg(any(test, feature = "generation"))]
     pub(crate) fn from_catalog_spelling(spelling: &str) -> Option<Self> {
         match spelling {
             "ScalarBool" => Some(Self::ScalarBool),

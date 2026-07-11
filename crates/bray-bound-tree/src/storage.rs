@@ -311,13 +311,13 @@ impl BoundUnitId {
 
 #[cfg(test)]
 mod tests {
-    use bray_symbols::{BorrowKind, SemanticValueStore, TypeData};
+    use bray_symbols::BorrowKind;
 
     use super::{
         BorrowCapability, BorrowCapabilityId, StorageAccess, StorageAccessId, StorageAccessRoot,
         StorageIdentity, StorageIdentityId, StorageProjection, StorageRelationship,
     };
-    use crate::test_support::source_anchor;
+    use crate::test_support::{error_type, source_anchor};
     use crate::{BoundDependencyContractId, BoundExpressionId, BoundUnitId};
 
     #[test]
@@ -338,12 +338,7 @@ mod tests {
         let unit = BoundUnitId::new(1);
         let selector = BoundExpressionId::from_slot(unit, 8);
         let root = StorageAccessRoot::Storage(StorageIdentityId::from_slot(unit, 0));
-        let Ok(store) = SemanticValueStore::try_new() else {
-            panic!("test semantic store ID must be available");
-        };
-        let Ok(ty) = store.intern_type(TypeData::Error) else {
-            panic!("test type must be valid");
-        };
+        let ty = error_type();
         let source = source_anchor();
 
         let access = StorageAccess::new(

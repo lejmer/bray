@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::borrow::Cow;
 
 use crate::{AvailabilityRule, ImplementationHook, RepresentationRole};
 
@@ -111,8 +111,8 @@ pub struct CompilerKnownScopeDescriptor {
     pub(super) id: CompilerKnownScopeId,
     pub(super) key: CompilerKnownScopeKey,
     pub(super) location: CatalogScopeLocation,
-    pub(super) declaration_ids: Arc<[CompilerKnownDeclarationId]>,
-    pub(super) value_ids: Arc<[CompilerKnownValueId]>,
+    pub(super) declaration_ids: Cow<'static, [CompilerKnownDeclarationId]>,
+    pub(super) value_ids: Cow<'static, [CompilerKnownValueId]>,
 }
 
 impl CompilerKnownScopeDescriptor {
@@ -176,7 +176,7 @@ impl CompilerKnownDeclarationDescriptor {
         self.kind
     }
 
-    /// Returns the exact embedded Bray declaration fragment.
+    /// Returns the stable handle to generated pre-parsed declaration syntax.
     pub const fn surface(&self) -> CatalogDeclarationSurface {
         self.surface
     }
@@ -230,7 +230,7 @@ impl CompilerKnownValueDescriptor {
         &self.spelling
     }
 
-    /// Returns the exact embedded Bray type-expression fragment.
+    /// Returns the stable handle to generated pre-parsed type syntax.
     pub const fn type_surface(&self) -> CatalogTypeSurface {
         self.type_surface
     }
@@ -261,7 +261,7 @@ pub struct RecognizedStandardLibraryScopeDescriptor {
     pub(super) id: RecognizedStandardLibraryScopeId,
     pub(super) key: RecognizedStandardLibraryScopeKey,
     pub(super) path: CatalogPath,
-    pub(super) declaration_ids: Arc<[RecognizedStandardLibraryDeclarationId]>,
+    pub(super) declaration_ids: Cow<'static, [RecognizedStandardLibraryDeclarationId]>,
 }
 
 impl RecognizedStandardLibraryScopeDescriptor {
@@ -319,7 +319,7 @@ impl RecognizedStandardLibraryDeclarationDescriptor {
         self.kind
     }
 
-    /// Returns the expected embedded Bray declaration surface.
+    /// Returns the stable handle to generated pre-parsed declaration syntax.
     pub const fn surface(&self) -> CatalogDeclarationSurface {
         self.surface
     }

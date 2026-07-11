@@ -3,12 +3,32 @@ use bray_source::{
     SourceId, SourceIdentity, SourceOrigin, SourceSnapshot, SourceVersion, TextRange, TextSize,
     TextSizeOverflow,
 };
+use bray_symbols::{SemanticValueStore, TypeData};
 use bray_syntax::{
     ModuleDirectivesSyntax, ModuleModifiersSyntax, PathSyntax, SourceUnitModuleDeclarationSyntax,
     SourceUnitSyntax, SyntaxKind, SyntaxToken, SyntaxTrivia,
 };
 
-use crate::BoundSourceAnchor;
+use crate::{BoundErrorExpression, BoundExpression, BoundNodeOrigin, BoundSourceAnchor};
+
+pub(crate) fn error_expression() -> BoundExpression {
+    BoundExpression::Error(BoundErrorExpression::new(
+        BoundNodeOrigin::source(source_anchor()),
+        error_type(),
+    ))
+}
+
+pub(crate) fn error_type() -> bray_symbols::TypeId {
+    let Ok(store) = SemanticValueStore::try_new() else {
+        panic!("test semantic store ID must be available");
+    };
+
+    let Ok(ty) = store.intern_type(TypeData::Error) else {
+        panic!("test error type must be interned");
+    };
+
+    ty
+}
 
 pub(crate) fn source_anchor() -> BoundSourceAnchor {
     let snapshot = match test_source() {

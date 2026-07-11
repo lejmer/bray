@@ -191,6 +191,10 @@ pub enum CatalogDiagnosticKind {
     },
     /// Validated data could not be represented by the descriptor contract.
     DescriptorConstructionInvariant { domain: CatalogKeyDomain },
+    /// An embedded Bray declaration fragment is malformed or recovered.
+    InvalidDeclarationSurface,
+    /// An embedded Bray type-expression fragment is malformed or recovered.
+    InvalidTypeSurface,
 }
 
 /// One structured defect in checked-in catalog input.

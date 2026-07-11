@@ -1,7 +1,8 @@
-use std::sync::Arc;
+use std::borrow::Cow;
 
 use super::{
-    CatalogSourceInventory, CompilerKnownDeclarationDescriptor, CompilerKnownDeclarationId,
+    CatalogDeclarationSurface, CatalogDeclarationSurfaceSyntax, CatalogTypeSurface,
+    CatalogTypeSurfaceSyntax, CompilerKnownDeclarationDescriptor, CompilerKnownDeclarationId,
     CompilerKnownDeclarationKey, CompilerKnownScopeDescriptor, CompilerKnownScopeId,
     CompilerKnownScopeKey, CompilerKnownValueDescriptor, CompilerKnownValueId,
     CompilerKnownValueKey, RecognizedStandardLibraryDeclarationDescriptor,
@@ -13,20 +14,17 @@ use super::{
 /// The immutable target-independent descriptor graph published by the catalog.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CompilerKnownCatalog {
-    pub(super) source_inventory: &'static CatalogSourceInventory,
-    pub(super) compiler_known_scopes: Arc<[CompilerKnownScopeDescriptor]>,
-    pub(super) compiler_known_declarations: Arc<[CompilerKnownDeclarationDescriptor]>,
-    pub(super) compiler_known_values: Arc<[CompilerKnownValueDescriptor]>,
-    pub(super) recognized_scopes: Arc<[RecognizedStandardLibraryScopeDescriptor]>,
-    pub(super) recognized_declarations: Arc<[RecognizedStandardLibraryDeclarationDescriptor]>,
+    pub(super) compiler_known_scopes: Cow<'static, [CompilerKnownScopeDescriptor]>,
+    pub(super) compiler_known_declarations: Cow<'static, [CompilerKnownDeclarationDescriptor]>,
+    pub(super) compiler_known_values: Cow<'static, [CompilerKnownValueDescriptor]>,
+    pub(super) recognized_scopes: Cow<'static, [RecognizedStandardLibraryScopeDescriptor]>,
+    pub(super) recognized_declarations:
+        Cow<'static, [RecognizedStandardLibraryDeclarationDescriptor]>,
+    pub(super) declaration_surfaces: Cow<'static, [CatalogDeclarationSurfaceSyntax]>,
+    pub(super) type_surfaces: Cow<'static, [CatalogTypeSurfaceSyntax]>,
 }
 
 impl CompilerKnownCatalog {
-    /// Returns the catalog-owned embedded source inventory.
-    pub const fn source_inventory(&self) -> &'static CatalogSourceInventory {
-        self.source_inventory
-    }
-
     /// Returns compiler-known scopes in canonical stable-key order.
     pub fn compiler_known_scopes(&self) -> &[CompilerKnownScopeDescriptor] {
         &self.compiler_known_scopes
@@ -54,6 +52,35 @@ impl CompilerKnownCatalog {
         &self,
     ) -> &[RecognizedStandardLibraryDeclarationDescriptor] {
         &self.recognized_declarations
+    }
+
+    /// Returns pre-parsed declaration surfaces in source-anchor order.
+    pub fn declaration_surfaces(&self) -> &[CatalogDeclarationSurfaceSyntax] {
+        &self.declaration_surfaces
+    }
+
+    /// Returns pre-parsed type-expression surfaces in source-anchor order.
+    pub fn type_surfaces(&self) -> &[CatalogTypeSurfaceSyntax] {
+        &self.type_surfaces
+    }
+
+    /// Resolves one declaration surface without reparsing Bray source.
+    pub fn declaration_surface(
+        &self,
+        surface: CatalogDeclarationSurface,
+    ) -> Option<&CatalogDeclarationSurfaceSyntax> {
+        self.declaration_surfaces
+            .binary_search_by_key(&surface.anchor(), |syntax| syntax.surface().anchor())
+            .ok()
+            .and_then(|index| self.declaration_surfaces.get(index))
+    }
+
+    /// Resolves one type-expression surface without reparsing Bray source.
+    pub fn type_surface(&self, surface: CatalogTypeSurface) -> Option<&CatalogTypeSurfaceSyntax> {
+        self.type_surfaces
+            .binary_search_by_key(&surface.anchor(), |syntax| syntax.surface().anchor())
+            .ok()
+            .and_then(|index| self.type_surfaces.get(index))
     }
 
     /// Resolves a compiler-known scope through a checked compact ID.
@@ -165,7 +192,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
+    use std::borrow::Cow;
 
     use bray_source::{TextRange, TextSize};
 
@@ -176,7 +203,7 @@ mod tests {
         CompilerKnownDeclarationKey, CompilerKnownDeclarationOwner, CompilerKnownScopeDescriptor,
         CompilerKnownScopeId, CompilerKnownScopeKey, generator_input_inventory,
     };
-    use crate::{AvailabilityRule, ImplementationHook, RepresentationRole};
+    use crate::{AvailabilityRule, COMPILER_KNOWN_CATALOG, ImplementationHook, RepresentationRole};
 
     #[test]
     fn catalog_access_is_checked_and_stable_keyed() {
@@ -203,8 +230,6 @@ mod tests {
             catalog.compiler_known_declaration_by_key(&declaration_key("Missing")),
             None
         );
-
-        assert_eq!(catalog.source_inventory(), generator_input_inventory());
     }
 
     #[test]
@@ -216,17 +241,42 @@ mod tests {
         assert_eq!(catalog(), catalog());
     }
 
+    #[test]
+    fn published_catalog_uses_borrowed_static_tables() {
+        assert!(matches!(
+            COMPILER_KNOWN_CATALOG.compiler_known_scopes,
+            Cow::Borrowed(_)
+        ));
+        assert!(matches!(
+            COMPILER_KNOWN_CATALOG.compiler_known_declarations,
+            Cow::Borrowed(_)
+        ));
+        assert!(matches!(
+            COMPILER_KNOWN_CATALOG.compiler_known_values,
+            Cow::Borrowed(_)
+        ));
+        assert!(matches!(
+            COMPILER_KNOWN_CATALOG.declaration_surfaces,
+            Cow::Borrowed(_)
+        ));
+        assert!(matches!(
+            COMPILER_KNOWN_CATALOG.type_surfaces,
+            Cow::Borrowed(_)
+        ));
+    }
+
     fn catalog() -> CompilerKnownCatalog {
         CompilerKnownCatalog {
-            source_inventory: generator_input_inventory(),
-            compiler_known_scopes: Arc::from([scope_descriptor()]),
-            compiler_known_declarations: Arc::from([
+            compiler_known_scopes: Cow::Owned(vec![scope_descriptor()]),
+            compiler_known_declarations: Cow::Owned(vec![
                 declaration_descriptor(0, "RawPointer"),
                 declaration_descriptor(1, "RawPointerRead"),
             ]),
-            compiler_known_values: Arc::from([]),
-            recognized_scopes: Arc::from([]),
-            recognized_declarations: Arc::from([]),
+            compiler_known_values: Cow::Borrowed(&[]),
+            recognized_scopes: Cow::Borrowed(&[]),
+            recognized_declarations: Cow::Borrowed(&[]),
+            declaration_surfaces: Cow::Borrowed(&[]),
+            type_surfaces: Cow::Borrowed(&[]),
         }
     }
 
@@ -235,11 +285,11 @@ mod tests {
             id: CompilerKnownScopeId::new(0),
             key: scope_key("Ambient"),
             location: CatalogScopeLocation::Ambient,
-            declaration_ids: Arc::from([
+            declaration_ids: Cow::Owned(vec![
                 CompilerKnownDeclarationId::new(0),
                 CompilerKnownDeclarationId::new(1),
             ]),
-            value_ids: Arc::from([]),
+            value_ids: Cow::Borrowed(&[]),
         }
     }
 

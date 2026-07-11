@@ -13,9 +13,11 @@ mod imported;
 mod interface;
 mod key;
 mod kind;
+mod local;
 mod member;
 mod name;
 mod origin;
+mod provider;
 mod record;
 mod relationship;
 mod value;
@@ -81,12 +83,21 @@ pub use key::{
     SynthesizedSymbolKey, SynthesizedSymbolRole,
 };
 pub use kind::SymbolKind;
+pub use local::{
+    AnonymousCallableParameterSymbol, AnonymousCallableParameterSymbolId, AnonymousCallableSymbol,
+    AnonymousCallableSymbolId, AnyLocalSymbolId, LocalBindingSymbol, LocalBindingSymbolId,
+    LocalConstantSymbol, LocalConstantSymbolId, LocalScope, LocalScopeBoundary, LocalScopeId,
+    LocalSymbolBuildError, LocalSymbolKey, LocalSymbolRegionId, LocalSymbolRegionKey,
+    LocalSymbolRegionRole, LocalSymbolSnapshot, LocalSymbolSnapshotBuilder,
+    PostconditionResultSymbol, PostconditionResultSymbolId,
+};
 pub use member::{
     MemberCollectionBuildError, MemberEntry, MemberLookupIndex, MemberLookupResult, MemberValidity,
     MemberVisibility, TypedMemberCollection,
 };
 pub use name::SymbolName;
 pub use origin::SymbolOrigin;
+pub use provider::{SymbolProvider, SymbolRecordId};
 pub use record::{
     CallableContractSymbol, CallableOverloadSymbol, CallableParameterDefaultProviderSymbol,
     CallableParameterSymbol, CompilerKnownEnvironmentSymbol, ConstantSymbol, ConstructorSymbol,

@@ -13,7 +13,7 @@ use crate::{
     AnySymbolId, CallableParameterDefaultProviderSymbolId, CompilerKnownEnvironmentSymbolId,
     ModuleOwnerId, ModulePathKey, ModuleSymbolId, PackageIdentity, PackageSymbolId,
     ReceiverParameterSymbolId, StructFieldDefaultProviderSymbolId, SymbolGraphBuildError,
-    SymbolKind, SymbolRootId, UnionPayloadDefaultProviderSymbolId,
+    SymbolKind, SymbolProvider, SymbolRecordId, SymbolRootId, UnionPayloadDefaultProviderSymbolId,
 };
 
 /// The deterministic roots of an immutable compilation-wide symbol graph.
@@ -202,6 +202,18 @@ macro_rules! define_symbol_graph {
                 }
             )+
         }
+
+        $(
+            impl SymbolRecordId for crate::$id {
+                type Record = crate::$record;
+            }
+
+            impl SymbolProvider<crate::$id> for SymbolGraph {
+                fn symbol(&self, id: crate::$id) -> Option<&crate::$record> {
+                    self.$singular(id)
+                }
+            }
+        )+
 
         pub(crate) struct SymbolGraphBuilder {
             roots: SymbolGraphRoots,
@@ -396,6 +408,56 @@ macro_rules! define_symbol_graph {
         }
     };
 }
+
+macro_rules! impl_symbol_graph_provider {
+    ($id:ty, $record:ty, $access:ident) => {
+        impl SymbolRecordId for $id {
+            type Record = $record;
+        }
+
+        impl SymbolProvider<$id> for SymbolGraph {
+            fn symbol(&self, id: $id) -> Option<&$record> {
+                self.$access(id)
+            }
+        }
+    };
+}
+
+impl SymbolRecordId for CompilerKnownEnvironmentSymbolId {
+    type Record = CompilerKnownEnvironmentSymbol;
+}
+
+impl SymbolProvider<CompilerKnownEnvironmentSymbolId> for SymbolGraph {
+    fn symbol(
+        &self,
+        id: CompilerKnownEnvironmentSymbolId,
+    ) -> Option<&CompilerKnownEnvironmentSymbol> {
+        (self.compiler_known.id() == id).then_some(&self.compiler_known)
+    }
+}
+
+impl_symbol_graph_provider!(PackageSymbolId, PackageSymbol, package);
+impl_symbol_graph_provider!(ModuleSymbolId, ModuleSymbol, module);
+impl_symbol_graph_provider!(
+    ReceiverParameterSymbolId,
+    ReceiverParameterSymbol,
+    receiver_parameter
+);
+impl_symbol_graph_provider!(
+    CallableParameterDefaultProviderSymbolId,
+    CallableParameterDefaultProviderSymbol,
+    callable_parameter_default_provider
+);
+impl_symbol_graph_provider!(
+    StructFieldDefaultProviderSymbolId,
+    StructFieldDefaultProviderSymbol,
+    struct_field_default_provider
+);
+impl_symbol_graph_provider!(
+    UnionPayloadDefaultProviderSymbolId,
+    UnionPayloadDefaultProviderSymbol,
+    union_payload_default_provider
+);
 
 pub(crate) enum DefaultProviderRecord {
     CallableParameter(CallableParameterDefaultProviderSymbol),

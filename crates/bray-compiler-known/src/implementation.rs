@@ -42,6 +42,7 @@ pub enum ImplementationHook {
 }
 
 impl ImplementationHook {
+    #[cfg(any(test, feature = "generation"))]
     pub(crate) fn from_catalog_spelling(spelling: &str) -> Option<Self> {
         match spelling {
             "AddressOf" => Some(Self::AddressOf),

@@ -28,11 +28,17 @@ macro_rules! define_catalog_id {
                 }
             }
         }
+
+        impl From<$name> for u32 {
+            fn from(id: $name) -> Self {
+                id.raw()
+            }
+        }
     };
 }
 
 define_catalog_id! {
-    /// Inventory-local identity for one embedded catalog source.
+    /// Inventory-local identity for one catalog generator input.
     pub struct CatalogSourceId;
 }
 
