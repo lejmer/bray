@@ -325,6 +325,7 @@ mod tests {
         let unit = BoundUnitId::new(4);
         let expression = BoundExpressionId::from_slot(unit, 2);
         let identity = StorageIdentityId::from_slot(unit, 2);
+
         let first_access = StorageAccessId::from_slot(unit, 2);
         let second_access = StorageAccessId::from_slot(unit, 3);
 
@@ -338,6 +339,7 @@ mod tests {
         let unit = BoundUnitId::new(1);
         let selector = BoundExpressionId::from_slot(unit, 8);
         let root = StorageAccessRoot::Storage(StorageIdentityId::from_slot(unit, 0));
+
         let ty = error_type();
         let source = source_anchor();
 
@@ -350,12 +352,15 @@ mod tests {
         );
 
         assert_eq!(access.root(), root);
+
         assert_eq!(
             access.projections(),
             &[StorageProjection::Element(selector)]
         );
+
         assert_eq!(access.reached_type(), ty);
         assert_eq!(access.source(), source);
+
         assert!(!access.is_recovered());
         assert!(access.is_valid_for(unit));
         assert!(!access.is_valid_for(BoundUnitId::new(2)));
@@ -367,6 +372,7 @@ mod tests {
         let parent = BorrowCapabilityId::from_slot(unit, 0);
         let child_id = BorrowCapabilityId::from_slot(unit, 1);
         let contract = BoundDependencyContractId::from_slot(unit, 0);
+
         let child = BorrowCapability::new(
             BorrowKind::Mutable,
             StorageAccessId::from_slot(unit, 3),
@@ -391,6 +397,7 @@ mod tests {
         ];
 
         assert_eq!(outcomes.len(), 4);
+
         assert_ne!(
             StorageRelationship::Disjoint,
             StorageRelationship::PotentiallyOverlapping

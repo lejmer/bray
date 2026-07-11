@@ -253,14 +253,17 @@ mod tests {
         assert_eq!(function.containing_symbol(), module_id.into());
         assert_eq!(function.origin(), SymbolOrigin::Imported);
         assert_eq!(function.declaration(), None);
+
         assert_eq!(
             function.imported_fact_key().map(|key| key.interface()),
             Some(ImportedInterfaceId::new(3))
         );
+
         assert_eq!(
             skeleton.lookup(module_id.into(), "run"),
             MemberLookupResult::Found(function_id.into())
         );
+
         assert_eq!(
             skeleton.lookup(package_id.into(), "run"),
             MemberLookupResult::NotFound

@@ -30,13 +30,16 @@ pub(crate) fn validate_catalog(
     declarations.sort_by(|left, right| {
         (left.catalog_kind, left.key.as_ref()).cmp(&(right.catalog_kind, right.key.as_ref()))
     });
+
     reject_duplicate_declarations(&mut declarations, diagnostics);
 
     values.sort_by(|left, right| left.key.cmp(&right.key));
+
     reject_duplicate_values(&mut values, diagnostics);
 
     let recognized_start = declarations
         .partition_point(|declaration| declaration.catalog_kind == CatalogKind::CompilerKnown);
+
     let (compiler_declarations, recognized_declarations) =
         declarations.split_at_mut(recognized_start);
 
@@ -47,6 +50,7 @@ pub(crate) fn validate_catalog(
         validator,
         diagnostics,
     );
+
     resolve_declarations(
         recognized_declarations,
         &recognized_scopes,
@@ -159,6 +163,7 @@ fn collect_entries(
         match entry {
             ParsedEntry::Declaration(declaration) => {
                 let fields = declaration_fields(declaration, diagnostics);
+
                 let representation_role = representation(
                     fields
                         .representation

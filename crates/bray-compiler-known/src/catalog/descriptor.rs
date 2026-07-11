@@ -415,10 +415,12 @@ mod tests {
             descriptor.representation_role(),
             Some(RepresentationRole::RawPointer)
         );
+
         assert_eq!(
             descriptor.implementation_hook(),
             Some(ImplementationHook::RawPointerRead)
         );
+
         assert_eq!(descriptor.availability_rule(), AvailabilityRule::RawMemory);
     }
 

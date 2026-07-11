@@ -201,7 +201,6 @@ impl LocalSymbolSnapshotBuilder {
         }
 
         let key = local_key(&self.key, SymbolKind::AnonymousCallable, anchors, ordinal)?;
-
         let id = AnonymousCallableSymbolId::new(
             self.region,
             checked_slot(self.anonymous_callables.len())?,
@@ -269,6 +268,7 @@ impl LocalSymbolSnapshotBuilder {
             ));
 
         parameters.push(id);
+
         self.mutations
             .push(LocalSymbolMutation::AnonymousParameter {
                 callable: callable_index,
@@ -327,6 +327,7 @@ impl LocalSymbolSnapshotBuilder {
             ));
 
         scope_record.postcondition_result = Some(id);
+
         self.mutations
             .push(LocalSymbolMutation::PostconditionResult { scope: scope_index });
 
@@ -349,6 +350,7 @@ impl LocalSymbolSnapshotBuilder {
 
         // Symbol names use shared immutable text, so this clone releases the record borrow.
         let name = name.clone();
+
         // The scope index and rollback trail independently retain the shared name.
         let mutation_name = name.clone();
 
@@ -362,6 +364,7 @@ impl LocalSymbolSnapshotBuilder {
             .entry(name)
             .or_default()
             .push(symbol);
+
         self.mutations.push(LocalSymbolMutation::LocalName {
             scope: scope_index,
             name: mutation_name,
@@ -658,6 +661,7 @@ mod tests {
     #[test]
     fn snapshot_preserves_scopes_recovery_and_duplicate_lookup_entries() {
         let (region_key, syntax, surface_symbol) = fixture();
+
         let mut builder = LocalSymbolSnapshotBuilder::new(LocalSymbolRegionId::new(4), region_key);
 
         let root = scope(&mut builder, None, LocalScopeBoundary::Root, syntax);
@@ -723,6 +727,7 @@ mod tests {
     #[test]
     fn anonymous_callables_parameters_and_contextual_results_remain_typed() {
         let (region_key, syntax, _) = fixture();
+
         let mut builder = LocalSymbolSnapshotBuilder::new(LocalSymbolRegionId::new(8), region_key);
 
         let root = scope(&mut builder, None, LocalScopeBoundary::Root, syntax);
@@ -821,22 +826,27 @@ mod tests {
     #[test]
     fn anonymous_callable_and_parameter_scope_relationships_are_enforced() {
         let (region_key, syntax, _) = fixture();
+
         let mut builder = LocalSymbolSnapshotBuilder::new(LocalSymbolRegionId::new(9), region_key);
 
         let root = scope(&mut builder, None, LocalScopeBoundary::Root, syntax);
+
         let callable_scope = scope(
             &mut builder,
             Some(root),
             LocalScopeBoundary::Callable,
             syntax,
         );
+
         let unrelated_callable_scope = scope(
             &mut builder,
             Some(root),
             LocalScopeBoundary::Callable,
             syntax,
         );
+
         let block_scope = scope(&mut builder, Some(root), LocalScopeBoundary::Block, syntax);
+
         let wrong_parent_callable_scope = scope(
             &mut builder,
             Some(block_scope),
@@ -921,6 +931,7 @@ mod tests {
 
         // Region keys contain shared immutable identity and syntax storage.
         let empty_snapshot_key = snapshot_key.clone();
+
         let empty_builder =
             LocalSymbolSnapshotBuilder::new(LocalSymbolRegionId::new(0), empty_snapshot_key);
 
@@ -954,9 +965,12 @@ mod tests {
             SymbolOrdinal::new(2),
             syntax,
         );
+
         let mut foreign_builder =
             LocalSymbolSnapshotBuilder::new(LocalSymbolRegionId::new(2), foreign_key);
+
         let foreign_root = scope(&mut foreign_builder, None, LocalScopeBoundary::Root, syntax);
+
         let foreign_binding = binding(
             &mut foreign_builder,
             foreign_root,
@@ -996,7 +1010,9 @@ mod tests {
     #[test]
     fn checkpoints_restore_local_records_and_existing_scope_indexes() {
         let (key, syntax, surface_symbol) = fixture();
+
         let mut builder = LocalSymbolSnapshotBuilder::new(LocalSymbolRegionId::new(7), key);
+
         let root = scope(&mut builder, None, LocalScopeBoundary::Root, syntax);
         let checkpoint = builder.checkpoint();
         let abandoned = binding(&mut builder, root, "abandoned", syntax, 0, false);
@@ -1025,10 +1041,13 @@ mod tests {
     #[test]
     fn checkpoints_from_another_region_are_rejected_without_mutation() {
         let (key, syntax, _) = fixture();
+
         // Region keys retain shared immutable surface identity.
         let second_key = key.clone();
+
         let mut first = LocalSymbolSnapshotBuilder::new(LocalSymbolRegionId::new(11), key);
         let second = LocalSymbolSnapshotBuilder::new(LocalSymbolRegionId::new(12), second_key);
+
         let root = scope(&mut first, None, LocalScopeBoundary::Root, syntax);
         let binding = binding(&mut first, root, "retained", syntax, 0, false);
 
@@ -1039,20 +1058,25 @@ mod tests {
     #[test]
     fn rollback_trails_restore_callable_parameters_and_contract_results() {
         let (key, syntax, _) = fixture();
+
         let mut builder = LocalSymbolSnapshotBuilder::new(LocalSymbolRegionId::new(13), key);
+
         let root = scope(&mut builder, None, LocalScopeBoundary::Root, syntax);
+
         let callable_scope = scope(
             &mut builder,
             Some(root),
             LocalScopeBoundary::Callable,
             syntax,
         );
+
         let contract_scope = scope(
             &mut builder,
             Some(callable_scope),
             LocalScopeBoundary::Contract,
             syntax,
         );
+
         let callable = match builder.push_anonymous_callable(
             root,
             callable_scope,
@@ -1132,6 +1156,7 @@ mod tests {
             .iter()
             .filter(|function| function.origin() == SymbolOrigin::Source)
             .collect::<Vec<_>>();
+
         let [function] = source_functions.as_slice() else {
             panic!("test source must declare one function");
         };
@@ -1244,6 +1269,7 @@ mod tests {
         syntax: SyntaxAnchor,
     ) -> LocalSymbolSnapshot {
         let mut builder = LocalSymbolSnapshotBuilder::new(region, key);
+
         let root = scope(&mut builder, None, LocalScopeBoundary::Root, syntax);
         let binding = binding(&mut builder, root, "value", syntax, 0, false);
 

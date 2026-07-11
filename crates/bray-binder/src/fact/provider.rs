@@ -118,6 +118,7 @@ mod tests {
     fn symbol_fact_provider_keeps_unavailable_owners_outside_semantic_results() {
         let fixture = TestFixture::new();
         let context = fixture.context();
+
         let unknown = SymbolFactRequest::<ConstantDeclaredTypeFact>::new(
             ConstantSymbolId::from_symbol_id(SymbolId::new(99)),
         );
@@ -138,6 +139,7 @@ mod tests {
         let second = DeclaredTypeBinder.compute_symbol_fact(&context, request);
 
         assert_eq!(first, second);
+
         assert_eq!(
             first,
             Ok(DiagnosticResult::without_diagnostics(fixture.declared_type))

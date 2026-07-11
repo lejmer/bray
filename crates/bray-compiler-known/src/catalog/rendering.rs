@@ -17,12 +17,14 @@ pub(super) fn render_catalog(catalog: &CompilerKnownCatalog, digest: &str) -> St
     output.push_str(&format!(
         "pub const CATALOG_SOURCE_DIGEST: &str = {digest:?};\n\n"
     ));
+
     render_scopes(&mut output, catalog);
     render_declarations(&mut output, catalog);
     render_values(&mut output, catalog);
     render_recognized_scopes(&mut output, catalog);
     render_recognized_declarations(&mut output, catalog);
     render_surfaces(&mut output, catalog);
+
     output.push_str(
         "pub static COMPILER_KNOWN_CATALOG: CompilerKnownCatalog = CompilerKnownCatalog {\n\
              compiler_known_scopes: Cow::Borrowed(COMPILER_KNOWN_SCOPES),\n\

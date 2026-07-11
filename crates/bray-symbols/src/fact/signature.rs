@@ -138,6 +138,7 @@ mod tests {
                 CallableParameterSignature::new(second, ty),
             ]
         );
+
         assert_eq!(signature.callable_type(), ty);
         assert_eq!(signature.result(), ty);
     }

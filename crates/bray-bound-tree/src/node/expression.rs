@@ -99,6 +99,7 @@ mod tests {
     fn error_expressions_retain_source_and_recovery_type() {
         let source = source_anchor();
         let ty = error_type();
+
         let expression = BoundExpression::Error(BoundErrorExpression::new(
             BoundNodeOrigin::source(source),
             ty,

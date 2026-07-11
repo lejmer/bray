@@ -94,7 +94,6 @@ impl CheckedAnonymousCallable {
         )?;
 
         validate_anonymous_callable(&data, callable)?;
-
         validate_callable_root(&data, root)?;
 
         Ok(Self {
@@ -258,19 +257,24 @@ mod tests {
     #[test]
     fn callable_units_own_recovery_trees_snapshots_and_ordered_nested_keys() {
         let source = source_anchor();
+
         let owner = symbol_key(SymbolKind::Function, 0);
         let key = valid_key(BoundUnitKey::callable_body(owner.clone(), source));
+
         let local_symbols = local_snapshot(
             20,
             owner,
             LocalSymbolRegionRole::CallableBody,
             [source.syntax()],
         );
+
         let (tree, root) = callable_tree(BoundUnitId::new(20));
+
         let first = BoundUnitKey::anonymous_callable(
             key.clone(),
             source_anchor_with_version(source.source_version().raw() + 1),
         );
+
         let second = BoundUnitKey::anonymous_callable(
             key.clone(),
             source_anchor_with_version(source.source_version().raw() + 2),
@@ -288,7 +292,9 @@ mod tests {
 
         assert_eq!(unit.unit(), BoundUnitId::new(20));
         assert_eq!(unit.root(), root);
+
         assert!(unit.tree().callable_body(root).is_some());
+
         assert_eq!(unit.local_symbols().region(), LocalSymbolRegionId::new(20));
         assert_eq!(unit.nested_units(), &[first, second]);
     }
@@ -299,13 +305,16 @@ mod tests {
 
         let runtime_owner = runtime_default_key(0);
         let runtime_key = valid_key(BoundUnitKey::runtime_default(runtime_owner.clone(), source));
+
         let runtime_symbols = local_snapshot(
             1,
             runtime_owner,
             LocalSymbolRegionRole::DeclarationFact(SymbolFactKind::CallableParameterDefault),
             [source.syntax()],
         );
+
         let (runtime_tree, runtime_root) = expression_tree(BoundUnitId::new(1));
+
         let runtime = publish_expression_unit(CheckedRuntimeDefaultUnit::try_new(
             &runtime_key,
             runtime_tree,
@@ -319,13 +328,16 @@ mod tests {
             constant_owner.clone(),
             source,
         ));
+
         let constant_symbols = local_snapshot(
             2,
             constant_owner,
             LocalSymbolRegionRole::DeclarationFact(SymbolFactKind::ConstantDefinition),
             [source.syntax()],
         );
+
         let (constant_tree, constant_root) = expression_tree(BoundUnitId::new(2));
+
         let constant = publish_expression_unit(CheckedConstantTemplateUnit::try_new(
             &constant_key,
             constant_tree,
@@ -339,13 +351,16 @@ mod tests {
             predicate_owner.clone(),
             source,
         ));
+
         let predicate_symbols = local_snapshot(
             3,
             predicate_owner,
             LocalSymbolRegionRole::DeclarationFact(SymbolFactKind::PredicateDefinition),
             [source.syntax()],
         );
+
         let (predicate_tree, predicate_root) = expression_tree(BoundUnitId::new(3));
+
         let predicate = publish_expression_unit(CheckedPredicateDefinitionUnit::try_new(
             &predicate_key,
             predicate_tree,
@@ -356,13 +371,16 @@ mod tests {
 
         let constraint_owner = symbol_key(SymbolKind::Function, 3);
         let constraint_key = valid_key(BoundUnitKey::constraint(constraint_owner.clone(), source));
+
         let constraint_symbols = local_snapshot(
             4,
             constraint_owner,
             LocalSymbolRegionRole::DeclarationFact(SymbolFactKind::GenericConstraints),
             [source.syntax()],
         );
+
         let (constraint_tree, constraint_root) = expression_tree(BoundUnitId::new(4));
+
         let constraint = publish_expression_unit(CheckedConstraintUnit::try_new(
             &constraint_key,
             constraint_tree,
@@ -376,13 +394,16 @@ mod tests {
             contract_owner.clone(),
             source,
         ));
+
         let contract_symbols = local_snapshot(
             5,
             contract_owner,
             LocalSymbolRegionRole::DeclarationFact(SymbolFactKind::CallableContracts),
             [source.syntax()],
         );
+
         let (contract_tree, contract_root) = expression_tree(BoundUnitId::new(5));
+
         let contract = publish_expression_unit(CheckedContractClauseUnit::try_new(
             &contract_key,
             contract_tree,
@@ -401,12 +422,15 @@ mod tests {
     #[test]
     fn anonymous_callable_units_keep_their_exact_callable_identity() {
         let source = source_anchor();
+
         let owner = symbol_key(SymbolKind::Function, 0);
         let enclosing = valid_key(BoundUnitKey::callable_body(owner.clone(), source));
+
         let key = BoundUnitKey::anonymous_callable(
             enclosing,
             source_anchor_with_version(source.source_version().raw() + 1),
         );
+
         let (local_symbols, callables) = anonymous_callable_snapshot(31, owner, source.syntax(), 1);
 
         let [callable] = callables.as_slice() else {
@@ -428,12 +452,15 @@ mod tests {
     #[test]
     fn anonymous_callable_units_reject_foreign_and_missing_callable_ids() {
         let source = source_anchor();
+
         let owner = symbol_key(SymbolKind::Function, 0);
         let enclosing = valid_key(BoundUnitKey::callable_body(owner.clone(), source));
+
         let key = BoundUnitKey::anonymous_callable(
             enclosing,
             source_anchor_with_version(source.source_version().raw() + 1),
         );
+
         let (foreign_snapshot, foreign_callables) =
             anonymous_callable_snapshot(30, owner.clone(), source.syntax(), 1);
 
@@ -490,12 +517,14 @@ mod tests {
     #[test]
     fn construction_rejects_wrong_categories_roots_and_local_regions() {
         let source = source_anchor();
+
         let owner = symbol_key(SymbolKind::Function, 0);
         let key = valid_key(BoundUnitKey::callable_body(owner.clone(), source));
         let predicate_key = valid_key(BoundUnitKey::predicate_definition(
             symbol_key(SymbolKind::Predicate, 1),
             source,
         ));
+
         let (wrong_kind_tree, wrong_kind_root) = callable_tree(BoundUnitId::new(1));
 
         let wrong_kind = CheckedCallableBody::try_new(
@@ -520,6 +549,7 @@ mod tests {
         );
 
         let (tree, _) = callable_tree(BoundUnitId::new(2));
+
         let foreign_root = callable_tree(BoundUnitId::new(3)).1;
         let missing_root = CheckedCallableBody::try_new(
             &key,
@@ -543,6 +573,7 @@ mod tests {
         );
 
         let (tree, root) = callable_tree(BoundUnitId::new(4));
+
         let wrong_region = CheckedCallableBody::try_new(
             &key,
             tree,
@@ -565,20 +596,25 @@ mod tests {
     #[test]
     fn nested_keys_must_be_direct_unique_and_canonically_ordered() {
         let source = source_anchor();
+
         let owner = symbol_key(SymbolKind::Function, 0);
         let key = valid_key(BoundUnitKey::callable_body(owner.clone(), source));
+
         let first = BoundUnitKey::anonymous_callable(
             key.clone(),
             source_anchor_with_version(source.source_version().raw() + 1),
         );
+
         let second = BoundUnitKey::anonymous_callable(
             key.clone(),
             source_anchor_with_version(source.source_version().raw() + 2),
         );
+
         let other_enclosing = valid_key(BoundUnitKey::callable_body(
             symbol_key(SymbolKind::Function, 1),
             source,
         ));
+
         let indirect = BoundUnitKey::anonymous_callable(other_enclosing, second.source());
 
         let invalid = checked_callable(&key, owner.clone(), [indirect]);
@@ -677,11 +713,13 @@ mod tests {
         };
 
         let mut builder = LocalSymbolSnapshotBuilder::new(LocalSymbolRegionId::new(region), key);
+
         let root = match builder.push_scope(None, LocalScopeBoundary::Root, syntax, TextSize::ZERO)
         {
             Ok(scope) => scope,
             Err(error) => panic!("test root scope must be valid: {error:?}"),
         };
+
         let mut callables = Vec::new();
 
         for index in 0..callable_count {

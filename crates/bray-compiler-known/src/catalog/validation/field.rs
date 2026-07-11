@@ -132,12 +132,14 @@ pub(super) fn value_fields<'entry>(
         value.key.anchor,
         diagnostics,
     );
+
     require(
         result.type_surface.is_some(),
         CatalogField::Type,
         value.key.anchor,
         diagnostics,
     );
+
     require(
         result.representation.is_some(),
         CatalogField::Representation,

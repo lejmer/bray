@@ -36,7 +36,7 @@ impl SemanticValueStore {
     /// Creates an empty semantic value store with a process-unique checking identity.
     pub fn try_new() -> Result<Self, SemanticValueStoreCreateError> {
         let raw = NEXT_STORE_ID
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
                 current.checked_add(1)
             })
             .map_err(|_| SemanticValueStoreCreateError::IdentitySpaceExhausted)?;
@@ -221,11 +221,10 @@ impl SemanticValueStore {
     }
 
     fn tables(&self) -> MutexGuard<'_, SemanticTables> {
-        match self.tables.lock() {
-            Ok(tables) => tables,
-            // Store code validates before mutation and never panics while changing table invariants.
-            Err(poisoned) => poisoned.into_inner(),
-        }
+        // Store code validates before mutation and never panics while changing table invariants.
+        self.tables
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 }
 
@@ -371,7 +370,6 @@ mod tests {
         );
 
         let trait_definition = TraitSymbolId::from_symbol_id(SymbolId::new(11));
-
         let trait_substitution = empty_substitution(&store, trait_definition.into());
 
         let application = TraitApplicationData::new(trait_definition, trait_substitution);
@@ -389,7 +387,6 @@ mod tests {
         };
 
         let callable_substitution = empty_substitution(&store, function.into());
-
         let callable = CallableInstanceData::new(callable, callable_substitution);
 
         assert_eq!(
@@ -398,7 +395,6 @@ mod tests {
         );
 
         let implementation = InherentImplementationSymbolId::from_symbol_id(SymbolId::new(13));
-
         let implementation_substitution = empty_substitution(&store, implementation.into());
 
         let implementation = ImplementationInstanceData::new(
@@ -421,7 +417,6 @@ mod tests {
         let store = store();
 
         let function = FunctionSymbolId::from_symbol_id(SymbolId::new(20));
-
         let owner = generic_owner(function.into());
 
         let type_parameter = GenericTypeParameterSymbolId::from_symbol_id(SymbolId::new(21));
@@ -499,11 +494,8 @@ mod tests {
         let store = store();
 
         let function = FunctionSymbolId::from_symbol_id(SymbolId::new(30));
-
         let substitution = empty_substitution(&store, function.into());
-
         let trait_definition = TraitSymbolId::from_symbol_id(SymbolId::new(31));
-
         let application = TraitApplicationData::new(trait_definition, substitution);
 
         let expected = generic_owner(trait_definition.into());
@@ -560,10 +552,12 @@ mod tests {
 
         let first_subject =
             DependencySubject::root(DependencySubjectRoot::Parameter(SymbolOrdinal::new(0)));
+
         let second_subject = DependencySubject::root(DependencySubjectRoot::Result);
 
         let first =
             DependencyRequirement::direct(first_subject, DependencyRequirementKind::StorageAlive);
+
         let second = DependencyRequirement::direct(
             second_subject,
             DependencyRequirementKind::StorageInitialized,

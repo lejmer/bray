@@ -133,6 +133,7 @@ mod tests {
             RepresentationRole::ScalarBool,
             RepresentationRole::BooleanTrue
         );
+
         assert_ne!(RepresentationRole::Unit, RepresentationRole::UnitValue);
     }
 }

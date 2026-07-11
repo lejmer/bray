@@ -87,6 +87,7 @@ mod tests {
         );
 
         let conclusions = UnitCheckConclusions::new(BoundUnitId::new(4));
+
         let outcome =
             CheckerOutcome::complete(conclusions, DiagnosticBag::single(diagnostic.clone()));
 

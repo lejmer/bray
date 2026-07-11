@@ -135,6 +135,7 @@ mod tests {
         });
 
         assert_eq!(outcome, BoundWalkOutcome::Completed);
+
         assert_eq!(
             events,
             [
@@ -167,6 +168,7 @@ mod tests {
         });
 
         assert_eq!(outcome, BoundWalkOutcome::Completed);
+
         assert_eq!(
             events,
             [
@@ -205,6 +207,7 @@ mod tests {
     ) {
         let unit = BoundUnitId::new(8);
         let origin = BoundNodeOrigin::source(source_anchor());
+
         let mut builder = BoundTreeBuilder::new(unit);
 
         let first = push_error_expression(&mut builder, origin);

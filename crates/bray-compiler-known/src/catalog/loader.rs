@@ -107,6 +107,7 @@ fn build_descriptors(
         build_compiler_known_declarations(&validated.compiler_known_declarations);
 
     let compiler_known_values = build_compiler_known_values(&validated.compiler_known_values);
+
     let compiler_known_scopes = build_compiler_known_scopes(
         &validated.compiler_known_scopes,
         &compiler_known_declarations,
@@ -516,30 +517,38 @@ mod tests {
         let target_real = declaration(&catalog, "TargetReal16");
 
         assert_eq!(raw_pointer.kind(), CatalogDeclarationKind::Struct);
+
         assert_eq!(
             element.owner(),
             CompilerKnownDeclarationOwner::Declaration(raw_pointer.id())
         );
+
         assert_eq!(storage.kind(), CatalogDeclarationKind::Trait);
         assert_eq!(callable.kind(), CatalogDeclarationKind::CallableContract);
+
         assert_eq!(
             storage_load.owner(),
             CompilerKnownDeclarationOwner::Declaration(storage.id())
         );
+
         assert_eq!(
             implementation.kind(),
             CatalogDeclarationKind::NamedTraitImplementation
         );
+
         assert_eq!(
             implementation_item.owner(),
             CompilerKnownDeclarationOwner::Declaration(implementation.id())
         );
+
         assert_eq!(
             memory_copy.implementation_hook(),
             Some(ImplementationHook::MemoryCopy)
         );
+
         assert_eq!(memory_copy.availability_rule(), AvailabilityRule::RawMemory);
         assert_eq!(target_real.availability_rule(), AvailabilityRule::Real16);
+
         assert_eq!(
             target_real.representation_role(),
             Some(RepresentationRole::ScalarR16)
@@ -595,6 +604,7 @@ mod tests {
         assert_eq!(catalog.compiler_known_declarations().len(), 3);
         assert_eq!(catalog.compiler_known_values().len(), 1);
         assert_eq!(catalog.recognized_standard_library_scopes().len(), 1);
+
         assert_eq!(
             catalog
                 .compiler_known_declarations()
@@ -610,8 +620,10 @@ mod tests {
             read.owner(),
             CompilerKnownDeclarationOwner::Declaration(crate::CompilerKnownDeclarationId::new(2))
         );
+
         assert_eq!(read.kind(), CatalogDeclarationKind::Function);
         assert_eq!(read.availability_rule(), AvailabilityRule::RawMemory);
+
         assert_eq!(
             read.implementation_hook(),
             Some(ImplementationHook::RawPointerRead)
@@ -637,6 +649,7 @@ mod tests {
         let recognized = &catalog.recognized_standard_library_declarations()[0];
 
         assert_eq!(recognized.key().as_str(), "Length");
+
         assert_eq!(
             recognized.owner(),
             RecognizedStandardLibraryDeclarationOwner::Scope(
@@ -815,14 +828,17 @@ mod tests {
                 field: CatalogField::Availability
             }
         )));
+
         assert!(contains_kind(&diagnostics, |kind| matches!(
             kind,
             CatalogDiagnosticKind::DuplicateKey { .. }
         )));
+
         assert!(contains_kind(&diagnostics, |kind| matches!(
             kind,
             CatalogDiagnosticKind::UnknownMetadata { .. }
         )));
+
         assert!(contains_kind(&diagnostics, |kind| matches!(
             kind,
             CatalogDiagnosticKind::MissingField {
@@ -876,6 +892,7 @@ mod tests {
                 ..
             }
         )));
+
         assert!(contains_kind(&diagnostics, |kind| matches!(
             kind,
             CatalogDiagnosticKind::UnknownMetadata {
@@ -883,6 +900,7 @@ mod tests {
                 ..
             }
         )));
+
         assert!(contains_kind(&diagnostics, |kind| matches!(
             kind,
             CatalogDiagnosticKind::IncompatibleImplementationHook {
@@ -890,6 +908,7 @@ mod tests {
                 declaration: CatalogDeclarationKind::Struct
             }
         )));
+
         assert!(contains_kind(&diagnostics, |kind| matches!(
             kind,
             CatalogDiagnosticKind::DuplicateRepresentationRole {
@@ -924,10 +943,12 @@ mod tests {
             kind,
             CatalogDiagnosticKind::UnknownOwner
         )));
+
         assert!(contains_kind(&diagnostics, |kind| matches!(
             kind,
             CatalogDiagnosticKind::OwnershipCycle
         )));
+
         assert!(contains_kind(&diagnostics, |kind| matches!(
             kind,
             CatalogDiagnosticKind::InvalidDeclarationContext {
@@ -965,10 +986,12 @@ mod tests {
             kind,
             CatalogDiagnosticKind::UnsupportedScopeLocation { .. }
         )));
+
         assert!(contains_kind(&diagnostics, |kind| matches!(
             kind,
             CatalogDiagnosticKind::UnsupportedEntry { .. }
         )));
+
         assert!(contains_kind(&diagnostics, |kind| matches!(
             kind,
             CatalogDiagnosticKind::RecognizedRepresentation
@@ -999,6 +1022,7 @@ mod tests {
                 source.relative_path(),
                 result.diagnostics()
             );
+
             assert!(
                 !result.is_recovered(),
                 "{} contains recovered declaration syntax",
@@ -1032,6 +1056,7 @@ mod tests {
                 source.relative_path(),
                 result.diagnostics()
             );
+
             assert!(
                 !result.is_recovered(),
                 "{} contains recovered type syntax in {text:?}",
@@ -1296,6 +1321,7 @@ mod tests {
         };
 
         assert_eq!(diagnostics.diagnostics().len(), 2);
+
         assert!(
             diagnostics
                 .diagnostics()

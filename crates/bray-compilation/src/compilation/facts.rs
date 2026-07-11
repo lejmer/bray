@@ -128,6 +128,7 @@ impl Compilation {
                     // Generated catalog validation makes provider failure a compiler invariant.
                     Err(error) => panic!("compiler-known symbol provider is invalid: {error:?}"),
                 };
+
                 let target = self.target_availability();
 
                 provider.available_symbols(|rule| target.supports(rule))
@@ -331,6 +332,7 @@ mod tests {
                 DiagnosticArgValue::SourceCount(0)
             )]
         );
+
         assert_eq!(
             diagnostic.notes(),
             &[DiagnosticNote::new(DiagnosticNoteKind::SourceInputRequired)]
@@ -365,6 +367,7 @@ mod tests {
             compilation.source_text(SourceId::new(0)),
             Some("module first\n")
         );
+
         assert_eq!(
             compilation.source_text(SourceId::new(1)),
             Some("module second\n")
@@ -525,6 +528,7 @@ mod tests {
         let second = compilation.available_compiler_known_symbols();
 
         assert!(std::ptr::eq(first, second));
+
         assert!(
             compilation
                 .state
@@ -532,14 +536,17 @@ mod tests {
                 .get()
                 .is_some()
         );
+
         assert_eq!(
             first.provider().declaration_symbols().len(),
             first.declarations().len() + 2
         );
+
         assert_eq!(
             first.declaration_symbol::<StructSymbolId>(&declaration_key("TargetReal16")),
             None
         );
+
         assert_eq!(
             first.declaration_symbol::<FunctionSymbolId>(&declaration_key("MemoryCopy")),
             None
@@ -552,6 +559,7 @@ mod tests {
         let real16 = compilation_with_target(
             TargetAvailabilityFacts::portable().with_rule(AvailabilityRule::Real16, true),
         );
+
         let key = declaration_key("TargetReal16");
 
         assert_eq!(
@@ -560,12 +568,14 @@ mod tests {
                 .declaration_symbol::<StructSymbolId>(&key),
             None
         );
+
         assert!(
             real16
                 .available_compiler_known_symbols()
                 .declaration_symbol::<StructSymbolId>(&key)
                 .is_some()
         );
+
         assert_eq!(
             portable
                 .available_compiler_known_symbols()
@@ -641,10 +651,13 @@ mod tests {
 
         assert!(first.diagnostics().is_empty());
         assert_eq!(first.chunk().module_parts().len(), 1);
+
         assert!(first_syntax_cache.get().is_some());
         assert!(second_syntax_cache.get().is_none());
+
         assert!(first_declaration_cache.get().is_some());
         assert!(second_declaration_cache.get().is_none());
+
         assert!(compilation.state.declaration_table_result.get().is_none());
 
         let second = match compilation.declaration_chunk(SourceId::new(0)) {

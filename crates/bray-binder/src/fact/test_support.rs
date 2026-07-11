@@ -130,6 +130,7 @@ pub(crate) struct TestFixture {
 impl TestFixture {
     pub(crate) fn new() -> Self {
         let mut sources = SourceStore::new();
+
         let source = SourceInput::virtual_text(
             SourceIdentity::new(0),
             "binder-facts",
@@ -167,6 +168,7 @@ impl TestFixture {
         };
 
         let constant = constant.id();
+
         let semantic_values = match SemanticValueStore::try_new() {
             Ok(store) => store,
             Err(error) => panic!("test semantic store should be available: {error:?}"),

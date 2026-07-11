@@ -25,9 +25,11 @@ pub(crate) fn fixture() -> Fixture {
         "module app; func main() {} func next() {}",
         "module other; func foreign() {}",
     ]);
+
     let parsed = bray_parser::parse_source_unit(test_source_at(&sources, 0));
     let chunk = discover_source_unit_declarations(parsed.source_unit());
     let merged = merge_declaration_chunks([&chunk]);
+
     let foreign_parsed = bray_parser::parse_source_unit(test_source_at(&sources, 1));
     let foreign_chunk = discover_source_unit_declarations(foreign_parsed.source_unit());
     let foreign_merged = merge_declaration_chunks([&foreign_chunk]);
@@ -61,6 +63,7 @@ pub(crate) fn fixture() -> Fixture {
 
     let version = SourceVersion::new(3);
     let source = BoundSourceAnchor::new(first, version);
+
     let key = match BoundUnitKey::callable_body(function.key().clone(), source) {
         Some(key) => key,
         None => panic!("function must own a callable body"),

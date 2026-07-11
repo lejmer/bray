@@ -1,0 +1,309 @@
+use std::sync::Arc;
+
+use bray_symbols::{
+    AnySymbolId, CallableContractSet, CallableInstanceId, CallableSymbolId, CheckedConstraint,
+    ConstantTermId, ConstantValueId, DependencyContractTemplateId, GenericOwnerId,
+    GenericSubstitutionId, ImplementationInstanceId, ImplementationSubject, ImplementationSymbolId,
+    SemanticValueStore, SemanticValueStoreError, TraitApplicationId, TypeId,
+};
+
+use crate::{InterfaceSemanticFacts, InterfaceSymbolReference};
+
+use super::InternState;
+
+/// Resolves artifact-local and dependency symbol references into one compilation snapshot.
+pub trait InterfaceSymbolResolver {
+    /// Resolves one validated interface symbol reference.
+    fn resolve(&self, reference: &InterfaceSymbolReference) -> Option<AnySymbolId>;
+}
+
+/// Failure while publishing decoded interface semantics into a compilation.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum InterfaceSemanticInternError {
+    /// A validated interface reference was not present in the imported symbol maps.
+    UnresolvedSymbol(InterfaceSymbolReference),
+    /// A resolved symbol had a category incompatible with the semantic record.
+    InvalidSymbolKind(InterfaceSymbolReference),
+    /// The decoded semantic graph cannot be represented by the current canonical store.
+    UnresolvedValueGraph,
+    /// The canonical semantic store rejected a decoded value.
+    SemanticStore(SemanticValueStoreError),
+}
+
+impl From<SemanticValueStoreError> for InterfaceSemanticInternError {
+    fn from(error: SemanticValueStoreError) -> Self {
+        Self::SemanticStore(error)
+    }
+}
+
+/// Immutable compilation-local IDs produced from one decoded semantic interface graph.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ImportedSemanticFacts {
+    pub(super) types: Arc<[TypeId]>,
+    pub(super) constant_values: Arc<[ConstantValueId]>,
+    pub(super) constant_terms: Arc<[ConstantTermId]>,
+    pub(super) dependency_contracts: Arc<[DependencyContractTemplateId]>,
+    pub(super) trait_applications: Arc<[TraitApplicationId]>,
+    pub(super) substitutions: Arc<[GenericSubstitutionId]>,
+    pub(super) implementation_instances: Arc<[ImplementationInstanceId]>,
+    pub(super) callable_instances: Arc<[CallableInstanceId]>,
+    pub(super) constraints: Arc<[ImportedConstraintFact]>,
+    pub(super) callable_contracts: Arc<[ImportedCallableContractFact]>,
+    pub(super) implementations: Arc<[ImportedImplementationFact]>,
+    pub(super) coherence: Arc<[ImportedCoherenceFact]>,
+    pub(super) target_dependencies: Arc<[ImportedTargetFactDependency]>,
+    pub(super) abi_dependencies: Arc<[ImportedAbiDependency]>,
+    pub(super) provenance: Arc<[ImportedSourceProvenance]>,
+}
+
+/// One imported generic constraint and its exact owning declaration.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct ImportedConstraintFact {
+    pub(super) owner: GenericOwnerId,
+    pub(super) constraint: CheckedConstraint,
+}
+
+impl ImportedConstraintFact {
+    /// Returns the declaration that owns this constraint.
+    pub const fn owner(self) -> GenericOwnerId {
+        self.owner
+    }
+
+    /// Returns the checked imported constraint.
+    pub const fn constraint(self) -> CheckedConstraint {
+        self.constraint
+    }
+}
+
+/// One imported callable contract set and its exact owning declaration.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct ImportedCallableContractFact {
+    pub(super) owner: CallableSymbolId,
+    pub(super) contract: CallableContractSet,
+}
+
+impl ImportedCallableContractFact {
+    /// Returns the callable that owns this contract set.
+    pub const fn owner(&self) -> CallableSymbolId {
+        self.owner
+    }
+
+    /// Returns the checked imported callable contract set.
+    pub const fn contract(&self) -> &CallableContractSet {
+        &self.contract
+    }
+}
+
+/// One imported implementation surface.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct ImportedImplementationFact {
+    pub(super) implementation: ImplementationSymbolId,
+    pub(super) subject: ImplementationSubject,
+    pub(super) trait_application: Option<TraitApplicationId>,
+}
+
+impl ImportedImplementationFact {
+    /// Returns the implementation declaration.
+    pub const fn implementation(self) -> ImplementationSymbolId {
+        self.implementation
+    }
+
+    /// Returns the implemented subject type.
+    pub const fn subject(self) -> ImplementationSubject {
+        self.subject
+    }
+
+    /// Returns the implemented trait application for trait implementations.
+    pub const fn trait_application(self) -> Option<TraitApplicationId> {
+        self.trait_application
+    }
+}
+
+/// Canonical implementation candidates for one imported coherence key.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct ImportedCoherenceFact {
+    pub(super) subject: TypeId,
+    pub(super) trait_application: TraitApplicationId,
+    pub(super) implementations: Arc<[ImplementationSymbolId]>,
+}
+
+impl ImportedCoherenceFact {
+    /// Returns the coherence subject type.
+    pub const fn subject(&self) -> TypeId {
+        self.subject
+    }
+
+    /// Returns the coherence trait application.
+    pub const fn trait_application(&self) -> TraitApplicationId {
+        self.trait_application
+    }
+
+    /// Returns canonical participating implementations.
+    pub fn implementations(&self) -> &[ImplementationSymbolId] {
+        &self.implementations
+    }
+}
+
+/// One exact target-fact requirement decoded into local semantic IDs.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct ImportedTargetFactDependency {
+    pub(super) fact: bray_symbols::ConstantSymbolId,
+    pub(super) value: ConstantValueId,
+}
+
+impl ImportedTargetFactDependency {
+    /// Returns the compiler-known target fact declaration.
+    pub const fn fact(self) -> bray_symbols::ConstantSymbolId {
+        self.fact
+    }
+
+    /// Returns the required canonical value.
+    pub const fn value(self) -> ConstantValueId {
+        self.value
+    }
+}
+
+/// One callable ABI dependency decoded into local symbol identity.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct ImportedAbiDependency {
+    pub(super) symbol: CallableSymbolId,
+    pub(super) abi: bray_symbols::CallableAbi,
+}
+
+impl ImportedAbiDependency {
+    /// Returns the declaration exposing the ABI dependency.
+    pub const fn symbol(self) -> CallableSymbolId {
+        self.symbol
+    }
+
+    /// Returns the required callable ABI.
+    pub const fn abi(self) -> bray_symbols::CallableAbi {
+        self.abi
+    }
+}
+
+/// Optional source provenance resolved to one local symbol identity.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct ImportedSourceProvenance {
+    pub(super) symbol: AnySymbolId,
+    pub(super) document: Arc<str>,
+    pub(super) start: u32,
+    pub(super) end: u32,
+}
+
+impl ImportedSourceProvenance {
+    /// Returns the resolved symbol correlated with this source range.
+    pub const fn symbol(&self) -> AnySymbolId {
+        self.symbol
+    }
+
+    /// Returns the normalized source document identity.
+    pub fn document(&self) -> &str {
+        &self.document
+    }
+
+    /// Returns the half-open source range.
+    pub const fn range(&self) -> std::ops::Range<u32> {
+        self.start..self.end
+    }
+}
+
+impl ImportedSemanticFacts {
+    /// Returns canonical semantic types in interface table order.
+    pub fn types(&self) -> &[TypeId] {
+        &self.types
+    }
+
+    /// Returns canonical constant values in interface table order.
+    pub fn constant_values(&self) -> &[ConstantValueId] {
+        &self.constant_values
+    }
+
+    /// Returns canonical open constant terms in interface table order.
+    pub fn constant_terms(&self) -> &[ConstantTermId] {
+        &self.constant_terms
+    }
+
+    /// Returns canonical dependency contracts in interface table order.
+    pub fn dependency_contracts(&self) -> &[DependencyContractTemplateId] {
+        &self.dependency_contracts
+    }
+
+    /// Returns canonical trait applications in interface table order.
+    pub fn trait_applications(&self) -> &[TraitApplicationId] {
+        &self.trait_applications
+    }
+
+    /// Returns canonical generic substitutions in interface table order.
+    pub fn substitutions(&self) -> &[GenericSubstitutionId] {
+        &self.substitutions
+    }
+
+    /// Returns canonical implementation instances in interface table order.
+    pub fn implementation_instances(&self) -> &[ImplementationInstanceId] {
+        &self.implementation_instances
+    }
+
+    /// Returns canonical callable instances in interface table order.
+    pub fn callable_instances(&self) -> &[CallableInstanceId] {
+        &self.callable_instances
+    }
+
+    /// Returns imported constraints in interface order.
+    pub fn constraints(&self) -> &[ImportedConstraintFact] {
+        &self.constraints
+    }
+
+    /// Returns imported callable contracts in interface order.
+    pub fn callable_contracts(&self) -> &[ImportedCallableContractFact] {
+        &self.callable_contracts
+    }
+
+    /// Returns imported implementation surfaces in canonical order.
+    pub fn implementations(&self) -> &[ImportedImplementationFact] {
+        &self.implementations
+    }
+
+    /// Returns imported coherence facts in canonical order.
+    pub fn coherence(&self) -> &[ImportedCoherenceFact] {
+        &self.coherence
+    }
+
+    /// Returns imported target-fact dependencies in canonical order.
+    pub fn target_dependencies(&self) -> &[ImportedTargetFactDependency] {
+        &self.target_dependencies
+    }
+
+    /// Returns imported ABI dependencies in canonical order.
+    pub fn abi_dependencies(&self) -> &[ImportedAbiDependency] {
+        &self.abi_dependencies
+    }
+
+    /// Returns optional imported source provenance.
+    pub fn provenance(&self) -> &[ImportedSourceProvenance] {
+        &self.provenance
+    }
+}
+
+impl InterfaceSemanticFacts {
+    /// Resolves and interns this complete semantic graph without publishing partial tables.
+    pub fn intern(
+        &self,
+        store: &SemanticValueStore,
+        symbols: &impl InterfaceSymbolResolver,
+    ) -> Result<ImportedSemanticFacts, InterfaceSemanticInternError> {
+        let mut state = InternState::new(self);
+
+        while state.has_pending() {
+            let before = state.resolved_count();
+
+            state.intern_pass(self, store, symbols)?;
+
+            if state.resolved_count() == before {
+                return Err(InterfaceSemanticInternError::UnresolvedValueGraph);
+            }
+        }
+
+        state.finish(self, symbols)
+    }
+}

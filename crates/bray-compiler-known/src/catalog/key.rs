@@ -121,10 +121,12 @@ mod tests {
     #[test]
     fn key_domains_are_independently_typed() {
         assert_eq!(compiler_known_scope("Ambient").as_str(), "Ambient");
+
         assert_eq!(
             recognized_scope("StandardLibrary").as_str(),
             "StandardLibrary"
         );
+
         assert_eq!(value("True").as_str(), "True");
         assert_eq!(recognized("StringLength").as_str(), "StringLength");
     }

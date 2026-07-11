@@ -378,6 +378,7 @@ mod tests {
     fn instantiated_contracts_are_normalized() {
         let unit = BoundUnitId::new(6);
         let subject = BoundDependencySubject::Storage(StorageIdentityId::from_slot(unit, 0));
+
         let requirement = BoundDependencyRequirement::direct(
             subject,
             BoundDependencyRequirementKind::StorageAlive,
@@ -398,10 +399,12 @@ mod tests {
         let unit = BoundUnitId::new(2);
         let access = StorageAccessId::from_slot(unit, 1);
         let capability = BorrowCapabilityId::from_slot(unit, 3);
+
         let nested = BoundDependencyRequirement::direct(
             BoundDependencySubject::BorrowCapability(capability),
             BoundDependencyRequirementKind::BorrowCapabilityActive(BorrowKind::Shared),
         );
+
         let guarded = BoundDependencyRequirement::guarded(
             BoundDependencyGuard::NullablePresent(access),
             [nested.clone(), nested.clone()],
@@ -423,6 +426,7 @@ mod tests {
         let unit = BoundUnitId::new(9);
         let scoped = ScopedCapabilityId::from_slot(unit, 4);
         let obligation = LifecycleObligationId::from_slot(unit, 5);
+
         let requirements = [
             BoundDependencyRequirement::direct(
                 BoundDependencySubject::ScopedCapability(scoped),
@@ -456,17 +460,22 @@ mod tests {
     #[test]
     fn portable_templates_instantiate_to_exact_unit_local_contracts() {
         let unit = BoundUnitId::new(14);
+
         let parameter =
             DependencySubject::root(DependencySubjectRoot::Parameter(SymbolOrdinal::new(0)));
+
         let direct = DependencyRequirement::direct(
             parameter.clone(),
             DependencyRequirementKind::StorageInitialized,
         );
+
         let guarded = DependencyRequirement::guarded(
             DependencyGuard::NullablePresent(parameter),
             [direct.clone(), direct],
         );
+
         let template = DependencyContractTemplateData::new([guarded]);
+
         let access = StorageAccessId::from_slot(unit, 7);
         let mut context = TestInstantiationContext { unit, access };
 
@@ -482,7 +491,9 @@ mod tests {
             guarded.guard(),
             BoundDependencyGuard::NullablePresent(access)
         );
+
         assert_eq!(guarded.requirements().len(), 1);
+
         assert_eq!(
             guarded.requirements()[0],
             BoundDependencyRequirement::direct(
@@ -495,12 +506,15 @@ mod tests {
     #[test]
     fn template_instantiation_rejects_foreign_unit_mappings() {
         let unit = BoundUnitId::new(20);
+
         let parameter =
             DependencySubject::root(DependencySubjectRoot::Parameter(SymbolOrdinal::new(0)));
+
         let template = DependencyContractTemplateData::new([DependencyRequirement::direct(
             parameter,
             DependencyRequirementKind::StorageAlive,
         )]);
+
         let mut context = TestInstantiationContext {
             unit,
             access: StorageAccessId::from_slot(BoundUnitId::new(21), 0),

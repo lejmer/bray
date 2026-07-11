@@ -467,10 +467,12 @@ mod tests {
             BoundUnitKey::callable_body(symbol_key(SymbolKind::Constant, 0), source),
             None
         );
+
         assert_eq!(
             BoundUnitKey::runtime_default(symbol_key(SymbolKind::CallableParameter, 1), source),
             None
         );
+
         assert_eq!(
             BoundUnitKey::predicate_definition(symbol_key(SymbolKind::Function, 2), source),
             None
@@ -490,6 +492,7 @@ mod tests {
             symbol_key(SymbolKind::Predicate, 4),
             source,
         ));
+
         let next = valid_key(BoundUnitKey::predicate_definition(
             symbol_key(SymbolKind::Predicate, 4),
             next_source,

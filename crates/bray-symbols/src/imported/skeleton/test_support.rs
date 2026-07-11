@@ -95,6 +95,7 @@ where
         Ok(symbols) => symbols,
         Err(error) => panic!("test identity surface must be valid: {error:?}"),
     };
+
     let relationships = [
         ImportedSymbolRelationship::new(
             SymbolRelationshipKind::PackageModule,
@@ -109,11 +110,13 @@ where
             0,
         ),
     ];
+
     let lookups = [ImportedLookupEdge::new(
         InterfaceSymbolId::new(1),
         symbol_name(lookup_name),
         function_key.clone(),
     )];
+
     let input = ImportedSymbolSkeletonInput::new(
         ImportedInterfaceId::new(interface),
         symbols,

@@ -182,6 +182,7 @@ fn construction_input(
             relationship.ordinal(),
         )
     });
+
     let lookups = loaded
         .surface()
         .exports()
@@ -275,11 +276,13 @@ mod tests {
     fn construction_resolves_dependency_reexports_and_is_input_order_independent() {
         let dependency = dependency_surface("dependency-product");
         let dependency_function = function_key("dependency.package", "run");
+
         let consumer = consumer_surface(
             "dependency-product",
             DEPENDENCY_HASH,
             dependency_function.clone(),
         );
+
         let forward = construct(
             &dependency,
             &consumer,
@@ -288,6 +291,7 @@ mod tests {
                 loaded(4, CONSUMER_HASH, &consumer),
             ],
         );
+
         let reverse = construct(
             &dependency,
             &consumer,
@@ -430,8 +434,10 @@ mod tests {
         export: Option<(&str, InterfaceSymbolReference)>,
     ) -> PackageInterfaceSurface {
         let package = package(package_name);
+
         let package_key = ExternalSymbolKey::package(package.clone());
         let module_key = module_key(package_name);
+
         let mut symbols = vec![
             ImportedSymbolIdentityInput::new(
                 InterfaceSymbolId::new(0),
@@ -446,6 +452,7 @@ mod tests {
                 Some(InterfaceSymbolId::new(0)),
             ),
         ];
+
         let mut relationships = vec![SymbolRelationship::new(
             SymbolRelationshipKind::PackageModule,
             InterfaceSymbolId::new(0),

@@ -542,19 +542,24 @@ mod tests {
                 RuntimeDefaultProviderInput::EarlierParameter(earlier),
             ]
         );
+
         assert!(surface.generic_context().parameters().is_empty());
         assert_eq!(surface.result(), result);
+
         assert_eq!(
             surface.behavior().ownership(),
             RuntimeDefaultOwnership::Borrowed(BorrowKind::Shared)
         );
+
         assert_eq!(surface.behavior().effects(), &[effect]);
         assert_eq!(surface.behavior().capabilities(), &[capability]);
         assert_eq!(surface.behavior().trusted_obligations(), &[trusted]);
+
         assert_eq!(
             surface.behavior().lifecycle_obligations(),
             &[LifecycleObligationKind::Finalization]
         );
+
         assert_eq!(surface.behavior().dependency_contract(), dependencies);
         assert_eq!(surface.template_reference(), &interface_template());
 
