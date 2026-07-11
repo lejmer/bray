@@ -83,6 +83,7 @@ mod tests {
         let body = BoundCallableBody::error(BoundNodeOrigin::source(source), Some(block));
 
         assert_eq!(body.origin().source_anchor(), source);
+
         assert_eq!(
             body.kind(),
             BoundCallableBodyKind::Error(crate::BoundErrorCallableBody::new(Some(block)))

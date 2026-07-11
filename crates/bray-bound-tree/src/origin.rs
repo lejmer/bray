@@ -155,6 +155,7 @@ mod tests {
             BoundSynthesisRole::Temporary,
             BoundNodeOrdinal::new(0),
         );
+
         let second = BoundNodeOrigin::synthesized(
             source,
             BoundSynthesisRole::Temporary,

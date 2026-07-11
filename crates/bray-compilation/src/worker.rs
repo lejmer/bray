@@ -100,6 +100,7 @@ mod tests {
         };
 
         assert_eq!(budget.get(), 4);
+
         assert_eq!(WorkerBudget::serial().get(), 1);
         assert!(WorkerBudget::default().get() >= 1);
     }
@@ -114,6 +115,7 @@ mod tests {
             diagnostic.kind(),
             DiagnosticKind::RequestInvalidWorkerBudget
         );
+
         assert_eq!(
             diagnostic.args(),
             &[DiagnosticArg::new(
@@ -121,6 +123,7 @@ mod tests {
                 DiagnosticArgValue::WorkerCount(0)
             )]
         );
+
         assert_eq!(
             diagnostic.notes(),
             &[DiagnosticNote::new(

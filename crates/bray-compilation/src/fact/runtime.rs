@@ -46,6 +46,7 @@ impl FactRuntime {
     ) -> Result<FactCycle, FactQueryError> {
         let thread = thread::current().id();
         let state = self.state()?;
+
         let active = state
             .active
             .get(&thread)
@@ -57,6 +58,7 @@ impl FactRuntime {
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
         let mut facts = active[start..].to_vec();
+
         facts.push(key);
 
         Ok(FactCycle::new(facts))

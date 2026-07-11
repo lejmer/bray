@@ -198,6 +198,7 @@ mod tests {
     fn serial_and_parallel_completion_merge_diagnostics_in_plan_order() {
         let graph =
             graph("module app; struct Config<T> { value: T = 1; func read() {} } func main() {}");
+
         let package = AnySymbolId::from(graph.packages()[0].id());
 
         let plan = match graph.completion_plan(
@@ -287,6 +288,7 @@ mod tests {
 
         let first_request = *first_request;
         let second_request = *second_request;
+
         let serial_forcer = |request| -> Result<DiagnosticBag, ForcedFactError> {
             if request == first_request || request == second_request {
                 return Err(ForcedFactError::Request(request));
@@ -305,6 +307,7 @@ mod tests {
         );
 
         let parallel_forcer = LaterErrorFirstForcer::new(first_request, second_request);
+
         let parallel = force_complete_symbol(
             &graph,
             package,
@@ -321,6 +324,7 @@ mod tests {
 
         assert_eq!(serial, expected);
         assert_eq!(parallel, expected);
+
         assert!(parallel_forcer.later_error_completed());
     }
 
@@ -495,6 +499,7 @@ mod tests {
                     .map_err(|_| ForcedFactError::Coordination)?;
 
                 *later_completed = true;
+
                 self.later_changed.notify_all();
 
                 return Err(ForcedFactError::Request(request));

@@ -58,6 +58,7 @@ mod tests {
     fn error_patterns_retain_source_and_recovery_input_type() {
         let source = source_anchor();
         let input_type = error_type();
+
         let pattern = BoundPattern::Error(BoundErrorPattern::new(
             BoundNodeOrigin::source(source),
             input_type,

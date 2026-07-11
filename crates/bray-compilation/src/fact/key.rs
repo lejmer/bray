@@ -66,6 +66,7 @@ mod tests {
 
         assert_eq!(key.symbol(), symbol);
         assert_eq!(key.kind(), SymbolFactKind::CallableSignature);
+
         assert_eq!(
             CompilationFactKey::from(key),
             CompilationFactKey::Symbol(key)
