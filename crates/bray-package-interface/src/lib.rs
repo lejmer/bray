@@ -3,12 +3,15 @@
 #![forbid(unsafe_code)]
 
 mod construction;
+mod decode;
 mod diagnostic;
 mod hash;
 mod header;
 mod limits;
 mod section;
+mod semantic;
 mod surface;
+mod tag;
 mod validation;
 mod wire;
 
@@ -23,6 +26,26 @@ pub use header::{
 };
 pub use limits::{InterfaceLimit, InterfaceValidationLimits, InterfaceValidationPolicy};
 pub use section::{InterfaceSectionTag, ValidatedInterfaceSection};
+pub use semantic::{
+    EncodedSemanticSection, ImportedAbiDependency, ImportedCallableContractFact,
+    ImportedCoherenceFact, ImportedConstraintFact, ImportedImplementationFact,
+    ImportedSemanticFacts, ImportedSourceProvenance, ImportedTargetFactDependency,
+    InterfaceAbiDependency, InterfaceCallableContract, InterfaceCallableContractClause,
+    InterfaceCallableInstance, InterfaceCallableInstanceId, InterfaceCallableParameter,
+    InterfaceCoherenceRecord, InterfaceConstantProjection, InterfaceConstantTerm,
+    InterfaceConstantTermId, InterfaceConstantValue, InterfaceConstantValueId,
+    InterfaceConstantValueKind, InterfaceConstraint, InterfaceDependencyContract,
+    InterfaceDependencyContractId, InterfaceDependencyGuard, InterfaceDependencyProjection,
+    InterfaceDependencyRequirement, InterfaceDependencyRequirementKind,
+    InterfaceDependencyRequirementValue, InterfaceDependencySubject,
+    InterfaceDependencySubjectRoot, InterfaceGenericArgument, InterfaceGenericBinding,
+    InterfaceGenericSubstitution, InterfaceGenericSubstitutionId, InterfaceImplementationInstance,
+    InterfaceImplementationInstanceId, InterfaceImplementationRecord, InterfacePredicateSummary,
+    InterfaceSemanticFactEntry, InterfaceSemanticFactKind, InterfaceSemanticFacts,
+    InterfaceSemanticInternError, InterfaceSourceProvenance, InterfaceSymbolResolver,
+    InterfaceTargetFactDependency, InterfaceTraitApplication, InterfaceTraitApplicationId,
+    InterfaceType, InterfaceTypeId, decode_semantic_facts, encode_semantic_facts,
+};
 pub use surface::{
     DependencyInterfaceId, ExportedLookupEdge, ExportedLookupKind, InterfaceDependency,
     InterfaceProductIdentity, InterfaceProductKind, InterfaceSymbolReference,

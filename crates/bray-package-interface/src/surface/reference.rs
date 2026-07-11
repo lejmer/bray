@@ -6,9 +6,10 @@ use bray_symbols::{
 };
 
 use super::decoding::{
-    DecodeBudget, package_identity, read_optional_u32, read_string, read_tag, read_u32, symbol_name,
+    package_identity, read_optional_u32, read_string, read_tag, read_u32, symbol_name,
 };
 use crate::InterfaceValidationError;
+use crate::decode::DecodeBudget;
 use crate::wire::WireReader;
 
 pub(super) fn decode_local_key_component(

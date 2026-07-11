@@ -84,6 +84,21 @@ impl ValidatedPackageInterface {
     ) -> Result<crate::PackageInterfaceSurface, InterfaceValidationError> {
         crate::surface::decode_surface(self, self.limits)
     }
+
+    /// Decodes and validates semantic facts against an already decoded identity surface.
+    pub fn decode_semantic_facts(
+        &self,
+        surface: &crate::PackageInterfaceSurface,
+    ) -> Result<crate::InterfaceSemanticFacts, InterfaceValidationError> {
+        let sections: Vec<_> = self.sections().collect();
+
+        crate::decode_semantic_facts(
+            &sections,
+            surface.symbols().symbols().len(),
+            surface.dependencies().len(),
+            self.limits,
+        )
+    }
 }
 
 fn validate_file_size(

@@ -5,9 +5,9 @@ use bray_symbols::{
     SymbolOrdinal,
 };
 
-use super::tags::WireTag;
 use super::{InterfaceSymbolReference, PackageInterfaceIdentity, PackageInterfaceSurface};
 use crate::InterfaceSectionTag;
+use crate::tag::WireTag;
 use crate::wire::WireEncoder;
 
 #[cfg_attr(

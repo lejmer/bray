@@ -160,6 +160,17 @@ macro_rules! define_family_id {
         }
 
         impl $family {
+            /// Recovers this family from one exact type-erased symbol ID.
+            pub fn try_from_any(id: AnySymbolId) -> Option<Self> {
+                $(
+                    if let Some(id) = $id::try_from_any(id) {
+                        return Some(Self::$variant(id));
+                    }
+                )+
+
+                None
+            }
+
             /// Returns the underlying compilation-wide symbol ID.
             pub const fn symbol_id(self) -> SymbolId {
                 match self {

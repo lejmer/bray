@@ -1,0 +1,45 @@
+mod fact;
+mod value;
+
+use crate::{
+    InterfaceLimit, InterfaceSemanticFacts, InterfaceValidationError, InterfaceValidationLimits,
+};
+
+impl InterfaceSemanticFacts {
+    pub(crate) fn validate(
+        &self,
+        symbol_count: usize,
+        dependency_count: usize,
+        limits: InterfaceValidationLimits,
+    ) -> Result<(), InterfaceValidationError> {
+        for count in self.table_counts() {
+            limits.check(InterfaceLimit::RecordCount, saturating_u64(count))?;
+        }
+
+        self.validate_value_graph(symbol_count, dependency_count, limits)?;
+        self.validate_surface_facts(symbol_count, dependency_count, limits)
+    }
+
+    fn table_counts(&self) -> [usize; 14] {
+        [
+            self.substitutions.len(),
+            self.trait_applications.len(),
+            self.callable_instances.len(),
+            self.implementation_instances.len(),
+            self.dependency_contracts.len(),
+            self.types.len(),
+            self.constant_values.len(),
+            self.constant_terms.len(),
+            self.constraints.len(),
+            self.callable_contracts.len(),
+            self.implementations.len(),
+            self.coherence.len(),
+            self.target_dependencies.len(),
+            self.abi_dependencies.len(),
+        ]
+    }
+}
+
+fn saturating_u64(value: usize) -> u64 {
+    u64::try_from(value).unwrap_or(u64::MAX)
+}

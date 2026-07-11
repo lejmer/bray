@@ -1,6 +1,12 @@
-use bray_symbols::{SymbolKind, SynthesizedSymbolRole};
+use bray_symbols::{
+    BorrowKind, CallableAbi, CallableConstness, CallableContractClauseKind, CallableExecution,
+    CallableParameterMode, CallablePosition, CallableTrust, ConstantBinaryOperation,
+    ConstantUnaryOperation, SymbolKind, SynthesizedSymbolRole,
+};
 
-use super::{ExportedLookupKind, InterfaceProductKind, SymbolRelationshipKind};
+use super::{
+    ExportedLookupKind, InterfaceProductKind, InterfaceSemanticFactKind, SymbolRelationshipKind,
+};
 
 pub(crate) trait WireTag: Sized {
     fn from_wire(value: u32) -> Option<Self>;
@@ -116,6 +122,84 @@ wire_tags!(SymbolKind {
     50 => SymbolKind::AnonymousCallable,
     51 => SymbolKind::AnonymousCallableParameter,
     52 => SymbolKind::PostconditionResult,
+});
+
+wire_tags!(BorrowKind {
+    1 => BorrowKind::Shared,
+    2 => BorrowKind::Mutable,
+});
+
+wire_tags!(CallablePosition {
+    1 => CallablePosition::NamedOnly,
+    2 => CallablePosition::PositionalOrNamed,
+});
+
+wire_tags!(CallableParameterMode {
+    1 => CallableParameterMode::Immutable,
+    2 => CallableParameterMode::Mutable,
+});
+
+wire_tags!(CallableConstness {
+    1 => CallableConstness::Runtime,
+    2 => CallableConstness::Constant,
+});
+
+wire_tags!(CallableExecution {
+    1 => CallableExecution::Synchronous,
+    2 => CallableExecution::Asynchronous,
+});
+
+wire_tags!(CallableTrust {
+    1 => CallableTrust::Safe,
+    2 => CallableTrust::Trusted,
+});
+
+wire_tags!(CallableAbi {
+    1 => CallableAbi::Bray,
+    2 => CallableAbi::C,
+    3 => CallableAbi::System,
+});
+
+wire_tags!(CallableContractClauseKind {
+    1 => CallableContractClauseKind::Requires,
+    2 => CallableContractClauseKind::Ensures,
+    3 => CallableContractClauseKind::Static,
+});
+
+wire_tags!(ConstantUnaryOperation {
+    1 => ConstantUnaryOperation::Identity,
+    2 => ConstantUnaryOperation::Negate,
+    3 => ConstantUnaryOperation::LogicalNot,
+    4 => ConstantUnaryOperation::BitwiseNot,
+});
+
+wire_tags!(ConstantBinaryOperation {
+    1 => ConstantBinaryOperation::Add,
+    2 => ConstantBinaryOperation::Subtract,
+    3 => ConstantBinaryOperation::Multiply,
+    4 => ConstantBinaryOperation::Divide,
+    5 => ConstantBinaryOperation::Remainder,
+    6 => ConstantBinaryOperation::LogicalAnd,
+    7 => ConstantBinaryOperation::LogicalOr,
+    8 => ConstantBinaryOperation::BitwiseAnd,
+    9 => ConstantBinaryOperation::BitwiseOr,
+    10 => ConstantBinaryOperation::BitwiseXor,
+    11 => ConstantBinaryOperation::ShiftLeft,
+    12 => ConstantBinaryOperation::ShiftRight,
+    13 => ConstantBinaryOperation::Equal,
+    14 => ConstantBinaryOperation::NotEqual,
+    15 => ConstantBinaryOperation::Less,
+    16 => ConstantBinaryOperation::LessOrEqual,
+    17 => ConstantBinaryOperation::Greater,
+    18 => ConstantBinaryOperation::GreaterOrEqual,
+});
+
+wire_tags!(InterfaceSemanticFactKind {
+    1 => InterfaceSemanticFactKind::GenericConstraint,
+    2 => InterfaceSemanticFactKind::CallableContracts,
+    3 => InterfaceSemanticFactKind::Implementation,
+    4 => InterfaceSemanticFactKind::TargetFact,
+    5 => InterfaceSemanticFactKind::Abi,
 });
 
 #[cfg(test)]
