@@ -27,6 +27,16 @@ pub enum BoundTreeBuildError {
     },
 }
 
+/// An opaque position in one task-local bound-tree builder.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct BoundTreeCheckpoint {
+    unit: BoundUnitId,
+    expressions: usize,
+    patterns: usize,
+    blocks: usize,
+    callable_bodies: usize,
+}
+
 /// Task-local mutable construction storage that freezes into one immutable [`BoundTree`].
 #[derive(Debug)]
 pub struct BoundTreeBuilder {
@@ -114,6 +124,40 @@ impl BoundTreeBuilder {
     /// Returns a read-only view over nodes committed so far.
     pub fn view<'builder>(&'builder self, key: &'builder BoundUnitKey) -> BoundUnitView<'builder> {
         BoundUnitView::building(self, key)
+    }
+
+    /// Captures the current arena lengths for later transactional rollback.
+    pub const fn checkpoint(&self) -> BoundTreeCheckpoint {
+        BoundTreeCheckpoint {
+            unit: self.unit,
+            expressions: self.expressions.len(),
+            patterns: self.patterns.len(),
+            blocks: self.blocks.len(),
+            callable_bodies: self.callable_bodies.len(),
+        }
+    }
+
+    /// Returns whether this builder can restore the supplied checkpoint without mutation.
+    pub fn can_rollback_to(&self, checkpoint: BoundTreeCheckpoint) -> bool {
+        checkpoint.unit == self.unit
+            && checkpoint.expressions <= self.expressions.len()
+            && checkpoint.patterns <= self.patterns.len()
+            && checkpoint.blocks <= self.blocks.len()
+            && checkpoint.callable_bodies <= self.callable_bodies.len()
+    }
+
+    /// Restores every category arena to a checkpoint from this unit.
+    pub fn rollback(&mut self, checkpoint: BoundTreeCheckpoint) -> bool {
+        if !self.can_rollback_to(checkpoint) {
+            return false;
+        }
+
+        self.expressions.truncate(checkpoint.expressions);
+        self.patterns.truncate(checkpoint.patterns);
+        self.blocks.truncate(checkpoint.blocks);
+        self.callable_bodies.truncate(checkpoint.callable_bodies);
+
+        true
     }
 
     /// Freezes all committed nodes into immutable dense storage.
@@ -274,6 +318,34 @@ mod tests {
             None
         );
         assert_eq!(tree.expression(BoundExpressionId::from_slot(unit, 1)), None);
+    }
+
+    #[test]
+    fn checkpoints_restore_dense_category_slots_without_cloning_arenas() {
+        let unit = BoundUnitId::new(7);
+        let mut builder = BoundTreeBuilder::new(unit);
+
+        let retained = push_error_expression(&mut builder);
+        let checkpoint = builder.checkpoint();
+        let abandoned = push_error_expression(&mut builder);
+
+        assert!(builder.rollback(checkpoint));
+        assert!(builder.expression(retained).is_some());
+        assert!(builder.expression(abandoned).is_none());
+
+        let reused = push_error_expression(&mut builder);
+
+        assert_eq!(reused, abandoned);
+    }
+
+    #[test]
+    fn checkpoints_from_another_unit_are_rejected_without_mutation() {
+        let mut first = BoundTreeBuilder::new(BoundUnitId::new(8));
+        let second = BoundTreeBuilder::new(BoundUnitId::new(9));
+        let expression = push_error_expression(&mut first);
+
+        assert!(!first.rollback(second.checkpoint()));
+        assert!(first.finish().expression(expression).is_some());
     }
 
     fn push_error_expression(builder: &mut BoundTreeBuilder) -> BoundExpressionId {

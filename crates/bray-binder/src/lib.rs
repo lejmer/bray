@@ -5,6 +5,13 @@
 mod fact;
 mod result;
 
+// TODO(binder): Remove this expectation when category-specific entrypoints construct transactions.
+#[expect(
+    dead_code,
+    reason = "category-specific binder entrypoints do not consume request transactions yet"
+)]
+mod request;
+
 // Category-specific binder entrypoints will consume this task-local construction layer.
 #[expect(
     dead_code,

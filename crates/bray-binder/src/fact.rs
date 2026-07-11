@@ -11,4 +11,4 @@ pub use provider::{BindingSymbolFactProvider, SymbolFactProvider};
 pub use target::{TargetFactProvider, TargetFactResult};
 
 #[cfg(test)]
-mod test_support;
+pub(crate) mod test_support;

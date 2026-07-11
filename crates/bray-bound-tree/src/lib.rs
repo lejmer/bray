@@ -48,8 +48,8 @@ pub use template::{
     CheckedTemplateTrustedObligation, CheckedTemplateWitness,
 };
 pub use tree::{
-    BoundTree, BoundTreeBuildError, BoundTreeBuilder, BoundWalkControl, BoundWalkEvent,
-    BoundWalkOutcome, walk_bound_tree,
+    BoundTree, BoundTreeBuildError, BoundTreeBuilder, BoundTreeCheckpoint, BoundWalkControl,
+    BoundWalkEvent, BoundWalkOutcome, walk_bound_tree,
 };
 pub use unit::{
     AnonymousCallableUnitKey, BoundSourceAnchor, BoundUnitId, BoundUnitKey, BoundUnitKeyData,

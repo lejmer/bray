@@ -39,6 +39,27 @@ impl PendingScope {
     }
 }
 
+#[derive(Debug)]
+enum LocalSymbolMutation {
+    LocalName { scope: usize, name: SymbolName },
+    SurfaceName { scope: usize, name: SymbolName },
+    AnonymousParameter { callable: usize },
+    PostconditionResult { scope: usize },
+}
+
+/// An opaque position in one task-local local-symbol builder.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct LocalSymbolSnapshotCheckpoint {
+    region: LocalSymbolRegionId,
+    scopes: usize,
+    bindings: usize,
+    constants: usize,
+    anonymous_callables: usize,
+    anonymous_parameters: usize,
+    postcondition_results: usize,
+    mutations: usize,
+}
+
 /// A task-local builder that freezes region-scoped symbols and lexical scopes atomically.
 #[derive(Debug)]
 pub struct LocalSymbolSnapshotBuilder {
@@ -52,6 +73,7 @@ pub struct LocalSymbolSnapshotBuilder {
     anonymous_callable_parameters: Vec<Vec<AnonymousCallableParameterSymbolId>>,
     anonymous_parameters: Vec<AnonymousCallableParameterSymbol>,
     postcondition_results: Vec<PostconditionResultSymbol>,
+    mutations: Vec<LocalSymbolMutation>,
 }
 
 impl LocalSymbolSnapshotBuilder {
@@ -68,6 +90,7 @@ impl LocalSymbolSnapshotBuilder {
             anonymous_callable_parameters: Vec::new(),
             anonymous_parameters: Vec::new(),
             postcondition_results: Vec::new(),
+            mutations: Vec::new(),
         }
     }
 
@@ -246,6 +269,10 @@ impl LocalSymbolSnapshotBuilder {
             ));
 
         parameters.push(id);
+        self.mutations
+            .push(LocalSymbolMutation::AnonymousParameter {
+                callable: callable_index,
+            });
 
         Ok(id)
     }
@@ -300,6 +327,8 @@ impl LocalSymbolSnapshotBuilder {
             ));
 
         scope_record.postcondition_result = Some(id);
+        self.mutations
+            .push(LocalSymbolMutation::PostconditionResult { scope: scope_index });
 
         Ok(id)
     }
@@ -320,6 +349,8 @@ impl LocalSymbolSnapshotBuilder {
 
         // Symbol names use shared immutable text, so this clone releases the record borrow.
         let name = name.clone();
+        // The scope index and rollback trail independently retain the shared name.
+        let mutation_name = name.clone();
 
         let scope_record = self
             .scopes
@@ -331,6 +362,10 @@ impl LocalSymbolSnapshotBuilder {
             .entry(name)
             .or_default()
             .push(symbol);
+        self.mutations.push(LocalSymbolMutation::LocalName {
+            scope: scope_index,
+            name: mutation_name,
+        });
 
         Ok(())
     }
@@ -344,6 +379,9 @@ impl LocalSymbolSnapshotBuilder {
     ) -> Result<(), LocalSymbolBuildError> {
         let scope_index = self.checked_scope_index(scope)?;
 
+        // The scope index and rollback trail independently own the immutable shared name.
+        let mutation_name = name.clone();
+
         let scope_record = self
             .scopes
             .get_mut(scope_index)
@@ -354,8 +392,100 @@ impl LocalSymbolSnapshotBuilder {
             .entry(name)
             .or_default()
             .push(symbol);
+        self.mutations.push(LocalSymbolMutation::SurfaceName {
+            scope: scope_index,
+            name: mutation_name,
+        });
 
         Ok(())
+    }
+
+    /// Captures arena lengths and the mutation-trail position for transactional rollback.
+    pub const fn checkpoint(&self) -> LocalSymbolSnapshotCheckpoint {
+        LocalSymbolSnapshotCheckpoint {
+            region: self.region,
+            scopes: self.scopes.len(),
+            bindings: self.bindings.len(),
+            constants: self.constants.len(),
+            anonymous_callables: self.anonymous_callables.len(),
+            anonymous_parameters: self.anonymous_parameters.len(),
+            postcondition_results: self.postcondition_results.len(),
+            mutations: self.mutations.len(),
+        }
+    }
+
+    /// Returns whether this builder can restore the supplied checkpoint without mutation.
+    pub fn can_rollback_to(&self, checkpoint: LocalSymbolSnapshotCheckpoint) -> bool {
+        checkpoint.region == self.region
+            && checkpoint.scopes <= self.scopes.len()
+            && checkpoint.bindings <= self.bindings.len()
+            && checkpoint.constants <= self.constants.len()
+            && checkpoint.anonymous_callables <= self.anonymous_callables.len()
+            && checkpoint.anonymous_parameters <= self.anonymous_parameters.len()
+            && checkpoint.postcondition_results <= self.postcondition_results.len()
+            && checkpoint.mutations <= self.mutations.len()
+    }
+
+    /// Restores all local records and indexes to a checkpoint from this region.
+    pub fn rollback(&mut self, checkpoint: LocalSymbolSnapshotCheckpoint) -> bool {
+        if !self.can_rollback_to(checkpoint) {
+            return false;
+        }
+
+        for mutation in self.mutations.drain(checkpoint.mutations..).rev() {
+            match mutation {
+                LocalSymbolMutation::LocalName { scope, name } => {
+                    let Some(scope) = self.scopes.get_mut(scope) else {
+                        return false;
+                    };
+
+                    rollback_name_entry(&mut scope.local_names, &name);
+                }
+                LocalSymbolMutation::SurfaceName { scope, name } => {
+                    let Some(scope) = self.scopes.get_mut(scope) else {
+                        return false;
+                    };
+
+                    rollback_name_entry(&mut scope.surface_names, &name);
+                }
+                LocalSymbolMutation::AnonymousParameter { callable } => {
+                    let Some(parameters) = self.anonymous_callable_parameters.get_mut(callable)
+                    else {
+                        return false;
+                    };
+
+                    parameters.pop();
+                }
+                LocalSymbolMutation::PostconditionResult { scope } => {
+                    let Some(scope) = self.scopes.get_mut(scope) else {
+                        return false;
+                    };
+
+                    scope.postcondition_result = None;
+                }
+            }
+        }
+
+        self.scopes.truncate(checkpoint.scopes);
+        self.bindings.truncate(checkpoint.bindings);
+        self.constants.truncate(checkpoint.constants);
+        self.anonymous_callables
+            .truncate(checkpoint.anonymous_callables);
+        self.anonymous_callable_parameters
+            .truncate(checkpoint.anonymous_callables);
+        self.anonymous_parameters
+            .truncate(checkpoint.anonymous_parameters);
+        self.postcondition_results
+            .truncate(checkpoint.postcondition_results);
+
+        self.anonymous_callable_scopes.clear();
+        self.anonymous_callable_scopes.extend(
+            self.anonymous_callables
+                .iter()
+                .map(AnonymousCallableSymbol::callable_scope),
+        );
+
+        true
     }
 
     /// Freezes all region-local records into one immutable snapshot.
@@ -494,6 +624,20 @@ fn freeze_name_index<I>(index: BTreeMap<SymbolName, Vec<I>>) -> BTreeMap<SymbolN
         .collect()
 }
 
+fn rollback_name_entry<I>(index: &mut BTreeMap<SymbolName, Vec<I>>, name: &SymbolName) {
+    let remove_entry = match index.get_mut(name) {
+        Some(entries) => {
+            entries.pop();
+            entries.is_empty()
+        }
+        None => false,
+    };
+
+    if remove_entry {
+        index.remove(name);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use bray_declarations::{
@@ -504,9 +648,11 @@ mod tests {
 
     use super::{LocalSymbolBuildError, LocalSymbolSnapshotBuilder};
     use crate::{
-        AnyLocalSymbolId, AnySymbolId, LocalBindingSymbolId, LocalScopeBoundary, LocalScopeId,
-        LocalSymbolRegionId, LocalSymbolRegionKey, LocalSymbolRegionRole, LocalSymbolSnapshot,
-        PackageIdentity, SymbolGraph, SymbolKey, SymbolName, SymbolOrdinal, SymbolOrigin,
+        AnonymousCallableParameterSymbolId, AnonymousCallableSymbolId, AnyLocalSymbolId,
+        AnySymbolId, LocalBindingSymbolId, LocalScopeBoundary, LocalScopeId, LocalSymbolRegionId,
+        LocalSymbolRegionKey, LocalSymbolRegionRole, LocalSymbolSnapshot, PackageIdentity,
+        PostconditionResultSymbolId, SymbolGraph, SymbolKey, SymbolName, SymbolOrdinal,
+        SymbolOrigin,
     };
 
     #[test]
@@ -848,6 +994,115 @@ mod tests {
     }
 
     #[test]
+    fn checkpoints_restore_local_records_and_existing_scope_indexes() {
+        let (key, syntax, surface_symbol) = fixture();
+        let mut builder = LocalSymbolSnapshotBuilder::new(LocalSymbolRegionId::new(7), key);
+        let root = scope(&mut builder, None, LocalScopeBoundary::Root, syntax);
+        let checkpoint = builder.checkpoint();
+        let abandoned = binding(&mut builder, root, "abandoned", syntax, 0, false);
+
+        assert_eq!(builder.insert_local_name(root, abandoned.into()), Ok(()));
+        assert_eq!(
+            builder.insert_surface_name(root, symbol_name("surface"), surface_symbol),
+            Ok(())
+        );
+        assert!(builder.rollback(checkpoint));
+
+        let reused = binding(&mut builder, root, "reused", syntax, 0, false);
+        let snapshot = finish(builder);
+
+        assert_eq!(reused, abandoned);
+        assert!(snapshot.binding(abandoned).is_some());
+
+        let Some(scope) = snapshot.scope(root) else {
+            panic!("root scope must be retained");
+        };
+
+        assert!(scope.local_symbols_named("abandoned").is_empty());
+        assert!(scope.surface_symbols_named("surface").is_empty());
+    }
+
+    #[test]
+    fn checkpoints_from_another_region_are_rejected_without_mutation() {
+        let (key, syntax, _) = fixture();
+        // Region keys retain shared immutable surface identity.
+        let second_key = key.clone();
+        let mut first = LocalSymbolSnapshotBuilder::new(LocalSymbolRegionId::new(11), key);
+        let second = LocalSymbolSnapshotBuilder::new(LocalSymbolRegionId::new(12), second_key);
+        let root = scope(&mut first, None, LocalScopeBoundary::Root, syntax);
+        let binding = binding(&mut first, root, "retained", syntax, 0, false);
+
+        assert!(!first.rollback(second.checkpoint()));
+        assert!(finish(first).binding(binding).is_some());
+    }
+
+    #[test]
+    fn rollback_trails_restore_callable_parameters_and_contract_results() {
+        let (key, syntax, _) = fixture();
+        let mut builder = LocalSymbolSnapshotBuilder::new(LocalSymbolRegionId::new(13), key);
+        let root = scope(&mut builder, None, LocalScopeBoundary::Root, syntax);
+        let callable_scope = scope(
+            &mut builder,
+            Some(root),
+            LocalScopeBoundary::Callable,
+            syntax,
+        );
+        let contract_scope = scope(
+            &mut builder,
+            Some(callable_scope),
+            LocalScopeBoundary::Contract,
+            syntax,
+        );
+        let callable = match builder.push_anonymous_callable(
+            root,
+            callable_scope,
+            [syntax],
+            Some(SymbolOrdinal::new(0)),
+            false,
+        ) {
+            Ok(callable) => callable,
+            Err(error) => panic!("test callable must build: {error:?}"),
+        };
+
+        let checkpoint = builder.checkpoint();
+
+        let abandoned_parameter =
+            anonymous_parameter(&mut builder, callable, callable_scope, syntax);
+        let abandoned_result = postcondition_result(&mut builder, contract_scope, syntax);
+
+        assert_eq!(
+            builder.insert_local_name(callable_scope, abandoned_parameter.into()),
+            Ok(())
+        );
+        assert!(builder.rollback(checkpoint));
+
+        let reused_parameter = anonymous_parameter(&mut builder, callable, callable_scope, syntax);
+        let reused_result = postcondition_result(&mut builder, contract_scope, syntax);
+
+        assert_eq!(abandoned_parameter, reused_parameter);
+        assert_eq!(abandoned_result, reused_result);
+        assert_eq!(
+            builder.insert_local_name(callable_scope, reused_parameter.into()),
+            Ok(())
+        );
+
+        let snapshot = finish(builder);
+
+        assert_eq!(
+            snapshot
+                .anonymous_callable(callable)
+                .map(|record| record.parameters()),
+            Some(&[reused_parameter][..])
+        );
+        assert_eq!(
+            snapshot
+                .scope(contract_scope)
+                .and_then(|scope| scope.postcondition_result()),
+            Some(reused_result)
+        );
+    }
+
+    #[test]
     fn local_snapshot_contracts_are_send_and_sync() {
         fn assert_send_sync<T: Send + Sync>() {}
 
@@ -936,6 +1191,36 @@ mod tests {
         ) {
             Ok(binding) => binding,
             Err(error) => panic!("test binding must build: {error:?}"),
+        }
+    }
+
+    fn anonymous_parameter(
+        builder: &mut LocalSymbolSnapshotBuilder,
+        callable: AnonymousCallableSymbolId,
+        scope: LocalScopeId,
+        syntax: SyntaxAnchor,
+    ) -> AnonymousCallableParameterSymbolId {
+        match builder.push_anonymous_parameter(
+            callable,
+            scope,
+            symbol_name("parameter"),
+            [syntax],
+            SymbolOrdinal::new(0),
+            false,
+        ) {
+            Ok(parameter) => parameter,
+            Err(error) => panic!("test parameter must build: {error:?}"),
+        }
+    }
+
+    fn postcondition_result(
+        builder: &mut LocalSymbolSnapshotBuilder,
+        scope: LocalScopeId,
+        syntax: SyntaxAnchor,
+    ) -> PostconditionResultSymbolId {
+        match builder.push_postcondition_result(scope, syntax, None, false) {
+            Ok(result) => result,
+            Err(error) => panic!("test postcondition result must build: {error:?}"),
         }
     }
 
