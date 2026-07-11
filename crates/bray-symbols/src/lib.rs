@@ -24,7 +24,28 @@ pub use error::SymbolGraphBuildError;
 pub use graph::{SymbolGraph, SymbolGraphRoots};
 
 pub use external::{ExternalDeclarationIdentity, ExternalSymbolKey, ExternalSymbolKeyData};
-pub use fact::{SymbolCompletionLevel, SymbolFactKind};
+pub use fact::{
+    CallableContractClause, CallableContractClauseKind, CallableContractSet, CallableContractsFact,
+    CallableParameterDefaultFact, CallableParameterDefaultSurface, CallableParameterDefaultValue,
+    CallableParameterSignature, CallableSignature, CallableSignatureFact,
+    CheckedCallableParameterDefault, CheckedConstraint, CheckedStructFieldDefault,
+    CheckedUnionPayloadDefault, ConstantDeclaredTypeFact, ConstantDefinition,
+    ConstantDefinitionFact, ConstantDefinitionState, ConstantInstanceKey,
+    ConstantInstanceValueFact, ErrorCallableParameterDefault, ErrorConstantDefinition,
+    ErrorPredicateDefinition, ErrorStructFieldDefault, ErrorUnionPayloadDefault,
+    GenericConstraintSet, GenericConstraintsFact, ImplementationAmbiguity, ImplementationSelection,
+    ImplementationSelectionFact, ImplementationSelectionKey, ImplementationSubject,
+    ImplementationSubjectFact, ImplementedTraitApplicationFact, PredicateDefinition,
+    PredicateDefinitionFact, PredicateDefinitionState, PredicateSemanticSummary,
+    ReceiverParameterSignature, SemanticFactContract, SemanticFactResult, StructFieldDefaultFact,
+    StructFieldDefaultSurface, StructFieldDefaultValue, StructFieldTypeFact, SymbolCompletionLevel,
+    SymbolFactContract, SymbolFactKind, SymbolFactRequest, SymbolFactResult,
+    TraitConstantFulfillmentDeclaredTypeFact, TraitConstantFulfillmentDefinitionFact,
+    TraitConstantMemberDeclaredTypeFact, TraitConstantMemberDefinitionFact,
+    TraitPredicateFulfillmentDefinitionFact, TraitPredicateMemberDefinitionFact,
+    TrustedCapabilityRequirement, UnionPayloadDefaultSurface, UnionPayloadDefaultValue,
+    UnionPayloadFieldDefaultFact, UnionPayloadFieldTypeFact,
+};
 pub use id::{
     AnySymbolId, CallableContractSymbolId, CallableOverloadSymbolId,
     CallableParameterDefaultProviderSymbolId, CallableParameterSymbolId, CallableSymbolId,

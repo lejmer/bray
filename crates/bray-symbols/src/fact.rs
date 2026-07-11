@@ -1,93 +1,40 @@
-/// A semantic completion boundary for one declaration symbol.
-///
-/// Executable bodies use separate checked-unit facts and are deliberately absent from this
-/// symbol completion family.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum SymbolCompletionLevel {
-    /// Only the deterministic symbol identity skeleton is required.
-    Identity,
-    /// Every applicable fact needed to describe and use the declaration surface is required.
-    DeclarationSurface,
-}
+mod completion;
+mod constant;
+mod contract;
+mod default;
+mod implementation;
+mod predicate;
+mod signature;
 
-/// An exact category of lazy semantic fact owned by a declaration symbol.
-///
-/// Instance-specific facts with additional semantic inputs use their own typed keys rather than
-/// discarding those inputs into this symbol-only category.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum SymbolFactKind {
-    /// Typed members and their ordinary-name index.
-    Members,
-    /// Imports contributing to a module surface.
-    Imports,
-    /// Decoded declaration directives.
-    Directives,
-    /// Ordered generic parameters and their lookup indexes.
-    GenericParameters,
-    /// Checked generic constraints.
-    GenericConstraints,
-    /// The callable signature excluding executable body checking.
-    CallableSignature,
-    /// Checked callable contracts, effects, and capabilities.
-    CallableContracts,
-    /// The declared type of a constant.
-    ConstantDeclaredType,
-    /// The checked definition template of a constant.
-    ConstantDefinition,
-    /// A checked callable parameter default.
-    CallableParameterDefault,
-    /// A checked struct field type.
-    StructFieldType,
-    /// A checked struct field default.
-    StructFieldDefault,
-    /// A checked union payload field type.
-    UnionPayloadFieldType,
-    /// A checked union payload field default.
-    UnionPayloadFieldDefault,
-    /// A checked predicate definition.
-    PredicateDefinition,
-    /// A union variant's payload surface.
-    UnionVariantPayload,
-    /// An implementation's checked subject.
+pub use completion::{SymbolCompletionLevel, SymbolFactKind};
+pub use constant::{
+    ConstantDefinition, ConstantDefinitionState, ConstantInstanceKey, ErrorConstantDefinition,
+};
+pub use contract::{
+    CallableContractsFact, CallableParameterDefaultFact, CallableSignatureFact,
+    ConstantDeclaredTypeFact, ConstantDefinitionFact, ConstantInstanceValueFact,
+    GenericConstraintsFact, ImplementationSelectionFact, ImplementationSubjectFact,
+    ImplementedTraitApplicationFact, PredicateDefinitionFact, SemanticFactContract,
+    SemanticFactResult, StructFieldDefaultFact, StructFieldTypeFact, SymbolFactContract,
+    SymbolFactRequest, SymbolFactResult, TraitConstantFulfillmentDeclaredTypeFact,
+    TraitConstantFulfillmentDefinitionFact, TraitConstantMemberDeclaredTypeFact,
+    TraitConstantMemberDefinitionFact, TraitPredicateFulfillmentDefinitionFact,
+    TraitPredicateMemberDefinitionFact, UnionPayloadFieldDefaultFact, UnionPayloadFieldTypeFact,
+};
+pub use default::{
+    CallableParameterDefaultSurface, CallableParameterDefaultValue,
+    CheckedCallableParameterDefault, CheckedStructFieldDefault, CheckedUnionPayloadDefault,
+    ErrorCallableParameterDefault, ErrorStructFieldDefault, ErrorUnionPayloadDefault,
+    StructFieldDefaultSurface, StructFieldDefaultValue, UnionPayloadDefaultSurface,
+    UnionPayloadDefaultValue,
+};
+pub use implementation::{
+    ImplementationAmbiguity, ImplementationSelection, ImplementationSelectionKey,
     ImplementationSubject,
-    /// The checked trait application implemented by an implementation.
-    ImplementedTraitApplication,
-    /// Stable implementation coherence keys.
-    ImplementationCoherence,
-    /// The resolved arms of an overload family.
-    OverloadArms,
-}
-
-impl SymbolFactKind {
-    /// Returns whether this fact participates in the requested completion boundary when applicable.
-    pub const fn is_required_for(self, level: SymbolCompletionLevel) -> bool {
-        match level {
-            SymbolCompletionLevel::Identity => false,
-            SymbolCompletionLevel::DeclarationSurface => true,
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{SymbolCompletionLevel, SymbolFactKind};
-
-    #[test]
-    fn declaration_surface_completion_includes_symbol_facts() {
-        assert!(
-            SymbolFactKind::CallableSignature
-                .is_required_for(SymbolCompletionLevel::DeclarationSurface)
-        );
-        assert!(
-            !SymbolFactKind::CallableSignature.is_required_for(SymbolCompletionLevel::Identity)
-        );
-    }
-
-    #[test]
-    fn fact_contracts_are_send_and_sync() {
-        fn assert_send_sync<T: Send + Sync>() {}
-
-        assert_send_sync::<SymbolCompletionLevel>();
-        assert_send_sync::<SymbolFactKind>();
-    }
-}
+};
+pub use predicate::{
+    CallableContractClause, CallableContractClauseKind, CallableContractSet, CheckedConstraint,
+    ErrorPredicateDefinition, GenericConstraintSet, PredicateDefinition, PredicateDefinitionState,
+    PredicateSemanticSummary, TrustedCapabilityRequirement,
+};
+pub use signature::{CallableParameterSignature, CallableSignature, ReceiverParameterSignature};
