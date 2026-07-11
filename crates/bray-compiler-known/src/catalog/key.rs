@@ -1,20 +1,18 @@
-use std::sync::Arc;
-
-use bray_base::{shared_slice, shared_str};
+use std::borrow::Cow;
 
 macro_rules! define_catalog_key {
     ($(#[$meta:meta])* pub struct $name:ident;) => {
         $(#[$meta])*
         #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-        pub struct $name(Arc<str>);
+        pub struct $name(Cow<'static, str>);
 
         impl $name {
             /// Creates a key from one valid catalog identifier.
-            pub fn try_new(value: impl Into<Arc<str>>) -> Option<Self> {
-                let value = shared_str(value);
+            pub fn try_new(value: impl AsRef<str>) -> Option<Self> {
+                let value = value.as_ref();
 
-                if is_catalog_identifier(&value) {
-                    Some(Self(value))
+                if is_catalog_identifier(value) {
+                    Some(Self(Cow::Owned(value.to_owned())))
                 } else {
                     None
                 }
@@ -23,6 +21,10 @@ macro_rules! define_catalog_key {
             /// Returns the exact stable catalog identifier.
             pub fn as_str(&self) -> &str {
                 &self.0
+            }
+
+            pub(super) const fn from_static(value: &'static str) -> Self {
+                Self(Cow::Borrowed(value))
             }
         }
     };
@@ -55,15 +57,18 @@ define_catalog_key! {
 
 /// A validated non-empty catalog scope path.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct CatalogPath(Arc<[Arc<str>]>);
+pub struct CatalogPath(Cow<'static, [Cow<'static, str>]>);
 
 impl CatalogPath {
     /// Creates a path from valid catalog identifier segments.
     pub fn try_new<T>(segments: impl IntoIterator<Item = T>) -> Option<Self>
     where
-        T: Into<Arc<str>>,
+        T: AsRef<str>,
     {
-        let segments = segments.into_iter().map(shared_str).collect::<Vec<_>>();
+        let segments = segments
+            .into_iter()
+            .map(|segment| Cow::Owned(segment.as_ref().to_owned()))
+            .collect::<Vec<_>>();
 
         if segments.is_empty()
             || !segments
@@ -73,12 +78,16 @@ impl CatalogPath {
             return None;
         }
 
-        Some(Self(shared_slice(segments)))
+        Some(Self(Cow::Owned(segments)))
     }
 
     /// Iterates over path segments in source order.
     pub fn segments(&self) -> impl ExactSizeIterator<Item = &str> {
         self.0.iter().map(AsRef::as_ref)
+    }
+
+    pub(super) const fn from_static(segments: &'static [Cow<'static, str>]) -> Self {
+        Self(Cow::Borrowed(segments))
     }
 }
 

@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::borrow::Cow;
 
 use crate::{AvailabilityRule, ImplementationHook, RepresentationRole};
 
@@ -111,8 +111,8 @@ pub struct CompilerKnownScopeDescriptor {
     pub(super) id: CompilerKnownScopeId,
     pub(super) key: CompilerKnownScopeKey,
     pub(super) location: CatalogScopeLocation,
-    pub(super) declaration_ids: Arc<[CompilerKnownDeclarationId]>,
-    pub(super) value_ids: Arc<[CompilerKnownValueId]>,
+    pub(super) declaration_ids: Cow<'static, [CompilerKnownDeclarationId]>,
+    pub(super) value_ids: Cow<'static, [CompilerKnownValueId]>,
 }
 
 impl CompilerKnownScopeDescriptor {
@@ -261,7 +261,7 @@ pub struct RecognizedStandardLibraryScopeDescriptor {
     pub(super) id: RecognizedStandardLibraryScopeId,
     pub(super) key: RecognizedStandardLibraryScopeKey,
     pub(super) path: CatalogPath,
-    pub(super) declaration_ids: Arc<[RecognizedStandardLibraryDeclarationId]>,
+    pub(super) declaration_ids: Cow<'static, [RecognizedStandardLibraryDeclarationId]>,
 }
 
 impl RecognizedStandardLibraryScopeDescriptor {

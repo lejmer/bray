@@ -1,7 +1,7 @@
 #![forbid(unsafe_code)]
 
-use std::process::ExitCode;
+mod compiler_known;
 
-fn main() -> ExitCode {
-    ExitCode::SUCCESS
+fn main() -> std::process::ExitCode {
+    compiler_known::run(std::env::args().skip(1))
 }

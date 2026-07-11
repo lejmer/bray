@@ -1,6 +1,7 @@
 mod descriptor;
 mod diagnostic;
 mod entry;
+mod generated;
 mod graph;
 mod id;
 mod key;
@@ -8,6 +9,9 @@ mod loader;
 mod parser;
 mod source;
 mod validation;
+
+#[cfg(any(test, feature = "generation"))]
+mod generation;
 
 pub use descriptor::{
     CatalogDeclarationKind, CatalogScopeLocation, CatalogSurfaceContext,
@@ -20,6 +24,7 @@ pub use diagnostic::{
     CatalogDiagnostic, CatalogDiagnosticKind, CatalogDiagnostics, CatalogEntryKind,
     CatalogExpectation, CatalogField, CatalogKeyDomain, CatalogMetadataKind, CatalogRelatedKey,
 };
+pub use generated::{CATALOG_SOURCE_DIGEST, COMPILER_KNOWN_CATALOG};
 pub use graph::CompilerKnownCatalog;
 pub use id::{
     CatalogSourceId, CompilerKnownDeclarationId, CompilerKnownScopeId, CompilerKnownValueId,
@@ -30,9 +35,12 @@ pub use key::{
     RecognizedStandardLibraryDeclarationKey, RecognizedStandardLibraryScopeKey,
 };
 pub use loader::{CatalogBuildResult, CatalogFragmentValidator, build_catalog};
-#[cfg(test)]
+#[cfg(any(test, feature = "generation"))]
 pub use source::generator_input_inventory;
 pub use source::{
     CatalogDeclarationSurface, CatalogKind, CatalogSource, CatalogSourceAnchor,
     CatalogSourceInventory, CatalogTokenSpelling, CatalogTypeSurface,
 };
+
+#[cfg(feature = "generation")]
+pub use generation::{CatalogGenerationError, GeneratedCatalogOutput, generate_catalog_output};
