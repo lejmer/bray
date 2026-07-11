@@ -354,7 +354,8 @@ pub(super) fn decode_constant_projection(
 mod tests {
     use bray_symbols::{
         AnySymbolId, CallableAbi, ConstantSymbolId, ExternalSymbolKey, FunctionSymbolId,
-        PackageIdentity, SemanticValueStore, StructSymbolId, SymbolId, SymbolKind, SymbolName,
+        InherentImplementationSymbolId, PackageIdentity, SemanticValueStore, StructSymbolId,
+        SymbolId, SymbolKind, SymbolName, TraitSymbolId,
     };
 
     use super::super::decode_semantic_facts;
@@ -364,10 +365,11 @@ mod tests {
         InterfaceConstantTerm, InterfaceConstantValue, InterfaceConstantValueId,
         InterfaceConstantValueKind, InterfaceConstraint, InterfaceDependencyContract,
         InterfaceDependencyContractId, InterfaceGenericSubstitution,
-        InterfaceGenericSubstitutionId, InterfacePredicateSummary, InterfaceSemanticFacts,
-        InterfaceSourceProvenance, InterfaceSymbolReference, InterfaceSymbolResolver,
-        InterfaceTargetFactDependency, InterfaceType, InterfaceTypeId, InterfaceValidationError,
-        InterfaceValidationLimits, ValidatedInterfaceSection,
+        InterfaceGenericSubstitutionId, InterfaceImplementationRecord, InterfacePredicateSummary,
+        InterfaceSemanticFacts, InterfaceSemanticInternError, InterfaceSourceProvenance,
+        InterfaceSymbolReference, InterfaceSymbolResolver, InterfaceTargetFactDependency,
+        InterfaceTraitApplication, InterfaceTraitApplicationId, InterfaceType, InterfaceTypeId,
+        InterfaceValidationError, InterfaceValidationLimits, ValidatedInterfaceSection,
     };
 
     struct Resolver {
@@ -422,6 +424,66 @@ mod tests {
     }
 
     #[test]
+    fn semantic_interning_rejects_wrong_symbol_categories() {
+        let store = SemanticValueStore::try_new()
+            .unwrap_or_else(|error| panic!("semantic store creation failed: {error:?}"));
+        let resolver = Resolver {
+            symbols: vec![
+                StructSymbolId::from_symbol_id(SymbolId::new(0)).into(),
+                ConstantSymbolId::from_symbol_id(SymbolId::new(1)).into(),
+                StructSymbolId::from_symbol_id(SymbolId::new(2)).into(),
+            ],
+        };
+
+        assert_eq!(
+            facts().intern(&store, &resolver),
+            Err(InterfaceSemanticInternError::InvalidSymbolKind(local(2)))
+        );
+    }
+
+    #[test]
+    fn semantic_interning_rejects_trait_applications_on_inherent_implementations() {
+        let store = SemanticValueStore::try_new()
+            .unwrap_or_else(|error| panic!("semantic store creation failed: {error:?}"));
+        let resolver = Resolver {
+            symbols: vec![
+                StructSymbolId::from_symbol_id(SymbolId::new(0)).into(),
+                ConstantSymbolId::from_symbol_id(SymbolId::new(1)).into(),
+                FunctionSymbolId::from_symbol_id(SymbolId::new(2)).into(),
+                InherentImplementationSymbolId::from_symbol_id(SymbolId::new(3)).into(),
+                TraitSymbolId::from_symbol_id(SymbolId::new(4)).into(),
+            ],
+        };
+
+        let facts = facts()
+            .with_applications(
+                [
+                    InterfaceGenericSubstitution::new(local(0), []),
+                    InterfaceGenericSubstitution::new(local(4), []),
+                ],
+                [InterfaceTraitApplication::new(
+                    local(4),
+                    InterfaceGenericSubstitutionId::new(1),
+                )],
+                [],
+                [],
+            )
+            .with_implementations(
+                [InterfaceImplementationRecord::new(
+                    local(3),
+                    InterfaceTypeId::new(0),
+                    Some(InterfaceTraitApplicationId::new(0)),
+                )],
+                [],
+            );
+
+        assert_eq!(
+            facts.intern(&store, &resolver),
+            Err(InterfaceSemanticInternError::InvalidSymbolKind(local(3)))
+        );
+    }
+
+    #[test]
     fn semantic_decoding_rejects_unknown_tags_and_declared_count_mismatches() {
         let limits = InterfaceValidationLimits::default();
         let sections = encode_semantic_facts(&facts(), 3, 0, limits)
@@ -471,6 +533,21 @@ mod tests {
                 actual: 11,
                 maximum: 3,
             })
+        );
+    }
+
+    #[test]
+    fn cyclic_structural_type_graphs_are_rejected() {
+        let facts = InterfaceSemanticFacts::new().with_values(
+            [],
+            [InterfaceType::Nullable(InterfaceTypeId::new(0))],
+            [],
+            [],
+        );
+
+        assert_eq!(
+            encode_semantic_facts(&facts, 0, 0, InterfaceValidationLimits::default()),
+            Err(InterfaceValidationError::Malformed)
         );
     }
 

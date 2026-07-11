@@ -1,3 +1,13 @@
+use bray_symbols::{
+    CallableInstanceId, ConstantTermId, ConstantValueId, DependencyContractTemplateId,
+    GenericSubstitutionId, ImplementationInstanceId, SemanticValueStore, TraitApplicationId,
+    TypeId,
+};
+
+use crate::InterfaceSemanticFacts;
+
+use super::{InterfaceSemanticInternError, InterfaceSymbolResolver};
+
 pub(super) struct InternState {
     pub(super) types: Vec<Option<TypeId>>,
     pub(super) constant_values: Vec<Option<ConstantValueId>>,
@@ -65,12 +75,3 @@ impl InternState {
         self.intern_constant_terms(facts, store, symbols)
     }
 }
-use bray_symbols::{
-    CallableInstanceId, ConstantTermId, ConstantValueId, DependencyContractTemplateId,
-    GenericSubstitutionId, ImplementationInstanceId, SemanticValueStore, TraitApplicationId,
-    TypeId,
-};
-
-use crate::InterfaceSemanticFacts;
-
-use super::{InterfaceSemanticInternError, InterfaceSymbolResolver};

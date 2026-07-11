@@ -1,10 +1,11 @@
 use std::sync::Arc;
 
 use bray_symbols::{
-    CallableContractClause, CallableContractSet, CallableInstanceId, CheckedConstraint,
-    ConstantTermId, ConstantValueId, DependencyContractTemplateId, GenericSubstitutionId,
-    ImplementationInstanceId, ImplementationSubject, PredicateSemanticSummary, SymbolOrdinal,
-    TraitApplicationId, TrustedCapabilityRequirement, TypeId,
+    CallableContractClause, CallableContractSet, CallableInstanceId, CallableSymbolId,
+    CheckedConstraint, ConstantTermId, ConstantValueId, DependencyContractTemplateId,
+    GenericOwnerId, GenericSubstitutionId, ImplementationInstanceId, ImplementationSubject,
+    ImplementationSymbolId, PredicateSemanticSummary, SymbolOrdinal, TraitApplicationId,
+    TrustedCapabilityRequirement, TypeId,
 };
 
 use crate::{
@@ -14,7 +15,9 @@ use crate::{
     InterfaceTypeId,
 };
 
-use super::common::{finish_table, lookup, resolve_exact, resolve_family, resolve_symbol};
+use super::common::{
+    finish_table, invalid_symbol, lookup, resolve_exact, resolve_family, resolve_symbol,
+};
 use super::{
     ImportedAbiDependency, ImportedCallableContractFact, ImportedCoherenceFact,
     ImportedConstraintFact, ImportedImplementationFact, ImportedSemanticFacts,
@@ -64,12 +67,18 @@ impl InternState {
             .constraints
             .iter()
             .map(|input| {
+                let owner = resolve_symbol(symbols, &input.owner)?;
+
+                let Some(owner) = GenericOwnerId::try_new(owner) else {
+                    return Err(invalid_symbol(&input.owner));
+                };
+
                 let dependency = self
                     .dependency_contract_id(input.predicate.dependency_contract)
                     .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)?;
 
                 Ok(ImportedConstraintFact {
-                    owner: resolve_symbol(symbols, &input.owner)?,
+                    owner,
                     constraint: CheckedConstraint::new(
                         input.ordinal,
                         PredicateSemanticSummary::new(dependency),
@@ -122,7 +131,7 @@ impl InternState {
                     .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)?;
 
                 Ok(ImportedCallableContractFact {
-                    owner: resolve_symbol(symbols, &input.owner)?,
+                    owner: resolve_family::<CallableSymbolId>(symbols, &input.owner)?,
                     contract: CallableContractSet::new(clauses, capabilities, dependency),
                 })
             })
@@ -138,19 +147,28 @@ impl InternState {
             .implementations
             .iter()
             .map(|input| {
+                let implementation = resolve_family(symbols, &input.implementation)?;
+                let trait_application = input
+                    .trait_application
+                    .map(|id| {
+                        self.trait_application_id(id)
+                            .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)
+                    })
+                    .transpose()?;
+
+                if matches!(implementation, ImplementationSymbolId::Inherent(_))
+                    != trait_application.is_none()
+                {
+                    return Err(invalid_symbol(&input.implementation));
+                }
+
                 Ok(ImportedImplementationFact {
-                    implementation: resolve_family(symbols, &input.implementation)?,
+                    implementation,
                     subject: ImplementationSubject::new(
                         self.type_id(input.subject)
                             .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)?,
                     ),
-                    trait_application: input
-                        .trait_application
-                        .map(|id| {
-                            self.trait_application_id(id)
-                                .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)
-                        })
-                        .transpose()?,
+                    trait_application,
                 })
             })
             .collect()
@@ -168,7 +186,15 @@ impl InternState {
                 let implementations = input
                     .implementations
                     .iter()
-                    .map(|reference| resolve_family(symbols, reference))
+                    .map(|reference| {
+                        let implementation = resolve_family(symbols, reference)?;
+
+                        if matches!(implementation, ImplementationSymbolId::Inherent(_)) {
+                            return Err(invalid_symbol(reference));
+                        }
+
+                        Ok(implementation)
+                    })
                     .collect::<Result<Vec<_>, _>>()?;
 
                 Ok(ImportedCoherenceFact {
@@ -213,7 +239,7 @@ impl InternState {
             .iter()
             .map(|input| {
                 Ok(ImportedAbiDependency {
-                    symbol: resolve_symbol(symbols, &input.symbol)?,
+                    symbol: resolve_family::<CallableSymbolId>(symbols, &input.symbol)?,
                     abi: input.abi,
                 })
             })

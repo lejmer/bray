@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
 use bray_symbols::{
-    AnySymbolId, CallableContractSet, CallableInstanceId, CheckedConstraint, ConstantTermId,
-    ConstantValueId, DependencyContractTemplateId, GenericSubstitutionId, ImplementationInstanceId,
-    ImplementationSubject, ImplementationSymbolId, SemanticValueStore, SemanticValueStoreError,
-    TraitApplicationId, TypeId,
+    AnySymbolId, CallableContractSet, CallableInstanceId, CallableSymbolId, CheckedConstraint,
+    ConstantTermId, ConstantValueId, DependencyContractTemplateId, GenericOwnerId,
+    GenericSubstitutionId, ImplementationInstanceId, ImplementationSubject, ImplementationSymbolId,
+    SemanticValueStore, SemanticValueStoreError, TraitApplicationId, TypeId,
 };
 
 use crate::{InterfaceSemanticFacts, InterfaceSymbolReference};
@@ -59,13 +59,13 @@ pub struct ImportedSemanticFacts {
 /// One imported generic constraint and its exact owning declaration.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ImportedConstraintFact {
-    pub(super) owner: AnySymbolId,
+    pub(super) owner: GenericOwnerId,
     pub(super) constraint: CheckedConstraint,
 }
 
 impl ImportedConstraintFact {
     /// Returns the declaration that owns this constraint.
-    pub const fn owner(self) -> AnySymbolId {
+    pub const fn owner(self) -> GenericOwnerId {
         self.owner
     }
 
@@ -78,13 +78,13 @@ impl ImportedConstraintFact {
 /// One imported callable contract set and its exact owning declaration.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ImportedCallableContractFact {
-    pub(super) owner: AnySymbolId,
+    pub(super) owner: CallableSymbolId,
     pub(super) contract: CallableContractSet,
 }
 
 impl ImportedCallableContractFact {
     /// Returns the callable that owns this contract set.
-    pub const fn owner(&self) -> AnySymbolId {
+    pub const fn owner(&self) -> CallableSymbolId {
         self.owner
     }
 
@@ -166,13 +166,13 @@ impl ImportedTargetFactDependency {
 /// One callable ABI dependency decoded into local symbol identity.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ImportedAbiDependency {
-    pub(super) symbol: AnySymbolId,
+    pub(super) symbol: CallableSymbolId,
     pub(super) abi: bray_symbols::CallableAbi,
 }
 
 impl ImportedAbiDependency {
     /// Returns the declaration exposing the ABI dependency.
-    pub const fn symbol(self) -> AnySymbolId {
+    pub const fn symbol(self) -> CallableSymbolId {
         self.symbol
     }
 

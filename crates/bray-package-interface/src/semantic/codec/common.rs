@@ -168,6 +168,7 @@ fn read_external_key(
                 let role = SynthesizedSymbolRole::from_wire(read_u32(reader)?)
                     .ok_or(InterfaceValidationError::Malformed)?;
                 let ordinal = read_optional_u32(reader)?.map(SymbolOrdinal::new);
+
                 let key = ExternalSymbolKey::synthesized(owner, role, ordinal)
                     .ok_or(InterfaceValidationError::Malformed)?;
 

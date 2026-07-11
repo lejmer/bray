@@ -82,6 +82,7 @@ fn validate_decode_allocation(
             actual: u64::MAX,
             maximum: limits.maximum(crate::InterfaceLimit::DecodedAllocation),
         })?;
+
     let allocation = semantic_bytes.saturating_mul(MAXIMUM_WIRE_EXPANSION);
 
     limits.check(crate::InterfaceLimit::DecodedAllocation, allocation)

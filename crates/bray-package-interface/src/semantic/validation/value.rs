@@ -366,30 +366,69 @@ fn validate_type_depth(
     facts: &InterfaceSemanticFacts,
     limits: InterfaceValidationLimits,
 ) -> Result<(), InterfaceValidationError> {
+    #[derive(Clone, Copy)]
+    enum VisitState {
+        Unvisited,
+        Visiting,
+        Complete(u64),
+    }
+
+    let mut states = vec![VisitState::Unvisited; facts.types.len()];
+
     for root in 0..facts.types.len() {
-        let mut pending = vec![(root, 1_u64)];
+        if matches!(states[root], VisitState::Complete(_)) {
+            continue;
+        }
 
-        while let Some((index, depth)) = pending.pop() {
-            limits.check(InterfaceLimit::SemanticTypeDepth, depth)?;
+        let mut pending = vec![(root, false)];
 
+        while let Some((index, exiting)) = pending.pop() {
             let Some(ty) = facts.types.get(index) else {
                 return Err(InterfaceValidationError::Malformed);
             };
 
-            for child in direct_type_children(ty) {
+            if exiting {
+                let mut depth = 1_u64;
+
+                for child in direct_type_children(ty) {
+                    let Some(child) = child.to_index() else {
+                        return Err(InterfaceValidationError::Malformed);
+                    };
+
+                    let Some(VisitState::Complete(child_depth)) = states.get(child).copied() else {
+                        return Err(InterfaceValidationError::Malformed);
+                    };
+
+                    depth = depth.max(child_depth.saturating_add(1));
+                }
+
+                limits.check(InterfaceLimit::SemanticTypeDepth, depth)?;
+                states[index] = VisitState::Complete(depth);
+
+                continue;
+            }
+
+            match states[index] {
+                VisitState::Complete(_) => continue,
+                VisitState::Visiting => return Err(InterfaceValidationError::Malformed),
+                VisitState::Unvisited => states[index] = VisitState::Visiting,
+            }
+
+            pending.push((index, true));
+
+            for child in direct_type_children(ty).into_iter().rev() {
                 let Some(index) = child.to_index() else {
                     return Err(InterfaceValidationError::Malformed);
                 };
 
-                if depth >= limits.maximum(InterfaceLimit::SemanticTypeDepth) {
-                    return Err(InterfaceValidationError::ResourceLimitExceeded {
-                        limit: InterfaceLimit::SemanticTypeDepth,
-                        actual: depth.saturating_add(1),
-                        maximum: limits.maximum(InterfaceLimit::SemanticTypeDepth),
-                    });
+                match states.get(index).copied() {
+                    Some(VisitState::Unvisited) => pending.push((index, false)),
+                    Some(VisitState::Visiting) => {
+                        return Err(InterfaceValidationError::Malformed);
+                    }
+                    Some(VisitState::Complete(_)) => {}
+                    None => return Err(InterfaceValidationError::Malformed),
                 }
-
-                pending.push((index, depth + 1));
             }
         }
     }

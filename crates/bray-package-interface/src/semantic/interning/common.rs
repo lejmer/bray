@@ -1,3 +1,15 @@
+use std::sync::Arc;
+
+use bray_symbols::{
+    AnyConstantDefinitionId, AnySymbolId, CallableSymbolId, DependencyRequirementKind,
+    ExactSymbolId, ImplementationSymbolId, NamedTypeSymbolId,
+};
+
+use crate::{
+    InterfaceDependencyRequirementKind, InterfaceSemanticInternError, InterfaceSymbolReference,
+    InterfaceSymbolResolver,
+};
+
 pub(super) fn resolve_symbol(
     symbols: &impl InterfaceSymbolResolver,
     reference: &InterfaceSymbolReference,
@@ -28,6 +40,12 @@ impl SymbolFamily for NamedTypeSymbolId {
 }
 
 impl SymbolFamily for ImplementationSymbolId {
+    fn try_from_any(id: AnySymbolId) -> Option<Self> {
+        Self::try_from_any(id)
+    }
+}
+
+impl SymbolFamily for CallableSymbolId {
     fn try_from_any(id: AnySymbolId) -> Option<Self> {
         Self::try_from_any(id)
     }
@@ -104,13 +122,3 @@ pub(super) fn finish_table<I>(
         .map(Arc::from)
         .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)
 }
-use bray_symbols::{
-    AnyConstantDefinitionId, AnySymbolId, DependencyRequirementKind, ExactSymbolId,
-    ImplementationSymbolId, NamedTypeSymbolId,
-};
-
-use crate::{
-    InterfaceDependencyRequirementKind, InterfaceSemanticInternError, InterfaceSymbolReference,
-    InterfaceSymbolResolver,
-};
-use std::sync::Arc;
