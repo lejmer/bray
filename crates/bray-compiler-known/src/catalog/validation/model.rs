@@ -5,6 +5,7 @@ use crate::{AvailabilityRule, ImplementationHook, RepresentationRole};
 use super::super::{
     CatalogDeclarationKind, CatalogDeclarationSurface, CatalogKind, CatalogScopeLocation,
     CatalogSourceAnchor, CatalogTokenSpelling, CatalogTypeSurface,
+    RecognizedStandardLibraryDeclarationIdentity,
 };
 
 #[derive(Clone, Debug)]
@@ -27,6 +28,7 @@ pub(crate) struct ValidatedScope {
 pub(crate) struct ValidatedDeclaration {
     pub(crate) key: Arc<str>,
     pub(crate) owner: ValidatedDeclarationOwner,
+    pub(crate) recognized_identity: Option<RecognizedStandardLibraryDeclarationIdentity>,
     pub(crate) kind: CatalogDeclarationKind,
     pub(crate) surface: CatalogDeclarationSurface,
     pub(crate) representation_role: Option<RepresentationRole>,
@@ -35,7 +37,7 @@ pub(crate) struct ValidatedDeclaration {
     pub(crate) anchor: CatalogSourceAnchor,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub(crate) enum ValidatedDeclarationOwner {
     Scope(usize),
     Declaration(usize),
@@ -67,6 +69,7 @@ pub(super) struct RawDeclaration {
     pub(super) key: Arc<str>,
     pub(super) owner_key: Option<Arc<str>>,
     pub(super) owner: Option<ValidatedDeclarationOwner>,
+    pub(super) recognized_identity: Option<RecognizedStandardLibraryDeclarationIdentity>,
     pub(super) kind: Option<CatalogDeclarationKind>,
     pub(super) surface: CatalogDeclarationSurface,
     pub(super) representation_role: Option<RepresentationRole>,

@@ -260,6 +260,8 @@ fn build_recognized_declarations(
                         )
                     }
                 },
+                // Generated descriptors own their immutable identity representation.
+                identity: declaration.recognized_identity.clone()?,
                 kind: declaration.kind,
                 surface: declaration.surface,
                 implementation_hook: declaration.implementation_hook,
@@ -406,8 +408,8 @@ mod tests {
         CatalogDiagnosticKind, CatalogDiagnostics, CatalogField, CatalogKind, CatalogMetadataKind,
         CatalogScopeLocation, CatalogSource, CatalogSourceAnchor, CatalogSourceId,
         CatalogSourceInventory, CatalogSurfaceContext, CatalogTypeSurface,
-        CompilerKnownDeclarationOwner, RecognizedStandardLibraryDeclarationOwner,
-        generator_input_inventory,
+        CompilerKnownDeclarationOwner, RecognizedStandardLibraryDeclarationIdentity,
+        RecognizedStandardLibraryDeclarationOwner, generator_input_inventory,
     };
     use crate::{AvailabilityRule, ImplementationHook, RepresentationRole};
 
@@ -446,6 +448,7 @@ mod tests {
         "catalog recognized_standard_library;\n",
         "scope StandardText at std.text {\n",
         "  declaration Length {\n",
+        "    identity name length;\n",
         "    implementation MemorySizeOf;\n",
         "    surface { func length(); }\n",
         "  }\n",
@@ -565,6 +568,7 @@ mod tests {
 
         assert_eq!(recognized.key().as_str(), "StandardConvert");
         assert_eq!(recognized.kind(), CatalogDeclarationKind::Function);
+        assert_eq!(recognized.identity().name(), Some("convert"));
     }
 
     #[test]
@@ -627,6 +631,118 @@ mod tests {
                 crate::RecognizedStandardLibraryScopeId::new(0)
             )
         );
+        assert_eq!(recognized.identity().name(), Some("length"));
+    }
+
+    #[test]
+    fn recognized_declaration_identity_is_explicit_and_typed() {
+        let inventory = inventory(
+            CatalogKind::RecognizedStandardLibrary,
+            concat!(
+                "catalog recognized_standard_library;\n",
+                "scope Standard at std {\n",
+                "  declaration Indexed {\n",
+                "    identity ordinal 7;\n",
+                "    surface { func indexed(); }\n",
+                "  }\n",
+                "}\n",
+            ),
+        );
+
+        let mut validator = TestFragmentValidator;
+
+        let catalog = match build_catalog(inventory, &mut validator) {
+            Ok(catalog) => catalog,
+            Err(diagnostics) => panic!("ordinal identity should build: {diagnostics:?}"),
+        };
+
+        let declaration = &catalog.recognized_standard_library_declarations()[0];
+
+        assert_eq!(
+            declaration.identity(),
+            &RecognizedStandardLibraryDeclarationIdentity::Ordinal(7)
+        );
+    }
+
+    #[test]
+    fn declaration_identity_is_required_only_for_recognized_catalogs() {
+        let recognized = inventory(
+            CatalogKind::RecognizedStandardLibrary,
+            concat!(
+                "catalog recognized_standard_library;\n",
+                "scope Standard at std {\n",
+                "  declaration Missing { surface { func missing(); } }\n",
+                "}\n",
+            ),
+        );
+        let mut validator = TestFragmentValidator;
+
+        let recognized_diagnostics = match build_catalog(recognized, &mut validator) {
+            Ok(_) => panic!("recognized identity must be required"),
+            Err(diagnostics) => diagnostics,
+        };
+
+        assert!(contains_kind(&recognized_diagnostics, |kind| matches!(
+            kind,
+            CatalogDiagnosticKind::MissingField {
+                field: CatalogField::Identity
+            }
+        )));
+
+        let compiler_known = inventory(
+            CatalogKind::CompilerKnown,
+            concat!(
+                "catalog compiler_known;\n",
+                "scope Core at ambient {\n",
+                "  declaration Invalid {\n",
+                "    identity name invalid;\n",
+                "    surface { func invalid(); }\n",
+                "  }\n",
+                "}\n",
+            ),
+        );
+        let mut validator = TestFragmentValidator;
+
+        let compiler_diagnostics = match build_catalog(compiler_known, &mut validator) {
+            Ok(_) => panic!("compiler-known identity field must be rejected"),
+            Err(diagnostics) => diagnostics,
+        };
+
+        assert!(contains_kind(&compiler_diagnostics, |kind| matches!(
+            kind,
+            CatalogDiagnosticKind::UnsupportedDeclarationIdentity { .. }
+        )));
+    }
+
+    #[test]
+    fn duplicate_recognized_external_identities_are_rejected() {
+        let inventory = inventory(
+            CatalogKind::RecognizedStandardLibrary,
+            concat!(
+                "catalog recognized_standard_library;\n",
+                "scope Standard at std {\n",
+                "  declaration First {\n",
+                "    identity name convert;\n",
+                "    surface { func first(); }\n",
+                "  }\n",
+                "  declaration Second {\n",
+                "    identity name convert;\n",
+                "    surface { func second(); }\n",
+                "  }\n",
+                "}\n",
+            ),
+        );
+        let mut validator = TestFragmentValidator;
+
+        let diagnostics = match build_catalog(inventory, &mut validator) {
+            Ok(_) => panic!("duplicate external identities must be rejected"),
+            Err(diagnostics) => diagnostics,
+        };
+
+        assert!(contains_kind(&diagnostics, |kind| matches!(
+            kind,
+            CatalogDiagnosticKind::DuplicateRecognizedDeclarationIdentity
+        )));
     }
 
     #[test]
@@ -807,6 +923,7 @@ mod tests {
                 "catalog recognized_standard_library;\n",
                 "scope Standard at ambient {\n",
                 "  declaration Item {\n",
+                "    identity name Item;\n",
                 "    representation ScalarBool;\n",
                 "    surface { struct Item {} }\n",
                 "  }\n",

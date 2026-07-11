@@ -40,10 +40,17 @@ pub(super) struct ParsedDeclaration {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) enum ParsedDeclarationField {
     Owner(Anchored<Arc<str>>),
+    Identity(Anchored<ParsedDeclarationIdentity>),
     Availability(Anchored<Arc<str>>),
     Representation(Anchored<Arc<str>>),
     Implementation(Anchored<Arc<str>>),
     Surface(Anchored<CatalogDeclarationSurface>),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) enum ParsedDeclarationIdentity {
+    Name(Arc<str>),
+    Ordinal(u32),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

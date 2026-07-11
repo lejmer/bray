@@ -10,8 +10,9 @@ use super::diagnostic::{
     CatalogDiagnostic, CatalogDiagnosticKind, CatalogEntryKind, CatalogExpectation,
 };
 use super::entry::{
-    Anchored, ParsedCatalogSource, ParsedDeclaration, ParsedDeclarationField, ParsedEntry,
-    ParsedScope, ParsedScopeLocation, ParsedValue, ParsedValueField,
+    Anchored, ParsedCatalogSource, ParsedDeclaration, ParsedDeclarationField,
+    ParsedDeclarationIdentity, ParsedEntry, ParsedScope, ParsedScopeLocation, ParsedValue,
+    ParsedValueField,
 };
 use super::{
     CatalogDeclarationSurface, CatalogKind, CatalogSource, CatalogSourceAnchor,
@@ -27,6 +28,9 @@ const COMPILER_KNOWN_WORD: &str = "compiler_known";
 const RECOGNIZED_STANDARD_LIBRARY_WORD: &str = "recognized_standard_library";
 const AMBIENT_WORD: &str = "ambient";
 const OWNER_WORD: &str = "owner";
+const IDENTITY_WORD: &str = "identity";
+const NAME_WORD: &str = "name";
+const ORDINAL_WORD: &str = "ordinal";
 const AVAILABILITY_WORD: &str = "availability";
 const REPRESENTATION_WORD: &str = "representation";
 const IMPLEMENTATION_WORD: &str = "implementation";
@@ -221,6 +225,9 @@ impl CatalogParser {
             OWNER_WORD => self
                 .parse_identifier_field(OWNER_WORD)
                 .map(ParsedDeclarationField::Owner),
+            IDENTITY_WORD => self
+                .parse_declaration_identity()
+                .map(ParsedDeclarationField::Identity),
             AVAILABILITY_WORD => self
                 .parse_identifier_field(AVAILABILITY_WORD)
                 .map(ParsedDeclarationField::Availability),
@@ -255,6 +262,56 @@ impl CatalogParser {
                 None
             }
         }
+    }
+
+    fn parse_declaration_identity(&mut self) -> Option<Anchored<ParsedDeclarationIdentity>> {
+        self.expect_word(IDENTITY_WORD)?;
+        let identity_kind = self.consume_identifier(CatalogExpectation::DeclarationIdentityKind)?;
+        let spelling = self.token_text(&identity_kind);
+
+        let identity = match spelling.as_ref() {
+            NAME_WORD => {
+                let name = self.consume_identifier(CatalogExpectation::DeclarationIdentityValue)?;
+
+                Anchored::new(
+                    ParsedDeclarationIdentity::Name(self.token_text(&name)),
+                    self.anchor(name.range()),
+                )
+            }
+            ORDINAL_WORD => {
+                let ordinal = self.peek();
+                let spelling = self.token_text(&ordinal);
+
+                let Ok(value) = spelling.parse::<u32>() else {
+                    self.diagnostics.push(CatalogDiagnostic::new(
+                        self.anchor(ordinal.range()),
+                        CatalogDiagnosticKind::InvalidDeclarationIdentityOrdinal { spelling },
+                    ));
+                    self.tokens.consume();
+
+                    return None;
+                };
+
+                self.tokens.consume();
+
+                Anchored::new(
+                    ParsedDeclarationIdentity::Ordinal(value),
+                    self.anchor(ordinal.range()),
+                )
+            }
+            _ => {
+                self.diagnostics.push(CatalogDiagnostic::new(
+                    self.anchor(identity_kind.range()),
+                    CatalogDiagnosticKind::UnknownDeclarationIdentityKind { spelling },
+                ));
+
+                return None;
+            }
+        };
+
+        self.expect_kind(SyntaxKind::SemicolonToken, CatalogExpectation::Semicolon)?;
+
+        Some(identity)
     }
 
     fn parse_value(&mut self) -> Option<ParsedValue> {
@@ -682,6 +739,28 @@ mod tests {
                 } if spelling.as_ref() == "mystery"
             )
         }));
+    }
+
+    #[test]
+    fn parser_rejects_out_of_range_declaration_identity_ordinals() {
+        let text = concat!(
+            "catalog recognized_standard_library;\n",
+            "scope Standard at std {\n",
+            "  declaration Item {\n",
+            "    identity ordinal 4294967296;\n",
+            "    surface { func item(); }\n",
+            "  }\n",
+            "}\n",
+        );
+
+        let (parsed, diagnostics) = parse_catalog_source(source(text));
+
+        assert_eq!(parsed, None);
+        assert!(diagnostics.iter().any(|diagnostic| matches!(
+            diagnostic.kind(),
+            CatalogDiagnosticKind::InvalidDeclarationIdentityOrdinal { spelling }
+                if spelling.as_ref() == "4294967296"
+        )));
     }
 
     #[test]

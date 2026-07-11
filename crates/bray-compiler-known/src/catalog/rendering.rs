@@ -1,7 +1,7 @@
 use super::{
     CatalogDeclarationSurface, CatalogScopeLocation, CatalogSourceAnchor, CatalogSurfaceElement,
     CatalogTypeSurface, CompilerKnownCatalog, CompilerKnownDeclarationOwner,
-    RecognizedStandardLibraryDeclarationOwner,
+    RecognizedStandardLibraryDeclarationIdentity, RecognizedStandardLibraryDeclarationOwner,
 };
 
 pub(super) fn render_catalog(catalog: &CompilerKnownCatalog, digest: &str) -> String {
@@ -160,12 +160,21 @@ fn render_recognized_declarations(output: &mut String, catalog: &CompilerKnownCa
                 id.raw()
             ),
         };
+        let identity = match declaration.identity() {
+            RecognizedStandardLibraryDeclarationIdentity::Name(name) => {
+                format!("RecognizedStandardLibraryDeclarationIdentity::name_from_static({name:?})")
+            }
+            RecognizedStandardLibraryDeclarationIdentity::Ordinal(ordinal) => {
+                format!("RecognizedStandardLibraryDeclarationIdentity::Ordinal({ordinal})")
+            }
+        };
 
         output.push_str(&format!(
-            "    RecognizedStandardLibraryDeclarationDescriptor {{\n        id: RecognizedStandardLibraryDeclarationId::new({}),\n        key: RecognizedStandardLibraryDeclarationKey::from_static({:?}),\n        owner: {},\n        kind: CatalogDeclarationKind::{:?},\n        surface: {},\n        implementation_hook: {},\n        availability_rule: AvailabilityRule::{:?},\n    }},\n",
+            "    RecognizedStandardLibraryDeclarationDescriptor {{\n        id: RecognizedStandardLibraryDeclarationId::new({}),\n        key: RecognizedStandardLibraryDeclarationKey::from_static({:?}),\n        owner: {},\n        identity: {},\n        kind: CatalogDeclarationKind::{:?},\n        surface: {},\n        implementation_hook: {},\n        availability_rule: AvailabilityRule::{:?},\n    }},\n",
             declaration.id().raw(),
             declaration.key().as_str(),
             owner,
+            identity,
             declaration.kind(),
             render_declaration_surface(declaration.surface()),
             render_option("ImplementationHook", declaration.implementation_hook()),
