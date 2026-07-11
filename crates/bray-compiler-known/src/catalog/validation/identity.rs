@@ -3,10 +3,19 @@ use std::sync::Arc;
 
 use super::super::entry::ParsedDeclarationIdentity;
 use super::super::{
-    CatalogDiagnostic, CatalogDiagnosticKind, CatalogKeyDomain, CatalogRelatedKey,
-    RecognizedStandardLibraryDeclarationIdentity,
+    CatalogDeclarationKind, CatalogDiagnostic, CatalogDiagnosticKind, CatalogKeyDomain,
+    CatalogPath, CatalogRelatedKey, RecognizedStandardLibraryDeclarationIdentity,
 };
-use super::model::RawDeclaration;
+use super::model::{RawDeclaration, ValidatedDeclarationOwner, ValidatedScope};
+
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+enum ExternalIdentityComponent {
+    Scope(CatalogPath),
+    Declaration(
+        CatalogDeclarationKind,
+        RecognizedStandardLibraryDeclarationIdentity,
+    ),
+}
 
 pub(super) fn recognized_identity(
     identity: &ParsedDeclarationIdentity,
@@ -23,20 +32,15 @@ pub(super) fn recognized_identity(
 
 pub(super) fn validate_recognized_identity_uniqueness(
     declarations: &[RawDeclaration],
+    scopes: &[ValidatedScope],
     diagnostics: &mut Vec<CatalogDiagnostic>,
 ) {
     let mut identities = BTreeMap::new();
 
-    for declaration in declarations {
-        let (Some(owner), Some(kind), Some(identity)) = (
-            declaration.owner,
-            declaration.kind,
-            declaration.recognized_identity.as_ref(),
-        ) else {
+    for (index, declaration) in declarations.iter().enumerate() {
+        let Some(semantic_identity) = external_identity(index, declarations, scopes) else {
             continue;
         };
-
-        let semantic_identity = (owner, kind, identity);
 
         if let Some(first) = identities.insert(semantic_identity, Arc::clone(&declaration.key)) {
             diagnostics.push(
@@ -51,4 +55,39 @@ pub(super) fn validate_recognized_identity_uniqueness(
             );
         }
     }
+}
+
+fn external_identity(
+    declaration: usize,
+    declarations: &[RawDeclaration],
+    scopes: &[ValidatedScope],
+) -> Option<Vec<ExternalIdentityComponent>> {
+    let declaration = declarations.get(declaration)?;
+    let kind = declaration.kind?;
+
+    // The complete owner-relative key must survive independently of validation scratch records.
+    let recognized_identity = declaration.recognized_identity.clone()?;
+
+    let mut identity = match declaration.owner? {
+        ValidatedDeclarationOwner::Scope(scope) => {
+            let scope = scopes.get(scope)?;
+            let super::super::CatalogScopeLocation::Module(path) = &scope.location else {
+                return None;
+            };
+
+            // Validation keys own their small immutable path so equal paths across distinct
+            // catalog scopes compare as the same external owner.
+            vec![ExternalIdentityComponent::Scope(path.clone())]
+        }
+        ValidatedDeclarationOwner::Declaration(owner) => {
+            external_identity(owner, declarations, scopes)?
+        }
+    };
+
+    identity.push(ExternalIdentityComponent::Declaration(
+        kind,
+        recognized_identity,
+    ));
+
+    Some(identity)
 }

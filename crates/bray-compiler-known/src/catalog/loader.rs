@@ -725,6 +725,8 @@ mod tests {
                 "    identity name convert;\n",
                 "    surface { func first(); }\n",
                 "  }\n",
+                "}\n",
+                "scope StandardExtension at std {\n",
                 "  declaration Second {\n",
                 "    identity name convert;\n",
                 "    surface { func second(); }\n",

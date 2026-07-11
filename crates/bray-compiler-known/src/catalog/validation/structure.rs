@@ -54,7 +54,11 @@ pub(crate) fn validate_catalog(
         validator,
         diagnostics,
     );
-    validate_recognized_identity_uniqueness(recognized_declarations, diagnostics);
+    validate_recognized_identity_uniqueness(
+        recognized_declarations,
+        &recognized_scopes,
+        diagnostics,
+    );
 
     validate_values(&values, inventory, validator, diagnostics);
     validate_representation_uniqueness(compiler_declarations, &values, diagnostics);
