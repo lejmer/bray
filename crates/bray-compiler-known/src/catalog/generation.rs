@@ -6,7 +6,7 @@ use bray_parser::{
     parse_type_expression_fragment,
 };
 use bray_source::{SourceIdentity, SourceOrigin, SourceStore, SourceVersion};
-use bray_syntax::{SourceSyntaxNode, SyntaxWalkControl, SyntaxWalkEvent, walk_syntax_node};
+use bray_syntax::{SyntaxWalkControl, SyntaxWalkEvent, SyntaxWalkRoot, walk_syntax_node};
 
 use super::rendering::render_catalog;
 use super::{
@@ -387,7 +387,7 @@ fn declaration_elements(
 }
 
 fn collect_surface_elements(
-    node: &impl SourceSyntaxNode,
+    node: &impl SyntaxWalkRoot,
     source_text: &str,
 ) -> Option<Vec<CatalogSurfaceElement>> {
     let mut elements = Vec::new();

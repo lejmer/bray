@@ -102,14 +102,42 @@ impl SourceSyntaxNode for SyntaxNodeView<'_> {
         self.source
     }
 
-    fn syntax_view(&self) -> SyntaxNodeView<'_> {
-        *self
-    }
-
     fn write_full_text_from(&self, source_text: &str, writer: &mut dyn Write) -> fmt::Result {
         self.node.write_source_text(source_text, self.start, writer)
     }
 }
+
+mod sealed {
+    use crate::SyntaxNodeView;
+
+    pub trait SyntaxWalkRoot {
+        fn syntax_walk_root(&self) -> SyntaxNodeView<'_>;
+    }
+}
+
+impl<T> sealed::SyntaxWalkRoot for T
+where
+    T: GreenSourceSyntaxNode,
+{
+    fn syntax_walk_root(&self) -> SyntaxNodeView<'_> {
+        SyntaxNodeView::new(self.source(), self.green_node(), self.start())
+    }
+}
+
+impl sealed::SyntaxWalkRoot for SyntaxNodeView<'_> {
+    fn syntax_walk_root(&self) -> SyntaxNodeView<'_> {
+        *self
+    }
+}
+
+/// A Bray-owned typed syntax node or opaque node view that can be traversed.
+///
+/// This trait is sealed because traversal requires access to Bray's immutable
+/// green syntax storage. It is exported only as the bound of
+/// [`walk_syntax_node`].
+pub trait SyntaxWalkRoot: sealed::SyntaxWalkRoot {}
+
+impl<T> SyntaxWalkRoot for T where T: sealed::SyntaxWalkRoot {}
 
 /// Concrete typed syntax node cast from a generic syntax node view.
 pub trait SyntaxCast: SourceSyntaxNode + Sized {
@@ -175,10 +203,10 @@ pub fn walk_source_unit(
 
 /// Walks one typed source syntax node in source order.
 pub fn walk_syntax_node(
-    node: &impl SourceSyntaxNode,
+    node: &impl SyntaxWalkRoot,
     mut visitor: impl for<'syntax> FnMut(SyntaxWalkEvent<'syntax>) -> SyntaxWalkControl,
 ) {
-    walk_node(node.syntax_view(), &mut visitor);
+    walk_node(node.syntax_walk_root(), &mut visitor);
 }
 
 pub(crate) fn cast_source_node<T>(
