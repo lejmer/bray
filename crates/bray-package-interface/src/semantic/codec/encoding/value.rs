@@ -132,6 +132,7 @@ pub(super) fn encode_type(encoder: &mut WireEncoder, ty: &InterfaceType) {
 
             for parameter in &**parameters {
                 write_string(encoder, &parameter.name);
+
                 encoder.write_u32(parameter.position.to_wire());
                 encoder.write_u32(parameter.mode.to_wire());
                 encoder.write_u32(parameter.ty.raw());
@@ -182,7 +183,9 @@ pub(super) fn encode_constant_value(encoder: &mut WireEncoder, kind: &InterfaceC
                 IntegerSign::NonNegative => 1,
                 IntegerSign::Negative => 2,
             });
+
             write_count(encoder, value.magnitude().len());
+
             encoder.write_bytes(value.magnitude());
         }
         InterfaceConstantValueKind::Real(value) => {
@@ -191,6 +194,7 @@ pub(super) fn encode_constant_value(encoder: &mut WireEncoder, kind: &InterfaceC
         }
         InterfaceConstantValueKind::Complex { real, imaginary } => {
             encoder.write_u32(5);
+
             encode_real(encoder, *real);
             encode_real(encoder, *imaginary);
         }
@@ -217,6 +221,7 @@ pub(super) fn encode_constant_value(encoder: &mut WireEncoder, kind: &InterfaceC
         }
         InterfaceConstantValueKind::Union { variant, fields } => {
             encoder.write_u32(13);
+
             write_symbol_reference(encoder, variant);
             write_ids(encoder, fields, |id| id.raw());
         }
@@ -255,8 +260,11 @@ pub(super) fn encode_constant_term(encoder: &mut WireEncoder, term: &InterfaceCo
             selected_implementation,
         } => {
             encoder.write_u32(6);
+
             write_symbol_reference(encoder, definition);
+
             encoder.write_u32(substitution.raw());
+
             write_optional_u32(
                 encoder,
                 selected_implementation.map(|implementation| implementation.raw()),
@@ -268,11 +276,13 @@ pub(super) fn encode_constant_term(encoder: &mut WireEncoder, term: &InterfaceCo
         } => {
             encoder.write_u32(7);
             encoder.write_u32(callable.raw());
+
             write_ids(encoder, arguments, |id| id.raw());
         }
         InterfaceConstantTerm::Projection { subject, kind } => {
             encoder.write_u32(8);
             encoder.write_u32(subject.raw());
+
             encode_constant_projection(encoder, kind);
         }
     }

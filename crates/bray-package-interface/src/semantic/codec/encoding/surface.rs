@@ -16,6 +16,7 @@ pub(super) fn encode_implementations(facts: &InterfaceSemanticFacts) -> EncodedS
     for implementation in &*facts.implementations {
         write_symbol_reference(&mut encoder, &implementation.implementation);
         encoder.write_u32(implementation.subject.raw());
+
         write_optional_u32(
             &mut encoder,
             implementation
@@ -27,6 +28,7 @@ pub(super) fn encode_implementations(facts: &InterfaceSemanticFacts) -> EncodedS
     for coherence in &*facts.coherence {
         encoder.write_u32(coherence.subject.raw());
         encoder.write_u32(coherence.trait_application.raw());
+
         write_count(&mut encoder, coherence.implementations.len());
 
         for implementation in &*coherence.implementations {
@@ -70,6 +72,7 @@ pub(super) fn encode_provenance(facts: &InterfaceSemanticFacts) -> EncodedSemant
     for provenance in &*facts.provenance {
         write_symbol_reference(&mut encoder, &provenance.symbol);
         write_string(&mut encoder, &provenance.document);
+
         encoder.write_u32(provenance.start);
         encoder.write_u32(provenance.end);
     }

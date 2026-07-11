@@ -22,6 +22,7 @@ pub(super) fn decode_contracts(
     facts: &mut InterfaceSemanticFacts,
 ) -> Result<(), InterfaceValidationError> {
     let mut reader = WireReader::new(section.bytes());
+
     let dependency_count = read_count(&mut reader, limits, InterfaceLimit::RecordCount)?;
     let constraint_count = read_count(&mut reader, limits, InterfaceLimit::RecordCount)?;
     let callable_count = read_count(&mut reader, limits, InterfaceLimit::RecordCount)?;
@@ -66,6 +67,7 @@ pub(super) fn decode_contracts(
     for _ in 0..callable_count {
         let owner = read_symbol_reference(&mut reader, context)?;
         let clause_count = read_count(&mut reader, limits, InterfaceLimit::RecordCount)?;
+
         let mut clauses = Vec::with_capacity(clause_count);
 
         for _ in 0..clause_count {
@@ -79,6 +81,7 @@ pub(super) fn decode_contracts(
         }
 
         let capability_count = read_count(&mut reader, limits, InterfaceLimit::RecordCount)?;
+
         let mut capabilities = Vec::with_capacity(capability_count);
 
         for _ in 0..capability_count {
@@ -118,6 +121,7 @@ pub(super) fn decode_dependency_requirement(
         2 => {
             let guard = decode_dependency_guard(reader, limits, context)?;
             let count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
+
             let mut requirements = Vec::with_capacity(count);
 
             for _ in 0..count {
@@ -152,7 +156,9 @@ pub(super) fn decode_dependency_subject(
         ),
         _ => return Err(InterfaceValidationError::Malformed),
     };
+
     let count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
+
     let mut projections = Vec::with_capacity(count);
 
     for _ in 0..count {

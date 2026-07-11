@@ -24,6 +24,7 @@ pub(super) fn decode_types(
     context: &mut SemanticDecodeContext,
 ) -> Result<InterfaceSemanticFacts, InterfaceValidationError> {
     let mut reader = WireReader::new(section.bytes());
+
     let substitution_count = read_count(&mut reader, limits, InterfaceLimit::RecordCount)?;
     let trait_application_count = read_count(&mut reader, limits, InterfaceLimit::RecordCount)?;
     let callable_instance_count = read_count(&mut reader, limits, InterfaceLimit::RecordCount)?;
@@ -47,10 +48,12 @@ pub(super) fn decode_types(
     for _ in 0..substitution_count {
         let owner = read_symbol_reference(&mut reader, context)?;
         let binding_count = read_count(&mut reader, limits, InterfaceLimit::RecordCount)?;
+
         let mut bindings = Vec::with_capacity(binding_count);
 
         for _ in 0..binding_count {
             let parameter = read_symbol_reference(&mut reader, context)?;
+
             let argument = match read_u32(&mut reader)? {
                 1 => InterfaceGenericArgument::Type(InterfaceTypeId::new(read_u32(&mut reader)?)),
                 2 => InterfaceGenericArgument::Constant(InterfaceConstantTermId::new(read_u32(
@@ -163,6 +166,7 @@ pub(super) fn decode_callable_type(
     limits: InterfaceValidationLimits,
 ) -> Result<InterfaceType, InterfaceValidationError> {
     let parameter_count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
+
     let mut parameters = Vec::with_capacity(parameter_count);
 
     for _ in 0..parameter_count {
@@ -192,6 +196,7 @@ pub(super) fn decode_constants(
     facts: &mut InterfaceSemanticFacts,
 ) -> Result<(), InterfaceValidationError> {
     let mut reader = WireReader::new(section.bytes());
+
     let value_count = read_count(&mut reader, limits, InterfaceLimit::RecordCount)?;
     let term_count = read_count(&mut reader, limits, InterfaceLimit::RecordCount)?;
 
@@ -240,8 +245,10 @@ pub(super) fn decode_constant_value(
                 2 => IntegerSign::Negative,
                 _ => return Err(InterfaceValidationError::Malformed),
             };
+
             let length = read_count(reader, limits, InterfaceLimit::BlobLength)?;
             let magnitude = reader.read_bytes(length).map_err(map_wire_error)?;
+
             let integer = IntegerConstant::new(sign, magnitude.iter().copied());
 
             if integer.sign() != sign || integer.magnitude() != magnitude {
@@ -390,8 +397,10 @@ mod tests {
     fn semantic_sections_round_trip_and_intern_without_persisting_local_value_ids() {
         let facts = facts();
         let limits = InterfaceValidationLimits::default();
+
         let sections = encode_semantic_facts(&facts, 3, 0, limits)
             .unwrap_or_else(|error| panic!("semantic encoding failed: {error:?}"));
+
         let views: Vec<_> = sections
             .iter()
             .map(|section| {
@@ -554,18 +563,24 @@ mod tests {
     #[test]
     fn dependency_symbol_references_round_trip_with_stable_external_keys() {
         let limits = InterfaceValidationLimits::default();
+
         let mut facts = facts();
+
         let package = PackageIdentity::try_new("dependency.package")
             .unwrap_or_else(|| panic!("dependency package identity must be valid"));
+
         let owner = ExternalSymbolKey::package(package);
+
         let name = SymbolName::try_new("pointer_width")
             .unwrap_or_else(|| panic!("target fact name must be valid"));
         let key = ExternalSymbolKey::named(owner, SymbolKind::Constant, name)
             .unwrap_or_else(|| panic!("constant external key must be valid"));
+
         let dependency_fact = InterfaceSymbolReference::Dependency {
             dependency: DependencyInterfaceId::new(0),
             key,
         };
+
         let abi_dependencies = facts.abi_dependencies().to_vec();
 
         facts = facts.with_target_dependencies(
@@ -578,6 +593,7 @@ mod tests {
 
         let sections = encode_semantic_facts(&facts, 3, 1, limits)
             .unwrap_or_else(|error| panic!("semantic encoding failed: {error:?}"));
+
         let views: Vec<_> = sections
             .iter()
             .map(|section| {
@@ -606,6 +622,7 @@ mod tests {
     #[test]
     fn noncanonical_surface_fact_order_is_rejected_before_encoding() {
         let base = facts();
+
         let constraint = base.constraints()[0].clone();
         let facts = base.clone().with_contracts(
             [constraint.clone(), constraint],
@@ -622,6 +639,7 @@ mod tests {
         let struct_reference = local(0);
         let constant_reference = local(1);
         let function_reference = local(2);
+
         let provenance =
             InterfaceSourceProvenance::try_new(function_reference.clone(), "source.bray", 4, 12)
                 .unwrap_or_else(|| panic!("ordered source provenance must be valid"));

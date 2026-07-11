@@ -26,6 +26,7 @@ pub(super) fn write_symbol_reference(
         InterfaceSymbolReference::Dependency { dependency, key } => {
             encoder.write_u32(2);
             encoder.write_u32(dependency.raw());
+
             write_external_key(encoder, key);
         }
     }
@@ -97,6 +98,7 @@ fn write_external_key(encoder: &mut WireEncoder, key: &ExternalSymbolKey) {
             ExternalSymbolKeyData::Synthesized { role, ordinal, .. } => {
                 encoder.write_u32(4);
                 encoder.write_u32(role.to_wire());
+
                 write_optional_u32(encoder, ordinal.map(SymbolOrdinal::raw));
             }
         }
@@ -121,6 +123,7 @@ fn read_external_key(
     for _ in 0..count {
         let kind =
             SymbolKind::from_wire(read_u32(reader)?).ok_or(InterfaceValidationError::Malformed)?;
+
         let shape = read_u32(reader)?;
 
         key = Some(match shape {
@@ -133,6 +136,7 @@ fn read_external_key(
             2 if kind == SymbolKind::Module => {
                 let owner = key.ok_or(InterfaceValidationError::Malformed)?;
                 let segment_count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
+
                 let mut segments = Vec::with_capacity(segment_count);
 
                 for _ in 0..segment_count {
@@ -167,6 +171,7 @@ fn read_external_key(
                 let owner = key.ok_or(InterfaceValidationError::Malformed)?;
                 let role = SynthesizedSymbolRole::from_wire(read_u32(reader)?)
                     .ok_or(InterfaceValidationError::Malformed)?;
+
                 let ordinal = read_optional_u32(reader)?.map(SymbolOrdinal::new);
 
                 let key = ExternalSymbolKey::synthesized(owner, role, ordinal)

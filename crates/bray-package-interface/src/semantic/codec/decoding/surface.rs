@@ -20,6 +20,7 @@ pub(super) fn decode_implementations(
     facts: &mut InterfaceSemanticFacts,
 ) -> Result<(), InterfaceValidationError> {
     let mut reader = WireReader::new(section.bytes());
+
     let implementation_count = read_count(&mut reader, limits, InterfaceLimit::RecordCount)?;
     let coherence_count = read_count(&mut reader, limits, InterfaceLimit::RecordCount)?;
 
@@ -40,7 +41,9 @@ pub(super) fn decode_implementations(
     for _ in 0..coherence_count {
         let subject = InterfaceTypeId::new(read_u32(&mut reader)?);
         let trait_application = InterfaceTraitApplicationId::new(read_u32(&mut reader)?);
+
         let count = read_count(&mut reader, limits, InterfaceLimit::RecordCount)?;
+
         let mut candidates = Vec::with_capacity(count);
 
         for _ in 0..count {
@@ -69,6 +72,7 @@ pub(super) fn decode_target_dependencies(
     facts: &mut InterfaceSemanticFacts,
 ) -> Result<(), InterfaceValidationError> {
     let mut reader = WireReader::new(section.bytes());
+
     let target_count = read_count(&mut reader, limits, InterfaceLimit::RecordCount)?;
     let abi_count = read_count(&mut reader, limits, InterfaceLimit::RecordCount)?;
 
@@ -117,6 +121,7 @@ pub(super) fn decode_provenance(
     for _ in 0..count {
         let symbol = read_symbol_reference(&mut reader, context)?;
         let document = read_string(&mut reader, limits)?;
+
         let start = read_u32(&mut reader)?;
         let end = read_u32(&mut reader)?;
 
