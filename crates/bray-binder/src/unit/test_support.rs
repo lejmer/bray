@@ -12,15 +12,15 @@ use bray_testing::{test_source_at, test_source_store};
 use super::builder::BoundUnitLocalBuilder;
 use super::{AnonymousCallableBoundary, BoundUnitConstructionResult};
 
-pub(super) struct Fixture {
-    pub(super) key: BoundUnitKey,
-    pub(super) first: SyntaxAnchor,
-    pub(super) second: SyntaxAnchor,
-    pub(super) foreign: SyntaxAnchor,
-    pub(super) version: SourceVersion,
+pub(crate) struct Fixture {
+    pub(crate) key: BoundUnitKey,
+    pub(crate) first: SyntaxAnchor,
+    pub(crate) second: SyntaxAnchor,
+    pub(crate) foreign: SyntaxAnchor,
+    pub(crate) version: SourceVersion,
 }
 
-pub(super) fn fixture() -> Fixture {
+pub(crate) fn fixture() -> Fixture {
     let sources = test_source_store([
         "module app; func main() {} func next() {}",
         "module other; func foreign() {}",
@@ -98,7 +98,7 @@ pub(super) fn fixture() -> Fixture {
     }
 }
 
-pub(super) fn builder(fixture: &Fixture, region: LocalSymbolRegionId) -> BoundUnitLocalBuilder {
+pub(crate) fn builder(fixture: &Fixture, region: LocalSymbolRegionId) -> BoundUnitLocalBuilder {
     match BoundUnitLocalBuilder::new(
         BoundUnitId::new(7),
         fixture.key.clone(),
@@ -123,7 +123,7 @@ pub(super) fn push_scope(
     }
 }
 
-pub(super) fn push_binding(
+pub(crate) fn push_binding(
     builder: &mut BoundUnitLocalBuilder,
     scope: LocalScopeId,
     syntax: SyntaxAnchor,

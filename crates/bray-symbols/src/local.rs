@@ -6,7 +6,7 @@ mod record;
 mod scope;
 mod snapshot;
 
-pub use builder::LocalSymbolSnapshotBuilder;
+pub use builder::{LocalSymbolSnapshotBuilder, LocalSymbolSnapshotCheckpoint};
 pub use error::LocalSymbolBuildError;
 pub use id::{
     AnonymousCallableParameterSymbolId, AnonymousCallableSymbolId, AnyLocalSymbolId,

@@ -100,7 +100,7 @@ pub use local::{
     LocalConstantSymbol, LocalConstantSymbolId, LocalScope, LocalScopeBoundary, LocalScopeId,
     LocalSymbolBuildError, LocalSymbolKey, LocalSymbolRegionId, LocalSymbolRegionKey,
     LocalSymbolRegionRole, LocalSymbolSnapshot, LocalSymbolSnapshotBuilder,
-    PostconditionResultSymbol, PostconditionResultSymbolId,
+    LocalSymbolSnapshotCheckpoint, PostconditionResultSymbol, PostconditionResultSymbolId,
 };
 pub use member::{
     MemberCollectionBuildError, MemberEntry, MemberLookupIndex, MemberLookupResult, MemberValidity,

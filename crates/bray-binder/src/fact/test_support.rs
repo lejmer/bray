@@ -21,7 +21,7 @@ use super::{
     TargetFactProvider, TargetFactResult,
 };
 
-pub(super) struct TestSymbolFacts {
+pub(crate) struct TestSymbolFacts {
     symbol: ConstantSymbolId,
     pub(super) result: Arc<DiagnosticResult<TypeId>>,
 }
@@ -39,7 +39,7 @@ impl SymbolFactProvider<ConstantDeclaredTypeFact> for TestSymbolFacts {
     }
 }
 
-pub(super) struct TestTargetFacts {
+pub(crate) struct TestTargetFacts {
     symbol: ConstantSymbolId,
     result: Arc<TargetFactResult>,
 }
@@ -54,7 +54,7 @@ impl TargetFactProvider for TestTargetFacts {
     }
 }
 
-pub(super) struct TestCancellation {
+pub(crate) struct TestCancellation {
     cancelled: AtomicBool,
 }
 
@@ -70,7 +70,7 @@ impl BinderCancellation for TestCancellation {
     }
 }
 
-pub(super) struct TestContext<'facts> {
+pub(crate) struct TestContext<'facts> {
     syntax: &'facts SyntaxTree,
     declarations: &'facts DeclarationTable,
     symbols: &'facts SymbolGraph,
@@ -114,21 +114,21 @@ impl BinderFactContext for TestContext<'_> {
     }
 }
 
-pub(super) struct TestFixture {
+pub(crate) struct TestFixture {
     syntax: SyntaxTree,
     declarations: DeclarationTable,
     symbols: SymbolGraph,
-    pub(super) semantic_values: SemanticValueStore,
-    pub(super) constant: ConstantSymbolId,
-    pub(super) declared_type: TypeId,
-    pub(super) target_value: ConstantValueId,
+    pub(crate) semantic_values: SemanticValueStore,
+    pub(crate) constant: ConstantSymbolId,
+    pub(crate) declared_type: TypeId,
+    pub(crate) target_value: ConstantValueId,
     symbol_facts: TestSymbolFacts,
     target_facts: TestTargetFacts,
     cancellation: TestCancellation,
 }
 
 impl TestFixture {
-    pub(super) fn new() -> Self {
+    pub(crate) fn new() -> Self {
         let mut sources = SourceStore::new();
         let source = SourceInput::virtual_text(
             SourceIdentity::new(0),
@@ -210,7 +210,7 @@ impl TestFixture {
         }
     }
 
-    pub(super) fn context(&self) -> TestContext<'_> {
+    pub(crate) fn context(&self) -> TestContext<'_> {
         TestContext {
             syntax: &self.syntax,
             declarations: &self.declarations,

@@ -1,15 +1,16 @@
 use std::collections::BTreeSet;
 
 use bray_bound_tree::{
-    BoundSourceAnchor, BoundTreeBuilder, BoundUnitId, BoundUnitKey, BoundUnitKeyData, BoundUnitView,
+    BoundSourceAnchor, BoundTreeBuilder, BoundTreeCheckpoint, BoundUnitId, BoundUnitKey,
+    BoundUnitKeyData, BoundUnitView,
 };
 use bray_declarations::SyntaxAnchor;
 use bray_source::TextSize;
 use bray_symbols::{
     AnonymousCallableParameterSymbolId, AnonymousCallableSymbolId, AnyLocalSymbolId, AnySymbolId,
     LocalBindingSymbolId, LocalConstantSymbolId, LocalScopeBoundary, LocalScopeId,
-    LocalSymbolRegionId, LocalSymbolSnapshotBuilder, PostconditionResultSymbolId, SymbolName,
-    SymbolOrdinal,
+    LocalSymbolRegionId, LocalSymbolSnapshotBuilder, LocalSymbolSnapshotCheckpoint,
+    PostconditionResultSymbolId, SymbolName, SymbolOrdinal,
 };
 
 use super::{
@@ -20,6 +21,17 @@ use super::{
 type AnonymousCallableIdentity = (LocalScopeId, SyntaxAnchor, Option<SymbolOrdinal>);
 type AnonymousParameterIdentity = (AnonymousCallableSymbolId, SymbolOrdinal);
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct BoundUnitLocalCheckpoint {
+    unit: BoundUnitId,
+    region: LocalSymbolRegionId,
+    tree: BoundTreeCheckpoint,
+    local_symbols: LocalSymbolSnapshotCheckpoint,
+    activated_locals: usize,
+    anonymous_callables: usize,
+    anonymous_parameters: usize,
+}
+
 /// Binder-owned construction of bound nodes, local symbols, and lexical scopes for one unit.
 #[derive(Debug)]
 pub(crate) struct BoundUnitLocalBuilder {
@@ -28,8 +40,11 @@ pub(crate) struct BoundUnitLocalBuilder {
     local_symbols: LocalSymbolSnapshotBuilder,
     root_scope: LocalScopeId,
     activated_locals: BTreeSet<AnyLocalSymbolId>,
+    activated_local_log: Vec<AnyLocalSymbolId>,
     anonymous_callables: BTreeSet<AnonymousCallableIdentity>,
+    anonymous_callable_log: Vec<AnonymousCallableIdentity>,
     anonymous_parameters: BTreeSet<AnonymousParameterIdentity>,
+    anonymous_parameter_log: Vec<AnonymousParameterIdentity>,
 }
 
 impl BoundUnitLocalBuilder {
@@ -56,8 +71,11 @@ impl BoundUnitLocalBuilder {
             local_symbols,
             root_scope,
             activated_locals: BTreeSet::new(),
+            activated_local_log: Vec::new(),
             anonymous_callables: BTreeSet::new(),
+            anonymous_callable_log: Vec::new(),
             anonymous_parameters: BTreeSet::new(),
+            anonymous_parameter_log: Vec::new(),
         })
     }
 
@@ -141,6 +159,7 @@ impl BoundUnitLocalBuilder {
         self.local_symbols.insert_local_name(scope, symbol)?;
 
         self.activated_locals.insert(symbol);
+        self.activated_local_log.push(symbol);
 
         Ok(())
     }
@@ -210,6 +229,7 @@ impl BoundUnitLocalBuilder {
         let unit = BoundUnitKey::anonymous_callable(self.key.clone(), source);
 
         self.anonymous_callables.insert(identity);
+        self.anonymous_callable_log.push(identity);
 
         Ok(AnonymousCallableBoundary::new(
             callable,
@@ -252,9 +272,72 @@ impl BoundUnitLocalBuilder {
             .insert_local_name(boundary.scope(), parameter.into())?;
 
         self.activated_locals.insert(parameter.into());
+        self.activated_local_log.push(parameter.into());
         self.anonymous_parameters.insert(identity);
+        self.anonymous_parameter_log.push(identity);
 
         Ok(parameter)
+    }
+
+    pub(crate) fn checkpoint(&self) -> BoundUnitLocalCheckpoint {
+        BoundUnitLocalCheckpoint {
+            unit: self.unit(),
+            region: self.region(),
+            tree: self.tree.checkpoint(),
+            local_symbols: self.local_symbols.checkpoint(),
+            activated_locals: self.activated_local_log.len(),
+            anonymous_callables: self.anonymous_callable_log.len(),
+            anonymous_parameters: self.anonymous_parameter_log.len(),
+        }
+    }
+
+    pub(crate) fn rollback(&mut self, checkpoint: BoundUnitLocalCheckpoint) -> bool {
+        if checkpoint.unit != self.unit() || checkpoint.region != self.region() {
+            return false;
+        }
+
+        if checkpoint.activated_locals > self.activated_local_log.len()
+            || checkpoint.anonymous_callables > self.anonymous_callable_log.len()
+            || checkpoint.anonymous_parameters > self.anonymous_parameter_log.len()
+        {
+            return false;
+        }
+
+        if !self.tree.can_rollback_to(checkpoint.tree)
+            || !self.local_symbols.can_rollback_to(checkpoint.local_symbols)
+        {
+            return false;
+        }
+
+        let tree_rolled_back = self.tree.rollback(checkpoint.tree);
+        let locals_rolled_back = self.local_symbols.rollback(checkpoint.local_symbols);
+
+        if !tree_rolled_back || !locals_rolled_back {
+            return false;
+        }
+
+        for symbol in self
+            .activated_local_log
+            .drain(checkpoint.activated_locals..)
+        {
+            self.activated_locals.remove(&symbol);
+        }
+
+        for identity in self
+            .anonymous_callable_log
+            .drain(checkpoint.anonymous_callables..)
+        {
+            self.anonymous_callables.remove(&identity);
+        }
+
+        for identity in self
+            .anonymous_parameter_log
+            .drain(checkpoint.anonymous_parameters..)
+        {
+            self.anonymous_parameters.remove(&identity);
+        }
+
+        true
     }
 
     pub(crate) fn finish(self) -> Result<BoundUnitConstructionResult, BoundUnitConstructionError> {
@@ -318,18 +401,21 @@ impl BoundUnitLocalBuilder {
 
 #[cfg(test)]
 mod tests {
-    use bray_bound_tree::{BoundSourceAnchor, BoundUnitId, BoundUnitKind};
+    use bray_bound_tree::{
+        BoundErrorExpression, BoundExpression, BoundNodeOrigin, BoundSourceAnchor, BoundUnitId,
+        BoundUnitKind,
+    };
     use bray_source::{SourceVersion, TextSize};
     use bray_symbols::{
         AnyLocalSymbolId, LocalScopeBoundary, LocalSymbolBuildError, LocalSymbolRegionId,
-        SymbolOrdinal,
+        SemanticValueStore, SymbolOrdinal, TypeData,
     };
 
     use crate::unit::BoundUnitConstructionError;
     use crate::unit::builder::BoundUnitLocalBuilder;
     use crate::unit::test_support::{
         builder as new_builder, finish, fixture, push_anonymous_callable, push_binding, push_scope,
-        symbol_name,
+        representative_binding, symbol_name,
     };
 
     #[test]
@@ -606,6 +692,73 @@ mod tests {
     }
 
     #[test]
+    fn checkpoints_restore_local_identity_and_visibility_state() {
+        let fixture = fixture();
+        let mut builder = new_builder(&fixture, LocalSymbolRegionId::new(13));
+        let root = builder.root_scope();
+        let checkpoint = builder.checkpoint();
+        let abandoned = push_binding(&mut builder, root, fixture.first, false);
+
+        assert_eq!(builder.activate_local(root, abandoned), Ok(()));
+        assert!(builder.rollback(checkpoint));
+
+        let reused = push_binding(&mut builder, root, fixture.first, false);
+
+        assert_eq!(reused, abandoned);
+        assert_eq!(builder.activate_local(root, reused), Ok(()));
+
+        let result = finish(builder);
+
+        assert_eq!(
+            result
+                .local_symbols()
+                .scope(root)
+                .map(|scope| scope.local_symbols_named("value")),
+            Some(&[AnyLocalSymbolId::from(reused)][..])
+        );
+    }
+
+    #[test]
+    fn rejected_composite_checkpoints_leave_tree_and_locals_unchanged() {
+        let fixture = fixture();
+        let region = LocalSymbolRegionId::new(14);
+        let mut builder = new_builder(&fixture, region);
+        let root = builder.root_scope();
+        let retained = push_binding(&mut builder, root, fixture.first, false);
+
+        assert_eq!(builder.activate_local(root, retained), Ok(()));
+
+        let expression = push_error_expression(&mut builder, &fixture);
+        let mut other = new_builder(&fixture, region);
+        let other_root = other.root_scope();
+
+        push_binding(&mut other, other_root, fixture.first, false);
+        representative_binding(
+            &mut other,
+            other_root,
+            [fixture.second],
+            SymbolOrdinal::new(1),
+            false,
+        );
+
+        let incompatible = other.checkpoint();
+
+        assert!(!builder.rollback(incompatible));
+        assert!(builder.view().expression(expression).is_some());
+
+        let result = finish(builder);
+
+        assert!(result.local_symbols().binding(retained).is_some());
+        assert_eq!(
+            result
+                .local_symbols()
+                .scope(root)
+                .map(|scope| scope.local_symbols_named("value")),
+            Some(&[AnyLocalSymbolId::from(retained)][..])
+        );
+    }
+
+    #[test]
     fn builders_can_move_to_independent_parallel_workers() {
         fn assert_send<T: Send>() {}
 
@@ -627,5 +780,29 @@ mod tests {
         assert_eq!(boundary.unit().kind(), BoundUnitKind::AnonymousCallable);
 
         (builder, root, boundary)
+    }
+
+    fn push_error_expression(
+        builder: &mut BoundUnitLocalBuilder,
+        fixture: &crate::unit::test_support::Fixture,
+    ) -> bray_bound_tree::BoundExpressionId {
+        let values = match SemanticValueStore::try_new() {
+            Ok(values) => values,
+            Err(error) => panic!("test semantic store must build: {error:?}"),
+        };
+
+        let error_type = match values.intern_type(TypeData::Error) {
+            Ok(error_type) => error_type,
+            Err(error) => panic!("test error type must build: {error:?}"),
+        };
+
+        let origin =
+            BoundNodeOrigin::source(BoundSourceAnchor::new(fixture.first, fixture.version));
+        let expression = BoundExpression::Error(BoundErrorExpression::new(origin, error_type));
+
+        match builder.tree_mut().push_expression(expression) {
+            Ok(expression) => expression,
+            Err(error) => panic!("test expression must build: {error:?}"),
+        }
     }
 }
