@@ -85,6 +85,11 @@ version = "0.0.0"
 [[package]]
 name = "bray-binder"
 version = "0.0.0"
+dependencies = [
+ "bray-bound-tree",
+ "bray-checker",
+ "bray-diagnostics",
+]
 
 [[package]]
 name = "bray-bound-tree"

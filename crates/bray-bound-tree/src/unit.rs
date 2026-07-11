@@ -353,13 +353,10 @@ impl BoundUnitKey {
 mod tests {
     use std::mem::size_of;
 
-    use bray_declarations::DeclarationId;
-    use bray_symbols::{
-        ModulePathKey, PackageIdentity, SymbolKind, SymbolRootKey, SynthesizedSymbolKey,
-    };
+    use bray_symbols::SymbolKind;
 
     use super::{BoundUnitId, BoundUnitKey, BoundUnitKeyData, BoundUnitKind};
-    use crate::test_support::source_anchor;
+    use crate::test_support::{runtime_default_key, source_anchor, symbol_key};
     use crate::{BoundExpressionId, BoundPatternId};
 
     #[test]
@@ -506,37 +503,6 @@ mod tests {
         fn assert_send_sync<T: Send + Sync>() {}
 
         assert_send_sync::<BoundUnitKey>();
-    }
-
-    fn symbol_key(kind: SymbolKind, declaration: u32) -> bray_symbols::SymbolKey {
-        let Some(package) = PackageIdentity::try_new("example.package") else {
-            panic!("test package identity is non-empty");
-        };
-
-        let Some(path) = ModulePathKey::try_new(["example"]) else {
-            panic!("test module path is non-empty");
-        };
-
-        let owner = bray_symbols::SymbolKey::module(SymbolRootKey::Package(package), path);
-
-        let key = bray_symbols::SymbolKey::source_declaration(
-            owner,
-            kind,
-            DeclarationId::new(declaration),
-        );
-
-        match key {
-            Some(key) => key,
-            None => panic!("test symbol kind must be source-declared"),
-        }
-    }
-
-    fn runtime_default_key(declaration: u32) -> bray_symbols::SymbolKey {
-        let parameter = symbol_key(SymbolKind::CallableParameter, declaration);
-
-        let provider = SynthesizedSymbolKey::callable_parameter_default_provider(parameter);
-
-        bray_symbols::SymbolKey::synthesized(provider)
     }
 
     fn valid_key(key: Option<BoundUnitKey>) -> BoundUnitKey {
