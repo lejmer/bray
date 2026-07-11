@@ -9,6 +9,7 @@ mod origin;
 mod storage;
 #[cfg(test)]
 mod test_support;
+mod tree;
 mod unit;
 mod view;
 
@@ -19,7 +20,9 @@ pub use dependency::{
     GuardedBoundDependencyRequirement, LifecycleObligationId, ScopedCapabilityId,
 };
 pub use node::{
-    AnyBoundNodeId, BoundBlockId, BoundCallableBodyId, BoundExpressionId, BoundNodeKind,
+    AnyBoundNodeId, BoundBlock, BoundBlockExpression, BoundBlockId, BoundCallableBody,
+    BoundCallableBodyId, BoundCallableBodyKind, BoundErrorCallableBody, BoundErrorExpression,
+    BoundErrorPattern, BoundExpression, BoundExpressionId, BoundNodeKind, BoundPattern,
     BoundPatternId, ExactBoundNodeId,
 };
 pub use origin::{
@@ -28,6 +31,10 @@ pub use origin::{
 pub use storage::{
     BorrowCapability, BorrowCapabilityId, StorageAccess, StorageAccessId, StorageAccessRoot,
     StorageIdentity, StorageIdentityId, StorageProjection, StorageRelationship,
+};
+pub use tree::{
+    BoundTree, BoundTreeBuildError, BoundTreeBuilder, BoundWalkControl, BoundWalkEvent,
+    BoundWalkOutcome, walk_bound_tree,
 };
 pub use unit::{
     AnonymousCallableUnitKey, BoundSourceAnchor, BoundUnitId, BoundUnitKey, BoundUnitKeyData,
