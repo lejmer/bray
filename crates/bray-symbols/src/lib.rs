@@ -81,15 +81,17 @@ pub use id::{
     UnionVariantSymbolId, UnnamedTraitImplementationSymbolId,
 };
 pub use imported::{
-    ImportedIdentitySurfaceError, ImportedPackageIdentitySurface, ImportedSymbolFactKey,
-    ImportedSymbolIdentity, ImportedSymbolIdentityInput,
+    ImportedIdentitySurfaceError, ImportedLookupEdge, ImportedPackageIdentitySurface,
+    ImportedSymbolFactKey, ImportedSymbolIdentity, ImportedSymbolIdentityInput,
+    ImportedSymbolRelationship, ImportedSymbolSkeleton, ImportedSymbolSkeletonBuildError,
+    ImportedSymbolSkeletonInput,
 };
 pub use interface::{ImportedInterfaceId, InterfaceSupportEntityId, InterfaceSymbolId};
 pub use key::{
     ModulePathKey, PackageIdentity, SymbolKey, SymbolKeyData, SymbolOrdinal, SymbolRootKey,
     SynthesizedSymbolKey, SynthesizedSymbolRole,
 };
-pub use kind::SymbolKind;
+pub use kind::{SymbolKind, SymbolRelationshipKind};
 pub use local::{
     AnonymousCallableParameterSymbol, AnonymousCallableParameterSymbolId, AnonymousCallableSymbol,
     AnonymousCallableSymbolId, AnyLocalSymbolId, LocalBindingSymbol, LocalBindingSymbolId,

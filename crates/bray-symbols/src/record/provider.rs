@@ -1,4 +1,5 @@
-use crate::{AnySymbolId, SymbolKey, SymbolOrigin};
+use crate::record::ImportedSymbolBacking;
+use crate::{AnySymbolId, ImportedSymbolFactKey, SymbolKey, SymbolOrigin};
 
 macro_rules! define_default_provider_record {
     ($record:ident, $id:ident, $subject:ident) => {
@@ -9,6 +10,7 @@ macro_rules! define_default_provider_record {
             key: SymbolKey,
             containing_symbol: AnySymbolId,
             subject: crate::$subject,
+            imported: Option<ImportedSymbolBacking>,
         }
 
         impl $record {
@@ -23,6 +25,23 @@ macro_rules! define_default_provider_record {
                     key,
                     containing_symbol,
                     subject,
+                    imported: None,
+                }
+            }
+
+            pub(crate) const fn new_imported(
+                id: crate::$id,
+                key: SymbolKey,
+                containing_symbol: AnySymbolId,
+                subject: crate::$subject,
+                imported: ImportedSymbolBacking,
+            ) -> Self {
+                Self {
+                    id,
+                    key,
+                    containing_symbol,
+                    subject,
+                    imported: Some(imported),
                 }
             }
 
@@ -38,7 +57,11 @@ macro_rules! define_default_provider_record {
 
             /// Returns this provider's synthesized origin.
             pub const fn origin(&self) -> SymbolOrigin {
-                SymbolOrigin::Synthesized
+                if self.imported.is_some() {
+                    SymbolOrigin::Imported
+                } else {
+                    SymbolOrigin::Synthesized
+                }
             }
 
             /// Returns this provider's semantic container.
@@ -49,6 +72,11 @@ macro_rules! define_default_provider_record {
             /// Returns the parameter or field whose default this provider evaluates.
             pub const fn subject(&self) -> crate::$subject {
                 self.subject
+            }
+
+            /// Returns the imported lazy-fact route, when interface-backed.
+            pub fn imported_fact_key(&self) -> Option<ImportedSymbolFactKey<crate::$id>> {
+                self.imported.map(ImportedSymbolBacking::fact_key)
             }
         }
     };

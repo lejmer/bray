@@ -9,7 +9,10 @@ use crate::relationship::{
     StructRelationships, TraitRelationships, UnionPayloadFieldRelationships, UnionRelationships,
     VariantRelationships,
 };
-use crate::{AnySymbolId, SymbolKey, SymbolOrigin};
+use crate::{
+    AnySymbolId, ImportedInterfaceId, ImportedSymbolFactKey, InterfaceSymbolId, SymbolKey,
+    SymbolOrigin,
+};
 
 macro_rules! for_each_declaration_symbol {
     ($consumer:ident) => {
@@ -75,6 +78,27 @@ pub(crate) enum DeclarationSymbolIdentity {
         surface: CatalogDeclarationSurface,
         origin: SymbolOrigin,
     },
+    Imported {
+        key: SymbolKey,
+        containing_symbol: AnySymbolId,
+        backing: ImportedSymbolBacking,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct ImportedSymbolBacking {
+    interface: ImportedInterfaceId,
+    symbol: InterfaceSymbolId,
+}
+
+impl ImportedSymbolBacking {
+    pub(crate) const fn new(interface: ImportedInterfaceId, symbol: InterfaceSymbolId) -> Self {
+        Self { interface, symbol }
+    }
+
+    pub(crate) fn fact_key<I: crate::ExactSymbolId>(self) -> ImportedSymbolFactKey<I> {
+        ImportedSymbolFactKey::from_validated(self.interface, self.symbol)
+    }
 }
 
 impl DeclarationSymbolIdentity {
@@ -108,12 +132,27 @@ impl DeclarationSymbolIdentity {
         }
     }
 
+    pub(crate) const fn imported(
+        key: SymbolKey,
+        containing_symbol: AnySymbolId,
+        backing: ImportedSymbolBacking,
+    ) -> Self {
+        Self::Imported {
+            key,
+            containing_symbol,
+            backing,
+        }
+    }
+
     pub(crate) const fn containing_symbol(&self) -> AnySymbolId {
         match self {
             Self::Source {
                 containing_symbol, ..
             }
             | Self::CompilerKnown {
+                containing_symbol, ..
+            }
+            | Self::Imported {
                 containing_symbol, ..
             } => *containing_symbol,
         }
@@ -122,13 +161,15 @@ impl DeclarationSymbolIdentity {
     pub(crate) const fn source_declaration(&self) -> Option<DeclarationId> {
         match self {
             Self::Source { declaration, .. } => Some(*declaration),
-            Self::CompilerKnown { .. } => None,
+            Self::CompilerKnown { .. } | Self::Imported { .. } => None,
         }
     }
 
     const fn key(&self) -> &SymbolKey {
         match self {
-            Self::Source { key, .. } | Self::CompilerKnown { key, .. } => key,
+            Self::Source { key, .. }
+            | Self::CompilerKnown { key, .. }
+            | Self::Imported { key, .. } => key,
         }
     }
 
@@ -136,6 +177,21 @@ impl DeclarationSymbolIdentity {
         match self {
             Self::Source { .. } => SymbolOrigin::Source,
             Self::CompilerKnown { origin, .. } => *origin,
+            Self::Imported { .. } => SymbolOrigin::Imported,
+        }
+    }
+
+    const fn syntax_anchor(&self) -> Option<SyntaxAnchor> {
+        match self {
+            Self::Source { syntax, .. } => Some(*syntax),
+            Self::CompilerKnown { .. } | Self::Imported { .. } => None,
+        }
+    }
+
+    fn imported_fact_key<I: crate::ExactSymbolId>(&self) -> Option<ImportedSymbolFactKey<I>> {
+        match self {
+            Self::Imported { backing, .. } => Some(backing.fact_key()),
+            Self::Source { .. } | Self::CompilerKnown { .. } => None,
         }
     }
 }
@@ -143,7 +199,7 @@ impl DeclarationSymbolIdentity {
 macro_rules! define_declaration_symbol_records {
     ($($record:ident, $id:ident, $variant:ident, $singular:ident, $plural:ident, $relationships:ty;)+) => {
         $(
-            #[doc = concat!("The immutable identity record for a source `", stringify!($variant), "` symbol.")]
+            #[doc = concat!("The immutable identity record for a `", stringify!($variant), "` symbol.")]
             #[derive(Clone, Debug, Eq, PartialEq)]
             pub struct $record {
                 id: crate::$id,
@@ -163,7 +219,11 @@ macro_rules! define_declaration_symbol_records {
                             relationship_index,
                         )?;
 
-                    Some(Self { id, identity, relationships })
+                    Some(Self {
+                        id,
+                        identity,
+                        relationships,
+                    })
                 }
 
                 /// Returns this symbol's exact compilation-local ID.
@@ -193,10 +253,7 @@ macro_rules! define_declaration_symbol_records {
 
                 /// Returns the stable syntax anchor that introduced this symbol.
                 pub const fn syntax_anchor(&self) -> Option<SyntaxAnchor> {
-                    match &self.identity {
-                        DeclarationSymbolIdentity::Source { syntax, .. } => Some(*syntax),
-                        DeclarationSymbolIdentity::CompilerKnown { .. } => None,
-                    }
+                    self.identity.syntax_anchor()
                 }
 
                 /// Returns the catalog-local declaration identity for compiler-known symbols.
@@ -205,6 +262,7 @@ macro_rules! define_declaration_symbol_records {
                 ) -> Option<CompilerKnownDeclarationId> {
                     match &self.identity {
                         DeclarationSymbolIdentity::Source { .. } => None,
+                        DeclarationSymbolIdentity::Imported { .. } => None,
                         DeclarationSymbolIdentity::CompilerKnown { declaration, .. } => {
                             Some(*declaration)
                         }
@@ -215,15 +273,22 @@ macro_rules! define_declaration_symbol_records {
                 pub const fn compiler_known_surface(&self) -> Option<CatalogDeclarationSurface> {
                     match &self.identity {
                         DeclarationSymbolIdentity::Source { .. } => None,
+                        DeclarationSymbolIdentity::Imported { .. } => None,
                         DeclarationSymbolIdentity::CompilerKnown { surface, .. } => Some(*surface),
                     }
+                }
+
+                /// Returns the imported lazy-fact route, when interface-backed.
+                pub fn imported_fact_key(&self) -> Option<ImportedSymbolFactKey<crate::$id>> {
+                    self.identity.imported_fact_key()
                 }
 
                 /// Returns whether the introducing syntax contains parser recovery.
                 pub const fn is_recovered(&self) -> bool {
                     match &self.identity {
                         DeclarationSymbolIdentity::Source { syntax, .. } => syntax.is_recovered(),
-                        DeclarationSymbolIdentity::CompilerKnown { .. } => false,
+                        DeclarationSymbolIdentity::CompilerKnown { .. }
+                        | DeclarationSymbolIdentity::Imported { .. } => false,
                     }
                 }
             }
@@ -333,12 +398,22 @@ impl CallableOverloadSymbol {
     pub fn arm_syntax(&self) -> &[SyntaxAnchor] {
         &self.relationships.arm_syntax
     }
+
+    /// Returns imported overload-arm symbols in interface order.
+    pub fn arms(&self) -> &[AnySymbolId] {
+        &self.relationships.arms
+    }
 }
 
 impl ImplementationOverloadSymbol {
     /// Returns unresolved overload-arm path anchors in source order.
     pub fn arm_syntax(&self) -> &[SyntaxAnchor] {
         &self.relationships.arm_syntax
+    }
+
+    /// Returns imported overload-arm symbols in interface order.
+    pub fn arms(&self) -> &[AnySymbolId] {
+        &self.relationships.arms
     }
 }
 
@@ -657,6 +732,7 @@ pub struct ReceiverParameterSymbol {
     id: crate::ReceiverParameterSymbolId,
     key: SymbolKey,
     owner: crate::CallableSymbolId,
+    imported: Option<ImportedSymbolBacking>,
 }
 
 impl ReceiverParameterSymbol {
@@ -665,7 +741,26 @@ impl ReceiverParameterSymbol {
         key: SymbolKey,
         owner: crate::CallableSymbolId,
     ) -> Self {
-        Self { id, key, owner }
+        Self {
+            id,
+            key,
+            owner,
+            imported: None,
+        }
+    }
+
+    pub(crate) const fn new_imported(
+        id: crate::ReceiverParameterSymbolId,
+        key: SymbolKey,
+        owner: crate::CallableSymbolId,
+        imported: ImportedSymbolBacking,
+    ) -> Self {
+        Self {
+            id,
+            key,
+            owner,
+            imported: Some(imported),
+        }
     }
 
     /// Returns this receiver's exact compilation-local ID.
@@ -680,7 +775,11 @@ impl ReceiverParameterSymbol {
 
     /// Returns this receiver's synthesized origin.
     pub const fn origin(&self) -> SymbolOrigin {
-        SymbolOrigin::Synthesized
+        if self.imported.is_some() {
+            SymbolOrigin::Imported
+        } else {
+            SymbolOrigin::Synthesized
+        }
     }
 
     /// Returns the callable that owns this receiver.
@@ -691,6 +790,13 @@ impl ReceiverParameterSymbol {
     /// Returns the receiver's fixed position before written parameters.
     pub const fn ordinal(&self) -> u32 {
         0
+    }
+
+    /// Returns the imported lazy-fact route, when interface-backed.
+    pub fn imported_fact_key(
+        &self,
+    ) -> Option<ImportedSymbolFactKey<crate::ReceiverParameterSymbolId>> {
+        self.imported.map(ImportedSymbolBacking::fact_key)
     }
 }
 impl_defaultable_field!(
