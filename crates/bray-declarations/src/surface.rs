@@ -1,7 +1,7 @@
 use bray_source::{SourceId, TextRange};
 use bray_syntax::{SourceSyntaxNode, SyntaxKind};
 
-/// Stable source-backed reference to a syntax node discovered as declaration surface.
+/// Stable source-backed reference to a syntax node used by later compiler phases.
 ///
 /// Declaration discovery uses anchors instead of storing typed syntax nodes in
 /// the declaration table. Later phases can use the source ID, syntax kind, and
@@ -16,7 +16,8 @@ pub struct SyntaxAnchor {
 }
 
 impl SyntaxAnchor {
-    pub(crate) fn from_node(node: &impl SourceSyntaxNode) -> Self {
+    /// Creates a stable source-backed reference to one typed syntax node.
+    pub fn from_node(node: &impl SourceSyntaxNode) -> Self {
         Self {
             source_id: node.source().source_id(),
             syntax_kind: node.kind(),
