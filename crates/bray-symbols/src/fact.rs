@@ -25,12 +25,15 @@ pub use default::{
     CallableParameterDefaultSurface, CallableParameterDefaultValue,
     CheckedCallableParameterDefault, CheckedStructFieldDefault, CheckedUnionPayloadDefault,
     ErrorCallableParameterDefault, ErrorStructFieldDefault, ErrorUnionPayloadDefault,
+    RuntimeDefaultBehavior, RuntimeDefaultCapabilityRequirement, RuntimeDefaultEffectRequirement,
+    RuntimeDefaultGenericArguments, RuntimeDefaultGenericContext, RuntimeDefaultOwnership,
+    RuntimeDefaultProviderInput, RuntimeDefaultTemplateReference, RuntimeDefaultTrustedObligation,
     StructFieldDefaultSurface, StructFieldDefaultValue, UnionPayloadDefaultSurface,
     UnionPayloadDefaultValue,
 };
 pub use implementation::{
-    ImplementationAmbiguity, ImplementationSelection, ImplementationSelectionKey,
-    ImplementationSubject,
+    ImplementationAmbiguity, ImplementationAmbiguityError, ImplementationCandidate,
+    ImplementationSelection, ImplementationSelectionKey, ImplementationSubject,
 };
 pub use predicate::{
     CallableContractClause, CallableContractClauseKind, CallableContractSet, CheckedConstraint,

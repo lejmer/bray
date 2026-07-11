@@ -1,8 +1,8 @@
-use std::{collections::BTreeSet, sync::Arc};
+use std::{collections::BTreeMap, collections::btree_map::Entry, sync::Arc};
 
 use bray_base::shared_slice;
 
-use crate::{ImplementationInstanceId, TraitApplicationId, TypeId};
+use crate::{ImplementationInstanceId, SymbolKey, TraitApplicationId, TypeId};
 
 /// The checked subject type implemented by one implementation declaration.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -61,15 +61,15 @@ pub enum ImplementationSelection {
 }
 
 impl ImplementationSelection {
-    /// Creates an ambiguous result when at least two distinct candidates remain.
+    /// Creates an ambiguity normalized by stable semantic symbol key.
     pub fn ambiguous(
-        candidates: impl IntoIterator<Item = ImplementationInstanceId>,
-    ) -> Option<Self> {
+        candidates: impl IntoIterator<Item = ImplementationCandidate>,
+    ) -> Result<Self, ImplementationAmbiguityError> {
         ImplementationAmbiguity::try_new(candidates).map(Self::Ambiguous)
     }
 
     /// Returns ambiguous candidates or an empty slice for another selection state.
-    pub fn ambiguous_candidates(&self) -> &[ImplementationInstanceId] {
+    pub fn ambiguous_candidates(&self) -> &[ImplementationCandidate] {
         match self {
             Self::Ambiguous(ambiguity) => ambiguity.candidates(),
             Self::Selected(_) | Self::Unavailable => &[],
@@ -77,31 +77,78 @@ impl ImplementationSelection {
     }
 }
 
+/// One applicable implementation instance and its stable semantic definition key.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct ImplementationCandidate {
+    key: SymbolKey,
+    instance: ImplementationInstanceId,
+}
+
+impl ImplementationCandidate {
+    /// Creates one applicable implementation candidate.
+    pub const fn new(key: SymbolKey, instance: ImplementationInstanceId) -> Self {
+        Self { key, instance }
+    }
+
+    /// Returns the stable semantic definition key used for canonical ordering.
+    pub const fn key(&self) -> &SymbolKey {
+        &self.key
+    }
+
+    /// Returns the exact substituted implementation witness.
+    pub const fn instance(&self) -> ImplementationInstanceId {
+        self.instance
+    }
+}
+
+/// Reports candidate sets that cannot represent an implementation ambiguity.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ImplementationAmbiguityError {
+    /// Fewer than two distinct semantic implementation keys remain.
+    TooFewCandidates,
+    /// One stable key was paired with conflicting implementation instances.
+    ConflictingCandidateKey,
+}
+
 /// At least two distinct equally applicable implementation witnesses.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ImplementationAmbiguity {
-    candidates: Arc<[ImplementationInstanceId]>,
+    candidates: Arc<[ImplementationCandidate]>,
 }
 
 impl ImplementationAmbiguity {
-    fn try_new(candidates: impl IntoIterator<Item = ImplementationInstanceId>) -> Option<Self> {
-        let mut seen = BTreeSet::new();
-        let candidates: Vec<_> = candidates
-            .into_iter()
-            .filter(|candidate| seen.insert(*candidate))
-            .collect();
+    fn try_new(
+        candidates: impl IntoIterator<Item = ImplementationCandidate>,
+    ) -> Result<Self, ImplementationAmbiguityError> {
+        let mut canonical = BTreeMap::new();
 
-        if candidates.len() < 2 {
-            return None;
+        for candidate in candidates {
+            match canonical.entry(candidate.key) {
+                Entry::Vacant(entry) => {
+                    entry.insert(candidate.instance);
+                }
+                Entry::Occupied(entry) if *entry.get() == candidate.instance => {}
+                Entry::Occupied(_) => {
+                    return Err(ImplementationAmbiguityError::ConflictingCandidateKey);
+                }
+            }
         }
 
-        Some(Self {
+        if canonical.len() < 2 {
+            return Err(ImplementationAmbiguityError::TooFewCandidates);
+        }
+
+        let candidates = canonical
+            .into_iter()
+            .map(|(key, instance)| ImplementationCandidate::new(key, instance));
+
+        Ok(Self {
             candidates: shared_slice(candidates),
         })
     }
 
-    /// Returns distinct candidates in the selector's canonical order.
-    pub fn candidates(&self) -> &[ImplementationInstanceId] {
+    /// Returns distinct candidates in stable semantic-key order.
+    pub fn candidates(&self) -> &[ImplementationCandidate] {
         &self.candidates
     }
 }
@@ -110,12 +157,14 @@ impl ImplementationAmbiguity {
 mod tests {
     use crate::{
         GenericOwnerId, GenericSubstitutionData, ImplementationInstanceData,
-        InherentImplementationSymbolId, SemanticValueStore, SymbolId,
+        InherentImplementationSymbolId, PackageIdentity, SemanticValueStore, SymbolId, SymbolKey,
+        SymbolKind,
     };
+    use bray_declarations::DeclarationId;
 
     use super::{
-        ImplementationAmbiguity, ImplementationSelection, ImplementationSelectionKey,
-        ImplementationSubject,
+        ImplementationAmbiguity, ImplementationAmbiguityError, ImplementationCandidate,
+        ImplementationSelection, ImplementationSelectionKey, ImplementationSubject,
     };
 
     #[test]
@@ -126,6 +175,8 @@ mod tests {
         assert_send_sync::<ImplementationSelectionKey>();
         assert_send_sync::<ImplementationSelection>();
         assert_send_sync::<ImplementationAmbiguity>();
+        assert_send_sync::<ImplementationCandidate>();
+        assert_send_sync::<ImplementationAmbiguityError>();
     }
 
     #[test]
@@ -175,12 +226,54 @@ mod tests {
             panic!("second implementation instance must be valid");
         };
 
-        let Some(selection) = ImplementationSelection::ambiguous([second, first, second]) else {
+        let Ok(selection) = ImplementationSelection::ambiguous([
+            ImplementationCandidate::new(implementation_key(2), second),
+            ImplementationCandidate::new(implementation_key(1), first),
+            ImplementationCandidate::new(implementation_key(2), second),
+        ]) else {
             panic!("two distinct candidates must form an ambiguity");
         };
 
-        assert_eq!(selection.ambiguous_candidates(), &[second, first]);
+        let candidates = selection.ambiguous_candidates();
 
-        assert!(ImplementationSelection::ambiguous([first]).is_none());
+        assert_eq!(candidates.len(), 2);
+        assert_eq!(candidates[0].key(), &implementation_key(1));
+        assert_eq!(candidates[0].instance(), first);
+        assert_eq!(candidates[1].key(), &implementation_key(2));
+        assert_eq!(candidates[1].instance(), second);
+
+        assert_eq!(
+            ImplementationSelection::ambiguous([ImplementationCandidate::new(
+                implementation_key(1),
+                first,
+            )]),
+            Err(ImplementationAmbiguityError::TooFewCandidates)
+        );
+
+        assert_eq!(
+            ImplementationSelection::ambiguous([
+                ImplementationCandidate::new(implementation_key(1), first),
+                ImplementationCandidate::new(implementation_key(1), second),
+            ]),
+            Err(ImplementationAmbiguityError::ConflictingCandidateKey)
+        );
+    }
+
+    fn implementation_key(declaration: u32) -> SymbolKey {
+        let Some(package) = PackageIdentity::try_new("example.package") else {
+            panic!("package identity must be valid");
+        };
+
+        let owner = SymbolKey::package(package);
+
+        let Some(key) = SymbolKey::source_declaration(
+            owner,
+            SymbolKind::InherentImplementation,
+            DeclarationId::new(declaration),
+        ) else {
+            panic!("implementation kind must support source declaration keys");
+        };
+
+        key
     }
 }
