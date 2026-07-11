@@ -58,7 +58,13 @@ impl AvailableCompilerKnownSymbols {
                     .copied()
                     .unwrap_or(false)
             })
-            .filter_map(|descriptor| provider.untyped_declaration_symbol(descriptor.key()))
+            .map(|descriptor| {
+                match provider.untyped_declaration_symbol(descriptor.key()) {
+                    Some(symbol) => symbol,
+                    // A complete provider is built from this exact validated catalog.
+                    None => panic!("compiler-known declaration is missing from its provider"),
+                }
+            })
             .collect::<Vec<_>>()
             .into_boxed_slice();
 
@@ -152,10 +158,14 @@ fn resolve_availability(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::{BTreeMap, BTreeSet};
     use std::sync::Arc;
 
-    use bray_compiler_known::AvailabilityRule;
+    use bray_compiler_known::{
+        AvailabilityRule, COMPILER_KNOWN_CATALOG, CompilerKnownDeclarationId,
+    };
 
+    use super::resolve_availability;
     use crate::compiler_known::test_support::{build_provider, declaration_key};
     use crate::{FunctionSymbolId, StructSymbolId};
 
@@ -189,5 +199,26 @@ mod tests {
 
         assert_eq!(first, second);
         assert!(std::ptr::eq(first.provider(), second.provider()));
+    }
+
+    #[test]
+    fn unavailable_owners_make_nested_declarations_unavailable() {
+        let owner = CompilerKnownDeclarationId::new(4);
+        let nested = CompilerKnownDeclarationId::new(5);
+        let direct_availability = BTreeMap::from([(owner, false), (nested, true)]);
+        let mut resolved_availability = BTreeMap::new();
+        let mut resolving = BTreeSet::new();
+
+        let available = resolve_availability(
+            nested,
+            &COMPILER_KNOWN_CATALOG,
+            &direct_availability,
+            &mut resolved_availability,
+            &mut resolving,
+        );
+
+        assert!(!available);
+        assert_eq!(resolved_availability.get(&owner), Some(&false));
+        assert_eq!(resolved_availability.get(&nested), Some(&false));
     }
 }
