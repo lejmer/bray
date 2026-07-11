@@ -7,6 +7,7 @@ mod identity;
 mod node;
 mod origin;
 mod storage;
+mod template;
 #[cfg(test)]
 mod test_support;
 mod tree;
@@ -31,6 +32,14 @@ pub use origin::{
 pub use storage::{
     BorrowCapability, BorrowCapabilityId, StorageAccess, StorageAccessId, StorageAccessRoot,
     StorageIdentity, StorageIdentityId, StorageProjection, StorageRelationship,
+};
+pub use template::{
+    CheckedTemplate, CheckedTemplateBehavior, CheckedTemplateBuildError, CheckedTemplateBuilder,
+    CheckedTemplateCapability, CheckedTemplateCompletion, CheckedTemplateEffect,
+    CheckedTemplateInput, CheckedTemplateInputId, CheckedTemplateInputKind, CheckedTemplateKind,
+    CheckedTemplateNode, CheckedTemplateNodeId, CheckedTemplateOperation,
+    CheckedTemplateShortCircuitKind, CheckedTemplateTemporary, CheckedTemplateTemporaryId,
+    CheckedTemplateTrustedObligation, CheckedTemplateWitness,
 };
 pub use tree::{
     BoundTree, BoundTreeBuildError, BoundTreeBuilder, BoundWalkControl, BoundWalkEvent,
