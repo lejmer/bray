@@ -38,7 +38,7 @@ macro_rules! define_catalog_id {
 }
 
 define_catalog_id! {
-    /// Inventory-local identity for one embedded catalog source.
+    /// Inventory-local identity for one catalog generator input.
     pub struct CatalogSourceId;
 }
 

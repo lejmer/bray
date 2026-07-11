@@ -12,6 +12,7 @@ pub struct CatalogSurfaceToken {
 }
 
 impl CatalogSurfaceToken {
+    #[cfg(any(test, feature = "generation"))]
     pub(super) fn new(kind: SyntaxKind, spelling: impl AsRef<str>) -> Self {
         Self {
             kind,
@@ -37,12 +38,23 @@ impl CatalogSurfaceToken {
     }
 }
 
+/// One structural event in a pre-parsed catalog syntax tree.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum CatalogSurfaceElement {
+    /// Traversal enters a syntax node of the given stable kind.
+    EnterNode(SyntaxKind),
+    /// Traversal reaches one source token.
+    Token(CatalogSurfaceToken),
+    /// Traversal exits a syntax node of the given stable kind.
+    ExitNode(SyntaxKind),
+}
+
 /// Pre-parsed source-independent syntax for one declaration surface.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CatalogDeclarationSurfaceSyntax {
     pub(super) surface: CatalogDeclarationSurface,
     pub(super) kind: CatalogDeclarationKind,
-    pub(super) tokens: Cow<'static, [CatalogSurfaceToken]>,
+    pub(super) elements: Cow<'static, [CatalogSurfaceElement]>,
 }
 
 impl CatalogDeclarationSurfaceSyntax {
@@ -56,9 +68,9 @@ impl CatalogDeclarationSurfaceSyntax {
         self.kind
     }
 
-    /// Returns pre-parsed tokens in source order without trivia.
-    pub fn tokens(&self) -> &[CatalogSurfaceToken] {
-        &self.tokens
+    /// Returns balanced node and token events in source order.
+    pub fn elements(&self) -> &[CatalogSurfaceElement] {
+        &self.elements
     }
 }
 
@@ -66,7 +78,7 @@ impl CatalogDeclarationSurfaceSyntax {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CatalogTypeSurfaceSyntax {
     pub(super) surface: CatalogTypeSurface,
-    pub(super) tokens: Cow<'static, [CatalogSurfaceToken]>,
+    pub(super) elements: Cow<'static, [CatalogSurfaceElement]>,
 }
 
 impl CatalogTypeSurfaceSyntax {
@@ -75,8 +87,8 @@ impl CatalogTypeSurfaceSyntax {
         self.surface
     }
 
-    /// Returns pre-parsed tokens in source order without trivia.
-    pub fn tokens(&self) -> &[CatalogSurfaceToken] {
-        &self.tokens
+    /// Returns balanced node and token events in source order.
+    pub fn elements(&self) -> &[CatalogSurfaceElement] {
+        &self.elements
     }
 }

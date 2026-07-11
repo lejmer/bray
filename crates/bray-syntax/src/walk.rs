@@ -102,6 +102,10 @@ impl SourceSyntaxNode for SyntaxNodeView<'_> {
         self.source
     }
 
+    fn syntax_view(&self) -> SyntaxNodeView<'_> {
+        *self
+    }
+
     fn write_full_text_from(&self, source_text: &str, writer: &mut dyn Write) -> fmt::Result {
         self.node.write_source_text(source_text, self.start, writer)
     }
@@ -167,6 +171,14 @@ pub fn walk_source_unit(
     mut visitor: impl for<'syntax> FnMut(SyntaxWalkEvent<'syntax>) -> SyntaxWalkControl,
 ) {
     walk_source_unit_inner(source_unit, &mut visitor);
+}
+
+/// Walks one typed source syntax node in source order.
+pub fn walk_syntax_node(
+    node: &impl SourceSyntaxNode,
+    mut visitor: impl for<'syntax> FnMut(SyntaxWalkEvent<'syntax>) -> SyntaxWalkControl,
+) {
+    walk_node(node.syntax_view(), &mut visitor);
 }
 
 pub(crate) fn cast_source_node<T>(
@@ -306,7 +318,8 @@ mod tests {
     use bray_source::{SourceOrigin, TextRange, TextSize};
 
     use super::{
-        SyntaxNodeView, SyntaxWalkControl, SyntaxWalkEvent, walk_source_unit, walk_syntax_tree,
+        SyntaxNodeView, SyntaxWalkControl, SyntaxWalkEvent, walk_source_unit, walk_syntax_node,
+        walk_syntax_tree,
     };
     use crate::test_support::{snapshot, token};
     use crate::{
@@ -405,6 +418,34 @@ mod tests {
                 "exit identifier_list_item",
                 "token comma_token",
             ]
+        );
+    }
+
+    #[test]
+    fn typed_node_walk_preserves_its_nested_hierarchy() {
+        let source_unit = identifier_list_source_unit();
+        let mut lists = source_unit.identifier_lists();
+
+        let Some(list) = lists.next() else {
+            panic!("test source unit should contain an identifier list");
+        };
+
+        let mut events = Vec::new();
+
+        walk_syntax_node(&list, |event| {
+            events.push(event_name(event));
+
+            SyntaxWalkControl::Continue
+        });
+
+        assert_eq!(
+            events.first().map(String::as_str),
+            Some("enter identifier_list")
+        );
+        assert!(events.contains(&"enter identifier_list_item".to_owned()));
+        assert_eq!(
+            events.last().map(String::as_str),
+            Some("exit identifier_list")
         );
     }
 

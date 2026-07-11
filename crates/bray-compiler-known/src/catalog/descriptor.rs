@@ -176,7 +176,7 @@ impl CompilerKnownDeclarationDescriptor {
         self.kind
     }
 
-    /// Returns the exact embedded Bray declaration fragment.
+    /// Returns the stable handle to generated pre-parsed declaration syntax.
     pub const fn surface(&self) -> CatalogDeclarationSurface {
         self.surface
     }
@@ -230,7 +230,7 @@ impl CompilerKnownValueDescriptor {
         &self.spelling
     }
 
-    /// Returns the exact embedded Bray type-expression fragment.
+    /// Returns the stable handle to generated pre-parsed type syntax.
     pub const fn type_surface(&self) -> CatalogTypeSurface {
         self.type_surface
     }
@@ -319,7 +319,7 @@ impl RecognizedStandardLibraryDeclarationDescriptor {
         self.kind
     }
 
-    /// Returns the expected embedded Bray declaration surface.
+    /// Returns the stable handle to generated pre-parsed declaration syntax.
     pub const fn surface(&self) -> CatalogDeclarationSurface {
         self.surface
     }

@@ -2,9 +2,9 @@ use std::fmt::{self, Write};
 
 use bray_source::{SourceSnapshot, TextRange, TextSize};
 
-use crate::SyntaxKind;
 use crate::green::GreenNode;
 use crate::text::text_from_writer;
+use crate::{SyntaxKind, SyntaxNodeView};
 
 /// Common contract implemented by typed syntax tree nodes.
 pub trait SyntaxNode: Send + Sync {
@@ -24,6 +24,9 @@ pub trait SyntaxNode: Send + Sync {
 pub trait SourceSyntaxNode: SyntaxNode {
     /// Returns the immutable source snapshot this node was parsed from.
     fn source(&self) -> &SourceSnapshot;
+
+    /// Returns an opaque root view for source-order traversal.
+    fn syntax_view(&self) -> SyntaxNodeView<'_>;
 
     /// Appends this node's exact source text using the owning source text.
     ///
@@ -81,6 +84,10 @@ where
 {
     fn source(&self) -> &SourceSnapshot {
         GreenSourceSyntaxNode::source(self)
+    }
+
+    fn syntax_view(&self) -> SyntaxNodeView<'_> {
+        SyntaxNodeView::new(self.source(), self.green_node(), self.start())
     }
 
     fn write_full_text_from(&self, source_text: &str, writer: &mut dyn Write) -> fmt::Result {

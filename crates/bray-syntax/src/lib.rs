@@ -150,5 +150,5 @@ pub use tree::SyntaxTree;
 pub use trivia::SyntaxTrivia;
 pub use walk::{
     SyntaxCast, SyntaxNodeView, SyntaxWalkControl, SyntaxWalkEvent, walk_source_unit,
-    walk_syntax_tree,
+    walk_syntax_node, walk_syntax_tree,
 };

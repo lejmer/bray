@@ -5,6 +5,7 @@ use bray_source::TextRange;
 use super::CatalogSourceId;
 
 /// Selects the semantic family defined by one catalog source.
+#[cfg(any(test, feature = "generation"))]
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum CatalogKind {
     /// Ambient and module-scoped compiler-known declarations and values.
@@ -13,7 +14,8 @@ pub enum CatalogKind {
     RecognizedStandardLibrary,
 }
 
-/// One source file compiled into the canonical catalog inventory.
+/// One checked-in generator input in the canonical catalog inventory.
+#[cfg(any(test, feature = "generation"))]
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct CatalogSource {
     id: CatalogSourceId,
@@ -22,8 +24,8 @@ pub struct CatalogSource {
     text: &'static str,
 }
 
+#[cfg(any(test, feature = "generation"))]
 impl CatalogSource {
-    #[cfg(any(test, feature = "generation"))]
     pub(crate) const fn new(
         id: CatalogSourceId,
         kind: CatalogKind,
@@ -53,20 +55,22 @@ impl CatalogSource {
         self.relative_path
     }
 
-    /// Returns the source text embedded in the compiler binary.
+    /// Returns source text available only to catalog generation and tests.
     pub const fn text(self) -> &'static str {
         self.text
     }
 }
 
-/// The complete canonical sequence of catalog sources embedded in the compiler.
+/// The canonical sequence of checked-in catalog generator inputs.
+#[cfg(any(test, feature = "generation"))]
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct CatalogSourceInventory {
     pub(super) sources: &'static [CatalogSource],
 }
 
+#[cfg(any(test, feature = "generation"))]
 impl CatalogSourceInventory {
-    /// Returns all embedded sources in canonical inventory order.
+    /// Returns all generator inputs in canonical manifest order.
     pub const fn sources(self) -> &'static [CatalogSource] {
         self.sources
     }
@@ -77,7 +81,7 @@ impl CatalogSourceInventory {
     }
 }
 
-/// A source range inside one embedded catalog file.
+/// Provenance range inside one catalog generator input.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CatalogSourceAnchor {
     pub(super) source: CatalogSourceId,
@@ -85,7 +89,7 @@ pub struct CatalogSourceAnchor {
 }
 
 impl CatalogSourceAnchor {
-    /// Returns the embedded source containing this range.
+    /// Returns the generator-input identity containing this range.
     pub const fn source(self) -> CatalogSourceId {
         self.source
     }
@@ -96,23 +100,23 @@ impl CatalogSourceAnchor {
     }
 }
 
-/// An exact embedded Bray declaration fragment retained for lazy semantic work.
+/// Stable handle to one generated declaration-surface syntax record.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CatalogDeclarationSurface(pub(super) CatalogSourceAnchor);
 
 impl CatalogDeclarationSurface {
-    /// Returns the exact catalog source anchor for the Bray fragment.
+    /// Returns generator-input provenance for this surface.
     pub const fn anchor(self) -> CatalogSourceAnchor {
         self.0
     }
 }
 
-/// An exact embedded Bray type-expression fragment retained for lazy binding.
+/// Stable handle to one generated type-expression syntax record.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CatalogTypeSurface(pub(super) CatalogSourceAnchor);
 
 impl CatalogTypeSurface {
-    /// Returns the exact catalog source anchor for the Bray fragment.
+    /// Returns generator-input provenance for this surface.
     pub const fn anchor(self) -> CatalogSourceAnchor {
         self.0
     }
@@ -123,10 +127,12 @@ impl CatalogTypeSurface {
 pub struct CatalogTokenSpelling(pub(super) Cow<'static, str>);
 
 impl CatalogTokenSpelling {
+    #[cfg(any(test, feature = "generation"))]
     pub(super) fn new(value: impl AsRef<str>) -> Self {
         Self(Cow::Owned(value.as_ref().to_owned()))
     }
 
+    #[cfg(any(test, feature = "generation"))]
     pub(super) fn to_owned_storage(&self) -> Self {
         Self::new(self.as_str())
     }

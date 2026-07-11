@@ -1,5 +1,5 @@
 use super::{
-    CatalogDeclarationSurface, CatalogScopeLocation, CatalogSourceAnchor, CatalogSurfaceToken,
+    CatalogDeclarationSurface, CatalogScopeLocation, CatalogSourceAnchor, CatalogSurfaceElement,
     CatalogTypeSurface, CompilerKnownCatalog, CompilerKnownDeclarationOwner,
     RecognizedStandardLibraryDeclarationOwner,
 };
@@ -181,10 +181,10 @@ fn render_surfaces(output: &mut String, catalog: &CompilerKnownCatalog) {
 
     for surface in catalog.declaration_surfaces() {
         output.push_str(&format!(
-            "    CatalogDeclarationSurfaceSyntax {{\n        surface: {},\n        kind: CatalogDeclarationKind::{:?},\n        tokens: Cow::Borrowed(&[{}]),\n    }},\n",
+            "    CatalogDeclarationSurfaceSyntax {{\n        surface: {},\n        kind: CatalogDeclarationKind::{:?},\n        elements: Cow::Borrowed(&[{}]),\n    }},\n",
             render_declaration_surface(surface.surface()),
             surface.kind(),
-            render_surface_tokens(surface.tokens()),
+            render_surface_elements(surface.elements()),
         ));
     }
 
@@ -192,24 +192,29 @@ fn render_surfaces(output: &mut String, catalog: &CompilerKnownCatalog) {
 
     for surface in catalog.type_surfaces() {
         output.push_str(&format!(
-            "    CatalogTypeSurfaceSyntax {{\n        surface: {},\n        tokens: Cow::Borrowed(&[{}]),\n    }},\n",
+            "    CatalogTypeSurfaceSyntax {{\n        surface: {},\n        elements: Cow::Borrowed(&[{}]),\n    }},\n",
             render_type_surface(surface.surface()),
-            render_surface_tokens(surface.tokens()),
+            render_surface_elements(surface.elements()),
         ));
     }
 
     output.push_str("];\n\n");
 }
 
-fn render_surface_tokens(tokens: &[CatalogSurfaceToken]) -> String {
-    tokens
+fn render_surface_elements(elements: &[CatalogSurfaceElement]) -> String {
+    elements
         .iter()
-        .map(|token| {
-            format!(
-                "CatalogSurfaceToken::from_static(SyntaxKind::{:?}, {:?})",
-                token.kind(),
-                token.spelling()
-            )
+        .map(|element| match element {
+            CatalogSurfaceElement::EnterNode(kind) => {
+                format!("CatalogSurfaceElement::EnterNode(SyntaxKind::{kind:?})")
+            }
+            CatalogSurfaceElement::Token(token) => format!(
+                "CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::{:?}, {:?}))",
+                token.kind(), token.spelling()
+            ),
+            CatalogSurfaceElement::ExitNode(kind) => {
+                format!("CatalogSurfaceElement::ExitNode(SyntaxKind::{kind:?})")
+            }
         })
         .collect::<Vec<_>>()
         .join(", ")

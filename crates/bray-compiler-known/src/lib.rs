@@ -4,7 +4,7 @@
 
 mod availability;
 mod catalog;
-#[cfg(feature = "generation")]
+#[cfg(any(test, feature = "generation"))]
 mod catalog_digest;
 mod implementation;
 mod representation;
@@ -13,20 +13,24 @@ pub use availability::AvailabilityRule;
 #[cfg(any(test, feature = "generation"))]
 pub use catalog::generator_input_inventory;
 pub use catalog::{
-    CATALOG_SOURCE_DIGEST, COMPILER_KNOWN_CATALOG, CatalogBuildResult, CatalogDeclarationKind,
-    CatalogDeclarationSurface, CatalogDeclarationSurfaceSyntax, CatalogDiagnostic,
-    CatalogDiagnosticKind, CatalogDiagnostics, CatalogEntryKind, CatalogExpectation, CatalogField,
-    CatalogFragmentValidator, CatalogKeyDomain, CatalogKind, CatalogMetadataKind, CatalogPath,
-    CatalogRelatedKey, CatalogScopeLocation, CatalogSource, CatalogSourceAnchor, CatalogSourceId,
-    CatalogSourceInventory, CatalogSurfaceContext, CatalogSurfaceToken, CatalogTokenSpelling,
-    CatalogTypeSurface, CatalogTypeSurfaceSyntax, CompilerKnownCatalog,
-    CompilerKnownDeclarationDescriptor, CompilerKnownDeclarationId, CompilerKnownDeclarationKey,
-    CompilerKnownDeclarationOwner, CompilerKnownScopeDescriptor, CompilerKnownScopeId,
-    CompilerKnownScopeKey, CompilerKnownValueDescriptor, CompilerKnownValueId,
-    CompilerKnownValueKey, RecognizedStandardLibraryDeclarationDescriptor,
+    CATALOG_SOURCE_DIGEST, COMPILER_KNOWN_CATALOG, CatalogDeclarationKind,
+    CatalogDeclarationSurface, CatalogDeclarationSurfaceSyntax, CatalogPath, CatalogScopeLocation,
+    CatalogSourceAnchor, CatalogSourceId, CatalogSurfaceContext, CatalogSurfaceElement,
+    CatalogSurfaceToken, CatalogTokenSpelling, CatalogTypeSurface, CatalogTypeSurfaceSyntax,
+    CompilerKnownCatalog, CompilerKnownDeclarationDescriptor, CompilerKnownDeclarationId,
+    CompilerKnownDeclarationKey, CompilerKnownDeclarationOwner, CompilerKnownScopeDescriptor,
+    CompilerKnownScopeId, CompilerKnownScopeKey, CompilerKnownValueDescriptor,
+    CompilerKnownValueId, CompilerKnownValueKey, RecognizedStandardLibraryDeclarationDescriptor,
     RecognizedStandardLibraryDeclarationId, RecognizedStandardLibraryDeclarationKey,
     RecognizedStandardLibraryDeclarationOwner, RecognizedStandardLibraryScopeDescriptor,
-    RecognizedStandardLibraryScopeId, RecognizedStandardLibraryScopeKey, build_catalog,
+    RecognizedStandardLibraryScopeId, RecognizedStandardLibraryScopeKey,
+};
+#[cfg(any(test, feature = "generation"))]
+pub use catalog::{
+    CatalogBuildResult, CatalogDiagnostic, CatalogDiagnosticKind, CatalogDiagnostics,
+    CatalogEntryKind, CatalogExpectation, CatalogField, CatalogFragmentValidator, CatalogKeyDomain,
+    CatalogKind, CatalogMetadataKind, CatalogRelatedKey, CatalogSource, CatalogSourceInventory,
+    build_catalog,
 };
 #[cfg(feature = "generation")]
 pub use catalog::{CatalogGenerationError, GeneratedCatalogOutput, generate_catalog_output};

@@ -6,13 +6,15 @@ use bray_parser::{
     parse_type_expression_fragment,
 };
 use bray_source::{SourceIdentity, SourceOrigin, SourceStore, SourceVersion};
-use bray_syntax::SyntaxToken;
+use bray_syntax::{SourceSyntaxNode, SyntaxWalkControl, SyntaxWalkEvent, walk_syntax_node};
 
+use super::rendering::render_catalog;
 use super::{
     CatalogDeclarationKind, CatalogDeclarationSurface, CatalogDeclarationSurfaceSyntax,
     CatalogDiagnostic, CatalogDiagnosticKind, CatalogDiagnostics, CatalogFragmentValidator,
-    CatalogSource, CatalogSourceAnchor, CatalogSurfaceContext, CatalogSurfaceToken,
-    CatalogTypeSurface, CatalogTypeSurfaceSyntax, build_catalog, generator_input_inventory,
+    CatalogSource, CatalogSourceAnchor, CatalogSurfaceContext, CatalogSurfaceElement,
+    CatalogSurfaceToken, CatalogTypeSurface, CatalogTypeSurfaceSyntax, build_catalog,
+    generator_input_inventory,
 };
 use crate::catalog_digest::source_digest;
 
@@ -119,24 +121,28 @@ impl CatalogFragmentValidator for BrayFragmentValidator {
                 CatalogDiagnosticKind::InvalidDeclarationSurface,
             ));
         };
+
         let Some(sources) = fragment_sources(source.relative_path(), text) else {
             return Err(invalid_surface(
                 surface.anchor(),
                 CatalogDiagnosticKind::InvalidDeclarationSurface,
             ));
         };
+
         let Some(snapshot) = sources.iter().next() else {
             return Err(invalid_surface(
                 surface.anchor(),
                 CatalogDiagnosticKind::InvalidDeclarationSurface,
             ));
         };
+
         let Some(context) = parser_context(context) else {
             return Err(invalid_surface(
                 surface.anchor(),
                 CatalogDiagnosticKind::InvalidDeclarationSurface,
             ));
         };
+
         let result = parse_declaration_fragment(snapshot, context);
 
         if !result.diagnostics().is_empty() || result.is_recovered() {
@@ -152,8 +158,10 @@ impl CatalogFragmentValidator for BrayFragmentValidator {
                 CatalogDiagnosticKind::InvalidDeclarationSurface,
             ));
         };
+
         let kind = declaration_kind(declaration);
-        let Some(tokens) = declaration_tokens(declaration, text) else {
+
+        let Some(elements) = declaration_elements(declaration, text) else {
             return Err(invalid_surface(
                 surface.anchor(),
                 CatalogDiagnosticKind::InvalidDeclarationSurface,
@@ -165,7 +173,7 @@ impl CatalogFragmentValidator for BrayFragmentValidator {
             CatalogDeclarationSurfaceSyntax {
                 surface,
                 kind,
-                tokens: tokens.into(),
+                elements: elements.into(),
             },
         );
 
@@ -183,18 +191,21 @@ impl CatalogFragmentValidator for BrayFragmentValidator {
                 CatalogDiagnosticKind::InvalidTypeSurface,
             ));
         };
+
         let Some(sources) = fragment_sources(source.relative_path(), text) else {
             return Err(invalid_surface(
                 surface.anchor(),
                 CatalogDiagnosticKind::InvalidTypeSurface,
             ));
         };
+
         let Some(snapshot) = sources.iter().next() else {
             return Err(invalid_surface(
                 surface.anchor(),
                 CatalogDiagnosticKind::InvalidTypeSurface,
             ));
         };
+
         let result = parse_type_expression_fragment(snapshot);
 
         if !result.diagnostics().is_empty() || result.is_recovered() {
@@ -204,7 +215,7 @@ impl CatalogFragmentValidator for BrayFragmentValidator {
             ));
         }
 
-        let Some(tokens) = collect_surface_tokens(result.type_expression().tokens(), text) else {
+        let Some(elements) = collect_surface_elements(result.type_expression(), text) else {
             return Err(invalid_surface(
                 surface.anchor(),
                 CatalogDiagnosticKind::InvalidTypeSurface,
@@ -215,7 +226,7 @@ impl CatalogFragmentValidator for BrayFragmentValidator {
             surface.anchor(),
             CatalogTypeSurfaceSyntax {
                 surface,
-                tokens: tokens.into(),
+                elements: elements.into(),
             },
         );
 
@@ -331,70 +342,89 @@ fn declaration_kind(declaration: &DeclarationFragmentSyntax) -> CatalogDeclarati
     }
 }
 
-fn declaration_tokens(
+fn declaration_elements(
     declaration: &DeclarationFragmentSyntax,
     source_text: &str,
-) -> Option<Vec<CatalogSurfaceToken>> {
-    macro_rules! tokens {
+) -> Option<Vec<CatalogSurfaceElement>> {
+    macro_rules! elements {
         ($syntax:expr) => {
-            collect_surface_tokens($syntax.tokens(), source_text)
+            collect_surface_elements($syntax, source_text)
         };
     }
 
     match declaration {
-        DeclarationFragmentSyntax::Constant(syntax) => tokens!(syntax),
-        DeclarationFragmentSyntax::Function(syntax) => tokens!(syntax),
-        DeclarationFragmentSyntax::Predicate(syntax) => tokens!(syntax),
-        DeclarationFragmentSyntax::CallableContract(syntax) => tokens!(syntax),
-        DeclarationFragmentSyntax::CallableOverload(syntax) => tokens!(syntax),
-        DeclarationFragmentSyntax::ImplementationOverload(syntax) => tokens!(syntax),
-        DeclarationFragmentSyntax::Struct(syntax) => tokens!(syntax),
-        DeclarationFragmentSyntax::Union(syntax) => tokens!(syntax),
-        DeclarationFragmentSyntax::Trait(syntax) => tokens!(syntax),
-        DeclarationFragmentSyntax::InherentImplementation(syntax) => tokens!(syntax),
-        DeclarationFragmentSyntax::UnnamedTraitImplementation(syntax) => tokens!(syntax),
-        DeclarationFragmentSyntax::NamedTraitImplementation(syntax) => tokens!(syntax),
-        DeclarationFragmentSyntax::StructField(syntax) => tokens!(syntax),
-        DeclarationFragmentSyntax::UnionVariant(syntax) => tokens!(syntax),
-        DeclarationFragmentSyntax::UnionPayloadField(syntax) => tokens!(syntax),
-        DeclarationFragmentSyntax::TypeConstructorMember(syntax) => tokens!(syntax),
-        DeclarationFragmentSyntax::TypeCallableMember(syntax) => tokens!(syntax),
-        DeclarationFragmentSyntax::FinalizerMember(syntax) => tokens!(syntax),
-        DeclarationFragmentSyntax::DestructorMember(syntax) => tokens!(syntax),
-        DeclarationFragmentSyntax::ScopeEnterMember(syntax) => tokens!(syntax),
-        DeclarationFragmentSyntax::ScopeExitMember(syntax) => tokens!(syntax),
-        DeclarationFragmentSyntax::TraitConstantMember(syntax) => tokens!(syntax),
-        DeclarationFragmentSyntax::TraitTypeMember(syntax) => tokens!(syntax),
-        DeclarationFragmentSyntax::TraitPredicateMember(syntax) => tokens!(syntax),
-        DeclarationFragmentSyntax::TraitCallableMember(syntax) => tokens!(syntax),
-        DeclarationFragmentSyntax::TraitFinalizerRequirement(syntax) => tokens!(syntax),
-        DeclarationFragmentSyntax::TraitDestructorRequirement(syntax) => tokens!(syntax),
-        DeclarationFragmentSyntax::TraitScopeEnterRequirement(syntax) => tokens!(syntax),
-        DeclarationFragmentSyntax::TraitScopeExitRequirement(syntax) => tokens!(syntax),
-        DeclarationFragmentSyntax::ImplementationTypeMemberBinding(syntax) => tokens!(syntax),
+        DeclarationFragmentSyntax::Constant(syntax) => elements!(syntax),
+        DeclarationFragmentSyntax::Function(syntax) => elements!(syntax),
+        DeclarationFragmentSyntax::Predicate(syntax) => elements!(syntax),
+        DeclarationFragmentSyntax::CallableContract(syntax) => elements!(syntax),
+        DeclarationFragmentSyntax::CallableOverload(syntax) => elements!(syntax),
+        DeclarationFragmentSyntax::ImplementationOverload(syntax) => elements!(syntax),
+        DeclarationFragmentSyntax::Struct(syntax) => elements!(syntax),
+        DeclarationFragmentSyntax::Union(syntax) => elements!(syntax),
+        DeclarationFragmentSyntax::Trait(syntax) => elements!(syntax),
+        DeclarationFragmentSyntax::InherentImplementation(syntax) => elements!(syntax),
+        DeclarationFragmentSyntax::UnnamedTraitImplementation(syntax) => elements!(syntax),
+        DeclarationFragmentSyntax::NamedTraitImplementation(syntax) => elements!(syntax),
+        DeclarationFragmentSyntax::StructField(syntax) => elements!(syntax),
+        DeclarationFragmentSyntax::UnionVariant(syntax) => elements!(syntax),
+        DeclarationFragmentSyntax::UnionPayloadField(syntax) => elements!(syntax),
+        DeclarationFragmentSyntax::TypeConstructorMember(syntax) => elements!(syntax),
+        DeclarationFragmentSyntax::TypeCallableMember(syntax) => elements!(syntax),
+        DeclarationFragmentSyntax::FinalizerMember(syntax) => elements!(syntax),
+        DeclarationFragmentSyntax::DestructorMember(syntax) => elements!(syntax),
+        DeclarationFragmentSyntax::ScopeEnterMember(syntax) => elements!(syntax),
+        DeclarationFragmentSyntax::ScopeExitMember(syntax) => elements!(syntax),
+        DeclarationFragmentSyntax::TraitConstantMember(syntax) => elements!(syntax),
+        DeclarationFragmentSyntax::TraitTypeMember(syntax) => elements!(syntax),
+        DeclarationFragmentSyntax::TraitPredicateMember(syntax) => elements!(syntax),
+        DeclarationFragmentSyntax::TraitCallableMember(syntax) => elements!(syntax),
+        DeclarationFragmentSyntax::TraitFinalizerRequirement(syntax) => elements!(syntax),
+        DeclarationFragmentSyntax::TraitDestructorRequirement(syntax) => elements!(syntax),
+        DeclarationFragmentSyntax::TraitScopeEnterRequirement(syntax) => elements!(syntax),
+        DeclarationFragmentSyntax::TraitScopeExitRequirement(syntax) => elements!(syntax),
+        DeclarationFragmentSyntax::ImplementationTypeMemberBinding(syntax) => elements!(syntax),
     }
 }
 
-fn collect_surface_tokens(
-    tokens: impl Iterator<Item = SyntaxToken>,
+fn collect_surface_elements(
+    node: &impl SourceSyntaxNode,
     source_text: &str,
-) -> Option<Vec<CatalogSurfaceToken>> {
-    tokens
-        .map(|token| {
-            Some(CatalogSurfaceToken::new(
-                token.kind(),
-                token.text(source_text)?,
-            ))
-        })
-        .collect()
-}
+) -> Option<Vec<CatalogSurfaceElement>> {
+    let mut elements = Vec::new();
+    let mut valid = true;
 
-use super::rendering::render_catalog;
+    walk_syntax_node(node, |event| {
+        let element = match event {
+            SyntaxWalkEvent::EnterNode(node) => CatalogSurfaceElement::EnterNode(node.kind()),
+            SyntaxWalkEvent::Token(token) => match token.text(source_text) {
+                Some(spelling) => {
+                    CatalogSurfaceElement::Token(CatalogSurfaceToken::new(token.kind(), spelling))
+                }
+                None => {
+                    valid = false;
+                    return SyntaxWalkControl::Stop;
+                }
+            },
+            SyntaxWalkEvent::ExitNode(node) => CatalogSurfaceElement::ExitNode(node.kind()),
+        };
+
+        elements.push(element);
+
+        SyntaxWalkControl::Continue
+    });
+
+    valid.then_some(elements)
+}
 
 #[cfg(test)]
 mod tests {
+    use bray_syntax::SyntaxKind;
+
     use super::{generate_catalog_output, render_catalog};
-    use crate::{CATALOG_SOURCE_DIGEST, COMPILER_KNOWN_CATALOG, generator_input_inventory};
+    use crate::{
+        CATALOG_SOURCE_DIGEST, COMPILER_KNOWN_CATALOG, CatalogSurfaceElement,
+        generator_input_inventory,
+    };
 
     #[test]
     fn generation_is_byte_deterministic() {
@@ -425,20 +455,86 @@ mod tests {
         );
         assert_eq!(generator_input_inventory().sources().len(), 6);
 
-        let declaration = &COMPILER_KNOWN_CATALOG.compiler_known_declarations()[0];
+        let Some(declaration) = COMPILER_KNOWN_CATALOG
+            .compiler_known_declarations()
+            .iter()
+            .find(|declaration| declaration.key().as_str() == "RawPointer")
+        else {
+            panic!("published catalog should contain RawPointer");
+        };
+
         let Some(surface) = COMPILER_KNOWN_CATALOG.declaration_surface(declaration.surface())
         else {
             panic!("published declaration should retain pre-parsed syntax");
         };
 
         assert_eq!(surface.kind(), declaration.kind());
-        assert!(!surface.tokens().is_empty());
+        assert!(
+            surface
+                .elements()
+                .contains(&CatalogSurfaceElement::EnterNode(
+                    SyntaxKind::GenericParameterList
+                ))
+        );
 
-        let value = &COMPILER_KNOWN_CATALOG.compiler_known_values()[0];
+        assert_balanced(surface.elements());
+
+        let Some(value) = COMPILER_KNOWN_CATALOG
+            .compiler_known_values()
+            .iter()
+            .find(|value| value.key().as_str() == "None")
+        else {
+            panic!("published catalog should contain None");
+        };
+
         let Some(type_surface) = COMPILER_KNOWN_CATALOG.type_surface(value.type_surface()) else {
             panic!("published value should retain pre-parsed type syntax");
         };
 
-        assert!(!type_surface.tokens().is_empty());
+        assert!(type_surface.elements().iter().any(|element| matches!(
+            element,
+            CatalogSurfaceElement::Token(token) if token.kind() == SyntaxKind::QuestionToken
+        )));
+        assert!(maximum_depth(type_surface.elements()) >= 3);
+
+        assert_balanced(type_surface.elements());
+    }
+
+    fn assert_balanced(elements: &[CatalogSurfaceElement]) {
+        let mut stack = Vec::new();
+
+        for element in elements {
+            match element {
+                CatalogSurfaceElement::EnterNode(kind) => stack.push(*kind),
+                CatalogSurfaceElement::Token(_) => {}
+                CatalogSurfaceElement::ExitNode(kind) => {
+                    let Some(entered) = stack.pop() else {
+                        panic!("surface exits a node that was not entered");
+                    };
+
+                    assert_eq!(entered, *kind);
+                }
+            }
+        }
+
+        assert!(stack.is_empty());
+    }
+
+    fn maximum_depth(elements: &[CatalogSurfaceElement]) -> usize {
+        let mut depth = 0_usize;
+        let mut maximum = 0_usize;
+
+        for element in elements {
+            match element {
+                CatalogSurfaceElement::EnterNode(_) => {
+                    depth += 1;
+                    maximum = maximum.max(depth);
+                }
+                CatalogSurfaceElement::Token(_) => {}
+                CatalogSurfaceElement::ExitNode(_) => depth -= 1,
+            }
+        }
+
+        maximum
     }
 }
