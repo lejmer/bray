@@ -12,9 +12,7 @@ use crate::{BinderCancellation, TargetFactProvider};
 pub trait BinderFactContext: Send + Sync {
     /// The provider for target-profile-dependent constant facts.
     type TargetFacts: TargetFactProvider + ?Sized;
-    /// The provider for facts decoded from imported package interfaces.
-    type ImportedSymbolFacts: Send + Sync + ?Sized;
-    /// The provider for ordinary symbol-facing semantic facts.
+    /// The origin-neutral provider for symbol-facing semantic facts.
     type SymbolFacts: Send + Sync + ?Sized;
     /// The compilation-owned cancellation observer.
     type Cancellation: BinderCancellation + ?Sized;
@@ -34,10 +32,9 @@ pub trait BinderFactContext: Send + Sync {
     /// Returns the selected target's fact provider.
     fn target_facts(&self) -> &Self::TargetFacts;
 
-    /// Returns the imported symbol-fact provider.
-    fn imported_symbol_facts(&self) -> &Self::ImportedSymbolFacts;
-
-    /// Returns the ordinary symbol-fact provider.
+    /// Returns the origin-neutral symbol-fact provider.
+    ///
+    /// Compilation routes source, compiler-known, synthesized, and imported owners internally.
     fn symbol_facts(&self) -> &Self::SymbolFacts;
 
     /// Returns the cancellation observer for this binding request.
@@ -46,5 +43,30 @@ pub trait BinderFactContext: Send + Sync {
     /// Returns whether cancellation has been requested.
     fn is_cancelled(&self) -> bool {
         self.cancellation().is_cancelled()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::BinderFactContext;
+    use crate::fact::test_support::TestFixture;
+
+    #[test]
+    fn contexts_expose_exact_immutable_fact_inputs() {
+        let fixture = TestFixture::new();
+        let context = fixture.context();
+
+        assert_eq!(context.syntax().source_units().len(), 1);
+        assert_eq!(context.declarations().declarations().len(), 2);
+        assert_eq!(context.symbols().constants().len(), 1);
+        assert_eq!(context.semantic_values().id(), fixture.semantic_values.id());
+        assert!(!context.is_cancelled());
+    }
+
+    #[test]
+    fn contexts_are_send_and_sync() {
+        fn assert_send_sync<T: Send + Sync>() {}
+
+        assert_send_sync::<crate::fact::test_support::TestContext<'static>>();
     }
 }

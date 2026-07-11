@@ -7,8 +7,8 @@ mod target;
 pub use cancellation::BinderCancellation;
 pub use context::BinderFactContext;
 pub use error::{BinderFactError, BinderFactResult};
-pub use provider::{BindingSymbolFactProvider, ImportedSymbolFactProvider, SymbolFactProvider};
+pub use provider::{BindingSymbolFactProvider, SymbolFactProvider};
 pub use target::{TargetFactProvider, TargetFactResult};
 
 #[cfg(test)]
-mod tests;
+mod test_support;

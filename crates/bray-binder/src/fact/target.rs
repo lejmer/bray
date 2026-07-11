@@ -18,3 +18,32 @@ pub trait TargetFactProvider: Send + Sync {
     /// Returns the selected target value for an exact compiler-known constant symbol.
     fn target_fact(&self, fact: ConstantSymbolId) -> BinderFactResult<Arc<TargetFactResult>>;
 }
+
+#[cfg(test)]
+mod tests {
+    use bray_symbols::{ConstantSymbolId, SymbolId};
+
+    use super::TargetFactProvider;
+    use crate::fact::test_support::TestFixture;
+    use crate::{BinderFactContext, BinderFactError};
+
+    #[test]
+    fn target_facts_return_canonical_values_and_reject_unknown_symbols() {
+        let fixture = TestFixture::new();
+        let context = fixture.context();
+
+        let target = match context.target_facts().target_fact(fixture.constant) {
+            Ok(target) => target,
+            Err(error) => panic!("test target fact should exist: {error:?}"),
+        };
+
+        assert_eq!(target.value(), &fixture.target_value);
+
+        let unknown = ConstantSymbolId::from_symbol_id(SymbolId::new(99));
+
+        assert_eq!(
+            context.target_facts().target_fact(unknown),
+            Err(BinderFactError::DependencyUnavailable)
+        );
+    }
+}

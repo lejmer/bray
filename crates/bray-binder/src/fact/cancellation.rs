@@ -16,3 +16,38 @@ where
         self()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{
+        Barrier,
+        atomic::{AtomicBool, Ordering},
+    };
+    use std::thread;
+
+    use super::BinderCancellation;
+
+    #[test]
+    fn closures_observe_concurrent_compilation_cancellation() {
+        let barrier = Barrier::new(2);
+        let cancelled = AtomicBool::new(false);
+        let observe = || cancelled.load(Ordering::Acquire);
+
+        assert!(!observe.is_cancelled());
+
+        thread::scope(|scope| {
+            scope.spawn(|| {
+                barrier.wait();
+                cancelled.store(true, Ordering::Release);
+            });
+
+            barrier.wait();
+
+            while !observe.is_cancelled() {
+                thread::yield_now();
+            }
+        });
+
+        assert!(observe.is_cancelled());
+    }
+}
