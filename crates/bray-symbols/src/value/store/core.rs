@@ -36,7 +36,7 @@ impl SemanticValueStore {
     /// Creates an empty semantic value store with a process-unique checking identity.
     pub fn try_new() -> Result<Self, SemanticValueStoreCreateError> {
         let raw = NEXT_STORE_ID
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
                 current.checked_add(1)
             })
             .map_err(|_| SemanticValueStoreCreateError::IdentitySpaceExhausted)?;
