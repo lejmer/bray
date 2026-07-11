@@ -13,6 +13,8 @@ mod loader;
 mod parser;
 mod source;
 mod surface;
+#[cfg(test)]
+mod test_support;
 #[cfg(any(test, feature = "generation"))]
 mod validation;
 

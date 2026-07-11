@@ -509,13 +509,11 @@ fn module_is_recovered(
 mod tests {
     use std::sync::Arc;
 
-    use bray_declarations::{
-        DeclarationChunkResult, DeclarationKind, DeclarationTable,
-        discover_source_unit_declarations, merge_declaration_chunks,
-    };
-    use bray_testing::{test_source_at, test_source_store};
+    use bray_declarations::{DeclarationKind, DeclarationTable, merge_declaration_chunks};
+    use bray_testing::test_source_store;
 
     use crate::surface_kind::{DeclarationSurfaceKind, declaration_symbol_kind};
+    use crate::test_support::{declaration_chunk, declaration_table};
     use crate::{
         AnySymbolId, CallableSymbolId, CompilerKnownEnvironmentSymbolId, FunctionSymbolId,
         ModuleOwnerId, ModulePathKey, PackageIdentity, RuntimeDefaultPresence, SymbolGraph,

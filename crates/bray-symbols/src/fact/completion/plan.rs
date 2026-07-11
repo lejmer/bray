@@ -181,13 +181,8 @@ pub enum SymbolCompletionPlanError {
 
 #[cfg(test)]
 mod tests {
-    use bray_declarations::{
-        DeclarationChunkResult, DeclarationTable, discover_source_unit_declarations,
-        merge_declaration_chunks,
-    };
-    use bray_testing::{test_source_at, test_source_store};
-
     use super::{SymbolCompletionPlan, SymbolCompletionPlanError, SymbolFactCompletionRequest};
+    use crate::test_support::declaration_table;
     use crate::{
         AnySymbolId, NeverCancelSymbolCompletion, PackageIdentity, SymbolCompletionLevel,
         SymbolFactKind, SymbolGraph, SymbolId, SymbolKind,

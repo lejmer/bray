@@ -25,6 +25,8 @@ mod recognized;
 mod record;
 mod relationship;
 mod surface_kind;
+#[cfg(test)]
+mod test_support;
 mod value;
 
 pub use compiler_known::{

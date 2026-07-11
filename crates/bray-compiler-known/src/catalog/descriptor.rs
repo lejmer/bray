@@ -381,15 +381,11 @@ impl RecognizedStandardLibraryDeclarationDescriptor {
 
 #[cfg(test)]
 mod tests {
-    use bray_source::{TextRange, TextSize};
-
     use super::{
         CatalogDeclarationKind, CompilerKnownDeclarationDescriptor, CompilerKnownDeclarationOwner,
     };
-    use crate::catalog::{
-        CatalogDeclarationSurface, CatalogSourceAnchor, CompilerKnownDeclarationId,
-        CompilerKnownDeclarationKey, generator_input_inventory,
-    };
+    use crate::catalog::CompilerKnownDeclarationId;
+    use crate::catalog::test_support::{declaration_key, declaration_surface};
     use crate::{AvailabilityRule, ImplementationHook, RepresentationRole};
 
     #[test]
@@ -445,24 +441,6 @@ mod tests {
             representation_role: Some(RepresentationRole::RawPointer),
             implementation_hook: Some(ImplementationHook::RawPointerRead),
             availability_rule: AvailabilityRule::RawMemory,
-        }
-    }
-
-    fn declaration_surface() -> CatalogDeclarationSurface {
-        let source = generator_input_inventory().sources()[0].id();
-
-        let anchor = CatalogSourceAnchor {
-            source,
-            range: TextRange::new(TextSize::new(1), TextSize::new(5)),
-        };
-
-        CatalogDeclarationSurface(anchor)
-    }
-
-    fn declaration_key(value: &str) -> CompilerKnownDeclarationKey {
-        match CompilerKnownDeclarationKey::try_new(value) {
-            Some(key) => key,
-            None => panic!("test declaration key is valid"),
         }
     }
 
