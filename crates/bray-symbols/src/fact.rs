@@ -6,7 +6,11 @@ mod implementation;
 mod predicate;
 mod signature;
 
-pub use completion::{SymbolCompletionLevel, SymbolFactKind};
+pub use completion::{
+    NeverCancelSymbolCompletion, SymbolCompletionCancellation, SymbolCompletionLevel,
+    SymbolCompletionPlan, SymbolCompletionPlanError, SymbolCompletionUnit,
+    SymbolFactCompletionRequest, SymbolFactForcer, SymbolFactKind,
+};
 pub use constant::{
     ConstantDefinition, ConstantDefinitionState, ConstantInstanceKey, ErrorConstantDefinition,
 };

@@ -5,10 +5,18 @@ use std::sync::{
 
 use super::FactQueryError;
 
+use bray_symbols::SymbolCompletionCancellation;
+
 /// A shareable cancellation signal for one compiler request.
 #[derive(Clone, Debug, Default)]
 pub struct CancellationToken {
     cancelled: Arc<AtomicBool>,
+}
+
+impl SymbolCompletionCancellation for CancellationToken {
+    fn is_cancelled(&self) -> bool {
+        self.is_cancelled()
+    }
 }
 
 impl CancellationToken {
