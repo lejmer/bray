@@ -107,6 +107,38 @@ impl SourceSyntaxNode for SyntaxNodeView<'_> {
     }
 }
 
+mod sealed {
+    use crate::SyntaxNodeView;
+
+    pub trait SyntaxWalkRoot {
+        fn syntax_walk_root(&self) -> SyntaxNodeView<'_>;
+    }
+}
+
+impl<T> sealed::SyntaxWalkRoot for T
+where
+    T: GreenSourceSyntaxNode,
+{
+    fn syntax_walk_root(&self) -> SyntaxNodeView<'_> {
+        SyntaxNodeView::new(self.source(), self.green_node(), self.start())
+    }
+}
+
+impl sealed::SyntaxWalkRoot for SyntaxNodeView<'_> {
+    fn syntax_walk_root(&self) -> SyntaxNodeView<'_> {
+        *self
+    }
+}
+
+/// A Bray-owned typed syntax node or opaque node view that can be traversed.
+///
+/// This trait is sealed because traversal requires access to Bray's immutable
+/// green syntax storage. It is exported only as the bound of
+/// [`walk_syntax_node`].
+pub trait SyntaxWalkRoot: sealed::SyntaxWalkRoot {}
+
+impl<T> SyntaxWalkRoot for T where T: sealed::SyntaxWalkRoot {}
+
 /// Concrete typed syntax node cast from a generic syntax node view.
 pub trait SyntaxCast: SourceSyntaxNode + Sized {
     /// Stable syntax kind accepted by this cast.
@@ -167,6 +199,14 @@ pub fn walk_source_unit(
     mut visitor: impl for<'syntax> FnMut(SyntaxWalkEvent<'syntax>) -> SyntaxWalkControl,
 ) {
     walk_source_unit_inner(source_unit, &mut visitor);
+}
+
+/// Walks one typed source syntax node in source order.
+pub fn walk_syntax_node(
+    node: &impl SyntaxWalkRoot,
+    mut visitor: impl for<'syntax> FnMut(SyntaxWalkEvent<'syntax>) -> SyntaxWalkControl,
+) {
+    walk_node(node.syntax_walk_root(), &mut visitor);
 }
 
 pub(crate) fn cast_source_node<T>(
@@ -306,7 +346,8 @@ mod tests {
     use bray_source::{SourceOrigin, TextRange, TextSize};
 
     use super::{
-        SyntaxNodeView, SyntaxWalkControl, SyntaxWalkEvent, walk_source_unit, walk_syntax_tree,
+        SyntaxNodeView, SyntaxWalkControl, SyntaxWalkEvent, walk_source_unit, walk_syntax_node,
+        walk_syntax_tree,
     };
     use crate::test_support::{snapshot, token};
     use crate::{
@@ -405,6 +446,34 @@ mod tests {
                 "exit identifier_list_item",
                 "token comma_token",
             ]
+        );
+    }
+
+    #[test]
+    fn typed_node_walk_preserves_its_nested_hierarchy() {
+        let source_unit = identifier_list_source_unit();
+        let mut lists = source_unit.identifier_lists();
+
+        let Some(list) = lists.next() else {
+            panic!("test source unit should contain an identifier list");
+        };
+
+        let mut events = Vec::new();
+
+        walk_syntax_node(&list, |event| {
+            events.push(event_name(event));
+
+            SyntaxWalkControl::Continue
+        });
+
+        assert_eq!(
+            events.first().map(String::as_str),
+            Some("enter identifier_list")
+        );
+        assert!(events.contains(&"enter identifier_list_item".to_owned()));
+        assert_eq!(
+            events.last().map(String::as_str),
+            Some("exit identifier_list")
         );
     }
 

@@ -8,6 +8,9 @@ rust-version.workspace = true
 [lints]
 workspace = true
 
+[dependencies]
+bray-compiler-known = { path = "../crates/bray-compiler-known", features = ["generation"] }
+
 [[bin]]
 name = "xtask"
 path = "src/main.rs"

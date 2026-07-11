@@ -298,7 +298,7 @@ impl CatalogParser {
 
                 let token = self.tokens.consume();
                 let anchor = self.anchor(token.range());
-                let spelling = CatalogTokenSpelling(self.token_text(&token));
+                let spelling = CatalogTokenSpelling::new(self.token_text(&token));
 
                 self.expect_kind(SyntaxKind::SemicolonToken, CatalogExpectation::Semicolon)?;
 

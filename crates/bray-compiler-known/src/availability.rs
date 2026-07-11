@@ -28,6 +28,7 @@ pub enum AvailabilityRule {
 }
 
 impl AvailabilityRule {
+    #[cfg(any(test, feature = "generation"))]
     pub(crate) fn from_catalog_spelling(spelling: &str) -> Option<Self> {
         match spelling {
             "Always" => Some(Self::Always),

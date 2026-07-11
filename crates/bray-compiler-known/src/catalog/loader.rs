@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use super::descriptor::{
     CompilerKnownDeclarationDescriptor, CompilerKnownDeclarationOwner,
     CompilerKnownScopeDescriptor, CompilerKnownValueDescriptor,
@@ -154,12 +152,13 @@ fn build_descriptors(
     }
 
     Ok(CompilerKnownCatalog {
-        source_inventory: inventory,
         compiler_known_scopes: compiler_known_scopes.into(),
         compiler_known_declarations: compiler_known_declarations.into(),
         compiler_known_values: compiler_known_values.into(),
         recognized_scopes: recognized_scopes.into(),
         recognized_declarations: recognized_declarations.into(),
+        declaration_surfaces: std::borrow::Cow::Borrowed(&[]),
+        type_surfaces: std::borrow::Cow::Borrowed(&[]),
     })
 }
 
@@ -172,7 +171,7 @@ fn build_compiler_known_declarations(
         .filter_map(|(index, declaration)| {
             Some(CompilerKnownDeclarationDescriptor {
                 id: CompilerKnownDeclarationId::try_from_index(index)?,
-                key: CompilerKnownDeclarationKey::try_new(Arc::clone(&declaration.key))?,
+                key: CompilerKnownDeclarationKey::try_new(&declaration.key)?,
                 owner: match declaration.owner {
                     ValidatedDeclarationOwner::Scope(index) => {
                         CompilerKnownDeclarationOwner::Scope(CompilerKnownScopeId::try_from_index(
@@ -202,9 +201,9 @@ fn build_compiler_known_values(values: &[ValidatedValue]) -> Vec<CompilerKnownVa
         .filter_map(|(index, value)| {
             Some(CompilerKnownValueDescriptor {
                 id: CompilerKnownValueId::try_from_index(index)?,
-                key: CompilerKnownValueKey::try_new(Arc::clone(&value.key))?,
+                key: CompilerKnownValueKey::try_new(&value.key)?,
                 owner_scope: CompilerKnownScopeId::try_from_index(value.owner_scope)?,
-                spelling: super::CatalogTokenSpelling(Arc::clone(&value.spelling.0)),
+                spelling: value.spelling.to_owned_storage(),
                 type_surface: value.type_surface,
                 representation_role: value.representation_role,
                 availability_rule: value.availability_rule,
@@ -224,15 +223,16 @@ fn build_compiler_known_scopes(
         .filter_map(|(index, scope)| {
             Some(CompilerKnownScopeDescriptor {
                 id: CompilerKnownScopeId::try_from_index(index)?,
-                key: CompilerKnownScopeKey::try_new(Arc::clone(&scope.key))?,
-                // CatalogPath cloning shares immutable path segment storage.
+                key: CompilerKnownScopeKey::try_new(&scope.key)?,
+                // Descriptor assembly borrows validated scopes, so it copies this short path.
                 location: scope.location.clone(),
-                declaration_ids: direct_compiler_declarations(index, declarations),
+                declaration_ids: direct_compiler_declarations(index, declarations).into(),
                 value_ids: values
                     .iter()
                     .filter(|value| value.owner_scope().to_index() == Some(index))
                     .map(CompilerKnownValueDescriptor::id)
-                    .collect(),
+                    .collect::<Vec<_>>()
+                    .into(),
             })
         })
         .collect()
@@ -247,9 +247,7 @@ fn build_recognized_declarations(
         .filter_map(|(index, declaration)| {
             Some(RecognizedStandardLibraryDeclarationDescriptor {
                 id: RecognizedStandardLibraryDeclarationId::try_from_index(index)?,
-                key: RecognizedStandardLibraryDeclarationKey::try_new(Arc::clone(
-                    &declaration.key,
-                ))?,
+                key: RecognizedStandardLibraryDeclarationKey::try_new(&declaration.key)?,
                 owner: match declaration.owner {
                     ValidatedDeclarationOwner::Scope(index) => {
                         RecognizedStandardLibraryDeclarationOwner::Scope(
@@ -285,8 +283,8 @@ fn build_recognized_scopes(
 
             Some(RecognizedStandardLibraryScopeDescriptor {
                 id: RecognizedStandardLibraryScopeId::try_from_index(index)?,
-                key: RecognizedStandardLibraryScopeKey::try_new(Arc::clone(&scope.key))?,
-                // CatalogPath cloning shares immutable path segment storage.
+                key: RecognizedStandardLibraryScopeKey::try_new(&scope.key)?,
+                // Descriptor assembly borrows validated scopes, so it copies this short path.
                 path: path.clone(),
                 declaration_ids: declarations
                     .iter()
@@ -298,7 +296,8 @@ fn build_recognized_scopes(
                         }
                         _ => None,
                     })
-                    .collect(),
+                    .collect::<Vec<_>>()
+                    .into(),
             })
         })
         .collect()
@@ -307,7 +306,7 @@ fn build_recognized_scopes(
 fn direct_compiler_declarations(
     scope_index: usize,
     declarations: &[CompilerKnownDeclarationDescriptor],
-) -> Arc<[CompilerKnownDeclarationId]> {
+) -> Vec<CompilerKnownDeclarationId> {
     declarations
         .iter()
         .filter_map(|declaration| match declaration.owner() {

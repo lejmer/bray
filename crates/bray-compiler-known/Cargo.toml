@@ -5,12 +5,23 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
+[features]
+generation = ["dep:blake3", "dep:bray-diagnostics", "dep:bray-parser"]
+
 [dependencies]
-bray-base = { path = "../bray-base" }
-bray-diagnostics = { path = "../bray-diagnostics" }
-bray-parser = { path = "../bray-parser" }
+bray-diagnostics = { path = "../bray-diagnostics", optional = true }
+bray-parser = { path = "../bray-parser", optional = true }
 bray-source = { path = "../bray-source" }
 bray-syntax = { path = "../bray-syntax" }
+blake3 = { version = "1", optional = true }
+
+[build-dependencies]
+blake3 = "1"
+
+[dev-dependencies]
+blake3 = "1"
+bray-diagnostics = { path = "../bray-diagnostics" }
+bray-parser = { path = "../bray-parser" }
 
 [lints]
 workspace = true

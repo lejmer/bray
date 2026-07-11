@@ -233,7 +233,7 @@ fn collect_entries(
                 values.push(RawValue {
                     scope_key: Arc::clone(&scope.key.value),
                     key: Arc::clone(&value.key.value),
-                    spelling: super::super::CatalogTokenSpelling(Arc::clone(&spelling.value.0)),
+                    spelling: spelling.value.to_owned_storage(),
                     type_surface: type_surface.value,
                     representation_role,
                     availability_rule: availability(

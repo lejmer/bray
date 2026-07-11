@@ -1,10 +1,11 @@
-use std::sync::Arc;
+use std::borrow::Cow;
 
 use bray_source::TextRange;
 
 use super::CatalogSourceId;
 
 /// Selects the semantic family defined by one catalog source.
+#[cfg(any(test, feature = "generation"))]
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum CatalogKind {
     /// Ambient and module-scoped compiler-known declarations and values.
@@ -13,7 +14,8 @@ pub enum CatalogKind {
     RecognizedStandardLibrary,
 }
 
-/// One source file compiled into the canonical catalog inventory.
+/// One checked-in generator input in the canonical catalog inventory.
+#[cfg(any(test, feature = "generation"))]
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct CatalogSource {
     id: CatalogSourceId,
@@ -22,9 +24,9 @@ pub struct CatalogSource {
     text: &'static str,
 }
 
+#[cfg(any(test, feature = "generation"))]
 impl CatalogSource {
-    #[cfg(test)]
-    pub(super) const fn new(
+    pub(crate) const fn new(
         id: CatalogSourceId,
         kind: CatalogKind,
         relative_path: &'static str,
@@ -53,20 +55,22 @@ impl CatalogSource {
         self.relative_path
     }
 
-    /// Returns the source text embedded in the compiler binary.
+    /// Returns source text available only to catalog generation and tests.
     pub const fn text(self) -> &'static str {
         self.text
     }
 }
 
-/// The complete canonical sequence of catalog sources embedded in the compiler.
+/// The canonical sequence of checked-in catalog generator inputs.
+#[cfg(any(test, feature = "generation"))]
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct CatalogSourceInventory {
     pub(super) sources: &'static [CatalogSource],
 }
 
+#[cfg(any(test, feature = "generation"))]
 impl CatalogSourceInventory {
-    /// Returns all embedded sources in canonical inventory order.
+    /// Returns all generator inputs in canonical manifest order.
     pub const fn sources(self) -> &'static [CatalogSource] {
         self.sources
     }
@@ -77,7 +81,7 @@ impl CatalogSourceInventory {
     }
 }
 
-/// A source range inside one embedded catalog file.
+/// Provenance range inside one catalog generator input.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CatalogSourceAnchor {
     pub(super) source: CatalogSourceId,
@@ -85,7 +89,7 @@ pub struct CatalogSourceAnchor {
 }
 
 impl CatalogSourceAnchor {
-    /// Returns the embedded source containing this range.
+    /// Returns the generator-input identity containing this range.
     pub const fn source(self) -> CatalogSourceId {
         self.source
     }
@@ -96,23 +100,23 @@ impl CatalogSourceAnchor {
     }
 }
 
-/// An exact embedded Bray declaration fragment retained for lazy semantic work.
+/// Stable handle to one generated declaration-surface syntax record.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CatalogDeclarationSurface(pub(super) CatalogSourceAnchor);
 
 impl CatalogDeclarationSurface {
-    /// Returns the exact catalog source anchor for the Bray fragment.
+    /// Returns generator-input provenance for this surface.
     pub const fn anchor(self) -> CatalogSourceAnchor {
         self.0
     }
 }
 
-/// An exact embedded Bray type-expression fragment retained for lazy binding.
+/// Stable handle to one generated type-expression syntax record.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CatalogTypeSurface(pub(super) CatalogSourceAnchor);
 
 impl CatalogTypeSurface {
-    /// Returns the exact catalog source anchor for the Bray fragment.
+    /// Returns generator-input provenance for this surface.
     pub const fn anchor(self) -> CatalogSourceAnchor {
         self.0
     }
@@ -120,16 +124,30 @@ impl CatalogTypeSurface {
 
 /// The exact source spelling of one language-known value token.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct CatalogTokenSpelling(pub(super) Arc<str>);
+pub struct CatalogTokenSpelling(pub(super) Cow<'static, str>);
 
 impl CatalogTokenSpelling {
+    #[cfg(any(test, feature = "generation"))]
+    pub(super) fn new(value: impl AsRef<str>) -> Self {
+        Self(Cow::Owned(value.as_ref().to_owned()))
+    }
+
+    #[cfg(any(test, feature = "generation"))]
+    pub(super) fn to_owned_storage(&self) -> Self {
+        Self::new(self.as_str())
+    }
+
     /// Returns the exact token spelling.
     pub fn as_str(&self) -> &str {
         &self.0
     }
+
+    pub(super) const fn from_static(value: &'static str) -> Self {
+        Self(Cow::Borrowed(value))
+    }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "generation"))]
 const SOURCES: [CatalogSource; 6] = [
     CatalogSource::new(
         CatalogSourceId::new(0),
@@ -169,18 +187,17 @@ const SOURCES: [CatalogSource; 6] = [
     ),
 ];
 
-#[cfg(test)]
+#[cfg(any(test, feature = "generation"))]
 static INVENTORY: CatalogSourceInventory = CatalogSourceInventory { sources: &SOURCES };
 
 /// Returns the complete generator-input inventory for catalog tests.
-#[cfg(test)]
+#[cfg(any(test, feature = "generation"))]
 pub const fn generator_input_inventory() -> &'static CatalogSourceInventory {
     &INVENTORY
 }
 
 #[cfg(test)]
 mod tests {
-    use bray_base::shared_str;
     use bray_source::{TextRange, TextSize};
 
     use super::{
@@ -192,8 +209,19 @@ mod tests {
     fn generator_input_inventory_is_complete_and_canonical() {
         let inventory = generator_input_inventory();
         let sources = inventory.sources();
+        let manifest_paths = include_str!("../../catalog/catalog.braydef-manifest")
+            .lines()
+            .map(|path| format!("catalog/{path}"))
+            .collect::<Vec<_>>();
 
         assert_eq!(sources.len(), 6);
+        assert_eq!(
+            sources
+                .iter()
+                .map(|source| source.relative_path())
+                .collect::<Vec<_>>(),
+            manifest_paths
+        );
 
         assert_eq!(sources[0].kind(), CatalogKind::CompilerKnown);
         assert_eq!(sources[4].kind(), CatalogKind::RecognizedStandardLibrary);
@@ -231,7 +259,7 @@ mod tests {
 
     #[test]
     fn token_spelling_retains_exact_catalog_text() {
-        let spelling = CatalogTokenSpelling(shared_str("true"));
+        let spelling = CatalogTokenSpelling::new("true");
 
         assert_eq!(spelling.as_str(), "true");
     }
