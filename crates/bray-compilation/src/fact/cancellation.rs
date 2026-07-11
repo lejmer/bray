@@ -3,6 +3,8 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 
+use bray_binder::BinderCancellation;
+
 use super::FactQueryError;
 
 use bray_symbols::SymbolCompletionCancellation;
@@ -44,8 +46,16 @@ impl CancellationToken {
     }
 }
 
+impl BinderCancellation for CancellationToken {
+    fn is_cancelled(&self) -> bool {
+        Self::is_cancelled(self)
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use bray_binder::BinderCancellation;
+
     use super::CancellationToken;
 
     #[test]
@@ -64,5 +74,16 @@ mod tests {
         fn assert_send_sync<T: Send + Sync>() {}
 
         assert_send_sync::<CancellationToken>();
+    }
+
+    #[test]
+    fn cancellation_tokens_serve_binder_requests_read_only() {
+        let token = CancellationToken::new();
+
+        assert!(!BinderCancellation::is_cancelled(&token));
+
+        token.cancel();
+
+        assert!(BinderCancellation::is_cancelled(&token));
     }
 }
