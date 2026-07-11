@@ -150,7 +150,9 @@ macro_rules! define_symbol_graph {
 
             pub(crate) fn contains_symbol(&self, symbol: AnySymbolId) -> bool {
                 match symbol {
-                    AnySymbolId::CompilerKnownEnvironment(id) => self.compiler_known.id() == id,
+                    AnySymbolId::CompilerKnownEnvironment(id) => {
+                        self.compiler_known.environment().id() == id
+                    }
                     AnySymbolId::Package(id) => self.packages.get(id).is_some(),
                     AnySymbolId::Module(id) => self.modules.get(id).is_some(),
                     AnySymbolId::CallableParameterDefaultProvider(id) => {
@@ -431,10 +433,16 @@ macro_rules! define_symbol_graph {
                     });
 
                 let mut completion_children = self.relationship_index.into_completion_children();
+                let compiler_known_environment = self.compiler_known.environment();
 
                 completion_children.insert(
-                    self.compiler_known.id().into(),
-                    self.compiler_known.modules().iter().copied().map(Into::into).collect(),
+                    compiler_known_environment.id().into(),
+                    compiler_known_environment
+                        .modules()
+                        .iter()
+                        .copied()
+                        .map(Into::into)
+                        .collect(),
                 );
 
                 for package in packages.records() {

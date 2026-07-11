@@ -5,7 +5,7 @@ use bray_declarations::{
 use bray_source::{SourceVersion, TextSize};
 use bray_symbols::{
     LocalBindingSymbolId, LocalScopeBoundary, LocalScopeId, LocalSymbolRegionId, PackageIdentity,
-    SymbolGraph, SymbolName, SymbolOrdinal,
+    SymbolGraph, SymbolName, SymbolOrdinal, SymbolOrigin,
 };
 use bray_testing::{test_source_at, test_source_store};
 
@@ -41,11 +41,24 @@ pub(super) fn fixture() -> Fixture {
         Err(error) => panic!("test symbol graph must build: {error:?}"),
     };
 
-    let [function, second] = graph.functions() else {
+    let source_functions = graph
+        .functions()
+        .iter()
+        .filter(|function| function.origin() == SymbolOrigin::Source)
+        .collect::<Vec<_>>();
+
+    let [function, second] = source_functions.as_slice() else {
         panic!("test source must declare two functions");
     };
 
-    let first = function.syntax_anchor();
+    let Some(first) = function.syntax_anchor() else {
+        panic!("test source function must retain its syntax anchor");
+    };
+
+    let Some(second) = second.syntax_anchor() else {
+        panic!("second test source function must retain its syntax anchor");
+    };
+
     let version = SourceVersion::new(3);
     let source = BoundSourceAnchor::new(first, version);
     let key = match BoundUnitKey::callable_body(function.key().clone(), source) {
@@ -62,15 +75,25 @@ pub(super) fn fixture() -> Fixture {
         Err(error) => panic!("foreign test symbol graph must build: {error:?}"),
     };
 
-    let [foreign] = foreign_graph.functions() else {
+    let foreign_functions = foreign_graph
+        .functions()
+        .iter()
+        .filter(|function| function.origin() == SymbolOrigin::Source)
+        .collect::<Vec<_>>();
+
+    let [foreign] = foreign_functions.as_slice() else {
         panic!("foreign test source must declare one function");
+    };
+
+    let Some(foreign) = foreign.syntax_anchor() else {
+        panic!("foreign test source function must retain its syntax anchor");
     };
 
     Fixture {
         key,
         first,
-        second: second.syntax_anchor(),
-        foreign: foreign.syntax_anchor(),
+        second,
+        foreign,
         version,
     }
 }

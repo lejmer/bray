@@ -355,6 +355,7 @@ mod tests {
         );
 
         let result = finish(builder);
+
         let Some(scope) = result.local_symbols().scope(block) else {
             panic!("block scope must be published");
         };
@@ -546,6 +547,7 @@ mod tests {
         let callable_scope = boundary.scope();
         let callable = boundary.callable();
         let snapshot = finish(builder);
+
         let Some(scope) = snapshot.local_symbols().scope(callable_scope) else {
             panic!("callable scope must be published");
         };

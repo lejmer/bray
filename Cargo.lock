@@ -88,8 +88,8 @@ version = "0.0.0"
 dependencies = [
  "bray-bound-tree",
  "bray-checker",
- "bray-diagnostics",
  "bray-declarations",
+ "bray-diagnostics",
  "bray-parser",
  "bray-source",
  "bray-symbols",
