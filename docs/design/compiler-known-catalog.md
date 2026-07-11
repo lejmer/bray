@@ -336,6 +336,7 @@ declaration-entry =
 
 declaration-field =
       owner-field
+    | identity-field
     | availability-field
     | representation-field
     | implementation-field
@@ -354,6 +355,13 @@ value-field =
 
 owner-field =
     "owner" stable-key ";" ;
+
+identity-field =
+    "identity" declaration-identity ";" ;
+
+declaration-identity =
+      "name" identifier
+    | "ordinal" unsigned-integer ;
 
 availability-field =
     "availability" identifier ";" ;
@@ -379,6 +387,11 @@ The braces surrounding a Bray fragment belong to the catalog language. They are 
 The parser should reject unknown fields, duplicate fields, missing required fields, unsupported entry kinds, and trailing tokens.
 The initial format does not preserve unknown metadata for possible future interpretation.
 
+Every `recognized_standard_library` declaration requires an explicit `identity` field. Compiler-known declarations cannot use this
+field. Named and ordinal values are owner-relative external identity components, not catalog keys and not values inferred from the
+embedded declaration surface. The selected standard-library package identity and recognized scope path complete the external key.
+Two recognized descriptors cannot use the same owner, exact declaration kind, and owner-relative identity.
+
 ### Catalog Kinds
 
 `compiler_known` files define ambient compiler-known identities and compiler-known module scopes. Their descriptors can create
@@ -386,6 +399,10 @@ symbols before source package lookup begins.
 
 `recognized_standard_library` files define recognition contracts for ordinary imported standard-library declarations. They do not
 create ambient symbols and do not bypass ordinary package, import, visibility, or path rules.
+
+For recognized scopes, the scope path is the package-relative module path that owns direct declarations. The caller supplies the
+validated standard-library package identity separately. A declaration's explicit identity supplies the final owner-relative
+component, so neither package identity nor declaration identity is encoded implicitly in the scope path.
 
 The two catalog kinds can share parser and descriptor primitives, but their validated descriptor families remain distinct so a
 recognized declaration cannot accidentally be materialized as compiler-known.
@@ -692,6 +709,10 @@ loading.
 
 Recognition proceeds only after an imported package interface supplies the expected stable declaration identity. Spelling, path,
 or signature resemblance alone is insufficient.
+
+Each recognized descriptor publishes a closed owner-relative named or ordinal identity. Runtime matching combines the caller's
+validated standard-library package identity, the descriptor scope path and owner chain, the exact semantic symbol kind, and this
+explicit identity to construct an `ExternalSymbolKey`. It never derives identity from source syntax or descriptor metadata keys.
 
 Compiled package interface identity and stable external symbol keys are defined in
 `docs/design/compiled-package-interfaces.md`.

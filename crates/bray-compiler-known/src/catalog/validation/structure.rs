@@ -10,6 +10,7 @@ use super::super::{
 };
 use super::CatalogFragmentValidator;
 use super::field::{declaration_fields, value_fields};
+use super::identity::{recognized_identity, validate_recognized_identity_uniqueness};
 use super::metadata::{availability, implementation, representation};
 use super::model::{
     RawDeclaration, RawScope, RawValue, ValidatedCatalog, ValidatedDeclaration, ValidatedScope,
@@ -51,6 +52,11 @@ pub(crate) fn validate_catalog(
         &recognized_scopes,
         inventory,
         validator,
+        diagnostics,
+    );
+    validate_recognized_identity_uniqueness(
+        recognized_declarations,
+        &recognized_scopes,
         diagnostics,
     );
 
@@ -171,6 +177,33 @@ fn collect_entries(
                     ));
                 }
 
+                let recognized_identity = match (catalog_kind, fields.identity) {
+                    (CatalogKind::RecognizedStandardLibrary, Some(identity)) => {
+                        Some(recognized_identity(&identity.value))
+                    }
+                    (CatalogKind::RecognizedStandardLibrary, None) => {
+                        diagnostics.push(CatalogDiagnostic::new(
+                            declaration.key.anchor,
+                            CatalogDiagnosticKind::MissingField {
+                                field: super::super::CatalogField::Identity,
+                            },
+                        ));
+
+                        None
+                    }
+                    (CatalogKind::CompilerKnown, Some(identity)) => {
+                        diagnostics.push(CatalogDiagnostic::new(
+                            identity.anchor,
+                            CatalogDiagnosticKind::UnsupportedDeclarationIdentity {
+                                catalog: catalog_kind,
+                            },
+                        ));
+
+                        None
+                    }
+                    (CatalogKind::CompilerKnown, None) => None,
+                };
+
                 let Some(surface) = fields.surface else {
                     continue;
                 };
@@ -181,6 +214,7 @@ fn collect_entries(
                     key: Arc::clone(&declaration.key.value),
                     owner_key: fields.owner.map(|value| Arc::clone(&value.value)),
                     owner: None,
+                    recognized_identity,
                     kind: None,
                     surface: surface.value,
                     representation_role,
@@ -422,6 +456,8 @@ fn finalize_declarations(declarations: &[RawDeclaration]) -> Option<Vec<Validate
             Some(ValidatedDeclaration {
                 key: Arc::clone(&declaration.key),
                 owner: declaration.owner?,
+                // Finalized descriptors own identity independently of validation scratch data.
+                recognized_identity: declaration.recognized_identity.clone(),
                 kind: declaration.kind?,
                 surface: declaration.surface,
                 representation_role: declaration.representation_role,

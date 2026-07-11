@@ -1,7 +1,8 @@
 catalog recognized_standard_library;
 
-scope StandardConvert at std.convert {
+scope StandardConvert at std {
     declaration StandardConvert {
+        identity name convert;
         surface {
             func convert<Target, Source>(source: Source) -> Target;
         }

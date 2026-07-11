@@ -21,9 +21,10 @@ pub use catalog::{
     CompilerKnownDeclarationKey, CompilerKnownDeclarationOwner, CompilerKnownScopeDescriptor,
     CompilerKnownScopeId, CompilerKnownScopeKey, CompilerKnownValueDescriptor,
     CompilerKnownValueId, CompilerKnownValueKey, RecognizedStandardLibraryDeclarationDescriptor,
-    RecognizedStandardLibraryDeclarationId, RecognizedStandardLibraryDeclarationKey,
-    RecognizedStandardLibraryDeclarationOwner, RecognizedStandardLibraryScopeDescriptor,
-    RecognizedStandardLibraryScopeId, RecognizedStandardLibraryScopeKey,
+    RecognizedStandardLibraryDeclarationId, RecognizedStandardLibraryDeclarationIdentity,
+    RecognizedStandardLibraryDeclarationKey, RecognizedStandardLibraryDeclarationOwner,
+    RecognizedStandardLibraryScopeDescriptor, RecognizedStandardLibraryScopeId,
+    RecognizedStandardLibraryScopeKey,
 };
 #[cfg(any(test, feature = "generation"))]
 pub use catalog::{

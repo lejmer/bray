@@ -255,6 +255,44 @@ pub enum RecognizedStandardLibraryDeclarationOwner {
     Declaration(RecognizedStandardLibraryDeclarationId),
 }
 
+/// Stable owner-relative identity expected from an imported standard-library declaration.
+///
+/// This is semantic interface identity, not a catalog metadata key or source-syntax spelling.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum RecognizedStandardLibraryDeclarationIdentity {
+    /// Identity is determined by the declaration's ordinary name.
+    Name(Cow<'static, str>),
+    /// Identity is determined by a stable owner-relative ordinal.
+    Ordinal(u32),
+}
+
+impl RecognizedStandardLibraryDeclarationIdentity {
+    #[cfg(any(test, feature = "generation"))]
+    pub(super) fn owned_name(value: impl AsRef<str>) -> Self {
+        Self::Name(Cow::Owned(value.as_ref().to_owned()))
+    }
+
+    pub(super) const fn name_from_static(value: &'static str) -> Self {
+        Self::Name(Cow::Borrowed(value))
+    }
+
+    /// Returns the exact owner-relative name when this is named identity.
+    pub fn name(&self) -> Option<&str> {
+        match self {
+            Self::Name(value) => Some(value),
+            Self::Ordinal(_) => None,
+        }
+    }
+
+    /// Returns the owner-relative ordinal when this is ordinal identity.
+    pub const fn ordinal(&self) -> Option<u32> {
+        match self {
+            Self::Name(_) => None,
+            Self::Ordinal(value) => Some(*value),
+        }
+    }
+}
+
 /// Immutable descriptor for one recognized standard-library path.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RecognizedStandardLibraryScopeDescriptor {
@@ -275,7 +313,7 @@ impl RecognizedStandardLibraryScopeDescriptor {
         &self.key
     }
 
-    /// Returns the ordinary package path at which recognition is attempted.
+    /// Returns the package-relative module path owning direct recognized declarations.
     pub const fn path(&self) -> &CatalogPath {
         &self.path
     }
@@ -292,6 +330,7 @@ pub struct RecognizedStandardLibraryDeclarationDescriptor {
     pub(super) id: RecognizedStandardLibraryDeclarationId,
     pub(super) key: RecognizedStandardLibraryDeclarationKey,
     pub(super) owner: RecognizedStandardLibraryDeclarationOwner,
+    pub(super) identity: RecognizedStandardLibraryDeclarationIdentity,
     pub(super) kind: CatalogDeclarationKind,
     pub(super) surface: CatalogDeclarationSurface,
     pub(super) implementation_hook: Option<ImplementationHook>,
@@ -312,6 +351,11 @@ impl RecognizedStandardLibraryDeclarationDescriptor {
     /// Returns the direct recognized scope or declaration owner.
     pub const fn owner(&self) -> RecognizedStandardLibraryDeclarationOwner {
         self.owner
+    }
+
+    /// Returns the explicit owner-relative imported declaration identity.
+    pub const fn identity(&self) -> &RecognizedStandardLibraryDeclarationIdentity {
+        &self.identity
     }
 
     /// Returns the expected declaration category.

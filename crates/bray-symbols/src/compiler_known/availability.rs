@@ -7,6 +7,7 @@ use bray_compiler_known::{
 };
 
 use super::CompilerKnownSymbolProvider;
+use crate::availability::resolve_owned_availability;
 use crate::{AnySymbolId, ExactSymbolId};
 
 /// An immutable target-filtered view over one complete compiler-known symbol provider.
@@ -38,6 +39,7 @@ impl AvailableCompilerKnownSymbols {
             .collect::<BTreeMap<_, _>>();
 
         let mut resolved_availability = BTreeMap::new();
+        let mut resolving = BTreeSet::new();
 
         for descriptor in catalog.compiler_known_declarations() {
             resolve_availability(
@@ -45,7 +47,7 @@ impl AvailableCompilerKnownSymbols {
                 catalog,
                 &direct_availability,
                 &mut resolved_availability,
-                &mut BTreeSet::new(),
+                &mut resolving,
             );
         }
 
@@ -124,36 +126,20 @@ fn resolve_availability(
     resolved_availability: &mut BTreeMap<CompilerKnownDeclarationId, bool>,
     resolving: &mut BTreeSet<CompilerKnownDeclarationId>,
 ) -> bool {
-    if let Some(available) = resolved_availability.get(&declaration).copied() {
-        return available;
-    }
+    resolve_owned_availability(
+        declaration,
+        direct_availability,
+        resolved_availability,
+        resolving,
+        |declaration| {
+            let descriptor = catalog.compiler_known_declaration(declaration)?;
 
-    if !resolving.insert(declaration) {
-        return false;
-    }
-
-    let available = direct_availability
-        .get(&declaration)
-        .copied()
-        .unwrap_or(false)
-        && match catalog.compiler_known_declaration(declaration) {
-            Some(descriptor) => match descriptor.owner() {
-                CompilerKnownDeclarationOwner::Scope(_) => true,
-                CompilerKnownDeclarationOwner::Declaration(owner) => resolve_availability(
-                    owner,
-                    catalog,
-                    direct_availability,
-                    resolved_availability,
-                    resolving,
-                ),
-            },
-            None => false,
-        };
-
-    resolving.remove(&declaration);
-    resolved_availability.insert(declaration, available);
-
-    available
+            match descriptor.owner() {
+                CompilerKnownDeclarationOwner::Scope(_) => None,
+                CompilerKnownDeclarationOwner::Declaration(owner) => Some(owner),
+            }
+        },
+    )
 }
 
 #[cfg(test)]
