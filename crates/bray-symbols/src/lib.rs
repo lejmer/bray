@@ -26,8 +26,8 @@ mod surface_kind;
 mod value;
 
 pub use compiler_known::{
-    CompilerKnownDeclarationFact, CompilerKnownScopeSymbolId, CompilerKnownSymbolBuildError,
-    CompilerKnownSymbolFactKey, CompilerKnownSymbolProvider,
+    AvailableCompilerKnownSymbols, CompilerKnownDeclarationFact, CompilerKnownScopeSymbolId,
+    CompilerKnownSymbolBuildError, CompilerKnownSymbolFactKey, CompilerKnownSymbolProvider,
 };
 pub use error::SymbolGraphBuildError;
 pub use graph::{SymbolGraph, SymbolGraphRoots};

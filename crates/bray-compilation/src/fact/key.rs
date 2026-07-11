@@ -31,6 +31,8 @@ impl SymbolFactKey {
 /// detect dependency cycles and coordinate concurrent evaluation across those caches.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum CompilationFactKey {
+    /// The target-filtered compiler-known declaration symbol view.
+    AvailableCompilerKnownSymbols,
     /// Diagnostics for the current whole-compilation check boundary.
     CheckDiagnostics,
     /// Declaration discovery for one source unit.

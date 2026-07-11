@@ -125,6 +125,7 @@ name = "bray-compilation"
 version = "0.0.0"
 dependencies = [
  "bray-binder",
+ "bray-compiler-known",
  "bray-declarations",
  "bray-diagnostics",
  "bray-parser",

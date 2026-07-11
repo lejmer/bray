@@ -5,6 +5,7 @@
 mod compilation;
 mod fact;
 mod request;
+mod target;
 mod worker;
 
 pub use compilation::{Compilation, CompilationLoadError};
@@ -13,4 +14,5 @@ pub use fact::{
     SymbolFactKey, force_complete_symbol,
 };
 pub use request::{CompilationOptions, CompilationRequest};
+pub use target::TargetAvailabilityFacts;
 pub use worker::{WorkerBudget, WorkerBudgetError};
