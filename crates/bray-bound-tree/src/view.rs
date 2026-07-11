@@ -1,26 +1,43 @@
-use crate::{BoundUnitId, BoundUnitKey, BoundUnitKind};
+use crate::{
+    BoundBlock, BoundBlockId, BoundCallableBody, BoundCallableBodyId, BoundExpression,
+    BoundExpressionId, BoundPattern, BoundPatternId, BoundTree, BoundTreeBuilder, BoundUnitId,
+    BoundUnitKey, BoundUnitKind,
+};
 
-/// A read-only view of committed task-local bound structure before publication.
+/// A read-only view of committed task-local or published bound structure.
 ///
-/// The view borrows the stable unit key so checker services cannot retain or
-/// mutate binder-owned construction state.
-// TODO(bound-tree): Add read-only bound node and side-table accessors as those
-// representations land.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+/// Checker services can inspect nodes committed so far without receiving mutable binder-owned
+/// construction state. The same API also reads a frozen published tree.
+#[derive(Clone, Copy, Debug)]
 pub struct BoundUnitView<'unit> {
-    unit: BoundUnitId,
     key: &'unit BoundUnitKey,
+    storage: BoundUnitStorageView<'unit>,
 }
 
 impl<'unit> BoundUnitView<'unit> {
-    /// Creates a read-only view for one exact semantic unit.
-    pub const fn new(unit: BoundUnitId, key: &'unit BoundUnitKey) -> Self {
-        Self { unit, key }
+    pub(crate) const fn building(
+        builder: &'unit BoundTreeBuilder,
+        key: &'unit BoundUnitKey,
+    ) -> Self {
+        Self {
+            key,
+            storage: BoundUnitStorageView::Building(builder),
+        }
+    }
+
+    pub(crate) const fn published(tree: &'unit BoundTree, key: &'unit BoundUnitKey) -> Self {
+        Self {
+            key,
+            storage: BoundUnitStorageView::Published(tree),
+        }
     }
 
     /// Returns the compilation-local identity of the bound unit.
     pub const fn unit(self) -> BoundUnitId {
-        self.unit
+        match self.storage {
+            BoundUnitStorageView::Building(builder) => builder.unit(),
+            BoundUnitStorageView::Published(tree) => tree.unit(),
+        }
     }
 
     /// Returns the stable construction key of the bound unit.
@@ -32,6 +49,44 @@ impl<'unit> BoundUnitView<'unit> {
     pub fn kind(self) -> BoundUnitKind {
         self.key.kind()
     }
+
+    /// Returns one committed expression through checked typed access.
+    pub fn expression(self, id: BoundExpressionId) -> Option<&'unit BoundExpression> {
+        match self.storage {
+            BoundUnitStorageView::Building(builder) => builder.expression(id),
+            BoundUnitStorageView::Published(tree) => tree.expression(id),
+        }
+    }
+
+    /// Returns one committed pattern through checked typed access.
+    pub fn pattern(self, id: BoundPatternId) -> Option<&'unit BoundPattern> {
+        match self.storage {
+            BoundUnitStorageView::Building(builder) => builder.pattern(id),
+            BoundUnitStorageView::Published(tree) => tree.pattern(id),
+        }
+    }
+
+    /// Returns one committed block through checked typed access.
+    pub fn block(self, id: BoundBlockId) -> Option<&'unit BoundBlock> {
+        match self.storage {
+            BoundUnitStorageView::Building(builder) => builder.block(id),
+            BoundUnitStorageView::Published(tree) => tree.block(id),
+        }
+    }
+
+    /// Returns one committed callable body through checked typed access.
+    pub fn callable_body(self, id: BoundCallableBodyId) -> Option<&'unit BoundCallableBody> {
+        match self.storage {
+            BoundUnitStorageView::Building(builder) => builder.callable_body(id),
+            BoundUnitStorageView::Published(tree) => tree.callable_body(id),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+enum BoundUnitStorageView<'unit> {
+    Building(&'unit BoundTreeBuilder),
+    Published(&'unit BoundTree),
 }
 
 #[cfg(test)]
@@ -39,25 +94,47 @@ mod tests {
     use bray_declarations::DeclarationId;
     use bray_symbols::{ModulePathKey, PackageIdentity, SymbolKey, SymbolKind, SymbolRootKey};
 
-    use super::BoundUnitView;
-    use crate::test_support::source_anchor;
-    use crate::{BoundUnitId, BoundUnitKey, BoundUnitKind};
+    use crate::test_support::{error_expression, source_anchor};
+    use crate::{BoundTreeBuilder, BoundUnitId, BoundUnitKey, BoundUnitKind};
 
     #[test]
-    fn views_borrow_exact_unit_identity_without_cloning_keys() {
+    fn views_read_committed_builder_nodes_without_mutation_access() {
         let key = callable_body_key();
-        let view = BoundUnitView::new(BoundUnitId::new(7), &key);
+        let mut builder = BoundTreeBuilder::new(BoundUnitId::new(7));
+        let expression = error_expression();
+
+        let Ok(expression) = builder.push_expression(expression) else {
+            panic!("one test expression must fit in the empty arena");
+        };
+
+        let view = builder.view(&key);
 
         assert_eq!(view.unit(), BoundUnitId::new(7));
         assert!(std::ptr::eq(view.key(), &key));
         assert_eq!(view.kind(), BoundUnitKind::CallableBody);
+        assert!(view.expression(expression).is_some());
+    }
+
+    #[test]
+    fn views_use_the_same_checked_access_after_publication() {
+        let key = callable_body_key();
+        let mut builder = BoundTreeBuilder::new(BoundUnitId::new(7));
+
+        let Ok(expression) = builder.push_expression(error_expression()) else {
+            panic!("one test expression must fit in the empty arena");
+        };
+
+        let tree = builder.finish();
+        let view = tree.view(&key);
+
+        assert!(view.expression(expression).is_some());
     }
 
     #[test]
     fn views_are_send_and_sync() {
         fn assert_send_sync<T: Send + Sync>() {}
 
-        assert_send_sync::<BoundUnitView<'static>>();
+        assert_send_sync::<crate::BoundUnitView<'static>>();
     }
 
     fn callable_body_key() -> BoundUnitKey {
