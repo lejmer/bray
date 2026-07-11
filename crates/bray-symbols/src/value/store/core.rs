@@ -36,7 +36,7 @@ impl SemanticValueStore {
     /// Creates an empty semantic value store with a process-unique checking identity.
     pub fn try_new() -> Result<Self, SemanticValueStoreCreateError> {
         let raw = NEXT_STORE_ID
-            .try_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
                 current.checked_add(1)
             })
             .map_err(|_| SemanticValueStoreCreateError::IdentitySpaceExhausted)?;
@@ -222,7 +222,9 @@ impl SemanticValueStore {
 
     fn tables(&self) -> MutexGuard<'_, SemanticTables> {
         // Store code validates before mutation and never panics while changing table invariants.
-        self.tables.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+        self.tables
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 }
 

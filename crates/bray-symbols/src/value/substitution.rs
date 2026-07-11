@@ -154,7 +154,7 @@ impl GenericSubstitutionData {
         let parameters: Vec<_> = parameters.into_iter().collect();
         let arguments: Vec<_> = arguments.into_iter().collect();
 
-        let maximum_parameter_count = usize::try_from(u32::MAX).unwrap_or_else(|_| usize::MAX);
+        let maximum_parameter_count = usize::try_from(u32::MAX).unwrap_or(usize::MAX);
 
         if parameters.len() > maximum_parameter_count {
             return Err(GenericSubstitutionShapeError::OrdinalOverflow);

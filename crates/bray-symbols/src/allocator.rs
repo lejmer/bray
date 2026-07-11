@@ -20,7 +20,7 @@ impl SymbolIdAllocator {
 
     pub(crate) fn next(&mut self) -> Result<SymbolId, SymbolIdCapacityError> {
         let index = self.next_index;
-        
+
         let Some(id) = SymbolId::try_from_index(index) else {
             return Err(SymbolIdCapacityError { index });
         };
