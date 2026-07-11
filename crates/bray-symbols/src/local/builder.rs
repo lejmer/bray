@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use bray_declarations::SyntaxAnchor;
 use bray_source::TextSize;
@@ -7,41 +7,10 @@ use super::{
     AnonymousCallableParameterSymbol, AnonymousCallableParameterSymbolId, AnonymousCallableSymbol,
     AnonymousCallableSymbolId, AnyLocalSymbolId, LocalBindingSymbol, LocalBindingSymbolId,
     LocalConstantSymbol, LocalConstantSymbolId, LocalScope, LocalScopeBoundary, LocalScopeId,
-    LocalSymbolKey, LocalSymbolRegionId, LocalSymbolRegionKey, LocalSymbolSnapshot,
-    PostconditionResultSymbol, PostconditionResultSymbolId,
+    LocalSymbolBuildError, LocalSymbolKey, LocalSymbolRegionId, LocalSymbolRegionKey,
+    LocalSymbolSnapshot, PostconditionResultSymbol, PostconditionResultSymbolId,
 };
 use crate::{AnySymbolId, SymbolKind, SymbolName, SymbolOrdinal};
-
-/// A structural failure while constructing one local semantic-region snapshot.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum LocalSymbolBuildError {
-    /// An ID belongs to another local semantic region.
-    ForeignRegion,
-    /// A referenced lexical scope does not exist.
-    UnknownScope,
-    /// A referenced anonymous callable does not exist.
-    UnknownAnonymousCallable,
-    /// A non-root scope was created without a lexical parent.
-    MissingParentScope,
-    /// A root scope was created with a lexical parent.
-    RootHasParentScope,
-    /// More than one root scope was created for one semantic region.
-    DuplicateRootScope,
-    /// Snapshot publication was attempted without a root scope.
-    MissingRootScope,
-    /// A local symbol was indexed outside its containing scope.
-    SymbolOutsideScope,
-    /// A contract scope was assigned more than one contextual result.
-    DuplicatePostconditionResult,
-    /// A contextual symbol was attached to an incompatible lexical boundary.
-    InvalidScopeBoundary,
-    /// A symbol without an ordinary name was inserted into an ordinary-name index.
-    SymbolHasNoOrdinaryName,
-    /// A category-specific local table exceeded the compact ID representation.
-    CapacityExceeded,
-    /// A local symbol key could not be formed from the supplied syntax.
-    MissingSyntaxAnchor,
-}
 
 #[derive(Debug)]
 struct PendingScope {
@@ -79,6 +48,7 @@ pub struct LocalSymbolSnapshotBuilder {
     bindings: Vec<LocalBindingSymbol>,
     constants: Vec<LocalConstantSymbol>,
     anonymous_callables: Vec<AnonymousCallableSymbol>,
+    anonymous_callable_scopes: BTreeSet<LocalScopeId>,
     anonymous_callable_parameters: Vec<Vec<AnonymousCallableParameterSymbolId>>,
     anonymous_parameters: Vec<AnonymousCallableParameterSymbol>,
     postcondition_results: Vec<PostconditionResultSymbol>,
@@ -94,6 +64,7 @@ impl LocalSymbolSnapshotBuilder {
             bindings: Vec::new(),
             constants: Vec::new(),
             anonymous_callables: Vec::new(),
+            anonymous_callable_scopes: BTreeSet::new(),
             anonymous_callable_parameters: Vec::new(),
             anonymous_parameters: Vec::new(),
             postcondition_results: Vec::new(),
@@ -183,15 +154,28 @@ impl LocalSymbolSnapshotBuilder {
         Ok(id)
     }
 
-    /// Adds one anonymous callable identity without constructing its nested checked unit.
+    /// Adds one anonymous callable with a callable boundary below its introduction scope.
     pub fn push_anonymous_callable(
         &mut self,
-        scope: LocalScopeId,
+        introduction_scope: LocalScopeId,
+        callable_scope: LocalScopeId,
         anchors: impl IntoIterator<Item = SyntaxAnchor>,
         ordinal: Option<SymbolOrdinal>,
         is_recovered: bool,
     ) -> Result<AnonymousCallableSymbolId, LocalSymbolBuildError> {
-        self.checked_scope_index(scope)?;
+        self.checked_scope_index(introduction_scope)?;
+
+        let callable_scope_record = self.checked_scope(callable_scope)?;
+
+        if callable_scope_record.boundary != LocalScopeBoundary::Callable
+            || callable_scope_record.parent != Some(introduction_scope)
+        {
+            return Err(LocalSymbolBuildError::InvalidAnonymousCallableScope);
+        }
+
+        if self.anonymous_callable_scopes.contains(&callable_scope) {
+            return Err(LocalSymbolBuildError::AnonymousCallableScopeAlreadyAssigned);
+        }
 
         let key = local_key(&self.key, SymbolKind::AnonymousCallable, anchors, ordinal)?;
 
@@ -200,14 +184,20 @@ impl LocalSymbolSnapshotBuilder {
             checked_slot(self.anonymous_callables.len())?,
         );
 
-        self.anonymous_callables
-            .push(AnonymousCallableSymbol::new(id, key, scope, is_recovered));
+        self.anonymous_callables.push(AnonymousCallableSymbol::new(
+            id,
+            key,
+            introduction_scope,
+            callable_scope,
+            is_recovered,
+        ));
+        self.anonymous_callable_scopes.insert(callable_scope);
         self.anonymous_callable_parameters.push(Vec::new());
 
         Ok(id)
     }
 
-    /// Adds one parameter owned by an anonymous callable in this region.
+    /// Adds one parameter to its anonymous callable's exact boundary scope.
     pub fn push_anonymous_parameter(
         &mut self,
         callable: AnonymousCallableSymbolId,
@@ -217,8 +207,15 @@ impl LocalSymbolSnapshotBuilder {
         ordinal: SymbolOrdinal,
         is_recovered: bool,
     ) -> Result<AnonymousCallableParameterSymbolId, LocalSymbolBuildError> {
-        let callable_index = self.checked_anonymous_callable_index(callable)?;
-        self.checked_scope_index(scope)?;
+        let (callable_index, callable_record) = self.checked_anonymous_callable(callable)?;
+        let scope_record = self.checked_scope(scope)?;
+
+        if scope != callable_record.callable_scope()
+            || scope_record.boundary != LocalScopeBoundary::Callable
+            || scope_record.parent != Some(callable_record.scope())
+        {
+            return Err(LocalSymbolBuildError::AnonymousCallableParameterScopeMismatch);
+        }
 
         let key = local_key(
             &self.key,
@@ -232,6 +229,11 @@ impl LocalSymbolSnapshotBuilder {
             checked_slot(self.anonymous_parameters.len())?,
         );
 
+        let parameters = self
+            .anonymous_callable_parameters
+            .get_mut(callable_index)
+            .ok_or(LocalSymbolBuildError::UnknownAnonymousCallable)?;
+
         self.anonymous_parameters
             .push(AnonymousCallableParameterSymbol::new(
                 id,
@@ -243,7 +245,7 @@ impl LocalSymbolSnapshotBuilder {
                 is_recovered,
             ));
 
-        self.anonymous_callable_parameters[callable_index].push(id);
+        parameters.push(id);
 
         Ok(id)
     }
@@ -258,11 +260,16 @@ impl LocalSymbolSnapshotBuilder {
     ) -> Result<PostconditionResultSymbolId, LocalSymbolBuildError> {
         let scope_index = self.checked_scope_index(scope)?;
 
-        if self.scopes[scope_index].boundary != LocalScopeBoundary::Contract {
+        let scope_record = self
+            .scopes
+            .get(scope_index)
+            .ok_or(LocalSymbolBuildError::UnknownScope)?;
+
+        if scope_record.boundary != LocalScopeBoundary::Contract {
             return Err(LocalSymbolBuildError::InvalidScopeBoundary);
         }
 
-        if self.scopes[scope_index].postcondition_result.is_some() {
+        if scope_record.postcondition_result.is_some() {
             return Err(LocalSymbolBuildError::DuplicatePostconditionResult);
         }
 
@@ -278,6 +285,11 @@ impl LocalSymbolSnapshotBuilder {
             checked_slot(self.postcondition_results.len())?,
         );
 
+        let scope_record = self
+            .scopes
+            .get_mut(scope_index)
+            .ok_or(LocalSymbolBuildError::UnknownScope)?;
+
         self.postcondition_results
             .push(PostconditionResultSymbol::new(
                 id,
@@ -287,7 +299,7 @@ impl LocalSymbolSnapshotBuilder {
                 is_recovered,
             ));
 
-        self.scopes[scope_index].postcondition_result = Some(id);
+        scope_record.postcondition_result = Some(id);
 
         Ok(id)
     }
@@ -309,7 +321,12 @@ impl LocalSymbolSnapshotBuilder {
         // Symbol names use shared immutable text, so this clone releases the record borrow.
         let name = name.clone();
 
-        self.scopes[scope_index]
+        let scope_record = self
+            .scopes
+            .get_mut(scope_index)
+            .ok_or(LocalSymbolBuildError::UnknownScope)?;
+
+        scope_record
             .local_names
             .entry(name)
             .or_default()
@@ -327,7 +344,12 @@ impl LocalSymbolSnapshotBuilder {
     ) -> Result<(), LocalSymbolBuildError> {
         let scope_index = self.checked_scope_index(scope)?;
 
-        self.scopes[scope_index]
+        let scope_record = self
+            .scopes
+            .get_mut(scope_index)
+            .ok_or(LocalSymbolBuildError::UnknownScope)?;
+
+        scope_record
             .surface_names
             .entry(name)
             .or_default()
@@ -384,10 +406,18 @@ impl LocalSymbolSnapshotBuilder {
             .ok_or(LocalSymbolBuildError::UnknownScope)
     }
 
-    fn checked_anonymous_callable_index(
+    fn checked_scope(&self, id: LocalScopeId) -> Result<&PendingScope, LocalSymbolBuildError> {
+        let index = self.checked_scope_index(id)?;
+
+        self.scopes
+            .get(index)
+            .ok_or(LocalSymbolBuildError::UnknownScope)
+    }
+
+    fn checked_anonymous_callable(
         &self,
         id: AnonymousCallableSymbolId,
-    ) -> Result<usize, LocalSymbolBuildError> {
+    ) -> Result<(usize, &AnonymousCallableSymbol), LocalSymbolBuildError> {
         if id.region() != self.region {
             return Err(LocalSymbolBuildError::ForeignRegion);
         }
@@ -396,10 +426,12 @@ impl LocalSymbolSnapshotBuilder {
             return Err(LocalSymbolBuildError::UnknownAnonymousCallable);
         };
 
-        self.anonymous_callables
+        let callable = self
+            .anonymous_callables
             .get(index)
-            .map(|_| index)
-            .ok_or(LocalSymbolBuildError::UnknownAnonymousCallable)
+            .ok_or(LocalSymbolBuildError::UnknownAnonymousCallable)?;
+
+        Ok((index, callable))
     }
 
     fn local_symbol_scope_and_name(
@@ -508,6 +540,7 @@ mod tests {
         );
 
         let snapshot = finish(builder);
+
         let Some(block_scope) = snapshot.scope(block) else {
             panic!("block scope must belong to the finished snapshot");
         };
@@ -556,6 +589,7 @@ mod tests {
 
         let callable = match builder.push_anonymous_callable(
             root,
+            callable_scope,
             [syntax],
             Some(SymbolOrdinal::new(0)),
             false,
@@ -623,12 +657,116 @@ mod tests {
 
         assert_eq!(
             snapshot
+                .anonymous_callable(callable)
+                .map(|item| item.callable_scope()),
+            Some(callable_scope)
+        );
+
+        assert_eq!(
+            snapshot
                 .scope(contract_scope)
                 .and_then(|scope| scope.postcondition_result()),
             Some(result)
         );
 
         assert!(snapshot.postcondition_result(result).is_some());
+    }
+
+    #[test]
+    fn anonymous_callable_and_parameter_scope_relationships_are_enforced() {
+        let (region_key, syntax, _) = fixture();
+        let mut builder = LocalSymbolSnapshotBuilder::new(LocalSymbolRegionId::new(9), region_key);
+
+        let root = scope(&mut builder, None, LocalScopeBoundary::Root, syntax);
+        let callable_scope = scope(
+            &mut builder,
+            Some(root),
+            LocalScopeBoundary::Callable,
+            syntax,
+        );
+        let unrelated_callable_scope = scope(
+            &mut builder,
+            Some(root),
+            LocalScopeBoundary::Callable,
+            syntax,
+        );
+        let block_scope = scope(&mut builder, Some(root), LocalScopeBoundary::Block, syntax);
+        let wrong_parent_callable_scope = scope(
+            &mut builder,
+            Some(block_scope),
+            LocalScopeBoundary::Callable,
+            syntax,
+        );
+
+        let callable = match builder.push_anonymous_callable(
+            root,
+            callable_scope,
+            [syntax],
+            Some(SymbolOrdinal::new(0)),
+            false,
+        ) {
+            Ok(callable) => callable,
+            Err(error) => panic!("test anonymous callable must build: {error:?}"),
+        };
+
+        assert_eq!(
+            builder.push_anonymous_callable(
+                root,
+                block_scope,
+                [syntax],
+                Some(SymbolOrdinal::new(1)),
+                false,
+            ),
+            Err(LocalSymbolBuildError::InvalidAnonymousCallableScope)
+        );
+
+        assert_eq!(
+            builder.push_anonymous_callable(
+                root,
+                wrong_parent_callable_scope,
+                [syntax],
+                Some(SymbolOrdinal::new(2)),
+                false,
+            ),
+            Err(LocalSymbolBuildError::InvalidAnonymousCallableScope)
+        );
+
+        assert_eq!(
+            builder.push_anonymous_callable(
+                root,
+                callable_scope,
+                [syntax],
+                Some(SymbolOrdinal::new(3)),
+                false,
+            ),
+            Err(LocalSymbolBuildError::AnonymousCallableScopeAlreadyAssigned)
+        );
+
+        assert_eq!(
+            builder.push_anonymous_parameter(
+                callable,
+                unrelated_callable_scope,
+                symbol_name("unrelated"),
+                [syntax],
+                SymbolOrdinal::new(0),
+                false,
+            ),
+            Err(LocalSymbolBuildError::AnonymousCallableParameterScopeMismatch)
+        );
+
+        assert_eq!(
+            builder.push_anonymous_parameter(
+                callable,
+                block_scope,
+                symbol_name("block"),
+                [syntax],
+                SymbolOrdinal::new(1),
+                false,
+            ),
+            Err(LocalSymbolBuildError::AnonymousCallableParameterScopeMismatch)
+        );
+
+        assert!(finish(builder).anonymous_parameters().is_empty());
     }
 
     #[test]

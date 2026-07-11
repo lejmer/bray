@@ -72,6 +72,7 @@ pub struct AnonymousCallableSymbol {
     id: AnonymousCallableSymbolId,
     key: LocalSymbolKey,
     scope: LocalScopeId,
+    callable_scope: LocalScopeId,
     parameters: Box<[AnonymousCallableParameterSymbolId]>,
     is_recovered: bool,
 }
@@ -81,12 +82,14 @@ impl AnonymousCallableSymbol {
         id: AnonymousCallableSymbolId,
         key: LocalSymbolKey,
         scope: LocalScopeId,
+        callable_scope: LocalScopeId,
         is_recovered: bool,
     ) -> Self {
         Self {
             id,
             key,
             scope,
+            callable_scope,
             parameters: Box::new([]),
             is_recovered,
         }
@@ -110,9 +113,14 @@ impl AnonymousCallableSymbol {
         &self.key
     }
 
-    /// Returns the lexical scope in which this callable is introduced.
+    /// Returns the enclosing lexical scope in which this callable is introduced.
     pub const fn scope(&self) -> LocalScopeId {
         self.scope
+    }
+
+    /// Returns the callable boundary that owns this callable's parameters and body names.
+    pub const fn callable_scope(&self) -> LocalScopeId {
+        self.callable_scope
     }
 
     /// Returns this callable's parameters in declaration order.

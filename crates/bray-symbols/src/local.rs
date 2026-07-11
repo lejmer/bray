@@ -1,11 +1,13 @@
 mod builder;
+mod error;
 mod id;
 mod key;
 mod record;
 mod scope;
 mod snapshot;
 
-pub use builder::{LocalSymbolBuildError, LocalSymbolSnapshotBuilder};
+pub use builder::LocalSymbolSnapshotBuilder;
+pub use error::LocalSymbolBuildError;
 pub use id::{
     AnonymousCallableParameterSymbolId, AnonymousCallableSymbolId, AnyLocalSymbolId,
     LocalBindingSymbolId, LocalConstantSymbolId, LocalScopeId, LocalSymbolRegionId,
