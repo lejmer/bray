@@ -19,6 +19,7 @@ fn main() {
     }
 
     let catalog_directory = PathBuf::from("catalog");
+
     let digest = match catalog_digest::source_digest(MANIFEST, &catalog_directory) {
         Ok(digest) => digest,
         Err(error) => panic!("failed to hash compiler-known catalog sources: {error}"),

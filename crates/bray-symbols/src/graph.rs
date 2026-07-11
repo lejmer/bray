@@ -309,13 +309,16 @@ macro_rules! define_symbol_graph {
 
                 self.relationship_index
                     .add_symbol(id, identity.containing_symbol());
+
                 self.pending_sources.push((id, identity));
+
                 Ok(())
             }
 
             pub(crate) fn push_receiver(&mut self, receiver: ReceiverParameterSymbol) {
                 self.relationship_index
                     .add_symbol(receiver.id().into(), receiver.owner().into_any());
+
                 self.receiver_parameters.push(receiver);
             }
 
@@ -340,16 +343,19 @@ macro_rules! define_symbol_graph {
                     DefaultProviderRecord::CallableParameter(record) => {
                         self.relationship_index
                             .add_provider(record.subject().into(), record.id().into());
+
                         self.callable_parameter_default_providers.push(record);
                     }
                     DefaultProviderRecord::StructField(record) => {
                         self.relationship_index
                             .add_provider(record.subject().into(), record.id().into());
+
                         self.struct_field_default_providers.push(record);
                     }
                     DefaultProviderRecord::UnionPayload(record) => {
                         self.relationship_index
                             .add_provider(record.subject().into(), record.id().into());
+
                         self.union_payload_default_providers.push(record);
                     }
                 }
@@ -370,6 +376,7 @@ macro_rules! define_symbol_graph {
                     let Some(declaration) = identity.source_declaration() else {
                         continue;
                     };
+
                     let kind = erased_id.kind();
 
                     match erased_id {
@@ -391,6 +398,7 @@ macro_rules! define_symbol_graph {
                 }
 
                 let packages = TypedSymbolRecords::new(self.packages, PackageSymbol::id);
+
                 let modules = self
                     .modules
                     .into_iter()
@@ -402,19 +410,24 @@ macro_rules! define_symbol_graph {
                         module.with_relationships(relationships)
                     })
                     .collect();
+
                 let modules = TypedSymbolRecords::new(modules, ModuleSymbol::id);
+
                 let callable_parameter_default_providers = TypedSymbolRecords::new(
                     self.callable_parameter_default_providers,
                     CallableParameterDefaultProviderSymbol::id,
                 );
+
                 let struct_field_default_providers = TypedSymbolRecords::new(
                     self.struct_field_default_providers,
                     StructFieldDefaultProviderSymbol::id,
                 );
+
                 let union_payload_default_providers = TypedSymbolRecords::new(
                     self.union_payload_default_providers,
                     UnionPayloadDefaultProviderSymbol::id,
                 );
+
                 let receiver_parameters = TypedSymbolRecords::new(
                     self.receiver_parameters,
                     ReceiverParameterSymbol::id,

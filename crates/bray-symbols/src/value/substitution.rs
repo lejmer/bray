@@ -154,10 +154,7 @@ impl GenericSubstitutionData {
         let parameters: Vec<_> = parameters.into_iter().collect();
         let arguments: Vec<_> = arguments.into_iter().collect();
 
-        let maximum_parameter_count = match usize::try_from(u32::MAX) {
-            Ok(count) => count,
-            Err(_) => usize::MAX,
-        };
+        let maximum_parameter_count = usize::try_from(u32::MAX).unwrap_or(usize::MAX);
 
         if parameters.len() > maximum_parameter_count {
             return Err(GenericSubstitutionShapeError::OrdinalOverflow);
@@ -254,8 +251,10 @@ mod tests {
     #[test]
     fn generic_parameter_categories_are_exact() {
         let symbol = SymbolId::new(5);
+
         let type_parameter =
             GenericParameterSymbolId::from(GenericTypeParameterSymbolId::from_symbol_id(symbol));
+
         let const_parameter =
             GenericParameterSymbolId::from(GenericConstParameterSymbolId::from_symbol_id(symbol));
 

@@ -458,6 +458,7 @@ mod tests {
     #[test]
     fn templates_reject_missing_and_forward_references() {
         let (ty, behavior) = semantic_values();
+
         let mut builder =
             CheckedTemplateBuilder::new(CheckedTemplateKind::PredicateDefinition, behavior);
 
@@ -536,6 +537,7 @@ mod tests {
     #[test]
     fn templates_reject_ambiguous_contextual_inputs() {
         let (ty, behavior) = semantic_values();
+
         let mut builder =
             CheckedTemplateBuilder::new(CheckedTemplateKind::RuntimeDefault, behavior);
 
@@ -561,8 +563,10 @@ mod tests {
     #[test]
     fn control_flow_reference_validation_uses_semantic_child_order() {
         let (ty, behavior) = semantic_values();
+
         let mut builder =
             CheckedTemplateBuilder::new(CheckedTemplateKind::PredicateDefinition, behavior);
+
         let condition = push_declaration(&mut builder, ty);
 
         assert_eq!(
@@ -599,6 +603,7 @@ mod tests {
     #[test]
     fn recovered_templates_cannot_cross_the_portable_boundary() {
         let (ty, behavior) = semantic_values();
+
         let mut builder =
             CheckedTemplateBuilder::new(CheckedTemplateKind::ConstantDefinition, behavior);
 
@@ -618,6 +623,7 @@ mod tests {
     #[test]
     fn template_construction_is_deterministic_across_workers() {
         let (ty, behavior) = semantic_values();
+
         let behaviors = [behavior.clone(), behavior];
 
         let [first, second] = behaviors.map(|behavior| {
@@ -641,6 +647,7 @@ mod tests {
     fn initialized_temporaries_retain_type_and_dependencies() {
         let (ty, behavior) = semantic_values();
         let dependencies = behavior.dependency_contract();
+
         let mut builder =
             CheckedTemplateBuilder::new(CheckedTemplateKind::RuntimeDefault, behavior);
 
@@ -669,6 +676,7 @@ mod tests {
         assert_eq!(template.temporaries().len(), 1);
         assert_eq!(template.temporaries()[0].initializer(), initializer);
         assert_eq!(template.temporaries()[0].ty(), ty);
+
         assert_eq!(
             template.temporaries()[0].dependency_contract(),
             dependencies
@@ -678,6 +686,7 @@ mod tests {
     #[test]
     fn conditional_and_short_circuit_operations_retain_lazy_children() {
         let (ty, behavior) = semantic_values();
+
         let mut builder =
             CheckedTemplateBuilder::new(CheckedTemplateKind::PredicateDefinition, behavior);
 
@@ -755,6 +764,7 @@ mod tests {
     fn input_and_temporary_types_must_match_their_declarations() {
         let (expected, actual, behavior) = semantic_values_with_alternative();
         let dependencies = behavior.dependency_contract();
+
         let mut builder =
             CheckedTemplateBuilder::new(CheckedTemplateKind::RuntimeDefault, behavior);
 
@@ -916,6 +926,7 @@ mod tests {
     ) {
         let mut builder =
             CheckedTemplateBuilder::new(CheckedTemplateKind::RuntimeDefault, behavior);
+
         let value = push_declaration(&mut builder, expected);
 
         assert_eq!(
@@ -941,6 +952,7 @@ mod tests {
     ) {
         let mut branch_builder =
             CheckedTemplateBuilder::new(CheckedTemplateKind::PredicateDefinition, behavior.clone());
+
         let condition = push_declaration(&mut branch_builder, expected);
         let when_true = push_declaration(&mut branch_builder, expected);
         let when_false = push_declaration(&mut branch_builder, actual);
@@ -963,6 +975,7 @@ mod tests {
 
         let mut result_builder =
             CheckedTemplateBuilder::new(CheckedTemplateKind::PredicateDefinition, behavior);
+
         let condition = push_declaration(&mut result_builder, expected);
         let branch = push_declaration(&mut result_builder, expected);
 
@@ -990,6 +1003,7 @@ mod tests {
     ) {
         let mut operand_builder =
             CheckedTemplateBuilder::new(CheckedTemplateKind::PredicateDefinition, behavior.clone());
+
         let left = push_declaration(&mut operand_builder, expected);
         let right = push_declaration(&mut operand_builder, actual);
 
@@ -1011,6 +1025,7 @@ mod tests {
 
         let mut result_builder =
             CheckedTemplateBuilder::new(CheckedTemplateKind::PredicateDefinition, behavior);
+
         let operand = push_declaration(&mut result_builder, expected);
 
         assert_eq!(
@@ -1037,6 +1052,7 @@ mod tests {
     ) {
         let mut builder =
             CheckedTemplateBuilder::new(CheckedTemplateKind::RuntimeDefault, behavior);
+
         let first = push_declaration(&mut builder, expected);
         let second = push_declaration(&mut builder, actual);
 

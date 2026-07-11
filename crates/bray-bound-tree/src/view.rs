@@ -100,7 +100,9 @@ mod tests {
     #[test]
     fn views_read_committed_builder_nodes_without_mutation_access() {
         let key = callable_body_key();
+
         let mut builder = BoundTreeBuilder::new(BoundUnitId::new(7));
+
         let expression = error_expression();
 
         let Ok(expression) = builder.push_expression(expression) else {
@@ -118,6 +120,7 @@ mod tests {
     #[test]
     fn views_use_the_same_checked_access_after_publication() {
         let key = callable_body_key();
+
         let mut builder = BoundTreeBuilder::new(BoundUnitId::new(7));
 
         let Ok(expression) = builder.push_expression(error_expression()) else {

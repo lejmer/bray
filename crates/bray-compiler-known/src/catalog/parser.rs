@@ -10,8 +10,9 @@ use super::diagnostic::{
     CatalogDiagnostic, CatalogDiagnosticKind, CatalogEntryKind, CatalogExpectation,
 };
 use super::entry::{
-    Anchored, ParsedCatalogSource, ParsedDeclaration, ParsedDeclarationField, ParsedEntry,
-    ParsedScope, ParsedScopeLocation, ParsedValue, ParsedValueField,
+    Anchored, ParsedCatalogSource, ParsedDeclaration, ParsedDeclarationField,
+    ParsedDeclarationIdentity, ParsedEntry, ParsedScope, ParsedScopeLocation, ParsedValue,
+    ParsedValueField,
 };
 use super::{
     CatalogDeclarationSurface, CatalogKind, CatalogSource, CatalogSourceAnchor,
@@ -27,6 +28,9 @@ const COMPILER_KNOWN_WORD: &str = "compiler_known";
 const RECOGNIZED_STANDARD_LIBRARY_WORD: &str = "recognized_standard_library";
 const AMBIENT_WORD: &str = "ambient";
 const OWNER_WORD: &str = "owner";
+const IDENTITY_WORD: &str = "identity";
+const NAME_WORD: &str = "name";
+const ORDINAL_WORD: &str = "ordinal";
 const AVAILABILITY_WORD: &str = "availability";
 const REPRESENTATION_WORD: &str = "representation";
 const IMPLEMENTATION_WORD: &str = "implementation";
@@ -62,6 +66,7 @@ impl CatalogParser {
 
     fn parse(mut self) -> (Option<ParsedCatalogSource>, Vec<CatalogDiagnostic>) {
         let parsed = self.parse_file();
+
         self.record_lexical_diagnostics();
 
         if self.diagnostics.is_empty() {
@@ -74,6 +79,7 @@ impl CatalogParser {
     fn parse_file(&mut self) -> Option<ParsedCatalogSource> {
         self.expect_word(CATALOG_WORD)?;
         let declared_kind = self.parse_catalog_kind()?;
+
         self.expect_kind(SyntaxKind::SemicolonToken, CatalogExpectation::Semicolon)?;
 
         let mut scopes = Vec::new();
@@ -103,6 +109,7 @@ impl CatalogParser {
     fn parse_catalog_kind(&mut self) -> Option<Anchored<CatalogKind>> {
         let token = self.consume_identifier(CatalogExpectation::Identifier)?;
         let spelling = self.token_text(&token);
+
         let kind = match spelling.as_ref() {
             COMPILER_KNOWN_WORD => CatalogKind::CompilerKnown,
             RECOGNIZED_STANDARD_LIBRARY_WORD => CatalogKind::RecognizedStandardLibrary,
@@ -122,8 +129,11 @@ impl CatalogParser {
     fn parse_scope(&mut self) -> Option<ParsedScope> {
         self.expect_word(SCOPE_WORD)?;
         let key = self.parse_stable_key()?;
+
         self.expect_word(AT_WORD)?;
+
         let location = self.parse_scope_location()?;
+
         self.expect_kind(SyntaxKind::OpenBraceToken, CatalogExpectation::OpenBrace)?;
 
         let mut entries = Vec::new();
@@ -164,6 +174,7 @@ impl CatalogParser {
             let segment = self.consume_identifier(CatalogExpectation::Identifier)?;
 
             end = segment.end();
+
             segments.push(self.token_text(&segment));
         }
 
@@ -198,6 +209,7 @@ impl CatalogParser {
     fn parse_declaration(&mut self) -> Option<ParsedDeclaration> {
         self.expect_word(DECLARATION_WORD)?;
         let key = self.parse_stable_key()?;
+
         self.expect_kind(SyntaxKind::OpenBraceToken, CatalogExpectation::OpenBrace)?;
 
         let mut fields = Vec::new();
@@ -221,6 +233,9 @@ impl CatalogParser {
             OWNER_WORD => self
                 .parse_identifier_field(OWNER_WORD)
                 .map(ParsedDeclarationField::Owner),
+            IDENTITY_WORD => self
+                .parse_declaration_identity()
+                .map(ParsedDeclarationField::Identity),
             AVAILABILITY_WORD => self
                 .parse_identifier_field(AVAILABILITY_WORD)
                 .map(ParsedDeclarationField::Availability),
@@ -257,9 +272,60 @@ impl CatalogParser {
         }
     }
 
+    fn parse_declaration_identity(&mut self) -> Option<Anchored<ParsedDeclarationIdentity>> {
+        self.expect_word(IDENTITY_WORD)?;
+        let identity_kind = self.consume_identifier(CatalogExpectation::DeclarationIdentityKind)?;
+        let spelling = self.token_text(&identity_kind);
+
+        let identity = match spelling.as_ref() {
+            NAME_WORD => {
+                let name = self.consume_identifier(CatalogExpectation::DeclarationIdentityValue)?;
+
+                Anchored::new(
+                    ParsedDeclarationIdentity::Name(self.token_text(&name)),
+                    self.anchor(name.range()),
+                )
+            }
+            ORDINAL_WORD => {
+                let ordinal = self.peek();
+                let spelling = self.token_text(&ordinal);
+
+                let Ok(value) = spelling.parse::<u32>() else {
+                    self.diagnostics.push(CatalogDiagnostic::new(
+                        self.anchor(ordinal.range()),
+                        CatalogDiagnosticKind::InvalidDeclarationIdentityOrdinal { spelling },
+                    ));
+                    self.tokens.consume();
+
+                    return None;
+                };
+
+                self.tokens.consume();
+
+                Anchored::new(
+                    ParsedDeclarationIdentity::Ordinal(value),
+                    self.anchor(ordinal.range()),
+                )
+            }
+            _ => {
+                self.diagnostics.push(CatalogDiagnostic::new(
+                    self.anchor(identity_kind.range()),
+                    CatalogDiagnosticKind::UnknownDeclarationIdentityKind { spelling },
+                ));
+
+                return None;
+            }
+        };
+
+        self.expect_kind(SyntaxKind::SemicolonToken, CatalogExpectation::Semicolon)?;
+
+        Some(identity)
+    }
+
     fn parse_value(&mut self) -> Option<ParsedValue> {
         self.expect_word(VALUE_WORD)?;
         let key = self.parse_stable_key()?;
+
         self.expect_kind(SyntaxKind::OpenBraceToken, CatalogExpectation::OpenBrace)?;
 
         let mut fields = Vec::new();
@@ -282,6 +348,7 @@ impl CatalogParser {
         match spelling.as_ref() {
             SPELLING_WORD => {
                 self.expect_word(SPELLING_WORD)?;
+
                 let token = self.peek();
 
                 if matches!(
@@ -337,6 +404,7 @@ impl CatalogParser {
 
     fn parse_identifier_field(&mut self, word: &'static str) -> Option<Anchored<Arc<str>>> {
         self.expect_word(word)?;
+
         let value = self.consume_identifier(CatalogExpectation::Identifier)?;
         let anchored = Anchored::new(self.token_text(&value), self.anchor(value.range()));
 
@@ -348,6 +416,7 @@ impl CatalogParser {
     fn parse_braced_fragment(&mut self) -> Option<CatalogSourceAnchor> {
         let open = self.expect_kind(SyntaxKind::OpenBraceToken, CatalogExpectation::OpenBrace)?;
         let start = open.end();
+
         let mut depth = 1_u32;
 
         loop {
@@ -383,6 +452,7 @@ impl CatalogParser {
 
     fn parse_stable_key(&mut self) -> Option<Anchored<Arc<str>>> {
         let token = self.consume_identifier(CatalogExpectation::StableKey)?;
+
         Some(Anchored::new(
             self.token_text(&token),
             self.anchor(token.range()),
@@ -397,6 +467,7 @@ impl CatalogParser {
         }
 
         self.record_unexpected(&token, CatalogExpectation::Word(word));
+
         None
     }
 
@@ -408,6 +479,7 @@ impl CatalogParser {
         }
 
         self.record_unexpected(&token, expected);
+
         None
     }
 
@@ -423,13 +495,13 @@ impl CatalogParser {
         }
 
         self.record_unexpected(&token, expected);
+
         None
     }
 
     fn skip_unknown_field(&mut self) {
         if self.at(SyntaxKind::OpenBraceToken) {
             let _ = self.parse_braced_fragment();
-
             return;
         }
 
@@ -589,6 +661,7 @@ mod tests {
         let (parsed, diagnostics) = parse_catalog_source(source(text));
 
         assert!(diagnostics.is_empty());
+
         let parsed = match parsed {
             Some(parsed) => parsed,
             None => panic!("test catalog should parse"),
@@ -597,10 +670,12 @@ mod tests {
         assert_eq!(parsed.declared_kind.value, CatalogKind::CompilerKnown);
         assert_eq!(parsed.scopes.len(), 1);
         assert_eq!(parsed.scopes[0].key.value.as_ref(), "Ambient");
+
         assert_eq!(
             parsed.scopes[0].location.value,
             ParsedScopeLocation::Ambient
         );
+
         assert_eq!(parsed.scopes[0].entries.len(), 2);
 
         let ParsedEntry::Declaration(declaration) = &parsed.scopes[0].entries[0] else {
@@ -644,6 +719,7 @@ mod tests {
         let (parsed, diagnostics) = parse_catalog_source(source(text));
 
         assert!(diagnostics.is_empty());
+
         let parsed = match parsed {
             Some(parsed) => parsed,
             None => panic!("test catalog should parse"),
@@ -673,6 +749,7 @@ mod tests {
         let (parsed, diagnostics) = parse_catalog_source(source(text));
 
         assert_eq!(parsed, None);
+
         assert!(diagnostics.iter().any(|diagnostic| {
             matches!(
                 diagnostic.kind(),
@@ -685,6 +762,28 @@ mod tests {
     }
 
     #[test]
+    fn parser_rejects_out_of_range_declaration_identity_ordinals() {
+        let text = concat!(
+            "catalog recognized_standard_library;\n",
+            "scope Standard at std {\n",
+            "  declaration Item {\n",
+            "    identity ordinal 4294967296;\n",
+            "    surface { func item(); }\n",
+            "  }\n",
+            "}\n",
+        );
+
+        let (parsed, diagnostics) = parse_catalog_source(source(text));
+
+        assert_eq!(parsed, None);
+        assert!(diagnostics.iter().any(|diagnostic| matches!(
+            diagnostic.kind(),
+            CatalogDiagnosticKind::InvalidDeclarationIdentityOrdinal { spelling }
+                if spelling.as_ref() == "4294967296"
+        )));
+    }
+
+    #[test]
     fn parser_retains_unknown_entry_kind_spellings() {
         let text = concat!(
             "catalog compiler_known;\n",
@@ -694,6 +793,7 @@ mod tests {
         let (parsed, diagnostics) = parse_catalog_source(source(text));
 
         assert_eq!(parsed, None);
+
         assert!(diagnostics.iter().any(|diagnostic| {
             matches!(
                 diagnostic.kind(),
@@ -714,6 +814,7 @@ mod tests {
         let (parsed, diagnostics) = parse_catalog_source(source(text));
 
         assert_eq!(parsed, None);
+
         assert!(diagnostics.iter().any(|diagnostic| {
             matches!(
                 diagnostic.kind(),

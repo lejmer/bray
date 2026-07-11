@@ -20,6 +20,8 @@ pub enum CatalogEntryKind {
 pub enum CatalogField {
     /// A declaration owner stable key.
     Owner,
+    /// A recognized declaration's explicit external identity.
+    Identity,
     /// A target availability rule.
     Availability,
     /// A protected representation role.
@@ -69,6 +71,10 @@ pub enum CatalogExpectation {
     StableKey,
     /// A metadata identifier.
     Identifier,
+    /// A named or ordinal declaration identity category.
+    DeclarationIdentityKind,
+    /// A declaration identity name or ordinal.
+    DeclarationIdentityValue,
     /// A scope location.
     ScopeLocation,
     /// A declaration or value entry.
@@ -141,6 +147,10 @@ pub enum CatalogDiagnosticKind {
         entry: CatalogEntryKind,
         spelling: Arc<str>,
     },
+    /// A declaration identity category spelling is not recognized.
+    UnknownDeclarationIdentityKind { spelling: Arc<str> },
+    /// An ordinal declaration identity is not a compact unsigned integer.
+    InvalidDeclarationIdentityOrdinal { spelling: Arc<str> },
     /// A singleton entry field appears more than once.
     DuplicateField { field: CatalogField },
     /// A required entry field is absent.
@@ -150,12 +160,16 @@ pub enum CatalogDiagnosticKind {
         catalog: CatalogKind,
         entry: CatalogEntryKind,
     },
+    /// An explicit imported identity was assigned outside the recognized catalog.
+    UnsupportedDeclarationIdentity { catalog: CatalogKind },
     /// A scope location is not supported by the catalog family.
     UnsupportedScopeLocation { catalog: CatalogKind },
     /// Contributions to one scope key disagree about location.
     ConflictingScopeLocation,
     /// A stable key appears more than once in one identity domain.
     DuplicateKey { domain: CatalogKeyDomain },
+    /// Two recognized declarations describe the same owner-relative imported identity.
+    DuplicateRecognizedDeclarationIdentity,
     /// A typed metadata spelling is not recognized.
     UnknownMetadata {
         metadata: CatalogMetadataKind,
@@ -221,6 +235,7 @@ impl CatalogDiagnostic {
         related_keys: impl IntoIterator<Item = CatalogRelatedKey>,
     ) -> Self {
         self.related_keys = related_keys.into_iter().collect();
+
         self
     }
 
@@ -253,6 +268,7 @@ impl CatalogDiagnostics {
     pub(super) fn from_unsorted(mut diagnostics: Vec<CatalogDiagnostic>) -> Self {
         diagnostics.sort();
         diagnostics.dedup();
+
         Self(diagnostics.into())
     }
 

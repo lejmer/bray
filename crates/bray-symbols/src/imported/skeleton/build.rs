@@ -29,9 +29,12 @@ pub(super) fn build_imported_symbol_skeleton(
 
     let assigned = assign_symbol_ids(first_symbol_id, &inputs)?;
     let containers = remap_containers(&assigned.identities, &assigned.local_index)?;
+
     let (relationship_index, provider_subjects) =
         build_relationships(&inputs, &assigned.local_index, &containers)?;
+
     let lookups = build_lookups(&inputs, &assigned.local_index, &assigned.external_index)?;
+
     let records = super::records::build_records(
         assigned.identities,
         &containers,
@@ -89,17 +92,21 @@ fn assign_symbol_ids(
     identities.sort_by(|left, right| left.1.key().cmp(right.1.key()));
 
     let mut assigned = Vec::with_capacity(identities.len());
+
     let mut local_index = BTreeMap::new();
     let mut external_index = BTreeMap::new();
 
     for (offset, (interface, identity)) in identities.into_iter().enumerate() {
         let offset = u32::try_from(offset)
             .map_err(|_| ImportedSymbolSkeletonBuildError::SymbolIdOverflow)?;
+
         let raw = first_symbol_id
             .raw()
             .checked_add(offset)
             .ok_or(ImportedSymbolSkeletonBuildError::SymbolIdOverflow)?;
+
         let symbol_id = SymbolId::new(raw);
+
         let id = AnySymbolId::from_kind(identity.kind(), symbol_id).ok_or(
             ImportedSymbolSkeletonBuildError::UnsupportedSymbolKind(identity.kind()),
         )?;
@@ -111,6 +118,7 @@ fn assign_symbol_ids(
         }
 
         local_index.insert((interface, identity.id()), id);
+
         assigned.push(AssignedIdentity {
             interface,
             identity,

@@ -195,6 +195,7 @@ impl ModuleSymbol {
 
     pub(crate) fn with_relationships(mut self, relationships: ModuleRelationships) -> Self {
         self.relationships = relationships;
+
         self
     }
 

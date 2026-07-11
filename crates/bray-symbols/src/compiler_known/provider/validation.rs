@@ -127,6 +127,7 @@ fn resolve_symbol_kind(
             resolve_symbol_kind(owner, descriptor, scope_kind, resolved, resolving)?
         }
     };
+
     let kind = declaration_symbol_kind(declaration_kind.into(), owner_kind);
 
     resolving.remove(&declaration);
@@ -152,6 +153,7 @@ mod tests {
         let callable = CompilerKnownDeclarationId::new(0);
         let implementation = CompilerKnownDeclarationId::new(1);
         let scope = CompilerKnownScopeId::new(0);
+
         let descriptors = BTreeMap::from([
             (
                 callable,
@@ -174,6 +176,7 @@ mod tests {
             |id| descriptors.get(&id).copied(),
             |id| (id == scope).then_some(SymbolKind::CompilerKnownEnvironment),
         );
+
         let kinds = match result {
             Ok(kinds) => kinds,
             Err(error) => panic!("nested test descriptors must resolve: {error:?}"),
@@ -183,6 +186,7 @@ mod tests {
             kinds.get(&implementation),
             Some(&SymbolKind::NamedTraitImplementation)
         );
+
         assert_eq!(
             kinds.get(&callable),
             Some(&SymbolKind::TraitCallableFulfillment)
@@ -193,6 +197,7 @@ mod tests {
     fn owner_cycles_are_reported_without_recursion_overflow() {
         let first = CompilerKnownDeclarationId::new(0);
         let second = CompilerKnownDeclarationId::new(1);
+
         let descriptors = BTreeMap::from([
             (
                 first,
@@ -263,6 +268,7 @@ mod tests {
     #[test]
     fn compact_descriptor_ids_require_canonical_positions() {
         assert_eq!(validate_scope_id(0, CompilerKnownScopeId::new(0)), Ok(()));
+
         assert_eq!(
             validate_declaration_id(0, CompilerKnownDeclarationId::new(1)),
             Err(CompilerKnownSymbolBuildError::NonCanonicalDeclarationId {

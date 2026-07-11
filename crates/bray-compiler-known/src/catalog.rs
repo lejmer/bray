@@ -27,8 +27,8 @@ pub use descriptor::{
     CatalogDeclarationKind, CatalogScopeLocation, CatalogSurfaceContext,
     CompilerKnownDeclarationDescriptor, CompilerKnownDeclarationOwner,
     CompilerKnownScopeDescriptor, CompilerKnownValueDescriptor,
-    RecognizedStandardLibraryDeclarationDescriptor, RecognizedStandardLibraryDeclarationOwner,
-    RecognizedStandardLibraryScopeDescriptor,
+    RecognizedStandardLibraryDeclarationDescriptor, RecognizedStandardLibraryDeclarationIdentity,
+    RecognizedStandardLibraryDeclarationOwner, RecognizedStandardLibraryScopeDescriptor,
 };
 #[cfg(any(test, feature = "generation"))]
 pub use diagnostic::{

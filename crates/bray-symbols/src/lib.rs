@@ -3,6 +3,7 @@
 #![forbid(unsafe_code)]
 
 mod allocator;
+mod availability;
 mod build;
 mod collection;
 mod compiler_known;
@@ -20,6 +21,7 @@ mod member;
 mod name;
 mod origin;
 mod provider;
+mod recognized;
 mod record;
 mod relationship;
 mod surface_kind;
@@ -111,6 +113,9 @@ pub use member::{
 pub use name::SymbolName;
 pub use origin::SymbolOrigin;
 pub use provider::{SymbolProvider, SymbolRecordId};
+pub use recognized::{
+    RecognizedStandardLibraryDeclarationMatch, RecognizedStandardLibraryDeclarations,
+};
 pub use record::{
     CallableContractSymbol, CallableOverloadSymbol, CallableParameterDefaultProviderSymbol,
     CallableParameterSymbol, CompilerKnownEnvironmentSymbol, ConstantSymbol, ConstructorSymbol,

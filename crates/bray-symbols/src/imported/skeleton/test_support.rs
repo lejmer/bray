@@ -5,22 +5,55 @@ use crate::{
     SymbolKind, SymbolName, SymbolRelationshipKind,
 };
 
-pub(super) struct InterfaceFixture {
-    pub(super) input: ImportedSymbolSkeletonInput,
-    pub(super) package_key: ExternalSymbolKey,
-    pub(super) module_key: ExternalSymbolKey,
-    pub(super) function_key: ExternalSymbolKey,
+pub(crate) struct InterfaceFixture {
+    pub(crate) input: ImportedSymbolSkeletonInput,
+    pub(crate) package_key: ExternalSymbolKey,
+    pub(crate) module_key: ExternalSymbolKey,
+    pub(crate) function_key: ExternalSymbolKey,
 }
 
-pub(super) fn interface_fixture(
+pub(crate) fn interface_fixture(
     interface: u32,
     package_name: &str,
     function_name: &str,
 ) -> InterfaceFixture {
+    interface_fixture_at_module(interface, package_name, ["api"], function_name)
+}
+
+pub(crate) fn interface_fixture_at_module<I, S>(
+    interface: u32,
+    package_name: &str,
+    module_path: I,
+    function_name: &str,
+) -> InterfaceFixture
+where
+    I: IntoIterator<Item = S>,
+    S: Into<std::sync::Arc<str>>,
+{
+    interface_fixture_with_lookup(
+        interface,
+        package_name,
+        module_path,
+        function_name,
+        function_name,
+    )
+}
+
+pub(crate) fn interface_fixture_with_lookup<I, S>(
+    interface: u32,
+    package_name: &str,
+    module_path: I,
+    function_name: &str,
+    lookup_name: &str,
+) -> InterfaceFixture
+where
+    I: IntoIterator<Item = S>,
+    S: Into<std::sync::Arc<str>>,
+{
     let package = package_identity(package_name);
     let package_key = ExternalSymbolKey::package(package.clone());
 
-    let Some(module_path) = ModulePathKey::try_new(["api"]) else {
+    let Some(module_path) = ModulePathKey::try_new(module_path) else {
         panic!("test module path must be valid");
     };
 
@@ -62,6 +95,7 @@ pub(super) fn interface_fixture(
         Ok(symbols) => symbols,
         Err(error) => panic!("test identity surface must be valid: {error:?}"),
     };
+
     let relationships = [
         ImportedSymbolRelationship::new(
             SymbolRelationshipKind::PackageModule,
@@ -76,11 +110,13 @@ pub(super) fn interface_fixture(
             0,
         ),
     ];
+
     let lookups = [ImportedLookupEdge::new(
         InterfaceSymbolId::new(1),
-        symbol_name(function_name),
+        symbol_name(lookup_name),
         function_key.clone(),
     )];
+
     let input = ImportedSymbolSkeletonInput::new(
         ImportedInterfaceId::new(interface),
         symbols,
@@ -96,21 +132,21 @@ pub(super) fn interface_fixture(
     }
 }
 
-pub(super) fn package_identity(value: &str) -> PackageIdentity {
+pub(crate) fn package_identity(value: &str) -> PackageIdentity {
     match PackageIdentity::try_new(value) {
         Some(identity) => identity,
         None => panic!("test package identity must be valid"),
     }
 }
 
-pub(super) fn symbol_name(value: &str) -> SymbolName {
+pub(crate) fn symbol_name(value: &str) -> SymbolName {
     match SymbolName::try_new(value) {
         Some(name) => name,
         None => panic!("test symbol name must be valid"),
     }
 }
 
-pub(super) fn build_skeleton(
+pub(crate) fn build_skeleton(
     inputs: impl IntoIterator<Item = ImportedSymbolSkeletonInput>,
 ) -> ImportedSymbolSkeleton {
     match ImportedSymbolSkeleton::try_new(SymbolId::new(10), inputs) {

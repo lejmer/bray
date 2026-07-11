@@ -65,9 +65,11 @@ impl<T> FactCell<T> {
                 FactCellState::Vacant => {
                     let thread = thread::current().id();
                     *state = FactCellState::Computing { owner: thread, key };
+
                     drop(state);
 
                     let mut publication = PublicationGuard::new(self, thread, key);
+
                     let _evaluation = runtime.begin(key)?;
 
                     cancellation.check()?;
@@ -81,6 +83,7 @@ impl<T> FactCell<T> {
                     cancellation.check()?;
 
                     self.publish(value, thread, key)?;
+
                     publication.disarm();
 
                     return self.ready_value();
@@ -100,6 +103,7 @@ impl<T> FactCell<T> {
                     }
 
                     let waiting = runtime.wait_for(key, owner)?;
+
                     let waited = self
                         .changed
                         .wait_timeout(state, CANCELLATION_POLL_INTERVAL)
@@ -132,6 +136,7 @@ impl<T> FactCell<T> {
         }
 
         *state = FactCellState::Ready(key);
+
         self.changed.notify_all();
 
         Ok(())
@@ -218,6 +223,7 @@ mod tests {
     fn concurrent_requests_compute_one_value() {
         let runtime = FactRuntime::default();
         let cancellation = CancellationToken::new();
+
         let cell = FactCell::new();
         let computations = AtomicUsize::new(0);
 
@@ -255,8 +261,10 @@ mod tests {
     fn independent_facts_compute_concurrently() {
         let runtime = FactRuntime::default();
         let cancellation = CancellationToken::new();
+
         let first = FactCell::new();
         let second = FactCell::new();
+
         let barrier = Barrier::new(2);
 
         let results = std::thread::scope(|scope| {
@@ -301,6 +309,7 @@ mod tests {
         let runtime = FactRuntime::default();
         let cancellation = CancellationToken::new();
         let cell = FactCell::new();
+
         let key = CompilationFactKey::SyntaxTree;
 
         let result = cell.get_or_compute(&runtime, key, &cancellation, || {
@@ -350,9 +359,12 @@ mod tests {
     fn cross_thread_cycles_do_not_deadlock() {
         let runtime = FactRuntime::default();
         let cancellation = CancellationToken::new();
+
         let first = FactCell::new();
         let second = FactCell::new();
+
         let barrier = Barrier::new(2);
+
         let first_key = CompilationFactKey::SyntaxTree;
         let second_key = CompilationFactKey::DeclarationTable;
 
@@ -401,6 +413,7 @@ mod tests {
         let runtime = FactRuntime::default();
         let cancellation = CancellationToken::new();
         let cell = FactCell::new();
+
         let key = CompilationFactKey::SyntaxTree;
 
         let result = cell.get_or_compute(&runtime, key, &cancellation, || {
@@ -420,10 +433,13 @@ mod tests {
     #[test]
     fn waiting_requests_observe_cancellation() {
         let runtime = FactRuntime::default();
+
         let owner_cancellation = CancellationToken::new();
         let waiter_cancellation = CancellationToken::new();
+
         let cell = FactCell::new();
         let key = CompilationFactKey::SyntaxTree;
+
         let (started_sender, started_receiver) = mpsc::channel();
         let (release_sender, release_receiver) = mpsc::channel();
         let (result_sender, result_receiver) = mpsc::channel();
@@ -468,6 +484,7 @@ mod tests {
             });
 
             std::thread::sleep(Duration::from_millis(20));
+
             waiter_cancellation.cancel();
 
             let observed = result_receiver.recv_timeout(Duration::from_secs(1));
@@ -497,6 +514,7 @@ mod tests {
         let cancellation = CancellationToken::new();
         let cell = FactCell::new();
         let computations = AtomicUsize::new(0);
+
         let diagnostic = Diagnostic::new(
             DiagnosticId::new(3),
             DiagnosticKind::DeclarationDuplicateName,

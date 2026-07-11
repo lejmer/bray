@@ -43,6 +43,7 @@ impl ValidatedPackageInterface {
             bytes.len(),
         )
         .map_err(range_validation_error)?;
+
         let directory = decode_directory(&bytes, directory_range, policy)?;
 
         validate_hashes(decoded.header, &directory, &bytes)?;
@@ -66,6 +67,7 @@ impl ValidatedPackageInterface {
             .directory
             .binary_search_by_key(&tag, |entry| entry.tag())
             .ok()?;
+
         let entry = *self.directory.get(index)?;
 
         ValidatedInterfaceSection::new(entry, &self.bytes)
@@ -83,6 +85,21 @@ impl ValidatedPackageInterface {
         &self,
     ) -> Result<crate::PackageInterfaceSurface, InterfaceValidationError> {
         crate::surface::decode_surface(self, self.limits)
+    }
+
+    /// Decodes and validates semantic facts against an already decoded identity surface.
+    pub fn decode_semantic_facts(
+        &self,
+        surface: &crate::PackageInterfaceSurface,
+    ) -> Result<crate::InterfaceSemanticFacts, InterfaceValidationError> {
+        let sections: Vec<_> = self.sections().collect();
+
+        crate::decode_semantic_facts(
+            &sections,
+            surface.symbols().symbols().len(),
+            surface.dependencies().len(),
+            self.limits,
+        )
     }
 }
 
@@ -164,9 +181,12 @@ fn decode_directory(
             maximum: policy.limits().maximum(InterfaceLimit::SectionCount),
         }
     })?;
+
     let mut entries = Vec::with_capacity(capacity);
+
     let mut previous_tag = None;
     let mut previous_end = InterfaceHeader::LENGTH;
+
     let mut decoded_allocation = 0_u64;
 
     for chunk in bytes[directory_range.clone()].chunks_exact(DirectoryEntry::LENGTH) {
@@ -444,6 +464,7 @@ mod tests {
             record_count: 1,
             payload: b"a",
         }]);
+
         let directory = unknown_tag.len() - DirectoryEntry::LENGTH;
 
         write_u32(&mut unknown_tag, directory, 99);
@@ -458,6 +479,7 @@ mod tests {
             record_count: 1,
             payload: b"a",
         }]);
+
         let directory = encoded_section.len() - DirectoryEntry::LENGTH;
 
         write_u32(&mut encoded_section, directory + 4, 1);
@@ -479,6 +501,7 @@ mod tests {
                 payload: b"b",
             },
         ]);
+
         let directory = duplicate.len() - 2 * DirectoryEntry::LENGTH;
 
         write_u32(
@@ -504,6 +527,7 @@ mod tests {
                 payload: b"bb",
             },
         ]);
+
         let directory = overlap.len() - 2 * DirectoryEntry::LENGTH;
 
         write_u64(
@@ -522,6 +546,7 @@ mod tests {
             record_count: 1,
             payload: b"aa",
         }]);
+
         let directory = overflow.len() - DirectoryEntry::LENGTH;
 
         write_u64(&mut overflow, directory + 8, u64::MAX);
@@ -607,6 +632,7 @@ mod tests {
             record_count: 1,
             payload: b"first.bray",
         }]));
+
         let second = validate(artifact(&[SectionFixture {
             tag: InterfaceSectionTag::SourceProvenance,
             record_count: 1,
@@ -630,6 +656,7 @@ mod tests {
             actual: 12,
             maximum: 10,
         };
+
         let diagnostic = error.into_diagnostic(DiagnosticId::new(4));
 
         assert_eq!(diagnostic.id(), DiagnosticId::new(4));
@@ -663,6 +690,7 @@ mod tests {
             section: InterfaceSectionTag::Contracts,
         }
         .into_diagnostic(DiagnosticId::new(5));
+
         assert_eq!(
             DiagnosticRenderer::english().render(&section).message(),
             "package-interface section checksum does not match for contracts"
@@ -672,6 +700,7 @@ mod tests {
             actual: crate::InterfaceFormatRevision::new(9),
         }
         .into_diagnostic(DiagnosticId::new(6));
+
         assert_eq!(
             DiagnosticRenderer::english().render(&revision).message(),
             "unsupported package-interface format revision 9; expected 1"
@@ -690,7 +719,9 @@ mod tests {
             .iter()
             .map(|section| section.payload.len())
             .sum::<usize>();
+
         let directory_offset = InterfaceHeader::LENGTH + payload_length;
+
         let directory_length = sections.len() * DirectoryEntry::LENGTH;
         let file_length = directory_offset + directory_length;
 
@@ -718,6 +749,7 @@ mod tests {
                 section.record_count,
                 crate::InterfaceSectionHash::from_bytes([0; 32]),
             );
+
             let checksum = compute_section_hash(&entry_without_checksum, section.payload);
 
             entries.push(DirectoryEntry::for_test(
@@ -727,7 +759,9 @@ mod tests {
                 section.record_count,
                 checksum,
             ));
+
             encoder.write_bytes(section.payload);
+
             payload_offset += section.payload.len();
         }
 
@@ -741,10 +775,12 @@ mod tests {
         }
 
         let mut bytes = encoder.into_bytes();
+
         let decoded = match InterfaceHeader::decode(&bytes) {
             Ok(decoded) => decoded,
             Err(error) => panic!("test header must decode: {error:?}"),
         };
+
         let content_hash = match compute_content_hash(&decoded.header, &entries, &bytes) {
             Some(hash) => hash,
             None => panic!("test content hash inputs must be valid"),

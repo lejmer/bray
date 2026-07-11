@@ -409,7 +409,9 @@ impl GenericParameterRelationships {
 impl StructFieldRelationships {
     pub(crate) fn new(id: StructFieldSymbolId, index: &RelationshipIndex) -> Option<Self> {
         let erased = id.into();
+
         let (owner, _) = owner_and_ordinal(erased, index)?;
+
         let AnySymbolId::Struct(owner) = owner else {
             return None;
         };
@@ -429,7 +431,9 @@ impl StructFieldRelationships {
 impl UnionPayloadFieldRelationships {
     pub(crate) fn new(id: UnionPayloadFieldSymbolId, index: &RelationshipIndex) -> Option<Self> {
         let erased = id.into();
+
         let (owner, _) = owner_and_ordinal(erased, index)?;
+
         let AnySymbolId::UnionVariant(owner) = owner else {
             return None;
         };

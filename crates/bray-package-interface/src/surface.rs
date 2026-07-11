@@ -2,7 +2,7 @@ mod decoding;
 mod encoding;
 mod model;
 mod reference;
-mod tags;
+
 mod validation;
 
 pub use model::{

@@ -101,7 +101,6 @@ impl SymbolCompletionPlan {
             );
 
             units.push(SymbolCompletionUnit { symbol, facts });
-
             pending.extend(graph.completion_children(symbol).iter().rev().copied());
         }
 
@@ -195,6 +194,7 @@ mod tests {
         let package = AnySymbolId::from(graph.packages()[0].id());
 
         let plan = completion_plan(&graph, package);
+
         let symbols = plan
             .units()
             .iter()
@@ -362,5 +362,25 @@ mod tests {
             Ok(graph) => graph,
             Err(error) => panic!("test symbol graph should build: {error:?}"),
         }
+    }
+
+    fn declaration_table(source_texts: &[&str]) -> DeclarationTable {
+        let sources = test_source_store(source_texts);
+
+        let chunks = (0u32..)
+            .take(source_texts.len())
+            .map(|index| declaration_chunk(&sources, index))
+            .collect::<Vec<_>>();
+
+        let result = merge_declaration_chunks(chunks.iter());
+        let (table, _diagnostics) = result.into_parts();
+
+        table
+    }
+
+    fn declaration_chunk(sources: &bray_source::SourceStore, index: u32) -> DeclarationChunkResult {
+        let parsed = bray_parser::parse_source_unit(test_source_at(sources, index));
+
+        discover_source_unit_declarations(parsed.source_unit())
     }
 }

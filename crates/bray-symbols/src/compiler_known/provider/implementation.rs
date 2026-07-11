@@ -120,11 +120,14 @@ impl CompilerKnownSymbolProvider {
         catalog: &'static CompilerKnownCatalog,
     ) -> Result<Self, CompilerKnownSymbolBuildError> {
         let mut allocator = SymbolIdAllocator::new();
+
         let environment_id = CompilerKnownEnvironmentSymbolId::from_symbol_id(allocator.next()?);
         let (scope_symbols, modules) = build_scopes(catalog, environment_id, &mut allocator)?;
         let declaration_kinds = resolve_declaration_symbol_kinds(catalog)?;
+
         let (declaration_symbols, descriptor_symbols) =
             allocate_declarations(catalog, &declaration_kinds, &mut allocator)?;
+
         let (records, relationships) = build_declarations(
             catalog,
             &scope_symbols,
@@ -141,8 +144,10 @@ impl CompilerKnownSymbolProvider {
                 module.with_relationships(module_relationships)
             })
             .collect();
+
         let modules = TypedSymbolRecords::new(modules, ModuleSymbol::id);
         let module_ids = modules.records().iter().map(ModuleSymbol::id).collect();
+
         let environment = CompilerKnownEnvironmentSymbol::new(
             environment_id,
             SymbolKey::compiler_known_environment(),
@@ -272,6 +277,7 @@ fn build_scopes(
 > {
     let mut scope_symbols = BTreeMap::new();
     let mut modules = Vec::new();
+
     let mut has_ambient = false;
 
     for (index, scope) in catalog.compiler_known_scopes().iter().enumerate() {
@@ -372,6 +378,7 @@ fn build_declarations(
         };
 
         let owner = declaration_owner(catalog, descriptor, scopes, descriptor_symbols)?;
+
         let origin = if descriptor.implementation_hook().is_some() {
             SymbolOrigin::CompilerProvided
         } else {
@@ -403,6 +410,7 @@ fn build_declarations(
         }
 
         relationships.add_symbol(symbol, owner);
+
         identities.push((
             descriptor.id(),
             symbol,
@@ -505,6 +513,7 @@ mod tests {
                 provider.environment().id()
             ))
         );
+
         assert_eq!(provider.scope_symbol(&scope_key("Missing")), None);
         assert_eq!(provider.scope_symbols().len(), 3);
 
@@ -512,16 +521,19 @@ mod tests {
 
         assert!(provider.fact_key::<StructSymbolId>(&bool_key).is_some());
         assert_eq!(provider.fact_key::<FunctionSymbolId>(&bool_key), None);
+
         assert_eq!(
             provider.declaration_symbol::<StructSymbolId>(&declaration_key("Missing")),
             None
         );
+
         assert_eq!(provider.declaration_symbols().len(), 12);
     }
 
     #[test]
     fn ordinary_records_retain_catalog_origin_and_typed_containment() {
         let provider = build_provider();
+
         let bool_key = declaration_key("Bool");
         let raw_pointer_key = declaration_key("RawPointer");
         let memory_copy_key = declaration_key("MemoryCopy");
@@ -541,9 +553,11 @@ mod tests {
         assert_eq!(bool_symbol.origin(), SymbolOrigin::CompilerKnown);
         assert_eq!(raw_pointer.fields().len(), 1);
         assert_eq!(bool_symbol.declaration(), None);
+
         assert!(bool_symbol.compiler_known_declaration().is_some());
         assert!(bool_symbol.compiler_known_surface().is_some());
         assert!(provider.environment().structures().contains(&bool_id));
+
         assert_eq!(
             provider.environment().modules(),
             [provider.modules()[0].id(), provider.modules()[1].id()]

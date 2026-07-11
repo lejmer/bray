@@ -9,4 +9,4 @@ pub use input::*;
 pub use snapshot::*;
 
 #[cfg(test)]
-mod test_support;
+pub(crate) mod test_support;

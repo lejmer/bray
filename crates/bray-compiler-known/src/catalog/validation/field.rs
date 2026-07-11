@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
 use super::super::entry::{
-    Anchored, ParsedDeclaration, ParsedDeclarationField, ParsedValue, ParsedValueField,
+    Anchored, ParsedDeclaration, ParsedDeclarationField, ParsedDeclarationIdentity, ParsedValue,
+    ParsedValueField,
 };
 use super::super::{
     CatalogDeclarationSurface, CatalogDiagnostic, CatalogDiagnosticKind, CatalogField,
@@ -10,6 +11,7 @@ use super::super::{
 
 pub(super) struct DeclarationFields<'entry> {
     pub(super) owner: Option<&'entry Anchored<Arc<str>>>,
+    pub(super) identity: Option<&'entry Anchored<ParsedDeclarationIdentity>>,
     pub(super) availability: Option<&'entry Anchored<Arc<str>>>,
     pub(super) representation: Option<&'entry Anchored<Arc<str>>>,
     pub(super) implementation: Option<&'entry Anchored<Arc<str>>>,
@@ -29,6 +31,7 @@ pub(super) fn declaration_fields<'entry>(
 ) -> DeclarationFields<'entry> {
     let mut result = DeclarationFields {
         owner: None,
+        identity: None,
         availability: None,
         representation: None,
         implementation: None,
@@ -40,6 +43,12 @@ pub(super) fn declaration_fields<'entry>(
             ParsedDeclarationField::Owner(value) => {
                 set_once(&mut result.owner, value, CatalogField::Owner, diagnostics)
             }
+            ParsedDeclarationField::Identity(value) => set_once(
+                &mut result.identity,
+                value,
+                CatalogField::Identity,
+                diagnostics,
+            ),
             ParsedDeclarationField::Availability(value) => set_once(
                 &mut result.availability,
                 value,
@@ -123,12 +132,14 @@ pub(super) fn value_fields<'entry>(
         value.key.anchor,
         diagnostics,
     );
+
     require(
         result.type_surface.is_some(),
         CatalogField::Type,
         value.key.anchor,
         diagnostics,
     );
+
     require(
         result.representation.is_some(),
         CatalogField::Representation,

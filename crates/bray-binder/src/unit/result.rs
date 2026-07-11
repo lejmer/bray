@@ -71,6 +71,7 @@ mod tests {
 
         assert_eq!(binding.key().anchors(), &[fixture.first, fixture.second]);
         assert_eq!(binding.key().region(), first.local_symbols().key());
+
         assert_eq!(
             first
                 .local_symbols()
@@ -85,7 +86,9 @@ mod tests {
         region: LocalSymbolRegionId,
     ) -> super::BoundUnitConstructionResult {
         let mut builder = builder(fixture, region);
+
         let root = builder.root_scope();
+
         let block = push_scope(
             &mut builder,
             root,
@@ -93,6 +96,7 @@ mod tests {
             fixture.first,
             2,
         );
+
         let binding = representative_binding(
             &mut builder,
             block,

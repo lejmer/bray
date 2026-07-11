@@ -3,13 +3,14 @@ use std::sync::Arc;
 
 use bray_symbols::{ImportedSymbolIdentityInput, InterfaceSymbolId, PackageIdentity, SymbolName};
 
-use super::tags::WireTag;
 use super::{
     DependencyInterfaceId, ExportedLookupEdge, ExportedLookupKind, InterfaceDependency,
     InterfaceProductIdentity, InterfaceSymbolReference, PackageInterfaceIdentity,
     PackageInterfaceSurface, SymbolRelationship,
 };
-use crate::wire::{WireDecodeError, WireReader};
+use crate::decode::{DecodeBudget, map_wire_error, read_optional_u32, read_u32};
+use crate::tag::WireTag;
+use crate::wire::WireReader;
 use crate::{
     InterfaceContentHash, InterfaceLimit, InterfaceSectionTag, InterfaceValidationError,
     InterfaceValidationLimits, ValidatedInterfaceSection, ValidatedPackageInterface,
@@ -96,7 +97,7 @@ fn decode_strings(
         let length = usize::try_from(read_u32(&mut reader)?)
             .map_err(|_| InterfaceValidationError::Malformed)?;
 
-        budget.limits.check(
+        budget.limits().check(
             InterfaceLimit::StringLength,
             u64::try_from(length).unwrap_or(u64::MAX),
         )?;
@@ -294,67 +295,6 @@ pub(super) fn read_tag<T: WireTag>(
     T::from_wire(read_u32(reader)?).ok_or(InterfaceValidationError::Malformed)
 }
 
-pub(super) fn read_optional_u32(
-    reader: &mut WireReader<'_>,
-) -> Result<Option<u32>, InterfaceValidationError> {
-    match read_u32(reader)? {
-        0 => Ok(None),
-        1 => Ok(Some(read_u32(reader)?)),
-        _ => Err(InterfaceValidationError::Malformed),
-    }
-}
-
-pub(super) fn read_u32(reader: &mut WireReader<'_>) -> Result<u32, InterfaceValidationError> {
-    reader.read_u32().map_err(map_wire_error)
-}
-
-const fn map_wire_error(_: WireDecodeError) -> InterfaceValidationError {
-    InterfaceValidationError::Malformed
-}
-
 fn checked_count(count: u64) -> Result<usize, InterfaceValidationError> {
     usize::try_from(count).map_err(|_| InterfaceValidationError::Malformed)
-}
-
-pub(super) struct DecodeBudget {
-    limits: InterfaceValidationLimits,
-    allocated: u64,
-    external_references: u64,
-}
-
-impl DecodeBudget {
-    const fn new(limits: InterfaceValidationLimits) -> Self {
-        Self {
-            limits,
-            allocated: 0,
-            external_references: 0,
-        }
-    }
-
-    pub(super) fn charge_items<T>(&mut self, count: usize) -> Result<(), InterfaceValidationError> {
-        self.charge(count.saturating_mul(std::mem::size_of::<T>()))
-    }
-
-    fn charge(&mut self, bytes: usize) -> Result<(), InterfaceValidationError> {
-        let bytes = u64::try_from(bytes).unwrap_or(u64::MAX);
-
-        self.allocated = self.allocated.saturating_add(bytes);
-
-        self.limits
-            .check(InterfaceLimit::DecodedAllocation, self.allocated)
-    }
-
-    pub(super) fn charge_external_reference(
-        &mut self,
-        component_count: usize,
-    ) -> Result<(), InterfaceValidationError> {
-        let count = u64::try_from(component_count).unwrap_or(u64::MAX);
-
-        self.external_references = self.external_references.saturating_add(count);
-
-        self.limits.check(
-            InterfaceLimit::ExternalReferenceCount,
-            self.external_references,
-        )
-    }
 }

@@ -100,6 +100,7 @@ impl AnonymousCallableSymbol {
         parameters: Box<[AnonymousCallableParameterSymbolId]>,
     ) -> Self {
         self.parameters = parameters;
+
         self
     }
 

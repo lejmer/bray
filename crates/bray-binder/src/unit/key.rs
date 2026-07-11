@@ -90,6 +90,7 @@ mod tests {
     #[test]
     fn declared_units_derive_their_exact_region_owner_role_and_anchor() {
         let fixture = fixture();
+
         let builder = match BoundUnitLocalBuilder::new(
             BoundUnitId::new(9),
             fixture.key.clone(),
@@ -106,16 +107,19 @@ mod tests {
             snapshot.local_symbols().key().role(),
             LocalSymbolRegionRole::CallableBody
         );
+
         assert_eq!(snapshot.local_symbols().key().anchors(), &[fixture.first]);
     }
 
     #[test]
     fn nested_anonymous_regions_use_canonical_lambda_anchor_paths() {
         let fixture = fixture();
+
         let outer = BoundUnitKey::anonymous_callable(
             fixture.key.clone(),
             BoundSourceAnchor::new(fixture.first, fixture.version),
         );
+
         let inner = BoundUnitKey::anonymous_callable(
             outer,
             BoundSourceAnchor::new(fixture.second, fixture.version),
@@ -137,6 +141,7 @@ mod tests {
             snapshot.local_symbols().key().role(),
             LocalSymbolRegionRole::AnonymousCallable
         );
+
         assert_eq!(
             snapshot.local_symbols().key().anchors(),
             &[fixture.first, fixture.second]

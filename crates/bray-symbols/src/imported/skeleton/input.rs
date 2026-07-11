@@ -151,10 +151,12 @@ mod tests {
         let fixture = interface_fixture(6, "example.package", "run");
 
         assert_eq!(fixture.input.interface(), ImportedInterfaceId::new(6));
+
         assert_eq!(
             fixture.input.symbols().package_symbol_id(),
             InterfaceSymbolId::new(0)
         );
+
         assert_eq!(
             fixture.input.relationships(),
             [
@@ -172,6 +174,7 @@ mod tests {
                 ),
             ]
         );
+
         assert_eq!(
             fixture.input.lookups(),
             [ImportedLookupEdge::new(

@@ -75,7 +75,9 @@ impl GeneratedCatalogOutput {
 pub fn generate_catalog_output() -> Result<GeneratedCatalogOutput, CatalogGenerationError> {
     let mut validator = BrayFragmentValidator::default();
     let mut catalog = build_catalog(generator_input_inventory(), &mut validator)?;
+
     let (declaration_surfaces, type_surfaces) = validator.into_surfaces();
+
     let catalog_directory = Path::new(env!("CARGO_MANIFEST_DIR")).join("catalog");
     let digest = source_digest(MANIFEST, &catalog_directory)?;
 
@@ -432,6 +434,7 @@ mod tests {
             Ok(output) => output,
             Err(diagnostics) => panic!("catalog generation failed: {diagnostics:#?}"),
         };
+
         let second = match generate_catalog_output() {
             Ok(output) => output,
             Err(diagnostics) => panic!("catalog generation failed: {diagnostics:#?}"),
@@ -453,6 +456,7 @@ mod tests {
             output.rust_source(),
             render_catalog(&COMPILER_KNOWN_CATALOG, output.source_digest())
         );
+
         assert_eq!(generator_input_inventory().sources().len(), 6);
 
         let Some(declaration) = COMPILER_KNOWN_CATALOG
@@ -469,6 +473,7 @@ mod tests {
         };
 
         assert_eq!(surface.kind(), declaration.kind());
+
         assert!(
             surface
                 .elements()
@@ -495,6 +500,7 @@ mod tests {
             element,
             CatalogSurfaceElement::Token(token) if token.kind() == SyntaxKind::QuestionToken
         )));
+
         assert!(maximum_depth(type_surface.elements()) >= 3);
 
         assert_balanced(type_surface.elements());

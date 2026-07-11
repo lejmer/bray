@@ -86,7 +86,9 @@ fn build_roots_and_modules(
     // Package identities and root keys share immutable text storage across graph records.
     let package_root_key = SymbolRootKey::Package(package_identity.clone());
     let package_key = SymbolKey::package(package_identity.clone());
+
     let mut module_ids = Vec::new();
+
     // Compiler-known module records are immutable and small; graph storage clones them so its
     // existing ordered all-module view remains contiguous.
     let mut modules = compiler_known.modules().to_vec();
@@ -209,6 +211,7 @@ fn push_source_symbols(
 
         // Synthesized children retain the same Arc-backed subject key after identity publication.
         let synthesized_subject_key = key.clone();
+
         let identity = DeclarationSymbolIdentity::new(
             key,
             owner.id,
@@ -523,6 +526,7 @@ mod tests {
             "module core.io; func read() {}",
             "module core.io { const Size: Int = 1; }",
         ]);
+
         let graph = build_graph(&table);
 
         assert_eq!(graph.roots().compiler_known().symbol_id().raw(), 0);
@@ -594,15 +598,19 @@ mod tests {
             "union Maybe { Some(value: Int); } ",
             "func make(value: Int) {}",
         )]);
+
         let graph = build_graph(&table);
 
         let module = source_module(&graph);
+
         let Some(structure) = graph.structure(module.structures()[0]) else {
             panic!("source structure relationship must resolve");
         };
+
         let Some(field) = graph.struct_field(structure.fields()[0]) else {
             panic!("source field relationship must resolve");
         };
+
         let generic = &graph.generic_type_parameters()[0];
 
         assert_eq!(field.containing_symbol(), structure.id().into());
@@ -611,6 +619,7 @@ mod tests {
         let Some(union) = graph.union(module.unions()[0]) else {
             panic!("source union relationship must resolve");
         };
+
         let variant = &graph.union_variants()[0];
         let payload = &graph.union_payload_fields()[0];
 
@@ -632,6 +641,7 @@ mod tests {
             "union Maybe { Some(value: Int = 1); None; } ",
             "overload create = {make}",
         )]);
+
         let graph = build_graph(&table);
         let module = source_module(&graph);
         let function = source_function(&graph);
@@ -649,6 +659,7 @@ mod tests {
         assert_eq!(function.parameters().len(), 2);
 
         let first_parameter = graph.callable_parameter(function.parameters()[0]);
+
         let Some(first_parameter) = first_parameter else {
             panic!("function parameter relationship must resolve to its typed record");
         };
@@ -666,7 +677,9 @@ mod tests {
         let Some(parameter_provider_id) = first_parameter.default_provider() else {
             panic!("written callable default must have a provider identity");
         };
+
         let parameter_provider = graph.callable_parameter_default_provider(parameter_provider_id);
+
         let Some(parameter_provider) = parameter_provider else {
             panic!("provider identity must resolve to its kind-specific record");
         };
@@ -678,7 +691,9 @@ mod tests {
         let Some(structure) = graph.structure(module.structures()[0]) else {
             panic!("source structure relationship must resolve");
         };
+
         let field = graph.struct_field(structure.fields()[0]);
+
         let Some(field) = field else {
             panic!("struct field relationship must resolve to its typed record");
         };
@@ -691,8 +706,10 @@ mod tests {
         let [instance_member, static_member] = structure.callable_members() else {
             panic!("expected one instance and one static callable member");
         };
+
         let instance_member = graph.type_callable_member(*instance_member);
         let static_member = graph.type_callable_member(*static_member);
+
         let (Some(instance_member), Some(static_member)) = (instance_member, static_member) else {
             panic!("callable member relationships must resolve to typed records");
         };
@@ -700,7 +717,9 @@ mod tests {
         let Some(receiver_id) = instance_member.receiver() else {
             panic!("instance callable member must synthesize a receiver");
         };
+
         let receiver = graph.receiver_parameter(receiver_id);
+
         let Some(receiver) = receiver else {
             panic!("receiver identity must resolve to its typed record");
         };
@@ -715,12 +734,17 @@ mod tests {
         let Some(union) = graph.union(module.unions()[0]) else {
             panic!("source union relationship must resolve");
         };
+
         let variant = graph.union_variant(union.variants()[0]);
+
         let Some(variant) = variant else {
             panic!("union variant relationship must resolve to its typed record");
         };
+
         assert_eq!(variant.union(), union.id());
+
         let payload = graph.union_payload_field(variant.payload_fields()[0]);
+
         let Some(payload) = payload else {
             panic!("payload relationship must resolve to its typed record");
         };
@@ -756,6 +780,7 @@ mod tests {
             .iter()
             .filter(|function| function.origin() == SymbolOrigin::Source)
             .collect::<Vec<_>>();
+
         let [first, second] = source_functions.as_slice() else {
             panic!("expected both conflicting functions to remain in the graph");
         };
@@ -791,9 +816,11 @@ mod tests {
             .iter()
             .filter(|structure| structure.origin() == SymbolOrigin::Source)
             .collect::<Vec<_>>();
+
         let [structure] = source_structures.as_slice() else {
             panic!("expected the recovered struct declaration to produce a symbol");
         };
+
         let module = source_module(&graph);
 
         assert!(structure.is_recovered());
@@ -927,6 +954,25 @@ mod tests {
             Some(path) => path,
             None => panic!("test module path is valid"),
         }
+    }
+
+    fn declaration_table(source_texts: &[&str]) -> DeclarationTable {
+        let sources = test_source_store(source_texts);
+
+        let chunks = (0u32..)
+            .take(source_texts.len())
+            .map(|index| declaration_chunk(&sources, index))
+            .collect::<Vec<_>>();
+
+        let result = merge_declaration_chunks(chunks.iter());
+        let (table, _diagnostics) = result.into_parts();
+
+        table
+    }
+
+    fn declaration_chunk(sources: &bray_source::SourceStore, index: u32) -> DeclarationChunkResult {
+        let parsed = bray_parser::parse_source_unit(test_source_at(sources, index));
+        discover_source_unit_declarations(parsed.source_unit())
     }
 
     fn build_graph(table: &DeclarationTable) -> SymbolGraph {
