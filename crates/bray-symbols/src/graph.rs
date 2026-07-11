@@ -64,6 +64,7 @@ macro_rules! define_symbol_graph {
             modules: TypedSymbolRecords<ModuleSymbolId, ModuleSymbol>,
             module_index: BTreeMap<ModuleOwnerId, BTreeMap<ModulePathKey, ModuleSymbolId>>,
             declaration_index: BTreeMap<DeclarationId, AnySymbolId>,
+            completion_children: BTreeMap<AnySymbolId, Box<[AnySymbolId]>>,
             callable_parameter_default_providers: TypedSymbolRecords<
                 CallableParameterDefaultProviderSymbolId,
                 CallableParameterDefaultProviderSymbol,
@@ -139,6 +140,33 @@ macro_rules! define_symbol_graph {
             /// Returns the semantic identity introduced by a declaration when it creates one.
             pub fn symbol_for_declaration(&self, declaration: DeclarationId) -> Option<AnySymbolId> {
                 self.declaration_index.get(&declaration).copied()
+            }
+
+            pub(crate) fn completion_children(&self, symbol: AnySymbolId) -> &[AnySymbolId] {
+                self.completion_children
+                    .get(&symbol)
+                    .map_or(&[], Box::as_ref)
+            }
+
+            pub(crate) fn contains_symbol(&self, symbol: AnySymbolId) -> bool {
+                match symbol {
+                    AnySymbolId::CompilerKnownEnvironment(id) => self.compiler_known.id() == id,
+                    AnySymbolId::Package(id) => self.packages.get(id).is_some(),
+                    AnySymbolId::Module(id) => self.modules.get(id).is_some(),
+                    AnySymbolId::CallableParameterDefaultProvider(id) => {
+                        self.callable_parameter_default_providers.get(id).is_some()
+                    }
+                    AnySymbolId::StructFieldDefaultProvider(id) => {
+                        self.struct_field_default_providers.get(id).is_some()
+                    }
+                    AnySymbolId::UnionPayloadDefaultProvider(id) => {
+                        self.union_payload_default_providers.get(id).is_some()
+                    }
+                    AnySymbolId::ReceiverParameter(id) => {
+                        self.receiver_parameters.get(id).is_some()
+                    }
+                    $(AnySymbolId::$variant(id) => self.$plural.get(id).is_some(),)+
+                }
             }
 
             /// Returns synthesized receiver parameters in stable ID order.
@@ -402,6 +430,20 @@ macro_rules! define_symbol_graph {
                         index
                     });
 
+                let mut completion_children = self.relationship_index.into_completion_children();
+
+                completion_children.insert(
+                    self.compiler_known.id().into(),
+                    self.compiler_known.modules().iter().copied().map(Into::into).collect(),
+                );
+
+                for package in packages.records() {
+                    completion_children.insert(
+                        package.id().into(),
+                        package.modules().iter().copied().map(Into::into).collect(),
+                    );
+                }
+
                 Ok(SymbolGraph {
                     roots: self.roots,
                     compiler_known: self.compiler_known,
@@ -409,6 +451,7 @@ macro_rules! define_symbol_graph {
                     modules,
                     module_index,
                     declaration_index: self.declaration_index,
+                    completion_children,
                     callable_parameter_default_providers,
                     struct_field_default_providers,
                     union_payload_default_providers,

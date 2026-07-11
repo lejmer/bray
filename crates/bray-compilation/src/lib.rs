@@ -8,6 +8,9 @@ mod request;
 mod worker;
 
 pub use compilation::{Compilation, CompilationLoadError};
-pub use fact::{CancellationToken, CompilationFactKey, FactCycle, FactQueryError, SymbolFactKey};
+pub use fact::{
+    CancellationToken, CompilationFactKey, FactCycle, FactQueryError, SymbolCompletionError,
+    SymbolFactKey, force_complete_symbol,
+};
 pub use request::{CompilationOptions, CompilationRequest};
 pub use worker::{WorkerBudget, WorkerBudgetError};

@@ -208,6 +208,19 @@ impl RelationshipIndex {
         self.children.get(&owner).map_or(&[], Vec::as_slice)
     }
 
+    pub(crate) fn into_completion_children(self) -> BTreeMap<AnySymbolId, Box<[AnySymbolId]>> {
+        let mut children = self.children;
+
+        for (owner, provider) in self.providers {
+            children.entry(owner).or_default().push(provider);
+        }
+
+        children
+            .into_iter()
+            .map(|(owner, children)| (owner, children.into_boxed_slice()))
+            .collect()
+    }
+
     fn runtime_default(&self, owner: AnySymbolId) -> RuntimeDefaultPresence {
         match self.runtime_defaults.get(&owner) {
             None => RuntimeDefaultPresence::Absent,
