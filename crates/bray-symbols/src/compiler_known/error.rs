@@ -53,6 +53,11 @@ pub enum CompilerKnownSymbolBuildError {
         /// The missing owner declaration.
         owner: CompilerKnownDeclarationId,
     },
+    /// Compiler-known declaration ownership contains a cycle.
+    DeclarationOwnerCycle {
+        /// A declaration reached again while resolving its owner chain.
+        declaration: CompilerKnownDeclarationId,
+    },
     /// A catalog declaration category is invalid in its semantic owner context.
     InvalidDeclarationKind {
         /// The affected declaration.

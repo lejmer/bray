@@ -60,3 +60,33 @@ impl<'catalog> CompilerKnownDeclarationFact<'catalog> {
         self.surface
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use bray_compiler_known::ImplementationHook;
+
+    use crate::FunctionSymbolId;
+    use crate::compiler_known::test_support::{build_provider, declaration_key};
+
+    #[test]
+    fn declaration_facts_are_lazy_static_generated_surfaces() {
+        let provider = build_provider();
+        let key = declaration_key("MemoryCopy");
+
+        let Some(fact_key) = provider.fact_key::<FunctionSymbolId>(&key) else {
+            panic!("MemoryCopy fact key must be typed as a function");
+        };
+
+        let Some(fact) = provider.declaration_fact(fact_key) else {
+            panic!("generated MemoryCopy facts must resolve");
+        };
+
+        assert_eq!(fact.descriptor().key(), &key);
+        assert_eq!(
+            fact.descriptor().implementation_hook(),
+            Some(ImplementationHook::MemoryCopy)
+        );
+        assert_eq!(fact.surface().kind(), fact.descriptor().kind());
+        assert!(!fact.surface().elements().is_empty());
+    }
+}

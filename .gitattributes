@@ -1,0 +1,4 @@
+*.braydef text eol=lf
+*.braydef-manifest text eol=lf
+*.sha256 text eol=lf
+/crates/bray-compiler-known/src/catalog/generated/*.rs text eol=lf
