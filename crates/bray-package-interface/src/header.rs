@@ -76,6 +76,7 @@ impl InterfaceHeader {
 
     pub(crate) fn decode(bytes: &[u8]) -> Result<DecodedHeader, WireDecodeError> {
         let mut reader = WireReader::new(bytes);
+
         let magic = reader.read_array::<8>()?;
         let format_revision = InterfaceFormatRevision::new(reader.read_u16()?);
         let language_revision = InterfaceLanguageRevision::new(reader.read_u16()?);

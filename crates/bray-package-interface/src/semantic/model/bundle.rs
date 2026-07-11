@@ -47,6 +47,7 @@ impl InterfaceSemanticFacts {
         self.trait_applications = trait_applications.into_iter().collect();
         self.callable_instances = callable_instances.into_iter().collect();
         self.implementation_instances = implementation_instances.into_iter().collect();
+
         self
     }
 
@@ -62,6 +63,7 @@ impl InterfaceSemanticFacts {
         self.types = types.into_iter().collect();
         self.constant_values = constant_values.into_iter().collect();
         self.constant_terms = constant_terms.into_iter().collect();
+
         self
     }
 
@@ -73,6 +75,7 @@ impl InterfaceSemanticFacts {
     ) -> Self {
         self.constraints = constraints.into_iter().collect();
         self.callable_contracts = callable_contracts.into_iter().collect();
+
         self
     }
 
@@ -84,6 +87,7 @@ impl InterfaceSemanticFacts {
     ) -> Self {
         self.implementations = implementations.into_iter().collect();
         self.coherence = coherence.into_iter().collect();
+
         self
     }
 
@@ -95,6 +99,7 @@ impl InterfaceSemanticFacts {
     ) -> Self {
         self.target_dependencies = target_dependencies.into_iter().collect();
         self.abi_dependencies = abi_dependencies.into_iter().collect();
+
         self
     }
 
@@ -104,6 +109,7 @@ impl InterfaceSemanticFacts {
         provenance: impl IntoIterator<Item = InterfaceSourceProvenance>,
     ) -> Self {
         self.provenance = provenance.into_iter().collect();
+
         self
     }
 
@@ -170,6 +176,7 @@ impl InterfaceSemanticFacts {
                     section: crate::InterfaceSectionTag::Contracts,
                     record: checked_record(index),
                 });
+
         let callable_contracts = self
             .callable_contracts
             .iter()
@@ -180,6 +187,7 @@ impl InterfaceSemanticFacts {
                 section: crate::InterfaceSectionTag::Contracts,
                 record: checked_record(index),
             });
+
         let implementations = self
             .implementations
             .iter()
@@ -190,6 +198,7 @@ impl InterfaceSemanticFacts {
                 section: crate::InterfaceSectionTag::Implementations,
                 record: checked_record(index),
             });
+
         let targets = self
             .target_dependencies
             .iter()
@@ -200,6 +209,7 @@ impl InterfaceSemanticFacts {
                 section: crate::InterfaceSectionTag::TargetDependencies,
                 record: checked_record(index),
             });
+
         let abis = self
             .abi_dependencies
             .iter()
@@ -210,6 +220,7 @@ impl InterfaceSemanticFacts {
                 section: crate::InterfaceSectionTag::TargetDependencies,
                 record: checked_record(index),
             });
+
         let mut entries: Vec<_> = constraints
             .chain(callable_contracts)
             .chain(implementations)

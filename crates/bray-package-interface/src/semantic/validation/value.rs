@@ -38,6 +38,7 @@ impl InterfaceSemanticFacts {
 
         for application in &*self.trait_applications {
             validate_symbol(&application.definition, symbol_count, dependency_count)?;
+
             validate_index(
                 application.substitution.to_index(),
                 self.substitutions.len(),
@@ -159,6 +160,7 @@ impl InterfaceSemanticFacts {
                 }
 
                 validate_index(result.to_index(), self.types.len())?;
+
                 validate_index(
                     dependency_contract.to_index(),
                     self.dependency_contracts.len(),

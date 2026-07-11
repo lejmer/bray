@@ -126,6 +126,7 @@ impl InternState {
                         ))
                     })
                     .collect::<Result<Vec<_>, InterfaceSemanticInternError>>()?;
+
                 let dependency = self
                     .dependency_contract_id(input.dependency_contract)
                     .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)?;
@@ -148,6 +149,7 @@ impl InternState {
             .iter()
             .map(|input| {
                 let implementation = resolve_family(symbols, &input.implementation)?;
+
                 let trait_application = input
                     .trait_application
                     .map(|id| {

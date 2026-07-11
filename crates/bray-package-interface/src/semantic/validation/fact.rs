@@ -79,6 +79,7 @@ impl InterfaceSemanticFacts {
                 symbol_count,
                 dependency_count,
             )?;
+
             validate_index(implementation.subject.to_index(), self.types.len())?;
 
             if let Some(id) = implementation.trait_application {
@@ -88,6 +89,7 @@ impl InterfaceSemanticFacts {
 
         for coherence in &*self.coherence {
             validate_index(coherence.subject.to_index(), self.types.len())?;
+
             validate_index(
                 coherence.trait_application.to_index(),
                 self.trait_applications.len(),

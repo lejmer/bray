@@ -52,54 +52,63 @@ impl InterfaceValidationLimits {
     /// Returns a copy with the maximum artifact byte length replaced.
     pub const fn with_file_size(mut self, maximum: u64) -> Self {
         self.file_size = maximum;
+
         self
     }
 
     /// Returns a copy with the maximum section count replaced.
     pub const fn with_section_count(mut self, maximum: u64) -> Self {
         self.section_count = maximum;
+
         self
     }
 
     /// Returns a copy with the maximum records per section replaced.
     pub const fn with_records_per_section(mut self, maximum: u64) -> Self {
         self.records_per_section = maximum;
+
         self
     }
 
     /// Returns a copy with the maximum string byte length replaced.
     pub const fn with_string_length(mut self, maximum: u64) -> Self {
         self.string_length = maximum;
+
         self
     }
 
     /// Returns a copy with the maximum blob byte length replaced.
     pub const fn with_blob_length(mut self, maximum: u64) -> Self {
         self.blob_length = maximum;
+
         self
     }
 
     /// Returns a copy with the total decoded allocation ceiling replaced.
     pub const fn with_decoded_allocation(mut self, maximum: u64) -> Self {
         self.decoded_allocation = maximum;
+
         self
     }
 
     /// Returns a copy with the semantic type nesting ceiling replaced.
     pub const fn with_semantic_type_depth(mut self, maximum: u64) -> Self {
         self.semantic_type_depth = maximum;
+
         self
     }
 
     /// Returns a copy with the checked-template graph ceiling replaced.
     pub const fn with_template_graph_size(mut self, maximum: u64) -> Self {
         self.template_graph_size = maximum;
+
         self
     }
 
     /// Returns a copy with the external-reference ceiling replaced.
     pub const fn with_external_reference_count(mut self, maximum: u64) -> Self {
         self.external_reference_count = maximum;
+
         self
     }
 
@@ -163,6 +172,7 @@ impl InterfaceValidationPolicy {
     /// Returns a copy using `limits` for untrusted input.
     pub const fn with_limits(mut self, limits: InterfaceValidationLimits) -> Self {
         self.limits = limits;
+
         self
     }
 

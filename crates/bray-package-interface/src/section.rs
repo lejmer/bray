@@ -99,6 +99,7 @@ impl DirectoryEntry {
 
     pub(crate) fn decode(bytes: &[u8]) -> Result<DecodedDirectoryEntry, WireDecodeError> {
         let mut reader = WireReader::new(bytes);
+
         let raw_tag = reader.read_u32()?;
         let encoding_flags = reader.read_u32()?;
         let offset = reader.read_u64()?;
