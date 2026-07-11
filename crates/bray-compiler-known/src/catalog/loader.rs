@@ -70,24 +70,28 @@ fn build_descriptors(
         first_anchor(inventory, &validated.compiler_known_scopes),
         &mut diagnostics,
     );
+
     validate_descriptor_count(
         validated.compiler_known_declarations.len(),
         CatalogKeyDomain::CompilerKnownDeclaration,
         first_anchor(inventory, &validated.compiler_known_declarations),
         &mut diagnostics,
     );
+
     validate_descriptor_count(
         validated.compiler_known_values.len(),
         CatalogKeyDomain::CompilerKnownValue,
         first_anchor(inventory, &validated.compiler_known_values),
         &mut diagnostics,
     );
+
     validate_descriptor_count(
         validated.recognized_scopes.len(),
         CatalogKeyDomain::RecognizedStandardLibraryScope,
         first_anchor(inventory, &validated.recognized_scopes),
         &mut diagnostics,
     );
+
     validate_descriptor_count(
         validated.recognized_declarations.len(),
         CatalogKeyDomain::RecognizedStandardLibraryDeclaration,
@@ -101,12 +105,14 @@ fn build_descriptors(
 
     let compiler_known_declarations =
         build_compiler_known_declarations(&validated.compiler_known_declarations);
+
     let compiler_known_values = build_compiler_known_values(&validated.compiler_known_values);
     let compiler_known_scopes = build_compiler_known_scopes(
         &validated.compiler_known_scopes,
         &compiler_known_declarations,
         &compiler_known_values,
     );
+
     let recognized_declarations = build_recognized_declarations(&validated.recognized_declarations);
     let recognized_scopes =
         build_recognized_scopes(&validated.recognized_scopes, &recognized_declarations);
@@ -118,6 +124,7 @@ fn build_descriptors(
         inventory,
         &mut diagnostics,
     );
+
     record_construction_mismatch(
         compiler_known_declarations.len(),
         validated.compiler_known_declarations.len(),
@@ -125,6 +132,7 @@ fn build_descriptors(
         inventory,
         &mut diagnostics,
     );
+
     record_construction_mismatch(
         compiler_known_values.len(),
         validated.compiler_known_values.len(),
@@ -132,6 +140,7 @@ fn build_descriptors(
         inventory,
         &mut diagnostics,
     );
+
     record_construction_mismatch(
         recognized_scopes.len(),
         validated.recognized_scopes.len(),
@@ -139,6 +148,7 @@ fn build_descriptors(
         inventory,
         &mut diagnostics,
     );
+
     record_construction_mismatch(
         recognized_declarations.len(),
         validated.recognized_declarations.len(),
@@ -483,6 +493,7 @@ mod tests {
     #[test]
     fn representative_generator_inputs_build_with_real_bray_fragments() {
         let mut validator = BrayFragmentValidator;
+
         let catalog = match build_catalog(generator_input_inventory(), &mut validator) {
             Ok(catalog) => catalog,
             Err(diagnostics) => panic!("representative catalog should build: {diagnostics:#?}"),
@@ -574,6 +585,7 @@ mod tests {
     #[test]
     fn builder_merges_scopes_and_assigns_canonical_typed_ids() {
         let mut validator = TestFragmentValidator;
+
         let catalog = match build_catalog(&VALID_INVENTORY, &mut validator) {
             Ok(catalog) => catalog,
             Err(diagnostics) => panic!("test catalog should build: {diagnostics:?}"),
@@ -675,6 +687,7 @@ mod tests {
                 "}\n",
             ),
         );
+
         let mut validator = TestFragmentValidator;
 
         let recognized_diagnostics = match build_catalog(recognized, &mut validator) {
@@ -701,6 +714,7 @@ mod tests {
                 "}\n",
             ),
         );
+
         let mut validator = TestFragmentValidator;
 
         let compiler_diagnostics = match build_catalog(compiler_known, &mut validator) {
@@ -734,6 +748,7 @@ mod tests {
                 "}\n",
             ),
         );
+
         let mut validator = TestFragmentValidator;
 
         let diagnostics = match build_catalog(inventory, &mut validator) {
@@ -750,12 +765,14 @@ mod tests {
     #[test]
     fn descriptor_ids_do_not_depend_on_source_inventory_order() {
         let mut validator = TestFragmentValidator;
+
         let forward = match build_catalog(&ORDERED_INVENTORY, &mut validator) {
             Ok(catalog) => catalog,
             Err(diagnostics) => panic!("ordered catalog should build: {diagnostics:?}"),
         };
 
         let mut validator = TestFragmentValidator;
+
         let reversed = match build_catalog(&REVERSED_INVENTORY, &mut validator) {
             Ok(catalog) => catalog,
             Err(diagnostics) => panic!("reversed catalog should build: {diagnostics:?}"),
@@ -786,6 +803,7 @@ mod tests {
         );
 
         let mut validator = TestFragmentValidator;
+
         let diagnostics = match build_catalog(inventory, &mut validator) {
             Ok(_) => panic!("invalid catalog should not build"),
             Err(diagnostics) => diagnostics,
@@ -845,6 +863,7 @@ mod tests {
         );
 
         let mut validator = TestFragmentValidator;
+
         let diagnostics = match build_catalog(inventory, &mut validator) {
             Ok(_) => panic!("invalid metadata should not build"),
             Err(diagnostics) => diagnostics,
@@ -895,6 +914,7 @@ mod tests {
         );
 
         let mut validator = TestFragmentValidator;
+
         let diagnostics = match build_catalog(inventory, &mut validator) {
             Ok(_) => panic!("invalid ownership should not build"),
             Err(diagnostics) => diagnostics,
@@ -935,6 +955,7 @@ mod tests {
         );
 
         let mut validator = TestFragmentValidator;
+
         let diagnostics = match build_catalog(inventory, &mut validator) {
             Ok(_) => panic!("invalid recognized catalog should not build"),
             Err(diagnostics) => diagnostics,
@@ -1268,6 +1289,7 @@ mod tests {
         }
 
         let mut validator = RejectingValidator;
+
         let diagnostics = match build_catalog(&ORDERED_INVENTORY, &mut validator) {
             Ok(_) => panic!("rejecting validator should fail the build"),
             Err(diagnostics) => diagnostics,
@@ -1288,6 +1310,7 @@ mod tests {
             source: CatalogSourceId::new(4),
             range: bray_source::TextRange::EMPTY,
         };
+
         let diagnostic = CatalogDiagnostic::new(anchor, CatalogDiagnosticKind::UnknownOwner);
 
         assert_eq!(diagnostic.anchor(), anchor);

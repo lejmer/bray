@@ -53,6 +53,7 @@ impl RecognizedStandardLibraryDeclarations {
     ) -> Self {
         let catalog = &COMPILER_KNOWN_CATALOG;
         let descriptor_keys = recognized_external_keys(catalog, standard_library_package);
+
         let direct_availability = catalog
             .recognized_standard_library_declarations()
             .iter()
@@ -63,8 +64,10 @@ impl RecognizedStandardLibraryDeclarations {
                 )
             })
             .collect::<BTreeMap<_, _>>();
+
         let mut resolved_availability = BTreeMap::new();
         let mut resolving_availability = BTreeSet::new();
+
         let mut declarations = Vec::new();
 
         for descriptor in catalog.recognized_standard_library_declarations() {
@@ -208,6 +211,7 @@ fn resolve_recognized_external_key(
 
     let key = (|| {
         let descriptor = catalog.recognized_standard_library_declaration(declaration)?;
+
         let owner = match descriptor.owner() {
             RecognizedStandardLibraryDeclarationOwner::Scope(scope) => {
                 let scope = catalog.recognized_standard_library_scope(scope)?;
