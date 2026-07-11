@@ -89,6 +89,11 @@ dependencies = [
  "bray-bound-tree",
  "bray-checker",
  "bray-diagnostics",
+ "bray-declarations",
+ "bray-parser",
+ "bray-source",
+ "bray-symbols",
+ "bray-testing",
 ]
 
 [[package]]
