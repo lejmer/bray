@@ -66,6 +66,24 @@ facts.
 Binding also constructs the source-shaped bound representation and asks checker services for the semantic decisions required to
 complete that representation.
 
+### Binding Method Naming
+
+Functions and methods whose responsibility includes binding typed syntax into bound semantics use the `bind_*` prefix. This follows
+the compiler-wide phase naming convention: the lexer scans with `scan_*`, the parser parses with `parse_*`, and the binder binds
+with `bind_*`. Examples include `bind_expression`, `bind_pattern`, `bind_block`, `bind_type_expression`, and
+`bind_callable_body`.
+
+This rule applies at every implementation level, not only to top-level binder entry points. A `bind_*` method can call more focused
+`bind_*` methods, and a method that orchestrates or delegates binding still uses the prefix when binding is its semantic
+responsibility. This keeps every operation that performs binding discoverable through one consistent name search.
+
+The prefix is reserved for operations that perform actual syntax binding. Helpers that only resolve lookup candidates, request
+facts, run checker policy, construct already-decided bound values, or publish completed results use names that describe those
+narrower responsibilities instead.
+
+These names describe internal binder implementation operations. Public symbol and compilation APIs remain lazy fact accessors such
+as `checked_body()` and must not expose caller-driven `bind_*` workflow methods.
+
 ### Checking
 
 Checking applies language rules after or during reference resolution. It includes type compatibility, overload selection,
