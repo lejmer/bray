@@ -1,0 +1,240 @@
+use std::sync::Arc;
+
+use bray_base::shared_slice;
+
+use crate::{AnySymbolId, DependencyContractTemplateId, SymbolOrdinal};
+
+/// A checked source-independent semantic predicate summary.
+///
+/// The full source-shaped checked expression remains owned by `bray-bound-tree`.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct PredicateSemanticSummary {
+    dependency_contract: DependencyContractTemplateId,
+}
+
+impl PredicateSemanticSummary {
+    /// Creates a checked predicate summary.
+    pub const fn new(dependency_contract: DependencyContractTemplateId) -> Self {
+        Self {
+            dependency_contract,
+        }
+    }
+
+    /// Returns the portable dependencies of the predicate expression.
+    pub const fn dependency_contract(self) -> DependencyContractTemplateId {
+        self.dependency_contract
+    }
+}
+
+/// One checked generic constraint in declaration order.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct CheckedConstraint {
+    ordinal: SymbolOrdinal,
+    predicate: PredicateSemanticSummary,
+}
+
+impl CheckedConstraint {
+    /// Creates a checked generic constraint.
+    pub const fn new(ordinal: SymbolOrdinal, predicate: PredicateSemanticSummary) -> Self {
+        Self { ordinal, predicate }
+    }
+
+    /// Returns the stable declaration-order position within the owning constraint list.
+    pub const fn ordinal(self) -> SymbolOrdinal {
+        self.ordinal
+    }
+
+    /// Returns the checked predicate meaning.
+    pub const fn predicate(self) -> PredicateSemanticSummary {
+        self.predicate
+    }
+}
+
+/// Ordered checked constraints owned by one generic declaration.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct GenericConstraintSet {
+    constraints: Arc<[CheckedConstraint]>,
+}
+
+impl GenericConstraintSet {
+    /// Creates a checked constraint set in canonical declaration order.
+    pub fn new(constraints: impl IntoIterator<Item = CheckedConstraint>) -> Self {
+        Self {
+            constraints: shared_slice(constraints),
+        }
+    }
+
+    /// Returns checked constraints in declaration order.
+    pub fn constraints(&self) -> &[CheckedConstraint] {
+        &self.constraints
+    }
+}
+
+/// The semantic role of one checked callable contract predicate.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum CallableContractClauseKind {
+    /// A precondition required at the call boundary.
+    Requires,
+    /// A postcondition established by successful completion.
+    Ensures,
+    /// A static predicate required while selecting or instantiating the callable.
+    Static,
+}
+
+/// One checked predicate-bearing callable contract clause.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct CallableContractClause {
+    ordinal: SymbolOrdinal,
+    kind: CallableContractClauseKind,
+    predicate: PredicateSemanticSummary,
+}
+
+impl CallableContractClause {
+    /// Creates one checked callable contract clause.
+    pub const fn new(
+        ordinal: SymbolOrdinal,
+        kind: CallableContractClauseKind,
+        predicate: PredicateSemanticSummary,
+    ) -> Self {
+        Self {
+            ordinal,
+            kind,
+            predicate,
+        }
+    }
+
+    /// Returns the stable declaration-order position within the owning contract list.
+    pub const fn ordinal(self) -> SymbolOrdinal {
+        self.ordinal
+    }
+
+    /// Returns the semantic clause role.
+    pub const fn kind(self) -> CallableContractClauseKind {
+        self.kind
+    }
+
+    /// Returns the checked predicate meaning.
+    pub const fn predicate(self) -> PredicateSemanticSummary {
+        self.predicate
+    }
+}
+
+/// One trusted capability named by a callable `uses` clause.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct TrustedCapabilityRequirement {
+    ordinal: SymbolOrdinal,
+    capability: AnySymbolId,
+}
+
+impl TrustedCapabilityRequirement {
+    /// Creates a checked trusted-capability requirement.
+    pub const fn new(ordinal: SymbolOrdinal, capability: AnySymbolId) -> Self {
+        Self {
+            ordinal,
+            capability,
+        }
+    }
+
+    /// Returns the stable declaration-order position within the owning capability list.
+    pub const fn ordinal(self) -> SymbolOrdinal {
+        self.ordinal
+    }
+
+    /// Returns the exact resolved capability declaration.
+    pub const fn capability(self) -> AnySymbolId {
+        self.capability
+    }
+}
+
+/// Checked callable contracts, trusted obligations, and portable dependencies.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct CallableContractSet {
+    clauses: Arc<[CallableContractClause]>,
+    trusted_capabilities: Arc<[TrustedCapabilityRequirement]>,
+    dependency_contract: DependencyContractTemplateId,
+}
+
+impl CallableContractSet {
+    /// Creates a checked callable contract surface in declaration order.
+    pub fn new(
+        clauses: impl IntoIterator<Item = CallableContractClause>,
+        trusted_capabilities: impl IntoIterator<Item = TrustedCapabilityRequirement>,
+        dependency_contract: DependencyContractTemplateId,
+    ) -> Self {
+        Self {
+            clauses: shared_slice(clauses),
+            trusted_capabilities: shared_slice(trusted_capabilities),
+            dependency_contract,
+        }
+    }
+
+    /// Returns predicate-bearing clauses in declaration order.
+    pub fn clauses(&self) -> &[CallableContractClause] {
+        &self.clauses
+    }
+
+    /// Returns trusted capabilities in declaration order.
+    pub fn trusted_capabilities(&self) -> &[TrustedCapabilityRequirement] {
+        &self.trusted_capabilities
+    }
+
+    /// Returns the normalized portable dependency contract.
+    pub const fn dependency_contract(&self) -> DependencyContractTemplateId {
+        self.dependency_contract
+    }
+}
+
+/// A checked semantic predicate definition.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct PredicateDefinition {
+    semantic: PredicateSemanticSummary,
+}
+
+impl PredicateDefinition {
+    /// Creates a checked semantic predicate definition.
+    pub const fn new(semantic: PredicateSemanticSummary) -> Self {
+        Self { semantic }
+    }
+
+    /// Returns the checked predicate meaning.
+    pub const fn semantic(self) -> PredicateSemanticSummary {
+        self.semantic
+    }
+}
+
+/// Marks an invalid predicate definition whose diagnostics belong to the fact result.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct ErrorPredicateDefinition;
+
+/// The checked declaration state of a predicate symbol.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum PredicateDefinitionState<T> {
+    /// A checked semantic definition is available.
+    Defined(T),
+    /// A trait member requires a definition from an implementation.
+    Required,
+    /// The trusted declaration intentionally hides its implementation.
+    OpaqueTrusted,
+    /// Checking failed and diagnostics are retained by the fact result.
+    Error(ErrorPredicateDefinition),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{CallableContractSet, GenericConstraintSet, PredicateDefinitionState};
+
+    #[test]
+    fn empty_constraint_sets_are_stable() {
+        let constraints = GenericConstraintSet::new([]);
+
+        assert!(constraints.constraints().is_empty());
+    }
+
+    #[test]
+    fn predicate_fact_values_are_send_and_sync() {
+        fn assert_send_sync<T: Send + Sync>() {}
+
+        assert_send_sync::<CallableContractSet>();
+        assert_send_sync::<PredicateDefinitionState<super::PredicateDefinition>>();
+    }
+}
