@@ -1,22 +1,41 @@
 use bray_source::SourceInput;
 
+use crate::TargetAvailabilityFacts;
 use crate::worker::WorkerBudget;
 
 /// Options for one compiler operation.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
 pub struct CompilationOptions {
     worker_budget: WorkerBudget,
+    target_availability: TargetAvailabilityFacts,
 }
 
 impl CompilationOptions {
     /// Creates compilation options.
     pub const fn new(worker_budget: WorkerBudget) -> Self {
-        Self { worker_budget }
+        Self {
+            worker_budget,
+            target_availability: TargetAvailabilityFacts::portable(),
+        }
     }
 
     /// Returns the compiler-owned CPU worker budget.
     pub const fn worker_budget(self) -> WorkerBudget {
         self.worker_budget
+    }
+
+    /// Returns a copy configured with target availability facts.
+    pub const fn with_target_availability(
+        mut self,
+        target_availability: TargetAvailabilityFacts,
+    ) -> Self {
+        self.target_availability = target_availability;
+        self
+    }
+
+    /// Returns the immutable target availability facts.
+    pub const fn target_availability(self) -> TargetAvailabilityFacts {
+        self.target_availability
     }
 }
 

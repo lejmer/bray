@@ -195,6 +195,13 @@ impl CompilerKnownSymbolProvider {
         I::try_from_any(*self.declaration_symbols.get(key)?)
     }
 
+    pub(in crate::compiler_known) fn untyped_declaration_symbol(
+        &self,
+        key: &CompilerKnownDeclarationKey,
+    ) -> Option<AnySymbolId> {
+        self.declaration_symbols.get(key).copied()
+    }
+
     /// Returns the complete stable declaration-key map for compilation infrastructure.
     pub const fn declaration_symbols(&self) -> &BTreeMap<CompilerKnownDeclarationKey, AnySymbolId> {
         &self.declaration_symbols
@@ -230,6 +237,10 @@ impl CompilerKnownSymbolProvider {
 
     pub(crate) const fn next_symbol_index(&self) -> usize {
         self.next_symbol_index
+    }
+
+    pub(in crate::compiler_known) const fn catalog(&self) -> &'static CompilerKnownCatalog {
+        self.catalog
     }
 }
 

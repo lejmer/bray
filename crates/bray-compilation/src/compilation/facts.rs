@@ -7,6 +7,7 @@ use bray_declarations::{
 use bray_diagnostics::DiagnosticBag;
 use bray_parser::{SourceUnitSyntaxResult, SyntaxTreeResult, parse_source_unit};
 use bray_source::{SourceId, SourceInput, SourceLoadError, SourceSnapshot, SourceStore};
+use bray_symbols::{AvailableCompilerKnownSymbols, CompilerKnownSymbolProvider};
 use bray_syntax::SyntaxTree;
 
 use crate::fact::{CancellationToken, CompilationFactKey, FactCell, FactQueryError, FactRuntime};
@@ -35,6 +36,7 @@ struct CompilationState {
     syntax_tree_result: FactCell<SyntaxTreeResult>,
     declaration_chunks: Vec<FactCell<DeclarationChunkResult>>,
     declaration_table_result: FactCell<DeclarationTableResult>,
+    available_compiler_known_symbols: FactCell<AvailableCompilerKnownSymbols>,
     check_diagnostics: FactCell<DiagnosticBag>,
 }
 
@@ -89,6 +91,7 @@ impl Compilation {
                 syntax_tree_result: FactCell::new(),
                 declaration_chunks: empty_fact_caches(source_count),
                 declaration_table_result: FactCell::new(),
+                available_compiler_known_symbols: FactCell::new(),
                 check_diagnostics: FactCell::new(),
             }),
         })
@@ -107,6 +110,29 @@ impl Compilation {
     /// Returns the compiler-owned CPU worker budget.
     pub fn worker_budget(&self) -> WorkerBudget {
         self.state.options.worker_budget()
+    }
+
+    /// Returns the target capability facts selected for this compilation.
+    pub fn target_availability(&self) -> crate::TargetAvailabilityFacts {
+        self.state.options.target_availability()
+    }
+
+    /// Returns the lazily published target-filtered compiler-known symbol view.
+    pub fn available_compiler_known_symbols(&self) -> &AvailableCompilerKnownSymbols {
+        self.fact(
+            CompilationFactKey::AvailableCompilerKnownSymbols,
+            &self.state.available_compiler_known_symbols,
+            || {
+                let provider = match CompilerKnownSymbolProvider::build() {
+                    Ok(provider) => Arc::new(provider),
+                    // Generated catalog validation makes provider failure a compiler invariant.
+                    Err(error) => panic!("compiler-known symbol provider is invalid: {error:?}"),
+                };
+                let target = self.target_availability();
+
+                provider.available_symbols(|rule| target.supports(rule))
+            },
+        )
     }
 
     /// Returns the loaded source snapshots.
@@ -266,6 +292,7 @@ fn empty_fact_caches<T>(len: usize) -> Vec<FactCell<T>> {
 
 #[cfg(test)]
 mod tests {
+    use bray_compiler_known::{AvailabilityRule, CompilerKnownDeclarationKey};
     use bray_declarations::{DeclarationKind, ModulePath};
     use bray_diagnostics::{
         DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticBag, DiagnosticId,
@@ -275,7 +302,9 @@ mod tests {
         SourceId, SourceIdentity, SourceInput, SourceInputKind, SourceOriginKind, SourceVersion,
         TextSize,
     };
+    use bray_symbols::{FunctionSymbolId, StructSymbolId};
 
+    use crate::TargetAvailabilityFacts;
     use crate::request::{CompilationOptions, CompilationRequest};
     use crate::worker::WorkerBudget;
 
@@ -478,6 +507,80 @@ mod tests {
     }
 
     #[test]
+    fn compiler_known_availability_is_lazy_cached_and_keeps_the_complete_provider() {
+        let compilation = match Compilation::load_sources(vec![source_input("module app;", 0)]) {
+            Ok(compilation) => compilation,
+            Err(error) => panic!("test compilation should load: {error:?}"),
+        };
+
+        assert!(
+            compilation
+                .state
+                .available_compiler_known_symbols
+                .get()
+                .is_none()
+        );
+
+        let first = compilation.available_compiler_known_symbols();
+        let second = compilation.available_compiler_known_symbols();
+
+        assert!(std::ptr::eq(first, second));
+        assert!(
+            compilation
+                .state
+                .available_compiler_known_symbols
+                .get()
+                .is_some()
+        );
+        assert_eq!(
+            first.provider().declaration_symbols().len(),
+            first.declarations().len() + 2
+        );
+        assert_eq!(
+            first.declaration_symbol::<StructSymbolId>(&declaration_key("TargetReal16")),
+            None
+        );
+        assert_eq!(
+            first.declaration_symbol::<FunctionSymbolId>(&declaration_key("MemoryCopy")),
+            None
+        );
+    }
+
+    #[test]
+    fn compilations_publish_independent_views_for_their_target_facts() {
+        let portable = compilation_with_target(TargetAvailabilityFacts::portable());
+        let real16 = compilation_with_target(
+            TargetAvailabilityFacts::portable().with_rule(AvailabilityRule::Real16, true),
+        );
+        let key = declaration_key("TargetReal16");
+
+        assert_eq!(
+            portable
+                .available_compiler_known_symbols()
+                .declaration_symbol::<StructSymbolId>(&key),
+            None
+        );
+        assert!(
+            real16
+                .available_compiler_known_symbols()
+                .declaration_symbol::<StructSymbolId>(&key)
+                .is_some()
+        );
+        assert_eq!(
+            portable
+                .available_compiler_known_symbols()
+                .provider()
+                .declaration_symbols()
+                .len(),
+            real16
+                .available_compiler_known_symbols()
+                .provider()
+                .declaration_symbols()
+                .len()
+        );
+    }
+
+    #[test]
     fn source_unit_syntax_facts_are_cached_by_source_id() {
         let compilation = match Compilation::load_sources(vec![source_input("$", 0)]) {
             Ok(compilation) => compilation,
@@ -666,6 +769,26 @@ mod tests {
         ]) {
             Ok(compilation) => compilation,
             Err(error) => panic!("test compilation should load: {error:?}"),
+        }
+    }
+
+    fn compilation_with_target(target: TargetAvailabilityFacts) -> Compilation {
+        let options =
+            CompilationOptions::new(WorkerBudget::serial()).with_target_availability(target);
+
+        let request =
+            CompilationRequest::with_options(vec![source_input("module app;", 0)], options);
+
+        match Compilation::load(request) {
+            Ok(compilation) => compilation,
+            Err(error) => panic!("test compilation should load: {error:?}"),
+        }
+    }
+
+    fn declaration_key(value: &str) -> CompilerKnownDeclarationKey {
+        match CompilerKnownDeclarationKey::try_new(value) {
+            Some(key) => key,
+            None => panic!("test compiler-known declaration key should be valid"),
         }
     }
 
