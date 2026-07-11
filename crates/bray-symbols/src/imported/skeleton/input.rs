@@ -136,3 +136,58 @@ impl ImportedSymbolSkeletonInput {
         &self.lookups
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        ImportedInterfaceId, ImportedLookupEdge, ImportedSymbolRelationship,
+        ImportedSymbolSkeletonInput, InterfaceSymbolId, SymbolRelationshipKind,
+    };
+
+    use super::super::test_support::{interface_fixture, symbol_name};
+
+    #[test]
+    fn construction_inputs_preserve_typed_relationship_and_lookup_contracts() {
+        let fixture = interface_fixture(6, "example.package", "run");
+
+        assert_eq!(fixture.input.interface(), ImportedInterfaceId::new(6));
+        assert_eq!(
+            fixture.input.symbols().package_symbol_id(),
+            InterfaceSymbolId::new(0)
+        );
+        assert_eq!(
+            fixture.input.relationships(),
+            [
+                ImportedSymbolRelationship::new(
+                    SymbolRelationshipKind::PackageModule,
+                    InterfaceSymbolId::new(0),
+                    InterfaceSymbolId::new(1),
+                    0,
+                ),
+                ImportedSymbolRelationship::new(
+                    SymbolRelationshipKind::ModuleMember,
+                    InterfaceSymbolId::new(1),
+                    InterfaceSymbolId::new(2),
+                    0,
+                ),
+            ]
+        );
+        assert_eq!(
+            fixture.input.lookups(),
+            [ImportedLookupEdge::new(
+                InterfaceSymbolId::new(1),
+                symbol_name("run"),
+                fixture.function_key,
+            )]
+        );
+    }
+
+    #[test]
+    fn construction_inputs_are_send_and_sync() {
+        fn assert_send_sync<T: Send + Sync>() {}
+
+        assert_send_sync::<ImportedSymbolSkeletonInput>();
+        assert_send_sync::<ImportedSymbolRelationship>();
+        assert_send_sync::<ImportedLookupEdge>();
+    }
+}

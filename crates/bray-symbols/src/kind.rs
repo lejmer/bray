@@ -305,6 +305,8 @@ const fn supports_interface_generic_parameters(kind: SymbolKind) -> bool {
             | SymbolKind::NamedTraitImplementation
             | SymbolKind::TypeCallableMember
             | SymbolKind::Constructor
+            | SymbolKind::TraitCallableMember
+            | SymbolKind::TraitCallableFulfillment
     )
 }
 
@@ -358,7 +360,7 @@ const fn is_default_provider_pair(owner: SymbolKind, member: SymbolKind) -> bool
 
 #[cfg(test)]
 mod tests {
-    use super::SymbolKind;
+    use super::{SymbolKind, SymbolRelationshipKind};
 
     #[test]
     fn local_kinds_use_a_separate_identity_space() {
@@ -383,5 +385,261 @@ mod tests {
         assert!(SymbolKind::GenericTypeParameter.can_be_source_declared());
         assert!(!SymbolKind::ReceiverParameter.can_be_source_declared());
         assert!(SymbolKind::ReceiverParameter.has_compilation_wide_id());
+    }
+
+    #[test]
+    fn relationship_support_matches_every_accepted_owner_member_pair() {
+        let kinds = all_symbol_kinds();
+
+        let relationships = [
+            SymbolRelationshipKind::PackageModule,
+            SymbolRelationshipKind::ModuleMember,
+            SymbolRelationshipKind::TypeMember,
+            SymbolRelationshipKind::TraitMember,
+            SymbolRelationshipKind::ImplementationMember,
+            SymbolRelationshipKind::StructField,
+            SymbolRelationshipKind::UnionVariant,
+            SymbolRelationshipKind::UnionPayloadField,
+            SymbolRelationshipKind::GenericParameter,
+            SymbolRelationshipKind::CallableParameter,
+            SymbolRelationshipKind::PredicateParameter,
+            SymbolRelationshipKind::OverloadArm,
+            SymbolRelationshipKind::ImplementationFulfillment,
+            SymbolRelationshipKind::DefaultProvider,
+        ];
+
+        for relationship in relationships {
+            let expected = accepted_pairs(relationship, &kinds);
+
+            for owner in &kinds {
+                for member in &kinds {
+                    assert_eq!(
+                        relationship.supports(*owner, *member),
+                        expected.contains(&(*owner, *member)),
+                        "unexpected {relationship:?} support for {owner:?} -> {member:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn relationship_support_retains_trait_callable_generics_and_lifecycle_parameters() {
+        for owner in [
+            SymbolKind::TraitCallableMember,
+            SymbolKind::TraitCallableFulfillment,
+        ] {
+            assert!(
+                SymbolRelationshipKind::GenericParameter
+                    .supports(owner, SymbolKind::GenericTypeParameter)
+            );
+            assert!(
+                SymbolRelationshipKind::GenericParameter
+                    .supports(owner, SymbolKind::GenericConstParameter)
+            );
+        }
+
+        for owner in [
+            SymbolKind::Finalizer,
+            SymbolKind::Destructor,
+            SymbolKind::ScopeEnter,
+            SymbolKind::ScopeExit,
+            SymbolKind::TraitFinalizerRequirement,
+            SymbolKind::TraitDestructorRequirement,
+            SymbolKind::TraitScopeEnterRequirement,
+            SymbolKind::TraitScopeExitRequirement,
+        ] {
+            assert!(
+                SymbolRelationshipKind::CallableParameter
+                    .supports(owner, SymbolKind::CallableParameter)
+            );
+            assert!(
+                SymbolRelationshipKind::CallableParameter
+                    .supports(owner, SymbolKind::ReceiverParameter)
+            );
+        }
+    }
+
+    fn accepted_pairs(
+        relationship: SymbolRelationshipKind,
+        all_kinds: &[SymbolKind],
+    ) -> Vec<(SymbolKind, SymbolKind)> {
+        match relationship {
+            SymbolRelationshipKind::PackageModule => {
+                vec![(SymbolKind::Package, SymbolKind::Module)]
+            }
+            SymbolRelationshipKind::ModuleMember => cross(
+                &[SymbolKind::Module],
+                &[
+                    SymbolKind::Constant,
+                    SymbolKind::Function,
+                    SymbolKind::Predicate,
+                    SymbolKind::CallableContract,
+                    SymbolKind::CallableOverload,
+                    SymbolKind::ImplementationOverload,
+                    SymbolKind::Struct,
+                    SymbolKind::Union,
+                    SymbolKind::Trait,
+                    SymbolKind::InherentImplementation,
+                    SymbolKind::UnnamedTraitImplementation,
+                    SymbolKind::NamedTraitImplementation,
+                ],
+            ),
+            SymbolRelationshipKind::TypeMember => {
+                cross(&[SymbolKind::Struct, SymbolKind::Union], &type_members())
+            }
+            SymbolRelationshipKind::TraitMember => cross(
+                &[SymbolKind::Trait],
+                &[
+                    SymbolKind::TraitCallableMember,
+                    SymbolKind::TraitConstantMember,
+                    SymbolKind::TraitTypeMember,
+                    SymbolKind::TraitPredicateMember,
+                    SymbolKind::TraitFinalizerRequirement,
+                    SymbolKind::TraitDestructorRequirement,
+                    SymbolKind::TraitScopeEnterRequirement,
+                    SymbolKind::TraitScopeExitRequirement,
+                ],
+            ),
+            SymbolRelationshipKind::ImplementationMember => {
+                cross(&[SymbolKind::InherentImplementation], &type_members())
+            }
+            SymbolRelationshipKind::StructField => {
+                vec![(SymbolKind::Struct, SymbolKind::StructField)]
+            }
+            SymbolRelationshipKind::UnionVariant => {
+                vec![(SymbolKind::Union, SymbolKind::UnionVariant)]
+            }
+            SymbolRelationshipKind::UnionPayloadField => {
+                vec![(SymbolKind::UnionVariant, SymbolKind::UnionPayloadField)]
+            }
+            SymbolRelationshipKind::GenericParameter => cross(
+                &generic_owners(),
+                &[
+                    SymbolKind::GenericTypeParameter,
+                    SymbolKind::GenericConstParameter,
+                ],
+            ),
+            SymbolRelationshipKind::CallableParameter => cross(
+                &callable_owners(),
+                &[SymbolKind::CallableParameter, SymbolKind::ReceiverParameter],
+            ),
+            SymbolRelationshipKind::PredicateParameter => {
+                vec![(SymbolKind::Predicate, SymbolKind::PredicateParameter)]
+            }
+            SymbolRelationshipKind::OverloadArm => cross(
+                &[
+                    SymbolKind::CallableOverload,
+                    SymbolKind::ImplementationOverload,
+                ],
+                all_kinds,
+            ),
+            SymbolRelationshipKind::ImplementationFulfillment => cross(
+                &[
+                    SymbolKind::NamedTraitImplementation,
+                    SymbolKind::UnnamedTraitImplementation,
+                ],
+                &[
+                    SymbolKind::TraitCallableFulfillment,
+                    SymbolKind::TraitConstantFulfillment,
+                    SymbolKind::TraitTypeFulfillment,
+                    SymbolKind::TraitPredicateFulfillment,
+                    SymbolKind::TraitScopeEnterFulfillment,
+                    SymbolKind::TraitScopeExitFulfillment,
+                ],
+            ),
+            SymbolRelationshipKind::DefaultProvider => vec![
+                (
+                    SymbolKind::CallableParameter,
+                    SymbolKind::CallableParameterDefaultProvider,
+                ),
+                (
+                    SymbolKind::StructField,
+                    SymbolKind::StructFieldDefaultProvider,
+                ),
+                (
+                    SymbolKind::UnionPayloadField,
+                    SymbolKind::UnionPayloadDefaultProvider,
+                ),
+            ],
+        }
+    }
+
+    fn type_members() -> [SymbolKind; 7] {
+        [
+            SymbolKind::TypeCallableMember,
+            SymbolKind::Constructor,
+            SymbolKind::Finalizer,
+            SymbolKind::Destructor,
+            SymbolKind::ScopeEnter,
+            SymbolKind::ScopeExit,
+            SymbolKind::InherentTypeMember,
+        ]
+    }
+
+    fn generic_owners() -> [SymbolKind; 15] {
+        [
+            SymbolKind::Function,
+            SymbolKind::Predicate,
+            SymbolKind::CallableContract,
+            SymbolKind::CallableOverload,
+            SymbolKind::ImplementationOverload,
+            SymbolKind::Struct,
+            SymbolKind::Union,
+            SymbolKind::Trait,
+            SymbolKind::InherentImplementation,
+            SymbolKind::UnnamedTraitImplementation,
+            SymbolKind::NamedTraitImplementation,
+            SymbolKind::TypeCallableMember,
+            SymbolKind::Constructor,
+            SymbolKind::TraitCallableMember,
+            SymbolKind::TraitCallableFulfillment,
+        ]
+    }
+
+    fn callable_owners() -> [SymbolKind; 14] {
+        [
+            SymbolKind::Function,
+            SymbolKind::CallableContract,
+            SymbolKind::TypeCallableMember,
+            SymbolKind::TraitCallableMember,
+            SymbolKind::TraitCallableFulfillment,
+            SymbolKind::Constructor,
+            SymbolKind::Finalizer,
+            SymbolKind::Destructor,
+            SymbolKind::ScopeEnter,
+            SymbolKind::ScopeExit,
+            SymbolKind::TraitFinalizerRequirement,
+            SymbolKind::TraitDestructorRequirement,
+            SymbolKind::TraitScopeEnterRequirement,
+            SymbolKind::TraitScopeExitRequirement,
+        ]
+    }
+
+    fn cross(owners: &[SymbolKind], members: &[SymbolKind]) -> Vec<(SymbolKind, SymbolKind)> {
+        owners
+            .iter()
+            .flat_map(|owner| members.iter().map(move |member| (*owner, *member)))
+            .collect()
+    }
+
+    fn all_symbol_kinds() -> Vec<SymbolKind> {
+        macro_rules! collect_compilation_kinds {
+            ($($documentation:literal; $id:ident => $variant:ident : $kind:ident),+ $(,)?) => {
+                vec![$(SymbolKind::$kind),+]
+            };
+        }
+
+        let mut kinds = for_each_compilation_symbol_kind!(collect_compilation_kinds);
+
+        kinds.extend([
+            SymbolKind::LocalBinding,
+            SymbolKind::LocalConstant,
+            SymbolKind::AnonymousCallable,
+            SymbolKind::AnonymousCallableParameter,
+            SymbolKind::PostconditionResult,
+        ]);
+
+        kinds
     }
 }

@@ -300,6 +300,7 @@ mod tests {
         assert_eq!(forward, reverse);
 
         let consumer_module_key = module_key("consumer.package");
+
         let Some(AnySymbolId::Module(consumer_module)) =
             forward.symbol_by_external_key(&consumer_module_key)
         else {
@@ -479,6 +480,7 @@ mod tests {
                 target,
             )
         });
+
         let Some(identity) = PackageInterfaceIdentity::try_new(
             package,
             product(product_name),
@@ -535,6 +537,7 @@ mod tests {
 
     fn module_key(package_name: &str) -> ExternalSymbolKey {
         let package = ExternalSymbolKey::package(package(package_name));
+
         let Some(path) = ModulePathKey::try_new(["api"]) else {
             panic!("test module path must be valid");
         };

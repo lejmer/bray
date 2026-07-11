@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use crate::collection::TypedSymbolRecords;
-use crate::record::for_each_source_symbol;
+use crate::record::for_each_declaration_symbol;
 use crate::{
     AnySymbolId, CallableParameterDefaultProviderSymbol, CallableParameterDefaultProviderSymbolId,
     ExternalSymbolKey, MemberLookupResult, ModuleSymbol, ModuleSymbolId, PackageSymbol,
@@ -167,7 +167,7 @@ macro_rules! define_imported_symbol_skeleton {
     };
 }
 
-for_each_source_symbol!(define_imported_symbol_skeleton);
+for_each_declaration_symbol!(define_imported_symbol_skeleton);
 
 macro_rules! impl_provider {
     ($id:ty, $record:ty, $access:ident) => {
@@ -201,3 +201,84 @@ impl_provider!(
     UnionPayloadDefaultProviderSymbol,
     union_payload_default_provider
 );
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        AnySymbolId, FunctionSymbol, FunctionSymbolId, ImportedInterfaceId, ImportedSymbolSkeleton,
+        MemberLookupResult, SymbolOrigin, SymbolProvider,
+    };
+
+    use super::super::test_support::{build_skeleton, interface_fixture};
+
+    #[test]
+    fn containment_lookup_and_origin_neutral_provider_access_are_exact() {
+        let fixture = interface_fixture(3, "example.package", "run");
+
+        let skeleton = build_skeleton([fixture.input]);
+
+        let Some(AnySymbolId::Package(package_id)) =
+            skeleton.symbol_by_external_key(&fixture.package_key)
+        else {
+            panic!("package key must remap to a package symbol");
+        };
+
+        let Some(AnySymbolId::Module(module_id)) =
+            skeleton.symbol_by_external_key(&fixture.module_key)
+        else {
+            panic!("module key must remap to a module symbol");
+        };
+
+        let Some(AnySymbolId::Function(function_id)) =
+            skeleton.symbol_by_external_key(&fixture.function_key)
+        else {
+            panic!("function key must remap to a function symbol");
+        };
+
+        let Some(package) = skeleton.package(package_id) else {
+            panic!("remapped package ID must resolve");
+        };
+
+        let Some(module) = skeleton.module(module_id) else {
+            panic!("remapped module ID must resolve");
+        };
+
+        let Some(function) = provided_function(&skeleton, function_id) else {
+            panic!("ordinary function provider contract must resolve imported records");
+        };
+
+        assert_eq!(package.modules(), [module_id]);
+        assert_eq!(module.owner(), package_id.into());
+        assert_eq!(module.functions(), [function_id]);
+        assert_eq!(function.containing_symbol(), module_id.into());
+        assert_eq!(function.origin(), SymbolOrigin::Imported);
+        assert_eq!(function.declaration(), None);
+        assert_eq!(
+            function.imported_fact_key().map(|key| key.interface()),
+            Some(ImportedInterfaceId::new(3))
+        );
+        assert_eq!(
+            skeleton.lookup(module_id.into(), "run"),
+            MemberLookupResult::Found(function_id.into())
+        );
+        assert_eq!(
+            skeleton.lookup(package_id.into(), "run"),
+            MemberLookupResult::NotFound
+        );
+    }
+
+    #[test]
+    fn imported_skeletons_and_records_are_send_and_sync() {
+        fn assert_send_sync<T: Send + Sync>() {}
+
+        assert_send_sync::<ImportedSymbolSkeleton>();
+        assert_send_sync::<FunctionSymbol>();
+    }
+
+    fn provided_function(
+        provider: &impl SymbolProvider<FunctionSymbolId>,
+        id: FunctionSymbolId,
+    ) -> Option<&FunctionSymbol> {
+        provider.symbol(id)
+    }
+}

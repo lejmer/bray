@@ -1,7 +1,10 @@
 use std::collections::BTreeMap;
 
 use crate::collection::TypedSymbolRecords;
-use crate::record::{ImportedSymbolBacking, ModuleSymbolInput, for_each_source_symbol};
+use crate::record::{
+    DeclarationSymbolIdentity, ImportedSymbolBacking, ModuleSymbolInput,
+    for_each_declaration_symbol,
+};
 use crate::relationship::{ModuleRelationships, RelationshipIndex, callable_owner};
 use crate::{
     AnySymbolId, CallableParameterDefaultProviderSymbol, ExternalSymbolKeyData,
@@ -38,11 +41,9 @@ macro_rules! define_record_vectors {
                 match assigned.id {
                     $(
                         AnySymbolId::$variant(id) => {
-                            let Some(record) = crate::$record::new_imported(
+                            let Some(record) = crate::$record::new(
                                 id,
-                                key,
-                                container,
-                                backing,
+                                DeclarationSymbolIdentity::imported(key, container, backing),
                                 index,
                             ) else {
                                 return Err(
@@ -109,7 +110,7 @@ macro_rules! define_record_vectors {
     };
 }
 
-for_each_source_symbol!(define_record_vectors);
+for_each_declaration_symbol!(define_record_vectors);
 
 macro_rules! push_default_provider {
     (

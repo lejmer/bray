@@ -221,31 +221,7 @@ macro_rules! define_declaration_symbol_records {
 
                     Some(Self {
                         id,
-                        identity: identity.into(),
-                        relationships,
-                    })
-                }
-
-                pub(crate) fn new_imported(
-                    id: crate::$id,
-                    key: SymbolKey,
-                    containing_symbol: AnySymbolId,
-                    backing: ImportedSymbolBacking,
-                    relationship_index: &RelationshipIndex,
-                ) -> Option<Self> {
-                    let relationships =
-                        <$relationships as BuildRelationships<crate::$id>>::build(
-                            id,
-                            relationship_index,
-                        )?;
-
-                    Some(Self {
-                        id,
-                        identity: DeclarationSymbolIdentity::imported(
-                            key,
-                            containing_symbol,
-                            backing,
-                        ),
+                        identity,
                         relationships,
                     })
                 }

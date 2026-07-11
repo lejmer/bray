@@ -1,8 +1,8 @@
 use crate::{
     ExternalSymbolKey, ImportedInterfaceId, ImportedLookupEdge, ImportedPackageIdentitySurface,
-    ImportedSymbolIdentityInput, ImportedSymbolRelationship, ImportedSymbolSkeletonInput,
-    InterfaceSymbolId, ModulePathKey, PackageIdentity, SymbolKind, SymbolName,
-    SymbolRelationshipKind,
+    ImportedSymbolIdentityInput, ImportedSymbolRelationship, ImportedSymbolSkeleton,
+    ImportedSymbolSkeletonInput, InterfaceSymbolId, ModulePathKey, PackageIdentity, SymbolId,
+    SymbolKind, SymbolName, SymbolRelationshipKind,
 };
 
 pub(super) struct InterfaceFixture {
@@ -19,6 +19,7 @@ pub(super) fn interface_fixture(
 ) -> InterfaceFixture {
     let package = package_identity(package_name);
     let package_key = ExternalSymbolKey::package(package.clone());
+
     let Some(module_path) = ModulePathKey::try_new(["api"]) else {
         panic!("test module path must be valid");
     };
@@ -106,5 +107,14 @@ pub(super) fn symbol_name(value: &str) -> SymbolName {
     match SymbolName::try_new(value) {
         Some(name) => name,
         None => panic!("test symbol name must be valid"),
+    }
+}
+
+pub(super) fn build_skeleton(
+    inputs: impl IntoIterator<Item = ImportedSymbolSkeletonInput>,
+) -> ImportedSymbolSkeleton {
+    match ImportedSymbolSkeleton::try_new(SymbolId::new(10), inputs) {
+        Ok(skeleton) => skeleton,
+        Err(error) => panic!("test imported skeleton must build: {error:?}"),
     }
 }

@@ -301,3 +301,87 @@ fn local_symbol(
 
     local_index.get(&(interface, symbol)).copied().ok_or(error)
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        ImportedInterfaceId, ImportedSymbolRelationship, ImportedSymbolSkeleton,
+        ImportedSymbolSkeletonBuildError, ImportedSymbolSkeletonInput, InterfaceSymbolId, SymbolId,
+        SymbolRelationshipKind,
+    };
+
+    use super::super::test_support::{build_skeleton, interface_fixture};
+
+    #[test]
+    fn external_key_assignment_is_deterministic_under_interface_permutations() {
+        let first = interface_fixture(7, "z.package", "zeta");
+        let second = interface_fixture(4, "a.package", "alpha");
+
+        let forward = build_skeleton([first.input.clone(), second.input.clone()]);
+        let reverse = build_skeleton([second.input, first.input]);
+
+        assert_eq!(forward, reverse);
+        assert_eq!(
+            forward.symbol_by_external_key(&first.package_key),
+            reverse.symbol_by_external_key(&first.package_key)
+        );
+        assert_eq!(
+            forward.symbol_by_external_key(&second.function_key),
+            reverse.symbol_by_external_key(&second.function_key)
+        );
+    }
+
+    #[test]
+    fn out_of_bounds_relationship_symbols_are_rejected() {
+        let fixture = interface_fixture(2, "example.package", "run");
+
+        let malformed = ImportedSymbolSkeletonInput::new(
+            ImportedInterfaceId::new(2),
+            fixture.input.symbols().clone(),
+            [ImportedSymbolRelationship::new(
+                SymbolRelationshipKind::ModuleMember,
+                InterfaceSymbolId::new(1),
+                InterfaceSymbolId::new(99),
+                0,
+            )],
+            [],
+        );
+
+        assert_eq!(
+            ImportedSymbolSkeleton::try_new(SymbolId::new(0), [malformed]),
+            Err(
+                ImportedSymbolSkeletonBuildError::RelationshipSymbolOutOfBounds {
+                    interface: ImportedInterfaceId::new(2),
+                    symbol: InterfaceSymbolId::new(99),
+                }
+            )
+        );
+    }
+
+    #[test]
+    fn incompatible_relationship_kinds_are_rejected() {
+        let fixture = interface_fixture(2, "example.package", "run");
+
+        let malformed = ImportedSymbolSkeletonInput::new(
+            ImportedInterfaceId::new(2),
+            fixture.input.symbols().clone(),
+            [ImportedSymbolRelationship::new(
+                SymbolRelationshipKind::PackageModule,
+                InterfaceSymbolId::new(0),
+                InterfaceSymbolId::new(2),
+                0,
+            )],
+            [],
+        );
+
+        let error = ImportedSymbolSkeleton::try_new(SymbolId::new(0), [malformed]);
+
+        assert!(matches!(
+            error,
+            Err(ImportedSymbolSkeletonBuildError::InvalidRelationshipKinds {
+                relationship: SymbolRelationshipKind::PackageModule,
+                ..
+            })
+        ));
+    }
+}
