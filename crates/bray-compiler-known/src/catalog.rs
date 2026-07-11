@@ -8,10 +8,13 @@ mod key;
 mod loader;
 mod parser;
 mod source;
+mod surface;
 mod validation;
 
 #[cfg(any(test, feature = "generation"))]
 mod generation;
+#[cfg(any(test, feature = "generation"))]
+mod rendering;
 
 pub use descriptor::{
     CatalogDeclarationKind, CatalogScopeLocation, CatalogSurfaceContext,
@@ -41,6 +44,7 @@ pub use source::{
     CatalogDeclarationSurface, CatalogKind, CatalogSource, CatalogSourceAnchor,
     CatalogSourceInventory, CatalogTokenSpelling, CatalogTypeSurface,
 };
+pub use surface::{CatalogDeclarationSurfaceSyntax, CatalogSurfaceToken, CatalogTypeSurfaceSyntax};
 
 #[cfg(feature = "generation")]
 pub use generation::{CatalogGenerationError, GeneratedCatalogOutput, generate_catalog_output};

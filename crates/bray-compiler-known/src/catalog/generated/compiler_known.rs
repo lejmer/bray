@@ -3,6 +3,7 @@
 use std::borrow::Cow;
 
 use bray_source::{TextRange, TextSize};
+use bray_syntax::SyntaxKind;
 
 use crate::{AvailabilityRule, ImplementationHook, RepresentationRole};
 
@@ -208,10 +209,95 @@ static RECOGNIZED_DECLARATIONS: &[RecognizedStandardLibraryDeclarationDescriptor
     },
 ];
 
+static DECLARATION_SURFACES: &[CatalogDeclarationSurfaceSyntax] = &[
+    CatalogDeclarationSurfaceSyntax {
+        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(0), range: TextRange::new(TextSize::new(134), TextSize::new(150)) }),
+        kind: CatalogDeclarationKind::Struct,
+        tokens: Cow::Borrowed(&[CatalogSurfaceToken::from_static(SyntaxKind::StructKeyword, "struct"), CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "bool"), CatalogSurfaceToken::from_static(SyntaxKind::OpenBraceToken, "{"), CatalogSurfaceToken::from_static(SyntaxKind::CloseBraceToken, "}")]),
+    },
+    CatalogDeclarationSurfaceSyntax {
+        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(0), range: TextRange::new(TextSize::new(247), TextSize::new(272)) }),
+        kind: CatalogDeclarationKind::Struct,
+        tokens: Cow::Borrowed(&[CatalogSurfaceToken::from_static(SyntaxKind::StructKeyword, "struct"), CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "RawPointer"), CatalogSurfaceToken::from_static(SyntaxKind::LessToken, "<"), CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "T"), CatalogSurfaceToken::from_static(SyntaxKind::GreaterToken, ">"), CatalogSurfaceToken::from_static(SyntaxKind::OpenBraceToken, "{"), CatalogSurfaceToken::from_static(SyntaxKind::CloseBraceToken, "}")]),
+    },
+    CatalogDeclarationSurfaceSyntax {
+        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(0), range: TextRange::new(TextSize::new(367), TextSize::new(380)) }),
+        kind: CatalogDeclarationKind::StructField,
+        tokens: Cow::Borrowed(&[CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "element"), CatalogSurfaceToken::from_static(SyntaxKind::ColonToken, ":"), CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "T"), CatalogSurfaceToken::from_static(SyntaxKind::SemicolonToken, ";")]),
+    },
+    CatalogDeclarationSurfaceSyntax {
+        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(0), range: TextRange::new(TextSize::new(469), TextSize::new(492)) }),
+        kind: CatalogDeclarationKind::Union,
+        tokens: Cow::Borrowed(&[CatalogSurfaceToken::from_static(SyntaxKind::UnionKeyword, "union"), CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "Result"), CatalogSurfaceToken::from_static(SyntaxKind::LessToken, "<"), CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "T"), CatalogSurfaceToken::from_static(SyntaxKind::CommaToken, ","), CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "E"), CatalogSurfaceToken::from_static(SyntaxKind::GreaterToken, ">"), CatalogSurfaceToken::from_static(SyntaxKind::OpenBraceToken, "{"), CatalogSurfaceToken::from_static(SyntaxKind::CloseBraceToken, "}")]),
+    },
+    CatalogDeclarationSurfaceSyntax {
+        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(1), range: TextRange::new(TextSize::new(117), TextSize::new(160)) }),
+        kind: CatalogDeclarationKind::NamedTraitImplementation,
+        tokens: Cow::Borrowed(&[CatalogSurfaceToken::from_static(SyntaxKind::ImplKeyword, "impl"), CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "BoolStorage"), CatalogSurfaceToken::from_static(SyntaxKind::EqualsToken, "="), CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "bool"), CatalogSurfaceToken::from_static(SyntaxKind::OpenParenToken, "("), CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "Storage"), CatalogSurfaceToken::from_static(SyntaxKind::LessToken, "<"), CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "bool"), CatalogSurfaceToken::from_static(SyntaxKind::GreaterToken, ">"), CatalogSurfaceToken::from_static(SyntaxKind::CloseParenToken, ")"), CatalogSurfaceToken::from_static(SyntaxKind::OpenBraceToken, "{"), CatalogSurfaceToken::from_static(SyntaxKind::CloseBraceToken, "}")]),
+    },
+    CatalogDeclarationSurfaceSyntax {
+        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(1), range: TextRange::new(TextSize::new(268), TextSize::new(287)) }),
+        kind: CatalogDeclarationKind::ImplementationTypeMemberBinding,
+        tokens: Cow::Borrowed(&[CatalogSurfaceToken::from_static(SyntaxKind::TypeKeyword, "type"), CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "Item"), CatalogSurfaceToken::from_static(SyntaxKind::EqualsToken, "="), CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "bool"), CatalogSurfaceToken::from_static(SyntaxKind::SemicolonToken, ";")]),
+    },
+    CatalogDeclarationSurfaceSyntax {
+        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(2), range: TextRange::new(TextSize::new(99), TextSize::new(120)) }),
+        kind: CatalogDeclarationKind::Trait,
+        tokens: Cow::Borrowed(&[CatalogSurfaceToken::from_static(SyntaxKind::TraitKeyword, "trait"), CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "Storage"), CatalogSurfaceToken::from_static(SyntaxKind::LessToken, "<"), CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "T"), CatalogSurfaceToken::from_static(SyntaxKind::GreaterToken, ">"), CatalogSurfaceToken::from_static(SyntaxKind::OpenBraceToken, "{"), CatalogSurfaceToken::from_static(SyntaxKind::CloseBraceToken, "}")]),
+    },
+    CatalogDeclarationSurfaceSyntax {
+        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(2), range: TextRange::new(TextSize::new(206), TextSize::new(218)) }),
+        kind: CatalogDeclarationKind::TraitTypeMember,
+        tokens: Cow::Borrowed(&[CatalogSurfaceToken::from_static(SyntaxKind::TypeKeyword, "type"), CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "Item"), CatalogSurfaceToken::from_static(SyntaxKind::SemicolonToken, ";")]),
+    },
+    CatalogDeclarationSurfaceSyntax {
+        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(2), range: TextRange::new(TextSize::new(304), TextSize::new(323)) }),
+        kind: CatalogDeclarationKind::TraitCallableMember,
+        tokens: Cow::Borrowed(&[CatalogSurfaceToken::from_static(SyntaxKind::FuncKeyword, "func"), CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "load"), CatalogSurfaceToken::from_static(SyntaxKind::OpenParenToken, "("), CatalogSurfaceToken::from_static(SyntaxKind::CloseParenToken, ")"), CatalogSurfaceToken::from_static(SyntaxKind::ArrowToken, "->"), CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "T"), CatalogSurfaceToken::from_static(SyntaxKind::SemicolonToken, ";")]),
+    },
+    CatalogDeclarationSurfaceSyntax {
+        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(2), range: TextRange::new(TextSize::new(385), TextSize::new(435)) }),
+        kind: CatalogDeclarationKind::CallableContract,
+        tokens: Cow::Borrowed(&[CatalogSurfaceToken::from_static(SyntaxKind::CallableKeyword, "callable"), CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "UnaryCallable"), CatalogSurfaceToken::from_static(SyntaxKind::LessToken, "<"), CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "T"), CatalogSurfaceToken::from_static(SyntaxKind::GreaterToken, ">"), CatalogSurfaceToken::from_static(SyntaxKind::EqualsToken, "="), CatalogSurfaceToken::from_static(SyntaxKind::FuncKeyword, "func"), CatalogSurfaceToken::from_static(SyntaxKind::OpenParenToken, "("), CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "value"), CatalogSurfaceToken::from_static(SyntaxKind::ColonToken, ":"), CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "T"), CatalogSurfaceToken::from_static(SyntaxKind::CloseParenToken, ")"), CatalogSurfaceToken::from_static(SyntaxKind::ArrowToken, "->"), CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "T"), CatalogSurfaceToken::from_static(SyntaxKind::SemicolonToken, ";")]),
+    },
+    CatalogDeclarationSurfaceSyntax {
+        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(3), range: TextRange::new(TextSize::new(180), TextSize::new(356)) }),
+        kind: CatalogDeclarationKind::Function,
+        tokens: Cow::Borrowed(&[CatalogSurfaceToken::from_static(SyntaxKind::TrustedKeyword, "trusted"), CatalogSurfaceToken::from_static(SyntaxKind::FuncKeyword, "func"), CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "copy"), CatalogSurfaceToken::from_static(SyntaxKind::OpenParenToken, "("), CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "destination"), CatalogSurfaceToken::from_static(SyntaxKind::ColonToken, ":"), CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "RawPointer"), CatalogSurfaceToken::from_static(SyntaxKind::LessToken, "<"), CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "u8"), CatalogSurfaceToken::from_static(SyntaxKind::GreaterToken, ">"), CatalogSurfaceToken::from_static(SyntaxKind::CommaToken, ","), CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "source"), CatalogSurfaceToken::from_static(SyntaxKind::ColonToken, ":"), CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "RawPointer"), CatalogSurfaceToken::from_static(SyntaxKind::LessToken, "<"), CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "u8"), CatalogSurfaceToken::from_static(SyntaxKind::GreaterToken, ">"), CatalogSurfaceToken::from_static(SyntaxKind::CommaToken, ","), CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "count"), CatalogSurfaceToken::from_static(SyntaxKind::ColonToken, ":"), CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "usize"), CatalogSurfaceToken::from_static(SyntaxKind::CommaToken, ","), CatalogSurfaceToken::from_static(SyntaxKind::CloseParenToken, ")"), CatalogSurfaceToken::from_static(SyntaxKind::SemicolonToken, ";")]),
+    },
+    CatalogDeclarationSurfaceSyntax {
+        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(4), range: TextRange::new(TextSize::new(132), TextSize::new(211)) }),
+        kind: CatalogDeclarationKind::Function,
+        tokens: Cow::Borrowed(&[CatalogSurfaceToken::from_static(SyntaxKind::FuncKeyword, "func"), CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "convert"), CatalogSurfaceToken::from_static(SyntaxKind::LessToken, "<"), CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "Target"), CatalogSurfaceToken::from_static(SyntaxKind::CommaToken, ","), CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "Source"), CatalogSurfaceToken::from_static(SyntaxKind::GreaterToken, ">"), CatalogSurfaceToken::from_static(SyntaxKind::OpenParenToken, "("), CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "source"), CatalogSurfaceToken::from_static(SyntaxKind::ColonToken, ":"), CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "Source"), CatalogSurfaceToken::from_static(SyntaxKind::CloseParenToken, ")"), CatalogSurfaceToken::from_static(SyntaxKind::ArrowToken, "->"), CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "Target"), CatalogSurfaceToken::from_static(SyntaxKind::SemicolonToken, ";")]),
+    },
+    CatalogDeclarationSurfaceSyntax {
+        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(5), range: TextRange::new(TextSize::new(181), TextSize::new(196)) }),
+        kind: CatalogDeclarationKind::Struct,
+        tokens: Cow::Borrowed(&[CatalogSurfaceToken::from_static(SyntaxKind::StructKeyword, "struct"), CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "r16"), CatalogSurfaceToken::from_static(SyntaxKind::OpenBraceToken, "{"), CatalogSurfaceToken::from_static(SyntaxKind::CloseBraceToken, "}")]),
+    },
+];
+
+static TYPE_SURFACES: &[CatalogTypeSurfaceSyntax] = &[
+    CatalogTypeSurfaceSyntax {
+        surface: CatalogTypeSurface(CatalogSourceAnchor { source: CatalogSourceId::new(0), range: TextRange::new(TextSize::new(560), TextSize::new(566)) }),
+        tokens: Cow::Borrowed(&[CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "bool")]),
+    },
+    CatalogTypeSurfaceSyntax {
+        surface: CatalogTypeSurface(CatalogSourceAnchor { source: CatalogSourceId::new(0), range: TextRange::new(TextSize::new(673), TextSize::new(679)) }),
+        tokens: Cow::Borrowed(&[CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "bool")]),
+    },
+    CatalogTypeSurfaceSyntax {
+        surface: CatalogTypeSurface(CatalogSourceAnchor { source: CatalogSourceId::new(0), range: TextRange::new(TextSize::new(785), TextSize::new(792)) }),
+        tokens: Cow::Borrowed(&[CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "bool"), CatalogSurfaceToken::from_static(SyntaxKind::QuestionToken, "?")]),
+    },
+];
+
 pub static COMPILER_KNOWN_CATALOG: CompilerKnownCatalog = CompilerKnownCatalog {
 compiler_known_scopes: Cow::Borrowed(COMPILER_KNOWN_SCOPES),
 compiler_known_declarations: Cow::Borrowed(COMPILER_KNOWN_DECLARATIONS),
 compiler_known_values: Cow::Borrowed(COMPILER_KNOWN_VALUES),
 recognized_scopes: Cow::Borrowed(RECOGNIZED_SCOPES),
 recognized_declarations: Cow::Borrowed(RECOGNIZED_DECLARATIONS),
+declaration_surfaces: Cow::Borrowed(DECLARATION_SURFACES),
+type_surfaces: Cow::Borrowed(TYPE_SURFACES),
 };

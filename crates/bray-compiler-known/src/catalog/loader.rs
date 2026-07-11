@@ -157,6 +157,8 @@ fn build_descriptors(
         compiler_known_values: compiler_known_values.into(),
         recognized_scopes: recognized_scopes.into(),
         recognized_declarations: recognized_declarations.into(),
+        declaration_surfaces: std::borrow::Cow::Borrowed(&[]),
+        type_surfaces: std::borrow::Cow::Borrowed(&[]),
     })
 }
 

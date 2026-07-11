@@ -1,12 +1,14 @@
 use std::borrow::Cow;
 
 use super::{
-    CompilerKnownDeclarationDescriptor, CompilerKnownDeclarationId, CompilerKnownDeclarationKey,
-    CompilerKnownScopeDescriptor, CompilerKnownScopeId, CompilerKnownScopeKey,
-    CompilerKnownValueDescriptor, CompilerKnownValueId, CompilerKnownValueKey,
-    RecognizedStandardLibraryDeclarationDescriptor, RecognizedStandardLibraryDeclarationId,
-    RecognizedStandardLibraryDeclarationKey, RecognizedStandardLibraryScopeDescriptor,
-    RecognizedStandardLibraryScopeId, RecognizedStandardLibraryScopeKey,
+    CatalogDeclarationSurface, CatalogDeclarationSurfaceSyntax, CatalogTypeSurface,
+    CatalogTypeSurfaceSyntax, CompilerKnownDeclarationDescriptor, CompilerKnownDeclarationId,
+    CompilerKnownDeclarationKey, CompilerKnownScopeDescriptor, CompilerKnownScopeId,
+    CompilerKnownScopeKey, CompilerKnownValueDescriptor, CompilerKnownValueId,
+    CompilerKnownValueKey, RecognizedStandardLibraryDeclarationDescriptor,
+    RecognizedStandardLibraryDeclarationId, RecognizedStandardLibraryDeclarationKey,
+    RecognizedStandardLibraryScopeDescriptor, RecognizedStandardLibraryScopeId,
+    RecognizedStandardLibraryScopeKey,
 };
 
 /// The immutable target-independent descriptor graph published by the catalog.
@@ -18,6 +20,8 @@ pub struct CompilerKnownCatalog {
     pub(super) recognized_scopes: Cow<'static, [RecognizedStandardLibraryScopeDescriptor]>,
     pub(super) recognized_declarations:
         Cow<'static, [RecognizedStandardLibraryDeclarationDescriptor]>,
+    pub(super) declaration_surfaces: Cow<'static, [CatalogDeclarationSurfaceSyntax]>,
+    pub(super) type_surfaces: Cow<'static, [CatalogTypeSurfaceSyntax]>,
 }
 
 impl CompilerKnownCatalog {
@@ -48,6 +52,35 @@ impl CompilerKnownCatalog {
         &self,
     ) -> &[RecognizedStandardLibraryDeclarationDescriptor] {
         &self.recognized_declarations
+    }
+
+    /// Returns pre-parsed declaration surfaces in source-anchor order.
+    pub fn declaration_surfaces(&self) -> &[CatalogDeclarationSurfaceSyntax] {
+        &self.declaration_surfaces
+    }
+
+    /// Returns pre-parsed type-expression surfaces in source-anchor order.
+    pub fn type_surfaces(&self) -> &[CatalogTypeSurfaceSyntax] {
+        &self.type_surfaces
+    }
+
+    /// Resolves one declaration surface without reparsing Bray source.
+    pub fn declaration_surface(
+        &self,
+        surface: CatalogDeclarationSurface,
+    ) -> Option<&CatalogDeclarationSurfaceSyntax> {
+        self.declaration_surfaces
+            .binary_search_by_key(&surface.anchor(), |syntax| syntax.surface().anchor())
+            .ok()
+            .and_then(|index| self.declaration_surfaces.get(index))
+    }
+
+    /// Resolves one type-expression surface without reparsing Bray source.
+    pub fn type_surface(&self, surface: CatalogTypeSurface) -> Option<&CatalogTypeSurfaceSyntax> {
+        self.type_surfaces
+            .binary_search_by_key(&surface.anchor(), |syntax| syntax.surface().anchor())
+            .ok()
+            .and_then(|index| self.type_surfaces.get(index))
     }
 
     /// Resolves a compiler-known scope through a checked compact ID.
@@ -222,6 +255,14 @@ mod tests {
             COMPILER_KNOWN_CATALOG.compiler_known_values,
             Cow::Borrowed(_)
         ));
+        assert!(matches!(
+            COMPILER_KNOWN_CATALOG.declaration_surfaces,
+            Cow::Borrowed(_)
+        ));
+        assert!(matches!(
+            COMPILER_KNOWN_CATALOG.type_surfaces,
+            Cow::Borrowed(_)
+        ));
     }
 
     fn catalog() -> CompilerKnownCatalog {
@@ -234,6 +275,8 @@ mod tests {
             compiler_known_values: Cow::Borrowed(&[]),
             recognized_scopes: Cow::Borrowed(&[]),
             recognized_declarations: Cow::Borrowed(&[]),
+            declaration_surfaces: Cow::Borrowed(&[]),
+            type_surfaces: Cow::Borrowed(&[]),
         }
     }
 

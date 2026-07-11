@@ -14,11 +14,12 @@ pub use availability::AvailabilityRule;
 pub use catalog::generator_input_inventory;
 pub use catalog::{
     CATALOG_SOURCE_DIGEST, COMPILER_KNOWN_CATALOG, CatalogBuildResult, CatalogDeclarationKind,
-    CatalogDeclarationSurface, CatalogDiagnostic, CatalogDiagnosticKind, CatalogDiagnostics,
-    CatalogEntryKind, CatalogExpectation, CatalogField, CatalogFragmentValidator, CatalogKeyDomain,
-    CatalogKind, CatalogMetadataKind, CatalogPath, CatalogRelatedKey, CatalogScopeLocation,
-    CatalogSource, CatalogSourceAnchor, CatalogSourceId, CatalogSourceInventory,
-    CatalogSurfaceContext, CatalogTokenSpelling, CatalogTypeSurface, CompilerKnownCatalog,
+    CatalogDeclarationSurface, CatalogDeclarationSurfaceSyntax, CatalogDiagnostic,
+    CatalogDiagnosticKind, CatalogDiagnostics, CatalogEntryKind, CatalogExpectation, CatalogField,
+    CatalogFragmentValidator, CatalogKeyDomain, CatalogKind, CatalogMetadataKind, CatalogPath,
+    CatalogRelatedKey, CatalogScopeLocation, CatalogSource, CatalogSourceAnchor, CatalogSourceId,
+    CatalogSourceInventory, CatalogSurfaceContext, CatalogSurfaceToken, CatalogTokenSpelling,
+    CatalogTypeSurface, CatalogTypeSurfaceSyntax, CompilerKnownCatalog,
     CompilerKnownDeclarationDescriptor, CompilerKnownDeclarationId, CompilerKnownDeclarationKey,
     CompilerKnownDeclarationOwner, CompilerKnownScopeDescriptor, CompilerKnownScopeId,
     CompilerKnownScopeKey, CompilerKnownValueDescriptor, CompilerKnownValueId,
