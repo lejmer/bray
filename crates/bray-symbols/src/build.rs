@@ -1,7 +1,8 @@
 use std::collections::BTreeMap;
 
 use bray_declarations::{
-    ContainerId, ContainerKind, DeclarationId, DeclarationKind, DeclarationRecord, DeclarationTable,
+    ContainerId, ContainerKind, DeclarationId, DeclarationKind, DeclarationRecord,
+    DeclarationSurface, DeclarationTable,
 };
 
 use crate::allocator::SymbolIdAllocator;
@@ -104,6 +105,7 @@ fn build_roots_and_modules(
         let owner = ModuleOwnerId::from(package_id);
 
         let declaration_ids = module_declaration_ids(declarations, container.id())?;
+        let visibility = module_visibility(declarations, container.id())?;
         let is_recovered = module_is_recovered(declarations, container.id())?;
 
         module_ids.push(id);
@@ -123,6 +125,7 @@ fn build_roots_and_modules(
             owner,
             path,
             origin: SymbolOrigin::Source,
+            visibility,
             declarations: declaration_ids,
             module_parts: container.module_parts().into(),
             is_recovered,
@@ -269,11 +272,7 @@ fn source_member_entry(
 ) -> Option<MemberEntry<AnySymbolId>> {
     let name = SymbolName::try_new(declaration.name()?.as_identifier()?)?;
 
-    let visibility = if declaration.surface().is_internal() {
-        MemberVisibility::Internal
-    } else {
-        MemberVisibility::Public
-    };
+    let visibility = surface_visibility(declaration.surface());
 
     let validity = if declaration.is_recovered() {
         MemberValidity::Malformed
@@ -529,6 +528,40 @@ fn module_is_recovered(
     }
 
     Ok(false)
+}
+
+fn module_visibility(
+    table: &DeclarationTable,
+    container_id: ContainerId,
+) -> Result<MemberVisibility, SymbolGraphBuildError> {
+    let Some(container) = table.container(container_id) else {
+        return Err(SymbolGraphBuildError::MissingModulePath {
+            container: container_id,
+        });
+    };
+
+    let Some(module_part_id) = container.module_parts().first().copied() else {
+        return Err(SymbolGraphBuildError::MissingRecoveredModuleAnchor {
+            container: container_id,
+        });
+    };
+
+    let Some(module_part) = table.module_part(module_part_id) else {
+        return Err(SymbolGraphBuildError::MissingModulePart {
+            container: container_id,
+            module_part: module_part_id,
+        });
+    };
+
+    Ok(surface_visibility(module_part.surface()))
+}
+
+fn surface_visibility(surface: &DeclarationSurface) -> MemberVisibility {
+    if surface.is_internal() {
+        MemberVisibility::Internal
+    } else {
+        MemberVisibility::Public
+    }
 }
 
 #[cfg(test)]

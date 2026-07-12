@@ -1,13 +1,14 @@
 use bray_diagnostics::DiagnosticNameKind;
 use bray_source::SourceSnapshot;
 use bray_symbols::{
-    AnySymbolId, CallableOverloadSymbolId, MemberLookupIndex, MemberLookupResult, ModuleOwnerId,
-    ModulePathKey, ModuleSymbolId, TraitSymbolId,
+    AnySymbolId, CallableOverloadSymbolId, MemberLookupIndex, MemberLookupResult, MemberVisibility,
+    ModuleOwnerId, ModulePathKey, ModuleSymbol, ModuleSymbolId, TraitSymbolId,
 };
 use bray_syntax::{PathSyntax, SourceSyntaxNode, SyntaxToken};
 
 use super::binding::{
-    NameLookupResult, lookup_member_index, lookup_surface_name, lookup_unqualified_name,
+    NameLookupResult, combine_name_lookups, lookup_member_index, lookup_surface_name,
+    lookup_unqualified_name,
 };
 use super::category::{
     ResolvedMemberName, ResolvedName, ResolvedTypeName, ResolvedValueName,
@@ -62,7 +63,9 @@ where
         context: PathBindingContext,
         path: &PathSyntax,
     ) -> NameLookupResult<ModuleSymbolId> {
-        let references = path_references(path);
+        let Some(references) = path_references(path) else {
+            return malformed_lookup();
+        };
 
         let Some(reference) = whole_path_reference(path, &references) else {
             return malformed_lookup();
@@ -79,9 +82,13 @@ where
             .symbols()
             .module_by_path(context.module_owner, &path_key)
         {
-            Some(module) => MemberLookupResult::Found(module.id()),
+            Some(module) => module_name_lookup(module, context.access),
             None => MemberLookupResult::NotFound,
-        };
+        }
+        .classify(|name| match name {
+            ResolvedName::Surface(AnySymbolId::Module(id)) => Some(id),
+            ResolvedName::Local(_) | ResolvedName::Surface(_) => None,
+        });
 
         report_lookup_result(self, &reference, DiagnosticNameKind::Module, &result);
 
@@ -149,13 +156,14 @@ where
         index: &MemberLookupIndex<AnySymbolId>,
         source: &SourceSnapshot,
         token: SyntaxToken,
-        access: NameAccess,
+        is_accessible: impl FnMut(AnySymbolId, MemberVisibility) -> bool,
     ) -> NameLookupResult<ResolvedMemberName> {
         let Some(reference) = token_reference(source, token) else {
             return malformed_lookup();
         };
 
-        let result = lookup_member_index(index, reference.text(), access).classify(classify_member);
+        let result =
+            lookup_member_index(index, reference.text(), is_accessible).classify(classify_member);
 
         report_lookup_result(self, &reference, DiagnosticNameKind::Member, &result);
 
@@ -180,60 +188,72 @@ where
     }
 
     fn bind_path(&self, context: PathBindingContext, path: &PathSyntax) -> PathLookup {
-        let references = path_references(path);
-
-        if references.is_empty() {
+        let Some(references) = path_references(path) else {
             return PathLookup {
                 result: malformed_lookup(),
                 reference: None,
             };
-        }
+        };
 
-        let module_prefix =
-            longest_module_prefix(self.facts().symbols(), context.module_owner, &references);
+        let module_prefix = longest_module_prefix(
+            self.facts().symbols(),
+            context.module_owner,
+            &references,
+            context.access,
+        );
 
         let mut references = references.into_iter();
-
-        let (mut result, mut result_reference) = match module_prefix {
-            Some((module, length)) => {
-                let mut reference = None;
-
-                for _ in 0..length {
-                    reference = references.next();
-                }
-
-                let Some(reference) = reference else {
-                    return PathLookup {
-                        result: malformed_lookup(),
-                        reference: None,
-                    };
-                };
-
-                (
-                    MemberLookupResult::Found(ResolvedName::Surface(module.into())),
-                    reference,
-                )
-            }
-            None => {
-                let Some(first) = references.next() else {
-                    return PathLookup {
-                        result: malformed_lookup(),
-                        reference: None,
-                    };
-                };
-
-                let result = lookup_unqualified_name(
-                    self.unit(),
-                    self.facts().symbols(),
-                    context.scope,
-                    context.module,
-                    first.text(),
-                    context.access,
-                );
-
-                (result, first)
-            }
+        let Some(first) = references.next() else {
+            return PathLookup {
+                result: malformed_lookup(),
+                reference: None,
+            };
         };
+
+        let ordinary = lookup_unqualified_name(
+            self.unit(),
+            self.facts().symbols(),
+            context.scope,
+            context.module,
+            first.text(),
+            context.access,
+        );
+
+        let mut selected_module = None;
+        let mut result = match module_prefix {
+            Some((module, length, module_lookup)) => {
+                selected_module = Some((module, length));
+                combine_name_lookups(ordinary, module_lookup)
+            }
+            None => ordinary,
+        };
+        let mut result_reference = first;
+
+        if let Some((module, length)) = selected_module {
+            match result {
+                MemberLookupResult::Found(ResolvedName::Surface(AnySymbolId::Module(id)))
+                    if id == module =>
+                {
+                    for _ in 1..length {
+                        let Some(reference) = references.next() else {
+                            return PathLookup {
+                                result: malformed_lookup(),
+                                reference: None,
+                            };
+                        };
+
+                        result_reference = reference;
+                    }
+                }
+                MemberLookupResult::Found(_) => {}
+                _ => {
+                    return PathLookup {
+                        result,
+                        reference: Some(result_reference),
+                    };
+                }
+            }
+        }
 
         for reference in references {
             let owner = match &result {
@@ -267,21 +287,38 @@ fn longest_module_prefix(
     symbols: &bray_symbols::SymbolGraph,
     owner: ModuleOwnerId,
     references: &[NameReference],
-) -> Option<(ModuleSymbolId, usize)> {
-    for length in (1..references.len()).rev() {
+    access: NameAccess,
+) -> Option<(ModuleSymbolId, usize, NameLookupResult<ResolvedName>)> {
+    for length in (1..=references.len()).rev() {
         let path = ModulePathKey::try_new(references[..length].iter().map(NameReference::text))?;
 
         if let Some(module) = symbols.module_by_path(owner, &path) {
-            return Some((module.id(), length));
+            return Some((module.id(), length, module_name_lookup(module, access)));
         }
     }
 
     None
 }
 
-fn path_references(path: &PathSyntax) -> Vec<NameReference> {
+fn module_name_lookup(module: &ModuleSymbol, access: NameAccess) -> NameLookupResult<ResolvedName> {
+    let candidate = ResolvedName::Surface(module.id().into());
+
+    if !access.allows(module.visibility()) {
+        MemberLookupResult::Inaccessible(vec![candidate].into_boxed_slice())
+    } else if module.is_recovered() {
+        MemberLookupResult::Malformed(vec![candidate].into_boxed_slice())
+    } else {
+        MemberLookupResult::Found(candidate)
+    }
+}
+
+fn path_references(path: &PathSyntax) -> Option<Vec<NameReference>> {
+    if path.is_recovered() {
+        return None;
+    }
+
     path.identifier_tokens()
-        .filter_map(|token| token_reference(path.source(), token))
+        .map(|token| token_reference(path.source(), token))
         .collect()
 }
 
@@ -437,7 +474,7 @@ mod tests {
                 &associated,
                 member_path.source(),
                 associated_token,
-                NameAccess::Internal,
+                |_, visibility| NameAccess::Internal.allows(visibility),
             ),
             MemberLookupResult::Found(member)
                 if matches!(member.symbol(), AnySymbolId::StructField(_))
@@ -469,6 +506,73 @@ mod tests {
         );
 
         assert!(finish(request).diagnostics().is_empty());
+    }
+
+    #[test]
+    fn source_modules_consult_the_ambient_compiler_known_surface() {
+        let fact_fixture = FactFixture::new();
+        let facts = fact_fixture.context();
+        let unit_fixture = fixture();
+        let unit = builder(&unit_fixture, LocalSymbolRegionId::new(35));
+        let root = unit.root_scope();
+        let (module, owner) = source_module(&facts);
+        let context = PathBindingContext::new(root, module, owner, NameAccess::Internal);
+        let mut request = BinderRequestContext::new(&facts, BindingContext::TypeExpression, unit);
+
+        assert!(matches!(
+            request.bind_type_path(context, &path("bool")),
+            MemberLookupResult::Found(ResolvedTypeName::Named(_))
+        ));
+
+        assert!(finish(request).diagnostics().is_empty());
+    }
+
+    #[test]
+    fn recovered_surface_names_in_lexical_scopes_remain_malformed() {
+        let fact_fixture =
+            FactFixture::from_source("module app; const Size: bool = true; func broken(");
+        let facts = fact_fixture.context();
+        let unit_fixture = fixture();
+        let mut unit = builder(&unit_fixture, LocalSymbolRegionId::new(36));
+        let root = unit.root_scope();
+        let (module, owner) = source_module(&facts);
+
+        let Some(recovered) = facts
+            .symbols()
+            .functions()
+            .iter()
+            .find(|function| function.origin() == SymbolOrigin::Source && function.is_recovered())
+            .map(|function| AnySymbolId::from(function.id()))
+        else {
+            panic!("test graph must contain one recovered source function");
+        };
+
+        let Some(name) = SymbolName::try_new("broken") else {
+            panic!("test surface name must be valid");
+        };
+
+        assert_eq!(unit.insert_surface_name(root, name, recovered), Ok(()));
+
+        let context = PathBindingContext::new(root, module, owner, NameAccess::Internal);
+        let mut request = BinderRequestContext::new(&facts, BindingContext::Expression, unit);
+
+        assert!(matches!(
+            request.bind_value_path(context, &path("broken")),
+            MemberLookupResult::Malformed(candidates)
+                if candidates.as_ref() == [ResolvedName::Surface(recovered)]
+        ));
+
+        let result = finish(request);
+
+        assert_eq!(
+            result
+                .diagnostics()
+                .diagnostics()
+                .iter()
+                .map(|diagnostic| diagnostic.kind())
+                .collect::<Vec<_>>(),
+            [DiagnosticKind::BindingMalformedName]
+        );
     }
 
     #[test]
@@ -578,6 +682,126 @@ mod tests {
     }
 
     #[test]
+    fn module_paths_apply_visibility_and_recovery() {
+        let internal_fixture =
+            FactFixture::from_source("internal module hidden; const Size: bool = true;");
+        let internal_facts = internal_fixture.context();
+        let internal_unit_fixture = fixture();
+        let internal_unit = builder(&internal_unit_fixture, LocalSymbolRegionId::new(37));
+        let internal_root = internal_unit.root_scope();
+        let (internal_module, internal_owner) = source_module(&internal_facts);
+        let public = PathBindingContext::new(
+            internal_root,
+            internal_module,
+            internal_owner,
+            NameAccess::Public,
+        );
+        let mut internal_request = BinderRequestContext::new(
+            &internal_facts,
+            BindingContext::TypeExpression,
+            internal_unit,
+        );
+
+        assert!(matches!(
+            internal_request.bind_module_path(public, &path("hidden")),
+            MemberLookupResult::Inaccessible(_)
+        ));
+
+        let recovered_fixture = FactFixture::from_source("module broken const Size: bool = true;");
+        let recovered_facts = recovered_fixture.context();
+        let recovered_unit_fixture = fixture();
+        let recovered_unit = builder(&recovered_unit_fixture, LocalSymbolRegionId::new(38));
+        let recovered_root = recovered_unit.root_scope();
+        let (recovered_module, recovered_owner) = source_module(&recovered_facts);
+        let internal = PathBindingContext::new(
+            recovered_root,
+            recovered_module,
+            recovered_owner,
+            NameAccess::Internal,
+        );
+        let mut recovered_request = BinderRequestContext::new(
+            &recovered_facts,
+            BindingContext::TypeExpression,
+            recovered_unit,
+        );
+
+        assert!(matches!(
+            recovered_request.bind_module_path(internal, &path("broken")),
+            MemberLookupResult::Malformed(_)
+        ));
+    }
+
+    #[test]
+    fn module_prefixes_do_not_take_precedence_over_ordinary_names() {
+        let fact_fixture =
+            FactFixture::from_source("module app; const app: bool = true; struct Point {}");
+        let facts = fact_fixture.context();
+        let unit_fixture = fixture();
+        let unit = builder(&unit_fixture, LocalSymbolRegionId::new(39));
+        let root = unit.root_scope();
+        let (module, owner) = source_module(&facts);
+        let context = PathBindingContext::new(root, module, owner, NameAccess::Internal);
+        let mut request = BinderRequestContext::new(&facts, BindingContext::Expression, unit);
+
+        assert!(matches!(
+            request.bind_value_path(context, &path("app.Point")),
+            MemberLookupResult::Ambiguous(_)
+        ));
+
+        assert_eq!(
+            finish(request).diagnostics().diagnostics()[0].kind(),
+            DiagnosticKind::BindingAmbiguousName
+        );
+    }
+
+    #[test]
+    fn associated_member_lookup_uses_candidate_aware_accessibility() {
+        let fact_fixture = FactFixture::from_source(concat!(
+            "module app; ",
+            "const Size: bool = true; ",
+            "struct Point { x: bool; }"
+        ));
+        let facts = fact_fixture.context();
+        let unit_fixture = fixture();
+        let unit = builder(&unit_fixture, LocalSymbolRegionId::new(40));
+        let member_path = path("x");
+
+        let Some(member_token) = member_path.identifier_tokens().next() else {
+            panic!("test member path must contain one identifier");
+        };
+
+        let Some(name) = SymbolName::try_new("x") else {
+            panic!("test member name must be valid");
+        };
+
+        let Some(field) = facts.symbols().struct_fields().first() else {
+            panic!("test graph must contain one struct field");
+        };
+
+        let index = match MemberLookupIndex::new([MemberEntry::new(
+            field.id().into(),
+            name,
+            MemberVisibility::Public,
+            MemberValidity::Valid,
+        )]) {
+            Ok(index) => index,
+            Err(error) => panic!("test member index must build: {error:?}"),
+        };
+
+        let mut request = BinderRequestContext::new(&facts, BindingContext::Expression, unit);
+
+        assert!(matches!(
+            request.bind_member_from_index(
+                &index,
+                member_path.source(),
+                member_token,
+                |candidate, _| candidate != AnySymbolId::from(field.id()),
+            ),
+            MemberLookupResult::Inaccessible(_)
+        ));
+    }
+
+    #[test]
     fn missing_path_syntax_recovers_without_repeating_parser_diagnostics() {
         let fact_fixture = FactFixture::new();
         let facts = fact_fixture.context();
@@ -599,6 +823,28 @@ mod tests {
 
         assert!(matches!(
             request.bind_type_path(context, &missing.build()),
+            MemberLookupResult::Malformed(candidates) if candidates.is_empty()
+        ));
+
+        assert!(finish(request).diagnostics().is_empty());
+    }
+
+    #[test]
+    fn missing_middle_path_segments_do_not_bind_repaired_paths() {
+        let fact_fixture =
+            FactFixture::from_source("module app; const Size: bool = true; struct Point {}");
+        let facts = fact_fixture.context();
+        let unit_fixture = fixture();
+        let unit = builder(&unit_fixture, LocalSymbolRegionId::new(41));
+        let root = unit.root_scope();
+        let (module, owner) = source_module(&facts);
+        let context = PathBindingContext::new(root, module, owner, NameAccess::Internal);
+        let mut request = BinderRequestContext::new(&facts, BindingContext::TypeExpression, unit);
+
+        let malformed = path_with_missing_middle();
+
+        assert!(matches!(
+            request.bind_type_path(context, &malformed),
             MemberLookupResult::Malformed(candidates) if candidates.is_empty()
         ));
 
@@ -647,6 +893,29 @@ mod tests {
         builder.push_identifier_token(SyntaxToken::new(
             SyntaxKind::IdentifierToken,
             text_range(segment_start, text.len()),
+        ));
+
+        builder.build()
+    }
+
+    fn path_with_missing_middle() -> PathSyntax {
+        let sources = test_source_store(["app..Point"]);
+        let snapshot = test_source_at(&sources, 0).clone();
+        let mut builder = PathSyntax::builder(snapshot);
+
+        builder.push_identifier_token(SyntaxToken::new(
+            SyntaxKind::IdentifierToken,
+            text_range(0, 3),
+        ));
+        builder.push_dot_token(SyntaxToken::new(SyntaxKind::DotToken, text_range(3, 4)));
+        builder.push_identifier_token(SyntaxToken::missing(
+            SyntaxKind::IdentifierToken,
+            TextSize::new(4),
+        ));
+        builder.push_dot_token(SyntaxToken::new(SyntaxKind::DotToken, text_range(4, 5)));
+        builder.push_identifier_token(SyntaxToken::new(
+            SyntaxKind::IdentifierToken,
+            text_range(5, 10),
         ));
 
         builder.build()

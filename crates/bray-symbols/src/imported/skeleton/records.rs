@@ -8,9 +8,9 @@ use crate::record::{
 use crate::relationship::{ModuleRelationships, RelationshipIndex, callable_owner};
 use crate::{
     AnySymbolId, CallableParameterDefaultProviderSymbol, ExternalSymbolKeyData,
-    ImportedSymbolSkeleton, ImportedSymbolSkeletonBuildError, ModuleOwnerId, ModuleSymbol,
-    PackageSymbol, ReceiverParameterSymbol, StructFieldDefaultProviderSymbol, SymbolKey,
-    SymbolOrigin, SymbolRootKey, UnionPayloadDefaultProviderSymbol,
+    ImportedSymbolSkeleton, ImportedSymbolSkeletonBuildError, MemberVisibility, ModuleOwnerId,
+    ModuleSymbol, PackageSymbol, ReceiverParameterSymbol, StructFieldDefaultProviderSymbol,
+    SymbolKey, SymbolOrigin, SymbolRootKey, UnionPayloadDefaultProviderSymbol,
 };
 
 use super::build::AssignedIdentity;
@@ -176,6 +176,7 @@ pub(super) fn build_records(
                     owner: ModuleOwnerId::from(owner),
                     path: path.clone(),
                     origin: SymbolOrigin::Imported,
+                    visibility: MemberVisibility::Public,
                     declarations: Box::new([]),
                     module_parts: Box::new([]),
                     is_recovered: false,

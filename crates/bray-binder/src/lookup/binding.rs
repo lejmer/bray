@@ -44,6 +44,19 @@ pub(super) fn lookup_unqualified_name(
                 }
             }
 
+            let mut has_recovered_surface = false;
+
+            for surface in surfaces {
+                match symbols.symbol_is_recovered(*surface) {
+                    Some(true) => {
+                        has_recovered_surface = true;
+                        break;
+                    }
+                    Some(false) => {}
+                    None => return MemberLookupResult::Malformed(Box::new([])),
+                }
+            }
+
             let candidates = locals
                 .iter()
                 .copied()
@@ -51,7 +64,7 @@ pub(super) fn lookup_unqualified_name(
                 .chain(surfaces.iter().copied().map(ResolvedName::Surface))
                 .collect::<Vec<_>>();
 
-            if has_recovered_local {
+            if has_recovered_local || has_recovered_surface {
                 return MemberLookupResult::Malformed(candidates.into_boxed_slice());
             }
 
@@ -67,7 +80,15 @@ pub(super) fn lookup_unqualified_name(
         };
     }
 
-    lookup_surface_name(symbols, module.into(), name, access)
+    let module_lookup = lookup_surface_name(symbols, module.into(), name, access);
+    let ambient_lookup = lookup_surface_name(
+        symbols,
+        symbols.compiler_known_environment().id().into(),
+        name,
+        access,
+    );
+
+    combine_name_lookups(module_lookup, ambient_lookup)
 }
 
 pub(super) fn lookup_surface_name(
@@ -84,11 +105,64 @@ pub(super) fn lookup_surface_name(
 pub(super) fn lookup_member_index(
     index: &MemberLookupIndex<AnySymbolId>,
     name: &str,
-    access: NameAccess,
+    is_accessible: impl FnMut(AnySymbolId, MemberVisibility) -> bool,
 ) -> NameLookupResult<ResolvedName> {
     index
-        .lookup_with_access(name, |_, visibility| access.allows(visibility))
+        .lookup_with_access(name, is_accessible)
         .map(ResolvedName::Surface, ResolvedName::Surface)
+}
+
+pub(super) fn combine_name_lookups(
+    first: NameLookupResult<ResolvedName>,
+    second: NameLookupResult<ResolvedName>,
+) -> NameLookupResult<ResolvedName> {
+    let mut accessible = Vec::new();
+    let mut inaccessible = Vec::new();
+    let mut has_malformed = false;
+
+    collect_lookup_candidates(
+        first,
+        &mut accessible,
+        &mut inaccessible,
+        &mut has_malformed,
+    );
+    collect_lookup_candidates(
+        second,
+        &mut accessible,
+        &mut inaccessible,
+        &mut has_malformed,
+    );
+
+    if has_malformed {
+        return MemberLookupResult::Malformed(accessible.into_boxed_slice());
+    }
+
+    match accessible.as_slice() {
+        [candidate] => MemberLookupResult::Found(*candidate),
+        [] if inaccessible.is_empty() => MemberLookupResult::NotFound,
+        [] => MemberLookupResult::Inaccessible(inaccessible.into_boxed_slice()),
+        _ => MemberLookupResult::Ambiguous(accessible.into_boxed_slice()),
+    }
+}
+
+fn collect_lookup_candidates(
+    result: NameLookupResult<ResolvedName>,
+    accessible: &mut Vec<ResolvedName>,
+    inaccessible: &mut Vec<ResolvedName>,
+    has_malformed: &mut bool,
+) {
+    match result {
+        MemberLookupResult::Found(candidate) => accessible.push(candidate),
+        MemberLookupResult::NotFound => {}
+        MemberLookupResult::WrongKind(candidates) | MemberLookupResult::Ambiguous(candidates) => {
+            accessible.extend(candidates)
+        }
+        MemberLookupResult::Inaccessible(candidates) => inaccessible.extend(candidates),
+        MemberLookupResult::Malformed(candidates) => {
+            *has_malformed = true;
+            accessible.extend(candidates);
+        }
+    }
 }
 
 impl NameAccess {

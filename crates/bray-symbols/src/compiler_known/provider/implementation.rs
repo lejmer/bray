@@ -20,9 +20,9 @@ use crate::record::{
 };
 use crate::relationship::{ModuleRelationships, RelationshipIndex};
 use crate::{
-    AnySymbolId, CompilerKnownEnvironmentSymbolId, ExactSymbolId, MemberLookupIndex, ModuleOwnerId,
-    ModulePathKey, ModuleSymbolId, SymbolId, SymbolKey, SymbolKind, SymbolOrigin, SymbolProvider,
-    SymbolRootKey,
+    AnySymbolId, CompilerKnownEnvironmentSymbolId, ExactSymbolId, MemberLookupIndex,
+    MemberVisibility, ModuleOwnerId, ModulePathKey, ModuleSymbolId, SymbolId, SymbolKey,
+    SymbolKind, SymbolOrigin, SymbolProvider, SymbolRootKey,
 };
 
 /// The symbol identity materialized for one compiler-known scope descriptor.
@@ -326,6 +326,7 @@ fn build_scopes(
                     owner: ModuleOwnerId::from(environment),
                     path,
                     origin: SymbolOrigin::CompilerKnown,
+                    visibility: MemberVisibility::Public,
                     declarations: Box::new([]),
                     module_parts: Box::new([]),
                     is_recovered: false,

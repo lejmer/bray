@@ -170,6 +170,32 @@ macro_rules! define_symbol_graph {
                 self.declaration_index.get(&declaration).copied()
             }
 
+            /// Returns whether an exact symbol's introducing syntax contains parser recovery.
+            pub fn symbol_is_recovered(&self, symbol: AnySymbolId) -> Option<bool> {
+                match symbol {
+                    AnySymbolId::CompilerKnownEnvironment(id) =>
+                        (self.compiler_known.environment().id() == id).then_some(false),
+                    AnySymbolId::Package(id) => self.packages.get(id).map(|_| false),
+                    AnySymbolId::Module(id) => self.modules.get(id).map(ModuleSymbol::is_recovered),
+                    AnySymbolId::CallableParameterDefaultProvider(id) => self
+                        .callable_parameter_default_providers
+                        .get(id)
+                        .map(|_| false),
+                    AnySymbolId::StructFieldDefaultProvider(id) => self
+                        .struct_field_default_providers
+                        .get(id)
+                        .map(|_| false),
+                    AnySymbolId::UnionPayloadDefaultProvider(id) => self
+                        .union_payload_default_providers
+                        .get(id)
+                        .map(|_| false),
+                    AnySymbolId::ReceiverParameter(id) => {
+                        self.receiver_parameters.get(id).map(|_| false)
+                    }
+                    $(AnySymbolId::$variant(id) => self.$singular(id).map(crate::$record::is_recovered),)+
+                }
+            }
+
             pub(crate) fn completion_children(&self, symbol: AnySymbolId) -> &[AnySymbolId] {
                 self.completion_children
                     .get(&symbol)

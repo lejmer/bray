@@ -2,8 +2,8 @@ use bray_declarations::{DeclarationId, ModulePartId};
 
 use crate::relationship::ModuleRelationships;
 use crate::{
-    CompilerKnownEnvironmentSymbolId, ModuleOwnerId, ModulePathKey, ModuleSymbolId,
-    PackageIdentity, PackageSymbolId, SymbolKey, SymbolOrigin,
+    CompilerKnownEnvironmentSymbolId, MemberVisibility, ModuleOwnerId, ModulePathKey,
+    ModuleSymbolId, PackageIdentity, PackageSymbolId, SymbolKey, SymbolOrigin,
 };
 
 /// The single compilation-local root for ambient compiler-known declarations.
@@ -172,6 +172,7 @@ pub struct ModuleSymbol {
     owner: ModuleOwnerId,
     path: ModulePathKey,
     origin: SymbolOrigin,
+    visibility: MemberVisibility,
     declarations: Box<[DeclarationId]>,
     module_parts: Box<[ModulePartId]>,
     is_recovered: bool,
@@ -186,6 +187,7 @@ impl ModuleSymbol {
             owner: input.owner,
             path: input.path,
             origin: input.origin,
+            visibility: input.visibility,
             declarations: input.declarations,
             module_parts: input.module_parts,
             is_recovered: input.is_recovered,
@@ -222,6 +224,11 @@ impl ModuleSymbol {
     /// Returns this module's origin.
     pub const fn origin(&self) -> SymbolOrigin {
         self.origin
+    }
+
+    /// Returns this module's effective declaration-level visibility.
+    pub const fn visibility(&self) -> MemberVisibility {
+        self.visibility
     }
 
     /// Returns every module declaration contributing to this logical module.
@@ -306,6 +313,7 @@ pub(crate) struct ModuleSymbolInput {
     pub(crate) owner: ModuleOwnerId,
     pub(crate) path: ModulePathKey,
     pub(crate) origin: SymbolOrigin,
+    pub(crate) visibility: MemberVisibility,
     pub(crate) declarations: Box<[DeclarationId]>,
     pub(crate) module_parts: Box<[ModulePartId]>,
     pub(crate) is_recovered: bool,
