@@ -1,5 +1,6 @@
 mod anonymous;
 mod block;
+mod candidate;
 mod error;
 mod expression;
 mod name;

@@ -1,6 +1,7 @@
 use bray_bound_tree::{
-    BoundArgument, BoundCallExpression, BoundConversionExpression, BoundExpression,
-    BoundExpressionId, BoundStructuredExpressionKind,
+    BoundArgument, BoundCallExpression, BoundConversionExpression, BoundErrorCallExpression,
+    BoundErrorConversionExpression, BoundExpression, BoundExpressionId,
+    BoundStructuredExpressionKind,
 };
 use bray_declarations::SyntaxAnchor;
 use bray_symbols::LocalScopeId;
@@ -9,10 +10,10 @@ use bray_syntax::{
     SourceSyntaxNode, SyntaxKind, SyntaxWalkControl,
 };
 
-use super::super::super::BindingResult;
-use super::super::super::name::symbol_name;
-use super::super::support::visit_direct_nodes;
+use super::super::BindingResult;
+use super::super::name::symbol_name;
 use super::ExpressionBinder;
+use super::support::visit_direct_nodes;
 use crate::BinderFactContext;
 use crate::binding::BindingError;
 use crate::request::BinderRequestContext;
@@ -126,16 +127,24 @@ impl ExpressionBinder {
             || arguments.iter().any(BoundArgument::is_recovered)
             || request.expression_is_recovered(callee);
 
-        self.push(
-            request,
+        let expression = if recovered {
+            BoundExpression::ErrorCall(BoundErrorCallExpression::new(
+                request.source_origin(syntax),
+                callee,
+                arguments,
+                self.error_type,
+            ))
+        } else {
             BoundExpression::Call(BoundCallExpression::new(
                 request.source_origin(syntax),
                 callee,
                 arguments,
                 None,
-                recovered,
-            )),
-        )
+                false,
+            ))
+        };
+
+        self.push(request, expression)
     }
 
     pub(in crate::binding::expression) fn bind_arguments<C>(
@@ -151,6 +160,7 @@ impl ExpressionBinder {
 
         for argument in syntax.arguments() {
             let expression = self.bind_expression(request, scope, Some(&argument.expression()))?;
+
             let name = argument
                 .identifier_token()
                 .and_then(|token| symbol_name(argument.source(), &token));
@@ -176,16 +186,27 @@ impl ExpressionBinder {
     {
         let recovered = syntax.is_recovered() || request.expression_is_recovered(operand);
 
-        self.push(
-            request,
+        let target_syntax = SyntaxAnchor::from_node(&syntax.type_expression());
+
+        let expression = if recovered {
+            BoundExpression::ErrorConversion(BoundErrorConversionExpression::new(
+                request.source_origin(syntax),
+                operand,
+                target_syntax,
+                None,
+                self.error_type,
+            ))
+        } else {
             BoundExpression::Conversion(BoundConversionExpression::new(
                 request.source_origin(syntax),
                 operand,
-                SyntaxAnchor::from_node(&syntax.type_expression()),
+                target_syntax,
                 None,
                 None,
-                recovered,
-            )),
-        )
+                false,
+            ))
+        };
+
+        self.push(request, expression)
     }
 }

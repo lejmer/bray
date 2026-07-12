@@ -6,7 +6,7 @@ use bray_syntax::{LambdaExpressionSyntax, SourceSyntaxNode};
 use super::name::symbol_name;
 use super::{BindingError, BindingResult};
 use crate::BinderFactContext;
-use crate::request::{AbandonedDependencyDisposition, BinderDependency, BinderRequestContext};
+use crate::request::{BinderDependency, BinderRequestContext};
 use crate::unit::AnonymousCallableBoundary;
 
 impl<C> BinderRequestContext<'_, C>
@@ -33,19 +33,9 @@ where
         introduction_scope: LocalScopeId,
         syntax: &LambdaExpressionSyntax,
     ) -> BindingResult<AnonymousCallableBoundary> {
-        let checkpoint = self.checkpoint();
-        let result = self.bind_anonymous_callable_boundary_transaction(introduction_scope, syntax);
-
-        if result.is_err()
-            && !self.rollback(
-                checkpoint,
-                AbandonedDependencyDisposition::DiscardProvenIrrelevant,
-            )
-        {
-            return Err(BindingError::RollbackFailed);
-        }
-
-        result
+        self.bind_transaction(|request| {
+            request.bind_anonymous_callable_boundary_transaction(introduction_scope, syntax)
+        })
     }
 
     fn bind_anonymous_callable_boundary_transaction(

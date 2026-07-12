@@ -10,9 +10,9 @@ use bray_syntax::{
     SyntaxWalkControl, SyntaxWalkEvent, TypeExpressionSyntax, walk_syntax_node,
 };
 
-use super::super::super::block::BlockBindingOperations;
-use super::super::super::{BindingError, BindingResult};
-use super::super::support::classify_operator;
+use super::super::block::BlockBindingOperations;
+use super::super::{BindingError, BindingResult};
+use super::support::classify_operator;
 use crate::BinderFactContext;
 use crate::lookup::{NameAccess, PathBindingContext};
 use crate::request::{BinderRequestContext, ControlTarget, ControlTargetKind};
@@ -76,6 +76,7 @@ impl ExpressionBinder {
         }
 
         let origin = request.source_origin(syntax);
+
         let recovered = syntax.is_recovered()
             || operands.len() > 2
             || operands
@@ -134,6 +135,7 @@ impl ExpressionBinder {
         }
 
         let (operands, blocks) = children?;
+
         let recovered = syntax.is_recovered()
             || operands
                 .iter()
@@ -167,6 +169,7 @@ impl ExpressionBinder {
         C: BinderFactContext + ?Sized,
     {
         let (children, blocks) = self.bind_semantic_children(request, scope, syntax)?;
+
         let recovered = syntax.is_recovered()
             || request.expression_is_recovered(operand)
             || children
@@ -435,9 +438,7 @@ mod tests {
             "    size(value = size);\n",
             "    size.field;\n",
             "    size as i32;\n",
-            "    if size\n",
-            "    {\n",
-            "    };\n",
+            "    if size {};\n",
             "    for item in mut size\n",
             "    {\n",
             "        yield item;\n",
@@ -457,9 +458,7 @@ mod tests {
             "    {\n",
             "        break;\n",
             "    };\n",
-            "    lambda(value: i32)\n",
-            "    {\n",
-            "    };\n",
+            "    lambda(value: i32) {};\n",
             "    return size;\n",
             "}",
         ));
@@ -586,6 +585,7 @@ mod tests {
         assert!(saw_targeted_break);
         assert!(saw_targeted_return);
         assert!(saw_lambda);
+
         assert_eq!(result.dependencies().len(), 1);
     }
 
@@ -596,7 +596,7 @@ mod tests {
             "const size: i32 = 1;\n",
             "func main()\n",
             "{\n",
-            "    Missing;\n",
+            "    missing;\n",
             "}",
         ));
 
@@ -633,10 +633,86 @@ mod tests {
             panic!("recovered block must retain its expression item");
         };
 
-        assert!(matches!(
-            result.unit().tree().expression(*expression),
-            Some(BoundExpression::Error(_))
+        let Some(BoundExpression::UnresolvedReference(expression)) =
+            result.unit().tree().expression(*expression)
+        else {
+            panic!("unresolved name must retain reference recovery");
+        };
+
+        assert_eq!(
+            expression.kind(),
+            bray_bound_tree::BoundUnresolvedReferenceKind::NotFound
+        );
+
+        assert!(expression.candidates().is_empty());
+    }
+
+    #[test]
+    fn malformed_calls_and_conversions_preserve_category_specific_recovery() {
+        let fixture = TestFixture::from_source(concat!(
+            "module app;\n",
+            "const size: i32 = 1;\n",
+            "func main()\n",
+            "{\n",
+            "    missing(value = );\n",
+            "    missing as ;\n",
+            "}",
         ));
+
+        let facts = fixture.context();
+        let (mut request, syntax) = crate::binding::test_support::request_and_block(&facts);
+        let root_scope = request.unit().root_scope();
+
+        let path_context = crate::binding::test_support::internal_path_context(&facts, root_scope);
+
+        let block = match request.bind_callable_body_block(
+            root_scope,
+            &syntax,
+            path_context,
+            fixture.declared_type,
+        ) {
+            Ok(block) => block,
+            Err(error) => panic!("malformed expressions must recover: {error:?}"),
+        };
+
+        let result = match request.finish() {
+            Ok(result) => result,
+            Err(error) => panic!("recovered expressions must freeze: {error:?}"),
+        };
+
+        let Some(block) = result.unit().tree().block(block) else {
+            panic!("recovered block must remain in the tree");
+        };
+
+        let [
+            bray_bound_tree::BoundBlockItem::Expression(call),
+            bray_bound_tree::BoundBlockItem::Expression(conversion),
+        ] = block.items()
+        else {
+            panic!("recovered block must retain both expressions");
+        };
+
+        let Some(BoundExpression::ErrorCall(call)) = result.unit().tree().expression(*call) else {
+            panic!("malformed call must retain call recovery");
+        };
+
+        assert_eq!(call.arguments().len(), 1);
+
+        assert_eq!(
+            call.arguments()[0]
+                .name()
+                .map(bray_symbols::SymbolName::as_str),
+            Some("value")
+        );
+
+        let Some(BoundExpression::ErrorConversion(conversion)) =
+            result.unit().tree().expression(*conversion)
+        else {
+            panic!("malformed conversion must retain conversion recovery");
+        };
+
+        assert!(conversion.target_syntax().is_recovered());
+        assert_eq!(result.diagnostics().len(), 2);
     }
 
     #[test]
@@ -713,9 +789,11 @@ mod tests {
             let BoundWalkEvent::Enter(node) = event else {
                 return BoundWalkControl::Continue;
             };
+
             let bray_bound_tree::AnyBoundNodeId::Expression(expression) = node else {
                 return BoundWalkControl::Continue;
             };
+
             let Some(expression) = result.unit().tree().expression(expression) else {
                 return BoundWalkControl::Continue;
             };
@@ -765,6 +843,7 @@ mod tests {
         assert!(expected_construction);
         assert!(trait_qualified);
         assert_eq!(yield_target, generator_region);
+
         assert_eq!(
             spawn_modes,
             [
@@ -773,6 +852,7 @@ mod tests {
                 BoundSpawnMode::Thread,
             ]
         );
+
         assert_eq!(thread_arguments, Some(1));
     }
 }

@@ -5,10 +5,11 @@ use crate::{BoundBlockId, BoundExpressionId, BoundNodeOrigin, BoundPatternId};
 use super::{
     BoundAnonymousCallableExpression, BoundAssignmentExpression, BoundBinaryExpression,
     BoundCallExpression, BoundControlTransferExpression, BoundConversionExpression,
-    BoundForExpression, BoundGeneratorExpression, BoundLeadingDotVariantExpression,
-    BoundMatchExpression, BoundMemberAccessExpression, BoundNameExpression, BoundSpawnExpression,
+    BoundErrorCallExpression, BoundErrorConversionExpression, BoundForExpression,
+    BoundGeneratorExpression, BoundLeadingDotVariantExpression, BoundMatchExpression,
+    BoundMemberAccessExpression, BoundNameExpression, BoundSpawnExpression,
     BoundStructConstructionExpression, BoundStructuredExpression,
-    BoundTraitQualifiedMemberExpression, BoundUnaryExpression,
+    BoundTraitQualifiedMemberExpression, BoundUnaryExpression, BoundUnresolvedReferenceExpression,
 };
 
 /// A checked expression retaining its exact semantic category.
@@ -18,6 +19,8 @@ pub enum BoundExpression {
     Block(BoundBlockExpression),
     /// A resolved value name.
     Name(BoundNameExpression),
+    /// A source reference retained after lookup recovery.
+    UnresolvedReference(BoundUnresolvedReferenceExpression),
     /// A prefix operator expression.
     Unary(BoundUnaryExpression),
     /// A binary operator expression.
@@ -26,8 +29,12 @@ pub enum BoundExpression {
     Assignment(BoundAssignmentExpression),
     /// A call with source-ordered argument inputs.
     Call(BoundCallExpression),
+    /// A call retained after semantic recovery.
+    ErrorCall(BoundErrorCallExpression),
     /// An explicit conversion expression.
     Conversion(BoundConversionExpression),
+    /// A conversion retained after semantic recovery.
+    ErrorConversion(BoundErrorConversionExpression),
     /// A reference to a separately checked anonymous callable unit.
     AnonymousCallable(BoundAnonymousCallableExpression),
     /// A source-shaped aggregate, control-flow, or effect expression.
@@ -60,11 +67,14 @@ impl BoundExpression {
         match self {
             Self::Block(expression) => expression.origin(),
             Self::Name(expression) => expression.origin(),
+            Self::UnresolvedReference(expression) => expression.origin(),
             Self::Unary(expression) => expression.origin(),
             Self::Binary(expression) => expression.origin(),
             Self::Assignment(expression) => expression.origin(),
             Self::Call(expression) => expression.origin(),
+            Self::ErrorCall(expression) => expression.origin(),
             Self::Conversion(expression) => expression.origin(),
+            Self::ErrorConversion(expression) => expression.origin(),
             Self::AnonymousCallable(expression) => expression.origin(),
             Self::Structured(expression) => expression.origin(),
             Self::StructConstruction(expression) => expression.origin(),
@@ -85,11 +95,14 @@ impl BoundExpression {
         match self {
             Self::Block(expression) => expression.ty(),
             Self::Name(expression) => expression.ty(),
+            Self::UnresolvedReference(expression) => Some(expression.ty()),
             Self::Unary(expression) => expression.ty(),
             Self::Binary(expression) => expression.ty(),
             Self::Assignment(expression) => expression.ty(),
             Self::Call(expression) => expression.ty(),
+            Self::ErrorCall(expression) => Some(expression.ty()),
             Self::Conversion(expression) => expression.ty(),
+            Self::ErrorConversion(expression) => Some(expression.ty()),
             Self::AnonymousCallable(expression) => expression.ty(),
             Self::Structured(expression) => expression.ty(),
             Self::StructConstruction(expression) => expression.ty(),
@@ -110,11 +123,14 @@ impl BoundExpression {
         match self {
             Self::Block(expression) => expression.is_recovered(),
             Self::Name(expression) => expression.is_recovered(),
+            Self::UnresolvedReference(_) => true,
             Self::Unary(expression) => expression.is_recovered(),
             Self::Binary(expression) => expression.is_recovered(),
             Self::Assignment(expression) => expression.is_recovered(),
             Self::Call(expression) => expression.is_recovered(),
+            Self::ErrorCall(_) => true,
             Self::Conversion(expression) => expression.is_recovered(),
+            Self::ErrorConversion(_) => true,
             Self::AnonymousCallable(expression) => expression.is_recovered(),
             Self::Structured(expression) => expression.is_recovered(),
             Self::StructConstruction(expression) => expression.is_recovered(),
@@ -136,7 +152,9 @@ impl BoundExpression {
             Self::Binary(expression) => expression.operands(),
             Self::Assignment(expression) => expression.operands(),
             Self::Call(expression) => expression.operands(),
+            Self::ErrorCall(expression) => expression.operands(),
             Self::Conversion(expression) => expression.operands(),
+            Self::ErrorConversion(expression) => expression.operands(),
             Self::Structured(expression) => expression.operands(),
             Self::StructConstruction(expression) => expression.operands(),
             Self::MemberAccess(expression) => expression.operands(),
@@ -148,6 +166,7 @@ impl BoundExpression {
             Self::Spawn(expression) => expression.operands(),
             Self::Block(_)
             | Self::Name(_)
+            | Self::UnresolvedReference(_)
             | Self::LeadingDotVariant(_)
             | Self::AnonymousCallable(_)
             | Self::Error(_) => &[],
