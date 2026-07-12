@@ -64,6 +64,7 @@ where
         path: &PathSyntax,
     ) -> NameLookupResult<ModuleSymbolId> {
         let lookup = self.bind_path(context, path);
+
         let result = lookup.result.classify(|name| match name {
             ResolvedName::Surface(AnySymbolId::Module(id)) => Some(id),
             ResolvedName::Local(_) | ResolvedName::Surface(_) => None,
@@ -190,8 +191,10 @@ where
             &references,
             context.access,
         );
+
         let compiler_known_owner =
             ModuleOwnerId::from(self.facts().symbols().compiler_known_environment().id());
+
         let compiler_known_prefix = next_module_prefix(
             self.facts().symbols(),
             compiler_known_owner,
@@ -253,6 +256,7 @@ where
             let (next, length) = combine_with_module_prefixes(ordinary, module_prefix);
 
             result = next;
+
             consumed += length;
         }
 
@@ -413,7 +417,9 @@ mod tests {
         let unit_fixture = fixture();
         let unit = builder(&unit_fixture, LocalSymbolRegionId::new(30));
         let root = unit.root_scope();
+
         let (module, owner) = source_module(&facts);
+
         let context = PathBindingContext::new(root, module, owner, NameAccess::Internal);
         let mut request = BinderRequestContext::new(&facts, BindingContext::Expression, unit);
 
@@ -518,11 +524,13 @@ mod tests {
         let unit_fixture = fixture();
         let mut unit = builder(&unit_fixture, LocalSymbolRegionId::new(31));
         let root = unit.root_scope();
+
         let local = push_binding(&mut unit, root, unit_fixture.first, false);
 
         assert_eq!(unit.activate_local(root, local), Ok(()));
 
         let (module, owner) = source_module(&facts);
+
         let context = PathBindingContext::new(root, module, owner, NameAccess::Internal);
         let mut request = BinderRequestContext::new(&facts, BindingContext::Expression, unit);
 
@@ -541,7 +549,9 @@ mod tests {
         let unit_fixture = fixture();
         let unit = builder(&unit_fixture, LocalSymbolRegionId::new(35));
         let root = unit.root_scope();
+
         let (module, owner) = source_module(&facts);
+
         let context = PathBindingContext::new(root, module, owner, NameAccess::Internal);
         let mut request = BinderRequestContext::new(&facts, BindingContext::TypeExpression, unit);
 
@@ -560,7 +570,9 @@ mod tests {
         let unit_fixture = fixture();
         let unit = builder(&unit_fixture, LocalSymbolRegionId::new(45));
         let root = unit.root_scope();
+
         let (module, owner) = source_module(&facts);
+
         let context = PathBindingContext::new(root, module, owner, NameAccess::Internal);
         let mut request = BinderRequestContext::new(&facts, BindingContext::Expression, unit);
 
@@ -585,6 +597,7 @@ mod tests {
         let unit_fixture = fixture();
         let mut unit = builder(&unit_fixture, LocalSymbolRegionId::new(36));
         let root = unit.root_scope();
+
         let (module, owner) = source_module(&facts);
 
         let Some(recovered) = facts
@@ -632,11 +645,13 @@ mod tests {
         let unit_fixture = fixture();
         let mut unit = builder(&unit_fixture, LocalSymbolRegionId::new(34));
         let root = unit.root_scope();
+
         let local = push_binding(&mut unit, root, unit_fixture.first, true);
 
         assert_eq!(unit.activate_local(root, local), Ok(()));
 
         let (module, owner) = source_module(&facts);
+
         let context = PathBindingContext::new(root, module, owner, NameAccess::Internal);
         let mut request = BinderRequestContext::new(&facts, BindingContext::Expression, unit);
 
@@ -674,7 +689,9 @@ mod tests {
         let unit_fixture = fixture();
         let unit = builder(&unit_fixture, LocalSymbolRegionId::new(32));
         let root = unit.root_scope();
+
         let (module, owner) = source_module(&facts);
+
         let public = PathBindingContext::new(root, module, owner, NameAccess::Public);
         let mut request = BinderRequestContext::new(&facts, BindingContext::Expression, unit);
 
@@ -704,6 +721,7 @@ mod tests {
         ));
 
         let result = finish(request);
+
         let kinds = result
             .diagnostics()
             .diagnostics()
@@ -728,6 +746,7 @@ mod tests {
             wrong_kind.primary_span().map(|span| span.range()),
             Some(TextRange::new(TextSize::ZERO, TextSize::new(4)))
         );
+
         assert_eq!(wrong_kind.args().len(), 2);
     }
 
@@ -735,17 +754,21 @@ mod tests {
     fn module_paths_apply_visibility_and_recovery() {
         let internal_fixture =
             FactFixture::from_source("internal module hidden; const Size: bool = true;");
+
         let internal_facts = internal_fixture.context();
         let internal_unit_fixture = fixture();
         let internal_unit = builder(&internal_unit_fixture, LocalSymbolRegionId::new(37));
         let internal_root = internal_unit.root_scope();
+
         let (internal_module, internal_owner) = source_module(&internal_facts);
+
         let public = PathBindingContext::new(
             internal_root,
             internal_module,
             internal_owner,
             NameAccess::Public,
         );
+
         let mut internal_request = BinderRequestContext::new(
             &internal_facts,
             BindingContext::TypeExpression,
@@ -758,17 +781,21 @@ mod tests {
         ));
 
         let recovered_fixture = FactFixture::from_source("module broken const Size: bool = true;");
+
         let recovered_facts = recovered_fixture.context();
         let recovered_unit_fixture = fixture();
         let recovered_unit = builder(&recovered_unit_fixture, LocalSymbolRegionId::new(38));
         let recovered_root = recovered_unit.root_scope();
+
         let (recovered_module, recovered_owner) = source_module(&recovered_facts);
+
         let internal = PathBindingContext::new(
             recovered_root,
             recovered_module,
             recovered_owner,
             NameAccess::Internal,
         );
+
         let mut recovered_request = BinderRequestContext::new(
             &recovered_facts,
             BindingContext::TypeExpression,
@@ -785,11 +812,14 @@ mod tests {
     fn module_prefixes_do_not_take_precedence_over_ordinary_names() {
         let fact_fixture =
             FactFixture::from_source("module app; const app: bool = true; struct Point {}");
+
         let facts = fact_fixture.context();
         let unit_fixture = fixture();
         let unit = builder(&unit_fixture, LocalSymbolRegionId::new(39));
         let root = unit.root_scope();
+
         let (module, owner) = source_module(&facts);
+
         let context = PathBindingContext::new(root, module, owner, NameAccess::Internal);
         let mut request = BinderRequestContext::new(&facts, BindingContext::Expression, unit);
 
@@ -810,11 +840,14 @@ mod tests {
             "module foo { const bar: bool = true; } ",
             "module foo.bar { const Size: bool = true; }"
         ));
+
         let facts = fact_fixture.context();
         let unit_fixture = fixture();
         let unit = builder(&unit_fixture, LocalSymbolRegionId::new(42));
         let root = unit.root_scope();
+
         let (module, owner) = source_module(&facts);
+
         let context = PathBindingContext::new(root, module, owner, NameAccess::Internal);
         let mut request = BinderRequestContext::new(&facts, BindingContext::Expression, unit);
 
@@ -832,11 +865,14 @@ mod tests {
     #[test]
     fn undeclared_module_prefixes_do_not_create_synthetic_symbols() {
         let fact_fixture = FactFixture::from_source("module foo.bar { const Size: bool = true; }");
+
         let facts = fact_fixture.context();
         let unit_fixture = fixture();
         let unit = builder(&unit_fixture, LocalSymbolRegionId::new(43));
         let root = unit.root_scope();
+
         let (module, owner) = source_module(&facts);
+
         let context = PathBindingContext::new(root, module, owner, NameAccess::Internal);
         let mut request = BinderRequestContext::new(&facts, BindingContext::TypeExpression, unit);
 
@@ -854,11 +890,14 @@ mod tests {
             "internal module foo { const Hidden: bool = true; } ",
             "module foo.bar { const Size: bool = true; }"
         ));
+
         let facts = fact_fixture.context();
         let unit_fixture = fixture();
         let unit = builder(&unit_fixture, LocalSymbolRegionId::new(44));
         let root = unit.root_scope();
+
         let (_, owner) = source_module(&facts);
+
         let public_module = facts.symbols().modules().iter().find(|module| {
             module.origin() == SymbolOrigin::Source && module.path().segments().eq(["foo", "bar"])
         });
@@ -885,6 +924,7 @@ mod tests {
             "const Size: bool = true; ",
             "struct Point { x: bool; }"
         ));
+
         let facts = fact_fixture.context();
         let unit_fixture = fixture();
         let unit = builder(&unit_fixture, LocalSymbolRegionId::new(40));
@@ -932,7 +972,9 @@ mod tests {
         let unit_fixture = fixture();
         let unit = builder(&unit_fixture, LocalSymbolRegionId::new(33));
         let root = unit.root_scope();
+
         let (module, owner) = source_module(&facts);
+
         let context = PathBindingContext::new(root, module, owner, NameAccess::Internal);
         let mut request = BinderRequestContext::new(&facts, BindingContext::TypeExpression, unit);
 
@@ -957,11 +999,14 @@ mod tests {
     fn missing_middle_path_segments_do_not_bind_repaired_paths() {
         let fact_fixture =
             FactFixture::from_source("module app; const Size: bool = true; struct Point {}");
+
         let facts = fact_fixture.context();
         let unit_fixture = fixture();
         let unit = builder(&unit_fixture, LocalSymbolRegionId::new(41));
         let root = unit.root_scope();
+
         let (module, owner) = source_module(&facts);
+
         let context = PathBindingContext::new(root, module, owner, NameAccess::Internal);
         let mut request = BinderRequestContext::new(&facts, BindingContext::TypeExpression, unit);
 
@@ -993,6 +1038,7 @@ mod tests {
     fn path(text: &str) -> PathSyntax {
         let sources = test_source_store([text]);
         let snapshot = test_source_at(&sources, 0).clone();
+
         let mut builder = PathSyntax::builder(snapshot);
         let mut segment_start = 0;
 
@@ -1025,18 +1071,23 @@ mod tests {
     fn path_with_missing_middle() -> PathSyntax {
         let sources = test_source_store(["app..Point"]);
         let snapshot = test_source_at(&sources, 0).clone();
+
         let mut builder = PathSyntax::builder(snapshot);
 
         builder.push_identifier_token(SyntaxToken::new(
             SyntaxKind::IdentifierToken,
             text_range(0, 3),
         ));
+
         builder.push_dot_token(SyntaxToken::new(SyntaxKind::DotToken, text_range(3, 4)));
+
         builder.push_identifier_token(SyntaxToken::missing(
             SyntaxKind::IdentifierToken,
             TextSize::new(4),
         ));
+
         builder.push_dot_token(SyntaxToken::new(SyntaxKind::DotToken, text_range(4, 5)));
+
         builder.push_identifier_token(SyntaxToken::new(
             SyntaxKind::IdentifierToken,
             text_range(5, 10),
