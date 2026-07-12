@@ -28,7 +28,6 @@ pub(crate) fn check_control_flow(
         graph.unit(),
         request.view().kind(),
         reachability.completion(),
-        reachability.is_recovered(),
     );
 
     CheckerOutcome::without_diagnostics(result)

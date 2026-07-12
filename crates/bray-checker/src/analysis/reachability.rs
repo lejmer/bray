@@ -43,10 +43,6 @@ impl ReachabilityResult {
     pub(super) const fn completion(&self) -> ControlCompletion {
         self.completion
     }
-
-    pub(super) const fn is_recovered(&self) -> bool {
-        self.completion.contains(ControlCompletionKind::Recovered)
-    }
 }
 
 pub(crate) fn analyze_reachability(

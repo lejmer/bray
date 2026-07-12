@@ -3,6 +3,12 @@
 #![forbid(unsafe_code)]
 
 mod fact;
+// TODO(binder): Remove this expectation when checked-unit fact providers finalize requests.
+#[expect(
+    dead_code,
+    reason = "checked-unit fact providers are the next production finalization consumers"
+)]
+mod publication;
 // TODO(binder): Remove this expectation when checked-unit fact providers call the binders.
 #[cfg_attr(
     not(test),

@@ -565,7 +565,12 @@ pub struct CheckedPredicateDefinitionUnit {
 - `BoundUnitId`,
 - immutable `BoundTree`,
 - immutable `LocalSymbolSnapshot`,
-- ordered nested semantic-unit keys.
+- ordered nested semantic-unit keys,
+- the `CheckedControlFlowFacts` established by control-flow checking.
+
+`CheckedControlFlowFacts` stores the exact unit, unit category, and durable control-completion summary. It does not retain the
+checker-internal control-flow graph and does not imply that later storage, dependency, effect, capability, or contract domains have
+completed.
 
 The category-specific wrappers expose only valid roots and relationships. The public API must not use a universal result with
 optional body, expression, callable, contract, or constant fields.
@@ -576,6 +581,7 @@ Checked-unit construction validates these invariants before publication:
 - every bound node ID stored by the tree belongs to that tree's unit,
 - the local snapshot region corresponds to the same semantic unit key,
 - every local and scope reference resolves through that snapshot,
+- durable control-flow facts belong to the same unit and category,
 - nested unit keys are complete, unique where identity requires it, and in canonical source order.
 
 Conceptually:
@@ -587,6 +593,7 @@ impl CheckedCallableBody {
     pub const fn tree(&self) -> &BoundTree;
     pub const fn local_symbols(&self) -> &LocalSymbolSnapshot;
     pub fn nested_units(&self) -> &[BoundUnitKey];
+    pub const fn control_flow_facts(&self) -> CheckedControlFlowFacts;
 }
 ```
 

@@ -1,3 +1,5 @@
+use crate::{BoundUnitId, BoundUnitKind};
+
 /// A source-semantic way in which a checked unit can complete.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[repr(u8)]
@@ -24,6 +26,49 @@ pub enum ControlCompletionKind {
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
 pub struct ControlCompletion {
     kinds: u8,
+}
+
+/// Durable control-flow facts for one exact checked semantic unit.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct CheckedControlFlowFacts {
+    unit: BoundUnitId,
+    kind: BoundUnitKind,
+    completion: ControlCompletion,
+}
+
+impl CheckedControlFlowFacts {
+    /// Creates durable control-flow facts for one exact bound unit.
+    pub const fn new(
+        unit: BoundUnitId,
+        kind: BoundUnitKind,
+        completion: ControlCompletion,
+    ) -> Self {
+        Self {
+            unit,
+            kind,
+            completion,
+        }
+    }
+
+    /// Returns the exact bound unit these facts describe.
+    pub const fn unit(self) -> BoundUnitId {
+        self.unit
+    }
+
+    /// Returns the semantic category of the checked bound unit.
+    pub const fn kind(self) -> BoundUnitKind {
+        self.kind
+    }
+
+    /// Returns the unit's checked completion categories.
+    pub const fn completion(self) -> ControlCompletion {
+        self.completion
+    }
+
+    /// Returns whether conservative recovery affected control-flow checking.
+    pub const fn is_recovered(self) -> bool {
+        self.completion.contains(ControlCompletionKind::Recovered)
+    }
 }
 
 impl ControlCompletion {
@@ -62,7 +107,9 @@ impl ControlCompletionKind {
 
 #[cfg(test)]
 mod tests {
-    use super::{ControlCompletion, ControlCompletionKind};
+    use crate::{BoundUnitId, BoundUnitKind};
+
+    use super::{CheckedControlFlowFacts, ControlCompletion, ControlCompletionKind};
 
     #[test]
     fn completion_summaries_deduplicate_typed_categories() {
@@ -75,5 +122,18 @@ mod tests {
         assert!(completion.can_complete_normally());
         assert!(completion.contains(ControlCompletionKind::Return));
         assert!(!completion.contains(ControlCompletionKind::Recovered));
+    }
+
+    #[test]
+    fn checked_control_flow_retains_exact_unit_category_and_completion() {
+        let unit = BoundUnitId::new(4);
+        let completion = ControlCompletion::from_kinds([ControlCompletionKind::Recovered]);
+        let control_flow =
+            CheckedControlFlowFacts::new(unit, BoundUnitKind::CallableBody, completion);
+
+        assert_eq!(control_flow.unit(), unit);
+        assert_eq!(control_flow.kind(), BoundUnitKind::CallableBody);
+        assert_eq!(control_flow.completion(), completion);
+        assert!(control_flow.is_recovered());
     }
 }

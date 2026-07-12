@@ -1,6 +1,7 @@
 use bray_bound_tree::{
     BoundCallableBody, BoundNodeOrigin, BoundSourceAnchor, BoundTreeBuilder, BoundUnitId,
-    BoundUnitKey, CheckedCallableBody,
+    BoundUnitKey, BoundUnitKind, CheckedCallableBody, CheckedControlFlowFacts, ControlCompletion,
+    ControlCompletionKind,
 };
 use bray_declarations::{DeclarationId, discover_source_unit_declarations};
 use bray_parser::parse_source_unit;
@@ -60,7 +61,20 @@ pub(crate) fn checked_callable_body(declaration: u32) -> (BoundUnitKey, CheckedC
         Err(error) => panic!("test local snapshot must be valid: {error:?}"),
     };
 
-    let checked = match CheckedCallableBody::try_new(&key, tree.finish(), locals, [], root) {
+    let control_flow_facts = CheckedControlFlowFacts::new(
+        unit,
+        BoundUnitKind::CallableBody,
+        ControlCompletion::from_kinds([ControlCompletionKind::Recovered]),
+    );
+
+    let checked = match CheckedCallableBody::try_new(
+        &key,
+        tree.finish(),
+        locals,
+        [],
+        control_flow_facts,
+        root,
+    ) {
         Ok(checked) => checked,
         Err(error) => panic!("test callable body must be publishable: {error:?}"),
     };

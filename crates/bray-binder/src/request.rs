@@ -326,6 +326,16 @@ impl BinderRequestResult {
     pub(crate) const fn dependencies(&self) -> &[BinderDependency] {
         &self.dependencies
     }
+
+    pub(crate) fn into_parts(
+        self,
+    ) -> (
+        BoundUnitConstructionResult,
+        DiagnosticBag,
+        Box<[BinderDependency]>,
+    ) {
+        (self.unit, self.diagnostics, self.dependencies)
+    }
 }
 
 #[cfg(test)]

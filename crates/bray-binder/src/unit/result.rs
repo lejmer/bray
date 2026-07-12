@@ -44,6 +44,10 @@ impl BoundUnitConstructionResult {
     pub(crate) fn view(&self) -> BoundUnitView<'_> {
         self.tree.view(&self.key)
     }
+
+    pub(crate) fn into_parts(self) -> (BoundUnitKey, BoundTree, LocalSymbolSnapshot, LocalScopeId) {
+        (self.key, self.tree, self.local_symbols, self.root_scope)
+    }
 }
 
 #[cfg(test)]

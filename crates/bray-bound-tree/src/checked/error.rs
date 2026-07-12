@@ -12,6 +12,20 @@ pub enum CheckedUnitBuildError {
         /// The category carried by the semantic unit key.
         actual: BoundUnitKind,
     },
+    /// The control-flow facts belong to another bound unit.
+    ControlFlowUnitMismatch {
+        /// The unit owning the immutable bound tree.
+        expected: BoundUnitId,
+        /// The unit carried by the control-flow facts.
+        actual: BoundUnitId,
+    },
+    /// The control-flow facts describe another semantic unit category.
+    ControlFlowKindMismatch {
+        /// The category required by the checked-unit wrapper.
+        expected: BoundUnitKind,
+        /// The category carried by the control-flow facts.
+        actual: BoundUnitKind,
+    },
     /// The category-specific root does not name a node in the owned bound tree.
     MissingRoot {
         /// The unit owning the immutable bound tree.

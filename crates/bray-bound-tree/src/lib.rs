@@ -21,7 +21,7 @@ pub use checked::{
     CheckedConstraintUnit, CheckedContractClauseUnit, CheckedPredicateDefinitionUnit,
     CheckedRuntimeDefaultUnit, CheckedUnitBuildError,
 };
-pub use control::{ControlCompletion, ControlCompletionKind};
+pub use control::{CheckedControlFlowFacts, ControlCompletion, ControlCompletionKind};
 pub use dependency::{
     BoundDependencyContract, BoundDependencyContractId, BoundDependencyGuard,
     BoundDependencyRequirement, BoundDependencyRequirementKind, BoundDependencySubject,

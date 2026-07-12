@@ -13,7 +13,21 @@ use bray_syntax::{
     SourceUnitSyntax, SyntaxKind, SyntaxToken, SyntaxTrivia,
 };
 
-use crate::{BoundErrorExpression, BoundExpression, BoundNodeOrigin, BoundSourceAnchor};
+use crate::{
+    BoundErrorExpression, BoundExpression, BoundNodeOrigin, BoundSourceAnchor, BoundUnitId,
+    BoundUnitKind, CheckedControlFlowFacts, ControlCompletion, ControlCompletionKind,
+};
+
+pub(crate) fn recovered_control_flow(
+    unit: BoundUnitId,
+    kind: BoundUnitKind,
+) -> CheckedControlFlowFacts {
+    CheckedControlFlowFacts::new(
+        unit,
+        kind,
+        ControlCompletion::from_kinds([ControlCompletionKind::Recovered]),
+    )
+}
 
 pub(crate) fn error_expression() -> BoundExpression {
     BoundExpression::Error(BoundErrorExpression::new(

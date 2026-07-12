@@ -6,7 +6,8 @@ use bray_symbols::{
 
 use super::CheckedUnitBuildError;
 use crate::{
-    BoundTree, BoundUnitId, BoundUnitKey, BoundUnitKeyData, BoundUnitKind, DeclaredBoundUnitKey,
+    BoundTree, BoundUnitId, BoundUnitKey, BoundUnitKeyData, BoundUnitKind, CheckedControlFlowFacts,
+    DeclaredBoundUnitKey,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -14,6 +15,7 @@ pub(super) struct CheckedUnitData {
     tree: BoundTree,
     local_symbols: LocalSymbolSnapshot,
     nested_units: Arc<[BoundUnitKey]>,
+    control_flow_facts: CheckedControlFlowFacts,
 }
 
 impl CheckedUnitData {
@@ -23,6 +25,7 @@ impl CheckedUnitData {
         tree: BoundTree,
         local_symbols: LocalSymbolSnapshot,
         nested_units: impl IntoIterator<Item = BoundUnitKey>,
+        control_flow_facts: CheckedControlFlowFacts,
     ) -> Result<Self, CheckedUnitBuildError> {
         if key.kind() != expected_kind {
             return Err(CheckedUnitBuildError::UnitKindMismatch {
@@ -35,6 +38,20 @@ impl CheckedUnitData {
             return Err(CheckedUnitBuildError::LocalSymbolRegionMismatch);
         }
 
+        if control_flow_facts.unit() != tree.unit() {
+            return Err(CheckedUnitBuildError::ControlFlowUnitMismatch {
+                expected: tree.unit(),
+                actual: control_flow_facts.unit(),
+            });
+        }
+
+        if control_flow_facts.kind() != expected_kind {
+            return Err(CheckedUnitBuildError::ControlFlowKindMismatch {
+                expected: expected_kind,
+                actual: control_flow_facts.kind(),
+            });
+        }
+
         let nested_units = nested_units.into_iter().collect::<Arc<[_]>>();
 
         validate_nested_units(key, &nested_units)?;
@@ -43,6 +60,7 @@ impl CheckedUnitData {
             tree,
             local_symbols,
             nested_units,
+            control_flow_facts,
         })
     }
 
@@ -60,6 +78,10 @@ impl CheckedUnitData {
 
     pub(super) fn nested_units(&self) -> &[BoundUnitKey] {
         &self.nested_units
+    }
+
+    pub(super) const fn control_flow_facts(&self) -> CheckedControlFlowFacts {
+        self.control_flow_facts
     }
 }
 
