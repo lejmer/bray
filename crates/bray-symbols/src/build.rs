@@ -937,6 +937,11 @@ mod tests {
 
         assert!(structure.is_recovered());
         assert_eq!(structure.containing_symbol(), module.id().into());
+        assert_eq!(
+            graph.containing_symbol(structure.id().into()),
+            Some(module.id().into())
+        );
+        assert_eq!(graph.containing_module(structure.id().into()), Some(module));
 
         let Some(structure_declaration) = structure.declaration() else {
             panic!("source structure must retain its declaration");

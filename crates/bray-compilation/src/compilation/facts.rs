@@ -27,22 +27,22 @@ use super::load::{
 /// Durable immutable compilation context and demand-driven fact entrypoint.
 #[derive(Clone, Debug)]
 pub struct Compilation {
-    state: Arc<CompilationState>,
+    pub(super) state: Arc<CompilationState>,
 }
 
 #[derive(Debug)]
-struct CompilationState {
+pub(super) struct CompilationState {
     options: CompilationOptions,
     sources: SourceStore,
     source_diagnostics: DiagnosticBag,
-    fact_runtime: FactRuntime,
-    cancellation: CancellationToken,
+    pub(super) fact_runtime: FactRuntime,
+    pub(super) cancellation: CancellationToken,
     source_unit_syntax: Vec<FactCell<SourceUnitSyntaxResult>>,
     syntax_tree_result: FactCell<SyntaxTreeResult>,
     declaration_chunks: Vec<FactCell<DeclarationChunkResult>>,
     declaration_table_result: FactCell<DeclarationTableResult>,
     available_compiler_known_symbols: FactCell<AvailableCompilerKnownSymbols>,
-    checked_units: CheckedUnitFactCaches,
+    pub(super) checked_units: CheckedUnitFactCaches,
     check_diagnostics: FactCell<DiagnosticBag>,
 }
 
@@ -293,15 +293,6 @@ impl Compilation {
         }
     }
 
-    // TODO(compilation): Remove this expectation when category-specific binders request checked
-    //                    unit publication through this internal compilation fact boundary
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "category-specific checked-unit binders are implemented by subsequent issues"
-        )
-    )]
     pub(super) fn checked_unit<T: CheckedUnitFact>(
         &self,
         key: BoundUnitKey,
@@ -327,9 +318,13 @@ mod tests {
         atomic::{AtomicUsize, Ordering},
     };
 
-    use bray_binder::{BinderDependency, CheckedUnitComputation};
+    use bray_binder::{
+        BinderDependency, BinderFactContext, BinderFactError, BinderFactResult,
+        CheckedUnitComputation, TargetFactProvider, TargetFactResult,
+    };
+    use bray_bound_tree::{BoundSourceAnchor, BoundUnitKey, BoundUnitKind, CheckedCallableBody};
     use bray_compiler_known::{AvailabilityRule, CompilerKnownDeclarationKey};
-    use bray_declarations::{DeclarationKind, ModulePath};
+    use bray_declarations::{DeclarationKind, DeclarationTable, ModulePath};
     use bray_diagnostics::{
         Diagnostic, DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticBag,
         DiagnosticId, DiagnosticKind, DiagnosticNote, DiagnosticNoteKind, DiagnosticResult,
@@ -339,7 +334,11 @@ mod tests {
         SourceId, SourceIdentity, SourceInput, SourceInputKind, SourceOriginKind, SourceVersion,
         TextSize,
     };
-    use bray_symbols::{FunctionSymbolId, StructSymbolId};
+    use bray_symbols::{
+        ConstantSymbolId, FunctionSymbolId, PackageIdentity, SemanticValueStore, StructSymbolId,
+        SymbolGraph, SymbolOrigin,
+    };
+    use bray_syntax::{SourceSyntaxNode, SyntaxTree};
 
     use crate::TargetAvailabilityFacts;
     use crate::fact::{CancellationToken, FactQueryError};
@@ -845,6 +844,85 @@ mod tests {
     }
 
     #[test]
+    fn checked_callable_queries_complete_nested_units_in_source_order() {
+        let compilation = checked_body_compilation();
+        let facts = IntegrationBinderFacts::new(&compilation, None);
+        let key = callable_key(&facts);
+
+        let checked = match compilation.checked_callable_body(&facts, key) {
+            Ok(checked) => checked,
+            Err(error) => panic!("checked callable query must complete: {error:?}"),
+        };
+
+        let nested = checked.value().nested_units();
+
+        assert_eq!(nested.len(), 2);
+        assert!(nested[0].source() < nested[1].source());
+        assert_eq!(facts.syntax_calls.load(Ordering::Relaxed), 3);
+
+        let mut recovered = Vec::new();
+
+        for key in nested {
+            let child = match compilation.checked_anonymous_callable(
+                &facts,
+                key.clone(),
+                &compilation.state.cancellation,
+            ) {
+                Ok(child) => child,
+                Err(error) => panic!("nested checked unit must already be available: {error:?}"),
+            };
+
+            recovered.push(child.result().value().control_flow_facts().is_recovered());
+        }
+
+        assert_eq!(recovered, [true, false]);
+        assert_eq!(facts.syntax_calls.load(Ordering::Relaxed), 3);
+    }
+
+    #[test]
+    fn nested_cancellation_prevents_parent_publication() {
+        let compilation = checked_body_compilation();
+        let facts = IntegrationBinderFacts::new(&compilation, Some(2));
+        let key = callable_key(&facts);
+
+        let result = compilation.checked_callable_body(&facts, key.clone());
+
+        assert!(matches!(result, Err(FactQueryError::Cancelled)));
+        assert_eq!(facts.syntax_calls.load(Ordering::Relaxed), 2);
+
+        let published = compilation
+            .state
+            .checked_units
+            .is_published::<CheckedCallableBody>(&key);
+
+        assert_eq!(published, Ok(false));
+    }
+
+    #[test]
+    fn declaration_owned_expression_queries_use_the_same_finalization_path() {
+        let compilation = match Compilation::load_sources(vec![source_input(
+            "module app; const size: i32 = 1;",
+            0,
+        )]) {
+            Ok(compilation) => compilation,
+            Err(error) => panic!("constant compilation must load: {error:?}"),
+        };
+
+        let facts = IntegrationBinderFacts::new(&compilation, None);
+        let key = source_constant_template_key(&facts);
+
+        let checked = match compilation.checked_constant_template(&facts, key) {
+            Ok(checked) => checked,
+            Err(error) => panic!("constant template query must complete: {error:?}"),
+        };
+
+        assert_eq!(
+            checked.value().control_flow_facts().kind(),
+            BoundUnitKind::ConstantTemplate
+        );
+    }
+
+    #[test]
     fn check_diagnostics_merge_available_phase_diagnostics() {
         let invalid = SourceInput::file_bytes(
             SourceIdentity::new(11),
@@ -891,6 +969,175 @@ mod tests {
         ]) {
             Ok(compilation) => compilation,
             Err(error) => panic!("test compilation should load: {error:?}"),
+        }
+    }
+
+    fn checked_body_compilation() -> Compilation {
+        let source = concat!(
+            "module app;\n",
+            "func main()\n",
+            "{\n",
+            "    let first = lambda()\n",
+            "    {\n",
+            "        missing;\n",
+            "    };\n",
+            "    let second = lambda()\n",
+            "    {\n",
+            "    };\n",
+            "}\n",
+        );
+
+        match Compilation::load_sources(vec![source_input(source, 0)]) {
+            Ok(compilation) => compilation,
+            Err(error) => panic!("checked-body compilation must load: {error:?}"),
+        }
+    }
+
+    struct IntegrationBinderFacts<'compilation> {
+        compilation: &'compilation Compilation,
+        symbols: SymbolGraph,
+        semantic_values: SemanticValueStore,
+        target_facts: UnavailableTargetFacts,
+        syntax_calls: AtomicUsize,
+        cancel_on_syntax_call: Option<usize>,
+    }
+
+    impl<'compilation> IntegrationBinderFacts<'compilation> {
+        fn new(
+            compilation: &'compilation Compilation,
+            cancel_on_syntax_call: Option<usize>,
+        ) -> Self {
+            let Some(package) = PackageIdentity::try_new("test.package") else {
+                panic!("test package identity must be valid");
+            };
+
+            let symbols = match SymbolGraph::build_source(package, compilation.declaration_table())
+            {
+                Ok(symbols) => symbols,
+                Err(error) => panic!("test symbol graph must build: {error:?}"),
+            };
+
+            let semantic_values = match SemanticValueStore::try_new() {
+                Ok(values) => values,
+                Err(error) => panic!("test semantic store must build: {error:?}"),
+            };
+
+            Self {
+                compilation,
+                symbols,
+                semantic_values,
+                target_facts: UnavailableTargetFacts,
+                syntax_calls: AtomicUsize::new(0),
+                cancel_on_syntax_call,
+            }
+        }
+    }
+
+    impl BinderFactContext for IntegrationBinderFacts<'_> {
+        type TargetFacts = UnavailableTargetFacts;
+        type SymbolFacts = ();
+        type Cancellation = CancellationToken;
+
+        fn syntax(&self) -> &SyntaxTree {
+            let call = self.syntax_calls.fetch_add(1, Ordering::Relaxed) + 1;
+            let syntax = self.compilation.syntax_tree();
+
+            if self.cancel_on_syntax_call == Some(call) {
+                self.compilation.state.cancellation.cancel();
+            }
+
+            syntax
+        }
+
+        fn declarations(&self) -> &DeclarationTable {
+            self.compilation.declaration_table()
+        }
+
+        fn symbols(&self) -> &SymbolGraph {
+            &self.symbols
+        }
+
+        fn semantic_values(&self) -> &SemanticValueStore {
+            &self.semantic_values
+        }
+
+        fn target_facts(&self) -> &Self::TargetFacts {
+            &self.target_facts
+        }
+
+        fn symbol_facts(&self) -> &Self::SymbolFacts {
+            &()
+        }
+
+        fn cancellation(&self) -> &Self::Cancellation {
+            &self.compilation.state.cancellation
+        }
+    }
+
+    struct UnavailableTargetFacts;
+
+    impl TargetFactProvider for UnavailableTargetFacts {
+        fn target_fact(&self, _fact: ConstantSymbolId) -> BinderFactResult<Arc<TargetFactResult>> {
+            Err(BinderFactError::DependencyUnavailable)
+        }
+    }
+
+    fn callable_key(facts: &IntegrationBinderFacts<'_>) -> BoundUnitKey {
+        let Some(function) = facts
+            .symbols
+            .functions()
+            .iter()
+            .find(|function| function.origin() == SymbolOrigin::Source)
+        else {
+            panic!("test symbol graph must contain one source function");
+        };
+
+        let Some(anchor) = function.syntax_anchor() else {
+            panic!("source function must retain its syntax anchor");
+        };
+
+        let Some(source) = facts.compilation.source(anchor.source_id()) else {
+            panic!("function source must be loaded");
+        };
+
+        let source = BoundSourceAnchor::new(anchor, source.version());
+
+        match BoundUnitKey::callable_body(function.key().clone(), source) {
+            Some(key) => key,
+            None => panic!("source function must own a callable body"),
+        }
+    }
+
+    fn source_constant_template_key(facts: &IntegrationBinderFacts<'_>) -> BoundUnitKey {
+        let Some(constant) = facts
+            .symbols
+            .constants()
+            .iter()
+            .find(|constant| constant.origin() == SymbolOrigin::Source)
+        else {
+            panic!("test symbol graph must contain one source constant");
+        };
+
+        let [source_unit] = facts.compilation.syntax_tree().source_units() else {
+            panic!("constant compilation must contain one source unit");
+        };
+
+        let Some(declaration) = source_unit.constant_declarations().next() else {
+            panic!("constant source unit must contain one declaration");
+        };
+
+        let Some(expression) = declaration.expression() else {
+            panic!("constant declaration must contain an expression");
+        };
+
+        let source = BoundSourceAnchor::new(
+            bray_declarations::SyntaxAnchor::from_node(&expression),
+            expression.source().version(),
+        );
+
+        match BoundUnitKey::constant_template(constant.key().clone(), source) {
+            Some(key) => key,
+            None => panic!("source constant must own a constant template"),
         }
     }
 

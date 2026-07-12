@@ -170,6 +170,38 @@ macro_rules! define_symbol_graph {
                 self.declaration_index.get(&declaration).copied()
             }
 
+            /// Returns the immediate semantic container of one symbol when it has one.
+            pub fn containing_symbol(&self, symbol: AnySymbolId) -> Option<AnySymbolId> {
+                match symbol {
+                    AnySymbolId::CompilerKnownEnvironment(_) | AnySymbolId::Package(_) => None,
+                    AnySymbolId::Module(_) => None,
+                    AnySymbolId::CallableParameterDefaultProvider(id) => self
+                        .callable_parameter_default_provider(id)
+                        .map(CallableParameterDefaultProviderSymbol::containing_symbol),
+                    AnySymbolId::StructFieldDefaultProvider(id) => self
+                        .struct_field_default_provider(id)
+                        .map(StructFieldDefaultProviderSymbol::containing_symbol),
+                    AnySymbolId::UnionPayloadDefaultProvider(id) => self
+                        .union_payload_default_provider(id)
+                        .map(UnionPayloadDefaultProviderSymbol::containing_symbol),
+                    AnySymbolId::ReceiverParameter(id) => self
+                        .receiver_parameter(id)
+                        .map(|receiver| receiver.owner().into_any()),
+                    $(AnySymbolId::$variant(id) => self.$singular(id).map(crate::$record::containing_symbol),)+
+                }
+            }
+
+            /// Returns the logical module containing one declaration or synthesized symbol.
+            pub fn containing_module(&self, mut symbol: AnySymbolId) -> Option<&ModuleSymbol> {
+                loop {
+                    if let AnySymbolId::Module(module) = symbol {
+                        return self.module(module);
+                    }
+
+                    symbol = self.containing_symbol(symbol)?;
+                }
+            }
+
             /// Returns whether an exact symbol's introducing syntax contains parser recovery.
             pub fn symbol_is_recovered(&self, symbol: AnySymbolId) -> Option<bool> {
                 match symbol {

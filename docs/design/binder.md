@@ -609,6 +609,11 @@ semantic value and diagnostics for one compilation fact key.
 Callers request checked units through typed symbol views or `Compilation` fact APIs. They do not construct a binder or call a
 phase-execution method.
 
+The workspace-internal cross-crate boundary uses category-specific `bind_*` functions to produce task-local pending checked units.
+A pending unit exposes its canonical direct nested-unit keys, but it cannot be published. `Compilation` requests every required
+nested fact through the checked-unit cache, then asks the pending unit to run the focused checker and assemble its immutable result.
+Cancellation or a nested query failure discards the pending parent. Nested diagnostics remain owned by the nested facts.
+
 Body presence is cheap identity-level information and does not force body binding:
 
 ```rust

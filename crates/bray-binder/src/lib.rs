@@ -2,12 +2,8 @@
 
 #![forbid(unsafe_code)]
 
+mod entry;
 mod fact;
-// TODO(binder): Remove this expectation when checked-unit fact providers finalize requests.
-#[expect(
-    dead_code,
-    reason = "checked-unit fact providers are the next production finalization consumers"
-)]
 mod publication;
 // TODO(binder): Remove this expectation when checked-unit fact providers call the binders.
 #[cfg_attr(
@@ -48,6 +44,13 @@ mod request;
 mod unit;
 
 pub use bray_checker::CheckerOutcome as BindingOutcome;
+pub use entry::{
+    CheckedUnitBindingError, PendingCheckedAnonymousCallable, PendingCheckedCallableBody,
+    PendingCheckedConstantTemplate, PendingCheckedConstraint, PendingCheckedContractClause,
+    PendingCheckedPredicateDefinition, PendingCheckedRuntimeDefault, bind_anonymous_callable,
+    bind_callable_body, bind_constant_template, bind_constraint, bind_contract_clause,
+    bind_predicate_definition, bind_runtime_default,
+};
 pub use fact::{
     BinderCancellation, BinderFactContext, BinderFactError, BinderFactResult,
     BindingSymbolFactProvider, SymbolFactProvider, TargetFactProvider, TargetFactResult,

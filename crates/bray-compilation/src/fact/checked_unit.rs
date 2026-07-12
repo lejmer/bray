@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 
 use bray_binder::{BinderDependency, CheckedUnitComputation};
 use bray_bound_tree::{
-    BoundUnitKey, BoundUnitKind, CheckedAnonymousCallable, CheckedCallableBody,
+    BoundUnitId, BoundUnitKey, BoundUnitKind, CheckedAnonymousCallable, CheckedCallableBody,
     CheckedConstantTemplateUnit, CheckedConstraintUnit, CheckedContractClauseUnit,
     CheckedPredicateDefinitionUnit, CheckedRuntimeDefaultUnit,
 };
@@ -12,32 +12,32 @@ use bray_diagnostics::DiagnosticResult;
 use super::{CancellationToken, CompilationFactKey, FactCell, FactQueryError, FactRuntime};
 
 #[derive(Debug)]
-// TODO(compilation): Remove this expectation when category-specific compilation accessors expose
-//                    published results and consume their dependency edges
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "checked-unit consumers are implemented by subsequent binder issues"
-    )
-)]
 pub(crate) struct PublishedCheckedUnit<T> {
     result: Arc<DiagnosticResult<T>>,
+    // TODO(compilation): Remove this expectation when incremental invalidation traverses edges.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "incremental dependency invalidation is implemented by a subsequent issue"
+        )
+    )]
     dependencies: Box<[BinderDependency]>,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "checked-unit consumers are implemented by subsequent binder issues"
-    )
-)]
 impl<T> PublishedCheckedUnit<T> {
     pub(crate) const fn result(&self) -> &Arc<DiagnosticResult<T>> {
         &self.result
     }
 
+    // TODO(compilation): Remove this expectation when incremental invalidation traverses edges.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "incremental dependency invalidation is implemented by a subsequent issue"
+        )
+    )]
     pub(crate) fn dependencies(&self) -> &[BinderDependency] {
         &self.dependencies
     }
@@ -106,6 +106,7 @@ impl<T> CheckedUnitFactCache<T> {
 
 #[derive(Debug)]
 pub(crate) struct CheckedUnitFactCaches {
+    unit_ids: Mutex<BTreeMap<BoundUnitKey, BoundUnitId>>,
     callable_body: CheckedUnitFactCache<CheckedCallableBody>,
     anonymous_callable: CheckedUnitFactCache<CheckedAnonymousCallable>,
     runtime_default: CheckedUnitFactCache<CheckedRuntimeDefaultUnit>,
@@ -118,6 +119,7 @@ pub(crate) struct CheckedUnitFactCaches {
 impl CheckedUnitFactCaches {
     pub(crate) const fn new() -> Self {
         Self {
+            unit_ids: Mutex::new(BTreeMap::new()),
             callable_body: CheckedUnitFactCache::new(BoundUnitKind::CallableBody),
             anonymous_callable: CheckedUnitFactCache::new(BoundUnitKind::AnonymousCallable),
             runtime_default: CheckedUnitFactCache::new(BoundUnitKind::RuntimeDefault),
@@ -136,6 +138,38 @@ impl CheckedUnitFactCaches {
         compute: impl FnOnce() -> Result<CheckedUnitComputation<T>, FactQueryError>,
     ) -> Result<Arc<PublishedCheckedUnit<T>>, FactQueryError> {
         T::cache(self).get_or_compute(runtime, cancellation, key, compute)
+    }
+
+    pub(crate) fn unit_id(&self, key: &BoundUnitKey) -> Result<BoundUnitId, FactQueryError> {
+        let mut unit_ids = self
+            .unit_ids
+            .lock()
+            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+        if let Some(unit) = unit_ids.get(key).copied() {
+            return Ok(unit);
+        }
+
+        let unit = BoundUnitId::try_from_index(unit_ids.len())
+            .ok_or(FactQueryError::InfrastructureFailure)?;
+
+        // The map and checked-unit caches retain the same Arc-backed immutable key.
+        unit_ids.insert(key.clone(), unit);
+
+        Ok(unit)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn is_published<T: CheckedUnitFact>(
+        &self,
+        key: &BoundUnitKey,
+    ) -> Result<bool, FactQueryError> {
+        let cells = T::cache(self)
+            .cells
+            .lock()
+            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+        Ok(cells.get(key).is_some_and(|cell| cell.get().is_some()))
     }
 }
 

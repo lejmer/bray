@@ -29,6 +29,7 @@ impl From<CheckedUnitBuildError> for CheckedUnitAssemblyError {
 
 pub(crate) fn assemble_callable_body<C, K>(
     request: BinderRequestResult,
+    nested_units: Vec<BoundUnitKey>,
     checker: &C,
     cancellation: &K,
     root: BoundCallableBodyId,
@@ -39,6 +40,7 @@ where
 {
     assemble_checked_unit(
         request,
+        nested_units,
         checker,
         cancellation,
         UnitCheckRoot::CallableBody(root),
@@ -57,6 +59,7 @@ where
 
 pub(crate) fn assemble_anonymous_callable<C, K>(
     request: BinderRequestResult,
+    nested_units: Vec<BoundUnitKey>,
     checker: &C,
     cancellation: &K,
     callable: AnonymousCallableSymbolId,
@@ -68,6 +71,7 @@ where
 {
     assemble_checked_unit(
         request,
+        nested_units,
         checker,
         cancellation,
         UnitCheckRoot::CallableBody(root),
@@ -89,6 +93,7 @@ macro_rules! define_expression_assembler {
     ($function:ident, $result:ty) => {
         pub(crate) fn $function<C, K>(
             request: BinderRequestResult,
+            nested_units: Vec<BoundUnitKey>,
             checker: &C,
             cancellation: &K,
             root: BoundExpressionId,
@@ -99,6 +104,7 @@ macro_rules! define_expression_assembler {
         {
             assemble_checked_unit(
                 request,
+                nested_units,
                 checker,
                 cancellation,
                 UnitCheckRoot::Expression(root),
@@ -128,6 +134,7 @@ define_expression_assembler!(assemble_contract_clause, CheckedContractClauseUnit
 
 fn assemble_checked_unit<T, C, K>(
     request: BinderRequestResult,
+    nested_units: Vec<BoundUnitKey>,
     checker: &C,
     cancellation: &K,
     root: UnitCheckRoot,
@@ -152,8 +159,6 @@ where
 
     let (unit, binder_diagnostics, dependencies) = request.into_parts();
     let diagnostics = binder_diagnostics.merged(&checker_diagnostics);
-    let nested_units = direct_nested_units(unit.key(), &dependencies);
-
     let (key, tree, local_symbols, _) = unit.into_parts();
 
     let checked = assemble(CheckedUnitParts {
@@ -170,7 +175,7 @@ where
     ))
 }
 
-fn direct_nested_units(
+pub(crate) fn direct_nested_units(
     enclosing: &BoundUnitKey,
     dependencies: &[BinderDependency],
 ) -> Vec<BoundUnitKey> {
@@ -242,11 +247,16 @@ mod tests {
         let facts = fixture.context();
         let (request, root) = frozen_error_body(&facts);
 
-        let computation =
-            match assemble_callable_body(request, &DefaultControlFlowChecker, &|| false, root) {
-                Ok(computation) => computation,
-                Err(error) => panic!("matching checked unit must assemble: {error:?}"),
-            };
+        let computation = match assemble_callable_body(
+            request,
+            Vec::new(),
+            &DefaultControlFlowChecker,
+            &|| false,
+            root,
+        ) {
+            Ok(computation) => computation,
+            Err(error) => panic!("matching checked unit must assemble: {error:?}"),
+        };
 
         let checked = computation.result().value();
 
@@ -276,7 +286,13 @@ mod tests {
         let facts = fixture.context();
         let (request, root) = frozen_error_body(&facts);
 
-        let result = assemble_callable_body(request, &DefaultControlFlowChecker, &|| true, root);
+        let result = assemble_callable_body(
+            request,
+            Vec::new(),
+            &DefaultControlFlowChecker,
+            &|| true,
+            root,
+        );
 
         assert!(matches!(result, Err(CheckedUnitAssemblyError::Cancelled)));
     }
@@ -297,10 +313,11 @@ mod tests {
         let (request, root) = frozen_error_body_with_diagnostic(&facts, binder_diagnostic.clone());
         let checker = DiagnosticChecker(checker_diagnostic.clone());
 
-        let computation = match assemble_callable_body(request, &checker, &|| false, root) {
-            Ok(computation) => computation,
-            Err(error) => panic!("matching checked unit must assemble: {error:?}"),
-        };
+        let computation =
+            match assemble_callable_body(request, Vec::new(), &checker, &|| false, root) {
+                Ok(computation) => computation,
+                Err(error) => panic!("matching checked unit must assemble: {error:?}"),
+            };
 
         assert_eq!(
             computation.result().diagnostics().diagnostics(),
