@@ -118,12 +118,12 @@ pub(crate) enum AbandonedDependencyRelevance {
     ProvenIrrelevant,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct BinderRequestCheckpoint {
     unit: BoundUnitLocalCheckpoint,
     diagnostics: usize,
-    expected_contexts: usize,
-    control_targets: usize,
+    expected_contexts: Box<[ExpectedContext]>,
+    control_targets: Box<[ControlTarget]>,
     dependency_log: usize,
 }
 
@@ -244,8 +244,11 @@ impl<'facts, C: BinderFactContext + ?Sized> BinderRequestContext<'facts, C> {
         BinderRequestCheckpoint {
             unit: self.unit.checkpoint(),
             diagnostics: self.diagnostics.len(),
-            expected_contexts: self.expected_contexts.len(),
-            control_targets: self.control_targets.len(),
+            // Candidates may pop an enclosing context or replace one at the same depth. These
+            // shallow Copy-only stacks therefore need exact snapshots while arena state uses
+            // compact lengths and rollback trails.
+            expected_contexts: self.expected_contexts.clone().into_boxed_slice(),
+            control_targets: self.control_targets.clone().into_boxed_slice(),
             dependency_log: self.dependency_log.len(),
         }
     }
@@ -256,8 +259,6 @@ impl<'facts, C: BinderFactContext + ?Sized> BinderRequestContext<'facts, C> {
         dependency_relevance: AbandonedDependencyRelevance,
     ) -> bool {
         if checkpoint.diagnostics > self.diagnostics.len()
-            || checkpoint.expected_contexts > self.expected_contexts.len()
-            || checkpoint.control_targets > self.control_targets.len()
             || checkpoint.dependency_log > self.dependency_log.len()
         {
             return false;
@@ -268,9 +269,8 @@ impl<'facts, C: BinderFactContext + ?Sized> BinderRequestContext<'facts, C> {
         }
 
         self.diagnostics.truncate(checkpoint.diagnostics);
-        self.expected_contexts
-            .truncate(checkpoint.expected_contexts);
-        self.control_targets.truncate(checkpoint.control_targets);
+        self.expected_contexts = checkpoint.expected_contexts.into_vec();
+        self.control_targets = checkpoint.control_targets.into_vec();
 
         if dependency_relevance == AbandonedDependencyRelevance::ProvenIrrelevant {
             for dependency in self.dependency_log.drain(checkpoint.dependency_log..) {
@@ -283,10 +283,10 @@ impl<'facts, C: BinderFactContext + ?Sized> BinderRequestContext<'facts, C> {
 
     pub(crate) fn candidate_context_is_balanced(
         &self,
-        checkpoint: BinderRequestCheckpoint,
+        checkpoint: &BinderRequestCheckpoint,
     ) -> bool {
-        checkpoint.expected_contexts == self.expected_contexts.len()
-            && checkpoint.control_targets == self.control_targets.len()
+        *checkpoint.expected_contexts == self.expected_contexts
+            && *checkpoint.control_targets == self.control_targets
     }
 
     pub(crate) fn finish(self) -> Result<BinderRequestResult, BoundUnitConstructionError> {
