@@ -285,9 +285,11 @@ mod tests {
             "    value;\n",
             "}",
         ));
+
         let facts = fixture.context();
         let (mut request, block) = crate::binding::test_support::request_and_block(&facts);
         let root = request.unit().root_scope();
+
         let mut operations = TestOperations::new(fixture.declared_type);
 
         let block_id = match request.bind_block(root, &block, &mut operations) {
@@ -307,7 +309,9 @@ mod tests {
         assert!(matches!(block.items()[0], BoundBlockItem::LocalBinding(_)));
         assert!(matches!(block.items()[1], BoundBlockItem::LocalConstant(_)));
         assert!(matches!(block.items()[2], BoundBlockItem::Expression(_)));
+
         assert_eq!(operations.visible_names, vec![(0, 0), (1, 0), (1, 1)]);
+
         assert_eq!(
             operations.control_targets,
             vec![ControlTargetKind::Block; 3]
@@ -353,6 +357,7 @@ mod tests {
         };
 
         assert_eq!(pattern.bindings().len(), 1);
+
         assert_eq!(
             pattern.mode(),
             bray_bound_tree::BoundPatternMode::Declaration
@@ -368,9 +373,11 @@ mod tests {
             "    let value = 1;\n",
             "}",
         ));
+
         let facts = fixture.context();
         let (mut request, block) = crate::binding::test_support::request_and_block(&facts);
         let root = request.unit().root_scope();
+
         let mut operations = TestOperations::failing(fixture.declared_type);
 
         let result = request.bind_block(root, &block, &mut operations);
@@ -402,9 +409,11 @@ mod tests {
             "    let = 2;\n",
             "}",
         ));
+
         let facts = fixture.context();
         let (mut request, block) = crate::binding::test_support::request_and_block(&facts);
         let root = request.unit().root_scope();
+
         let mut operations = TestOperations::new(fixture.declared_type);
 
         let block = match request.bind_block(root, &block, &mut operations) {
@@ -452,9 +461,11 @@ mod tests {
             "    const Size: i32 = 3;\n",
             "}",
         ));
+
         let facts = fixture.context();
         let (mut request, block) = crate::binding::test_support::request_and_block(&facts);
         let root = request.unit().root_scope();
+
         let mut operations = TestOperations::new(fixture.declared_type);
 
         let block = match request.bind_block(root, &block, &mut operations) {
