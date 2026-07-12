@@ -13,7 +13,7 @@ use super::{CancellationToken, CompilationFactKey, FactCell, FactQueryError, Fac
 
 #[derive(Debug)]
 // TODO(compilation): Remove this expectation when category-specific compilation accessors expose
-// published results and consume their dependency edges.
+//                    published results and consume their dependency edges
 #[cfg_attr(
     not(test),
     expect(
@@ -183,8 +183,9 @@ mod tests {
         let runtime = FactRuntime::default();
         let cancellation = CancellationToken::new();
         let cache = CheckedUnitFactCache::new(BoundUnitKind::CallableBody);
-        let key = callable_body_key(0);
         let computations = AtomicUsize::new(0);
+
+        let key = callable_body_key(0);
 
         let first = published(&cache, &runtime, &cancellation, key.clone(), || {
             computations.fetch_add(1, Ordering::SeqCst);
@@ -208,8 +209,9 @@ mod tests {
         let runtime = FactRuntime::default();
         let cancellation = CancellationToken::new();
         let cache = CheckedUnitFactCache::new(BoundUnitKind::CallableBody);
-        let key = callable_body_key(1);
         let computations = AtomicUsize::new(0);
+
+        let key = callable_body_key(1);
 
         std::thread::scope(|scope| {
             let handles = (0..8)
@@ -247,6 +249,7 @@ mod tests {
         let runtime = FactRuntime::default();
         let cancellation = CancellationToken::new();
         let cache = CheckedUnitFactCache::new(BoundUnitKind::CallableBody);
+
         let key = callable_body_key(2);
 
         let cancelled = cache.get_or_compute(&runtime, &cancellation, key.clone(), || {
@@ -269,6 +272,7 @@ mod tests {
         let runtime = FactRuntime::default();
         let cancellation = CancellationToken::new();
         let cache = CheckedUnitFactCache::new(BoundUnitKind::CallableBody);
+
         let first_key = callable_body_key(3);
         let second_key = callable_body_key(4);
 
@@ -313,8 +317,10 @@ mod tests {
         let runtime = FactRuntime::default();
         let cancellation = CancellationToken::new();
         let cache = CheckedUnitFactCache::new(BoundUnitKind::CallableBody);
+
         let outer_key = callable_body_key(5);
         let nested_key = callable_body_key(6);
+
         let nested_diagnostic = diagnostic(1);
 
         let outer = published(&cache, &runtime, &cancellation, outer_key, || {
@@ -339,7 +345,9 @@ mod tests {
             nested.result().diagnostics().diagnostics(),
             &[nested_diagnostic]
         );
+
         assert_eq!(outer.result().diagnostics().diagnostics(), &[diagnostic(2)]);
+
         assert_eq!(
             outer.dependencies(),
             &[bray_binder::BinderDependency::Unit(nested_key)]

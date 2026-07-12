@@ -294,7 +294,7 @@ impl Compilation {
     }
 
     // TODO(compilation): Remove this expectation when category-specific binders request checked
-    // unit publication through this internal compilation fact boundary.
+    //                    unit publication through this internal compilation fact boundary
     #[cfg_attr(
         not(test),
         expect(
@@ -550,10 +550,14 @@ mod tests {
     #[test]
     fn checked_units_are_request_scoped_lazy_compilation_facts() {
         let compilation = declaration_compilation();
+
         let cancellation = CancellationToken::new();
         let computations = AtomicUsize::new(0);
+
         let (key, body) = checked_callable_body(20);
+
         let dependency = BinderDependency::Unit(constant_template_key(21));
+
         let diagnostic = Diagnostic::new(
             DiagnosticId::new(7),
             DiagnosticKind::DeclarationDuplicateName,
@@ -583,15 +587,18 @@ mod tests {
         };
 
         assert!(Arc::ptr_eq(&first, &second));
+
         assert_eq!(first.result().value(), &body);
         assert_eq!(first.result().diagnostics().diagnostics(), &[diagnostic]);
         assert_eq!(first.dependencies(), &[dependency]);
         assert_eq!(computations.load(Ordering::SeqCst), 1);
 
         let cancelled = CancellationToken::new();
+
         cancelled.cancel();
 
         let (retry_key, retry_body) = checked_callable_body(22);
+
         let cancelled_result = compilation.checked_unit(retry_key.clone(), &cancelled, |_| {
             Ok(CheckedUnitComputation::new(
                 DiagnosticResult::without_diagnostics(retry_body.clone()),
