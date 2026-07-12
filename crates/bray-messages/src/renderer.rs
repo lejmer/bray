@@ -398,6 +398,28 @@ mod tests {
         let rendered = DiagnosticRenderer::english().render(&diagnostic);
 
         assert_eq!(rendered.message(), "name 'Size' does not refer to a type");
+
+        let shadowing = Diagnostic::new(
+            DiagnosticId::new(15),
+            DiagnosticKind::BindingNameAlreadyDefined,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::referenced_name("value"));
+
+        let incoherent = Diagnostic::new(
+            DiagnosticId::new(16),
+            DiagnosticKind::BindingIncoherentAlternativePattern,
+            SeverityKind::Error,
+        );
+
+        assert_eq!(
+            DiagnosticRenderer::english().render(&shadowing).message(),
+            "name is already defined: 'value'"
+        );
+        assert_eq!(
+            DiagnosticRenderer::english().render(&incoherent).message(),
+            "alternative patterns must bind the same names"
+        );
     }
 
     #[test]

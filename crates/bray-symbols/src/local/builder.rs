@@ -417,6 +417,14 @@ impl LocalSymbolSnapshotBuilder {
         Ok(scope.parent)
     }
 
+    /// Returns the lexical boundary category of one scope under construction.
+    pub fn scope_boundary(
+        &self,
+        scope: LocalScopeId,
+    ) -> Result<LocalScopeBoundary, LocalSymbolBuildError> {
+        self.checked_scope(scope).map(|scope| scope.boundary)
+    }
+
     /// Returns named local candidates currently visible in one scope under construction.
     pub fn local_symbols_named(
         &self,

@@ -3,6 +3,16 @@
 #![forbid(unsafe_code)]
 
 mod fact;
+// TODO(binder): Remove this expectation when BRA-117 connects expression binding to these
+// grammar-facing block, pattern, and anonymous-callable binders.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "expression binding is the next consumer of these grammar-facing binders"
+    )
+)]
+mod binding;
 mod result;
 
 // TODO(binder): Remove this expectation when category-specific entrypoints consume name lookup.

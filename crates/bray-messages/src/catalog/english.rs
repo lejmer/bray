@@ -130,6 +130,16 @@ const BINDING_UNRESOLVED_NAME: &[MessageTemplatePart] = &[
     MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
 ];
 
+const BINDING_NAME_ALREADY_DEFINED: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("name is already defined: "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
+];
+
+const BINDING_INCOHERENT_ALTERNATIVE_PATTERN: &[MessageTemplatePart] =
+    &[MessageTemplatePart::Text(
+        "alternative patterns must bind the same names",
+    )];
+
 const BINDING_AMBIGUOUS_NAME: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("name "),
     MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
@@ -421,6 +431,12 @@ pub(super) const fn english_diagnostic_template(kind: DiagnosticKind) -> Message
         DiagnosticKind::BindingInaccessibleName => MessageTemplate::new(BINDING_INACCESSIBLE_NAME),
         DiagnosticKind::BindingWrongNameKind => MessageTemplate::new(BINDING_WRONG_NAME_KIND),
         DiagnosticKind::BindingMalformedName => MessageTemplate::new(BINDING_MALFORMED_NAME),
+        DiagnosticKind::BindingNameAlreadyDefined => {
+            MessageTemplate::new(BINDING_NAME_ALREADY_DEFINED)
+        }
+        DiagnosticKind::BindingIncoherentAlternativePattern => {
+            MessageTemplate::new(BINDING_INCOHERENT_ALTERNATIVE_PATTERN)
+        }
         DiagnosticKind::InterfaceInvalidMagic
         | DiagnosticKind::InterfaceUnsupportedFormatRevision
         | DiagnosticKind::InterfaceUnsupportedLanguageRevision

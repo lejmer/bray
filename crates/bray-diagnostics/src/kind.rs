@@ -87,6 +87,10 @@ pub enum DiagnosticKind {
     BindingWrongNameKind,
     /// Name binding found a candidate whose declaration surface is malformed.
     BindingMalformedName,
+    /// A local declaration attempts to shadow an existing ordinary name.
+    BindingNameAlreadyDefined,
+    /// Alternatives do not introduce one coherent set of pattern bindings.
+    BindingIncoherentAlternativePattern,
 }
 
 impl DiagnosticKind {
@@ -134,6 +138,8 @@ impl DiagnosticKind {
             Self::BindingInaccessibleName => 6003,
             Self::BindingWrongNameKind => 6004,
             Self::BindingMalformedName => 6005,
+            Self::BindingNameAlreadyDefined => 6006,
+            Self::BindingIncoherentAlternativePattern => 6007,
         };
 
         DiagnosticCode::new(raw)
@@ -185,6 +191,8 @@ impl DiagnosticKind {
             Self::BindingInaccessibleName => "binding_inaccessible_name",
             Self::BindingWrongNameKind => "binding_wrong_name_kind",
             Self::BindingMalformedName => "binding_malformed_name",
+            Self::BindingNameAlreadyDefined => "binding_name_already_defined",
+            Self::BindingIncoherentAlternativePattern => "binding_incoherent_alternative_pattern",
         }
     }
 }

@@ -94,16 +94,28 @@ fn push_children(tree: &BoundTree, node: AnyBoundNodeId, pending: &mut Vec<Pendi
                 pending.push(PendingEvent::Enter(block.into()));
             }
         }
-        AnyBoundNodeId::Pattern(_) => {}
-        AnyBoundNodeId::Block(id) => {
-            if let Some(block) = tree.block(id) {
+        AnyBoundNodeId::Pattern(id) => {
+            if let Some(pattern) = tree.pattern(id) {
                 pending.extend(
-                    block
-                        .expressions()
+                    pattern
+                        .children()
                         .iter()
                         .rev()
-                        .map(|expression| PendingEvent::Enter((*expression).into())),
+                        .map(|pattern| PendingEvent::Enter((*pattern).into())),
                 );
+            }
+        }
+        AnyBoundNodeId::Block(id) => {
+            if let Some(block) = tree.block(id) {
+                for item in block.items().iter().rev() {
+                    if let Some(expression) = item.expression() {
+                        pending.push(PendingEvent::Enter(expression.into()));
+                    }
+
+                    if let Some(pattern) = item.pattern() {
+                        pending.push(PendingEvent::Enter(pattern.into()));
+                    }
+                }
             }
         }
         AnyBoundNodeId::CallableBody(id) => {
@@ -119,8 +131,8 @@ mod tests {
     use super::{BoundWalkControl, BoundWalkEvent, BoundWalkOutcome, walk_bound_tree};
     use crate::test_support::{error_type, source_anchor};
     use crate::{
-        AnyBoundNodeId, BoundBlock, BoundCallableBody, BoundErrorExpression, BoundExpression,
-        BoundNodeOrigin, BoundTreeBuilder, BoundUnitId,
+        AnyBoundNodeId, BoundBlock, BoundBlockItem, BoundCallableBody, BoundErrorExpression,
+        BoundExpression, BoundNodeOrigin, BoundTreeBuilder, BoundUnitId,
     };
 
     #[test]
@@ -213,7 +225,14 @@ mod tests {
         let first = push_error_expression(&mut builder, origin);
         let second = push_error_expression(&mut builder, origin);
 
-        let Ok(block) = builder.push_block(BoundBlock::new(origin, [first, second], true)) else {
+        let Ok(block) = builder.push_block(BoundBlock::new(
+            origin,
+            [
+                BoundBlockItem::Expression(first),
+                BoundBlockItem::Expression(second),
+            ],
+            true,
+        )) else {
             panic!("test expressions belong to the test builder");
         };
 

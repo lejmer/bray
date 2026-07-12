@@ -160,12 +160,12 @@ pub(super) fn representative_binding(
     }
 }
 
-pub(super) fn push_anonymous_callable(
+pub(super) fn push_root_anonymous_callable(
     builder: &mut BoundUnitLocalBuilder,
     introduction_scope: LocalScopeId,
     fixture: &Fixture,
 ) -> AnonymousCallableBoundary {
-    match builder.push_anonymous_callable(
+    match builder.push_root_anonymous_callable(
         introduction_scope,
         BoundSourceAnchor::new(fixture.first, fixture.version),
         fixture.first.full_range().start(),

@@ -359,6 +359,8 @@ pub enum DiagnosticNameKind {
     Trait,
     /// A runtime or compile-time value.
     Value,
+    /// A declaration usable as a named pattern.
+    Pattern,
     /// An explicit callable overload family.
     CallableOverload,
     /// A declaration associated with a module, type, trait, or implementation.
@@ -374,6 +376,7 @@ impl DiagnosticNameKind {
             Self::Type => "type",
             Self::Trait => "trait",
             Self::Value => "value",
+            Self::Pattern => "pattern",
             Self::CallableOverload => "callable_overload",
             Self::Member => "member",
         }

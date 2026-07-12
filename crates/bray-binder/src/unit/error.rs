@@ -1,3 +1,4 @@
+use bray_bound_tree::BoundTreeBuildError;
 use bray_source::{SourceId, SourceVersion};
 use bray_symbols::{
     AnonymousCallableSymbolId, AnyLocalSymbolId, LocalScopeId, LocalSymbolBuildError, SymbolOrdinal,
@@ -6,6 +7,8 @@ use bray_symbols::{
 /// A structural failure while integrating bound-tree and local-region construction.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum BoundUnitConstructionError {
+    /// The bound-tree contract rejected a node relationship.
+    BoundTree(BoundTreeBuildError),
     /// The local-symbol contract rejected a scope or symbol relationship.
     LocalSymbol(LocalSymbolBuildError),
     /// A named local identity was activated more than once.
@@ -40,6 +43,12 @@ pub(crate) enum BoundUnitConstructionError {
         /// The source revision supplied for the anonymous callable.
         actual: SourceVersion,
     },
+}
+
+impl From<BoundTreeBuildError> for BoundUnitConstructionError {
+    fn from(error: BoundTreeBuildError) -> Self {
+        Self::BoundTree(error)
+    }
 }
 
 impl From<LocalSymbolBuildError> for BoundUnitConstructionError {
