@@ -16,7 +16,7 @@ pub trait UnitChecker: Sync {
 
 #[cfg(test)]
 mod tests {
-    use bray_bound_tree::BoundUnitId;
+    use bray_bound_tree::{BoundUnitId, ControlCompletionKind};
 
     use super::UnitChecker;
     use crate::test_support::{callable_key, recovered_tree};
@@ -41,6 +41,13 @@ mod tests {
         };
 
         assert_eq!(result.value().unit(), unit);
+        assert!(
+            result
+                .value()
+                .completion()
+                .contains(ControlCompletionKind::Recovered)
+        );
+        assert!(result.value().is_recovered());
         assert!(result.diagnostics().is_empty());
     }
 

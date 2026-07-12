@@ -11,6 +11,10 @@ mod service;
 mod test_support;
 
 pub use cancellation::CheckerCancellation;
-pub use outcome::{CheckerOutcome, UnitCheckConclusions};
+pub use outcome::{
+    AnonymousCallableCheckConclusions, CallableBodyCheckConclusions, CheckerOutcome,
+    ConstantTemplateCheckConclusions, ConstraintCheckConclusions, ContractClauseCheckConclusions,
+    PredicateDefinitionCheckConclusions, RuntimeDefaultCheckConclusions, UnitCheckConclusions,
+};
 pub use request::{UnitCheckRequest, UnitCheckRequestError, UnitCheckRoot};
 pub use service::UnitChecker;

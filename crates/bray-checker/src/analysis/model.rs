@@ -75,7 +75,7 @@ pub(crate) enum AnalysisEdgeKind {
     Recovery,
 }
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub(crate) enum AnalysisRefinement {
     NullablePresence {
         expression: BoundExpressionId,
