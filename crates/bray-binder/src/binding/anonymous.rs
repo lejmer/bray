@@ -125,6 +125,7 @@ mod tests {
 
         let facts = fixture.context();
         let (mut request, block) = crate::binding::test_support::request_and_block(&facts);
+
         let Some(lambda) =
             crate::binding::test_support::first_descendant::<LambdaExpressionSyntax>(&block)
         else {
@@ -182,6 +183,7 @@ mod tests {
 
         let mut request =
             BinderRequestContext::new(&facts, BindingContext::CallableBody, nested_unit);
+
         let root = request.unit().root_scope();
 
         let boundary = match request.bind_anonymous_callable_boundary(root, &lambda) {
@@ -234,6 +236,7 @@ mod tests {
         };
 
         assert_eq!(callable.parameters().len(), 1);
+
         assert_eq!(
             nested.unit().local_symbols().key().role(),
             bray_symbols::LocalSymbolRegionRole::AnonymousCallable
