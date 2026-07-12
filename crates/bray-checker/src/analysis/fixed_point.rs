@@ -73,6 +73,7 @@ pub(crate) fn solve_fixed_point<D: FixedPointDomain>(
     let mut states = std::iter::repeat_with(|| domain.bottom())
         .take(graph.blocks().len())
         .collect::<Vec<_>>();
+
     let mut queued = vec![false; graph.blocks().len()];
     let mut worklist = VecDeque::new();
 
@@ -224,25 +225,28 @@ fn enqueue(block: AnalysisBlockId, worklist: &mut VecDeque<AnalysisBlockId>, que
     }
 
     *marker = true;
+
     worklist.push_back(block);
 }
 
 #[cfg(test)]
 mod tests {
+    use bray_bound_tree::BoundUnitId;
+
     use super::{FixedPointDomain, FixedPointOutcome, FlowDirection, solve_fixed_point};
     use crate::analysis::id::{AnalysisBlockId, AnalysisEdgeId};
     use crate::analysis::model::{
         AnalysisBlock, AnalysisEdge, AnalysisEdgeKind, AnalysisExit, AnalysisExitKind,
         ControlFlowGraph,
     };
-    use bray_bound_tree::BoundUnitId;
+    use crate::analysis::reachability::ReachabilityDomain;
 
     #[test]
     fn forward_and_backward_domains_use_the_same_indexes() {
         let graph = linear_graph();
 
-        let forward = solve_fixed_point(&graph, &BooleanDomain::forward(), &|| false);
-        let backward = solve_fixed_point(&graph, &BooleanDomain::backward(), &|| false);
+        let forward = solve_fixed_point(&graph, &ReachabilityDomain::forward(), &|| false);
+        let backward = solve_fixed_point(&graph, &ReachabilityDomain::backward(), &|| false);
 
         let FixedPointOutcome::Complete(forward) = forward else {
             panic!("forward analysis must complete");
@@ -259,7 +263,7 @@ mod tests {
     #[test]
     fn cancellation_discards_fixed_point_state() {
         let graph = linear_graph();
-        let outcome = solve_fixed_point(&graph, &BooleanDomain::forward(), &|| true);
+        let outcome = solve_fixed_point(&graph, &ReachabilityDomain::forward(), &|| true);
 
         assert_eq!(outcome, FixedPointOutcome::Cancelled);
     }
@@ -267,7 +271,7 @@ mod tests {
     #[test]
     fn fixed_point_results_reject_blocks_from_another_unit() {
         let graph = linear_graph();
-        let outcome = solve_fixed_point(&graph, &BooleanDomain::forward(), &|| false);
+        let outcome = solve_fixed_point(&graph, &ReachabilityDomain::forward(), &|| false);
 
         let FixedPointOutcome::Complete(result) = outcome else {
             panic!("forward analysis must complete");
@@ -288,10 +292,6 @@ mod tests {
         };
 
         assert_eq!(result.state(graph.entry()), Some(&3));
-    }
-
-    struct BooleanDomain {
-        direction: FlowDirection,
     }
 
     struct CounterDomain;
@@ -346,63 +346,6 @@ mod tests {
 
         fn convergence_bound(&self, _: &ControlFlowGraph) -> usize {
             3
-        }
-    }
-
-    impl BooleanDomain {
-        const fn forward() -> Self {
-            Self {
-                direction: FlowDirection::Forward,
-            }
-        }
-
-        const fn backward() -> Self {
-            Self {
-                direction: FlowDirection::Backward,
-            }
-        }
-    }
-
-    impl FixedPointDomain for BooleanDomain {
-        type State = bool;
-
-        fn direction(&self) -> FlowDirection {
-            self.direction
-        }
-
-        fn bottom(&self) -> Self::State {
-            false
-        }
-
-        fn boundary(&self) -> Self::State {
-            true
-        }
-
-        fn merge_boundary(&self, target: &mut Self::State, incoming: &Self::State) -> bool {
-            let merged = *target || *incoming;
-            let changed = *target != merged;
-
-            *target = merged;
-
-            changed
-        }
-
-        fn propagate(
-            &self,
-            _: &AnalysisBlock,
-            source: &Self::State,
-            _: &AnalysisEdge,
-            target: &mut Self::State,
-        ) -> bool {
-            self.merge_boundary(target, source)
-        }
-
-        fn propagate_self(&self, _: &AnalysisBlock, _: &mut Self::State, _: &AnalysisEdge) -> bool {
-            false
-        }
-
-        fn convergence_bound(&self, graph: &ControlFlowGraph) -> usize {
-            graph.blocks().len()
         }
     }
 

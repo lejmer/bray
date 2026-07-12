@@ -407,6 +407,7 @@ mod tests {
         let key = callable_key();
         let unit = BoundUnitId::new(7);
         let origin = BoundNodeOrigin::source(key.source());
+
         let mut builder = BoundTreeBuilder::new(unit);
 
         let left = push_error_expression(&mut builder, origin);
@@ -440,6 +441,7 @@ mod tests {
         let key = callable_key();
         let unit = BoundUnitId::new(8);
         let origin = BoundNodeOrigin::source(key.source());
+
         let mut builder = BoundTreeBuilder::new(unit);
 
         let condition = push_error_expression(&mut builder, origin);
@@ -517,6 +519,7 @@ mod tests {
         let key = callable_key();
         let unit = BoundUnitId::new(9);
         let origin = BoundNodeOrigin::source(key.source());
+
         let mut builder = BoundTreeBuilder::new(unit);
 
         let source = push_error_expression(&mut builder, origin);

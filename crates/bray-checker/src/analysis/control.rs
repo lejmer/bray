@@ -65,14 +65,12 @@ impl ControlFlowGraphBuilder<'_> {
                 let current = self.build_operands(expression.operands(), current)?;
 
                 self.push_bound(current, id.into());
-
                 self.build_propagation(id, current, false)
             }
             BoundStructuredExpressionKind::NullablePropagation => {
                 let current = self.build_operands(expression.operands(), current)?;
 
                 self.push_bound(current, id.into());
-
                 self.build_propagation(id, current, true)
             }
             BoundStructuredExpressionKind::Panic => {
@@ -153,6 +151,7 @@ impl ControlFlowGraphBuilder<'_> {
 
         let join = self.push_block();
         let right_entry = self.push_block();
+
         let (right_kind, bypass_kind) = match operator {
             BoundOperator::LogicalAnd => (
                 AnalysisEdgeKind::ConditionalTrue,
@@ -322,6 +321,7 @@ impl ControlFlowGraphBuilder<'_> {
                 AnalysisEdgeKind::MatchArm,
                 Some(refinement),
             );
+
             self.push_edge(
                 candidate,
                 next_candidate,
@@ -375,6 +375,7 @@ impl ControlFlowGraphBuilder<'_> {
 
         for (index, branch) in branches.iter().copied().enumerate() {
             let entry = self.push_block();
+
             let kind = if index == 0 {
                 AnalysisEdgeKind::ConditionalTrue
             } else {

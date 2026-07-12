@@ -42,18 +42,18 @@ impl crate::CheckerCancellation for UnitCheckRequest<'_> {
     }
 }
 
-struct ReachabilityDomain {
+pub(super) struct ReachabilityDomain {
     direction: FlowDirection,
 }
 
 impl ReachabilityDomain {
-    const fn forward() -> Self {
+    pub(super) const fn forward() -> Self {
         Self {
             direction: FlowDirection::Forward,
         }
     }
 
-    const fn backward() -> Self {
+    pub(super) const fn backward() -> Self {
         Self {
             direction: FlowDirection::Backward,
         }
