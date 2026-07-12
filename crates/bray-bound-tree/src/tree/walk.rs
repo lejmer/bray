@@ -87,11 +87,33 @@ fn contains(tree: &BoundTree, node: AnyBoundNodeId) -> bool {
 fn push_children(tree: &BoundTree, node: AnyBoundNodeId, pending: &mut Vec<PendingEvent>) {
     match node {
         AnyBoundNodeId::Expression(id) => {
-            if let Some(block) = tree
-                .expression(id)
-                .and_then(|expression| expression.block())
-            {
-                pending.push(PendingEvent::Enter(block.into()));
+            if let Some(expression) = tree.expression(id) {
+                pending.extend(
+                    expression
+                        .child_blocks()
+                        .collect::<Vec<_>>()
+                        .into_iter()
+                        .rev()
+                        .map(|block| PendingEvent::Enter(block.into())),
+                );
+
+                pending.extend(
+                    expression
+                        .child_patterns()
+                        .collect::<Vec<_>>()
+                        .into_iter()
+                        .rev()
+                        .map(|pattern| PendingEvent::Enter(pattern.into())),
+                );
+
+                pending.extend(
+                    expression
+                        .child_expressions()
+                        .collect::<Vec<_>>()
+                        .into_iter()
+                        .rev()
+                        .map(|expression| PendingEvent::Enter(expression.into())),
+                );
             }
         }
         AnyBoundNodeId::Pattern(id) => {

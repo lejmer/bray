@@ -134,7 +134,12 @@ where
             return Err(super::BindingError::ControlTargetMismatch);
         }
 
-        let block = BoundBlock::new(self.source_origin(syntax), items, syntax.is_recovered());
+        let is_recovered = syntax.is_recovered()
+            || items
+                .iter()
+                .any(|item| bound_block_item_is_recovered(self, item));
+
+        let block = BoundBlock::new(self.source_origin(syntax), items, is_recovered);
 
         self.unit_mut()
             .tree_mut()
@@ -225,6 +230,26 @@ where
             initializer,
             syntax.is_recovered(),
         ))
+    }
+}
+
+fn bound_block_item_is_recovered<C>(
+    request: &BinderRequestContext<'_, C>,
+    item: &BoundBlockItem,
+) -> bool
+where
+    C: BinderFactContext + ?Sized,
+{
+    match item {
+        BoundBlockItem::LocalBinding(binding) => {
+            binding.is_recovered()
+                || request.expression_is_recovered(binding.initializer())
+                || request.pattern_is_recovered(binding.pattern())
+        }
+        BoundBlockItem::LocalConstant(constant) => {
+            constant.is_recovered() || request.expression_is_recovered(constant.initializer())
+        }
+        BoundBlockItem::Expression(expression) => request.expression_is_recovered(*expression),
     }
 }
 

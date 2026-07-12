@@ -27,11 +27,14 @@ pub use dependency::{
     GuardedBoundDependencyRequirement, LifecycleObligationId, ScopedCapabilityId,
 };
 pub use node::{
-    AnyBoundNodeId, BoundBlock, BoundBlockExpression, BoundBlockId, BoundBlockItem,
-    BoundCallableBody, BoundCallableBodyId, BoundCallableBodyKind, BoundErrorCallableBody,
-    BoundErrorExpression, BoundExpression, BoundExpressionId, BoundLocalBinding,
-    BoundLocalConstant, BoundNodeKind, BoundPattern, BoundPatternId, BoundPatternKind,
-    BoundPatternMode, BoundPatternTarget, ExactBoundNodeId,
+    AnyBoundNodeId, BoundAnonymousCallableExpression, BoundArgument, BoundAssignmentExpression,
+    BoundBinaryExpression, BoundBlock, BoundBlockExpression, BoundBlockId, BoundBlockItem,
+    BoundCallExpression, BoundCallableBody, BoundCallableBodyId, BoundCallableBodyKind,
+    BoundConversionExpression, BoundErrorCallableBody, BoundErrorExpression, BoundExpression,
+    BoundExpressionId, BoundLocalBinding, BoundLocalConstant, BoundMemberSelector,
+    BoundNameExpression, BoundNodeKind, BoundOperator, BoundPattern, BoundPatternId,
+    BoundPatternKind, BoundPatternMode, BoundPatternTarget, BoundStructuredExpression,
+    BoundStructuredExpressionKind, BoundUnaryExpression, BoundValueTarget, ExactBoundNodeId,
 };
 pub use origin::{
     BoundNodeOrdinal, BoundNodeOrigin, BoundSynthesisRole, SynthesizedBoundNodeOrigin,

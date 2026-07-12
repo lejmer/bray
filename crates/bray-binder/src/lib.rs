@@ -3,8 +3,7 @@
 #![forbid(unsafe_code)]
 
 mod fact;
-// TODO(binder): Remove this expectation when BRA-117 connects expression binding to these
-// grammar-facing block, pattern, and anonymous-callable binders.
+// TODO(binder): Remove this expectation when checked-unit fact providers call the binders.
 #[cfg_attr(
     not(test),
     expect(
@@ -15,24 +14,30 @@ mod fact;
 mod binding;
 mod result;
 
-// TODO(binder): Remove this expectation when category-specific entrypoints consume name lookup.
-#[expect(
-    dead_code,
-    reason = "category-specific binder entrypoints do not consume name lookup yet"
+// TODO(binder): Remove this expectation when checked-unit fact providers expose binder entrypoints.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "checked-unit fact providers are the next production name-lookup consumers"
+    )
 )]
 mod lookup;
 
-// TODO(binder): Remove this expectation when category-specific entrypoints construct transactions.
+// TODO(binder): Remove this expectation when checked-unit fact providers create requests.
 #[expect(
     dead_code,
-    reason = "category-specific binder entrypoints do not consume request transactions yet"
+    reason = "checked-unit fact providers are the next production request consumers"
 )]
 mod request;
 
-// Category-specific binder entrypoints will consume this task-local construction layer.
-#[expect(
-    dead_code,
-    reason = "category-specific binder entrypoints do not consume this task-local layer yet"
+// TODO(binder): Remove this expectation when checked-unit fact providers construct units.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "checked-unit fact providers are the next production unit consumers"
+    )
 )]
 mod unit;
 

@@ -6,6 +6,5 @@ mod path;
 pub(crate) use binding::lookup_unqualified_name;
 #[cfg(test)]
 pub(crate) use category::ResolvedName;
-#[cfg(test)]
-pub(crate) use path::NameAccess;
-pub(crate) use path::PathBindingContext;
+pub(crate) use category::ResolvedValueName;
+pub(crate) use path::{NameAccess, PathBindingContext};

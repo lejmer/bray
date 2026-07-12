@@ -60,6 +60,10 @@ impl PathBindingContext {
     pub(crate) const fn access(self) -> NameAccess {
         self.access
     }
+
+    pub(crate) const fn module_owner(self) -> ModuleOwnerId {
+        self.module_owner
+    }
 }
 
 struct PathLookup {
@@ -225,6 +229,31 @@ where
         path: &PathSyntax,
     ) -> NameLookupResult<ResolvedValueName> {
         self.bind_classified_path(context, path, DiagnosticNameKind::Value, classify_value)
+    }
+
+    pub(crate) fn bind_value_identifier(
+        &mut self,
+        context: PathBindingContext,
+        source: &SourceSnapshot,
+        token: SyntaxToken,
+    ) -> NameLookupResult<ResolvedValueName> {
+        let Some(reference) = token_reference(source, token) else {
+            return malformed_lookup();
+        };
+
+        let result = lookup_unqualified_name(
+            self.unit(),
+            self.facts().symbols(),
+            context.scope,
+            context.module,
+            reference.text(),
+            context.access,
+        )
+        .classify(classify_value);
+
+        report_lookup_result(self, &reference, DiagnosticNameKind::Value, &result);
+
+        result
     }
 
     pub(crate) fn bind_callable_overload_path(

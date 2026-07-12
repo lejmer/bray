@@ -1,6 +1,7 @@
 mod anonymous;
 mod block;
 mod error;
+mod expression;
 mod name;
 mod pattern;
 mod request;
