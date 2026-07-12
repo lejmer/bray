@@ -60,6 +60,10 @@ impl PathBindingContext {
     pub(crate) const fn access(self) -> NameAccess {
         self.access
     }
+
+    pub(crate) const fn module_owner(self) -> ModuleOwnerId {
+        self.module_owner
+    }
 }
 
 struct PathLookup {
@@ -225,6 +229,30 @@ where
         path: &PathSyntax,
     ) -> NameLookupResult<ResolvedValueName> {
         self.bind_classified_path(context, path, DiagnosticNameKind::Value, classify_value)
+    }
+
+    pub(crate) fn bind_reference_identifier(
+        &mut self,
+        context: PathBindingContext,
+        source: &SourceSnapshot,
+        token: SyntaxToken,
+    ) -> NameLookupResult<ResolvedName> {
+        let Some(reference) = token_reference(source, token) else {
+            return malformed_lookup();
+        };
+
+        let result = lookup_unqualified_name(
+            self.unit(),
+            self.facts().symbols(),
+            context.scope,
+            context.module,
+            reference.text(),
+            context.access,
+        );
+
+        report_lookup_result(self, &reference, DiagnosticNameKind::Value, &result);
+
+        result
     }
 
     pub(crate) fn bind_callable_overload_path(
@@ -531,12 +559,22 @@ mod tests {
     #[test]
     fn typed_paths_resolve_modules_declarations_overloads_and_members() {
         let fact_fixture = FactFixture::from_source(concat!(
-            "module app; ",
-            "const Size: bool = true; ",
-            "struct Point { x: bool; } ",
-            "trait Display {} ",
-            "func choose_value() {} ",
-            "overload choose = {choose_value}"
+            "module app;\n",
+            "const size: bool = true;\n",
+            "struct Point\n",
+            "{\n",
+            "    x: bool;\n",
+            "}\n",
+            "trait Display\n",
+            "{\n",
+            "}\n",
+            "func choose_value()\n",
+            "{\n",
+            "}\n",
+            "overload choose =\n",
+            "{\n",
+            "    choose_value\n",
+            "}",
         ));
 
         let facts = fact_fixture.context();
@@ -565,7 +603,7 @@ mod tests {
         ));
 
         assert!(matches!(
-            request.bind_value_path(context, &path("Size")),
+            request.bind_value_path(context, &path("size")),
             MemberLookupResult::Found(ResolvedValueName::Constant(_))
         ));
 
@@ -717,8 +755,11 @@ mod tests {
 
     #[test]
     fn recovered_surface_names_in_lexical_scopes_remain_malformed() {
-        let fact_fixture =
-            FactFixture::from_source("module app; const Size: bool = true; func broken(");
+        let fact_fixture = FactFixture::from_source(concat!(
+            "module app;\n",
+            "const size: bool = true;\n",
+            "func broken(",
+        ));
         let facts = fact_fixture.context();
         let unit_fixture = fixture();
         let mut unit = builder(&unit_fixture, LocalSymbolRegionId::new(36));
@@ -803,12 +844,14 @@ mod tests {
     #[test]
     fn failed_lookup_preserves_shape_and_emits_structured_diagnostics() {
         let fact_fixture = FactFixture::from_source(concat!(
-            "module app; ",
-            "const Size: bool = true; ",
-            "internal const Secret: bool = true; ",
-            "func duplicate() {} ",
-            "const duplicate: bool = true; ",
-            "func broken("
+            "module app;\n",
+            "const size: bool = true;\n",
+            "internal const secret: bool = true;\n",
+            "func duplicate()\n",
+            "{\n",
+            "}\n",
+            "const duplicate: bool = true;\n",
+            "func broken(",
         ));
 
         let facts = fact_fixture.context();
@@ -827,12 +870,12 @@ mod tests {
         );
 
         assert!(matches!(
-            request.bind_type_path(public, &path("Size")),
+            request.bind_type_path(public, &path("size")),
             MemberLookupResult::WrongKind(_)
         ));
 
         assert!(matches!(
-            request.bind_value_path(public, &path("Secret")),
+            request.bind_value_path(public, &path("secret")),
             MemberLookupResult::Inaccessible(_)
         ));
 
@@ -878,8 +921,10 @@ mod tests {
 
     #[test]
     fn module_paths_apply_visibility_and_recovery() {
-        let internal_fixture =
-            FactFixture::from_source("internal module hidden; const Size: bool = true;");
+        let internal_fixture = FactFixture::from_source(concat!(
+            "internal module hidden;\n",
+            "const size: bool = true;",
+        ));
 
         let internal_facts = internal_fixture.context();
         let internal_unit_fixture = fixture();
@@ -906,7 +951,8 @@ mod tests {
             MemberLookupResult::Inaccessible(_)
         ));
 
-        let recovered_fixture = FactFixture::from_source("module broken const Size: bool = true;");
+        let recovered_fixture =
+            FactFixture::from_source(concat!("module broken\n", "const size: bool = true;",));
 
         let recovered_facts = recovered_fixture.context();
         let recovered_unit_fixture = fixture();
@@ -936,8 +982,13 @@ mod tests {
 
     #[test]
     fn module_prefixes_do_not_take_precedence_over_ordinary_names() {
-        let fact_fixture =
-            FactFixture::from_source("module app; const app: bool = true; struct Point {}");
+        let fact_fixture = FactFixture::from_source(concat!(
+            "module app;\n",
+            "const app: bool = true;\n",
+            "struct Point\n",
+            "{\n",
+            "}",
+        ));
 
         let facts = fact_fixture.context();
         let unit_fixture = fixture();
@@ -963,8 +1014,14 @@ mod tests {
     #[test]
     fn each_declared_module_boundary_participates_in_ordinary_lookup() {
         let fact_fixture = FactFixture::from_source(concat!(
-            "module foo { const bar: bool = true; } ",
-            "module foo.bar { const Size: bool = true; }"
+            "module foo\n",
+            "{\n",
+            "    const bar: bool = true;\n",
+            "}\n",
+            "module foo.bar\n",
+            "{\n",
+            "    const size: bool = true;\n",
+            "}",
         ));
 
         let facts = fact_fixture.context();
@@ -990,7 +1047,12 @@ mod tests {
 
     #[test]
     fn undeclared_module_prefixes_do_not_create_synthetic_symbols() {
-        let fact_fixture = FactFixture::from_source("module foo.bar { const Size: bool = true; }");
+        let fact_fixture = FactFixture::from_source(concat!(
+            "module foo.bar\n",
+            "{\n",
+            "    const size: bool = true;\n",
+            "}",
+        ));
 
         let facts = fact_fixture.context();
         let unit_fixture = fixture();
@@ -1013,8 +1075,14 @@ mod tests {
     #[test]
     fn inaccessible_shorter_modules_do_not_hide_public_dotted_modules() {
         let fact_fixture = FactFixture::from_source(concat!(
-            "internal module foo { const Hidden: bool = true; } ",
-            "module foo.bar { const Size: bool = true; }"
+            "internal module foo\n",
+            "{\n",
+            "    const hidden: bool = true;\n",
+            "}\n",
+            "module foo.bar\n",
+            "{\n",
+            "    const size: bool = true;\n",
+            "}",
         ));
 
         let facts = fact_fixture.context();
@@ -1046,9 +1114,12 @@ mod tests {
     #[test]
     fn associated_member_lookup_uses_candidate_aware_accessibility() {
         let fact_fixture = FactFixture::from_source(concat!(
-            "module app; ",
-            "const Size: bool = true; ",
-            "struct Point { x: bool; }"
+            "module app;\n",
+            "const size: bool = true;\n",
+            "struct Point\n",
+            "{\n",
+            "    x: bool;\n",
+            "}",
         ));
 
         let facts = fact_fixture.context();
@@ -1123,8 +1194,13 @@ mod tests {
 
     #[test]
     fn missing_middle_path_segments_do_not_bind_repaired_paths() {
-        let fact_fixture =
-            FactFixture::from_source("module app; const Size: bool = true; struct Point {}");
+        let fact_fixture = FactFixture::from_source(concat!(
+            "module app;\n",
+            "const size: bool = true;\n",
+            "struct Point\n",
+            "{\n",
+            "}",
+        ));
 
         let facts = fact_fixture.context();
         let unit_fixture = fixture();

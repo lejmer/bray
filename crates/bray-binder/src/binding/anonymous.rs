@@ -103,9 +103,7 @@ mod tests {
     use bray_bound_tree::BoundUnitKind;
     use bray_declarations::SyntaxAnchor;
     use bray_symbols::{LocalSymbolRegionId, MemberLookupResult, SymbolName, SymbolOrdinal};
-    use bray_syntax::{
-        LambdaExpressionSyntax, SyntaxKind, SyntaxWalkControl, SyntaxWalkEvent, walk_syntax_node,
-    };
+    use bray_syntax::LambdaExpressionSyntax;
 
     use crate::BinderFactContext;
     use crate::fact::test_support::TestFixture;
@@ -114,12 +112,26 @@ mod tests {
 
     #[test]
     fn anonymous_boundaries_publish_parameters_and_nested_unit_dependencies() {
-        let fixture = TestFixture::from_source(
-            "module app; const Size: Int = 1; func main() { let callable = lambda(value: Int) {}; }",
-        );
+        let fixture = TestFixture::from_source(concat!(
+            "module app;\n",
+            "const size: i32 = 1;\n",
+            "func main()\n",
+            "{\n",
+            "    let callable = lambda(value: i32)\n",
+            "    {\n",
+            "    };\n",
+            "}",
+        ));
+
         let facts = fixture.context();
         let (mut request, block) = crate::binding::test_support::request_and_block(&facts);
-        let lambda = first_lambda(&block);
+
+        let Some(lambda) =
+            crate::binding::test_support::first_descendant::<LambdaExpressionSyntax>(&block)
+        else {
+            panic!("test block must contain a lambda expression");
+        };
+
         let root = request.unit().root_scope();
 
         let name = match SymbolName::try_new("captured") {
@@ -171,6 +183,7 @@ mod tests {
 
         let mut request =
             BinderRequestContext::new(&facts, BindingContext::CallableBody, nested_unit);
+
         let root = request.unit().root_scope();
 
         let boundary = match request.bind_anonymous_callable_boundary(root, &lambda) {
@@ -223,32 +236,10 @@ mod tests {
         };
 
         assert_eq!(callable.parameters().len(), 1);
+
         assert_eq!(
             nested.unit().local_symbols().key().role(),
             bray_symbols::LocalSymbolRegionRole::AnonymousCallable
         );
-    }
-
-    fn first_lambda(block: &bray_syntax::BlockExpressionSyntax) -> LambdaExpressionSyntax {
-        let mut lambda = None;
-
-        walk_syntax_node(block, |event| {
-            let SyntaxWalkEvent::EnterNode(node) = event else {
-                return SyntaxWalkControl::Continue;
-            };
-
-            if node.kind() != SyntaxKind::LambdaExpression {
-                return SyntaxWalkControl::Continue;
-            }
-
-            lambda = node.cast();
-
-            SyntaxWalkControl::Stop
-        });
-
-        match lambda {
-            Some(lambda) => lambda,
-            None => panic!("test block must contain a lambda expression"),
-        }
     }
 }

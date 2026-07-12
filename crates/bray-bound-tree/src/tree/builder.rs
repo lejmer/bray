@@ -69,8 +69,16 @@ impl BoundTreeBuilder {
         &mut self,
         expression: BoundExpression,
     ) -> Result<BoundExpressionId, BoundTreeBuildError> {
-        if let Some(block) = expression.block() {
+        for child in expression.child_expressions() {
+            self.validate_expression_id(child)?;
+        }
+
+        for block in expression.child_blocks() {
             self.validate_block_id(block)?;
+        }
+
+        for pattern in expression.child_patterns() {
+            self.validate_pattern_id(pattern)?;
         }
 
         let slot = next_slot(self.expressions.len(), BoundNodeKind::Expression)?;

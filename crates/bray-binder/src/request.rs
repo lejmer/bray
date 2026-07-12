@@ -1,6 +1,9 @@
 use std::collections::BTreeSet;
 
-use bray_bound_tree::{BoundUnitKey, BoundUnitView};
+use bray_bound_tree::{
+    BoundBlock, BoundBlockId, BoundExpression, BoundExpressionId, BoundPattern, BoundPatternId,
+    BoundUnitKey, BoundUnitView,
+};
 use bray_declarations::SyntaxAnchor;
 use bray_diagnostics::{Diagnostic, DiagnosticBag};
 use bray_symbols::{AnySymbolId, ConstantSymbolId, SymbolFactKind, TypeId};
@@ -54,6 +57,7 @@ pub(crate) enum ExpectedSemanticKind {
 pub(crate) enum ControlTargetKind {
     Callable,
     Loop,
+    Generator,
     Block,
 }
 
@@ -174,6 +178,24 @@ impl<'facts, C: BinderFactContext + ?Sized> BinderRequestContext<'facts, C> {
         self.unit.view()
     }
 
+    pub(crate) fn expression_is_recovered(&self, expression: BoundExpressionId) -> bool {
+        self.unit_view()
+            .expression(expression)
+            .is_none_or(BoundExpression::is_recovered)
+    }
+
+    pub(crate) fn pattern_is_recovered(&self, pattern: BoundPatternId) -> bool {
+        self.unit_view()
+            .pattern(pattern)
+            .is_none_or(BoundPattern::is_recovered)
+    }
+
+    pub(crate) fn block_is_recovered(&self, block: BoundBlockId) -> bool {
+        self.unit_view()
+            .block(block)
+            .is_none_or(BoundBlock::is_recovered)
+    }
+
     pub(crate) fn push_expected(&mut self, expected: ExpectedContext) {
         self.expected_contexts.push(expected);
     }
@@ -196,6 +218,14 @@ impl<'facts, C: BinderFactContext + ?Sized> BinderRequestContext<'facts, C> {
 
     pub(crate) fn control_target(&self) -> Option<ControlTarget> {
         self.control_targets.last().copied()
+    }
+
+    pub(crate) fn control_target_of_kind(&self, kind: ControlTargetKind) -> Option<ControlTarget> {
+        self.control_targets
+            .iter()
+            .rev()
+            .copied()
+            .find(|target| target.kind() == kind)
     }
 
     pub(crate) fn add_diagnostic(&mut self, diagnostic: Diagnostic) {

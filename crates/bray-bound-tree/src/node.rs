@@ -4,9 +4,21 @@ mod expression;
 mod id;
 mod pattern;
 
-pub use block::{BoundBlock, BoundBlockItem, BoundLocalBinding, BoundLocalConstant};
+pub use block::{
+    BoundBlock, BoundBlockItem, BoundLocalBinding, BoundLocalConstant, BoundTypeReference,
+};
 pub use callable::{BoundCallableBody, BoundCallableBodyKind, BoundErrorCallableBody};
-pub use expression::{BoundBlockExpression, BoundErrorExpression, BoundExpression};
+pub use expression::{
+    BoundAnonymousCallableExpression, BoundArgument, BoundAssignmentExpression,
+    BoundBinaryExpression, BoundBlockExpression, BoundCallExpression,
+    BoundControlTransferExpression, BoundControlTransferKind, BoundConversionExpression,
+    BoundErrorExpression, BoundExpression, BoundForExpression, BoundGeneratorExpression,
+    BoundLeadingDotVariantExpression, BoundMatchArm, BoundMatchExpression,
+    BoundMemberAccessExpression, BoundMemberSelector, BoundNameExpression, BoundOperator,
+    BoundReferenceTarget, BoundSpawnExpression, BoundSpawnInput, BoundSpawnMode,
+    BoundStructConstructionExpression, BoundStructFieldInitializer, BoundStructuredExpression,
+    BoundStructuredExpressionKind, BoundTraitQualifiedMemberExpression, BoundUnaryExpression,
+};
 pub use id::{
     AnyBoundNodeId, BoundBlockId, BoundCallableBodyId, BoundExpressionId, BoundNodeKind,
     BoundPatternId, ExactBoundNodeId,

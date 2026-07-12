@@ -1,0 +1,191 @@
+use bray_bound_tree::{
+    BoundArgument, BoundCallExpression, BoundConversionExpression, BoundExpression,
+    BoundExpressionId, BoundStructuredExpressionKind,
+};
+use bray_declarations::SyntaxAnchor;
+use bray_symbols::LocalScopeId;
+use bray_syntax::{
+    ArgumentListSyntax, CallOperationSyntax, ConversionOperationSyntax, ExpressionSyntax,
+    SourceSyntaxNode, SyntaxKind, SyntaxWalkControl,
+};
+
+use super::super::super::BindingResult;
+use super::super::super::name::symbol_name;
+use super::super::support::visit_direct_nodes;
+use super::ExpressionBinder;
+use crate::BinderFactContext;
+use crate::binding::BindingError;
+use crate::request::BinderRequestContext;
+
+impl ExpressionBinder {
+    pub(super) fn bind_postfixes<C>(
+        &mut self,
+        request: &mut BinderRequestContext<'_, C>,
+        scope: LocalScopeId,
+        syntax: &ExpressionSyntax,
+        mut current: BoundExpressionId,
+    ) -> BindingResult<BoundExpressionId>
+    where
+        C: BinderFactContext + ?Sized,
+    {
+        let mut failure = None;
+
+        visit_direct_nodes(syntax, |operation| {
+            let result = match operation.kind() {
+                SyntaxKind::CallOperation => {
+                    let Some(call) = operation.cast::<CallOperationSyntax>() else {
+                        failure = Some(BindingError::UnsupportedSyntax);
+
+                        return SyntaxWalkControl::Stop;
+                    };
+
+                    self.bind_call(request, scope, &call, current)
+                }
+                SyntaxKind::ConversionOperation => {
+                    let Some(conversion) = operation.cast::<ConversionOperationSyntax>() else {
+                        failure = Some(BindingError::UnsupportedSyntax);
+
+                        return SyntaxWalkControl::Stop;
+                    };
+
+                    self.bind_conversion(request, &conversion, current)
+                }
+                SyntaxKind::MemberAccessOperation => {
+                    let Some(member) = operation.cast::<bray_syntax::MemberAccessOperationSyntax>()
+                    else {
+                        failure = Some(BindingError::UnsupportedSyntax);
+
+                        return SyntaxWalkControl::Stop;
+                    };
+
+                    self.bind_member_access(request, &member, current)
+                }
+                SyntaxKind::ElementIndexOperation => self.bind_structured_with_operand(
+                    request,
+                    scope,
+                    operation,
+                    BoundStructuredExpressionKind::ElementIndex,
+                    current,
+                ),
+                SyntaxKind::SliceIndexOperation => self.bind_structured_with_operand(
+                    request,
+                    scope,
+                    operation,
+                    BoundStructuredExpressionKind::SliceIndex,
+                    current,
+                ),
+                SyntaxKind::NullablePropagationOperation => self.bind_structured_with_operand(
+                    request,
+                    scope,
+                    operation,
+                    BoundStructuredExpressionKind::NullablePropagation,
+                    current,
+                ),
+                SyntaxKind::TraitQualifiedMemberOperation => {
+                    let Some(member) =
+                        operation.cast::<bray_syntax::TraitQualifiedMemberOperationSyntax>()
+                    else {
+                        failure = Some(BindingError::UnsupportedSyntax);
+
+                        return SyntaxWalkControl::Stop;
+                    };
+
+                    self.bind_trait_qualified_member(request, &member, current)
+                }
+                _ => return SyntaxWalkControl::Continue,
+            };
+
+            match result {
+                Ok(expression) => current = expression,
+                Err(error) => {
+                    failure = Some(error);
+
+                    return SyntaxWalkControl::Stop;
+                }
+            }
+
+            SyntaxWalkControl::Continue
+        });
+
+        failure.map_or(Ok(current), Err)
+    }
+
+    fn bind_call<C>(
+        &mut self,
+        request: &mut BinderRequestContext<'_, C>,
+        scope: LocalScopeId,
+        syntax: &CallOperationSyntax,
+        callee: BoundExpressionId,
+    ) -> BindingResult<BoundExpressionId>
+    where
+        C: BinderFactContext + ?Sized,
+    {
+        let arguments = self.bind_arguments(request, scope, &syntax.argument_list())?;
+
+        let recovered = syntax.is_recovered()
+            || arguments.iter().any(BoundArgument::is_recovered)
+            || request.expression_is_recovered(callee);
+
+        self.push(
+            request,
+            BoundExpression::Call(BoundCallExpression::new(
+                request.source_origin(syntax),
+                callee,
+                arguments,
+                None,
+                recovered,
+            )),
+        )
+    }
+
+    pub(in crate::binding::expression) fn bind_arguments<C>(
+        &mut self,
+        request: &mut BinderRequestContext<'_, C>,
+        scope: LocalScopeId,
+        syntax: &ArgumentListSyntax,
+    ) -> BindingResult<Vec<BoundArgument>>
+    where
+        C: BinderFactContext + ?Sized,
+    {
+        let mut arguments = Vec::new();
+
+        for argument in syntax.arguments() {
+            let expression = self.bind_expression(request, scope, Some(&argument.expression()))?;
+            let name = argument
+                .identifier_token()
+                .and_then(|token| symbol_name(argument.source(), &token));
+
+            arguments.push(BoundArgument::new(
+                expression,
+                name,
+                argument.is_recovered(),
+            ));
+        }
+
+        Ok(arguments)
+    }
+
+    fn bind_conversion<C>(
+        &mut self,
+        request: &mut BinderRequestContext<'_, C>,
+        syntax: &ConversionOperationSyntax,
+        operand: BoundExpressionId,
+    ) -> BindingResult<BoundExpressionId>
+    where
+        C: BinderFactContext + ?Sized,
+    {
+        let recovered = syntax.is_recovered() || request.expression_is_recovered(operand);
+
+        self.push(
+            request,
+            BoundExpression::Conversion(BoundConversionExpression::new(
+                request.source_origin(syntax),
+                operand,
+                SyntaxAnchor::from_node(&syntax.type_expression()),
+                None,
+                None,
+                recovered,
+            )),
+        )
+    }
+}

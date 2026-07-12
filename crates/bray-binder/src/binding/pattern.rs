@@ -641,24 +641,40 @@ fn push_binding_occurrence(
 
 #[cfg(test)]
 mod tests {
-    use bray_syntax::{
-        CasePatternSyntax, SyntaxKind, SyntaxWalkControl, SyntaxWalkEvent, walk_syntax_node,
-    };
+    use bray_syntax::CasePatternSyntax;
 
     use crate::fact::test_support::TestFixture;
     use crate::request::PatternBindingMode;
 
     #[test]
     fn case_patterns_retain_match_mode_and_alternative_shape() {
-        let fixture = TestFixture::from_source(
-            "module app; const Size: Int = 1; func main() { match Size { case left | left when true {} } }",
-        );
+        let fixture = TestFixture::from_source(concat!(
+            "module app;\n",
+            "const size: i32 = 1;\n",
+            "func main()\n",
+            "{\n",
+            "    match size\n",
+            "    {\n",
+            "        case left | left when true\n",
+            "        {\n",
+            "        }\n",
+            "    }\n",
+            "}",
+        ));
+
         let facts = fixture.context();
         let (mut request, block) = crate::binding::test_support::request_and_block(&facts);
-        let pattern = first_case_pattern(&block);
+
+        let Some(pattern) =
+            crate::binding::test_support::first_descendant::<CasePatternSyntax>(&block)
+        else {
+            panic!("test block must contain a case pattern");
+        };
+
         assert_eq!(super::coherent_case_binding_occurrences(&pattern).len(), 2);
+
         let root = request.unit().root_scope();
-        let context = path_context(&request, root);
+        let context = crate::binding::test_support::internal_path_context(request.facts(), root);
 
         let bound = match request.bind_case_pattern(
             context,
@@ -675,10 +691,12 @@ mod tests {
         };
 
         assert_eq!(pattern.mode(), bray_bound_tree::BoundPatternMode::Match);
+
         assert_eq!(
             pattern.kind(),
             bray_bound_tree::BoundPatternKind::Alternative
         );
+
         assert_eq!(pattern.children().len(), 2);
         assert_eq!(bound.bindings().len(), 1);
 
@@ -696,10 +714,17 @@ mod tests {
 
     #[test]
     fn assignment_patterns_do_not_introduce_local_identities() {
-        let fixture = TestFixture::from_source(
-            "module app; const Size: Int = 1; func main() { let value = 1; }",
-        );
+        let fixture = TestFixture::from_source(concat!(
+            "module app;\n",
+            "const size: i32 = 1;\n",
+            "func main()\n",
+            "{\n",
+            "    let value = 1;\n",
+            "}",
+        ));
+
         let facts = fixture.context();
+
         let (mut request, block) = crate::binding::test_support::request_and_block(&facts);
 
         let Some(declaration) = block
@@ -710,6 +735,7 @@ mod tests {
         };
 
         let root = request.unit().root_scope();
+
         let Some(name) = bray_symbols::SymbolName::try_new("value") else {
             panic!("assignment target name must be valid");
         };
@@ -729,7 +755,7 @@ mod tests {
             panic!("assignment target must activate: {error:?}");
         }
 
-        let context = path_context(&request, root);
+        let context = crate::binding::test_support::internal_path_context(request.facts(), root);
 
         let bound = match request.bind_irrefutable_pattern(
             context,
@@ -749,10 +775,12 @@ mod tests {
             pattern.mode(),
             bray_bound_tree::BoundPatternMode::Assignment
         );
+
         assert_eq!(
             pattern.target(),
             Some(bray_bound_tree::BoundPatternTarget::Local(existing.into()))
         );
+
         assert!(bound.bindings().is_empty());
 
         let result = match request.finish() {
@@ -765,14 +793,31 @@ mod tests {
 
     #[test]
     fn incoherent_alternatives_emit_recovery_without_partial_bindings() {
-        let fixture = TestFixture::from_source(
-            "module app; const Size: Int = 1; func main() { match Size { case left | right when true {} } }",
-        );
+        let fixture = TestFixture::from_source(concat!(
+            "module app;\n",
+            "const size: i32 = 1;\n",
+            "func main()\n",
+            "{\n",
+            "    match size\n",
+            "    {\n",
+            "        case left | right when true\n",
+            "        {\n",
+            "        }\n",
+            "    }\n",
+            "}",
+        ));
+
         let facts = fixture.context();
         let (mut request, block) = crate::binding::test_support::request_and_block(&facts);
-        let pattern = first_case_pattern(&block);
+
+        let Some(pattern) =
+            crate::binding::test_support::first_descendant::<CasePatternSyntax>(&block)
+        else {
+            panic!("test block must contain a case pattern");
+        };
+
         let root = request.unit().root_scope();
-        let context = path_context(&request, root);
+        let context = crate::binding::test_support::internal_path_context(request.facts(), root);
 
         let bound = match request.bind_case_pattern(
             context,
@@ -803,14 +848,31 @@ mod tests {
 
     #[test]
     fn bare_pattern_names_resolve_pattern_capable_declarations_before_binding() {
-        let fixture = TestFixture::from_source(
-            "module app; const Size: Int = 1; func main() { match Size { case Size when true {} } }",
-        );
+        let fixture = TestFixture::from_source(concat!(
+            "module app;\n",
+            "const size: i32 = 1;\n",
+            "func main()\n",
+            "{\n",
+            "    match size\n",
+            "    {\n",
+            "        case size when true\n",
+            "        {\n",
+            "        }\n",
+            "    }\n",
+            "}",
+        ));
+
         let facts = fixture.context();
         let (mut request, block) = crate::binding::test_support::request_and_block(&facts);
-        let pattern = first_case_pattern(&block);
+
+        let Some(pattern) =
+            crate::binding::test_support::first_descendant::<CasePatternSyntax>(&block)
+        else {
+            panic!("test block must contain a case pattern");
+        };
+
         let root = request.unit().root_scope();
-        let context = path_context(&request, root);
+        let context = crate::binding::test_support::internal_path_context(request.facts(), root);
 
         let bound = match request.bind_case_pattern(
             context,
@@ -833,51 +895,7 @@ mod tests {
             ),
             "{pattern:?}"
         );
+
         assert!(bound.bindings().is_empty());
-    }
-
-    fn first_case_pattern(block: &bray_syntax::BlockExpressionSyntax) -> CasePatternSyntax {
-        let mut pattern = None;
-
-        walk_syntax_node(block, |event| {
-            let SyntaxWalkEvent::EnterNode(node) = event else {
-                return SyntaxWalkControl::Continue;
-            };
-
-            if node.kind() != SyntaxKind::CasePattern {
-                return SyntaxWalkControl::Continue;
-            }
-
-            pattern = node.cast();
-
-            SyntaxWalkControl::Stop
-        });
-
-        match pattern {
-            Some(pattern) => pattern,
-            None => panic!("test block must contain a case pattern"),
-        }
-    }
-
-    fn path_context<C: crate::BinderFactContext + ?Sized>(
-        request: &crate::request::BinderRequestContext<'_, C>,
-        scope: bray_symbols::LocalScopeId,
-    ) -> crate::lookup::PathBindingContext {
-        let Some(module) = request
-            .facts()
-            .symbols()
-            .modules()
-            .iter()
-            .find(|module| module.origin() == bray_symbols::SymbolOrigin::Source)
-        else {
-            panic!("test graph must contain a module");
-        };
-
-        crate::lookup::PathBindingContext::new(
-            scope,
-            module.id(),
-            module.owner(),
-            crate::lookup::NameAccess::Internal,
-        )
     }
 }
