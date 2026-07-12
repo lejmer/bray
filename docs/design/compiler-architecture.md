@@ -23,6 +23,8 @@ Symbol and symbol-construction implementation rules live in `docs/design/symbols
 
 Binder and bound-tree implementation rules live in `docs/design/binder.md`.
 
+Semantic checker domain and analysis rules live in `docs/design/checker.md`.
+
 This document is the design-level contract those implementation documents should follow.
 
 ---
@@ -454,6 +456,9 @@ part of completing the bound unit before publication.
 ### Semantic Checker Services
 
 Semantic checker services determine whether bound declarations, bodies, and semantic facts are valid Bray.
+
+The focused domain taxonomy, dependency graph, convergence contracts, recovery policy, and durable checker outputs are defined in
+`docs/design/checker.md`.
 
 Semantic checker services are responsibility modules, not a second durable tree-producing phase.
 
