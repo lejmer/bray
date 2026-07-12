@@ -63,7 +63,8 @@ A consuming receiver method requires ownership of the receiver value.
 
 A consuming receiver method makes the receiver’s old access path unavailable after the call unless reinitialized.
 
-A method call resolves through the receiver type, receiver capability, inherent implementations, participating trait implementations, visible declarations, constraints, and overload rules.
+A method call resolves through the receiver type and mode, inherent implementations, participating trait implementations, visible
+declarations, static constraints, target availability, and overload rules.
 
 Trait implementation participation for implementation-eligible type-form subjects follows [Trait method resolution](../types/implementations.md#trait-method-resolution).
 
@@ -73,11 +74,17 @@ values.iterate()        // checks implementations for Vec<T>
 (&mut values).iterate() // checks implementations for &mut Vec<T>
 ```
 
-A method call resolves to exactly one method after receiver checking, argument binding, type checking, ownership checking, capability checking, effect checking, contract checking, and overload resolution.
+A method call first selects exactly one method through receiver compatibility, argument mapping and type compatibility, explicit
+generic substitution and static constraints, target availability, and overload resolution. Ordinary call checking then validates
+ownership, borrowing, mutation authority, dependency contracts, capabilities, effects, trusted obligations, and contract facts for
+that selected method.
 
-For overloaded methods, the receiver mode and explicitly supplied method arguments select the overload arm.
+For overloaded methods, receiver mode and compatibility, explicitly supplied argument mapping and type compatibility, explicit
+generic substitution and static constraints, and target availability select the overload arm.
 
-For method calls through a trait implementation overload family, receiver mode, receiver compatibility, member name, and explicitly supplied method arguments select the implementation arm.
+For method calls through a trait implementation overload family, receiver mode and compatibility, member name, explicitly supplied
+argument mapping and type compatibility, explicit generic substitution and static constraints, and target availability select the
+implementation arm.
 
 Result type, expected type, and type-valued member outputs do not select an implementation arm.
 

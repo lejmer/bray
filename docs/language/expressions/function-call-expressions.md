@@ -41,7 +41,10 @@ A call expression can establish facts from the callable's `ensures(...)` clause 
 
 A call expression participates in overload resolution when the callee resolves to an overload declaration.
 
-A call resolves to exactly one callable after name resolution, argument binding, type checking, ownership checking, capability checking, effect checking, contract checking, and overload resolution.
+A call first selects exactly one callable through name resolution, argument mapping and type compatibility, explicit generic
+substitution and static constraints, target availability, and overload resolution. Ordinary call checking then validates ownership,
+borrowing, mutation authority, dependency contracts, capabilities, effects, trusted obligations, and contract facts for that
+selected callable.
 
 Overload resolution rules are defined in [Function overloading](../callables/function-overloading.md).
 

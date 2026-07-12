@@ -42,7 +42,8 @@ Calls through the overload name use overload selection.
 let value = parse(input);
 ```
 
-Overload selection uses only arguments explicitly supplied by the caller.
+Of the call's arguments, overload selection uses only those explicitly supplied by the caller. It also applies receiver rules,
+explicit generic substitution and static constraints, and target availability where those categories are present.
 
 Default arguments do not participate in overload selection.
 
@@ -89,7 +90,15 @@ An overload arm matches a call only when:
 - no parameter is supplied more than once,
 - every parameter of the arm is supplied explicitly by the call,
 - each supplied argument expression is compatible with the corresponding parameter type,
-- the callable's ownership, borrowing, capability, effect, trusted obligation, and contract requirements can be satisfied.
+- every explicitly supplied generic argument forms a valid substitution,
+- the arm's static generic constraints are satisfied,
+- the arm is available for the selected target profile.
+
+Argument ownership availability, borrow availability, mutation authority, dependency contracts, effects, capabilities, trusted
+obligations, `requires(...)` facts, postconditions, expected result type, and result type do not make an overload arm match.
+
+After exactly one arm is selected, ordinary call checking validates all of those requirements for the selected arm. If that call is
+invalid, the call is rejected. Resolution does not fall back to another overload arm.
 
 The receiver of a method is supplied by method-call syntax and is not a named argument.
 

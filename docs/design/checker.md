@@ -175,6 +175,40 @@ Each variant retains the exact `BoundUnitId`. A conclusion for one unit or unit 
 The transfer wrapper belongs to `bray-checker`. Durable semantic values carried by its payloads belong to their lower representation
 owners.
 
+### Unit Check Schedules
+
+Every independently published `BoundUnitKind` uses the shared analysis topology. A simple expression produces a trivial graph. The
+uniform boundary prevents declaration-owned units from bypassing ordinary control, storage, ownership, lifecycle, effect, and
+recovery rules merely because their current syntax is small.
+
+The checker derives a closed typed schedule from the unit kind and exact bound-unit key. Callers do not assemble domain lists or
+toggle analyses with booleans.
+
+| Bound unit kind | Entry context | Required checks and domains | Required completion |
+| --- | --- | --- | --- |
+| `CallableBody` | Receiver, parameters, generic constraints, callable requirements, declared capabilities, and lifecycle context | Target availability, type and selection checks, topology, every whole-unit flow domain, then callable-body finalization | Every reachable exit is valid and the body summary fits the declaration surface |
+| `AnonymousCallable` | Anonymous parameters, generic and expected callable context, and the capture-free local boundary | The callable-body schedule plus anonymous-callable signature and boundary checks | Every reachable exit is valid and the inferred callable summary fits its checked callable type |
+| `RuntimeDefault` | Permitted receiver, earlier parameters, generic values, selected implementations, and declaration context | Target availability, type and selection checks, topology, every whole-unit flow domain, then runtime-default finalization | Normal completion produces the required value and its complete provider requirements are summarized |
+| `ConstantTemplate` | Declared expected type, symbolic generic and trait context, and selected target facts | Target availability, type and selection checks, topology, every whole-unit flow domain, then constant-template finalization | Every reachable normal result is constant-valid, control terminates, and closed instances can be evaluated separately |
+| `PredicateDefinition` | Predicate parameters, symbolic generic context, and declared trusted relation context | Target availability, type and selection checks, topology, every whole-unit flow domain, then predicate-definition finalization | Normal completion produces `bool` and a reusable semantic predicate summary |
+| `Constraint` | Generic parameters and facts available before the constraint being defined | The predicate-definition schedule with static-constraint restrictions | Normal completion produces a total, deterministic, effect-free `bool` constraint summary |
+| `ContractClause` | Callable parameters and clause-specific facts, with `result` present only for a value-producing `ensures(...)` clause | The predicate-definition schedule with clause-specific fact, trust, and visibility rules | Normal completion produces a total contract fact valid for its exact clause category |
+
+"Every whole-unit flow domain" means reachability, refinement, liveness, composite storage flow, dependency-contract propagation,
+and effect, capability, contract, and trust validation. Category finalization consumes those conclusions and cannot rerun a private
+replacement analysis.
+
+In the schedule table, target availability means the preselection layer. Every selected target-dependent type or operation completes
+the post-selection target-validity layer before topology construction.
+
+Runtime-default conclusions record requirements without imposing them on calls or constructions that supply an explicit value.
+Constant templates are validated symbolically. Only a closed constant instance is evaluated, keyed by its exact substitution,
+selected implementations, and target profile.
+
+For contract-clause entry contexts, `requires(...)` does not assume itself. `ensures(...)` can reference the declared normal result,
+but body checking must prove the ensured fact independently on every reachable normal completion. Trusted facts retain their
+provenance in every category.
+
 ### Outcomes And Cancellation
 
 Every substantial checker operation observes the caller-provided cancellation source. `CheckerOutcome::Cancelled` carries no
@@ -203,31 +237,48 @@ parallel completion order, hash iteration, and candidate exploration order canno
 Checker dependencies form an explicit directed acyclic graph. The ordinary body-checking order is:
 
 ```text
-bound structure and symbol facts
+selected target profile and target facts
     |
+    +--> target gates and declaration-availability conclusions
+                  |
+bound structure, symbol facts, and target conclusions
+                  |
     +--> type, compatibility, and candidate selection
-    |        |
-    |        +--> checked operations and pattern conclusions
-    |                  |
-    |          shared analysis topology
-    |                  |
-    |       reachability and control completion
-    |             /                 \
-    |    fact refinement          liveness
-    |             \                 /
-    |          composite storage flow
-    |                  |
-    |       dependency-contract propagation
-    |                  |
-    |  effect, capability, and obligation validation
-    |                  |
-    |          body conclusions
+                  |
+    +--> target-dependent layout and ABI validity where required
+                  |
+    +--> checked operations and pattern conclusions
+                  |
+          shared analysis topology
+                  |
+       reachability and control completion
+             /                 \
+    fact refinement          liveness
+             \                 /
+          composite storage flow
+                  |
+       dependency-contract propagation
+                  |
+  effect, capability, contract, and trust validation
+                  |
+    +--> callable or anonymous body conclusions
     |
-    +--> constant, predicate, contract, and target rule checks
+    +--> runtime-default conclusions
+    |
+    +--> constant-template conclusions or requested instance evaluation
+    |
+    +--> predicate, constraint, or contract-clause conclusions
 ```
 
-The diagram describes semantic dependencies, not a requirement for one monolithic execution. Type and candidate checks normally run
-during binding as their operands become available. Whole-unit domains consume committed checked operations.
+The diagram describes semantic dependencies, not a requirement for one monolithic execution. Target gate and declaration-
+availability conclusions are available before any check that can select or reject a target-conditional declaration. Layout and ABI
+validity consumes canonical selected types and operations, so it follows selection and cannot feed overload choice. Type and
+candidate checks normally run during binding as their operands become available. Whole-unit domains consume committed checked
+operations.
+
+Constant, predicate, constraint, and contract-clause finalization consumes the same checked type, selection, target, control,
+storage, dependency, effect, and contract conclusions as ordinary units. It does not resolve names, select operations, or build a
+private control-flow model again.
 
 Fact refinement and liveness can run independently after reachability when neither requests the other's conclusions. The composite
 storage domain waits for both because refinement can prove disjointness and valid variants while liveness supports borrow shortening
@@ -282,8 +333,14 @@ The selection domain owns:
 Candidate enumeration comes from typed symbol lookup and implementation indexes. The checker evaluates candidates in canonical
 order. It must not rank candidates when the language says that exactly one applicable arm is required.
 
-Expected result type, effect surface, capability requirements, and postconditions cannot select an overload unless the language
-specification explicitly makes that fact part of applicability. Contract validation runs after one candidate is selected.
+Callable overload applicability uses explicit argument mapping, parameter type compatibility, receiver type and receiver mode for
+methods, explicit generic substitution, static generic constraints, and target availability. It does not use expected result type,
+argument ownership availability, borrow availability, mutation authority, dependency contracts, effects, capabilities, trusted
+obligations, `requires(...)` facts, or postconditions.
+
+After exactly one arm is selected, ordinary call checking validates every ownership, borrowing, mutation, dependency, effect,
+capability, trust, and contract requirement. Failure rejects that selected call. It does not make resolution fall back to another
+arm.
 
 Speculative candidate checks use binder-owned candidate transactions. An abandoned candidate publishes no bound nodes, local
 symbols, diagnostics, or selected target. Facts that influenced rejection, ordering, ambiguity, or the committed answer remain query
@@ -333,6 +390,9 @@ concrete generic or target-dependent instance is evaluated.
 The evaluator operates on checked semantic operations, not syntax. It cannot call non-const behavior, read runtime storage, allocate
 runtime storage, perform I/O, spawn, await, use runtime dynamic dispatch, or execute another forbidden operation indirectly.
 
+Evaluating a call to a const callable requests that callable's complete checked-body fact as a cross-unit dependency. It does not
+invoke binding or a later domain of the constant instance currently being evaluated.
+
 Evaluation failure returns an error-aware constant fact with structured diagnostics. Deterministic resource exhaustion is a
 compile-time rejection. Cancellation remains a non-semantic `CheckerOutcome::Cancelled`.
 
@@ -371,14 +431,14 @@ These rules follow `docs/language/contracts-and-trust.md` and
 
 ### Target, Layout, And ABI Validity
 
-The target domain owns:
+The target domain owns two typed request layers.
+
+The preselection availability layer owns:
 
 - target-fact evaluation and dependency recording,
 - target-gated contribution validity,
 - target-conditional declaration availability,
-- target-dependent generic and constant validity,
-- layout and ABI requirements whose answer depends on the selected target,
-- target validity of raw-memory and compiler-known operations.
+- target dependencies that determine candidate participation.
 
 Availability is a typed semantic result, not name lookup failure. An unavailable declaration can remain a retained candidate so the
 checker can report the actual target constraint.
@@ -389,8 +449,22 @@ host properties or infer the target from the machine running the compiler.
 Product constraints and module-contribution gates use the same target rule service before ordinary body checking. Their earlier
 request point does not make target policy part of package loading or declaration discovery.
 
+Preselection target expressions use the closed target-selection context defined by the language. That context can reference only
+the selected profile, compiler-known target facts and values, literals, and the permitted built-in operations. It uses the canonical
+built-in scalar checks but cannot request source declaration lookup, user callable selection, or a source-owned constant fact. This
+closed bootstrap surface prevents a dependency cycle from target availability back into ordinary source selection.
+
 Public target-dependent facts record the exact target-fact dependencies required by compiled package interfaces and incremental
 queries.
+
+The post-selection validity layer consumes canonical selected types, substitutions, declarations, and operations. It owns:
+
+- target-dependent generic and constant validity beyond declaration participation,
+- layout and ABI requirements whose answer depends on the selected target,
+- target validity of raw-memory and compiler-known operations.
+
+Post-selection target validity can reject the selected operation. It does not cause overload or implementation selection to fall
+back to a different candidate.
 
 These rules follow `docs/language/targets-layout-abi-and-raw-memory.md` and
 `docs/language/compiler-known-and-standard-library/target-profiles-and-target-facts.md`.
@@ -466,10 +540,14 @@ The domain state is a typed product over storage identities and capabilities. It
 - moved, consumed, destroyed, and recovery state,
 - active shared and mutable borrow capabilities,
 - mutation authority and valid reborrow ancestry,
+- active scoped, task, thread, and other flow-sensitive capabilities,
 - known storage overlap or disjointness,
 - active union variant and nullable presence when required for storage legality,
 - attached destruction, finalization, joining, cancellation, and scoped-use obligations,
 - already attached dependency requirements carried by the current value.
+
+This composite state is the sole flow owner for lifecycle, scope, task, thread, joining, cancellation, and other run obligations.
+Later domains consume its finalized conclusions and cannot maintain another independently merged obligation state.
 
 The implementation must represent impossible combinations structurally where practical. It must not use one bag of optional fields
 for every storage category.
@@ -528,31 +606,37 @@ compiled interfaces. Full propagation states remain checker-private.
 These rules follow `docs/language/ownership-and-borrowing/dependency-contracts.md` and the async task and thread obligation rules in
 `docs/language/async-and-concurrency.md`.
 
-### Effects, Capabilities, And Obligations
+### Effects, Capabilities, Contracts, And Trust
 
-This domain computes the body effect summary and validates effect, capability, contract, trust, and boundary obligations.
+This domain computes the body effect summary and validates effect, capability use, contract, trust, and boundary requirements.
 
 It observes selected calls and lifecycle operations, mutation, allocation, deallocation, I/O, async creation, suspension, spawn,
 join, cancellation, panic behavior, trusted operations, and dependency transfers.
 
+It consumes composite storage conclusions for capability availability and for lifecycle, scope, task, thread, joining, cancellation,
+and other run obligations. It does not transfer or merge those states again.
+
 Its state retains:
 
 - accumulated body effects,
-- currently available scoped and trusted capabilities,
-- ordinary and trusted obligations still requiring proof or propagation,
-- normal-completion facts promised by selected operations,
-- task, thread, finalization, destruction, and scope obligations visible at exits.
+- capability uses and the declaration envelopes against which they are validated,
+- ordinary and trusted contract obligations still requiring proof or propagation,
+- normal-completion facts promised by selected operations.
 
-Effect accumulation is deterministic set union over typed effect identities. Capability availability follows lexical and flow
-boundaries rather than global declaration visibility. Obligation merge retains any obligation unresolved on a reachable predecessor.
+Effect accumulation is deterministic set union over typed effect identities. Each capability use is checked against the exact
+availability conclusion produced by composite storage flow or against declaration-scoped trusted authority that is not flow-varying.
+Contract-obligation merge retains any ordinary or trusted requirement unresolved on a reachable predecessor.
+
+At unit exits, this domain validates the storage domain's finalized run-obligation conclusions against the declaration contract. It
+does not create a second lifecycle or run-obligation result.
 
 The callable body summary must fit the declaration's caller-visible surface. A trusted callable's `uses(...)` clause must exactly
 cover trusted implementation capabilities used by the body. Trusted caller obligations used by wrappers must be discharged or
 exposed. `ensures(...)` facts are checked on every reachable normal completion, not on panic, propagation, divergence, or
 cancellation exits unless the language contract explicitly says otherwise.
 
-Durable conclusions include the normalized body effect summary, checked capability uses, discharged or propagated obligations, and
-source-correlated exit conclusions needed by lowering and symbol facts.
+Durable conclusions include the normalized body effect summary, checked capability uses, discharged or propagated contract
+obligations, and source-correlated exit conclusions needed by lowering and symbol facts.
 
 These rules follow `docs/language/callables/effects-and-capabilities.md`, `docs/language/contracts-and-trust.md`,
 `docs/language/lifecycle.md`, and `docs/language/async-and-concurrency.md`.
@@ -712,7 +796,7 @@ Implementation issues should be split along these dependency boundaries:
 5. fact-refinement and liveness analyses,
 6. composite storage-flow analysis,
 7. dependency-contract propagation,
-8. effect, capability, trust, and obligation validation,
+8. effect, capability-use, contract, and trust validation,
 9. category-specific durable conclusion types and binder publication,
 10. deterministic diagnostics, cancellation, recovery, convergence, and parallelism coverage.
 

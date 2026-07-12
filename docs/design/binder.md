@@ -1269,7 +1269,7 @@ Initial domains include:
 - lifecycle, destruction, finalization, cancellation, and joining obligations,
 - nullable, active-variant, pattern, predicate, and other fact refinements,
 - dependency-contract propagation,
-- effect, capability, contract, and trusted-obligation validation,
+- effect, capability-use, contract, and trust validation,
 - liveness needed for borrow shortening and lifecycle decisions.
 
 Storage initialization, ownership, movement, borrowing, mutation authority, and lifecycle obligations are mutually dependent. They

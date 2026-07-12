@@ -163,8 +163,9 @@ match an ordinary runtime callable type when those effects remain internal and i
 A callable can match a callable type or context when its body effect summary is valid for every effect requirement of that type or
 context.
 
-After overload resolution selects exactly one overload arm by the supplied arguments, contract checking verifies that the
-caller's context satisfies the selected arm's caller-visible obligations.
+After overload resolution selects exactly one overload arm by explicit argument mapping and type compatibility, receiver rules,
+explicit generic substitution and static constraints, and target availability, contract checking verifies that the caller's context
+satisfies the selected arm's caller-visible obligations.
 
 Overload resolution does not rank or distinguish overloads by effect or capability contracts.
 
