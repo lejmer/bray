@@ -160,6 +160,7 @@ impl ExpressionBinder {
 
         for argument in syntax.arguments() {
             let expression = self.bind_expression(request, scope, Some(&argument.expression()))?;
+
             let name = argument
                 .identifier_token()
                 .and_then(|token| symbol_name(argument.source(), &token));
@@ -186,6 +187,7 @@ impl ExpressionBinder {
         let recovered = syntax.is_recovered() || request.expression_is_recovered(operand);
 
         let target_syntax = SyntaxAnchor::from_node(&syntax.type_expression());
+
         let expression = if recovered {
             BoundExpression::ErrorConversion(BoundErrorConversionExpression::new(
                 request.source_origin(syntax),

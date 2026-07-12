@@ -76,6 +76,7 @@ impl ExpressionBinder {
         }
 
         let origin = request.source_origin(syntax);
+
         let recovered = syntax.is_recovered()
             || operands.len() > 2
             || operands
@@ -134,6 +135,7 @@ impl ExpressionBinder {
         }
 
         let (operands, blocks) = children?;
+
         let recovered = syntax.is_recovered()
             || operands
                 .iter()
@@ -167,6 +169,7 @@ impl ExpressionBinder {
         C: BinderFactContext + ?Sized,
     {
         let (children, blocks) = self.bind_semantic_children(request, scope, syntax)?;
+
         let recovered = syntax.is_recovered()
             || request.expression_is_recovered(operand)
             || children
@@ -435,9 +438,7 @@ mod tests {
             "    size(value = size);\n",
             "    size.field;\n",
             "    size as i32;\n",
-            "    if size\n",
-            "    {\n",
-            "    };\n",
+            "    if size {};\n",
             "    for item in mut size\n",
             "    {\n",
             "        yield item;\n",
@@ -457,9 +458,7 @@ mod tests {
             "    {\n",
             "        break;\n",
             "    };\n",
-            "    lambda(value: i32)\n",
-            "    {\n",
-            "    };\n",
+            "    lambda(value: i32) {};\n",
             "    return size;\n",
             "}",
         ));
@@ -586,6 +585,7 @@ mod tests {
         assert!(saw_targeted_break);
         assert!(saw_targeted_return);
         assert!(saw_lambda);
+
         assert_eq!(result.dependencies().len(), 1);
     }
 
@@ -643,6 +643,7 @@ mod tests {
             expression.kind(),
             bray_bound_tree::BoundUnresolvedReferenceKind::NotFound
         );
+
         assert!(expression.candidates().is_empty());
     }
 
@@ -657,9 +658,11 @@ mod tests {
             "    missing as ;\n",
             "}",
         ));
+
         let facts = fixture.context();
         let (mut request, syntax) = crate::binding::test_support::request_and_block(&facts);
         let root_scope = request.unit().root_scope();
+
         let path_context = crate::binding::test_support::internal_path_context(&facts, root_scope);
 
         let block = match request.bind_callable_body_block(
@@ -694,6 +697,7 @@ mod tests {
         };
 
         assert_eq!(call.arguments().len(), 1);
+
         assert_eq!(
             call.arguments()[0]
                 .name()
@@ -785,9 +789,11 @@ mod tests {
             let BoundWalkEvent::Enter(node) = event else {
                 return BoundWalkControl::Continue;
             };
+
             let bray_bound_tree::AnyBoundNodeId::Expression(expression) = node else {
                 return BoundWalkControl::Continue;
             };
+
             let Some(expression) = result.unit().tree().expression(expression) else {
                 return BoundWalkControl::Continue;
             };
@@ -837,6 +843,7 @@ mod tests {
         assert!(expected_construction);
         assert!(trait_qualified);
         assert_eq!(yield_target, generator_region);
+
         assert_eq!(
             spawn_modes,
             [
@@ -845,6 +852,7 @@ mod tests {
                 BoundSpawnMode::Thread,
             ]
         );
+
         assert_eq!(thread_arguments, Some(1));
     }
 }

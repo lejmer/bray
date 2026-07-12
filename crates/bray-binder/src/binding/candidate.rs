@@ -107,14 +107,19 @@ mod tests {
     fn abandoned_candidates_restore_state_and_classify_dependencies() {
         let fact_fixture = TestFixture::new();
         let facts = fact_fixture.context();
+
         let unit_fixture = fixture();
         let unit = builder(&unit_fixture, LocalSymbolRegionId::new(24));
+
         let mut request = BinderRequestContext::new(&facts, BindingContext::Expression, unit);
+
         let root = request.unit().root_scope();
+
         let dependency = BinderDependency::Symbol {
             symbol: fact_fixture.constant.into(),
             kind: SymbolFactKind::ConstantDefinition,
         };
+
         let irrelevant_dependency = BinderDependency::Target(fact_fixture.constant);
 
         let abandoned = request.bind_candidate(|request| {
@@ -163,9 +168,12 @@ mod tests {
     fn committed_candidates_publish_through_the_ordinary_request() {
         let fact_fixture = TestFixture::new();
         let facts = fact_fixture.context();
+
         let unit_fixture = fixture();
         let unit = builder(&unit_fixture, LocalSymbolRegionId::new(25));
+
         let mut request = BinderRequestContext::new(&facts, BindingContext::Expression, unit);
+
         let root = request.unit().root_scope();
 
         let committed = request.bind_candidate(|request| {
@@ -191,9 +199,12 @@ mod tests {
     fn candidate_context_mismatches_restore_exact_outer_stacks() {
         let fact_fixture = TestFixture::new();
         let facts = fact_fixture.context();
+
         let unit_fixture = fixture();
         let unit = builder(&unit_fixture, LocalSymbolRegionId::new(26));
+
         let mut request = BinderRequestContext::new(&facts, BindingContext::Expression, unit);
+
         let expected = ExpectedContext::Semantic(ExpectedSemanticKind::Value);
         let target = ControlTarget::new(ControlTargetKind::Loop, unit_fixture.first, None);
 
@@ -211,6 +222,7 @@ mod tests {
             popped,
             Err(BindingError::CandidateContextMismatch)
         ));
+
         assert_eq!(request.expected(), Some(expected));
         assert_eq!(request.control_target(), Some(target));
 
@@ -232,6 +244,7 @@ mod tests {
             replaced,
             Err(BindingError::CandidateContextMismatch)
         ));
+
         assert_eq!(request.expected(), Some(expected));
         assert_eq!(request.control_target(), Some(target));
     }

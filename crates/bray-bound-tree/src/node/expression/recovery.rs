@@ -88,6 +88,7 @@ impl BoundErrorCallExpression {
         ty: TypeId,
     ) -> Self {
         let arguments = shared_slice(arguments);
+
         let operands = shared_slice(
             std::iter::once(callee).chain(arguments.iter().map(BoundArgument::expression)),
         );
