@@ -1,9 +1,34 @@
 use std::sync::Arc;
 
 use bray_base::shared_slice;
+use bray_declarations::SyntaxAnchor;
 use bray_symbols::{LocalBindingSymbolId, LocalConstantSymbolId, TypeId};
 
 use crate::{BoundExpressionId, BoundNodeOrigin, BoundPatternId};
+
+/// A source type expression with its resolved semantic type when available.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct BoundTypeReference {
+    syntax: SyntaxAnchor,
+    ty: Option<TypeId>,
+}
+
+impl BoundTypeReference {
+    /// Creates a syntax-backed type reference.
+    pub const fn new(syntax: SyntaxAnchor, ty: Option<TypeId>) -> Self {
+        Self { syntax, ty }
+    }
+
+    /// Returns the exact type-expression syntax anchor.
+    pub const fn syntax(self) -> SyntaxAnchor {
+        self.syntax
+    }
+
+    /// Returns the resolved semantic type when available.
+    pub const fn ty(self) -> Option<TypeId> {
+        self.ty
+    }
+}
 
 /// One source-ordered semantic item inside a bound block.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -39,7 +64,7 @@ pub struct BoundLocalBinding {
     origin: BoundNodeOrigin,
     pattern: BoundPatternId,
     bindings: Arc<[LocalBindingSymbolId]>,
-    declared_type: Option<TypeId>,
+    declared_type: Option<BoundTypeReference>,
     initializer: BoundExpressionId,
     is_recovered: bool,
 }
@@ -50,7 +75,7 @@ impl BoundLocalBinding {
         origin: BoundNodeOrigin,
         pattern: BoundPatternId,
         bindings: impl IntoIterator<Item = LocalBindingSymbolId>,
-        declared_type: Option<TypeId>,
+        declared_type: Option<BoundTypeReference>,
         initializer: BoundExpressionId,
         is_recovered: bool,
     ) -> Self {
@@ -80,7 +105,7 @@ impl BoundLocalBinding {
     }
 
     /// Returns the explicit declared type when one was present.
-    pub const fn declared_type(&self) -> Option<TypeId> {
+    pub const fn declared_type(&self) -> Option<BoundTypeReference> {
         self.declared_type
     }
 
@@ -100,7 +125,7 @@ impl BoundLocalBinding {
 pub struct BoundLocalConstant {
     origin: BoundNodeOrigin,
     symbol: Option<LocalConstantSymbolId>,
-    declared_type: TypeId,
+    declared_type: BoundTypeReference,
     initializer: BoundExpressionId,
     is_recovered: bool,
 }
@@ -110,7 +135,7 @@ impl BoundLocalConstant {
     pub const fn new(
         origin: BoundNodeOrigin,
         symbol: Option<LocalConstantSymbolId>,
-        declared_type: TypeId,
+        declared_type: BoundTypeReference,
         initializer: BoundExpressionId,
         is_recovered: bool,
     ) -> Self {
@@ -134,7 +159,7 @@ impl BoundLocalConstant {
     }
 
     /// Returns the explicit declared type.
-    pub const fn declared_type(self) -> TypeId {
+    pub const fn declared_type(self) -> BoundTypeReference {
         self.declared_type
     }
 

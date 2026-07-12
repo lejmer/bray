@@ -4,8 +4,11 @@ use crate::{BoundBlockId, BoundExpressionId, BoundNodeOrigin, BoundPatternId};
 
 use super::{
     BoundAnonymousCallableExpression, BoundAssignmentExpression, BoundBinaryExpression,
-    BoundCallExpression, BoundConversionExpression, BoundNameExpression, BoundStructuredExpression,
-    BoundUnaryExpression,
+    BoundCallExpression, BoundControlTransferExpression, BoundConversionExpression,
+    BoundForExpression, BoundGeneratorExpression, BoundLeadingDotVariantExpression,
+    BoundMatchExpression, BoundMemberAccessExpression, BoundNameExpression, BoundSpawnExpression,
+    BoundStructConstructionExpression, BoundStructuredExpression,
+    BoundTraitQualifiedMemberExpression, BoundUnaryExpression,
 };
 
 /// A checked expression retaining its exact semantic category.
@@ -29,6 +32,24 @@ pub enum BoundExpression {
     AnonymousCallable(BoundAnonymousCallableExpression),
     /// A source-shaped aggregate, control-flow, or effect expression.
     Structured(BoundStructuredExpression),
+    /// A struct construction preserving named field associations.
+    StructConstruction(BoundStructConstructionExpression),
+    /// A receiver member selection.
+    MemberAccess(BoundMemberAccessExpression),
+    /// A contextually typed leading-dot variant reference.
+    LeadingDotVariant(BoundLeadingDotVariantExpression),
+    /// A trait-qualified receiver member selection.
+    TraitQualifiedMember(BoundTraitQualifiedMemberExpression),
+    /// A return, yield, break, or continue transfer.
+    ControlTransfer(BoundControlTransferExpression),
+    /// A source for loop with its exact pattern and branches.
+    For(BoundForExpression),
+    /// A source match with exact arm associations.
+    Match(BoundMatchExpression),
+    /// A generator iteration and its yield-capable region.
+    Generator(BoundGeneratorExpression),
+    /// A task or thread spawn.
+    Spawn(BoundSpawnExpression),
     /// An expression that could not be checked successfully.
     Error(BoundErrorExpression),
 }
@@ -46,12 +67,21 @@ impl BoundExpression {
             Self::Conversion(expression) => expression.origin(),
             Self::AnonymousCallable(expression) => expression.origin(),
             Self::Structured(expression) => expression.origin(),
+            Self::StructConstruction(expression) => expression.origin(),
+            Self::MemberAccess(expression) => expression.origin(),
+            Self::LeadingDotVariant(expression) => expression.origin(),
+            Self::TraitQualifiedMember(expression) => expression.origin(),
+            Self::ControlTransfer(expression) => expression.origin(),
+            Self::For(expression) => expression.origin(),
+            Self::Match(expression) => expression.origin(),
+            Self::Generator(expression) => expression.origin(),
+            Self::Spawn(expression) => expression.origin(),
             Self::Error(expression) => expression.origin(),
         }
     }
 
     /// Returns the checked or recovery type of this expression.
-    pub const fn ty(&self) -> TypeId {
+    pub const fn ty(&self) -> Option<TypeId> {
         match self {
             Self::Block(expression) => expression.ty(),
             Self::Name(expression) => expression.ty(),
@@ -62,7 +92,16 @@ impl BoundExpression {
             Self::Conversion(expression) => expression.ty(),
             Self::AnonymousCallable(expression) => expression.ty(),
             Self::Structured(expression) => expression.ty(),
-            Self::Error(expression) => expression.ty(),
+            Self::StructConstruction(expression) => expression.ty(),
+            Self::MemberAccess(expression) => expression.ty(),
+            Self::LeadingDotVariant(expression) => expression.ty(),
+            Self::TraitQualifiedMember(expression) => expression.ty(),
+            Self::ControlTransfer(expression) => expression.ty(),
+            Self::For(expression) => expression.ty(),
+            Self::Match(expression) => expression.ty(),
+            Self::Generator(expression) => expression.ty(),
+            Self::Spawn(expression) => expression.ty(),
+            Self::Error(expression) => Some(expression.ty()),
         }
     }
 
@@ -78,6 +117,15 @@ impl BoundExpression {
             Self::Conversion(expression) => expression.is_recovered(),
             Self::AnonymousCallable(expression) => expression.is_recovered(),
             Self::Structured(expression) => expression.is_recovered(),
+            Self::StructConstruction(expression) => expression.is_recovered(),
+            Self::MemberAccess(expression) => expression.is_recovered(),
+            Self::LeadingDotVariant(expression) => expression.is_recovered(),
+            Self::TraitQualifiedMember(expression) => expression.is_recovered(),
+            Self::ControlTransfer(expression) => expression.is_recovered(),
+            Self::For(expression) => expression.is_recovered(),
+            Self::Match(expression) => expression.is_recovered(),
+            Self::Generator(expression) => expression.is_recovered(),
+            Self::Spawn(expression) => expression.is_recovered(),
             Self::Error(_) => true,
         }
     }
@@ -90,7 +138,19 @@ impl BoundExpression {
             Self::Call(expression) => expression.operands(),
             Self::Conversion(expression) => expression.operands(),
             Self::Structured(expression) => expression.operands(),
-            Self::Block(_) | Self::Name(_) | Self::AnonymousCallable(_) | Self::Error(_) => &[],
+            Self::StructConstruction(expression) => expression.operands(),
+            Self::MemberAccess(expression) => expression.operands(),
+            Self::TraitQualifiedMember(expression) => expression.operands(),
+            Self::ControlTransfer(expression) => expression.operands(),
+            Self::For(expression) => expression.operands(),
+            Self::Match(expression) => expression.operands(),
+            Self::Generator(expression) => expression.operands(),
+            Self::Spawn(expression) => expression.operands(),
+            Self::Block(_)
+            | Self::Name(_)
+            | Self::LeadingDotVariant(_)
+            | Self::AnonymousCallable(_)
+            | Self::Error(_) => &[],
         };
 
         children.iter().copied()
@@ -100,11 +160,17 @@ impl BoundExpression {
         let block = match self {
             Self::Block(expression) => Some(expression.block()),
             Self::Structured(expression) => expression.blocks().first().copied(),
+            Self::For(expression) => expression.blocks().first().copied(),
+            Self::Match(expression) => expression.blocks().first().copied(),
+            Self::Generator(expression) => expression.blocks().first().copied(),
             _ => None,
         };
 
         let remaining = match self {
             Self::Structured(expression) => expression.blocks().get(1..).unwrap_or_default(),
+            Self::For(expression) => expression.blocks().get(1..).unwrap_or_default(),
+            Self::Match(expression) => expression.blocks().get(1..).unwrap_or_default(),
+            Self::Generator(expression) => expression.blocks().get(1..).unwrap_or_default(),
             _ => &[],
         };
 
@@ -114,6 +180,9 @@ impl BoundExpression {
     pub(crate) fn child_patterns(&self) -> impl Iterator<Item = BoundPatternId> + '_ {
         match self {
             Self::Structured(expression) => expression.patterns(),
+            Self::For(expression) => expression.patterns(),
+            Self::Match(expression) => expression.patterns(),
+            Self::Generator(expression) => expression.patterns(),
             _ => &[],
         }
         .iter()
@@ -126,7 +195,7 @@ impl BoundExpression {
 pub struct BoundBlockExpression {
     origin: BoundNodeOrigin,
     block: BoundBlockId,
-    ty: TypeId,
+    ty: Option<TypeId>,
     is_recovered: bool,
 }
 
@@ -135,7 +204,7 @@ impl BoundBlockExpression {
     pub const fn new(
         origin: BoundNodeOrigin,
         block: BoundBlockId,
-        ty: TypeId,
+        ty: Option<TypeId>,
         is_recovered: bool,
     ) -> Self {
         Self {
@@ -157,7 +226,7 @@ impl BoundBlockExpression {
     }
 
     /// Returns the checked result type.
-    pub const fn ty(self) -> TypeId {
+    pub const fn ty(self) -> Option<TypeId> {
         self.ty
     }
 
@@ -207,7 +276,7 @@ mod tests {
         ));
 
         assert_eq!(expression.origin().source_anchor(), source);
-        assert_eq!(expression.ty(), ty);
+        assert_eq!(expression.ty(), Some(ty));
         assert!(expression.is_recovered());
     }
 }

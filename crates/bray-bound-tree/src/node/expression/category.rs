@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use bray_base::shared_slice;
 use bray_declarations::SyntaxAnchor;
-use bray_symbols::{AnyLocalSymbolId, AnySymbolId, SymbolName, TypeId};
+use bray_symbols::{SymbolName, TypeId};
 
 use crate::{BoundBlockId, BoundExpressionId, BoundNodeOrigin, BoundPatternId, BoundUnitKey};
 
@@ -57,61 +57,6 @@ pub enum BoundOperator {
     LogicalNot,
 }
 
-/// The exact value identity reached by a bound name expression.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum BoundValueTarget {
-    /// A body-local value identity.
-    Local(AnyLocalSymbolId),
-    /// A compilation-wide value identity.
-    Surface(AnySymbolId),
-}
-
-/// A resolved value name.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct BoundNameExpression {
-    origin: BoundNodeOrigin,
-    target: BoundValueTarget,
-    ty: TypeId,
-    is_recovered: bool,
-}
-
-impl BoundNameExpression {
-    /// Creates a resolved value-name expression.
-    pub const fn new(
-        origin: BoundNodeOrigin,
-        target: BoundValueTarget,
-        ty: TypeId,
-        is_recovered: bool,
-    ) -> Self {
-        Self {
-            origin,
-            target,
-            ty,
-            is_recovered,
-        }
-    }
-
-    /// Returns the source or synthesized origin.
-    pub const fn origin(self) -> BoundNodeOrigin {
-        self.origin
-    }
-
-    /// Returns the exact referenced value.
-    pub const fn target(self) -> BoundValueTarget {
-        self.target
-    }
-
-    /// Returns the checked or recovery type.
-    pub const fn ty(self) -> TypeId {
-        self.ty
-    }
-
-    /// Returns whether recovery contributed to this expression.
-    pub const fn is_recovered(self) -> bool {
-        self.is_recovered
-    }
-}
-
 macro_rules! define_operator_expression {
     ($name:ident, $documentation:literal) => {
         #[doc = $documentation]
@@ -120,7 +65,7 @@ macro_rules! define_operator_expression {
             origin: BoundNodeOrigin,
             operator: BoundOperator,
             operands: Arc<[BoundExpressionId]>,
-            ty: TypeId,
+            ty: Option<TypeId>,
             is_recovered: bool,
         }
 
@@ -130,7 +75,7 @@ macro_rules! define_operator_expression {
                 origin: BoundNodeOrigin,
                 operator: BoundOperator,
                 operands: impl IntoIterator<Item = BoundExpressionId>,
-                ty: TypeId,
+                ty: Option<TypeId>,
                 is_recovered: bool,
             ) -> Self {
                 Self {
@@ -146,18 +91,22 @@ macro_rules! define_operator_expression {
             pub const fn origin(&self) -> BoundNodeOrigin {
                 self.origin
             }
+
             /// Returns the source operator kind.
             pub const fn operator(&self) -> BoundOperator {
                 self.operator
             }
+
             /// Returns operands in evaluation order.
             pub fn operands(&self) -> &[BoundExpressionId] {
                 &self.operands
             }
+
             /// Returns the checked or recovery type.
-            pub const fn ty(&self) -> TypeId {
+            pub const fn ty(&self) -> Option<TypeId> {
                 self.ty
             }
+
             /// Returns whether recovery contributed to this expression.
             pub const fn is_recovered(&self) -> bool {
                 self.is_recovered
@@ -215,7 +164,7 @@ pub struct BoundCallExpression {
     callee: BoundExpressionId,
     arguments: Arc<[BoundArgument]>,
     operands: Arc<[BoundExpressionId]>,
-    ty: TypeId,
+    ty: Option<TypeId>,
     is_recovered: bool,
 }
 
@@ -225,7 +174,7 @@ impl BoundCallExpression {
         origin: BoundNodeOrigin,
         callee: BoundExpressionId,
         arguments: impl IntoIterator<Item = BoundArgument>,
-        ty: TypeId,
+        ty: Option<TypeId>,
         is_recovered: bool,
     ) -> Self {
         let arguments = shared_slice(arguments);
@@ -259,7 +208,7 @@ impl BoundCallExpression {
     }
 
     /// Returns the checked or recovery type.
-    pub const fn ty(&self) -> TypeId {
+    pub const fn ty(&self) -> Option<TypeId> {
         self.ty
     }
 
@@ -267,6 +216,7 @@ impl BoundCallExpression {
     pub const fn is_recovered(&self) -> bool {
         self.is_recovered
     }
+
     pub(crate) fn operands(&self) -> &[BoundExpressionId] {
         &self.operands
     }
@@ -279,7 +229,7 @@ pub struct BoundConversionExpression {
     operand: BoundExpressionId,
     target_syntax: SyntaxAnchor,
     target_type: Option<TypeId>,
-    ty: TypeId,
+    ty: Option<TypeId>,
     is_recovered: bool,
 }
 
@@ -290,7 +240,7 @@ impl BoundConversionExpression {
         operand: BoundExpressionId,
         target_syntax: SyntaxAnchor,
         target_type: Option<TypeId>,
-        ty: TypeId,
+        ty: Option<TypeId>,
         is_recovered: bool,
     ) -> Self {
         Self {
@@ -324,7 +274,7 @@ impl BoundConversionExpression {
     }
 
     /// Returns the checked or recovery type.
-    pub const fn ty(self) -> TypeId {
+    pub const fn ty(self) -> Option<TypeId> {
         self.ty
     }
 
@@ -332,6 +282,7 @@ impl BoundConversionExpression {
     pub const fn is_recovered(self) -> bool {
         self.is_recovered
     }
+
     pub(crate) fn operands(&self) -> &[BoundExpressionId] {
         std::slice::from_ref(&self.operand)
     }
@@ -342,7 +293,7 @@ impl BoundConversionExpression {
 pub struct BoundAnonymousCallableExpression {
     origin: BoundNodeOrigin,
     unit: BoundUnitKey,
-    ty: TypeId,
+    ty: Option<TypeId>,
     is_recovered: bool,
 }
 
@@ -351,7 +302,7 @@ impl BoundAnonymousCallableExpression {
     pub const fn new(
         origin: BoundNodeOrigin,
         unit: BoundUnitKey,
-        ty: TypeId,
+        ty: Option<TypeId>,
         is_recovered: bool,
     ) -> Self {
         Self {
@@ -373,7 +324,7 @@ impl BoundAnonymousCallableExpression {
     }
 
     /// Returns the checked or recovery type.
-    pub const fn ty(&self) -> TypeId {
+    pub const fn ty(&self) -> Option<TypeId> {
         self.ty
     }
 
@@ -392,32 +343,20 @@ pub enum BoundStructuredExpressionKind {
     Unit,
     /// The absence value.
     Absence,
-    /// Member selection from a receiver.
-    MemberAccess,
     /// Element selection from a receiver.
     ElementIndex,
     /// Slice selection from a receiver.
     SliceIndex,
     /// Nullable propagation from a receiver.
     NullablePropagation,
-    /// Trait-qualified member selection.
-    TraitQualifiedMember,
     /// A tuple aggregate.
     Tuple,
     /// An array aggregate.
     Array,
-    /// A struct construction.
-    StructConstruction,
-    /// A generator construction.
-    Generator,
     /// A conditional branch.
     Conditional,
-    /// A pattern match.
-    Match,
     /// A conditional loop.
     While,
-    /// An iteration loop.
-    For,
     /// An unconditional loop.
     Loop,
     /// A scoped lifecycle expression.
@@ -440,27 +379,8 @@ pub enum BoundStructuredExpressionKind {
     BooleanFold,
     /// An asynchronous block.
     AsyncBlock,
-    /// A spawned computation.
-    Spawn,
-    /// A block result transfer.
-    Yield,
-    /// A callable result transfer.
-    Return,
-    /// A loop or block exit.
-    Break,
-    /// A loop continuation.
-    Continue,
     /// An explicit panic.
     Panic,
-}
-
-/// A source member selector awaiting receiver-aware lookup.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum BoundMemberSelector {
-    /// A named member selector.
-    Name(SymbolName),
-    /// A tuple element selector.
-    TupleElement(u32),
 }
 
 /// A source-shaped aggregate, control-flow, or effect expression.
@@ -468,12 +388,10 @@ pub enum BoundMemberSelector {
 pub struct BoundStructuredExpression {
     origin: BoundNodeOrigin,
     kind: BoundStructuredExpressionKind,
-    member_selector: Option<BoundMemberSelector>,
-    control_target: Option<SyntaxAnchor>,
     operands: Arc<[BoundExpressionId]>,
     blocks: Arc<[BoundBlockId]>,
     patterns: Arc<[BoundPatternId]>,
-    ty: TypeId,
+    ty: Option<TypeId>,
     is_recovered: bool,
 }
 
@@ -485,34 +403,18 @@ impl BoundStructuredExpression {
         operands: impl IntoIterator<Item = BoundExpressionId>,
         blocks: impl IntoIterator<Item = BoundBlockId>,
         patterns: impl IntoIterator<Item = BoundPatternId>,
-        ty: TypeId,
+        ty: Option<TypeId>,
         is_recovered: bool,
     ) -> Self {
         Self {
             origin,
             kind,
-            member_selector: None,
-            control_target: None,
             operands: shared_slice(operands),
             blocks: shared_slice(blocks),
             patterns: shared_slice(patterns),
             ty,
             is_recovered,
         }
-    }
-
-    /// Attaches the source member selector for receiver-aware lookup.
-    pub fn with_member_selector(mut self, selector: Option<BoundMemberSelector>) -> Self {
-        self.member_selector = selector;
-
-        self
-    }
-
-    /// Attaches the exact target of a source control transfer.
-    pub const fn with_control_target(mut self, target: Option<SyntaxAnchor>) -> Self {
-        self.control_target = target;
-
-        self
     }
 
     /// Returns the source or synthesized origin.
@@ -523,16 +425,6 @@ impl BoundStructuredExpression {
     /// Returns the exact source-level semantic category.
     pub const fn kind(&self) -> BoundStructuredExpressionKind {
         self.kind
-    }
-
-    /// Returns the member selector when receiver-aware lookup is required.
-    pub const fn member_selector(&self) -> Option<&BoundMemberSelector> {
-        self.member_selector.as_ref()
-    }
-
-    /// Returns the exact target of a source control transfer when applicable.
-    pub const fn control_target(&self) -> Option<SyntaxAnchor> {
-        self.control_target
     }
 
     /// Returns nested expressions in evaluation order.
@@ -551,7 +443,7 @@ impl BoundStructuredExpression {
     }
 
     /// Returns the checked or recovery type.
-    pub const fn ty(&self) -> TypeId {
+    pub const fn ty(&self) -> Option<TypeId> {
         self.ty
     }
 

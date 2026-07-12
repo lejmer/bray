@@ -1,5 +1,5 @@
 use bray_bound_tree::{
-    BoundExpression, BoundExpressionId, BoundStructuredExpression, BoundStructuredExpressionKind,
+    BoundExpression, BoundExpressionId, BoundForExpression, BoundMatchArm, BoundMatchExpression,
 };
 use bray_declarations::SyntaxAnchor;
 use bray_symbols::{LocalScopeBoundary, LocalScopeId};
@@ -76,24 +76,30 @@ impl ExpressionBinder {
         }
 
         let pattern_id = pattern.pattern();
+        let mut blocks = blocks.into_iter();
+
+        let Some(body) = blocks.next() else {
+            return Err(crate::binding::BindingError::UnsupportedSyntax);
+        };
+
+        let else_body = blocks.next();
         let recovered = syntax.is_recovered()
             || request.expression_is_recovered(iteration)
             || request.pattern_is_recovered(pattern_id)
-            || blocks
-                .iter()
-                .any(|block| request.block_is_recovered(*block));
+            || request.block_is_recovered(body)
+            || else_body.is_some_and(|block| request.block_is_recovered(block));
 
-        let expression = BoundStructuredExpression::new(
+        let expression = BoundForExpression::new(
             request.source_origin(syntax),
-            BoundStructuredExpressionKind::For,
-            [iteration],
-            blocks,
-            [pattern_id],
-            self.error_type,
+            iteration,
+            pattern_id,
+            body,
+            else_body,
+            None,
             recovered,
         );
 
-        self.push(request, BoundExpression::Structured(expression))
+        self.push(request, BoundExpression::For(expression))
     }
 
     pub(super) fn bind_match_expression<C>(
@@ -108,9 +114,7 @@ impl ExpressionBinder {
         let subject =
             self.bind_expression(request, scope, Some(&syntax.match_subject().expression()))?;
 
-        let mut operands = vec![subject];
-        let mut blocks = Vec::new();
-        let mut patterns = Vec::new();
+        let mut arms = Vec::new();
 
         for arm in syntax.match_body().match_arms() {
             request.check_cancellation()?;
@@ -131,36 +135,40 @@ impl ExpressionBinder {
             )?;
 
             request.activate_pattern_bindings(arm_scope, &pattern)?;
-            patterns.push(pattern.pattern());
 
-            if let Some(guard) = arm.guard_expression() {
-                operands.push(self.bind_expression(request, arm_scope, Some(&guard))?);
-            }
+            let guard = match arm.guard_expression() {
+                Some(guard) => Some(self.bind_expression(request, arm_scope, Some(&guard))?),
+                None => None,
+            };
 
-            blocks.push(request.bind_block(arm_scope, &arm.block_expression(), self)?);
+            let body = request.bind_block(arm_scope, &arm.block_expression(), self)?;
+
+            arms.push(BoundMatchArm::new(pattern.pattern(), guard, body));
         }
 
         let recovered = syntax.is_recovered()
-            || operands
-                .iter()
-                .any(|operand| request.expression_is_recovered(*operand))
-            || patterns
-                .iter()
-                .any(|pattern| request.pattern_is_recovered(*pattern))
-            || blocks
-                .iter()
-                .any(|block| request.block_is_recovered(*block));
+            || request.expression_is_recovered(subject)
+            || arms.iter().any(|arm| match_arm_is_recovered(request, *arm));
 
-        let expression = BoundStructuredExpression::new(
+        let expression = BoundMatchExpression::new(
             request.source_origin(syntax),
-            BoundStructuredExpressionKind::Match,
-            operands,
-            blocks,
-            patterns,
-            self.error_type,
+            subject,
+            arms,
+            None,
             recovered,
         );
 
-        self.push(request, BoundExpression::Structured(expression))
+        self.push(request, BoundExpression::Match(expression))
     }
+}
+
+fn match_arm_is_recovered<C>(request: &BinderRequestContext<'_, C>, arm: BoundMatchArm) -> bool
+where
+    C: BinderFactContext + ?Sized,
+{
+    request.pattern_is_recovered(arm.pattern())
+        || arm
+            .guard()
+            .is_some_and(|guard| request.expression_is_recovered(guard))
+        || request.block_is_recovered(arm.body())
 }

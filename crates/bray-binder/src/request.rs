@@ -57,6 +57,7 @@ pub(crate) enum ExpectedSemanticKind {
 pub(crate) enum ControlTargetKind {
     Callable,
     Loop,
+    Generator,
     Block,
 }
 

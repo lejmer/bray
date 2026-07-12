@@ -1,6 +1,6 @@
 use bray_bound_tree::{
     BoundBlock, BoundBlockId, BoundBlockItem, BoundExpressionId, BoundLocalBinding,
-    BoundLocalConstant,
+    BoundLocalConstant, BoundTypeReference,
 };
 use bray_declarations::SyntaxAnchor;
 use bray_symbols::{LocalScopeBoundary, LocalScopeId, SymbolOrdinal, TypeId};
@@ -42,7 +42,7 @@ where
         request: &mut BinderRequestContext<'_, C>,
         scope: LocalScopeId,
         syntax: Option<&TypeExpressionSyntax>,
-    ) -> BindingResult<Option<TypeId>>;
+    ) -> BindingResult<Option<BoundTypeReference>>;
 
     fn error_type(&self) -> TypeId;
 
@@ -163,11 +163,14 @@ where
 
         let initializer = operations.bind_expression(self, scope, syntax.expression().as_ref())?;
 
-        let input_type = declared_type.unwrap_or_else(|| {
-            self.unit_view()
-                .expression(initializer)
-                .map_or(operations.error_type(), |expression| expression.ty())
-        });
+        let input_type = declared_type
+            .and_then(BoundTypeReference::ty)
+            .unwrap_or_else(|| {
+                self.unit_view()
+                    .expression(initializer)
+                    .and_then(bray_bound_tree::BoundExpression::ty)
+                    .unwrap_or_else(|| operations.error_type())
+            });
 
         let context = operations.path_context(self, scope)?;
 
@@ -198,7 +201,9 @@ where
     ) -> BindingResult<BoundLocalConstant> {
         let declared_type = operations
             .bind_type_expression(self, scope, Some(&syntax.type_expression()))?
-            .unwrap_or_else(|| operations.error_type());
+            .unwrap_or_else(|| {
+                BoundTypeReference::new(SyntaxAnchor::from_node(&syntax.type_expression()), None)
+            });
 
         let initializer = operations.bind_expression(self, scope, syntax.expression().as_ref())?;
 
@@ -255,7 +260,10 @@ where
 
 #[cfg(test)]
 mod tests {
-    use bray_bound_tree::{BoundBlockItem, BoundErrorExpression, BoundExpression, BoundNodeOrigin};
+    use bray_bound_tree::{
+        BoundBlockItem, BoundErrorExpression, BoundExpression, BoundNodeOrigin, BoundTypeReference,
+    };
+    use bray_declarations::SyntaxAnchor;
     use bray_symbols::{LocalScopeBoundary, TypeId};
     use bray_syntax::{ExpressionSyntax, GeneratorIterationExpressionSyntax, TypeExpressionSyntax};
 
@@ -269,7 +277,7 @@ mod tests {
     #[test]
     fn blocks_bind_local_items_in_source_order_and_activate_after_initializers() {
         let fixture = TestFixture::from_source(
-            "module app; const Size: Int = 1; func main() { let value = 1; const Local: Int = 2; value; }",
+            "module app; const Size: Int = 1; func main() { let value: Int = 1; const Local: Int = 2; value; }",
         );
         let facts = fixture.context();
         let (mut request, block) = crate::binding::test_support::request_and_block(&facts);
@@ -315,6 +323,24 @@ mod tests {
         let BoundBlockItem::LocalBinding(binding) = &block.items()[0] else {
             panic!("first item must remain a local binding");
         };
+
+        let Some(declared_type) = binding.declared_type() else {
+            panic!("typed local binding must retain its type reference");
+        };
+
+        assert_eq!(
+            declared_type.syntax().syntax_kind(),
+            bray_syntax::SyntaxKind::TypeExpression
+        );
+
+        let BoundBlockItem::LocalConstant(constant) = &block.items()[1] else {
+            panic!("second item must remain a local constant");
+        };
+
+        assert_eq!(
+            constant.declared_type().syntax().syntax_kind(),
+            bray_syntax::SyntaxKind::TypeExpression
+        );
 
         let Some(pattern) = result.unit().tree().pattern(binding.pattern()) else {
             panic!("local binding must retain its pattern");
@@ -531,8 +557,10 @@ mod tests {
             _request: &mut BinderRequestContext<'_, C>,
             _scope: bray_symbols::LocalScopeId,
             syntax: Option<&TypeExpressionSyntax>,
-        ) -> BindingResult<Option<TypeId>> {
-            Ok(syntax.map(|_| self.error_type))
+        ) -> BindingResult<Option<BoundTypeReference>> {
+            Ok(syntax.map(|syntax| {
+                BoundTypeReference::new(SyntaxAnchor::from_node(syntax), Some(self.error_type))
+            }))
         }
 
         fn error_type(&self) -> TypeId {

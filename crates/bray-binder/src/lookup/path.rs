@@ -231,12 +231,12 @@ where
         self.bind_classified_path(context, path, DiagnosticNameKind::Value, classify_value)
     }
 
-    pub(crate) fn bind_value_identifier(
+    pub(crate) fn bind_reference_identifier(
         &mut self,
         context: PathBindingContext,
         source: &SourceSnapshot,
         token: SyntaxToken,
-    ) -> NameLookupResult<ResolvedValueName> {
+    ) -> NameLookupResult<ResolvedName> {
         let Some(reference) = token_reference(source, token) else {
             return malformed_lookup();
         };
@@ -248,8 +248,7 @@ where
             context.module,
             reference.text(),
             context.access,
-        )
-        .classify(classify_value);
+        );
 
         report_lookup_result(self, &reference, DiagnosticNameKind::Value, &result);
 
