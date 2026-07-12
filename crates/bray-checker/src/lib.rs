@@ -12,5 +12,5 @@ mod test_support;
 
 pub use cancellation::CheckerCancellation;
 pub use outcome::{CheckerOutcome, UnitCheckConclusions};
-pub use request::{UnitCheckRequest, UnitCheckRoot};
+pub use request::{UnitCheckRequest, UnitCheckRequestError, UnitCheckRoot};
 pub use service::UnitChecker;

@@ -1,6 +1,6 @@
 use bray_bound_tree::{
     AnyBoundNodeId, BoundBlockId, BoundBlockItem, BoundControlTransferKind, BoundExpression,
-    BoundExpressionId, BoundPatternId, BoundStructuredExpressionKind, BoundUnitView,
+    BoundExpressionId, BoundOperator, BoundPatternId, BoundUnitView,
 };
 use bray_declarations::SyntaxAnchor;
 
@@ -19,13 +19,6 @@ pub(crate) fn build_topology(request: UnitCheckRequest<'_>) -> TopologyBuildOutc
     let mut builder = TopologyBuilder::new(request);
     let entry = builder.push_block();
 
-    if !request.root().accepts(request.view().kind()) {
-        builder.push_recovery(entry, request.root().node());
-        builder.push_exit(entry, AnalysisExitKind::Recovery);
-
-        return TopologyBuildOutcome::Complete(builder.finish(entry));
-    }
-
     let completion = match request.root() {
         UnitCheckRoot::CallableBody(root) => builder.build_callable_body(root, entry),
         UnitCheckRoot::Expression(root) => builder.build_expression(root, entry),
@@ -42,18 +35,19 @@ pub(crate) fn build_topology(request: UnitCheckRequest<'_>) -> TopologyBuildOutc
     TopologyBuildOutcome::Complete(builder.finish(entry))
 }
 
-struct TopologyBuilder<'view> {
+pub(super) struct TopologyBuilder<'view> {
     request: UnitCheckRequest<'view>,
     view: BoundUnitView<'view>,
     storage: TopologyStorage,
-    loops: Vec<LoopContext>,
+    pub(super) loops: Vec<LoopContext>,
+    pub(super) catches: Vec<AnalysisBlockId>,
 }
 
 #[derive(Clone, Copy)]
-struct LoopContext {
-    target: SyntaxAnchor,
-    header: AnalysisBlockId,
-    completion: AnalysisBlockId,
+pub(super) struct LoopContext {
+    pub(super) target: SyntaxAnchor,
+    pub(super) continue_target: Option<AnalysisBlockId>,
+    pub(super) completion: AnalysisBlockId,
 }
 
 impl<'view> TopologyBuilder<'view> {
@@ -63,6 +57,7 @@ impl<'view> TopologyBuilder<'view> {
             view: request.view(),
             storage: TopologyStorage::new(request.view().unit()),
             loops: Vec::new(),
+            catches: Vec::new(),
         }
     }
 
@@ -98,7 +93,7 @@ impl<'view> TopologyBuilder<'view> {
         }
     }
 
-    fn build_block(
+    pub(super) fn build_block(
         &mut self,
         id: BoundBlockId,
         mut current: AnalysisBlockId,
@@ -146,7 +141,7 @@ impl<'view> TopologyBuilder<'view> {
         }
     }
 
-    fn build_expression(
+    pub(super) fn build_expression(
         &mut self,
         id: BoundExpressionId,
         current: AnalysisBlockId,
@@ -162,6 +157,14 @@ impl<'view> TopologyBuilder<'view> {
         };
 
         match expression {
+            BoundExpression::Binary(expression)
+                if matches!(
+                    expression.operator(),
+                    BoundOperator::LogicalAnd | BoundOperator::LogicalOr
+                ) =>
+            {
+                self.build_short_circuit(id, expression.operands(), expression.operator(), current)
+            }
             BoundExpression::Structured(expression) => {
                 self.build_structured(id, expression, current)
             }
@@ -172,9 +175,14 @@ impl<'view> TopologyBuilder<'view> {
                 let current = current.unwrap_or_else(|| self.push_block());
 
                 self.push_bound(current, id.into());
-                self.build_pattern(expression.pattern(), current)?;
 
-                self.build_loop(expression.body(), expression.region(), current, true)
+                self.build_iteration(
+                    expression.pattern(),
+                    expression.body(),
+                    None,
+                    expression.region(),
+                    current,
+                )
             }
             BoundExpression::ControlTransfer(expression) => {
                 let current = self.build_optional_operand(expression.operand(), current)?;
@@ -217,278 +225,7 @@ impl<'view> TopologyBuilder<'view> {
         Some(Some(current))
     }
 
-    fn build_structured(
-        &mut self,
-        id: BoundExpressionId,
-        expression: &bray_bound_tree::BoundStructuredExpression,
-        mut current: AnalysisBlockId,
-    ) -> Option<Option<AnalysisBlockId>> {
-        for operand in expression.operands() {
-            current = self
-                .build_expression(*operand, current)?
-                .unwrap_or_else(|| self.push_block());
-        }
-
-        self.push_bound(current, id.into());
-
-        match expression.kind() {
-            BoundStructuredExpressionKind::Conditional => {
-                self.build_branches(expression.blocks(), current)
-            }
-            BoundStructuredExpressionKind::While | BoundStructuredExpressionKind::Loop => {
-                let Some(body) = expression.blocks().first().copied() else {
-                    self.push_recovery(current, id.into());
-
-                    return Some(Some(current));
-                };
-
-                self.build_loop(
-                    body,
-                    expression.origin().source_anchor().syntax(),
-                    current,
-                    expression.kind() == BoundStructuredExpressionKind::While,
-                )
-            }
-            BoundStructuredExpressionKind::ResultPropagation => {
-                self.build_propagation(id, current, false)
-            }
-            BoundStructuredExpressionKind::NullablePropagation => {
-                self.build_propagation(id, current, true)
-            }
-            BoundStructuredExpressionKind::Panic => {
-                self.push_exit(current, AnalysisExitKind::Panic);
-
-                Some(None)
-            }
-            BoundStructuredExpressionKind::Catch => {
-                let join = self.push_block();
-
-                self.push_edge(current, join, AnalysisEdgeKind::Sequential, None);
-
-                for block in expression.blocks() {
-                    let catch_entry = self.push_block();
-
-                    self.push_edge(current, catch_entry, AnalysisEdgeKind::Catch, None);
-
-                    let completion = self
-                        .build_block(*block, catch_entry)?
-                        .unwrap_or_else(|| self.push_block());
-
-                    self.push_edge(completion, join, AnalysisEdgeKind::Sequential, None);
-                }
-
-                Some(Some(join))
-            }
-            BoundStructuredExpressionKind::Await => {
-                let suspended = self.push_block();
-                let resume = self.push_block();
-                let cancellation = self.push_block();
-
-                self.push_edge(current, suspended, AnalysisEdgeKind::AsyncSuspend, None);
-                self.push_edge(suspended, resume, AnalysisEdgeKind::AsyncResume, None);
-                self.push_edge(suspended, cancellation, AnalysisEdgeKind::AsyncCancel, None);
-                self.push_exit(cancellation, AnalysisExitKind::Cancellation);
-
-                Some(Some(resume))
-            }
-            BoundStructuredExpressionKind::AsyncBlock => {
-                for block in expression.blocks() {
-                    current = self
-                        .build_block(*block, current)?
-                        .unwrap_or_else(|| self.push_block());
-                }
-
-                let completion = self.push_block();
-
-                self.push_edge(current, completion, AnalysisEdgeKind::TaskCompletion, None);
-
-                Some(Some(completion))
-            }
-            _ => {
-                for block in expression.blocks() {
-                    current = self
-                        .build_block(*block, current)?
-                        .unwrap_or_else(|| self.push_block());
-                }
-
-                Some(Some(current))
-            }
-        }
-    }
-
-    fn build_for(
-        &mut self,
-        id: BoundExpressionId,
-        expression: &bray_bound_tree::BoundForExpression,
-        current: AnalysisBlockId,
-    ) -> Option<Option<AnalysisBlockId>> {
-        let current = self.build_expression(expression.source(), current)?;
-        let current = current.unwrap_or_else(|| self.push_block());
-
-        self.push_bound(current, id.into());
-        self.build_pattern(expression.pattern(), current)?;
-
-        let completion = self.build_loop(
-            expression.body(),
-            expression.origin().source_anchor().syntax(),
-            current,
-            true,
-        )?;
-        let Some(else_body) = expression.else_body() else {
-            return Some(completion);
-        };
-
-        let completion = completion.unwrap_or_else(|| self.push_block());
-
-        self.build_block(else_body, completion)
-    }
-
-    fn build_match(
-        &mut self,
-        id: BoundExpressionId,
-        expression: &bray_bound_tree::BoundMatchExpression,
-        current: AnalysisBlockId,
-    ) -> Option<Option<AnalysisBlockId>> {
-        let current = self.build_expression(expression.subject(), current)?;
-        let current = current.unwrap_or_else(|| self.push_block());
-
-        self.push_bound(current, id.into());
-
-        let join = self.push_block();
-
-        for arm in expression.arms() {
-            let arm_entry = self.push_block();
-            let refinement = AnalysisRefinement::PatternSuccess(arm.pattern());
-
-            self.push_edge(
-                current,
-                arm_entry,
-                AnalysisEdgeKind::MatchArm,
-                Some(refinement),
-            );
-
-            let arm_entry = self
-                .build_pattern(arm.pattern(), arm_entry)?
-                .unwrap_or_else(|| self.push_block());
-
-            let arm_entry = self.build_optional_operand(arm.guard(), arm_entry)?;
-
-            if let Some(completion) = self.build_block(arm.body(), arm_entry)? {
-                self.push_edge(completion, join, AnalysisEdgeKind::Sequential, None);
-            }
-        }
-
-        self.push_edge(current, join, AnalysisEdgeKind::MatchNoMatch, None);
-
-        Some(Some(join))
-    }
-
-    fn build_branches(
-        &mut self,
-        branches: &[BoundBlockId],
-        current: AnalysisBlockId,
-    ) -> Option<Option<AnalysisBlockId>> {
-        let join = self.push_block();
-
-        for (index, branch) in branches.iter().copied().enumerate() {
-            let entry = self.push_block();
-            let kind = if index == 0 {
-                AnalysisEdgeKind::ConditionalTrue
-            } else {
-                AnalysisEdgeKind::ConditionalFalse
-            };
-
-            self.push_edge(current, entry, kind, None);
-
-            if let Some(completion) = self.build_block(branch, entry)? {
-                self.push_edge(completion, join, AnalysisEdgeKind::Sequential, None);
-            }
-        }
-
-        if branches.len() < 2 {
-            self.push_edge(current, join, AnalysisEdgeKind::ConditionalFalse, None);
-        }
-
-        Some(Some(join))
-    }
-
-    fn build_loop(
-        &mut self,
-        body: BoundBlockId,
-        target: SyntaxAnchor,
-        current: AnalysisBlockId,
-        can_complete: bool,
-    ) -> Option<Option<AnalysisBlockId>> {
-        let body_entry = self.push_block();
-        let completion = self.push_block();
-
-        self.push_edge(current, body_entry, AnalysisEdgeKind::LoopEntry, None);
-
-        if can_complete {
-            self.push_edge(
-                current,
-                completion,
-                AnalysisEdgeKind::ConditionalFalse,
-                None,
-            );
-        } else {
-            self.push_exit(current, AnalysisExitKind::Divergence);
-        }
-
-        self.loops.push(LoopContext {
-            target,
-            header: current,
-            completion,
-        });
-
-        if let Some(body_exit) = self.build_block(body, body_entry)? {
-            self.push_edge(body_exit, current, AnalysisEdgeKind::LoopBack, None);
-        }
-
-        self.loops.pop();
-
-        Some(Some(completion))
-    }
-
-    fn build_propagation(
-        &mut self,
-        expression: BoundExpressionId,
-        current: AnalysisBlockId,
-        nullable: bool,
-    ) -> Option<Option<AnalysisBlockId>> {
-        let success = self.push_block();
-        let failure = self.push_block();
-
-        let (success_kind, failure_kind, success_refinement, failure_refinement) = if nullable {
-            (
-                AnalysisEdgeKind::NullablePresent,
-                AnalysisEdgeKind::NullableAbsent,
-                Some(AnalysisRefinement::NullablePresence {
-                    expression,
-                    is_present: true,
-                }),
-                Some(AnalysisRefinement::NullablePresence {
-                    expression,
-                    is_present: false,
-                }),
-            )
-        } else {
-            (
-                AnalysisEdgeKind::ResultSuccess,
-                AnalysisEdgeKind::ResultPropagation,
-                None,
-                None,
-            )
-        };
-
-        self.push_edge(current, success, success_kind, success_refinement);
-        self.push_edge(current, failure, failure_kind, failure_refinement);
-        self.push_exit(failure, AnalysisExitKind::Propagation);
-
-        Some(Some(success))
-    }
-
-    fn build_pattern(
+    pub(super) fn build_pattern(
         &mut self,
         id: BoundPatternId,
         current: AnalysisBlockId,
@@ -551,27 +288,30 @@ impl<'view> TopologyBuilder<'view> {
                 None => self.push_exit(block, AnalysisExitKind::Recovery),
             },
             BoundControlTransferKind::Continue => match target_loop {
-                Some(context) => {
-                    self.push_edge(block, context.header, AnalysisEdgeKind::LoopContinue, None);
-                }
+                Some(context) => match context.continue_target {
+                    Some(header) => {
+                        self.push_edge(block, header, AnalysisEdgeKind::LoopContinue, None);
+                    }
+                    None => self.push_exit(block, AnalysisExitKind::Recovery),
+                },
                 None => self.push_exit(block, AnalysisExitKind::Recovery),
             },
         }
     }
 
-    fn push_block(&mut self) -> AnalysisBlockId {
+    pub(super) fn push_block(&mut self) -> AnalysisBlockId {
         self.storage.push_block()
     }
 
-    fn push_bound(&mut self, block: AnalysisBlockId, node: AnyBoundNodeId) {
+    pub(super) fn push_bound(&mut self, block: AnalysisBlockId, node: AnyBoundNodeId) {
         self.storage.push_bound(block, node);
     }
 
-    fn push_recovery(&mut self, block: AnalysisBlockId, node: AnyBoundNodeId) {
+    pub(super) fn push_recovery(&mut self, block: AnalysisBlockId, node: AnyBoundNodeId) {
         self.storage.push_recovery(block, node);
     }
 
-    fn push_edge(
+    pub(super) fn push_edge(
         &mut self,
         source: AnalysisBlockId,
         target: AnalysisBlockId,
@@ -581,7 +321,17 @@ impl<'view> TopologyBuilder<'view> {
         self.storage.push_edge(source, target, kind, refinement);
     }
 
-    fn push_exit(&mut self, block: AnalysisBlockId, kind: AnalysisExitKind) {
+    pub(super) fn push_exit(&mut self, block: AnalysisBlockId, kind: AnalysisExitKind) {
+        if matches!(
+            kind,
+            AnalysisExitKind::Panic | AnalysisExitKind::Cancellation
+        ) && let Some(catch) = self.catches.last().copied()
+        {
+            self.push_edge(block, catch, AnalysisEdgeKind::Catch, None);
+
+            return;
+        }
+
         self.storage.push_exit(block, kind);
     }
 
@@ -596,11 +346,19 @@ impl<'view> TopologyBuilder<'view> {
 
 #[cfg(test)]
 mod tests {
-    use bray_bound_tree::BoundUnitId;
+    use bray_bound_tree::{
+        AnyBoundNodeId, BoundBinaryExpression, BoundBlock, BoundBlockItem, BoundCallableBody,
+        BoundControlTransferExpression, BoundControlTransferKind, BoundErrorExpression,
+        BoundExpression, BoundExpressionId, BoundForExpression, BoundMatchArm,
+        BoundMatchExpression, BoundNodeOrigin, BoundOperator, BoundPattern, BoundPatternKind,
+        BoundPatternMode, BoundStructuredExpression, BoundStructuredExpressionKind, BoundTree,
+        BoundTreeBuilder, BoundUnitId, BoundUnitKey,
+    };
 
     use super::{TopologyBuildOutcome, build_topology};
+    use crate::analysis::model::AnalysisTopology;
     use crate::analysis::model::{AnalysisEdgeKind, AnalysisExitKind, AnalysisOperationKind};
-    use crate::test_support::{callable_key, recovered_tree};
+    use crate::test_support::{callable_key, error_type, recovered_tree};
     use crate::{UnitCheckRequest, UnitCheckRoot};
 
     #[test]
@@ -610,7 +368,10 @@ mod tests {
         let (tree, root) = recovered_tree(unit, &key);
         let view = tree.view(&key);
 
-        let request = UnitCheckRequest::new(view, UnitCheckRoot::CallableBody(root), &|| false);
+        let Ok(request) = UnitCheckRequest::new(view, UnitCheckRoot::CallableBody(root), &|| false)
+        else {
+            panic!("matching test roots must produce checker requests");
+        };
 
         let TopologyBuildOutcome::Complete(topology) = build_topology(request) else {
             panic!("recovered topology construction must complete");
@@ -636,5 +397,302 @@ mod tests {
                 .iter()
                 .any(|exit| exit.kind() == AnalysisExitKind::Recovery)
         );
+    }
+
+    #[test]
+    fn short_circuit_rhs_is_reached_only_through_its_required_branch() {
+        let key = callable_key();
+        let unit = BoundUnitId::new(7);
+        let origin = BoundNodeOrigin::source(key.source());
+        let mut builder = BoundTreeBuilder::new(unit);
+
+        let left = push_error_expression(&mut builder, origin);
+        let right = push_error_expression(&mut builder, origin);
+
+        let binary = BoundExpression::Binary(BoundBinaryExpression::new(
+            origin,
+            BoundOperator::LogicalAnd,
+            [left, right],
+            Some(error_type()),
+            false,
+        ));
+
+        let binary = push_expression(&mut builder, binary);
+        let root = push_callable_root(&mut builder, origin, [binary]);
+        let tree = builder.finish();
+        let topology = topology(&tree, &key, root);
+
+        let right_block = block_containing(&topology, right.into());
+        let predecessor_kinds = right_block
+            .predecessors()
+            .iter()
+            .filter_map(|edge| topology.edge(*edge).map(|edge| edge.kind()))
+            .collect::<Vec<_>>();
+
+        assert_eq!(predecessor_kinds, [AnalysisEdgeKind::ConditionalTrue]);
+    }
+
+    #[test]
+    fn while_else_and_catch_paths_preserve_spec_evaluation_order() {
+        let key = callable_key();
+        let unit = BoundUnitId::new(8);
+        let origin = BoundNodeOrigin::source(key.source());
+        let mut builder = BoundTreeBuilder::new(unit);
+
+        let condition = push_error_expression(&mut builder, origin);
+        let body_value = push_error_expression(&mut builder, origin);
+        let else_value = push_error_expression(&mut builder, origin);
+
+        let body = push_block(&mut builder, origin, [body_value]);
+        let else_body = push_block(&mut builder, origin, [else_value]);
+
+        let while_expression = BoundExpression::Structured(BoundStructuredExpression::new(
+            origin,
+            BoundStructuredExpressionKind::While,
+            [condition],
+            [body, else_body],
+            [],
+            Some(error_type()),
+            false,
+        ));
+
+        let while_expression = push_expression(&mut builder, while_expression);
+
+        let panic_expression = BoundExpression::Structured(BoundStructuredExpression::new(
+            origin,
+            BoundStructuredExpressionKind::Panic,
+            [],
+            [],
+            [],
+            Some(error_type()),
+            false,
+        ));
+
+        let panic_expression = push_expression(&mut builder, panic_expression);
+
+        let catch_expression = BoundExpression::Structured(BoundStructuredExpression::new(
+            origin,
+            BoundStructuredExpressionKind::Catch,
+            [panic_expression],
+            [],
+            [],
+            Some(error_type()),
+            false,
+        ));
+
+        let catch_expression = push_expression(&mut builder, catch_expression);
+        let root = push_callable_root(&mut builder, origin, [while_expression, catch_expression]);
+
+        let tree = builder.finish();
+        let topology = topology(&tree, &key, root);
+
+        let else_block = block_containing(&topology, else_value.into());
+
+        assert!(else_block.predecessors().iter().any(|edge| {
+            topology
+                .edge(*edge)
+                .is_some_and(|edge| edge.kind() == AnalysisEdgeKind::ConditionalFalse)
+        }));
+
+        assert!(
+            !topology
+                .exits()
+                .iter()
+                .any(|exit| exit.kind() == AnalysisExitKind::Panic)
+        );
+
+        assert!(
+            topology
+                .edges()
+                .iter()
+                .any(|edge| edge.kind() == AnalysisEdgeKind::Catch)
+        );
+    }
+
+    #[test]
+    fn for_exhaustion_and_match_guard_failure_use_distinct_paths() {
+        let key = callable_key();
+        let unit = BoundUnitId::new(9);
+        let origin = BoundNodeOrigin::source(key.source());
+        let mut builder = BoundTreeBuilder::new(unit);
+
+        let source = push_error_expression(&mut builder, origin);
+        let iteration_pattern = push_pattern(&mut builder, origin, BoundPatternMode::Declaration);
+
+        let break_expression =
+            BoundExpression::ControlTransfer(BoundControlTransferExpression::new(
+                origin,
+                BoundControlTransferKind::Break,
+                None,
+                None,
+                Some(error_type()),
+                false,
+            ));
+
+        let break_expression = push_expression(&mut builder, break_expression);
+        let for_body = push_block(&mut builder, origin, [break_expression]);
+        let else_value = push_error_expression(&mut builder, origin);
+        let for_else = push_block(&mut builder, origin, [else_value]);
+
+        let for_expression = BoundExpression::For(BoundForExpression::new(
+            origin,
+            source,
+            iteration_pattern,
+            for_body,
+            Some(for_else),
+            Some(error_type()),
+            false,
+        ));
+
+        let for_expression = push_expression(&mut builder, for_expression);
+
+        let subject = push_error_expression(&mut builder, origin);
+        let match_pattern = push_pattern(&mut builder, origin, BoundPatternMode::Match);
+        let guard = push_error_expression(&mut builder, origin);
+        let arm_value = push_error_expression(&mut builder, origin);
+        let arm_body = push_block(&mut builder, origin, [arm_value]);
+
+        let match_expression = BoundExpression::Match(BoundMatchExpression::new(
+            origin,
+            subject,
+            [BoundMatchArm::new(match_pattern, Some(guard), arm_body)],
+            Some(error_type()),
+            false,
+        ));
+
+        let match_expression = push_expression(&mut builder, match_expression);
+        let root = push_callable_root(&mut builder, origin, [for_expression, match_expression]);
+        let tree = builder.finish();
+        let topology = topology(&tree, &key, root);
+
+        let else_block = block_containing(&topology, else_value.into());
+
+        assert!(else_block.predecessors().iter().all(|edge| {
+            topology
+                .edge(*edge)
+                .is_some_and(|edge| edge.kind() != AnalysisEdgeKind::LoopBreak)
+        }));
+
+        let arm_block = block_containing(&topology, arm_value.into());
+
+        assert!(arm_block.predecessors().iter().any(|edge| {
+            topology
+                .edge(*edge)
+                .is_some_and(|edge| edge.kind() == AnalysisEdgeKind::ConditionalTrue)
+        }));
+
+        let guard_block = block_containing(&topology, guard.into());
+
+        assert!(guard_block.successors().iter().any(|edge| {
+            topology
+                .edge(*edge)
+                .is_some_and(|edge| edge.kind() == AnalysisEdgeKind::ConditionalFalse)
+        }));
+    }
+
+    fn topology(
+        tree: &BoundTree,
+        key: &BoundUnitKey,
+        root: bray_bound_tree::BoundCallableBodyId,
+    ) -> AnalysisTopology {
+        let view = tree.view(key);
+
+        let Ok(request) = UnitCheckRequest::new(view, UnitCheckRoot::CallableBody(root), &|| false)
+        else {
+            panic!("matching test roots must produce checker requests");
+        };
+
+        let TopologyBuildOutcome::Complete(topology) = build_topology(request) else {
+            panic!("valid topology construction must complete");
+        };
+
+        topology
+    }
+
+    fn push_error_expression(
+        builder: &mut BoundTreeBuilder,
+        origin: BoundNodeOrigin,
+    ) -> BoundExpressionId {
+        push_expression(
+            builder,
+            BoundExpression::Error(BoundErrorExpression::new(origin, error_type())),
+        )
+    }
+
+    fn push_expression(
+        builder: &mut BoundTreeBuilder,
+        expression: BoundExpression,
+    ) -> BoundExpressionId {
+        match builder.push_expression(expression) {
+            Ok(expression) => expression,
+            Err(error) => panic!("test expression must be valid: {error:?}"),
+        }
+    }
+
+    fn push_pattern(
+        builder: &mut BoundTreeBuilder,
+        origin: BoundNodeOrigin,
+        mode: BoundPatternMode,
+    ) -> bray_bound_tree::BoundPatternId {
+        let pattern = BoundPattern::new(
+            origin,
+            error_type(),
+            mode,
+            BoundPatternKind::Discard,
+            [],
+            [],
+        );
+
+        match builder.push_pattern(pattern) {
+            Ok(pattern) => pattern,
+            Err(error) => panic!("test pattern must be valid: {error:?}"),
+        }
+    }
+
+    fn push_block(
+        builder: &mut BoundTreeBuilder,
+        origin: BoundNodeOrigin,
+        expressions: impl IntoIterator<Item = BoundExpressionId>,
+    ) -> bray_bound_tree::BoundBlockId {
+        let block = BoundBlock::new(
+            origin,
+            expressions.into_iter().map(BoundBlockItem::Expression),
+            false,
+        );
+
+        match builder.push_block(block) {
+            Ok(block) => block,
+            Err(error) => panic!("test block must be valid: {error:?}"),
+        }
+    }
+
+    fn push_callable_root(
+        builder: &mut BoundTreeBuilder,
+        origin: BoundNodeOrigin,
+        expressions: impl IntoIterator<Item = BoundExpressionId>,
+    ) -> bray_bound_tree::BoundCallableBodyId {
+        let block = push_block(builder, origin, expressions);
+
+        match builder.push_callable_body(BoundCallableBody::block(origin, block)) {
+            Ok(root) => root,
+            Err(error) => panic!("test callable root must be valid: {error:?}"),
+        }
+    }
+
+    fn block_containing(
+        topology: &AnalysisTopology,
+        node: AnyBoundNodeId,
+    ) -> &crate::analysis::model::AnalysisBlock {
+        let Some(block) = topology.blocks().iter().find(|block| {
+            block.operations().iter().any(|operation| {
+                topology
+                    .operation(*operation)
+                    .is_some_and(|operation| operation.kind() == AnalysisOperationKind::Bound(node))
+            })
+        }) else {
+            panic!("test topology must retain the requested bound node");
+        };
+
+        block
     }
 }

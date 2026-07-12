@@ -270,6 +270,13 @@ impl AnalysisTopology {
             .and_then(|index| self.edges.get(index))
     }
 
+    pub(crate) fn operation(&self, id: AnalysisOperationId) -> Option<&AnalysisOperation> {
+        (id.unit() == self.unit)
+            .then(|| id.to_index())
+            .flatten()
+            .and_then(|index| self.operations.get(index))
+    }
+
     pub(crate) fn is_well_formed(&self) -> bool {
         if self.entry.unit() != self.unit() || self.block(self.entry).is_none() {
             return false;
@@ -279,9 +286,8 @@ impl AnalysisTopology {
             block.id().unit() == self.unit
                 && block.operations().iter().all(|operation| {
                     operation.unit() == self.unit
-                        && operation
-                            .to_index()
-                            .and_then(|index| self.operations.get(index))
+                        && self
+                            .operation(*operation)
                             .is_some_and(|record| record.id() == *operation)
                 })
         });

@@ -1,5 +1,7 @@
 use std::collections::VecDeque;
 
+use bray_bound_tree::BoundUnitId;
+
 use crate::CheckerCancellation;
 
 use super::id::AnalysisBlockId;
@@ -42,11 +44,16 @@ pub(crate) trait FixedPointDomain {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct FixedPointResult<State> {
+    unit: BoundUnitId,
     states: Box<[State]>,
 }
 
 impl<State> FixedPointResult<State> {
     pub(crate) fn state(&self, block: AnalysisBlockId) -> Option<&State> {
+        if block.unit() != self.unit {
+            return None;
+        }
+
         block.to_index().and_then(|index| self.states.get(index))
     }
 }
@@ -155,6 +162,7 @@ pub(crate) fn solve_fixed_point<D: FixedPointDomain>(
     }
 
     FixedPointOutcome::Complete(FixedPointResult {
+        unit: topology.unit(),
         states: states.into_boxed_slice(),
     })
 }
@@ -254,6 +262,20 @@ mod tests {
         let outcome = solve_fixed_point(&topology, &BooleanDomain::forward(), &|| true);
 
         assert_eq!(outcome, FixedPointOutcome::Cancelled);
+    }
+
+    #[test]
+    fn fixed_point_results_reject_blocks_from_another_unit() {
+        let topology = linear_topology();
+        let outcome = solve_fixed_point(&topology, &BooleanDomain::forward(), &|| false);
+
+        let FixedPointOutcome::Complete(result) = outcome else {
+            panic!("forward analysis must complete");
+        };
+
+        let foreign = AnalysisBlockId::from_slot(BoundUnitId::new(99), 0);
+
+        assert_eq!(result.state(foreign), None);
     }
 
     #[test]

@@ -29,11 +29,12 @@ mod tests {
         let (tree, root) = recovered_tree(unit, &key);
         let view = tree.view(&key);
 
-        let outcome = StructuralChecker.check_unit(UnitCheckRequest::new(
-            view,
-            UnitCheckRoot::CallableBody(root),
-            &|| false,
-        ));
+        let Ok(request) = UnitCheckRequest::new(view, UnitCheckRoot::CallableBody(root), &|| false)
+        else {
+            panic!("matching test roots must produce checker requests");
+        };
+
+        let outcome = StructuralChecker.check_unit(request);
 
         let CheckerOutcome::Complete(result) = outcome else {
             panic!("recovered topology construction must complete");
@@ -50,13 +51,30 @@ mod tests {
         let (tree, root) = recovered_tree(unit, &key);
         let view = tree.view(&key);
 
-        let outcome = StructuralChecker.check_unit(UnitCheckRequest::new(
-            view,
-            UnitCheckRoot::CallableBody(root),
-            &|| true,
-        ));
+        let Ok(request) = UnitCheckRequest::new(view, UnitCheckRoot::CallableBody(root), &|| true)
+        else {
+            panic!("matching test roots must produce checker requests");
+        };
+
+        let outcome = StructuralChecker.check_unit(request);
 
         assert_eq!(outcome, CheckerOutcome::Cancelled);
+    }
+
+    #[test]
+    fn requests_reject_roots_from_another_bound_unit() {
+        let key = callable_key();
+        let (tree, _) = recovered_tree(BoundUnitId::new(6), &key);
+        let (_, foreign_root) = recovered_tree(BoundUnitId::new(7), &key);
+        let view = tree.view(&key);
+
+        let request =
+            UnitCheckRequest::new(view, UnitCheckRoot::CallableBody(foreign_root), &|| false);
+
+        assert!(matches!(
+            request,
+            Err(crate::UnitCheckRequestError::ForeignRoot)
+        ));
     }
 
     struct StructuralChecker;

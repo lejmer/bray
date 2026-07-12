@@ -7,7 +7,10 @@ use bray_parser::parse_source_unit;
 use bray_source::{
     SourceId, SourceIdentity, SourceOrigin, SourceSnapshot, SourceVersion, TextSizeOverflow,
 };
-use bray_symbols::{ModulePathKey, PackageIdentity, SymbolKey, SymbolKind, SymbolRootKey};
+use bray_symbols::{
+    ModulePathKey, PackageIdentity, SemanticValueStore, SymbolKey, SymbolKind, SymbolRootKey,
+    TypeData, TypeId,
+};
 
 pub(crate) fn callable_key() -> BoundUnitKey {
     let snapshot = match source() {
@@ -64,6 +67,18 @@ pub(crate) fn recovered_tree(
     };
 
     (builder.finish(), root)
+}
+
+pub(crate) fn error_type() -> TypeId {
+    let Ok(values) = SemanticValueStore::try_new() else {
+        panic!("test semantic value store must be available");
+    };
+
+    let Ok(ty) = values.intern_type(TypeData::Error) else {
+        panic!("test error type must be interned");
+    };
+
+    ty
 }
 
 fn source() -> Result<SourceSnapshot, TextSizeOverflow> {

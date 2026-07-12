@@ -21,6 +21,15 @@ pub enum UnitCheckRoot {
     Expression(BoundExpressionId),
 }
 
+/// Rejects an inconsistent whole-unit checker request before analysis begins.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum UnitCheckRequestError {
+    /// The root belongs to another bound unit.
+    ForeignRoot,
+    /// The root category does not match the independently checked unit category.
+    RootKindMismatch,
+}
+
 impl UnitCheckRoot {
     pub(crate) const fn accepts(self, kind: BoundUnitKind) -> bool {
         matches!(
@@ -49,16 +58,27 @@ impl UnitCheckRoot {
 
 impl<'view> UnitCheckRequest<'view> {
     /// Creates a checker request over committed read-only bound structure.
-    pub const fn new(
+    ///
+    /// Returns an error when the root belongs to another unit or its category
+    /// does not match the independently checked unit.
+    pub fn new(
         view: BoundUnitView<'view>,
         root: UnitCheckRoot,
         cancellation: &'view dyn CheckerCancellation,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, UnitCheckRequestError> {
+        if root.node().unit() != view.unit() {
+            return Err(UnitCheckRequestError::ForeignRoot);
+        }
+
+        if !root.accepts(view.kind()) {
+            return Err(UnitCheckRequestError::RootKindMismatch);
+        }
+
+        Ok(Self {
             view,
             root,
             cancellation,
-        }
+        })
     }
 
     /// Returns the read-only bound unit view to analyze.
