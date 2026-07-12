@@ -9,7 +9,7 @@ policy into binding, publishing checker-private analysis state, or creating circ
 
 `docs/design/symbols.md` defines canonical semantic identities, types, constants, contracts, and symbol-owned facts.
 
-`docs/design/binder.md` defines binding orchestration, bound semantic units, storage terminology, and the shared analysis topology
+`docs/design/binder.md` defines binding orchestration, bound semantic units, storage terminology, and the shared control-flow graph
 boundary.
 
 This document is authoritative for checker domain ownership, dependencies, inputs, outputs, convergence, recovery, and durable
@@ -25,7 +25,7 @@ The checker architecture should:
 - expose typed service contracts rather than untyped rule names or generic fact maps,
 - support local checks during binding and whole-unit checks over committed bound structure,
 - make dependencies between checker domains explicit and acyclic,
-- use one control-flow topology for every flow-sensitive domain in a semantic unit,
+- use one control-flow graph for every flow-sensitive domain in a semantic unit,
 - combine mutually dependent storage rules into one coherent flow domain,
 - retain only durable semantic conclusions in the checked bound representation,
 - produce structured source-correlated diagnostics without user-facing English in checker logic,
@@ -43,7 +43,7 @@ The checker does not:
 - own compilation queries, caches, scheduling, or publication,
 - mutate symbols or published bound nodes,
 - construct a second durable semantic tree,
-- publish its control-flow topology, work lists, lattice states, or solver traces,
+- publish its control-flow graph, work lists, lattice states, or solver traces,
 - lower checked semantics into cleanup operations, normalized control flow, or lower-level IR,
 - erase unrelated rule outcomes into one universal fact record,
 - use runtime assertion failures for ordinary invalid source,
@@ -58,7 +58,7 @@ The checker does not:
 A rule check validates one typed semantic operation whose relevant inputs are already available. Examples include checking a
 conversion, selecting an implementation witness, checking pattern compatibility, or validating a call contract.
 
-Rule checks can run while the binder constructs a candidate. They do not require a whole-unit control-flow topology unless their
+Rule checks can run while the binder constructs a candidate. They do not require a whole-unit control-flow graph unless their
 contract explicitly says otherwise.
 
 "Local" describes the service input, not necessarily when it runs. A flow domain can invoke a point-local contract, conversion, or
@@ -73,8 +73,8 @@ A domain is not merely a module name. Its state must have a precise semantic mea
 
 ### Flow Domain
 
-A flow domain evaluates state over the shared checker analysis topology. It declares a forward or backward direction, an entry or
-exit boundary state, a deterministic merge operation, and a finite-height or otherwise provably convergent state space.
+A flow domain evaluates state over the shared checker-internal control-flow graph. It declares a forward or backward direction, an
+entry or exit boundary state, a deterministic merge operation, and a finite-height or otherwise provably convergent state space.
 
 ### Durable Conclusion
 
@@ -96,8 +96,8 @@ not collapse into the same state.
 
 ## Ownership And Boundaries
 
-`bray-checker` owns semantic rule algorithms, checker-private topology and analysis state, transfer functions, convergence engines,
-and the construction of structured checker diagnostics.
+`bray-checker` owns semantic rule algorithms, its checker-private control-flow graph and analysis state, transfer functions,
+convergence engines, and the construction of structured checker diagnostics.
 
 `bray-bound-tree` owns the source-shaped checked HIR, durable node conclusions, unit-local storage and access identities, borrow
 capabilities, instantiated dependency contracts, and immutable checked-unit result types.
@@ -153,8 +153,8 @@ The exact public boundary can use borrowed inputs where the caller already owns 
 typed maps, or boolean parameter combinations to describe semantic categories.
 
 `UnitChecker` is the whole-unit orchestration facade used by the binder. It does not imply one universal checker algorithm. Its
-implementation builds the shared topology, runs the required domains in dependency order, and returns a category-specific checked
-unit conclusion.
+implementation builds the shared control-flow graph, runs the required domains in dependency order, and returns a category-specific
+checked-unit conclusion.
 
 `UnitCheckConclusions` is a closed category-specific transfer shape rather than a record of unrelated optional fields.
 Conceptually:
@@ -177,7 +177,7 @@ owners.
 
 ### Unit Check Schedules
 
-Every independently published `BoundUnitKind` uses the shared analysis topology. A simple expression produces a trivial graph. The
+Every independently published `BoundUnitKind` uses the shared control-flow graph. A simple expression produces a trivial graph. The
 uniform boundary prevents declaration-owned units from bypassing ordinary control, storage, ownership, lifecycle, effect, and
 recovery rules merely because their current syntax is small.
 
@@ -186,11 +186,11 @@ toggle analyses with booleans.
 
 | Bound unit kind       | Entry context                                                                                                         | Required checks and domains                                                                                                    | Required completion                                                                                                   |
 |-----------------------|-----------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------|
-| `CallableBody`        | Receiver, parameters, generic constraints, callable requirements, declared capabilities, and lifecycle context        | Target availability, type and selection checks, topology, every whole-unit flow domain, then callable-body finalization        | Every reachable exit is valid and the body summary fits the declaration surface                                       |
+| `CallableBody`        | Receiver, parameters, generic constraints, callable requirements, declared capabilities, and lifecycle context        | Target availability, type and selection checks, control-flow graph, every whole-unit flow domain, then callable-body finalization        | Every reachable exit is valid and the body summary fits the declaration surface                                       |
 | `AnonymousCallable`   | Anonymous parameters, generic and expected callable context, and the capture-free local boundary                      | The callable-body schedule plus anonymous-callable signature and boundary checks                                               | Every reachable exit is valid and the inferred callable summary fits its checked callable type                        |
-| `RuntimeDefault`      | Permitted receiver, earlier parameters, generic values, selected implementations, and declaration context             | Target availability, type and selection checks, topology, every whole-unit flow domain, then runtime-default finalization      | Normal completion produces the required value and its complete provider requirements are summarized                   |
-| `ConstantTemplate`    | Declared expected type, symbolic generic and trait context, and selected target facts                                 | Target availability, type and selection checks, topology, every whole-unit flow domain, then constant-template finalization    | Every reachable normal result is constant-valid, control terminates, and closed instances can be evaluated separately |
-| `PredicateDefinition` | Predicate parameters, symbolic generic context, and declared trusted relation context                                 | Target availability, type and selection checks, topology, every whole-unit flow domain, then predicate-definition finalization | Normal completion produces `bool` and a reusable semantic predicate summary                                           |
+| `RuntimeDefault`      | Permitted receiver, earlier parameters, generic values, selected implementations, and declaration context             | Target availability, type and selection checks, control-flow graph, every whole-unit flow domain, then runtime-default finalization      | Normal completion produces the required value and its complete provider requirements are summarized                   |
+| `ConstantTemplate`    | Declared expected type, symbolic generic and trait context, and selected target facts                                 | Target availability, type and selection checks, control-flow graph, every whole-unit flow domain, then constant-template finalization    | Every reachable normal result is constant-valid, control terminates, and closed instances can be evaluated separately |
+| `PredicateDefinition` | Predicate parameters, symbolic generic context, and declared trusted relation context                                 | Target availability, type and selection checks, control-flow graph, every whole-unit flow domain, then predicate-definition finalization | Normal completion produces `bool` and a reusable semantic predicate summary                                           |
 | `Constraint`          | Generic parameters and facts available before the constraint being defined                                            | The predicate-definition schedule with static-constraint restrictions                                                          | Normal completion produces a total, deterministic, effect-free `bool` constraint summary                              |
 | `ContractClause`      | Callable parameters and clause-specific facts, with `result` present only for a value-producing `ensures(...)` clause | The predicate-definition schedule with clause-specific fact, trust, and visibility rules                                       | Normal completion produces a total contract fact valid for its exact clause category                                  |
 
@@ -199,7 +199,7 @@ and effect, capability, contract, and trust validation. Category finalization co
 replacement analysis.
 
 In the schedule table, target availability means the preselection layer. Every selected target-dependent type or operation completes
-the post-selection target-validity layer before topology construction.
+the post-selection target-validity layer before control-flow graph construction.
 
 Runtime-default conclusions record requirements without imposing them on calls or constructions that supply an explicit value.
 Constant templates are validated symbolically. Only a closed constant instance is evaluated, keyed by its exact substitution,
@@ -249,7 +249,7 @@ bound structure, symbol facts, and target conclusions
                   |
     +--> checked operations and pattern conclusions
                   |
-          shared analysis topology
+          shared control-flow graph
                   |
        reachability and control completion
              /                 \
@@ -479,7 +479,7 @@ Reachability is the first whole-unit flow domain.
 
 Its state distinguishes reachable, unreachable, and conservative recovery control. Its forward merge is deterministic reachability
 union. It recognizes normal continuation, `never`, return, break, continue, yield, propagation, panic, cancellation, suspension,
-resumption, and other typed exits represented by the shared topology.
+resumption, and other typed exits represented by the shared control-flow graph.
 
 Durable conclusions include the unit's normal and non-normal completion categories and source-correlated unreachable-operation
 facts needed by diagnostics or lowering. The complete reachable block and edge masks remain checker-private unless another domain
@@ -668,8 +668,8 @@ explicit bound before implementation. An iteration limit cannot silently turn a 
 domain bound is a compiler invariant failure, while deterministic constant-evaluation resource exhaustion remains an ordinary
 compile-time diagnostic under the constant rules.
 
-Cancellation is checked during graph construction, between substantial transfer batches, and during long solver operations. A
-cancelled fixed point publishes nothing.
+Cancellation is checked during control-flow graph construction, between substantial transfer batches, and during long solver
+operations. A cancelled fixed point publishes nothing.
 
 ---
 
@@ -789,7 +789,7 @@ rules, or recovery behavior absent from the language specification.
 
 Implementation issues should be split along these dependency boundaries:
 
-1. shared checker analysis topology and typed fixed-point mechanics,
+1. shared checker-internal control-flow graph and typed fixed-point mechanics,
 2. type, compatibility, candidate, trait, conversion, and pattern rule services,
 3. constant, predicate, constraint, contract, and target rule services,
 4. reachability and control-completion analysis,

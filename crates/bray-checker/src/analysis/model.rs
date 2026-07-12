@@ -204,7 +204,7 @@ impl AnalysisExit {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct AnalysisTopology {
+pub(crate) struct ControlFlowGraph {
     unit: BoundUnitId,
     entry: AnalysisBlockId,
     blocks: Box<[AnalysisBlock]>,
@@ -213,7 +213,7 @@ pub(crate) struct AnalysisTopology {
     exits: Box<[AnalysisExit]>,
 }
 
-impl AnalysisTopology {
+impl ControlFlowGraph {
     pub(crate) fn new(
         unit: BoundUnitId,
         entry: AnalysisBlockId,

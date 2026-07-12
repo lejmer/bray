@@ -6,17 +6,19 @@ use bray_declarations::SyntaxAnchor;
 
 use crate::{UnitCheckRequest, UnitCheckRoot};
 
-use super::assembly::TopologyStorage;
+use super::assembly::ControlFlowGraphAssembler;
 use super::id::AnalysisBlockId;
-use super::model::{AnalysisEdgeKind, AnalysisExitKind, AnalysisRefinement, AnalysisTopology};
+use super::model::{AnalysisEdgeKind, AnalysisExitKind, AnalysisRefinement, ControlFlowGraph};
 
-pub(crate) enum TopologyBuildOutcome {
-    Complete(AnalysisTopology),
+pub(crate) enum ControlFlowGraphBuildOutcome {
+    Complete(ControlFlowGraph),
     Cancelled,
 }
 
-pub(crate) fn build_topology(request: UnitCheckRequest<'_>) -> TopologyBuildOutcome {
-    let mut builder = TopologyBuilder::new(request);
+pub(crate) fn build_control_flow_graph(
+    request: UnitCheckRequest<'_>,
+) -> ControlFlowGraphBuildOutcome {
+    let mut builder = ControlFlowGraphBuilder::new(request);
     let entry = builder.push_block();
 
     let completion = match request.root() {
@@ -25,20 +27,20 @@ pub(crate) fn build_topology(request: UnitCheckRequest<'_>) -> TopologyBuildOutc
     };
 
     let Some(completion) = completion else {
-        return TopologyBuildOutcome::Cancelled;
+        return ControlFlowGraphBuildOutcome::Cancelled;
     };
 
     if let Some(completion) = completion {
         builder.push_exit(completion, AnalysisExitKind::NormalFallthrough);
     }
 
-    TopologyBuildOutcome::Complete(builder.finish(entry))
+    ControlFlowGraphBuildOutcome::Complete(builder.finish(entry))
 }
 
-pub(super) struct TopologyBuilder<'view> {
+pub(super) struct ControlFlowGraphBuilder<'view> {
     request: UnitCheckRequest<'view>,
     view: BoundUnitView<'view>,
-    storage: TopologyStorage,
+    storage: ControlFlowGraphAssembler,
     pub(super) loops: Vec<LoopContext>,
     pub(super) catches: Vec<AnalysisBlockId>,
 }
@@ -50,12 +52,12 @@ pub(super) struct LoopContext {
     pub(super) completion: AnalysisBlockId,
 }
 
-impl<'view> TopologyBuilder<'view> {
+impl<'view> ControlFlowGraphBuilder<'view> {
     fn new(request: UnitCheckRequest<'view>) -> Self {
         Self {
             request,
             view: request.view(),
-            storage: TopologyStorage::new(request.view().unit()),
+            storage: ControlFlowGraphAssembler::new(request.view().unit()),
             loops: Vec::new(),
             catches: Vec::new(),
         }
@@ -339,7 +341,7 @@ impl<'view> TopologyBuilder<'view> {
         self.request.is_cancelled()
     }
 
-    fn finish(self, entry: AnalysisBlockId) -> AnalysisTopology {
+    fn finish(self, entry: AnalysisBlockId) -> ControlFlowGraph {
         self.storage.finish(entry)
     }
 }
@@ -355,8 +357,8 @@ mod tests {
         BoundTreeBuilder, BoundUnitId, BoundUnitKey,
     };
 
-    use super::{TopologyBuildOutcome, build_topology};
-    use crate::analysis::model::AnalysisTopology;
+    use super::{ControlFlowGraphBuildOutcome, build_control_flow_graph};
+    use crate::analysis::model::ControlFlowGraph;
     use crate::analysis::model::{AnalysisEdgeKind, AnalysisExitKind, AnalysisOperationKind};
     use crate::test_support::{callable_key, error_type, recovered_tree};
     use crate::{UnitCheckRequest, UnitCheckRoot};
@@ -373,26 +375,27 @@ mod tests {
             panic!("matching test roots must produce checker requests");
         };
 
-        let TopologyBuildOutcome::Complete(topology) = build_topology(request) else {
-            panic!("recovered topology construction must complete");
+        let ControlFlowGraphBuildOutcome::Complete(graph) = build_control_flow_graph(request)
+        else {
+            panic!("recovered graph construction must complete");
         };
 
-        assert!(topology.is_well_formed());
+        assert!(graph.is_well_formed());
 
-        assert!(topology.operations().iter().any(|operation| matches!(
+        assert!(graph.operations().iter().any(|operation| matches!(
             operation.kind(),
             AnalysisOperationKind::Recovery(node) if node == root.into()
         )));
 
         assert!(
-            topology
+            graph
                 .edges()
                 .iter()
                 .any(|edge| edge.kind() == AnalysisEdgeKind::Recovery)
         );
 
         assert!(
-            topology
+            graph
                 .exits()
                 .iter()
                 .any(|exit| exit.kind() == AnalysisExitKind::Recovery)
@@ -420,13 +423,13 @@ mod tests {
         let binary = push_expression(&mut builder, binary);
         let root = push_callable_root(&mut builder, origin, [binary]);
         let tree = builder.finish();
-        let topology = topology(&tree, &key, root);
+        let graph = graph(&tree, &key, root);
 
-        let right_block = block_containing(&topology, right.into());
+        let right_block = block_containing(&graph, right.into());
         let predecessor_kinds = right_block
             .predecessors()
             .iter()
-            .filter_map(|edge| topology.edge(*edge).map(|edge| edge.kind()))
+            .filter_map(|edge| graph.edge(*edge).map(|edge| edge.kind()))
             .collect::<Vec<_>>();
 
         assert_eq!(predecessor_kinds, [AnalysisEdgeKind::ConditionalTrue]);
@@ -484,25 +487,25 @@ mod tests {
         let root = push_callable_root(&mut builder, origin, [while_expression, catch_expression]);
 
         let tree = builder.finish();
-        let topology = topology(&tree, &key, root);
+        let graph = graph(&tree, &key, root);
 
-        let else_block = block_containing(&topology, else_value.into());
+        let else_block = block_containing(&graph, else_value.into());
 
         assert!(else_block.predecessors().iter().any(|edge| {
-            topology
+            graph
                 .edge(*edge)
                 .is_some_and(|edge| edge.kind() == AnalysisEdgeKind::ConditionalFalse)
         }));
 
         assert!(
-            !topology
+            !graph
                 .exits()
                 .iter()
                 .any(|exit| exit.kind() == AnalysisExitKind::Panic)
         );
 
         assert!(
-            topology
+            graph
                 .edges()
                 .iter()
                 .any(|edge| edge.kind() == AnalysisEdgeKind::Catch)
@@ -563,38 +566,38 @@ mod tests {
         let match_expression = push_expression(&mut builder, match_expression);
         let root = push_callable_root(&mut builder, origin, [for_expression, match_expression]);
         let tree = builder.finish();
-        let topology = topology(&tree, &key, root);
+        let graph = graph(&tree, &key, root);
 
-        let else_block = block_containing(&topology, else_value.into());
+        let else_block = block_containing(&graph, else_value.into());
 
         assert!(else_block.predecessors().iter().all(|edge| {
-            topology
+            graph
                 .edge(*edge)
                 .is_some_and(|edge| edge.kind() != AnalysisEdgeKind::LoopBreak)
         }));
 
-        let arm_block = block_containing(&topology, arm_value.into());
+        let arm_block = block_containing(&graph, arm_value.into());
 
         assert!(arm_block.predecessors().iter().any(|edge| {
-            topology
+            graph
                 .edge(*edge)
                 .is_some_and(|edge| edge.kind() == AnalysisEdgeKind::ConditionalTrue)
         }));
 
-        let guard_block = block_containing(&topology, guard.into());
+        let guard_block = block_containing(&graph, guard.into());
 
         assert!(guard_block.successors().iter().any(|edge| {
-            topology
+            graph
                 .edge(*edge)
                 .is_some_and(|edge| edge.kind() == AnalysisEdgeKind::ConditionalFalse)
         }));
     }
 
-    fn topology(
+    fn graph(
         tree: &BoundTree,
         key: &BoundUnitKey,
         root: bray_bound_tree::BoundCallableBodyId,
-    ) -> AnalysisTopology {
+    ) -> ControlFlowGraph {
         let view = tree.view(key);
 
         let Ok(request) = UnitCheckRequest::new(view, UnitCheckRoot::CallableBody(root), &|| false)
@@ -602,11 +605,12 @@ mod tests {
             panic!("matching test roots must produce checker requests");
         };
 
-        let TopologyBuildOutcome::Complete(topology) = build_topology(request) else {
-            panic!("valid topology construction must complete");
+        let ControlFlowGraphBuildOutcome::Complete(graph) = build_control_flow_graph(request)
+        else {
+            panic!("valid graph construction must complete");
         };
 
-        topology
+        graph
     }
 
     fn push_error_expression(
@@ -680,17 +684,17 @@ mod tests {
     }
 
     fn block_containing(
-        topology: &AnalysisTopology,
+        graph: &ControlFlowGraph,
         node: AnyBoundNodeId,
     ) -> &crate::analysis::model::AnalysisBlock {
-        let Some(block) = topology.blocks().iter().find(|block| {
+        let Some(block) = graph.blocks().iter().find(|block| {
             block.operations().iter().any(|operation| {
-                topology
+                graph
                     .operation(*operation)
                     .is_some_and(|operation| operation.kind() == AnalysisOperationKind::Bound(node))
             })
         }) else {
-            panic!("test topology must retain the requested bound node");
+            panic!("test graph must retain the requested bound node");
         };
 
         block

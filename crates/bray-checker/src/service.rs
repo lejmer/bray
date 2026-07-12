@@ -1,4 +1,4 @@
-use crate::analysis::check_topology;
+use crate::analysis::check_control_flow;
 use crate::{CheckerOutcome, UnitCheckConclusions, UnitCheckRequest};
 
 /// Whole-unit semantic checking invoked by binder orchestration.
@@ -10,7 +10,7 @@ use crate::{CheckerOutcome, UnitCheckConclusions, UnitCheckRequest};
 pub trait UnitChecker: Sync {
     /// Checks one committed bound unit view and returns typed completion data.
     fn check_unit(&self, request: UnitCheckRequest<'_>) -> CheckerOutcome<UnitCheckConclusions> {
-        check_topology(request)
+        check_control_flow(request)
     }
 }
 
@@ -37,7 +37,7 @@ mod tests {
         let outcome = StructuralChecker.check_unit(request);
 
         let CheckerOutcome::Complete(result) = outcome else {
-            panic!("recovered topology construction must complete");
+            panic!("recovered graph construction must complete");
         };
 
         assert_eq!(result.value().unit(), unit);

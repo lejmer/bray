@@ -1,21 +1,21 @@
 use crate::{CheckerOutcome, UnitCheckConclusions, UnitCheckRequest};
 
-use super::build::{TopologyBuildOutcome, build_topology};
+use super::build::{ControlFlowGraphBuildOutcome, build_control_flow_graph};
 use super::reachability::analyze_reachability;
 
-pub(crate) fn check_topology(
+pub(crate) fn check_control_flow(
     request: UnitCheckRequest<'_>,
 ) -> CheckerOutcome<UnitCheckConclusions> {
-    let topology = match build_topology(request) {
-        TopologyBuildOutcome::Complete(topology) => topology,
-        TopologyBuildOutcome::Cancelled => return CheckerOutcome::Cancelled,
+    let graph = match build_control_flow_graph(request) {
+        ControlFlowGraphBuildOutcome::Complete(graph) => graph,
+        ControlFlowGraphBuildOutcome::Cancelled => return CheckerOutcome::Cancelled,
     };
 
-    if !topology.is_well_formed() {
-        panic!("checker analysis topology violated its construction invariants");
+    if !graph.is_well_formed() {
+        panic!("checker control-flow graph violated its construction invariants");
     }
 
-    if analyze_reachability(&topology, request).is_none() {
+    if analyze_reachability(&graph, request).is_none() {
         return CheckerOutcome::Cancelled;
     }
 

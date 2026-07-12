@@ -1,13 +1,13 @@
 use crate::UnitCheckRequest;
 
 use super::fixed_point::{FixedPointDomain, FixedPointOutcome, FlowDirection, solve_fixed_point};
-use super::model::{AnalysisBlock, AnalysisEdge, AnalysisTopology};
+use super::model::{AnalysisBlock, AnalysisEdge, ControlFlowGraph};
 
 pub(crate) fn analyze_reachability(
-    topology: &AnalysisTopology,
+    graph: &ControlFlowGraph,
     request: UnitCheckRequest<'_>,
 ) -> Option<()> {
-    let forward = solve_fixed_point(topology, &ReachabilityDomain::forward(), &request);
+    let forward = solve_fixed_point(graph, &ReachabilityDomain::forward(), &request);
 
     let forward = match forward {
         FixedPointOutcome::Complete(result) => result,
@@ -17,7 +17,7 @@ pub(crate) fn analyze_reachability(
         }
     };
 
-    let reverse = solve_fixed_point(topology, &ReachabilityDomain::backward(), &request);
+    let reverse = solve_fixed_point(graph, &ReachabilityDomain::backward(), &request);
 
     let reverse = match reverse {
         FixedPointOutcome::Complete(result) => result,
@@ -27,7 +27,7 @@ pub(crate) fn analyze_reachability(
         }
     };
 
-    for block in topology.blocks() {
+    for block in graph.blocks() {
         if forward.state(block.id()).is_none() || reverse.state(block.id()).is_none() {
             panic!("reachability state did not cover every analysis block");
         }
@@ -98,7 +98,7 @@ impl FixedPointDomain for ReachabilityDomain {
         false
     }
 
-    fn convergence_bound(&self, topology: &AnalysisTopology) -> usize {
-        topology.blocks().len()
+    fn convergence_bound(&self, graph: &ControlFlowGraph) -> usize {
+        graph.blocks().len()
     }
 }

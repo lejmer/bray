@@ -3,11 +3,11 @@ use bray_bound_tree::{
 };
 use bray_declarations::SyntaxAnchor;
 
-use super::build::{LoopContext, TopologyBuilder};
+use super::build::{ControlFlowGraphBuilder, LoopContext};
 use super::id::AnalysisBlockId;
 use super::model::{AnalysisEdgeKind, AnalysisExitKind, AnalysisRefinement};
 
-impl TopologyBuilder<'_> {
+impl ControlFlowGraphBuilder<'_> {
     pub(super) fn build_structured(
         &mut self,
         id: BoundExpressionId,

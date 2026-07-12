@@ -3,10 +3,10 @@ use bray_bound_tree::{AnyBoundNodeId, BoundUnitId};
 use super::id::{AnalysisBlockId, AnalysisEdgeId, AnalysisOperationId, ProgramPointId};
 use super::model::{
     AnalysisBlock, AnalysisEdge, AnalysisEdgeKind, AnalysisExit, AnalysisExitKind,
-    AnalysisOperation, AnalysisOperationKind, AnalysisRefinement, AnalysisTopology,
+    AnalysisOperation, AnalysisOperationKind, AnalysisRefinement, ControlFlowGraph,
 };
 
-pub(super) struct TopologyStorage {
+pub(super) struct ControlFlowGraphAssembler {
     unit: BoundUnitId,
     blocks: Vec<Vec<AnalysisOperationId>>,
     edges: Vec<AnalysisEdge>,
@@ -14,7 +14,7 @@ pub(super) struct TopologyStorage {
     exits: Vec<AnalysisExit>,
 }
 
-impl TopologyStorage {
+impl ControlFlowGraphAssembler {
     pub(super) const fn new(unit: BoundUnitId) -> Self {
         Self {
             unit,
@@ -66,7 +66,7 @@ impl TopologyStorage {
         self.exits.push(AnalysisExit::new(exit, kind));
     }
 
-    pub(super) fn finish(self, entry: AnalysisBlockId) -> AnalysisTopology {
+    pub(super) fn finish(self, entry: AnalysisBlockId) -> ControlFlowGraph {
         let mut predecessors = vec![Vec::new(); self.blocks.len()];
         let mut successors = vec![Vec::new(); self.blocks.len()];
 
@@ -104,7 +104,7 @@ impl TopologyStorage {
             })
             .collect::<Box<[_]>>();
 
-        AnalysisTopology::new(
+        ControlFlowGraph::new(
             self.unit,
             entry,
             blocks,

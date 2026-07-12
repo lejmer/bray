@@ -7,4 +7,4 @@ mod id;
 mod model;
 mod reachability;
 
-pub(crate) use check::check_topology;
+pub(crate) use check::check_control_flow;

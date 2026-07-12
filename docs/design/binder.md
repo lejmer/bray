@@ -1154,8 +1154,8 @@ Checker services must not append user diagnostics to a process-global bag, mutat
 independently of the binder's unit transaction.
 
 Local checker services can use private analysis representations over task-local bound data. Whole-unit flow services use the shared
-checker-internal topology defined below. Both return conclusions for the binder to store before publication and neither publishes
-checker-owned intermediate state as bound or lowering data.
+checker-internal control-flow graph defined below. Both return conclusions for the binder to store before publication and neither
+publishes checker-owned intermediate state as bound or lowering data.
 
 When a checker needs whole-unit structure, it receives a read-only bound unit view whose type is owned by `bray-bound-tree`.
 It must not depend on binder-private builders. The binder freezes task-local structural nodes into that view, receives typed checker
@@ -1169,13 +1169,13 @@ ownership shortcuts or mutable partially published nodes.
 
 ## Control-Flow And Data-Flow Analysis
 
-### Shared Analysis Topology
+### Shared Control-Flow Graph
 
-`bray-checker` owns one checker-internal control-flow topology for each semantic unit that requires whole-unit flow analysis. The
-topology is built from the committed read-only bound unit view after binding has fixed source-semantic evaluation order. It is
+`bray-checker` owns one checker-internal control-flow graph for each semantic unit that requires whole-unit flow analysis. The
+graph is built from the committed read-only bound unit view after binding has fixed source-semantic evaluation order. It is
 immutable after construction and is shared by the focused analyses for that unit.
 
-The topology is not:
+The graph is not:
 
 - the canonical source-shaped bound HIR,
 - a second published bound tree,
@@ -1188,14 +1188,14 @@ operations, cleanup blocks, ABI operations, or backend-oriented instructions. Sc
 points and edge metadata without pretending those checks are already lowered execution.
 
 Constructing separate control-flow graphs for reachability, initialization, ownership, borrowing, lifecycle, and fact propagation is
-not permitted. Those analyses must agree on one evaluation order and one branch topology. Focused analyses share the graph while
+not permitted. Those analyses must agree on one evaluation order and one branch structure. Focused analyses share the graph while
 retaining their own state and transfer rules.
 
 An analysis can derive indexes and views keyed by the shared block and edge IDs, including strongly connected components, loop
 forests, dominators, postdominators, reachable-block masks, and reverse traversal indexes. Such data does not define another
-control-flow topology and must not assign competing operation order or edge semantics.
+control-flow graph and must not assign competing operation order or edge semantics.
 
-### Graph Shape And Typed IDs
+### Control-Flow Graph Shape And Typed IDs
 
 The graph uses checker-private unit-scoped IDs for blocks, edges, operations, and program points. Conceptually:
 
@@ -1215,7 +1215,7 @@ pub(crate) struct ProgramPointId {
     slot: ProgramPointSlot,
 }
 
-pub(crate) struct AnalysisControlFlowGraph {
+pub(crate) struct ControlFlowGraph {
     unit: BoundUnitId,
     entry: AnalysisBlockId,
     exits: AnalysisExitSet,
@@ -1229,7 +1229,7 @@ serialized, placed on symbols, or used for deterministic external ordering.
 
 Blocks contain operations in exact semantic evaluation order. Operations reference exact typed bound nodes, storage accesses,
 borrow capabilities, scopes, and control targets from the read-only bound unit view rather than copying their records. Program
-points identify the meaningful positions before and after operations so forward and backward analyses use the same topology.
+points identify the meaningful positions before and after operations so forward and backward analyses use the same graph.
 
 The graph records predecessor and successor relationships directly or through compact derived indexes. It supports deterministic
 forward and backward traversal without requiring each analysis to reconstruct reverse edges.
@@ -1257,8 +1257,8 @@ other outcomes required by the unit contract instead of collapsing every termina
 
 ### Focused Analysis Domains
 
-The shared graph does not imply one universal data-flow state. Each analysis domain owns its lattice, transfer functions, merge rules,
-direction, diagnostics, and durable result projection.
+The shared control-flow graph does not imply one universal data-flow state. Each analysis domain owns its lattice, transfer
+functions, merge rules, direction, diagnostics, and durable result projection.
 
 Initial domains include:
 
@@ -1297,8 +1297,8 @@ Whole-unit analysis follows this boundary:
 
 1. Binding commits all syntax and semantic decisions needed to establish source evaluation order.
 2. `bray-bound-tree` provides a read-only bound unit view over the task-local unit without cloning its arenas.
-3. `bray-checker` builds one immutable analysis topology from that view.
-4. Focused domains run over the shared topology according to their explicit fact dependencies.
+3. `bray-checker` builds one immutable control-flow graph from that view.
+4. Focused domains run over the shared control-flow graph according to their explicit fact dependencies.
 5. The checker returns typed conclusions, side tables, and structured diagnostic bags.
 6. The binder incorporates those conclusions and publishes the complete checked unit atomically.
 
@@ -1314,7 +1314,7 @@ states, work lists, predecessor counts, temporary alias sets, and intermediate f
 unless a separate tooling query explicitly requests a derived control-flow view.
 
 A future tooling control-flow query can publish an immutable source-correlated projection keyed by the checked unit. That projection
-is a separate lazy fact with its own stable contract. It does not expose checker-private IDs or make the analysis graph canonical
+is a separate lazy fact with its own stable contract. It does not expose checker-private IDs or make the control-flow graph canonical
 compiler state.
 
 ### Determinism, Parallelism, And Recovery
@@ -1323,19 +1323,19 @@ Blocks, operations, edges, and exits are assigned in deterministic source-semant
 for efficiency only when the domain's fixed point and diagnostics remain identical. Diagnostics are structured, task-local to their
 domain, and merged by the binder through the ordinary deterministic diagnostic ordering.
 
-Independent semantic units can build and analyze their graphs in parallel. Independent domains over one immutable graph can also run
-in parallel once their declared input facts are available, but the implementation should not add coordination overhead for small
-units merely to create parallel work.
+Independent semantic units can build and analyze their control-flow graphs in parallel. Independent domains over one immutable
+graph can also run in parallel once their declared input facts are available, but the implementation should not add coordination
+overhead for small units merely to create parallel work.
 
-Graph construction and every fixed-point engine observe compilation cancellation. Cancellation returns the ordinary cancellation
-outcome and publishes no graph, analysis state, diagnostics, or partial checked unit.
+Control-flow graph construction and every fixed-point engine observe compilation cancellation. Cancellation returns the ordinary
+cancellation outcome and publishes no graph, analysis state, diagnostics, or partial checked unit.
 
 Malformed bound nodes produce conservative recovery operations and edges. Unknown control, storage overlap, or refinement facts
 degrade to typed unknown or error states. Ordinary malformed source must not cause graph construction, transfer, or merge code to
 panic or loop forever.
 
 Lowering consumes the published checked HIR and its durable conclusions. It does not consume checker-private block IDs or treat the
-analysis topology as normalized execution. Any reusable control-structure helper must preserve this ownership boundary and cannot
+control-flow graph as normalized execution. Any reusable control-structure helper must preserve this ownership boundary and cannot
 make lowering depend on checker algorithms.
 
 ---
@@ -1573,10 +1573,10 @@ Required unit coverage includes:
 - guarded dependency requirements retaining their semantic conditions,
 - moving values transferring their dependency contracts without changing allocation identity,
 - query dependencies remaining distinct from language dependency contracts,
-- one deterministic checker-internal control-flow topology being shared by focused analysis domains,
+- one deterministic checker-internal control-flow graph being shared by focused analysis domains,
 - forward and backward analyses observing the same operation and edge order,
 - composite storage-flow analysis converging across loops without circular checker passes,
-- nested semantic units retaining independent analysis graphs,
+- nested semantic units retaining independent control-flow graphs,
 - abandoned speculation contributing no analysis blocks or edges,
 - checker-private graph IDs remaining absent from published bound facts and package interfaces,
 - malformed source producing conservative analysis states without nontermination or panics,
@@ -1631,7 +1631,7 @@ Implementation should proceed in dependency order:
 9. Implement typed name and path resolution over surface and local symbol APIs.
 10. Implement patterns, locals, blocks, and anonymous callable unit boundaries.
 11. Add expression, call, member, conversion, and control-flow bound nodes incrementally by grammar category.
-12. Define the shared checker-internal control-flow topology, typed edge refinements, and reusable fixed-point mechanics.
+12. Define the shared checker-internal control-flow graph, typed edge refinements, and reusable fixed-point mechanics.
 13. Integrate focused checker domains and whole-unit analysis finalization.
 14. Add deterministic diagnostic aggregation, cancellation, speculation, recovery, convergence, and parallel-query tests.
 15. Establish the checked-HIR-to-lowered-bound and lowered-bound-to-`bray-ir` boundaries before implementing production lowering.

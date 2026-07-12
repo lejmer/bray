@@ -5,7 +5,7 @@ use bray_bound_tree::BoundUnitId;
 use crate::CheckerCancellation;
 
 use super::id::AnalysisBlockId;
-use super::model::{AnalysisBlock, AnalysisEdge, AnalysisTopology};
+use super::model::{AnalysisBlock, AnalysisEdge, ControlFlowGraph};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum FlowDirection {
@@ -39,7 +39,7 @@ pub(crate) trait FixedPointDomain {
         edge: &AnalysisEdge,
     ) -> bool;
 
-    fn convergence_bound(&self, topology: &AnalysisTopology) -> usize;
+    fn convergence_bound(&self, graph: &ControlFlowGraph) -> usize;
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -66,17 +66,17 @@ pub(crate) enum FixedPointOutcome<State> {
 }
 
 pub(crate) fn solve_fixed_point<D: FixedPointDomain>(
-    topology: &AnalysisTopology,
+    graph: &ControlFlowGraph,
     domain: &D,
     cancellation: &dyn CheckerCancellation,
 ) -> FixedPointOutcome<FixedPointResult<D::State>> {
     let mut states = std::iter::repeat_with(|| domain.bottom())
-        .take(topology.blocks().len())
+        .take(graph.blocks().len())
         .collect::<Vec<_>>();
-    let mut queued = vec![false; topology.blocks().len()];
+    let mut queued = vec![false; graph.blocks().len()];
     let mut worklist = VecDeque::new();
 
-    for boundary in boundary_blocks(topology, domain.direction()) {
+    for boundary in boundary_blocks(graph, domain.direction()) {
         let Some(index) = boundary.to_index() else {
             continue;
         };
@@ -90,7 +90,7 @@ pub(crate) fn solve_fixed_point<D: FixedPointDomain>(
     }
 
     let mut updates = 0_usize;
-    let convergence_bound = domain.convergence_bound(topology);
+    let convergence_bound = domain.convergence_bound(graph);
 
     while let Some(block_id) = worklist.pop_front() {
         if cancellation.is_cancelled() {
@@ -107,7 +107,7 @@ pub(crate) fn solve_fixed_point<D: FixedPointDomain>(
 
         *marker = false;
 
-        let Some(block) = topology.block(block_id) else {
+        let Some(block) = graph.block(block_id) else {
             continue;
         };
 
@@ -116,7 +116,7 @@ pub(crate) fn solve_fixed_point<D: FixedPointDomain>(
                 return FixedPointOutcome::Cancelled;
             }
 
-            let Some(edge) = topology.edge(*edge_id) else {
+            let Some(edge) = graph.edge(*edge_id) else {
                 continue;
             };
 
@@ -162,7 +162,7 @@ pub(crate) fn solve_fixed_point<D: FixedPointDomain>(
     }
 
     FixedPointOutcome::Complete(FixedPointResult {
-        unit: topology.unit(),
+        unit: graph.unit(),
         states: states.into_boxed_slice(),
     })
 }
@@ -184,12 +184,12 @@ fn two_states<State>(
 }
 
 fn boundary_blocks(
-    topology: &AnalysisTopology,
+    graph: &ControlFlowGraph,
     direction: FlowDirection,
 ) -> Box<dyn Iterator<Item = AnalysisBlockId> + '_> {
     match direction {
-        FlowDirection::Forward => Box::new(std::iter::once(topology.entry())),
-        FlowDirection::Backward => Box::new(topology.exits().iter().map(|exit| exit.block())),
+        FlowDirection::Forward => Box::new(std::iter::once(graph.entry())),
+        FlowDirection::Backward => Box::new(graph.exits().iter().map(|exit| exit.block())),
     }
 }
 
@@ -233,16 +233,16 @@ mod tests {
     use crate::analysis::id::{AnalysisBlockId, AnalysisEdgeId};
     use crate::analysis::model::{
         AnalysisBlock, AnalysisEdge, AnalysisEdgeKind, AnalysisExit, AnalysisExitKind,
-        AnalysisTopology,
+        ControlFlowGraph,
     };
     use bray_bound_tree::BoundUnitId;
 
     #[test]
     fn forward_and_backward_domains_use_the_same_indexes() {
-        let topology = linear_topology();
+        let graph = linear_graph();
 
-        let forward = solve_fixed_point(&topology, &BooleanDomain::forward(), &|| false);
-        let backward = solve_fixed_point(&topology, &BooleanDomain::backward(), &|| false);
+        let forward = solve_fixed_point(&graph, &BooleanDomain::forward(), &|| false);
+        let backward = solve_fixed_point(&graph, &BooleanDomain::backward(), &|| false);
 
         let FixedPointOutcome::Complete(forward) = forward else {
             panic!("forward analysis must complete");
@@ -252,22 +252,22 @@ mod tests {
             panic!("backward analysis must complete");
         };
 
-        assert_eq!(forward.state(topology.entry()), Some(&true));
-        assert_eq!(backward.state(topology.entry()), Some(&true));
+        assert_eq!(forward.state(graph.entry()), Some(&true));
+        assert_eq!(backward.state(graph.entry()), Some(&true));
     }
 
     #[test]
     fn cancellation_discards_fixed_point_state() {
-        let topology = linear_topology();
-        let outcome = solve_fixed_point(&topology, &BooleanDomain::forward(), &|| true);
+        let graph = linear_graph();
+        let outcome = solve_fixed_point(&graph, &BooleanDomain::forward(), &|| true);
 
         assert_eq!(outcome, FixedPointOutcome::Cancelled);
     }
 
     #[test]
     fn fixed_point_results_reject_blocks_from_another_unit() {
-        let topology = linear_topology();
-        let outcome = solve_fixed_point(&topology, &BooleanDomain::forward(), &|| false);
+        let graph = linear_graph();
+        let outcome = solve_fixed_point(&graph, &BooleanDomain::forward(), &|| false);
 
         let FixedPointOutcome::Complete(result) = outcome else {
             panic!("forward analysis must complete");
@@ -280,14 +280,14 @@ mod tests {
 
     #[test]
     fn cyclic_domains_converge_under_their_proven_finite_bound() {
-        let topology = cyclic_topology();
-        let outcome = solve_fixed_point(&topology, &CounterDomain, &|| false);
+        let graph = cyclic_graph();
+        let outcome = solve_fixed_point(&graph, &CounterDomain, &|| false);
 
         let FixedPointOutcome::Complete(result) = outcome else {
             panic!("finite cyclic analysis must converge");
         };
 
-        assert_eq!(result.state(topology.entry()), Some(&3));
+        assert_eq!(result.state(graph.entry()), Some(&3));
     }
 
     struct BooleanDomain {
@@ -344,7 +344,7 @@ mod tests {
             true
         }
 
-        fn convergence_bound(&self, _: &AnalysisTopology) -> usize {
+        fn convergence_bound(&self, _: &ControlFlowGraph) -> usize {
             3
         }
     }
@@ -401,18 +401,18 @@ mod tests {
             false
         }
 
-        fn convergence_bound(&self, topology: &AnalysisTopology) -> usize {
-            topology.blocks().len()
+        fn convergence_bound(&self, graph: &ControlFlowGraph) -> usize {
+            graph.blocks().len()
         }
     }
 
-    fn linear_topology() -> AnalysisTopology {
+    fn linear_graph() -> ControlFlowGraph {
         let unit = BoundUnitId::new(3);
         let first = AnalysisBlockId::from_slot(unit, 0);
         let second = AnalysisBlockId::from_slot(unit, 1);
         let edge = AnalysisEdgeId::from_slot(unit, 0);
 
-        AnalysisTopology::new(
+        ControlFlowGraph::new(
             unit,
             first,
             [
@@ -434,12 +434,12 @@ mod tests {
         )
     }
 
-    fn cyclic_topology() -> AnalysisTopology {
+    fn cyclic_graph() -> ControlFlowGraph {
         let unit = BoundUnitId::new(4);
         let block = AnalysisBlockId::from_slot(unit, 0);
         let edge = AnalysisEdgeId::from_slot(unit, 0);
 
-        AnalysisTopology::new(
+        ControlFlowGraph::new(
             unit,
             block,
             [AnalysisBlock::new(block, [], [edge], [edge])],
