@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use bray_binder::CheckedUnitComputation;
+use bray_bound_tree::BoundUnitKey;
 use bray_declarations::{
     DeclarationChunkResult, DeclarationTable, DeclarationTableResult,
     discover_source_unit_declarations, merge_declaration_chunks,
@@ -10,7 +12,10 @@ use bray_source::{SourceId, SourceInput, SourceLoadError, SourceSnapshot, Source
 use bray_symbols::{AvailableCompilerKnownSymbols, CompilerKnownSymbolProvider};
 use bray_syntax::SyntaxTree;
 
-use crate::fact::{CancellationToken, CompilationFactKey, FactCell, FactQueryError, FactRuntime};
+use crate::fact::{
+    CancellationToken, CheckedUnitFact, CheckedUnitFactCaches, CompilationFactKey, FactCell,
+    FactQueryError, FactRuntime, PublishedCheckedUnit,
+};
 use crate::request::{CompilationOptions, CompilationRequest};
 use crate::worker::WorkerBudget;
 
@@ -37,6 +42,7 @@ struct CompilationState {
     declaration_chunks: Vec<FactCell<DeclarationChunkResult>>,
     declaration_table_result: FactCell<DeclarationTableResult>,
     available_compiler_known_symbols: FactCell<AvailableCompilerKnownSymbols>,
+    checked_units: CheckedUnitFactCaches,
     check_diagnostics: FactCell<DiagnosticBag>,
 }
 
@@ -92,6 +98,7 @@ impl Compilation {
                 declaration_chunks: empty_fact_caches(source_count),
                 declaration_table_result: FactCell::new(),
                 available_compiler_known_symbols: FactCell::new(),
+                checked_units: CheckedUnitFactCaches::new(),
                 check_diagnostics: FactCell::new(),
             }),
         })
@@ -285,6 +292,28 @@ impl Compilation {
             }
         }
     }
+
+    // TODO(compilation): Remove this expectation when category-specific binders request checked
+    //                    unit publication through this internal compilation fact boundary
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "category-specific checked-unit binders are implemented by subsequent issues"
+        )
+    )]
+    pub(super) fn checked_unit<T: CheckedUnitFact>(
+        &self,
+        key: BoundUnitKey,
+        cancellation: &CancellationToken,
+        compute: impl FnOnce(&CancellationToken) -> Result<CheckedUnitComputation<T>, FactQueryError>,
+    ) -> Result<Arc<PublishedCheckedUnit<T>>, FactQueryError> {
+        self.state
+            .checked_units
+            .get_or_compute(&self.state.fact_runtime, cancellation, key, || {
+                compute(cancellation)
+            })
+    }
 }
 
 fn empty_fact_caches<T>(len: usize) -> Vec<FactCell<T>> {
@@ -293,11 +322,18 @@ fn empty_fact_caches<T>(len: usize) -> Vec<FactCell<T>> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+
+    use bray_binder::{BinderDependency, CheckedUnitComputation};
     use bray_compiler_known::{AvailabilityRule, CompilerKnownDeclarationKey};
     use bray_declarations::{DeclarationKind, ModulePath};
     use bray_diagnostics::{
-        DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticBag, DiagnosticId,
-        DiagnosticKind, DiagnosticNote, DiagnosticNoteKind, SeverityKind,
+        Diagnostic, DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticBag,
+        DiagnosticId, DiagnosticKind, DiagnosticNote, DiagnosticNoteKind, DiagnosticResult,
+        SeverityKind,
     };
     use bray_source::{
         SourceId, SourceIdentity, SourceInput, SourceInputKind, SourceOriginKind, SourceVersion,
@@ -306,7 +342,9 @@ mod tests {
     use bray_symbols::{FunctionSymbolId, StructSymbolId};
 
     use crate::TargetAvailabilityFacts;
+    use crate::fact::{CancellationToken, FactQueryError};
     use crate::request::{CompilationOptions, CompilationRequest};
+    use crate::test_support::{checked_callable_body, constant_template_key};
     use crate::worker::WorkerBudget;
 
     use super::Compilation;
@@ -507,6 +545,77 @@ mod tests {
         let second = compilation.check_diagnostics();
 
         assert!(std::ptr::eq(first, second));
+    }
+
+    #[test]
+    fn checked_units_are_request_scoped_lazy_compilation_facts() {
+        let compilation = declaration_compilation();
+
+        let cancellation = CancellationToken::new();
+        let computations = AtomicUsize::new(0);
+
+        let (key, body) = checked_callable_body(20);
+
+        let dependency = BinderDependency::Unit(constant_template_key(21));
+
+        let diagnostic = Diagnostic::new(
+            DiagnosticId::new(7),
+            DiagnosticKind::DeclarationDuplicateName,
+            SeverityKind::Error,
+        );
+
+        let first =
+            match compilation.checked_unit(key.clone(), &cancellation, |request_cancellation| {
+                assert!(std::ptr::eq(request_cancellation, &cancellation));
+
+                computations.fetch_add(1, Ordering::SeqCst);
+
+                Ok(CheckedUnitComputation::new(
+                    DiagnosticResult::new(body.clone(), DiagnosticBag::single(diagnostic.clone())),
+                    [dependency.clone()],
+                ))
+            }) {
+                Ok(result) => result,
+                Err(error) => panic!("checked callable body must publish: {error:?}"),
+            };
+
+        let second = match compilation.checked_unit(key, &CancellationToken::new(), |_| {
+            panic!("cached checked unit must not be recomputed")
+        }) {
+            Ok(result) => result,
+            Err(error) => panic!("checked callable body must be cached: {error:?}"),
+        };
+
+        assert!(Arc::ptr_eq(&first, &second));
+
+        assert_eq!(first.result().value(), &body);
+        assert_eq!(first.result().diagnostics().diagnostics(), &[diagnostic]);
+        assert_eq!(first.dependencies(), &[dependency]);
+        assert_eq!(computations.load(Ordering::SeqCst), 1);
+
+        let cancelled = CancellationToken::new();
+
+        cancelled.cancel();
+
+        let (retry_key, retry_body) = checked_callable_body(22);
+
+        let cancelled_result = compilation.checked_unit(retry_key.clone(), &cancelled, |_| {
+            Ok(CheckedUnitComputation::new(
+                DiagnosticResult::without_diagnostics(retry_body.clone()),
+                [],
+            ))
+        });
+
+        assert!(matches!(cancelled_result, Err(FactQueryError::Cancelled)));
+
+        let retried = compilation.checked_unit(retry_key, &CancellationToken::new(), |_| {
+            Ok(CheckedUnitComputation::new(
+                DiagnosticResult::without_diagnostics(retry_body.clone()),
+                [],
+            ))
+        });
+
+        assert!(retried.is_ok());
     }
 
     #[test]

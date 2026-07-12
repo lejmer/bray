@@ -1,3 +1,4 @@
+use bray_bound_tree::BoundUnitKey;
 use bray_source::SourceId;
 use bray_symbols::{AnySymbolId, SymbolFactKind};
 
@@ -29,12 +30,15 @@ impl SymbolFactKey {
 ///
 /// Typed fact caches retain their exact value types. This key erases only enough information to
 /// detect dependency cycles and coordinate concurrent evaluation across those caches.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+/// Cloning remains cheap because the only non-copy payload, [`BoundUnitKey`], is `Arc`-backed.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum CompilationFactKey {
     /// The target-filtered compiler-known declaration symbol view.
     AvailableCompilerKnownSymbols,
     /// Diagnostics for the current whole-compilation check boundary.
     CheckDiagnostics,
+    /// One checked semantic unit selected by its exact stable key.
+    CheckedUnit(BoundUnitKey),
     /// Declaration discovery for one source unit.
     DeclarationChunk(SourceId),
     /// The deterministically merged declaration table.

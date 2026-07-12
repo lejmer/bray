@@ -22,13 +22,13 @@ impl FactCycle {
 fn canonical_cycle(facts: Box<[CompilationFactKey]>) -> Box<[CompilationFactKey]> {
     let mut facts = facts.into_vec();
 
-    let Some(closing) = facts.last().copied() else {
+    let Some(closing) = facts.last().cloned() else {
         return facts.into_boxed_slice();
     };
 
     let Some(start) = facts[..facts.len().saturating_sub(1)]
         .iter()
-        .position(|fact| *fact == closing)
+        .position(|fact| fact == &closing)
     else {
         return facts.into_boxed_slice();
     };
@@ -40,7 +40,7 @@ fn canonical_cycle(facts: Box<[CompilationFactKey]>) -> Box<[CompilationFactKey]
     let Some((canonical_start, _)) = facts[..cycle_len]
         .iter()
         .enumerate()
-        .min_by_key(|(_, fact)| **fact)
+        .min_by(|(_, left), (_, right)| left.cmp(right))
     else {
         return facts.into_boxed_slice();
     };
@@ -50,10 +50,10 @@ fn canonical_cycle(facts: Box<[CompilationFactKey]>) -> Box<[CompilationFactKey]
         .cycle()
         .skip(canonical_start)
         .take(cycle_len)
-        .copied()
+        .cloned()
         .collect::<Vec<_>>();
 
-    if let Some(first) = canonical.first().copied() {
+    if let Some(first) = canonical.first().cloned() {
         canonical.push(first);
     }
 
@@ -72,9 +72,9 @@ mod tests {
         let declaration = CompilationFactKey::DeclarationTable;
         let prefix = CompilationFactKey::SourceUnitSyntax(SourceId::new(0));
 
-        let cycle = FactCycle::new([prefix, syntax, declaration, syntax]);
+        let cycle = FactCycle::new([prefix, syntax.clone(), declaration.clone(), syntax.clone()]);
 
-        assert_eq!(cycle.facts(), &[declaration, syntax, declaration]);
+        assert_eq!(cycle.facts(), &[declaration.clone(), syntax, declaration]);
     }
 }
 
