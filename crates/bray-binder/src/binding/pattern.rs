@@ -664,6 +664,7 @@ mod tests {
 
         let facts = fixture.context();
         let (mut request, block) = crate::binding::test_support::request_and_block(&facts);
+
         let Some(pattern) =
             crate::binding::test_support::first_descendant::<CasePatternSyntax>(&block)
         else {
@@ -808,6 +809,7 @@ mod tests {
 
         let facts = fixture.context();
         let (mut request, block) = crate::binding::test_support::request_and_block(&facts);
+
         let Some(pattern) =
             crate::binding::test_support::first_descendant::<CasePatternSyntax>(&block)
         else {
@@ -862,6 +864,7 @@ mod tests {
 
         let facts = fixture.context();
         let (mut request, block) = crate::binding::test_support::request_and_block(&facts);
+
         let Some(pattern) =
             crate::binding::test_support::first_descendant::<CasePatternSyntax>(&block)
         else {
@@ -892,6 +895,7 @@ mod tests {
             ),
             "{pattern:?}"
         );
+
         assert!(bound.bindings().is_empty());
     }
 }
