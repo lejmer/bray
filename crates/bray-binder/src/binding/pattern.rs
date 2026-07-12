@@ -428,6 +428,8 @@ fn pattern_kind(
     }
 }
 
+// This private adapter unifies binder operations over existing typed syntax nodes.
+// It does not define syntax tree structure, so it belongs here rather than in bray-syntax.
 trait PatternSyntax: SourceSyntaxNode {
     fn coherent_binding_occurrences(&self) -> Vec<BindingOccurrence>;
     fn alternative_bindings_are_coherent(&self) -> bool;
