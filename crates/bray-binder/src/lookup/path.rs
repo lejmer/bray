@@ -63,34 +63,15 @@ where
         context: PathBindingContext,
         path: &PathSyntax,
     ) -> NameLookupResult<ModuleSymbolId> {
-        let Some(references) = path_references(path) else {
-            return malformed_lookup();
-        };
-
-        let Some(reference) = whole_path_reference(path, &references) else {
-            return malformed_lookup();
-        };
-
-        let Some(path_key) =
-            ModulePathKey::try_new(references.iter().map(|reference| reference.text()))
-        else {
-            return malformed_lookup();
-        };
-
-        let result = match self
-            .facts()
-            .symbols()
-            .module_by_path(context.module_owner, &path_key)
-        {
-            Some(module) => module_name_lookup(module, context.access),
-            None => MemberLookupResult::NotFound,
-        }
-        .classify(|name| match name {
+        let lookup = self.bind_path(context, path);
+        let result = lookup.result.classify(|name| match name {
             ResolvedName::Surface(AnySymbolId::Module(id)) => Some(id),
             ResolvedName::Local(_) | ResolvedName::Surface(_) => None,
         });
 
-        report_lookup_result(self, &reference, DiagnosticNameKind::Module, &result);
+        if let Some(reference) = lookup.reference {
+            report_lookup_result(self, &reference, DiagnosticNameKind::Module, &result);
+        }
 
         result
     }
@@ -195,20 +176,29 @@ where
             };
         };
 
-        let module_prefix = longest_module_prefix(
-            self.facts().symbols(),
-            context.module_owner,
-            &references,
-            context.access,
-        );
-
-        let mut references = references.into_iter();
-        let Some(first) = references.next() else {
+        let Some(first) = references.first() else {
             return PathLookup {
                 result: malformed_lookup(),
                 reference: None,
             };
         };
+
+        let source_prefix = next_module_prefix(
+            self.facts().symbols(),
+            context.module_owner,
+            None,
+            &references,
+            context.access,
+        );
+        let compiler_known_owner =
+            ModuleOwnerId::from(self.facts().symbols().compiler_known_environment().id());
+        let compiler_known_prefix = next_module_prefix(
+            self.facts().symbols(),
+            compiler_known_owner,
+            None,
+            &references,
+            context.access,
+        );
 
         let ordinary = lookup_unqualified_name(
             self.unit(),
@@ -219,85 +209,138 @@ where
             context.access,
         );
 
-        let mut selected_module = None;
-        let mut result = match module_prefix {
-            Some((module, length, module_lookup)) => {
-                selected_module = Some((module, length));
-                combine_name_lookups(ordinary, module_lookup)
-            }
-            None => ordinary,
-        };
-        let mut result_reference = first;
+        let module_prefixes = [source_prefix, compiler_known_prefix].into_iter().flatten();
+        let (result, consumed) = combine_with_module_prefixes(ordinary, module_prefixes);
 
-        if let Some((module, length)) = selected_module {
-            match result {
-                MemberLookupResult::Found(ResolvedName::Surface(AnySymbolId::Module(id)))
-                    if id == module =>
-                {
-                    for _ in 1..length {
-                        let Some(reference) = references.next() else {
-                            return PathLookup {
-                                result: malformed_lookup(),
-                                reference: None,
-                            };
-                        };
+        self.bind_remaining_path(context, references, result, consumed)
+    }
 
-                        result_reference = reference;
-                    }
-                }
-                MemberLookupResult::Found(_) => {}
-                _ => {
-                    return PathLookup {
-                        result,
-                        reference: Some(result_reference),
-                    };
-                }
-            }
-        }
-
-        for reference in references {
+    fn bind_remaining_path(
+        &self,
+        context: PathBindingContext,
+        references: Vec<NameReference>,
+        mut result: NameLookupResult<ResolvedName>,
+        mut consumed: usize,
+    ) -> PathLookup {
+        while consumed < references.len() {
             let owner = match &result {
                 MemberLookupResult::Found(ResolvedName::Surface(owner)) => *owner,
-                _ => {
-                    return PathLookup {
-                        result,
-                        reference: Some(result_reference),
-                    };
-                }
+                _ => return path_lookup(result, references, consumed.saturating_sub(1)),
             };
 
-            result = lookup_surface_name(
+            let ordinary = lookup_surface_name(
                 self.facts().symbols(),
                 owner,
-                reference.text(),
+                references[consumed].text(),
                 context.access,
             );
 
-            result_reference = reference;
+            let module_prefix = match owner {
+                AnySymbolId::Module(module) => {
+                    self.facts().symbols().module(module).and_then(|module| {
+                        next_module_prefix(
+                            self.facts().symbols(),
+                            module.owner(),
+                            Some(module.path()),
+                            &references[consumed..],
+                            context.access,
+                        )
+                    })
+                }
+                _ => None,
+            };
+
+            let (next, length) = combine_with_module_prefixes(ordinary, module_prefix);
+
+            result = next;
+            consumed += length;
         }
 
-        PathLookup {
-            result,
-            reference: Some(result_reference),
-        }
+        path_lookup(result, references, consumed.saturating_sub(1))
     }
 }
 
-fn longest_module_prefix(
+type ModulePrefixLookup = (ModuleSymbolId, usize, NameLookupResult<ResolvedName>);
+
+fn next_module_prefix(
     symbols: &bray_symbols::SymbolGraph,
     owner: ModuleOwnerId,
+    parent: Option<&ModulePathKey>,
     references: &[NameReference],
     access: NameAccess,
-) -> Option<(ModuleSymbolId, usize, NameLookupResult<ResolvedName>)> {
-    for length in (1..=references.len()).rev() {
-        let path = ModulePathKey::try_new(references[..length].iter().map(NameReference::text))?;
+) -> Option<ModulePrefixLookup> {
+    let mut malformed = None;
+    let mut inaccessible = None;
 
-        if let Some(module) = symbols.module_by_path(owner, &path) {
-            return Some((module.id(), length, module_name_lookup(module, access)));
+    // Undeclared prefixes are routes rather than symbols. Prefer the shortest usable declared
+    // module, then retain the shortest malformed or inaccessible route when none is usable.
+    for length in 1..=references.len() {
+        let parent_segments = parent.into_iter().flat_map(ModulePathKey::segments);
+        let child_segments = references[..length].iter().map(NameReference::text);
+        let path = ModulePathKey::try_new(parent_segments.chain(child_segments))?;
+
+        let Some(module) = symbols.module_by_path(owner, &path) else {
+            continue;
+        };
+
+        let lookup = module_name_lookup(module, access);
+
+        match &lookup {
+            MemberLookupResult::Found(_) => return Some((module.id(), length, lookup)),
+            MemberLookupResult::Malformed(_) if malformed.is_none() => {
+                malformed = Some((module.id(), length, lookup));
+            }
+            MemberLookupResult::Inaccessible(_) if inaccessible.is_none() => {
+                inaccessible = Some((module.id(), length, lookup));
+            }
+            MemberLookupResult::NotFound
+            | MemberLookupResult::WrongKind(_)
+            | MemberLookupResult::Ambiguous(_)
+            | MemberLookupResult::Malformed(_)
+            | MemberLookupResult::Inaccessible(_) => {}
         }
     }
 
-    None
+    malformed.or(inaccessible)
+}
+
+fn combine_with_module_prefixes(
+    ordinary: NameLookupResult<ResolvedName>,
+    module_prefixes: impl IntoIterator<Item = ModulePrefixLookup>,
+) -> (NameLookupResult<ResolvedName>, usize) {
+    let mut result = ordinary;
+    let mut selected = None;
+
+    for (module, length, module_lookup) in module_prefixes {
+        result = combine_name_lookups(result, module_lookup);
+
+        selected = match &result {
+            MemberLookupResult::Found(ResolvedName::Surface(AnySymbolId::Module(id)))
+                if *id == module =>
+            {
+                Some((module, length))
+            }
+            MemberLookupResult::Found(ResolvedName::Surface(AnySymbolId::Module(id))) => {
+                selected.filter(|(selected, _)| selected == id)
+            }
+            _ => None,
+        };
+    }
+
+    let consumed = selected.map_or(1, |(_, length)| length);
+
+    (result, consumed)
+}
+
+fn path_lookup(
+    result: NameLookupResult<ResolvedName>,
+    references: Vec<NameReference>,
+    reference_index: usize,
+) -> PathLookup {
+    PathLookup {
+        result,
+        reference: references.into_iter().nth(reference_index),
+    }
 }
 
 fn module_name_lookup(module: &ModuleSymbol, access: NameAccess) -> NameLookupResult<ResolvedName> {
@@ -334,23 +377,6 @@ fn token_reference(source: &SourceSnapshot, token: SyntaxToken) -> Option<NameRe
     }
 
     Some(NameReference::new(text, source.source_id(), token.range()))
-}
-
-fn whole_path_reference(path: &PathSyntax, references: &[NameReference]) -> Option<NameReference> {
-    let first = references.first()?;
-    let last = references.last()?;
-    let range =
-        bray_source::TextRange::new(first.span().range().start(), last.span().range().end());
-
-    Some(NameReference::new(
-        references
-            .iter()
-            .map(NameReference::text)
-            .collect::<Vec<_>>()
-            .join("."),
-        path.source().source_id(),
-        range,
-    ))
 }
 
 #[cfg(test)]
@@ -522,6 +548,30 @@ mod tests {
         assert!(matches!(
             request.bind_type_path(context, &path("bool")),
             MemberLookupResult::Found(ResolvedTypeName::Named(_))
+        ));
+
+        assert!(finish(request).diagnostics().is_empty());
+    }
+
+    #[test]
+    fn source_modules_resolve_compiler_known_module_paths() {
+        let fact_fixture = FactFixture::new();
+        let facts = fact_fixture.context();
+        let unit_fixture = fixture();
+        let unit = builder(&unit_fixture, LocalSymbolRegionId::new(45));
+        let root = unit.root_scope();
+        let (module, owner) = source_module(&facts);
+        let context = PathBindingContext::new(root, module, owner, NameAccess::Internal);
+        let mut request = BinderRequestContext::new(&facts, BindingContext::Expression, unit);
+
+        assert!(matches!(
+            request.bind_module_path(context, &path("core.memory")),
+            MemberLookupResult::Found(_)
+        ));
+
+        assert!(matches!(
+            request.bind_value_path(context, &path("core.memory.copy")),
+            MemberLookupResult::Found(ResolvedValueName::Function(_))
         ));
 
         assert!(finish(request).diagnostics().is_empty());
@@ -752,6 +802,80 @@ mod tests {
             finish(request).diagnostics().diagnostics()[0].kind(),
             DiagnosticKind::BindingAmbiguousName
         );
+    }
+
+    #[test]
+    fn each_declared_module_boundary_participates_in_ordinary_lookup() {
+        let fact_fixture = FactFixture::from_source(concat!(
+            "module foo { const bar: bool = true; } ",
+            "module foo.bar { const Size: bool = true; }"
+        ));
+        let facts = fact_fixture.context();
+        let unit_fixture = fixture();
+        let unit = builder(&unit_fixture, LocalSymbolRegionId::new(42));
+        let root = unit.root_scope();
+        let (module, owner) = source_module(&facts);
+        let context = PathBindingContext::new(root, module, owner, NameAccess::Internal);
+        let mut request = BinderRequestContext::new(&facts, BindingContext::Expression, unit);
+
+        assert!(matches!(
+            request.bind_module_path(context, &path("foo.bar")),
+            MemberLookupResult::Ambiguous(_)
+        ));
+
+        assert!(matches!(
+            request.bind_value_path(context, &path("foo.bar")),
+            MemberLookupResult::Ambiguous(_)
+        ));
+    }
+
+    #[test]
+    fn undeclared_module_prefixes_do_not_create_synthetic_symbols() {
+        let fact_fixture = FactFixture::from_source("module foo.bar { const Size: bool = true; }");
+        let facts = fact_fixture.context();
+        let unit_fixture = fixture();
+        let unit = builder(&unit_fixture, LocalSymbolRegionId::new(43));
+        let root = unit.root_scope();
+        let (module, owner) = source_module(&facts);
+        let context = PathBindingContext::new(root, module, owner, NameAccess::Internal);
+        let mut request = BinderRequestContext::new(&facts, BindingContext::TypeExpression, unit);
+
+        assert_eq!(
+            request.bind_module_path(context, &path("foo.bar")),
+            MemberLookupResult::Found(module)
+        );
+
+        assert!(finish(request).diagnostics().is_empty());
+    }
+
+    #[test]
+    fn inaccessible_shorter_modules_do_not_hide_public_dotted_modules() {
+        let fact_fixture = FactFixture::from_source(concat!(
+            "internal module foo { const Hidden: bool = true; } ",
+            "module foo.bar { const Size: bool = true; }"
+        ));
+        let facts = fact_fixture.context();
+        let unit_fixture = fixture();
+        let unit = builder(&unit_fixture, LocalSymbolRegionId::new(44));
+        let root = unit.root_scope();
+        let (_, owner) = source_module(&facts);
+        let public_module = facts.symbols().modules().iter().find(|module| {
+            module.origin() == SymbolOrigin::Source && module.path().segments().eq(["foo", "bar"])
+        });
+
+        let Some(public_module) = public_module else {
+            panic!("test graph must contain the public dotted module");
+        };
+
+        let context = PathBindingContext::new(root, public_module.id(), owner, NameAccess::Public);
+        let mut request = BinderRequestContext::new(&facts, BindingContext::TypeExpression, unit);
+
+        assert_eq!(
+            request.bind_module_path(context, &path("foo.bar")),
+            MemberLookupResult::Found(public_module.id())
+        );
+
+        assert!(finish(request).diagnostics().is_empty());
     }
 
     #[test]
