@@ -1,25 +1,28 @@
 use crate::analysis::check_control_flow;
-use crate::{CheckerOutcome, UnitCheckConclusions, UnitCheckRequest};
+use crate::{CheckerOutcome, ControlFlowCheckResult, UnitCheckRequest};
 
-/// Whole-unit semantic checking invoked by binder orchestration.
+/// Control-flow checking over one committed bound semantic unit.
 ///
 /// Implementations must observe request cancellation while doing substantial
-/// work and return [`CheckerOutcome::Cancelled`] without partial conclusions or
+/// work and return [`CheckerOutcome::Cancelled`] without partial results or
 /// diagnostics. Implementations own semantic rules but never mutate or publish
 /// the borrowed bound unit view.
-pub trait UnitChecker: Sync {
-    /// Checks one committed bound unit view and returns typed completion data.
-    fn check_unit(&self, request: UnitCheckRequest<'_>) -> CheckerOutcome<UnitCheckConclusions> {
+pub trait ControlFlowChecker: Sync {
+    /// Checks one committed bound unit's control flow.
+    fn check_control_flow(
+        &self,
+        request: UnitCheckRequest<'_>,
+    ) -> CheckerOutcome<ControlFlowCheckResult> {
         check_control_flow(request)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use bray_bound_tree::BoundUnitId;
+    use bray_bound_tree::{BoundUnitId, ControlCompletionKind};
 
-    use super::UnitChecker;
-    use crate::test_support::{callable_key, recovered_tree};
+    use super::ControlFlowChecker;
+    use crate::test_support::{callable_key, normally_completing_recovered_tree, recovered_tree};
     use crate::{CheckerOutcome, UnitCheckRequest, UnitCheckRoot};
 
     #[test]
@@ -34,13 +37,20 @@ mod tests {
             panic!("matching test roots must produce checker requests");
         };
 
-        let outcome = StructuralChecker.check_unit(request);
+        let outcome = StructuralChecker.check_control_flow(request);
 
         let CheckerOutcome::Complete(result) = outcome else {
             panic!("recovered graph construction must complete");
         };
 
         assert_eq!(result.value().unit(), unit);
+        assert!(
+            result
+                .value()
+                .completion()
+                .contains(ControlCompletionKind::Recovered)
+        );
+        assert!(result.value().is_recovered());
         assert!(result.diagnostics().is_empty());
     }
 
@@ -56,9 +66,31 @@ mod tests {
             panic!("matching test roots must produce checker requests");
         };
 
-        let outcome = StructuralChecker.check_unit(request);
+        let outcome = StructuralChecker.check_control_flow(request);
 
         assert_eq!(outcome, CheckerOutcome::Cancelled);
+    }
+
+    #[test]
+    fn recovery_only_control_does_not_prove_normal_completion() {
+        let key = callable_key();
+        let unit = BoundUnitId::new(8);
+        let (tree, root) = normally_completing_recovered_tree(unit, &key);
+        let view = tree.view(&key);
+
+        let Ok(request) = UnitCheckRequest::new(view, UnitCheckRoot::CallableBody(root), &|| false)
+        else {
+            panic!("matching test roots must produce checker requests");
+        };
+
+        let outcome = StructuralChecker.check_control_flow(request);
+
+        let CheckerOutcome::Complete(result) = outcome else {
+            panic!("recovered control-flow checking must complete");
+        };
+
+        assert!(result.value().is_recovered());
+        assert!(!result.value().completion().can_complete_normally());
     }
 
     #[test]
@@ -79,5 +111,5 @@ mod tests {
 
     struct StructuralChecker;
 
-    impl UnitChecker for StructuralChecker {}
+    impl ControlFlowChecker for StructuralChecker {}
 }

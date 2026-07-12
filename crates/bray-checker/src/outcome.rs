@@ -1,34 +1,59 @@
-use bray_bound_tree::BoundUnitId;
+use bray_bound_tree::{BoundUnitId, BoundUnitKind, ControlCompletion};
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 
-/// Whole-unit checker completion data available before language rules exist.
+/// The control-flow facts established for one bound semantic unit.
 ///
-/// This service-output stub retains the unit identity so binder orchestration
-/// cannot apply a completed result to another bound unit. This transfer value
-/// is not itself published as bound state.
-// TODO(checker): Add durable conclusion fields owned by bray-bound-tree as
-//                rules land.
+/// This result is deliberately narrower than a complete semantic unit check.
+/// It does not imply that type, storage, dependency, effect, capability, or
+/// contract checking has completed.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub struct UnitCheckConclusions {
+pub struct ControlFlowCheckResult {
     unit: BoundUnitId,
+    kind: BoundUnitKind,
+    completion: ControlCompletion,
+    is_recovered: bool,
 }
 
-impl UnitCheckConclusions {
-    /// Creates the initial conclusions stub for an exact bound unit.
-    pub const fn new(unit: BoundUnitId) -> Self {
-        Self { unit }
+impl ControlFlowCheckResult {
+    pub(crate) const fn new(
+        unit: BoundUnitId,
+        kind: BoundUnitKind,
+        completion: ControlCompletion,
+        is_recovered: bool,
+    ) -> Self {
+        Self {
+            unit,
+            kind,
+            completion,
+            is_recovered,
+        }
     }
 
-    /// Returns the bound unit these conclusions describe.
+    /// Returns the exact bound unit these control-flow facts describe.
     pub const fn unit(self) -> BoundUnitId {
         self.unit
+    }
+
+    /// Returns the semantic category of the checked bound unit.
+    pub const fn kind(self) -> BoundUnitKind {
+        self.kind
+    }
+
+    /// Returns the unit's checked control-completion categories.
+    pub const fn completion(self) -> ControlCompletion {
+        self.completion
+    }
+
+    /// Returns whether conservative recovery affected control-flow checking.
+    pub const fn is_recovered(self) -> bool {
+        self.is_recovered
     }
 }
 
 /// The result of one focused checker service operation.
 ///
 /// Completed operations own their structured diagnostics alongside the typed
-/// value. Cancellation carries neither diagnostics nor partial conclusions, so
+/// value. Cancellation carries neither diagnostics nor partial results, so
 /// orchestration cannot accidentally publish abandoned checker work.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CheckerOutcome<T> {
@@ -73,10 +98,24 @@ impl<T> CheckerOutcome<T> {
 
 #[cfg(test)]
 mod tests {
+    use bray_bound_tree::{BoundUnitId, BoundUnitKind, ControlCompletion, ControlCompletionKind};
     use bray_diagnostics::{Diagnostic, DiagnosticBag, DiagnosticId, DiagnosticKind, SeverityKind};
 
-    use super::{CheckerOutcome, UnitCheckConclusions};
-    use bray_bound_tree::BoundUnitId;
+    use super::{CheckerOutcome, ControlFlowCheckResult};
+
+    #[test]
+    fn control_flow_results_keep_unit_category_completion_and_recovery_together() {
+        let unit = BoundUnitId::new(4);
+        let completion = ControlCompletion::from_kinds([ControlCompletionKind::Return]);
+
+        let result =
+            ControlFlowCheckResult::new(unit, BoundUnitKind::CallableBody, completion, true);
+
+        assert_eq!(result.unit(), unit);
+        assert_eq!(result.kind(), BoundUnitKind::CallableBody);
+        assert_eq!(result.completion(), completion);
+        assert!(result.is_recovered());
+    }
 
     #[test]
     fn completed_outcomes_keep_typed_values_with_owned_diagnostics() {
@@ -86,22 +125,26 @@ mod tests {
             SeverityKind::Error,
         );
 
-        let conclusions = UnitCheckConclusions::new(BoundUnitId::new(4));
+        let result = ControlFlowCheckResult::new(
+            BoundUnitId::new(4),
+            BoundUnitKind::CallableBody,
+            ControlCompletion::default(),
+            false,
+        );
 
-        let outcome =
-            CheckerOutcome::complete(conclusions, DiagnosticBag::single(diagnostic.clone()));
+        let outcome = CheckerOutcome::complete(result, DiagnosticBag::single(diagnostic.clone()));
 
-        let Some(result) = outcome.result() else {
+        let Some(completed) = outcome.result() else {
             panic!("completed checker outcomes retain their result");
         };
 
-        assert_eq!(result.value(), &conclusions);
-        assert_eq!(result.diagnostics().diagnostics(), &[diagnostic]);
+        assert_eq!(completed.value(), &result);
+        assert_eq!(completed.diagnostics().diagnostics(), &[diagnostic]);
     }
 
     #[test]
     fn cancelled_outcomes_expose_no_partial_result() {
-        let outcome = CheckerOutcome::<UnitCheckConclusions>::Cancelled;
+        let outcome = CheckerOutcome::<ControlFlowCheckResult>::Cancelled;
 
         assert!(outcome.is_cancelled());
         assert_eq!(outcome.into_result(), None);
@@ -111,6 +154,6 @@ mod tests {
     fn outcomes_are_send_and_sync() {
         fn assert_send_sync<T: Send + Sync>() {}
 
-        assert_send_sync::<CheckerOutcome<UnitCheckConclusions>>();
+        assert_send_sync::<CheckerOutcome<ControlFlowCheckResult>>();
     }
 }

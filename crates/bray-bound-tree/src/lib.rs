@@ -3,6 +3,7 @@
 #![forbid(unsafe_code)]
 
 mod checked;
+mod control;
 mod dependency;
 mod identity;
 mod node;
@@ -20,6 +21,7 @@ pub use checked::{
     CheckedConstraintUnit, CheckedContractClauseUnit, CheckedPredicateDefinitionUnit,
     CheckedRuntimeDefaultUnit, CheckedUnitBuildError,
 };
+pub use control::{ControlCompletion, ControlCompletionKind};
 pub use dependency::{
     BoundDependencyContract, BoundDependencyContractId, BoundDependencyGuard,
     BoundDependencyRequirement, BoundDependencyRequirementKind, BoundDependencySubject,

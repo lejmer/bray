@@ -8,6 +8,14 @@ pub(crate) enum AnalysisOperationKind {
     Recovery(AnyBoundNodeId),
 }
 
+impl AnalysisOperationKind {
+    pub(crate) const fn node(self) -> AnyBoundNodeId {
+        match self {
+            Self::Bound(node) | Self::Recovery(node) => node,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(crate) struct AnalysisOperation {
     id: AnalysisOperationId,
@@ -75,7 +83,7 @@ pub(crate) enum AnalysisEdgeKind {
     Recovery,
 }
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub(crate) enum AnalysisRefinement {
     NullablePresence {
         expression: BoundExpressionId,
@@ -298,11 +306,7 @@ impl ControlFlowGraph {
                 && operation.after().unit() == self.unit
                 && operation.before().to_index().is_some()
                 && operation.after().to_index().is_some()
-                && match operation.kind() {
-                    AnalysisOperationKind::Bound(node) | AnalysisOperationKind::Recovery(node) => {
-                        node.unit() == self.unit
-                    }
-                }
+                && operation.kind().node().unit() == self.unit
         });
 
         let edges_are_valid = self.edges().iter().all(|edge| {

@@ -86,7 +86,6 @@ impl<'view> ControlFlowGraphBuilder<'view> {
             bray_bound_tree::BoundCallableBodyKind::Error(error) => match error.body() {
                 Some(body) => self.build_block(body, block),
                 None => {
-                    self.push_recovery(block, root.into());
                     self.push_exit(block, AnalysisExitKind::Recovery);
 
                     Some(None)
@@ -306,7 +305,10 @@ impl<'view> ControlFlowGraphBuilder<'view> {
     }
 
     pub(super) fn push_bound(&mut self, block: AnalysisBlockId, node: AnyBoundNodeId) {
-        self.storage.push_bound(block, node);
+        match self.view.node_is_recovered(node) {
+            Some(false) => self.storage.push_bound(block, node),
+            Some(true) | None => self.storage.push_recovery(block, node),
+        }
     }
 
     pub(super) fn push_recovery(&mut self, block: AnalysisBlockId, node: AnyBoundNodeId) {
@@ -694,7 +696,7 @@ mod tests {
             block.operations().iter().any(|operation| {
                 graph
                     .operation(*operation)
-                    .is_some_and(|operation| operation.kind() == AnalysisOperationKind::Bound(node))
+                    .is_some_and(|operation| operation.kind().node() == node)
             })
         }) else {
             panic!("test graph must retain the requested bound node");

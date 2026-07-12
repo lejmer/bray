@@ -245,8 +245,8 @@ mod tests {
     fn forward_and_backward_domains_use_the_same_indexes() {
         let graph = linear_graph();
 
-        let forward = solve_fixed_point(&graph, &ReachabilityDomain::forward(), &|| false);
-        let backward = solve_fixed_point(&graph, &ReachabilityDomain::backward(), &|| false);
+        let forward = solve_fixed_point(&graph, &ReachabilityDomain::forward(&graph), &|| false);
+        let backward = solve_fixed_point(&graph, &ReachabilityDomain::backward(&graph), &|| false);
 
         let FixedPointOutcome::Complete(forward) = forward else {
             panic!("forward analysis must complete");
@@ -256,14 +256,22 @@ mod tests {
             panic!("backward analysis must complete");
         };
 
-        assert_eq!(forward.state(graph.entry()), Some(&true));
-        assert_eq!(backward.state(graph.entry()), Some(&true));
+        assert!(
+            forward
+                .state(graph.entry())
+                .is_some_and(|state| state.is_clean())
+        );
+        assert!(
+            backward
+                .state(graph.entry())
+                .is_some_and(|state| state.is_clean())
+        );
     }
 
     #[test]
     fn cancellation_discards_fixed_point_state() {
         let graph = linear_graph();
-        let outcome = solve_fixed_point(&graph, &ReachabilityDomain::forward(), &|| true);
+        let outcome = solve_fixed_point(&graph, &ReachabilityDomain::forward(&graph), &|| true);
 
         assert_eq!(outcome, FixedPointOutcome::Cancelled);
     }
@@ -271,7 +279,7 @@ mod tests {
     #[test]
     fn fixed_point_results_reject_blocks_from_another_unit() {
         let graph = linear_graph();
-        let outcome = solve_fixed_point(&graph, &ReachabilityDomain::forward(), &|| false);
+        let outcome = solve_fixed_point(&graph, &ReachabilityDomain::forward(&graph), &|| false);
 
         let FixedPointOutcome::Complete(result) = outcome else {
             panic!("forward analysis must complete");

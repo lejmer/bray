@@ -13,7 +13,7 @@ policy into binding, publishing checker-private analysis state, or creating circ
 boundary.
 
 This document is authoritative for checker domain ownership, dependencies, inputs, outputs, convergence, recovery, and durable
-conclusions.
+facts.
 
 ---
 
@@ -27,7 +27,7 @@ The checker architecture should:
 - make dependencies between checker domains explicit and acyclic,
 - use one control-flow graph for every flow-sensitive domain in a semantic unit,
 - combine mutually dependent storage rules into one coherent flow domain,
-- retain only durable semantic conclusions in the checked bound representation,
+- retain only durable semantic facts in the checked bound representation,
 - produce structured source-correlated diagnostics without user-facing English in checker logic,
 - recover conservatively from malformed bound input without panics or nontermination,
 - support deterministic cancellation, parallelism, and future incremental reuse,
@@ -67,7 +67,7 @@ target check with the exact facts available at that program point.
 ### Analysis Domain
 
 An analysis domain owns one coherent semantic problem, including its typed state, transfer rules, merge rules, diagnostics, recovery
-behavior, and durable conclusions.
+behavior, and durable facts.
 
 A domain is not merely a module name. Its state must have a precise semantic meaning and a stated convergence contract.
 
@@ -76,13 +76,13 @@ A domain is not merely a module name. Its state must have a precise semantic mea
 A flow domain evaluates state over the shared checker-internal control-flow graph. It declares a forward or backward direction, an
 entry or exit boundary state, a deterministic merge operation, and a finite-height or otherwise provably convergent state space.
 
-### Durable Conclusion
+### Durable Fact
 
-A durable conclusion is semantic information required after checking, such as a selected conversion, an expression type, a checked
+A durable fact is semantic information required after checking, such as a selected conversion, an expression type, a checked
 move, a borrow capability, a control-completion category, an instantiated dependency contract, or a callable body effect summary.
 
-Durable conclusion types belong in `bray-bound-tree`, `bray-symbols`, or another lower representation-owning crate. Checker-private
-analysis IDs and intermediate states are never durable conclusions.
+Durable fact types belong in `bray-bound-tree`, `bray-symbols`, or another lower representation-owning crate. Checker-private
+analysis IDs and intermediate states are never durable facts.
 
 ### Recovery State
 
@@ -99,13 +99,13 @@ not collapse into the same state.
 `bray-checker` owns semantic rule algorithms, its checker-private control-flow graph and analysis state, transfer functions,
 convergence engines, and the construction of structured checker diagnostics.
 
-`bray-bound-tree` owns the source-shaped checked HIR, durable node conclusions, unit-local storage and access identities, borrow
+`bray-bound-tree` owns the source-shaped checked HIR, durable node facts, unit-local storage and access identities, borrow
 capabilities, instantiated dependency contracts, and immutable checked-unit result types.
 
 `bray-symbols` owns canonical semantic types, constant values and terms, generic substitutions, implementation selections,
 declaration contract summaries, portable dependency-contract templates, and symbol-facing lazy fact contracts.
 
-`bray-binder` owns when checks run, which expected context applies, candidate transactions, placement of conclusions on task-local
+`bray-binder` owns when checks run, which expected context applies, candidate transactions, placement of results on task-local
 bound builders, deterministic diagnostic merging, and atomic publication of a complete checked unit.
 
 `bray-compilation` owns lazy query keys, caches, dependency scheduling, cancellation sources, cross-unit parallelism, and immutable
@@ -154,24 +154,24 @@ typed maps, or boolean parameter combinations to describe semantic categories.
 
 `UnitChecker` is the whole-unit orchestration facade used by the binder. It does not imply one universal checker algorithm. Its
 implementation builds the shared control-flow graph, runs the required domains in dependency order, and returns a category-specific
-checked-unit conclusion.
+checked-unit result.
 
-`UnitCheckConclusions` is a closed category-specific transfer shape rather than a record of unrelated optional fields.
+`UnitCheckResult` is a closed category-specific transfer shape rather than a record of unrelated optional fields.
 Conceptually:
 
 ```rust
-pub enum UnitCheckConclusions {
-    CallableBody(BodyCheckConclusions),
-    AnonymousCallable(AnonymousCallableCheckConclusions),
-    RuntimeDefault(RuntimeDefaultCheckConclusions),
-    ConstantTemplate(ConstantCheckConclusions),
-    PredicateDefinition(PredicateCheckConclusions),
-    Constraint(ConstraintCheckConclusions),
-    ContractClause(ContractClauseCheckConclusions),
+pub enum UnitCheckResult {
+    CallableBody(BodyCheckResult),
+    AnonymousCallable(AnonymousCallableCheckResult),
+    RuntimeDefault(RuntimeDefaultCheckResult),
+    ConstantTemplate(ConstantCheckResult),
+    PredicateDefinition(PredicateCheckResult),
+    Constraint(ConstraintCheckResult),
+    ContractClause(ContractClauseCheckResult),
 }
 ```
 
-Each variant retains the exact `BoundUnitId`. A conclusion for one unit or unit category cannot be applied to another.
+Each variant retains the exact `BoundUnitId`. A result for one unit or unit category cannot be applied to another.
 The transfer wrapper belongs to `bray-checker`. Durable semantic values carried by its payloads belong to their lower representation
 owners.
 
@@ -195,13 +195,13 @@ toggle analyses with booleans.
 | `ContractClause`      | Callable parameters and clause-specific facts, with `result` present only for a value-producing `ensures(...)` clause | The predicate-definition schedule with clause-specific fact, trust, and visibility rules                                       | Normal completion produces a total contract fact valid for its exact clause category                                  |
 
 "Every whole-unit flow domain" means reachability, refinement, liveness, composite storage flow, dependency-contract propagation,
-and effect, capability, contract, and trust validation. Category finalization consumes those conclusions and cannot rerun a private
+and effect, capability, contract, and trust validation. Category finalization consumes those results and cannot rerun a private
 replacement analysis.
 
 In the schedule table, target availability means the preselection layer. Every selected target-dependent type or operation completes
 the post-selection target-validity layer before control-flow graph construction.
 
-Runtime-default conclusions record requirements without imposing them on calls or constructions that supply an explicit value.
+Runtime-default results record requirements without imposing them on calls or constructions that supply an explicit value.
 Constant templates are validated symbolically. Only a closed constant instance is evaluated, keyed by its exact substitution,
 selected implementations, and target profile.
 
@@ -212,7 +212,7 @@ provenance in every category.
 ### Outcomes And Cancellation
 
 Every substantial checker operation observes the caller-provided cancellation source. `CheckerOutcome::Cancelled` carries no
-diagnostics and no partial conclusions.
+diagnostics and no partial results.
 
 Cancellation is not a semantic result and must not be represented as an error type, recovery node, unknown proof, or user
 diagnostic. Binder and compilation orchestration discard all task-local checker state after cancellation.
@@ -239,15 +239,15 @@ Checker dependencies form an explicit directed acyclic graph. The ordinary body-
 ```text
 selected target profile and target facts
     |
-    +--> target gates and declaration-availability conclusions
+    +--> target gates and declaration-availability results
                   |
-bound structure, symbol facts, and target conclusions
+bound structure, symbol facts, and target results
                   |
     +--> type, compatibility, and candidate selection
                   |
     +--> target-dependent layout and ABI validity where required
                   |
-    +--> checked operations and pattern conclusions
+    +--> checked operations and pattern results
                   |
           shared control-flow graph
                   |
@@ -261,26 +261,26 @@ bound structure, symbol facts, and target conclusions
                   |
   effect, capability, contract, and trust validation
                   |
-    +--> callable or anonymous body conclusions
+    +--> callable or anonymous body results
     |
-    +--> runtime-default conclusions
+    +--> runtime-default results
     |
-    +--> constant-template conclusions or requested instance evaluation
+    +--> constant-template results or requested instance evaluation
     |
-    +--> predicate, constraint, or contract-clause conclusions
+    +--> predicate, constraint, or contract-clause results
 ```
 
 The diagram describes semantic dependencies, not a requirement for one monolithic execution. Target gate and declaration-
-availability conclusions are available before any check that can select or reject a target-conditional declaration. Layout and ABI
+availability results are available before any check that can select or reject a target-conditional declaration. Layout and ABI
 validity consumes canonical selected types and operations, so it follows selection and cannot feed overload choice. Type and
 candidate checks normally run during binding as their operands become available. Whole-unit domains consume committed checked
 operations.
 
 Constant, predicate, constraint, and contract-clause finalization consumes the same checked type, selection, target, control,
-storage, dependency, effect, and contract conclusions as ordinary units. It does not resolve names, select operations, or build a
+storage, dependency, effect, and contract results as ordinary units. It does not resolve names, select operations, or build a
 private control-flow model again.
 
-Fact refinement and liveness can run independently after reachability when neither requests the other's conclusions. The composite
+Fact refinement and liveness can run independently after reachability when neither requests the other's results. The composite
 storage domain waits for both because refinement can prove disjointness and valid variants while liveness supports borrow shortening
 and lifecycle decisions.
 
@@ -306,10 +306,10 @@ The type domain owns:
 - type requirements for assignment, return, propagation, construction, and access.
 
 Inputs use canonical `TypeId`, substitutions, selected semantic entities, typed operation categories, and source origins. Outputs use
-canonical types and category-specific compatibility or adaptation conclusions.
+canonical types and category-specific compatibility or adaptation results.
 
 The canonical error type supports recovery but never proves compatibility by itself. Checks that consume an error type return a
-typed recovered conclusion and avoid diagnostics that merely repeat the originating type failure.
+typed recovered result and avoid diagnostics that merely repeat the originating type failure.
 
 Generic definition checks operate over canonical symbolic parameters and constraints. Concrete instantiation requests check only
 the substitution-dependent type, selection, constant, and target facts required by that instance. They do not eagerly enumerate
@@ -362,10 +362,10 @@ The pattern domain owns:
 - move, copy, borrow, and observation requirements introduced by the pattern,
 - active-variant, nullable, literal, shape, and predicate refinement seeds.
 
-The local pattern conclusion describes required operations and possible refinements. Whole-unit storage and refinement domains decide
+The local pattern result describes required operations and possible refinements. Whole-unit storage and refinement domains decide
 whether those operations are valid at the exact program point.
 
-Recovered pattern syntax produces an error-aware pattern conclusion with conservative storage use and no unproven refinement.
+Recovered pattern syntax produces an error-aware pattern result with conservative storage use and no unproven refinement.
 
 Pattern checking follows `docs/language/patterns.md` and its operation-mode, refutability, partial-move, and fact-refinement rules.
 
@@ -481,7 +481,7 @@ Its state distinguishes reachable, unreachable, and conservative recovery contro
 union. It recognizes normal continuation, `never`, return, break, continue, yield, propagation, panic, cancellation, suspension,
 resumption, and other typed exits represented by the shared control-flow graph.
 
-Durable conclusions include the unit's normal and non-normal completion categories and source-correlated unreachable-operation
+Durable facts include the unit's normal and non-normal completion categories and source-correlated unreachable-operation
 facts needed by diagnostics or lowering. The complete reachable block and edge masks remain checker-private unless another domain
 consumes them during the same check.
 
@@ -501,7 +501,7 @@ target dependencies may have changed.
 The ordinary merge keeps only facts proven on every reachable predecessor. Facts with different subjects, versions, capability
 requirements, or trusted provenance do not merge merely because their rendered predicates look alike.
 
-Durable conclusions include only facts required by checked operations, branch results, dependency guards, diagnostics, or lowering.
+Durable facts include only information required by checked operations, branch results, dependency guards, diagnostics, or lowering.
 Full per-program-point fact sets remain private.
 
 Recovery removes any fact whose truth is uncertain. It never invents a positive refinement to keep checking moving.
@@ -522,7 +522,7 @@ Liveness supports borrow shortening, scope-exit planning, obligation diagnostics
 required. It does not itself decide whether an access is initialized, whether two accesses overlap, or whether ending an obligation
 is legal.
 
-Only liveness conclusions required by durable borrow or lifecycle decisions are retained. Full live-in and live-out sets are
+Only liveness facts required by durable borrow or lifecycle decisions are retained. Full live-in and live-out sets are
 checker-private.
 
 ### Composite Storage Flow
@@ -531,7 +531,7 @@ Initialization, ownership, movement, borrowing, alias compatibility, mutation au
 obligations form one composite forward domain.
 
 These facts are mutually dependent. Splitting them into independent passes would create circular requests, duplicate storage state,
-or allow one pass to validate an operation against stale conclusions from another.
+or allow one pass to validate an operation against stale results from another.
 
 The domain state is a typed product over storage identities and capabilities. It includes only meaningful relationships such as:
 
@@ -547,7 +547,7 @@ The domain state is a typed product over storage identities and capabilities. It
 - already attached dependency requirements carried by the current value.
 
 This composite state is the sole flow owner for lifecycle, scope, task, thread, joining, cancellation, and other run obligations.
-Later domains consume its finalized conclusions and cannot maintain another independently merged obligation state.
+Later domains consume its finalized results and cannot maintain another independently merged obligation state.
 
 The implementation must represent impossible combinations structurally where practical. It must not use one bag of optional fields
 for every storage category.
@@ -574,8 +574,8 @@ Merges retain only operations valid for every reachable incoming state. Partial 
 represented-part identity. Active borrow and lifecycle obligation sets merge conservatively. A path cannot silently discard an
 obligation or restore mutation authority merely because another predecessor does not carry it.
 
-The domain uses the reachability mask, fact refinements, and liveness conclusions. It produces durable per-operation storage
-conclusions, borrow capabilities, checked accesses, scope-exit obligations, and recovery facts required by lowering.
+The domain uses the reachability mask, fact refinements, and liveness results. It produces durable per-operation storage facts,
+borrow capabilities, checked accesses, scope-exit obligations, and recovery facts required by lowering.
 
 Recovery state is conservative. Unknown overlap conflicts, unknown initialization cannot be read as initialized, and unknown
 ownership cannot be moved or destroyed as though valid. The domain reports independent errors where useful but avoids repeating an
@@ -589,7 +589,7 @@ Storage flow follows `docs/language/ownership-and-borrowing.md`, `docs/language/
 The dependency domain infers and normalizes the non-local requirements carried by values, accesses, borrows, callable values, trait
 views, task handles, thread handles, and obligations.
 
-It consumes checked type, refinement, storage, capability, witness, and lifecycle conclusions. It does not recompute those rules.
+It consumes checked type, refinement, storage, capability, witness, and lifecycle results. It does not recompute those rules.
 Storage flow can retain and validate an already attached contract as opaque typed input, but it does not infer derived contracts or
 portable templates.
 
@@ -613,7 +613,7 @@ This domain computes the body effect summary and validates effect, capability us
 It observes selected calls and lifecycle operations, mutation, allocation, deallocation, I/O, async creation, suspension, spawn,
 join, cancellation, panic behavior, trusted operations, and dependency transfers.
 
-It consumes composite storage conclusions for capability availability and for lifecycle, scope, task, thread, joining, cancellation,
+It consumes composite storage results for capability availability and for lifecycle, scope, task, thread, joining, cancellation,
 and other run obligations. It does not transfer or merge those states again.
 
 Its state retains:
@@ -624,10 +624,10 @@ Its state retains:
 - normal-completion facts promised by selected operations.
 
 Effect accumulation is deterministic set union over typed effect identities. Each capability use is checked against the exact
-availability conclusion produced by composite storage flow or against declaration-scoped trusted authority that is not flow-varying.
+availability result produced by composite storage flow or against declaration-scoped trusted authority that is not flow-varying.
 Contract-obligation merge retains any ordinary or trusted requirement unresolved on a reachable predecessor.
 
-At unit exits, this domain validates the storage domain's finalized run-obligation conclusions against the declaration contract. It
+At unit exits, this domain validates the storage domain's finalized run-obligation results against the declaration contract. It
 does not create a second lifecycle or run-obligation result.
 
 The callable body summary must fit the declaration's caller-visible surface. A trusted callable's `uses(...)` clause must exactly
@@ -635,8 +635,8 @@ cover trusted implementation capabilities used by the body. Trusted caller oblig
 exposed. `ensures(...)` facts are checked on every reachable normal completion, not on panic, propagation, divergence, or
 cancellation exits unless the language contract explicitly says otherwise.
 
-Durable conclusions include the normalized body effect summary, checked capability uses, discharged or propagated contract
-obligations, and source-correlated exit conclusions needed by lowering and symbol facts.
+Durable facts include the normalized body effect summary, checked capability uses, discharged or propagated contract obligations,
+and source-correlated exit facts needed by lowering and symbol facts.
 
 These rules follow `docs/language/callables/effects-and-capabilities.md`, `docs/language/contracts-and-trust.md`,
 `docs/language/lifecycle.md`, and `docs/language/async-and-concurrency.md`.
@@ -683,8 +683,8 @@ Durable checked data can include:
 - canonical result types and selected semantic operations,
 - checked conversions, calls, implementations, and witnesses,
 - checked storage accesses and operation modes,
-- borrow capabilities and mutation-authority conclusions,
-- control-completion and scope-exit conclusions,
+- borrow capabilities and mutation-authority facts,
+- control-completion and scope-exit facts,
 - instantiated dependency contracts,
 - normalized body effects and capability uses,
 - checked contract facts and obligation outcomes,
@@ -700,8 +700,8 @@ Checker output does not include:
 - temporary alias or overlap caches,
 - checker-owned diagnostic suppression state.
 
-The binder validates unit identity and category, applies every required conclusion, merges diagnostics, and publishes the checked
-unit atomically. A missing required conclusion is a construction error, not an invitation for lowering to re-run checker logic.
+The binder validates unit identity and category, applies every required fact, merges diagnostics, and publishes the checked unit
+atomically. A missing required fact is a construction error, not an invitation for lowering to re-run checker logic.
 
 ---
 
@@ -709,10 +709,10 @@ unit atomically. A missing required conclusion is a construction error, not an i
 
 Independent semantic units can be checked in parallel through compilation queries.
 
-Within one unit, independent domains can run in parallel only after all declared input conclusions are complete. Reachability runs
+Within one unit, independent domains can run in parallel only after all declared input results are complete. Reachability runs
 before the flow domains that consume its mask. Refinement and liveness can run in parallel where their inputs are independent.
-Composite storage flow waits for both. Dependency-contract propagation waits for storage conclusions. Effect, capability, and
-obligation validation waits for the dependency conclusions it consumes.
+Composite storage flow waits for both. Dependency-contract propagation waits for storage results. Effect, capability, and
+obligation validation waits for the dependency results it consumes.
 
 Small units should remain serial when parallel coordination costs more than the work.
 
@@ -765,7 +765,7 @@ Each flow domain requires tests for:
 - normal and non-normal exits,
 - malformed recovery operations,
 - deterministic results under different valid worklist orders,
-- cancellation without partial conclusions.
+- cancellation without partial results.
 
 Cross-domain tests cover:
 
@@ -778,7 +778,7 @@ Cross-domain tests cover:
 - body effects and trusted obligations matching declaration surfaces,
 - target-unavailable candidates retaining target-specific diagnostics,
 - constant and predicate checks sharing ordinary type and selection semantics,
-- stable diagnostics and conclusions under serial and parallel unit checking.
+- stable diagnostics and results under serial and parallel unit checking.
 
 Tests use language-spec examples and terminology. They must not invent type names, formatting conventions, overload ranking, effect
 rules, or recovery behavior absent from the language specification.
@@ -797,7 +797,7 @@ Implementation issues should be split along these dependency boundaries:
 6. composite storage-flow analysis,
 7. dependency-contract propagation,
 8. effect, capability-use, contract, and trust validation,
-9. category-specific durable conclusion types and binder publication,
+9. category-specific durable fact types and binder publication,
 10. deterministic diagnostics, cancellation, recovery, convergence, and parallelism coverage.
 
 An issue can combine adjacent slices when the implementation remains focused. It must not bypass an earlier dependency with a

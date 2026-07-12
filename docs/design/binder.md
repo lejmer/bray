@@ -13,7 +13,7 @@ The language documents define Bray semantics.
 
 `docs/design/compiled-package-interfaces.md` defines source-independent imported surfaces and checked declaration-owned templates.
 
-`docs/design/checker.md` defines focused semantic checker domains, their dependencies, and their durable conclusions.
+`docs/design/checker.md` defines focused semantic checker domains, their dependencies, and their durable facts.
 
 This document defines how syntax and symbols become complete source-correlated semantic facts without moving checker policy into the
 binder or making lowering reinterpret source.
@@ -788,7 +788,7 @@ Not every fact belongs as a field on every node. Category-specific records and t
 states.
 
 Checker-internal traces, solver work queues, temporary constraint graphs, and full per-program-point data-flow states are not durable
-bound facts unless a later phase or tooling contract requires them. Publish the semantic conclusions, not every intermediate step.
+bound facts unless a later phase or tooling contract requires them. Publish the semantic facts, not every intermediate step.
 
 Bound nodes are immutable after publication. Later analysis must not mutate nodes to add a type, selected target, conversion, or
 ownership state that the checked-unit contract already promised.
@@ -942,7 +942,7 @@ That operation is typed and checked. It does not substitute source strings, synt
 
 ### Durable Facts And Flow State
 
-The published checked unit retains durable semantic structure and conclusions:
+The published checked unit retains durable semantic structure and facts:
 
 - storage origins and provenance,
 - evaluated storage accesses and ordered projections,
@@ -961,7 +961,7 @@ Checker-owned task-local state retains facts that change by program point:
 - temporary alias, overlap, and dependency-propagation facts,
 - analysis work lists, transfer state, and merge state.
 
-The checker returns the immutable conclusions required by the checked-unit contract before publication. Full per-program-point state
+The checker returns the immutable facts required by the checked-unit contract before publication. Full per-program-point state
 does not become fields on source-shaped nodes unless a later tooling or lowering contract specifically requires a durable projection.
 
 ### Semantic And Query Dependencies
@@ -1133,7 +1133,7 @@ private task-local construction state.
 
 ## Checker Service Integration
 
-Checker services own semantic rules. The binder owns when to ask for them and where to place their immutable conclusions.
+Checker services own semantic rules. The binder owns when to ask for them and where to place their immutable results.
 
 The checker domain taxonomy, rule ownership, dependency order, convergence contracts, and recovery policy are defined in
 `docs/design/checker.md`. This section defines the binder-facing integration boundary.
@@ -1154,12 +1154,12 @@ Checker services must not append user diagnostics to a process-global bag, mutat
 independently of the binder's unit transaction.
 
 Local checker services can use private analysis representations over task-local bound data. Whole-unit flow services use the shared
-checker-internal control-flow graph defined below. Both return conclusions for the binder to store before publication and neither
+checker-internal control-flow graph defined below. Both return results for the binder to store before publication and neither
 publishes checker-owned intermediate state as bound or lowering data.
 
 When a checker needs whole-unit structure, it receives a read-only bound unit view whose type is owned by `bray-bound-tree`.
 It must not depend on binder-private builders. The binder freezes task-local structural nodes into that view, receives typed checker
-conclusions and side tables, and then finalizes the published tree without cloning the complete unit.
+facts and side tables, and then finalizes the published tree without cloning the complete unit.
 
 Binding and checking can be mutually dependent at a fine grain. For example, overload selection can require argument types while
 argument binding can use parameter expectations. Such cooperation uses explicit typed candidate and expected-context APIs, not phase
@@ -1278,7 +1278,7 @@ domain, not a universal container for unrelated analyses.
 
 Reachability can run first and provide a reachable-block and reachable-edge mask to later domains. Refinement results can feed
 storage overlap and active-variant checks. Liveness and other naturally backward analyses use predecessor traversal over the same
-graph. Dependency-contract propagation consumes the checked storage, capability, witness, and refinement conclusions it requires.
+graph. Dependency-contract propagation consumes the checked storage, capability, witness, and refinement results it requires.
 
 A reusable worklist engine is appropriate for domains that genuinely share fixed-point mechanics. Domain policy remains in concrete
 checker modules and typed state. The engine must not force unrelated facts into one optional-field record or erase outcomes behind
@@ -1299,8 +1299,8 @@ Whole-unit analysis follows this boundary:
 2. `bray-bound-tree` provides a read-only bound unit view over the task-local unit without cloning its arenas.
 3. `bray-checker` builds one immutable control-flow graph from that view.
 4. Focused domains run over the shared control-flow graph according to their explicit fact dependencies.
-5. The checker returns typed conclusions, side tables, and structured diagnostic bags.
-6. The binder incorporates those conclusions and publishes the complete checked unit atomically.
+5. The checker returns typed results, side tables, and structured diagnostic bags.
+6. The binder incorporates their durable facts and publishes the complete checked unit atomically.
 
 Abandoned speculative candidates never contribute nodes or edges to the final graph. Candidate-local checks can use focused temporary
 state, but the shared whole-unit graph is constructed only from committed binding state.
@@ -1309,7 +1309,7 @@ Each nested anonymous callable or independently checked declaration-owned expres
 graph when flow analysis is required. A graph never crosses semantic-unit ownership boundaries. Relationships to nested units use
 their typed unit keys rather than embedding the nested graph.
 
-Only durable conclusions promised by the checked-unit contract are copied into bound side tables. Full block-entry and block-exit
+Only durable facts promised by the checked-unit contract are copied into bound side tables. Full block-entry and block-exit
 states, work lists, predecessor counts, temporary alias sets, and intermediate fixed-point iterations are discarded after checking
 unless a separate tooling query explicitly requests a derived control-flow view.
 
@@ -1334,7 +1334,7 @@ Malformed bound nodes produce conservative recovery operations and edges. Unknow
 degrade to typed unknown or error states. Ordinary malformed source must not cause graph construction, transfer, or merge code to
 panic or loop forever.
 
-Lowering consumes the published checked HIR and its durable conclusions. It does not consume checker-private block IDs or treat the
+Lowering consumes the published checked HIR and its durable facts. It does not consume checker-private block IDs or treat the
 control-flow graph as normalized execution. Any reusable control-structure helper must preserve this ownership boundary and cannot
 make lowering depend on checker algorithms.
 
@@ -1501,7 +1501,7 @@ The bound representation must provide lowering with:
 - explicit conversion decisions,
 - checked storage access, ownership, borrow, and movement behavior,
 - control-target and completion behavior,
-- effect, capability, trust, lifecycle, destruction, and finalization conclusions,
+- effect, capability, trust, lifecycle, destruction, and finalization facts,
 - nested callable unit references,
 - source anchors required for downstream diagnostics.
 
