@@ -1,5 +1,4 @@
-use crate::outcome::WholeUnitFlowConclusions;
-use crate::{CheckerOutcome, UnitCheckConclusions, UnitCheckRequest};
+use crate::{CheckerOutcome, ControlFlowCheckResult, UnitCheckRequest};
 
 use super::build::{ControlFlowGraphBuildOutcome, build_control_flow_graph};
 use super::reachability::analyze_reachability;
@@ -7,7 +6,7 @@ use super::refinement::analyze_refinements;
 
 pub(crate) fn check_control_flow(
     request: UnitCheckRequest<'_>,
-) -> CheckerOutcome<UnitCheckConclusions> {
+) -> CheckerOutcome<ControlFlowCheckResult> {
     let graph = match build_control_flow_graph(request) {
         ControlFlowGraphBuildOutcome::Complete(graph) => graph,
         ControlFlowGraphBuildOutcome::Cancelled => return CheckerOutcome::Cancelled,
@@ -25,13 +24,12 @@ pub(crate) fn check_control_flow(
         return CheckerOutcome::Cancelled;
     };
 
-    let flow = WholeUnitFlowConclusions::new(
+    let result = ControlFlowCheckResult::new(
         graph.unit(),
+        request.view().kind(),
         reachability.completion(),
         reachability.is_recovered(),
     );
 
-    let conclusions = UnitCheckConclusions::new(request.view().kind(), flow);
-
-    CheckerOutcome::without_diagnostics(conclusions)
+    CheckerOutcome::without_diagnostics(result)
 }

@@ -492,7 +492,7 @@ subjects. The binder instantiates them into unit-local bound contracts that can 
 and obligation identities. Compiled package interfaces encode template structure rather than compilation-local IDs.
 
 Initialization, movement, active borrows, alias relationships, and other facts that vary by program point remain checker-local
-analysis state. The checker publishes the immutable storage, access, borrow, dependency-contract, and operation conclusions promised
+analysis state. The checker publishes the immutable storage, access, borrow, dependency-contract, and operation facts promised
 by the checked-unit contract, not its complete transfer state or work lists.
 
 Each semantic unit that requires whole-unit flow analysis has one immutable checker-internal control-flow graph constructed from
@@ -507,7 +507,7 @@ requested tooling view can later project source-correlated control flow without 
 
 Independent semantic units can build and analyze their control-flow graphs in parallel. Independent domains over one graph can run
 in parallel when their explicit input facts are available and doing so is profitable. Deterministic fixed points, diagnostics, and
-published conclusions must not depend on worker scheduling.
+published facts must not depend on worker scheduling.
 
 The checked program state is the bound HIR with all required semantic facts completed.
 

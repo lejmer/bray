@@ -1,6 +1,7 @@
 use bray_bound_tree::{
-    BoundCallableBody, BoundCallableBodyId, BoundNodeOrigin, BoundSourceAnchor, BoundTree,
-    BoundTreeBuilder, BoundUnitId, BoundUnitKey,
+    BoundBlock, BoundBlockItem, BoundCallableBody, BoundCallableBodyId, BoundErrorExpression,
+    BoundExpression, BoundNodeOrigin, BoundSourceAnchor, BoundTree, BoundTreeBuilder, BoundUnitId,
+    BoundUnitKey,
 };
 use bray_declarations::{DeclarationId, discover_source_unit_declarations};
 use bray_parser::parse_source_unit;
@@ -64,6 +65,32 @@ pub(crate) fn recovered_tree(
 
     let Ok(root) = builder.push_callable_body(BoundCallableBody::error(origin, None)) else {
         panic!("one recovered callable body must fit in an empty test tree");
+    };
+
+    (builder.finish(), root)
+}
+
+pub(crate) fn normally_completing_recovered_tree(
+    unit: BoundUnitId,
+    key: &BoundUnitKey,
+) -> (BoundTree, BoundCallableBodyId) {
+    let mut builder = BoundTreeBuilder::new(unit);
+    let origin = BoundNodeOrigin::source(key.source());
+
+    let expression = BoundExpression::Error(BoundErrorExpression::new(origin, error_type()));
+
+    let Ok(expression) = builder.push_expression(expression) else {
+        panic!("one recovered expression must fit in an empty test tree");
+    };
+
+    let block = BoundBlock::new(origin, [BoundBlockItem::Expression(expression)], false);
+
+    let Ok(block) = builder.push_block(block) else {
+        panic!("one block must fit in the test tree");
+    };
+
+    let Ok(root) = builder.push_callable_body(BoundCallableBody::block(origin, block)) else {
+        panic!("one callable body must fit in the test tree");
     };
 
     (builder.finish(), root)

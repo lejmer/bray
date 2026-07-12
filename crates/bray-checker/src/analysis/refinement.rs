@@ -4,8 +4,10 @@ use crate::UnitCheckRequest;
 
 use super::fixed_point::{FixedPointDomain, FixedPointOutcome, FlowDirection, solve_fixed_point};
 use super::id::AnalysisBlockId;
-use super::model::{AnalysisBlock, AnalysisEdge, AnalysisRefinement, ControlFlowGraph};
-use super::reachability::ReachabilityConclusions;
+use super::model::{
+    AnalysisBlock, AnalysisEdge, AnalysisEdgeKind, AnalysisRefinement, ControlFlowGraph,
+};
+use super::reachability::ReachabilityResult;
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 struct RefinementState {
@@ -13,11 +15,11 @@ struct RefinementState {
     facts: BTreeSet<AnalysisRefinement>,
 }
 
-pub(super) struct RefinementConclusions {
+pub(super) struct RefinementResult {
     result: super::fixed_point::FixedPointResult<RefinementState>,
 }
 
-impl RefinementConclusions {
+impl RefinementResult {
     pub(super) fn facts_at(&self, block: AnalysisBlockId) -> Option<&BTreeSet<AnalysisRefinement>> {
         self.result
             .state(block)
@@ -28,9 +30,9 @@ impl RefinementConclusions {
 
 pub(super) fn analyze_refinements(
     graph: &ControlFlowGraph,
-    reachability: &ReachabilityConclusions,
+    reachability: &ReachabilityResult,
     request: UnitCheckRequest<'_>,
-) -> Option<RefinementConclusions> {
+) -> Option<RefinementResult> {
     let domain = RefinementDomain {
         graph,
         reachability,
@@ -38,17 +40,17 @@ pub(super) fn analyze_refinements(
 
     match solve_fixed_point(graph, &domain, &request) {
         FixedPointOutcome::Complete(result) => {
-            let conclusions = RefinementConclusions { result };
+            let result = RefinementResult { result };
 
             for block in graph.blocks() {
                 if reachability.is_block_reachable(block.id())
-                    && conclusions.facts_at(block.id()).is_none()
+                    && result.facts_at(block.id()).is_none()
                 {
                     panic!("refinement state did not cover every reachable analysis block");
                 }
             }
 
-            Some(conclusions)
+            Some(result)
         }
         FixedPointOutcome::Cancelled => None,
         FixedPointOutcome::ConvergenceInvariantViolated => {
@@ -59,7 +61,7 @@ pub(super) fn analyze_refinements(
 
 struct RefinementDomain<'graph> {
     graph: &'graph ControlFlowGraph,
-    reachability: &'graph ReachabilityConclusions,
+    reachability: &'graph ReachabilityResult,
 }
 
 impl FixedPointDomain for RefinementDomain<'_> {
@@ -81,12 +83,12 @@ impl FixedPointDomain for RefinementDomain<'_> {
     }
 
     fn merge_boundary(&self, target: &mut Self::State, incoming: &Self::State) -> bool {
-        merge_state(target, incoming, None)
+        merge_state(target, incoming, None, false)
     }
 
     fn propagate(
         &self,
-        _: &AnalysisBlock,
+        block: &AnalysisBlock,
         source: &Self::State,
         edge: &AnalysisEdge,
         target: &mut Self::State,
@@ -95,10 +97,26 @@ impl FixedPointDomain for RefinementDomain<'_> {
             return false;
         }
 
-        merge_state(target, source, edge.refinement())
+        let invalidates_facts =
+            self.block_invalidates_facts(block) || edge.kind() == AnalysisEdgeKind::Recovery;
+
+        merge_state(target, source, edge.refinement(), invalidates_facts)
     }
 
-    fn propagate_self(&self, _: &AnalysisBlock, _: &mut Self::State, _: &AnalysisEdge) -> bool {
+    fn propagate_self(
+        &self,
+        block: &AnalysisBlock,
+        state: &mut Self::State,
+        edge: &AnalysisEdge,
+    ) -> bool {
+        if self.block_invalidates_facts(block) || edge.kind() == AnalysisEdgeKind::Recovery {
+            let changed = !state.facts.is_empty();
+
+            state.facts.clear();
+
+            return changed;
+        }
+
         false
     }
 
@@ -117,10 +135,17 @@ impl FixedPointDomain for RefinementDomain<'_> {
     }
 }
 
+impl RefinementDomain<'_> {
+    fn block_invalidates_facts(&self, block: &AnalysisBlock) -> bool {
+        !block.operations().is_empty()
+    }
+}
+
 fn merge_state(
     target: &mut RefinementState,
     incoming: &RefinementState,
     edge_fact: Option<AnalysisRefinement>,
+    invalidates_facts: bool,
 ) -> bool {
     if !incoming.is_reachable {
         return false;
@@ -128,7 +153,10 @@ fn merge_state(
 
     if !target.is_reachable {
         target.is_reachable = true;
-        target.facts.extend(incoming.facts.iter().copied());
+
+        if !invalidates_facts {
+            target.facts.extend(incoming.facts.iter().copied());
+        }
 
         if let Some(fact) = edge_fact {
             target.facts.insert(fact);
@@ -139,9 +167,9 @@ fn merge_state(
 
     let previous_len = target.facts.len();
 
-    target
-        .facts
-        .retain(|fact| incoming.facts.contains(fact) || edge_fact == Some(*fact));
+    target.facts.retain(|fact| {
+        (!invalidates_facts && incoming.facts.contains(fact)) || edge_fact == Some(*fact)
+    });
 
     target.facts.len() != previous_len
 }
@@ -165,7 +193,7 @@ mod tests {
         let incoming = state([first]);
         let mut target = RefinementState::default();
 
-        assert!(merge_state(&mut target, &incoming, Some(second)));
+        assert!(merge_state(&mut target, &incoming, Some(second), false));
         assert_eq!(target, state([first, second]));
     }
 
@@ -179,7 +207,7 @@ mod tests {
         let mut target = state([common, first_only]);
         let incoming = state([common, second_only]);
 
-        assert!(merge_state(&mut target, &incoming, None));
+        assert!(merge_state(&mut target, &incoming, None, false));
         assert_eq!(target, state([common]));
     }
 
@@ -192,8 +220,21 @@ mod tests {
         let mut target = state([common, first_only]);
         let incoming = state([]);
 
-        assert!(merge_state(&mut target, &incoming, Some(common)));
+        assert!(merge_state(&mut target, &incoming, Some(common), false));
         assert_eq!(target, state([common]));
+    }
+
+    #[test]
+    fn uncertain_operations_invalidate_every_incoming_fact() {
+        let expressions = expression_ids(2);
+        let first = nullable_fact(expressions[0], true);
+        let edge_fact = nullable_fact(expressions[1], true);
+
+        let mut target = RefinementState::default();
+        let incoming = state([first]);
+
+        assert!(merge_state(&mut target, &incoming, Some(edge_fact), true,));
+        assert_eq!(target, state([edge_fact]));
     }
 
     fn state(facts: impl IntoIterator<Item = AnalysisRefinement>) -> RefinementState {

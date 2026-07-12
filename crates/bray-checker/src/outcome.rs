@@ -1,127 +1,59 @@
 use bray_bound_tree::{BoundUnitId, BoundUnitKind, ControlCompletion};
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 
-macro_rules! define_unit_conclusions {
-    ($(($name:ident, $variant:ident)),+ $(,)?) => {
-        $(
-            #[doc = concat!("Completed semantic conclusions for one `", stringify!($variant), "` unit.")]
-            #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-            pub struct $name {
-                flow: WholeUnitFlowConclusions,
-            }
-
-            impl $name {
-                pub(crate) const fn new(flow: WholeUnitFlowConclusions) -> Self {
-                    Self { flow }
-                }
-
-                /// Returns the exact bound unit these conclusions describe.
-                pub const fn unit(self) -> BoundUnitId {
-                    self.flow.unit()
-                }
-
-                /// Returns the unit's checked control-completion categories.
-                pub const fn completion(self) -> ControlCompletion {
-                    self.flow.completion()
-                }
-
-                /// Returns whether conservative recovery affected whole-unit checking.
-                pub const fn is_recovered(self) -> bool {
-                    self.flow.is_recovered()
-                }
-            }
-        )+
-
-        /// Completed semantic conclusions for one exact checked-unit category.
-        #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-        pub enum UnitCheckConclusions {
-            $(
-                #[doc = concat!("Conclusions for a `", stringify!($variant), "` unit.")]
-                $variant($name),
-            )+
-        }
-
-        impl UnitCheckConclusions {
-            pub(crate) const fn new(
-                kind: BoundUnitKind,
-                flow: WholeUnitFlowConclusions,
-            ) -> Self {
-                match kind {
-                    $(BoundUnitKind::$variant => Self::$variant($name::new(flow)),)+
-                }
-            }
-
-            /// Returns the exact bound unit these conclusions describe.
-            pub const fn unit(self) -> BoundUnitId {
-                match self {
-                    $(Self::$variant(conclusions) => conclusions.unit(),)+
-                }
-            }
-
-            /// Returns the unit's checked control-completion categories.
-            pub const fn completion(self) -> ControlCompletion {
-                match self {
-                    $(Self::$variant(conclusions) => conclusions.completion(),)+
-                }
-            }
-
-            /// Returns whether conservative recovery affected whole-unit checking.
-            pub const fn is_recovered(self) -> bool {
-                match self {
-                    $(Self::$variant(conclusions) => conclusions.is_recovered(),)+
-                }
-            }
-        }
-    };
-}
-
+/// The control-flow facts established for one bound semantic unit.
+///
+/// This result is deliberately narrower than a complete semantic unit check.
+/// It does not imply that type, storage, dependency, effect, capability, or
+/// contract checking has completed.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub(crate) struct WholeUnitFlowConclusions {
+pub struct ControlFlowCheckResult {
     unit: BoundUnitId,
+    kind: BoundUnitKind,
     completion: ControlCompletion,
     is_recovered: bool,
 }
 
-impl WholeUnitFlowConclusions {
+impl ControlFlowCheckResult {
     pub(crate) const fn new(
         unit: BoundUnitId,
+        kind: BoundUnitKind,
         completion: ControlCompletion,
         is_recovered: bool,
     ) -> Self {
         Self {
             unit,
+            kind,
             completion,
             is_recovered,
         }
     }
 
-    pub(crate) const fn unit(self) -> BoundUnitId {
+    /// Returns the exact bound unit these control-flow facts describe.
+    pub const fn unit(self) -> BoundUnitId {
         self.unit
     }
 
-    pub(crate) const fn completion(self) -> ControlCompletion {
+    /// Returns the semantic category of the checked bound unit.
+    pub const fn kind(self) -> BoundUnitKind {
+        self.kind
+    }
+
+    /// Returns the unit's checked control-completion categories.
+    pub const fn completion(self) -> ControlCompletion {
         self.completion
     }
 
-    pub(crate) const fn is_recovered(self) -> bool {
+    /// Returns whether conservative recovery affected control-flow checking.
+    pub const fn is_recovered(self) -> bool {
         self.is_recovered
     }
-}
-
-define_unit_conclusions! {
-    (CallableBodyCheckConclusions, CallableBody),
-    (AnonymousCallableCheckConclusions, AnonymousCallable),
-    (RuntimeDefaultCheckConclusions, RuntimeDefault),
-    (ConstantTemplateCheckConclusions, ConstantTemplate),
-    (PredicateDefinitionCheckConclusions, PredicateDefinition),
-    (ConstraintCheckConclusions, Constraint),
-    (ContractClauseCheckConclusions, ContractClause),
 }
 
 /// The result of one focused checker service operation.
 ///
 /// Completed operations own their structured diagnostics alongside the typed
-/// value. Cancellation carries neither diagnostics nor partial conclusions, so
+/// value. Cancellation carries neither diagnostics nor partial results, so
 /// orchestration cannot accidentally publish abandoned checker work.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CheckerOutcome<T> {
@@ -169,73 +101,20 @@ mod tests {
     use bray_bound_tree::{BoundUnitId, BoundUnitKind, ControlCompletion, ControlCompletionKind};
     use bray_diagnostics::{Diagnostic, DiagnosticBag, DiagnosticId, DiagnosticKind, SeverityKind};
 
-    use super::{
-        CallableBodyCheckConclusions, CheckerOutcome, UnitCheckConclusions,
-        WholeUnitFlowConclusions,
-    };
+    use super::{CheckerOutcome, ControlFlowCheckResult};
 
     #[test]
-    fn category_conclusions_keep_unit_completion_and_recovery_together() {
+    fn control_flow_results_keep_unit_category_completion_and_recovery_together() {
         let unit = BoundUnitId::new(4);
         let completion = ControlCompletion::from_kinds([ControlCompletionKind::Return]);
-        let flow = WholeUnitFlowConclusions::new(unit, completion, true);
-        let conclusions =
-            UnitCheckConclusions::CallableBody(CallableBodyCheckConclusions::new(flow));
 
-        assert_eq!(conclusions.unit(), unit);
-        assert_eq!(conclusions.completion(), completion);
-        assert!(conclusions.is_recovered());
-    }
+        let result =
+            ControlFlowCheckResult::new(unit, BoundUnitKind::CallableBody, completion, true);
 
-    #[test]
-    fn each_bound_unit_kind_produces_its_exact_conclusion_category() {
-        let flow =
-            WholeUnitFlowConclusions::new(BoundUnitId::new(7), ControlCompletion::default(), false);
-
-        let cases = [
-            (
-                BoundUnitKind::CallableBody,
-                UnitCheckConclusions::CallableBody(CallableBodyCheckConclusions::new(flow)),
-            ),
-            (
-                BoundUnitKind::AnonymousCallable,
-                UnitCheckConclusions::AnonymousCallable(
-                    super::AnonymousCallableCheckConclusions::new(flow),
-                ),
-            ),
-            (
-                BoundUnitKind::RuntimeDefault,
-                UnitCheckConclusions::RuntimeDefault(super::RuntimeDefaultCheckConclusions::new(
-                    flow,
-                )),
-            ),
-            (
-                BoundUnitKind::ConstantTemplate,
-                UnitCheckConclusions::ConstantTemplate(
-                    super::ConstantTemplateCheckConclusions::new(flow),
-                ),
-            ),
-            (
-                BoundUnitKind::PredicateDefinition,
-                UnitCheckConclusions::PredicateDefinition(
-                    super::PredicateDefinitionCheckConclusions::new(flow),
-                ),
-            ),
-            (
-                BoundUnitKind::Constraint,
-                UnitCheckConclusions::Constraint(super::ConstraintCheckConclusions::new(flow)),
-            ),
-            (
-                BoundUnitKind::ContractClause,
-                UnitCheckConclusions::ContractClause(super::ContractClauseCheckConclusions::new(
-                    flow,
-                )),
-            ),
-        ];
-
-        for (kind, expected) in cases {
-            assert_eq!(UnitCheckConclusions::new(kind, flow), expected);
-        }
+        assert_eq!(result.unit(), unit);
+        assert_eq!(result.kind(), BoundUnitKind::CallableBody);
+        assert_eq!(result.completion(), completion);
+        assert!(result.is_recovered());
     }
 
     #[test]
@@ -246,25 +125,26 @@ mod tests {
             SeverityKind::Error,
         );
 
-        let unit = BoundUnitId::new(4);
-        let flow = WholeUnitFlowConclusions::new(unit, ControlCompletion::default(), false);
-        let conclusions =
-            UnitCheckConclusions::CallableBody(CallableBodyCheckConclusions::new(flow));
+        let result = ControlFlowCheckResult::new(
+            BoundUnitId::new(4),
+            BoundUnitKind::CallableBody,
+            ControlCompletion::default(),
+            false,
+        );
 
-        let outcome =
-            CheckerOutcome::complete(conclusions, DiagnosticBag::single(diagnostic.clone()));
+        let outcome = CheckerOutcome::complete(result, DiagnosticBag::single(diagnostic.clone()));
 
-        let Some(result) = outcome.result() else {
+        let Some(completed) = outcome.result() else {
             panic!("completed checker outcomes retain their result");
         };
 
-        assert_eq!(result.value(), &conclusions);
-        assert_eq!(result.diagnostics().diagnostics(), &[diagnostic]);
+        assert_eq!(completed.value(), &result);
+        assert_eq!(completed.diagnostics().diagnostics(), &[diagnostic]);
     }
 
     #[test]
     fn cancelled_outcomes_expose_no_partial_result() {
-        let outcome = CheckerOutcome::<UnitCheckConclusions>::Cancelled;
+        let outcome = CheckerOutcome::<ControlFlowCheckResult>::Cancelled;
 
         assert!(outcome.is_cancelled());
         assert_eq!(outcome.into_result(), None);
@@ -274,6 +154,6 @@ mod tests {
     fn outcomes_are_send_and_sync() {
         fn assert_send_sync<T: Send + Sync>() {}
 
-        assert_send_sync::<CheckerOutcome<UnitCheckConclusions>>();
+        assert_send_sync::<CheckerOutcome<ControlFlowCheckResult>>();
     }
 }

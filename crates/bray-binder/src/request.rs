@@ -1,8 +1,7 @@
 use std::collections::BTreeSet;
 
 use bray_bound_tree::{
-    BoundBlock, BoundBlockId, BoundExpression, BoundExpressionId, BoundPattern, BoundPatternId,
-    BoundUnitKey, BoundUnitView,
+    AnyBoundNodeId, BoundBlockId, BoundExpressionId, BoundPatternId, BoundUnitKey, BoundUnitView,
 };
 use bray_declarations::SyntaxAnchor;
 use bray_diagnostics::{Diagnostic, DiagnosticBag};
@@ -179,21 +178,21 @@ impl<'facts, C: BinderFactContext + ?Sized> BinderRequestContext<'facts, C> {
     }
 
     pub(crate) fn expression_is_recovered(&self, expression: BoundExpressionId) -> bool {
-        self.unit_view()
-            .expression(expression)
-            .is_none_or(BoundExpression::is_recovered)
+        self.node_is_recovered(expression.into())
     }
 
     pub(crate) fn pattern_is_recovered(&self, pattern: BoundPatternId) -> bool {
-        self.unit_view()
-            .pattern(pattern)
-            .is_none_or(BoundPattern::is_recovered)
+        self.node_is_recovered(pattern.into())
     }
 
     pub(crate) fn block_is_recovered(&self, block: BoundBlockId) -> bool {
+        self.node_is_recovered(block.into())
+    }
+
+    fn node_is_recovered(&self, node: AnyBoundNodeId) -> bool {
         self.unit_view()
-            .block(block)
-            .is_none_or(BoundBlock::is_recovered)
+            .node_is_recovered(node)
+            .is_none_or(|is_recovered| is_recovered)
     }
 
     pub(crate) fn push_expected(&mut self, expected: ExpectedContext) {

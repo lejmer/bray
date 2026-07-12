@@ -16,7 +16,7 @@ pub enum ControlCompletionKind {
     Cancellation,
     /// Generator control yields a value.
     Yield,
-    /// Recovery prevents a stronger completion conclusion.
+    /// Recovery prevents a stronger completion fact.
     Recovered,
 }
 
@@ -43,7 +43,7 @@ impl ControlCompletion {
         self.kinds & kind.mask() != 0
     }
 
-    /// Returns whether the unit can reach its ordinary result boundary.
+    /// Returns whether the unit can cleanly reach its ordinary result boundary.
     pub const fn can_complete_normally(self) -> bool {
         self.contains(ControlCompletionKind::Normal)
     }

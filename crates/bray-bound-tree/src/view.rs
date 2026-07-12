@@ -1,7 +1,7 @@
 use crate::{
-    BoundBlock, BoundBlockId, BoundCallableBody, BoundCallableBodyId, BoundExpression,
-    BoundExpressionId, BoundPattern, BoundPatternId, BoundTree, BoundTreeBuilder, BoundUnitId,
-    BoundUnitKey, BoundUnitKind,
+    AnyBoundNodeId, BoundBlock, BoundBlockId, BoundCallableBody, BoundCallableBodyId,
+    BoundCallableBodyKind, BoundExpression, BoundExpressionId, BoundPattern, BoundPatternId,
+    BoundTree, BoundTreeBuilder, BoundUnitId, BoundUnitKey, BoundUnitKind,
 };
 
 /// A read-only view of committed task-local or published bound structure.
@@ -81,6 +81,22 @@ impl<'unit> BoundUnitView<'unit> {
             BoundUnitStorageView::Published(tree) => tree.callable_body(id),
         }
     }
+
+    /// Returns whether a substantial node retains semantic recovery state.
+    ///
+    /// Returns `None` for a foreign or missing node ID.
+    pub fn node_is_recovered(self, id: AnyBoundNodeId) -> Option<bool> {
+        match id {
+            AnyBoundNodeId::Expression(id) => {
+                self.expression(id).map(BoundExpression::is_recovered)
+            }
+            AnyBoundNodeId::Pattern(id) => self.pattern(id).map(BoundPattern::is_recovered),
+            AnyBoundNodeId::Block(id) => self.block(id).map(BoundBlock::is_recovered),
+            AnyBoundNodeId::CallableBody(id) => self
+                .callable_body(id)
+                .map(|body| matches!(body.kind(), BoundCallableBodyKind::Error(_))),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -131,6 +147,10 @@ mod tests {
         let view = tree.view(&key);
 
         assert!(view.expression(expression).is_some());
+        assert!(
+            view.node_is_recovered(expression.into())
+                .is_some_and(|value| value)
+        );
     }
 
     #[test]
