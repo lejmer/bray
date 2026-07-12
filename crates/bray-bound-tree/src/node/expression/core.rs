@@ -146,7 +146,8 @@ impl BoundExpression {
         }
     }
 
-    pub(crate) fn child_expressions(&self) -> impl Iterator<Item = BoundExpressionId> + '_ {
+    /// Returns direct expression children in semantic evaluation order.
+    pub fn child_expressions(&self) -> impl Iterator<Item = BoundExpressionId> + '_ {
         let children = match self {
             Self::Unary(expression) => expression.operands(),
             Self::Binary(expression) => expression.operands(),
@@ -175,7 +176,8 @@ impl BoundExpression {
         children.iter().copied()
     }
 
-    pub(crate) fn child_blocks(&self) -> impl Iterator<Item = BoundBlockId> + '_ {
+    /// Returns direct block children in source-semantic order.
+    pub fn child_blocks(&self) -> impl Iterator<Item = BoundBlockId> + '_ {
         let block = match self {
             Self::Block(expression) => Some(expression.block()),
             Self::Structured(expression) => expression.blocks().first().copied(),
@@ -196,7 +198,8 @@ impl BoundExpression {
         block.into_iter().chain(remaining.iter().copied())
     }
 
-    pub(crate) fn child_patterns(&self) -> impl Iterator<Item = BoundPatternId> + '_ {
+    /// Returns direct pattern children in source-semantic order.
+    pub fn child_patterns(&self) -> impl Iterator<Item = BoundPatternId> + '_ {
         match self {
             Self::Structured(expression) => expression.patterns(),
             Self::For(expression) => expression.patterns(),

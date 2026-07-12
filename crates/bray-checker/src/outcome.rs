@@ -7,7 +7,7 @@ use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 /// cannot apply a completed result to another bound unit. This transfer value
 /// is not itself published as bound state.
 // TODO(checker): Add durable conclusion fields owned by bray-bound-tree as
-// rules land.
+//                rules land.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct UnitCheckConclusions {
     unit: BoundUnitId,
