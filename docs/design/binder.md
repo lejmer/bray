@@ -13,6 +13,8 @@ The language documents define Bray semantics.
 
 `docs/design/compiled-package-interfaces.md` defines source-independent imported surfaces and checked declaration-owned templates.
 
+`docs/design/checker.md` defines focused semantic checker domains, their dependencies, and their durable conclusions.
+
 This document defines how syntax and symbols become complete source-correlated semantic facts without moving checker policy into the
 binder or making lowering reinterpret source.
 
@@ -1133,6 +1135,9 @@ private task-local construction state.
 
 Checker services own semantic rules. The binder owns when to ask for them and where to place their immutable conclusions.
 
+The checker domain taxonomy, rule ownership, dependency order, convergence contracts, and recovery policy are defined in
+`docs/design/checker.md`. This section defines the binder-facing integration boundary.
+
 Focused checker APIs should accept typed semantic inputs and return typed outcomes with structured diagnostics. Examples include:
 
 - checking a conversion,
@@ -1264,6 +1269,7 @@ Initial domains include:
 - lifecycle, destruction, finalization, cancellation, and joining obligations,
 - nullable, active-variant, pattern, predicate, and other fact refinements,
 - dependency-contract propagation,
+- effect, capability-use, contract, and trust validation,
 - liveness needed for borrow shortening and lifecycle decisions.
 
 Storage initialization, ownership, movement, borrowing, mutation authority, and lifecycle obligations are mutually dependent. They

@@ -45,7 +45,10 @@ A static function call can establish facts from the static function’s `ensures
 
 A static function call participates in overload resolution when the path resolves to an overload declaration.
 
-A static function call resolves to exactly one callable after path resolution, argument binding, type checking, ownership checking, capability checking, effect checking, contract checking, and overload resolution.
+A static function call first selects exactly one callable through path resolution, argument mapping and type compatibility, explicit
+generic substitution and static constraints, target availability, and overload resolution. Ordinary call checking then validates
+ownership, borrowing, mutation authority, dependency contracts, capabilities, effects, trusted obligations, and contract facts for
+that selected callable.
 
 Static callee path resolution is a checking step and has no runtime evaluation order.
 

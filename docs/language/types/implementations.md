@@ -870,7 +870,13 @@ Method resolution through an implementation overload family follows overload res
 
 Receiver mode, receiver compatibility, member name, and explicitly supplied method arguments can select an overload arm.
 
+The arm's static constraints and target availability also participate in applicability.
+
 Result type, expected type, and type-valued member outputs do not select an overload arm.
+
+Caller ownership availability, borrow availability, mutation authority, dependency contracts, effects, capabilities, trusted
+obligations, requirements, and postconditions are checked after one arm is selected. They do not make resolution fall back to
+another arm.
 
 If no arm matches, the call is rejected.
 

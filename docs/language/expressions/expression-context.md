@@ -24,8 +24,11 @@ Expected type can guide:
 - struct construction shorthand,
 - union variant shorthand,
 - box construction shorthand,
-- conversion checking,
-- callable overload resolution.
+- conversion checking.
+
+Expected type and expected result type do not select callable overload arms. Overload selection follows the explicitly supplied
+arguments, receiver rules, generic constraints, and target-availability rules defined by the callable and implementation overload
+specifications.
 
 Example:
 
