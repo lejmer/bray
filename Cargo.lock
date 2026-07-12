@@ -113,7 +113,11 @@ name = "bray-checker"
 version = "0.0.0"
 dependencies = [
  "bray-bound-tree",
+ "bray-declarations",
  "bray-diagnostics",
+ "bray-parser",
+ "bray-source",
+ "bray-symbols",
 ]
 
 [[package]]
