@@ -4,6 +4,7 @@ mod control;
 mod core;
 mod flow;
 mod generator;
+mod recovery;
 mod selection;
 mod spawn;
 
@@ -17,6 +18,10 @@ pub use control::{BoundForExpression, BoundMatchArm, BoundMatchExpression};
 pub use core::{BoundBlockExpression, BoundErrorExpression, BoundExpression};
 pub use flow::{BoundControlTransferExpression, BoundControlTransferKind};
 pub use generator::BoundGeneratorExpression;
+pub use recovery::{
+    BoundErrorCallExpression, BoundErrorConversionExpression, BoundUnresolvedReferenceExpression,
+    BoundUnresolvedReferenceKind,
+};
 pub use selection::{
     BoundLeadingDotVariantExpression, BoundMemberAccessExpression, BoundMemberSelector,
     BoundNameExpression, BoundReferenceTarget, BoundTraitQualifiedMemberExpression,

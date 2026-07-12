@@ -14,10 +14,7 @@ use super::BindingResult;
 use super::name::{name_is_available, symbol_name};
 use crate::BinderFactContext;
 use crate::lookup::PathBindingContext;
-use crate::request::{
-    AbandonedDependencyDisposition, BinderRequestContext, ControlTarget, ControlTargetKind,
-    PatternBindingMode,
-};
+use crate::request::{BinderRequestContext, ControlTarget, ControlTargetKind, PatternBindingMode};
 
 pub(crate) trait BlockBindingOperations<C>
 where
@@ -63,19 +60,9 @@ where
         syntax: &BlockExpressionSyntax,
         operations: &mut impl BlockBindingOperations<C>,
     ) -> BindingResult<BoundBlockId> {
-        let checkpoint = self.checkpoint();
-        let result = self.bind_block_transaction(parent_scope, syntax, operations);
-
-        if result.is_err()
-            && !self.rollback(
-                checkpoint,
-                AbandonedDependencyDisposition::DiscardProvenIrrelevant,
-            )
-        {
-            return Err(super::BindingError::RollbackFailed);
-        }
-
-        result
+        self.bind_transaction(|request| {
+            request.bind_block_transaction(parent_scope, syntax, operations)
+        })
     }
 
     fn bind_block_transaction(

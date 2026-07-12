@@ -1,9 +1,9 @@
 use bray_bound_tree::{
     BoundAnonymousCallableExpression, BoundBlockExpression, BoundExpression, BoundExpressionId,
-    BoundNameExpression, BoundStructuredExpressionKind,
+    BoundNameExpression, BoundStructuredExpressionKind, BoundUnresolvedReferenceExpression,
 };
 use bray_declarations::SyntaxAnchor;
-use bray_symbols::{LocalScopeId, MemberLookupResult};
+use bray_symbols::LocalScopeId;
 use bray_syntax::{
     AccessExpressionSyntax, ForExpressionSyntax, GeneralGeneratorExpressionSyntax,
     LambdaExpressionSyntax, LeadingDotVariantExpressionSyntax, MatchExpressionSyntax,
@@ -11,9 +11,11 @@ use bray_syntax::{
     SyntaxWalkControl,
 };
 
-use super::super::super::{BindingError, BindingResult};
-use super::super::support::{reference_target, structured_kind, visit_direct_nodes};
+use super::super::{BindingError, BindingResult};
 use super::ExpressionBinder;
+use super::support::{
+    ReferenceResolution, classify_reference_result, structured_kind, visit_direct_nodes,
+};
 use crate::BinderFactContext;
 use crate::lookup::NameAccess;
 use crate::request::BinderRequestContext;
@@ -190,23 +192,33 @@ impl ExpressionBinder {
 
         let mut current = match root_token {
             Some(token) => {
-                let target = request.bind_reference_identifier(
+                let target = classify_reference_result(request.bind_reference_identifier(
                     self.path_context_for(scope, access),
                     syntax.source(),
                     token,
-                );
+                ));
 
                 match target {
-                    MemberLookupResult::Found(target) => self.push(
+                    ReferenceResolution::Resolved(target) => self.push(
                         request,
                         BoundExpression::Name(BoundNameExpression::new(
                             request.source_origin(syntax),
-                            reference_target(target),
+                            target,
                             None,
                             syntax.is_recovered(),
                         )),
                     )?,
-                    _ => self.push_error(request, Some(syntax))?,
+                    ReferenceResolution::Unresolved(kind, candidates) => self.push(
+                        request,
+                        BoundExpression::UnresolvedReference(
+                            BoundUnresolvedReferenceExpression::new(
+                                request.source_origin(syntax),
+                                kind,
+                                candidates,
+                                self.error_type,
+                            ),
+                        ),
+                    )?,
                 }
             }
             None => match syntax.access_expressions().next() {

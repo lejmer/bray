@@ -1,6 +1,8 @@
 use bray_bound_tree::{
     BoundMemberSelector, BoundOperator, BoundReferenceTarget, BoundStructuredExpressionKind,
+    BoundUnresolvedReferenceKind,
 };
+use bray_symbols::MemberLookupResult;
 use bray_syntax::{
     SourceSyntaxNode, SyntaxKind, SyntaxNodeView, SyntaxWalkControl, SyntaxWalkEvent,
     SyntaxWalkRoot, walk_syntax_node,
@@ -114,5 +116,39 @@ pub(super) fn reference_target(target: ResolvedName) -> BoundReferenceTarget {
     match target {
         ResolvedName::Local(id) => BoundReferenceTarget::Local(id),
         ResolvedName::Surface(id) => BoundReferenceTarget::Surface(id),
+    }
+}
+
+pub(super) enum ReferenceResolution {
+    Resolved(BoundReferenceTarget),
+    Unresolved(BoundUnresolvedReferenceKind, Vec<BoundReferenceTarget>),
+}
+
+pub(super) fn classify_reference_result(
+    result: MemberLookupResult<ResolvedName>,
+) -> ReferenceResolution {
+    let result = result.map(reference_target, reference_target);
+
+    match result {
+        MemberLookupResult::Found(target) => ReferenceResolution::Resolved(target),
+        MemberLookupResult::NotFound => {
+            ReferenceResolution::Unresolved(BoundUnresolvedReferenceKind::NotFound, Vec::new())
+        }
+        MemberLookupResult::WrongKind(candidates) => ReferenceResolution::Unresolved(
+            BoundUnresolvedReferenceKind::WrongKind,
+            candidates.into_vec(),
+        ),
+        MemberLookupResult::Ambiguous(candidates) => ReferenceResolution::Unresolved(
+            BoundUnresolvedReferenceKind::Ambiguous,
+            candidates.into_vec(),
+        ),
+        MemberLookupResult::Inaccessible(candidates) => ReferenceResolution::Unresolved(
+            BoundUnresolvedReferenceKind::Inaccessible,
+            candidates.into_vec(),
+        ),
+        MemberLookupResult::Malformed(candidates) => ReferenceResolution::Unresolved(
+            BoundUnresolvedReferenceKind::Malformed,
+            candidates.into_vec(),
+        ),
     }
 }

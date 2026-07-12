@@ -12,12 +12,14 @@ pub use expression::{
     BoundAnonymousCallableExpression, BoundArgument, BoundAssignmentExpression,
     BoundBinaryExpression, BoundBlockExpression, BoundCallExpression,
     BoundControlTransferExpression, BoundControlTransferKind, BoundConversionExpression,
-    BoundErrorExpression, BoundExpression, BoundForExpression, BoundGeneratorExpression,
+    BoundErrorCallExpression, BoundErrorConversionExpression, BoundErrorExpression,
+    BoundExpression, BoundForExpression, BoundGeneratorExpression,
     BoundLeadingDotVariantExpression, BoundMatchArm, BoundMatchExpression,
     BoundMemberAccessExpression, BoundMemberSelector, BoundNameExpression, BoundOperator,
     BoundReferenceTarget, BoundSpawnExpression, BoundSpawnInput, BoundSpawnMode,
     BoundStructConstructionExpression, BoundStructFieldInitializer, BoundStructuredExpression,
     BoundStructuredExpressionKind, BoundTraitQualifiedMemberExpression, BoundUnaryExpression,
+    BoundUnresolvedReferenceExpression, BoundUnresolvedReferenceKind,
 };
 pub use id::{
     AnyBoundNodeId, BoundBlockId, BoundCallableBodyId, BoundExpressionId, BoundNodeKind,

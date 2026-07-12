@@ -113,9 +113,9 @@ pub enum BinderDependency {
 
 /// How an abandoned candidate classifies facts observed after its checkpoint.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum AbandonedDependencyDisposition {
-    RetainObserved,
-    DiscardProvenIrrelevant,
+pub(crate) enum AbandonedDependencyRelevance {
+    Relevant,
+    ProvenIrrelevant,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -253,7 +253,7 @@ impl<'facts, C: BinderFactContext + ?Sized> BinderRequestContext<'facts, C> {
     pub(crate) fn rollback(
         &mut self,
         checkpoint: BinderRequestCheckpoint,
-        dependencies: AbandonedDependencyDisposition,
+        dependency_relevance: AbandonedDependencyRelevance,
     ) -> bool {
         if checkpoint.diagnostics > self.diagnostics.len()
             || checkpoint.expected_contexts > self.expected_contexts.len()
@@ -272,13 +272,21 @@ impl<'facts, C: BinderFactContext + ?Sized> BinderRequestContext<'facts, C> {
             .truncate(checkpoint.expected_contexts);
         self.control_targets.truncate(checkpoint.control_targets);
 
-        if dependencies == AbandonedDependencyDisposition::DiscardProvenIrrelevant {
+        if dependency_relevance == AbandonedDependencyRelevance::ProvenIrrelevant {
             for dependency in self.dependency_log.drain(checkpoint.dependency_log..) {
                 self.dependencies.remove(&dependency);
             }
         }
 
         true
+    }
+
+    pub(crate) fn candidate_context_is_balanced(
+        &self,
+        checkpoint: BinderRequestCheckpoint,
+    ) -> bool {
+        checkpoint.expected_contexts == self.expected_contexts.len()
+            && checkpoint.control_targets == self.control_targets.len()
     }
 
     pub(crate) fn finish(self) -> Result<BinderRequestResult, BoundUnitConstructionError> {
@@ -327,7 +335,7 @@ mod tests {
     use bray_symbols::{AnyLocalSymbolId, LocalSymbolRegionId, SymbolFactKind};
 
     use super::{
-        AbandonedDependencyDisposition, BinderDependency, BinderRequestContext, BindingContext,
+        AbandonedDependencyRelevance, BinderDependency, BinderRequestContext, BindingContext,
         ControlTarget, ControlTargetKind, ExpectedContext, ExpectedSemanticKind,
     };
     use crate::BinderFactContext;
@@ -407,10 +415,7 @@ mod tests {
         request.add_diagnostic(diagnostic(0));
         request.record_dependency(BinderDependency::Target(fact_fixture.constant));
 
-        assert!(request.rollback(
-            checkpoint,
-            AbandonedDependencyDisposition::DiscardProvenIrrelevant
-        ));
+        assert!(request.rollback(checkpoint, AbandonedDependencyRelevance::ProvenIrrelevant));
 
         assert_eq!(request.expected(), None);
         assert_eq!(request.control_target(), None);
@@ -469,7 +474,7 @@ mod tests {
         request.add_diagnostic(diagnostic(1));
         request.record_dependency(candidate_dependency.clone());
 
-        assert!(request.rollback(checkpoint, AbandonedDependencyDisposition::RetainObserved));
+        assert!(request.rollback(checkpoint, AbandonedDependencyRelevance::Relevant));
 
         let result = match request.finish() {
             Ok(result) => result,
