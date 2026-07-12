@@ -394,7 +394,7 @@ mod tests {
                 let key =
                     CompilationFactKey::from(SymbolFactKey::new(request.symbol(), request.kind()));
 
-                return Err(FactQueryError::Cycle(FactCycle::new([key, key])));
+                return Err(FactQueryError::Cycle(FactCycle::new([key.clone(), key])));
             }
 
             Ok(DiagnosticBag::new())

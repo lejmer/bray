@@ -13,7 +13,7 @@ pub(crate) struct FactCell<T> {
     changed: Condvar,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 enum FactCellState {
     Vacant,
     Computing {
@@ -54,9 +54,9 @@ impl<T> FactCell<T> {
                 .lock()
                 .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
-            match *state {
+            match &*state {
                 FactCellState::Ready(ready_key) => {
-                    if ready_key != key {
+                    if ready_key != &key {
                         return Err(FactQueryError::InfrastructureFailure);
                     }
 
@@ -64,13 +64,16 @@ impl<T> FactCell<T> {
                 }
                 FactCellState::Vacant => {
                     let thread = thread::current().id();
-                    *state = FactCellState::Computing { owner: thread, key };
+                    *state = FactCellState::Computing {
+                        owner: thread,
+                        key: key.clone(),
+                    };
 
                     drop(state);
 
-                    let mut publication = PublicationGuard::new(self, thread, key);
+                    let mut publication = PublicationGuard::new(self, thread, key.clone());
 
-                    let _evaluation = runtime.begin(key)?;
+                    let _evaluation = runtime.begin(key.clone())?;
 
                     cancellation.check()?;
 
@@ -92,17 +95,19 @@ impl<T> FactCell<T> {
                     owner,
                     key: computing_key,
                 } => {
-                    if computing_key != key {
+                    if computing_key != &key {
                         return Err(FactQueryError::InfrastructureFailure);
                     }
 
                     let thread = thread::current().id();
 
-                    if owner == thread {
-                        return Err(FactQueryError::Cycle(runtime.same_thread_cycle(key)?));
+                    if *owner == thread {
+                        return Err(FactQueryError::Cycle(
+                            runtime.same_thread_cycle(key.clone())?,
+                        ));
                     }
 
-                    let waiting = runtime.wait_for(key, owner)?;
+                    let waiting = runtime.wait_for(key.clone(), *owner)?;
 
                     let waited = self
                         .changed
@@ -131,7 +136,13 @@ impl<T> FactCell<T> {
             .lock()
             .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
-        if *state != (FactCellState::Computing { owner: thread, key }) {
+        if !matches!(
+            &*state,
+            FactCellState::Computing {
+                owner,
+                key: active_key,
+            } if *owner == thread && active_key == &key
+        ) {
             return Err(FactQueryError::InfrastructureFailure);
         }
 
@@ -153,7 +164,13 @@ impl<T> FactCell<T> {
             return;
         };
 
-        if *state != (FactCellState::Computing { owner: thread, key }) {
+        if !matches!(
+            &*state,
+            FactCellState::Computing {
+                owner,
+                key: active_key,
+            } if *owner == thread && active_key == &key
+        ) {
             return;
         }
 
@@ -198,7 +215,7 @@ impl<'a, T> PublicationGuard<'a, T> {
 impl<T> Drop for PublicationGuard<'_, T> {
     fn drop(&mut self) {
         if self.active {
-            self.cell.abandon(self.thread, self.key);
+            self.cell.abandon(self.thread, self.key.clone());
         }
     }
 }
@@ -312,8 +329,8 @@ mod tests {
 
         let key = CompilationFactKey::SyntaxTree;
 
-        let result = cell.get_or_compute(&runtime, key, &cancellation, || {
-            cell.get_or_compute(&runtime, key, &cancellation, || Ok(2_u32))
+        let result = cell.get_or_compute(&runtime, key.clone(), &cancellation, || {
+            cell.get_or_compute(&runtime, key.clone(), &cancellation, || Ok(2_u32))
                 .copied()
         });
 
@@ -326,7 +343,7 @@ mod tests {
             panic!("recursive fact request should report a cycle");
         };
 
-        assert_eq!(cycle.facts(), &[key, key]);
+        assert_eq!(cycle.facts(), &[key.clone(), key]);
         assert!(cell.get().is_none());
     }
 
@@ -371,11 +388,13 @@ mod tests {
         let (first_result, second_result) = std::thread::scope(|scope| {
             let first_handle = scope.spawn(|| {
                 first
-                    .get_or_compute(&runtime, first_key, &cancellation, || {
+                    .get_or_compute(&runtime, first_key.clone(), &cancellation, || {
                         barrier.wait();
 
                         second
-                            .get_or_compute(&runtime, second_key, &cancellation, || Ok(20_u32))
+                            .get_or_compute(&runtime, second_key.clone(), &cancellation, || {
+                                Ok(20_u32)
+                            })
                             .copied()
                     })
                     .copied()
@@ -383,11 +402,13 @@ mod tests {
 
             let second_handle = scope.spawn(|| {
                 second
-                    .get_or_compute(&runtime, second_key, &cancellation, || {
+                    .get_or_compute(&runtime, second_key.clone(), &cancellation, || {
                         barrier.wait();
 
                         first
-                            .get_or_compute(&runtime, first_key, &cancellation, || Ok(10_u32))
+                            .get_or_compute(&runtime, first_key.clone(), &cancellation, || {
+                                Ok(10_u32)
+                            })
                             .copied()
                     })
                     .copied()
@@ -416,7 +437,7 @@ mod tests {
 
         let key = CompilationFactKey::SyntaxTree;
 
-        let result = cell.get_or_compute(&runtime, key, &cancellation, || {
+        let result = cell.get_or_compute(&runtime, key.clone(), &cancellation, || {
             cancellation.cancel();
 
             Ok(7_u32)
@@ -449,9 +470,11 @@ mod tests {
             let owner_runtime = &runtime;
             let owner_token = &owner_cancellation;
 
+            let owner_key = key.clone();
+
             let owner = scope.spawn(move || {
                 owner_cell
-                    .get_or_compute(owner_runtime, key, owner_token, || {
+                    .get_or_compute(owner_runtime, owner_key, owner_token, || {
                         if started_sender.send(()).is_err() {
                             panic!("test should observe the computing fact");
                         }
@@ -473,9 +496,11 @@ mod tests {
             let waiter_runtime = &runtime;
             let waiter_token = &waiter_cancellation;
 
+            let waiter_key = key;
+
             let waiter = scope.spawn(move || {
                 let result = waiter_cell
-                    .get_or_compute(waiter_runtime, key, waiter_token, || Ok(9_u32))
+                    .get_or_compute(waiter_runtime, waiter_key, waiter_token, || Ok(9_u32))
                     .copied();
 
                 if result_sender.send(result).is_err() {

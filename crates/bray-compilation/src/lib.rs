@@ -8,6 +8,9 @@ mod request;
 mod target;
 mod worker;
 
+#[cfg(test)]
+mod test_support;
+
 pub use compilation::{Compilation, CompilationLoadError};
 pub use fact::{
     CancellationToken, CompilationFactKey, FactCycle, FactQueryError, SymbolCompletionError,

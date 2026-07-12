@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use bray_binder::CheckedUnitComputation;
+use bray_bound_tree::BoundUnitKey;
 use bray_declarations::{
     DeclarationChunkResult, DeclarationTable, DeclarationTableResult,
     discover_source_unit_declarations, merge_declaration_chunks,
@@ -10,7 +12,10 @@ use bray_source::{SourceId, SourceInput, SourceLoadError, SourceSnapshot, Source
 use bray_symbols::{AvailableCompilerKnownSymbols, CompilerKnownSymbolProvider};
 use bray_syntax::SyntaxTree;
 
-use crate::fact::{CancellationToken, CompilationFactKey, FactCell, FactQueryError, FactRuntime};
+use crate::fact::{
+    CancellationToken, CheckedUnitFact, CheckedUnitFactCaches, CompilationFactKey, FactCell,
+    FactQueryError, FactRuntime, PublishedCheckedUnit,
+};
 use crate::request::{CompilationOptions, CompilationRequest};
 use crate::worker::WorkerBudget;
 
@@ -37,6 +42,7 @@ struct CompilationState {
     declaration_chunks: Vec<FactCell<DeclarationChunkResult>>,
     declaration_table_result: FactCell<DeclarationTableResult>,
     available_compiler_known_symbols: FactCell<AvailableCompilerKnownSymbols>,
+    checked_units: CheckedUnitFactCaches,
     check_diagnostics: FactCell<DiagnosticBag>,
 }
 
@@ -92,6 +98,7 @@ impl Compilation {
                 declaration_chunks: empty_fact_caches(source_count),
                 declaration_table_result: FactCell::new(),
                 available_compiler_known_symbols: FactCell::new(),
+                checked_units: CheckedUnitFactCaches::new(),
                 check_diagnostics: FactCell::new(),
             }),
         })
@@ -284,6 +291,25 @@ impl Compilation {
                 panic!("compilation fact infrastructure failed")
             }
         }
+    }
+
+    // TODO(compilation): Remove this expectation when category-specific binders request checked
+    // unit publication through this internal compilation fact boundary.
+    #[expect(
+        dead_code,
+        reason = "category-specific checked-unit binders are implemented by subsequent issues"
+    )]
+    pub(super) fn checked_unit<T: CheckedUnitFact>(
+        &self,
+        key: BoundUnitKey,
+        compute: impl FnOnce() -> Result<CheckedUnitComputation<T>, FactQueryError>,
+    ) -> Result<Arc<PublishedCheckedUnit<T>>, FactQueryError> {
+        self.state.checked_units.get_or_compute(
+            &self.state.fact_runtime,
+            &self.state.cancellation,
+            key,
+            compute,
+        )
     }
 }
 

@@ -24,14 +24,14 @@ impl FactRuntime {
         let thread = thread::current().id();
         let mut state = self.state()?;
 
-        match state.owners.entry(key) {
+        match state.owners.entry(key.clone()) {
             Entry::Vacant(entry) => {
                 entry.insert(thread);
             }
             Entry::Occupied(_) => return Err(FactQueryError::InfrastructureFailure),
         }
 
-        state.active.entry(thread).or_default().push(key);
+        state.active.entry(thread).or_default().push(key.clone());
 
         Ok(EvaluationGuard {
             runtime: self,
@@ -54,7 +54,7 @@ impl FactRuntime {
 
         let start = active
             .iter()
-            .position(|active_key| *active_key == key)
+            .position(|active_key| active_key == &key)
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
         let mut facts = active[start..].to_vec();
@@ -81,12 +81,12 @@ impl FactRuntime {
 
         match state.waiting.entry(thread) {
             Entry::Vacant(entry) => {
-                entry.insert(key);
+                entry.insert(key.clone());
             }
             Entry::Occupied(_) => return Err(FactQueryError::InfrastructureFailure),
         }
 
-        if let Some(cycle) = cross_thread_cycle(&state, thread, owner, key)? {
+        if let Some(cycle) = cross_thread_cycle(&state, thread, owner, &key)? {
             state.waiting.remove(&thread);
 
             return Err(FactQueryError::Cycle(cycle));
@@ -145,7 +145,7 @@ fn cross_thread_cycle(
     state: &RuntimeState,
     requesting_thread: ThreadId,
     owner: ThreadId,
-    requested_key: CompilationFactKey,
+    requested_key: &CompilationFactKey,
 ) -> Result<Option<FactCycle>, FactQueryError> {
     // Cycle reporting owns its path after the runtime lock is released.
     let mut facts = state
@@ -154,17 +154,17 @@ fn cross_thread_cycle(
         .cloned()
         .unwrap_or_default();
 
-    facts.push(requested_key);
+    facts.push(requested_key.clone());
 
     let mut thread = owner;
     let mut visited = HashSet::new();
 
     while visited.insert(thread) {
-        let Some(waited_key) = state.waiting.get(&thread).copied() else {
+        let Some(waited_key) = state.waiting.get(&thread).cloned() else {
             return Ok(None);
         };
 
-        facts.push(waited_key);
+        facts.push(waited_key.clone());
 
         let Some(next_owner) = state.owners.get(&waited_key).copied() else {
             return Ok(None);
@@ -188,7 +188,8 @@ pub(crate) struct EvaluationGuard<'a> {
 
 impl Drop for EvaluationGuard<'_> {
     fn drop(&mut self) {
-        self.runtime.finish_evaluation(self.thread, self.key);
+        self.runtime
+            .finish_evaluation(self.thread, self.key.clone());
     }
 }
 
@@ -200,6 +201,6 @@ pub(crate) struct WaitingGuard<'a> {
 
 impl Drop for WaitingGuard<'_> {
     fn drop(&mut self) {
-        self.runtime.finish_waiting(self.thread, self.key);
+        self.runtime.finish_waiting(self.thread, self.key.clone());
     }
 }
