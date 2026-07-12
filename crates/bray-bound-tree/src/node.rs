@@ -11,4 +11,4 @@ pub use id::{
     AnyBoundNodeId, BoundBlockId, BoundCallableBodyId, BoundExpressionId, BoundNodeKind,
     BoundPatternId, ExactBoundNodeId,
 };
-pub use pattern::{BoundPattern, BoundPatternKind, BoundPatternMode};
+pub use pattern::{BoundPattern, BoundPatternKind, BoundPatternMode, BoundPatternTarget};

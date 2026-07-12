@@ -11,8 +11,9 @@ use bray_syntax::{
 };
 
 use super::BindingResult;
-use super::name::symbol_name;
+use super::name::{name_is_available, symbol_name};
 use crate::BinderFactContext;
+use crate::lookup::PathBindingContext;
 use crate::request::{
     AbandonedDependencyDisposition, BinderRequestContext, ControlTarget, ControlTargetKind,
     PatternBindingMode,
@@ -44,6 +45,12 @@ where
     ) -> BindingResult<Option<TypeId>>;
 
     fn error_type(&self) -> TypeId;
+
+    fn path_context(
+        &self,
+        request: &BinderRequestContext<'_, C>,
+        scope: LocalScopeId,
+    ) -> BindingResult<PathBindingContext>;
 }
 
 impl<C> BinderRequestContext<'_, C>
@@ -157,8 +164,10 @@ where
                 .map_or(operations.error_type(), |expression| expression.ty())
         });
 
+        let context = operations.path_context(self, scope)?;
+
         let pattern = self.bind_irrefutable_pattern(
-            scope,
+            context,
             &syntax.irrefutable_pattern(),
             input_type,
             PatternBindingMode::Declaration,
@@ -169,6 +178,7 @@ where
         Ok(BoundLocalBinding::new(
             self.source_origin(syntax),
             pattern.pattern(),
+            pattern.bindings().iter().copied(),
             declared_type,
             initializer,
             syntax.is_recovered(),
@@ -189,9 +199,10 @@ where
 
         let anchor = SyntaxAnchor::from_node(syntax);
         let token = syntax.identifier_token();
+        let context = operations.path_context(self, scope)?;
 
         let symbol = match symbol_name(syntax.source(), &token) {
-            Some(name) => {
+            Some(name) if name_is_available(self, context, syntax.source(), &token) => {
                 let symbol = self.unit_mut().push_constant(
                     scope,
                     name,
@@ -204,7 +215,7 @@ where
 
                 Some(symbol)
             }
-            None => None,
+            Some(_) | None => None,
         };
 
         Ok(BoundLocalConstant::new(
@@ -364,6 +375,51 @@ mod tests {
         assert!(result.unit().local_symbols().constants().is_empty());
     }
 
+    #[test]
+    fn local_declarations_reject_shadowing_and_retain_destructured_identities() {
+        let fixture = TestFixture::from_source(
+            "module app; const Size: Int = 1; func main() { let (left, right) = 1; let left = 2; const Size: Int = 3; }",
+        );
+        let facts = fixture.context();
+        let (mut request, block) = crate::binding::test_support::request_and_block(&facts);
+        let root = request.unit().root_scope();
+        let mut operations = TestOperations::new(fixture.declared_type);
+
+        let block = match request.bind_block(root, &block, &mut operations) {
+            Ok(block) => block,
+            Err(error) => panic!("shadowing declarations must recover: {error:?}"),
+        };
+
+        let result = match request.finish() {
+            Ok(result) => result,
+            Err(error) => panic!("recovered block must freeze: {error:?}"),
+        };
+
+        assert_eq!(
+            result
+                .diagnostics()
+                .iter()
+                .map(bray_diagnostics::Diagnostic::kind)
+                .collect::<Vec<_>>(),
+            [
+                bray_diagnostics::DiagnosticKind::BindingNameAlreadyDefined,
+                bray_diagnostics::DiagnosticKind::BindingNameAlreadyDefined,
+            ]
+        );
+
+        let Some(block) = result.unit().tree().block(block) else {
+            panic!("bound block must be published");
+        };
+
+        let BoundBlockItem::LocalBinding(binding) = &block.items()[0] else {
+            panic!("first item must remain a destructuring binding");
+        };
+
+        assert_eq!(binding.bindings().len(), 2);
+        assert_eq!(result.unit().local_symbols().bindings().len(), 2);
+        assert!(result.unit().local_symbols().constants().is_empty());
+    }
+
     struct TestOperations {
         error_type: TypeId,
         visible_names: Vec<(usize, usize)>,
@@ -456,6 +512,29 @@ mod tests {
 
         fn error_type(&self) -> TypeId {
             self.error_type
+        }
+
+        fn path_context(
+            &self,
+            request: &BinderRequestContext<'_, C>,
+            scope: bray_symbols::LocalScopeId,
+        ) -> BindingResult<crate::lookup::PathBindingContext> {
+            let Some(module) = request
+                .facts()
+                .symbols()
+                .modules()
+                .iter()
+                .find(|module| module.origin() == bray_symbols::SymbolOrigin::Source)
+            else {
+                panic!("test graph must contain a module");
+            };
+
+            Ok(crate::lookup::PathBindingContext::new(
+                scope,
+                module.id(),
+                module.owner(),
+                crate::lookup::NameAccess::Internal,
+            ))
         }
     }
 }

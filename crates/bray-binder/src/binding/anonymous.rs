@@ -111,6 +111,7 @@ mod tests {
     use crate::fact::test_support::TestFixture;
     use crate::request::{BinderRequestContext, BindingContext};
     use crate::unit::BoundUnitLocalBuilder;
+
     #[test]
     fn anonymous_boundaries_publish_parameters_and_nested_unit_dependencies() {
         let fixture = TestFixture::from_source(
@@ -193,6 +194,20 @@ mod tests {
         );
 
         assert_eq!(capture_lookup, MemberLookupResult::NotFound);
+
+        let parameter_lookup = crate::lookup::lookup_unqualified_name(
+            request.unit(),
+            facts.symbols(),
+            boundary.scope(),
+            module.id(),
+            "value",
+            crate::lookup::NameAccess::Internal,
+        );
+
+        assert!(matches!(
+            parameter_lookup,
+            MemberLookupResult::Found(crate::lookup::ResolvedName::Local(_))
+        ));
 
         let nested = match request.finish() {
             Ok(result) => result,

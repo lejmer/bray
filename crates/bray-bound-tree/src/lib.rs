@@ -31,7 +31,7 @@ pub use node::{
     BoundCallableBody, BoundCallableBodyId, BoundCallableBodyKind, BoundErrorCallableBody,
     BoundErrorExpression, BoundExpression, BoundExpressionId, BoundLocalBinding,
     BoundLocalConstant, BoundNodeKind, BoundPattern, BoundPatternId, BoundPatternKind,
-    BoundPatternMode, ExactBoundNodeId,
+    BoundPatternMode, BoundPatternTarget, ExactBoundNodeId,
 };
 pub use origin::{
     BoundNodeOrdinal, BoundNodeOrigin, BoundSynthesisRole, SynthesizedBoundNodeOrigin,

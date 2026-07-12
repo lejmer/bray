@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use bray_base::shared_slice;
-use bray_symbols::{LocalBindingSymbolId, TypeId};
+use bray_symbols::{AnyLocalSymbolId, AnySymbolId, LocalBindingSymbolId, TypeId};
 
 use crate::{BoundNodeOrigin, BoundPatternId};
 
@@ -51,6 +51,15 @@ pub enum BoundPatternKind {
     Error,
 }
 
+/// An existing semantic entity selected by a non-binding pattern.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BoundPatternTarget {
+    /// A unit-local assignment destination.
+    Local(AnyLocalSymbolId),
+    /// A declaration selected by a named or assignment pattern.
+    Surface(AnySymbolId),
+}
+
 /// One checked source pattern and its exact local identities.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BoundPattern {
@@ -60,6 +69,7 @@ pub struct BoundPattern {
     kind: BoundPatternKind,
     children: Arc<[BoundPatternId]>,
     bindings: Arc<[LocalBindingSymbolId]>,
+    target: Option<BoundPatternTarget>,
     is_mutable: bool,
     is_recovered: bool,
 }
@@ -81,6 +91,7 @@ impl BoundPattern {
             kind,
             children: shared_slice(children),
             bindings: shared_slice(bindings),
+            target: None,
             is_mutable: false,
             is_recovered: false,
         }
@@ -95,6 +106,12 @@ impl BoundPattern {
     /// Returns this pattern with syntax or semantic recovery recorded.
     pub const fn with_recovery(mut self, is_recovered: bool) -> Self {
         self.is_recovered = is_recovered;
+        self
+    }
+
+    /// Returns this pattern with its resolved non-binding target recorded.
+    pub const fn with_target(mut self, target: Option<BoundPatternTarget>) -> Self {
+        self.target = target;
         self
     }
 
@@ -126,6 +143,11 @@ impl BoundPattern {
     /// Returns local bindings introduced directly by this pattern.
     pub fn bindings(&self) -> &[LocalBindingSymbolId] {
         &self.bindings
+    }
+
+    /// Returns the existing local or declaration selected by this pattern.
+    pub const fn target(&self) -> Option<BoundPatternTarget> {
+        self.target
     }
 
     /// Returns whether this binding pattern requested mutable storage access.

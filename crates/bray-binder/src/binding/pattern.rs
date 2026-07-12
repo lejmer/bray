@@ -1,12 +1,17 @@
 use std::collections::BTreeSet;
 
-use bray_bound_tree::{BoundPattern, BoundPatternId, BoundPatternKind, BoundPatternMode};
+use bray_bound_tree::{
+    BoundPattern, BoundPatternId, BoundPatternKind, BoundPatternMode, BoundPatternTarget,
+};
 use bray_declarations::SyntaxAnchor;
+use bray_diagnostics::{Diagnostic, DiagnosticId, DiagnosticKind, SeverityKind};
 use bray_symbols::{LocalBindingSymbolId, LocalScopeId, SymbolName, SymbolOrdinal, TypeId};
 use bray_syntax::{CasePatternSyntax, IrrefutablePatternSyntax, SourceSyntaxNode, SyntaxToken};
 
+use super::name::{name_is_available, name_text_is_available, report_name_already_defined};
 use super::{BindingError, BindingResult};
 use crate::BinderFactContext;
+use crate::lookup::PathBindingContext;
 use crate::request::{BinderRequestContext, PatternBindingMode};
 
 #[derive(Debug, Eq, PartialEq)]
@@ -25,6 +30,15 @@ impl BoundPatternBinding {
     }
 }
 
+struct PatternBindingState {
+    context: PathBindingContext,
+    input_type: TypeId,
+    mode: PatternBindingMode,
+    coherent: Vec<(SymbolName, LocalBindingSymbolId)>,
+    pending_names: BTreeSet<SymbolName>,
+    suppress_bindings: bool,
+}
+
 macro_rules! define_pattern_binder {
     (
         $method:ident,
@@ -37,24 +51,47 @@ macro_rules! define_pattern_binder {
     ) => {
         pub(crate) fn $method(
             &mut self,
-            scope: LocalScopeId,
+            context: PathBindingContext,
             syntax: &$syntax,
             input_type: TypeId,
             mode: PatternBindingMode,
         ) -> BindingResult<BoundPatternBinding> {
-            let coherent =
-                self.push_coherent_bindings(scope, syntax.coherent_binding_occurrences(), mode)?;
+            let alternatives_are_coherent = !$has_alternatives
+                || !syntax.has_alternative_separator()
+                || syntax.alternative_bindings_are_coherent();
 
-            self.$inner(scope, syntax, input_type, mode, &coherent)
+            if !alternatives_are_coherent {
+                self.report_incoherent_alternative_pattern(syntax);
+            }
+
+            let occurrences = alternatives_are_coherent
+                .then(|| syntax.coherent_binding_occurrences())
+                .unwrap_or_default();
+
+            let coherent = self.push_coherent_bindings(context, occurrences, mode)?;
+
+            // Pending identities and coherent lookup independently retain shared name text.
+            let pending_names = coherent
+                .iter()
+                .map(|(name, _)| name.clone())
+                .collect::<BTreeSet<_>>();
+
+            let mut state = PatternBindingState {
+                context,
+                input_type,
+                mode,
+                coherent,
+                pending_names,
+                suppress_bindings: !alternatives_are_coherent,
+            };
+
+            self.$inner(syntax, &mut state)
         }
 
         fn $inner(
             &mut self,
-            scope: LocalScopeId,
             syntax: &$syntax,
-            input_type: TypeId,
-            mode: PatternBindingMode,
-            coherent: &[(SymbolName, LocalBindingSymbolId)],
+            state: &mut PatternBindingState,
         ) -> BindingResult<BoundPatternBinding> {
             self.check_cancellation()?;
 
@@ -63,7 +100,7 @@ macro_rules! define_pattern_binder {
             let mut ordinal = 0_u32;
 
             for child in syntax.$children() {
-                let bound = self.$inner(scope, &child, input_type, mode, coherent)?;
+                let bound = self.$inner(&child, state)?;
 
                 children.push(bound.pattern());
                 introduced.extend_from_slice(bound.bindings());
@@ -73,7 +110,7 @@ macro_rules! define_pattern_binder {
                 let nested = entry.$entry_children().collect::<Vec<_>>();
 
                 for child in &nested {
-                    let bound = self.$inner(scope, child, input_type, mode, coherent)?;
+                    let bound = self.$inner(child, state)?;
 
                     children.push(bound.pattern());
                     introduced.extend_from_slice(bound.bindings());
@@ -82,32 +119,22 @@ macro_rules! define_pattern_binder {
                 if nested.is_empty()
                     && entry.dot_dot_token().is_none()
                     && let Some(token) = entry.identifier_token()
-                    && let Some(binding) = self.push_pattern_binding(
-                        scope,
-                        &entry,
-                        token,
-                        mode,
-                        &mut ordinal,
-                        coherent,
-                    )?
+                    && let Some(binding) =
+                        self.push_pattern_binding(&entry, token, &mut ordinal, state)?
                 {
                     introduced.push(binding);
                 }
             }
 
             let binding_token = syntax.simple_binding_token();
-            let is_binding = binding_token.is_some();
+            let target = self.bind_pattern_target(state.context, syntax, state.mode)?;
+            let is_binding = binding_token.is_some()
+                && target.is_none()
+                && state.mode != PatternBindingMode::Assignment;
 
             let direct_binding = if is_binding {
                 match binding_token {
-                    Some(token) => self.push_pattern_binding(
-                        scope,
-                        syntax,
-                        token,
-                        mode,
-                        &mut ordinal,
-                        coherent,
-                    )?,
+                    Some(token) => self.push_pattern_binding(syntax, token, &mut ordinal, state)?,
                     None => None,
                 }
             } else {
@@ -123,14 +150,15 @@ macro_rules! define_pattern_binder {
 
             let pattern = BoundPattern::new(
                 self.pattern_origin(syntax),
-                input_type,
-                bound_mode(mode),
-                pattern_kind(syntax, is_binding, $has_alternatives),
+                state.input_type,
+                bound_mode(state.mode),
+                pattern_kind(syntax, is_binding, target.is_some(), $has_alternatives),
                 children,
                 direct_bindings,
             )
             .with_mutability(syntax.mut_keyword().is_some())
-            .with_recovery(syntax.is_recovered());
+            .with_recovery(syntax.is_recovered())
+            .with_target(target);
 
             let pattern = self
                 .unit_mut()
@@ -172,14 +200,15 @@ where
 
     fn push_pattern_binding(
         &mut self,
-        scope: LocalScopeId,
         syntax: &impl SourceSyntaxNode,
         token: SyntaxToken,
-        mode: PatternBindingMode,
         ordinal: &mut u32,
-        coherent: &[(SymbolName, LocalBindingSymbolId)],
+        state: &mut PatternBindingState,
     ) -> BindingResult<Option<LocalBindingSymbolId>> {
-        if mode == PatternBindingMode::Assignment || token.is_missing() {
+        if state.suppress_bindings
+            || state.mode == PatternBindingMode::Assignment
+            || token.is_missing()
+        {
             return Ok(None);
         }
 
@@ -191,8 +220,24 @@ where
             return Ok(None);
         };
 
-        if let Some((_, binding)) = coherent.iter().find(|(candidate, _)| candidate == &name) {
+        if let Some((_, binding)) = state
+            .coherent
+            .iter()
+            .find(|(candidate, _)| candidate == &name)
+        {
             return Ok(Some(*binding));
+        }
+
+        // The pending-name set and local symbol independently retain shared name text.
+        if !state.pending_names.insert(name.clone()) {
+            let span = bray_source::SourceSpan::new(syntax.source().source_id(), token.range());
+            report_name_already_defined(self, name.as_str(), span);
+
+            return Ok(None);
+        }
+
+        if !name_is_available(self, state.context, syntax.source(), &token) {
+            return Ok(None);
         }
 
         let current = SymbolOrdinal::new(*ordinal);
@@ -203,7 +248,7 @@ where
         let anchor = SyntaxAnchor::from_node(syntax);
 
         let binding = self.unit_mut().push_binding(
-            scope,
+            state.context.scope(),
             name,
             [anchor],
             Some(current),
@@ -215,7 +260,7 @@ where
 
     fn push_coherent_bindings(
         &mut self,
-        scope: LocalScopeId,
+        context: PathBindingContext,
         occurrences: Vec<BindingOccurrence>,
         mode: PatternBindingMode,
     ) -> BindingResult<Vec<(SymbolName, LocalBindingSymbolId)>> {
@@ -242,28 +287,39 @@ where
             }
         }
 
-        grouped
-            .into_iter()
-            .enumerate()
-            .map(|(index, (name, anchors, is_recovered))| {
-                let ordinal = u32::try_from(index)
-                    .map(SymbolOrdinal::new)
-                    .map_err(|_| BindingError::IdentityCapacityExceeded)?;
+        let mut bindings = Vec::new();
 
-                // The pending symbol and coherent-name lookup independently retain shared text.
-                let lookup_name = name.clone();
+        for (name, anchors, is_recovered) in grouped {
+            let Some(first_anchor) = anchors.first().copied() else {
+                continue;
+            };
 
-                let binding = self.unit_mut().push_binding(
-                    scope,
-                    name,
-                    anchors,
-                    Some(ordinal),
-                    is_recovered,
-                )?;
+            let span =
+                bray_source::SourceSpan::new(first_anchor.source_id(), first_anchor.full_range());
 
-                Ok((lookup_name, binding))
-            })
-            .collect()
+            if !name_text_is_available(self, context, name.as_str(), span) {
+                continue;
+            }
+
+            let ordinal = u32::try_from(bindings.len())
+                .map(SymbolOrdinal::new)
+                .map_err(|_| BindingError::IdentityCapacityExceeded)?;
+
+            // The pending symbol and coherent-name lookup independently retain shared text.
+            let lookup_name = name.clone();
+
+            let binding = self.unit_mut().push_binding(
+                context.scope(),
+                name,
+                anchors,
+                Some(ordinal),
+                is_recovered,
+            )?;
+
+            bindings.push((lookup_name, binding));
+        }
+
+        Ok(bindings)
     }
 
     pub(crate) fn activate_pattern_bindings(
@@ -276,6 +332,50 @@ where
         }
 
         Ok(())
+    }
+
+    fn bind_pattern_target(
+        &mut self,
+        context: PathBindingContext,
+        syntax: &impl PatternSyntax,
+        mode: PatternBindingMode,
+    ) -> BindingResult<Option<BoundPatternTarget>> {
+        let result = match (syntax.first_path(), syntax.simple_binding_token()) {
+            (Some(path), _) => match mode {
+                PatternBindingMode::Assignment => self.bind_assignment_pattern_path(context, &path),
+                PatternBindingMode::Declaration | PatternBindingMode::Match => {
+                    self.bind_pattern_path(context, &path)
+                }
+            },
+            (None, Some(token)) => self.bind_pattern_identifier(
+                context,
+                syntax.source(),
+                token,
+                mode == PatternBindingMode::Assignment,
+            ),
+            (None, None) => return Ok(None),
+        };
+
+        Ok(match result {
+            bray_symbols::MemberLookupResult::Found(target) => Some(target),
+            bray_symbols::MemberLookupResult::NotFound
+            | bray_symbols::MemberLookupResult::WrongKind(_) => None,
+            bray_symbols::MemberLookupResult::Ambiguous(_)
+            | bray_symbols::MemberLookupResult::Inaccessible(_)
+            | bray_symbols::MemberLookupResult::Malformed(_) => None,
+        })
+    }
+
+    fn report_incoherent_alternative_pattern(&mut self, syntax: &impl SourceSyntaxNode) {
+        let span = bray_source::SourceSpan::new(syntax.source().source_id(), syntax.full_range());
+        let diagnostic = Diagnostic::new(
+            DiagnosticId::new(syntax.full_range().start().bytes()),
+            DiagnosticKind::BindingIncoherentAlternativePattern,
+            SeverityKind::Error,
+        )
+        .with_primary_span(span);
+
+        self.add_diagnostic(diagnostic);
     }
 }
 
@@ -290,12 +390,15 @@ const fn bound_mode(mode: PatternBindingMode) -> BoundPatternMode {
 fn pattern_kind(
     syntax: &impl PatternSyntax,
     is_binding: bool,
+    has_target: bool,
     has_alternatives: bool,
 ) -> BoundPatternKind {
     if has_alternatives && syntax.has_alternative_separator() {
         BoundPatternKind::Alternative
     } else if is_binding {
         BoundPatternKind::Binding
+    } else if has_target {
+        BoundPatternKind::Path
     } else if syntax.has_discard() {
         BoundPatternKind::Discard
     } else if syntax.has_literal() {
@@ -325,9 +428,11 @@ fn pattern_kind(
     }
 }
 
-trait PatternSyntax {
+trait PatternSyntax: SourceSyntaxNode {
     fn coherent_binding_occurrences(&self) -> Vec<BindingOccurrence>;
+    fn alternative_bindings_are_coherent(&self) -> bool;
     fn simple_binding_token(&self) -> Option<SyntaxToken>;
+    fn first_path(&self) -> Option<bray_syntax::PathSyntax>;
     fn has_alternative_separator(&self) -> bool;
     fn has_discard(&self) -> bool;
     fn has_literal(&self) -> bool;
@@ -344,10 +449,14 @@ trait PatternSyntax {
 }
 
 macro_rules! impl_pattern_syntax {
-    ($syntax:ty, $alternatives:expr, $occurrences:expr) => {
+    ($syntax:ty, $alternatives:expr, $occurrences:expr, $coherent:expr) => {
         impl PatternSyntax for $syntax {
             fn coherent_binding_occurrences(&self) -> Vec<BindingOccurrence> {
                 ($occurrences)(self)
+            }
+
+            fn alternative_bindings_are_coherent(&self) -> bool {
+                ($coherent)(self)
             }
 
             fn simple_binding_token(&self) -> Option<SyntaxToken> {
@@ -365,6 +474,10 @@ macro_rules! impl_pattern_syntax {
                     && self.open_bracket_token().is_none()
                     && self.open_brace_token().is_none())
                 .then_some(token)
+            }
+
+            fn first_path(&self) -> Option<bray_syntax::PathSyntax> {
+                self.paths().next()
             }
 
             fn has_alternative_separator(&self) -> bool {
@@ -422,11 +535,14 @@ macro_rules! impl_pattern_syntax {
     };
 }
 
-impl_pattern_syntax!(IrrefutablePatternSyntax, |_| false, |_| Vec::new());
+impl_pattern_syntax!(IrrefutablePatternSyntax, |_| false, |_| Vec::new(), |_| {
+    true
+});
 impl_pattern_syntax!(
     CasePatternSyntax,
     |syntax: &CasePatternSyntax| syntax.alternative_separator_tokens().next().is_some(),
-    coherent_case_binding_occurrences
+    coherent_case_binding_occurrences,
+    case_alternatives_are_coherent
 );
 
 struct BindingOccurrence {
@@ -445,6 +561,27 @@ fn coherent_case_binding_occurrences(syntax: &CasePatternSyntax) -> Vec<BindingO
     collect_case_binding_occurrences(syntax, &mut occurrences);
 
     occurrences
+}
+
+fn case_alternatives_are_coherent(syntax: &CasePatternSyntax) -> bool {
+    let binding_sets = syntax
+        .case_patterns()
+        .map(|alternative| {
+            let mut occurrences = Vec::new();
+            collect_case_binding_occurrences(&alternative, &mut occurrences);
+
+            occurrences
+                .into_iter()
+                .map(|occurrence| occurrence.name)
+                .collect::<BTreeSet<_>>()
+        })
+        .collect::<Vec<_>>();
+
+    let Some(first) = binding_sets.first() else {
+        return true;
+    };
+
+    binding_sets.iter().all(|bindings| bindings == first)
 }
 
 fn collect_case_binding_occurrences(
@@ -519,9 +656,10 @@ mod tests {
         let pattern = first_case_pattern(&block);
         assert_eq!(super::coherent_case_binding_occurrences(&pattern).len(), 2);
         let root = request.unit().root_scope();
+        let context = path_context(&request, root);
 
         let bound = match request.bind_case_pattern(
-            root,
+            context,
             &pattern,
             fixture.declared_type,
             PatternBindingMode::Match,
@@ -570,9 +708,29 @@ mod tests {
         };
 
         let root = request.unit().root_scope();
+        let Some(name) = bray_symbols::SymbolName::try_new("value") else {
+            panic!("assignment target name must be valid");
+        };
+
+        let existing = match request.unit_mut().push_binding(
+            root,
+            name,
+            [bray_declarations::SyntaxAnchor::from_node(&declaration)],
+            Some(bray_symbols::SymbolOrdinal::new(0)),
+            false,
+        ) {
+            Ok(binding) => binding,
+            Err(error) => panic!("assignment target must build: {error:?}"),
+        };
+
+        if let Err(error) = request.unit_mut().activate_local(root, existing) {
+            panic!("assignment target must activate: {error:?}");
+        }
+
+        let context = path_context(&request, root);
 
         let bound = match request.bind_irrefutable_pattern(
-            root,
+            context,
             &declaration.irrefutable_pattern(),
             fixture.declared_type,
             PatternBindingMode::Assignment,
@@ -589,6 +747,10 @@ mod tests {
             pattern.mode(),
             bray_bound_tree::BoundPatternMode::Assignment
         );
+        assert_eq!(
+            pattern.target(),
+            Some(bray_bound_tree::BoundPatternTarget::Local(existing.into()))
+        );
         assert!(bound.bindings().is_empty());
 
         let result = match request.finish() {
@@ -596,7 +758,80 @@ mod tests {
             Err(error) => panic!("assignment pattern must freeze: {error:?}"),
         };
 
-        assert!(result.unit().local_symbols().bindings().is_empty());
+        assert_eq!(result.unit().local_symbols().bindings().len(), 1);
+    }
+
+    #[test]
+    fn incoherent_alternatives_emit_recovery_without_partial_bindings() {
+        let fixture = TestFixture::from_source(
+            "module app; const Size: Int = 1; func main() { match Size { case left | right when true {} } }",
+        );
+        let facts = fixture.context();
+        let (mut request, block) = crate::binding::test_support::request_and_block(&facts);
+        let pattern = first_case_pattern(&block);
+        let root = request.unit().root_scope();
+        let context = path_context(&request, root);
+
+        let bound = match request.bind_case_pattern(
+            context,
+            &pattern,
+            fixture.declared_type,
+            PatternBindingMode::Match,
+        ) {
+            Ok(bound) => bound,
+            Err(error) => panic!("incoherent pattern must recover: {error:?}"),
+        };
+
+        assert!(bound.bindings().is_empty());
+
+        let result = match request.finish() {
+            Ok(result) => result,
+            Err(error) => panic!("incoherent pattern recovery must freeze: {error:?}"),
+        };
+
+        assert_eq!(
+            result
+                .diagnostics()
+                .iter()
+                .map(bray_diagnostics::Diagnostic::kind)
+                .collect::<Vec<_>>(),
+            [bray_diagnostics::DiagnosticKind::BindingIncoherentAlternativePattern]
+        );
+    }
+
+    #[test]
+    fn bare_pattern_names_resolve_pattern_capable_declarations_before_binding() {
+        let fixture = TestFixture::from_source(
+            "module app; const Size: Int = 1; func main() { match Size { case Size when true {} } }",
+        );
+        let facts = fixture.context();
+        let (mut request, block) = crate::binding::test_support::request_and_block(&facts);
+        let pattern = first_case_pattern(&block);
+        let root = request.unit().root_scope();
+        let context = path_context(&request, root);
+
+        let bound = match request.bind_case_pattern(
+            context,
+            &pattern,
+            fixture.declared_type,
+            PatternBindingMode::Match,
+        ) {
+            Ok(bound) => bound,
+            Err(error) => panic!("constant pattern must bind: {error:?}"),
+        };
+
+        let Some(pattern) = request.unit_view().pattern(bound.pattern()) else {
+            panic!("constant pattern must be committed");
+        };
+
+        assert!(
+            matches!(
+                pattern.target(),
+                Some(bray_bound_tree::BoundPatternTarget::Surface(_))
+            ),
+            "{pattern:?}"
+        );
+        assert!(bound.bindings().is_empty());
     }
 
     fn first_case_pattern(block: &bray_syntax::BlockExpressionSyntax) -> CasePatternSyntax {
@@ -620,5 +855,27 @@ mod tests {
             Some(pattern) => pattern,
             None => panic!("test block must contain a case pattern"),
         }
+    }
+
+    fn path_context<C: crate::BinderFactContext + ?Sized>(
+        request: &crate::request::BinderRequestContext<'_, C>,
+        scope: bray_symbols::LocalScopeId,
+    ) -> crate::lookup::PathBindingContext {
+        let Some(module) = request
+            .facts()
+            .symbols()
+            .modules()
+            .iter()
+            .find(|module| module.origin() == bray_symbols::SymbolOrigin::Source)
+        else {
+            panic!("test graph must contain a module");
+        };
+
+        crate::lookup::PathBindingContext::new(
+            scope,
+            module.id(),
+            module.owner(),
+            crate::lookup::NameAccess::Internal,
+        )
     }
 }

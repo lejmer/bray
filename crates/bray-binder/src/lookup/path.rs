@@ -1,3 +1,4 @@
+use bray_bound_tree::BoundPatternTarget;
 use bray_diagnostics::DiagnosticNameKind;
 use bray_source::SourceSnapshot;
 use bray_symbols::{
@@ -47,6 +48,18 @@ impl PathBindingContext {
             access,
         }
     }
+
+    pub(crate) const fn scope(self) -> bray_symbols::LocalScopeId {
+        self.scope
+    }
+
+    pub(crate) const fn module(self) -> ModuleSymbolId {
+        self.module
+    }
+
+    pub(crate) const fn access(self) -> NameAccess {
+        self.access
+    }
 }
 
 struct PathLookup {
@@ -58,6 +71,119 @@ impl<C> BinderRequestContext<'_, C>
 where
     C: BinderFactContext + ?Sized,
 {
+    pub(crate) fn bind_pattern_path(
+        &mut self,
+        context: PathBindingContext,
+        path: &PathSyntax,
+    ) -> NameLookupResult<BoundPatternTarget> {
+        let lookup = self.bind_path(context, path);
+        let result = lookup.result.classify(|name| match name {
+            ResolvedName::Surface(AnySymbolId::Constant(id)) => {
+                Some(BoundPatternTarget::Surface(id.into()))
+            }
+            ResolvedName::Surface(AnySymbolId::UnionVariant(id)) => {
+                Some(BoundPatternTarget::Surface(id.into()))
+            }
+            ResolvedName::Local(_) | ResolvedName::Surface(_) => None,
+        });
+
+        if matches!(
+            result,
+            MemberLookupResult::Ambiguous(_)
+                | MemberLookupResult::Inaccessible(_)
+                | MemberLookupResult::Malformed(_)
+        ) && let Some(reference) = lookup.reference
+        {
+            report_lookup_result(self, &reference, DiagnosticNameKind::Pattern, &result);
+        }
+
+        result
+    }
+
+    pub(crate) fn bind_assignment_pattern_path(
+        &mut self,
+        context: PathBindingContext,
+        path: &PathSyntax,
+    ) -> NameLookupResult<BoundPatternTarget> {
+        let lookup = self.bind_path(context, path);
+        let result = lookup.result.map(
+            |name| match name {
+                ResolvedName::Local(id) => BoundPatternTarget::Local(id),
+                ResolvedName::Surface(id) => BoundPatternTarget::Surface(id),
+            },
+            |name| name,
+        );
+
+        if let Some(reference) = lookup.reference {
+            report_lookup_result(self, &reference, DiagnosticNameKind::Value, &result);
+        }
+
+        result
+    }
+
+    pub(crate) fn bind_pattern_identifier(
+        &mut self,
+        context: PathBindingContext,
+        source: &SourceSnapshot,
+        token: SyntaxToken,
+        assignment: bool,
+    ) -> NameLookupResult<BoundPatternTarget> {
+        let Some(reference) = token_reference(source, token) else {
+            return malformed_lookup();
+        };
+
+        let lookup = lookup_unqualified_name(
+            self.unit(),
+            self.facts().symbols(),
+            context.scope,
+            context.module,
+            reference.text(),
+            context.access,
+        );
+
+        let result = if assignment {
+            lookup.map(
+                |name| match name {
+                    ResolvedName::Local(id) => BoundPatternTarget::Local(id),
+                    ResolvedName::Surface(id) => BoundPatternTarget::Surface(id),
+                },
+                |name| name,
+            )
+        } else {
+            lookup.classify(|name| match name {
+                ResolvedName::Surface(AnySymbolId::Constant(id)) => {
+                    Some(BoundPatternTarget::Surface(id.into()))
+                }
+                ResolvedName::Surface(AnySymbolId::UnionVariant(id)) => {
+                    Some(BoundPatternTarget::Surface(id.into()))
+                }
+                ResolvedName::Local(_) | ResolvedName::Surface(_) => None,
+            })
+        };
+
+        if assignment
+            || matches!(
+                result,
+                MemberLookupResult::Ambiguous(_)
+                    | MemberLookupResult::Inaccessible(_)
+                    | MemberLookupResult::Malformed(_)
+            )
+        {
+            report_lookup_result(
+                self,
+                &reference,
+                if assignment {
+                    DiagnosticNameKind::Value
+                } else {
+                    DiagnosticNameKind::Pattern
+                },
+                &result,
+            );
+        }
+
+        result
+    }
+
     pub(crate) fn bind_module_path(
         &mut self,
         context: PathBindingContext,

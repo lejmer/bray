@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use bray_base::shared_slice;
-use bray_symbols::{LocalConstantSymbolId, TypeId};
+use bray_symbols::{LocalBindingSymbolId, LocalConstantSymbolId, TypeId};
 
 use crate::{BoundExpressionId, BoundNodeOrigin, BoundPatternId};
 
@@ -34,10 +34,11 @@ impl BoundBlockItem {
 }
 
 /// A checked local binding declaration.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BoundLocalBinding {
     origin: BoundNodeOrigin,
     pattern: BoundPatternId,
+    bindings: Arc<[LocalBindingSymbolId]>,
     declared_type: Option<TypeId>,
     initializer: BoundExpressionId,
     is_recovered: bool,
@@ -45,9 +46,10 @@ pub struct BoundLocalBinding {
 
 impl BoundLocalBinding {
     /// Creates one checked or error-aware local binding declaration.
-    pub const fn new(
+    pub fn new(
         origin: BoundNodeOrigin,
         pattern: BoundPatternId,
+        bindings: impl IntoIterator<Item = LocalBindingSymbolId>,
         declared_type: Option<TypeId>,
         initializer: BoundExpressionId,
         is_recovered: bool,
@@ -55,6 +57,7 @@ impl BoundLocalBinding {
         Self {
             origin,
             pattern,
+            bindings: shared_slice(bindings),
             declared_type,
             initializer,
             is_recovered,
@@ -62,27 +65,32 @@ impl BoundLocalBinding {
     }
 
     /// Returns the source or synthesized declaration origin.
-    pub const fn origin(self) -> BoundNodeOrigin {
+    pub const fn origin(&self) -> BoundNodeOrigin {
         self.origin
     }
 
     /// Returns the irrefutable binding pattern.
-    pub const fn pattern(self) -> BoundPatternId {
+    pub const fn pattern(&self) -> BoundPatternId {
         self.pattern
     }
 
+    /// Returns every local identity introduced by the complete pattern.
+    pub fn bindings(&self) -> &[LocalBindingSymbolId] {
+        &self.bindings
+    }
+
     /// Returns the explicit declared type when one was present.
-    pub const fn declared_type(self) -> Option<TypeId> {
+    pub const fn declared_type(&self) -> Option<TypeId> {
         self.declared_type
     }
 
     /// Returns the bound initializer expression.
-    pub const fn initializer(self) -> BoundExpressionId {
+    pub const fn initializer(&self) -> BoundExpressionId {
         self.initializer
     }
 
     /// Returns whether syntax or semantic recovery contributed to this declaration.
-    pub const fn is_recovered(self) -> bool {
+    pub const fn is_recovered(&self) -> bool {
         self.is_recovered
     }
 }
