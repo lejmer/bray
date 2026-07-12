@@ -125,6 +125,36 @@ const DECLARATION_CONFLICTING_MODULE_TRUST: &[MessageTemplatePart] = &[
     MessageTemplatePart::Arg(DiagnosticArgName::ActualModuleTrust),
 ];
 
+const BINDING_UNRESOLVED_NAME: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("could not resolve "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
+];
+
+const BINDING_AMBIGUOUS_NAME: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("name "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
+    MessageTemplatePart::Text(" is ambiguous"),
+];
+
+const BINDING_INACCESSIBLE_NAME: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("name "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
+    MessageTemplatePart::Text(" is not visible here"),
+];
+
+const BINDING_WRONG_NAME_KIND: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("name "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
+    MessageTemplatePart::Text(" does not refer to a "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ExpectedNameKind),
+];
+
+const BINDING_MALFORMED_NAME: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("name "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
+    MessageTemplatePart::Text(" refers to a malformed declaration"),
+];
+
 const LABEL_INVALID_UTF8_BYTES: &[MessageTemplatePart] =
     &[MessageTemplatePart::Text("invalid UTF-8 bytes")];
 
@@ -386,6 +416,11 @@ pub(super) const fn english_diagnostic_template(kind: DiagnosticKind) -> Message
         DiagnosticKind::DeclarationConflictingModuleTrust => {
             MessageTemplate::new(DECLARATION_CONFLICTING_MODULE_TRUST)
         }
+        DiagnosticKind::BindingUnresolvedName => MessageTemplate::new(BINDING_UNRESOLVED_NAME),
+        DiagnosticKind::BindingAmbiguousName => MessageTemplate::new(BINDING_AMBIGUOUS_NAME),
+        DiagnosticKind::BindingInaccessibleName => MessageTemplate::new(BINDING_INACCESSIBLE_NAME),
+        DiagnosticKind::BindingWrongNameKind => MessageTemplate::new(BINDING_WRONG_NAME_KIND),
+        DiagnosticKind::BindingMalformedName => MessageTemplate::new(BINDING_MALFORMED_NAME),
         DiagnosticKind::InterfaceInvalidMagic
         | DiagnosticKind::InterfaceUnsupportedFormatRevision
         | DiagnosticKind::InterfaceUnsupportedLanguageRevision

@@ -100,6 +100,11 @@ impl DeclarationSurface {
         self.visibility
     }
 
+    /// Returns whether the declaration has explicit internal visibility.
+    pub const fn is_internal(&self) -> bool {
+        matches!(self.visibility, Some(SyntaxKind::InternalKeyword))
+    }
+
     /// Returns non-visibility modifier token kinds in source order.
     pub fn modifiers(&self) -> &[SyntaxKind] {
         &self.modifiers

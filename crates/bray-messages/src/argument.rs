@@ -1,6 +1,6 @@
 use bray_diagnostics::{
     DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticInterfaceLimit,
-    DiagnosticInterfaceSection, DiagnosticIoErrorKind, DiagnosticModuleTrust,
+    DiagnosticInterfaceSection, DiagnosticIoErrorKind, DiagnosticModuleTrust, DiagnosticNameKind,
 };
 use bray_source::{SourceInputKind, SourceLocation, SourceOrigin, SourceSpan};
 use bray_syntax::SyntaxKind;
@@ -65,6 +65,8 @@ fn format_english_value(value: &DiagnosticArgValue) -> String {
         DiagnosticArgValue::ByteCount(byte_count) => byte_count.to_string(),
         DiagnosticArgValue::Character(character) => format_english_character(*character),
         DiagnosticArgValue::DeclarationName(name) => format_english_quoted_text(name),
+        DiagnosticArgValue::ReferencedName(name) => format_english_quoted_text(name),
+        DiagnosticArgValue::NameKind(kind) => format_english_name_kind(*kind).to_owned(),
         DiagnosticArgValue::FilePath(path) => path.display().to_string(),
         DiagnosticArgValue::InputIndex(input_index) => input_index.to_string(),
         DiagnosticArgValue::InterfaceLimit(limit) => {
@@ -90,6 +92,18 @@ fn format_english_value(value: &DiagnosticArgValue) -> String {
         }
         DiagnosticArgValue::WorkerCount(worker_count) => worker_count.to_string(),
         DiagnosticArgValue::Revision(revision) => revision.to_string(),
+    }
+}
+
+const fn format_english_name_kind(kind: DiagnosticNameKind) -> &'static str {
+    match kind {
+        DiagnosticNameKind::Symbol => "symbol",
+        DiagnosticNameKind::Module => "module",
+        DiagnosticNameKind::Type => "type",
+        DiagnosticNameKind::Trait => "trait",
+        DiagnosticNameKind::Value => "value",
+        DiagnosticNameKind::CallableOverload => "callable overload",
+        DiagnosticNameKind::Member => "member",
     }
 }
 

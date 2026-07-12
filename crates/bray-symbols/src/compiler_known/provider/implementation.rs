@@ -9,6 +9,7 @@ use bray_compiler_known::{
 use super::super::{
     CompilerKnownDeclarationFact, CompilerKnownSymbolBuildError, CompilerKnownSymbolFactKey,
 };
+use super::lookup::{add_member_entry, build_member_indexes};
 use super::validation::{resolve_declaration_symbol_kinds, validate_scope_id};
 use crate::allocator::SymbolIdAllocator;
 use crate::build::declaration_symbol_id;
@@ -19,8 +20,9 @@ use crate::record::{
 };
 use crate::relationship::{ModuleRelationships, RelationshipIndex};
 use crate::{
-    AnySymbolId, CompilerKnownEnvironmentSymbolId, ExactSymbolId, ModuleOwnerId, ModulePathKey,
-    ModuleSymbolId, SymbolId, SymbolKey, SymbolKind, SymbolOrigin, SymbolProvider, SymbolRootKey,
+    AnySymbolId, CompilerKnownEnvironmentSymbolId, ExactSymbolId, MemberLookupIndex,
+    MemberVisibility, ModuleOwnerId, ModulePathKey, ModuleSymbolId, SymbolId, SymbolKey,
+    SymbolKind, SymbolOrigin, SymbolProvider, SymbolRootKey,
 };
 
 /// The symbol identity materialized for one compiler-known scope descriptor.
@@ -101,6 +103,7 @@ pub struct CompilerKnownSymbolProvider {
     scope_symbols: BTreeMap<CompilerKnownScopeKey, CompilerKnownScopeSymbolId>,
     declaration_symbols: BTreeMap<CompilerKnownDeclarationKey, AnySymbolId>,
     declaration_descriptors: BTreeMap<SymbolId, CompilerKnownDeclarationId>,
+    pub(super) member_indexes: BTreeMap<AnySymbolId, MemberLookupIndex<AnySymbolId>>,
     records: BTreeMap<SymbolId, CompilerKnownRecord>,
     next_symbol_index: usize,
 }
@@ -109,6 +112,12 @@ type DeclarationSymbolMaps = (
     BTreeMap<CompilerKnownDeclarationKey, AnySymbolId>,
     BTreeMap<CompilerKnownDeclarationId, AnySymbolId>,
 );
+
+struct BuiltCompilerKnownDeclarations {
+    records: BTreeMap<SymbolId, CompilerKnownRecord>,
+    relationships: RelationshipIndex,
+    member_indexes: BTreeMap<AnySymbolId, MemberLookupIndex<AnySymbolId>>,
+}
 
 impl CompilerKnownSymbolProvider {
     /// Constructs one compilation-local provider from checked-in generated catalog tables.
@@ -128,12 +137,18 @@ impl CompilerKnownSymbolProvider {
         let (declaration_symbols, descriptor_symbols) =
             allocate_declarations(catalog, &declaration_kinds, &mut allocator)?;
 
-        let (records, relationships) = build_declarations(
+        let declarations = build_declarations(
             catalog,
             &scope_symbols,
             &descriptor_symbols,
             &declaration_symbols,
         )?;
+
+        let BuiltCompilerKnownDeclarations {
+            records,
+            relationships,
+            member_indexes,
+        } = declarations;
 
         let modules = modules
             .into_iter()
@@ -165,6 +180,7 @@ impl CompilerKnownSymbolProvider {
                 .iter()
                 .map(|(descriptor, symbol)| (symbol.symbol_id(), *descriptor))
                 .collect(),
+            member_indexes,
             records,
             next_symbol_index: allocator.next_index(),
         })
@@ -310,6 +326,7 @@ fn build_scopes(
                     owner: ModuleOwnerId::from(environment),
                     path,
                     origin: SymbolOrigin::CompilerKnown,
+                    visibility: MemberVisibility::Public,
                     declarations: Box::new([]),
                     module_parts: Box::new([]),
                     is_recovered: false,
@@ -363,12 +380,10 @@ fn build_declarations(
     scopes: &BTreeMap<CompilerKnownScopeKey, CompilerKnownScopeSymbolId>,
     descriptor_symbols: &BTreeMap<CompilerKnownDeclarationId, AnySymbolId>,
     stable_symbols: &BTreeMap<CompilerKnownDeclarationKey, AnySymbolId>,
-) -> Result<
-    (BTreeMap<SymbolId, CompilerKnownRecord>, RelationshipIndex),
-    CompilerKnownSymbolBuildError,
-> {
+) -> Result<BuiltCompilerKnownDeclarations, CompilerKnownSymbolBuildError> {
     let mut relationships = RelationshipIndex::default();
     let mut identities = Vec::new();
+    let mut member_entries = BTreeMap::new();
 
     for descriptor in catalog.compiler_known_declarations() {
         let Some(symbol) = descriptor_symbols.get(&descriptor.id()).copied() else {
@@ -411,6 +426,8 @@ fn build_declarations(
 
         relationships.add_symbol(symbol, owner);
 
+        add_member_entry(&mut member_entries, surface, symbol, owner);
+
         identities.push((
             descriptor.id(),
             symbol,
@@ -434,7 +451,13 @@ fn build_declarations(
         records.insert(symbol.symbol_id(), record);
     }
 
-    Ok((records, relationships))
+    let member_indexes = build_member_indexes(member_entries);
+
+    Ok(BuiltCompilerKnownDeclarations {
+        records,
+        relationships,
+        member_indexes,
+    })
 }
 
 fn declaration_owner(

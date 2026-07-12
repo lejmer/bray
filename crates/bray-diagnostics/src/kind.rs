@@ -77,6 +77,16 @@ pub enum DiagnosticKind {
     InterfaceSectionChecksumMismatch,
     /// Untrusted package-interface input exceeds a configured resource ceiling.
     InterfaceResourceLimitExceeded,
+    /// Name binding could not find a declaration or local with the requested spelling.
+    BindingUnresolvedName,
+    /// Name binding found more than one candidate for one ordinary name.
+    BindingAmbiguousName,
+    /// Name binding found candidates that are not visible in the current context.
+    BindingInaccessibleName,
+    /// Name binding found an ordinary name in a different semantic category.
+    BindingWrongNameKind,
+    /// Name binding found a candidate whose declaration surface is malformed.
+    BindingMalformedName,
 }
 
 impl DiagnosticKind {
@@ -119,6 +129,11 @@ impl DiagnosticKind {
             Self::InterfaceHashMismatch => 5007,
             Self::InterfaceSectionChecksumMismatch => 5008,
             Self::InterfaceResourceLimitExceeded => 5009,
+            Self::BindingUnresolvedName => 6001,
+            Self::BindingAmbiguousName => 6002,
+            Self::BindingInaccessibleName => 6003,
+            Self::BindingWrongNameKind => 6004,
+            Self::BindingMalformedName => 6005,
         };
 
         DiagnosticCode::new(raw)
@@ -165,6 +180,11 @@ impl DiagnosticKind {
             Self::InterfaceHashMismatch => "interface_hash_mismatch",
             Self::InterfaceSectionChecksumMismatch => "interface_section_checksum_mismatch",
             Self::InterfaceResourceLimitExceeded => "interface_resource_limit_exceeded",
+            Self::BindingUnresolvedName => "binding_unresolved_name",
+            Self::BindingAmbiguousName => "binding_ambiguous_name",
+            Self::BindingInaccessibleName => "binding_inaccessible_name",
+            Self::BindingWrongNameKind => "binding_wrong_name_kind",
+            Self::BindingMalformedName => "binding_malformed_name",
         }
     }
 }
@@ -202,6 +222,7 @@ mod tests {
 
         assert_eq!(DiagnosticKind::SyntaxExpectedExpression.code().raw(), 3005);
         assert_eq!(DiagnosticKind::DeclarationDuplicateName.code().raw(), 4001);
+        assert_eq!(DiagnosticKind::BindingUnresolvedName.code().raw(), 6001);
     }
 
     #[test]
@@ -218,7 +239,7 @@ mod tests {
         }
     }
 
-    fn all_diagnostic_kinds() -> [DiagnosticKind; 36] {
+    fn all_diagnostic_kinds() -> [DiagnosticKind; 41] {
         [
             DiagnosticKind::SourceFileReadFailed,
             DiagnosticKind::SourceInvalidUtf8,
@@ -256,6 +277,11 @@ mod tests {
             DiagnosticKind::InterfaceHashMismatch,
             DiagnosticKind::InterfaceSectionChecksumMismatch,
             DiagnosticKind::InterfaceResourceLimitExceeded,
+            DiagnosticKind::BindingUnresolvedName,
+            DiagnosticKind::BindingAmbiguousName,
+            DiagnosticKind::BindingInaccessibleName,
+            DiagnosticKind::BindingWrongNameKind,
+            DiagnosticKind::BindingMalformedName,
         ]
     }
 }

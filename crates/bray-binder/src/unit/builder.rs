@@ -176,6 +176,42 @@ impl BoundUnitLocalBuilder {
             .map_err(Into::into)
     }
 
+    pub(crate) fn scope_parent(
+        &self,
+        scope: LocalScopeId,
+    ) -> Result<Option<LocalScopeId>, BoundUnitConstructionError> {
+        self.local_symbols.scope_parent(scope).map_err(Into::into)
+    }
+
+    pub(crate) fn local_symbols_named(
+        &self,
+        scope: LocalScopeId,
+        name: &str,
+    ) -> Result<&[AnyLocalSymbolId], BoundUnitConstructionError> {
+        self.local_symbols
+            .local_symbols_named(scope, name)
+            .map_err(Into::into)
+    }
+
+    pub(crate) fn local_symbol_is_recovered(
+        &self,
+        symbol: AnyLocalSymbolId,
+    ) -> Result<bool, BoundUnitConstructionError> {
+        self.local_symbols
+            .local_symbol_is_recovered(symbol)
+            .map_err(Into::into)
+    }
+
+    pub(crate) fn surface_symbols_named(
+        &self,
+        scope: LocalScopeId,
+        name: &str,
+    ) -> Result<&[AnySymbolId], BoundUnitConstructionError> {
+        self.local_symbols
+            .surface_symbols_named(scope, name)
+            .map_err(Into::into)
+    }
+
     pub(crate) fn push_postcondition_result(
         &mut self,
         scope: LocalScopeId,
