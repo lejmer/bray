@@ -418,42 +418,49 @@ where
 
 #[cfg(test)]
 mod tests {
+    use crate::fact::test_support::TestFixture;
     use bray_bound_tree::{
         BoundControlTransferKind, BoundExpression, BoundOperator, BoundSpawnInput, BoundSpawnMode,
         BoundStructuredExpressionKind, BoundWalkControl, BoundWalkEvent, walk_bound_tree,
     };
-    use bray_symbols::SymbolOrigin;
-
-    use crate::BinderFactContext;
-    use crate::fact::test_support::TestFixture;
-    use crate::lookup::{NameAccess, PathBindingContext};
 
     #[test]
     fn expression_blocks_bind_names_operators_calls_and_control_flow() {
         let fixture = TestFixture::from_source(concat!(
             "module app;\n",
-            "const Size: i32 = 1;\n",
-            "func main() {\n",
-            "    Size + Size;\n",
-            "    Size(value = Size);\n",
-            "    Size.field;\n",
-            "    Size as i32;\n",
-            "    if Size {};\n",
-            "    for item in mut Size {\n",
+            "const size: i32 = 1;\n",
+            "func main()\n",
+            "{\n",
+            "    size + size;\n",
+            "    size(value = size);\n",
+            "    size.field;\n",
+            "    size as i32;\n",
+            "    if size\n",
+            "    {\n",
+            "    };\n",
+            "    for item in mut size\n",
+            "    {\n",
             "        yield item;\n",
-            "    } else {\n",
+            "    }\n",
+            "    else\n",
+            "    {\n",
             "        yield none;\n",
             "    };\n",
-            "    match Size {\n",
-            "        case Size {\n",
-            "            yield Size;\n",
+            "    match size\n",
+            "    {\n",
+            "        case size\n",
+            "        {\n",
+            "            yield size;\n",
             "        }\n",
             "    };\n",
-            "    loop {\n",
+            "    loop\n",
+            "    {\n",
             "        break;\n",
             "    };\n",
-            "    lambda(value: i32) {};\n",
-            "    return Size;\n",
+            "    lambda(value: i32)\n",
+            "    {\n",
+            "    };\n",
+            "    return size;\n",
             "}",
         ));
 
@@ -461,7 +468,7 @@ mod tests {
         let (mut request, syntax) = crate::binding::test_support::request_and_block(&facts);
         let root_scope = request.unit().root_scope();
 
-        let path_context = path_context(&facts, root_scope);
+        let path_context = crate::binding::test_support::internal_path_context(&facts, root_scope);
 
         let block = match request.bind_callable_body_block(
             root_scope,
@@ -586,8 +593,9 @@ mod tests {
     fn unresolved_expressions_recover_without_losing_the_enclosing_block() {
         let fixture = TestFixture::from_source(concat!(
             "module app;\n",
-            "const Size: i32 = 1;\n",
-            "func main() {\n",
+            "const size: i32 = 1;\n",
+            "func main()\n",
+            "{\n",
             "    Missing;\n",
             "}",
         ));
@@ -595,7 +603,8 @@ mod tests {
         let facts = fixture.context();
         let (mut request, syntax) = crate::binding::test_support::request_and_block(&facts);
         let root_scope = request.unit().root_scope();
-        let path_context = path_context(&facts, root_scope);
+
+        let path_context = crate::binding::test_support::internal_path_context(&facts, root_scope);
 
         let block = match request.bind_callable_body_block(
             root_scope,
@@ -634,30 +643,42 @@ mod tests {
     fn expression_binding_preserves_category_specific_source_relationships() {
         let fixture = TestFixture::from_source(concat!(
             "module app;\n",
-            "struct Point {\n",
+            "struct Point\n",
+            "{\n",
             "    origin: i32;\n",
             "}\n",
-            "trait Reader {}\n",
-            "const Size: i32 = 1;\n",
-            "func main() {\n",
+            "trait Reader\n",
+            "{\n",
+            "}\n",
+            "const size: i32 = 1;\n",
+            "func main()\n",
+            "{\n",
             "    Point.origin;\n",
-            "    Point { origin = Size };\n",
-            "    { origin = Size };\n",
-            "    Size(Reader).read;\n",
+            "    Point\n",
             "    {\n",
-            "        each item in Size {\n",
+            "        origin = size,\n",
+            "    };\n",
+            "    {\n",
+            "        origin = size,\n",
+            "    };\n",
+            "    size(Reader).read;\n",
+            "    {\n",
+            "        each item in size\n",
+            "        {\n",
             "            yield item;\n",
             "        }\n",
             "    };\n",
-            "    spawn Size;\n",
-            "    spawn detached Size;\n",
-            "    spawn thread Size(value = Size);\n",
+            "    spawn size;\n",
+            "    spawn detached size;\n",
+            "    spawn thread size(value = size);\n",
             "}",
         ));
+
         let facts = fixture.context();
         let (mut request, syntax) = crate::binding::test_support::request_and_block(&facts);
         let root_scope = request.unit().root_scope();
-        let path_context = path_context(&facts, root_scope);
+
+        let path_context = crate::binding::test_support::internal_path_context(&facts, root_scope);
 
         let block = match request.bind_callable_body_block(
             root_scope,
@@ -753,21 +774,5 @@ mod tests {
             ]
         );
         assert_eq!(thread_arguments, Some(1));
-    }
-
-    fn path_context<C: BinderFactContext + ?Sized>(
-        facts: &C,
-        scope: bray_symbols::LocalScopeId,
-    ) -> PathBindingContext {
-        let Some(module) = facts
-            .symbols()
-            .modules()
-            .iter()
-            .find(|module| module.origin() == SymbolOrigin::Source)
-        else {
-            panic!("test graph must contain a source module");
-        };
-
-        PathBindingContext::new(scope, module.id(), module.owner(), NameAccess::Internal)
     }
 }

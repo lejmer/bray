@@ -22,8 +22,16 @@ pub(crate) struct Fixture {
 
 pub(crate) fn fixture() -> Fixture {
     let sources = test_source_store([
-        "module app; func main() {} func next() {}",
-        "module other; func foreign() {}",
+        concat!(
+            "module app;\n",
+            "func main()\n",
+            "{\n",
+            "}\n",
+            "func next()\n",
+            "{\n",
+            "}",
+        ),
+        concat!("module other;\n", "func foreign()\n", "{\n", "}",),
     ]);
 
     let parsed = bray_parser::parse_source_unit(test_source_at(&sources, 0));

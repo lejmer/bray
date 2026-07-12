@@ -278,10 +278,11 @@ mod tests {
     fn blocks_bind_local_items_in_source_order_and_activate_after_initializers() {
         let fixture = TestFixture::from_source(concat!(
             "module app;\n",
-            "const Size: i32 = 1;\n",
-            "func main() {\n",
+            "const size: i32 = 1;\n",
+            "func main()\n",
+            "{\n",
             "    let value: i32 = 1;\n",
-            "    const Local: i32 = 2;\n",
+            "    const local: i32 = 2;\n",
             "    value;\n",
             "}",
         ));
@@ -328,7 +329,7 @@ mod tests {
         };
 
         assert_eq!(scope.local_symbols_named("value").len(), 1);
-        assert_eq!(scope.local_symbols_named("Local").len(), 1);
+        assert_eq!(scope.local_symbols_named("local").len(), 1);
 
         let BoundBlockItem::LocalBinding(binding) = &block.items()[0] else {
             panic!("first item must remain a local binding");
@@ -368,8 +369,9 @@ mod tests {
     fn failed_block_binding_rolls_back_nodes_scopes_and_local_identities() {
         let fixture = TestFixture::from_source(concat!(
             "module app;\n",
-            "const Size: i32 = 1;\n",
-            "func main() {\n",
+            "const size: i32 = 1;\n",
+            "func main()\n",
+            "{\n",
             "    let value = 1;\n",
             "}",
         ));
@@ -403,8 +405,9 @@ mod tests {
     fn malformed_local_declarations_publish_recovery_without_empty_names() {
         let fixture = TestFixture::from_source(concat!(
             "module app;\n",
-            "const Size: i32 = 1;\n",
-            "func main() {\n",
+            "const size: i32 = 1;\n",
+            "func main()\n",
+            "{\n",
             "    const : i32 = 1;\n",
             "    let = 2;\n",
             "}",
@@ -454,11 +457,12 @@ mod tests {
     fn local_declarations_reject_shadowing_and_retain_destructured_identities() {
         let fixture = TestFixture::from_source(concat!(
             "module app;\n",
-            "const Size: i32 = 1;\n",
-            "func main() {\n",
+            "const size: i32 = 1;\n",
+            "func main()\n",
+            "{\n",
             "    let (left, right) = 1;\n",
             "    let left = 2;\n",
-            "    const Size: i32 = 3;\n",
+            "    const size: i32 = 3;\n",
             "}",
         ));
 
@@ -541,8 +545,7 @@ mod tests {
             syntax: Option<&ExpressionSyntax>,
         ) -> BindingResult<bray_bound_tree::BoundExpressionId> {
             let values = request.unit().local_symbols_named(scope, "value")?.len();
-
-            let constants = request.unit().local_symbols_named(scope, "Local")?.len();
+            let constants = request.unit().local_symbols_named(scope, "local")?.len();
 
             self.visible_names.push((values, constants));
 
@@ -604,21 +607,9 @@ mod tests {
             request: &BinderRequestContext<'_, C>,
             scope: bray_symbols::LocalScopeId,
         ) -> BindingResult<crate::lookup::PathBindingContext> {
-            let Some(module) = request
-                .facts()
-                .symbols()
-                .modules()
-                .iter()
-                .find(|module| module.origin() == bray_symbols::SymbolOrigin::Source)
-            else {
-                panic!("test graph must contain a module");
-            };
-
-            Ok(crate::lookup::PathBindingContext::new(
+            Ok(crate::binding::test_support::internal_path_context(
+                request.facts(),
                 scope,
-                module.id(),
-                module.owner(),
-                crate::lookup::NameAccess::Internal,
             ))
         }
     }

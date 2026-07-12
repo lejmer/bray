@@ -1,15 +1,19 @@
 use bray_bound_tree::{BoundSourceAnchor, BoundUnitId, BoundUnitKey};
 use bray_declarations::SyntaxAnchor;
 use bray_symbols::{LocalSymbolRegionId, SymbolOrigin};
-use bray_syntax::{BlockExpressionSyntax, SourceSyntaxNode};
+use bray_syntax::{
+    BlockExpressionSyntax, SourceSyntaxNode, SyntaxCast, SyntaxWalkControl, SyntaxWalkEvent,
+    SyntaxWalkRoot, walk_syntax_node,
+};
 
 use crate::BinderFactContext;
+use crate::lookup::{NameAccess, PathBindingContext};
 use crate::request::{BinderRequestContext, BindingContext};
 use crate::unit::BoundUnitLocalBuilder;
 
-pub(crate) fn request_and_block<'facts, C>(
-    facts: &'facts C,
-) -> (BinderRequestContext<'facts, C>, BlockExpressionSyntax)
+pub(crate) fn request_and_block<C>(
+    facts: &C,
+) -> (BinderRequestContext<'_, C>, BlockExpressionSyntax)
 where
     C: BinderFactContext + ?Sized,
 {
@@ -69,4 +73,46 @@ where
     };
 
     BinderRequestContext::new(facts, BindingContext::CallableBody, unit)
+}
+
+pub(crate) fn internal_path_context<C>(
+    facts: &C,
+    scope: bray_symbols::LocalScopeId,
+) -> PathBindingContext
+where
+    C: BinderFactContext + ?Sized,
+{
+    let Some(module) = facts
+        .symbols()
+        .modules()
+        .iter()
+        .find(|module| module.origin() == SymbolOrigin::Source)
+    else {
+        panic!("test graph must contain a source module");
+    };
+
+    PathBindingContext::new(scope, module.id(), module.owner(), NameAccess::Internal)
+}
+
+pub(crate) fn first_descendant<T>(root: &impl SyntaxWalkRoot) -> Option<T>
+where
+    T: SyntaxCast,
+{
+    let mut result = None;
+
+    walk_syntax_node(root, |event| {
+        let SyntaxWalkEvent::EnterNode(node) = event else {
+            return SyntaxWalkControl::Continue;
+        };
+
+        if node.kind() != T::KIND {
+            return SyntaxWalkControl::Continue;
+        }
+
+        result = node.cast();
+
+        SyntaxWalkControl::Stop
+    });
+
+    result
 }
