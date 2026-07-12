@@ -745,8 +745,11 @@ mod tests {
 
     #[test]
     fn recovered_surface_names_in_lexical_scopes_remain_malformed() {
-        let fact_fixture =
-            FactFixture::from_source("module app; const Size: bool = true; func broken(");
+        let fact_fixture = FactFixture::from_source(concat!(
+            "module app;\n",
+            "const Size: bool = true;\n",
+            "func broken(",
+        ));
         let facts = fact_fixture.context();
         let unit_fixture = fixture();
         let mut unit = builder(&unit_fixture, LocalSymbolRegionId::new(36));
@@ -906,8 +909,10 @@ mod tests {
 
     #[test]
     fn module_paths_apply_visibility_and_recovery() {
-        let internal_fixture =
-            FactFixture::from_source("internal module hidden; const Size: bool = true;");
+        let internal_fixture = FactFixture::from_source(concat!(
+            "internal module hidden;\n",
+            "const Size: bool = true;",
+        ));
 
         let internal_facts = internal_fixture.context();
         let internal_unit_fixture = fixture();
@@ -934,7 +939,8 @@ mod tests {
             MemberLookupResult::Inaccessible(_)
         ));
 
-        let recovered_fixture = FactFixture::from_source("module broken const Size: bool = true;");
+        let recovered_fixture =
+            FactFixture::from_source(concat!("module broken\n", "const Size: bool = true;",));
 
         let recovered_facts = recovered_fixture.context();
         let recovered_unit_fixture = fixture();
@@ -964,8 +970,11 @@ mod tests {
 
     #[test]
     fn module_prefixes_do_not_take_precedence_over_ordinary_names() {
-        let fact_fixture =
-            FactFixture::from_source("module app; const app: bool = true; struct Point {}");
+        let fact_fixture = FactFixture::from_source(concat!(
+            "module app;\n",
+            "const app: bool = true;\n",
+            "struct Point {}",
+        ));
 
         let facts = fact_fixture.context();
         let unit_fixture = fixture();
@@ -1018,7 +1027,11 @@ mod tests {
 
     #[test]
     fn undeclared_module_prefixes_do_not_create_synthetic_symbols() {
-        let fact_fixture = FactFixture::from_source("module foo.bar { const Size: bool = true; }");
+        let fact_fixture = FactFixture::from_source(concat!(
+            "module foo.bar {\n",
+            "    const Size: bool = true;\n",
+            "}",
+        ));
 
         let facts = fact_fixture.context();
         let unit_fixture = fixture();
@@ -1151,8 +1164,11 @@ mod tests {
 
     #[test]
     fn missing_middle_path_segments_do_not_bind_repaired_paths() {
-        let fact_fixture =
-            FactFixture::from_source("module app; const Size: bool = true; struct Point {}");
+        let fact_fixture = FactFixture::from_source(concat!(
+            "module app;\n",
+            "const Size: bool = true;\n",
+            "struct Point {}",
+        ));
 
         let facts = fact_fixture.context();
         let unit_fixture = fixture();

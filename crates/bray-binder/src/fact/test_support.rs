@@ -129,7 +129,7 @@ pub(crate) struct TestFixture {
 
 impl TestFixture {
     pub(crate) fn new() -> Self {
-        Self::from_source("module app; const Size: Int = 1;")
+        Self::from_source(concat!("module app;\n", "const Size: i32 = 1;"))
     }
 
     pub(crate) fn from_source(source_text: &str) -> Self {

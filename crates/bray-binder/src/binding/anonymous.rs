@@ -114,9 +114,13 @@ mod tests {
 
     #[test]
     fn anonymous_boundaries_publish_parameters_and_nested_unit_dependencies() {
-        let fixture = TestFixture::from_source(
-            "module app; const Size: Int = 1; func main() { let callable = lambda(value: Int) {}; }",
-        );
+        let fixture = TestFixture::from_source(concat!(
+            "module app;\n",
+            "const Size: i32 = 1;\n",
+            "func main() {\n",
+            "    let callable = lambda(value: i32) {};\n",
+            "}",
+        ));
         let facts = fixture.context();
         let (mut request, block) = crate::binding::test_support::request_and_block(&facts);
         let lambda = first_lambda(&block);

@@ -430,9 +430,32 @@ mod tests {
 
     #[test]
     fn expression_blocks_bind_names_operators_calls_and_control_flow() {
-        let fixture = TestFixture::from_source(
-            "module app; const Size: Int = 1; func main() { Size + Size; Size(value = Size); Size.field; Size as Int; if Size {}; for item in mut Size { yield item; } else { yield none; }; match Size { case Size { yield Size; } }; loop { break; }; lambda(value: Int) {}; return Size; }",
-        );
+        let fixture = TestFixture::from_source(concat!(
+            "module app;\n",
+            "const Size: i32 = 1;\n",
+            "func main() {\n",
+            "    Size + Size;\n",
+            "    Size(value = Size);\n",
+            "    Size.field;\n",
+            "    Size as i32;\n",
+            "    if Size {};\n",
+            "    for item in mut Size {\n",
+            "        yield item;\n",
+            "    } else {\n",
+            "        yield none;\n",
+            "    };\n",
+            "    match Size {\n",
+            "        case Size {\n",
+            "            yield Size;\n",
+            "        }\n",
+            "    };\n",
+            "    loop {\n",
+            "        break;\n",
+            "    };\n",
+            "    lambda(value: i32) {};\n",
+            "    return Size;\n",
+            "}",
+        ));
 
         let facts = fixture.context();
         let (mut request, syntax) = crate::binding::test_support::request_and_block(&facts);
@@ -561,8 +584,13 @@ mod tests {
 
     #[test]
     fn unresolved_expressions_recover_without_losing_the_enclosing_block() {
-        let fixture =
-            TestFixture::from_source("module app; const Size: Int = 1; func main() { Missing; }");
+        let fixture = TestFixture::from_source(concat!(
+            "module app;\n",
+            "const Size: i32 = 1;\n",
+            "func main() {\n",
+            "    Missing;\n",
+            "}",
+        ));
 
         let facts = fixture.context();
         let (mut request, syntax) = crate::binding::test_support::request_and_block(&facts);
@@ -604,9 +632,28 @@ mod tests {
 
     #[test]
     fn expression_binding_preserves_category_specific_source_relationships() {
-        let fixture = TestFixture::from_source(
-            "module app; struct Point { origin: Int; } trait Reader {} const Size: Int = 1; func main() { Point.origin; Point { origin = Size }; { origin = Size }; Size(Reader).read; { each item in Size { yield item; } }; spawn Size; spawn detached Size; spawn thread Size(value = Size); }",
-        );
+        let fixture = TestFixture::from_source(concat!(
+            "module app;\n",
+            "struct Point {\n",
+            "    origin: i32;\n",
+            "}\n",
+            "trait Reader {}\n",
+            "const Size: i32 = 1;\n",
+            "func main() {\n",
+            "    Point.origin;\n",
+            "    Point { origin = Size };\n",
+            "    { origin = Size };\n",
+            "    Size(Reader).read;\n",
+            "    {\n",
+            "        each item in Size {\n",
+            "            yield item;\n",
+            "        }\n",
+            "    };\n",
+            "    spawn Size;\n",
+            "    spawn detached Size;\n",
+            "    spawn thread Size(value = Size);\n",
+            "}",
+        ));
         let facts = fixture.context();
         let (mut request, syntax) = crate::binding::test_support::request_and_block(&facts);
         let root_scope = request.unit().root_scope();

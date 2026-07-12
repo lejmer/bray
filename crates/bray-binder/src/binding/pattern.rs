@@ -650,9 +650,15 @@ mod tests {
 
     #[test]
     fn case_patterns_retain_match_mode_and_alternative_shape() {
-        let fixture = TestFixture::from_source(
-            "module app; const Size: Int = 1; func main() { match Size { case left | left when true {} } }",
-        );
+        let fixture = TestFixture::from_source(concat!(
+            "module app;\n",
+            "const Size: i32 = 1;\n",
+            "func main() {\n",
+            "    match Size {\n",
+            "        case left | left when true {}\n",
+            "    }\n",
+            "}",
+        ));
         let facts = fixture.context();
         let (mut request, block) = crate::binding::test_support::request_and_block(&facts);
         let pattern = first_case_pattern(&block);
@@ -696,9 +702,13 @@ mod tests {
 
     #[test]
     fn assignment_patterns_do_not_introduce_local_identities() {
-        let fixture = TestFixture::from_source(
-            "module app; const Size: Int = 1; func main() { let value = 1; }",
-        );
+        let fixture = TestFixture::from_source(concat!(
+            "module app;\n",
+            "const Size: i32 = 1;\n",
+            "func main() {\n",
+            "    let value = 1;\n",
+            "}",
+        ));
         let facts = fixture.context();
         let (mut request, block) = crate::binding::test_support::request_and_block(&facts);
 
@@ -765,9 +775,15 @@ mod tests {
 
     #[test]
     fn incoherent_alternatives_emit_recovery_without_partial_bindings() {
-        let fixture = TestFixture::from_source(
-            "module app; const Size: Int = 1; func main() { match Size { case left | right when true {} } }",
-        );
+        let fixture = TestFixture::from_source(concat!(
+            "module app;\n",
+            "const Size: i32 = 1;\n",
+            "func main() {\n",
+            "    match Size {\n",
+            "        case left | right when true {}\n",
+            "    }\n",
+            "}",
+        ));
         let facts = fixture.context();
         let (mut request, block) = crate::binding::test_support::request_and_block(&facts);
         let pattern = first_case_pattern(&block);
@@ -803,9 +819,15 @@ mod tests {
 
     #[test]
     fn bare_pattern_names_resolve_pattern_capable_declarations_before_binding() {
-        let fixture = TestFixture::from_source(
-            "module app; const Size: Int = 1; func main() { match Size { case Size when true {} } }",
-        );
+        let fixture = TestFixture::from_source(concat!(
+            "module app;\n",
+            "const Size: i32 = 1;\n",
+            "func main() {\n",
+            "    match Size {\n",
+            "        case Size when true {}\n",
+            "    }\n",
+            "}",
+        ));
         let facts = fixture.context();
         let (mut request, block) = crate::binding::test_support::request_and_block(&facts);
         let pattern = first_case_pattern(&block);

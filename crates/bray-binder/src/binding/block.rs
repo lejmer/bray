@@ -276,9 +276,15 @@ mod tests {
 
     #[test]
     fn blocks_bind_local_items_in_source_order_and_activate_after_initializers() {
-        let fixture = TestFixture::from_source(
-            "module app; const Size: Int = 1; func main() { let value: Int = 1; const Local: Int = 2; value; }",
-        );
+        let fixture = TestFixture::from_source(concat!(
+            "module app;\n",
+            "const Size: i32 = 1;\n",
+            "func main() {\n",
+            "    let value: i32 = 1;\n",
+            "    const Local: i32 = 2;\n",
+            "    value;\n",
+            "}",
+        ));
         let facts = fixture.context();
         let (mut request, block) = crate::binding::test_support::request_and_block(&facts);
         let root = request.unit().root_scope();
@@ -355,9 +361,13 @@ mod tests {
 
     #[test]
     fn failed_block_binding_rolls_back_nodes_scopes_and_local_identities() {
-        let fixture = TestFixture::from_source(
-            "module app; const Size: Int = 1; func main() { let value = 1; }",
-        );
+        let fixture = TestFixture::from_source(concat!(
+            "module app;\n",
+            "const Size: i32 = 1;\n",
+            "func main() {\n",
+            "    let value = 1;\n",
+            "}",
+        ));
         let facts = fixture.context();
         let (mut request, block) = crate::binding::test_support::request_and_block(&facts);
         let root = request.unit().root_scope();
@@ -384,9 +394,14 @@ mod tests {
 
     #[test]
     fn malformed_local_declarations_publish_recovery_without_empty_names() {
-        let fixture = TestFixture::from_source(
-            "module app; const Size: Int = 1; func main() { const : Int = 1; let = 2; }",
-        );
+        let fixture = TestFixture::from_source(concat!(
+            "module app;\n",
+            "const Size: i32 = 1;\n",
+            "func main() {\n",
+            "    const : i32 = 1;\n",
+            "    let = 2;\n",
+            "}",
+        ));
         let facts = fixture.context();
         let (mut request, block) = crate::binding::test_support::request_and_block(&facts);
         let root = request.unit().root_scope();
@@ -428,9 +443,15 @@ mod tests {
 
     #[test]
     fn local_declarations_reject_shadowing_and_retain_destructured_identities() {
-        let fixture = TestFixture::from_source(
-            "module app; const Size: Int = 1; func main() { let (left, right) = 1; let left = 2; const Size: Int = 3; }",
-        );
+        let fixture = TestFixture::from_source(concat!(
+            "module app;\n",
+            "const Size: i32 = 1;\n",
+            "func main() {\n",
+            "    let (left, right) = 1;\n",
+            "    let left = 2;\n",
+            "    const Size: i32 = 3;\n",
+            "}",
+        ));
         let facts = fixture.context();
         let (mut request, block) = crate::binding::test_support::request_and_block(&facts);
         let root = request.unit().root_scope();
