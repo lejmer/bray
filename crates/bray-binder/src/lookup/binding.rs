@@ -1,6 +1,6 @@
 use bray_symbols::{
-    AnySymbolId, LocalScopeId, MemberLookupIndex, MemberLookupResult, MemberVisibility,
-    ModuleSymbolId, SymbolGraph,
+    AnySymbolId, LocalScopeBoundary, LocalScopeId, MemberLookupIndex, MemberLookupResult,
+    MemberVisibility, ModuleSymbolId, SymbolGraph,
 };
 
 use super::category::ResolvedName;
@@ -9,7 +9,7 @@ use crate::unit::BoundUnitLocalBuilder;
 
 pub(super) type NameLookupResult<T> = MemberLookupResult<T, ResolvedName>;
 
-pub(super) fn lookup_unqualified_name(
+pub(crate) fn lookup_unqualified_name(
     unit: &BoundUnitLocalBuilder,
     symbols: &SymbolGraph,
     scope: LocalScopeId,
@@ -72,6 +72,15 @@ pub(super) fn lookup_unqualified_name(
                 [candidate] => MemberLookupResult::Found(*candidate),
                 _ => MemberLookupResult::Ambiguous(candidates.into_boxed_slice()),
             };
+        }
+
+        let boundary = match unit.scope_boundary(scope) {
+            Ok(boundary) => boundary,
+            Err(_) => return MemberLookupResult::Malformed(Box::new([])),
+        };
+
+        if boundary == LocalScopeBoundary::Callable {
+            break;
         }
 
         current = match unit.scope_parent(scope) {

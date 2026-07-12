@@ -85,6 +85,10 @@ impl BoundTreeBuilder {
         &mut self,
         pattern: BoundPattern,
     ) -> Result<BoundPatternId, BoundTreeBuildError> {
+        for child in pattern.children() {
+            self.validate_pattern_id(*child)?;
+        }
+
         let slot = next_slot(self.patterns.len(), BoundNodeKind::Pattern)?;
 
         self.patterns.push(pattern);
@@ -92,10 +96,16 @@ impl BoundTreeBuilder {
         Ok(BoundPatternId::from_slot(self.unit, slot))
     }
 
-    /// Commits a block after validating every expression relationship.
+    /// Commits a block after validating every item relationship.
     pub fn push_block(&mut self, block: BoundBlock) -> Result<BoundBlockId, BoundTreeBuildError> {
-        for expression in block.expressions() {
-            self.validate_expression_id(*expression)?;
+        for item in block.items() {
+            if let Some(pattern) = item.pattern() {
+                self.validate_pattern_id(pattern)?;
+            }
+
+            if let Some(expression) = item.expression() {
+                self.validate_expression_id(expression)?;
+            }
         }
 
         let slot = next_slot(self.blocks.len(), BoundNodeKind::Block)?;
@@ -198,6 +208,17 @@ impl BoundTreeBuilder {
         )
     }
 
+    fn validate_pattern_id(&self, id: BoundPatternId) -> Result<(), BoundTreeBuildError> {
+        validate_id(
+            self.unit,
+            id.unit(),
+            id.to_index(),
+            AnyBoundNodeId::from(id).slot(),
+            self.patterns.len(),
+            BoundNodeKind::Pattern,
+        )
+    }
+
     fn validate_block_id(&self, id: BoundBlockId) -> Result<(), BoundTreeBuildError> {
         validate_id(
             self.unit,
@@ -258,7 +279,9 @@ fn entry<T>(
 mod tests {
     use super::{BoundTreeBuildError, BoundTreeBuilder};
     use crate::test_support::{error_expression, source_anchor};
-    use crate::{BoundBlock, BoundExpressionId, BoundNodeKind, BoundNodeOrigin, BoundUnitId};
+    use crate::{
+        BoundBlock, BoundBlockItem, BoundExpressionId, BoundNodeKind, BoundNodeOrigin, BoundUnitId,
+    };
 
     #[test]
     fn category_arenas_assign_dense_deterministic_ids() {
@@ -280,7 +303,10 @@ mod tests {
 
         let foreign = BoundBlock::new(
             origin,
-            [BoundExpressionId::from_slot(BoundUnitId::new(2), 0)],
+            [BoundBlockItem::Expression(BoundExpressionId::from_slot(
+                BoundUnitId::new(2),
+                0,
+            ))],
             true,
         );
 
@@ -293,7 +319,13 @@ mod tests {
             })
         );
 
-        let missing = BoundBlock::new(origin, [BoundExpressionId::from_slot(unit, 0)], true);
+        let missing = BoundBlock::new(
+            origin,
+            [BoundBlockItem::Expression(BoundExpressionId::from_slot(
+                unit, 0,
+            ))],
+            true,
+        );
 
         assert_eq!(
             builder.push_block(missing),

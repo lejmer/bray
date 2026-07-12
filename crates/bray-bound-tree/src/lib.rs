@@ -27,10 +27,11 @@ pub use dependency::{
     GuardedBoundDependencyRequirement, LifecycleObligationId, ScopedCapabilityId,
 };
 pub use node::{
-    AnyBoundNodeId, BoundBlock, BoundBlockExpression, BoundBlockId, BoundCallableBody,
-    BoundCallableBodyId, BoundCallableBodyKind, BoundErrorCallableBody, BoundErrorExpression,
-    BoundErrorPattern, BoundExpression, BoundExpressionId, BoundNodeKind, BoundPattern,
-    BoundPatternId, ExactBoundNodeId,
+    AnyBoundNodeId, BoundBlock, BoundBlockExpression, BoundBlockId, BoundBlockItem,
+    BoundCallableBody, BoundCallableBodyId, BoundCallableBodyKind, BoundErrorCallableBody,
+    BoundErrorExpression, BoundExpression, BoundExpressionId, BoundLocalBinding,
+    BoundLocalConstant, BoundNodeKind, BoundPattern, BoundPatternId, BoundPatternKind,
+    BoundPatternMode, ExactBoundNodeId,
 };
 pub use origin::{
     BoundNodeOrdinal, BoundNodeOrigin, BoundSynthesisRole, SynthesizedBoundNodeOrigin,

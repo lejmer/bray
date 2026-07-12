@@ -1,0 +1,239 @@
+use bray_bound_tree::BoundSourceAnchor;
+use bray_declarations::SyntaxAnchor;
+use bray_symbols::{LocalScopeId, SymbolOrdinal};
+use bray_syntax::{LambdaExpressionSyntax, SourceSyntaxNode};
+
+use super::name::symbol_name;
+use super::{BindingError, BindingResult};
+use crate::BinderFactContext;
+use crate::request::{AbandonedDependencyDisposition, BinderDependency, BinderRequestContext};
+use crate::unit::AnonymousCallableBoundary;
+
+impl<C> BinderRequestContext<'_, C>
+where
+    C: BinderFactContext + ?Sized,
+{
+    pub(crate) fn bind_anonymous_callable_reference(
+        &mut self,
+        syntax: &LambdaExpressionSyntax,
+    ) -> BindingResult<bray_bound_tree::BoundUnitKey> {
+        self.check_cancellation()?;
+
+        let source = self.anonymous_source(syntax);
+        let unit = self.unit().nested_anonymous_callable_key(source)?;
+
+        // The dependency set and caller retain the same Arc-backed immutable unit key.
+        self.record_dependency(BinderDependency::Unit(unit.clone()));
+
+        Ok(unit)
+    }
+
+    pub(crate) fn bind_anonymous_callable_boundary(
+        &mut self,
+        introduction_scope: LocalScopeId,
+        syntax: &LambdaExpressionSyntax,
+    ) -> BindingResult<AnonymousCallableBoundary> {
+        let checkpoint = self.checkpoint();
+        let result = self.bind_anonymous_callable_boundary_transaction(introduction_scope, syntax);
+
+        if result.is_err()
+            && !self.rollback(
+                checkpoint,
+                AbandonedDependencyDisposition::DiscardProvenIrrelevant,
+            )
+        {
+            return Err(BindingError::RollbackFailed);
+        }
+
+        result
+    }
+
+    fn bind_anonymous_callable_boundary_transaction(
+        &mut self,
+        introduction_scope: LocalScopeId,
+        syntax: &LambdaExpressionSyntax,
+    ) -> BindingResult<AnonymousCallableBoundary> {
+        self.check_cancellation()?;
+
+        let source = self.anonymous_source(syntax);
+
+        let boundary = self.unit_mut().push_root_anonymous_callable(
+            introduction_scope,
+            source,
+            syntax.full_range().start(),
+            None,
+            syntax.is_recovered(),
+        )?;
+
+        for (index, parameter) in syntax.parameter_list().parameters().enumerate() {
+            self.check_cancellation()?;
+
+            let ordinal = u32::try_from(index)
+                .map(SymbolOrdinal::new)
+                .map_err(|_| BindingError::IdentityCapacityExceeded)?;
+
+            let token = parameter.identifier_token();
+
+            let Some(name) = symbol_name(parameter.source(), &token) else {
+                continue;
+            };
+
+            self.unit_mut().push_anonymous_parameter(
+                &boundary,
+                name,
+                [SyntaxAnchor::from_node(&parameter)],
+                ordinal,
+                parameter.is_recovered() || token.is_missing(),
+            )?;
+        }
+
+        Ok(boundary)
+    }
+
+    fn anonymous_source(&self, syntax: &LambdaExpressionSyntax) -> BoundSourceAnchor {
+        BoundSourceAnchor::new(
+            SyntaxAnchor::from_node(syntax),
+            self.unit().key().source().source_version(),
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_bound_tree::BoundUnitKind;
+    use bray_declarations::SyntaxAnchor;
+    use bray_symbols::{LocalSymbolRegionId, MemberLookupResult, SymbolName, SymbolOrdinal};
+    use bray_syntax::{
+        LambdaExpressionSyntax, SyntaxKind, SyntaxWalkControl, SyntaxWalkEvent, walk_syntax_node,
+    };
+
+    use crate::BinderFactContext;
+    use crate::fact::test_support::TestFixture;
+    use crate::request::{BinderRequestContext, BindingContext};
+    use crate::unit::BoundUnitLocalBuilder;
+    #[test]
+    fn anonymous_boundaries_publish_parameters_and_nested_unit_dependencies() {
+        let fixture = TestFixture::from_source(
+            "module app; const Size: Int = 1; func main() { let callable = lambda(value: Int) {}; }",
+        );
+        let facts = fixture.context();
+        let (mut request, block) = crate::binding::test_support::request_and_block(&facts);
+        let lambda = first_lambda(&block);
+        let root = request.unit().root_scope();
+
+        let name = match SymbolName::try_new("captured") {
+            Some(name) => name,
+            None => panic!("test local name must be valid"),
+        };
+
+        let captured = match request.unit_mut().push_binding(
+            root,
+            name,
+            [SyntaxAnchor::from_node(&lambda)],
+            Some(SymbolOrdinal::new(0)),
+            false,
+        ) {
+            Ok(binding) => binding,
+            Err(error) => panic!("test enclosing binding must build: {error:?}"),
+        };
+
+        if let Err(error) = request.unit_mut().activate_local(root, captured) {
+            panic!("test enclosing binding must activate: {error:?}");
+        }
+
+        let nested_key = match request.bind_anonymous_callable_reference(&lambda) {
+            Ok(key) => key,
+            Err(error) => panic!("valid lambda reference must bind: {error:?}"),
+        };
+
+        assert_eq!(nested_key.kind(), BoundUnitKind::AnonymousCallable);
+
+        let outer = match request.finish() {
+            Ok(result) => result,
+            Err(error) => panic!("anonymous reference must freeze: {error:?}"),
+        };
+
+        assert_eq!(
+            outer.dependencies(),
+            &[crate::BinderDependency::Unit(nested_key.clone())]
+        );
+
+        let nested_unit = match BoundUnitLocalBuilder::new(
+            bray_bound_tree::BoundUnitId::new(31),
+            nested_key.clone(),
+            LocalSymbolRegionId::new(31),
+            lambda.full_range().start(),
+        ) {
+            Ok(unit) => unit,
+            Err(error) => panic!("nested lambda unit must build: {error:?}"),
+        };
+
+        let mut request =
+            BinderRequestContext::new(&facts, BindingContext::CallableBody, nested_unit);
+        let root = request.unit().root_scope();
+
+        let boundary = match request.bind_anonymous_callable_boundary(root, &lambda) {
+            Ok(boundary) => boundary,
+            Err(error) => panic!("valid lambda boundary must bind: {error:?}"),
+        };
+
+        assert_eq!(boundary.unit(), &nested_key);
+
+        let Some(module) = facts.symbols().modules().first() else {
+            panic!("test graph must contain a module");
+        };
+
+        let capture_lookup = crate::lookup::lookup_unqualified_name(
+            request.unit(),
+            facts.symbols(),
+            boundary.scope(),
+            module.id(),
+            "captured",
+            crate::lookup::NameAccess::Internal,
+        );
+
+        assert_eq!(capture_lookup, MemberLookupResult::NotFound);
+
+        let nested = match request.finish() {
+            Ok(result) => result,
+            Err(error) => panic!("anonymous boundary must freeze: {error:?}"),
+        };
+
+        let Some(callable) = nested
+            .unit()
+            .local_symbols()
+            .anonymous_callable(boundary.callable())
+        else {
+            panic!("anonymous callable identity must be published");
+        };
+
+        assert_eq!(callable.parameters().len(), 1);
+        assert_eq!(
+            nested.unit().local_symbols().key().role(),
+            bray_symbols::LocalSymbolRegionRole::AnonymousCallable
+        );
+    }
+
+    fn first_lambda(block: &bray_syntax::BlockExpressionSyntax) -> LambdaExpressionSyntax {
+        let mut lambda = None;
+
+        walk_syntax_node(block, |event| {
+            let SyntaxWalkEvent::EnterNode(node) = event else {
+                return SyntaxWalkControl::Continue;
+            };
+
+            if node.kind() != SyntaxKind::LambdaExpression {
+                return SyntaxWalkControl::Continue;
+            }
+
+            lambda = node.cast();
+
+            SyntaxWalkControl::Stop
+        });
+
+        match lambda {
+            Some(lambda) => lambda,
+            None => panic!("test block must contain a lambda expression"),
+        }
+    }
+}
