@@ -129,13 +129,17 @@ pub(crate) struct TestFixture {
 
 impl TestFixture {
     pub(crate) fn new() -> Self {
+        Self::from_source("module app; const Size: Int = 1;")
+    }
+
+    pub(crate) fn from_source(source_text: &str) -> Self {
         let mut sources = SourceStore::new();
 
         let source = SourceInput::virtual_text(
             SourceIdentity::new(0),
             "binder-facts",
             SourceVersion::new(0),
-            "module app; const Size: Int = 1;",
+            source_text,
         );
 
         let source_id = match sources.insert_input(source) {
@@ -163,8 +167,12 @@ impl TestFixture {
             Err(error) => panic!("test symbol graph should build: {error:?}"),
         };
 
-        let [constant] = symbols.constants() else {
-            panic!("test graph should contain one constant");
+        let Some(constant) = symbols
+            .constants()
+            .iter()
+            .find(|constant| constant.origin() == bray_symbols::SymbolOrigin::Source)
+        else {
+            panic!("test graph should contain a source constant");
         };
 
         let constant = constant.id();

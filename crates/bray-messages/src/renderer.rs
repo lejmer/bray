@@ -138,8 +138,8 @@ mod tests {
     use bray_diagnostics::{
         Diagnostic, DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticBag,
         DiagnosticId, DiagnosticIoErrorKind, DiagnosticKind, DiagnosticLabel, DiagnosticLabelKind,
-        DiagnosticLabelStyle, DiagnosticModuleTrust, DiagnosticNote, DiagnosticNoteKind,
-        DiagnosticVisibility, SeverityKind,
+        DiagnosticLabelStyle, DiagnosticModuleTrust, DiagnosticNameKind, DiagnosticNote,
+        DiagnosticNoteKind, DiagnosticVisibility, SeverityKind,
     };
     use bray_source::{SourceId, SourceSpan, TextRange, TextSize};
     use bray_syntax::SyntaxKind;
@@ -383,6 +383,21 @@ mod tests {
         };
 
         assert_eq!(label.message(), "expected expression here");
+    }
+
+    #[test]
+    fn renderer_renders_binding_diagnostics_from_structured_arguments() {
+        let diagnostic = Diagnostic::new(
+            DiagnosticId::new(14),
+            DiagnosticKind::BindingWrongNameKind,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::referenced_name("Size"))
+        .with_arg(DiagnosticArg::expected_name_kind(DiagnosticNameKind::Type));
+
+        let rendered = DiagnosticRenderer::english().render(&diagnostic);
+
+        assert_eq!(rendered.message(), "name 'Size' does not refer to a type");
     }
 
     #[test]

@@ -12,7 +12,8 @@ use crate::record::{
 use crate::relationship::{ModuleRelationships, RelationshipIndex};
 use crate::{
     AnySymbolId, CallableParameterDefaultProviderSymbolId, CompilerKnownEnvironmentSymbolId,
-    CompilerKnownSymbolProvider, ModuleOwnerId, ModulePathKey, ModuleSymbolId, PackageIdentity,
+    CompilerKnownSymbolProvider, MemberEntry, MemberLookupIndex, MemberLookupResult,
+    MemberVisibility, ModuleOwnerId, ModulePathKey, ModuleSymbolId, PackageIdentity,
     PackageSymbolId, ReceiverParameterSymbolId, StructFieldDefaultProviderSymbolId,
     SymbolGraphBuildError, SymbolKind, SymbolProvider, SymbolRecordId, SymbolRootId,
     UnionPayloadDefaultProviderSymbolId,
@@ -63,6 +64,7 @@ macro_rules! define_symbol_graph {
             packages: TypedSymbolRecords<PackageSymbolId, PackageSymbol>,
             modules: TypedSymbolRecords<ModuleSymbolId, ModuleSymbol>,
             module_index: BTreeMap<ModuleOwnerId, BTreeMap<ModulePathKey, ModuleSymbolId>>,
+            member_indexes: BTreeMap<AnySymbolId, MemberLookupIndex<AnySymbolId>>,
             declaration_index: BTreeMap<DeclarationId, AnySymbolId>,
             completion_children: BTreeMap<AnySymbolId, Box<[AnySymbolId]>>,
             callable_parameter_default_providers: TypedSymbolRecords<
@@ -135,6 +137,32 @@ macro_rules! define_symbol_graph {
                 path: &ModulePathKey,
             ) -> Option<&ModuleSymbol> {
                 self.module(*self.module_index.get(&owner)?.get(path)?)
+            }
+
+            /// Resolves one ordinary member with access to internal declarations.
+            pub fn lookup_member(
+                &self,
+                owner: AnySymbolId,
+                name: &str,
+            ) -> MemberLookupResult<AnySymbolId> {
+                self.lookup_member_with_access(owner, name, |_, _| true)
+            }
+
+            /// Resolves one ordinary member through caller-provided visibility policy.
+            pub fn lookup_member_with_access(
+                &self,
+                owner: AnySymbolId,
+                name: &str,
+                is_accessible: impl FnMut(AnySymbolId, MemberVisibility) -> bool,
+            ) -> MemberLookupResult<AnySymbolId> {
+                match self.member_indexes.get(&owner) {
+                    Some(index) => index.lookup_with_access(name, is_accessible),
+                    None => self.compiler_known.lookup_member_with_access(
+                        owner,
+                        name,
+                        is_accessible,
+                    ),
+                }
             }
 
             /// Returns the semantic identity introduced by a declaration when it creates one.
@@ -261,6 +289,7 @@ macro_rules! define_symbol_graph {
             modules: Vec<ModuleSymbol>,
             declaration_index: BTreeMap<DeclarationId, AnySymbolId>,
             pending_sources: Vec<(AnySymbolId, DeclarationSymbolIdentity)>,
+            member_entries: BTreeMap<AnySymbolId, Vec<MemberEntry<AnySymbolId>>>,
             relationship_index: RelationshipIndex,
             callable_parameter_default_providers: Vec<CallableParameterDefaultProviderSymbol>,
             struct_field_default_providers: Vec<StructFieldDefaultProviderSymbol>,
@@ -287,6 +316,7 @@ macro_rules! define_symbol_graph {
                     modules,
                     declaration_index: BTreeMap::new(),
                     pending_sources: Vec::new(),
+                    member_entries: BTreeMap::new(),
                     relationship_index: RelationshipIndex::default(),
                     callable_parameter_default_providers: Vec::new(),
                     struct_field_default_providers: Vec::new(),
@@ -313,6 +343,14 @@ macro_rules! define_symbol_graph {
                 self.pending_sources.push((id, identity));
 
                 Ok(())
+            }
+
+            pub(crate) fn add_member(
+                &mut self,
+                owner: AnySymbolId,
+                member: MemberEntry<AnySymbolId>,
+            ) {
+                self.member_entries.entry(owner).or_default().push(member);
             }
 
             pub(crate) fn push_receiver(&mut self, receiver: ReceiverParameterSymbol) {
@@ -445,6 +483,21 @@ macro_rules! define_symbol_graph {
                         index
                     });
 
+                let member_indexes = self
+                    .member_entries
+                    .into_iter()
+                    .map(|(owner, entries)| {
+                        let index = match MemberLookupIndex::new(entries) {
+                            Ok(index) => index,
+                            Err(_) => {
+                                panic!("symbol graph member entries must have distinct identities")
+                            }
+                        };
+
+                        (owner, index)
+                    })
+                    .collect();
+
                 let mut completion_children = self.relationship_index.into_completion_children();
                 let compiler_known_environment = self.compiler_known.environment();
 
@@ -471,6 +524,7 @@ macro_rules! define_symbol_graph {
                     packages,
                     modules,
                     module_index,
+                    member_indexes,
                     declaration_index: self.declaration_index,
                     completion_children,
                     callable_parameter_default_providers,

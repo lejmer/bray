@@ -110,6 +110,48 @@ pub enum MemberLookupResult<T, C = T> {
     Malformed(Box<[C]>),
 }
 
+impl<T, C> MemberLookupResult<T, C> {
+    /// Transforms the successful result and every retained diagnostic candidate.
+    pub fn map<U, D>(
+        self,
+        map_found: impl FnOnce(T) -> U,
+        map_candidate: impl FnMut(C) -> D,
+    ) -> MemberLookupResult<U, D> {
+        match self {
+            Self::Found(value) => MemberLookupResult::Found(map_found(value)),
+            Self::NotFound => MemberLookupResult::NotFound,
+            Self::WrongKind(candidates) => MemberLookupResult::WrongKind(
+                candidates
+                    .into_vec()
+                    .into_iter()
+                    .map(map_candidate)
+                    .collect(),
+            ),
+            Self::Ambiguous(candidates) => MemberLookupResult::Ambiguous(
+                candidates
+                    .into_vec()
+                    .into_iter()
+                    .map(map_candidate)
+                    .collect(),
+            ),
+            Self::Inaccessible(candidates) => MemberLookupResult::Inaccessible(
+                candidates
+                    .into_vec()
+                    .into_iter()
+                    .map(map_candidate)
+                    .collect(),
+            ),
+            Self::Malformed(candidates) => MemberLookupResult::Malformed(
+                candidates
+                    .into_vec()
+                    .into_iter()
+                    .map(map_candidate)
+                    .collect(),
+            ),
+        }
+    }
+}
+
 impl<I> MemberLookupResult<I>
 where
     I: Copy,
@@ -394,6 +436,20 @@ mod tests {
         assert_eq!(
             collection.lookup("Missing").classify(|_| Some(0)),
             MemberLookupResult::NotFound
+        );
+    }
+
+    #[test]
+    fn lookup_mapping_preserves_failure_shape_and_candidate_order() {
+        let result = MemberLookupResult::<TestMemberId>::Ambiguous(
+            vec![TestMemberId::Function(1), TestMemberId::Structure(2)].into_boxed_slice(),
+        );
+
+        assert_eq!(
+            result.map(|id| id, |id| id),
+            MemberLookupResult::Ambiguous(
+                vec![TestMemberId::Function(1), TestMemberId::Structure(2)].into_boxed_slice()
+            )
         );
     }
 

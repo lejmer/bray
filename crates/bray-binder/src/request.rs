@@ -161,6 +161,10 @@ impl<'facts, C: BinderFactContext + ?Sized> BinderRequestContext<'facts, C> {
         &mut self.unit
     }
 
+    pub(crate) const fn unit(&self) -> &BoundUnitLocalBuilder {
+        &self.unit
+    }
+
     pub(crate) fn unit_view(&self) -> BoundUnitView<'_> {
         self.unit.view()
     }

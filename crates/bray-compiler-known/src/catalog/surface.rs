@@ -36,6 +36,16 @@ impl CatalogSurfaceToken {
     pub fn spelling(&self) -> &str {
         &self.spelling
     }
+
+    /// Returns whether this token is an ordinary identifier.
+    pub fn is_identifier(&self) -> bool {
+        self.kind == SyntaxKind::IdentifierToken
+    }
+
+    /// Returns whether this token declares internal visibility.
+    pub fn is_internal_visibility(&self) -> bool {
+        self.kind == SyntaxKind::InternalKeyword
+    }
 }
 
 /// One structural event in a pre-parsed catalog syntax tree.

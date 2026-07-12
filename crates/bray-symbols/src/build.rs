@@ -14,10 +14,11 @@ use crate::record::{
 use crate::surface_kind::declaration_symbol_kind;
 use crate::{
     AnySymbolId, CallableParameterDefaultProviderSymbolId, CallableSymbolId,
-    CompilerKnownSymbolProvider, ModuleOwnerId, ModulePathKey, ModuleSymbolId, PackageIdentity,
-    PackageSymbolId, ReceiverParameterSymbolId, StructFieldDefaultProviderSymbolId, SymbolGraph,
-    SymbolGraphBuildError, SymbolId, SymbolKey, SymbolKind, SymbolOrigin, SymbolRootKey,
-    SynthesizedSymbolKey, UnionPayloadDefaultProviderSymbolId,
+    CompilerKnownSymbolProvider, MemberEntry, MemberValidity, MemberVisibility, ModuleOwnerId,
+    ModulePathKey, ModuleSymbolId, PackageIdentity, PackageSymbolId, ReceiverParameterSymbolId,
+    StructFieldDefaultProviderSymbolId, SymbolGraph, SymbolGraphBuildError, SymbolId, SymbolKey,
+    SymbolKind, SymbolName, SymbolOrigin, SymbolRootKey, SynthesizedSymbolKey,
+    UnionPayloadDefaultProviderSymbolId,
 };
 
 pub(crate) fn build_source_symbol_graph(
@@ -219,6 +220,10 @@ fn push_source_symbols(
             declaration.syntax_anchor(),
         );
 
+        if let Some(member) = source_member_entry(declaration, id) {
+            graph.add_member(owner.id, member);
+        }
+
         if let Err(symbol_kind) = graph.push_source(id, identity) {
             return Err(SymbolGraphBuildError::InvalidSourceSymbolKind {
                 declaration: declaration.id(),
@@ -256,6 +261,27 @@ fn push_source_symbols(
     }
 
     Ok(())
+}
+
+fn source_member_entry(
+    declaration: &DeclarationRecord,
+    symbol: AnySymbolId,
+) -> Option<MemberEntry<AnySymbolId>> {
+    let name = SymbolName::try_new(declaration.name()?.as_identifier()?)?;
+
+    let visibility = if declaration.surface().is_internal() {
+        MemberVisibility::Internal
+    } else {
+        MemberVisibility::Public
+    };
+
+    let validity = if declaration.is_recovered() {
+        MemberValidity::Malformed
+    } else {
+        MemberValidity::Valid
+    };
+
+    Some(MemberEntry::new(symbol, name, visibility, validity))
 }
 
 fn receiver_owner(symbol: AnySymbolId, is_static: bool) -> Option<CallableSymbolId> {
@@ -516,8 +542,8 @@ mod tests {
     use crate::test_support::{declaration_chunk, declaration_table};
     use crate::{
         AnySymbolId, CallableSymbolId, CompilerKnownEnvironmentSymbolId, FunctionSymbolId,
-        ModuleOwnerId, ModulePathKey, PackageIdentity, RuntimeDefaultPresence, SymbolGraph,
-        SymbolId, SymbolKind, SymbolOrigin, SymbolProvider, SymbolRecordId,
+        MemberLookupResult, ModuleOwnerId, ModulePathKey, PackageIdentity, RuntimeDefaultPresence,
+        SymbolGraph, SymbolId, SymbolKind, SymbolOrigin, SymbolProvider, SymbolRecordId,
     };
 
     #[test]
@@ -566,6 +592,59 @@ mod tests {
         let forged = FunctionSymbolId::from_symbol_id(SymbolId::new(100));
 
         assert_eq!(graph.function(forged), None);
+    }
+
+    #[test]
+    fn graph_member_lookup_preserves_names_visibility_categories_and_recovery() {
+        let table = declaration_table(&[concat!(
+            "module app; ",
+            "func run() {} ",
+            "internal const hidden: bool = true; ",
+            "struct Point { x: bool; } ",
+            "func recovered("
+        )]);
+
+        let graph = build_graph(&table);
+        let module = source_module(&graph);
+
+        assert_eq!(
+            graph.lookup_member(module.id().into(), "run"),
+            MemberLookupResult::Found(source_function(&graph).id().into())
+        );
+
+        assert!(matches!(
+            graph.lookup_member_with_access(module.id().into(), "hidden", |_, visibility| {
+                visibility.is_public()
+            }),
+            MemberLookupResult::Inaccessible(_)
+        ));
+
+        let structure = graph.lookup_member(module.id().into(), "Point");
+
+        let MemberLookupResult::Found(AnySymbolId::Struct(structure)) = structure else {
+            panic!("structure lookup must retain its exact symbol kind");
+        };
+
+        assert!(matches!(
+            graph.lookup_member(structure.into(), "x"),
+            MemberLookupResult::Found(AnySymbolId::StructField(_))
+        ));
+
+        assert!(matches!(
+            graph.lookup_member(module.id().into(), "recovered"),
+            MemberLookupResult::Malformed(_)
+        ));
+    }
+
+    #[test]
+    fn compiler_known_members_use_the_same_origin_neutral_lookup_contract() {
+        let graph = build_graph(&declaration_table(&["module app;"]));
+        let environment = graph.compiler_known_environment();
+
+        assert!(matches!(
+            graph.lookup_member(environment.id().into(), "bool"),
+            MemberLookupResult::Found(AnySymbolId::Struct(_))
+        ));
     }
 
     #[test]
@@ -954,25 +1033,6 @@ mod tests {
             Some(path) => path,
             None => panic!("test module path is valid"),
         }
-    }
-
-    fn declaration_table(source_texts: &[&str]) -> DeclarationTable {
-        let sources = test_source_store(source_texts);
-
-        let chunks = (0u32..)
-            .take(source_texts.len())
-            .map(|index| declaration_chunk(&sources, index))
-            .collect::<Vec<_>>();
-
-        let result = merge_declaration_chunks(chunks.iter());
-        let (table, _diagnostics) = result.into_parts();
-
-        table
-    }
-
-    fn declaration_chunk(sources: &bray_source::SourceStore, index: u32) -> DeclarationChunkResult {
-        let parsed = bray_parser::parse_source_unit(test_source_at(sources, index));
-        discover_source_unit_declarations(parsed.source_unit())
     }
 
     fn build_graph(table: &DeclarationTable) -> SymbolGraph {

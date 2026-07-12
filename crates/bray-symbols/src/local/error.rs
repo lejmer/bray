@@ -7,6 +7,8 @@ pub enum LocalSymbolBuildError {
     UnknownScope,
     /// A referenced anonymous callable does not exist.
     UnknownAnonymousCallable,
+    /// A referenced local symbol does not exist in its category table.
+    UnknownLocalSymbol,
     /// A non-root scope was created without a lexical parent.
     MissingParentScope,
     /// A root scope was created with a lexical parent.

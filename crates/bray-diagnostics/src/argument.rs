@@ -94,6 +94,22 @@ impl DiagnosticArg {
         )
     }
 
+    /// Creates a referenced-name argument.
+    pub fn referenced_name(name: impl Into<String>) -> Self {
+        Self::new(
+            DiagnosticArgName::ReferencedName,
+            DiagnosticArgValue::ReferencedName(name.into()),
+        )
+    }
+
+    /// Creates an expected semantic-name category argument.
+    pub const fn expected_name_kind(kind: DiagnosticNameKind) -> Self {
+        Self::new(
+            DiagnosticArgName::ExpectedNameKind,
+            DiagnosticArgValue::NameKind(kind),
+        )
+    }
+
     /// Creates an expected declaration-visibility argument.
     pub const fn expected_visibility(visibility: DiagnosticVisibility) -> Self {
         Self::new(
@@ -191,6 +207,10 @@ pub enum DiagnosticArgName {
     ConstructStart,
     /// Source-level declaration name.
     DeclarationName,
+    /// Name spelling used by a semantic reference.
+    ReferencedName,
+    /// Semantic category required at a name reference.
+    ExpectedNameKind,
     /// Syntax kind that was present in source.
     ActualSyntaxKind,
     /// Syntax kind that was expected by the compiler phase.
@@ -246,6 +266,8 @@ impl DiagnosticArgName {
             Self::Character => "character",
             Self::ConstructStart => "construct_start",
             Self::DeclarationName => "declaration_name",
+            Self::ReferencedName => "referenced_name",
+            Self::ExpectedNameKind => "expected_name_kind",
             Self::ActualSyntaxKind => "actual_syntax_kind",
             Self::ExpectedSyntaxKind => "expected_syntax_kind",
             Self::ExpectedVisibility => "expected_visibility",
@@ -284,6 +306,10 @@ pub enum DiagnosticArgValue {
     Character(char),
     /// Source-level declaration name.
     DeclarationName(String),
+    /// Name spelling used by a semantic reference.
+    ReferencedName(String),
+    /// Semantic category required at a name reference.
+    NameKind(DiagnosticNameKind),
     /// Source file or external artifact path.
     FilePath(PathBuf),
     /// Zero-based source input index.
@@ -318,6 +344,40 @@ pub enum DiagnosticArgValue {
     WorkerCount(u64),
     /// Interface or language revision.
     Revision(u64),
+}
+
+/// Locale-neutral semantic category expected from name binding.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum DiagnosticNameKind {
+    /// Any ordinary declaration or local name.
+    Symbol,
+    /// A logical module.
+    Module,
+    /// A type-valued declaration or parameter.
+    Type,
+    /// A trait declaration.
+    Trait,
+    /// A runtime or compile-time value.
+    Value,
+    /// An explicit callable overload family.
+    CallableOverload,
+    /// A declaration associated with a module, type, trait, or implementation.
+    Member,
+}
+
+impl DiagnosticNameKind {
+    /// Returns the stable machine key for this category.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Symbol => "symbol",
+            Self::Module => "module",
+            Self::Type => "type",
+            Self::Trait => "trait",
+            Self::Value => "value",
+            Self::CallableOverload => "callable_overload",
+            Self::Member => "member",
+        }
+    }
 }
 
 /// Locale-neutral effective visibility used by declaration diagnostics.
@@ -435,7 +495,10 @@ mod tests {
 
     use bray_syntax::SyntaxKind;
 
-    use super::{DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticIoErrorKind};
+    use super::{
+        DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticIoErrorKind,
+        DiagnosticNameKind,
+    };
 
     #[test]
     fn diagnostic_args_pair_stable_names_with_typed_values() {
@@ -488,6 +551,31 @@ mod tests {
 
         assert_eq!(super::DiagnosticVisibility::Internal.as_str(), "internal");
         assert_eq!(super::DiagnosticModuleTrust::Trusted.as_str(), "trusted");
+    }
+
+    #[test]
+    fn binding_args_keep_reference_names_and_expected_categories_typed() {
+        let name = DiagnosticArg::referenced_name("Point");
+        let kind = DiagnosticArg::expected_name_kind(DiagnosticNameKind::Type);
+
+        assert_eq!(name.name(), DiagnosticArgName::ReferencedName);
+        assert_eq!(name.name().as_str(), "referenced_name");
+
+        assert_eq!(
+            name.value(),
+            &DiagnosticArgValue::ReferencedName(String::from("Point"))
+        );
+
+        assert_eq!(kind.name(), DiagnosticArgName::ExpectedNameKind);
+        assert_eq!(kind.name().as_str(), "expected_name_kind");
+        assert_eq!(
+            kind.value(),
+            &DiagnosticArgValue::NameKind(DiagnosticNameKind::Type)
+        );
+        assert_eq!(
+            DiagnosticNameKind::CallableOverload.as_str(),
+            "callable_overload"
+        );
     }
 
     #[test]

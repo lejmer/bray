@@ -403,6 +403,88 @@ impl LocalSymbolSnapshotBuilder {
         Ok(())
     }
 
+    /// Returns the lexical parent of one scope under construction.
+    pub fn scope_parent(
+        &self,
+        scope: LocalScopeId,
+    ) -> Result<Option<LocalScopeId>, LocalSymbolBuildError> {
+        let scope_index = self.checked_scope_index(scope)?;
+        let scope = self
+            .scopes
+            .get(scope_index)
+            .ok_or(LocalSymbolBuildError::UnknownScope)?;
+
+        Ok(scope.parent)
+    }
+
+    /// Returns named local candidates currently visible in one scope under construction.
+    pub fn local_symbols_named(
+        &self,
+        scope: LocalScopeId,
+        name: &str,
+    ) -> Result<&[AnyLocalSymbolId], LocalSymbolBuildError> {
+        let scope_index = self.checked_scope_index(scope)?;
+        let scope = self
+            .scopes
+            .get(scope_index)
+            .ok_or(LocalSymbolBuildError::UnknownScope)?;
+
+        Ok(scope.local_names.get(name).map_or(&[], Vec::as_slice))
+    }
+
+    /// Returns whether one named local candidate under construction contains recovery.
+    pub fn local_symbol_is_recovered(
+        &self,
+        symbol: AnyLocalSymbolId,
+    ) -> Result<bool, LocalSymbolBuildError> {
+        if symbol.region() != self.region {
+            return Err(LocalSymbolBuildError::ForeignRegion);
+        }
+
+        match symbol {
+            AnyLocalSymbolId::Binding(id) => self
+                .bindings
+                .get(
+                    id.to_index()
+                        .ok_or(LocalSymbolBuildError::UnknownLocalSymbol)?,
+                )
+                .map(LocalBindingSymbol::is_recovered),
+            AnyLocalSymbolId::Constant(id) => self
+                .constants
+                .get(
+                    id.to_index()
+                        .ok_or(LocalSymbolBuildError::UnknownLocalSymbol)?,
+                )
+                .map(LocalConstantSymbol::is_recovered),
+            AnyLocalSymbolId::AnonymousCallableParameter(id) => self
+                .anonymous_parameters
+                .get(
+                    id.to_index()
+                        .ok_or(LocalSymbolBuildError::UnknownLocalSymbol)?,
+                )
+                .map(AnonymousCallableParameterSymbol::is_recovered),
+            AnyLocalSymbolId::AnonymousCallable(_) | AnyLocalSymbolId::PostconditionResult(_) => {
+                None
+            }
+        }
+        .ok_or(LocalSymbolBuildError::UnknownLocalSymbol)
+    }
+
+    /// Returns declaration-surface candidates currently visible in one scope under construction.
+    pub fn surface_symbols_named(
+        &self,
+        scope: LocalScopeId,
+        name: &str,
+    ) -> Result<&[AnySymbolId], LocalSymbolBuildError> {
+        let scope_index = self.checked_scope_index(scope)?;
+        let scope = self
+            .scopes
+            .get(scope_index)
+            .ok_or(LocalSymbolBuildError::UnknownScope)?;
+
+        Ok(scope.surface_names.get(name).map_or(&[], Vec::as_slice))
+    }
+
     /// Captures arena lengths and the mutation-trail position for transactional rollback.
     pub const fn checkpoint(&self) -> LocalSymbolSnapshotCheckpoint {
         LocalSymbolSnapshotCheckpoint {

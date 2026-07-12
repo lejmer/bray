@@ -5,6 +5,13 @@
 mod fact;
 mod result;
 
+// TODO(binder): Remove this expectation when category-specific entrypoints consume name lookup.
+#[expect(
+    dead_code,
+    reason = "category-specific binder entrypoints do not consume name lookup yet"
+)]
+mod lookup;
+
 // TODO(binder): Remove this expectation when category-specific entrypoints construct transactions.
 #[expect(
     dead_code,

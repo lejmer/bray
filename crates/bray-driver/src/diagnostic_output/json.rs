@@ -180,6 +180,8 @@ enum DiagnosticArgValueJson {
     ByteCount(u64),
     Character(char),
     DeclarationName(String),
+    ReferencedName(String),
+    NameKind(&'static str),
     FilePath(String),
     InputIndex(u64),
     InterfaceLimit(&'static str),
@@ -207,6 +209,8 @@ impl DiagnosticArgValueJson {
             DiagnosticArgValue::ByteCount(byte_count) => Self::ByteCount(*byte_count),
             DiagnosticArgValue::Character(character) => Self::Character(*character),
             DiagnosticArgValue::DeclarationName(name) => Self::DeclarationName(name.to_owned()),
+            DiagnosticArgValue::ReferencedName(name) => Self::ReferencedName(name.to_owned()),
+            DiagnosticArgValue::NameKind(kind) => Self::NameKind((*kind).as_str()),
             DiagnosticArgValue::FilePath(path) => Self::FilePath(path_to_output_string(path)),
             DiagnosticArgValue::InputIndex(input_index) => Self::InputIndex(*input_index),
             DiagnosticArgValue::InterfaceLimit(limit) => Self::InterfaceLimit((*limit).as_str()),
@@ -274,8 +278,8 @@ mod tests {
     use bray_diagnostics::{
         Diagnostic, DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticBag,
         DiagnosticId, DiagnosticInterfaceLimit, DiagnosticInterfaceSection, DiagnosticKind,
-        DiagnosticModuleTrust, DiagnosticNote, DiagnosticNoteKind, DiagnosticVisibility,
-        SeverityKind,
+        DiagnosticModuleTrust, DiagnosticNameKind, DiagnosticNote, DiagnosticNoteKind,
+        DiagnosticVisibility, SeverityKind,
     };
     use bray_source::{SourceSpan, TextRange, TextSize};
     use bray_syntax::SyntaxKind;
@@ -330,6 +334,38 @@ mod tests {
         assert_eq!(arg_json["value"]["value"], 5);
 
         assert!(!output.contains("source input contains invalid UTF-8 at byte offset"));
+    }
+
+    #[test]
+    fn json_output_preserves_typed_binding_arguments() {
+        let diagnostic = Diagnostic::new(
+            DiagnosticId::new(0),
+            DiagnosticKind::BindingWrongNameKind,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::referenced_name("Size"))
+        .with_arg(DiagnosticArg::expected_name_kind(DiagnosticNameKind::Type));
+
+        let mut output = Vec::new();
+
+        match write_json_diagnostics(&DiagnosticBag::single(diagnostic), None, &mut output) {
+            Ok(()) => {}
+            Err(error) => panic!("JSON diagnostics should write: {error:?}"),
+        }
+
+        let output: serde_json::Value = match serde_json::from_slice(&output) {
+            Ok(value) => value,
+            Err(error) => panic!("JSON diagnostics should parse: {error:?}"),
+        };
+
+        let arguments = &output["diagnostics"][0]["args"];
+
+        assert_eq!(arguments[0]["name"], "referenced_name");
+        assert_eq!(arguments[0]["value"]["kind"], "referenced_name");
+        assert_eq!(arguments[0]["value"]["value"], "Size");
+        assert_eq!(arguments[1]["name"], "expected_name_kind");
+        assert_eq!(arguments[1]["value"]["kind"], "name_kind");
+        assert_eq!(arguments[1]["value"]["value"], "type");
     }
 
     #[test]
