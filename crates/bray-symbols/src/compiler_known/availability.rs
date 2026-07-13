@@ -265,10 +265,13 @@ mod tests {
 
         let bool_symbol =
             view.representation_symbol::<StructSymbolId>(RepresentationRole::ScalarBool);
+
         let true_value = view.representation_value(RepresentationRole::BooleanTrue);
+
         let unavailable_real = provider
             .role_registry()
             .representation_symbol::<StructSymbolId>(RepresentationRole::ScalarR16);
+
         let unavailable_copy = provider
             .role_registry()
             .implementation_symbols::<FunctionSymbolId>(ImplementationHook::MemoryCopy)
