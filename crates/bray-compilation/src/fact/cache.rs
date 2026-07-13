@@ -2,6 +2,9 @@ use std::sync::{Condvar, Mutex, OnceLock};
 use std::thread::{self, ThreadId};
 use std::time::Duration;
 
+#[cfg(test)]
+use std::{fmt, sync::Arc};
+
 use super::{CancellationToken, CompilationFactKey, FactQueryError, FactRuntime};
 
 const CANCELLATION_POLL_INTERVAL: Duration = Duration::from_millis(10);
@@ -11,6 +14,38 @@ pub(crate) struct FactCell<T> {
     value: OnceLock<T>,
     state: Mutex<FactCellState>,
     changed: Condvar,
+    #[cfg(test)]
+    observer: Mutex<Option<FactCellTestObserver>>,
+}
+
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum FactCellTestEvent {
+    Computing,
+    Waiting,
+    Computed,
+}
+
+#[cfg(test)]
+#[derive(Clone)]
+pub(crate) struct FactCellTestObserver(Arc<dyn Fn(FactCellTestEvent) + Send + Sync>);
+
+#[cfg(test)]
+impl FactCellTestObserver {
+    pub(crate) fn new(observe: impl Fn(FactCellTestEvent) + Send + Sync + 'static) -> Self {
+        Self(Arc::new(observe))
+    }
+
+    fn observe(&self, event: FactCellTestEvent) {
+        self.0(event);
+    }
+}
+
+#[cfg(test)]
+impl fmt::Debug for FactCellTestObserver {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("FactCellTestObserver")
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -29,6 +64,8 @@ impl<T> FactCell<T> {
             value: OnceLock::new(),
             state: Mutex::new(FactCellState::Vacant),
             changed: Condvar::new(),
+            #[cfg(test)]
+            observer: Mutex::new(None),
         }
     }
 
@@ -73,6 +110,9 @@ impl<T> FactCell<T> {
 
                     let mut publication = PublicationGuard::new(self, thread, key.clone());
 
+                    #[cfg(test)]
+                    self.observe(FactCellTestEvent::Computing)?;
+
                     let _evaluation = runtime.begin(key.clone())?;
 
                     cancellation.check()?;
@@ -82,6 +122,9 @@ impl<T> FactCell<T> {
                         .ok_or(FactQueryError::InfrastructureFailure)?;
 
                     let value = compute()?;
+
+                    #[cfg(test)]
+                    self.observe(FactCellTestEvent::Computed)?;
 
                     cancellation.check()?;
 
@@ -108,6 +151,9 @@ impl<T> FactCell<T> {
                     }
 
                     let waiting = runtime.wait_for(key.clone(), *owner)?;
+
+                    #[cfg(test)]
+                    self.observe(FactCellTestEvent::Waiting)?;
 
                     let waited = self
                         .changed
@@ -157,6 +203,36 @@ impl<T> FactCell<T> {
         self.value
             .get()
             .ok_or(FactQueryError::InfrastructureFailure)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_test_observer(
+        &self,
+        observer: FactCellTestObserver,
+    ) -> Result<(), FactQueryError> {
+        let mut current = self
+            .observer
+            .lock()
+            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+        *current = Some(observer);
+
+        Ok(())
+    }
+
+    #[cfg(test)]
+    fn observe(&self, event: FactCellTestEvent) -> Result<(), FactQueryError> {
+        let observer = self
+            .observer
+            .lock()
+            .map_err(|_| FactQueryError::InfrastructureFailure)?
+            .clone();
+
+        if let Some(observer) = observer {
+            observer.observe(event);
+        }
+
+        Ok(())
     }
 
     fn abandon(&self, thread: ThreadId, key: CompilationFactKey) {
