@@ -13,6 +13,8 @@ use bray_symbols::{
     TypeData, TypeId,
 };
 
+pub(crate) use bray_symbols::testing::available_compiler_known_symbols;
+
 pub(crate) fn callable_key() -> BoundUnitKey {
     let snapshot = match source() {
         Ok(snapshot) => snapshot,

@@ -1,4 +1,5 @@
 use bray_bound_tree::{BoundUnit, BoundUnitId, BoundUnitKind, CheckedControlFlowFacts};
+use bray_symbols::AvailableCompilerKnownSymbols;
 
 /// A validated borrowed view of the completed checked HIR required by lowering.
 ///
@@ -9,6 +10,7 @@ use bray_bound_tree::{BoundUnit, BoundUnitId, BoundUnitKind, CheckedControlFlowF
 pub struct LoweringInput<'unit> {
     unit: &'unit BoundUnit,
     control_flow: &'unit CheckedControlFlowFacts,
+    available_compiler_known_symbols: &'unit AvailableCompilerKnownSymbols,
 }
 
 impl<'unit> LoweringInput<'unit> {
@@ -16,6 +18,7 @@ impl<'unit> LoweringInput<'unit> {
     pub fn try_new(
         unit: &'unit BoundUnit,
         control_flow: &'unit CheckedControlFlowFacts,
+        available_compiler_known_symbols: &'unit AvailableCompilerKnownSymbols,
     ) -> Result<Self, LoweringInputError> {
         if control_flow.unit() != unit.unit() {
             return Err(LoweringInputError::ForeignControlFlow {
@@ -31,7 +34,11 @@ impl<'unit> LoweringInput<'unit> {
             });
         }
 
-        Ok(Self { unit, control_flow })
+        Ok(Self {
+            unit,
+            control_flow,
+            available_compiler_known_symbols,
+        })
     }
 
     /// Returns the canonical checked source-shaped semantic unit.
@@ -42,6 +49,11 @@ impl<'unit> LoweringInput<'unit> {
     /// Returns the durable control-flow facts established for the unit.
     pub const fn control_flow(self) -> &'unit CheckedControlFlowFacts {
         self.control_flow
+    }
+
+    /// Returns target-available compiler-known identities and behavior roles.
+    pub const fn available_compiler_known_symbols(self) -> &'unit AvailableCompilerKnownSymbols {
+        self.available_compiler_known_symbols
     }
 }
 
@@ -69,24 +81,34 @@ mod tests {
     use bray_bound_tree::{BoundUnitId, CheckedControlFlowFacts, ControlCompletion};
 
     use super::{LoweringInput, LoweringInputError};
-    use crate::test_support::bound_unit;
+    use crate::test_support::{available_compiler_known_symbols, bound_unit};
 
     #[test]
     fn input_borrows_the_canonical_unit_and_matching_side_facts() {
         let unit = bound_unit(4);
+
         let control_flow = CheckedControlFlowFacts::new(
             unit.unit(),
             unit.key().kind(),
             ControlCompletion::default(),
         );
 
-        let input = match LoweringInput::try_new(&unit, &control_flow) {
+        let input = match LoweringInput::try_new(
+            &unit,
+            &control_flow,
+            available_compiler_known_symbols(),
+        ) {
             Ok(input) => input,
             Err(error) => panic!("matching lowering input must validate: {error:?}"),
         };
 
         assert!(std::ptr::eq(input.unit(), &unit));
         assert!(std::ptr::eq(input.control_flow(), &control_flow));
+
+        assert!(std::ptr::eq(
+            input.available_compiler_known_symbols(),
+            available_compiler_known_symbols()
+        ));
     }
 
     #[test]
@@ -100,7 +122,7 @@ mod tests {
         );
 
         assert_input_error(
-            LoweringInput::try_new(&unit, &foreign),
+            LoweringInput::try_new(&unit, &foreign, available_compiler_known_symbols()),
             LoweringInputError::ForeignControlFlow {
                 expected: BoundUnitId::new(4),
                 actual: BoundUnitId::new(5),
@@ -114,7 +136,7 @@ mod tests {
         );
 
         assert_input_error(
-            LoweringInput::try_new(&unit, &wrong_kind),
+            LoweringInput::try_new(&unit, &wrong_kind, available_compiler_known_symbols()),
             LoweringInputError::ControlFlowKindMismatch {
                 expected: unit.key().kind(),
                 actual: bray_bound_tree::BoundUnitKind::RuntimeDefault,

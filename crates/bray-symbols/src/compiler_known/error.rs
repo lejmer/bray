@@ -53,6 +53,11 @@ pub enum CompilerKnownSymbolBuildError {
         /// The missing owner declaration.
         owner: CompilerKnownDeclarationId,
     },
+    /// A typed role referred to a declaration absent from the symbol provider.
+    MissingRoleDeclarationSymbol {
+        /// The declaration selected by the role binding.
+        declaration: CompilerKnownDeclarationId,
+    },
     /// Compiler-known declaration ownership contains a cycle.
     DeclarationOwnerCycle {
         /// A declaration reached again while resolving its owner chain.

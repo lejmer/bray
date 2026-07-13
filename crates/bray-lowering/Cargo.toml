@@ -7,12 +7,13 @@ rust-version.workspace = true
 
 [dependencies]
 bray-bound-tree = { path = "../bray-bound-tree" }
+bray-symbols = { path = "../bray-symbols" }
 
 [dev-dependencies]
 bray-declarations = { path = "../bray-declarations" }
 bray-parser = { path = "../bray-parser" }
 bray-source = { path = "../bray-source" }
-bray-symbols = { path = "../bray-symbols" }
+bray-symbols = { path = "../bray-symbols", features = ["test-support"] }
 
 [lints]
 workspace = true

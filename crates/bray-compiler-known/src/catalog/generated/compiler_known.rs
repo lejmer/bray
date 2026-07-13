@@ -188,6 +188,20 @@ static COMPILER_KNOWN_VALUES: &[CompilerKnownValueDescriptor] = &[
     },
 ];
 
+static COMPILER_KNOWN_REPRESENTATION_ROLES: &[CompilerKnownRepresentationBinding] = &[
+    CompilerKnownRepresentationBinding { role: RepresentationRole::ScalarBool, target: CompilerKnownRepresentationTarget::Declaration(CompilerKnownDeclarationId::new(0)) },
+    CompilerKnownRepresentationBinding { role: RepresentationRole::ScalarR16, target: CompilerKnownRepresentationTarget::Declaration(CompilerKnownDeclarationId::new(10)) },
+    CompilerKnownRepresentationBinding { role: RepresentationRole::RawPointer, target: CompilerKnownRepresentationTarget::Declaration(CompilerKnownDeclarationId::new(4)) },
+    CompilerKnownRepresentationBinding { role: RepresentationRole::Result, target: CompilerKnownRepresentationTarget::Declaration(CompilerKnownDeclarationId::new(6)) },
+    CompilerKnownRepresentationBinding { role: RepresentationRole::BooleanTrue, target: CompilerKnownRepresentationTarget::Value(CompilerKnownValueId::new(2)) },
+    CompilerKnownRepresentationBinding { role: RepresentationRole::BooleanFalse, target: CompilerKnownRepresentationTarget::Value(CompilerKnownValueId::new(0)) },
+    CompilerKnownRepresentationBinding { role: RepresentationRole::NoneValue, target: CompilerKnownRepresentationTarget::Value(CompilerKnownValueId::new(1)) },
+];
+
+static COMPILER_KNOWN_IMPLEMENTATION_ROLES: &[CompilerKnownImplementationBinding] = &[
+    CompilerKnownImplementationBinding { hook: ImplementationHook::MemoryCopy, declaration: CompilerKnownDeclarationId::new(3) },
+];
+
 static RECOGNIZED_SCOPES: &[RecognizedStandardLibraryScopeDescriptor] = &[
     RecognizedStandardLibraryScopeDescriptor {
         id: RecognizedStandardLibraryScopeId::new(0),
@@ -297,6 +311,10 @@ pub static COMPILER_KNOWN_CATALOG: CompilerKnownCatalog = CompilerKnownCatalog {
 compiler_known_scopes: Cow::Borrowed(COMPILER_KNOWN_SCOPES),
 compiler_known_declarations: Cow::Borrowed(COMPILER_KNOWN_DECLARATIONS),
 compiler_known_values: Cow::Borrowed(COMPILER_KNOWN_VALUES),
+role_registry: CompilerKnownCatalogRoleRegistry {
+representations: Cow::Borrowed(COMPILER_KNOWN_REPRESENTATION_ROLES),
+implementations: Cow::Borrowed(COMPILER_KNOWN_IMPLEMENTATION_ROLES),
+},
 recognized_scopes: Cow::Borrowed(RECOGNIZED_SCOPES),
 recognized_declarations: Cow::Borrowed(RECOGNIZED_DECLARATIONS),
 declaration_surfaces: Cow::Borrowed(DECLARATION_SURFACES),

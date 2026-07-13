@@ -11,6 +11,7 @@ mod key;
 mod loader;
 #[cfg(any(test, feature = "generation"))]
 mod parser;
+mod role;
 mod source;
 mod surface;
 #[cfg(test)]
@@ -47,6 +48,10 @@ pub use key::{
 };
 #[cfg(any(test, feature = "generation"))]
 pub use loader::{CatalogBuildResult, CatalogFragmentValidator, build_catalog};
+pub use role::{
+    CompilerKnownCatalogRoleRegistry, CompilerKnownImplementationBinding,
+    CompilerKnownRepresentationBinding, CompilerKnownRepresentationTarget,
+};
 #[cfg(any(test, feature = "generation"))]
 pub use source::generator_input_inventory;
 pub use source::{

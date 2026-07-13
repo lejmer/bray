@@ -363,7 +363,9 @@ mod tests {
     use super::{ControlFlowGraphBuildOutcome, build_control_flow_graph};
     use crate::analysis::model::ControlFlowGraph;
     use crate::analysis::model::{AnalysisEdgeKind, AnalysisExitKind, AnalysisOperationKind};
-    use crate::test_support::{callable_key, error_type, recovered_tree};
+    use crate::test_support::{
+        available_compiler_known_symbols, callable_key, error_type, recovered_tree,
+    };
     use crate::{UnitCheckRequest, UnitCheckRoot};
 
     #[test]
@@ -373,8 +375,12 @@ mod tests {
         let (tree, root) = recovered_tree(unit, &key);
         let view = tree.view(&key);
 
-        let Ok(request) = UnitCheckRequest::new(view, UnitCheckRoot::CallableBody(root), &|| false)
-        else {
+        let Ok(request) = UnitCheckRequest::new(
+            view,
+            UnitCheckRoot::CallableBody(root),
+            available_compiler_known_symbols(),
+            &|| false,
+        ) else {
             panic!("matching test roots must produce checker requests");
         };
 
@@ -606,8 +612,12 @@ mod tests {
     ) -> ControlFlowGraph {
         let view = tree.view(key);
 
-        let Ok(request) = UnitCheckRequest::new(view, UnitCheckRoot::CallableBody(root), &|| false)
-        else {
+        let Ok(request) = UnitCheckRequest::new(
+            view,
+            UnitCheckRoot::CallableBody(root),
+            available_compiler_known_symbols(),
+            &|| false,
+        ) else {
             panic!("matching test roots must produce checker requests");
         };
 

@@ -13,6 +13,8 @@ use bray_symbols::{
     SymbolKind, SymbolRootKey,
 };
 
+pub(crate) use bray_symbols::testing::available_compiler_known_symbols;
+
 pub(crate) fn bound_unit(unit: u32) -> BoundUnit {
     let (key, local_symbols) = unit_identity(unit);
 

@@ -152,6 +152,11 @@ pub struct ConversionCheckConclusion {
 The exact public boundary can use borrowed inputs where the caller already owns canonical records. It must not use strings, loosely
 typed maps, or boolean parameter combinations to describe semantic categories.
 
+Requests that can encounter compiler-known representations, implementations, or special values must borrow the compilation-local
+target-available compiler-known symbol view. Checker rules must classify resolved symbols through that view rather than declaration
+names or catalog keys. The view supplies available identity and role association only. Checker-owned semantic rules remain in
+focused checker services.
+
 `UnitChecker` is the whole-unit orchestration facade used by the binder. It does not imply one universal checker algorithm. Its
 implementation builds the shared control-flow graph, runs the required domains in dependency order, and returns a category-specific
 checked-unit result.
