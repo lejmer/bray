@@ -187,6 +187,51 @@ macro_rules! define_symbol_graph {
                 self.declaration_index.get(&declaration).copied()
             }
 
+            /// Returns one exact symbol's stable semantic key.
+            pub fn symbol_key(&self, symbol: AnySymbolId) -> Option<&crate::SymbolKey> {
+                match symbol {
+                    AnySymbolId::CompilerKnownEnvironment(id) =>
+                        SymbolProvider::<CompilerKnownEnvironmentSymbolId>::symbol(
+                            self.compiler_known.as_ref(),
+                            id,
+                        ).map(CompilerKnownEnvironmentSymbol::key),
+                    AnySymbolId::Package(id) => self.package(id).map(PackageSymbol::key),
+                    AnySymbolId::Module(id) => self.module(id).map(ModuleSymbol::key),
+                    AnySymbolId::CallableParameterDefaultProvider(id) => self
+                        .callable_parameter_default_provider(id)
+                        .map(CallableParameterDefaultProviderSymbol::key),
+                    AnySymbolId::StructFieldDefaultProvider(id) => self
+                        .struct_field_default_provider(id)
+                        .map(StructFieldDefaultProviderSymbol::key),
+                    AnySymbolId::UnionPayloadDefaultProvider(id) => self
+                        .union_payload_default_provider(id)
+                        .map(UnionPayloadDefaultProviderSymbol::key),
+                    AnySymbolId::ReceiverParameter(id) => {
+                        self.receiver_parameter(id).map(ReceiverParameterSymbol::key)
+                    }
+                    $(AnySymbolId::$variant(id) => self.$singular(id).map(crate::$record::key),)+
+                }
+            }
+
+            /// Returns the synthesized runtime-default provider for one defaultable symbol.
+            pub fn runtime_default_provider(
+                &self,
+                symbol: AnySymbolId,
+            ) -> Option<AnySymbolId> {
+                match symbol {
+                    AnySymbolId::CallableParameter(id) => {
+                        self.callable_parameter(id)?.default_provider().map(Into::into)
+                    }
+                    AnySymbolId::StructField(id) => {
+                        self.struct_field(id)?.default_provider().map(Into::into)
+                    }
+                    AnySymbolId::UnionPayloadField(id) => {
+                        self.union_payload_field(id)?.default_provider().map(Into::into)
+                    }
+                    _ => None,
+                }
+            }
+
             /// Returns whether this graph owns an exact stable symbol key.
             pub fn contains_symbol_key(&self, key: &crate::SymbolKey) -> bool {
                 self.symbol_keys.contains(key)
@@ -720,7 +765,7 @@ for_each_declaration_symbol!(define_symbol_graph);
 
 #[cfg(test)]
 mod tests {
-    use crate::SymbolGraph;
+    use crate::{AnySymbolId, PackageIdentity, SymbolGraph};
 
     #[test]
     fn graph_types_are_send_and_sync() {
@@ -728,5 +773,52 @@ mod tests {
 
         assert_send_sync::<SymbolGraph>();
         assert_send_sync::<super::SymbolGraphRoots>();
+    }
+
+    #[test]
+    fn erased_symbol_access_resolves_keys_and_runtime_default_providers() {
+        let table = crate::test_support::declaration_table(&[concat!(
+            "module app;\n",
+            "func main(value: i32 = 1)\n",
+            "{\n",
+            "}\n",
+        )]);
+
+        let Some(package) = PackageIdentity::try_new("test.package") else {
+            panic!("test package identity must be valid");
+        };
+
+        let graph = match SymbolGraph::build_source(package, &table) {
+            Ok(graph) => graph,
+            Err(error) => panic!("test symbol graph must build: {error:?}"),
+        };
+
+        let Some(function) = graph.functions().first() else {
+            panic!("test source must declare one function");
+        };
+
+        let Some(parameter) = graph.callable_parameters().first() else {
+            panic!("test source must declare one callable parameter");
+        };
+
+        let Some(provider_id) = parameter.default_provider() else {
+            panic!("defaulted parameter must retain its provider ID");
+        };
+
+        let Some(provider) = graph.runtime_default_provider(parameter.id().into()) else {
+            panic!("defaulted parameter must have a runtime-default provider");
+        };
+
+        assert_eq!(
+            graph.symbol_key(AnySymbolId::from(function.id())),
+            Some(function.key())
+        );
+        assert_eq!(provider, provider_id.into());
+        assert_eq!(
+            graph.symbol_key(provider),
+            graph
+                .callable_parameter_default_provider(provider_id)
+                .map(crate::CallableParameterDefaultProviderSymbol::key)
+        );
     }
 }

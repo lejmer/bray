@@ -654,6 +654,13 @@ Anonymous callable views resolve through their owning local snapshot and exact `
 remain available through their owner-specific symbol APIs. The shared query implementation can use closed internal unit-key
 adapters, but public APIs must not expose a generic `bind_syntax` workflow.
 
+Package checking follows the same model. `Compilation::check_diagnostics()` requests a compilation-owned package semantic
+diagnostics fact rather than enumerating semantic units or invoking the binder. The package fact derives declared unit keys from the
+immutable declaration table, symbol graph, and syntax snapshot, requests their bound-unit and required checker facts, follows
+published nested-unit keys, and merges each fact-owned diagnostic bag deterministically. A later emitter can request completed
+semantic or lowered facts directly and still obtain all remaining diagnostics through the same package diagnostic query when
+emission aborts.
+
 ### Fact Results And Cancellation
 
 Every bound-unit or semantic-analysis query returns or exposes an immutable fact result containing the value and diagnostics produced

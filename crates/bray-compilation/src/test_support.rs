@@ -1,7 +1,9 @@
 use bray_bound_tree::{BoundSourceAnchor, BoundUnitKey};
 use bray_declarations::{DeclarationId, discover_source_unit_declarations};
 use bray_parser::parse_source_unit;
-use bray_source::{SourceId, SourceIdentity, SourceOrigin, SourceSnapshot, SourceVersion};
+use bray_source::{
+    SourceId, SourceIdentity, SourceInput, SourceOrigin, SourceSnapshot, SourceVersion,
+};
 use bray_symbols::{ModulePathKey, PackageIdentity, SymbolKey, SymbolKind, SymbolRootKey};
 
 pub(crate) fn package_identity() -> PackageIdentity {
@@ -9,6 +11,15 @@ pub(crate) fn package_identity() -> PackageIdentity {
         Some(identity) => identity,
         None => panic!("test package identity must be valid"),
     }
+}
+
+pub(crate) fn source_input(text: &str, version: u32) -> SourceInput {
+    SourceInput::virtual_text(
+        SourceIdentity::new(version),
+        format!("source-{version}"),
+        SourceVersion::new(u64::from(version)),
+        text,
+    )
 }
 
 pub(crate) fn callable_body_key(declaration: u32) -> BoundUnitKey {

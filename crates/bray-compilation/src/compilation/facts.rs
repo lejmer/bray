@@ -52,11 +52,12 @@ pub(super) struct CompilationState {
     bound_unit_identities: FactCell<Result<BoundUnitIdentityMap, FactQueryError>>,
     symbol_graph: FactCell<Result<SymbolGraph, FactQueryError>>,
     semantic_values: FactCell<Result<SemanticValueStore, SemanticValueStoreCreateError>>,
+    pub(super) semantic_diagnostics: FactCell<DiagnosticBag>,
     pub(super) target_facts: CompilationTargetFacts,
     pub(super) symbol_facts: (),
     pub(super) bound_units: UnitFactCache<BoundUnit>,
     pub(super) checked_control_flow: UnitFactCache<CheckedControlFlowFacts>,
-    check_diagnostics: FactCell<DiagnosticBag>,
+    pub(super) check_diagnostics: FactCell<DiagnosticBag>,
 }
 
 impl Compilation {
@@ -116,6 +117,7 @@ impl Compilation {
                 bound_unit_identities: FactCell::new(),
                 symbol_graph: FactCell::new(),
                 semantic_values: FactCell::new(),
+                semantic_diagnostics: FactCell::new(),
                 target_facts: CompilationTargetFacts,
                 symbol_facts: (),
                 bound_units: UnitFactCache::new(),
@@ -180,24 +182,6 @@ impl Compilation {
     /// Returns diagnostics produced while loading source inputs.
     pub fn source_diagnostics(&self) -> &DiagnosticBag {
         &self.state.source_diagnostics
-    }
-
-    /// TODO(compilation): Replace this temporary command-facing API when the checked-program
-    /// query defines reachable bound-unit and semantic-fact completion.
-    ///
-    /// Returns diagnostics for the current check command behavior.
-    pub fn check_diagnostics(&self) -> &DiagnosticBag {
-        self.fact(
-            CompilationFactKey::CheckDiagnostics,
-            &self.state.check_diagnostics,
-            || {
-                DiagnosticBag::merged_all([
-                    self.source_diagnostics(),
-                    self.syntax_tree_result().diagnostics(),
-                    self.declaration_diagnostics(),
-                ])
-            },
-        )
     }
 
     /// Returns the syntax result for one source unit.
@@ -353,7 +337,7 @@ impl Compilation {
         self.state.sources.is_empty()
     }
 
-    fn fact<'a, T>(
+    pub(super) fn fact<'a, T>(
         &self,
         key: CompilationFactKey,
         cache: &'a FactCell<T>,
@@ -440,7 +424,7 @@ mod tests {
     use crate::TargetAvailabilityFacts;
     use crate::fact::FactQueryError;
     use crate::request::{CompilationOptions, CompilationRequest};
-    use crate::test_support::package_identity;
+    use crate::test_support::{package_identity, source_input};
     use crate::worker::WorkerBudget;
 
     use super::Compilation;
@@ -1216,14 +1200,5 @@ mod tests {
             Some(key) => key,
             None => panic!("test compiler-known declaration key should be valid"),
         }
-    }
-
-    fn source_input(text: &str, version: u32) -> SourceInput {
-        SourceInput::virtual_text(
-            SourceIdentity::new(version),
-            format!("source-{version}"),
-            SourceVersion::new(u64::from(version)),
-            text,
-        )
     }
 }

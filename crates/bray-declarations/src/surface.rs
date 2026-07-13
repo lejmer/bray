@@ -1,5 +1,8 @@
 use bray_source::{SourceId, TextRange};
-use bray_syntax::{SourceSyntaxNode, SyntaxKind};
+use bray_syntax::{
+    SourceSyntaxNode, SyntaxCast, SyntaxKind, SyntaxTree, SyntaxWalkControl, SyntaxWalkEvent,
+    walk_syntax_tree,
+};
 
 /// Stable source-backed reference to a syntax node used by later compiler phases.
 ///
@@ -44,6 +47,48 @@ impl SyntaxAnchor {
     /// Returns whether the anchored syntax node contains parser recovery.
     pub const fn is_recovered(self) -> bool {
         self.is_recovered
+    }
+
+    /// Resolves the first descendant of `T` within this exact anchored syntax node.
+    pub fn find_descendant<T: SyntaxCast>(self, syntax: &SyntaxTree) -> Option<T> {
+        let mut result = None;
+        let mut anchor_depth = None;
+
+        walk_syntax_tree(syntax, |event| {
+            match event {
+                SyntaxWalkEvent::EnterNode(node) => {
+                    if let Some(depth) = anchor_depth.as_mut() {
+                        *depth += 1;
+                    } else if node.source().source_id() == self.source_id
+                        && node.kind() == self.syntax_kind
+                        && node.full_range() == self.full_range
+                        && node.is_recovered() == self.is_recovered
+                    {
+                        anchor_depth = Some(1);
+                    }
+
+                    if anchor_depth.is_some() && node.kind() == T::KIND {
+                        result = node.cast();
+
+                        return SyntaxWalkControl::Stop;
+                    }
+                }
+                SyntaxWalkEvent::ExitNode(_) => {
+                    if let Some(depth) = anchor_depth.as_mut() {
+                        *depth -= 1;
+
+                        if *depth == 0 {
+                            anchor_depth = None;
+                        }
+                    }
+                }
+                SyntaxWalkEvent::Token(_) => {}
+            }
+
+            SyntaxWalkControl::Continue
+        });
+
+        result
     }
 }
 
@@ -138,5 +183,47 @@ impl DeclarationSurface {
     /// Returns overload arm path anchors in source order.
     pub fn overload_arms(&self) -> &[SyntaxAnchor] {
         &self.overload_arms
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_syntax::{CallableBodyBlockExpressionSyntax, SyntaxTree};
+    use bray_testing::{test_source_at, test_source_store};
+
+    use super::SyntaxAnchor;
+
+    #[test]
+    fn syntax_anchors_resolve_typed_descendants_only_within_their_node() {
+        let sources = test_source_store([concat!(
+            "module app;\n",
+            "func first()\n",
+            "{\n",
+            "}\n",
+            "extern func second();\n",
+        )]);
+
+        let parsed = bray_parser::parse_source_unit(test_source_at(&sources, 0));
+        let source_unit = parsed.source_unit().clone();
+        let functions = source_unit.function_declarations().collect::<Vec<_>>();
+
+        let [first, second] = functions.as_slice() else {
+            panic!("test source must contain two functions");
+        };
+
+        let first = SyntaxAnchor::from_node(first);
+        let second = SyntaxAnchor::from_node(second);
+        let syntax = SyntaxTree::compilation_unit([source_unit]);
+
+        assert!(
+            first
+                .find_descendant::<CallableBodyBlockExpressionSyntax>(&syntax)
+                .is_some()
+        );
+        assert!(
+            second
+                .find_descendant::<CallableBodyBlockExpressionSyntax>(&syntax)
+                .is_none()
+        );
     }
 }
