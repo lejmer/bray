@@ -471,6 +471,7 @@ mod tests {
 
     use super::render_token_inspection;
     use crate::DriverOutputFormat;
+    use crate::test_support::package_identity;
 
     #[test]
     fn text_inspection_renders_tokens_trivia_and_source_grouping() {
@@ -570,7 +571,7 @@ mod tests {
     }
 
     fn compilation_from_inputs(inputs: Vec<SourceInput>) -> Compilation {
-        match Compilation::load_sources(inputs) {
+        match Compilation::load_sources(package_identity(), inputs) {
             Ok(compilation) => compilation,
             Err(error) => panic!("test compilation should load: {error:?}"),
         }

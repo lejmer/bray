@@ -212,6 +212,7 @@ mod tests {
 
     use super::render_source_inspection;
     use crate::DriverOutputFormat;
+    use crate::test_support::package_identity;
 
     #[test]
     fn text_inspection_renders_loaded_source_metadata_and_text() {
@@ -268,7 +269,7 @@ mod tests {
         let input =
             SourceInput::virtual_text(SourceIdentity::new(0), "main", SourceVersion::new(0), text);
 
-        match Compilation::load_sources(vec![input]) {
+        match Compilation::load_sources(package_identity(), vec![input]) {
             Ok(compilation) => compilation,
             Err(error) => panic!("test compilation should build: {error:?}"),
         }

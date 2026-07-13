@@ -1,8 +1,9 @@
 use bray_bound_tree::{
     BoundCallableBodyId, BoundExpressionId, BoundUnitKey, BoundUnitKeyData,
-    CheckedAnonymousCallable, CheckedCallableBody, CheckedConstantTemplateUnit,
-    CheckedConstraintUnit, CheckedContractClauseUnit, CheckedControlFlowFacts,
-    CheckedPredicateDefinitionUnit, CheckedRuntimeDefaultUnit, CheckedUnitBuildError,
+    CheckedControlFlowFacts, CheckedUnitBuildError, ControlFlowCheckedAnonymousCallable,
+    ControlFlowCheckedCallableBody, ControlFlowCheckedConstantTemplateUnit,
+    ControlFlowCheckedConstraintUnit, ControlFlowCheckedContractClauseUnit,
+    ControlFlowCheckedPredicateDefinitionUnit, ControlFlowCheckedRuntimeDefaultUnit,
 };
 use bray_checker::{
     CheckerCancellation, CheckerOutcome, ControlFlowChecker, UnitCheckRequest,
@@ -33,7 +34,7 @@ pub(crate) fn assemble_callable_body<C, K>(
     checker: &C,
     cancellation: &K,
     root: BoundCallableBodyId,
-) -> Result<CheckedUnitComputation<CheckedCallableBody>, CheckedUnitAssemblyError>
+) -> Result<CheckedUnitComputation<ControlFlowCheckedCallableBody>, CheckedUnitAssemblyError>
 where
     C: ControlFlowChecker + ?Sized,
     K: BinderCancellation + ?Sized,
@@ -45,7 +46,7 @@ where
         cancellation,
         UnitCheckRoot::CallableBody(root),
         |parts| {
-            CheckedCallableBody::try_new(
+            ControlFlowCheckedCallableBody::try_new(
                 &parts.key,
                 parts.tree,
                 parts.local_symbols,
@@ -64,7 +65,7 @@ pub(crate) fn assemble_anonymous_callable<C, K>(
     cancellation: &K,
     callable: AnonymousCallableSymbolId,
     root: BoundCallableBodyId,
-) -> Result<CheckedUnitComputation<CheckedAnonymousCallable>, CheckedUnitAssemblyError>
+) -> Result<CheckedUnitComputation<ControlFlowCheckedAnonymousCallable>, CheckedUnitAssemblyError>
 where
     C: ControlFlowChecker + ?Sized,
     K: BinderCancellation + ?Sized,
@@ -76,7 +77,7 @@ where
         cancellation,
         UnitCheckRoot::CallableBody(root),
         |parts| {
-            CheckedAnonymousCallable::try_new(
+            ControlFlowCheckedAnonymousCallable::try_new(
                 &parts.key,
                 parts.tree,
                 parts.local_symbols,
@@ -123,14 +124,23 @@ macro_rules! define_expression_assembler {
     };
 }
 
-define_expression_assembler!(assemble_runtime_default, CheckedRuntimeDefaultUnit);
-define_expression_assembler!(assemble_constant_template, CheckedConstantTemplateUnit);
+define_expression_assembler!(
+    assemble_runtime_default,
+    ControlFlowCheckedRuntimeDefaultUnit
+);
+define_expression_assembler!(
+    assemble_constant_template,
+    ControlFlowCheckedConstantTemplateUnit
+);
 define_expression_assembler!(
     assemble_predicate_definition,
-    CheckedPredicateDefinitionUnit
+    ControlFlowCheckedPredicateDefinitionUnit
 );
-define_expression_assembler!(assemble_constraint, CheckedConstraintUnit);
-define_expression_assembler!(assemble_contract_clause, CheckedContractClauseUnit);
+define_expression_assembler!(assemble_constraint, ControlFlowCheckedConstraintUnit);
+define_expression_assembler!(
+    assemble_contract_clause,
+    ControlFlowCheckedContractClauseUnit
+);
 
 fn assemble_checked_unit<T, C, K>(
     request: BinderRequestResult,

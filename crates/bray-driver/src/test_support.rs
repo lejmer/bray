@@ -3,6 +3,13 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 static NEXT_TEMP_DIRECTORY: AtomicU64 = AtomicU64::new(0);
 
+pub(crate) fn package_identity() -> bray_symbols::PackageIdentity {
+    match bray_symbols::PackageIdentity::try_new("test.package") {
+        Some(identity) => identity,
+        None => panic!("test package identity must be valid"),
+    }
+}
+
 pub(crate) struct TemporaryFile {
     directory: PathBuf,
     path: PathBuf,

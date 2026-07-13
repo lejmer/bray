@@ -8,6 +8,7 @@ use bray_diagnostics::{
     DiagnosticNote, DiagnosticNoteKind, SeverityKind,
 };
 use bray_source::{SourceIdentity, SourceInput, SourceVersion};
+use bray_symbols::PackageIdentity;
 
 const FILE_ARGUMENT_SOURCE_VERSION: SourceVersion = SourceVersion::new(0);
 
@@ -91,11 +92,12 @@ impl DriverSourceInputError {
     }
 }
 
-/// Builds a compilation request from file arguments read at the driver boundary.
+/// Builds a compilation request for `package_identity` from file arguments read at the driver boundary.
 ///
 /// Source identities are assigned deterministically by file argument order,
 /// starting at zero. Each file input receives source version zero.
 pub fn compilation_request_from_file_arguments<I, P>(
+    package_identity: PackageIdentity,
     file_arguments: I,
     options: CompilationOptions,
 ) -> Result<CompilationRequest, DiagnosticBag>
@@ -106,7 +108,11 @@ where
     let sources = source_inputs_from_file_arguments(file_arguments)
         .map_err(|error| error.into_diagnostic_bag())?;
 
-    Ok(CompilationRequest::with_options(sources, options))
+    Ok(CompilationRequest::with_options(
+        package_identity,
+        sources,
+        options,
+    ))
 }
 
 /// Reads file arguments as bytes and converts them into source inputs.
@@ -183,7 +189,7 @@ mod tests {
         DriverSourceInputError, compilation_request_from_file_arguments,
         source_identity_for_input_index, source_inputs_from_file_arguments,
     };
-    use crate::test_support::{TemporaryFile, unique_temporary_directory};
+    use crate::test_support::{TemporaryFile, package_identity, unique_temporary_directory};
 
     #[test]
     fn file_arguments_are_loaded_as_raw_file_source_inputs() {
@@ -219,11 +225,14 @@ mod tests {
         let file = TemporaryFile::write("main.bray", b"module main\n");
         let options = CompilationOptions::new(WorkerBudget::serial());
 
-        let request =
-            match compilation_request_from_file_arguments([file.path().to_path_buf()], options) {
-                Ok(request) => request,
-                Err(error) => panic!("compilation request should build: {error:?}"),
-            };
+        let request = match compilation_request_from_file_arguments(
+            package_identity(),
+            [file.path().to_path_buf()],
+            options,
+        ) {
+            Ok(request) => request,
+            Err(error) => panic!("compilation request should build: {error:?}"),
+        };
 
         assert_eq!(request.options(), options);
         assert_eq!(request.sources().len(), 1);
@@ -267,6 +276,7 @@ mod tests {
         let missing_path = unique_temporary_directory().join("missing.bray");
 
         let diagnostics = match compilation_request_from_file_arguments(
+            package_identity(),
             [missing_path.clone()],
             CompilationOptions::new(WorkerBudget::serial()),
         ) {

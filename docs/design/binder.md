@@ -530,6 +530,11 @@ Keys must not include memory addresses, worker IDs, query request order, cache i
 Numeric unit IDs are compilation-local handles. Persisted caches and tooling use stable keys and dependency fingerprints rather than
 raw numeric IDs.
 
+`Compilation` derives compact IDs from the immutable syntax snapshot before unit publication. It assigns every distinct source
+anchor a deterministic traversal ordinal and combines that ordinal with the closed `BoundUnitKind` category. A collision registry
+rejects two different keys that violate the one-unit-per-anchor-and-category invariant. Query order, worker scheduling, and canceled
+requests therefore cannot influence IDs.
+
 `BoundUnitKey` is the lower domain key owned with the bound-unit contract so checked units can retain nested references without
 depending on `bray-compilation`. The compilation query layer wraps it in the exact checked-unit fact key for the current compilation
 snapshot and owns interning, caching, scheduling, dependency edges, cancellation, and publication.
@@ -565,12 +570,7 @@ pub struct CheckedPredicateDefinitionUnit {
 - `BoundUnitId`,
 - immutable `BoundTree`,
 - immutable `LocalSymbolSnapshot`,
-- ordered nested semantic-unit keys,
-- the `CheckedControlFlowFacts` established by control-flow checking.
-
-`CheckedControlFlowFacts` stores the exact unit, unit category, and durable control-completion summary. It does not retain the
-checker-internal control-flow graph and does not imply that later storage, dependency, effect, capability, or contract domains have
-completed.
+- ordered nested semantic-unit keys.
 
 The category-specific wrappers expose only valid roots and relationships. The public API must not use a universal result with
 optional body, expression, callable, contract, or constant fields.
@@ -581,7 +581,6 @@ Checked-unit construction validates these invariants before publication:
 - every bound node ID stored by the tree belongs to that tree's unit,
 - the local snapshot region corresponds to the same semantic unit key,
 - every local and scope reference resolves through that snapshot,
-- durable control-flow facts belong to the same unit and category,
 - nested unit keys are complete, unique where identity requires it, and in canonical source order.
 
 Conceptually:
@@ -593,7 +592,6 @@ impl CheckedCallableBody {
     pub const fn tree(&self) -> &BoundTree;
     pub const fn local_symbols(&self) -> &LocalSymbolSnapshot;
     pub fn nested_units(&self) -> &[BoundUnitKey];
-    pub const fn control_flow_facts(&self) -> CheckedControlFlowFacts;
 }
 ```
 
@@ -604,15 +602,34 @@ public `CheckedDeclarationExpression` type.
 The exact implementation can use `Arc` around the result or its shared data. Repeated requests must return the same immutable
 semantic value and diagnostics for one compilation fact key.
 
+### Control-Flow-Checked Units
+
+Control-flow checking publishes a distinct staged family such as `ControlFlowCheckedCallableBody` and
+`ControlFlowCheckedConstantTemplateUnit`. These values retain the bound tree, local snapshot, nested keys, exact root, and
+`CheckedControlFlowFacts`. They do not claim that type, overload, implementation, ownership, borrow, contract, effect, or capability
+checking has completed.
+
+`CheckedControlFlowFacts` stores the exact unit, unit category, and durable control-completion summary. It does not retain the
+checker-internal control-flow graph. Staged construction validates that these facts belong to the same unit and category.
+
+The compilation query names include the stage, for example `control_flow_checked_callable_body`. Later checker-domain facts consume
+this staged result. Only the query that has completed every required semantic domain may construct and publish `CheckedCallableBody`
+and the other fully checked wrappers.
+
 ### Lazy Entry Points
 
 Callers request checked units through typed symbol views or `Compilation` fact APIs. They do not construct a binder or call a
 phase-execution method.
 
-The workspace-internal cross-crate boundary uses category-specific `bind_*` functions to produce task-local pending checked units.
-A pending unit exposes its canonical direct nested-unit keys, but it cannot be published. `Compilation` requests every required
-nested fact through the checked-unit cache, then asks the pending unit to run the focused checker and assemble its immutable result.
-Cancellation or a nested query failure discards the pending parent. Nested diagnostics remain owned by the nested facts.
+The workspace-internal cross-crate boundary uses category-specific `bind_*` functions to produce task-local pending units. A pending
+unit exposes its canonical direct nested-unit keys, but it cannot be published. `Compilation` requests every required nested
+control-flow fact through its stage-specific cache, then asks the pending unit to run the focused checker and assemble the immutable
+staged result. Cancellation or a nested query failure discards the pending parent. Nested diagnostics remain owned by the nested
+facts.
+
+Public compilation queries do not accept a caller-supplied `BinderFactContext`. `Compilation` owns the package identity, syntax,
+declarations, symbol graph, semantic value store, target provider, symbol-fact provider, cancellation token, and exact cache universe.
+It constructs the injected binder context internally and rejects unit keys whose owners do not belong to that symbol graph.
 
 Body presence is cheap identity-level information and does not force body binding:
 

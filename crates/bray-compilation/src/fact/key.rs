@@ -35,16 +35,24 @@ impl SymbolFactKey {
 pub enum CompilationFactKey {
     /// The target-filtered compiler-known declaration symbol view.
     AvailableCompilerKnownSymbols,
+    /// The complete canonical compiler-known symbol and fact provider.
+    CompilerKnownSymbols,
+    /// Deterministic compact identities for bound-unit source anchors.
+    BoundUnitIdentities,
     /// Diagnostics for the current whole-compilation check boundary.
     CheckDiagnostics,
-    /// One checked semantic unit selected by its exact stable key.
-    CheckedUnit(BoundUnitKey),
+    /// One control-flow-checked semantic unit selected by its exact stable key.
+    ControlFlowUnit(BoundUnitKey),
     /// Declaration discovery for one source unit.
     DeclarationChunk(SourceId),
     /// The deterministically merged declaration table.
     DeclarationTable,
+    /// The canonical semantic value store for this compilation snapshot.
+    SemanticValueStore,
     /// Parsed syntax for one source unit.
     SourceUnitSyntax(SourceId),
+    /// The deterministic compilation-wide symbol identity graph.
+    SymbolGraph,
     /// One symbol-owned semantic fact.
     Symbol(SymbolFactKey),
     /// The syntax tree composed from every loaded source unit.

@@ -1,4 +1,5 @@
 use bray_source::SourceInput;
+use bray_symbols::PackageIdentity;
 
 use crate::TargetAvailabilityFacts;
 use crate::worker::WorkerBudget;
@@ -39,22 +40,36 @@ impl CompilationOptions {
     }
 }
 
-/// Request used to load a [`Compilation`](crate::Compilation).
+/// Package identity, source inputs, and options used to load a [`Compilation`](crate::Compilation).
 #[derive(Debug, Eq, PartialEq)]
 pub struct CompilationRequest {
+    package_identity: PackageIdentity,
     options: CompilationOptions,
     sources: Vec<SourceInput>,
 }
 
 impl CompilationRequest {
-    /// Creates a compilation request from source inputs and default options.
-    pub fn new(sources: Vec<SourceInput>) -> Self {
-        Self::with_options(sources, CompilationOptions::default())
+    /// Creates a compilation request for one source package with default options.
+    pub fn new(package_identity: PackageIdentity, sources: Vec<SourceInput>) -> Self {
+        Self::with_options(package_identity, sources, CompilationOptions::default())
     }
 
-    /// Creates a compilation request from source inputs and explicit options.
-    pub fn with_options(sources: Vec<SourceInput>, options: CompilationOptions) -> Self {
-        Self { options, sources }
+    /// Creates a compilation request for one source package with explicit options.
+    pub fn with_options(
+        package_identity: PackageIdentity,
+        sources: Vec<SourceInput>,
+        options: CompilationOptions,
+    ) -> Self {
+        Self {
+            package_identity,
+            options,
+            sources,
+        }
+    }
+
+    /// Returns the source package identity selected for this compilation.
+    pub const fn package_identity(&self) -> &PackageIdentity {
+        &self.package_identity
     }
 
     /// Returns the compilation options.
@@ -68,20 +83,15 @@ impl CompilationRequest {
     }
 
     /// Consumes the request into its parts.
-    pub fn into_parts(self) -> (CompilationOptions, Vec<SourceInput>) {
-        (self.options, self.sources)
-    }
-}
-
-impl From<Vec<SourceInput>> for CompilationRequest {
-    fn from(sources: Vec<SourceInput>) -> Self {
-        Self::new(sources)
+    pub fn into_parts(self) -> (PackageIdentity, CompilationOptions, Vec<SourceInput>) {
+        (self.package_identity, self.options, self.sources)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use bray_source::{SourceIdentity, SourceInput, SourceVersion};
+    use bray_symbols::PackageIdentity;
 
     use crate::worker::WorkerBudget;
 
@@ -98,8 +108,14 @@ mod tests {
             "one",
         );
 
-        let request = CompilationRequest::with_options(vec![source], options);
+        let Some(package_identity) = PackageIdentity::try_new("test.package") else {
+            panic!("test package identity must be valid");
+        };
 
+        let request =
+            CompilationRequest::with_options(package_identity.clone(), vec![source], options);
+
+        assert_eq!(request.package_identity(), &package_identity);
         assert_eq!(request.options(), options);
         assert_eq!(request.sources().len(), 1);
     }

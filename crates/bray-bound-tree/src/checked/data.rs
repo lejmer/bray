@@ -6,16 +6,40 @@ use bray_symbols::{
 
 use super::CheckedUnitBuildError;
 use crate::{
-    BoundTree, BoundUnitId, BoundUnitKey, BoundUnitKeyData, BoundUnitKind, CheckedControlFlowFacts,
-    DeclaredBoundUnitKey,
+    BoundTree, BoundUnitId, BoundUnitKey, BoundUnitKeyData, BoundUnitKind, DeclaredBoundUnitKey,
 };
+
+macro_rules! unit_data_accessors {
+    () => {
+        /// Returns the compilation-local identity of this bound unit.
+        pub const fn unit(&self) -> BoundUnitId {
+            self.data.unit()
+        }
+
+        /// Returns the immutable source-shaped bound tree owned by this unit.
+        pub const fn tree(&self) -> &BoundTree {
+            self.data.tree()
+        }
+
+        /// Returns the immutable local-symbol and lexical-scope snapshot owned by this unit.
+        pub const fn local_symbols(&self) -> &LocalSymbolSnapshot {
+            self.data.local_symbols()
+        }
+
+        /// Returns directly nested anonymous callable units in canonical source order.
+        pub fn nested_units(&self) -> &[BoundUnitKey] {
+            self.data.nested_units()
+        }
+    };
+}
+
+pub(super) use unit_data_accessors;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct CheckedUnitData {
     tree: BoundTree,
     local_symbols: LocalSymbolSnapshot,
     nested_units: Arc<[BoundUnitKey]>,
-    control_flow_facts: CheckedControlFlowFacts,
 }
 
 impl CheckedUnitData {
@@ -25,7 +49,6 @@ impl CheckedUnitData {
         tree: BoundTree,
         local_symbols: LocalSymbolSnapshot,
         nested_units: impl IntoIterator<Item = BoundUnitKey>,
-        control_flow_facts: CheckedControlFlowFacts,
     ) -> Result<Self, CheckedUnitBuildError> {
         if key.kind() != expected_kind {
             return Err(CheckedUnitBuildError::UnitKindMismatch {
@@ -38,20 +61,6 @@ impl CheckedUnitData {
             return Err(CheckedUnitBuildError::LocalSymbolRegionMismatch);
         }
 
-        if control_flow_facts.unit() != tree.unit() {
-            return Err(CheckedUnitBuildError::ControlFlowUnitMismatch {
-                expected: tree.unit(),
-                actual: control_flow_facts.unit(),
-            });
-        }
-
-        if control_flow_facts.kind() != expected_kind {
-            return Err(CheckedUnitBuildError::ControlFlowKindMismatch {
-                expected: expected_kind,
-                actual: control_flow_facts.kind(),
-            });
-        }
-
         let nested_units = nested_units.into_iter().collect::<Arc<[_]>>();
 
         validate_nested_units(key, &nested_units)?;
@@ -60,7 +69,6 @@ impl CheckedUnitData {
             tree,
             local_symbols,
             nested_units,
-            control_flow_facts,
         })
     }
 
@@ -78,10 +86,6 @@ impl CheckedUnitData {
 
     pub(super) fn nested_units(&self) -> &[BoundUnitKey] {
         &self.nested_units
-    }
-
-    pub(super) const fn control_flow_facts(&self) -> CheckedControlFlowFacts {
-        self.control_flow_facts
     }
 }
 

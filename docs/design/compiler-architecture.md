@@ -128,6 +128,11 @@ source unit's syntax. A declaration-table query requests all source-unit chunks 
 diagnostics are a projection of the merged result, so a check-diagnostics query materializes declaration discovery through that
 fact dependency rather than through a phase-execution command.
 
+One compilation request carries the source package identity as an explicit semantic input. `Compilation` owns that identity and
+lazily derives the matching symbol graph and canonical semantic value store. Binder-facing query APIs construct their read-only fact
+context internally from compilation-owned inputs. They must not accept arbitrary caller contexts that could populate one cache from
+another syntax, symbol, target, or semantic-value universe.
+
 Dependency interfaces and the current library product's encoded package interface are also lazy facts. An imported identity-skeleton
 query requests structural interface validation and deterministic external-key mapping. An imported symbol fact requests only its
 length-delimited semantic payload. An interface-artifact query requests the reachable completed public surface and deterministic
@@ -153,6 +158,9 @@ Compiler facts should generally be lazy across stable compiler boundaries:
 A lazy fact must be complete within the boundary promised by its API. If an API returns a checked callable body, the whole callable
 body is checked and the published result contains the required expression types, selected overloads, selected trait
 implementations, move states, borrow states, contract facts, capability facts, and diagnostics for that body.
+
+Intermediate semantic stages use explicitly staged result names. A `ControlFlowCheckedCallableBody` establishes only the durable
+facts returned by control-flow checking and cannot be substituted for a fully checked callable body.
 
 Smaller operations should use smaller APIs with smaller contracts. For example, a language-server hover implementation can ask for
 a declaration surface or a type signature. A completion implementation can ask for the local facts needed at a source position.

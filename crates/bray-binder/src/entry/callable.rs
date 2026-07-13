@@ -1,6 +1,6 @@
 use bray_bound_tree::{
     BoundCallableBody, BoundCallableBodyId, BoundNodeOrigin, BoundUnitId, BoundUnitKey,
-    CheckedAnonymousCallable, CheckedCallableBody,
+    ControlFlowCheckedAnonymousCallable, ControlFlowCheckedCallableBody,
 };
 use bray_checker::ControlFlowChecker;
 use bray_syntax::{CallableBodyBlockExpressionSyntax, LambdaExpressionSyntax};
@@ -14,24 +14,24 @@ use crate::request::{BinderRequestResult, BindingContext};
 use crate::{BinderCancellation, BinderFactContext, CheckedUnitComputation};
 
 /// A committed declared callable body awaiting required nested facts and checking.
-pub struct PendingCheckedCallableBody {
+pub struct PendingControlFlowCallableBody {
     request: BinderRequestResult,
     nested_units: Vec<BoundUnitKey>,
     root: BoundCallableBodyId,
 }
 
-impl PendingCheckedCallableBody {
+impl PendingControlFlowCallableBody {
     /// Returns directly nested anonymous callable keys in canonical source order.
     pub fn nested_units(&self) -> &[BoundUnitKey] {
         &self.nested_units
     }
 
-    /// Checks and assembles the complete immutable callable body.
+    /// Runs control-flow checking and assembles the immutable staged callable body.
     pub fn finish<C, K>(
         self,
         checker: &C,
         cancellation: &K,
-    ) -> Result<CheckedUnitComputation<CheckedCallableBody>, CheckedUnitBindingError>
+    ) -> Result<CheckedUnitComputation<ControlFlowCheckedCallableBody>, CheckedUnitBindingError>
     where
         C: ControlFlowChecker + ?Sized,
         K: BinderCancellation + ?Sized,
@@ -48,25 +48,25 @@ impl PendingCheckedCallableBody {
 }
 
 /// A committed anonymous callable awaiting required nested facts and checking.
-pub struct PendingCheckedAnonymousCallable {
+pub struct PendingControlFlowAnonymousCallable {
     request: BinderRequestResult,
     nested_units: Vec<BoundUnitKey>,
     callable: bray_symbols::AnonymousCallableSymbolId,
     root: BoundCallableBodyId,
 }
 
-impl PendingCheckedAnonymousCallable {
+impl PendingControlFlowAnonymousCallable {
     /// Returns directly nested anonymous callable keys in canonical source order.
     pub fn nested_units(&self) -> &[BoundUnitKey] {
         &self.nested_units
     }
 
-    /// Checks and assembles the complete immutable anonymous callable.
+    /// Runs control-flow checking and assembles the immutable staged anonymous callable.
     pub fn finish<C, K>(
         self,
         checker: &C,
         cancellation: &K,
-    ) -> Result<CheckedUnitComputation<CheckedAnonymousCallable>, CheckedUnitBindingError>
+    ) -> Result<CheckedUnitComputation<ControlFlowCheckedAnonymousCallable>, CheckedUnitBindingError>
     where
         C: ControlFlowChecker + ?Sized,
         K: BinderCancellation + ?Sized,
@@ -88,7 +88,7 @@ pub fn bind_callable_body<C>(
     facts: &C,
     unit: BoundUnitId,
     key: BoundUnitKey,
-) -> Result<PendingCheckedCallableBody, CheckedUnitBindingError>
+) -> Result<PendingControlFlowCallableBody, CheckedUnitBindingError>
 where
     C: BinderFactContext + ?Sized,
 {
@@ -129,7 +129,7 @@ where
 
     let nested_units = direct_nested_units(request.unit().key(), request.dependencies());
 
-    Ok(PendingCheckedCallableBody {
+    Ok(PendingControlFlowCallableBody {
         request,
         nested_units,
         root,
@@ -141,7 +141,7 @@ pub fn bind_anonymous_callable<C>(
     facts: &C,
     unit: BoundUnitId,
     key: BoundUnitKey,
-) -> Result<PendingCheckedAnonymousCallable, CheckedUnitBindingError>
+) -> Result<PendingControlFlowAnonymousCallable, CheckedUnitBindingError>
 where
     C: BinderFactContext + ?Sized,
 {
@@ -183,7 +183,7 @@ where
 
     let nested_units = direct_nested_units(request.unit().key(), request.dependencies());
 
-    Ok(PendingCheckedAnonymousCallable {
+    Ok(PendingControlFlowAnonymousCallable {
         request,
         nested_units,
         callable,

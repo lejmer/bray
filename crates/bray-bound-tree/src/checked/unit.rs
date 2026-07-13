@@ -1,39 +1,13 @@
 use bray_symbols::{AnonymousCallableSymbolId, LocalSymbolSnapshot};
 
-use super::{CheckedUnitBuildError, data::CheckedUnitData};
-use crate::{
-    BoundCallableBodyId, BoundExpressionId, BoundNodeKind, BoundTree, BoundUnitId, BoundUnitKey,
-    BoundUnitKind, CheckedControlFlowFacts,
+use super::{
+    CheckedUnitBuildError,
+    data::{CheckedUnitData, unit_data_accessors},
+    validation::{validate_anonymous_callable, validate_callable_root, validate_expression_root},
 };
-
-macro_rules! checked_unit_accessors {
-    () => {
-        /// Returns the compilation-local identity of this checked unit.
-        pub const fn unit(&self) -> BoundUnitId {
-            self.data.unit()
-        }
-
-        /// Returns the immutable source-shaped bound tree owned by this unit.
-        pub const fn tree(&self) -> &BoundTree {
-            self.data.tree()
-        }
-
-        /// Returns the immutable local-symbol and lexical-scope snapshot owned by this unit.
-        pub const fn local_symbols(&self) -> &LocalSymbolSnapshot {
-            self.data.local_symbols()
-        }
-
-        /// Returns directly nested anonymous callable units in canonical source order.
-        pub fn nested_units(&self) -> &[BoundUnitKey] {
-            self.data.nested_units()
-        }
-
-        /// Returns the durable control-flow facts established before publication.
-        pub const fn control_flow_facts(&self) -> CheckedControlFlowFacts {
-            self.data.control_flow_facts()
-        }
-    };
-}
+use crate::{
+    BoundCallableBodyId, BoundExpressionId, BoundTree, BoundUnitId, BoundUnitKey, BoundUnitKind,
+};
 
 /// A fully checked declared callable or lifecycle body.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -49,7 +23,6 @@ impl CheckedCallableBody {
         tree: BoundTree,
         local_symbols: LocalSymbolSnapshot,
         nested_units: impl IntoIterator<Item = BoundUnitKey>,
-        control_flow_facts: CheckedControlFlowFacts,
         root: BoundCallableBodyId,
     ) -> Result<Self, CheckedUnitBuildError> {
         let data = CheckedUnitData::try_new(
@@ -58,7 +31,6 @@ impl CheckedCallableBody {
             tree,
             local_symbols,
             nested_units,
-            control_flow_facts,
         )?;
 
         validate_callable_root(&data, root)?;
@@ -71,7 +43,7 @@ impl CheckedCallableBody {
         self.root
     }
 
-    checked_unit_accessors!();
+    unit_data_accessors!();
 }
 
 /// A fully checked anonymous callable signature, contracts, and body.
@@ -89,7 +61,6 @@ impl CheckedAnonymousCallable {
         tree: BoundTree,
         local_symbols: LocalSymbolSnapshot,
         nested_units: impl IntoIterator<Item = BoundUnitKey>,
-        control_flow_facts: CheckedControlFlowFacts,
         callable: AnonymousCallableSymbolId,
         root: BoundCallableBodyId,
     ) -> Result<Self, CheckedUnitBuildError> {
@@ -99,7 +70,6 @@ impl CheckedAnonymousCallable {
             tree,
             local_symbols,
             nested_units,
-            control_flow_facts,
         )?;
 
         validate_anonymous_callable(&data, callable)?;
@@ -122,7 +92,7 @@ impl CheckedAnonymousCallable {
         self.root
     }
 
-    checked_unit_accessors!();
+    unit_data_accessors!();
 }
 
 macro_rules! define_checked_expression_unit {
@@ -141,7 +111,6 @@ macro_rules! define_checked_expression_unit {
                 tree: BoundTree,
                 local_symbols: LocalSymbolSnapshot,
                 nested_units: impl IntoIterator<Item = BoundUnitKey>,
-                control_flow_facts: CheckedControlFlowFacts,
                 root: BoundExpressionId,
             ) -> Result<Self, CheckedUnitBuildError> {
                 let data = CheckedUnitData::try_new(
@@ -150,7 +119,6 @@ macro_rules! define_checked_expression_unit {
                     tree,
                     local_symbols,
                     nested_units,
-                    control_flow_facts,
                 )?;
 
                 validate_expression_root(&data, root)?;
@@ -163,7 +131,7 @@ macro_rules! define_checked_expression_unit {
                 self.root
             }
 
-            checked_unit_accessors!();
+            unit_data_accessors!();
         }
     };
 }
@@ -194,54 +162,6 @@ define_checked_expression_unit!(
     "A fully checked callable contract-clause expression."
 );
 
-fn validate_anonymous_callable(
-    data: &CheckedUnitData,
-    callable: AnonymousCallableSymbolId,
-) -> Result<(), CheckedUnitBuildError> {
-    let expected = data.local_symbols().region();
-
-    if callable.region() != expected {
-        return Err(CheckedUnitBuildError::AnonymousCallableRegionMismatch {
-            expected,
-            actual: callable.region(),
-        });
-    }
-
-    if data.local_symbols().anonymous_callable(callable).is_none() {
-        return Err(CheckedUnitBuildError::MissingAnonymousCallable { callable });
-    }
-
-    Ok(())
-}
-
-fn validate_callable_root(
-    data: &CheckedUnitData,
-    root: BoundCallableBodyId,
-) -> Result<(), CheckedUnitBuildError> {
-    if data.tree().callable_body(root).is_none() {
-        return Err(CheckedUnitBuildError::MissingRoot {
-            unit: data.unit(),
-            kind: BoundNodeKind::CallableBody,
-        });
-    }
-
-    Ok(())
-}
-
-fn validate_expression_root(
-    data: &CheckedUnitData,
-    root: BoundExpressionId,
-) -> Result<(), CheckedUnitBuildError> {
-    if data.tree().expression(root).is_none() {
-        return Err(CheckedUnitBuildError::MissingRoot {
-            unit: data.unit(),
-            kind: BoundNodeKind::Expression,
-        });
-    }
-
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use bray_source::TextSize;
@@ -256,8 +176,8 @@ mod tests {
         CheckedRuntimeDefaultUnit,
     };
     use crate::test_support::{
-        error_expression, local_snapshot, recovered_control_flow, runtime_default_key,
-        source_anchor, source_anchor_with_version, symbol_key,
+        error_expression, local_snapshot, runtime_default_key, source_anchor,
+        source_anchor_with_version, symbol_key,
     };
     use crate::{
         BoundCallableBody, BoundCallableBodyId, BoundExpressionId, BoundNodeKind, BoundNodeOrigin,
@@ -296,7 +216,6 @@ mod tests {
             tree,
             local_symbols,
             [first.clone(), second.clone()],
-            recovered_control_flow(BoundUnitId::new(20), BoundUnitKind::CallableBody),
             root,
         ) else {
             panic!("a complete recovery body must be publishable");
@@ -332,7 +251,6 @@ mod tests {
             runtime_tree,
             runtime_symbols,
             [],
-            recovered_control_flow(BoundUnitId::new(1), BoundUnitKind::RuntimeDefault),
             runtime_root,
         ));
 
@@ -356,7 +274,6 @@ mod tests {
             constant_tree,
             constant_symbols,
             [],
-            recovered_control_flow(BoundUnitId::new(2), BoundUnitKind::ConstantTemplate),
             constant_root,
         ));
 
@@ -380,7 +297,6 @@ mod tests {
             predicate_tree,
             predicate_symbols,
             [],
-            recovered_control_flow(BoundUnitId::new(3), BoundUnitKind::PredicateDefinition),
             predicate_root,
         ));
 
@@ -401,7 +317,6 @@ mod tests {
             constraint_tree,
             constraint_symbols,
             [],
-            recovered_control_flow(BoundUnitId::new(4), BoundUnitKind::Constraint),
             constraint_root,
         ));
 
@@ -425,7 +340,6 @@ mod tests {
             contract_tree,
             contract_symbols,
             [],
-            recovered_control_flow(BoundUnitId::new(5), BoundUnitKind::ContractClause),
             contract_root,
         ));
 
@@ -456,15 +370,9 @@ mod tests {
 
         let (tree, root) = callable_tree(BoundUnitId::new(31));
 
-        let Ok(unit) = CheckedAnonymousCallable::try_new(
-            &key,
-            tree,
-            local_symbols,
-            [],
-            recovered_control_flow(BoundUnitId::new(31), BoundUnitKind::AnonymousCallable),
-            *callable,
-            root,
-        ) else {
+        let Ok(unit) =
+            CheckedAnonymousCallable::try_new(&key, tree, local_symbols, [], *callable, root)
+        else {
             panic!("a matching anonymous callable unit must be publishable");
         };
 
@@ -499,7 +407,6 @@ mod tests {
             tree,
             local_symbols,
             [],
-            recovered_control_flow(BoundUnitId::new(31), BoundUnitKind::AnonymousCallable),
             *foreign_callable,
             root,
         );
@@ -526,7 +433,6 @@ mod tests {
             tree,
             local_symbols,
             [],
-            recovered_control_flow(BoundUnitId::new(31), BoundUnitKind::AnonymousCallable),
             *missing_callable,
             root,
         );
@@ -562,7 +468,6 @@ mod tests {
                 [source.syntax()],
             ),
             [],
-            recovered_control_flow(BoundUnitId::new(1), BoundUnitKind::CallableBody),
             wrong_kind_root,
         );
 
@@ -587,7 +492,6 @@ mod tests {
                 [source.syntax()],
             ),
             [],
-            recovered_control_flow(BoundUnitId::new(2), BoundUnitKind::CallableBody),
             foreign_root,
         );
 
@@ -611,66 +515,12 @@ mod tests {
                 [source.syntax()],
             ),
             [],
-            recovered_control_flow(BoundUnitId::new(4), BoundUnitKind::CallableBody),
             root,
         );
 
         assert_eq!(
             wrong_region,
             Err(CheckedUnitBuildError::LocalSymbolRegionMismatch)
-        );
-    }
-
-    #[test]
-    fn construction_rejects_control_flow_facts_from_another_unit_or_category() {
-        let source = source_anchor();
-        let owner = symbol_key(SymbolKind::Function, 0);
-        let key = valid_key(BoundUnitKey::callable_body(owner.clone(), source));
-
-        let (tree, root) = callable_tree(BoundUnitId::new(10));
-        let foreign_unit = CheckedCallableBody::try_new(
-            &key,
-            tree,
-            local_snapshot(
-                10,
-                owner.clone(),
-                LocalSymbolRegionRole::CallableBody,
-                [source.syntax()],
-            ),
-            [],
-            recovered_control_flow(BoundUnitId::new(11), BoundUnitKind::CallableBody),
-            root,
-        );
-
-        assert_eq!(
-            foreign_unit,
-            Err(CheckedUnitBuildError::ControlFlowUnitMismatch {
-                expected: BoundUnitId::new(10),
-                actual: BoundUnitId::new(11),
-            })
-        );
-
-        let (tree, root) = callable_tree(BoundUnitId::new(12));
-        let foreign_kind = CheckedCallableBody::try_new(
-            &key,
-            tree,
-            local_snapshot(
-                12,
-                owner,
-                LocalSymbolRegionRole::CallableBody,
-                [source.syntax()],
-            ),
-            [],
-            recovered_control_flow(BoundUnitId::new(12), BoundUnitKind::Constraint),
-            root,
-        );
-
-        assert_eq!(
-            foreign_kind,
-            Err(CheckedUnitBuildError::ControlFlowKindMismatch {
-                expected: BoundUnitKind::CallableBody,
-                actual: BoundUnitKind::Constraint,
-            })
         );
     }
 
@@ -771,7 +621,6 @@ mod tests {
                 [key.source().syntax()],
             ),
             nested,
-            recovered_control_flow(BoundUnitId::new(40), BoundUnitKind::CallableBody),
             root,
         )
     }

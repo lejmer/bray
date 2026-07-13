@@ -9,7 +9,7 @@ use bray_diagnostics::DiagnosticResult;
 
 use crate::BinderDependency;
 
-/// One complete checked-unit computation awaiting compilation-owned publication.
+/// One complete semantic-unit stage computation awaiting compilation-owned publication.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CheckedUnitComputation<T> {
     result: DiagnosticResult<T>,

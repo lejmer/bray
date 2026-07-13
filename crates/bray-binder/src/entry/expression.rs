@@ -1,7 +1,7 @@
 use bray_bound_tree::{
-    BoundExpressionId, BoundUnitId, BoundUnitKey, CheckedConstantTemplateUnit,
-    CheckedConstraintUnit, CheckedContractClauseUnit, CheckedPredicateDefinitionUnit,
-    CheckedRuntimeDefaultUnit,
+    BoundExpressionId, BoundUnitId, BoundUnitKey, ControlFlowCheckedConstantTemplateUnit,
+    ControlFlowCheckedConstraintUnit, ControlFlowCheckedContractClauseUnit,
+    ControlFlowCheckedPredicateDefinitionUnit, ControlFlowCheckedRuntimeDefaultUnit,
 };
 use bray_checker::ControlFlowChecker;
 use bray_syntax::ExpressionSyntax;
@@ -41,7 +41,7 @@ macro_rules! define_pending_expression_unit {
                 &self.nested_units
             }
 
-            /// Checks and assembles the complete immutable expression unit.
+            /// Runs control-flow checking and assembles the immutable staged expression unit.
             pub fn finish<C, K>(
                 self,
                 checker: &C,
@@ -85,45 +85,45 @@ macro_rules! define_pending_expression_unit {
 }
 
 define_pending_expression_unit!(
-    PendingCheckedRuntimeDefault,
+    PendingControlFlowRuntimeDefault,
     bind_runtime_default,
-    CheckedRuntimeDefaultUnit,
+    ControlFlowCheckedRuntimeDefaultUnit,
     assemble_runtime_default,
     BindingContext::Expression,
     "A committed runtime-default expression awaiting required nested facts and checking.",
     "Binds one runtime-default expression into committed task-local state."
 );
 define_pending_expression_unit!(
-    PendingCheckedConstantTemplate,
+    PendingControlFlowConstantTemplate,
     bind_constant_template,
-    CheckedConstantTemplateUnit,
+    ControlFlowCheckedConstantTemplateUnit,
     assemble_constant_template,
     BindingContext::ConstantExpression,
     "A committed constant-template expression awaiting required nested facts and checking.",
     "Binds one constant-template expression into committed task-local state."
 );
 define_pending_expression_unit!(
-    PendingCheckedPredicateDefinition,
+    PendingControlFlowPredicateDefinition,
     bind_predicate_definition,
-    CheckedPredicateDefinitionUnit,
+    ControlFlowCheckedPredicateDefinitionUnit,
     assemble_predicate_definition,
     BindingContext::PredicateExpression,
     "A committed predicate-definition expression awaiting required nested facts and checking.",
     "Binds one predicate-definition expression into committed task-local state."
 );
 define_pending_expression_unit!(
-    PendingCheckedConstraint,
+    PendingControlFlowConstraint,
     bind_constraint,
-    CheckedConstraintUnit,
+    ControlFlowCheckedConstraintUnit,
     assemble_constraint,
     BindingContext::PredicateExpression,
     "A committed constraint expression awaiting required nested facts and checking.",
     "Binds one constraint expression into committed task-local state."
 );
 define_pending_expression_unit!(
-    PendingCheckedContractClause,
+    PendingControlFlowContractClause,
     bind_contract_clause,
-    CheckedContractClauseUnit,
+    ControlFlowCheckedContractClauseUnit,
     assemble_contract_clause,
     BindingContext::ContractClause,
     "A committed contract-clause expression awaiting required nested facts and checking.",

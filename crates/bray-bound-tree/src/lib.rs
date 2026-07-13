@@ -19,7 +19,10 @@ mod view;
 pub use checked::{
     CheckedAnonymousCallable, CheckedCallableBody, CheckedConstantTemplateUnit,
     CheckedConstraintUnit, CheckedContractClauseUnit, CheckedPredicateDefinitionUnit,
-    CheckedRuntimeDefaultUnit, CheckedUnitBuildError,
+    CheckedRuntimeDefaultUnit, CheckedUnitBuildError, ControlFlowCheckedAnonymousCallable,
+    ControlFlowCheckedCallableBody, ControlFlowCheckedConstantTemplateUnit,
+    ControlFlowCheckedConstraintUnit, ControlFlowCheckedContractClauseUnit,
+    ControlFlowCheckedPredicateDefinitionUnit, ControlFlowCheckedRuntimeDefaultUnit,
 };
 pub use control::{CheckedControlFlowFacts, ControlCompletion, ControlCompletionKind};
 pub use dependency::{

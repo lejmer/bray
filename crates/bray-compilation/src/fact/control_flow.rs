@@ -3,16 +3,17 @@ use std::sync::{Arc, Mutex};
 
 use bray_binder::{BinderDependency, CheckedUnitComputation};
 use bray_bound_tree::{
-    BoundUnitId, BoundUnitKey, BoundUnitKind, CheckedAnonymousCallable, CheckedCallableBody,
-    CheckedConstantTemplateUnit, CheckedConstraintUnit, CheckedContractClauseUnit,
-    CheckedPredicateDefinitionUnit, CheckedRuntimeDefaultUnit,
+    BoundUnitKey, BoundUnitKind, ControlFlowCheckedAnonymousCallable,
+    ControlFlowCheckedCallableBody, ControlFlowCheckedConstantTemplateUnit,
+    ControlFlowCheckedConstraintUnit, ControlFlowCheckedContractClauseUnit,
+    ControlFlowCheckedPredicateDefinitionUnit, ControlFlowCheckedRuntimeDefaultUnit,
 };
 use bray_diagnostics::DiagnosticResult;
 
 use super::{CancellationToken, CompilationFactKey, FactCell, FactQueryError, FactRuntime};
 
 #[derive(Debug)]
-pub(crate) struct PublishedCheckedUnit<T> {
+pub(crate) struct PublishedUnit<T> {
     result: Arc<DiagnosticResult<T>>,
     // TODO(compilation): Remove this expectation when incremental invalidation traverses edges.
     #[cfg_attr(
@@ -25,7 +26,7 @@ pub(crate) struct PublishedCheckedUnit<T> {
     dependencies: Box<[BinderDependency]>,
 }
 
-impl<T> PublishedCheckedUnit<T> {
+impl<T> PublishedUnit<T> {
     pub(crate) const fn result(&self) -> &Arc<DiagnosticResult<T>> {
         &self.result
     }
@@ -44,14 +45,14 @@ impl<T> PublishedCheckedUnit<T> {
 }
 
 #[derive(Debug)]
-pub(crate) struct CheckedUnitFactCache<T> {
+pub(crate) struct UnitFactCache<T> {
     kind: BoundUnitKind,
-    cells: Mutex<CheckedUnitCells<T>>,
+    cells: Mutex<UnitCells<T>>,
 }
 
-type CheckedUnitCells<T> = BTreeMap<BoundUnitKey, Arc<FactCell<Arc<PublishedCheckedUnit<T>>>>>;
+type UnitCells<T> = BTreeMap<BoundUnitKey, Arc<FactCell<Arc<PublishedUnit<T>>>>>;
 
-impl<T> CheckedUnitFactCache<T> {
+impl<T> UnitFactCache<T> {
     pub(crate) const fn new(kind: BoundUnitKind) -> Self {
         Self {
             kind,
@@ -65,18 +66,18 @@ impl<T> CheckedUnitFactCache<T> {
         cancellation: &CancellationToken,
         key: BoundUnitKey,
         compute: impl FnOnce() -> Result<CheckedUnitComputation<T>, FactQueryError>,
-    ) -> Result<Arc<PublishedCheckedUnit<T>>, FactQueryError> {
+    ) -> Result<Arc<PublishedUnit<T>>, FactQueryError> {
         if key.kind() != self.kind {
             return Err(FactQueryError::InfrastructureFailure);
         }
 
         let cell = self.cell(&key)?;
-        let fact_key = CompilationFactKey::CheckedUnit(key);
+        let fact_key = CompilationFactKey::ControlFlowUnit(key);
 
         let published = cell.get_or_compute(runtime, fact_key, cancellation, || {
             let (result, dependencies) = compute()?.into_parts();
 
-            Ok(Arc::new(PublishedCheckedUnit {
+            Ok(Arc::new(PublishedUnit {
                 result: Arc::new(result),
                 dependencies,
             }))
@@ -89,7 +90,7 @@ impl<T> CheckedUnitFactCache<T> {
     fn cell(
         &self,
         key: &BoundUnitKey,
-    ) -> Result<Arc<FactCell<Arc<PublishedCheckedUnit<T>>>>, FactQueryError> {
+    ) -> Result<Arc<FactCell<Arc<PublishedUnit<T>>>>, FactQueryError> {
         let mut cells = self
             .cells
             .lock()
@@ -105,62 +106,41 @@ impl<T> CheckedUnitFactCache<T> {
 }
 
 #[derive(Debug)]
-pub(crate) struct CheckedUnitFactCaches {
-    unit_ids: Mutex<BTreeMap<BoundUnitKey, BoundUnitId>>,
-    callable_body: CheckedUnitFactCache<CheckedCallableBody>,
-    anonymous_callable: CheckedUnitFactCache<CheckedAnonymousCallable>,
-    runtime_default: CheckedUnitFactCache<CheckedRuntimeDefaultUnit>,
-    constant_template: CheckedUnitFactCache<CheckedConstantTemplateUnit>,
-    predicate_definition: CheckedUnitFactCache<CheckedPredicateDefinitionUnit>,
-    constraint: CheckedUnitFactCache<CheckedConstraintUnit>,
-    contract_clause: CheckedUnitFactCache<CheckedContractClauseUnit>,
+pub(crate) struct ControlFlowUnitFactCaches {
+    callable_body: UnitFactCache<ControlFlowCheckedCallableBody>,
+    anonymous_callable: UnitFactCache<ControlFlowCheckedAnonymousCallable>,
+    runtime_default: UnitFactCache<ControlFlowCheckedRuntimeDefaultUnit>,
+    constant_template: UnitFactCache<ControlFlowCheckedConstantTemplateUnit>,
+    predicate_definition: UnitFactCache<ControlFlowCheckedPredicateDefinitionUnit>,
+    constraint: UnitFactCache<ControlFlowCheckedConstraintUnit>,
+    contract_clause: UnitFactCache<ControlFlowCheckedContractClauseUnit>,
 }
 
-impl CheckedUnitFactCaches {
+impl ControlFlowUnitFactCaches {
     pub(crate) const fn new() -> Self {
         Self {
-            unit_ids: Mutex::new(BTreeMap::new()),
-            callable_body: CheckedUnitFactCache::new(BoundUnitKind::CallableBody),
-            anonymous_callable: CheckedUnitFactCache::new(BoundUnitKind::AnonymousCallable),
-            runtime_default: CheckedUnitFactCache::new(BoundUnitKind::RuntimeDefault),
-            constant_template: CheckedUnitFactCache::new(BoundUnitKind::ConstantTemplate),
-            predicate_definition: CheckedUnitFactCache::new(BoundUnitKind::PredicateDefinition),
-            constraint: CheckedUnitFactCache::new(BoundUnitKind::Constraint),
-            contract_clause: CheckedUnitFactCache::new(BoundUnitKind::ContractClause),
+            callable_body: UnitFactCache::new(BoundUnitKind::CallableBody),
+            anonymous_callable: UnitFactCache::new(BoundUnitKind::AnonymousCallable),
+            runtime_default: UnitFactCache::new(BoundUnitKind::RuntimeDefault),
+            constant_template: UnitFactCache::new(BoundUnitKind::ConstantTemplate),
+            predicate_definition: UnitFactCache::new(BoundUnitKind::PredicateDefinition),
+            constraint: UnitFactCache::new(BoundUnitKind::Constraint),
+            contract_clause: UnitFactCache::new(BoundUnitKind::ContractClause),
         }
     }
 
-    pub(crate) fn get_or_compute<T: CheckedUnitFact>(
+    pub(crate) fn get_or_compute<T: ControlFlowUnitFact>(
         &self,
         runtime: &FactRuntime,
         cancellation: &CancellationToken,
         key: BoundUnitKey,
         compute: impl FnOnce() -> Result<CheckedUnitComputation<T>, FactQueryError>,
-    ) -> Result<Arc<PublishedCheckedUnit<T>>, FactQueryError> {
+    ) -> Result<Arc<PublishedUnit<T>>, FactQueryError> {
         T::cache(self).get_or_compute(runtime, cancellation, key, compute)
     }
 
-    pub(crate) fn unit_id(&self, key: &BoundUnitKey) -> Result<BoundUnitId, FactQueryError> {
-        let mut unit_ids = self
-            .unit_ids
-            .lock()
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
-
-        if let Some(unit) = unit_ids.get(key).copied() {
-            return Ok(unit);
-        }
-
-        let unit = BoundUnitId::try_from_index(unit_ids.len())
-            .ok_or(FactQueryError::InfrastructureFailure)?;
-
-        // The map and checked-unit caches retain the same Arc-backed immutable key.
-        unit_ids.insert(key.clone(), unit);
-
-        Ok(unit)
-    }
-
     #[cfg(test)]
-    pub(crate) fn is_published<T: CheckedUnitFact>(
+    pub(crate) fn is_published<T: ControlFlowUnitFact>(
         &self,
         key: &BoundUnitKey,
     ) -> Result<bool, FactQueryError> {
@@ -173,15 +153,15 @@ impl CheckedUnitFactCaches {
     }
 }
 
-pub(crate) trait CheckedUnitFact: Sized {
-    fn cache(caches: &CheckedUnitFactCaches) -> &CheckedUnitFactCache<Self>;
+pub(crate) trait ControlFlowUnitFact: Sized {
+    fn cache(caches: &ControlFlowUnitFactCaches) -> &UnitFactCache<Self>;
 }
 
-macro_rules! define_checked_unit_facts {
+macro_rules! define_control_flow_unit_facts {
     ($($value:ty => $field:ident),+ $(,)?) => {
         $(
-            impl CheckedUnitFact for $value {
-                fn cache(caches: &CheckedUnitFactCaches) -> &CheckedUnitFactCache<Self> {
+            impl ControlFlowUnitFact for $value {
+                fn cache(caches: &ControlFlowUnitFactCaches) -> &UnitFactCache<Self> {
                     &caches.$field
                 }
             }
@@ -189,14 +169,14 @@ macro_rules! define_checked_unit_facts {
     };
 }
 
-define_checked_unit_facts! {
-    CheckedCallableBody => callable_body,
-    CheckedAnonymousCallable => anonymous_callable,
-    CheckedRuntimeDefaultUnit => runtime_default,
-    CheckedConstantTemplateUnit => constant_template,
-    CheckedPredicateDefinitionUnit => predicate_definition,
-    CheckedConstraintUnit => constraint,
-    CheckedContractClauseUnit => contract_clause,
+define_control_flow_unit_facts! {
+    ControlFlowCheckedCallableBody => callable_body,
+    ControlFlowCheckedAnonymousCallable => anonymous_callable,
+    ControlFlowCheckedRuntimeDefaultUnit => runtime_default,
+    ControlFlowCheckedConstantTemplateUnit => constant_template,
+    ControlFlowCheckedPredicateDefinitionUnit => predicate_definition,
+    ControlFlowCheckedConstraintUnit => constraint,
+    ControlFlowCheckedContractClauseUnit => contract_clause,
 }
 
 #[cfg(test)]
@@ -208,7 +188,7 @@ mod tests {
         Diagnostic, DiagnosticBag, DiagnosticId, DiagnosticKind, DiagnosticResult, SeverityKind,
     };
 
-    use super::CheckedUnitFactCache;
+    use super::UnitFactCache;
     use crate::fact::{CancellationToken, FactQueryError, FactRuntime};
     use crate::test_support::{callable_body_key, constant_template_key};
 
@@ -216,7 +196,7 @@ mod tests {
     fn repeated_requests_publish_one_atomic_result() {
         let runtime = FactRuntime::default();
         let cancellation = CancellationToken::new();
-        let cache = CheckedUnitFactCache::new(BoundUnitKind::CallableBody);
+        let cache = UnitFactCache::new(BoundUnitKind::CallableBody);
         let computations = AtomicUsize::new(0);
 
         let key = callable_body_key(0);
@@ -242,7 +222,7 @@ mod tests {
     fn concurrent_requests_share_one_publication() {
         let runtime = FactRuntime::default();
         let cancellation = CancellationToken::new();
-        let cache = CheckedUnitFactCache::new(BoundUnitKind::CallableBody);
+        let cache = UnitFactCache::new(BoundUnitKind::CallableBody);
         let computations = AtomicUsize::new(0);
 
         let key = callable_body_key(1);
@@ -279,10 +259,10 @@ mod tests {
     }
 
     #[test]
-    fn cancellation_publishes_no_partial_checked_unit() {
+    fn cancellation_publishes_no_partial_control_flow_unit() {
         let runtime = FactRuntime::default();
         let cancellation = CancellationToken::new();
-        let cache = CheckedUnitFactCache::new(BoundUnitKind::CallableBody);
+        let cache = UnitFactCache::new(BoundUnitKind::CallableBody);
 
         let key = callable_body_key(2);
 
@@ -305,7 +285,7 @@ mod tests {
     fn exact_unit_identity_selects_cache_entries_and_cycle_paths() {
         let runtime = FactRuntime::default();
         let cancellation = CancellationToken::new();
-        let cache = CheckedUnitFactCache::new(BoundUnitKind::CallableBody);
+        let cache = UnitFactCache::new(BoundUnitKind::CallableBody);
 
         let first_key = callable_body_key(3);
         let second_key = callable_body_key(4);
@@ -319,7 +299,7 @@ mod tests {
         assert_eq!(first.result().value(), &3);
         assert_eq!(second.result().value(), &4);
 
-        let recursive_cache = CheckedUnitFactCache::new(BoundUnitKind::CallableBody);
+        let recursive_cache = UnitFactCache::new(BoundUnitKind::CallableBody);
 
         let recursive =
             recursive_cache.get_or_compute(&runtime, &cancellation, first_key.clone(), || {
@@ -340,8 +320,8 @@ mod tests {
         assert_eq!(
             cycle.facts(),
             &[
-                crate::CompilationFactKey::CheckedUnit(first_key.clone()),
-                crate::CompilationFactKey::CheckedUnit(first_key)
+                crate::CompilationFactKey::ControlFlowUnit(first_key.clone()),
+                crate::CompilationFactKey::ControlFlowUnit(first_key)
             ]
         );
     }
@@ -350,7 +330,7 @@ mod tests {
     fn nested_diagnostics_remain_owned_by_nested_facts() {
         let runtime = FactRuntime::default();
         let cancellation = CancellationToken::new();
-        let cache = CheckedUnitFactCache::new(BoundUnitKind::CallableBody);
+        let cache = UnitFactCache::new(BoundUnitKind::CallableBody);
 
         let outer_key = callable_body_key(5);
         let nested_key = callable_body_key(6);
@@ -392,7 +372,7 @@ mod tests {
     fn caches_reject_unit_categories_owned_by_another_typed_fact() {
         let runtime = FactRuntime::default();
         let cancellation = CancellationToken::new();
-        let cache = CheckedUnitFactCache::<u32>::new(BoundUnitKind::CallableBody);
+        let cache = UnitFactCache::<u32>::new(BoundUnitKind::CallableBody);
 
         let result =
             cache.get_or_compute(&runtime, &cancellation, constant_template_key(7), || {
@@ -403,20 +383,20 @@ mod tests {
     }
 
     #[test]
-    fn checked_unit_fact_caches_are_send_and_sync() {
+    fn control_flow_fact_caches_are_send_and_sync() {
         fn assert_send_sync<T: Send + Sync>() {}
 
-        assert_send_sync::<CheckedUnitFactCache<u32>>();
-        assert_send_sync::<super::CheckedUnitFactCaches>();
+        assert_send_sync::<UnitFactCache<u32>>();
+        assert_send_sync::<super::ControlFlowUnitFactCaches>();
     }
 
     fn published(
-        cache: &CheckedUnitFactCache<u32>,
+        cache: &UnitFactCache<u32>,
         runtime: &FactRuntime,
         cancellation: &CancellationToken,
         key: BoundUnitKey,
         compute: impl FnOnce() -> Result<bray_binder::CheckedUnitComputation<u32>, FactQueryError>,
-    ) -> std::sync::Arc<super::PublishedCheckedUnit<u32>> {
+    ) -> std::sync::Arc<super::PublishedUnit<u32>> {
         match cache.get_or_compute(runtime, cancellation, key, compute) {
             Ok(value) => value,
             Err(error) => panic!("checked unit must publish: {error:?}"),

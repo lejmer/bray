@@ -1,3 +1,4 @@
+use std::fmt;
 use std::sync::Arc;
 
 use bray_binder::CheckedUnitComputation;
@@ -9,29 +10,33 @@ use bray_declarations::{
 use bray_diagnostics::DiagnosticBag;
 use bray_parser::{SourceUnitSyntaxResult, SyntaxTreeResult, parse_source_unit};
 use bray_source::{SourceId, SourceInput, SourceLoadError, SourceSnapshot, SourceStore};
-use bray_symbols::{AvailableCompilerKnownSymbols, CompilerKnownSymbolProvider};
+use bray_symbols::{
+    AvailableCompilerKnownSymbols, CompilerKnownSymbolBuildError, CompilerKnownSymbolProvider,
+    PackageIdentity, SemanticValueStore, SemanticValueStoreCreateError, SymbolGraph,
+};
 use bray_syntax::SyntaxTree;
 
 use crate::fact::{
-    CancellationToken, CheckedUnitFact, CheckedUnitFactCaches, CompilationFactKey, FactCell,
-    FactQueryError, FactRuntime, PublishedCheckedUnit,
+    BoundUnitIdentityMap, CancellationToken, CompilationFactKey, ControlFlowUnitFact,
+    ControlFlowUnitFactCaches, FactCell, FactQueryError, FactRuntime, PublishedUnit,
 };
 use crate::request::{CompilationOptions, CompilationRequest};
 use crate::worker::WorkerBudget;
 
+use super::binder::CompilationTargetFacts;
 use super::load::{
     CompilationLoadError, SourceInputDiagnosticContext, missing_source_input_diagnostic,
     next_diagnostic_id, source_load_diagnostic,
 };
 
 /// Durable immutable compilation context and demand-driven fact entrypoint.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Compilation {
     pub(super) state: Arc<CompilationState>,
 }
 
-#[derive(Debug)]
 pub(super) struct CompilationState {
+    package_identity: PackageIdentity,
     options: CompilationOptions,
     sources: SourceStore,
     source_diagnostics: DiagnosticBag,
@@ -41,15 +46,22 @@ pub(super) struct CompilationState {
     syntax_tree_result: FactCell<SyntaxTreeResult>,
     declaration_chunks: Vec<FactCell<DeclarationChunkResult>>,
     declaration_table_result: FactCell<DeclarationTableResult>,
+    compiler_known_symbols:
+        FactCell<Result<Arc<CompilerKnownSymbolProvider>, CompilerKnownSymbolBuildError>>,
     available_compiler_known_symbols: FactCell<AvailableCompilerKnownSymbols>,
-    pub(super) checked_units: CheckedUnitFactCaches,
+    bound_unit_identities: FactCell<Result<BoundUnitIdentityMap, FactQueryError>>,
+    symbol_graph: FactCell<Result<SymbolGraph, FactQueryError>>,
+    semantic_values: FactCell<Result<SemanticValueStore, SemanticValueStoreCreateError>>,
+    pub(super) target_facts: CompilationTargetFacts,
+    pub(super) symbol_facts: (),
+    pub(super) control_flow_units: ControlFlowUnitFactCaches,
     check_diagnostics: FactCell<DiagnosticBag>,
 }
 
 impl Compilation {
     /// Loads source inputs into durable compilation state without requesting derived facts.
-    pub fn load(request: impl Into<CompilationRequest>) -> Result<Self, CompilationLoadError> {
-        let (options, source_inputs) = request.into().into_parts();
+    pub fn load(request: CompilationRequest) -> Result<Self, CompilationLoadError> {
+        let (package_identity, options, source_inputs) = request.into_parts();
 
         let mut sources = SourceStore::with_capacity(source_inputs.len());
         let mut diagnostics = DiagnosticBag::new();
@@ -88,6 +100,7 @@ impl Compilation {
 
         Ok(Self {
             state: Arc::new(CompilationState {
+                package_identity,
                 options,
                 sources,
                 source_diagnostics: diagnostics,
@@ -97,16 +110,30 @@ impl Compilation {
                 syntax_tree_result: FactCell::new(),
                 declaration_chunks: empty_fact_caches(source_count),
                 declaration_table_result: FactCell::new(),
+                compiler_known_symbols: FactCell::new(),
                 available_compiler_known_symbols: FactCell::new(),
-                checked_units: CheckedUnitFactCaches::new(),
+                bound_unit_identities: FactCell::new(),
+                symbol_graph: FactCell::new(),
+                semantic_values: FactCell::new(),
+                target_facts: CompilationTargetFacts,
+                symbol_facts: (),
+                control_flow_units: ControlFlowUnitFactCaches::new(),
                 check_diagnostics: FactCell::new(),
             }),
         })
     }
 
-    /// Loads source inputs with default options without requesting derived facts.
-    pub fn load_sources(sources: Vec<SourceInput>) -> Result<Self, CompilationLoadError> {
-        Self::load(CompilationRequest::new(sources))
+    /// Loads one source package with default options without requesting derived facts.
+    pub fn load_sources(
+        package_identity: PackageIdentity,
+        sources: Vec<SourceInput>,
+    ) -> Result<Self, CompilationLoadError> {
+        Self::load(CompilationRequest::new(package_identity, sources))
+    }
+
+    /// Returns the source package identity selected for this compilation.
+    pub fn package_identity(&self) -> &PackageIdentity {
+        &self.state.package_identity
     }
 
     /// Returns the compilation options.
@@ -130,8 +157,8 @@ impl Compilation {
             CompilationFactKey::AvailableCompilerKnownSymbols,
             &self.state.available_compiler_known_symbols,
             || {
-                let provider = match CompilerKnownSymbolProvider::build() {
-                    Ok(provider) => Arc::new(provider),
+                let provider = match self.compiler_known_provider() {
+                    Ok(provider) => Arc::clone(provider),
                     // Generated catalog validation makes provider failure a compiler invariant.
                     Err(error) => panic!("compiler-known symbol provider is invalid: {error:?}"),
                 };
@@ -248,6 +275,62 @@ impl Compilation {
         self.declaration_table_result().diagnostics()
     }
 
+    /// Returns the lazily constructed compilation-wide symbol graph.
+    pub fn symbol_graph(&self) -> Result<&SymbolGraph, FactQueryError> {
+        self.fact(
+            CompilationFactKey::SymbolGraph,
+            &self.state.symbol_graph,
+            || {
+                let provider = self.compiler_known_provider().map(Arc::clone)?;
+
+                // The graph owns the Arc-backed package identity after compilation retains its input.
+                SymbolGraph::build_source_with_provider(
+                    self.package_identity().clone(),
+                    self.declaration_table(),
+                    provider,
+                )
+                .map_err(|_| FactQueryError::InfrastructureFailure)
+            },
+        )
+        .as_ref()
+        .map_err(Clone::clone)
+    }
+
+    /// Returns the canonical semantic value store for this compilation snapshot.
+    pub fn semantic_value_store(&self) -> Result<&SemanticValueStore, FactQueryError> {
+        self.fact(
+            CompilationFactKey::SemanticValueStore,
+            &self.state.semantic_values,
+            SemanticValueStore::try_new,
+        )
+        .as_ref()
+        .map_err(|_| FactQueryError::InfrastructureFailure)
+    }
+
+    fn compiler_known_provider(&self) -> Result<&Arc<CompilerKnownSymbolProvider>, FactQueryError> {
+        self.fact(
+            CompilationFactKey::CompilerKnownSymbols,
+            &self.state.compiler_known_symbols,
+            || CompilerKnownSymbolProvider::build().map(Arc::new),
+        )
+        .as_ref()
+        .map_err(|_| FactQueryError::InfrastructureFailure)
+    }
+
+    pub(super) fn bound_unit_id(
+        &self,
+        key: &BoundUnitKey,
+    ) -> Result<bray_bound_tree::BoundUnitId, FactQueryError> {
+        self.fact(
+            CompilationFactKey::BoundUnitIdentities,
+            &self.state.bound_unit_identities,
+            || BoundUnitIdentityMap::from_syntax(self.syntax_tree()),
+        )
+        .as_ref()
+        .map_err(Clone::clone)?
+        .unit_id(key)
+    }
+
     /// Returns the loaded source snapshot for `source_id`.
     pub fn source(&self, source_id: SourceId) -> Option<&SourceSnapshot> {
         self.state.sources.get(source_id)
@@ -293,17 +376,29 @@ impl Compilation {
         }
     }
 
-    pub(super) fn checked_unit<T: CheckedUnitFact>(
+    pub(super) fn control_flow_unit<T: ControlFlowUnitFact>(
         &self,
         key: BoundUnitKey,
         cancellation: &CancellationToken,
         compute: impl FnOnce(&CancellationToken) -> Result<CheckedUnitComputation<T>, FactQueryError>,
-    ) -> Result<Arc<PublishedCheckedUnit<T>>, FactQueryError> {
-        self.state
-            .checked_units
-            .get_or_compute(&self.state.fact_runtime, cancellation, key, || {
-                compute(cancellation)
-            })
+    ) -> Result<Arc<PublishedUnit<T>>, FactQueryError> {
+        self.state.control_flow_units.get_or_compute(
+            &self.state.fact_runtime,
+            cancellation,
+            key,
+            || compute(cancellation),
+        )
+    }
+}
+
+impl fmt::Debug for Compilation {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("Compilation")
+            .field("package_identity", self.package_identity())
+            .field("options", &self.options())
+            .field("source_count", &self.source_count())
+            .finish_non_exhaustive()
     }
 }
 
@@ -318,13 +413,13 @@ mod tests {
         atomic::{AtomicUsize, Ordering},
     };
 
-    use bray_binder::{
-        BinderDependency, BinderFactContext, BinderFactError, BinderFactResult,
-        CheckedUnitComputation, TargetFactProvider, TargetFactResult,
+    use bray_binder::{BinderDependency, CheckedUnitComputation, bind_callable_body};
+    use bray_bound_tree::{
+        BoundSourceAnchor, BoundUnitKey, BoundUnitKind, ControlFlowCheckedCallableBody,
     };
-    use bray_bound_tree::{BoundSourceAnchor, BoundUnitKey, BoundUnitKind, CheckedCallableBody};
+    use bray_checker::DefaultControlFlowChecker;
     use bray_compiler_known::{AvailabilityRule, CompilerKnownDeclarationKey};
-    use bray_declarations::{DeclarationKind, DeclarationTable, ModulePath};
+    use bray_declarations::{DeclarationKind, ModulePath};
     use bray_diagnostics::{
         Diagnostic, DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticBag,
         DiagnosticId, DiagnosticKind, DiagnosticNote, DiagnosticNoteKind, DiagnosticResult,
@@ -335,25 +430,25 @@ mod tests {
         TextSize,
     };
     use bray_symbols::{
-        ConstantSymbolId, FunctionSymbolId, PackageIdentity, SemanticValueStore, StructSymbolId,
-        SymbolGraph, SymbolOrigin,
+        FunctionSymbolId, PackageIdentity, StructSymbolId, SymbolGraph, SymbolOrigin,
     };
-    use bray_syntax::{SourceSyntaxNode, SyntaxTree};
+    use bray_syntax::SourceSyntaxNode;
 
     use crate::TargetAvailabilityFacts;
     use crate::fact::{CancellationToken, FactQueryError};
     use crate::request::{CompilationOptions, CompilationRequest};
-    use crate::test_support::{checked_callable_body, constant_template_key};
+    use crate::test_support::{checked_callable_body, constant_template_key, package_identity};
     use crate::worker::WorkerBudget;
 
     use super::Compilation;
 
     #[test]
     fn empty_compilation_requests_produce_diagnostics() {
-        let compilation = match Compilation::load(Vec::new()) {
-            Ok(compilation) => compilation,
-            Err(error) => panic!("empty requests should load with diagnostics: {error:?}"),
-        };
+        let compilation =
+            match Compilation::load(CompilationRequest::new(package_identity(), Vec::new())) {
+                Ok(compilation) => compilation,
+                Err(error) => panic!("empty requests should load with diagnostics: {error:?}"),
+            };
 
         let diagnostic = match compilation.source_diagnostics().diagnostics() {
             [diagnostic] => diagnostic,
@@ -381,6 +476,7 @@ mod tests {
         let options = CompilationOptions::new(WorkerBudget::serial());
 
         let request = CompilationRequest::with_options(
+            package_identity(),
             vec![
                 source_input("module first\n", 1),
                 source_input("module second\n", 2),
@@ -423,10 +519,11 @@ mod tests {
 
     #[test]
     fn load_diagnostics_do_not_include_syntax_diagnostics() {
-        let compilation = match Compilation::load_sources(vec![source_input("$", 0)]) {
-            Ok(compilation) => compilation,
-            Err(error) => panic!("source-only compilation should load: {error:?}"),
-        };
+        let compilation =
+            match Compilation::load_sources(package_identity(), vec![source_input("$", 0)]) {
+                Ok(compilation) => compilation,
+                Err(error) => panic!("source-only compilation should load: {error:?}"),
+            };
 
         assert!(compilation.source_diagnostics().is_empty());
 
@@ -450,7 +547,10 @@ mod tests {
             vec![0xff],
         );
 
-        let compilation = match Compilation::load(vec![source_input("$", 0), invalid_utf8]) {
+        let compilation = match Compilation::load(CompilationRequest::new(
+            package_identity(),
+            vec![source_input("$", 0), invalid_utf8],
+        )) {
             Ok(compilation) => compilation,
             Err(error) => panic!("compilation should load: {error:?}"),
         };
@@ -483,7 +583,10 @@ mod tests {
             vec![0xff],
         );
 
-        let compilation = match Compilation::load_sources(vec![source_input("valid", 0), invalid]) {
+        let compilation = match Compilation::load_sources(
+            package_identity(),
+            vec![source_input("valid", 0), invalid],
+        ) {
             Ok(compilation) => compilation,
             Err(error) => panic!("invalid UTF-8 should become a diagnostic: {error:?}"),
         };
@@ -535,10 +638,11 @@ mod tests {
 
     #[test]
     fn check_diagnostics_are_cached() {
-        let compilation = match Compilation::load_sources(vec![source_input("$", 0)]) {
-            Ok(compilation) => compilation,
-            Err(error) => panic!("test compilation should load: {error:?}"),
-        };
+        let compilation =
+            match Compilation::load_sources(package_identity(), vec![source_input("$", 0)]) {
+                Ok(compilation) => compilation,
+                Err(error) => panic!("test compilation should load: {error:?}"),
+            };
 
         let first = compilation.check_diagnostics();
         let second = compilation.check_diagnostics();
@@ -547,7 +651,7 @@ mod tests {
     }
 
     #[test]
-    fn checked_units_are_request_scoped_lazy_compilation_facts() {
+    fn control_flow_units_are_request_scoped_lazy_compilation_facts() {
         let compilation = declaration_compilation();
 
         let cancellation = CancellationToken::new();
@@ -563,8 +667,10 @@ mod tests {
             SeverityKind::Error,
         );
 
-        let first =
-            match compilation.checked_unit(key.clone(), &cancellation, |request_cancellation| {
+        let first = match compilation.control_flow_unit(
+            key.clone(),
+            &cancellation,
+            |request_cancellation| {
                 assert!(std::ptr::eq(request_cancellation, &cancellation));
 
                 computations.fetch_add(1, Ordering::SeqCst);
@@ -573,12 +679,13 @@ mod tests {
                     DiagnosticResult::new(body.clone(), DiagnosticBag::single(diagnostic.clone())),
                     [dependency.clone()],
                 ))
-            }) {
-                Ok(result) => result,
-                Err(error) => panic!("checked callable body must publish: {error:?}"),
-            };
+            },
+        ) {
+            Ok(result) => result,
+            Err(error) => panic!("checked callable body must publish: {error:?}"),
+        };
 
-        let second = match compilation.checked_unit(key, &CancellationToken::new(), |_| {
+        let second = match compilation.control_flow_unit(key, &CancellationToken::new(), |_| {
             panic!("cached checked unit must not be recomputed")
         }) {
             Ok(result) => result,
@@ -598,7 +705,7 @@ mod tests {
 
         let (retry_key, retry_body) = checked_callable_body(22);
 
-        let cancelled_result = compilation.checked_unit(retry_key.clone(), &cancelled, |_| {
+        let cancelled_result = compilation.control_flow_unit(retry_key.clone(), &cancelled, |_| {
             Ok(CheckedUnitComputation::new(
                 DiagnosticResult::without_diagnostics(retry_body.clone()),
                 [],
@@ -607,7 +714,7 @@ mod tests {
 
         assert!(matches!(cancelled_result, Err(FactQueryError::Cancelled)));
 
-        let retried = compilation.checked_unit(retry_key, &CancellationToken::new(), |_| {
+        let retried = compilation.control_flow_unit(retry_key, &CancellationToken::new(), |_| {
             Ok(CheckedUnitComputation::new(
                 DiagnosticResult::without_diagnostics(retry_body.clone()),
                 [],
@@ -619,7 +726,10 @@ mod tests {
 
     #[test]
     fn compiler_known_availability_is_lazy_cached_and_keeps_the_complete_provider() {
-        let compilation = match Compilation::load_sources(vec![source_input("module app;", 0)]) {
+        let compilation = match Compilation::load_sources(
+            package_identity(),
+            vec![source_input("module app;", 0)],
+        ) {
             Ok(compilation) => compilation,
             Err(error) => panic!("test compilation should load: {error:?}"),
         };
@@ -634,8 +744,16 @@ mod tests {
 
         let first = compilation.available_compiler_known_symbols();
         let second = compilation.available_compiler_known_symbols();
+        let graph = match compilation.symbol_graph() {
+            Ok(graph) => graph,
+            Err(error) => panic!("test symbol graph must build: {error:?}"),
+        };
 
         assert!(std::ptr::eq(first, second));
+        assert!(std::ptr::eq(
+            first.provider(),
+            graph.compiler_known_provider()
+        ));
 
         assert!(
             compilation
@@ -700,10 +818,11 @@ mod tests {
 
     #[test]
     fn source_unit_syntax_facts_are_cached_by_source_id() {
-        let compilation = match Compilation::load_sources(vec![source_input("$", 0)]) {
-            Ok(compilation) => compilation,
-            Err(error) => panic!("test compilation should load: {error:?}"),
-        };
+        let compilation =
+            match Compilation::load_sources(package_identity(), vec![source_input("$", 0)]) {
+                Ok(compilation) => compilation,
+                Err(error) => panic!("test compilation should load: {error:?}"),
+            };
 
         let first_syntax = match compilation.source_unit_syntax(SourceId::new(0)) {
             Some(result) => result,
@@ -824,10 +943,13 @@ mod tests {
 
     #[test]
     fn declaration_diagnostics_flow_into_check_diagnostics() {
-        let compilation = match Compilation::load_sources(vec![source_input(
-            "module core; struct Point {} struct Point {}",
-            0,
-        )]) {
+        let compilation = match Compilation::load_sources(
+            package_identity(),
+            vec![source_input(
+                "module core; struct Point {} struct Point {}",
+                0,
+            )],
+        ) {
             Ok(compilation) => compilation,
             Err(error) => panic!("test compilation should load: {error:?}"),
         };
@@ -846,24 +968,26 @@ mod tests {
     #[test]
     fn checked_callable_queries_complete_nested_units_in_source_order() {
         let compilation = checked_body_compilation();
-        let facts = IntegrationBinderFacts::new(&compilation, None);
-        let key = callable_key(&facts);
+        let key = callable_key(&compilation);
 
-        let checked = match compilation.checked_callable_body(&facts, key) {
+        let checked = match compilation.control_flow_checked_callable_body(key) {
             Ok(checked) => checked,
-            Err(error) => panic!("checked callable query must complete: {error:?}"),
+            Err(error) => panic!("control-flow-checked callable query must complete: {error:?}"),
         };
 
         let nested = checked.value().nested_units();
 
         assert_eq!(nested.len(), 2);
         assert!(nested[0].source() < nested[1].source());
-        assert_eq!(facts.syntax_calls.load(Ordering::Relaxed), 3);
 
         let mut recovered = Vec::new();
+        let facts = match compilation.binder_facts(&compilation.state.cancellation) {
+            Ok(facts) => facts,
+            Err(error) => panic!("compilation binder facts must be available: {error:?}"),
+        };
 
         for key in nested {
-            let child = match compilation.checked_anonymous_callable(
+            let child = match compilation.control_flow_checked_anonymous_callable(
                 &facts,
                 key.clone(),
                 &compilation.state.cancellation,
@@ -876,42 +1000,61 @@ mod tests {
         }
 
         assert_eq!(recovered, [true, false]);
-        assert_eq!(facts.syntax_calls.load(Ordering::Relaxed), 3);
     }
 
     #[test]
     fn nested_cancellation_prevents_parent_publication() {
         let compilation = checked_body_compilation();
-        let facts = IntegrationBinderFacts::new(&compilation, Some(2));
-        let key = callable_key(&facts);
+        let key = callable_key(&compilation);
+        let cancellation = CancellationToken::new();
+        let facts = match compilation.binder_facts(&cancellation) {
+            Ok(facts) => facts,
+            Err(error) => panic!("compilation binder facts must be available: {error:?}"),
+        };
+        let unit = match compilation.bound_unit_id(&key) {
+            Ok(unit) => unit,
+            Err(error) => panic!("test unit identity must be available: {error:?}"),
+        };
+        let pending = match bind_callable_body(&facts, unit, key.clone()) {
+            Ok(pending) => pending,
+            Err(error) => panic!("test callable must bind before nested cancellation: {error:?}"),
+        };
+        let Some(nested) = pending.nested_units().first().cloned() else {
+            panic!("test callable must contain a nested anonymous callable");
+        };
 
-        let result = compilation.checked_callable_body(&facts, key.clone());
+        let result = compilation.control_flow_unit(key.clone(), &cancellation, |cancellation| {
+            cancellation.cancel();
+            compilation.control_flow_checked_anonymous_callable(&facts, nested, cancellation)?;
+
+            pending
+                .finish(&DefaultControlFlowChecker, cancellation)
+                .map_err(|_| FactQueryError::InfrastructureFailure)
+        });
 
         assert!(matches!(result, Err(FactQueryError::Cancelled)));
-        assert_eq!(facts.syntax_calls.load(Ordering::Relaxed), 2);
 
         let published = compilation
             .state
-            .checked_units
-            .is_published::<CheckedCallableBody>(&key);
+            .control_flow_units
+            .is_published::<ControlFlowCheckedCallableBody>(&key);
 
         assert_eq!(published, Ok(false));
     }
 
     #[test]
     fn declaration_owned_expression_queries_use_the_same_finalization_path() {
-        let compilation = match Compilation::load_sources(vec![source_input(
-            "module app; const size: i32 = 1;",
-            0,
-        )]) {
+        let compilation = match Compilation::load_sources(
+            package_identity(),
+            vec![source_input("module app; const size: i32 = 1;", 0)],
+        ) {
             Ok(compilation) => compilation,
             Err(error) => panic!("constant compilation must load: {error:?}"),
         };
 
-        let facts = IntegrationBinderFacts::new(&compilation, None);
-        let key = source_constant_template_key(&facts);
+        let key = source_constant_template_key(&compilation);
 
-        let checked = match compilation.checked_constant_template(&facts, key) {
+        let checked = match compilation.control_flow_checked_constant_template(key) {
             Ok(checked) => checked,
             Err(error) => panic!("constant template query must complete: {error:?}"),
         };
@@ -923,6 +1066,74 @@ mod tests {
     }
 
     #[test]
+    fn foreign_unit_keys_cannot_publish_into_a_compilation_cache() {
+        let compilation = checked_body_compilation();
+        let Some(foreign_package) = PackageIdentity::try_new("foreign.package") else {
+            panic!("foreign test package identity must be valid");
+        };
+        let foreign_symbols =
+            match SymbolGraph::build_source(foreign_package, compilation.declaration_table()) {
+                Ok(symbols) => symbols,
+                Err(error) => panic!("foreign test symbol graph must build: {error:?}"),
+            };
+        let foreign_key = callable_key_from_symbols(&compilation, &foreign_symbols);
+
+        let foreign = compilation.control_flow_checked_callable_body(foreign_key.clone());
+
+        assert!(matches!(
+            foreign,
+            Err(FactQueryError::InfrastructureFailure)
+        ));
+
+        assert_eq!(
+            compilation
+                .state
+                .control_flow_units
+                .is_published::<ControlFlowCheckedCallableBody>(&foreign_key),
+            Ok(false)
+        );
+
+        let local_key = callable_key(&compilation);
+        let local = compilation.control_flow_checked_callable_body(local_key);
+
+        assert!(local.is_ok());
+    }
+
+    #[test]
+    fn bound_unit_ids_ignore_serial_reversed_and_parallel_demand_order() {
+        let first = unit_identity_compilation();
+        let first_callable = callable_key(&first);
+        let first_constant = source_constant_template_key(&first);
+
+        let first_callable_id = unit_id(&first, &first_callable);
+        let first_constant_id = unit_id(&first, &first_constant);
+
+        let reversed = unit_identity_compilation();
+        let reversed_callable = callable_key(&reversed);
+        let reversed_constant = source_constant_template_key(&reversed);
+
+        let reversed_constant_id = unit_id(&reversed, &reversed_constant);
+        let reversed_callable_id = unit_id(&reversed, &reversed_callable);
+
+        assert_eq!(first_callable_id, reversed_callable_id);
+        assert_eq!(first_constant_id, reversed_constant_id);
+
+        let parallel = unit_identity_compilation();
+        let parallel_callable = callable_key(&parallel);
+        let parallel_constant = source_constant_template_key(&parallel);
+
+        let (parallel_callable_id, parallel_constant_id) = std::thread::scope(|scope| {
+            let callable = scope.spawn(|| unit_id(&parallel, &parallel_callable));
+            let constant = scope.spawn(|| unit_id(&parallel, &parallel_constant));
+
+            (join_unit_id(callable), join_unit_id(constant))
+        });
+
+        assert_eq!(first_callable_id, parallel_callable_id);
+        assert_eq!(first_constant_id, parallel_constant_id);
+    }
+
+    #[test]
     fn check_diagnostics_merge_available_phase_diagnostics() {
         let invalid = SourceInput::file_bytes(
             SourceIdentity::new(11),
@@ -931,7 +1142,10 @@ mod tests {
             vec![0xff],
         );
 
-        let compilation = match Compilation::load_sources(vec![source_input("$", 0), invalid]) {
+        let compilation = match Compilation::load_sources(
+            package_identity(),
+            vec![source_input("$", 0), invalid],
+        ) {
             Ok(compilation) => compilation,
             Err(error) => panic!("invalid UTF-8 should become a diagnostic: {error:?}"),
         };
@@ -963,10 +1177,13 @@ mod tests {
     }
 
     fn declaration_compilation() -> Compilation {
-        match Compilation::load_sources(vec![
-            source_input("module core; func first() {}", 0),
-            source_input("module core { const Size: Int = 1; }", 1),
-        ]) {
+        match Compilation::load_sources(
+            package_identity(),
+            vec![
+                source_input("module core; func first() {}", 0),
+                source_input("module core { const Size: Int = 1; }", 1),
+            ],
+        ) {
             Ok(compilation) => compilation,
             Err(error) => panic!("test compilation should load: {error:?}"),
         }
@@ -987,104 +1204,37 @@ mod tests {
             "}\n",
         );
 
-        match Compilation::load_sources(vec![source_input(source, 0)]) {
+        match Compilation::load_sources(package_identity(), vec![source_input(source, 0)]) {
             Ok(compilation) => compilation,
             Err(error) => panic!("checked-body compilation must load: {error:?}"),
         }
     }
 
-    struct IntegrationBinderFacts<'compilation> {
-        compilation: &'compilation Compilation,
-        symbols: SymbolGraph,
-        semantic_values: SemanticValueStore,
-        target_facts: UnavailableTargetFacts,
-        syntax_calls: AtomicUsize,
-        cancel_on_syntax_call: Option<usize>,
-    }
+    fn unit_identity_compilation() -> Compilation {
+        let source = concat!(
+            "module app;\n",
+            "const size: i32 = 1;\n",
+            "func main()\n",
+            "{\n",
+            "}\n",
+        );
 
-    impl<'compilation> IntegrationBinderFacts<'compilation> {
-        fn new(
-            compilation: &'compilation Compilation,
-            cancel_on_syntax_call: Option<usize>,
-        ) -> Self {
-            let Some(package) = PackageIdentity::try_new("test.package") else {
-                panic!("test package identity must be valid");
-            };
-
-            let symbols = match SymbolGraph::build_source(package, compilation.declaration_table())
-            {
-                Ok(symbols) => symbols,
-                Err(error) => panic!("test symbol graph must build: {error:?}"),
-            };
-
-            let semantic_values = match SemanticValueStore::try_new() {
-                Ok(values) => values,
-                Err(error) => panic!("test semantic store must build: {error:?}"),
-            };
-
-            Self {
-                compilation,
-                symbols,
-                semantic_values,
-                target_facts: UnavailableTargetFacts,
-                syntax_calls: AtomicUsize::new(0),
-                cancel_on_syntax_call,
-            }
+        match Compilation::load_sources(package_identity(), vec![source_input(source, 0)]) {
+            Ok(compilation) => compilation,
+            Err(error) => panic!("unit identity compilation must load: {error:?}"),
         }
     }
 
-    impl BinderFactContext for IntegrationBinderFacts<'_> {
-        type TargetFacts = UnavailableTargetFacts;
-        type SymbolFacts = ();
-        type Cancellation = CancellationToken;
-
-        fn syntax(&self) -> &SyntaxTree {
-            let call = self.syntax_calls.fetch_add(1, Ordering::Relaxed) + 1;
-            let syntax = self.compilation.syntax_tree();
-
-            if self.cancel_on_syntax_call == Some(call) {
-                self.compilation.state.cancellation.cancel();
-            }
-
-            syntax
-        }
-
-        fn declarations(&self) -> &DeclarationTable {
-            self.compilation.declaration_table()
-        }
-
-        fn symbols(&self) -> &SymbolGraph {
-            &self.symbols
-        }
-
-        fn semantic_values(&self) -> &SemanticValueStore {
-            &self.semantic_values
-        }
-
-        fn target_facts(&self) -> &Self::TargetFacts {
-            &self.target_facts
-        }
-
-        fn symbol_facts(&self) -> &Self::SymbolFacts {
-            &()
-        }
-
-        fn cancellation(&self) -> &Self::Cancellation {
-            &self.compilation.state.cancellation
-        }
+    fn callable_key(compilation: &Compilation) -> BoundUnitKey {
+        let symbols = match compilation.symbol_graph() {
+            Ok(symbols) => symbols,
+            Err(error) => panic!("test symbol graph must build: {error:?}"),
+        };
+        callable_key_from_symbols(compilation, symbols)
     }
 
-    struct UnavailableTargetFacts;
-
-    impl TargetFactProvider for UnavailableTargetFacts {
-        fn target_fact(&self, _fact: ConstantSymbolId) -> BinderFactResult<Arc<TargetFactResult>> {
-            Err(BinderFactError::DependencyUnavailable)
-        }
-    }
-
-    fn callable_key(facts: &IntegrationBinderFacts<'_>) -> BoundUnitKey {
-        let Some(function) = facts
-            .symbols
+    fn callable_key_from_symbols(compilation: &Compilation, symbols: &SymbolGraph) -> BoundUnitKey {
+        let Some(function) = symbols
             .functions()
             .iter()
             .find(|function| function.origin() == SymbolOrigin::Source)
@@ -1096,7 +1246,7 @@ mod tests {
             panic!("source function must retain its syntax anchor");
         };
 
-        let Some(source) = facts.compilation.source(anchor.source_id()) else {
+        let Some(source) = compilation.source(anchor.source_id()) else {
             panic!("function source must be loaded");
         };
 
@@ -1108,9 +1258,28 @@ mod tests {
         }
     }
 
-    fn source_constant_template_key(facts: &IntegrationBinderFacts<'_>) -> BoundUnitKey {
-        let Some(constant) = facts
-            .symbols
+    fn unit_id(compilation: &Compilation, key: &BoundUnitKey) -> bray_bound_tree::BoundUnitId {
+        match compilation.bound_unit_id(key) {
+            Ok(unit) => unit,
+            Err(error) => panic!("test unit ID must be available: {error:?}"),
+        }
+    }
+
+    fn join_unit_id(
+        handle: std::thread::ScopedJoinHandle<'_, bray_bound_tree::BoundUnitId>,
+    ) -> bray_bound_tree::BoundUnitId {
+        match handle.join() {
+            Ok(unit) => unit,
+            Err(_) => panic!("unit identity worker must not panic"),
+        }
+    }
+
+    fn source_constant_template_key(compilation: &Compilation) -> BoundUnitKey {
+        let symbols = match compilation.symbol_graph() {
+            Ok(symbols) => symbols,
+            Err(error) => panic!("test symbol graph must build: {error:?}"),
+        };
+        let Some(constant) = symbols
             .constants()
             .iter()
             .find(|constant| constant.origin() == SymbolOrigin::Source)
@@ -1118,7 +1287,7 @@ mod tests {
             panic!("test symbol graph must contain one source constant");
         };
 
-        let [source_unit] = facts.compilation.syntax_tree().source_units() else {
+        let [source_unit] = compilation.syntax_tree().source_units() else {
             panic!("constant compilation must contain one source unit");
         };
 
@@ -1145,8 +1314,11 @@ mod tests {
         let options =
             CompilationOptions::new(WorkerBudget::serial()).with_target_availability(target);
 
-        let request =
-            CompilationRequest::with_options(vec![source_input("module app;", 0)], options);
+        let request = CompilationRequest::with_options(
+            package_identity(),
+            vec![source_input("module app;", 0)],
+            options,
+        );
 
         match Compilation::load(request) {
             Ok(compilation) => compilation,

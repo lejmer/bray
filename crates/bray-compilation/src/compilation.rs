@@ -1,3 +1,4 @@
+mod binder;
 mod checked;
 mod facts;
 mod load;
