@@ -24,6 +24,7 @@ impl TypeExpressionBinder<'_> {
         };
 
         let parameters = self.trait_parameters(definition)?;
+
         let arguments =
             self.bind_generic_arguments(syntax.generic_argument_lists().next().as_ref())?;
 

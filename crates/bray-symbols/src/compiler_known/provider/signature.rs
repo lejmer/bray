@@ -55,6 +55,7 @@ pub(super) fn allocate_signature_symbols(
         let signature = surface.signature();
         let children = signature_children(&signature);
         let origin = declaration_origin(descriptor.implementation_hook().is_some());
+
         let mut generic_children = Vec::new();
         let mut callable_children = Vec::new();
 
@@ -96,6 +97,7 @@ pub(super) fn allocate_signature_symbols(
                 SymbolKey::synthesized(SynthesizedSymbolKey::receiver_parameter(owner_key.clone()));
 
             receivers.push(ReceiverParameterSymbol::new(id, key, callable));
+
             receiver = Some(AnySymbolId::from(id));
         }
 
@@ -250,6 +252,7 @@ mod tests {
 
         assert_eq!(pointer.generic_type_parameters().len(), 1);
         assert_eq!(copy.parameters().len(), 3);
+
         assert_eq!(
             provider
                 .completion_children(pointer.id().into())
