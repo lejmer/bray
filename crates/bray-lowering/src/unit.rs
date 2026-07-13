@@ -191,6 +191,7 @@ mod tests {
     #[test]
     fn builders_publish_identity_entry_and_source_order_without_copying_bound_nodes() {
         let unit = bound_unit(4);
+
         let control_flow = CheckedControlFlowFacts::new(
             unit.unit(),
             unit.key().kind(),
@@ -198,19 +199,24 @@ mod tests {
         );
 
         let input = lowering_input(&unit, &control_flow);
+
         let mut builder = LoweredUnitBuilder::new(input);
+
         let first = push_block(&mut builder, unit.key().source());
         let second = push_block(&mut builder, unit.key().source());
+
         let lowered = finish(builder, first);
 
         assert_eq!(lowered.key(), unit.key());
         assert_eq!(lowered.unit(), unit.unit());
         assert_eq!(lowered.entry(), first);
         assert_eq!(lowered.blocks().len(), 2);
+
         assert_eq!(
             lowered.block(second).map(|block| block.source()),
             Some(unit.key().source())
         );
+
         assert_eq!(
             lowered.block(LoweredBlockId::from_slot(BoundUnitId::new(5), 0)),
             None
@@ -220,6 +226,7 @@ mod tests {
     #[test]
     fn builders_reject_foreign_sources_and_entry_blocks() {
         let unit = bound_unit(4);
+
         let control_flow = CheckedControlFlowFacts::new(
             unit.unit(),
             unit.key().kind(),
@@ -227,6 +234,7 @@ mod tests {
         );
 
         let input = lowering_input(&unit, &control_flow);
+
         let missing_builder = LoweredUnitBuilder::new(input);
         let missing = LoweredBlockId::from_slot(unit.unit(), 0);
 
@@ -236,6 +244,7 @@ mod tests {
         );
 
         let mut builder = LoweredUnitBuilder::new(input);
+
         let foreign_source = BoundSourceAnchor::new(
             unit.key().source().syntax(),
             SourceVersion::new(unit.key().source().source_version().raw() + 1),

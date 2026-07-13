@@ -134,6 +134,7 @@ impl CompilerKnownCatalogRoleRegistry {
         let start = self
             .implementations
             .partition_point(|binding| binding.hook < hook);
+
         let end = self
             .implementations
             .partition_point(|binding| binding.hook <= hook);
@@ -157,6 +158,7 @@ mod tests {
 
         let bool_target = roles.representation_target(RepresentationRole::ScalarBool);
         let true_target = roles.representation_target(RepresentationRole::BooleanTrue);
+
         let memory_copy = roles
             .implementation_declarations(ImplementationHook::MemoryCopy)
             .collect::<Vec<_>>();

@@ -86,6 +86,7 @@ mod tests {
     #[test]
     fn input_borrows_the_canonical_unit_and_matching_side_facts() {
         let unit = bound_unit(4);
+
         let control_flow = CheckedControlFlowFacts::new(
             unit.unit(),
             unit.key().kind(),
@@ -103,6 +104,7 @@ mod tests {
 
         assert!(std::ptr::eq(input.unit(), &unit));
         assert!(std::ptr::eq(input.control_flow(), &control_flow));
+
         assert!(std::ptr::eq(
             input.available_compiler_known_symbols(),
             available_compiler_known_symbols()
