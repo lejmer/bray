@@ -1,5 +1,6 @@
 use std::borrow::Cow;
 
+use super::CompilerKnownCatalogRoleRegistry;
 use super::{
     CatalogDeclarationSurface, CatalogDeclarationSurfaceSyntax, CatalogTypeSurface,
     CatalogTypeSurfaceSyntax, CompilerKnownDeclarationDescriptor, CompilerKnownDeclarationId,
@@ -17,6 +18,7 @@ pub struct CompilerKnownCatalog {
     pub(super) compiler_known_scopes: Cow<'static, [CompilerKnownScopeDescriptor]>,
     pub(super) compiler_known_declarations: Cow<'static, [CompilerKnownDeclarationDescriptor]>,
     pub(super) compiler_known_values: Cow<'static, [CompilerKnownValueDescriptor]>,
+    pub(super) role_registry: CompilerKnownCatalogRoleRegistry,
     pub(super) recognized_scopes: Cow<'static, [RecognizedStandardLibraryScopeDescriptor]>,
     pub(super) recognized_declarations:
         Cow<'static, [RecognizedStandardLibraryDeclarationDescriptor]>,
@@ -38,6 +40,11 @@ impl CompilerKnownCatalog {
     /// Returns compiler-known special values in canonical stable-key order.
     pub fn compiler_known_values(&self) -> &[CompilerKnownValueDescriptor] {
         &self.compiler_known_values
+    }
+
+    /// Returns typed role bindings without string or stable-key lookup.
+    pub const fn role_registry(&self) -> &CompilerKnownCatalogRoleRegistry {
+        &self.role_registry
     }
 
     /// Returns recognized standard-library scopes in canonical key order.
@@ -194,7 +201,7 @@ where
 mod tests {
     use std::borrow::Cow;
 
-    use super::CompilerKnownCatalog;
+    use super::{CompilerKnownCatalog, CompilerKnownCatalogRoleRegistry};
     use crate::catalog::test_support::{declaration_key, declaration_surface};
     use crate::catalog::{
         CatalogDeclarationKind, CatalogScopeLocation, CompilerKnownDeclarationDescriptor,
@@ -256,6 +263,14 @@ mod tests {
             Cow::Borrowed(_)
         ));
         assert!(matches!(
+            COMPILER_KNOWN_CATALOG.role_registry.representations,
+            Cow::Borrowed(_)
+        ));
+        assert!(matches!(
+            COMPILER_KNOWN_CATALOG.role_registry.implementations,
+            Cow::Borrowed(_)
+        ));
+        assert!(matches!(
             COMPILER_KNOWN_CATALOG.declaration_surfaces,
             Cow::Borrowed(_)
         ));
@@ -266,13 +281,23 @@ mod tests {
     }
 
     fn catalog() -> CompilerKnownCatalog {
+        let declarations = vec![
+            declaration_descriptor(0, "RawPointer", Some(RepresentationRole::RawPointer), None),
+            declaration_descriptor(
+                1,
+                "RawPointerRead",
+                None,
+                Some(ImplementationHook::RawPointerRead),
+            ),
+        ];
+
+        let role_registry = CompilerKnownCatalogRoleRegistry::from_descriptors(&declarations, &[]);
+
         CompilerKnownCatalog {
             compiler_known_scopes: Cow::Owned(vec![scope_descriptor()]),
-            compiler_known_declarations: Cow::Owned(vec![
-                declaration_descriptor(0, "RawPointer"),
-                declaration_descriptor(1, "RawPointerRead"),
-            ]),
+            compiler_known_declarations: Cow::Owned(declarations),
             compiler_known_values: Cow::Borrowed(&[]),
+            role_registry,
             recognized_scopes: Cow::Borrowed(&[]),
             recognized_declarations: Cow::Borrowed(&[]),
             declaration_surfaces: Cow::Borrowed(&[]),
@@ -293,15 +318,20 @@ mod tests {
         }
     }
 
-    fn declaration_descriptor(id: u32, key: &str) -> CompilerKnownDeclarationDescriptor {
+    fn declaration_descriptor(
+        id: u32,
+        key: &str,
+        representation_role: Option<RepresentationRole>,
+        implementation_hook: Option<ImplementationHook>,
+    ) -> CompilerKnownDeclarationDescriptor {
         CompilerKnownDeclarationDescriptor {
             id: CompilerKnownDeclarationId::new(id),
             key: declaration_key(key),
             owner: CompilerKnownDeclarationOwner::Scope(CompilerKnownScopeId::new(0)),
             kind: CatalogDeclarationKind::Function,
             surface: declaration_surface(),
-            representation_role: Some(RepresentationRole::RawPointer),
-            implementation_hook: Some(ImplementationHook::RawPointerRead),
+            representation_role,
+            implementation_hook,
             availability_rule: AvailabilityRule::RawMemory,
         }
     }

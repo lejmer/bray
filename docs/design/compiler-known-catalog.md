@@ -119,6 +119,7 @@ The catalog belongs to a dedicated `bray-compiler-known` crate.
 - immutable catalog descriptors,
 - representation-role enums,
 - implementation-hook enums,
+- generated typed role-to-descriptor indexes,
 - availability-rule enums,
 - structural catalog validation,
 - deterministic generated Rust output,
@@ -182,6 +183,7 @@ crates/bray-compiler-known/
     |   |-- key.rs
     |   |-- loader.rs
     |   |-- parser.rs
+    |   |-- role.rs
     |   |-- source.rs
     |   `-- validation.rs
     |-- availability.rs
@@ -527,6 +529,23 @@ Catalog validation rejects:
 - hooks attached to incompatible declaration kinds,
 - missing hooks on declarations whose implementation is compiler-provided,
 - executable Bray bodies attached to compiler-provided hooks.
+
+### Typed Role Registries
+
+The generated catalog must publish immutable typed role indexes. Representation roles must resolve to a closed target that
+distinguishes ordinary declaration IDs from special-value IDs. Implementation hooks must resolve to declaration IDs in canonical
+descriptor order. These indexes must not use declaration names, catalog key strings, function pointers, or consumer-owned behavior.
+
+`bray-symbols` must translate catalog declaration targets into compilation-local exact symbol IDs while retaining special values as
+typed catalog value IDs. Its role registry must support both role-to-identity and identity-to-role queries so bound semantic
+representations can classify an already resolved symbol without repeating catalog-key lookup.
+
+Target-available symbol views must filter role queries through the same declaration and value availability decisions used by
+ordinary compiler-known lookup. They must not mutate or rebuild the process-wide catalog registry.
+
+Checker requests and lowering inputs that can interpret compiler-known behavior must borrow the compilation-local symbol role
+registry explicitly. Checker and lowering code must own their respective semantic behavior and use exhaustive typed role handling.
+They must not publish parallel string-keyed registries or move executable behavior into `bray-compiler-known`.
 
 ### Availability Rules
 

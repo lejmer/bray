@@ -21,6 +21,7 @@ pub(super) fn render_catalog(catalog: &CompilerKnownCatalog, digest: &str) -> St
     render_scopes(&mut output, catalog);
     render_declarations(&mut output, catalog);
     render_values(&mut output, catalog);
+    render_roles(&mut output, catalog);
     render_recognized_scopes(&mut output, catalog);
     render_recognized_declarations(&mut output, catalog);
     render_surfaces(&mut output, catalog);
@@ -30,6 +31,10 @@ pub(super) fn render_catalog(catalog: &CompilerKnownCatalog, digest: &str) -> St
              compiler_known_scopes: Cow::Borrowed(COMPILER_KNOWN_SCOPES),\n\
              compiler_known_declarations: Cow::Borrowed(COMPILER_KNOWN_DECLARATIONS),\n\
              compiler_known_values: Cow::Borrowed(COMPILER_KNOWN_VALUES),\n\
+             role_registry: CompilerKnownCatalogRoleRegistry {\n\
+                 representations: Cow::Borrowed(COMPILER_KNOWN_REPRESENTATION_ROLES),\n\
+                 implementations: Cow::Borrowed(COMPILER_KNOWN_IMPLEMENTATION_ROLES),\n\
+             },\n\
              recognized_scopes: Cow::Borrowed(RECOGNIZED_SCOPES),\n\
              recognized_declarations: Cow::Borrowed(RECOGNIZED_DECLARATIONS),\n\
              declaration_surfaces: Cow::Borrowed(DECLARATION_SURFACES),\n\
@@ -38,6 +43,46 @@ pub(super) fn render_catalog(catalog: &CompilerKnownCatalog, digest: &str) -> St
     );
 
     output
+}
+
+fn render_roles(output: &mut String, catalog: &CompilerKnownCatalog) {
+    output.push_str(
+        "static COMPILER_KNOWN_REPRESENTATION_ROLES: &[CompilerKnownRepresentationBinding] = &[\n",
+    );
+
+    for binding in catalog.role_registry().representations() {
+        let target = match binding.target() {
+            super::CompilerKnownRepresentationTarget::Declaration(id) => format!(
+                "CompilerKnownRepresentationTarget::Declaration(CompilerKnownDeclarationId::new({}))",
+                id.raw()
+            ),
+            super::CompilerKnownRepresentationTarget::Value(id) => format!(
+                "CompilerKnownRepresentationTarget::Value(CompilerKnownValueId::new({}))",
+                id.raw()
+            ),
+        };
+
+        output.push_str(&format!(
+            "    CompilerKnownRepresentationBinding {{ role: RepresentationRole::{:?}, target: {} }},\n",
+            binding.role(),
+            target,
+        ));
+    }
+
+    output.push_str("];\n\n");
+    output.push_str(
+        "static COMPILER_KNOWN_IMPLEMENTATION_ROLES: &[CompilerKnownImplementationBinding] = &[\n",
+    );
+
+    for binding in catalog.role_registry().implementations() {
+        output.push_str(&format!(
+            "    CompilerKnownImplementationBinding {{ hook: ImplementationHook::{:?}, declaration: CompilerKnownDeclarationId::new({}) }},\n",
+            binding.hook(),
+            binding.declaration().raw(),
+        ));
+    }
+
+    output.push_str("];\n\n");
 }
 
 fn render_scopes(output: &mut String, catalog: &CompilerKnownCatalog) {

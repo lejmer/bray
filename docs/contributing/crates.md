@@ -42,6 +42,7 @@
       descriptors.
     - Owns deterministic generation of checked-in Rust descriptor and surface tables from `.braydef` sources.
     - Owns stable catalog key types and closed representation, compiler-provided implementation, and target-availability roles.
+    - Owns generated typed role-to-descriptor indexes without owning checker or lowering behavior.
     - Reuses `bray-parser` for embedded Bray declaration and type-expression surfaces.
     - Publishes one static immutable target-independent catalog without runtime catalog parsing or structural validation.
       Compilation-owned facts derive target-specific available views.
@@ -60,6 +61,7 @@
     - Covers modules, types, functions, fields, locals, parameters, traits, implementations, overload families, and associated
       items without using a generic child-symbol model.
     - Symbols answer "what declared thing is this?"
+    - Publishes compilation-local typed compiler-known role registries with forward and reverse identity lookup.
     - Binding-dependent symbol facts are computed by the owning binder or checker service and coordinated through compilation
       queries.
 
@@ -102,6 +104,7 @@
     - Keeps graph IDs, fixed-point state, work lists, and intermediate flow facts task-local rather than publishing them as bound,
       symbol, package-interface, or lowering identities.
     - Returns structured diagnostics and semantic facts for the binder to place on bound nodes before publication.
+    - Receives typed compiler-known role registries through checker requests rather than resolving roles by name.
 
 - `bray-lowering`
     - Owns the validated borrowing boundary over canonical bound units and their required durable semantic facts.
@@ -110,6 +113,7 @@
     - Makes implicit semantics explicit: temporaries, drops, moves, control-flow normalization, pattern lowering, short-circuiting,
       and other desugaring.
     - Materializes reachable runtime-default providers from their checked declaration-owned expressions.
+    - Receives typed compiler-known role registries through validated lowering inputs rather than resolving hooks by name.
 
 - `bray-ir`
     - Backend-independent lower-level intermediate representation.

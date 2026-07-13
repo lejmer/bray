@@ -3,7 +3,8 @@ use std::sync::Arc;
 
 use bray_compiler_known::{
     AvailabilityRule, CompilerKnownCatalog, CompilerKnownDeclarationId,
-    CompilerKnownDeclarationKey, CompilerKnownDeclarationOwner,
+    CompilerKnownDeclarationKey, CompilerKnownDeclarationOwner, CompilerKnownValueId,
+    ImplementationHook, RepresentationRole,
 };
 
 use super::CompilerKnownSymbolProvider;
@@ -19,6 +20,7 @@ pub struct AvailableCompilerKnownSymbols {
     provider: Arc<CompilerKnownSymbolProvider>,
     declarations: Box<[AnySymbolId]>,
     declaration_ids: BTreeSet<AnySymbolId>,
+    value_ids: BTreeSet<CompilerKnownValueId>,
 }
 
 impl AvailableCompilerKnownSymbols {
@@ -73,10 +75,18 @@ impl AvailableCompilerKnownSymbols {
 
         let declaration_ids = declarations.iter().copied().collect();
 
+        let value_ids = catalog
+            .compiler_known_values()
+            .iter()
+            .filter(|value| rule_is_available(value.availability_rule()))
+            .map(|value| value.id())
+            .collect();
+
         Self {
             provider,
             declarations,
             declaration_ids,
+            value_ids,
         }
     }
 
@@ -107,6 +117,34 @@ impl AvailableCompilerKnownSymbols {
         }
 
         I::try_from_any(symbol)
+    }
+
+    /// Returns an available exact symbol carrying a representation role.
+    pub fn representation_symbol<I: ExactSymbolId>(&self, role: RepresentationRole) -> Option<I> {
+        let symbol = self
+            .provider
+            .role_registry()
+            .representation_symbol::<I>(role)?;
+
+        self.contains(symbol.into()).then_some(symbol)
+    }
+
+    /// Returns an available special value carrying a representation role.
+    pub fn representation_value(&self, role: RepresentationRole) -> Option<CompilerKnownValueId> {
+        let value = self.provider.role_registry().representation_value(role)?;
+
+        self.value_ids.contains(&value).then_some(value)
+    }
+
+    /// Returns available implementation declarations having the requested exact symbol kind.
+    pub fn implementation_symbols<'view, I: ExactSymbolId + 'view>(
+        &'view self,
+        hook: ImplementationHook,
+    ) -> impl Iterator<Item = I> + 'view {
+        self.provider
+            .role_registry()
+            .implementation_symbols::<I>(hook)
+            .filter(|symbol: &I| self.contains((*symbol).into()))
     }
 }
 
@@ -149,7 +187,8 @@ mod tests {
     use std::sync::Arc;
 
     use bray_compiler_known::{
-        AvailabilityRule, COMPILER_KNOWN_CATALOG, CompilerKnownDeclarationId,
+        AvailabilityRule, COMPILER_KNOWN_CATALOG, CompilerKnownDeclarationId, ImplementationHook,
+        RepresentationRole,
     };
 
     use super::resolve_availability;
@@ -190,6 +229,33 @@ mod tests {
 
         assert_eq!(first, second);
         assert!(std::ptr::eq(first.provider(), second.provider()));
+    }
+
+    #[test]
+    fn typed_roles_follow_target_availability() {
+        let provider = Arc::new(build_provider());
+        let view = Arc::clone(&provider).available_symbols(|rule| rule == AvailabilityRule::Always);
+
+        assert!(
+            view.representation_symbol::<StructSymbolId>(RepresentationRole::ScalarBool)
+                .is_some()
+        );
+
+        assert_eq!(
+            view.representation_symbol::<StructSymbolId>(RepresentationRole::ScalarR16),
+            None
+        );
+
+        assert!(
+            view.representation_value(RepresentationRole::BooleanTrue)
+                .is_some()
+        );
+
+        assert_eq!(
+            view.implementation_symbols::<FunctionSymbolId>(ImplementationHook::MemoryCopy)
+                .count(),
+            0
+        );
     }
 
     #[test]

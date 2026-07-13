@@ -8,10 +8,22 @@ use bray_source::{
     SourceId, SourceIdentity, SourceOrigin, SourceSnapshot, SourceVersion, TextSize,
 };
 use bray_symbols::{
-    LocalScopeBoundary, LocalSymbolRegionId, LocalSymbolRegionKey, LocalSymbolRegionRole,
-    LocalSymbolSnapshot, LocalSymbolSnapshotBuilder, ModulePathKey, PackageIdentity, SymbolKey,
-    SymbolKind, SymbolRootKey,
+    CompilerKnownSymbolProvider, CompilerKnownSymbolRoleRegistry, LocalScopeBoundary,
+    LocalSymbolRegionId, LocalSymbolRegionKey, LocalSymbolRegionRole, LocalSymbolSnapshot,
+    LocalSymbolSnapshotBuilder, ModulePathKey, PackageIdentity, SymbolKey, SymbolKind,
+    SymbolRootKey,
 };
+
+pub(crate) fn compiler_known_role_registry() -> &'static CompilerKnownSymbolRoleRegistry {
+    static PROVIDER: std::sync::OnceLock<CompilerKnownSymbolProvider> = std::sync::OnceLock::new();
+
+    PROVIDER
+        .get_or_init(|| match CompilerKnownSymbolProvider::build() {
+            Ok(provider) => provider,
+            Err(error) => panic!("test compiler-known provider must build: {error:?}"),
+        })
+        .role_registry()
+}
 
 pub(crate) fn bound_unit(unit: u32) -> BoundUnit {
     let (key, local_symbols) = unit_identity(unit);

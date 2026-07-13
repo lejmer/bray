@@ -28,7 +28,10 @@ mod tests {
     use bray_bound_tree::{BoundUnitId, ControlCompletionKind};
 
     use super::{ControlFlowChecker, DefaultControlFlowChecker};
-    use crate::test_support::{callable_key, normally_completing_recovered_tree, recovered_tree};
+    use crate::test_support::{
+        callable_key, compiler_known_role_registry, normally_completing_recovered_tree,
+        recovered_tree,
+    };
     use crate::{CheckerOutcome, UnitCheckRequest, UnitCheckRoot};
 
     #[test]
@@ -38,10 +41,19 @@ mod tests {
         let (tree, root) = recovered_tree(unit, &key);
         let view = tree.view(&key);
 
-        let Ok(request) = UnitCheckRequest::new(view, UnitCheckRoot::CallableBody(root), &|| false)
-        else {
+        let Ok(request) = UnitCheckRequest::new(
+            view,
+            UnitCheckRoot::CallableBody(root),
+            compiler_known_role_registry(),
+            &|| false,
+        ) else {
             panic!("matching test roots must produce checker requests");
         };
+
+        assert!(std::ptr::eq(
+            request.compiler_known_role_registry(),
+            compiler_known_role_registry()
+        ));
 
         let outcome = DefaultControlFlowChecker.check_control_flow(request);
 
@@ -67,8 +79,12 @@ mod tests {
         let (tree, root) = recovered_tree(unit, &key);
         let view = tree.view(&key);
 
-        let Ok(request) = UnitCheckRequest::new(view, UnitCheckRoot::CallableBody(root), &|| true)
-        else {
+        let Ok(request) = UnitCheckRequest::new(
+            view,
+            UnitCheckRoot::CallableBody(root),
+            compiler_known_role_registry(),
+            &|| true,
+        ) else {
             panic!("matching test roots must produce checker requests");
         };
 
@@ -84,8 +100,12 @@ mod tests {
         let (tree, root) = normally_completing_recovered_tree(unit, &key);
         let view = tree.view(&key);
 
-        let Ok(request) = UnitCheckRequest::new(view, UnitCheckRoot::CallableBody(root), &|| false)
-        else {
+        let Ok(request) = UnitCheckRequest::new(
+            view,
+            UnitCheckRoot::CallableBody(root),
+            compiler_known_role_registry(),
+            &|| false,
+        ) else {
             panic!("matching test roots must produce checker requests");
         };
 
@@ -106,8 +126,12 @@ mod tests {
         let (_, foreign_root) = recovered_tree(BoundUnitId::new(7), &key);
         let view = tree.view(&key);
 
-        let request =
-            UnitCheckRequest::new(view, UnitCheckRoot::CallableBody(foreign_root), &|| false);
+        let request = UnitCheckRequest::new(
+            view,
+            UnitCheckRoot::CallableBody(foreign_root),
+            compiler_known_role_registry(),
+            &|| false,
+        );
 
         assert!(matches!(
             request,

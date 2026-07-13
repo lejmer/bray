@@ -2,6 +2,7 @@ use bray_bound_tree::{
     AnyBoundNodeId, BoundBlockId, BoundCallableBodyId, BoundExpressionId, BoundUnitKind,
     BoundUnitView,
 };
+use bray_symbols::CompilerKnownSymbolRoleRegistry;
 
 use crate::CheckerCancellation;
 
@@ -10,6 +11,7 @@ use crate::CheckerCancellation;
 pub struct UnitCheckRequest<'view> {
     view: BoundUnitView<'view>,
     root: UnitCheckRoot,
+    compiler_known_role_registry: &'view CompilerKnownSymbolRoleRegistry,
     cancellation: &'view dyn CheckerCancellation,
 }
 
@@ -69,6 +71,7 @@ impl<'view> UnitCheckRequest<'view> {
     pub fn new(
         view: BoundUnitView<'view>,
         root: UnitCheckRoot,
+        compiler_known_role_registry: &'view CompilerKnownSymbolRoleRegistry,
         cancellation: &'view dyn CheckerCancellation,
     ) -> Result<Self, UnitCheckRequestError> {
         if root.node().unit() != view.unit() {
@@ -82,6 +85,7 @@ impl<'view> UnitCheckRequest<'view> {
         Ok(Self {
             view,
             root,
+            compiler_known_role_registry,
             cancellation,
         })
     }
@@ -94,6 +98,11 @@ impl<'view> UnitCheckRequest<'view> {
     /// Returns the exact bound root to analyze.
     pub const fn root(self) -> UnitCheckRoot {
         self.root
+    }
+
+    /// Returns typed compiler-known identities and behavior roles.
+    pub const fn compiler_known_role_registry(self) -> &'view CompilerKnownSymbolRoleRegistry {
+        self.compiler_known_role_registry
     }
 
     /// Returns whether compilation cancellation has been requested.

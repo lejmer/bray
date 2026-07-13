@@ -8,6 +8,7 @@ use bray_compiler_known::{
 
 use super::super::{
     CompilerKnownDeclarationFact, CompilerKnownSymbolBuildError, CompilerKnownSymbolFactKey,
+    CompilerKnownSymbolRoleRegistry,
 };
 use super::lookup::{add_member_entry, build_member_indexes};
 use super::validation::{resolve_declaration_symbol_kinds, validate_scope_id};
@@ -103,6 +104,7 @@ pub struct CompilerKnownSymbolProvider {
     scope_symbols: BTreeMap<CompilerKnownScopeKey, CompilerKnownScopeSymbolId>,
     declaration_symbols: BTreeMap<CompilerKnownDeclarationKey, AnySymbolId>,
     declaration_descriptors: BTreeMap<SymbolId, CompilerKnownDeclarationId>,
+    role_registry: CompilerKnownSymbolRoleRegistry,
     pub(super) member_indexes: BTreeMap<AnySymbolId, MemberLookupIndex<AnySymbolId>>,
     records: BTreeMap<SymbolId, CompilerKnownRecord>,
     next_symbol_index: usize,
@@ -150,6 +152,8 @@ impl CompilerKnownSymbolProvider {
             member_indexes,
         } = declarations;
 
+        let role_registry = CompilerKnownSymbolRoleRegistry::build(catalog, &descriptor_symbols)?;
+
         let modules = modules
             .into_iter()
             .map(|module| {
@@ -180,6 +184,7 @@ impl CompilerKnownSymbolProvider {
                 .iter()
                 .map(|(descriptor, symbol)| (symbol.symbol_id(), *descriptor))
                 .collect(),
+            role_registry,
             member_indexes,
             records,
             next_symbol_index: allocator.next_index(),
@@ -226,6 +231,11 @@ impl CompilerKnownSymbolProvider {
     /// Returns the complete stable declaration-key map for compilation infrastructure.
     pub const fn declaration_symbols(&self) -> &BTreeMap<CompilerKnownDeclarationKey, AnySymbolId> {
         &self.declaration_symbols
+    }
+
+    /// Returns compilation-local typed routes for compiler-known semantic roles.
+    pub const fn role_registry(&self) -> &CompilerKnownSymbolRoleRegistry {
+        &self.role_registry
     }
 
     /// Creates a typed route to lazy facts when a key has the requested ordinary symbol kind.

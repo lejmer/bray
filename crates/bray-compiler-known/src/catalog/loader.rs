@@ -14,8 +14,8 @@ use super::validation::{
 };
 use super::{
     CatalogScopeLocation, CatalogSourceAnchor, CatalogSourceInventory, CompilerKnownCatalog,
-    CompilerKnownDeclarationId, CompilerKnownDeclarationKey, CompilerKnownScopeId,
-    CompilerKnownScopeKey, CompilerKnownValueId, CompilerKnownValueKey,
+    CompilerKnownCatalogRoleRegistry, CompilerKnownDeclarationId, CompilerKnownDeclarationKey,
+    CompilerKnownScopeId, CompilerKnownScopeKey, CompilerKnownValueId, CompilerKnownValueKey,
     RecognizedStandardLibraryDeclarationId, RecognizedStandardLibraryDeclarationKey,
     RecognizedStandardLibraryScopeId, RecognizedStandardLibraryScopeKey,
 };
@@ -118,6 +118,11 @@ fn build_descriptors(
     let recognized_scopes =
         build_recognized_scopes(&validated.recognized_scopes, &recognized_declarations);
 
+    let role_registry = CompilerKnownCatalogRoleRegistry::from_descriptors(
+        &compiler_known_declarations,
+        &compiler_known_values,
+    );
+
     record_construction_mismatch(
         compiler_known_scopes.len(),
         validated.compiler_known_scopes.len(),
@@ -166,6 +171,7 @@ fn build_descriptors(
         compiler_known_scopes: compiler_known_scopes.into(),
         compiler_known_declarations: compiler_known_declarations.into(),
         compiler_known_values: compiler_known_values.into(),
+        role_registry,
         recognized_scopes: recognized_scopes.into(),
         recognized_declarations: recognized_declarations.into(),
         declaration_surfaces: std::borrow::Cow::Borrowed(&[]),

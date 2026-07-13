@@ -689,6 +689,14 @@ The compiler-known environment exposes:
 - stable catalog-key-to-symbol-ID indexes,
 - typed accessors for compiler-known roles needed by semantic phases.
 
+The compiler-known symbol provider must publish one immutable compilation-local role registry derived from the generated catalog
+role indexes. It must map representation roles and implementation hooks to exact symbol IDs, retain special-value targets as typed
+catalog value IDs, and support reverse symbol-to-role classification. The registry must never infer roles from symbol names or
+stable-key strings.
+
+Target-available views must apply their existing availability result to role-based symbol and special-value access. The complete
+provider and its registry remain unchanged.
+
 Its ambient collections remain category-specific. They must not use a generic canonical child list merely because several symbol
 kinds are ambient.
 

@@ -275,7 +275,11 @@ mod tests {
         unit: &'unit bray_bound_tree::BoundUnit,
         control_flow: &'unit CheckedControlFlowFacts,
     ) -> LoweringInput<'unit> {
-        match LoweringInput::try_new(unit, control_flow) {
+        match LoweringInput::try_new(
+            unit,
+            control_flow,
+            crate::test_support::compiler_known_role_registry(),
+        ) {
             Ok(input) => input,
             Err(error) => panic!("matching lowering input must validate: {error:?}"),
         }
