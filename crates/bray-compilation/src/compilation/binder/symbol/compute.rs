@@ -245,6 +245,7 @@ fn bind_callable_signature(
 ) -> BinderFactResult<SymbolFactResult<CallableSignatureFact>> {
     let symbol = callable.into_any();
     let surface = compiler_known_surface(context.symbols, symbol)?;
+
     let fragment = surface
         .syntax_fragment()
         .map_err(|_| BinderFactError::DependencyUnavailable)?;
@@ -359,6 +360,7 @@ fn type_binder<'facts>(
     symbol: AnySymbolId,
 ) -> BinderFactResult<TypeExpressionBinder<'facts>> {
     let parameters = type_parameter_bindings(context.symbols, symbol)?;
+
     let module = context
         .symbols
         .containing_module(symbol)
@@ -491,6 +493,7 @@ where
     T: bray_syntax::SyntaxCast,
 {
     let surface = compiler_known_surface(symbols, symbol)?;
+
     let fragment = surface
         .syntax_fragment()
         .map_err(|_| BinderFactError::DependencyUnavailable)?;
