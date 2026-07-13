@@ -543,8 +543,9 @@ representations can classify an already resolved symbol without repeating catalo
 Target-available symbol views must filter role queries through the same declaration and value availability decisions used by
 ordinary compiler-known lookup. They must not mutate or rebuild the process-wide catalog registry.
 
-Checker requests and lowering inputs that can interpret compiler-known behavior must borrow the compilation-local symbol role
-registry explicitly. Checker and lowering code must own their respective semantic behavior and use exhaustive typed role handling.
+Checker requests and lowering inputs that can interpret compiler-known behavior must borrow the compilation-local target-available
+symbol view explicitly. That view must expose the same typed forward and reverse role queries while rejecting unavailable symbols
+and special values. Checker and lowering code must own their respective semantic behavior and use exhaustive typed role handling.
 They must not publish parallel string-keyed registries or move executable behavior into `bray-compiler-known`.
 
 ### Availability Rules

@@ -146,6 +146,33 @@ impl AvailableCompilerKnownSymbols {
             .implementation_symbols::<I>(hook)
             .filter(|symbol: &I| self.contains((*symbol).into()))
     }
+
+    /// Returns the representation role carried by an available exact symbol.
+    pub fn symbol_representation<I: ExactSymbolId>(&self, symbol: I) -> Option<RepresentationRole> {
+        if !self.contains(symbol.into()) {
+            return None;
+        }
+
+        self.provider.role_registry().symbol_representation(symbol)
+    }
+
+    /// Returns the representation role carried by an available special value.
+    pub fn value_representation(&self, value: CompilerKnownValueId) -> Option<RepresentationRole> {
+        if !self.value_ids.contains(&value) {
+            return None;
+        }
+
+        self.provider.role_registry().value_representation(value)
+    }
+
+    /// Returns the implementation hook carried by an available exact symbol.
+    pub fn symbol_implementation<I: ExactSymbolId>(&self, symbol: I) -> Option<ImplementationHook> {
+        if !self.contains(symbol.into()) {
+            return None;
+        }
+
+        self.provider.role_registry().symbol_implementation(symbol)
+    }
 }
 
 impl CompilerKnownSymbolProvider {
@@ -236,25 +263,50 @@ mod tests {
         let provider = Arc::new(build_provider());
         let view = Arc::clone(&provider).available_symbols(|rule| rule == AvailabilityRule::Always);
 
-        assert!(
-            view.representation_symbol::<StructSymbolId>(RepresentationRole::ScalarBool)
-                .is_some()
-        );
+        let bool_symbol =
+            view.representation_symbol::<StructSymbolId>(RepresentationRole::ScalarBool);
+        let true_value = view.representation_value(RepresentationRole::BooleanTrue);
+        let unavailable_real = provider
+            .role_registry()
+            .representation_symbol::<StructSymbolId>(RepresentationRole::ScalarR16);
+        let unavailable_copy = provider
+            .role_registry()
+            .implementation_symbols::<FunctionSymbolId>(ImplementationHook::MemoryCopy)
+            .next();
+
+        assert!(bool_symbol.is_some());
 
         assert_eq!(
             view.representation_symbol::<StructSymbolId>(RepresentationRole::ScalarR16),
             None
         );
 
-        assert!(
-            view.representation_value(RepresentationRole::BooleanTrue)
-                .is_some()
-        );
+        assert!(true_value.is_some());
 
         assert_eq!(
             view.implementation_symbols::<FunctionSymbolId>(ImplementationHook::MemoryCopy)
                 .count(),
             0
+        );
+
+        assert_eq!(
+            bool_symbol.and_then(|symbol| view.symbol_representation(symbol)),
+            Some(RepresentationRole::ScalarBool)
+        );
+
+        assert_eq!(
+            true_value.and_then(|value| view.value_representation(value)),
+            Some(RepresentationRole::BooleanTrue)
+        );
+
+        assert_eq!(
+            unavailable_real.and_then(|symbol| view.symbol_representation(symbol)),
+            None
+        );
+
+        assert_eq!(
+            unavailable_copy.and_then(|symbol| view.symbol_implementation(symbol)),
+            None
         );
     }
 

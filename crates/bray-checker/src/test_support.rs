@@ -9,20 +9,11 @@ use bray_source::{
     SourceId, SourceIdentity, SourceOrigin, SourceSnapshot, SourceVersion, TextSizeOverflow,
 };
 use bray_symbols::{
-    CompilerKnownSymbolProvider, CompilerKnownSymbolRoleRegistry, ModulePathKey, PackageIdentity,
-    SemanticValueStore, SymbolKey, SymbolKind, SymbolRootKey, TypeData, TypeId,
+    ModulePathKey, PackageIdentity, SemanticValueStore, SymbolKey, SymbolKind, SymbolRootKey,
+    TypeData, TypeId,
 };
 
-pub(crate) fn compiler_known_role_registry() -> &'static CompilerKnownSymbolRoleRegistry {
-    static PROVIDER: std::sync::OnceLock<CompilerKnownSymbolProvider> = std::sync::OnceLock::new();
-
-    PROVIDER
-        .get_or_init(|| match CompilerKnownSymbolProvider::build() {
-            Ok(provider) => provider,
-            Err(error) => panic!("test compiler-known provider must build: {error:?}"),
-        })
-        .role_registry()
-}
+pub(crate) use bray_symbols::testing::available_compiler_known_symbols;
 
 pub(crate) fn callable_key() -> BoundUnitKey {
     let snapshot = match source() {

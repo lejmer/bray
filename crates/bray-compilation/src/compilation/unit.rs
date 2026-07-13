@@ -79,11 +79,11 @@ impl Compilation {
                     self.checked_control_flow_with_cancellation(nested.clone(), cancellation)?;
                 }
 
-                let symbols = self.symbol_graph()?;
+                let available_compiler_known_symbols = self.available_compiler_known_symbols();
 
                 check_control_flow(
                     bound.result().value(),
-                    symbols.compiler_known_provider().role_registry(),
+                    available_compiler_known_symbols,
                     cancellation,
                 )
             },
@@ -109,7 +109,7 @@ fn bind_unit(
 
 fn check_control_flow(
     bound: &BoundUnit,
-    compiler_known_role_registry: &bray_symbols::CompilerKnownSymbolRoleRegistry,
+    available_compiler_known_symbols: &bray_symbols::AvailableCompilerKnownSymbols,
     cancellation: &CancellationToken,
 ) -> Result<
     (
@@ -128,8 +128,13 @@ fn check_control_flow(
 
     let bridge = CheckerCancellationBridge(cancellation);
 
-    let request = UnitCheckRequest::new(bound.view(), root, compiler_known_role_registry, &bridge)
-        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+    let request = UnitCheckRequest::new(
+        bound.view(),
+        root,
+        available_compiler_known_symbols,
+        &bridge,
+    )
+    .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
     let result = match DefaultControlFlowChecker.check_control_flow(request) {
         CheckerOutcome::Complete(result) => result.map(|result| result.into_facts()),

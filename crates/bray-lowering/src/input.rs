@@ -1,5 +1,5 @@
 use bray_bound_tree::{BoundUnit, BoundUnitId, BoundUnitKind, CheckedControlFlowFacts};
-use bray_symbols::CompilerKnownSymbolRoleRegistry;
+use bray_symbols::AvailableCompilerKnownSymbols;
 
 /// A validated borrowed view of the completed checked HIR required by lowering.
 ///
@@ -10,7 +10,7 @@ use bray_symbols::CompilerKnownSymbolRoleRegistry;
 pub struct LoweringInput<'unit> {
     unit: &'unit BoundUnit,
     control_flow: &'unit CheckedControlFlowFacts,
-    compiler_known_role_registry: &'unit CompilerKnownSymbolRoleRegistry,
+    available_compiler_known_symbols: &'unit AvailableCompilerKnownSymbols,
 }
 
 impl<'unit> LoweringInput<'unit> {
@@ -18,7 +18,7 @@ impl<'unit> LoweringInput<'unit> {
     pub fn try_new(
         unit: &'unit BoundUnit,
         control_flow: &'unit CheckedControlFlowFacts,
-        compiler_known_role_registry: &'unit CompilerKnownSymbolRoleRegistry,
+        available_compiler_known_symbols: &'unit AvailableCompilerKnownSymbols,
     ) -> Result<Self, LoweringInputError> {
         if control_flow.unit() != unit.unit() {
             return Err(LoweringInputError::ForeignControlFlow {
@@ -37,7 +37,7 @@ impl<'unit> LoweringInput<'unit> {
         Ok(Self {
             unit,
             control_flow,
-            compiler_known_role_registry,
+            available_compiler_known_symbols,
         })
     }
 
@@ -51,9 +51,9 @@ impl<'unit> LoweringInput<'unit> {
         self.control_flow
     }
 
-    /// Returns typed compiler-known identities and behavior roles.
-    pub const fn compiler_known_role_registry(self) -> &'unit CompilerKnownSymbolRoleRegistry {
-        self.compiler_known_role_registry
+    /// Returns target-available compiler-known identities and behavior roles.
+    pub const fn available_compiler_known_symbols(self) -> &'unit AvailableCompilerKnownSymbols {
+        self.available_compiler_known_symbols
     }
 }
 
@@ -81,7 +81,7 @@ mod tests {
     use bray_bound_tree::{BoundUnitId, CheckedControlFlowFacts, ControlCompletion};
 
     use super::{LoweringInput, LoweringInputError};
-    use crate::test_support::{bound_unit, compiler_known_role_registry};
+    use crate::test_support::{available_compiler_known_symbols, bound_unit};
 
     #[test]
     fn input_borrows_the_canonical_unit_and_matching_side_facts() {
@@ -92,17 +92,20 @@ mod tests {
             ControlCompletion::default(),
         );
 
-        let input =
-            match LoweringInput::try_new(&unit, &control_flow, compiler_known_role_registry()) {
-                Ok(input) => input,
-                Err(error) => panic!("matching lowering input must validate: {error:?}"),
-            };
+        let input = match LoweringInput::try_new(
+            &unit,
+            &control_flow,
+            available_compiler_known_symbols(),
+        ) {
+            Ok(input) => input,
+            Err(error) => panic!("matching lowering input must validate: {error:?}"),
+        };
 
         assert!(std::ptr::eq(input.unit(), &unit));
         assert!(std::ptr::eq(input.control_flow(), &control_flow));
         assert!(std::ptr::eq(
-            input.compiler_known_role_registry(),
-            compiler_known_role_registry()
+            input.available_compiler_known_symbols(),
+            available_compiler_known_symbols()
         ));
     }
 
@@ -117,7 +120,7 @@ mod tests {
         );
 
         assert_input_error(
-            LoweringInput::try_new(&unit, &foreign, compiler_known_role_registry()),
+            LoweringInput::try_new(&unit, &foreign, available_compiler_known_symbols()),
             LoweringInputError::ForeignControlFlow {
                 expected: BoundUnitId::new(4),
                 actual: BoundUnitId::new(5),
@@ -131,7 +134,7 @@ mod tests {
         );
 
         assert_input_error(
-            LoweringInput::try_new(&unit, &wrong_kind, compiler_known_role_registry()),
+            LoweringInput::try_new(&unit, &wrong_kind, available_compiler_known_symbols()),
             LoweringInputError::ControlFlowKindMismatch {
                 expected: unit.key().kind(),
                 actual: bray_bound_tree::BoundUnitKind::RuntimeDefault,

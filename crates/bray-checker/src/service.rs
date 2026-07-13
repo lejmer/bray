@@ -29,7 +29,7 @@ mod tests {
 
     use super::{ControlFlowChecker, DefaultControlFlowChecker};
     use crate::test_support::{
-        callable_key, compiler_known_role_registry, normally_completing_recovered_tree,
+        available_compiler_known_symbols, callable_key, normally_completing_recovered_tree,
         recovered_tree,
     };
     use crate::{CheckerOutcome, UnitCheckRequest, UnitCheckRoot};
@@ -44,15 +44,15 @@ mod tests {
         let Ok(request) = UnitCheckRequest::new(
             view,
             UnitCheckRoot::CallableBody(root),
-            compiler_known_role_registry(),
+            available_compiler_known_symbols(),
             &|| false,
         ) else {
             panic!("matching test roots must produce checker requests");
         };
 
         assert!(std::ptr::eq(
-            request.compiler_known_role_registry(),
-            compiler_known_role_registry()
+            request.available_compiler_known_symbols(),
+            available_compiler_known_symbols()
         ));
 
         let outcome = DefaultControlFlowChecker.check_control_flow(request);
@@ -82,7 +82,7 @@ mod tests {
         let Ok(request) = UnitCheckRequest::new(
             view,
             UnitCheckRoot::CallableBody(root),
-            compiler_known_role_registry(),
+            available_compiler_known_symbols(),
             &|| true,
         ) else {
             panic!("matching test roots must produce checker requests");
@@ -103,7 +103,7 @@ mod tests {
         let Ok(request) = UnitCheckRequest::new(
             view,
             UnitCheckRoot::CallableBody(root),
-            compiler_known_role_registry(),
+            available_compiler_known_symbols(),
             &|| false,
         ) else {
             panic!("matching test roots must produce checker requests");
@@ -129,7 +129,7 @@ mod tests {
         let request = UnitCheckRequest::new(
             view,
             UnitCheckRoot::CallableBody(foreign_root),
-            compiler_known_role_registry(),
+            available_compiler_known_symbols(),
             &|| false,
         );
 

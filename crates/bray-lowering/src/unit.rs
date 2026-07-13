@@ -278,7 +278,7 @@ mod tests {
         match LoweringInput::try_new(
             unit,
             control_flow,
-            crate::test_support::compiler_known_role_registry(),
+            crate::test_support::available_compiler_known_symbols(),
         ) {
             Ok(input) => input,
             Err(error) => panic!("matching lowering input must validate: {error:?}"),

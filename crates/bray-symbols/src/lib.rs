@@ -29,6 +29,9 @@ mod surface_kind;
 mod test_support;
 mod value;
 
+#[cfg(feature = "test-support")]
+pub mod testing;
+
 pub use compiler_known::{
     AvailableCompilerKnownSymbols, CompilerKnownDeclarationFact, CompilerKnownScopeSymbolId,
     CompilerKnownSymbolBuildError, CompilerKnownSymbolFactKey, CompilerKnownSymbolProvider,

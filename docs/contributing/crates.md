@@ -104,7 +104,7 @@
     - Keeps graph IDs, fixed-point state, work lists, and intermediate flow facts task-local rather than publishing them as bound,
       symbol, package-interface, or lowering identities.
     - Returns structured diagnostics and semantic facts for the binder to place on bound nodes before publication.
-    - Receives typed compiler-known role registries through checker requests rather than resolving roles by name.
+    - Receives target-available typed compiler-known role views through checker requests rather than resolving roles by name.
 
 - `bray-lowering`
     - Owns the validated borrowing boundary over canonical bound units and their required durable semantic facts.
@@ -113,7 +113,7 @@
     - Makes implicit semantics explicit: temporaries, drops, moves, control-flow normalization, pattern lowering, short-circuiting,
       and other desugaring.
     - Materializes reachable runtime-default providers from their checked declaration-owned expressions.
-    - Receives typed compiler-known role registries through validated lowering inputs rather than resolving hooks by name.
+    - Receives target-available typed compiler-known role views through validated lowering inputs rather than resolving hooks by name.
 
 - `bray-ir`
     - Backend-independent lower-level intermediate representation.

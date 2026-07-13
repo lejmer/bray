@@ -1529,9 +1529,9 @@ Lowering consumes canonical bound units only through a query that guarantees eve
 facts required by lowering. Its constructor must validate the compilation-local unit identity and semantic unit category of every
 supplied fact. It must not own, clone, enrich, or progressively wrap the bound tree.
 
-The input must also borrow the compilation-local compiler-known symbol role registry. Lowering must classify already resolved
-compiler-known call and representation targets through typed symbol identities. It must not recover implementation hooks or
-representation roles through names, catalog keys, or source spelling.
+The input must also borrow the compilation-local target-available compiler-known symbol view. Lowering must classify already
+resolved compiler-known call and representation targets through typed symbol identities while rejecting unavailable targets. It
+must not recover implementation hooks or representation roles through names, catalog keys, or source spelling.
 
 Every durable checker fact required by lowering must be represented by an explicit typed `LoweringInput` field and constructor
 argument. A generic fact map, a completion flag, or a claim that an analysis ran previously must not satisfy the contract. A missing
