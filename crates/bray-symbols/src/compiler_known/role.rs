@@ -9,7 +9,7 @@ use super::CompilerKnownSymbolBuildError;
 use crate::{AnySymbolId, ExactSymbolId};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum RepresentationTarget {
+pub(super) enum RepresentationTarget {
     Symbol(AnySymbolId),
     Value(CompilerKnownValueId),
 }
@@ -133,6 +133,17 @@ impl CompilerKnownSymbolRoleRegistry {
     /// Returns the implementation hook carried by an exact compiler-known symbol.
     pub fn symbol_implementation<I: ExactSymbolId>(&self, symbol: I) -> Option<ImplementationHook> {
         self.symbol_implementations.get(&symbol.into()).copied()
+    }
+
+    pub(super) fn representation_target(
+        &self,
+        role: RepresentationRole,
+    ) -> Option<RepresentationTarget> {
+        self.representations.get(&role).copied()
+    }
+
+    pub(super) fn implementation_symbol_ids(&self, hook: ImplementationHook) -> &[AnySymbolId] {
+        self.implementations.get(&hook).map_or(&[], Box::as_ref)
     }
 }
 

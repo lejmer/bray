@@ -28,6 +28,20 @@ pub enum AvailabilityRule {
 }
 
 impl AvailabilityRule {
+    /// Every closed availability rule in canonical declaration order.
+    pub const ALL: [Self; 10] = [
+        Self::Always,
+        Self::Real16,
+        Self::Real128,
+        Self::Complex32,
+        Self::Complex256,
+        Self::RawMemory,
+        Self::Atomics,
+        Self::ForeignAbi,
+        Self::AddressSpaces,
+        Self::Allocation,
+    ];
+
     #[cfg(any(test, feature = "generation"))]
     pub(crate) fn from_catalog_spelling(spelling: &str) -> Option<Self> {
         match spelling {
@@ -53,5 +67,24 @@ mod tests {
     #[test]
     fn availability_defaults_to_always() {
         assert_eq!(AvailabilityRule::default(), AvailabilityRule::Always);
+    }
+
+    #[test]
+    fn all_rules_follow_canonical_declaration_order() {
+        assert_eq!(
+            AvailabilityRule::ALL,
+            [
+                AvailabilityRule::Always,
+                AvailabilityRule::Real16,
+                AvailabilityRule::Real128,
+                AvailabilityRule::Complex32,
+                AvailabilityRule::Complex256,
+                AvailabilityRule::RawMemory,
+                AvailabilityRule::Atomics,
+                AvailabilityRule::ForeignAbi,
+                AvailabilityRule::AddressSpaces,
+                AvailabilityRule::Allocation,
+            ]
+        );
     }
 }

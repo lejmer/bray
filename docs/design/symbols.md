@@ -1401,6 +1401,11 @@ Examples:
 - completing the compiler-known environment completes its ambient declarations and compiler-known modules,
 - completing a callable symbol does not bind its executable body.
 
+Compiler-known completion must use the same immutable containment traversal as other symbol roots. Its environment root owns both
+top-level compiler-known modules and ambient declarations for completion purposes, while each module or declaration contributes its
+ordinary typed semantic children. A complete catalog audit must prove that this traversal reaches every generated compiler-known
+declaration exactly once.
+
 Force completion is idempotent. It returns or exposes diagnostics through the same cached fact results used by ordinary requests.
 
 Compilation-wide symbol diagnostics are obtained by forcing the compiler-known environment and selected package symbol roots to

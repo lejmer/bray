@@ -783,14 +783,20 @@ check verifies freshness only and must not duplicate catalog parsing or generati
 
 - verify generated output is current,
 - construct the compiler-known symbol environment,
-- force all catalog-owned semantic facts,
-- validate exhaustive implementation-hook coverage,
-- validate representation-role and availability-rule coverage,
+- audit stable scope and declaration keys against their materialized symbol identities,
+- audit immediate semantic ownership for every catalog declaration,
+- validate exhaustive typed implementation-hook and representation-role coverage,
+- validate portable, complete, and individual-capability target views without mutating the process-wide catalog,
+- build one declaration-surface completion plan that reaches every ambient, module-owned, and nested compiler-known declaration,
+- force every planned catalog-owned semantic fact through the ordinary symbol-completion API,
+- require serial and parallel completion to produce identical diagnostics,
 - validate recognized standard-library fixtures where available,
 - exit unsuccessfully when any invariant fails.
 
-The commands orchestrate existing crate APIs. Catalog parsing, domain validation, and deterministic rendering remain in their owning
-crate modules rather than being implemented directly in `xtask`.
+`bray-compiler-known` must own structural parsing, descriptor validation, and deterministic generation. `bray-symbols` must own the
+stable-identity, ownership, role, target-view, and completion-coverage audit over materialized symbols. `bray-compilation` must own
+serial and parallel completion orchestration. The `xtask` command must remain a thin composition of those APIs rather than
+reimplementing any catalog or semantic validation.
 
 ### Generated Catalog Policy
 

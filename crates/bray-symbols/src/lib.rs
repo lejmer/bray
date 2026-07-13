@@ -33,9 +33,10 @@ mod value;
 pub mod testing;
 
 pub use compiler_known::{
-    AvailableCompilerKnownSymbols, CompilerKnownDeclarationFact, CompilerKnownScopeSymbolId,
+    AvailableCompilerKnownSymbols, CompilerKnownCatalogAudit, CompilerKnownCatalogAuditError,
+    CompilerKnownCatalogAuditReport, CompilerKnownDeclarationFact, CompilerKnownScopeSymbolId,
     CompilerKnownSymbolBuildError, CompilerKnownSymbolFactKey, CompilerKnownSymbolProvider,
-    CompilerKnownSymbolRoleRegistry,
+    CompilerKnownSymbolRoleRegistry, CompilerKnownTargetProfile,
 };
 pub use error::SymbolGraphBuildError;
 pub use graph::{SymbolGraph, SymbolGraphRoots};

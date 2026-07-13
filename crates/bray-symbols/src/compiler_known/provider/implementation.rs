@@ -343,6 +343,15 @@ impl CompilerKnownSymbolProvider {
     pub(crate) fn receivers(&self) -> Vec<ReceiverParameterSymbol> {
         self.receivers.records().to_vec()
     }
+
+    pub(in crate::compiler_known) fn declaration_id(
+        &self,
+        symbol: AnySymbolId,
+    ) -> Option<CompilerKnownDeclarationId> {
+        self.declaration_descriptors
+            .get(&symbol.symbol_id())
+            .copied()
+    }
 }
 
 impl SymbolProvider<CompilerKnownEnvironmentSymbolId> for CompilerKnownSymbolProvider {
