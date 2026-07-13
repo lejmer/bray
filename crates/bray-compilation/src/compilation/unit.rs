@@ -159,8 +159,8 @@ mod tests {
     use std::sync::Arc;
 
     use super::Compilation;
-    use crate::fact::{CancellationToken, FactQueryError};
-    use crate::test_support::{compilation, source_callable_body_key};
+    use crate::fact::{CancellationToken, FactCellTestEvent, FactQueryError};
+    use crate::test_support::{FactTestGate, compilation, source_callable_body_key};
 
     #[test]
     fn repeated_and_concurrent_requests_share_production_semantic_facts() {
@@ -178,25 +178,35 @@ mod tests {
 
         assert!(Arc::ptr_eq(&first_bound, &second_bound));
 
+        let gate = FactTestGate::holding(FactCellTestEvent::Computing);
+
+        if let Err(error) = compilation
+            .state
+            .checked_control_flow
+            .set_test_observer(&key, gate.observer())
+        {
+            panic!("control-flow fact must accept a test observer: {error:?}");
+        }
+
         // Bound-unit keys are Arc-backed immutable identities shared by concurrent requests.
         let checked = std::thread::scope(|scope| {
             let compilation = &compilation;
-            let handles = (0..4)
-                .map(|_| {
-                    let key = key.clone();
+            let owner_key = key.clone();
+            let owner = scope.spawn(move || compilation.checked_control_flow(owner_key));
 
-                    scope.spawn(move || compilation.checked_control_flow(key))
-                })
-                .collect::<Vec<_>>();
+            gate.wait_until_observed(FactCellTestEvent::Computing, 1);
 
-            handles
-                .into_iter()
-                .map(|handle| match handle.join() {
-                    Ok(Ok(checked)) => checked,
-                    Ok(Err(error)) => panic!("concurrent semantic request failed: {error:?}"),
-                    Err(_) => panic!("concurrent semantic request panicked"),
-                })
-                .collect::<Vec<_>>()
+            let waiter_key = key.clone();
+            let waiter = scope.spawn(move || compilation.checked_control_flow(waiter_key));
+
+            gate.wait_until_observed(FactCellTestEvent::Waiting, 1);
+            gate.release();
+
+            [owner, waiter].map(|handle| match handle.join() {
+                Ok(Ok(checked)) => checked,
+                Ok(Err(error)) => panic!("concurrent semantic request failed: {error:?}"),
+                Err(_) => panic!("concurrent semantic request panicked"),
+            })
         });
 
         assert!(
@@ -211,11 +221,32 @@ mod tests {
     fn cancelled_production_queries_publish_nothing_and_can_be_retried() {
         let compilation = callable_compilation();
         let key = source_callable_body_key(&compilation);
-        let cancelled = CancellationToken::new();
+        let bound_cancellation = CancellationToken::new();
+        let bound_gate = FactTestGate::holding(FactCellTestEvent::Computed);
 
-        cancelled.cancel();
+        if let Err(error) = compilation
+            .state
+            .bound_units
+            .set_test_observer(&key, bound_gate.observer())
+        {
+            panic!("bound-unit fact must accept a test observer: {error:?}");
+        }
 
-        let bound = compilation.bound_unit_with_cancellation(key.clone(), &cancelled);
+        let bound = std::thread::scope(|scope| {
+            let request_key = key.clone();
+            let request = scope.spawn(|| {
+                compilation.bound_unit_with_cancellation(request_key, &bound_cancellation)
+            });
+
+            bound_gate.wait_until_observed(FactCellTestEvent::Computed, 1);
+            bound_cancellation.cancel();
+            bound_gate.release();
+
+            match request.join() {
+                Ok(result) => result,
+                Err(_) => panic!("cancelled bound-unit request panicked"),
+            }
+        });
 
         assert!(matches!(bound, Err(FactQueryError::Cancelled)));
         assert_eq!(compilation.state.bound_units.is_published(&key), Ok(false));
@@ -224,7 +255,33 @@ mod tests {
 
         assert!(bound.is_ok());
 
-        let checked = compilation.checked_control_flow_with_cancellation(key.clone(), &cancelled);
+        let checked_cancellation = CancellationToken::new();
+        let checked_gate = FactTestGate::holding(FactCellTestEvent::Computed);
+
+        if let Err(error) = compilation
+            .state
+            .checked_control_flow
+            .set_test_observer(&key, checked_gate.observer())
+        {
+            panic!("control-flow fact must accept a test observer: {error:?}");
+        }
+
+        let checked = std::thread::scope(|scope| {
+            let request_key = key.clone();
+            let request = scope.spawn(|| {
+                compilation
+                    .checked_control_flow_with_cancellation(request_key, &checked_cancellation)
+            });
+
+            checked_gate.wait_until_observed(FactCellTestEvent::Computed, 1);
+            checked_cancellation.cancel();
+            checked_gate.release();
+
+            match request.join() {
+                Ok(result) => result,
+                Err(_) => panic!("cancelled control-flow request panicked"),
+            }
+        });
 
         assert!(matches!(checked, Err(FactQueryError::Cancelled)));
         assert_eq!(

@@ -1,3 +1,6 @@
+use std::sync::{Arc, Condvar, Mutex};
+use std::time::Duration;
+
 use bray_bound_tree::{BoundSourceAnchor, BoundUnitKey};
 use bray_declarations::{DeclarationId, discover_source_unit_declarations};
 use bray_diagnostics::{DiagnosticBag, DiagnosticKind};
@@ -9,7 +12,101 @@ use bray_symbols::{
     ModulePathKey, PackageIdentity, SymbolGraph, SymbolKey, SymbolKind, SymbolOrigin, SymbolRootKey,
 };
 
+use crate::fact::{FactCellTestEvent, FactCellTestObserver};
 use crate::{Compilation, CompilationOptions, CompilationRequest, WorkerBudget};
+
+const FACT_OBSERVATION_TIMEOUT: Duration = Duration::from_secs(5);
+
+pub(crate) struct FactTestGate {
+    held_event: FactCellTestEvent,
+    shared: Arc<(Mutex<FactTestGateState>, Condvar)>,
+}
+
+#[derive(Default)]
+struct FactTestGateState {
+    computing: usize,
+    waiting: usize,
+    computed: usize,
+    released: bool,
+}
+
+impl FactTestGate {
+    pub(crate) fn holding(held_event: FactCellTestEvent) -> Self {
+        Self {
+            held_event,
+            shared: Arc::new((Mutex::new(FactTestGateState::default()), Condvar::new())),
+        }
+    }
+
+    pub(crate) fn observer(&self) -> FactCellTestObserver {
+        let held_event = self.held_event;
+        let shared = Arc::clone(&self.shared);
+
+        FactCellTestObserver::new(move |event| {
+            let (state, changed) = &*shared;
+            let mut state = state
+                .lock()
+                .unwrap_or_else(|_| panic!("fact test gate must remain available"));
+
+            state.record(event);
+            changed.notify_all();
+
+            while event == held_event && !state.released {
+                state = changed
+                    .wait(state)
+                    .unwrap_or_else(|_| panic!("fact test gate must remain available"));
+            }
+        })
+    }
+
+    pub(crate) fn wait_until_observed(&self, event: FactCellTestEvent, count: usize) {
+        let (state, changed) = &*self.shared;
+        let state = state
+            .lock()
+            .unwrap_or_else(|_| panic!("fact test gate must remain available"));
+
+        let waited = changed
+            .wait_timeout_while(state, FACT_OBSERVATION_TIMEOUT, |state| {
+                state.count(event) < count
+            })
+            .unwrap_or_else(|_| panic!("fact test gate must remain available"));
+
+        if waited.0.count(event) < count {
+            drop(waited.0);
+            self.release();
+
+            panic!("fact test event was not observed before the timeout");
+        }
+    }
+
+    pub(crate) fn release(&self) {
+        let (state, changed) = &*self.shared;
+        let mut state = state
+            .lock()
+            .unwrap_or_else(|_| panic!("fact test gate must remain available"));
+
+        state.released = true;
+        changed.notify_all();
+    }
+}
+
+impl FactTestGateState {
+    fn record(&mut self, event: FactCellTestEvent) {
+        match event {
+            FactCellTestEvent::Computing => self.computing += 1,
+            FactCellTestEvent::Waiting => self.waiting += 1,
+            FactCellTestEvent::Computed => self.computed += 1,
+        }
+    }
+
+    const fn count(&self, event: FactCellTestEvent) -> usize {
+        match event {
+            FactCellTestEvent::Computing => self.computing,
+            FactCellTestEvent::Waiting => self.waiting,
+            FactCellTestEvent::Computed => self.computed,
+        }
+    }
+}
 
 pub(crate) fn package_identity() -> PackageIdentity {
     match PackageIdentity::try_new("test.package") {

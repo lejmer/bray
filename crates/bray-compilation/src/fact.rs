@@ -13,6 +13,8 @@ pub use error::{FactCycle, FactQueryError};
 pub use key::{CompilationFactKey, SymbolFactKey};
 
 pub(crate) use cache::FactCell;
+#[cfg(test)]
+pub(crate) use cache::{FactCellTestEvent, FactCellTestObserver};
 pub(crate) use runtime::FactRuntime;
 pub(crate) use unit::{PublishedUnitFact, UnitFactCache};
 pub(crate) use unit_identity::BoundUnitIdentityMap;

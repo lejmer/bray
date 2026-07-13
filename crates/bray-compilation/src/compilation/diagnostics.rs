@@ -354,8 +354,9 @@ mod tests {
     use bray_diagnostics::DiagnosticKind;
 
     use crate::WorkerBudget;
+    use crate::fact::FactCellTestEvent;
     use crate::test_support::{
-        compilation, compilation_with_sources_and_worker_budget, diagnostic_kinds,
+        FactTestGate, compilation, compilation_with_sources_and_worker_budget, diagnostic_kinds,
     };
 
     #[test]
@@ -570,18 +571,30 @@ mod tests {
             "}\n",
         ));
 
-        let diagnostics = std::thread::scope(|scope| {
-            let handles = (0..4)
-                .map(|_| scope.spawn(|| compilation.check_diagnostics()))
-                .collect::<Vec<_>>();
+        let gate = FactTestGate::holding(FactCellTestEvent::Computing);
 
-            handles
-                .into_iter()
-                .map(|handle| match handle.join() {
-                    Ok(diagnostics) => diagnostics,
-                    Err(_) => panic!("package diagnostic request panicked"),
-                })
-                .collect::<Vec<_>>()
+        if let Err(error) = compilation
+            .state
+            .check_diagnostics
+            .set_test_observer(gate.observer())
+        {
+            panic!("package diagnostic fact must accept a test observer: {error:?}");
+        }
+
+        let diagnostics = std::thread::scope(|scope| {
+            let owner = scope.spawn(|| compilation.check_diagnostics());
+
+            gate.wait_until_observed(FactCellTestEvent::Computing, 1);
+
+            let waiter = scope.spawn(|| compilation.check_diagnostics());
+
+            gate.wait_until_observed(FactCellTestEvent::Waiting, 1);
+            gate.release();
+
+            [owner, waiter].map(|handle| match handle.join() {
+                Ok(diagnostics) => diagnostics,
+                Err(_) => panic!("package diagnostic request panicked"),
+            })
         });
 
         assert!(
@@ -611,10 +624,7 @@ mod tests {
                 "module app;\n",
                 "func second()\n",
                 "{\n",
-                "    let callback = lambda()\n",
-                "    {\n",
-                "        missing;\n",
-                "    };\n",
+                "    missing;\n",
                 "}\n",
             ),
         ];
@@ -644,6 +654,25 @@ mod tests {
 
         parallel_keys.reverse();
 
+        assert_eq!(parallel_keys.len(), 2);
+
+        let gates = parallel_keys
+            .iter()
+            .map(|key| {
+                let gate = FactTestGate::holding(FactCellTestEvent::Computing);
+
+                if let Err(error) = parallel
+                    .state
+                    .checked_control_flow
+                    .set_test_observer(key, gate.observer())
+                {
+                    panic!("control-flow fact must accept a test observer: {error:?}");
+                }
+
+                gate
+            })
+            .collect::<Vec<_>>();
+
         // Bound-unit keys share immutable identity storage across worker requests.
         std::thread::scope(|scope| {
             let parallel = &parallel;
@@ -652,7 +681,13 @@ mod tests {
                 .map(|key| scope.spawn(move || parallel.checked_control_flow(key)))
                 .collect::<Vec<_>>();
 
-            for handle in handles {
+            for gate in &gates {
+                gate.wait_until_observed(FactCellTestEvent::Computing, 1);
+            }
+
+            for (gate, handle) in gates.iter().zip(handles) {
+                gate.release();
+
                 match handle.join() {
                     Ok(Ok(_)) => {}
                     Ok(Err(error)) => panic!("parallel semantic demand failed: {error:?}"),

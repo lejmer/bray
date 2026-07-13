@@ -7,6 +7,9 @@ use bray_diagnostics::DiagnosticResult;
 
 use super::{CancellationToken, CompilationFactKey, FactCell, FactQueryError, FactRuntime};
 
+#[cfg(test)]
+use super::FactCellTestObserver;
+
 #[derive(Debug)]
 pub(crate) struct PublishedUnitFact<T> {
     result: Arc<DiagnosticResult<T>>,
@@ -105,6 +108,15 @@ impl<T> UnitFactCache<T> {
             .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
         Ok(cells.get(key).is_some_and(|cell| cell.get().is_some()))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_test_observer(
+        &self,
+        key: &BoundUnitKey,
+        observer: FactCellTestObserver,
+    ) -> Result<(), FactQueryError> {
+        self.cell(key)?.set_test_observer(observer)
     }
 }
 
