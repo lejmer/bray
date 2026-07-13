@@ -635,7 +635,9 @@ Symbols belong to symbol construction and semantic reference layers.
 
 Local symbol snapshots belong to their checked semantic regions and are published with the corresponding bound representation.
 
-Source-shaped and lowered-bound nodes belong to the bound representation layer.
+Source-shaped bound nodes belong to `bray-bound-tree`.
+
+Normalized lowered-bound blocks and operations belong to `bray-lowering`.
 
 Resolved references on bound nodes belong to binding.
 
@@ -706,8 +708,8 @@ Walker traversal order must be deterministic.
 Walker APIs should make descent behavior explicit. A walker can visit all children by default, skip a subtree deliberately, or stop
 early with an explicit result.
 
-Walkers belong with the representation they walk. Syntax walkers belong in the syntax layer, source-shaped and lowered-bound walkers
-belong in the bound representation layer, and lower-level IR walkers belong in the IR layer.
+Walkers belong with the representation they walk. Syntax walkers belong in the syntax layer, source-shaped bound walkers belong in
+`bray-bound-tree`, normalized lowered-bound walkers belong in `bray-lowering`, and lower-level IR walkers belong in `bray-ir`.
 
 Whole-tree walkers can exist as serial convenience APIs. Parallel phases should schedule independent traversal roots, use the
 representation-owned per-root walker inside each task, keep walker state task-local, and merge phase outputs through deterministic

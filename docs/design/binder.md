@@ -1549,9 +1549,14 @@ lowered-bound unit owned by `bray-lowering`. This representation is execution-sh
 expressions, patterns, blocks, and callable bodies. It can introduce temporaries, explicit control-flow blocks, merge values,
 cleanup paths, and other execution machinery that do not need source-level symbol identities.
 
-The normalized unit retains its canonical source-unit key and only the source anchors required for diagnostics. It must not retain
+The normalized unit retains its canonical bound-unit key and only the source anchors required for diagnostics. It must not retain
 bound node IDs as deferred semantic decisions for a later phase to reinterpret. Normalized control-flow, value, storage, and cleanup
 identities belong to the normalized unit itself.
+
+`LoweredUnitBuilder` starts from a validated `LoweringInput`, assigns compact block identities in deterministic construction order,
+and validates source-snapshot correlation while blocks are committed. Publication requires an exact committed entry block and
+freezes the result as an immutable `LoweredUnit`. The initial contract establishes unit, block, entry, and source identity without
+adding placeholder semantic operations before production lowering defines them.
 
 The second stage translates that normalized bound representation into the lower-level backend-independent `bray-ir` representation.
 The split lets source-oriented semantic lowering finish before lower-level IR construction without pretending the checked bound tree
