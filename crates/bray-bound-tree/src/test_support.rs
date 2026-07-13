@@ -4,9 +4,8 @@ use bray_source::{
     TextSizeOverflow,
 };
 use bray_symbols::{
-    LocalScopeBoundary, LocalSymbolRegionId, LocalSymbolRegionKey, LocalSymbolRegionRole,
-    LocalSymbolSnapshot, LocalSymbolSnapshotBuilder, ModulePathKey, PackageIdentity,
-    SemanticValueStore, SymbolKey, SymbolKind, SymbolRootKey, SynthesizedSymbolKey, TypeData,
+    ModulePathKey, PackageIdentity, SemanticValueStore, SymbolKey, SymbolKind, SymbolRootKey,
+    SynthesizedSymbolKey, TypeData,
 };
 use bray_syntax::{
     ModuleDirectivesSyntax, ModuleModifiersSyntax, PathSyntax, SourceUnitModuleDeclarationSyntax,
@@ -80,37 +79,6 @@ pub(crate) fn runtime_default_key(declaration: u32) -> SymbolKey {
     let provider = SynthesizedSymbolKey::callable_parameter_default_provider(parameter);
 
     SymbolKey::synthesized(provider)
-}
-
-pub(crate) fn local_snapshot(
-    region: u32,
-    owner: SymbolKey,
-    role: LocalSymbolRegionRole,
-    anchors: impl IntoIterator<Item = SyntaxAnchor>,
-) -> LocalSymbolSnapshot {
-    let anchors = anchors.into_iter().collect::<Box<[_]>>();
-
-    let Some(key) = LocalSymbolRegionKey::try_new(owner, role, anchors.iter().copied(), None)
-    else {
-        panic!("test local region must have at least one source anchor");
-    };
-
-    let mut builder = LocalSymbolSnapshotBuilder::new(LocalSymbolRegionId::new(region), key);
-
-    let Some(root_anchor) = anchors.first().copied() else {
-        panic!("test local region must retain its first source anchor");
-    };
-
-    if let Err(error) =
-        builder.push_scope(None, LocalScopeBoundary::Root, root_anchor, TextSize::ZERO)
-    {
-        panic!("test root scope must be valid: {error:?}");
-    }
-
-    match builder.finish() {
-        Ok(snapshot) => snapshot,
-        Err(error) => panic!("test local snapshot must be valid: {error:?}"),
-    }
 }
 
 fn module_anchor(chunk: &bray_declarations::DeclarationChunk) -> SyntaxAnchor {

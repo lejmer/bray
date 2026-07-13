@@ -384,6 +384,18 @@ impl SymbolKey {
         self.0.kind()
     }
 
+    /// Returns the source declaration underlying this key or its synthesized subject.
+    pub fn source_declaration_id(&self) -> Option<DeclarationId> {
+        match self.data() {
+            SymbolKeyData::SourceDeclaration { declaration, .. } => Some(*declaration),
+            SymbolKeyData::Synthesized(key) => key.subject().source_declaration_id(),
+            SymbolKeyData::Root(_)
+            | SymbolKeyData::Module { .. }
+            | SymbolKeyData::CompilerKnownDeclaration { .. }
+            | SymbolKeyData::External(_) => None,
+        }
+    }
+
     fn root(root: SymbolRootKey) -> Self {
         Self(Arc::new(SymbolKeyData::Root(root)))
     }
@@ -521,9 +533,12 @@ mod tests {
         assert_eq!(receiver.kind(), SymbolKind::ReceiverParameter);
         assert_eq!(receiver.ordinal(), None);
 
+        let receiver = SymbolKey::synthesized(receiver);
+
+        assert_eq!(receiver.kind(), SymbolKind::ReceiverParameter);
         assert_eq!(
-            SymbolKey::synthesized(receiver).kind(),
-            SymbolKind::ReceiverParameter
+            receiver.source_declaration_id(),
+            Some(DeclarationId::new(9))
         );
     }
 

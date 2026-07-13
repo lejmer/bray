@@ -318,7 +318,7 @@ impl BoundAnonymousCallableExpression {
         self.origin
     }
 
-    /// Returns the nested checked-unit key.
+    /// Returns the nested bound-unit key.
     pub const fn unit(&self) -> &BoundUnitKey {
         &self.unit
     }

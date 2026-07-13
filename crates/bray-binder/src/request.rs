@@ -306,7 +306,7 @@ impl<'facts, C: BinderFactContext + ?Sized> BinderRequestContext<'facts, C> {
     }
 }
 
-/// Frozen task-local output awaiting category-specific checked-unit assembly.
+/// Frozen task-local output awaiting bound-unit assembly.
 #[derive(Debug)]
 pub(crate) struct BinderRequestResult {
     unit: BoundUnitConstructionResult,
@@ -325,6 +325,16 @@ impl BinderRequestResult {
 
     pub(crate) const fn dependencies(&self) -> &[BinderDependency] {
         &self.dependencies
+    }
+
+    pub(crate) fn into_parts(
+        self,
+    ) -> (
+        BoundUnitConstructionResult,
+        DiagnosticBag,
+        Box<[BinderDependency]>,
+    ) {
+        (self.unit, self.diagnostics, self.dependencies)
     }
 }
 

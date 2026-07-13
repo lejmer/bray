@@ -1,4 +1,5 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 use bray_declarations::{DeclarationId, SyntaxAnchor};
 
@@ -60,11 +61,12 @@ macro_rules! define_symbol_graph {
         #[derive(Clone, Debug, Eq, PartialEq)]
         pub struct SymbolGraph {
             roots: SymbolGraphRoots,
-            compiler_known: CompilerKnownSymbolProvider,
+            compiler_known: Arc<CompilerKnownSymbolProvider>,
             packages: TypedSymbolRecords<PackageSymbolId, PackageSymbol>,
             modules: TypedSymbolRecords<ModuleSymbolId, ModuleSymbol>,
             module_index: BTreeMap<ModuleOwnerId, BTreeMap<ModulePathKey, ModuleSymbolId>>,
             member_indexes: BTreeMap<AnySymbolId, MemberLookupIndex<AnySymbolId>>,
+            symbol_keys: BTreeSet<crate::SymbolKey>,
             declaration_index: BTreeMap<DeclarationId, AnySymbolId>,
             completion_children: BTreeMap<AnySymbolId, Box<[AnySymbolId]>>,
             callable_parameter_default_providers: TypedSymbolRecords<
@@ -92,7 +94,22 @@ macro_rules! define_symbol_graph {
                 package_identity: PackageIdentity,
                 declarations: &bray_declarations::DeclarationTable,
             ) -> Result<Self, SymbolGraphBuildError> {
-                crate::build::build_source_symbol_graph(package_identity, declarations)
+                let compiler_known = Arc::new(CompilerKnownSymbolProvider::build()?);
+
+                Self::build_source_with_provider(package_identity, declarations, compiler_known)
+            }
+
+            /// Constructs one source symbol graph from a canonical compiler-known provider.
+            pub fn build_source_with_provider(
+                package_identity: PackageIdentity,
+                declarations: &bray_declarations::DeclarationTable,
+                compiler_known: Arc<CompilerKnownSymbolProvider>,
+            ) -> Result<Self, SymbolGraphBuildError> {
+                crate::build::build_source_symbol_graph(
+                    package_identity,
+                    declarations,
+                    compiler_known,
+                )
             }
 
             /// Returns the forest roots.
@@ -101,13 +118,13 @@ macro_rules! define_symbol_graph {
             }
 
             /// Returns the single compiler-known environment record.
-            pub const fn compiler_known_environment(&self) -> &CompilerKnownEnvironmentSymbol {
+            pub fn compiler_known_environment(&self) -> &CompilerKnownEnvironmentSymbol {
                 self.compiler_known.environment()
             }
 
             /// Returns the catalog-backed compiler-known symbol and fact provider.
-            pub const fn compiler_known_provider(&self) -> &CompilerKnownSymbolProvider {
-                &self.compiler_known
+            pub fn compiler_known_provider(&self) -> &CompilerKnownSymbolProvider {
+                self.compiler_known.as_ref()
             }
 
             /// Returns package records in stable identity order.
@@ -168,6 +185,43 @@ macro_rules! define_symbol_graph {
             /// Returns the semantic identity introduced by a declaration when it creates one.
             pub fn symbol_for_declaration(&self, declaration: DeclarationId) -> Option<AnySymbolId> {
                 self.declaration_index.get(&declaration).copied()
+            }
+
+            /// Returns whether this graph owns an exact stable symbol key.
+            pub fn contains_symbol_key(&self, key: &crate::SymbolKey) -> bool {
+                self.symbol_keys.contains(key)
+            }
+
+            /// Returns the immediate semantic container of one symbol when it has one.
+            pub fn containing_symbol(&self, symbol: AnySymbolId) -> Option<AnySymbolId> {
+                match symbol {
+                    AnySymbolId::CompilerKnownEnvironment(_) | AnySymbolId::Package(_) => None,
+                    AnySymbolId::Module(_) => None,
+                    AnySymbolId::CallableParameterDefaultProvider(id) => self
+                        .callable_parameter_default_provider(id)
+                        .map(CallableParameterDefaultProviderSymbol::containing_symbol),
+                    AnySymbolId::StructFieldDefaultProvider(id) => self
+                        .struct_field_default_provider(id)
+                        .map(StructFieldDefaultProviderSymbol::containing_symbol),
+                    AnySymbolId::UnionPayloadDefaultProvider(id) => self
+                        .union_payload_default_provider(id)
+                        .map(UnionPayloadDefaultProviderSymbol::containing_symbol),
+                    AnySymbolId::ReceiverParameter(id) => self
+                        .receiver_parameter(id)
+                        .map(|receiver| receiver.owner().into_any()),
+                    $(AnySymbolId::$variant(id) => self.$singular(id).map(crate::$record::containing_symbol),)+
+                }
+            }
+
+            /// Returns the logical module containing one declaration or synthesized symbol.
+            pub fn containing_module(&self, mut symbol: AnySymbolId) -> Option<&ModuleSymbol> {
+                loop {
+                    if let AnySymbolId::Module(module) = symbol {
+                        return self.module(module);
+                    }
+
+                    symbol = self.containing_symbol(symbol)?;
+                }
             }
 
             /// Returns whether an exact symbol's introducing syntax contains parser recovery.
@@ -291,7 +345,12 @@ macro_rules! define_symbol_graph {
                 pub fn $singular(&self, id: crate::$id) -> Option<&crate::$record> {
                     self.$plural
                         .get(id)
-                        .or_else(|| SymbolProvider::<crate::$id>::symbol(&self.compiler_known, id))
+                        .or_else(|| {
+                            SymbolProvider::<crate::$id>::symbol(
+                                self.compiler_known.as_ref(),
+                                id,
+                            )
+                        })
                 }
             )+
         }
@@ -310,7 +369,7 @@ macro_rules! define_symbol_graph {
 
         pub(crate) struct SymbolGraphBuilder {
             roots: SymbolGraphRoots,
-            compiler_known: CompilerKnownSymbolProvider,
+            compiler_known: Arc<CompilerKnownSymbolProvider>,
             packages: Vec<PackageSymbol>,
             modules: Vec<ModuleSymbol>,
             declaration_index: BTreeMap<DeclarationId, AnySymbolId>,
@@ -329,7 +388,7 @@ macro_rules! define_symbol_graph {
         impl SymbolGraphBuilder {
             pub(crate) fn new(
                 roots: SymbolGraphRoots,
-                compiler_known: CompilerKnownSymbolProvider,
+                compiler_known: Arc<CompilerKnownSymbolProvider>,
                 packages: Vec<PackageSymbol>,
                 modules: Vec<ModuleSymbol>,
             ) -> Self {
@@ -497,6 +556,42 @@ macro_rules! define_symbol_graph {
                     ReceiverParameterSymbol::id,
                 );
 
+                $(
+                    let $plural = TypedSymbolRecords::new(self.$plural, crate::$record::id);
+                )+
+
+                // Stable keys are Arc-backed and cheap to retain in the ownership-validation index.
+                let symbol_keys = std::iter::once(self.compiler_known.environment().key())
+                    .chain(packages.records().iter().map(PackageSymbol::key))
+                    .chain(modules.records().iter().map(ModuleSymbol::key))
+                    .chain(
+                        callable_parameter_default_providers
+                            .records()
+                            .iter()
+                            .map(CallableParameterDefaultProviderSymbol::key),
+                    )
+                    .chain(
+                        struct_field_default_providers
+                            .records()
+                            .iter()
+                            .map(StructFieldDefaultProviderSymbol::key),
+                    )
+                    .chain(
+                        union_payload_default_providers
+                            .records()
+                            .iter()
+                            .map(UnionPayloadDefaultProviderSymbol::key),
+                    )
+                    .chain(
+                        receiver_parameters
+                            .records()
+                            .iter()
+                            .map(ReceiverParameterSymbol::key),
+                    )
+                    $(.chain($plural.records().iter().map(crate::$record::key)))+
+                    .cloned()
+                    .collect();
+
                 let module_index = modules
                     .records()
                     .iter()
@@ -551,15 +646,14 @@ macro_rules! define_symbol_graph {
                     modules,
                     module_index,
                     member_indexes,
+                    symbol_keys,
                     declaration_index: self.declaration_index,
                     completion_children,
                     callable_parameter_default_providers,
                     struct_field_default_providers,
                     union_payload_default_providers,
                     receiver_parameters,
-                    $(
-                        $plural: TypedSymbolRecords::new(self.$plural, crate::$record::id),
-                    )+
+                    $($plural,)+
                 })
             }
         }
@@ -589,7 +683,7 @@ impl SymbolProvider<CompilerKnownEnvironmentSymbolId> for SymbolGraph {
         &self,
         id: CompilerKnownEnvironmentSymbolId,
     ) -> Option<&CompilerKnownEnvironmentSymbol> {
-        SymbolProvider::<CompilerKnownEnvironmentSymbolId>::symbol(&self.compiler_known, id)
+        SymbolProvider::<CompilerKnownEnvironmentSymbolId>::symbol(self.compiler_known.as_ref(), id)
     }
 }
 

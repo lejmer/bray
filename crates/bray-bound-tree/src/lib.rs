@@ -2,7 +2,7 @@
 
 #![forbid(unsafe_code)]
 
-mod checked;
+mod bound_unit;
 mod control;
 mod dependency;
 mod identity;
@@ -16,12 +16,8 @@ mod tree;
 mod unit;
 mod view;
 
-pub use checked::{
-    CheckedAnonymousCallable, CheckedCallableBody, CheckedConstantTemplateUnit,
-    CheckedConstraintUnit, CheckedContractClauseUnit, CheckedPredicateDefinitionUnit,
-    CheckedRuntimeDefaultUnit, CheckedUnitBuildError,
-};
-pub use control::{ControlCompletion, ControlCompletionKind};
+pub use bound_unit::{BoundUnit, BoundUnitBuildError, BoundUnitRoot};
+pub use control::{CheckedControlFlowFacts, ControlCompletion, ControlCompletionKind};
 pub use dependency::{
     BoundDependencyContract, BoundDependencyContractId, BoundDependencyGuard,
     BoundDependencyRequirement, BoundDependencyRequirementKind, BoundDependencySubject,

@@ -1,4 +1,4 @@
-use bray_bound_tree::{BoundUnitId, BoundUnitKind, ControlCompletion};
+use bray_bound_tree::{BoundUnitId, BoundUnitKind, CheckedControlFlowFacts, ControlCompletion};
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 
 /// The control-flow facts established for one bound semantic unit.
@@ -8,10 +8,7 @@ use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 /// contract checking has completed.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct ControlFlowCheckResult {
-    unit: BoundUnitId,
-    kind: BoundUnitKind,
-    completion: ControlCompletion,
-    is_recovered: bool,
+    facts: CheckedControlFlowFacts,
 }
 
 impl ControlFlowCheckResult {
@@ -19,34 +16,35 @@ impl ControlFlowCheckResult {
         unit: BoundUnitId,
         kind: BoundUnitKind,
         completion: ControlCompletion,
-        is_recovered: bool,
     ) -> Self {
         Self {
-            unit,
-            kind,
-            completion,
-            is_recovered,
+            facts: CheckedControlFlowFacts::new(unit, kind, completion),
         }
     }
 
     /// Returns the exact bound unit these control-flow facts describe.
     pub const fn unit(self) -> BoundUnitId {
-        self.unit
+        self.facts.unit()
     }
 
     /// Returns the semantic category of the checked bound unit.
     pub const fn kind(self) -> BoundUnitKind {
-        self.kind
+        self.facts.kind()
     }
 
     /// Returns the unit's checked control-completion categories.
     pub const fn completion(self) -> ControlCompletion {
-        self.completion
+        self.facts.completion()
     }
 
     /// Returns whether conservative recovery affected control-flow checking.
     pub const fn is_recovered(self) -> bool {
-        self.is_recovered
+        self.facts.is_recovered()
+    }
+
+    /// Returns the durable control-flow facts established by this check.
+    pub const fn into_facts(self) -> CheckedControlFlowFacts {
+        self.facts
     }
 }
 
@@ -106,10 +104,12 @@ mod tests {
     #[test]
     fn control_flow_results_keep_unit_category_completion_and_recovery_together() {
         let unit = BoundUnitId::new(4);
-        let completion = ControlCompletion::from_kinds([ControlCompletionKind::Return]);
+        let completion = ControlCompletion::from_kinds([
+            ControlCompletionKind::Return,
+            ControlCompletionKind::Recovered,
+        ]);
 
-        let result =
-            ControlFlowCheckResult::new(unit, BoundUnitKind::CallableBody, completion, true);
+        let result = ControlFlowCheckResult::new(unit, BoundUnitKind::CallableBody, completion);
 
         assert_eq!(result.unit(), unit);
         assert_eq!(result.kind(), BoundUnitKind::CallableBody);
@@ -129,7 +129,6 @@ mod tests {
             BoundUnitId::new(4),
             BoundUnitKind::CallableBody,
             ControlCompletion::default(),
-            false,
         );
 
         let outcome = CheckerOutcome::complete(result, DiagnosticBag::single(diagnostic.clone()));

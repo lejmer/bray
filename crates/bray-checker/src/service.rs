@@ -1,6 +1,10 @@
 use crate::analysis::check_control_flow;
 use crate::{CheckerOutcome, ControlFlowCheckResult, UnitCheckRequest};
 
+/// The standard Bray control-flow checker implementation.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct DefaultControlFlowChecker;
+
 /// Control-flow checking over one committed bound semantic unit.
 ///
 /// Implementations must observe request cancellation while doing substantial
@@ -17,11 +21,13 @@ pub trait ControlFlowChecker: Sync {
     }
 }
 
+impl ControlFlowChecker for DefaultControlFlowChecker {}
+
 #[cfg(test)]
 mod tests {
     use bray_bound_tree::{BoundUnitId, ControlCompletionKind};
 
-    use super::ControlFlowChecker;
+    use super::{ControlFlowChecker, DefaultControlFlowChecker};
     use crate::test_support::{callable_key, normally_completing_recovered_tree, recovered_tree};
     use crate::{CheckerOutcome, UnitCheckRequest, UnitCheckRoot};
 
@@ -37,7 +43,7 @@ mod tests {
             panic!("matching test roots must produce checker requests");
         };
 
-        let outcome = StructuralChecker.check_control_flow(request);
+        let outcome = DefaultControlFlowChecker.check_control_flow(request);
 
         let CheckerOutcome::Complete(result) = outcome else {
             panic!("recovered graph construction must complete");
@@ -66,7 +72,7 @@ mod tests {
             panic!("matching test roots must produce checker requests");
         };
 
-        let outcome = StructuralChecker.check_control_flow(request);
+        let outcome = DefaultControlFlowChecker.check_control_flow(request);
 
         assert_eq!(outcome, CheckerOutcome::Cancelled);
     }
@@ -83,7 +89,7 @@ mod tests {
             panic!("matching test roots must produce checker requests");
         };
 
-        let outcome = StructuralChecker.check_control_flow(request);
+        let outcome = DefaultControlFlowChecker.check_control_flow(request);
 
         let CheckerOutcome::Complete(result) = outcome else {
             panic!("recovered control-flow checking must complete");
@@ -108,8 +114,4 @@ mod tests {
             Err(crate::UnitCheckRequestError::ForeignRoot)
         ));
     }
-
-    struct StructuralChecker;
-
-    impl ControlFlowChecker for StructuralChecker {}
 }

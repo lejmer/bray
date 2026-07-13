@@ -1,71 +1,21 @@
-use bray_bound_tree::{
-    BoundCallableBody, BoundNodeOrigin, BoundSourceAnchor, BoundTreeBuilder, BoundUnitId,
-    BoundUnitKey, CheckedCallableBody,
-};
+use bray_bound_tree::{BoundSourceAnchor, BoundUnitKey};
 use bray_declarations::{DeclarationId, discover_source_unit_declarations};
 use bray_parser::parse_source_unit;
-use bray_source::{
-    SourceId, SourceIdentity, SourceOrigin, SourceSnapshot, SourceVersion, TextSize,
-};
-use bray_symbols::{
-    LocalScopeBoundary, LocalSymbolRegionId, LocalSymbolRegionKey, LocalSymbolRegionRole,
-    LocalSymbolSnapshotBuilder, ModulePathKey, PackageIdentity, SymbolKey, SymbolKind,
-    SymbolRootKey,
-};
+use bray_source::{SourceId, SourceIdentity, SourceOrigin, SourceSnapshot, SourceVersion};
+use bray_symbols::{ModulePathKey, PackageIdentity, SymbolKey, SymbolKind, SymbolRootKey};
+
+pub(crate) fn package_identity() -> PackageIdentity {
+    match PackageIdentity::try_new("test.package") {
+        Some(identity) => identity,
+        None => panic!("test package identity must be valid"),
+    }
+}
 
 pub(crate) fn callable_body_key(declaration: u32) -> BoundUnitKey {
     valid_key(BoundUnitKey::callable_body(
         symbol_key(SymbolKind::Function, declaration),
         source_anchor(),
     ))
-}
-
-pub(crate) fn constant_template_key(declaration: u32) -> BoundUnitKey {
-    valid_key(BoundUnitKey::constant_template(
-        symbol_key(SymbolKind::Constant, declaration),
-        source_anchor(),
-    ))
-}
-
-pub(crate) fn checked_callable_body(declaration: u32) -> (BoundUnitKey, CheckedCallableBody) {
-    let owner = symbol_key(SymbolKind::Function, declaration);
-    let key = valid_key(BoundUnitKey::callable_body(owner.clone(), source_anchor()));
-    let unit = BoundUnitId::new(declaration);
-
-    let mut tree = BoundTreeBuilder::new(unit);
-    let body = BoundCallableBody::error(BoundNodeOrigin::source(key.source()), None);
-
-    let root = match tree.push_callable_body(body) {
-        Ok(root) => root,
-        Err(error) => panic!("test callable body must fit: {error:?}"),
-    };
-
-    let syntax = key.source().syntax();
-
-    let Some(region_key) =
-        LocalSymbolRegionKey::try_new(owner, LocalSymbolRegionRole::CallableBody, [syntax], None)
-    else {
-        panic!("test callable region key must be valid");
-    };
-
-    let mut locals =
-        LocalSymbolSnapshotBuilder::new(LocalSymbolRegionId::new(declaration), region_key);
-
-    if let Err(error) = locals.push_scope(None, LocalScopeBoundary::Root, syntax, TextSize::ZERO) {
-        panic!("test root scope must be valid: {error:?}");
-    }
-
-    let locals = match locals.finish() {
-        Ok(locals) => locals,
-        Err(error) => panic!("test local snapshot must be valid: {error:?}"),
-    };
-
-    let checked = match CheckedCallableBody::try_new(&key, tree.finish(), locals, [], root) {
-        Ok(checked) => checked,
-        Err(error) => panic!("test callable body must be publishable: {error:?}"),
-    };
-
-    (key, checked)
 }
 
 fn source_anchor() -> BoundSourceAnchor {

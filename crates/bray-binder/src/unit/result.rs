@@ -1,7 +1,7 @@
 use bray_bound_tree::{BoundTree, BoundUnitKey, BoundUnitView};
 use bray_symbols::{LocalScopeId, LocalSymbolSnapshot};
 
-/// Frozen binder-owned construction state awaiting category-specific checked-unit assembly.
+/// Frozen binder-owned construction state awaiting bound-unit assembly.
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) struct BoundUnitConstructionResult {
     key: BoundUnitKey,
@@ -43,6 +43,10 @@ impl BoundUnitConstructionResult {
 
     pub(crate) fn view(&self) -> BoundUnitView<'_> {
         self.tree.view(&self.key)
+    }
+
+    pub(crate) fn into_parts(self) -> (BoundUnitKey, BoundTree, LocalSymbolSnapshot, LocalScopeId) {
+        (self.key, self.tree, self.local_symbols, self.root_scope)
     }
 }
 

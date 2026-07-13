@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use bray_declarations::{
     ContainerId, ContainerKind, DeclarationId, DeclarationKind, DeclarationRecord,
@@ -25,8 +26,8 @@ use crate::{
 pub(crate) fn build_source_symbol_graph(
     package_identity: PackageIdentity,
     declarations: &DeclarationTable,
+    compiler_known: Arc<CompilerKnownSymbolProvider>,
 ) -> Result<SymbolGraph, SymbolGraphBuildError> {
-    let compiler_known = CompilerKnownSymbolProvider::build()?;
     let mut allocator = SymbolIdAllocator::starting_at(compiler_known.next_symbol_index());
 
     let roots = build_roots_and_modules(
@@ -937,6 +938,11 @@ mod tests {
 
         assert!(structure.is_recovered());
         assert_eq!(structure.containing_symbol(), module.id().into());
+        assert_eq!(
+            graph.containing_symbol(structure.id().into()),
+            Some(module.id().into())
+        );
+        assert_eq!(graph.containing_module(structure.id().into()), Some(module));
 
         let Some(structure_declaration) = structure.declaration() else {
             panic!("source structure must retain its declaration");

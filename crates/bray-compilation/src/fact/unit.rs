@@ -1,0 +1,204 @@
+use std::collections::BTreeMap;
+use std::sync::{Arc, Mutex};
+
+use bray_binder::BinderDependency;
+use bray_bound_tree::BoundUnitKey;
+use bray_diagnostics::DiagnosticResult;
+
+use super::{CancellationToken, CompilationFactKey, FactCell, FactQueryError, FactRuntime};
+
+#[derive(Debug)]
+pub(crate) struct PublishedUnitFact<T> {
+    result: Arc<DiagnosticResult<T>>,
+    // TODO(compilation): Remove this expectation when incremental invalidation traverses edges.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "incremental dependency invalidation is implemented by a subsequent issue"
+        )
+    )]
+    dependencies: Box<[BinderDependency]>,
+}
+
+impl<T> PublishedUnitFact<T> {
+    pub(crate) const fn result(&self) -> &Arc<DiagnosticResult<T>> {
+        &self.result
+    }
+
+    // TODO(compilation): Remove this expectation when incremental invalidation traverses edges.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "incremental dependency invalidation is implemented by a subsequent issue"
+        )
+    )]
+    pub(crate) fn dependencies(&self) -> &[BinderDependency] {
+        &self.dependencies
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct UnitFactCache<T> {
+    cells: Mutex<UnitCells<T>>,
+}
+
+type UnitCells<T> = BTreeMap<BoundUnitKey, Arc<FactCell<Arc<PublishedUnitFact<T>>>>>;
+
+impl<T> UnitFactCache<T> {
+    pub(crate) const fn new() -> Self {
+        Self {
+            cells: Mutex::new(BTreeMap::new()),
+        }
+    }
+
+    pub(crate) fn get_or_compute(
+        &self,
+        runtime: &FactRuntime,
+        cancellation: &CancellationToken,
+        fact_key: CompilationFactKey,
+        unit_key: BoundUnitKey,
+        compute: impl FnOnce() -> Result<(DiagnosticResult<T>, Box<[BinderDependency]>), FactQueryError>,
+    ) -> Result<Arc<PublishedUnitFact<T>>, FactQueryError> {
+        if fact_key.bound_unit_key() != Some(&unit_key) {
+            return Err(FactQueryError::InfrastructureFailure);
+        }
+
+        let cell = self.cell(&unit_key)?;
+
+        let published = cell.get_or_compute(runtime, fact_key, cancellation, || {
+            let (result, dependencies) = compute()?;
+
+            Ok(Arc::new(PublishedUnitFact {
+                result: Arc::new(result),
+                dependencies,
+            }))
+        })?;
+
+        // Publication must outlive the short-lived map and cell borrows returned by this query.
+        Ok(Arc::clone(published))
+    }
+
+    fn cell(
+        &self,
+        key: &BoundUnitKey,
+    ) -> Result<Arc<FactCell<Arc<PublishedUnitFact<T>>>>, FactQueryError> {
+        let mut cells = self
+            .cells
+            .lock()
+            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+        // The map owns one shared synchronization cell per exact immutable unit identity.
+        Ok(Arc::clone(
+            cells
+                .entry(key.clone())
+                .or_insert_with(|| Arc::new(FactCell::new())),
+        ))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn is_published(&self, key: &BoundUnitKey) -> Result<bool, FactQueryError> {
+        let cells = self
+            .cells
+            .lock()
+            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+        Ok(cells.get(key).is_some_and(|cell| cell.get().is_some()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use bray_binder::BinderDependency;
+    use bray_diagnostics::DiagnosticResult;
+
+    use super::UnitFactCache;
+    use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError, FactRuntime};
+    use crate::test_support::callable_body_key;
+
+    #[test]
+    fn repeated_requests_publish_one_atomic_result() {
+        let runtime = FactRuntime::default();
+        let cancellation = CancellationToken::new();
+        let cache = UnitFactCache::new();
+        let computations = AtomicUsize::new(0);
+
+        let key = callable_body_key(0);
+
+        let first = published(&cache, &runtime, &cancellation, key.clone(), || {
+            computations.fetch_add(1, Ordering::SeqCst);
+            computation(11)
+        });
+
+        let second = published(&cache, &runtime, &cancellation, key, || {
+            computations.fetch_add(1, Ordering::SeqCst);
+            computation(22)
+        });
+
+        assert!(std::sync::Arc::ptr_eq(&first, &second));
+        assert_eq!(first.result().value(), &11);
+        assert!(first.dependencies().is_empty());
+        assert_eq!(computations.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn cancellation_publishes_no_partial_fact() {
+        let runtime = FactRuntime::default();
+        let cancelled = CancellationToken::new();
+        let cache = UnitFactCache::new();
+
+        let key = callable_body_key(1);
+
+        cancelled.cancel();
+
+        let result = cache.get_or_compute(
+            &runtime,
+            &cancelled,
+            CompilationFactKey::BoundUnit(key.clone()),
+            key.clone(),
+            || computation(3),
+        );
+
+        assert!(matches!(result, Err(FactQueryError::Cancelled)));
+        assert_eq!(cache.is_published(&key), Ok(false));
+
+        let retried = cache.get_or_compute(
+            &runtime,
+            &CancellationToken::new(),
+            CompilationFactKey::BoundUnit(key.clone()),
+            key,
+            || computation(4),
+        );
+
+        assert!(retried.is_ok());
+    }
+
+    fn published(
+        cache: &UnitFactCache<u32>,
+        runtime: &FactRuntime,
+        cancellation: &CancellationToken,
+        key: bray_bound_tree::BoundUnitKey,
+        compute: impl FnOnce()
+            -> Result<(DiagnosticResult<u32>, Box<[BinderDependency]>), FactQueryError>,
+    ) -> std::sync::Arc<super::PublishedUnitFact<u32>> {
+        match cache.get_or_compute(
+            runtime,
+            cancellation,
+            CompilationFactKey::BoundUnit(key.clone()),
+            key,
+            compute,
+        ) {
+            Ok(value) => value,
+            Err(error) => panic!("unit fact must publish: {error:?}"),
+        }
+    }
+
+    fn computation(
+        value: u32,
+    ) -> Result<(DiagnosticResult<u32>, Box<[BinderDependency]>), FactQueryError> {
+        Ok((DiagnosticResult::without_diagnostics(value), Box::new([])))
+    }
+}

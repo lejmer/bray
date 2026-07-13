@@ -13,4 +13,4 @@ mod test_support;
 pub use cancellation::CheckerCancellation;
 pub use outcome::{CheckerOutcome, ControlFlowCheckResult};
 pub use request::{UnitCheckRequest, UnitCheckRequestError, UnitCheckRoot};
-pub use service::ControlFlowChecker;
+pub use service::{ControlFlowChecker, DefaultControlFlowChecker};

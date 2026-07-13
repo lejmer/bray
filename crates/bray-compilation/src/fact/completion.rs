@@ -184,8 +184,8 @@ mod tests {
     };
     use bray_source::{SourceIdentity, SourceInput, SourceVersion, TextSize};
     use bray_symbols::{
-        AnySymbolId, PackageIdentity, SymbolCompletionLevel, SymbolFactCompletionRequest,
-        SymbolFactKind, SymbolGraph,
+        AnySymbolId, SymbolCompletionLevel, SymbolFactCompletionRequest, SymbolFactKind,
+        SymbolGraph,
     };
 
     use super::{SymbolCompletionError, force_complete_symbol};
@@ -540,18 +540,19 @@ mod tests {
     }
 
     fn graph(text: &str) -> SymbolGraph {
-        let compilation = match Compilation::load_sources(vec![SourceInput::virtual_text(
-            SourceIdentity::new(0),
-            "completion.bray",
-            SourceVersion::new(0),
-            text,
-        )]) {
+        let package = crate::test_support::package_identity();
+
+        let compilation = match Compilation::load_sources(
+            package.clone(),
+            vec![SourceInput::virtual_text(
+                SourceIdentity::new(0),
+                "completion.bray",
+                SourceVersion::new(0),
+                text,
+            )],
+        ) {
             Ok(compilation) => compilation,
             Err(error) => panic!("test compilation should load: {error:?}"),
-        };
-
-        let Some(package) = PackageIdentity::try_new("test.package") else {
-            panic!("test package identity should be valid");
         };
 
         match SymbolGraph::build_source(package, compilation.declaration_table()) {

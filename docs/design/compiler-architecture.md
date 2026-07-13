@@ -101,7 +101,7 @@ No phase should rely on a later phase to repair invalid data.
 The main durable representations are:
 
 - a lossless syntax tree,
-- a checked source-shaped bound high-level IR,
+- a completed source-shaped bound high-level IR view,
 - a normalized lowered-bound representation,
 - a backend-independent lower-level IR.
 
@@ -128,6 +128,11 @@ source unit's syntax. A declaration-table query requests all source-unit chunks 
 diagnostics are a projection of the merged result, so a check-diagnostics query materializes declaration discovery through that
 fact dependency rather than through a phase-execution command.
 
+One compilation request carries the source package identity as an explicit semantic input. `Compilation` owns that identity and
+lazily derives the matching symbol graph and canonical semantic value store. Binder-facing query APIs construct their read-only fact
+context internally from compilation-owned inputs. They must not accept arbitrary caller contexts that could populate one cache from
+another syntax, symbol, target, or semantic-value universe.
+
 Dependency interfaces and the current library product's encoded package interface are also lazy facts. An imported identity-skeleton
 query requests structural interface validation and deterministic external-key mapping. An imported symbol fact requests only its
 length-delimited semantic payload. An interface-artifact query requests the reachable completed public surface and deterministic
@@ -145,7 +150,7 @@ Compiler facts should generally be lazy across stable compiler boundaries:
 - overload families,
 - trait applications,
 - generic instantiations,
-- checked bound units,
+- bound units and typed semantic facts,
 - lowered-bound units,
 - lower-level IR units,
 - backend codegen units.
@@ -153,6 +158,10 @@ Compiler facts should generally be lazy across stable compiler boundaries:
 A lazy fact must be complete within the boundary promised by its API. If an API returns a checked callable body, the whole callable
 body is checked and the published result contains the required expression types, selected overloads, selected trait
 implementations, move states, borrow states, contract facts, capability facts, and diagnostics for that body.
+
+Binding publishes one canonical immutable `BoundUnit`. Each semantic analysis publishes only its typed side facts keyed to that unit.
+The compiler must not copy the bound tree into stage-specific wrapper families as analyses complete. Query dependencies establish
+which analyses have completed, while a whole-unit completion query depends on every required domain fact.
 
 Smaller operations should use smaller APIs with smaller contracts. For example, a language-server hover implementation can ask for
 a declaration surface or a type signature. A completion implementation can ask for the local facts needed at a source position.
@@ -427,31 +436,30 @@ Binding consumes syntax plus symbol tables and orchestrates semantic analysis to
 
 The checked bound tree is the compiler's source-shaped high-level intermediate representation.
 
-The binder owns bound-tree construction.
-
-The binder calls semantic checker services during bound-tree construction whenever the relevant inputs are available.
+The binder owns bound-tree construction. Compilation-owned semantic queries call focused checker services after the canonical bound
+unit and their other declared inputs are available.
 
 The binder can use mutable builders internally, but the published bound representation is immutable. The compiler should not
 recreate equivalent bound nodes only to add semantic information later.
 
-The binder can construct a mutable lexical scope graph and local symbol tables while checking one semantic region. The published
-scope graph and local symbols are immutable, region-owned data attached to that checked region. Lexical scopes are not symbols, and
+The binder can construct a mutable lexical scope graph and local symbol tables while binding one semantic region. The published
+scope graph and local symbols are immutable, region-owned data attached to that bound unit. Lexical scopes are not symbols, and
 semantic symbol containment does not imply lexical lookup ancestry.
 
-Bound nodes preserve source correlation and carry resolved references plus completed semantic facts for their checked unit.
+Bound nodes preserve source correlation and carry decisions established during binding. Later semantic analyses publish typed side
+facts keyed to the same bound unit rather than recreating its nodes.
 
 Binding can report unresolved names, ambiguous names, invalid lexical scopes, invalid shadowing, and reference-form errors.
 
-Binding owns semantic-analysis orchestration. It does not define every semantic rule itself.
+Compilation owns semantic-analysis orchestration. Binding does not define every semantic rule itself.
 
 Type checking, ownership checking, borrowing, aliasing, effect checking, contract solving, and target-availability checking live
 in focused semantic checker services.
 
-Those services return diagnostics and semantic facts for the binder to place on the bound representation before the checked unit is
-published.
+Those services return diagnostics and typed semantic facts for compilation to publish beside the canonical bound unit.
 
-Some semantic facts require data-flow over an already constructed portion of a body. The binder still orchestrates that analysis as
-part of completing the bound unit before publication.
+Some semantic facts require data-flow over an already published bound unit. Their queries depend on that unit and publish only their
+own durable results.
 
 ### Semantic Checker Services
 
@@ -492,8 +500,8 @@ subjects. The binder instantiates them into unit-local bound contracts that can 
 and obligation identities. Compiled package interfaces encode template structure rather than compilation-local IDs.
 
 Initialization, movement, active borrows, alias relationships, and other facts that vary by program point remain checker-local
-analysis state. The checker publishes the immutable storage, access, borrow, dependency-contract, and operation facts promised
-by the checked-unit contract, not its complete transfer state or work lists.
+analysis state. The checker publishes the immutable storage, access, borrow, dependency-contract, and operation facts promised by
+its typed query contract, not its complete transfer state or work lists.
 
 Each semantic unit that requires whole-unit flow analysis has one immutable checker-internal control-flow graph constructed from
 its committed read-only bound unit view. Reachability, storage flow, ownership, borrowing, lifecycle, refinement, liveness, and
@@ -519,7 +527,7 @@ checker-local representation.
 
 ### Lowering
 
-Lowering first converts the checked source-shaped bound HIR into a normalized lowered-bound representation. It then translates that
+Lowering first converts the completed source-shaped bound HIR view into a normalized lowered-bound representation. It then translates that
 representation into backend-independent lower-level IR.
 
 Lowering owns desugaring and normalization after semantic validity is established.
@@ -546,7 +554,7 @@ If lowering discovers that it needs a semantic fact that the checked bound HIR d
 contract is incomplete.
 
 The normalized lowered-bound representation remains typed semantic compiler data, but it no longer mirrors source structure as
-closely as the checked HIR. It provides explicit operations and control flow that translate directly into `bray-ir`.
+closely as the completed bound HIR view. It provides explicit operations and control flow that translate directly into `bray-ir`.
 
 ### IR
 

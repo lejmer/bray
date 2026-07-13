@@ -23,7 +23,7 @@ define_unit_scoped_id!(
     "Identifies one lifecycle obligation in a checked semantic unit."
 );
 
-/// An exact checked-unit subject referenced by an instantiated dependency contract.
+/// An exact bound-unit subject referenced by an instantiated dependency contract.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum BoundDependencySubject {
     /// A persistent storage origin.
@@ -70,7 +70,7 @@ pub enum BoundDependencyRequirementKind {
     LifecycleObligationAttached(LifecycleObligationKind),
 }
 
-/// Resolves portable dependency-template subjects into exact checked-unit facts.
+/// Resolves portable dependency-template subjects into exact bound-unit facts.
 ///
 /// Binder construction state implements this contract while instantiating a selected callable or
 /// value contract. Projection evaluation and validation remain with that state because they can
@@ -89,7 +89,7 @@ pub trait DependencyContractInstantiationContext {
         requirement: DependencyRequirementKind,
     ) -> Result<BoundDependencySubject, Self::Error>;
 
-    /// Resolves one formal semantic guard to its exact checked-unit condition.
+    /// Resolves one formal semantic guard to its exact bound-unit condition.
     fn resolve_guard(
         &mut self,
         guard: &DependencyGuard,
@@ -177,7 +177,7 @@ impl GuardedBoundDependencyRequirement {
 /// One direct or guarded requirement in an instantiated dependency contract.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum BoundDependencyRequirement {
-    /// An unconditional requirement on one exact checked-unit subject.
+    /// An unconditional requirement on one exact bound-unit subject.
     Direct {
         /// The subject carrying the dependency.
         subject: BoundDependencySubject,

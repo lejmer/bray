@@ -111,7 +111,7 @@ impl BoundUnitId {
     }
 }
 
-/// Stable source correlation for a checked unit or bound node.
+/// Stable source correlation for a bound unit or bound node.
 ///
 /// The syntax anchor identifies the source construct within a parsed snapshot. The source
 /// version prevents equivalent ranges in different logical revisions from sharing a key.
@@ -172,7 +172,7 @@ pub struct AnonymousCallableUnitKey {
 }
 
 impl AnonymousCallableUnitKey {
-    /// Returns the independently checked unit containing the anonymous callable expression.
+    /// Returns the independently analyzed unit containing the anonymous callable expression.
     pub const fn enclosing(&self) -> &BoundUnitKey {
         &self.enclosing
     }
@@ -333,6 +333,19 @@ impl BoundUnitKey {
         self.0.source()
     }
 
+    /// Returns the declared surface owner underlying this unit or its enclosing callable.
+    pub fn declared_owner(&self) -> &SymbolKey {
+        match self.data() {
+            BoundUnitKeyData::CallableBody(key)
+            | BoundUnitKeyData::RuntimeDefault(key)
+            | BoundUnitKeyData::ConstantTemplate(key)
+            | BoundUnitKeyData::PredicateDefinition(key)
+            | BoundUnitKeyData::Constraint(key)
+            | BoundUnitKeyData::ContractClause(key) => key.owner(),
+            BoundUnitKeyData::AnonymousCallable(key) => key.enclosing().declared_owner(),
+        }
+    }
+
     fn declared(
         kind: BoundUnitKind,
         variant: impl FnOnce(DeclaredBoundUnitKey) -> BoundUnitKeyData,
@@ -392,9 +405,10 @@ mod tests {
             source_anchor(),
         ));
 
-        let nested = BoundUnitKey::anonymous_callable(body, source_anchor());
+        let nested = BoundUnitKey::anonymous_callable(body.clone(), source_anchor());
 
         assert_eq!(nested.kind(), BoundUnitKind::AnonymousCallable);
+        assert_eq!(nested.declared_owner(), body.declared_owner());
 
         let BoundUnitKeyData::AnonymousCallable(key) = nested.data() else {
             panic!("anonymous callable constructor must retain its exact key category");

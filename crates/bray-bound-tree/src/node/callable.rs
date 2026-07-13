@@ -1,6 +1,6 @@
 use crate::{BoundBlockId, BoundNodeOrigin};
 
-/// A complete checked callable body or its category-specific recovery form.
+/// A bound callable body or its category-specific recovery form.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct BoundCallableBody {
     origin: BoundNodeOrigin,

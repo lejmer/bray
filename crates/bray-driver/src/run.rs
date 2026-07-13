@@ -4,6 +4,7 @@ use std::process::ExitCode;
 
 use bray_compilation::{Compilation, CompilationRequest};
 use bray_diagnostics::DiagnosticBag;
+use bray_symbols::PackageIdentity;
 
 use crate::command::{DriverCommandKind, DriverInvocation, DriverOutputFormat};
 use crate::diagnostic_output::write_driver_output;
@@ -139,6 +140,7 @@ pub fn run_result(arguments: impl IntoIterator<Item = OsString>) -> DriverRunRes
     let command_kind = command.kind();
 
     let request = match compilation_request_from_file_arguments(
+        command_line_package_identity(),
         command.into_files(),
         options.compilation_options(),
     ) {
@@ -166,6 +168,14 @@ pub fn run_result(arguments: impl IntoIterator<Item = OsString>) -> DriverRunRes
         DriverCommandKind::Check
         | DriverCommandKind::InspectSource
         | DriverCommandKind::InspectTokens => unreachable!("handled command kind did not return"),
+    }
+}
+
+fn command_line_package_identity() -> PackageIdentity {
+    // Loose-file commands compile as one explicitly named command-line package.
+    match PackageIdentity::try_new("command.line") {
+        Some(identity) => identity,
+        None => panic!("the compiler's command-line package identity must be valid"),
     }
 }
 
