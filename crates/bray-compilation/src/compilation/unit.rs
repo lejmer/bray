@@ -116,6 +116,7 @@ fn check_control_flow(
             UnitCheckRoot::CallableBody(body)
         }
         BoundUnitRoot::Expression(expression) => UnitCheckRoot::Expression(expression),
+        BoundUnitRoot::ExpressionSequence(block) => UnitCheckRoot::ExpressionSequence(block),
     };
 
     let bridge = CheckerCancellationBridge(cancellation);

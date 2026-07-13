@@ -1,7 +1,7 @@
 use bray_source::{SourceId, TextRange};
 use bray_syntax::{
     SourceSyntaxNode, SyntaxCast, SyntaxKind, SyntaxTree, SyntaxWalkControl, SyntaxWalkEvent,
-    walk_syntax_tree,
+    walk_syntax_node,
 };
 
 /// Stable source-backed reference to a syntax node used by later compiler phases.
@@ -51,38 +51,21 @@ impl SyntaxAnchor {
 
     /// Resolves the first descendant of `T` within this exact anchored syntax node.
     pub fn find_descendant<T: SyntaxCast>(self, syntax: &SyntaxTree) -> Option<T> {
+        let root = syntax.find_node(
+            self.source_id,
+            self.syntax_kind,
+            self.full_range,
+            self.is_recovered,
+        )?;
         let mut result = None;
-        let mut anchor_depth = None;
 
-        walk_syntax_tree(syntax, |event| {
-            match event {
-                SyntaxWalkEvent::EnterNode(node) => {
-                    if let Some(depth) = anchor_depth.as_mut() {
-                        *depth += 1;
-                    } else if node.source().source_id() == self.source_id
-                        && node.kind() == self.syntax_kind
-                        && node.full_range() == self.full_range
-                        && node.is_recovered() == self.is_recovered
-                    {
-                        anchor_depth = Some(1);
-                    }
+        walk_syntax_node(&root, |event| {
+            if let SyntaxWalkEvent::EnterNode(node) = event
+                && node.kind() == T::KIND
+            {
+                result = node.cast();
 
-                    if anchor_depth.is_some() && node.kind() == T::KIND {
-                        result = node.cast();
-
-                        return SyntaxWalkControl::Stop;
-                    }
-                }
-                SyntaxWalkEvent::ExitNode(_) => {
-                    if let Some(depth) = anchor_depth.as_mut() {
-                        *depth -= 1;
-
-                        if *depth == 0 {
-                            anchor_depth = None;
-                        }
-                    }
-                }
-                SyntaxWalkEvent::Token(_) => {}
+                return SyntaxWalkControl::Stop;
             }
 
             SyntaxWalkControl::Continue

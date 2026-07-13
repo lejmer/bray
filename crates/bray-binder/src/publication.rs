@@ -1,6 +1,6 @@
 use bray_bound_tree::{
-    BoundCallableBodyId, BoundExpressionId, BoundUnit, BoundUnitBuildError, BoundUnitKey,
-    BoundUnitKeyData, BoundUnitRoot,
+    BoundBlockId, BoundCallableBodyId, BoundExpressionId, BoundUnit, BoundUnitBuildError,
+    BoundUnitKey, BoundUnitKeyData, BoundUnitRoot,
 };
 use bray_diagnostics::DiagnosticResult;
 use bray_symbols::AnonymousCallableSymbolId;
@@ -43,23 +43,23 @@ pub(crate) fn assemble_anonymous_callable(
     )
 }
 
-macro_rules! define_expression_assembler {
-    ($function:ident) => {
+macro_rules! define_root_assembler {
+    ($function:ident, $root_variant:ident, $root_type:ty) => {
         pub(crate) fn $function(
             request: BinderRequestResult,
             nested_units: Vec<BoundUnitKey>,
-            root: BoundExpressionId,
+            root: $root_type,
         ) -> Result<BoundUnitComputation, BoundUnitAssemblyError> {
-            assemble_bound_unit(request, nested_units, BoundUnitRoot::Expression(root))
+            assemble_bound_unit(request, nested_units, BoundUnitRoot::$root_variant(root))
         }
     };
 }
 
-define_expression_assembler!(assemble_runtime_default);
-define_expression_assembler!(assemble_constant_template);
-define_expression_assembler!(assemble_predicate_definition);
-define_expression_assembler!(assemble_constraint);
-define_expression_assembler!(assemble_contract_clause);
+define_root_assembler!(assemble_runtime_default, Expression, BoundExpressionId);
+define_root_assembler!(assemble_constant_template, Expression, BoundExpressionId);
+define_root_assembler!(assemble_predicate_definition, Expression, BoundExpressionId);
+define_root_assembler!(assemble_constraint, ExpressionSequence, BoundBlockId);
+define_root_assembler!(assemble_contract_clause, ExpressionSequence, BoundBlockId);
 
 fn assemble_bound_unit(
     request: BinderRequestResult,
