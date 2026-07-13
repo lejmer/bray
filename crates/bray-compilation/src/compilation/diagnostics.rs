@@ -353,8 +353,10 @@ mod tests {
     use bray_bound_tree::{BoundUnitKind, BoundUnitRoot};
     use bray_diagnostics::DiagnosticKind;
 
-    use super::Compilation;
-    use crate::test_support::{package_identity, source_input};
+    use crate::WorkerBudget;
+    use crate::test_support::{
+        compilation, compilation_with_sources_and_worker_budget, diagnostic_kinds,
+    };
 
     #[test]
     fn package_semantic_diagnostics_request_all_declared_unit_categories() {
@@ -429,10 +431,7 @@ mod tests {
         );
 
         assert_eq!(
-            first
-                .iter()
-                .map(bray_diagnostics::Diagnostic::kind)
-                .collect::<Vec<_>>(),
+            diagnostic_kinds(first),
             [DiagnosticKind::BindingNameAlreadyDefined]
         );
     }
@@ -452,11 +451,7 @@ mod tests {
         ));
 
         assert_eq!(
-            compilation
-                .check_diagnostics()
-                .iter()
-                .map(bray_diagnostics::Diagnostic::kind)
-                .collect::<Vec<_>>(),
+            diagnostic_kinds(compilation.check_diagnostics()),
             [DiagnosticKind::BindingNameAlreadyDefined]
         );
     }
@@ -483,11 +478,7 @@ mod tests {
         };
 
         assert_eq!(
-            compilation
-                .check_diagnostics()
-                .iter()
-                .map(bray_diagnostics::Diagnostic::kind)
-                .collect::<Vec<_>>(),
+            diagnostic_kinds(compilation.check_diagnostics()),
             [DiagnosticKind::BindingUnresolvedName]
         );
 
@@ -526,10 +517,157 @@ mod tests {
         assert!(compilation.check_diagnostics().is_empty());
     }
 
-    fn compilation(source: &str) -> Compilation {
-        match Compilation::load_sources(package_identity(), vec![source_input(source, 0)]) {
-            Ok(compilation) => compilation,
-            Err(error) => panic!("test compilation must load: {error:?}"),
+    #[test]
+    fn malformed_bodies_publish_recovered_semantic_facts_without_panicking() {
+        let cases = [
+            concat!(
+                "module app;\n",
+                "func missing_initializer()\n",
+                "{\n",
+                "    let value = ;\n",
+                "}\n",
+            ),
+            concat!(
+                "module app;\n",
+                "func malformed_pattern()\n",
+                "{\n",
+                "    let (first, second = 1;\n",
+                "}\n",
+            ),
+        ];
+
+        for source in cases {
+            let compilation = compilation(source);
+            let keys = match compilation.declared_unit_keys() {
+                Ok(keys) => keys,
+                Err(error) => panic!("recovered unit keys must be discoverable: {error:?}"),
+            };
+            let mut recovered = false;
+
+            assert!(!keys.is_empty(), "{source}");
+
+            for key in keys {
+                let checked = match compilation.checked_control_flow(key) {
+                    Ok(checked) => checked,
+                    Err(error) => panic!("recovered semantic check failed: {source}: {error:?}"),
+                };
+
+                recovered |= checked.value().is_recovered();
+            }
+
+            assert!(recovered, "{source}");
+            assert!(!compilation.check_diagnostics().is_empty(), "{source}");
         }
+    }
+
+    #[test]
+    fn concurrent_package_diagnostic_requests_publish_one_cached_result() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "func main()\n",
+            "{\n",
+            "    missing;\n",
+            "}\n",
+        ));
+
+        let diagnostics = std::thread::scope(|scope| {
+            let handles = (0..4)
+                .map(|_| scope.spawn(|| compilation.check_diagnostics()))
+                .collect::<Vec<_>>();
+
+            handles
+                .into_iter()
+                .map(|handle| match handle.join() {
+                    Ok(diagnostics) => diagnostics,
+                    Err(_) => panic!("package diagnostic request panicked"),
+                })
+                .collect::<Vec<_>>()
+        });
+
+        assert!(
+            diagnostics
+                .iter()
+                .skip(1)
+                .all(|result| std::ptr::eq(diagnostics[0], *result))
+        );
+        assert_eq!(
+            diagnostic_kinds(diagnostics[0]),
+            [DiagnosticKind::BindingUnresolvedName]
+        );
+    }
+
+    #[test]
+    fn semantic_diagnostics_ignore_serial_parallel_and_reversed_demand_order() {
+        let sources = [
+            concat!(
+                "module app;\n",
+                "func first()\n",
+                "{\n",
+                "    let value = 1;\n",
+                "    let value = 2;\n",
+                "}\n",
+            ),
+            concat!(
+                "module app;\n",
+                "func second()\n",
+                "{\n",
+                "    let callback = lambda()\n",
+                "    {\n",
+                "        missing;\n",
+                "    };\n",
+                "}\n",
+            ),
+        ];
+
+        let serial = compilation_with_sources_and_worker_budget(&sources, WorkerBudget::serial());
+        let serial_keys = match serial.declared_unit_keys() {
+            Ok(keys) => keys,
+            Err(error) => panic!("serial unit keys must be discoverable: {error:?}"),
+        };
+
+        for key in serial_keys {
+            if let Err(error) = serial.checked_control_flow(key) {
+                panic!("serial semantic demand failed: {error:?}");
+            }
+        }
+
+        let parallel_budget = match WorkerBudget::new(4) {
+            Ok(budget) => budget,
+            Err(error) => panic!("parallel test budget must be valid: {error:?}"),
+        };
+
+        let parallel = compilation_with_sources_and_worker_budget(&sources, parallel_budget);
+        let mut parallel_keys = match parallel.declared_unit_keys() {
+            Ok(keys) => keys,
+            Err(error) => panic!("parallel unit keys must be discoverable: {error:?}"),
+        };
+
+        parallel_keys.reverse();
+
+        // Bound-unit keys share immutable identity storage across worker requests.
+        std::thread::scope(|scope| {
+            let parallel = &parallel;
+            let handles = parallel_keys
+                .into_iter()
+                .map(|key| scope.spawn(move || parallel.checked_control_flow(key)))
+                .collect::<Vec<_>>();
+
+            for handle in handles {
+                match handle.join() {
+                    Ok(Ok(_)) => {}
+                    Ok(Err(error)) => panic!("parallel semantic demand failed: {error:?}"),
+                    Err(_) => panic!("parallel semantic demand panicked"),
+                }
+            }
+        });
+
+        assert_eq!(serial.check_diagnostics(), parallel.check_diagnostics());
+        assert_eq!(
+            diagnostic_kinds(serial.check_diagnostics()),
+            [
+                DiagnosticKind::BindingNameAlreadyDefined,
+                DiagnosticKind::BindingUnresolvedName,
+            ]
+        );
     }
 }

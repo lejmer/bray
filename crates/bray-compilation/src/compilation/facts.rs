@@ -409,8 +409,8 @@ mod tests {
     use bray_compiler_known::{AvailabilityRule, CompilerKnownDeclarationKey};
     use bray_declarations::{DeclarationKind, ModulePath};
     use bray_diagnostics::{
-        DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticBag, DiagnosticId,
-        DiagnosticKind, DiagnosticNote, DiagnosticNoteKind, SeverityKind,
+        DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticId, DiagnosticKind,
+        DiagnosticNote, DiagnosticNoteKind, SeverityKind,
     };
     use bray_source::{
         SourceId, SourceIdentity, SourceInput, SourceInputKind, SourceOriginKind, SourceVersion,
@@ -424,7 +424,10 @@ mod tests {
     use crate::TargetAvailabilityFacts;
     use crate::fact::FactQueryError;
     use crate::request::{CompilationOptions, CompilationRequest};
-    use crate::test_support::{package_identity, source_input};
+    use crate::test_support::{
+        diagnostic_kinds, package_identity, source_callable_body_key,
+        source_callable_body_key_from_symbols, source_input,
+    };
     use crate::worker::WorkerBudget;
 
     use super::Compilation;
@@ -881,7 +884,7 @@ mod tests {
     #[test]
     fn bound_and_control_flow_facts_share_nested_unit_identity() {
         let compilation = checked_body_compilation();
-        let key = callable_key(&compilation);
+        let key = source_callable_body_key(&compilation);
 
         let bound = match compilation.bound_unit(key.clone()) {
             Ok(bound) => bound,
@@ -945,7 +948,7 @@ mod tests {
                 Ok(symbols) => symbols,
                 Err(error) => panic!("foreign test symbol graph must build: {error:?}"),
             };
-        let foreign_key = callable_key_from_symbols(&compilation, &foreign_symbols);
+        let foreign_key = source_callable_body_key_from_symbols(&compilation, &foreign_symbols);
 
         let foreign = compilation.checked_control_flow(foreign_key.clone());
 
@@ -962,7 +965,7 @@ mod tests {
             Ok(false)
         );
 
-        let local_key = callable_key(&compilation);
+        let local_key = source_callable_body_key(&compilation);
         let local = compilation.checked_control_flow(local_key);
 
         assert!(local.is_ok());
@@ -971,14 +974,14 @@ mod tests {
     #[test]
     fn bound_unit_ids_ignore_serial_reversed_and_parallel_demand_order() {
         let first = unit_identity_compilation();
-        let first_callable = callable_key(&first);
+        let first_callable = source_callable_body_key(&first);
         let first_constant = source_constant_template_key(&first);
 
         let first_callable_id = unit_id(&first, &first_callable);
         let first_constant_id = unit_id(&first, &first_constant);
 
         let reversed = unit_identity_compilation();
-        let reversed_callable = callable_key(&reversed);
+        let reversed_callable = source_callable_body_key(&reversed);
         let reversed_constant = source_constant_template_key(&reversed);
 
         let reversed_constant_id = unit_id(&reversed, &reversed_constant);
@@ -988,7 +991,7 @@ mod tests {
         assert_eq!(first_constant_id, reversed_constant_id);
 
         let parallel = unit_identity_compilation();
-        let parallel_callable = callable_key(&parallel);
+        let parallel_callable = source_callable_body_key(&parallel);
         let parallel_constant = source_constant_template_key(&parallel);
 
         let (parallel_callable_id, parallel_constant_id) = std::thread::scope(|scope| {
@@ -1038,13 +1041,6 @@ mod tests {
 
     fn assert_send_sync<T: Send + Sync>() {}
 
-    fn diagnostic_kinds(diagnostics: &DiagnosticBag) -> Vec<DiagnosticKind> {
-        diagnostics
-            .iter()
-            .map(|diagnostic| diagnostic.kind())
-            .collect()
-    }
-
     fn declaration_compilation() -> Compilation {
         match Compilation::load_sources(
             package_identity(),
@@ -1091,39 +1087,6 @@ mod tests {
         match Compilation::load_sources(package_identity(), vec![source_input(source, 0)]) {
             Ok(compilation) => compilation,
             Err(error) => panic!("unit identity compilation must load: {error:?}"),
-        }
-    }
-
-    fn callable_key(compilation: &Compilation) -> BoundUnitKey {
-        let symbols = match compilation.symbol_graph() {
-            Ok(symbols) => symbols,
-            Err(error) => panic!("test symbol graph must build: {error:?}"),
-        };
-        callable_key_from_symbols(compilation, symbols)
-    }
-
-    fn callable_key_from_symbols(compilation: &Compilation, symbols: &SymbolGraph) -> BoundUnitKey {
-        let Some(function) = symbols
-            .functions()
-            .iter()
-            .find(|function| function.origin() == SymbolOrigin::Source)
-        else {
-            panic!("test symbol graph must contain one source function");
-        };
-
-        let Some(anchor) = function.syntax_anchor() else {
-            panic!("source function must retain its syntax anchor");
-        };
-
-        let Some(source) = compilation.source(anchor.source_id()) else {
-            panic!("function source must be loaded");
-        };
-
-        let source = BoundSourceAnchor::new(anchor, source.version());
-
-        match BoundUnitKey::callable_body(function.key().clone(), source) {
-            Some(key) => key,
-            None => panic!("source function must own a callable body"),
         }
     }
 

@@ -1,10 +1,15 @@
 use bray_bound_tree::{BoundSourceAnchor, BoundUnitKey};
 use bray_declarations::{DeclarationId, discover_source_unit_declarations};
+use bray_diagnostics::{DiagnosticBag, DiagnosticKind};
 use bray_parser::parse_source_unit;
 use bray_source::{
     SourceId, SourceIdentity, SourceInput, SourceOrigin, SourceSnapshot, SourceVersion,
 };
-use bray_symbols::{ModulePathKey, PackageIdentity, SymbolKey, SymbolKind, SymbolRootKey};
+use bray_symbols::{
+    ModulePathKey, PackageIdentity, SymbolGraph, SymbolKey, SymbolKind, SymbolOrigin, SymbolRootKey,
+};
+
+use crate::{Compilation, CompilationOptions, CompilationRequest, WorkerBudget};
 
 pub(crate) fn package_identity() -> PackageIdentity {
     match PackageIdentity::try_new("test.package") {
@@ -20,6 +25,82 @@ pub(crate) fn source_input(text: &str, version: u32) -> SourceInput {
         SourceVersion::new(u64::from(version)),
         text,
     )
+}
+
+pub(crate) fn diagnostic_kinds(diagnostics: &DiagnosticBag) -> Vec<DiagnosticKind> {
+    diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.kind())
+        .collect()
+}
+
+pub(crate) fn compilation(source: &str) -> Compilation {
+    match Compilation::load_sources(package_identity(), vec![source_input(source, 0)]) {
+        Ok(compilation) => compilation,
+        Err(error) => panic!("test compilation must load: {error:?}"),
+    }
+}
+
+pub(crate) fn compilation_with_sources_and_worker_budget(
+    sources: &[&str],
+    worker_budget: WorkerBudget,
+) -> Compilation {
+    let sources = sources
+        .iter()
+        .copied()
+        .enumerate()
+        .map(|(index, source)| match u32::try_from(index) {
+            Ok(version) => source_input(source, version),
+            Err(_) => panic!("test source index must fit in u32"),
+        })
+        .collect();
+
+    let request = CompilationRequest::with_options(
+        package_identity(),
+        sources,
+        CompilationOptions::new(worker_budget),
+    );
+
+    match Compilation::load(request) {
+        Ok(compilation) => compilation,
+        Err(error) => panic!("test compilation must load: {error:?}"),
+    }
+}
+
+pub(crate) fn source_callable_body_key(compilation: &Compilation) -> BoundUnitKey {
+    let symbols = match compilation.symbol_graph() {
+        Ok(symbols) => symbols,
+        Err(error) => panic!("test symbol graph must build: {error:?}"),
+    };
+
+    source_callable_body_key_from_symbols(compilation, symbols)
+}
+
+pub(crate) fn source_callable_body_key_from_symbols(
+    compilation: &Compilation,
+    symbols: &SymbolGraph,
+) -> BoundUnitKey {
+    let Some(function) = symbols
+        .functions()
+        .iter()
+        .find(|function| function.origin() == SymbolOrigin::Source)
+    else {
+        panic!("test compilation must contain a source function");
+    };
+
+    let Some(anchor) = function.syntax_anchor() else {
+        panic!("source function must retain its syntax anchor");
+    };
+
+    let Some(source) = compilation.source(anchor.source_id()) else {
+        panic!("function source must be loaded");
+    };
+
+    // Stable symbol keys share their immutable identity storage.
+    valid_key(BoundUnitKey::callable_body(
+        function.key().clone(),
+        BoundSourceAnchor::new(anchor, source.version()),
+    ))
 }
 
 pub(crate) fn callable_body_key(declaration: u32) -> BoundUnitKey {
