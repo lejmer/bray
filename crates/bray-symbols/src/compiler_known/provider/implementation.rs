@@ -11,19 +11,22 @@ use super::super::{
     CompilerKnownSymbolRoleRegistry,
 };
 use super::lookup::{add_member_entry, build_member_indexes};
+use super::signature::{
+    CompilerKnownSignatureSymbols, allocate_signature_symbols, order_completion_children,
+};
 use super::validation::{resolve_declaration_symbol_kinds, validate_scope_id};
 use crate::allocator::SymbolIdAllocator;
 use crate::build::declaration_symbol_id;
 use crate::collection::TypedSymbolRecords;
 use crate::record::{
     CompilerKnownEnvironmentSymbol, DeclarationSymbolIdentity, ModuleSymbol, ModuleSymbolInput,
-    for_each_declaration_symbol,
+    ReceiverParameterSymbol, for_each_declaration_symbol,
 };
 use crate::relationship::{ModuleRelationships, RelationshipIndex};
 use crate::{
     AnySymbolId, CompilerKnownEnvironmentSymbolId, ExactSymbolId, MemberLookupIndex,
-    MemberVisibility, ModuleOwnerId, ModulePathKey, ModuleSymbolId, SymbolId, SymbolKey,
-    SymbolKind, SymbolOrigin, SymbolProvider, SymbolRootKey,
+    MemberVisibility, ModuleOwnerId, ModulePathKey, ModuleSymbolId, ReceiverParameterSymbolId,
+    SymbolId, SymbolKey, SymbolKind, SymbolOrigin, SymbolProvider, SymbolRootKey,
 };
 
 /// The symbol identity materialized for one compiler-known scope descriptor.
@@ -106,6 +109,8 @@ pub struct CompilerKnownSymbolProvider {
     declaration_descriptors: BTreeMap<SymbolId, CompilerKnownDeclarationId>,
     role_registry: CompilerKnownSymbolRoleRegistry,
     pub(super) member_indexes: BTreeMap<AnySymbolId, MemberLookupIndex<AnySymbolId>>,
+    completion_children: BTreeMap<AnySymbolId, Box<[AnySymbolId]>>,
+    receivers: TypedSymbolRecords<ReceiverParameterSymbolId, ReceiverParameterSymbol>,
     records: BTreeMap<SymbolId, CompilerKnownRecord>,
     next_symbol_index: usize,
 }
@@ -119,6 +124,8 @@ struct BuiltCompilerKnownDeclarations {
     records: BTreeMap<SymbolId, CompilerKnownRecord>,
     relationships: RelationshipIndex,
     member_indexes: BTreeMap<AnySymbolId, MemberLookupIndex<AnySymbolId>>,
+    receivers: Vec<ReceiverParameterSymbol>,
+    signature_completion_children: BTreeMap<AnySymbolId, Box<[AnySymbolId]>>,
 }
 
 impl CompilerKnownSymbolProvider {
@@ -139,17 +146,29 @@ impl CompilerKnownSymbolProvider {
         let (declaration_symbols, descriptor_symbols) =
             allocate_declarations(catalog, &declaration_kinds, &mut allocator)?;
 
+        let declaration_keys = declaration_keys(catalog, &descriptor_symbols)?;
+        let signature_symbols = allocate_signature_symbols(
+            catalog,
+            &descriptor_symbols,
+            &declaration_keys,
+            &mut allocator,
+        )?;
+
         let declarations = build_declarations(
             catalog,
             &scope_symbols,
             &descriptor_symbols,
             &declaration_symbols,
+            declaration_keys,
+            signature_symbols,
         )?;
 
         let BuiltCompilerKnownDeclarations {
             records,
             relationships,
             member_indexes,
+            receivers,
+            signature_completion_children,
         } = declarations;
 
         let role_registry = CompilerKnownSymbolRoleRegistry::build(catalog, &descriptor_symbols)?;
@@ -166,6 +185,33 @@ impl CompilerKnownSymbolProvider {
 
         let modules = TypedSymbolRecords::new(modules, ModuleSymbol::id);
         let module_ids = modules.records().iter().map(ModuleSymbol::id).collect();
+
+        // Record construction still needs the relationship index after completion takes ownership
+        // of an independently mutable child map.
+        let completion_children = relationships.clone().into_completion_children();
+        let mut completion_children =
+            order_completion_children(completion_children, signature_completion_children);
+
+        let mut environment_children = modules
+            .records()
+            .iter()
+            .map(ModuleSymbol::id)
+            .map(Into::into)
+            .collect::<Vec<_>>();
+
+        environment_children.extend(
+            match completion_children.remove(&AnySymbolId::from(environment_id)) {
+                Some(children) => children,
+                None => Box::new([]),
+            },
+        );
+
+        completion_children.insert(
+            environment_id.into(),
+            environment_children.into_boxed_slice(),
+        );
+
+        let receivers = TypedSymbolRecords::new(receivers, ReceiverParameterSymbol::id);
 
         let environment = CompilerKnownEnvironmentSymbol::new(
             environment_id,
@@ -186,6 +232,8 @@ impl CompilerKnownSymbolProvider {
                 .collect(),
             role_registry,
             member_indexes,
+            completion_children,
+            receivers,
             records,
             next_symbol_index: allocator.next_index(),
         })
@@ -266,12 +314,34 @@ impl CompilerKnownSymbolProvider {
         Some(CompilerKnownDeclarationFact::new(descriptor, surface))
     }
 
+    /// Resolves descriptor-backed facts for one independently cataloged symbol.
+    pub fn declaration_fact_for_symbol(
+        &self,
+        symbol: AnySymbolId,
+    ) -> Option<CompilerKnownDeclarationFact<'static>> {
+        let declaration = *self.declaration_descriptors.get(&symbol.symbol_id())?;
+        let descriptor = self.catalog.compiler_known_declaration(declaration)?;
+        let surface = self.catalog.declaration_surface(descriptor.surface())?;
+
+        Some(CompilerKnownDeclarationFact::new(descriptor, surface))
+    }
+
     pub(crate) const fn next_symbol_index(&self) -> usize {
         self.next_symbol_index
     }
 
     pub(in crate::compiler_known) const fn catalog(&self) -> &'static CompilerKnownCatalog {
         self.catalog
+    }
+
+    pub(crate) fn completion_children(&self, symbol: AnySymbolId) -> &[AnySymbolId] {
+        self.completion_children
+            .get(&symbol)
+            .map_or(&[], Box::as_ref)
+    }
+
+    pub(crate) fn receivers(&self) -> Vec<ReceiverParameterSymbol> {
+        self.receivers.records().to_vec()
     }
 }
 
@@ -287,6 +357,12 @@ impl SymbolProvider<CompilerKnownEnvironmentSymbolId> for CompilerKnownSymbolPro
 impl SymbolProvider<ModuleSymbolId> for CompilerKnownSymbolProvider {
     fn symbol(&self, id: ModuleSymbolId) -> Option<&ModuleSymbol> {
         self.modules.get(id)
+    }
+}
+
+impl SymbolProvider<ReceiverParameterSymbolId> for CompilerKnownSymbolProvider {
+    fn symbol(&self, id: ReceiverParameterSymbolId) -> Option<&ReceiverParameterSymbol> {
+        self.receivers.get(id)
     }
 }
 
@@ -385,12 +461,47 @@ fn allocate_declarations(
     Ok((stable_symbols, descriptor_symbols))
 }
 
+fn declaration_keys(
+    catalog: &CompilerKnownCatalog,
+    descriptor_symbols: &BTreeMap<CompilerKnownDeclarationId, AnySymbolId>,
+) -> Result<BTreeMap<CompilerKnownDeclarationId, SymbolKey>, CompilerKnownSymbolBuildError> {
+    let mut keys = BTreeMap::new();
+
+    for descriptor in catalog.compiler_known_declarations() {
+        let Some(symbol) = descriptor_symbols.get(&descriptor.id()) else {
+            return Err(CompilerKnownSymbolBuildError::InvalidDeclarationSurface {
+                declaration: descriptor.id(),
+            });
+        };
+
+        let Some(key) =
+            SymbolKey::compiler_known_declaration(descriptor.key().clone(), symbol.kind())
+        else {
+            return Err(CompilerKnownSymbolBuildError::InvalidDeclarationSurface {
+                declaration: descriptor.id(),
+            });
+        };
+
+        keys.insert(descriptor.id(), key);
+    }
+
+    Ok(keys)
+}
+
 fn build_declarations(
     catalog: &CompilerKnownCatalog,
     scopes: &BTreeMap<CompilerKnownScopeKey, CompilerKnownScopeSymbolId>,
     descriptor_symbols: &BTreeMap<CompilerKnownDeclarationId, AnySymbolId>,
     stable_symbols: &BTreeMap<CompilerKnownDeclarationKey, AnySymbolId>,
+    mut declaration_keys: BTreeMap<CompilerKnownDeclarationId, SymbolKey>,
+    signature_symbols: CompilerKnownSignatureSymbols,
 ) -> Result<BuiltCompilerKnownDeclarations, CompilerKnownSymbolBuildError> {
+    let CompilerKnownSignatureSymbols {
+        declarations: signature_declarations,
+        receivers,
+        completion_children,
+    } = signature_symbols;
+
     let mut relationships = RelationshipIndex::default();
     let mut identities = Vec::new();
     let mut member_entries = BTreeMap::new();
@@ -410,9 +521,7 @@ fn build_declarations(
             SymbolOrigin::CompilerKnown
         };
 
-        let Some(key) =
-            SymbolKey::compiler_known_declaration(descriptor.key().clone(), symbol.kind())
-        else {
+        let Some(key) = declaration_keys.remove(&descriptor.id()) else {
             return Err(CompilerKnownSymbolBuildError::InvalidDeclarationKind {
                 declaration: descriptor.id(),
                 catalog_kind: descriptor.kind(),
@@ -451,6 +560,15 @@ fn build_declarations(
         ));
     }
 
+    for (declaration, symbol, identity) in signature_declarations {
+        relationships.add_symbol(symbol, identity.containing_symbol());
+        identities.push((declaration, symbol, identity));
+    }
+
+    for receiver in &receivers {
+        relationships.add_symbol(receiver.id().into(), receiver.owner().into_any());
+    }
+
     let mut records = BTreeMap::new();
 
     for (declaration, symbol, identity) in identities {
@@ -462,11 +580,22 @@ fn build_declarations(
     }
 
     let member_indexes = build_member_indexes(member_entries);
+    let mut signature_completion_children = BTreeMap::new();
+
+    for (declaration, children) in completion_children {
+        let Some(owner) = descriptor_symbols.get(&declaration).copied() else {
+            return Err(CompilerKnownSymbolBuildError::InvalidDeclarationSurface { declaration });
+        };
+
+        signature_completion_children.insert(owner, children);
+    }
 
     Ok(BuiltCompilerKnownDeclarations {
         records,
         relationships,
         member_indexes,
+        receivers,
+        signature_completion_children,
     })
 }
 
@@ -560,7 +689,7 @@ mod tests {
             None
         );
 
-        assert_eq!(provider.declaration_symbols().len(), 12);
+        assert_eq!(provider.declaration_symbols().len(), 14);
     }
 
     #[test]

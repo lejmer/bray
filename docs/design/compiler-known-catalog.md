@@ -638,6 +638,10 @@ Generated tables include canonical typed indexes so publication requires no muta
 genuinely requires allocation, it may use one-time immutable initialization, but catalog parsing and validation remain build-time
 work. Demand order, worker count, and source manifest order must not alter stable keys or descriptor IDs.
 
+Generated surface records retain balanced source-order node and token events from parser output. Later semantic phases reconstruct
+ordinary typed `bray-syntax` fragments from those events without lexing or parsing `.braydef` text at runtime. The reconstruction API
+exposes typed nodes and opaque node views, not public green-tree storage.
+
 ### Structural Generation Stages
 
 Catalog generation proceeds in deterministic stages:

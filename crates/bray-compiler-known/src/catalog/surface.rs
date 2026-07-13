@@ -1,8 +1,13 @@
 use std::borrow::Cow;
 
-use bray_syntax::SyntaxKind;
+use bray_source::{SourceId, SourceIdentity};
+use bray_syntax::{
+    PreparsedSyntaxEvent, PreparsedSyntaxFragment, PreparsedSyntaxFragmentError, SyntaxKind,
+};
 
-use super::{CatalogDeclarationKind, CatalogDeclarationSurface, CatalogTypeSurface};
+use super::{
+    CatalogDeclarationKind, CatalogDeclarationSurface, CatalogSourceAnchor, CatalogTypeSurface,
+};
 
 /// One pre-parsed token in a generated catalog surface.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -82,6 +87,69 @@ impl CatalogDeclarationSurfaceSyntax {
     pub fn elements(&self) -> &[CatalogSurfaceElement] {
         &self.elements
     }
+
+    /// Reconstructs the generated declaration as ordinary typed Bray syntax.
+    pub fn syntax_fragment(&self) -> Result<PreparsedSyntaxFragment, PreparsedSyntaxFragmentError> {
+        preparsed_fragment(self.surface.anchor(), &self.elements)
+    }
+
+    /// Returns signature-owned child metadata derived from the generated syntax tree.
+    pub fn signature(&self) -> CatalogDeclarationSignature {
+        declaration_signature(&self.elements)
+    }
+}
+
+/// The kind of one written generic parameter in generated declaration syntax.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum CatalogGenericParameterKind {
+    /// A generic type parameter.
+    Type,
+    /// A generic constant parameter.
+    Const,
+}
+
+/// One written generic parameter in generated declaration syntax.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CatalogGenericParameter {
+    kind: CatalogGenericParameterKind,
+    name: String,
+}
+
+impl CatalogGenericParameter {
+    /// Returns the parameter category.
+    pub const fn kind(&self) -> CatalogGenericParameterKind {
+        self.kind
+    }
+
+    /// Returns the declared parameter spelling.
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+}
+
+/// The signature-owned child shape of one generated declaration surface.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CatalogDeclarationSignature {
+    generic_parameters: Box<[CatalogGenericParameter]>,
+    callable_parameters: u32,
+    is_static: bool,
+}
+
+impl CatalogDeclarationSignature {
+    /// Returns written generic parameters in source order.
+    pub fn generic_parameters(&self) -> &[CatalogGenericParameter] {
+        &self.generic_parameters
+    }
+
+    /// Returns the number of written parameters in the direct callable parameter list.
+    pub const fn callable_parameters(&self) -> u32 {
+        self.callable_parameters
+    }
+
+    /// Returns whether the declaration carries a static modifier.
+    pub const fn is_static(&self) -> bool {
+        self.is_static
+    }
 }
 
 /// Pre-parsed source-independent syntax for one type-expression surface.
@@ -100,5 +168,163 @@ impl CatalogTypeSurfaceSyntax {
     /// Returns balanced node and token events in source order.
     pub fn elements(&self) -> &[CatalogSurfaceElement] {
         &self.elements
+    }
+
+    /// Reconstructs the generated type expression as ordinary typed Bray syntax.
+    pub fn syntax_fragment(&self) -> Result<PreparsedSyntaxFragment, PreparsedSyntaxFragmentError> {
+        preparsed_fragment(self.surface.anchor(), &self.elements)
+    }
+}
+
+fn preparsed_fragment(
+    anchor: CatalogSourceAnchor,
+    elements: &[CatalogSurfaceElement],
+) -> Result<PreparsedSyntaxFragment, PreparsedSyntaxFragmentError> {
+    let source = anchor.source().raw();
+    let events = elements.iter().map(|element| match element {
+        CatalogSurfaceElement::EnterNode(kind) => PreparsedSyntaxEvent::EnterNode(*kind),
+        CatalogSurfaceElement::Token(token) => PreparsedSyntaxEvent::Token {
+            kind: token.kind(),
+            text: token.spelling(),
+        },
+        CatalogSurfaceElement::ExitNode(kind) => PreparsedSyntaxEvent::ExitNode(*kind),
+    });
+
+    PreparsedSyntaxFragment::try_new(
+        SourceId::new(source),
+        SourceIdentity::new(source),
+        "generated-catalog-surface",
+        events,
+    )
+}
+
+fn declaration_signature(elements: &[CatalogSurfaceElement]) -> CatalogDeclarationSignature {
+    let mut generic_parameters = Vec::new();
+    let mut callable_parameters = 0_u32;
+    let mut depth = 0_u32;
+    let mut generic_list_depth = None;
+    let mut generic_parameter = None;
+    let mut parameter_list_depth = None;
+    let mut is_static = false;
+
+    for element in elements {
+        match element {
+            CatalogSurfaceElement::EnterNode(kind) => {
+                depth = depth.saturating_add(1);
+
+                match (*kind, depth) {
+                    (SyntaxKind::GenericParameterList, 2) => generic_list_depth = Some(depth),
+                    (SyntaxKind::ParameterList, 2) => parameter_list_depth = Some(depth),
+                    (SyntaxKind::GenericTypeParameter, 3) if generic_list_depth == Some(2) => {
+                        generic_parameter = Some((CatalogGenericParameterKind::Type, depth));
+                    }
+                    (SyntaxKind::GenericConstParameter, 3) if generic_list_depth == Some(2) => {
+                        generic_parameter = Some((CatalogGenericParameterKind::Const, depth));
+                    }
+                    (SyntaxKind::Parameter, 3) if parameter_list_depth == Some(2) => {
+                        callable_parameters = callable_parameters.saturating_add(1);
+                    }
+                    _ => {}
+                }
+            }
+            CatalogSurfaceElement::Token(token) => {
+                is_static |= depth <= 2 && token.kind() == SyntaxKind::StaticKeyword;
+
+                if token.is_identifier()
+                    && let Some((kind, _)) = generic_parameter.take()
+                {
+                    generic_parameters.push(CatalogGenericParameter {
+                        kind,
+                        name: token.spelling().to_owned(),
+                    });
+                }
+            }
+            CatalogSurfaceElement::ExitNode(kind) => {
+                if *kind == SyntaxKind::GenericParameterList && generic_list_depth == Some(depth) {
+                    generic_list_depth = None;
+                }
+
+                if *kind == SyntaxKind::ParameterList && parameter_list_depth == Some(depth) {
+                    parameter_list_depth = None;
+                }
+
+                if generic_parameter.is_some_and(|(_, parameter_depth)| parameter_depth == depth) {
+                    generic_parameter = None;
+                }
+
+                depth = depth.saturating_sub(1);
+            }
+        }
+    }
+
+    CatalogDeclarationSignature {
+        generic_parameters: generic_parameters.into_boxed_slice(),
+        callable_parameters,
+        is_static,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        CatalogGenericParameterKind, CatalogSurfaceElement, CatalogSurfaceToken,
+        declaration_signature,
+    };
+    use bray_syntax::SyntaxKind;
+
+    #[test]
+    fn signature_scanning_ignores_nested_callable_modifiers() {
+        let direct = declaration_signature(&[
+            CatalogSurfaceElement::EnterNode(SyntaxKind::FunctionDeclaration),
+            CatalogSurfaceElement::EnterNode(SyntaxKind::FunctionModifiers),
+            token(SyntaxKind::StaticKeyword, "static"),
+            CatalogSurfaceElement::ExitNode(SyntaxKind::FunctionModifiers),
+            CatalogSurfaceElement::ExitNode(SyntaxKind::FunctionDeclaration),
+        ]);
+
+        let nested = declaration_signature(&[
+            CatalogSurfaceElement::EnterNode(SyntaxKind::CallableContractDeclaration),
+            CatalogSurfaceElement::EnterNode(SyntaxKind::TypeExpression),
+            CatalogSurfaceElement::EnterNode(SyntaxKind::CallableModifiers),
+            token(SyntaxKind::StaticKeyword, "static"),
+            CatalogSurfaceElement::ExitNode(SyntaxKind::CallableModifiers),
+            CatalogSurfaceElement::ExitNode(SyntaxKind::TypeExpression),
+            CatalogSurfaceElement::ExitNode(SyntaxKind::CallableContractDeclaration),
+        ]);
+
+        assert!(direct.is_static());
+        assert!(!nested.is_static());
+    }
+
+    #[test]
+    fn signature_scanning_retains_generic_names_and_combined_order() {
+        let signature = declaration_signature(&[
+            CatalogSurfaceElement::EnterNode(SyntaxKind::StructDeclaration),
+            CatalogSurfaceElement::EnterNode(SyntaxKind::GenericParameterList),
+            CatalogSurfaceElement::EnterNode(SyntaxKind::GenericTypeParameter),
+            token(SyntaxKind::IdentifierToken, "T"),
+            CatalogSurfaceElement::ExitNode(SyntaxKind::GenericTypeParameter),
+            CatalogSurfaceElement::EnterNode(SyntaxKind::GenericConstParameter),
+            token(SyntaxKind::IdentifierToken, "N"),
+            CatalogSurfaceElement::ExitNode(SyntaxKind::GenericConstParameter),
+            CatalogSurfaceElement::ExitNode(SyntaxKind::GenericParameterList),
+            CatalogSurfaceElement::ExitNode(SyntaxKind::StructDeclaration),
+        ]);
+
+        assert_eq!(signature.generic_parameters().len(), 2);
+        assert_eq!(signature.generic_parameters()[0].name(), "T");
+        assert_eq!(
+            signature.generic_parameters()[0].kind(),
+            CatalogGenericParameterKind::Type
+        );
+        assert_eq!(signature.generic_parameters()[1].name(), "N");
+        assert_eq!(
+            signature.generic_parameters()[1].kind(),
+            CatalogGenericParameterKind::Const
+        );
+    }
+
+    fn token(kind: SyntaxKind, spelling: &str) -> CatalogSurfaceElement {
+        CatalogSurfaceElement::Token(CatalogSurfaceToken::new(kind, spelling))
     }
 }

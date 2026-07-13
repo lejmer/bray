@@ -3,6 +3,7 @@
 #![forbid(unsafe_code)]
 
 mod builder;
+mod fragment;
 mod green;
 mod kind;
 mod list;
@@ -16,6 +17,7 @@ mod tree;
 mod trivia;
 mod walk;
 
+pub use fragment::{PreparsedSyntaxEvent, PreparsedSyntaxFragment, PreparsedSyntaxFragmentError};
 pub use kind::SyntaxKind;
 pub use node::{SourceSyntaxNode, SyntaxNode};
 pub use syntax::{

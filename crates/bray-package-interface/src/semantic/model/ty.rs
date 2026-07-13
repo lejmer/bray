@@ -49,6 +49,8 @@ pub enum InterfaceType {
     },
     /// A generic type parameter.
     TypeParameter(InterfaceSymbolReference),
+    /// The contextual `Self` type and its declaration context.
+    ContextualSelf(InterfaceSymbolReference),
     /// An associated type projection.
     AssociatedTypeProjection {
         /// Applied trait supplying the member.

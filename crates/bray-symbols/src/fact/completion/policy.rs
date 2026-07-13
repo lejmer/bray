@@ -32,6 +32,8 @@ pub enum SymbolFactKind {
     CallableSignature,
     /// Checked callable contracts, effects, and capabilities.
     CallableContracts,
+    /// The checked callable type named by a callable-contract declaration.
+    CallableContractType,
     /// The declared type of a constant.
     ConstantDeclaredType,
     /// The checked definition template of a constant.
@@ -40,6 +42,8 @@ pub enum SymbolFactKind {
     CallableParameterDefault,
     /// A checked struct field type.
     StructFieldType,
+    /// The checked type value supplied by an implementation member.
+    TypeMemberValue,
     /// A checked struct field default.
     StructFieldDefault,
     /// A checked union payload field type.
@@ -60,7 +64,7 @@ pub enum SymbolFactKind {
     OverloadArms,
 }
 
-pub(super) const SYMBOL_FACT_KINDS: [SymbolFactKind; 20] = [
+pub(super) const SYMBOL_FACT_KINDS: [SymbolFactKind; 22] = [
     SymbolFactKind::Members,
     SymbolFactKind::Imports,
     SymbolFactKind::Directives,
@@ -68,10 +72,12 @@ pub(super) const SYMBOL_FACT_KINDS: [SymbolFactKind; 20] = [
     SymbolFactKind::GenericConstraints,
     SymbolFactKind::CallableSignature,
     SymbolFactKind::CallableContracts,
+    SymbolFactKind::CallableContractType,
     SymbolFactKind::ConstantDeclaredType,
     SymbolFactKind::ConstantDefinition,
     SymbolFactKind::CallableParameterDefault,
     SymbolFactKind::StructFieldType,
+    SymbolFactKind::TypeMemberValue,
     SymbolFactKind::StructFieldDefault,
     SymbolFactKind::UnionPayloadFieldType,
     SymbolFactKind::UnionPayloadFieldDefault,
@@ -107,11 +113,16 @@ impl SymbolFactKind {
                 GenericOwnerId::try_new(symbol).is_some()
             }
             Self::CallableSignature | Self::CallableContracts => supports_callable_facts(kind),
+            Self::CallableContractType => matches!(kind, SymbolKind::CallableContract),
             Self::ConstantDeclaredType | Self::ConstantDefinition => supports_constant_facts(kind),
             Self::CallableParameterDefault => matches!(kind, SymbolKind::CallableParameter),
             Self::StructFieldType | Self::StructFieldDefault => {
                 matches!(kind, SymbolKind::StructField)
             }
+            Self::TypeMemberValue => matches!(
+                kind,
+                SymbolKind::InherentTypeMember | SymbolKind::TraitTypeFulfillment
+            ),
             Self::UnionPayloadFieldType | Self::UnionPayloadFieldDefault => {
                 matches!(kind, SymbolKind::UnionPayloadField)
             }
@@ -205,8 +216,9 @@ const fn supports_implementation_facts(kind: SymbolKind) -> bool {
 mod tests {
     use super::{SymbolCompletionLevel, SymbolFactKind};
     use crate::{
-        AnySymbolId, CallableParameterSymbolId, CompilerKnownEnvironmentSymbolId, ConstantSymbolId,
-        FunctionSymbolId, PackageSymbolId, SymbolId,
+        AnySymbolId, CallableContractSymbolId, CallableParameterSymbolId,
+        CompilerKnownEnvironmentSymbolId, ConstantSymbolId, FunctionSymbolId, PackageSymbolId,
+        SymbolId, TraitTypeFulfillmentSymbolId,
     };
 
     #[test]
@@ -233,6 +245,11 @@ mod tests {
         ));
 
         let package = AnySymbolId::from(PackageSymbolId::from_symbol_id(SymbolId::new(5)));
+        let contract =
+            AnySymbolId::from(CallableContractSymbolId::from_symbol_id(SymbolId::new(6)));
+        let type_fulfillment = AnySymbolId::from(TraitTypeFulfillmentSymbolId::from_symbol_id(
+            SymbolId::new(7),
+        ));
 
         assert!(SymbolFactKind::Directives.is_applicable_to(function));
         assert!(!SymbolFactKind::Directives.is_applicable_to(parameter));
@@ -242,6 +259,8 @@ mod tests {
         assert!(SymbolFactKind::GenericConstraints.is_applicable_to(function));
         assert!(SymbolFactKind::Members.is_applicable_to(compiler_known));
         assert!(!SymbolFactKind::Members.is_applicable_to(package));
+        assert!(SymbolFactKind::CallableContractType.is_applicable_to(contract));
+        assert!(SymbolFactKind::TypeMemberValue.is_applicable_to(type_fulfillment));
     }
 
     #[test]

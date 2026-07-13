@@ -304,7 +304,15 @@ mod tests {
     #[test]
     fn referenced_semantic_recursion_does_not_expand_owned_completion() {
         let graph = graph(&["module app; func recurse() { recurse() }"]);
-        let function = AnySymbolId::from(graph.functions()[0].id());
+        let Some(function) = graph
+            .functions()
+            .iter()
+            .find(|function| function.origin() == crate::SymbolOrigin::Source)
+        else {
+            panic!("test source should declare one source function");
+        };
+
+        let function = AnySymbolId::from(function.id());
 
         let plan = completion_plan(&graph, function);
 

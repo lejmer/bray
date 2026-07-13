@@ -17,6 +17,8 @@ pub enum SymbolCompletionError<E> {
     Cancelled,
     /// The requested root does not belong to the symbol graph.
     UnknownSymbol(AnySymbolId),
+    /// The fact provider could not be prepared for completion.
+    Provider(E),
     /// One exact fact request failed at the query boundary.
     Fact {
         /// The canonical request whose provider failed.

@@ -7,6 +7,18 @@ scope Ambient at ambient {
         surface { struct bool {} }
     }
 
+    declaration U8 {
+        representation ScalarU8;
+
+        surface { struct u8 {} }
+    }
+
+    declaration Usize {
+        representation ScalarUsize;
+
+        surface { struct usize {} }
+    }
+
     declaration RawPointer {
         representation RawPointer;
 

@@ -23,7 +23,7 @@ use crate::fact::{
 use crate::request::{CompilationOptions, CompilationRequest};
 use crate::worker::WorkerBudget;
 
-use super::binder::CompilationTargetFacts;
+use super::binder::{CompilationSymbolFacts, CompilationTargetFacts};
 use super::load::{
     CompilationLoadError, SourceInputDiagnosticContext, missing_source_input_diagnostic,
     next_diagnostic_id, source_load_diagnostic,
@@ -54,7 +54,7 @@ pub(super) struct CompilationState {
     semantic_values: FactCell<Result<SemanticValueStore, SemanticValueStoreCreateError>>,
     pub(super) semantic_diagnostics: FactCell<DiagnosticBag>,
     pub(super) target_facts: CompilationTargetFacts,
-    pub(super) symbol_facts: (),
+    pub(super) symbol_facts: CompilationSymbolFacts,
     pub(super) bound_units: UnitFactCache<BoundUnit>,
     pub(super) checked_control_flow: UnitFactCache<CheckedControlFlowFacts>,
     pub(super) check_diagnostics: FactCell<DiagnosticBag>,
@@ -119,7 +119,7 @@ impl Compilation {
                 semantic_values: FactCell::new(),
                 semantic_diagnostics: FactCell::new(),
                 target_facts: CompilationTargetFacts,
-                symbol_facts: (),
+                symbol_facts: CompilationSymbolFacts::new(),
                 bound_units: UnitFactCache::new(),
                 checked_control_flow: UnitFactCache::new(),
                 check_diagnostics: FactCell::new(),

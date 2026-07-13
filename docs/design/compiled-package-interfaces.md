@@ -391,6 +391,7 @@ checked. Reserved tags are rejected for the current exact format revision.
 
 - a named declaration reference with ordered type and const arguments,
 - a generic type or const parameter reference,
+- contextual `Self` with its exact named type, trait, or implementation context,
 - tuple,
 - fixed-size array,
 - slice,

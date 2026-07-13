@@ -298,7 +298,8 @@ macro_rules! define_symbol_graph {
             pub(crate) fn completion_children(&self, symbol: AnySymbolId) -> &[AnySymbolId] {
                 self.completion_children
                     .get(&symbol)
-                    .map_or(&[], Box::as_ref)
+                    .map(Box::as_ref)
+                    .unwrap_or_else(|| self.compiler_known.completion_children(symbol))
             }
 
             pub(crate) fn contains_symbol(&self, symbol: AnySymbolId) -> bool {
@@ -438,6 +439,7 @@ macro_rules! define_symbol_graph {
                 modules: Vec<ModuleSymbol>,
             ) -> Self {
                 $(let $plural = compiler_known.$plural();)+
+                let receiver_parameters = compiler_known.receivers();
 
                 Self {
                     roots,
@@ -451,7 +453,7 @@ macro_rules! define_symbol_graph {
                     callable_parameter_default_providers: Vec::new(),
                     struct_field_default_providers: Vec::new(),
                     union_payload_default_providers: Vec::new(),
-                    receiver_parameters: Vec::new(),
+                    receiver_parameters,
                     $(
                         $plural,
                     )+
@@ -665,17 +667,6 @@ macro_rules! define_symbol_graph {
                     .collect();
 
                 let mut completion_children = self.relationship_index.into_completion_children();
-                let compiler_known_environment = self.compiler_known.environment();
-
-                completion_children.insert(
-                    compiler_known_environment.id().into(),
-                    compiler_known_environment
-                        .modules()
-                        .iter()
-                        .copied()
-                        .map(Into::into)
-                        .collect(),
-                );
 
                 for package in packages.records() {
                     completion_children.insert(
@@ -793,11 +784,19 @@ mod tests {
             Err(error) => panic!("test symbol graph must build: {error:?}"),
         };
 
-        let Some(function) = graph.functions().first() else {
+        let Some(function) = graph
+            .functions()
+            .iter()
+            .find(|function| function.origin() == crate::SymbolOrigin::Source)
+        else {
             panic!("test source must declare one function");
         };
 
-        let Some(parameter) = graph.callable_parameters().first() else {
+        let Some(parameter) = graph
+            .callable_parameters()
+            .iter()
+            .find(|parameter| parameter.origin() == crate::SymbolOrigin::Source)
+        else {
             panic!("test source must declare one callable parameter");
         };
 

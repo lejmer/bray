@@ -139,6 +139,12 @@ impl SymbolRootKey {
 pub enum SynthesizedSymbolRole {
     /// The receiver parameter attached to a callable member.
     ReceiverParameter,
+    /// A written generic type parameter supplied by generated declaration syntax.
+    DeclaredGenericTypeParameter,
+    /// A written generic constant parameter supplied by generated declaration syntax.
+    DeclaredGenericConstParameter,
+    /// A written callable parameter supplied by generated declaration syntax.
+    CallableParameter,
     /// An inferred type parameter attached to an implementation.
     InferredImplementationTypeParameter,
     /// An inferred constant parameter attached to an implementation.
@@ -156,6 +162,9 @@ impl SynthesizedSymbolRole {
     pub const fn kind(self) -> SymbolKind {
         match self {
             Self::ReceiverParameter => SymbolKind::ReceiverParameter,
+            Self::DeclaredGenericTypeParameter => SymbolKind::GenericTypeParameter,
+            Self::DeclaredGenericConstParameter => SymbolKind::GenericConstParameter,
+            Self::CallableParameter => SymbolKind::CallableParameter,
             Self::InferredImplementationTypeParameter => SymbolKind::GenericTypeParameter,
             Self::InferredImplementationConstParameter => SymbolKind::GenericConstParameter,
             Self::CallableParameterDefaultProvider => SymbolKind::CallableParameterDefaultProvider,
@@ -177,6 +186,29 @@ impl SynthesizedSymbolKey {
     /// Creates the implicit receiver key for a callable member.
     pub fn receiver_parameter(subject: SymbolKey) -> Self {
         Self::without_ordinal(SynthesizedSymbolRole::ReceiverParameter, subject)
+    }
+
+    /// Creates a written generic type-parameter key for generated declaration syntax.
+    pub fn declared_generic_type_parameter(subject: SymbolKey, ordinal: SymbolOrdinal) -> Self {
+        Self::with_ordinal(
+            SynthesizedSymbolRole::DeclaredGenericTypeParameter,
+            subject,
+            ordinal,
+        )
+    }
+
+    /// Creates a written generic constant-parameter key for generated declaration syntax.
+    pub fn declared_generic_const_parameter(subject: SymbolKey, ordinal: SymbolOrdinal) -> Self {
+        Self::with_ordinal(
+            SynthesizedSymbolRole::DeclaredGenericConstParameter,
+            subject,
+            ordinal,
+        )
+    }
+
+    /// Creates a written callable-parameter key for generated declaration syntax.
+    pub fn callable_parameter(subject: SymbolKey, ordinal: SymbolOrdinal) -> Self {
+        Self::with_ordinal(SynthesizedSymbolRole::CallableParameter, subject, ordinal)
     }
 
     /// Creates an inferred implementation type-parameter key.

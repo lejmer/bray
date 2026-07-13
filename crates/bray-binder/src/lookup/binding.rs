@@ -100,7 +100,7 @@ pub(crate) fn lookup_unqualified_name(
     combine_name_lookups(module_lookup, ambient_lookup)
 }
 
-pub(super) fn lookup_surface_name(
+pub(crate) fn lookup_surface_name(
     symbols: &SymbolGraph,
     owner: AnySymbolId,
     name: &str,
@@ -121,7 +121,7 @@ pub(super) fn lookup_member_index(
         .map(ResolvedName::Surface, ResolvedName::Surface)
 }
 
-pub(super) fn combine_name_lookups(
+pub(crate) fn combine_name_lookups(
     first: NameLookupResult<ResolvedName>,
     second: NameLookupResult<ResolvedName>,
 ) -> NameLookupResult<ResolvedName> {

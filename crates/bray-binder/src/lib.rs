@@ -5,6 +5,7 @@
 mod entry;
 mod fact;
 mod publication;
+mod type_expression;
 
 // TODO(binder): Narrow and remove this expectation as candidate binding becomes production-used.
 #[cfg_attr(
@@ -58,3 +59,4 @@ pub use fact::{
     BindingSymbolFactProvider, SymbolFactProvider, TargetFactProvider, TargetFactResult,
 };
 pub use result::BoundUnitComputation;
+pub use type_expression::{CallableTypeQualifiers, TypeExpressionBinder, TypeParameterBinding};

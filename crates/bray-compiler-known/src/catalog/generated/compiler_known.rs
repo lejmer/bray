@@ -9,14 +9,14 @@ use crate::{AvailabilityRule, ImplementationHook, RepresentationRole};
 
 use super::super::*;
 
-pub const CATALOG_SOURCE_DIGEST: &str = "c39dc4a1023ae8b52bd531d8b9f13f13ec9de91603de982cb8ca7a3ed40d4db9";
+pub const CATALOG_SOURCE_DIGEST: &str = "1137a3dce3c966ad1c0199de3a8bd2eb13f7378271a28e2c768c7f84ae548cbd";
 
 static COMPILER_KNOWN_SCOPES: &[CompilerKnownScopeDescriptor] = &[
     CompilerKnownScopeDescriptor {
         id: CompilerKnownScopeId::new(0),
         key: CompilerKnownScopeKey::from_static("Ambient"),
         location: CatalogScopeLocation::Ambient,
-        declaration_ids: Cow::Borrowed(&[CompilerKnownDeclarationId::new(0), CompilerKnownDeclarationId::new(1), CompilerKnownDeclarationId::new(4), CompilerKnownDeclarationId::new(6), CompilerKnownDeclarationId::new(7), CompilerKnownDeclarationId::new(11)]),
+        declaration_ids: Cow::Borrowed(&[CompilerKnownDeclarationId::new(0), CompilerKnownDeclarationId::new(1), CompilerKnownDeclarationId::new(4), CompilerKnownDeclarationId::new(6), CompilerKnownDeclarationId::new(7), CompilerKnownDeclarationId::new(11), CompilerKnownDeclarationId::new(12), CompilerKnownDeclarationId::new(13)]),
         value_ids: Cow::Borrowed(&[CompilerKnownValueId::new(0), CompilerKnownValueId::new(1), CompilerKnownValueId::new(2)]),
     },
     CompilerKnownScopeDescriptor {
@@ -81,7 +81,7 @@ static COMPILER_KNOWN_DECLARATIONS: &[CompilerKnownDeclarationDescriptor] = &[
         key: CompilerKnownDeclarationKey::from_static("RawPointer"),
         owner: CompilerKnownDeclarationOwner::Scope(CompilerKnownScopeId::new(0)),
         kind: CatalogDeclarationKind::Struct,
-        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(0), range: TextRange::new(TextSize::new(235), TextSize::new(260)) }),
+        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(0), range: TextRange::new(TextSize::new(434), TextSize::new(459)) }),
         representation_role: Some(RepresentationRole::RawPointer),
         implementation_hook: None,
         availability_rule: AvailabilityRule::Always,
@@ -91,7 +91,7 @@ static COMPILER_KNOWN_DECLARATIONS: &[CompilerKnownDeclarationDescriptor] = &[
         key: CompilerKnownDeclarationKey::from_static("RawPointerElement"),
         owner: CompilerKnownDeclarationOwner::Declaration(CompilerKnownDeclarationId::new(4)),
         kind: CatalogDeclarationKind::StructField,
-        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(0), range: TextRange::new(TextSize::new(349), TextSize::new(362)) }),
+        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(0), range: TextRange::new(TextSize::new(548), TextSize::new(561)) }),
         representation_role: None,
         implementation_hook: None,
         availability_rule: AvailabilityRule::Always,
@@ -101,7 +101,7 @@ static COMPILER_KNOWN_DECLARATIONS: &[CompilerKnownDeclarationDescriptor] = &[
         key: CompilerKnownDeclarationKey::from_static("Result"),
         owner: CompilerKnownDeclarationOwner::Scope(CompilerKnownScopeId::new(0)),
         kind: CatalogDeclarationKind::Union,
-        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(0), range: TextRange::new(TextSize::new(445), TextSize::new(468)) }),
+        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(0), range: TextRange::new(TextSize::new(644), TextSize::new(667)) }),
         representation_role: Some(RepresentationRole::Result),
         implementation_hook: None,
         availability_rule: AvailabilityRule::Always,
@@ -148,11 +148,31 @@ static COMPILER_KNOWN_DECLARATIONS: &[CompilerKnownDeclarationDescriptor] = &[
     },
     CompilerKnownDeclarationDescriptor {
         id: CompilerKnownDeclarationId::new(11),
+        key: CompilerKnownDeclarationKey::from_static("U8"),
+        owner: CompilerKnownDeclarationOwner::Scope(CompilerKnownScopeId::new(0)),
+        kind: CatalogDeclarationKind::Struct,
+        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(0), range: TextRange::new(TextSize::new(225), TextSize::new(239)) }),
+        representation_role: Some(RepresentationRole::ScalarU8),
+        implementation_hook: None,
+        availability_rule: AvailabilityRule::Always,
+    },
+    CompilerKnownDeclarationDescriptor {
+        id: CompilerKnownDeclarationId::new(12),
         key: CompilerKnownDeclarationKey::from_static("UnaryCallable"),
         owner: CompilerKnownDeclarationOwner::Scope(CompilerKnownScopeId::new(0)),
         kind: CatalogDeclarationKind::CallableContract,
         surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(2), range: TextRange::new(TextSize::new(365), TextSize::new(415)) }),
         representation_role: None,
+        implementation_hook: None,
+        availability_rule: AvailabilityRule::Always,
+    },
+    CompilerKnownDeclarationDescriptor {
+        id: CompilerKnownDeclarationId::new(13),
+        key: CompilerKnownDeclarationKey::from_static("Usize"),
+        owner: CompilerKnownDeclarationOwner::Scope(CompilerKnownScopeId::new(0)),
+        kind: CatalogDeclarationKind::Struct,
+        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(0), range: TextRange::new(TextSize::new(326), TextSize::new(343)) }),
+        representation_role: Some(RepresentationRole::ScalarUsize),
         implementation_hook: None,
         availability_rule: AvailabilityRule::Always,
     },
@@ -164,7 +184,7 @@ static COMPILER_KNOWN_VALUES: &[CompilerKnownValueDescriptor] = &[
         key: CompilerKnownValueKey::from_static("False"),
         owner_scope: CompilerKnownScopeId::new(0),
         spelling: CatalogTokenSpelling::from_static("false"),
-        type_surface: CatalogTypeSurface(CatalogSourceAnchor { source: CatalogSourceId::new(0), range: TextRange::new(TextSize::new(638), TextSize::new(644)) }),
+        type_surface: CatalogTypeSurface(CatalogSourceAnchor { source: CatalogSourceId::new(0), range: TextRange::new(TextSize::new(837), TextSize::new(843)) }),
         representation_role: RepresentationRole::BooleanFalse,
         availability_rule: AvailabilityRule::Always,
     },
@@ -173,7 +193,7 @@ static COMPILER_KNOWN_VALUES: &[CompilerKnownValueDescriptor] = &[
         key: CompilerKnownValueKey::from_static("None"),
         owner_scope: CompilerKnownScopeId::new(0),
         spelling: CatalogTokenSpelling::from_static("none"),
-        type_surface: CatalogTypeSurface(CatalogSourceAnchor { source: CatalogSourceId::new(0), range: TextRange::new(TextSize::new(744), TextSize::new(751)) }),
+        type_surface: CatalogTypeSurface(CatalogSourceAnchor { source: CatalogSourceId::new(0), range: TextRange::new(TextSize::new(943), TextSize::new(950)) }),
         representation_role: RepresentationRole::NoneValue,
         availability_rule: AvailabilityRule::Always,
     },
@@ -182,7 +202,7 @@ static COMPILER_KNOWN_VALUES: &[CompilerKnownValueDescriptor] = &[
         key: CompilerKnownValueKey::from_static("True"),
         owner_scope: CompilerKnownScopeId::new(0),
         spelling: CatalogTokenSpelling::from_static("true"),
-        type_surface: CatalogTypeSurface(CatalogSourceAnchor { source: CatalogSourceId::new(0), range: TextRange::new(TextSize::new(531), TextSize::new(537)) }),
+        type_surface: CatalogTypeSurface(CatalogSourceAnchor { source: CatalogSourceId::new(0), range: TextRange::new(TextSize::new(730), TextSize::new(736)) }),
         representation_role: RepresentationRole::BooleanTrue,
         availability_rule: AvailabilityRule::Always,
     },
@@ -190,6 +210,8 @@ static COMPILER_KNOWN_VALUES: &[CompilerKnownValueDescriptor] = &[
 
 static COMPILER_KNOWN_REPRESENTATION_ROLES: &[CompilerKnownRepresentationBinding] = &[
     CompilerKnownRepresentationBinding { role: RepresentationRole::ScalarBool, target: CompilerKnownRepresentationTarget::Declaration(CompilerKnownDeclarationId::new(0)) },
+    CompilerKnownRepresentationBinding { role: RepresentationRole::ScalarU8, target: CompilerKnownRepresentationTarget::Declaration(CompilerKnownDeclarationId::new(11)) },
+    CompilerKnownRepresentationBinding { role: RepresentationRole::ScalarUsize, target: CompilerKnownRepresentationTarget::Declaration(CompilerKnownDeclarationId::new(13)) },
     CompilerKnownRepresentationBinding { role: RepresentationRole::ScalarR16, target: CompilerKnownRepresentationTarget::Declaration(CompilerKnownDeclarationId::new(10)) },
     CompilerKnownRepresentationBinding { role: RepresentationRole::RawPointer, target: CompilerKnownRepresentationTarget::Declaration(CompilerKnownDeclarationId::new(4)) },
     CompilerKnownRepresentationBinding { role: RepresentationRole::Result, target: CompilerKnownRepresentationTarget::Declaration(CompilerKnownDeclarationId::new(6)) },
@@ -231,17 +253,27 @@ static DECLARATION_SURFACES: &[CatalogDeclarationSurfaceSyntax] = &[
         elements: Cow::Borrowed(&[CatalogSurfaceElement::EnterNode(SyntaxKind::StructDeclaration), CatalogSurfaceElement::EnterNode(SyntaxKind::TypeDirectives), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeDirectives), CatalogSurfaceElement::EnterNode(SyntaxKind::TypeModifiers), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeModifiers), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::StructKeyword, "struct")), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "bool")), CatalogSurfaceElement::EnterNode(SyntaxKind::StructBody), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::OpenBraceToken, "{")), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::CloseBraceToken, "}")), CatalogSurfaceElement::ExitNode(SyntaxKind::StructBody), CatalogSurfaceElement::ExitNode(SyntaxKind::StructDeclaration)]),
     },
     CatalogDeclarationSurfaceSyntax {
-        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(0), range: TextRange::new(TextSize::new(235), TextSize::new(260)) }),
+        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(0), range: TextRange::new(TextSize::new(225), TextSize::new(239)) }),
+        kind: CatalogDeclarationKind::Struct,
+        elements: Cow::Borrowed(&[CatalogSurfaceElement::EnterNode(SyntaxKind::StructDeclaration), CatalogSurfaceElement::EnterNode(SyntaxKind::TypeDirectives), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeDirectives), CatalogSurfaceElement::EnterNode(SyntaxKind::TypeModifiers), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeModifiers), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::StructKeyword, "struct")), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "u8")), CatalogSurfaceElement::EnterNode(SyntaxKind::StructBody), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::OpenBraceToken, "{")), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::CloseBraceToken, "}")), CatalogSurfaceElement::ExitNode(SyntaxKind::StructBody), CatalogSurfaceElement::ExitNode(SyntaxKind::StructDeclaration)]),
+    },
+    CatalogDeclarationSurfaceSyntax {
+        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(0), range: TextRange::new(TextSize::new(326), TextSize::new(343)) }),
+        kind: CatalogDeclarationKind::Struct,
+        elements: Cow::Borrowed(&[CatalogSurfaceElement::EnterNode(SyntaxKind::StructDeclaration), CatalogSurfaceElement::EnterNode(SyntaxKind::TypeDirectives), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeDirectives), CatalogSurfaceElement::EnterNode(SyntaxKind::TypeModifiers), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeModifiers), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::StructKeyword, "struct")), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "usize")), CatalogSurfaceElement::EnterNode(SyntaxKind::StructBody), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::OpenBraceToken, "{")), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::CloseBraceToken, "}")), CatalogSurfaceElement::ExitNode(SyntaxKind::StructBody), CatalogSurfaceElement::ExitNode(SyntaxKind::StructDeclaration)]),
+    },
+    CatalogDeclarationSurfaceSyntax {
+        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(0), range: TextRange::new(TextSize::new(434), TextSize::new(459)) }),
         kind: CatalogDeclarationKind::Struct,
         elements: Cow::Borrowed(&[CatalogSurfaceElement::EnterNode(SyntaxKind::StructDeclaration), CatalogSurfaceElement::EnterNode(SyntaxKind::TypeDirectives), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeDirectives), CatalogSurfaceElement::EnterNode(SyntaxKind::TypeModifiers), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeModifiers), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::StructKeyword, "struct")), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "RawPointer")), CatalogSurfaceElement::EnterNode(SyntaxKind::GenericParameterList), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::LessToken, "<")), CatalogSurfaceElement::EnterNode(SyntaxKind::GenericTypeParameter), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "T")), CatalogSurfaceElement::ExitNode(SyntaxKind::GenericTypeParameter), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::GreaterToken, ">")), CatalogSurfaceElement::ExitNode(SyntaxKind::GenericParameterList), CatalogSurfaceElement::EnterNode(SyntaxKind::StructBody), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::OpenBraceToken, "{")), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::CloseBraceToken, "}")), CatalogSurfaceElement::ExitNode(SyntaxKind::StructBody), CatalogSurfaceElement::ExitNode(SyntaxKind::StructDeclaration)]),
     },
     CatalogDeclarationSurfaceSyntax {
-        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(0), range: TextRange::new(TextSize::new(349), TextSize::new(362)) }),
+        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(0), range: TextRange::new(TextSize::new(548), TextSize::new(561)) }),
         kind: CatalogDeclarationKind::StructField,
         elements: Cow::Borrowed(&[CatalogSurfaceElement::EnterNode(SyntaxKind::StructFieldDeclaration), CatalogSurfaceElement::EnterNode(SyntaxKind::FieldModifiers), CatalogSurfaceElement::ExitNode(SyntaxKind::FieldModifiers), CatalogSurfaceElement::EnterNode(SyntaxKind::TypedIdentifier), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "element")), CatalogSurfaceElement::EnterNode(SyntaxKind::TypeAnnotation), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::ColonToken, ":")), CatalogSurfaceElement::EnterNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::EnterNode(SyntaxKind::Path), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "T")), CatalogSurfaceElement::ExitNode(SyntaxKind::Path), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeAnnotation), CatalogSurfaceElement::ExitNode(SyntaxKind::TypedIdentifier), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::SemicolonToken, ";")), CatalogSurfaceElement::ExitNode(SyntaxKind::StructFieldDeclaration)]),
     },
     CatalogDeclarationSurfaceSyntax {
-        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(0), range: TextRange::new(TextSize::new(445), TextSize::new(468)) }),
+        surface: CatalogDeclarationSurface(CatalogSourceAnchor { source: CatalogSourceId::new(0), range: TextRange::new(TextSize::new(644), TextSize::new(667)) }),
         kind: CatalogDeclarationKind::Union,
         elements: Cow::Borrowed(&[CatalogSurfaceElement::EnterNode(SyntaxKind::UnionDeclaration), CatalogSurfaceElement::EnterNode(SyntaxKind::TypeDirectives), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeDirectives), CatalogSurfaceElement::EnterNode(SyntaxKind::TypeModifiers), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeModifiers), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::UnionKeyword, "union")), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "Result")), CatalogSurfaceElement::EnterNode(SyntaxKind::GenericParameterList), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::LessToken, "<")), CatalogSurfaceElement::EnterNode(SyntaxKind::GenericTypeParameter), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "T")), CatalogSurfaceElement::ExitNode(SyntaxKind::GenericTypeParameter), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::CommaToken, ",")), CatalogSurfaceElement::EnterNode(SyntaxKind::GenericTypeParameter), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "E")), CatalogSurfaceElement::ExitNode(SyntaxKind::GenericTypeParameter), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::GreaterToken, ">")), CatalogSurfaceElement::ExitNode(SyntaxKind::GenericParameterList), CatalogSurfaceElement::EnterNode(SyntaxKind::UnionBody), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::OpenBraceToken, "{")), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::CloseBraceToken, "}")), CatalogSurfaceElement::ExitNode(SyntaxKind::UnionBody), CatalogSurfaceElement::ExitNode(SyntaxKind::UnionDeclaration)]),
     },
@@ -294,15 +326,15 @@ static DECLARATION_SURFACES: &[CatalogDeclarationSurfaceSyntax] = &[
 
 static TYPE_SURFACES: &[CatalogTypeSurfaceSyntax] = &[
     CatalogTypeSurfaceSyntax {
-        surface: CatalogTypeSurface(CatalogSourceAnchor { source: CatalogSourceId::new(0), range: TextRange::new(TextSize::new(531), TextSize::new(537)) }),
+        surface: CatalogTypeSurface(CatalogSourceAnchor { source: CatalogSourceId::new(0), range: TextRange::new(TextSize::new(730), TextSize::new(736)) }),
         elements: Cow::Borrowed(&[CatalogSurfaceElement::EnterNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::EnterNode(SyntaxKind::Path), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "bool")), CatalogSurfaceElement::ExitNode(SyntaxKind::Path), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeExpression)]),
     },
     CatalogTypeSurfaceSyntax {
-        surface: CatalogTypeSurface(CatalogSourceAnchor { source: CatalogSourceId::new(0), range: TextRange::new(TextSize::new(638), TextSize::new(644)) }),
+        surface: CatalogTypeSurface(CatalogSourceAnchor { source: CatalogSourceId::new(0), range: TextRange::new(TextSize::new(837), TextSize::new(843)) }),
         elements: Cow::Borrowed(&[CatalogSurfaceElement::EnterNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::EnterNode(SyntaxKind::Path), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "bool")), CatalogSurfaceElement::ExitNode(SyntaxKind::Path), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeExpression)]),
     },
     CatalogTypeSurfaceSyntax {
-        surface: CatalogTypeSurface(CatalogSourceAnchor { source: CatalogSourceId::new(0), range: TextRange::new(TextSize::new(744), TextSize::new(751)) }),
+        surface: CatalogTypeSurface(CatalogSourceAnchor { source: CatalogSourceId::new(0), range: TextRange::new(TextSize::new(943), TextSize::new(950)) }),
         elements: Cow::Borrowed(&[CatalogSurfaceElement::EnterNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::EnterNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::EnterNode(SyntaxKind::Path), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::IdentifierToken, "bool")), CatalogSurfaceElement::ExitNode(SyntaxKind::Path), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeExpression), CatalogSurfaceElement::Token(CatalogSurfaceToken::from_static(SyntaxKind::QuestionToken, "?")), CatalogSurfaceElement::ExitNode(SyntaxKind::TypeExpression)]),
     },
 ];

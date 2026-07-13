@@ -85,6 +85,10 @@ pub(super) fn encode_type(encoder: &mut WireEncoder, ty: &InterfaceType) {
             encoder.write_u32(2);
             write_symbol_reference(encoder, parameter);
         }
+        InterfaceType::ContextualSelf(context) => {
+            encoder.write_u32(12);
+            write_symbol_reference(encoder, context);
+        }
         InterfaceType::AssociatedTypeProjection {
             application,
             member,
