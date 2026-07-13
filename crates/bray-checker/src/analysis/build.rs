@@ -24,6 +24,7 @@ pub(crate) fn build_control_flow_graph(
     let completion = match request.root() {
         UnitCheckRoot::CallableBody(root) => builder.build_callable_body(root, entry),
         UnitCheckRoot::Expression(root) => builder.build_expression(root, entry),
+        UnitCheckRoot::ExpressionSequence(root) => builder.build_block(root, entry),
     };
 
     let Some(completion) = completion else {

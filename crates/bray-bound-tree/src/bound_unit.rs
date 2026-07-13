@@ -6,8 +6,8 @@ use bray_symbols::{
 };
 
 use crate::{
-    BoundCallableBodyId, BoundExpressionId, BoundNodeKind, BoundTree, BoundUnitId, BoundUnitKey,
-    BoundUnitKeyData, BoundUnitKind, BoundUnitView, DeclaredBoundUnitKey,
+    BoundBlockId, BoundCallableBodyId, BoundExpressionId, BoundNodeKind, BoundTree, BoundUnitId,
+    BoundUnitKey, BoundUnitKeyData, BoundUnitKind, BoundUnitView, DeclaredBoundUnitKey,
 };
 
 /// One immutable bound semantic unit and its exact root.
@@ -102,6 +102,8 @@ pub enum BoundUnitRoot {
     },
     /// A declaration-owned expression.
     Expression(BoundExpressionId),
+    /// An ordered declaration-owned expression sequence.
+    ExpressionSequence(BoundBlockId),
 }
 
 /// A contract violation that prevents publication of a bound unit.
@@ -171,11 +173,13 @@ fn validate_root(
         (
             BoundUnitKind::RuntimeDefault
             | BoundUnitKind::ConstantTemplate
-            | BoundUnitKind::PredicateDefinition
-            | BoundUnitKind::Constraint
-            | BoundUnitKind::ContractClause,
+            | BoundUnitKind::PredicateDefinition,
             BoundUnitRoot::Expression(expression),
         ) => validate_expression_root(tree, expression),
+        (
+            BoundUnitKind::Constraint | BoundUnitKind::ContractClause,
+            BoundUnitRoot::ExpressionSequence(block),
+        ) => validate_block_root(tree, block),
         _ => Err(BoundUnitBuildError::RootKindMismatch),
     }
 }
@@ -202,6 +206,17 @@ fn validate_expression_root(
         return Err(BoundUnitBuildError::MissingRoot {
             unit: tree.unit(),
             kind: BoundNodeKind::Expression,
+        });
+    }
+
+    Ok(())
+}
+
+fn validate_block_root(tree: &BoundTree, root: BoundBlockId) -> Result<(), BoundUnitBuildError> {
+    if tree.block(root).is_none() {
+        return Err(BoundUnitBuildError::MissingRoot {
+            unit: tree.unit(),
+            kind: BoundNodeKind::Block,
         });
     }
 

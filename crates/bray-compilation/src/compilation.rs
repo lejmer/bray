@@ -1,4 +1,5 @@
 mod binder;
+mod diagnostics;
 mod facts;
 mod load;
 mod unit;

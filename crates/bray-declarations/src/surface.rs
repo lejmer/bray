@@ -1,5 +1,8 @@
 use bray_source::{SourceId, TextRange};
-use bray_syntax::{SourceSyntaxNode, SyntaxKind};
+use bray_syntax::{
+    SourceSyntaxNode, SyntaxCast, SyntaxKind, SyntaxTree, SyntaxWalkControl, SyntaxWalkEvent,
+    walk_syntax_node,
+};
 
 /// Stable source-backed reference to a syntax node used by later compiler phases.
 ///
@@ -44,6 +47,32 @@ impl SyntaxAnchor {
     /// Returns whether the anchored syntax node contains parser recovery.
     pub const fn is_recovered(self) -> bool {
         self.is_recovered
+    }
+
+    /// Resolves the first descendant of `T` within this exact anchored syntax node.
+    pub fn find_descendant<T: SyntaxCast>(self, syntax: &SyntaxTree) -> Option<T> {
+        let root = syntax.find_node(
+            self.source_id,
+            self.syntax_kind,
+            self.full_range,
+            self.is_recovered,
+        )?;
+
+        let mut result = None;
+
+        walk_syntax_node(&root, |event| {
+            if let SyntaxWalkEvent::EnterNode(node) = event
+                && node.kind() == T::KIND
+            {
+                result = node.cast();
+
+                return SyntaxWalkControl::Stop;
+            }
+
+            SyntaxWalkControl::Continue
+        });
+
+        result
     }
 }
 
@@ -138,5 +167,47 @@ impl DeclarationSurface {
     /// Returns overload arm path anchors in source order.
     pub fn overload_arms(&self) -> &[SyntaxAnchor] {
         &self.overload_arms
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_syntax::{CallableBodyBlockExpressionSyntax, SyntaxTree};
+    use bray_testing::{test_source_at, test_source_store};
+
+    use super::SyntaxAnchor;
+
+    #[test]
+    fn syntax_anchors_resolve_typed_descendants_only_within_their_node() {
+        let sources = test_source_store([concat!(
+            "module app;\n",
+            "func first()\n",
+            "{\n",
+            "}\n",
+            "extern func second();\n",
+        )]);
+
+        let parsed = bray_parser::parse_source_unit(test_source_at(&sources, 0));
+        let source_unit = parsed.source_unit().clone();
+        let functions = source_unit.function_declarations().collect::<Vec<_>>();
+
+        let [first, second] = functions.as_slice() else {
+            panic!("test source must contain two functions");
+        };
+
+        let first = SyntaxAnchor::from_node(first);
+        let second = SyntaxAnchor::from_node(second);
+        let syntax = SyntaxTree::compilation_unit([source_unit]);
+
+        assert!(
+            first
+                .find_descendant::<CallableBodyBlockExpressionSyntax>(&syntax)
+                .is_some()
+        );
+        assert!(
+            second
+                .find_descendant::<CallableBodyBlockExpressionSyntax>(&syntax)
+                .is_none()
+        );
     }
 }

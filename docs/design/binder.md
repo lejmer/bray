@@ -105,7 +105,8 @@ Initial semantic unit categories are:
 
 - a declared callable or lifecycle body,
 - an anonymous callable together with its signature, contracts, and body,
-- a declaration-owned expression such as a runtime default, constant template, predicate definition, constraint, or contract clause.
+- a declaration-owned expression such as a runtime default, constant template, or predicate definition,
+- an ordered declaration-owned expression sequence for a constraint or callable contract clause.
 
 Patterns, blocks, match arms, and ordinary nested expressions belong to their containing unit. They are not independently published
 merely because they have their own lexical scopes.
@@ -563,11 +564,13 @@ pub enum BoundUnitRoot {
         body: BoundCallableBodyId,
     },
     Expression(BoundExpressionId),
+    ExpressionSequence(BoundBlockId),
 }
 ```
 
 The closed root identifies the exact bound node that starts the unit without optional category fields or parallel category-specific
-containers. Bound-unit construction validates these invariants before publication:
+containers. Constraint and callable-contract sequences use a bound block as their ordered root without pretending that braces were
+present in source. Bound-unit construction validates these invariants before publication:
 
 - the root category agrees with the `BoundUnitKey`,
 - the root ID belongs to the contained `BoundTree`,
@@ -653,6 +656,13 @@ an error-aware checked body.
 Anonymous callable views resolve through their owning local snapshot and exact `BoundUnitKey`. Declaration-owned expression facts
 remain available through their owner-specific symbol APIs. The shared query implementation can use closed internal unit-key
 adapters, but public APIs must not expose a generic `bind_syntax` workflow.
+
+Package checking follows the same model. `Compilation::check_diagnostics()` requests a compilation-owned package semantic
+diagnostics fact rather than enumerating semantic units or invoking the binder. The package fact derives declared unit keys from the
+immutable declaration table, symbol graph, and syntax snapshot, requests their bound-unit and required checker facts, follows
+published nested-unit keys, and merges each fact-owned diagnostic bag deterministically. A later emitter can request completed
+semantic or lowered facts directly and still obtain all remaining diagnostics through the same package diagnostic query when
+emission aborts.
 
 ### Fact Results And Cancellation
 
@@ -1323,9 +1333,9 @@ Whole-unit analysis follows this boundary:
 Abandoned speculative candidates never contribute nodes or edges to the final graph. Candidate-local checks can use focused temporary
 state, but the shared whole-unit graph is constructed only from committed binding state.
 
-Each nested anonymous callable or independently checked declaration-owned expression has its own semantic unit and therefore its own
-graph when flow analysis is required. A graph never crosses semantic-unit ownership boundaries. Relationships to nested units use
-their typed unit keys rather than embedding the nested graph.
+Each nested anonymous callable or independently checked declaration-owned expression or expression sequence has its own semantic
+unit and therefore its own graph when flow analysis is required. A graph never crosses semantic-unit ownership boundaries.
+Relationships to nested units use their typed unit keys rather than embedding the nested graph.
 
 Only durable facts promised by a semantic query are published. Full block-entry and block-exit states, work lists, predecessor
 counts, temporary alias sets, and intermediate fixed-point iterations are discarded after checking unless a separate tooling query

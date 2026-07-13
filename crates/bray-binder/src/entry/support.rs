@@ -1,7 +1,6 @@
 use bray_bound_tree::{BoundUnitId, BoundUnitKey};
 use bray_declarations::SyntaxAnchor;
 use bray_symbols::{LocalSymbolRegionId, TypeData};
-use bray_syntax::{SyntaxCast, SyntaxWalkControl, SyntaxWalkEvent, walk_syntax_tree};
 
 use super::BoundUnitBindingError;
 use crate::BinderFactContext;
@@ -76,45 +75,9 @@ where
 pub(super) fn anchored_descendant<C, T>(facts: &C, anchor: SyntaxAnchor) -> Option<T>
 where
     C: BinderFactContext + ?Sized,
-    T: SyntaxCast,
+    T: bray_syntax::SyntaxCast,
 {
-    let mut result = None;
-    let mut anchor_depth = None;
-
-    walk_syntax_tree(facts.syntax(), |event| {
-        match event {
-            SyntaxWalkEvent::EnterNode(node) => {
-                if let Some(depth) = anchor_depth.as_mut() {
-                    *depth += 1;
-                } else if node.source().source_id() == anchor.source_id()
-                    && node.kind() == anchor.syntax_kind()
-                    && node.full_range() == anchor.full_range()
-                {
-                    anchor_depth = Some(1);
-                }
-
-                if anchor_depth.is_some() && node.kind() == T::KIND {
-                    result = node.cast();
-
-                    return SyntaxWalkControl::Stop;
-                }
-            }
-            SyntaxWalkEvent::ExitNode(_) => {
-                if let Some(depth) = anchor_depth.as_mut() {
-                    *depth -= 1;
-
-                    if *depth == 0 {
-                        anchor_depth = None;
-                    }
-                }
-            }
-            SyntaxWalkEvent::Token(_) => {}
-        }
-
-        SyntaxWalkControl::Continue
-    });
-
-    result
+    anchor.find_descendant(facts.syntax())
 }
 
 pub(super) fn map_binding_error(error: BindingError) -> BoundUnitBindingError {

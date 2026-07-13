@@ -1,5 +1,6 @@
 use bray_bound_tree::{
-    AnyBoundNodeId, BoundCallableBodyId, BoundExpressionId, BoundUnitKind, BoundUnitView,
+    AnyBoundNodeId, BoundBlockId, BoundCallableBodyId, BoundExpressionId, BoundUnitKind,
+    BoundUnitView,
 };
 
 use crate::CheckerCancellation;
@@ -19,6 +20,8 @@ pub enum UnitCheckRoot {
     CallableBody(BoundCallableBodyId),
     /// A declaration-owned expression.
     Expression(BoundExpressionId),
+    /// An ordered declaration-owned expression sequence.
+    ExpressionSequence(BoundBlockId),
 }
 
 /// Rejects an inconsistent whole-unit checker request before analysis begins.
@@ -42,8 +45,9 @@ impl UnitCheckRoot {
                 BoundUnitKind::RuntimeDefault
                     | BoundUnitKind::ConstantTemplate
                     | BoundUnitKind::PredicateDefinition
-                    | BoundUnitKind::Constraint
-                    | BoundUnitKind::ContractClause
+            ) | (
+                Self::ExpressionSequence(_),
+                BoundUnitKind::Constraint | BoundUnitKind::ContractClause
             )
         )
     }
@@ -52,6 +56,7 @@ impl UnitCheckRoot {
         match self {
             Self::CallableBody(root) => AnyBoundNodeId::CallableBody(root),
             Self::Expression(root) => AnyBoundNodeId::Expression(root),
+            Self::ExpressionSequence(root) => AnyBoundNodeId::Block(root),
         }
     }
 }

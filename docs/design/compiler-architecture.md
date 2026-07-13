@@ -128,6 +128,12 @@ source unit's syntax. A declaration-table query requests all source-unit chunks 
 diagnostics are a projection of the merged result, so a check-diagnostics query materializes declaration discovery through that
 fact dependency rather than through a phase-execution command.
 
+`Compilation` also exposes package semantic diagnostics as a cached fact. That fact discovers the source package's declared
+semantic units, requests their bound-unit and required checker facts, follows published nested-unit keys, and merges the diagnostics
+owned by those facts deterministically. A check-diagnostics query requests this package fact beside source, syntax, and declaration
+diagnostics. Neither the command driver nor the check-diagnostics query enumerates semantic units or invokes binder entry points
+directly.
+
 One compilation request carries the source package identity as an explicit semantic input. `Compilation` owns that identity and
 lazily derives the matching symbol graph and canonical semantic value store. Binder-facing query APIs construct their read-only fact
 context internally from compilation-owned inputs. They must not accept arbitrary caller contexts that could populate one cache from

@@ -51,6 +51,8 @@ pub enum CompilationFactKey {
     DeclarationTable,
     /// The canonical semantic value store for this compilation snapshot.
     SemanticValueStore,
+    /// Binding and semantic-analysis diagnostics for the source package.
+    SemanticDiagnostics,
     /// Parsed syntax for one source unit.
     SourceUnitSyntax(SourceId),
     /// The deterministic compilation-wide symbol identity graph.
@@ -72,6 +74,7 @@ impl CompilationFactKey {
             | Self::DeclarationChunk(_)
             | Self::DeclarationTable
             | Self::SemanticValueStore
+            | Self::SemanticDiagnostics
             | Self::SourceUnitSyntax(_)
             | Self::SymbolGraph
             | Self::Symbol(_)
