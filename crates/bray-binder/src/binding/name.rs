@@ -4,8 +4,8 @@ use bray_symbols::{MemberLookupResult, SymbolName};
 use bray_syntax::SyntaxToken;
 
 use crate::BinderFactContext;
+use crate::binder::Binder;
 use crate::lookup::{PathBindingContext, lookup_unqualified_name};
-use crate::request::BinderRequestContext;
 
 pub(super) fn symbol_name(
     source: &bray_source::SourceSnapshot,
@@ -19,7 +19,7 @@ pub(super) fn symbol_name(
 }
 
 pub(super) fn name_is_available<C>(
-    request: &mut BinderRequestContext<'_, C>,
+    binder: &mut Binder<'_, C>,
     context: PathBindingContext,
     source: &bray_source::SourceSnapshot,
     token: &SyntaxToken,
@@ -32,7 +32,7 @@ where
     };
 
     name_text_is_available(
-        request,
+        binder,
         context,
         text,
         SourceSpan::new(source.source_id(), token.range()),
@@ -40,7 +40,7 @@ where
 }
 
 pub(super) fn name_text_is_available<C>(
-    request: &mut BinderRequestContext<'_, C>,
+    binder: &mut Binder<'_, C>,
     context: PathBindingContext,
     text: &str,
     span: SourceSpan,
@@ -50,8 +50,8 @@ where
 {
     if matches!(
         lookup_unqualified_name(
-            request.unit(),
-            request.facts().symbols(),
+            binder.unit(),
+            binder.facts().symbols(),
             context.scope(),
             context.module(),
             text,
@@ -62,13 +62,13 @@ where
         return true;
     }
 
-    report_name_already_defined(request, text, span);
+    report_name_already_defined(binder, text, span);
 
     false
 }
 
 pub(super) fn report_name_already_defined<C>(
-    request: &mut BinderRequestContext<'_, C>,
+    binder: &mut Binder<'_, C>,
     text: &str,
     span: SourceSpan,
 ) where
@@ -82,5 +82,5 @@ pub(super) fn report_name_already_defined<C>(
     .with_primary_span(span)
     .with_arg(DiagnosticArg::referenced_name(text));
 
-    request.add_diagnostic(diagnostic);
+    binder.add_diagnostic(diagnostic);
 }

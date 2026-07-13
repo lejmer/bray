@@ -7,14 +7,14 @@ use bray_syntax::{SourceSyntaxNode, StructConstructionBodySyntax};
 
 use super::ExpressionBinder;
 use crate::BinderFactContext;
+use crate::binder::Binder;
 use crate::binding::BindingResult;
 use crate::binding::name::symbol_name;
-use crate::request::BinderRequestContext;
 
 impl ExpressionBinder {
     pub(super) fn bind_struct_construction<C>(
         &mut self,
-        request: &mut BinderRequestContext<'_, C>,
+        binder: &mut Binder<'_, C>,
         scope: LocalScopeId,
         syntax: &StructConstructionBodySyntax,
         head: Option<BoundExpressionId>,
@@ -25,12 +25,12 @@ impl ExpressionBinder {
         let mut fields = Vec::new();
 
         for field in syntax.field_initializers() {
-            let expression = self.bind_expression(request, scope, Some(&field.expression()))?;
+            let expression = self.bind_expression(binder, scope, Some(&field.expression()))?;
             let token = field.identifier_token();
             let name = symbol_name(field.source(), &token);
             let is_recovered = field.is_recovered()
                 || name.is_none()
-                || request.expression_is_recovered(expression);
+                || binder.expression_is_recovered(expression);
 
             fields.push(BoundStructFieldInitializer::new(
                 name,
@@ -40,17 +40,17 @@ impl ExpressionBinder {
         }
 
         let is_recovered = syntax.is_recovered()
-            || head.is_some_and(|head| request.expression_is_recovered(head))
+            || head.is_some_and(|head| binder.expression_is_recovered(head))
             || fields.iter().any(BoundStructFieldInitializer::is_recovered);
 
         let expression = BoundStructConstructionExpression::new(
-            request.source_origin(syntax),
+            binder.source_origin(syntax),
             head,
             fields,
             None,
             is_recovered,
         );
 
-        self.push(request, BoundExpression::StructConstruction(expression))
+        self.push(binder, BoundExpression::StructConstruction(expression))
     }
 }

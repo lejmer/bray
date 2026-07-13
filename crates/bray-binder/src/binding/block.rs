@@ -13,8 +13,8 @@ use bray_syntax::{
 use super::BindingResult;
 use super::name::{name_is_available, symbol_name};
 use crate::BinderFactContext;
+use crate::binder::{Binder, ControlTarget, ControlTargetKind, PatternBindingMode};
 use crate::lookup::PathBindingContext;
-use crate::request::{BinderRequestContext, ControlTarget, ControlTargetKind, PatternBindingMode};
 
 pub(crate) trait BlockBindingOperations<C>
 where
@@ -22,21 +22,21 @@ where
 {
     fn bind_expression(
         &mut self,
-        request: &mut BinderRequestContext<'_, C>,
+        binder: &mut Binder<'_, C>,
         scope: LocalScopeId,
         syntax: Option<&ExpressionSyntax>,
     ) -> BindingResult<BoundExpressionId>;
 
     fn bind_generator_expression(
         &mut self,
-        request: &mut BinderRequestContext<'_, C>,
+        binder: &mut Binder<'_, C>,
         scope: LocalScopeId,
         syntax: &GeneratorIterationExpressionSyntax,
     ) -> BindingResult<BoundExpressionId>;
 
     fn bind_type_expression(
         &mut self,
-        request: &mut BinderRequestContext<'_, C>,
+        binder: &mut Binder<'_, C>,
         scope: LocalScopeId,
         syntax: Option<&TypeExpressionSyntax>,
     ) -> BindingResult<Option<BoundTypeReference>>;
@@ -45,12 +45,12 @@ where
 
     fn path_context(
         &self,
-        request: &BinderRequestContext<'_, C>,
+        binder: &Binder<'_, C>,
         scope: LocalScopeId,
     ) -> BindingResult<PathBindingContext>;
 }
 
-impl<C> BinderRequestContext<'_, C>
+impl<C> Binder<'_, C>
 where
     C: BinderFactContext + ?Sized,
 {
@@ -60,8 +60,8 @@ where
         syntax: &BlockExpressionSyntax,
         operations: &mut impl BlockBindingOperations<C>,
     ) -> BindingResult<BoundBlockId> {
-        self.bind_transaction(|request| {
-            request.bind_block_transaction(parent_scope, syntax, operations)
+        self.bind_transaction(|binder| {
+            binder.bind_block_transaction(parent_scope, syntax, operations)
         })
     }
 
@@ -225,23 +225,20 @@ where
     }
 }
 
-fn bound_block_item_is_recovered<C>(
-    request: &BinderRequestContext<'_, C>,
-    item: &BoundBlockItem,
-) -> bool
+fn bound_block_item_is_recovered<C>(binder: &Binder<'_, C>, item: &BoundBlockItem) -> bool
 where
     C: BinderFactContext + ?Sized,
 {
     match item {
         BoundBlockItem::LocalBinding(binding) => {
             binding.is_recovered()
-                || request.expression_is_recovered(binding.initializer())
-                || request.pattern_is_recovered(binding.pattern())
+                || binder.expression_is_recovered(binding.initializer())
+                || binder.pattern_is_recovered(binding.pattern())
         }
         BoundBlockItem::LocalConstant(constant) => {
-            constant.is_recovered() || request.expression_is_recovered(constant.initializer())
+            constant.is_recovered() || binder.expression_is_recovered(constant.initializer())
         }
-        BoundBlockItem::Expression(expression) => request.expression_is_recovered(*expression),
+        BoundBlockItem::Expression(expression) => binder.expression_is_recovered(*expression),
     }
 }
 
@@ -256,10 +253,10 @@ mod tests {
 
     use super::BlockBindingOperations;
     use crate::BinderFactContext;
+    use crate::binder::Binder;
+    use crate::binder::ControlTargetKind;
     use crate::binding::{BindingError, BindingResult};
     use crate::fact::test_support::TestFixture;
-    use crate::request::BinderRequestContext;
-    use crate::request::ControlTargetKind;
 
     #[test]
     fn blocks_bind_local_items_in_source_order_and_activate_after_initializers() {
@@ -275,17 +272,17 @@ mod tests {
         ));
 
         let facts = fixture.context();
-        let (mut request, block) = crate::binding::test_support::request_and_block(&facts);
-        let root = request.unit().root_scope();
+        let (mut binder, block) = crate::binding::test_support::binder_and_block(&facts);
+        let root = binder.unit().root_scope();
 
         let mut operations = TestOperations::new(fixture.declared_type);
 
-        let block_id = match request.bind_block(root, &block, &mut operations) {
+        let block_id = match binder.bind_block(root, &block, &mut operations) {
             Ok(block) => block,
             Err(error) => panic!("valid block must bind: {error:?}"),
         };
 
-        let result = match request.finish() {
+        let result = match binder.finish() {
             Ok(result) => result,
             Err(error) => panic!("bound block must freeze: {error:?}"),
         };
@@ -364,20 +361,20 @@ mod tests {
         ));
 
         let facts = fixture.context();
-        let (mut request, block) = crate::binding::test_support::request_and_block(&facts);
-        let root = request.unit().root_scope();
+        let (mut binder, block) = crate::binding::test_support::binder_and_block(&facts);
+        let root = binder.unit().root_scope();
 
         let mut operations = TestOperations::failing(fixture.declared_type);
 
-        let result = request.bind_block(root, &block, &mut operations);
+        let result = binder.bind_block(root, &block, &mut operations);
 
         assert_eq!(result, Err(BindingError::Cancelled));
 
         let created = operations.created_expressions.clone();
 
-        let result = match request.finish() {
+        let result = match binder.finish() {
             Ok(result) => result,
-            Err(error) => panic!("rolled-back request must freeze: {error:?}"),
+            Err(error) => panic!("rolled-back binder must freeze: {error:?}"),
         };
 
         for expression in created {
@@ -401,17 +398,17 @@ mod tests {
         ));
 
         let facts = fixture.context();
-        let (mut request, block) = crate::binding::test_support::request_and_block(&facts);
-        let root = request.unit().root_scope();
+        let (mut binder, block) = crate::binding::test_support::binder_and_block(&facts);
+        let root = binder.unit().root_scope();
 
         let mut operations = TestOperations::new(fixture.declared_type);
 
-        let block = match request.bind_block(root, &block, &mut operations) {
+        let block = match binder.bind_block(root, &block, &mut operations) {
             Ok(block) => block,
             Err(error) => panic!("malformed locals must recover: {error:?}"),
         };
 
-        let result = match request.finish() {
+        let result = match binder.finish() {
             Ok(result) => result,
             Err(error) => panic!("recovered locals must freeze: {error:?}"),
         };
@@ -454,17 +451,17 @@ mod tests {
         ));
 
         let facts = fixture.context();
-        let (mut request, block) = crate::binding::test_support::request_and_block(&facts);
-        let root = request.unit().root_scope();
+        let (mut binder, block) = crate::binding::test_support::binder_and_block(&facts);
+        let root = binder.unit().root_scope();
 
         let mut operations = TestOperations::new(fixture.declared_type);
 
-        let block = match request.bind_block(root, &block, &mut operations) {
+        let block = match binder.bind_block(root, &block, &mut operations) {
             Ok(block) => block,
             Err(error) => panic!("shadowing declarations must recover: {error:?}"),
         };
 
-        let result = match request.finish() {
+        let result = match binder.finish() {
             Ok(result) => result,
             Err(error) => panic!("recovered block must freeze: {error:?}"),
         };
@@ -527,30 +524,30 @@ mod tests {
     {
         fn bind_expression(
             &mut self,
-            request: &mut BinderRequestContext<'_, C>,
+            binder: &mut Binder<'_, C>,
             scope: bray_symbols::LocalScopeId,
             syntax: Option<&ExpressionSyntax>,
         ) -> BindingResult<bray_bound_tree::BoundExpressionId> {
-            let values = request.unit().local_symbols_named(scope, "value")?.len();
-            let constants = request.unit().local_symbols_named(scope, "local")?.len();
+            let values = binder.unit().local_symbols_named(scope, "value")?.len();
+            let constants = binder.unit().local_symbols_named(scope, "local")?.len();
 
             self.visible_names.push((values, constants));
 
-            let Some(target) = request.control_target() else {
+            let Some(target) = binder.control_target() else {
                 panic!("block expressions must bind under a control target");
             };
 
             self.control_targets.push(target.kind());
 
             let origin = syntax.map_or_else(
-                || BoundNodeOrigin::source(request.unit().key().source()),
-                |syntax| request.source_origin(syntax),
+                || BoundNodeOrigin::source(binder.unit().key().source()),
+                |syntax| binder.source_origin(syntax),
             );
 
             let expression =
                 BoundExpression::Error(BoundErrorExpression::new(origin, self.error_type));
 
-            let expression = request
+            let expression = binder
                 .unit_mut()
                 .tree_mut()
                 .push_expression(expression)
@@ -567,16 +564,16 @@ mod tests {
 
         fn bind_generator_expression(
             &mut self,
-            request: &mut BinderRequestContext<'_, C>,
+            binder: &mut Binder<'_, C>,
             scope: bray_symbols::LocalScopeId,
             _syntax: &GeneratorIterationExpressionSyntax,
         ) -> BindingResult<bray_bound_tree::BoundExpressionId> {
-            self.bind_expression(request, scope, None)
+            self.bind_expression(binder, scope, None)
         }
 
         fn bind_type_expression(
             &mut self,
-            _request: &mut BinderRequestContext<'_, C>,
+            _request: &mut Binder<'_, C>,
             _scope: bray_symbols::LocalScopeId,
             syntax: Option<&TypeExpressionSyntax>,
         ) -> BindingResult<Option<BoundTypeReference>> {
@@ -591,11 +588,11 @@ mod tests {
 
         fn path_context(
             &self,
-            request: &BinderRequestContext<'_, C>,
+            binder: &Binder<'_, C>,
             scope: bray_symbols::LocalScopeId,
         ) -> BindingResult<crate::lookup::PathBindingContext> {
             Ok(crate::binding::test_support::internal_path_context(
-                request.facts(),
+                binder.facts(),
                 scope,
             ))
         }

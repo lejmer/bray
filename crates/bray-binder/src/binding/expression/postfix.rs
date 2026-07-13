@@ -15,13 +15,13 @@ use super::super::name::symbol_name;
 use super::ExpressionBinder;
 use super::support::visit_direct_nodes;
 use crate::BinderFactContext;
+use crate::binder::Binder;
 use crate::binding::BindingError;
-use crate::request::BinderRequestContext;
 
 impl ExpressionBinder {
     pub(super) fn bind_postfixes<C>(
         &mut self,
-        request: &mut BinderRequestContext<'_, C>,
+        binder: &mut Binder<'_, C>,
         scope: LocalScopeId,
         syntax: &ExpressionSyntax,
         mut current: BoundExpressionId,
@@ -40,7 +40,7 @@ impl ExpressionBinder {
                         return SyntaxWalkControl::Stop;
                     };
 
-                    self.bind_call(request, scope, &call, current)
+                    self.bind_call(binder, scope, &call, current)
                 }
                 SyntaxKind::ConversionOperation => {
                     let Some(conversion) = operation.cast::<ConversionOperationSyntax>() else {
@@ -49,7 +49,7 @@ impl ExpressionBinder {
                         return SyntaxWalkControl::Stop;
                     };
 
-                    self.bind_conversion(request, &conversion, current)
+                    self.bind_conversion(binder, &conversion, current)
                 }
                 SyntaxKind::MemberAccessOperation => {
                     let Some(member) = operation.cast::<bray_syntax::MemberAccessOperationSyntax>()
@@ -59,24 +59,24 @@ impl ExpressionBinder {
                         return SyntaxWalkControl::Stop;
                     };
 
-                    self.bind_member_access(request, &member, current)
+                    self.bind_member_access(binder, &member, current)
                 }
                 SyntaxKind::ElementIndexOperation => self.bind_structured_with_operand(
-                    request,
+                    binder,
                     scope,
                     operation,
                     BoundStructuredExpressionKind::ElementIndex,
                     current,
                 ),
                 SyntaxKind::SliceIndexOperation => self.bind_structured_with_operand(
-                    request,
+                    binder,
                     scope,
                     operation,
                     BoundStructuredExpressionKind::SliceIndex,
                     current,
                 ),
                 SyntaxKind::NullablePropagationOperation => self.bind_structured_with_operand(
-                    request,
+                    binder,
                     scope,
                     operation,
                     BoundStructuredExpressionKind::NullablePropagation,
@@ -91,7 +91,7 @@ impl ExpressionBinder {
                         return SyntaxWalkControl::Stop;
                     };
 
-                    self.bind_trait_qualified_member(request, &member, current)
+                    self.bind_trait_qualified_member(binder, &member, current)
                 }
                 _ => return SyntaxWalkControl::Continue,
             };
@@ -113,7 +113,7 @@ impl ExpressionBinder {
 
     fn bind_call<C>(
         &mut self,
-        request: &mut BinderRequestContext<'_, C>,
+        binder: &mut Binder<'_, C>,
         scope: LocalScopeId,
         syntax: &CallOperationSyntax,
         callee: BoundExpressionId,
@@ -121,22 +121,22 @@ impl ExpressionBinder {
     where
         C: BinderFactContext + ?Sized,
     {
-        let arguments = self.bind_arguments(request, scope, &syntax.argument_list())?;
+        let arguments = self.bind_arguments(binder, scope, &syntax.argument_list())?;
 
         let recovered = syntax.is_recovered()
             || arguments.iter().any(BoundArgument::is_recovered)
-            || request.expression_is_recovered(callee);
+            || binder.expression_is_recovered(callee);
 
         let expression = if recovered {
             BoundExpression::ErrorCall(BoundErrorCallExpression::new(
-                request.source_origin(syntax),
+                binder.source_origin(syntax),
                 callee,
                 arguments,
                 self.error_type,
             ))
         } else {
             BoundExpression::Call(BoundCallExpression::new(
-                request.source_origin(syntax),
+                binder.source_origin(syntax),
                 callee,
                 arguments,
                 None,
@@ -144,12 +144,12 @@ impl ExpressionBinder {
             ))
         };
 
-        self.push(request, expression)
+        self.push(binder, expression)
     }
 
     pub(in crate::binding::expression) fn bind_arguments<C>(
         &mut self,
-        request: &mut BinderRequestContext<'_, C>,
+        binder: &mut Binder<'_, C>,
         scope: LocalScopeId,
         syntax: &ArgumentListSyntax,
     ) -> BindingResult<Vec<BoundArgument>>
@@ -159,7 +159,7 @@ impl ExpressionBinder {
         let mut arguments = Vec::new();
 
         for argument in syntax.arguments() {
-            let expression = self.bind_expression(request, scope, Some(&argument.expression()))?;
+            let expression = self.bind_expression(binder, scope, Some(&argument.expression()))?;
 
             let name = argument
                 .identifier_token()
@@ -177,20 +177,20 @@ impl ExpressionBinder {
 
     fn bind_conversion<C>(
         &mut self,
-        request: &mut BinderRequestContext<'_, C>,
+        binder: &mut Binder<'_, C>,
         syntax: &ConversionOperationSyntax,
         operand: BoundExpressionId,
     ) -> BindingResult<BoundExpressionId>
     where
         C: BinderFactContext + ?Sized,
     {
-        let recovered = syntax.is_recovered() || request.expression_is_recovered(operand);
+        let recovered = syntax.is_recovered() || binder.expression_is_recovered(operand);
 
         let target_syntax = SyntaxAnchor::from_node(&syntax.type_expression());
 
         let expression = if recovered {
             BoundExpression::ErrorConversion(BoundErrorConversionExpression::new(
-                request.source_origin(syntax),
+                binder.source_origin(syntax),
                 operand,
                 target_syntax,
                 None,
@@ -198,7 +198,7 @@ impl ExpressionBinder {
             ))
         } else {
             BoundExpression::Conversion(BoundConversionExpression::new(
-                request.source_origin(syntax),
+                binder.source_origin(syntax),
                 operand,
                 target_syntax,
                 None,
@@ -207,6 +207,6 @@ impl ExpressionBinder {
             ))
         };
 
-        self.push(request, expression)
+        self.push(binder, expression)
     }
 }

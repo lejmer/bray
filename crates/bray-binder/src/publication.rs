@@ -5,7 +5,7 @@ use bray_bound_tree::{
 use bray_diagnostics::DiagnosticResult;
 use bray_symbols::AnonymousCallableSymbolId;
 
-use crate::request::BinderRequestResult;
+use crate::binder::BinderOutput;
 use crate::{BinderDependency, BoundUnitComputation};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -20,21 +20,21 @@ impl From<BoundUnitBuildError> for BoundUnitAssemblyError {
 }
 
 pub(crate) fn assemble_callable_body(
-    request: BinderRequestResult,
+    output: BinderOutput,
     nested_units: Vec<BoundUnitKey>,
     root: BoundCallableBodyId,
 ) -> Result<BoundUnitComputation, BoundUnitAssemblyError> {
-    assemble_bound_unit(request, nested_units, BoundUnitRoot::CallableBody(root))
+    assemble_bound_unit(output, nested_units, BoundUnitRoot::CallableBody(root))
 }
 
 pub(crate) fn assemble_anonymous_callable(
-    request: BinderRequestResult,
+    output: BinderOutput,
     nested_units: Vec<BoundUnitKey>,
     callable: AnonymousCallableSymbolId,
     root: BoundCallableBodyId,
 ) -> Result<BoundUnitComputation, BoundUnitAssemblyError> {
     assemble_bound_unit(
-        request,
+        output,
         nested_units,
         BoundUnitRoot::AnonymousCallable {
             callable,
@@ -46,11 +46,11 @@ pub(crate) fn assemble_anonymous_callable(
 macro_rules! define_root_assembler {
     ($function:ident, $root_variant:ident, $root_type:ty) => {
         pub(crate) fn $function(
-            request: BinderRequestResult,
+            output: BinderOutput,
             nested_units: Vec<BoundUnitKey>,
             root: $root_type,
         ) -> Result<BoundUnitComputation, BoundUnitAssemblyError> {
-            assemble_bound_unit(request, nested_units, BoundUnitRoot::$root_variant(root))
+            assemble_bound_unit(output, nested_units, BoundUnitRoot::$root_variant(root))
         }
     };
 }
@@ -62,11 +62,11 @@ define_root_assembler!(assemble_constraint, ExpressionSequence, BoundBlockId);
 define_root_assembler!(assemble_contract_clause, ExpressionSequence, BoundBlockId);
 
 fn assemble_bound_unit(
-    request: BinderRequestResult,
+    output: BinderOutput,
     nested_units: Vec<BoundUnitKey>,
     root: BoundUnitRoot,
 ) -> Result<BoundUnitComputation, BoundUnitAssemblyError> {
-    let (unit, diagnostics, dependencies) = request.into_parts();
+    let (unit, diagnostics, dependencies) = output.into_parts();
     let (key, tree, local_symbols, _) = unit.into_parts();
 
     let bound = BoundUnit::try_new(key, tree, local_symbols, nested_units, root)?;

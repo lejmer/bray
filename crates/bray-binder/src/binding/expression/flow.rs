@@ -9,13 +9,13 @@ use bray_syntax::{
 
 use super::ExpressionBinder;
 use crate::BinderFactContext;
+use crate::binder::{Binder, ControlTarget, ControlTargetKind};
 use crate::binding::{BindingError, BindingResult};
-use crate::request::{BinderRequestContext, ControlTarget, ControlTargetKind};
 
 impl ExpressionBinder {
     pub(super) fn bind_control_transfer<C>(
         &mut self,
-        request: &mut BinderRequestContext<'_, C>,
+        binder: &mut Binder<'_, C>,
         scope: LocalScopeId,
         syntax: SyntaxNodeView<'_>,
     ) -> BindingResult<BoundExpressionId>
@@ -30,15 +30,15 @@ impl ExpressionBinder {
             _ => return Err(BindingError::UnsupportedSyntax),
         };
 
-        let operand = self.bind_optional_operand(request, scope, syntax)?;
-        let target = control_transfer_target(request, kind);
+        let operand = self.bind_optional_operand(binder, scope, syntax)?;
+        let target = control_transfer_target(binder, kind);
 
         let is_recovered = syntax.is_recovered()
             || target.is_none()
-            || operand.is_some_and(|operand| request.expression_is_recovered(operand));
+            || operand.is_some_and(|operand| binder.expression_is_recovered(operand));
 
         let expression = BoundControlTransferExpression::new(
-            request.source_origin(&syntax),
+            binder.source_origin(&syntax),
             kind,
             operand,
             target,
@@ -46,12 +46,12 @@ impl ExpressionBinder {
             is_recovered,
         );
 
-        self.push(request, BoundExpression::ControlTransfer(expression))
+        self.push(binder, BoundExpression::ControlTransfer(expression))
     }
 
     fn bind_optional_operand<C>(
         &mut self,
-        request: &mut BinderRequestContext<'_, C>,
+        binder: &mut Binder<'_, C>,
         scope: LocalScopeId,
         syntax: SyntaxNodeView<'_>,
     ) -> BindingResult<Option<BoundExpressionId>>
@@ -82,7 +82,7 @@ impl ExpressionBinder {
                 return SyntaxWalkControl::Stop;
             };
 
-            result = Some(self.bind_expression(request, scope, Some(&expression)));
+            result = Some(self.bind_expression(binder, scope, Some(&expression)));
 
             SyntaxWalkControl::Stop
         });
@@ -92,22 +92,22 @@ impl ExpressionBinder {
 }
 
 fn control_transfer_target<C>(
-    request: &BinderRequestContext<'_, C>,
+    binder: &Binder<'_, C>,
     kind: BoundControlTransferKind,
 ) -> Option<bray_declarations::SyntaxAnchor>
 where
     C: BinderFactContext + ?Sized,
 {
     let target = match kind {
-        BoundControlTransferKind::Yield => request
+        BoundControlTransferKind::Yield => binder
             .control_target_of_kind(ControlTargetKind::Generator)
-            .or_else(|| request.control_target_of_kind(ControlTargetKind::Block)),
+            .or_else(|| binder.control_target_of_kind(ControlTargetKind::Block)),
         BoundControlTransferKind::Return => {
-            request.control_target_of_kind(ControlTargetKind::Callable)
+            binder.control_target_of_kind(ControlTargetKind::Callable)
         }
-        BoundControlTransferKind::Break | BoundControlTransferKind::Continue => request
+        BoundControlTransferKind::Break | BoundControlTransferKind::Continue => binder
             .control_target_of_kind(ControlTargetKind::Generator)
-            .or_else(|| request.control_target_of_kind(ControlTargetKind::Loop)),
+            .or_else(|| binder.control_target_of_kind(ControlTargetKind::Loop)),
     };
 
     target.map(ControlTarget::syntax)

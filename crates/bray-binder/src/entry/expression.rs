@@ -8,14 +8,15 @@ use bray_syntax::{
 
 use super::BoundUnitBindingError;
 use super::support::{
-    anchored_descendant, error_type, map_assembly_error, map_binding_error, path_context, request,
+    anchored_descendant, create_binder, error_type, map_assembly_error, map_binding_error,
+    path_context,
 };
+use crate::binder::{BinderOutput, BindingContext};
 use crate::binding::ExpressionBinder;
 use crate::publication::{
     assemble_constant_template, assemble_constraint, assemble_contract_clause,
     assemble_predicate_definition, assemble_runtime_default, direct_nested_units,
 };
-use crate::request::{BinderRequestResult, BindingContext};
 use crate::{BinderFactContext, BoundUnitComputation};
 
 macro_rules! define_pending_expression_unit {
@@ -31,7 +32,7 @@ macro_rules! define_pending_expression_unit {
     ) => {
         #[doc = $pending_description]
         pub struct $pending {
-            request: BinderRequestResult,
+            output: BinderOutput,
             nested_units: Vec<BoundUnitKey>,
             root: $root,
         }
@@ -44,7 +45,7 @@ macro_rules! define_pending_expression_unit {
 
             /// Freezes the immutable bound semantic unit for publication.
             pub fn finish(self) -> Result<BoundUnitComputation, BoundUnitBindingError> {
-                $assemble(self.request, self.nested_units, self.root).map_err(map_assembly_error)
+                $assemble(self.output, self.nested_units, self.root).map_err(map_assembly_error)
             }
         }
 
@@ -57,12 +58,12 @@ macro_rules! define_pending_expression_unit {
         where
             C: BinderFactContext + ?Sized,
         {
-            let (request, root) = $bind_helper(facts, unit, key, $context)?;
+            let (output, root) = $bind_helper(facts, unit, key, $context)?;
 
-            let nested_units = direct_nested_units(request.unit().key(), request.dependencies());
+            let nested_units = direct_nested_units(output.unit().key(), output.dependencies());
 
             Ok($pending {
-                request,
+                output,
                 nested_units,
                 root,
             })
@@ -126,28 +127,28 @@ fn bind_expression_unit<C>(
     unit: BoundUnitId,
     key: BoundUnitKey,
     context: BindingContext,
-) -> Result<(BinderRequestResult, BoundExpressionId), BoundUnitBindingError>
+) -> Result<(BinderOutput, BoundExpressionId), BoundUnitBindingError>
 where
     C: BinderFactContext + ?Sized,
 {
     let syntax = anchored_descendant::<_, ExpressionSyntax>(facts, key.source().syntax())
         .ok_or(BoundUnitBindingError::MissingSyntax)?;
 
-    let mut request = request(facts, unit, key, context)?;
-    let root_scope = request.unit().root_scope();
-    let path_context = path_context(&request, root_scope)?;
+    let mut binder = create_binder(facts, unit, key, context)?;
+    let root_scope = binder.unit().root_scope();
+    let path_context = path_context(&binder, root_scope)?;
     let error_type = error_type(facts)?;
-    let mut binder = ExpressionBinder::new(path_context, error_type);
+    let mut expression_binder = ExpressionBinder::new(path_context, error_type);
 
-    let root = binder
-        .bind_expression(&mut request, root_scope, Some(&syntax))
+    let root = expression_binder
+        .bind_expression(&mut binder, root_scope, Some(&syntax))
         .map_err(map_binding_error)?;
 
-    let request = request
+    let output = binder
         .finish()
         .map_err(|_| BoundUnitBindingError::Construction)?;
 
-    Ok((request, root))
+    Ok((output, root))
 }
 
 fn bind_expression_sequence_unit<C>(
@@ -155,7 +156,7 @@ fn bind_expression_sequence_unit<C>(
     unit: BoundUnitId,
     key: BoundUnitKey,
     context: BindingContext,
-) -> Result<(BinderRequestResult, BoundBlockId), BoundUnitBindingError>
+) -> Result<(BinderOutput, BoundBlockId), BoundUnitBindingError>
 where
     C: BinderFactContext + ?Sized,
 {
@@ -169,18 +170,18 @@ where
     let origin = BoundNodeOrigin::source(key.source());
     let is_recovered = key.source().syntax().is_recovered();
 
-    let mut request = request(facts, unit, key, context)?;
+    let mut binder = create_binder(facts, unit, key, context)?;
 
-    let root_scope = request.unit().root_scope();
-    let path_context = path_context(&request, root_scope)?;
+    let root_scope = binder.unit().root_scope();
+    let path_context = path_context(&binder, root_scope)?;
     let error_type = error_type(facts)?;
 
-    let mut binder = ExpressionBinder::new(path_context, error_type);
+    let mut expression_binder = ExpressionBinder::new(path_context, error_type);
     let mut roots = Vec::with_capacity(expressions.len());
 
     for expression in expressions {
-        let root = binder
-            .bind_expression(&mut request, root_scope, Some(&expression))
+        let root = expression_binder
+            .bind_expression(&mut binder, root_scope, Some(&expression))
             .map_err(map_binding_error)?;
 
         roots.push(root);
@@ -188,7 +189,7 @@ where
 
     let is_recovered = is_recovered
         || roots.iter().any(|root| {
-            request
+            binder
                 .unit_view()
                 .expression(*root)
                 .is_none_or(bray_bound_tree::BoundExpression::is_recovered)
@@ -200,18 +201,18 @@ where
         is_recovered,
     );
 
-    let root = request
+    let root = binder
         .unit_mut()
         .tree_mut()
         .push_block(block)
         .map_err(crate::unit::BoundUnitConstructionError::from)
         .map_err(|_| BoundUnitBindingError::Construction)?;
 
-    let request = request
+    let output = binder
         .finish()
         .map_err(|_| BoundUnitBindingError::Construction)?;
 
-    Ok((request, root))
+    Ok((output, root))
 }
 
 fn anchored_expression_sequence<C>(

@@ -5,15 +5,15 @@ use bray_syntax::{CallableBodyBlockExpressionSyntax, LambdaExpressionSyntax};
 
 use super::BoundUnitBindingError;
 use super::support::{anchored_descendant, error_type, map_assembly_error, map_binding_error};
+use crate::binder::{BinderOutput, BindingContext};
 use crate::publication::{
     assemble_anonymous_callable, assemble_callable_body, direct_nested_units,
 };
-use crate::request::{BinderRequestResult, BindingContext};
 use crate::{BinderFactContext, BoundUnitComputation};
 
 /// A committed declared callable body awaiting bound-unit publication.
 pub struct PendingBoundCallableBody {
-    request: BinderRequestResult,
+    output: BinderOutput,
     nested_units: Vec<BoundUnitKey>,
     root: BoundCallableBodyId,
 }
@@ -26,14 +26,14 @@ impl PendingBoundCallableBody {
 
     /// Freezes the immutable bound callable unit for publication.
     pub fn finish(self) -> Result<BoundUnitComputation, BoundUnitBindingError> {
-        assemble_callable_body(self.request, self.nested_units, self.root)
+        assemble_callable_body(self.output, self.nested_units, self.root)
             .map_err(map_assembly_error)
     }
 }
 
 /// A committed anonymous callable awaiting bound-unit publication.
 pub struct PendingBoundAnonymousCallable {
-    request: BinderRequestResult,
+    output: BinderOutput,
     nested_units: Vec<BoundUnitKey>,
     callable: bray_symbols::AnonymousCallableSymbolId,
     root: BoundCallableBodyId,
@@ -47,7 +47,7 @@ impl PendingBoundAnonymousCallable {
 
     /// Freezes the immutable bound anonymous callable unit for publication.
     pub fn finish(self) -> Result<BoundUnitComputation, BoundUnitBindingError> {
-        assemble_anonymous_callable(self.request, self.nested_units, self.callable, self.root)
+        assemble_anonymous_callable(self.output, self.nested_units, self.callable, self.root)
             .map_err(map_assembly_error)
     }
 }
@@ -65,12 +65,12 @@ where
         anchored_descendant::<_, CallableBodyBlockExpressionSyntax>(facts, key.source().syntax())
             .ok_or(BoundUnitBindingError::MissingSyntax)?;
 
-    let mut request = super::support::request(facts, unit, key, BindingContext::CallableBody)?;
-    let root_scope = request.unit().root_scope();
-    let path_context = super::support::path_context(&request, root_scope)?;
+    let mut binder = super::support::create_binder(facts, unit, key, BindingContext::CallableBody)?;
+    let root_scope = binder.unit().root_scope();
+    let path_context = super::support::path_context(&binder, root_scope)?;
     let error_type = error_type(facts)?;
 
-    let block = request
+    let block = binder
         .bind_callable_body_block(
             root_scope,
             &body.block_expression(),
@@ -79,27 +79,27 @@ where
         )
         .map_err(map_binding_error)?;
 
-    let origin = BoundNodeOrigin::source(request.unit().key().source());
-    let callable = if request.block_is_recovered(block) {
+    let origin = BoundNodeOrigin::source(binder.unit().key().source());
+    let callable = if binder.block_is_recovered(block) {
         BoundCallableBody::error(origin, Some(block))
     } else {
         BoundCallableBody::block(origin, block)
     };
 
-    let root = request
+    let root = binder
         .unit_mut()
         .tree_mut()
         .push_callable_body(callable)
         .map_err(|_| BoundUnitBindingError::Construction)?;
 
-    let request = request
+    let output = binder
         .finish()
         .map_err(|_| BoundUnitBindingError::Construction)?;
 
-    let nested_units = direct_nested_units(request.unit().key(), request.dependencies());
+    let nested_units = direct_nested_units(output.unit().key(), output.dependencies());
 
     Ok(PendingBoundCallableBody {
-        request,
+        output,
         nested_units,
         root,
     })
@@ -117,43 +117,43 @@ where
     let syntax = anchored_descendant::<_, LambdaExpressionSyntax>(facts, key.source().syntax())
         .ok_or(BoundUnitBindingError::MissingSyntax)?;
 
-    let mut request = super::support::request(facts, unit, key, BindingContext::CallableBody)?;
-    let root_scope = request.unit().root_scope();
+    let mut binder = super::support::create_binder(facts, unit, key, BindingContext::CallableBody)?;
+    let root_scope = binder.unit().root_scope();
 
-    let boundary = request
+    let boundary = binder
         .bind_anonymous_callable_boundary(root_scope, &syntax)
         .map_err(map_binding_error)?;
 
-    let path_context = super::support::path_context(&request, boundary.scope())?;
+    let path_context = super::support::path_context(&binder, boundary.scope())?;
     let error_type = error_type(facts)?;
     let body = syntax.callable_body_block_expression().block_expression();
 
-    let block = request
+    let block = binder
         .bind_callable_body_block(boundary.scope(), &body, path_context, error_type)
         .map_err(map_binding_error)?;
 
-    let origin = BoundNodeOrigin::source(request.unit().key().source());
-    let callable_body = if request.block_is_recovered(block) {
+    let origin = BoundNodeOrigin::source(binder.unit().key().source());
+    let callable_body = if binder.block_is_recovered(block) {
         BoundCallableBody::error(origin, Some(block))
     } else {
         BoundCallableBody::block(origin, block)
     };
 
-    let root = request
+    let root = binder
         .unit_mut()
         .tree_mut()
         .push_callable_body(callable_body)
         .map_err(|_| BoundUnitBindingError::Construction)?;
 
     let callable = boundary.callable();
-    let request = request
+    let output = binder
         .finish()
         .map_err(|_| BoundUnitBindingError::Construction)?;
 
-    let nested_units = direct_nested_units(request.unit().key(), request.dependencies());
+    let nested_units = direct_nested_units(output.unit().key(), output.dependencies());
 
     Ok(PendingBoundAnonymousCallable {
-        request,
+        output,
         nested_units,
         callable,
         root,
@@ -176,8 +176,8 @@ mod tests {
         ));
 
         let facts = fixture.context();
-        let (request, _) = crate::binding::request_and_block(&facts);
-        let key = request.unit().key().clone();
+        let (binder, _) = crate::binding::binder_and_block(&facts);
+        let key = binder.unit().key().clone();
 
         let pending = match bind_callable_body(&facts, bray_bound_tree::BoundUnitId::new(40), key) {
             Ok(pending) => pending,

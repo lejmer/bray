@@ -8,13 +8,13 @@ use bray_syntax::SpawnExpressionSyntax;
 
 use super::ExpressionBinder;
 use crate::BinderFactContext;
+use crate::binder::Binder;
 use crate::binding::{BindingError, BindingResult};
-use crate::request::BinderRequestContext;
 
 impl ExpressionBinder {
     pub(super) fn bind_spawn<C>(
         &mut self,
-        request: &mut BinderRequestContext<'_, C>,
+        binder: &mut Binder<'_, C>,
         scope: LocalScopeId,
         syntax: &SpawnExpressionSyntax,
     ) -> BindingResult<BoundExpressionId>
@@ -30,8 +30,8 @@ impl ExpressionBinder {
                 return Err(BindingError::UnsupportedSyntax);
             };
 
-            let callee = self.bind_access(request, scope, &callee)?;
-            let arguments = self.bind_arguments(request, scope, &argument_list)?;
+            let callee = self.bind_access(binder, scope, &callee)?;
+            let arguments = self.bind_arguments(binder, scope, &argument_list)?;
 
             (
                 BoundSpawnMode::Thread,
@@ -45,7 +45,7 @@ impl ExpressionBinder {
                 return Err(BindingError::UnsupportedSyntax);
             };
 
-            let task = self.bind_expression(request, scope, Some(&task))?;
+            let task = self.bind_expression(binder, scope, Some(&task))?;
             let mode = if syntax.detached_keyword().is_some() {
                 BoundSpawnMode::DetachedTask
             } else {
@@ -55,34 +55,30 @@ impl ExpressionBinder {
             (mode, BoundSpawnInput::Task(task))
         };
 
-        let is_recovered = syntax.is_recovered() || spawn_input_is_recovered(request, &input);
+        let is_recovered = syntax.is_recovered() || spawn_input_is_recovered(binder, &input);
 
         let expression = BoundSpawnExpression::new(
-            request.source_origin(syntax),
+            binder.source_origin(syntax),
             mode,
             input,
             None,
             is_recovered,
         );
 
-        self.push(request, BoundExpression::Spawn(expression))
+        self.push(binder, BoundExpression::Spawn(expression))
     }
 }
 
-fn spawn_input_is_recovered<C>(
-    request: &BinderRequestContext<'_, C>,
-    input: &BoundSpawnInput,
-) -> bool
+fn spawn_input_is_recovered<C>(binder: &Binder<'_, C>, input: &BoundSpawnInput) -> bool
 where
     C: BinderFactContext + ?Sized,
 {
     match input {
-        BoundSpawnInput::Task(expression) => request.expression_is_recovered(*expression),
+        BoundSpawnInput::Task(expression) => binder.expression_is_recovered(*expression),
         BoundSpawnInput::Thread { callee, arguments } => {
-            request.expression_is_recovered(*callee)
+            binder.expression_is_recovered(*callee)
                 || arguments.iter().any(|argument| {
-                    argument.is_recovered()
-                        || request.expression_is_recovered(argument.expression())
+                    argument.is_recovered() || binder.expression_is_recovered(argument.expression())
                 })
         }
     }

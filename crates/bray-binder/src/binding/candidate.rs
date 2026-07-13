@@ -1,5 +1,5 @@
 use crate::BinderFactContext;
-use crate::request::{AbandonedDependencyRelevance, BinderRequestCheckpoint, BinderRequestContext};
+use crate::binder::{AbandonedDependencyRelevance, Binder, BinderCheckpoint};
 
 use super::{BindingError, BindingResult};
 
@@ -17,7 +17,7 @@ pub(crate) enum CandidateResult<Committed> {
     Abandoned,
 }
 
-impl<C> BinderRequestContext<'_, C>
+impl<C> Binder<'_, C>
 where
     C: BinderFactContext + ?Sized,
 {
@@ -78,7 +78,7 @@ where
 
     fn rollback_or_error(
         &mut self,
-        checkpoint: BinderRequestCheckpoint,
+        checkpoint: BinderCheckpoint,
         dependency_relevance: AbandonedDependencyRelevance,
     ) -> BindingResult<()> {
         if self.rollback(checkpoint, dependency_relevance) {
@@ -95,12 +95,12 @@ mod tests {
     use bray_symbols::{LocalSymbolRegionId, SymbolFactKind};
 
     use super::{CandidateAction, CandidateResult};
+    use crate::binder::{
+        AbandonedDependencyRelevance, Binder, BinderDependency, BindingContext, ControlTarget,
+        ControlTargetKind, ExpectedContext, ExpectedSemanticKind,
+    };
     use crate::binding::BindingError;
     use crate::fact::test_support::TestFixture;
-    use crate::request::{
-        AbandonedDependencyRelevance, BinderDependency, BinderRequestContext, BindingContext,
-        ControlTarget, ControlTargetKind, ExpectedContext, ExpectedSemanticKind,
-    };
     use crate::unit::test_support::{builder, fixture, push_binding};
 
     #[test]
@@ -111,9 +111,9 @@ mod tests {
         let unit_fixture = fixture();
         let unit = builder(&unit_fixture, LocalSymbolRegionId::new(24));
 
-        let mut request = BinderRequestContext::new(&facts, BindingContext::Expression, unit);
+        let mut binder = Binder::new(&facts, BindingContext::Expression, unit);
 
-        let root = request.unit().root_scope();
+        let root = binder.unit().root_scope();
 
         let dependency = BinderDependency::Symbol {
             symbol: fact_fixture.constant.into(),
@@ -122,11 +122,11 @@ mod tests {
 
         let irrelevant_dependency = BinderDependency::Target(fact_fixture.constant);
 
-        let abandoned = request.bind_candidate(|request| {
-            push_binding(request.unit_mut(), root, unit_fixture.first, false);
+        let abandoned = binder.bind_candidate(|binder| {
+            push_binding(binder.unit_mut(), root, unit_fixture.first, false);
 
-            request.add_diagnostic(diagnostic(1));
-            request.record_dependency(dependency.clone());
+            binder.add_diagnostic(diagnostic(1));
+            binder.record_dependency(dependency.clone());
 
             Ok::<_, BindingError>(CandidateAction::<()>::Abandon {
                 dependency_relevance: AbandonedDependencyRelevance::Relevant,
@@ -135,9 +135,9 @@ mod tests {
 
         assert!(matches!(abandoned, Ok(CandidateResult::Abandoned)));
 
-        let irrelevant = request.bind_candidate(|request| {
-            request.add_diagnostic(diagnostic(2));
-            request.record_dependency(irrelevant_dependency);
+        let irrelevant = binder.bind_candidate(|binder| {
+            binder.add_diagnostic(diagnostic(2));
+            binder.record_dependency(irrelevant_dependency);
 
             Ok::<_, BindingError>(CandidateAction::<()>::Abandon {
                 dependency_relevance: AbandonedDependencyRelevance::ProvenIrrelevant,
@@ -146,17 +146,17 @@ mod tests {
 
         assert!(matches!(irrelevant, Ok(CandidateResult::Abandoned)));
 
-        let committed = request.bind_candidate(|request| {
-            let binding = push_binding(request.unit_mut(), root, unit_fixture.first, false);
+        let committed = binder.bind_candidate(|binder| {
+            let binding = push_binding(binder.unit_mut(), root, unit_fixture.first, false);
 
             Ok::<_, BindingError>(CandidateAction::Commit(binding))
         });
 
         assert!(matches!(committed, Ok(CandidateResult::Committed(_))));
 
-        let result = match request.finish() {
+        let result = match binder.finish() {
             Ok(result) => result,
-            Err(error) => panic!("request must freeze: {error:?}"),
+            Err(error) => panic!("binder must freeze: {error:?}"),
         };
 
         assert!(result.diagnostics().is_empty());
@@ -165,30 +165,30 @@ mod tests {
     }
 
     #[test]
-    fn committed_candidates_publish_through_the_ordinary_request() {
+    fn committed_candidates_publish_through_the_ordinary_binder() {
         let fact_fixture = TestFixture::new();
         let facts = fact_fixture.context();
 
         let unit_fixture = fixture();
         let unit = builder(&unit_fixture, LocalSymbolRegionId::new(25));
 
-        let mut request = BinderRequestContext::new(&facts, BindingContext::Expression, unit);
+        let mut binder = Binder::new(&facts, BindingContext::Expression, unit);
 
-        let root = request.unit().root_scope();
+        let root = binder.unit().root_scope();
 
-        let committed = request.bind_candidate(|request| {
-            let binding = push_binding(request.unit_mut(), root, unit_fixture.first, false);
+        let committed = binder.bind_candidate(|binder| {
+            let binding = push_binding(binder.unit_mut(), root, unit_fixture.first, false);
 
-            request.add_diagnostic(diagnostic(2));
+            binder.add_diagnostic(diagnostic(2));
 
             Ok::<_, BindingError>(CandidateAction::Commit(binding))
         });
 
         assert!(matches!(committed, Ok(CandidateResult::Committed(_))));
 
-        let result = match request.finish() {
+        let result = match binder.finish() {
             Ok(result) => result,
-            Err(error) => panic!("request must freeze: {error:?}"),
+            Err(error) => panic!("binder must freeze: {error:?}"),
         };
 
         assert_eq!(result.diagnostics().len(), 1);
@@ -203,17 +203,17 @@ mod tests {
         let unit_fixture = fixture();
         let unit = builder(&unit_fixture, LocalSymbolRegionId::new(26));
 
-        let mut request = BinderRequestContext::new(&facts, BindingContext::Expression, unit);
+        let mut binder = Binder::new(&facts, BindingContext::Expression, unit);
 
         let expected = ExpectedContext::Semantic(ExpectedSemanticKind::Value);
         let target = ControlTarget::new(ControlTargetKind::Loop, unit_fixture.first, None);
 
-        request.push_expected(expected);
-        request.push_control_target(target);
+        binder.push_expected(expected);
+        binder.push_control_target(target);
 
-        let popped = request.bind_candidate(|request| {
-            request.pop_expected();
-            request.pop_control_target();
+        let popped = binder.bind_candidate(|binder| {
+            binder.pop_expected();
+            binder.pop_control_target();
 
             Ok::<_, BindingError>(CandidateAction::Commit(()))
         });
@@ -223,15 +223,15 @@ mod tests {
             Err(BindingError::CandidateContextMismatch)
         ));
 
-        assert_eq!(request.expected(), Some(expected));
-        assert_eq!(request.control_target(), Some(target));
+        assert_eq!(binder.expected(), Some(expected));
+        assert_eq!(binder.control_target(), Some(target));
 
-        let replaced = request.bind_candidate(|request| {
-            request.pop_expected();
-            request.push_expected(ExpectedContext::Type(fact_fixture.declared_type));
+        let replaced = binder.bind_candidate(|binder| {
+            binder.pop_expected();
+            binder.push_expected(ExpectedContext::Type(fact_fixture.declared_type));
 
-            request.pop_control_target();
-            request.push_control_target(ControlTarget::new(
+            binder.pop_control_target();
+            binder.push_control_target(ControlTarget::new(
                 ControlTargetKind::Block,
                 unit_fixture.first,
                 None,
@@ -245,8 +245,8 @@ mod tests {
             Err(BindingError::CandidateContextMismatch)
         ));
 
-        assert_eq!(request.expected(), Some(expected));
-        assert_eq!(request.control_target(), Some(target));
+        assert_eq!(binder.expected(), Some(expected));
+        assert_eq!(binder.control_target(), Some(target));
     }
 
     fn diagnostic(id: u32) -> Diagnostic {

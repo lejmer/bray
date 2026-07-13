@@ -13,7 +13,7 @@ use crate::unit::{
     BoundUnitLocalCheckpoint,
 };
 
-/// The semantic category whose rules govern one binding request.
+/// The semantic category whose rules govern one binding operation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum BindingContext {
     Expression,
@@ -26,7 +26,7 @@ pub(crate) enum BindingContext {
     TrustedBoundary,
 }
 
-/// The operation performed by one pattern-binding request.
+/// The operation performed by one pattern binder.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum PatternBindingMode {
     Declaration,
@@ -118,7 +118,7 @@ pub(crate) enum AbandonedDependencyRelevance {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct BinderRequestCheckpoint {
+pub(crate) struct BinderCheckpoint {
     unit: BoundUnitLocalCheckpoint,
     diagnostics: usize,
     expected_contexts: Box<[ExpectedContext]>,
@@ -126,9 +126,9 @@ pub(crate) struct BinderRequestCheckpoint {
     dependency_log: usize,
 }
 
-/// Mutable state owned exclusively by one binding request.
+/// Mutable state owned exclusively by one binding operation.
 #[derive(Debug)]
-pub(crate) struct BinderRequestContext<'facts, C: BinderFactContext + ?Sized> {
+pub(crate) struct Binder<'facts, C: BinderFactContext + ?Sized> {
     facts: &'facts C,
     binding_context: BindingContext,
     unit: BoundUnitLocalBuilder,
@@ -139,7 +139,7 @@ pub(crate) struct BinderRequestContext<'facts, C: BinderFactContext + ?Sized> {
     dependency_log: Vec<BinderDependency>,
 }
 
-impl<'facts, C: BinderFactContext + ?Sized> BinderRequestContext<'facts, C> {
+impl<'facts, C: BinderFactContext + ?Sized> Binder<'facts, C> {
     pub(crate) fn new(
         facts: &'facts C,
         binding_context: BindingContext,
@@ -239,8 +239,8 @@ impl<'facts, C: BinderFactContext + ?Sized> BinderRequestContext<'facts, C> {
         }
     }
 
-    pub(crate) fn checkpoint(&self) -> BinderRequestCheckpoint {
-        BinderRequestCheckpoint {
+    pub(crate) fn checkpoint(&self) -> BinderCheckpoint {
+        BinderCheckpoint {
             unit: self.unit.checkpoint(),
             diagnostics: self.diagnostics.len(),
             // Candidates may pop an enclosing context or replace one at the same depth. These
@@ -254,7 +254,7 @@ impl<'facts, C: BinderFactContext + ?Sized> BinderRequestContext<'facts, C> {
 
     pub(crate) fn rollback(
         &mut self,
-        checkpoint: BinderRequestCheckpoint,
+        checkpoint: BinderCheckpoint,
         dependency_relevance: AbandonedDependencyRelevance,
     ) -> bool {
         if checkpoint.diagnostics > self.diagnostics.len()
@@ -280,15 +280,12 @@ impl<'facts, C: BinderFactContext + ?Sized> BinderRequestContext<'facts, C> {
         true
     }
 
-    pub(crate) fn candidate_context_is_balanced(
-        &self,
-        checkpoint: &BinderRequestCheckpoint,
-    ) -> bool {
+    pub(crate) fn candidate_context_is_balanced(&self, checkpoint: &BinderCheckpoint) -> bool {
         *checkpoint.expected_contexts == self.expected_contexts
             && *checkpoint.control_targets == self.control_targets
     }
 
-    pub(crate) fn finish(self) -> Result<BinderRequestResult, BoundUnitConstructionError> {
+    pub(crate) fn finish(self) -> Result<BinderOutput, BoundUnitConstructionError> {
         let unit = self.unit.finish()?;
         let diagnostics = DiagnosticBag::from(self.diagnostics);
 
@@ -298,7 +295,7 @@ impl<'facts, C: BinderFactContext + ?Sized> BinderRequestContext<'facts, C> {
             .collect::<Vec<_>>()
             .into_boxed_slice();
 
-        Ok(BinderRequestResult {
+        Ok(BinderOutput {
             unit,
             diagnostics,
             dependencies,
@@ -308,13 +305,13 @@ impl<'facts, C: BinderFactContext + ?Sized> BinderRequestContext<'facts, C> {
 
 /// Frozen task-local output awaiting bound-unit assembly.
 #[derive(Debug)]
-pub(crate) struct BinderRequestResult {
+pub(crate) struct BinderOutput {
     unit: BoundUnitConstructionResult,
     diagnostics: DiagnosticBag,
     dependencies: Box<[BinderDependency]>,
 }
 
-impl BinderRequestResult {
+impl BinderOutput {
     pub(crate) const fn unit(&self) -> &BoundUnitConstructionResult {
         &self.unit
     }
@@ -344,22 +341,22 @@ mod tests {
     use bray_symbols::{AnyLocalSymbolId, LocalSymbolRegionId, SymbolFactKind};
 
     use super::{
-        AbandonedDependencyRelevance, BinderDependency, BinderRequestContext, BindingContext,
-        ControlTarget, ControlTargetKind, ExpectedContext, ExpectedSemanticKind,
+        AbandonedDependencyRelevance, Binder, BinderDependency, BindingContext, ControlTarget,
+        ControlTargetKind, ExpectedContext, ExpectedSemanticKind,
     };
     use crate::BinderFactContext;
     use crate::fact::test_support::{TestContext, TestFixture as FactFixture};
     use crate::unit::test_support::{builder, fixture, push_binding};
 
     #[test]
-    fn request_contexts_expose_typed_inputs_and_nested_expectations() {
+    fn binders_expose_typed_inputs_and_nested_expectations() {
         let fact_fixture = FactFixture::new();
         let facts = fact_fixture.context();
 
         let unit_fixture = fixture();
         let unit = builder(&unit_fixture, LocalSymbolRegionId::new(20));
 
-        let mut request = BinderRequestContext::new(&facts, BindingContext::CallableBody, unit);
+        let mut binder = Binder::new(&facts, BindingContext::CallableBody, unit);
 
         let target = ControlTarget::new(
             ControlTargetKind::Callable,
@@ -367,33 +364,33 @@ mod tests {
             Some(fact_fixture.declared_type),
         );
 
-        request.push_expected(ExpectedContext::Semantic(ExpectedSemanticKind::Value));
-        request.push_expected(ExpectedContext::Type(fact_fixture.declared_type));
-        request.push_control_target(target);
+        binder.push_expected(ExpectedContext::Semantic(ExpectedSemanticKind::Value));
+        binder.push_expected(ExpectedContext::Type(fact_fixture.declared_type));
+        binder.push_control_target(target);
 
-        assert_eq!(request.binding_context(), BindingContext::CallableBody);
+        assert_eq!(binder.binding_context(), BindingContext::CallableBody);
 
         assert_eq!(
-            request.facts().semantic_values().id(),
+            binder.facts().semantic_values().id(),
             fact_fixture.semantic_values.id()
         );
 
         assert_eq!(
-            request.expected(),
+            binder.expected(),
             Some(ExpectedContext::Type(fact_fixture.declared_type))
         );
 
-        assert_eq!(request.control_target(), Some(target));
+        assert_eq!(binder.control_target(), Some(target));
         assert_eq!(target.kind(), ControlTargetKind::Callable);
         assert_eq!(target.syntax(), unit_fixture.first);
         assert_eq!(target.expected_value(), Some(fact_fixture.declared_type));
 
         assert_eq!(
-            request.pop_expected(),
+            binder.pop_expected(),
             Some(ExpectedContext::Type(fact_fixture.declared_type))
         );
 
-        assert_eq!(request.pop_control_target(), Some(target));
+        assert_eq!(binder.pop_control_target(), Some(target));
     }
 
     #[test]
@@ -404,39 +401,39 @@ mod tests {
         let unit_fixture = fixture();
         let unit = builder(&unit_fixture, LocalSymbolRegionId::new(21));
 
-        let mut request = BinderRequestContext::new(&facts, BindingContext::Expression, unit);
+        let mut binder = Binder::new(&facts, BindingContext::Expression, unit);
 
-        let root = request.unit_mut().root_scope();
-        let checkpoint = request.checkpoint();
+        let root = binder.unit_mut().root_scope();
+        let checkpoint = binder.checkpoint();
 
-        let abandoned = push_binding(request.unit_mut(), root, unit_fixture.first, false);
+        let abandoned = push_binding(binder.unit_mut(), root, unit_fixture.first, false);
 
-        assert_eq!(request.unit_mut().activate_local(root, abandoned), Ok(()));
+        assert_eq!(binder.unit_mut().activate_local(root, abandoned), Ok(()));
 
-        request.push_expected(ExpectedContext::Type(fact_fixture.declared_type));
+        binder.push_expected(ExpectedContext::Type(fact_fixture.declared_type));
 
-        request.push_control_target(ControlTarget::new(
+        binder.push_control_target(ControlTarget::new(
             ControlTargetKind::Loop,
             unit_fixture.first,
             None,
         ));
 
-        request.add_diagnostic(diagnostic(0));
-        request.record_dependency(BinderDependency::Target(fact_fixture.constant));
+        binder.add_diagnostic(diagnostic(0));
+        binder.record_dependency(BinderDependency::Target(fact_fixture.constant));
 
-        assert!(request.rollback(checkpoint, AbandonedDependencyRelevance::ProvenIrrelevant));
+        assert!(binder.rollback(checkpoint, AbandonedDependencyRelevance::ProvenIrrelevant));
 
-        assert_eq!(request.expected(), None);
-        assert_eq!(request.control_target(), None);
+        assert_eq!(binder.expected(), None);
+        assert_eq!(binder.control_target(), None);
 
-        let reused = push_binding(request.unit_mut(), root, unit_fixture.first, false);
+        let reused = push_binding(binder.unit_mut(), root, unit_fixture.first, false);
 
         assert_eq!(reused, abandoned);
-        assert_eq!(request.unit_mut().activate_local(root, reused), Ok(()));
+        assert_eq!(binder.unit_mut().activate_local(root, reused), Ok(()));
 
-        let result = match request.finish() {
+        let result = match binder.finish() {
             Ok(result) => result,
-            Err(error) => panic!("request must freeze: {error:?}"),
+            Err(error) => panic!("binder must freeze: {error:?}"),
         };
 
         assert!(result.diagnostics().is_empty());
@@ -460,7 +457,7 @@ mod tests {
         let unit_fixture = fixture();
         let unit = builder(&unit_fixture, LocalSymbolRegionId::new(22));
 
-        let mut request = BinderRequestContext::new(&facts, BindingContext::Expression, unit);
+        let mut binder = Binder::new(&facts, BindingContext::Expression, unit);
 
         let symbol = fact_fixture.constant.into();
         let symbol_dependency = BinderDependency::Symbol {
@@ -474,20 +471,20 @@ mod tests {
             kind: SymbolFactKind::ConstantDefinition,
         };
 
-        request.record_dependency(target_dependency.clone());
-        request.record_dependency(symbol_dependency.clone());
-        request.record_dependency(target_dependency.clone());
+        binder.record_dependency(target_dependency.clone());
+        binder.record_dependency(symbol_dependency.clone());
+        binder.record_dependency(target_dependency.clone());
 
-        let checkpoint = request.checkpoint();
+        let checkpoint = binder.checkpoint();
 
-        request.add_diagnostic(diagnostic(1));
-        request.record_dependency(candidate_dependency.clone());
+        binder.add_diagnostic(diagnostic(1));
+        binder.record_dependency(candidate_dependency.clone());
 
-        assert!(request.rollback(checkpoint, AbandonedDependencyRelevance::Relevant));
+        assert!(binder.rollback(checkpoint, AbandonedDependencyRelevance::Relevant));
 
-        let result = match request.finish() {
+        let result = match binder.finish() {
             Ok(result) => result,
-            Err(error) => panic!("request must freeze: {error:?}"),
+            Err(error) => panic!("binder must freeze: {error:?}"),
         };
 
         assert_eq!(
@@ -499,14 +496,14 @@ mod tests {
     }
 
     #[test]
-    fn request_contexts_are_task_local_and_results_are_shareable() {
+    fn binders_are_task_local_and_outputs_are_shareable() {
         fn assert_send<T: Send>() {}
         fn assert_send_sync<T: Send + Sync>() {}
 
-        type TestRequest = BinderRequestContext<'static, TestContext<'static>>;
+        type TestBinder = Binder<'static, TestContext<'static>>;
 
-        assert_send::<TestRequest>();
-        assert_send_sync::<super::BinderRequestResult>();
+        assert_send::<TestBinder>();
+        assert_send_sync::<super::BinderOutput>();
     }
 
     fn diagnostic(id: u32) -> Diagnostic {

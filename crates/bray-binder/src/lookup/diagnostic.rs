@@ -6,7 +6,7 @@ use bray_symbols::MemberLookupResult;
 
 use super::binding::NameLookupResult;
 use super::category::ResolvedName;
-use crate::{BinderFactContext, request::BinderRequestContext};
+use crate::{BinderFactContext, binder::Binder};
 
 #[derive(Debug, Eq, PartialEq)]
 pub(super) struct NameReference {
@@ -36,7 +36,7 @@ impl NameReference {
 }
 
 pub(super) fn report_lookup_result<C, T>(
-    request: &mut BinderRequestContext<'_, C>,
+    binder: &mut Binder<'_, C>,
     reference: &NameReference,
     expected: DiagnosticNameKind,
     result: &NameLookupResult<T>,
@@ -65,7 +65,7 @@ pub(super) fn report_lookup_result<C, T>(
         diagnostic = diagnostic.with_arg(DiagnosticArg::expected_name_kind(expected));
     }
 
-    request.add_diagnostic(diagnostic);
+    binder.add_diagnostic(diagnostic);
 }
 
 pub(super) fn malformed_lookup<T>() -> NameLookupResult<T> {

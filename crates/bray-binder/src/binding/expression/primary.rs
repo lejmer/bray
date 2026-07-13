@@ -17,13 +17,13 @@ use super::support::{
     ReferenceResolution, classify_reference_result, structured_kind, visit_direct_nodes,
 };
 use crate::BinderFactContext;
+use crate::binder::Binder;
 use crate::lookup::NameAccess;
-use crate::request::BinderRequestContext;
 
 impl ExpressionBinder {
     pub(super) fn bind_primary<C>(
         &mut self,
-        request: &mut BinderRequestContext<'_, C>,
+        binder: &mut Binder<'_, C>,
         scope: LocalScopeId,
         syntax: &PrimaryExpressionSyntax,
     ) -> BindingResult<BoundExpressionId>
@@ -31,26 +31,26 @@ impl ExpressionBinder {
         C: BinderFactContext + ?Sized,
     {
         if let Some(access) = syntax.access_expression() {
-            let head = self.bind_access(request, scope, &access)?;
+            let head = self.bind_access(binder, scope, &access)?;
 
             return match syntax.struct_construction_body() {
-                Some(body) => self.bind_struct_construction(request, scope, &body, Some(head)),
+                Some(body) => self.bind_struct_construction(binder, scope, &body, Some(head)),
                 None => Ok(head),
             };
         }
 
         if let Some(body) = syntax.struct_construction_body() {
-            return self.bind_struct_construction(request, scope, &body, None);
+            return self.bind_struct_construction(binder, scope, &body, None);
         }
 
         if let Some(block) = syntax.block_expression() {
-            let block_id = request.bind_block(scope, &block, self)?;
+            let block_id = binder.bind_block(scope, &block, self)?;
             let recovered = block.is_recovered();
 
             return self.push(
-                request,
+                binder,
                 BoundExpression::Block(BoundBlockExpression::new(
-                    request.source_origin(&block),
+                    binder.source_origin(&block),
                     block_id,
                     None,
                     recovered,
@@ -61,20 +61,20 @@ impl ExpressionBinder {
         let mut result = None;
 
         visit_direct_nodes(syntax, |root| {
-            result = Some(self.bind_primary_node(request, scope, root, syntax));
+            result = Some(self.bind_primary_node(binder, scope, root, syntax));
 
             SyntaxWalkControl::Stop
         });
 
         match result {
             Some(result) => result,
-            None => self.push_error(request, Some(syntax)),
+            None => self.push_error(binder, Some(syntax)),
         }
     }
 
     fn bind_primary_node<C>(
         &mut self,
-        request: &mut BinderRequestContext<'_, C>,
+        binder: &mut Binder<'_, C>,
         scope: LocalScopeId,
         root: SyntaxNodeView<'_>,
         recovery_origin: &PrimaryExpressionSyntax,
@@ -89,16 +89,16 @@ impl ExpressionBinder {
                 | SyntaxKind::BreakExpression
                 | SyntaxKind::ContinueExpression
         ) {
-            return self.bind_control_transfer(request, scope, root);
+            return self.bind_control_transfer(binder, scope, root);
         }
 
         if root.kind() == SyntaxKind::GeneralGeneratorExpression {
             let Some(generator) = root.cast::<GeneralGeneratorExpressionSyntax>() else {
-                return self.push_error(request, Some(recovery_origin));
+                return self.push_error(binder, Some(recovery_origin));
             };
 
             return self.bind_generator_iteration(
-                request,
+                binder,
                 scope,
                 &generator.generator_iteration_expression(),
                 SyntaxAnchor::from_node(&generator),
@@ -107,39 +107,39 @@ impl ExpressionBinder {
 
         if root.kind() == SyntaxKind::SpawnExpression {
             let Some(spawn) = root.cast::<SpawnExpressionSyntax>() else {
-                return self.push_error(request, Some(recovery_origin));
+                return self.push_error(binder, Some(recovery_origin));
             };
 
-            return self.bind_spawn(request, scope, &spawn);
+            return self.bind_spawn(binder, scope, &spawn);
         }
 
         if root.kind() == SyntaxKind::ForExpression {
             let Some(expression) = root.cast::<ForExpressionSyntax>() else {
-                return self.push_error(request, Some(recovery_origin));
+                return self.push_error(binder, Some(recovery_origin));
             };
 
-            return self.bind_for_expression(request, scope, &expression);
+            return self.bind_for_expression(binder, scope, &expression);
         }
 
         if root.kind() == SyntaxKind::MatchExpression {
             let Some(expression) = root.cast::<MatchExpressionSyntax>() else {
-                return self.push_error(request, Some(recovery_origin));
+                return self.push_error(binder, Some(recovery_origin));
             };
 
-            return self.bind_match_expression(request, scope, &expression);
+            return self.bind_match_expression(binder, scope, &expression);
         }
 
         if root.kind() == SyntaxKind::LambdaExpression {
             let Some(lambda) = root.cast::<LambdaExpressionSyntax>() else {
-                return self.push_error(request, Some(recovery_origin));
+                return self.push_error(binder, Some(recovery_origin));
             };
 
-            let unit = request.bind_anonymous_callable_reference(&lambda)?;
+            let unit = binder.bind_anonymous_callable_reference(&lambda)?;
 
             return self.push(
-                request,
+                binder,
                 BoundExpression::AnonymousCallable(BoundAnonymousCallableExpression::new(
-                    request.source_origin(&lambda),
+                    binder.source_origin(&lambda),
                     unit,
                     None,
                     lambda.is_recovered(),
@@ -149,38 +149,38 @@ impl ExpressionBinder {
 
         if root.kind() == SyntaxKind::LeadingDotVariantExpression {
             let Some(variant) = root.cast::<LeadingDotVariantExpressionSyntax>() else {
-                return self.push_error(request, Some(recovery_origin));
+                return self.push_error(binder, Some(recovery_origin));
             };
 
-            return self.bind_leading_dot_variant(request, &variant);
+            return self.bind_leading_dot_variant(binder, &variant);
         }
 
         if root.kind() == SyntaxKind::GroupedExpression {
-            return self.bind_first_descendant_expression(request, scope, root, recovery_origin);
+            return self.bind_first_descendant_expression(binder, scope, root, recovery_origin);
         }
 
         let Some(kind) = structured_kind(root.kind()) else {
-            return self.push_error(request, Some(recovery_origin));
+            return self.push_error(binder, Some(recovery_origin));
         };
 
-        self.bind_structured(request, scope, root, kind)
+        self.bind_structured(binder, scope, root, kind)
     }
 
     pub(in crate::binding::expression) fn bind_access<C>(
         &mut self,
-        request: &mut BinderRequestContext<'_, C>,
+        binder: &mut Binder<'_, C>,
         scope: LocalScopeId,
         syntax: &AccessExpressionSyntax,
     ) -> BindingResult<BoundExpressionId>
     where
         C: BinderFactContext + ?Sized,
     {
-        self.bind_access_with_access(request, scope, syntax, self.path_context.access())
+        self.bind_access_with_access(binder, scope, syntax, self.path_context.access())
     }
 
     fn bind_access_with_access<C>(
         &mut self,
-        request: &mut BinderRequestContext<'_, C>,
+        binder: &mut Binder<'_, C>,
         scope: LocalScopeId,
         syntax: &AccessExpressionSyntax,
         access: NameAccess,
@@ -192,7 +192,7 @@ impl ExpressionBinder {
 
         let mut current = match root_token {
             Some(token) => {
-                let target = classify_reference_result(request.bind_reference_identifier(
+                let target = classify_reference_result(binder.bind_reference_identifier(
                     self.path_context_for(scope, access),
                     syntax.source(),
                     token,
@@ -200,19 +200,19 @@ impl ExpressionBinder {
 
                 match target {
                     ReferenceResolution::Resolved(target) => self.push(
-                        request,
+                        binder,
                         BoundExpression::Name(BoundNameExpression::new(
-                            request.source_origin(syntax),
+                            binder.source_origin(syntax),
                             target,
                             None,
                             syntax.is_recovered(),
                         )),
                     )?,
                     ReferenceResolution::Unresolved(kind, candidates) => self.push(
-                        request,
+                        binder,
                         BoundExpression::UnresolvedReference(
                             BoundUnresolvedReferenceExpression::new(
-                                request.source_origin(syntax),
+                                binder.source_origin(syntax),
                                 kind,
                                 candidates,
                                 self.error_type,
@@ -229,9 +229,9 @@ impl ExpressionBinder {
                         access
                     };
 
-                    self.bind_access_with_access(request, scope, &nested, nested_access)?
+                    self.bind_access_with_access(binder, scope, &nested, nested_access)?
                 }
-                None => self.push_error(request, Some(syntax))?,
+                None => self.push_error(binder, Some(syntax))?,
             },
         };
 
@@ -247,10 +247,10 @@ impl ExpressionBinder {
                         return SyntaxWalkControl::Stop;
                     };
 
-                    self.bind_member_access(request, &member, current)
+                    self.bind_member_access(binder, &member, current)
                 }
                 SyntaxKind::ElementIndexOperation => self.bind_structured_with_operand(
-                    request,
+                    binder,
                     scope,
                     operation,
                     BoundStructuredExpressionKind::ElementIndex,

@@ -11,8 +11,8 @@ use bray_syntax::{CasePatternSyntax, IrrefutablePatternSyntax, SourceSyntaxNode,
 use super::name::{name_is_available, name_text_is_available, report_name_already_defined};
 use super::{BindingError, BindingResult};
 use crate::BinderFactContext;
+use crate::binder::{Binder, PatternBindingMode};
 use crate::lookup::PathBindingContext;
-use crate::request::{BinderRequestContext, PatternBindingMode};
 
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) struct BoundPatternBinding {
@@ -174,7 +174,7 @@ macro_rules! define_pattern_binder {
     };
 }
 
-impl<C> BinderRequestContext<'_, C>
+impl<C> Binder<'_, C>
 where
     C: BinderFactContext + ?Sized,
 {
@@ -643,8 +643,8 @@ fn push_binding_occurrence(
 mod tests {
     use bray_syntax::CasePatternSyntax;
 
+    use crate::binder::PatternBindingMode;
     use crate::fact::test_support::TestFixture;
-    use crate::request::PatternBindingMode;
 
     #[test]
     fn case_patterns_retain_match_mode_and_alternative_shape() {
@@ -663,7 +663,7 @@ mod tests {
         ));
 
         let facts = fixture.context();
-        let (mut request, block) = crate::binding::test_support::request_and_block(&facts);
+        let (mut binder, block) = crate::binding::test_support::binder_and_block(&facts);
 
         let Some(pattern) =
             crate::binding::test_support::first_descendant::<CasePatternSyntax>(&block)
@@ -673,10 +673,10 @@ mod tests {
 
         assert_eq!(super::coherent_case_binding_occurrences(&pattern).len(), 2);
 
-        let root = request.unit().root_scope();
-        let context = crate::binding::test_support::internal_path_context(request.facts(), root);
+        let root = binder.unit().root_scope();
+        let context = crate::binding::test_support::internal_path_context(binder.facts(), root);
 
-        let bound = match request.bind_case_pattern(
+        let bound = match binder.bind_case_pattern(
             context,
             &pattern,
             fixture.declared_type,
@@ -686,7 +686,7 @@ mod tests {
             Err(error) => panic!("case pattern must bind: {error:?}"),
         };
 
-        let Some(pattern) = request.unit_view().pattern(bound.pattern()) else {
+        let Some(pattern) = binder.unit_view().pattern(bound.pattern()) else {
             panic!("bound case pattern must be committed");
         };
 
@@ -700,7 +700,7 @@ mod tests {
         assert_eq!(pattern.children().len(), 2);
         assert_eq!(bound.bindings().len(), 1);
 
-        let result = match request.finish() {
+        let result = match binder.finish() {
             Ok(result) => result,
             Err(error) => panic!("case pattern identities must freeze: {error:?}"),
         };
@@ -725,7 +725,7 @@ mod tests {
 
         let facts = fixture.context();
 
-        let (mut request, block) = crate::binding::test_support::request_and_block(&facts);
+        let (mut binder, block) = crate::binding::test_support::binder_and_block(&facts);
 
         let Some(declaration) = block
             .block_items()
@@ -734,13 +734,13 @@ mod tests {
             panic!("test block must contain a local declaration");
         };
 
-        let root = request.unit().root_scope();
+        let root = binder.unit().root_scope();
 
         let Some(name) = bray_symbols::SymbolName::try_new("value") else {
             panic!("assignment target name must be valid");
         };
 
-        let existing = match request.unit_mut().push_binding(
+        let existing = match binder.unit_mut().push_binding(
             root,
             name,
             [bray_declarations::SyntaxAnchor::from_node(&declaration)],
@@ -751,13 +751,13 @@ mod tests {
             Err(error) => panic!("assignment target must build: {error:?}"),
         };
 
-        if let Err(error) = request.unit_mut().activate_local(root, existing) {
+        if let Err(error) = binder.unit_mut().activate_local(root, existing) {
             panic!("assignment target must activate: {error:?}");
         }
 
-        let context = crate::binding::test_support::internal_path_context(request.facts(), root);
+        let context = crate::binding::test_support::internal_path_context(binder.facts(), root);
 
-        let bound = match request.bind_irrefutable_pattern(
+        let bound = match binder.bind_irrefutable_pattern(
             context,
             &declaration.irrefutable_pattern(),
             fixture.declared_type,
@@ -767,7 +767,7 @@ mod tests {
             Err(error) => panic!("assignment pattern must bind: {error:?}"),
         };
 
-        let Some(pattern) = request.unit_view().pattern(bound.pattern()) else {
+        let Some(pattern) = binder.unit_view().pattern(bound.pattern()) else {
             panic!("assignment pattern must be committed");
         };
 
@@ -783,7 +783,7 @@ mod tests {
 
         assert!(bound.bindings().is_empty());
 
-        let result = match request.finish() {
+        let result = match binder.finish() {
             Ok(result) => result,
             Err(error) => panic!("assignment pattern must freeze: {error:?}"),
         };
@@ -808,7 +808,7 @@ mod tests {
         ));
 
         let facts = fixture.context();
-        let (mut request, block) = crate::binding::test_support::request_and_block(&facts);
+        let (mut binder, block) = crate::binding::test_support::binder_and_block(&facts);
 
         let Some(pattern) =
             crate::binding::test_support::first_descendant::<CasePatternSyntax>(&block)
@@ -816,10 +816,10 @@ mod tests {
             panic!("test block must contain a case pattern");
         };
 
-        let root = request.unit().root_scope();
-        let context = crate::binding::test_support::internal_path_context(request.facts(), root);
+        let root = binder.unit().root_scope();
+        let context = crate::binding::test_support::internal_path_context(binder.facts(), root);
 
-        let bound = match request.bind_case_pattern(
+        let bound = match binder.bind_case_pattern(
             context,
             &pattern,
             fixture.declared_type,
@@ -831,7 +831,7 @@ mod tests {
 
         assert!(bound.bindings().is_empty());
 
-        let result = match request.finish() {
+        let result = match binder.finish() {
             Ok(result) => result,
             Err(error) => panic!("incoherent pattern recovery must freeze: {error:?}"),
         };
@@ -863,7 +863,7 @@ mod tests {
         ));
 
         let facts = fixture.context();
-        let (mut request, block) = crate::binding::test_support::request_and_block(&facts);
+        let (mut binder, block) = crate::binding::test_support::binder_and_block(&facts);
 
         let Some(pattern) =
             crate::binding::test_support::first_descendant::<CasePatternSyntax>(&block)
@@ -871,10 +871,10 @@ mod tests {
             panic!("test block must contain a case pattern");
         };
 
-        let root = request.unit().root_scope();
-        let context = crate::binding::test_support::internal_path_context(request.facts(), root);
+        let root = binder.unit().root_scope();
+        let context = crate::binding::test_support::internal_path_context(binder.facts(), root);
 
-        let bound = match request.bind_case_pattern(
+        let bound = match binder.bind_case_pattern(
             context,
             &pattern,
             fixture.declared_type,
@@ -884,7 +884,7 @@ mod tests {
             Err(error) => panic!("constant pattern must bind: {error:?}"),
         };
 
-        let Some(pattern) = request.unit_view().pattern(bound.pattern()) else {
+        let Some(pattern) = binder.unit_view().pattern(bound.pattern()) else {
             panic!("constant pattern must be committed");
         };
 

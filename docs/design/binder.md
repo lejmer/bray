@@ -622,7 +622,8 @@ owned by the checker fact that produced them.
 
 Public compilation queries do not accept a caller-supplied `BinderFactContext`. `Compilation` owns the package identity, syntax,
 declarations, symbol graph, semantic value store, target provider, symbol-fact provider, cancellation token, and exact cache universe.
-It constructs the injected binder context internally and rejects unit keys whose owners do not belong to that symbol graph.
+It constructs a private `Binder` with the injected fact context and rejects unit keys whose owners do not belong to that symbol
+graph.
 
 Body presence is cheap identity-level information and does not force body binding:
 
@@ -1087,7 +1088,7 @@ Bound scope references use `LocalScopeId`. Scopes are not symbols, storage ident
 
 ### Immutable Inputs
 
-A binder request receives typed immutable inputs, including those applicable to the unit:
+A `Binder` receives typed immutable inputs, including those applicable to the unit:
 
 - read-only binder fact context supplied by the compilation query layer,
 - typed syntax root and source snapshot,
@@ -1098,7 +1099,7 @@ A binder request receives typed immutable inputs, including those applicable to 
 - target profile,
 - callable, predicate, constant, trust, effect, and capability context.
 
-Inputs should be grouped into category-specific request types. The binder must not accept long lists of unrelated optional parameters
+Inputs should be grouped into category-specific input types. The binder must not accept long lists of unrelated optional parameters
 or boolean mode combinations.
 
 ### Mutable Construction State
@@ -1115,6 +1116,9 @@ One binding task can own mutable state such as:
 - speculative checkpoints and rollback trails.
 
 This state is task-local and never exposed through public APIs. It is consumed when the immutable bound unit is finalized.
+
+The private `Binder` owns this mutable state. `BinderCheckpoint` captures speculative rollback state, while `BinderOutput` is the
+frozen task-local handoff consumed by bound-unit assembly.
 
 The binder must not hold compilation cache locks while requesting another fact. Shared compilation state is accessed through the
 query API rather than mutable references embedded in binder state.
@@ -1655,7 +1659,7 @@ Implementation should proceed in dependency order:
 5. Define immutable per-unit bound storage and category-specific error nodes.
 6. Define the canonical `BoundUnit`, its closed root, and `DiagnosticResult<T>` publication integration.
 7. Implement local snapshot and lexical-scope builders against the contracts in `docs/design/symbols.md`.
-8. Define binder request contexts, task-local builders, and deterministic query-dependency recording.
+8. Define the task-local `Binder`, its builders, checkpoints, frozen output, and deterministic query-dependency recording.
 9. Implement typed name and path resolution over surface and local symbol APIs.
 10. Implement patterns, locals, blocks, and anonymous callable unit boundaries.
 11. Add expression, call, member, conversion, and control-flow bound nodes incrementally by grammar category.

@@ -14,8 +14,8 @@ use super::super::block::BlockBindingOperations;
 use super::super::{BindingError, BindingResult};
 use super::support::classify_operator;
 use crate::BinderFactContext;
+use crate::binder::{Binder, ControlTarget, ControlTargetKind};
 use crate::lookup::{NameAccess, PathBindingContext};
-use crate::request::{BinderRequestContext, ControlTarget, ControlTargetKind};
 
 pub(crate) struct ExpressionBinder {
     pub(in crate::binding::expression) path_context: PathBindingContext,
@@ -32,35 +32,35 @@ impl ExpressionBinder {
 
     pub(crate) fn bind_expression<C>(
         &mut self,
-        request: &mut BinderRequestContext<'_, C>,
+        binder: &mut Binder<'_, C>,
         scope: LocalScopeId,
         syntax: Option<&ExpressionSyntax>,
     ) -> BindingResult<BoundExpressionId>
     where
         C: BinderFactContext + ?Sized,
     {
-        request.check_cancellation()?;
+        binder.check_cancellation()?;
 
         let Some(syntax) = syntax else {
-            return self.push_missing_error(request);
+            return self.push_missing_error(binder);
         };
 
         let expression = if let Some(primary) = syntax.primary_expression() {
-            self.bind_primary(request, scope, &primary)?
+            self.bind_primary(binder, scope, &primary)?
         } else if let Some(operator) = syntax.operator_token() {
-            self.bind_operator(request, scope, syntax, operator.kind())?
+            self.bind_operator(binder, scope, syntax, operator.kind())?
         } else if let Some(base) = syntax.expressions().next() {
-            self.bind_expression(request, scope, Some(&base))?
+            self.bind_expression(binder, scope, Some(&base))?
         } else {
-            return self.push_error(request, Some(syntax));
+            return self.push_error(binder, Some(syntax));
         };
 
-        self.bind_postfixes(request, scope, syntax, expression)
+        self.bind_postfixes(binder, scope, syntax, expression)
     }
 
     fn bind_operator<C>(
         &mut self,
-        request: &mut BinderRequestContext<'_, C>,
+        binder: &mut Binder<'_, C>,
         scope: LocalScopeId,
         syntax: &ExpressionSyntax,
         operator_kind: SyntaxKind,
@@ -72,16 +72,16 @@ impl ExpressionBinder {
         let mut operands = Vec::new();
 
         for operand in syntax.expressions() {
-            operands.push(self.bind_expression(request, scope, Some(&operand))?);
+            operands.push(self.bind_expression(binder, scope, Some(&operand))?);
         }
 
-        let origin = request.source_origin(syntax);
+        let origin = binder.source_origin(syntax);
 
         let recovered = syntax.is_recovered()
             || operands.len() > 2
             || operands
                 .iter()
-                .any(|operand| request.expression_is_recovered(*operand));
+                .any(|operand| binder.expression_is_recovered(*operand));
 
         let expression = if operator == BoundOperator::Assign {
             BoundExpression::Assignment(BoundAssignmentExpression::new(
@@ -97,12 +97,12 @@ impl ExpressionBinder {
             ))
         };
 
-        self.push(request, expression)
+        self.push(binder, expression)
     }
 
     pub(super) fn bind_structured<C>(
         &mut self,
-        request: &mut BinderRequestContext<'_, C>,
+        binder: &mut Binder<'_, C>,
         scope: LocalScopeId,
         syntax: SyntaxNodeView<'_>,
         kind: BoundStructuredExpressionKind,
@@ -123,13 +123,13 @@ impl ExpressionBinder {
         });
 
         if let Some(target) = loop_target {
-            request.push_control_target(target);
+            binder.push_control_target(target);
         }
 
-        let children = self.bind_semantic_children(request, scope, syntax);
+        let children = self.bind_semantic_children(binder, scope, syntax);
 
         if let Some(target) = loop_target
-            && request.pop_control_target() != Some(target)
+            && binder.pop_control_target() != Some(target)
         {
             return Err(BindingError::ControlTargetMismatch);
         }
@@ -139,13 +139,11 @@ impl ExpressionBinder {
         let recovered = syntax.is_recovered()
             || operands
                 .iter()
-                .any(|operand| request.expression_is_recovered(*operand))
-            || blocks
-                .iter()
-                .any(|block| request.block_is_recovered(*block));
+                .any(|operand| binder.expression_is_recovered(*operand))
+            || blocks.iter().any(|block| binder.block_is_recovered(*block));
 
         let expression = BoundStructuredExpression::new(
-            request.source_origin(&syntax),
+            binder.source_origin(&syntax),
             kind,
             operands,
             blocks,
@@ -154,12 +152,12 @@ impl ExpressionBinder {
             recovered,
         );
 
-        self.push(request, BoundExpression::Structured(expression))
+        self.push(binder, BoundExpression::Structured(expression))
     }
 
     pub(in crate::binding::expression) fn bind_structured_with_operand<C>(
         &mut self,
-        request: &mut BinderRequestContext<'_, C>,
+        binder: &mut Binder<'_, C>,
         scope: LocalScopeId,
         syntax: SyntaxNodeView<'_>,
         kind: BoundStructuredExpressionKind,
@@ -168,21 +166,19 @@ impl ExpressionBinder {
     where
         C: BinderFactContext + ?Sized,
     {
-        let (children, blocks) = self.bind_semantic_children(request, scope, syntax)?;
+        let (children, blocks) = self.bind_semantic_children(binder, scope, syntax)?;
 
         let recovered = syntax.is_recovered()
-            || request.expression_is_recovered(operand)
+            || binder.expression_is_recovered(operand)
             || children
                 .iter()
-                .any(|child| request.expression_is_recovered(*child))
-            || blocks
-                .iter()
-                .any(|block| request.block_is_recovered(*block));
+                .any(|child| binder.expression_is_recovered(*child))
+            || blocks.iter().any(|block| binder.block_is_recovered(*block));
 
         let operands = std::iter::once(operand).chain(children);
 
         let expression = BoundStructuredExpression::new(
-            request.source_origin(&syntax),
+            binder.source_origin(&syntax),
             kind,
             operands,
             blocks,
@@ -191,12 +187,12 @@ impl ExpressionBinder {
             recovered,
         );
 
-        self.push(request, BoundExpression::Structured(expression))
+        self.push(binder, BoundExpression::Structured(expression))
     }
 
     fn bind_semantic_children<C>(
         &mut self,
-        request: &mut BinderRequestContext<'_, C>,
+        binder: &mut Binder<'_, C>,
         scope: LocalScopeId,
         syntax: SyntaxNodeView<'_>,
     ) -> BindingResult<(Vec<BoundExpressionId>, Vec<bray_bound_tree::BoundBlockId>)>
@@ -226,7 +222,7 @@ impl ExpressionBinder {
                     return SyntaxWalkControl::Stop;
                 };
 
-                match self.bind_expression(request, scope, Some(&expression)) {
+                match self.bind_expression(binder, scope, Some(&expression)) {
                     Ok(expression) => operands.push(expression),
                     Err(error) => {
                         failure = Some(error);
@@ -245,7 +241,7 @@ impl ExpressionBinder {
                     return SyntaxWalkControl::Stop;
                 };
 
-                match request.bind_block(scope, &block, self) {
+                match binder.bind_block(scope, &block, self) {
                     Ok(block) => blocks.push(block),
                     Err(error) => {
                         failure = Some(error);
@@ -268,7 +264,7 @@ impl ExpressionBinder {
 
     pub(super) fn bind_first_descendant_expression<C>(
         &mut self,
-        request: &mut BinderRequestContext<'_, C>,
+        binder: &mut Binder<'_, C>,
         scope: LocalScopeId,
         syntax: SyntaxNodeView<'_>,
         recovery_origin: &PrimaryExpressionSyntax,
@@ -300,14 +296,14 @@ impl ExpressionBinder {
                 return SyntaxWalkControl::Stop;
             };
 
-            result = Some(self.bind_expression(request, scope, Some(&expression)));
+            result = Some(self.bind_expression(binder, scope, Some(&expression)));
 
             SyntaxWalkControl::Stop
         });
 
         match result {
             Some(result) => result,
-            None => self.push_error(request, Some(recovery_origin)),
+            None => self.push_error(binder, Some(recovery_origin)),
         }
     }
 
@@ -326,13 +322,13 @@ impl ExpressionBinder {
 
     pub(in crate::binding::expression) fn push<C>(
         &self,
-        request: &mut BinderRequestContext<'_, C>,
+        binder: &mut Binder<'_, C>,
         expression: BoundExpression,
     ) -> BindingResult<BoundExpressionId>
     where
         C: BinderFactContext + ?Sized,
     {
-        request
+        binder
             .unit_mut()
             .tree_mut()
             .push_expression(expression)
@@ -342,34 +338,31 @@ impl ExpressionBinder {
 
     pub(super) fn push_error<C>(
         &self,
-        request: &mut BinderRequestContext<'_, C>,
+        binder: &mut Binder<'_, C>,
         syntax: Option<&impl SourceSyntaxNode>,
     ) -> BindingResult<BoundExpressionId>
     where
         C: BinderFactContext + ?Sized,
     {
         let origin = syntax.map_or_else(
-            || bray_bound_tree::BoundNodeOrigin::source(request.unit().key().source()),
-            |syntax| request.source_origin(syntax),
+            || bray_bound_tree::BoundNodeOrigin::source(binder.unit().key().source()),
+            |syntax| binder.source_origin(syntax),
         );
 
         self.push(
-            request,
+            binder,
             BoundExpression::Error(BoundErrorExpression::new(origin, self.error_type)),
         )
     }
 
-    fn push_missing_error<C>(
-        &self,
-        request: &mut BinderRequestContext<'_, C>,
-    ) -> BindingResult<BoundExpressionId>
+    fn push_missing_error<C>(&self, binder: &mut Binder<'_, C>) -> BindingResult<BoundExpressionId>
     where
         C: BinderFactContext + ?Sized,
     {
-        let origin = bray_bound_tree::BoundNodeOrigin::source(request.unit().key().source());
+        let origin = bray_bound_tree::BoundNodeOrigin::source(binder.unit().key().source());
 
         self.push(
-            request,
+            binder,
             BoundExpression::Error(BoundErrorExpression::new(origin, self.error_type)),
         )
     }
@@ -381,25 +374,25 @@ where
 {
     fn bind_expression(
         &mut self,
-        request: &mut BinderRequestContext<'_, C>,
+        binder: &mut Binder<'_, C>,
         scope: LocalScopeId,
         syntax: Option<&ExpressionSyntax>,
     ) -> BindingResult<BoundExpressionId> {
-        ExpressionBinder::bind_expression(self, request, scope, syntax)
+        ExpressionBinder::bind_expression(self, binder, scope, syntax)
     }
 
     fn bind_generator_expression(
         &mut self,
-        request: &mut BinderRequestContext<'_, C>,
+        binder: &mut Binder<'_, C>,
         scope: LocalScopeId,
         syntax: &bray_syntax::GeneratorIterationExpressionSyntax,
     ) -> BindingResult<BoundExpressionId> {
-        self.bind_generator_iteration(request, scope, syntax, SyntaxAnchor::from_node(syntax))
+        self.bind_generator_iteration(binder, scope, syntax, SyntaxAnchor::from_node(syntax))
     }
 
     fn bind_type_expression(
         &mut self,
-        _request: &mut BinderRequestContext<'_, C>,
+        _request: &mut Binder<'_, C>,
         _scope: LocalScopeId,
         _syntax: Option<&TypeExpressionSyntax>,
     ) -> BindingResult<Option<BoundTypeReference>> {
@@ -412,7 +405,7 @@ where
 
     fn path_context(
         &self,
-        _request: &BinderRequestContext<'_, C>,
+        _request: &Binder<'_, C>,
         scope: LocalScopeId,
     ) -> BindingResult<PathBindingContext> {
         Ok(self.path_context_for(scope, self.path_context.access()))
@@ -464,12 +457,12 @@ mod tests {
         ));
 
         let facts = fixture.context();
-        let (mut request, syntax) = crate::binding::test_support::request_and_block(&facts);
-        let root_scope = request.unit().root_scope();
+        let (mut binder, syntax) = crate::binding::test_support::binder_and_block(&facts);
+        let root_scope = binder.unit().root_scope();
 
         let path_context = crate::binding::test_support::internal_path_context(&facts, root_scope);
 
-        let block = match request.bind_callable_body_block(
+        let block = match binder.bind_callable_body_block(
             root_scope,
             &syntax,
             path_context,
@@ -479,7 +472,7 @@ mod tests {
             Err(error) => panic!("valid expression block must bind: {error:?}"),
         };
 
-        let result = match request.finish() {
+        let result = match binder.finish() {
             Ok(result) => result,
             Err(error) => panic!("bound expression block must freeze: {error:?}"),
         };
@@ -601,12 +594,12 @@ mod tests {
         ));
 
         let facts = fixture.context();
-        let (mut request, syntax) = crate::binding::test_support::request_and_block(&facts);
-        let root_scope = request.unit().root_scope();
+        let (mut binder, syntax) = crate::binding::test_support::binder_and_block(&facts);
+        let root_scope = binder.unit().root_scope();
 
         let path_context = crate::binding::test_support::internal_path_context(&facts, root_scope);
 
-        let block = match request.bind_callable_body_block(
+        let block = match binder.bind_callable_body_block(
             root_scope,
             &syntax,
             path_context,
@@ -616,7 +609,7 @@ mod tests {
             Err(error) => panic!("malformed expression block must recover: {error:?}"),
         };
 
-        let result = match request.finish() {
+        let result = match binder.finish() {
             Ok(result) => result,
             Err(error) => panic!("recovered expression block must freeze: {error:?}"),
         };
@@ -660,12 +653,12 @@ mod tests {
         ));
 
         let facts = fixture.context();
-        let (mut request, syntax) = crate::binding::test_support::request_and_block(&facts);
-        let root_scope = request.unit().root_scope();
+        let (mut binder, syntax) = crate::binding::test_support::binder_and_block(&facts);
+        let root_scope = binder.unit().root_scope();
 
         let path_context = crate::binding::test_support::internal_path_context(&facts, root_scope);
 
-        let block = match request.bind_callable_body_block(
+        let block = match binder.bind_callable_body_block(
             root_scope,
             &syntax,
             path_context,
@@ -675,7 +668,7 @@ mod tests {
             Err(error) => panic!("malformed expressions must recover: {error:?}"),
         };
 
-        let result = match request.finish() {
+        let result = match binder.finish() {
             Ok(result) => result,
             Err(error) => panic!("recovered expressions must freeze: {error:?}"),
         };
@@ -751,12 +744,12 @@ mod tests {
         ));
 
         let facts = fixture.context();
-        let (mut request, syntax) = crate::binding::test_support::request_and_block(&facts);
-        let root_scope = request.unit().root_scope();
+        let (mut binder, syntax) = crate::binding::test_support::binder_and_block(&facts);
+        let root_scope = binder.unit().root_scope();
 
         let path_context = crate::binding::test_support::internal_path_context(&facts, root_scope);
 
-        let block = match request.bind_callable_body_block(
+        let block = match binder.bind_callable_body_block(
             root_scope,
             &syntax,
             path_context,
@@ -766,7 +759,7 @@ mod tests {
             Err(error) => panic!("binding must succeed: {error:?}"),
         };
 
-        let result = match request.finish() {
+        let result = match binder.finish() {
             Ok(result) => result,
             Err(error) => panic!("binding result must publish: {error:?}"),
         };

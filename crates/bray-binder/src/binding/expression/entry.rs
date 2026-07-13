@@ -3,11 +3,11 @@ use bray_symbols::{LocalScopeId, TypeId};
 
 use super::ExpressionBinder;
 use crate::BinderFactContext;
+use crate::binder::{Binder, ControlTarget, ControlTargetKind};
 use crate::binding::BindingResult;
 use crate::lookup::PathBindingContext;
-use crate::request::{BinderRequestContext, ControlTarget, ControlTargetKind};
 
-impl<C> BinderRequestContext<'_, C>
+impl<C> Binder<'_, C>
 where
     C: BinderFactContext + ?Sized,
 {

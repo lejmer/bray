@@ -27,12 +27,12 @@ mod result;
 )]
 mod lookup;
 
-// TODO(binder): Narrow and remove this expectation as remaining request contexts become production-used.
+// TODO(binder): Narrow and remove this expectation as remaining binding contexts become production-used.
 #[expect(
     dead_code,
-    reason = "some request contexts are reserved for later semantic decisions"
+    reason = "some binding contexts are reserved for later semantic decisions"
 )]
-mod request;
+mod binder;
 
 // TODO(binder): Narrow and remove this expectation as remaining local builders become production-used.
 #[cfg_attr(
@@ -44,6 +44,7 @@ mod request;
 )]
 mod unit;
 
+pub use binder::BinderDependency;
 pub use bray_checker::CheckerOutcome as BindingOutcome;
 pub use entry::{
     BoundUnitBindingError, PendingBoundAnonymousCallable, PendingBoundCallableBody,
@@ -56,5 +57,4 @@ pub use fact::{
     BinderCancellation, BinderFactContext, BinderFactError, BinderFactResult,
     BindingSymbolFactProvider, SymbolFactProvider, TargetFactProvider, TargetFactResult,
 };
-pub use request::BinderDependency;
 pub use result::BoundUnitComputation;

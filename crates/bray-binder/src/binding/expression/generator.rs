@@ -5,13 +5,13 @@ use bray_syntax::GeneratorIterationExpressionSyntax;
 
 use super::ExpressionBinder;
 use crate::BinderFactContext;
+use crate::binder::{Binder, ControlTarget, ControlTargetKind, PatternBindingMode};
 use crate::binding::BindingResult;
-use crate::request::{BinderRequestContext, ControlTarget, ControlTargetKind, PatternBindingMode};
 
 impl ExpressionBinder {
     pub(super) fn bind_generator_iteration<C>(
         &mut self,
-        request: &mut BinderRequestContext<'_, C>,
+        binder: &mut Binder<'_, C>,
         scope: LocalScopeId,
         syntax: &GeneratorIterationExpressionSyntax,
         region: SyntaxAnchor,
@@ -19,36 +19,33 @@ impl ExpressionBinder {
     where
         C: BinderFactContext + ?Sized,
     {
-        let source = self.bind_expression(
-            request,
-            scope,
-            Some(&syntax.iteration_source().expression()),
-        )?;
+        let source =
+            self.bind_expression(binder, scope, Some(&syntax.iteration_source().expression()))?;
 
         let pattern_syntax = syntax.irrefutable_pattern();
-        let pattern_scope = request.unit_mut().push_scope(
+        let pattern_scope = binder.unit_mut().push_scope(
             scope,
             LocalScopeBoundary::PatternArm,
             SyntaxAnchor::from_node(&pattern_syntax),
             pattern_syntax.full_range().start(),
         )?;
 
-        let pattern = request.bind_irrefutable_pattern(
+        let pattern = binder.bind_irrefutable_pattern(
             self.path_context_for(pattern_scope, self.path_context.access()),
             &pattern_syntax,
             self.error_type,
             PatternBindingMode::Declaration,
         )?;
 
-        request.activate_pattern_bindings(pattern_scope, &pattern)?;
+        binder.activate_pattern_bindings(pattern_scope, &pattern)?;
 
         let target = ControlTarget::new(ControlTargetKind::Generator, region, None);
 
-        request.push_control_target(target);
+        binder.push_control_target(target);
 
-        let body = request.bind_block(pattern_scope, &syntax.block_expression(), self);
+        let body = binder.bind_block(pattern_scope, &syntax.block_expression(), self);
 
-        if request.pop_control_target() != Some(target) {
+        if binder.pop_control_target() != Some(target) {
             return Err(crate::binding::BindingError::ControlTargetMismatch);
         }
 
@@ -56,12 +53,12 @@ impl ExpressionBinder {
         let pattern = pattern.pattern();
         let is_recovered = syntax.is_recovered()
             || region.is_recovered()
-            || request.expression_is_recovered(source)
-            || request.pattern_is_recovered(pattern)
-            || request.block_is_recovered(body);
+            || binder.expression_is_recovered(source)
+            || binder.pattern_is_recovered(pattern)
+            || binder.block_is_recovered(body);
 
         let expression = BoundGeneratorExpression::new(
-            request.source_origin(syntax),
+            binder.source_origin(syntax),
             source,
             pattern,
             body,
@@ -70,6 +67,6 @@ impl ExpressionBinder {
             is_recovered,
         );
 
-        self.push(request, BoundExpression::Generator(expression))
+        self.push(binder, BoundExpression::Generator(expression))
     }
 }

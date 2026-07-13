@@ -4,18 +4,18 @@ use bray_symbols::{LocalSymbolRegionId, TypeData};
 
 use super::BoundUnitBindingError;
 use crate::BinderFactContext;
+use crate::binder::{Binder, BindingContext};
 use crate::binding::BindingError;
 use crate::lookup::{NameAccess, PathBindingContext};
 use crate::publication::BoundUnitAssemblyError;
-use crate::request::{BinderRequestContext, BindingContext};
 use crate::unit::{BoundUnitConstructionError, BoundUnitLocalBuilder};
 
-pub(super) fn request<'facts, C>(
+pub(super) fn create_binder<'facts, C>(
     facts: &'facts C,
     unit: BoundUnitId,
     key: BoundUnitKey,
     context: BindingContext,
-) -> Result<BinderRequestContext<'facts, C>, BoundUnitBindingError>
+) -> Result<Binder<'facts, C>, BoundUnitBindingError>
 where
     C: BinderFactContext + ?Sized,
 {
@@ -25,30 +25,30 @@ where
     let unit = BoundUnitLocalBuilder::new(unit, key, region, start)
         .map_err(|_| BoundUnitBindingError::Construction)?;
 
-    Ok(BinderRequestContext::new(facts, context, unit))
+    Ok(Binder::new(facts, context, unit))
 }
 
 pub(super) fn path_context<C>(
-    request: &BinderRequestContext<'_, C>,
+    binder: &Binder<'_, C>,
     scope: bray_symbols::LocalScopeId,
 ) -> Result<PathBindingContext, BoundUnitBindingError>
 where
     C: BinderFactContext + ?Sized,
 {
-    let declaration = request
+    let declaration = binder
         .unit()
         .key()
         .declared_owner()
         .source_declaration_id()
         .ok_or(BoundUnitBindingError::InvalidUnitKey)?;
 
-    let symbol = request
+    let symbol = binder
         .facts()
         .symbols()
         .symbol_for_declaration(declaration)
         .ok_or(BoundUnitBindingError::MissingOwner)?;
 
-    let module = request
+    let module = binder
         .facts()
         .symbols()
         .containing_module(symbol)

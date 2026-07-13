@@ -3,9 +3,9 @@ use bray_declarations::SyntaxAnchor;
 use bray_syntax::SourceSyntaxNode;
 
 use super::{BindingError, BindingResult};
-use crate::{BinderFactContext, request::BinderRequestContext};
+use crate::{BinderFactContext, binder::Binder};
 
-impl<C> BinderRequestContext<'_, C>
+impl<C> Binder<'_, C>
 where
     C: BinderFactContext + ?Sized,
 {

@@ -16,7 +16,7 @@ use super::category::{
     classify_callable_overload, classify_member, classify_trait, classify_type, classify_value,
 };
 use super::diagnostic::{NameReference, malformed_lookup, report_lookup_result};
-use crate::{BinderFactContext, request::BinderRequestContext};
+use crate::{BinderFactContext, binder::Binder};
 
 /// Visibility policy for one source name reference.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -71,7 +71,7 @@ struct PathLookup {
     reference: Option<NameReference>,
 }
 
-impl<C> BinderRequestContext<'_, C>
+impl<C> Binder<'_, C>
 where
     C: BinderFactContext + ?Sized,
 {
@@ -551,9 +551,9 @@ mod tests {
 
     use super::{NameAccess, PathBindingContext};
     use crate::BinderFactContext;
+    use crate::binder::{Binder, BindingContext};
     use crate::fact::test_support::TestFixture as FactFixture;
     use crate::lookup::category::{ResolvedName, ResolvedTypeName, ResolvedValueName};
-    use crate::request::{BinderRequestContext, BindingContext};
     use crate::unit::test_support::{builder, fixture, push_binding};
 
     #[test]
@@ -585,35 +585,35 @@ mod tests {
         let (module, owner) = source_module(&facts);
 
         let context = PathBindingContext::new(root, module, owner, NameAccess::Internal);
-        let mut request = BinderRequestContext::new(&facts, BindingContext::Expression, unit);
+        let mut binder = Binder::new(&facts, BindingContext::Expression, unit);
 
         assert!(matches!(
-            request.bind_module_path(context, &path("app")),
+            binder.bind_module_path(context, &path("app")),
             MemberLookupResult::Found(id) if id == module
         ));
 
         assert!(matches!(
-            request.bind_type_path(context, &path("Point")),
+            binder.bind_type_path(context, &path("Point")),
             MemberLookupResult::Found(ResolvedTypeName::Named(_))
         ));
 
         assert!(matches!(
-            request.bind_trait_path(context, &path("Display")),
+            binder.bind_trait_path(context, &path("Display")),
             MemberLookupResult::Found(_)
         ));
 
         assert!(matches!(
-            request.bind_value_path(context, &path("size")),
+            binder.bind_value_path(context, &path("size")),
             MemberLookupResult::Found(ResolvedValueName::Constant(_))
         ));
 
         assert!(matches!(
-            request.bind_callable_overload_path(context, &path("choose")),
+            binder.bind_callable_overload_path(context, &path("choose")),
             MemberLookupResult::Found(_)
         ));
 
         let MemberLookupResult::Found(ResolvedTypeName::Named(structure)) =
-            request.bind_type_path(context, &path("Point"))
+            binder.bind_type_path(context, &path("Point"))
         else {
             panic!("Point must bind as a named type");
         };
@@ -629,7 +629,7 @@ mod tests {
         };
 
         assert!(matches!(
-            request.bind_member(
+            binder.bind_member(
                 structure.into(),
                 member_path.source(),
                 member_token,
@@ -666,7 +666,7 @@ mod tests {
         };
 
         assert!(matches!(
-            request.bind_member_from_index(
+            binder.bind_member_from_index(
                 &associated,
                 member_path.source(),
                 associated_token,
@@ -676,7 +676,7 @@ mod tests {
                 if matches!(member.symbol(), AnySymbolId::StructField(_))
         ));
 
-        let result = finish(request);
+        let result = finish(binder);
 
         assert!(result.diagnostics().is_empty());
     }
@@ -696,14 +696,14 @@ mod tests {
         let (module, owner) = source_module(&facts);
 
         let context = PathBindingContext::new(root, module, owner, NameAccess::Internal);
-        let mut request = BinderRequestContext::new(&facts, BindingContext::Expression, unit);
+        let mut binder = Binder::new(&facts, BindingContext::Expression, unit);
 
         assert_eq!(
-            request.bind_value_path(context, &path("value")),
+            binder.bind_value_path(context, &path("value")),
             MemberLookupResult::Found(ResolvedValueName::Local(AnyLocalSymbolId::from(local)))
         );
 
-        assert!(finish(request).diagnostics().is_empty());
+        assert!(finish(binder).diagnostics().is_empty());
     }
 
     #[test]
@@ -717,14 +717,14 @@ mod tests {
         let (module, owner) = source_module(&facts);
 
         let context = PathBindingContext::new(root, module, owner, NameAccess::Internal);
-        let mut request = BinderRequestContext::new(&facts, BindingContext::TypeExpression, unit);
+        let mut binder = Binder::new(&facts, BindingContext::TypeExpression, unit);
 
         assert!(matches!(
-            request.bind_type_path(context, &path("bool")),
+            binder.bind_type_path(context, &path("bool")),
             MemberLookupResult::Found(ResolvedTypeName::Named(_))
         ));
 
-        assert!(finish(request).diagnostics().is_empty());
+        assert!(finish(binder).diagnostics().is_empty());
     }
 
     #[test]
@@ -738,19 +738,19 @@ mod tests {
         let (module, owner) = source_module(&facts);
 
         let context = PathBindingContext::new(root, module, owner, NameAccess::Internal);
-        let mut request = BinderRequestContext::new(&facts, BindingContext::Expression, unit);
+        let mut binder = Binder::new(&facts, BindingContext::Expression, unit);
 
         assert!(matches!(
-            request.bind_module_path(context, &path("core.memory")),
+            binder.bind_module_path(context, &path("core.memory")),
             MemberLookupResult::Found(_)
         ));
 
         assert!(matches!(
-            request.bind_value_path(context, &path("core.memory.copy")),
+            binder.bind_value_path(context, &path("core.memory.copy")),
             MemberLookupResult::Found(ResolvedValueName::Function(_))
         ));
 
-        assert!(finish(request).diagnostics().is_empty());
+        assert!(finish(binder).diagnostics().is_empty());
     }
 
     #[test]
@@ -784,15 +784,15 @@ mod tests {
         assert_eq!(unit.insert_surface_name(root, name, recovered), Ok(()));
 
         let context = PathBindingContext::new(root, module, owner, NameAccess::Internal);
-        let mut request = BinderRequestContext::new(&facts, BindingContext::Expression, unit);
+        let mut binder = Binder::new(&facts, BindingContext::Expression, unit);
 
         assert!(matches!(
-            request.bind_value_path(context, &path("broken")),
+            binder.bind_value_path(context, &path("broken")),
             MemberLookupResult::Malformed(candidates)
                 if candidates.as_ref() == [ResolvedName::Surface(recovered)]
         ));
 
-        let result = finish(request);
+        let result = finish(binder);
 
         assert_eq!(
             result
@@ -820,15 +820,15 @@ mod tests {
         let (module, owner) = source_module(&facts);
 
         let context = PathBindingContext::new(root, module, owner, NameAccess::Internal);
-        let mut request = BinderRequestContext::new(&facts, BindingContext::Expression, unit);
+        let mut binder = Binder::new(&facts, BindingContext::Expression, unit);
 
         assert!(matches!(
-            request.bind_value_path(context, &path("value")),
+            binder.bind_value_path(context, &path("value")),
             MemberLookupResult::Malformed(candidates)
                 if candidates.as_ref() == [ResolvedName::Local(local.into())]
         ));
 
-        let result = finish(request);
+        let result = finish(binder);
 
         assert_eq!(
             result
@@ -862,34 +862,34 @@ mod tests {
         let (module, owner) = source_module(&facts);
 
         let public = PathBindingContext::new(root, module, owner, NameAccess::Public);
-        let mut request = BinderRequestContext::new(&facts, BindingContext::Expression, unit);
+        let mut binder = Binder::new(&facts, BindingContext::Expression, unit);
 
         assert_eq!(
-            request.bind_type_path(public, &path("Missing")),
+            binder.bind_type_path(public, &path("Missing")),
             MemberLookupResult::NotFound
         );
 
         assert!(matches!(
-            request.bind_type_path(public, &path("size")),
+            binder.bind_type_path(public, &path("size")),
             MemberLookupResult::WrongKind(_)
         ));
 
         assert!(matches!(
-            request.bind_value_path(public, &path("secret")),
+            binder.bind_value_path(public, &path("secret")),
             MemberLookupResult::Inaccessible(_)
         ));
 
         assert!(matches!(
-            request.bind_value_path(public, &path("duplicate")),
+            binder.bind_value_path(public, &path("duplicate")),
             MemberLookupResult::Ambiguous(_)
         ));
 
         assert!(matches!(
-            request.bind_value_path(public, &path("broken")),
+            binder.bind_value_path(public, &path("broken")),
             MemberLookupResult::Malformed(_)
         ));
 
-        let result = finish(request);
+        let result = finish(binder);
 
         let kinds = result
             .diagnostics()
@@ -940,7 +940,7 @@ mod tests {
             NameAccess::Public,
         );
 
-        let mut internal_request = BinderRequestContext::new(
+        let mut internal_request = Binder::new(
             &internal_facts,
             BindingContext::TypeExpression,
             internal_unit,
@@ -968,7 +968,7 @@ mod tests {
             NameAccess::Internal,
         );
 
-        let mut recovered_request = BinderRequestContext::new(
+        let mut recovered_request = Binder::new(
             &recovered_facts,
             BindingContext::TypeExpression,
             recovered_unit,
@@ -998,15 +998,15 @@ mod tests {
         let (module, owner) = source_module(&facts);
 
         let context = PathBindingContext::new(root, module, owner, NameAccess::Internal);
-        let mut request = BinderRequestContext::new(&facts, BindingContext::Expression, unit);
+        let mut binder = Binder::new(&facts, BindingContext::Expression, unit);
 
         assert!(matches!(
-            request.bind_value_path(context, &path("app.Point")),
+            binder.bind_value_path(context, &path("app.Point")),
             MemberLookupResult::Ambiguous(_)
         ));
 
         assert_eq!(
-            finish(request).diagnostics().diagnostics()[0].kind(),
+            finish(binder).diagnostics().diagnostics()[0].kind(),
             DiagnosticKind::BindingAmbiguousName
         );
     }
@@ -1032,15 +1032,15 @@ mod tests {
         let (module, owner) = source_module(&facts);
 
         let context = PathBindingContext::new(root, module, owner, NameAccess::Internal);
-        let mut request = BinderRequestContext::new(&facts, BindingContext::Expression, unit);
+        let mut binder = Binder::new(&facts, BindingContext::Expression, unit);
 
         assert!(matches!(
-            request.bind_module_path(context, &path("foo.bar")),
+            binder.bind_module_path(context, &path("foo.bar")),
             MemberLookupResult::Ambiguous(_)
         ));
 
         assert!(matches!(
-            request.bind_value_path(context, &path("foo.bar")),
+            binder.bind_value_path(context, &path("foo.bar")),
             MemberLookupResult::Ambiguous(_)
         ));
     }
@@ -1062,14 +1062,14 @@ mod tests {
         let (module, owner) = source_module(&facts);
 
         let context = PathBindingContext::new(root, module, owner, NameAccess::Internal);
-        let mut request = BinderRequestContext::new(&facts, BindingContext::TypeExpression, unit);
+        let mut binder = Binder::new(&facts, BindingContext::TypeExpression, unit);
 
         assert_eq!(
-            request.bind_module_path(context, &path("foo.bar")),
+            binder.bind_module_path(context, &path("foo.bar")),
             MemberLookupResult::Found(module)
         );
 
-        assert!(finish(request).diagnostics().is_empty());
+        assert!(finish(binder).diagnostics().is_empty());
     }
 
     #[test]
@@ -1101,14 +1101,14 @@ mod tests {
         };
 
         let context = PathBindingContext::new(root, public_module.id(), owner, NameAccess::Public);
-        let mut request = BinderRequestContext::new(&facts, BindingContext::TypeExpression, unit);
+        let mut binder = Binder::new(&facts, BindingContext::TypeExpression, unit);
 
         assert_eq!(
-            request.bind_module_path(context, &path("foo.bar")),
+            binder.bind_module_path(context, &path("foo.bar")),
             MemberLookupResult::Found(public_module.id())
         );
 
-        assert!(finish(request).diagnostics().is_empty());
+        assert!(finish(binder).diagnostics().is_empty());
     }
 
     #[test]
@@ -1149,10 +1149,10 @@ mod tests {
             Err(error) => panic!("test member index must build: {error:?}"),
         };
 
-        let mut request = BinderRequestContext::new(&facts, BindingContext::Expression, unit);
+        let mut binder = Binder::new(&facts, BindingContext::Expression, unit);
 
         assert!(matches!(
-            request.bind_member_from_index(
+            binder.bind_member_from_index(
                 &index,
                 member_path.source(),
                 member_token,
@@ -1173,7 +1173,7 @@ mod tests {
         let (module, owner) = source_module(&facts);
 
         let context = PathBindingContext::new(root, module, owner, NameAccess::Internal);
-        let mut request = BinderRequestContext::new(&facts, BindingContext::TypeExpression, unit);
+        let mut binder = Binder::new(&facts, BindingContext::TypeExpression, unit);
 
         let sources = test_source_store([""]);
         let snapshot = test_source_at(&sources, 0).clone();
@@ -1185,11 +1185,11 @@ mod tests {
         ));
 
         assert!(matches!(
-            request.bind_type_path(context, &missing.build()),
+            binder.bind_type_path(context, &missing.build()),
             MemberLookupResult::Malformed(candidates) if candidates.is_empty()
         ));
 
-        assert!(finish(request).diagnostics().is_empty());
+        assert!(finish(binder).diagnostics().is_empty());
     }
 
     #[test]
@@ -1210,16 +1210,16 @@ mod tests {
         let (module, owner) = source_module(&facts);
 
         let context = PathBindingContext::new(root, module, owner, NameAccess::Internal);
-        let mut request = BinderRequestContext::new(&facts, BindingContext::TypeExpression, unit);
+        let mut binder = Binder::new(&facts, BindingContext::TypeExpression, unit);
 
         let malformed = path_with_missing_middle();
 
         assert!(matches!(
-            request.bind_type_path(context, &malformed),
+            binder.bind_type_path(context, &malformed),
             MemberLookupResult::Malformed(candidates) if candidates.is_empty()
         ));
 
-        assert!(finish(request).diagnostics().is_empty());
+        assert!(finish(binder).diagnostics().is_empty());
     }
 
     fn source_module<C: BinderFactContext + ?Sized>(
@@ -1306,12 +1306,10 @@ mod tests {
         TextRange::new(TextSize::new(start), TextSize::new(end))
     }
 
-    fn finish<C: BinderFactContext + ?Sized>(
-        request: BinderRequestContext<'_, C>,
-    ) -> crate::request::BinderRequestResult {
-        match request.finish() {
+    fn finish<C: BinderFactContext + ?Sized>(binder: Binder<'_, C>) -> crate::binder::BinderOutput {
+        match binder.finish() {
             Ok(result) => result,
-            Err(error) => panic!("test binding request must publish: {error:?}"),
+            Err(error) => panic!("test binding binder must publish: {error:?}"),
         }
     }
 }

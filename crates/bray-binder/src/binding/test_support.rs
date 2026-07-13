@@ -7,13 +7,11 @@ use bray_syntax::{
 };
 
 use crate::BinderFactContext;
+use crate::binder::{Binder, BindingContext};
 use crate::lookup::{NameAccess, PathBindingContext};
-use crate::request::{BinderRequestContext, BindingContext};
 use crate::unit::BoundUnitLocalBuilder;
 
-pub(crate) fn request_and_block<C>(
-    facts: &C,
-) -> (BinderRequestContext<'_, C>, BlockExpressionSyntax)
+pub(crate) fn binder_and_block<C>(facts: &C) -> (Binder<'_, C>, BlockExpressionSyntax)
 where
     C: BinderFactContext + ?Sized,
 {
@@ -31,15 +29,15 @@ where
     };
 
     (
-        request_for_first_function(facts, &function),
+        binder_for_first_function(facts, &function),
         body.block_expression(),
     )
 }
 
-pub(crate) fn request_for_first_function<'facts, C>(
+pub(crate) fn binder_for_first_function<'facts, C>(
     facts: &'facts C,
     function: &bray_syntax::FunctionDeclarationSyntax,
-) -> BinderRequestContext<'facts, C>
+) -> Binder<'facts, C>
 where
     C: BinderFactContext + ?Sized,
 {
@@ -72,7 +70,7 @@ where
         Err(error) => panic!("test bound unit must build: {error:?}"),
     };
 
-    BinderRequestContext::new(facts, BindingContext::CallableBody, unit)
+    Binder::new(facts, BindingContext::CallableBody, unit)
 }
 
 pub(crate) fn internal_path_context<C>(
