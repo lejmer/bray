@@ -1525,13 +1525,13 @@ unchanged tree merely to attach one changed side fact.
 ## Lowering Contract
 
 Lowering consumes canonical bound units only through a query that guarantees every semantic fact required by lowering is available.
-`bray-lowering::LoweringInput` is a borrowing view over that canonical `BoundUnit` and the exact independently published side facts
-required by the current lowering contract. Its constructor validates the compilation-local unit identity and semantic unit category
-of every supplied fact. It does not own, clone, enrich, or progressively wrap the bound tree.
+`bray-lowering::LoweringInput` must be a borrowing view over that canonical `BoundUnit` and the exact independently published side
+facts required by lowering. Its constructor must validate the compilation-local unit identity and semantic unit category of every
+supplied fact. It must not own, clone, enrich, or progressively wrap the bound tree.
 
-As more checker domains become required by lowering, their durable fact records become explicit `LoweringInput` fields and
-constructor arguments. Callers cannot satisfy the contract with a generic fact map, a completion flag, or a claim that an analysis
-ran previously. A missing required fact means the compilation query is incomplete.
+Every durable checker fact required by lowering must be represented by an explicit typed `LoweringInput` field and constructor
+argument. A generic fact map, a completion flag, or a claim that an analysis ran previously must not satisfy the contract. A missing
+required fact means the compilation query is incomplete.
 
 The bound representation must provide lowering with:
 
@@ -1544,27 +1544,27 @@ The bound representation must provide lowering with:
 - nested callable unit references,
 - source anchors required for downstream diagnostics.
 
-The first lowering stage transforms the completed source-shaped HIR and its required side facts into one immutable normalized
-lowered-bound unit owned by `bray-lowering`. This representation is execution-shaped rather than another family mirroring bound
-expressions, patterns, blocks, and callable bodies. It can introduce temporaries, explicit control-flow blocks, merge values,
+The first lowering stage must transform the completed source-shaped HIR and its required side facts into one immutable normalized
+lowered-bound unit owned by `bray-lowering`. This representation must be execution-shaped rather than another family mirroring bound
+expressions, patterns, blocks, and callable bodies. It may introduce temporaries, explicit control-flow blocks, merge values,
 cleanup paths, and other execution machinery that do not need source-level symbol identities.
 
-The normalized unit retains its canonical bound-unit key and only the source anchors required for diagnostics. It must not retain
+The normalized unit must retain its canonical bound-unit key and only the source anchors required for diagnostics. It must not retain
 bound node IDs as deferred semantic decisions for a later phase to reinterpret. Normalized control-flow, value, storage, and cleanup
 identities belong to the normalized unit itself.
 
-`LoweredUnitBuilder` starts from a validated `LoweringInput`, assigns compact block identities in deterministic construction order,
-and validates source-snapshot correlation while blocks are committed. Publication requires an exact committed entry block and
-freezes the result as an immutable `LoweredUnit`. The initial contract establishes unit, block, entry, and source identity without
-adding placeholder semantic operations before production lowering defines them.
+`LoweredUnitBuilder` must accept a validated `LoweringInput`, assign compact block identities in deterministic construction order,
+and validate source-snapshot correlation while blocks are committed. Publication must require an exact committed entry block and
+freeze the result as an immutable `LoweredUnit`. The normalized representation must define unit, block, entry, and source identity.
+Semantic operation types must be introduced only with their complete lowering contracts. Placeholder operations are forbidden.
 
-The second stage translates that normalized bound representation into the lower-level backend-independent `bray-ir` representation.
-The split lets source-oriented semantic lowering finish before lower-level IR construction without pretending the checked bound tree
-was not already an intermediate representation.
+The second stage must translate that normalized bound representation into the lower-level backend-independent `bray-ir`
+representation. The split lets source-oriented semantic lowering finish before lower-level IR construction without pretending the
+checked bound tree was not already an intermediate representation.
 
 `bray-lowering` owns both transformations and the normalized representation. `bray-bound-tree` does not own a second lowered node
-family, and `bray-ir` does not depend on lowering internals. Compilation can cache the normalized unit and lower-level IR as separate
-lazy facts keyed by the canonical bound-unit key.
+family, and `bray-ir` does not depend on lowering internals. Compilation should cache the normalized unit and lower-level IR as
+separate lazy facts keyed by the canonical bound-unit key.
 
 Lowering must not perform name lookup, overload resolution, implementation selection, type inference, borrow checking, or contract
 proof. If lowering cannot proceed without one of those decisions, the lowering input query is incomplete and must require the missing

@@ -108,9 +108,9 @@ The main durable representations are:
 The checked program state is the source-shaped bound HIR after the binder has completed semantic analysis and all required semantic
 facts have been populated.
 
-Lowering receives that state through a validated borrowing view over one canonical bound unit and its required typed side facts. The
-normalized lowered-bound representation is an execution-shaped artifact owned by `bray-lowering`, not another checked bound-tree
-wrapper or a second family of source-shaped nodes.
+Lowering must receive that state through a validated borrowing view over one canonical bound unit and its required typed side facts.
+The normalized lowered-bound representation must be an execution-shaped artifact owned by `bray-lowering`, not another checked
+bound-tree wrapper or a second family of source-shaped nodes.
 
 ---
 
@@ -635,9 +635,9 @@ Symbols belong to symbol construction and semantic reference layers.
 
 Local symbol snapshots belong to their checked semantic regions and are published with the corresponding bound representation.
 
-Source-shaped bound nodes belong to `bray-bound-tree`.
+Source-shaped bound nodes must belong to `bray-bound-tree`.
 
-Normalized lowered-bound blocks and operations belong to `bray-lowering`.
+Normalized lowered-bound blocks and operations must belong to `bray-lowering`.
 
 Resolved references on bound nodes belong to binding.
 
@@ -708,8 +708,8 @@ Walker traversal order must be deterministic.
 Walker APIs should make descent behavior explicit. A walker can visit all children by default, skip a subtree deliberately, or stop
 early with an explicit result.
 
-Walkers belong with the representation they walk. Syntax walkers belong in the syntax layer, source-shaped bound walkers belong in
-`bray-bound-tree`, normalized lowered-bound walkers belong in `bray-lowering`, and lower-level IR walkers belong in `bray-ir`.
+Walkers must belong with the representation they walk. Syntax walkers belong in the syntax layer, source-shaped bound walkers belong
+in `bray-bound-tree`, normalized lowered-bound walkers belong in `bray-lowering`, and lower-level IR walkers belong in `bray-ir`.
 
 Whole-tree walkers can exist as serial convenience APIs. Parallel phases should schedule independent traversal roots, use the
 representation-owned per-root walker inside each task, keep walker state task-local, and merge phase outputs through deterministic
