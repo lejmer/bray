@@ -785,7 +785,7 @@ check verifies freshness only and must not duplicate catalog parsing or generati
 - construct the compiler-known symbol environment,
 - audit stable scope and declaration keys against their materialized symbol identities,
 - audit immediate semantic ownership for every catalog declaration,
-- validate exhaustive typed implementation-hook and representation-role coverage,
+- validate exhaustive consistency between descriptor role metadata and typed implementation-hook and representation-role indexes,
 - validate portable, complete, and individual-capability target views without mutating the process-wide catalog,
 - build one declaration-surface completion plan that reaches every ambient, module-owned, and nested compiler-known declaration,
 - force every planned catalog-owned semantic fact through the ordinary symbol-completion API,

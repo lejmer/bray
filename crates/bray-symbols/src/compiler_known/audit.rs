@@ -92,8 +92,12 @@ pub enum CompilerKnownCatalogAuditError {
     InvalidOwner(CompilerKnownDeclarationId),
     /// One generated representation role does not resolve to its catalog target.
     InvalidRepresentationRole(RepresentationRole),
+    /// Representation-role registry cardinality does not match descriptor metadata.
+    InvalidRepresentationRegistry,
     /// One generated implementation hook does not resolve to its catalog declarations.
     InvalidImplementationRole(ImplementationHook),
+    /// Implementation-role registry cardinality does not match descriptor metadata.
+    InvalidImplementationRegistry,
     /// One target view has the wrong declaration availability.
     InvalidTargetDeclaration {
         /// The audited target profile.
@@ -135,7 +139,68 @@ pub enum CompilerKnownCatalogAuditError {
 
 impl std::fmt::Display for CompilerKnownCatalogAuditError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(formatter, "{self:?}")
+        match self {
+            Self::StableScopeCount => {
+                formatter.write_str("compiler-known scope index has the wrong cardinality")
+            }
+            Self::StableDeclarationCount => {
+                formatter.write_str("compiler-known declaration index has the wrong cardinality")
+            }
+            Self::InvalidScope(scope) => {
+                write!(formatter, "compiler-known scope {scope:?} is inconsistent")
+            }
+            Self::InvalidDeclaration(declaration) => write!(
+                formatter,
+                "compiler-known declaration {declaration:?} is inconsistent"
+            ),
+            Self::InvalidOwner(declaration) => write!(
+                formatter,
+                "compiler-known declaration {declaration:?} has the wrong semantic owner"
+            ),
+            Self::InvalidRepresentationRole(role) => write!(
+                formatter,
+                "compiler-known representation role {role:?} is inconsistent"
+            ),
+            Self::InvalidRepresentationRegistry => {
+                formatter.write_str("compiler-known representation-role registry is incomplete")
+            }
+            Self::InvalidImplementationRole(hook) => write!(
+                formatter,
+                "compiler-known implementation hook {hook:?} is inconsistent"
+            ),
+            Self::InvalidImplementationRegistry => {
+                formatter.write_str("compiler-known implementation-role registry is incomplete")
+            }
+            Self::InvalidTargetDeclaration {
+                profile,
+                declaration,
+            } => write!(
+                formatter,
+                "target profile {profile:?} exposes the wrong state for declaration {declaration:?}"
+            ),
+            Self::InvalidTargetValue { profile, value } => write!(
+                formatter,
+                "target profile {profile:?} exposes the wrong state for value {value:?}"
+            ),
+            Self::InvalidTargetRepresentationRole { profile, role } => write!(
+                formatter,
+                "target profile {profile:?} exposes the wrong representation target for {role:?}"
+            ),
+            Self::InvalidTargetImplementationRole { profile, hook } => write!(
+                formatter,
+                "target profile {profile:?} exposes the wrong implementation set for {hook:?}"
+            ),
+            Self::IncompleteCompletion => {
+                formatter.write_str("compiler-known completion does not reach every declaration")
+            }
+            Self::InvalidCompletionPlan => {
+                formatter.write_str("compiler-known completion plan is invalid")
+            }
+            Self::InvalidCompletionFact { symbol } => write!(
+                formatter,
+                "compiler-known completion fact for {symbol:?} is invalid"
+            ),
+        }
     }
 }
 

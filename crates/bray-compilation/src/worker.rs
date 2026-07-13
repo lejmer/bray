@@ -59,6 +59,16 @@ pub enum WorkerBudgetError {
     Zero,
 }
 
+impl std::fmt::Display for WorkerBudgetError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Zero => formatter.write_str("worker budget must be positive"),
+        }
+    }
+}
+
+impl std::error::Error for WorkerBudgetError {}
+
 impl WorkerBudgetError {
     /// Converts this user-facing worker-budget error into a diagnostic.
     pub fn into_diagnostic(self, id: DiagnosticId) -> Diagnostic {

@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use bray_compiler_known::{
     AvailabilityRule, CatalogScopeLocation, CompilerKnownDeclarationId,
@@ -243,48 +243,118 @@ fn expected_owner(
 fn audit_roles(graph: &SymbolGraph) -> Result<(), CompilerKnownCatalogAuditError> {
     let provider = graph.compiler_known_provider();
     let catalog = provider.catalog();
+    let expected = expected_roles(graph)?;
 
-    for binding in catalog.role_registry().representations() {
-        let expected = match binding.target() {
-            CompilerKnownRepresentationTarget::Declaration(declaration) => {
-                RepresentationTarget::Symbol(declaration_symbol(graph, declaration)?)
-            }
-            CompilerKnownRepresentationTarget::Value(value) => RepresentationTarget::Value(value),
+    if catalog.role_registry().representations().len() != expected.representations.len() {
+        return Err(CompilerKnownCatalogAuditError::InvalidRepresentationRegistry);
+    }
+
+    for (role, expected_target) in &expected.representations {
+        let Some(catalog_target) = catalog.role_registry().representation_target(*role) else {
+            return Err(CompilerKnownCatalogAuditError::InvalidRepresentationRole(
+                *role,
+            ));
         };
 
-        if provider
-            .role_registry()
-            .representation_target(binding.role())
-            != Some(expected)
+        let catalog_target = representation_target(graph, catalog_target)?;
+
+        if catalog_target != *expected_target
+            || provider.role_registry().representation_target(*role) != Some(*expected_target)
         {
             return Err(CompilerKnownCatalogAuditError::InvalidRepresentationRole(
-                binding.role(),
+                *role,
             ));
         }
     }
 
-    let hooks = catalog
-        .role_registry()
-        .implementations()
-        .iter()
-        .map(|binding| binding.hook())
-        .collect::<BTreeSet<_>>();
+    let expected_implementation_count = expected
+        .implementations
+        .values()
+        .map(Vec::len)
+        .sum::<usize>();
 
-    for hook in hooks {
-        let expected = catalog
+    if catalog.role_registry().implementations().len() != expected_implementation_count {
+        return Err(CompilerKnownCatalogAuditError::InvalidImplementationRegistry);
+    }
+
+    for (hook, expected_symbols) in &expected.implementations {
+        let catalog_symbols = catalog
             .role_registry()
-            .implementation_declarations(hook)
+            .implementation_declarations(*hook)
             .map(|declaration| declaration_symbol(graph, declaration))
             .collect::<Result<Vec<_>, _>>()?;
 
-        if provider.role_registry().implementation_symbol_ids(hook) != expected {
+        if catalog_symbols != *expected_symbols
+            || provider.role_registry().implementation_symbol_ids(*hook) != expected_symbols
+        {
             return Err(CompilerKnownCatalogAuditError::InvalidImplementationRole(
-                hook,
+                *hook,
             ));
         }
     }
 
     Ok(())
+}
+
+struct ExpectedCompilerKnownRoles {
+    representations: BTreeMap<bray_compiler_known::RepresentationRole, RepresentationTarget>,
+    implementations: BTreeMap<bray_compiler_known::ImplementationHook, Vec<AnySymbolId>>,
+}
+
+fn expected_roles(
+    graph: &SymbolGraph,
+) -> Result<ExpectedCompilerKnownRoles, CompilerKnownCatalogAuditError> {
+    let catalog = graph.compiler_known_provider().catalog();
+    let mut representations = BTreeMap::new();
+    let mut implementations = BTreeMap::<_, Vec<_>>::new();
+
+    for descriptor in catalog.compiler_known_declarations() {
+        let symbol = declaration_symbol(graph, descriptor.id())?;
+
+        if let Some(role) = descriptor.representation_role()
+            && representations
+                .insert(role, RepresentationTarget::Symbol(symbol))
+                .is_some()
+        {
+            return Err(CompilerKnownCatalogAuditError::InvalidRepresentationRole(
+                role,
+            ));
+        }
+
+        if let Some(hook) = descriptor.implementation_hook() {
+            implementations.entry(hook).or_default().push(symbol);
+        }
+    }
+
+    for value in catalog.compiler_known_values() {
+        let role = value.representation_role();
+
+        if representations
+            .insert(role, RepresentationTarget::Value(value.id()))
+            .is_some()
+        {
+            return Err(CompilerKnownCatalogAuditError::InvalidRepresentationRole(
+                role,
+            ));
+        }
+    }
+
+    Ok(ExpectedCompilerKnownRoles {
+        representations,
+        implementations,
+    })
+}
+
+fn representation_target(
+    graph: &SymbolGraph,
+    target: CompilerKnownRepresentationTarget,
+) -> Result<RepresentationTarget, CompilerKnownCatalogAuditError> {
+    match target {
+        CompilerKnownRepresentationTarget::Declaration(declaration) => {
+            declaration_symbol(graph, declaration).map(RepresentationTarget::Symbol)
+        }
+        CompilerKnownRepresentationTarget::Value(value) => Ok(RepresentationTarget::Value(value)),
+    }
 }
 
 fn audit_target_view(
@@ -295,6 +365,7 @@ fn audit_target_view(
     let provider = graph.compiler_known_provider();
     let catalog = provider.catalog();
     let view = graph.available_compiler_known_symbols(&mut rule_is_available);
+    let expected_roles = expected_roles(graph)?;
 
     for descriptor in catalog.compiler_known_declarations() {
         let symbol = declaration_symbol(graph, descriptor.id())?;
@@ -324,42 +395,26 @@ fn audit_target_view(
         }
     }
 
-    for binding in catalog.role_registry().representations() {
-        let expected = match binding.target() {
-            CompilerKnownRepresentationTarget::Declaration(declaration) => {
-                let symbol = declaration_symbol(graph, declaration)?;
-
-                view.contains(symbol)
-                    .then_some(RepresentationTarget::Symbol(symbol))
-            }
-            CompilerKnownRepresentationTarget::Value(value) => view
+    for (role, target) in expected_roles.representations {
+        let expected = match target {
+            RepresentationTarget::Symbol(symbol) => view
+                .contains(symbol)
+                .then_some(RepresentationTarget::Symbol(symbol)),
+            RepresentationTarget::Value(value) => view
                 .contains_value(value)
                 .then_some(RepresentationTarget::Value(value)),
         };
 
-        if view.representation_target(binding.role()) != expected {
+        if view.representation_target(role) != expected {
             return Err(
-                CompilerKnownCatalogAuditError::InvalidTargetRepresentationRole {
-                    profile,
-                    role: binding.role(),
-                },
+                CompilerKnownCatalogAuditError::InvalidTargetRepresentationRole { profile, role },
             );
         }
     }
 
-    let hooks = catalog
-        .role_registry()
-        .implementations()
-        .iter()
-        .map(|binding| binding.hook())
-        .collect::<BTreeSet<_>>();
-
-    for hook in hooks {
-        let expected = provider
-            .role_registry()
-            .implementation_symbol_ids(hook)
-            .iter()
-            .copied()
+    for (hook, symbols) in expected_roles.implementations {
+        let expected = symbols
+            .into_iter()
             .filter(|symbol| view.contains(*symbol))
             .collect::<Vec<_>>();
 

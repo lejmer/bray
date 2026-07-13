@@ -30,6 +30,36 @@ pub enum SymbolCompletionError<E> {
     WorkerFailure,
 }
 
+impl<E: std::fmt::Display> std::fmt::Display for SymbolCompletionError<E> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Cancelled => formatter.write_str("symbol completion was cancelled"),
+            Self::UnknownSymbol(symbol) => {
+                write!(formatter, "symbol completion root {symbol:?} is unknown")
+            }
+            Self::Fact { request, error } => write!(
+                formatter,
+                "symbol fact {:?} for {:?} failed: {error}",
+                request.kind(),
+                request.symbol()
+            ),
+            Self::WorkerFailure => formatter.write_str("a symbol completion worker failed"),
+        }
+    }
+}
+
+impl<E> std::error::Error for SymbolCompletionError<E>
+where
+    E: std::error::Error + 'static,
+{
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Fact { error, .. } => Some(error),
+            Self::Cancelled | Self::UnknownSymbol(_) | Self::WorkerFailure => None,
+        }
+    }
+}
+
 /// Forces one symbol-owned subtree and deterministically aggregates fact diagnostics.
 ///
 /// The symbol graph owns recursive traversal and fact applicability. Compilation owns bounded

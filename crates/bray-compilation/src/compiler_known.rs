@@ -28,6 +28,37 @@ impl CompilerKnownCatalogCheckReport {
 /// Validates generated compiler-known identities, roles, target views, and semantic completion.
 pub fn check_compiler_known_catalog()
 -> Result<CompilerKnownCatalogCheckReport, CompilerKnownCatalogCheckError> {
+    let serial_workers = WorkerBudget::serial();
+    let parallel_workers =
+        WorkerBudget::new(4).map_err(CompilerKnownCatalogCheckError::WorkerBudget)?;
+
+    let serial = check_compiler_known_catalog_with(serial_workers)?;
+    let parallel = check_compiler_known_catalog_with(parallel_workers)?;
+
+    if serial != parallel {
+        return Err(CompilerKnownCatalogCheckError::NondeterministicValidation);
+    }
+
+    if !serial.diagnostics.is_empty() {
+        return Err(CompilerKnownCatalogCheckError::SemanticDiagnostics(
+            serial.diagnostics,
+        ));
+    }
+
+    Ok(CompilerKnownCatalogCheckReport {
+        audit: serial.audit,
+    })
+}
+
+#[derive(Debug, Eq, PartialEq)]
+struct CompilerKnownCatalogCheckOutcome {
+    audit: CompilerKnownCatalogAuditReport,
+    diagnostics: DiagnosticBag,
+}
+
+fn check_compiler_known_catalog_with(
+    workers: WorkerBudget,
+) -> Result<CompilerKnownCatalogCheckOutcome, CompilerKnownCatalogCheckError> {
     let declarations = merge_declaration_chunks(std::iter::empty::<&DeclarationChunkResult>());
 
     if !declarations.diagnostics().is_empty() {
@@ -49,39 +80,19 @@ pub fn check_compiler_known_catalog()
     let root = graph.roots().compiler_known().into();
     let cancellation = CancellationToken::new();
 
-    let serial = force_complete_symbol(
+    let diagnostics = force_complete_symbol(
         &graph,
         root,
         SymbolCompletionLevel::DeclarationSurface,
-        WorkerBudget::serial(),
+        workers,
         &cancellation,
         &audit,
     )
     .map_err(CompilerKnownCatalogCheckError::Completion)?;
 
-    let parallel_workers =
-        WorkerBudget::new(4).map_err(CompilerKnownCatalogCheckError::WorkerBudget)?;
-
-    let parallel = force_complete_symbol(
-        &graph,
-        root,
-        SymbolCompletionLevel::DeclarationSurface,
-        parallel_workers,
-        &cancellation,
-        &audit,
-    )
-    .map_err(CompilerKnownCatalogCheckError::Completion)?;
-
-    if serial != parallel {
-        return Err(CompilerKnownCatalogCheckError::NondeterministicCompletion);
-    }
-
-    if !serial.is_empty() {
-        return Err(CompilerKnownCatalogCheckError::SemanticDiagnostics(serial));
-    }
-
-    Ok(CompilerKnownCatalogCheckReport {
+    Ok(CompilerKnownCatalogCheckOutcome {
         audit: audit.report(),
+        diagnostics,
     })
 }
 
@@ -105,7 +116,8 @@ fn audit_target_views(
         .map_err(CompilerKnownCatalogCheckError::Audit)?;
 
     for capability in AvailabilityRule::ALL
-        .into_iter()
+        .iter()
+        .copied()
         .filter(|rule| *rule != AvailabilityRule::Always)
     {
         let facts = TargetAvailabilityFacts::portable().with_rule(capability, true);
@@ -135,19 +147,58 @@ pub enum CompilerKnownCatalogCheckError {
     Completion(SymbolCompletionError<CompilerKnownCatalogAuditError>),
     /// The fixed parallel validation budget could not be constructed.
     WorkerBudget(WorkerBudgetError),
-    /// Serial and parallel semantic completion produced different diagnostics.
-    NondeterministicCompletion,
+    /// Independent serial and parallel validation produced different immutable results.
+    NondeterministicValidation,
     /// Semantic completion produced diagnostics for checked-in catalog data.
     SemanticDiagnostics(DiagnosticBag),
 }
 
 impl std::fmt::Display for CompilerKnownCatalogCheckError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(formatter, "{self:?}")
+        match self {
+            Self::InvalidPackageIdentity => {
+                formatter.write_str("compiler-known validation package identity is invalid")
+            }
+            Self::DeclarationDiagnostics => {
+                formatter.write_str("empty compiler-known validation package produced declarations")
+            }
+            Self::SymbolGraph(error) => {
+                write!(formatter, "compiler-known symbol graph failed: {error}")
+            }
+            Self::Audit(error) => write!(formatter, "compiler-known audit failed: {error}"),
+            Self::Completion(error) => {
+                write!(formatter, "compiler-known completion failed: {error}")
+            }
+            Self::WorkerBudget(error) => {
+                write!(
+                    formatter,
+                    "compiler-known worker budget is invalid: {error}"
+                )
+            }
+            Self::NondeterministicValidation => {
+                formatter.write_str("serial and parallel compiler-known validation disagree")
+            }
+            Self::SemanticDiagnostics(_) => {
+                formatter.write_str("compiler-known completion produced diagnostics")
+            }
+        }
     }
 }
 
-impl std::error::Error for CompilerKnownCatalogCheckError {}
+impl std::error::Error for CompilerKnownCatalogCheckError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::SymbolGraph(error) => Some(error),
+            Self::Audit(error) => Some(error),
+            Self::Completion(error) => Some(error),
+            Self::WorkerBudget(error) => Some(error),
+            Self::InvalidPackageIdentity
+            | Self::DeclarationDiagnostics
+            | Self::NondeterministicValidation
+            | Self::SemanticDiagnostics(_) => None,
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {
