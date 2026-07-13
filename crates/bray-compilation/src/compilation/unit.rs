@@ -120,6 +120,7 @@ fn check_control_flow(
     };
 
     let bridge = CheckerCancellationBridge(cancellation);
+
     let request = UnitCheckRequest::new(bound.view(), root, &bridge)
         .map_err(|_| FactQueryError::InfrastructureFailure)?;
 

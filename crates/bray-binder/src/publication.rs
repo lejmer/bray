@@ -111,10 +111,12 @@ mod tests {
     #[test]
     fn nested_units_include_only_direct_anonymous_dependencies() {
         let fixture = fixture();
+
         let first = bray_bound_tree::BoundUnitKey::anonymous_callable(
             fixture.key.clone(),
             bray_bound_tree::BoundSourceAnchor::new(fixture.second, fixture.version),
         );
+
         let second = bray_bound_tree::BoundUnitKey::anonymous_callable(
             fixture.key.clone(),
             bray_bound_tree::BoundSourceAnchor::new(fixture.foreign, fixture.version),

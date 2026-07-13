@@ -57,6 +57,7 @@ impl SyntaxAnchor {
             self.full_range,
             self.is_recovered,
         )?;
+
         let mut result = None;
 
         walk_syntax_node(&root, |event| {
