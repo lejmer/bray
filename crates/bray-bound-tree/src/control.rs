@@ -1,6 +1,6 @@
 use crate::{BoundUnitId, BoundUnitKind};
 
-/// A source-semantic way in which a checked unit can complete.
+/// A source-semantic way in which a bound unit's control flow can complete.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[repr(u8)]
 pub enum ControlCompletionKind {

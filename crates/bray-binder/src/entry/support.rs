@@ -3,11 +3,11 @@ use bray_declarations::SyntaxAnchor;
 use bray_symbols::{LocalSymbolRegionId, TypeData};
 use bray_syntax::{SyntaxCast, SyntaxWalkControl, SyntaxWalkEvent, walk_syntax_tree};
 
-use super::CheckedUnitBindingError;
+use super::BoundUnitBindingError;
 use crate::BinderFactContext;
 use crate::binding::BindingError;
 use crate::lookup::{NameAccess, PathBindingContext};
-use crate::publication::CheckedUnitAssemblyError;
+use crate::publication::BoundUnitAssemblyError;
 use crate::request::{BinderRequestContext, BindingContext};
 use crate::unit::{BoundUnitConstructionError, BoundUnitLocalBuilder};
 
@@ -16,7 +16,7 @@ pub(super) fn request<'facts, C>(
     unit: BoundUnitId,
     key: BoundUnitKey,
     context: BindingContext,
-) -> Result<BinderRequestContext<'facts, C>, CheckedUnitBindingError>
+) -> Result<BinderRequestContext<'facts, C>, BoundUnitBindingError>
 where
     C: BinderFactContext + ?Sized,
 {
@@ -24,7 +24,7 @@ where
     let start = key.source().syntax().full_range().start();
 
     let unit = BoundUnitLocalBuilder::new(unit, key, region, start)
-        .map_err(|_| CheckedUnitBindingError::Construction)?;
+        .map_err(|_| BoundUnitBindingError::Construction)?;
 
     Ok(BinderRequestContext::new(facts, context, unit))
 }
@@ -32,7 +32,7 @@ where
 pub(super) fn path_context<C>(
     request: &BinderRequestContext<'_, C>,
     scope: bray_symbols::LocalScopeId,
-) -> Result<PathBindingContext, CheckedUnitBindingError>
+) -> Result<PathBindingContext, BoundUnitBindingError>
 where
     C: BinderFactContext + ?Sized,
 {
@@ -41,19 +41,19 @@ where
         .key()
         .declared_owner()
         .source_declaration_id()
-        .ok_or(CheckedUnitBindingError::InvalidUnitKey)?;
+        .ok_or(BoundUnitBindingError::InvalidUnitKey)?;
 
     let symbol = request
         .facts()
         .symbols()
         .symbol_for_declaration(declaration)
-        .ok_or(CheckedUnitBindingError::MissingOwner)?;
+        .ok_or(BoundUnitBindingError::MissingOwner)?;
 
     let module = request
         .facts()
         .symbols()
         .containing_module(symbol)
-        .ok_or(CheckedUnitBindingError::MissingModule)?;
+        .ok_or(BoundUnitBindingError::MissingModule)?;
 
     Ok(PathBindingContext::new(
         scope,
@@ -63,14 +63,14 @@ where
     ))
 }
 
-pub(super) fn error_type<C>(facts: &C) -> Result<bray_symbols::TypeId, CheckedUnitBindingError>
+pub(super) fn error_type<C>(facts: &C) -> Result<bray_symbols::TypeId, BoundUnitBindingError>
 where
     C: BinderFactContext + ?Sized,
 {
     facts
         .semantic_values()
         .intern_type(TypeData::Error)
-        .map_err(CheckedUnitBindingError::SemanticValue)
+        .map_err(BoundUnitBindingError::SemanticValue)
 }
 
 pub(super) fn anchored_descendant<C, T>(facts: &C, anchor: SyntaxAnchor) -> Option<T>
@@ -117,9 +117,9 @@ where
     result
 }
 
-pub(super) fn map_binding_error(error: BindingError) -> CheckedUnitBindingError {
+pub(super) fn map_binding_error(error: BindingError) -> BoundUnitBindingError {
     match error {
-        BindingError::Cancelled => CheckedUnitBindingError::Cancelled,
+        BindingError::Cancelled => BoundUnitBindingError::Cancelled,
         BindingError::Construction(BoundUnitConstructionError::BoundTree(_))
         | BindingError::Construction(BoundUnitConstructionError::LocalSymbol(_))
         | BindingError::Construction(BoundUnitConstructionError::LocalAlreadyActivated(_))
@@ -129,19 +129,17 @@ pub(super) fn map_binding_error(error: BindingError) -> CheckedUnitBindingError 
             | BoundUnitConstructionError::AnonymousCallableParameterAlreadyAssigned { .. }
             | BoundUnitConstructionError::AnonymousCallableSourceMismatch { .. }
             | BoundUnitConstructionError::AnonymousCallableSourceVersionMismatch { .. },
-        ) => CheckedUnitBindingError::Construction,
+        ) => BoundUnitBindingError::Construction,
         BindingError::IdentityCapacityExceeded
         | BindingError::RollbackFailed
         | BindingError::CandidateContextMismatch
         | BindingError::ControlTargetMismatch
-        | BindingError::UnsupportedSyntax => CheckedUnitBindingError::Binding,
+        | BindingError::UnsupportedSyntax => BoundUnitBindingError::Binding,
     }
 }
 
-pub(super) fn map_assembly_error(error: CheckedUnitAssemblyError) -> CheckedUnitBindingError {
+pub(super) fn map_assembly_error(error: BoundUnitAssemblyError) -> BoundUnitBindingError {
     match error {
-        CheckedUnitAssemblyError::Cancelled => CheckedUnitBindingError::Cancelled,
-        CheckedUnitAssemblyError::InvalidCheckerRequest(_)
-        | CheckedUnitAssemblyError::InvalidCheckedUnit(_) => CheckedUnitBindingError::Assembly,
+        BoundUnitAssemblyError::InvalidBoundUnit(_) => BoundUnitBindingError::Assembly,
     }
 }

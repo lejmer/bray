@@ -1,8 +1,8 @@
 use bray_symbols::SemanticValueStoreError;
 
-/// A failure outside ordinary source diagnostics while binding one checked unit.
+/// A failure outside ordinary source diagnostics while binding one semantic unit.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum CheckedUnitBindingError {
+pub enum BoundUnitBindingError {
     /// Cancellation was observed before a complete unit could be returned.
     Cancelled,
     /// The requested unit key does not identify supported source-backed syntax.
@@ -19,6 +19,6 @@ pub enum CheckedUnitBindingError {
     Construction,
     /// Binding could not establish a complete recovery-aware root.
     Binding,
-    /// Checker integration or checked-unit assembly violated an internal contract.
+    /// Bound-unit assembly violated an internal contract.
     Assembly,
 }

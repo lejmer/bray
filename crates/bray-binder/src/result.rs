@@ -1,25 +1,21 @@
 use std::collections::BTreeSet;
 
-use bray_bound_tree::{
-    CheckedAnonymousCallable, CheckedCallableBody, CheckedConstantTemplateUnit,
-    CheckedConstraintUnit, CheckedContractClauseUnit, CheckedPredicateDefinitionUnit,
-    CheckedRuntimeDefaultUnit,
-};
+use bray_bound_tree::BoundUnit;
 use bray_diagnostics::DiagnosticResult;
 
 use crate::BinderDependency;
 
-/// One complete semantic-unit stage computation awaiting compilation-owned publication.
+/// One complete binder computation awaiting compilation-owned publication.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct CheckedUnitComputation<T> {
-    result: DiagnosticResult<T>,
+pub struct BoundUnitComputation {
+    result: DiagnosticResult<BoundUnit>,
     dependencies: Box<[BinderDependency]>,
 }
 
-impl<T> CheckedUnitComputation<T> {
+impl BoundUnitComputation {
     /// Creates a complete computation with canonical deterministic dependencies.
     pub fn new(
-        result: DiagnosticResult<T>,
+        result: DiagnosticResult<BoundUnit>,
         dependencies: impl IntoIterator<Item = BinderDependency>,
     ) -> Self {
         let dependencies = dependencies
@@ -35,8 +31,8 @@ impl<T> CheckedUnitComputation<T> {
         }
     }
 
-    /// Returns the atomic diagnostic-bearing checked value.
-    pub const fn result(&self) -> &DiagnosticResult<T> {
+    /// Returns the atomic diagnostic-bearing value.
+    pub const fn result(&self) -> &DiagnosticResult<BoundUnit> {
         &self.result
     }
 
@@ -46,44 +42,16 @@ impl<T> CheckedUnitComputation<T> {
     }
 
     /// Consumes the computation into its publication parts.
-    pub fn into_parts(self) -> (DiagnosticResult<T>, Box<[BinderDependency]>) {
+    pub fn into_parts(self) -> (DiagnosticResult<BoundUnit>, Box<[BinderDependency]>) {
         (self.result, self.dependencies)
     }
 }
 
-/// The canonical diagnostic-bearing fact payload for a declared callable body.
-pub type CheckedCallableBodyResult = DiagnosticResult<CheckedCallableBody>;
-
-/// The canonical diagnostic-bearing fact payload for an anonymous callable.
-pub type CheckedAnonymousCallableResult = DiagnosticResult<CheckedAnonymousCallable>;
-
-/// The canonical diagnostic-bearing fact payload for a runtime-default expression.
-pub type CheckedRuntimeDefaultResult = DiagnosticResult<CheckedRuntimeDefaultUnit>;
-
-/// The canonical diagnostic-bearing fact payload for a constant definition template.
-pub type CheckedConstantTemplateResult = DiagnosticResult<CheckedConstantTemplateUnit>;
-
-/// The canonical diagnostic-bearing fact payload for a predicate definition.
-pub type CheckedPredicateDefinitionResult = DiagnosticResult<CheckedPredicateDefinitionUnit>;
-
-/// The canonical diagnostic-bearing fact payload for a declaration constraint.
-pub type CheckedConstraintResult = DiagnosticResult<CheckedConstraintUnit>;
-
-/// The canonical diagnostic-bearing fact payload for a callable contract clause.
-pub type CheckedContractClauseResult = DiagnosticResult<CheckedContractClauseUnit>;
-
 #[cfg(test)]
 mod tests {
-    use bray_diagnostics::{
-        Diagnostic, DiagnosticBag, DiagnosticId, DiagnosticKind, DiagnosticResult, SeverityKind,
-    };
+    use bray_diagnostics::{Diagnostic, DiagnosticBag, DiagnosticId, DiagnosticKind, SeverityKind};
 
-    use super::{
-        CheckedAnonymousCallableResult, CheckedCallableBodyResult, CheckedConstantTemplateResult,
-        CheckedConstraintResult, CheckedContractClauseResult, CheckedPredicateDefinitionResult,
-        CheckedRuntimeDefaultResult, CheckedUnitComputation,
-    };
-    use crate::BinderDependency;
+    use super::BoundUnitComputation;
     use crate::BindingOutcome;
 
     #[test]
@@ -113,30 +81,9 @@ mod tests {
     }
 
     #[test]
-    fn checked_unit_fact_payloads_are_send_and_sync() {
+    fn bound_unit_computations_are_send_and_sync() {
         fn assert_send_sync<T: Send + Sync>() {}
 
-        assert_send_sync::<CheckedCallableBodyResult>();
-        assert_send_sync::<CheckedAnonymousCallableResult>();
-        assert_send_sync::<CheckedRuntimeDefaultResult>();
-        assert_send_sync::<CheckedConstantTemplateResult>();
-        assert_send_sync::<CheckedPredicateDefinitionResult>();
-        assert_send_sync::<CheckedConstraintResult>();
-        assert_send_sync::<CheckedContractClauseResult>();
-        assert_send_sync::<CheckedUnitComputation<u32>>();
-    }
-
-    #[test]
-    fn checked_unit_computations_canonicalize_dependencies() {
-        let dependency = BinderDependency::Target(bray_symbols::ConstantSymbolId::from_symbol_id(
-            bray_symbols::SymbolId::new(7),
-        ));
-        let result = DiagnosticResult::without_diagnostics(11_u32);
-
-        let computation =
-            CheckedUnitComputation::new(result.clone(), [dependency.clone(), dependency.clone()]);
-
-        assert_eq!(computation.result(), &result);
-        assert_eq!(computation.dependencies(), &[dependency]);
+        assert_send_sync::<BoundUnitComputation>();
     }
 }

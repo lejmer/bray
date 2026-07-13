@@ -39,10 +39,12 @@ pub enum CompilationFactKey {
     CompilerKnownSymbols,
     /// Deterministic compact identities for bound-unit source anchors.
     BoundUnitIdentities,
+    /// One canonical immutable bound unit selected by its exact stable key.
+    BoundUnit(BoundUnitKey),
     /// Diagnostics for the current whole-compilation check boundary.
     CheckDiagnostics,
-    /// One control-flow-checked semantic unit selected by its exact stable key.
-    ControlFlowUnit(BoundUnitKey),
+    /// Durable control-flow facts for one bound unit.
+    CheckedControlFlow(BoundUnitKey),
     /// Declaration discovery for one source unit.
     DeclarationChunk(SourceId),
     /// The deterministically merged declaration table.
@@ -57,6 +59,25 @@ pub enum CompilationFactKey {
     Symbol(SymbolFactKey),
     /// The syntax tree composed from every loaded source unit.
     SyntaxTree,
+}
+
+impl CompilationFactKey {
+    pub(crate) const fn bound_unit_key(&self) -> Option<&BoundUnitKey> {
+        match self {
+            Self::BoundUnit(key) | Self::CheckedControlFlow(key) => Some(key),
+            Self::AvailableCompilerKnownSymbols
+            | Self::CompilerKnownSymbols
+            | Self::BoundUnitIdentities
+            | Self::CheckDiagnostics
+            | Self::DeclarationChunk(_)
+            | Self::DeclarationTable
+            | Self::SemanticValueStore
+            | Self::SourceUnitSyntax(_)
+            | Self::SymbolGraph
+            | Self::Symbol(_)
+            | Self::SyntaxTree => None,
+        }
+    }
 }
 
 impl From<SymbolFactKey> for CompilationFactKey {

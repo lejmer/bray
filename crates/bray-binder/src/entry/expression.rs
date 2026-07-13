@@ -1,12 +1,7 @@
-use bray_bound_tree::{
-    BoundExpressionId, BoundUnitId, BoundUnitKey, ControlFlowCheckedConstantTemplateUnit,
-    ControlFlowCheckedConstraintUnit, ControlFlowCheckedContractClauseUnit,
-    ControlFlowCheckedPredicateDefinitionUnit, ControlFlowCheckedRuntimeDefaultUnit,
-};
-use bray_checker::ControlFlowChecker;
+use bray_bound_tree::{BoundExpressionId, BoundUnitId, BoundUnitKey};
 use bray_syntax::ExpressionSyntax;
 
-use super::CheckedUnitBindingError;
+use super::BoundUnitBindingError;
 use super::support::{
     anchored_descendant, error_type, map_assembly_error, map_binding_error, path_context, request,
 };
@@ -16,13 +11,12 @@ use crate::publication::{
     assemble_predicate_definition, assemble_runtime_default, direct_nested_units,
 };
 use crate::request::{BinderRequestResult, BindingContext};
-use crate::{BinderCancellation, BinderFactContext, CheckedUnitComputation};
+use crate::{BinderFactContext, BoundUnitComputation};
 
 macro_rules! define_pending_expression_unit {
     (
         $pending:ident,
         $bind:ident,
-        $result:ty,
         $assemble:ident,
         $context:expr,
         $pending_description:literal,
@@ -41,24 +35,9 @@ macro_rules! define_pending_expression_unit {
                 &self.nested_units
             }
 
-            /// Runs control-flow checking and assembles the immutable staged expression unit.
-            pub fn finish<C, K>(
-                self,
-                checker: &C,
-                cancellation: &K,
-            ) -> Result<CheckedUnitComputation<$result>, CheckedUnitBindingError>
-            where
-                C: ControlFlowChecker + ?Sized,
-                K: BinderCancellation + ?Sized,
-            {
-                $assemble(
-                    self.request,
-                    self.nested_units,
-                    checker,
-                    cancellation,
-                    self.root,
-                )
-                .map_err(map_assembly_error)
+            /// Freezes the immutable bound expression unit for publication.
+            pub fn finish(self) -> Result<BoundUnitComputation, BoundUnitBindingError> {
+                $assemble(self.request, self.nested_units, self.root).map_err(map_assembly_error)
             }
         }
 
@@ -67,7 +46,7 @@ macro_rules! define_pending_expression_unit {
             facts: &C,
             unit: BoundUnitId,
             key: BoundUnitKey,
-        ) -> Result<$pending, CheckedUnitBindingError>
+        ) -> Result<$pending, BoundUnitBindingError>
         where
             C: BinderFactContext + ?Sized,
         {
@@ -85,48 +64,43 @@ macro_rules! define_pending_expression_unit {
 }
 
 define_pending_expression_unit!(
-    PendingControlFlowRuntimeDefault,
+    PendingBoundRuntimeDefault,
     bind_runtime_default,
-    ControlFlowCheckedRuntimeDefaultUnit,
     assemble_runtime_default,
     BindingContext::Expression,
-    "A committed runtime-default expression awaiting required nested facts and checking.",
+    "A committed runtime-default expression awaiting bound-unit publication.",
     "Binds one runtime-default expression into committed task-local state."
 );
 define_pending_expression_unit!(
-    PendingControlFlowConstantTemplate,
+    PendingBoundConstantTemplate,
     bind_constant_template,
-    ControlFlowCheckedConstantTemplateUnit,
     assemble_constant_template,
     BindingContext::ConstantExpression,
-    "A committed constant-template expression awaiting required nested facts and checking.",
+    "A committed constant-template expression awaiting bound-unit publication.",
     "Binds one constant-template expression into committed task-local state."
 );
 define_pending_expression_unit!(
-    PendingControlFlowPredicateDefinition,
+    PendingBoundPredicateDefinition,
     bind_predicate_definition,
-    ControlFlowCheckedPredicateDefinitionUnit,
     assemble_predicate_definition,
     BindingContext::PredicateExpression,
-    "A committed predicate-definition expression awaiting required nested facts and checking.",
+    "A committed predicate-definition expression awaiting bound-unit publication.",
     "Binds one predicate-definition expression into committed task-local state."
 );
 define_pending_expression_unit!(
-    PendingControlFlowConstraint,
+    PendingBoundConstraint,
     bind_constraint,
-    ControlFlowCheckedConstraintUnit,
     assemble_constraint,
     BindingContext::PredicateExpression,
-    "A committed constraint expression awaiting required nested facts and checking.",
+    "A committed constraint expression awaiting bound-unit publication.",
     "Binds one constraint expression into committed task-local state."
 );
 define_pending_expression_unit!(
-    PendingControlFlowContractClause,
+    PendingBoundContractClause,
     bind_contract_clause,
-    ControlFlowCheckedContractClauseUnit,
     assemble_contract_clause,
     BindingContext::ContractClause,
-    "A committed contract-clause expression awaiting required nested facts and checking.",
+    "A committed contract-clause expression awaiting bound-unit publication.",
     "Binds one contract-clause expression into committed task-local state."
 );
 
@@ -135,12 +109,12 @@ fn bind_expression_unit<C>(
     unit: BoundUnitId,
     key: BoundUnitKey,
     context: BindingContext,
-) -> Result<(BinderRequestResult, BoundExpressionId), CheckedUnitBindingError>
+) -> Result<(BinderRequestResult, BoundExpressionId), BoundUnitBindingError>
 where
     C: BinderFactContext + ?Sized,
 {
     let syntax = anchored_descendant::<_, ExpressionSyntax>(facts, key.source().syntax())
-        .ok_or(CheckedUnitBindingError::MissingSyntax)?;
+        .ok_or(BoundUnitBindingError::MissingSyntax)?;
 
     let mut request = request(facts, unit, key, context)?;
     let root_scope = request.unit().root_scope();
@@ -154,7 +128,7 @@ where
 
     let request = request
         .finish()
-        .map_err(|_| CheckedUnitBindingError::Construction)?;
+        .map_err(|_| BoundUnitBindingError::Construction)?;
 
     Ok((request, root))
 }

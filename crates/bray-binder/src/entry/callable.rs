@@ -1,85 +1,54 @@
 use bray_bound_tree::{
     BoundCallableBody, BoundCallableBodyId, BoundNodeOrigin, BoundUnitId, BoundUnitKey,
-    ControlFlowCheckedAnonymousCallable, ControlFlowCheckedCallableBody,
 };
-use bray_checker::ControlFlowChecker;
 use bray_syntax::{CallableBodyBlockExpressionSyntax, LambdaExpressionSyntax};
 
-use super::CheckedUnitBindingError;
+use super::BoundUnitBindingError;
 use super::support::{anchored_descendant, error_type, map_assembly_error, map_binding_error};
 use crate::publication::{
     assemble_anonymous_callable, assemble_callable_body, direct_nested_units,
 };
 use crate::request::{BinderRequestResult, BindingContext};
-use crate::{BinderCancellation, BinderFactContext, CheckedUnitComputation};
+use crate::{BinderFactContext, BoundUnitComputation};
 
-/// A committed declared callable body awaiting required nested facts and checking.
-pub struct PendingControlFlowCallableBody {
+/// A committed declared callable body awaiting bound-unit publication.
+pub struct PendingBoundCallableBody {
     request: BinderRequestResult,
     nested_units: Vec<BoundUnitKey>,
     root: BoundCallableBodyId,
 }
 
-impl PendingControlFlowCallableBody {
+impl PendingBoundCallableBody {
     /// Returns directly nested anonymous callable keys in canonical source order.
     pub fn nested_units(&self) -> &[BoundUnitKey] {
         &self.nested_units
     }
 
-    /// Runs control-flow checking and assembles the immutable staged callable body.
-    pub fn finish<C, K>(
-        self,
-        checker: &C,
-        cancellation: &K,
-    ) -> Result<CheckedUnitComputation<ControlFlowCheckedCallableBody>, CheckedUnitBindingError>
-    where
-        C: ControlFlowChecker + ?Sized,
-        K: BinderCancellation + ?Sized,
-    {
-        assemble_callable_body(
-            self.request,
-            self.nested_units,
-            checker,
-            cancellation,
-            self.root,
-        )
-        .map_err(map_assembly_error)
+    /// Freezes the immutable bound callable unit for publication.
+    pub fn finish(self) -> Result<BoundUnitComputation, BoundUnitBindingError> {
+        assemble_callable_body(self.request, self.nested_units, self.root)
+            .map_err(map_assembly_error)
     }
 }
 
-/// A committed anonymous callable awaiting required nested facts and checking.
-pub struct PendingControlFlowAnonymousCallable {
+/// A committed anonymous callable awaiting bound-unit publication.
+pub struct PendingBoundAnonymousCallable {
     request: BinderRequestResult,
     nested_units: Vec<BoundUnitKey>,
     callable: bray_symbols::AnonymousCallableSymbolId,
     root: BoundCallableBodyId,
 }
 
-impl PendingControlFlowAnonymousCallable {
+impl PendingBoundAnonymousCallable {
     /// Returns directly nested anonymous callable keys in canonical source order.
     pub fn nested_units(&self) -> &[BoundUnitKey] {
         &self.nested_units
     }
 
-    /// Runs control-flow checking and assembles the immutable staged anonymous callable.
-    pub fn finish<C, K>(
-        self,
-        checker: &C,
-        cancellation: &K,
-    ) -> Result<CheckedUnitComputation<ControlFlowCheckedAnonymousCallable>, CheckedUnitBindingError>
-    where
-        C: ControlFlowChecker + ?Sized,
-        K: BinderCancellation + ?Sized,
-    {
-        assemble_anonymous_callable(
-            self.request,
-            self.nested_units,
-            checker,
-            cancellation,
-            self.callable,
-            self.root,
-        )
-        .map_err(map_assembly_error)
+    /// Freezes the immutable bound anonymous callable unit for publication.
+    pub fn finish(self) -> Result<BoundUnitComputation, BoundUnitBindingError> {
+        assemble_anonymous_callable(self.request, self.nested_units, self.callable, self.root)
+            .map_err(map_assembly_error)
     }
 }
 
@@ -88,13 +57,13 @@ pub fn bind_callable_body<C>(
     facts: &C,
     unit: BoundUnitId,
     key: BoundUnitKey,
-) -> Result<PendingControlFlowCallableBody, CheckedUnitBindingError>
+) -> Result<PendingBoundCallableBody, BoundUnitBindingError>
 where
     C: BinderFactContext + ?Sized,
 {
     let body =
         anchored_descendant::<_, CallableBodyBlockExpressionSyntax>(facts, key.source().syntax())
-            .ok_or(CheckedUnitBindingError::MissingSyntax)?;
+            .ok_or(BoundUnitBindingError::MissingSyntax)?;
 
     let mut request = super::support::request(facts, unit, key, BindingContext::CallableBody)?;
     let root_scope = request.unit().root_scope();
@@ -121,32 +90,32 @@ where
         .unit_mut()
         .tree_mut()
         .push_callable_body(callable)
-        .map_err(|_| CheckedUnitBindingError::Construction)?;
+        .map_err(|_| BoundUnitBindingError::Construction)?;
 
     let request = request
         .finish()
-        .map_err(|_| CheckedUnitBindingError::Construction)?;
+        .map_err(|_| BoundUnitBindingError::Construction)?;
 
     let nested_units = direct_nested_units(request.unit().key(), request.dependencies());
 
-    Ok(PendingControlFlowCallableBody {
+    Ok(PendingBoundCallableBody {
         request,
         nested_units,
         root,
     })
 }
 
-/// Binds one independently checked anonymous callable into committed task-local state.
+/// Binds one independently analyzed anonymous callable into committed task-local state.
 pub fn bind_anonymous_callable<C>(
     facts: &C,
     unit: BoundUnitId,
     key: BoundUnitKey,
-) -> Result<PendingControlFlowAnonymousCallable, CheckedUnitBindingError>
+) -> Result<PendingBoundAnonymousCallable, BoundUnitBindingError>
 where
     C: BinderFactContext + ?Sized,
 {
     let syntax = anchored_descendant::<_, LambdaExpressionSyntax>(facts, key.source().syntax())
-        .ok_or(CheckedUnitBindingError::MissingSyntax)?;
+        .ok_or(BoundUnitBindingError::MissingSyntax)?;
 
     let mut request = super::support::request(facts, unit, key, BindingContext::CallableBody)?;
     let root_scope = request.unit().root_scope();
@@ -174,16 +143,16 @@ where
         .unit_mut()
         .tree_mut()
         .push_callable_body(callable_body)
-        .map_err(|_| CheckedUnitBindingError::Construction)?;
+        .map_err(|_| BoundUnitBindingError::Construction)?;
 
     let callable = boundary.callable();
     let request = request
         .finish()
-        .map_err(|_| CheckedUnitBindingError::Construction)?;
+        .map_err(|_| BoundUnitBindingError::Construction)?;
 
     let nested_units = direct_nested_units(request.unit().key(), request.dependencies());
 
-    Ok(PendingControlFlowAnonymousCallable {
+    Ok(PendingBoundAnonymousCallable {
         request,
         nested_units,
         callable,
@@ -193,13 +162,11 @@ where
 
 #[cfg(test)]
 mod tests {
-    use bray_checker::DefaultControlFlowChecker;
-
     use super::bind_callable_body;
     use crate::fact::test_support::TestFixture;
 
     #[test]
-    fn production_callable_binding_reaches_checker_finalization() {
+    fn production_callable_binding_publishes_a_bound_unit() {
         let fixture = TestFixture::from_source(concat!(
             "module app;\n",
             "const size: i32 = 1;\n",
@@ -217,7 +184,7 @@ mod tests {
             Err(error) => panic!("source callable body must bind: {error:?}"),
         };
 
-        let computation = match pending.finish(&DefaultControlFlowChecker, &|| false) {
+        let computation = match pending.finish() {
             Ok(computation) => computation,
             Err(error) => panic!("source callable body must finalize: {error:?}"),
         };

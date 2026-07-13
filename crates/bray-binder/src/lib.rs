@@ -46,20 +46,15 @@ mod unit;
 
 pub use bray_checker::CheckerOutcome as BindingOutcome;
 pub use entry::{
-    CheckedUnitBindingError, PendingControlFlowAnonymousCallable, PendingControlFlowCallableBody,
-    PendingControlFlowConstantTemplate, PendingControlFlowConstraint,
-    PendingControlFlowContractClause, PendingControlFlowPredicateDefinition,
-    PendingControlFlowRuntimeDefault, bind_anonymous_callable, bind_callable_body,
-    bind_constant_template, bind_constraint, bind_contract_clause, bind_predicate_definition,
-    bind_runtime_default,
+    BoundUnitBindingError, PendingBoundAnonymousCallable, PendingBoundCallableBody,
+    PendingBoundConstantTemplate, PendingBoundConstraint, PendingBoundContractClause,
+    PendingBoundPredicateDefinition, PendingBoundRuntimeDefault, bind_anonymous_callable,
+    bind_callable_body, bind_constant_template, bind_constraint, bind_contract_clause,
+    bind_predicate_definition, bind_runtime_default,
 };
 pub use fact::{
     BinderCancellation, BinderFactContext, BinderFactError, BinderFactResult,
     BindingSymbolFactProvider, SymbolFactProvider, TargetFactProvider, TargetFactResult,
 };
 pub use request::BinderDependency;
-pub use result::{
-    CheckedAnonymousCallableResult, CheckedCallableBodyResult, CheckedConstantTemplateResult,
-    CheckedConstraintResult, CheckedContractClauseResult, CheckedPredicateDefinitionResult,
-    CheckedRuntimeDefaultResult, CheckedUnitComputation,
-};
+pub use result::BoundUnitComputation;

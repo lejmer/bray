@@ -111,7 +111,7 @@ impl BoundUnitId {
     }
 }
 
-/// Stable source correlation for a checked unit or bound node.
+/// Stable source correlation for a bound unit or bound node.
 ///
 /// The syntax anchor identifies the source construct within a parsed snapshot. The source
 /// version prevents equivalent ranges in different logical revisions from sharing a key.
@@ -172,7 +172,7 @@ pub struct AnonymousCallableUnitKey {
 }
 
 impl AnonymousCallableUnitKey {
-    /// Returns the independently checked unit containing the anonymous callable expression.
+    /// Returns the independently analyzed unit containing the anonymous callable expression.
     pub const fn enclosing(&self) -> &BoundUnitKey {
         &self.enclosing
     }

@@ -1,8 +1,8 @@
 use std::fmt;
 use std::sync::Arc;
 
-use bray_binder::CheckedUnitComputation;
-use bray_bound_tree::BoundUnitKey;
+use bray_binder::BinderDependency;
+use bray_bound_tree::{BoundUnit, BoundUnitKey, CheckedControlFlowFacts};
 use bray_declarations::{
     DeclarationChunkResult, DeclarationTable, DeclarationTableResult,
     discover_source_unit_declarations, merge_declaration_chunks,
@@ -17,8 +17,8 @@ use bray_symbols::{
 use bray_syntax::SyntaxTree;
 
 use crate::fact::{
-    BoundUnitIdentityMap, CancellationToken, CompilationFactKey, ControlFlowUnitFact,
-    ControlFlowUnitFactCaches, FactCell, FactQueryError, FactRuntime, PublishedUnit,
+    BoundUnitIdentityMap, CancellationToken, CompilationFactKey, FactCell, FactQueryError,
+    FactRuntime, PublishedUnitFact, UnitFactCache,
 };
 use crate::request::{CompilationOptions, CompilationRequest};
 use crate::worker::WorkerBudget;
@@ -54,7 +54,8 @@ pub(super) struct CompilationState {
     semantic_values: FactCell<Result<SemanticValueStore, SemanticValueStoreCreateError>>,
     pub(super) target_facts: CompilationTargetFacts,
     pub(super) symbol_facts: (),
-    pub(super) control_flow_units: ControlFlowUnitFactCaches,
+    pub(super) bound_units: UnitFactCache<BoundUnit>,
+    pub(super) checked_control_flow: UnitFactCache<CheckedControlFlowFacts>,
     check_diagnostics: FactCell<DiagnosticBag>,
 }
 
@@ -117,7 +118,8 @@ impl Compilation {
                 semantic_values: FactCell::new(),
                 target_facts: CompilationTargetFacts,
                 symbol_facts: (),
-                control_flow_units: ControlFlowUnitFactCaches::new(),
+                bound_units: UnitFactCache::new(),
+                checked_control_flow: UnitFactCache::new(),
                 check_diagnostics: FactCell::new(),
             }),
         })
@@ -180,8 +182,8 @@ impl Compilation {
         &self.state.source_diagnostics
     }
 
-    /// TODO: Replace this temporary command-facing API with a checked-program
-    ///       result fact once binding and checking facts exist.
+    /// TODO(compilation): Replace this temporary command-facing API when the checked-program
+    /// query defines reachable bound-unit and semantic-fact completion.
     ///
     /// Returns diagnostics for the current check command behavior.
     pub fn check_diagnostics(&self) -> &DiagnosticBag {
@@ -376,15 +378,26 @@ impl Compilation {
         }
     }
 
-    pub(super) fn control_flow_unit<T: ControlFlowUnitFact>(
+    pub(super) fn unit_fact<T>(
         &self,
+        cache: &UnitFactCache<T>,
+        fact_key: CompilationFactKey,
         key: BoundUnitKey,
         cancellation: &CancellationToken,
-        compute: impl FnOnce(&CancellationToken) -> Result<CheckedUnitComputation<T>, FactQueryError>,
-    ) -> Result<Arc<PublishedUnit<T>>, FactQueryError> {
-        self.state.control_flow_units.get_or_compute(
+        compute: impl FnOnce(
+            &CancellationToken,
+        ) -> Result<
+            (
+                bray_diagnostics::DiagnosticResult<T>,
+                Box<[BinderDependency]>,
+            ),
+            FactQueryError,
+        >,
+    ) -> Result<Arc<PublishedUnitFact<T>>, FactQueryError> {
+        cache.get_or_compute(
             &self.state.fact_runtime,
             cancellation,
+            fact_key,
             key,
             || compute(cancellation),
         )
@@ -408,22 +421,12 @@ fn empty_fact_caches<T>(len: usize) -> Vec<FactCell<T>> {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{
-        Arc,
-        atomic::{AtomicUsize, Ordering},
-    };
-
-    use bray_binder::{BinderDependency, CheckedUnitComputation, bind_callable_body};
-    use bray_bound_tree::{
-        BoundSourceAnchor, BoundUnitKey, BoundUnitKind, ControlFlowCheckedCallableBody,
-    };
-    use bray_checker::DefaultControlFlowChecker;
+    use bray_bound_tree::{BoundSourceAnchor, BoundUnitKey, BoundUnitKind};
     use bray_compiler_known::{AvailabilityRule, CompilerKnownDeclarationKey};
     use bray_declarations::{DeclarationKind, ModulePath};
     use bray_diagnostics::{
-        Diagnostic, DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticBag,
-        DiagnosticId, DiagnosticKind, DiagnosticNote, DiagnosticNoteKind, DiagnosticResult,
-        SeverityKind,
+        DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticBag, DiagnosticId,
+        DiagnosticKind, DiagnosticNote, DiagnosticNoteKind, SeverityKind,
     };
     use bray_source::{
         SourceId, SourceIdentity, SourceInput, SourceInputKind, SourceOriginKind, SourceVersion,
@@ -435,9 +438,9 @@ mod tests {
     use bray_syntax::SourceSyntaxNode;
 
     use crate::TargetAvailabilityFacts;
-    use crate::fact::{CancellationToken, FactQueryError};
+    use crate::fact::FactQueryError;
     use crate::request::{CompilationOptions, CompilationRequest};
-    use crate::test_support::{checked_callable_body, constant_template_key, package_identity};
+    use crate::test_support::package_identity;
     use crate::worker::WorkerBudget;
 
     use super::Compilation;
@@ -648,80 +651,6 @@ mod tests {
         let second = compilation.check_diagnostics();
 
         assert!(std::ptr::eq(first, second));
-    }
-
-    #[test]
-    fn control_flow_units_are_request_scoped_lazy_compilation_facts() {
-        let compilation = declaration_compilation();
-
-        let cancellation = CancellationToken::new();
-        let computations = AtomicUsize::new(0);
-
-        let (key, body) = checked_callable_body(20);
-
-        let dependency = BinderDependency::Unit(constant_template_key(21));
-
-        let diagnostic = Diagnostic::new(
-            DiagnosticId::new(7),
-            DiagnosticKind::DeclarationDuplicateName,
-            SeverityKind::Error,
-        );
-
-        let first = match compilation.control_flow_unit(
-            key.clone(),
-            &cancellation,
-            |request_cancellation| {
-                assert!(std::ptr::eq(request_cancellation, &cancellation));
-
-                computations.fetch_add(1, Ordering::SeqCst);
-
-                Ok(CheckedUnitComputation::new(
-                    DiagnosticResult::new(body.clone(), DiagnosticBag::single(diagnostic.clone())),
-                    [dependency.clone()],
-                ))
-            },
-        ) {
-            Ok(result) => result,
-            Err(error) => panic!("checked callable body must publish: {error:?}"),
-        };
-
-        let second = match compilation.control_flow_unit(key, &CancellationToken::new(), |_| {
-            panic!("cached checked unit must not be recomputed")
-        }) {
-            Ok(result) => result,
-            Err(error) => panic!("checked callable body must be cached: {error:?}"),
-        };
-
-        assert!(Arc::ptr_eq(&first, &second));
-
-        assert_eq!(first.result().value(), &body);
-        assert_eq!(first.result().diagnostics().diagnostics(), &[diagnostic]);
-        assert_eq!(first.dependencies(), &[dependency]);
-        assert_eq!(computations.load(Ordering::SeqCst), 1);
-
-        let cancelled = CancellationToken::new();
-
-        cancelled.cancel();
-
-        let (retry_key, retry_body) = checked_callable_body(22);
-
-        let cancelled_result = compilation.control_flow_unit(retry_key.clone(), &cancelled, |_| {
-            Ok(CheckedUnitComputation::new(
-                DiagnosticResult::without_diagnostics(retry_body.clone()),
-                [],
-            ))
-        });
-
-        assert!(matches!(cancelled_result, Err(FactQueryError::Cancelled)));
-
-        let retried = compilation.control_flow_unit(retry_key, &CancellationToken::new(), |_| {
-            Ok(CheckedUnitComputation::new(
-                DiagnosticResult::without_diagnostics(retry_body.clone()),
-                [],
-            ))
-        });
-
-        assert!(retried.is_ok());
     }
 
     #[test]
@@ -966,80 +895,39 @@ mod tests {
     }
 
     #[test]
-    fn checked_callable_queries_complete_nested_units_in_source_order() {
+    fn bound_and_control_flow_facts_share_nested_unit_identity() {
         let compilation = checked_body_compilation();
         let key = callable_key(&compilation);
 
-        let checked = match compilation.control_flow_checked_callable_body(key) {
-            Ok(checked) => checked,
-            Err(error) => panic!("control-flow-checked callable query must complete: {error:?}"),
+        let bound = match compilation.bound_unit(key.clone()) {
+            Ok(bound) => bound,
+            Err(error) => panic!("bound callable query must complete: {error:?}"),
         };
 
-        let nested = checked.value().nested_units();
+        let nested = bound.value().nested_units();
 
         assert_eq!(nested.len(), 2);
         assert!(nested[0].source() < nested[1].source());
 
         let mut recovered = Vec::new();
-        let facts = match compilation.binder_facts(&compilation.state.cancellation) {
-            Ok(facts) => facts,
-            Err(error) => panic!("compilation binder facts must be available: {error:?}"),
-        };
 
-        for key in nested {
-            let child = match compilation.control_flow_checked_anonymous_callable(
-                &facts,
-                key.clone(),
-                &compilation.state.cancellation,
-            ) {
+        for nested_key in nested {
+            let child = match compilation.checked_control_flow(nested_key.clone()) {
                 Ok(child) => child,
-                Err(error) => panic!("nested checked unit must already be available: {error:?}"),
+                Err(error) => panic!("nested control-flow fact must be available: {error:?}"),
             };
 
-            recovered.push(child.result().value().control_flow_facts().is_recovered());
+            recovered.push(child.value().is_recovered());
         }
 
         assert_eq!(recovered, [true, false]);
-    }
 
-    #[test]
-    fn nested_cancellation_prevents_parent_publication() {
-        let compilation = checked_body_compilation();
-        let key = callable_key(&compilation);
-        let cancellation = CancellationToken::new();
-        let facts = match compilation.binder_facts(&cancellation) {
-            Ok(facts) => facts,
-            Err(error) => panic!("compilation binder facts must be available: {error:?}"),
-        };
-        let unit = match compilation.bound_unit_id(&key) {
-            Ok(unit) => unit,
-            Err(error) => panic!("test unit identity must be available: {error:?}"),
-        };
-        let pending = match bind_callable_body(&facts, unit, key.clone()) {
-            Ok(pending) => pending,
-            Err(error) => panic!("test callable must bind before nested cancellation: {error:?}"),
-        };
-        let Some(nested) = pending.nested_units().first().cloned() else {
-            panic!("test callable must contain a nested anonymous callable");
+        let parent = match compilation.checked_control_flow(key) {
+            Ok(parent) => parent,
+            Err(error) => panic!("parent control-flow fact must complete: {error:?}"),
         };
 
-        let result = compilation.control_flow_unit(key.clone(), &cancellation, |cancellation| {
-            cancellation.cancel();
-            compilation.control_flow_checked_anonymous_callable(&facts, nested, cancellation)?;
-
-            pending
-                .finish(&DefaultControlFlowChecker, cancellation)
-                .map_err(|_| FactQueryError::InfrastructureFailure)
-        });
-
-        assert!(matches!(result, Err(FactQueryError::Cancelled)));
-
-        let published = compilation
-            .state
-            .control_flow_units
-            .is_published::<ControlFlowCheckedCallableBody>(&key);
-
-        assert_eq!(published, Ok(false));
+        assert_eq!(parent.value().kind(), BoundUnitKind::CallableBody);
     }
 
     #[test]
@@ -1054,15 +942,12 @@ mod tests {
 
         let key = source_constant_template_key(&compilation);
 
-        let checked = match compilation.control_flow_checked_constant_template(key) {
+        let checked = match compilation.checked_control_flow(key) {
             Ok(checked) => checked,
             Err(error) => panic!("constant template query must complete: {error:?}"),
         };
 
-        assert_eq!(
-            checked.value().control_flow_facts().kind(),
-            BoundUnitKind::ConstantTemplate
-        );
+        assert_eq!(checked.value().kind(), BoundUnitKind::ConstantTemplate);
     }
 
     #[test]
@@ -1078,7 +963,7 @@ mod tests {
             };
         let foreign_key = callable_key_from_symbols(&compilation, &foreign_symbols);
 
-        let foreign = compilation.control_flow_checked_callable_body(foreign_key.clone());
+        let foreign = compilation.checked_control_flow(foreign_key.clone());
 
         assert!(matches!(
             foreign,
@@ -1088,13 +973,13 @@ mod tests {
         assert_eq!(
             compilation
                 .state
-                .control_flow_units
-                .is_published::<ControlFlowCheckedCallableBody>(&foreign_key),
+                .checked_control_flow
+                .is_published(&foreign_key),
             Ok(false)
         );
 
         let local_key = callable_key(&compilation);
-        let local = compilation.control_flow_checked_callable_body(local_key);
+        let local = compilation.checked_control_flow(local_key);
 
         assert!(local.is_ok());
     }
