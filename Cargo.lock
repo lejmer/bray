@@ -197,6 +197,13 @@ version = "0.0.0"
 [[package]]
 name = "bray-lowering"
 version = "0.0.0"
+dependencies = [
+ "bray-bound-tree",
+ "bray-declarations",
+ "bray-parser",
+ "bray-source",
+ "bray-symbols",
+]
 
 [[package]]
 name = "bray-messages"

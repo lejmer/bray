@@ -78,7 +78,6 @@
     - Represents bound expressions, statements, items, storage identities, storage accesses, projections, calls, locals,
       temporaries, resolved references, selected semantic facts, and other source-correlated semantic nodes.
     - Owns unit-local borrow-capability identities and instantiated dependency contracts without making those IDs symbol facts.
-    - Owns the normalized lowered-bound node representation produced before `bray-ir` construction.
     - Owns checked declaration-owned-expression nodes without making bound-node IDs part of `bray-symbols` records.
     - Owns category-specific checked-region value types that retain their immutable local symbol snapshots.
     - Owns durable checker result types stored on bound nodes so it does not depend on checker algorithms.
@@ -105,8 +104,11 @@
     - Returns structured diagnostics and semantic facts for the binder to place on bound nodes before publication.
 
 - `bray-lowering`
+    - Owns the validated borrowing boundary over canonical bound units and their required durable semantic facts.
+    - Owns the normalized lowered-bound representation produced before `bray-ir` construction.
     - Lowers checked source-shaped bound HIR into normalized lowered-bound nodes, then translates those nodes into `bray-ir`.
-    - Makes implicit semantics explicit: temporaries, drops, moves, control-flow normalization, pattern lowering, short-circuiting, and other desugaring.
+    - Makes implicit semantics explicit: temporaries, drops, moves, control-flow normalization, pattern lowering, short-circuiting,
+      and other desugaring.
     - Materializes reachable runtime-default providers from their checked declaration-owned expressions.
 
 - `bray-ir`

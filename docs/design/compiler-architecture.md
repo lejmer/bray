@@ -108,6 +108,10 @@ The main durable representations are:
 The checked program state is the source-shaped bound HIR after the binder has completed semantic analysis and all required semantic
 facts have been populated.
 
+Lowering receives that state through a validated borrowing view over one canonical bound unit and its required typed side facts. The
+normalized lowered-bound representation is an execution-shaped artifact owned by `bray-lowering`, not another checked bound-tree
+wrapper or a second family of source-shaped nodes.
+
 ---
 
 ## Demand-Driven Evaluation
