@@ -3,8 +3,8 @@ use std::sync::Arc;
 use bray_base::{shared_str, sorted_unique_shared_slice};
 
 use crate::{
-    BackendArtifactKind, CodegenOutcome, CodegenRequest, CodegenTarget, DebugInformationMode,
-    ObjectFormat, TargetArchitecture,
+    AssemblySyntax, BackendArtifactKind, CodegenFailure, CodegenOutcome, CodegenRequest,
+    CodegenTarget, DebugInformationMode, ObjectFormat, TargetArchitecture,
 };
 
 /// Stable compiler-facing identity of one backend implementation and compatible toolchain.
@@ -86,6 +86,7 @@ pub struct BackendCapabilities {
     target_platforms: Arc<[BackendTargetPlatform]>,
     artifact_kinds: Arc<[BackendArtifactKind]>,
     debug_information_modes: Arc<[DebugInformationMode]>,
+    assembly_syntaxes: Arc<[AssemblySyntax]>,
 }
 
 impl BackendCapabilities {
@@ -94,11 +95,13 @@ impl BackendCapabilities {
         target_platforms: impl IntoIterator<Item = BackendTargetPlatform>,
         artifact_kinds: impl IntoIterator<Item = BackendArtifactKind>,
         debug_information_modes: impl IntoIterator<Item = DebugInformationMode>,
+        assembly_syntaxes: impl IntoIterator<Item = AssemblySyntax>,
     ) -> Self {
         Self {
             target_platforms: sorted_unique_shared_slice(target_platforms),
             artifact_kinds: sorted_unique_shared_slice(artifact_kinds),
             debug_information_modes: sorted_unique_shared_slice(debug_information_modes),
+            assembly_syntaxes: sorted_unique_shared_slice(assembly_syntaxes),
         }
     }
 
@@ -117,15 +120,22 @@ impl BackendCapabilities {
         &self.debug_information_modes
     }
 
-    /// Returns whether the backend declares support for this target platform.
-    pub fn supports_target(&self, target: &CodegenTarget) -> bool {
+    /// Returns supported human-readable assembly syntaxes in canonical order.
+    pub fn assembly_syntaxes(&self) -> &[AssemblySyntax] {
+        &self.assembly_syntaxes
+    }
+
+    /// Returns whether the backend declares support for this architecture and object format.
+    ///
+    /// Complete target validation remains backend-specific through [`CodegenBackend::validate_target`].
+    pub fn supports_platform(&self, target: &CodegenTarget) -> bool {
         let machine = target.machine();
 
         self.target_platforms.binary_search_by(|platform| {
             platform
                 .architecture()
-                .cmp(machine.architecture())
-                .then_with(|| platform.object_format().cmp(machine.object_format()))
+                .cmp(&machine.architecture())
+                .then_with(|| platform.object_format().cmp(&machine.object_format()))
         }) == Ok(0)
     }
 
@@ -137,6 +147,11 @@ impl BackendCapabilities {
     /// Returns whether the backend supports the requested debug-information mode.
     pub fn supports_debug_information(&self, mode: DebugInformationMode) -> bool {
         self.debug_information_modes.binary_search(&mode).is_ok()
+    }
+
+    /// Returns whether the backend supports one assembly serialization syntax.
+    pub fn supports_assembly_syntax(&self, syntax: AssemblySyntax) -> bool {
+        self.assembly_syntaxes.binary_search(&syntax).is_ok()
     }
 }
 
@@ -151,6 +166,9 @@ pub trait CodegenBackend: Send + Sync {
     /// Returns the backend's immutable declared capabilities.
     fn capabilities(&self) -> &BackendCapabilities;
 
+    /// Validates the complete target contract against backend-specific machine support.
+    fn validate_target(&self, target: &CodegenTarget) -> Result<(), CodegenFailure>;
+
     /// Generates every requested artifact for one validated codegen unit.
     fn generate(&self, request: CodegenRequest<'_>) -> CodegenOutcome;
 }
@@ -158,7 +176,11 @@ pub trait CodegenBackend: Send + Sync {
 #[cfg(test)]
 mod tests {
     use super::{BackendCapabilities, BackendIdentity, BackendTargetPlatform, CodegenBackend};
-    use crate::{BackendArtifactKind, DebugInformationMode, ObjectFormat, TargetArchitecture};
+    use crate::{
+        ArtifactSpool, AssemblySyntax, BackendArtifactContribution, BackendArtifactKind,
+        BackendArtifactRequest, CodegenOutcome, CodegenRequest, CodegenTarget, CodegenUnit,
+        DebugInformationMode, ObjectFormat, TargetArchitecture,
+    };
 
     #[test]
     fn capabilities_are_canonical_sets() {
@@ -175,6 +197,7 @@ mod tests {
                 DebugInformationMode::None,
                 DebugInformationMode::Full,
             ],
+            [AssemblySyntax::TargetDefault, AssemblySyntax::Intel],
         );
 
         assert_eq!(capabilities.target_platforms().len(), 1);
@@ -189,6 +212,10 @@ mod tests {
             capabilities.debug_information_modes(),
             &[DebugInformationMode::None, DebugInformationMode::Full]
         );
+        assert_eq!(
+            capabilities.assembly_syntaxes(),
+            &[AssemblySyntax::TargetDefault, AssemblySyntax::Intel]
+        );
     }
 
     #[test]
@@ -196,6 +223,13 @@ mod tests {
         fn assert_send_sync<T: ?Sized + Send + Sync>() {}
 
         assert_send_sync::<dyn CodegenBackend>();
+        assert_send_sync::<CodegenRequest<'static>>();
+        assert_send_sync::<CodegenUnit>();
+        assert_send_sync::<CodegenTarget>();
+        assert_send_sync::<BackendArtifactRequest>();
+        assert_send_sync::<BackendArtifactContribution>();
+        assert_send_sync::<ArtifactSpool>();
+        assert_send_sync::<CodegenOutcome>();
     }
 
     #[test]

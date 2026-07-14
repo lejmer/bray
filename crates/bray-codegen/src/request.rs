@@ -1,11 +1,13 @@
 use crate::{
-    BackendArtifactRequest, CodegenCancellation, CodegenOptions, CodegenTarget, CodegenUnit,
+    BackendArtifactRequest, BackendIdentity, CodegenCancellation, CodegenOptions, CodegenTarget,
+    CodegenUnit, DebugInformationMode, DebugInformationOutputMode,
 };
 
 /// Borrowed immutable inputs for one complete backend operation.
 #[derive(Clone, Copy)]
 pub struct CodegenRequest<'request> {
     unit: &'request CodegenUnit,
+    backend: &'request BackendIdentity,
     target: &'request CodegenTarget,
     options: &'request CodegenOptions,
     artifacts: &'request BackendArtifactRequest,
@@ -13,26 +15,44 @@ pub struct CodegenRequest<'request> {
 }
 
 impl<'request> CodegenRequest<'request> {
-    /// Creates a request from validated immutable inputs.
-    pub const fn new(
+    /// Validates and creates a request from authoritative immutable inputs.
+    pub fn try_new(
         unit: &'request CodegenUnit,
+        backend: &'request BackendIdentity,
         target: &'request CodegenTarget,
         options: &'request CodegenOptions,
         artifacts: &'request BackendArtifactRequest,
         cancellation: &'request dyn CodegenCancellation,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, CodegenRequestBuildError> {
+        if artifacts.unit() != unit.key() {
+            return Err(CodegenRequestBuildError::ArtifactUnitMismatch);
+        }
+
+        let debug_information = options.debug_information();
+        let debug_output = artifacts.debug_information();
+
+        if !debug_contract_matches(debug_information, debug_output) {
+            return Err(CodegenRequestBuildError::DebugInformationMismatch);
+        }
+
+        Ok(Self {
             unit,
+            backend,
             target,
             options,
             artifacts,
             cancellation,
-        }
+        })
     }
 
     /// Returns the validated MIR work item.
     pub const fn unit(self) -> &'request CodegenUnit {
         self.unit
+    }
+
+    /// Returns the authoritative selected backend identity.
+    pub const fn backend(self) -> &'request BackendIdentity {
+        self.backend
     }
 
     /// Returns the validated target configuration.
@@ -54,4 +74,27 @@ impl<'request> CodegenRequest<'request> {
     pub const fn cancellation(self) -> &'request dyn CodegenCancellation {
         self.cancellation
     }
+}
+
+/// A contract violation that prevents a backend request from being published.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CodegenRequestBuildError {
+    /// The artifact request belongs to another codegen unit.
+    ArtifactUnitMismatch,
+    /// Generation and serialization disagree about whether debug information exists.
+    DebugInformationMismatch,
+}
+
+const fn debug_contract_matches(
+    information: DebugInformationMode,
+    output: DebugInformationOutputMode,
+) -> bool {
+    matches!(
+        (information, output),
+        (DebugInformationMode::None, DebugInformationOutputMode::Omit)
+            | (
+                DebugInformationMode::LineTables | DebugInformationMode::Full,
+                DebugInformationOutputMode::Embedded | DebugInformationOutputMode::Separate
+            )
+    )
 }

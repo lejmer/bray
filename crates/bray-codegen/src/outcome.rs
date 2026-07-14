@@ -1,6 +1,9 @@
 use bray_diagnostics::DiagnosticBag;
 
-use crate::{BackendArtifactKind, BackendArtifactSet};
+use crate::{
+    BackendArtifactContribution, BackendArtifactKind, BackendArtifactSet,
+    BackendArtifactSetBuildError, CodegenRequest,
+};
 
 /// Structured reason one backend operation could not produce a complete artifact set.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -40,12 +43,18 @@ pub struct CodegenOutcome {
 }
 
 impl CodegenOutcome {
-    /// Creates a successful outcome containing a complete artifact set.
-    pub const fn complete(artifacts: BackendArtifactSet, diagnostics: DiagnosticBag) -> Self {
-        Self {
+    /// Validates contributions against the authoritative request before successful publication.
+    pub fn try_complete(
+        request: CodegenRequest<'_>,
+        contributions: impl IntoIterator<Item = BackendArtifactContribution>,
+        diagnostics: DiagnosticBag,
+    ) -> Result<Self, BackendArtifactSetBuildError> {
+        let artifacts = BackendArtifactSet::try_new(request, contributions)?;
+
+        Ok(Self {
             status: CodegenStatus::Complete(artifacts),
             diagnostics,
-        }
+        })
     }
 
     /// Creates a failed outcome without partial artifacts.
@@ -88,6 +97,27 @@ mod tests {
     use bray_diagnostics::DiagnosticBag;
 
     use super::{CodegenFailure, CodegenOutcome, CodegenStatus};
+    use crate::test_support::{codegen_request, contribution};
+
+    #[test]
+    fn completed_outcomes_publish_only_authoritatively_validated_artifacts() {
+        let fixture = codegen_request();
+        let artifact = contribution(&fixture, fixture.required_artifact().clone());
+
+        let Ok(outcome) =
+            CodegenOutcome::try_complete(fixture.request(), [artifact], DiagnosticBag::new())
+        else {
+            panic!("requested test contribution must complete generation");
+        };
+
+        let Some(artifacts) = outcome.artifacts() else {
+            panic!("complete outcome must retain validated artifacts");
+        };
+
+        assert_eq!(artifacts.unit(), fixture.request().unit().key());
+        assert_eq!(artifacts.backend(), fixture.request().backend());
+        assert_eq!(artifacts.target(), fixture.request().target().identity());
+    }
 
     #[test]
     fn failed_and_cancelled_outcomes_cannot_expose_partial_artifacts() {
@@ -99,6 +129,7 @@ mod tests {
 
         assert!(matches!(failed.status(), CodegenStatus::Failed(_)));
         assert_eq!(failed.artifacts(), None);
+
         assert!(matches!(cancelled.status(), CodegenStatus::Cancelled));
         assert_eq!(cancelled.artifacts(), None);
     }

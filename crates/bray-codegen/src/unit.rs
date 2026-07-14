@@ -1,41 +1,28 @@
 use std::sync::Arc;
 
-use bray_base::shared_str;
+use bray_bound_tree::BoundUnitKey;
 use bray_ir::MirUnit;
 
 /// Stable structural identity of one partitioned codegen unit.
 ///
-/// The partition revision identifies the policy that selected unit membership. The opaque
-/// identity is derived from canonical concrete-instance membership by the codegen partitioner.
+/// The partition revision identifies the policy that selected canonical MIR membership. Later
+/// concrete-instance partitioning extends that typed membership without accepting an unrelated
+/// caller-supplied identity.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CodegenUnitKey {
     partition_revision: u32,
-    identity: Arc<str>,
+    mir_units: Arc<[BoundUnitKey]>,
 }
 
 impl CodegenUnitKey {
-    /// Creates a key unless its partition-derived identity is empty.
-    pub fn try_new(partition_revision: u32, identity: impl Into<Arc<str>>) -> Option<Self> {
-        let identity = shared_str(identity);
-
-        if identity.is_empty() {
-            return None;
-        }
-
-        Some(Self {
-            partition_revision,
-            identity,
-        })
-    }
-
     /// Returns the codegen partition-policy revision.
     pub const fn partition_revision(&self) -> u32 {
         self.partition_revision
     }
 
-    /// Returns the canonical partition-derived unit identity.
-    pub fn identity(&self) -> &str {
-        &self.identity
+    /// Returns canonical MIR semantic keys that structurally identify this unit.
+    pub fn mir_units(&self) -> &[BoundUnitKey] {
+        &self.mir_units
     }
 }
 
@@ -47,9 +34,9 @@ pub struct CodegenUnit {
 }
 
 impl CodegenUnit {
-    /// Creates a codegen unit with non-empty, unique MIR units in canonical key order.
+    /// Creates a codegen unit and derives its key from canonical non-empty MIR membership.
     pub fn try_new(
-        key: CodegenUnitKey,
+        partition_revision: u32,
         mir_units: impl IntoIterator<Item = MirUnit>,
     ) -> Result<Self, CodegenUnitBuildError> {
         let mut mir_units: Vec<_> = mir_units.into_iter().collect();
@@ -67,13 +54,19 @@ impl CodegenUnit {
             return Err(CodegenUnitBuildError::DuplicateMirUnit);
         }
 
+        // The structural key retains Arc-backed semantic keys independently of MIR storage.
+        let membership = mir_units.iter().map(|unit| unit.key().clone()).collect();
+
         Ok(Self {
-            key,
+            key: CodegenUnitKey {
+                partition_revision,
+                mir_units: membership,
+            },
             mir_units: mir_units.into(),
         })
     }
 
-    /// Returns the stable partition-derived unit key.
+    /// Returns the stable structural unit key.
     pub const fn key(&self) -> &CodegenUnitKey {
         &self.key
     }
@@ -98,14 +91,12 @@ mod tests {
     use bray_ir::{MirUnit, MirUnitBuilder};
     use bray_testing::test_bound_unit;
 
-    use super::{CodegenUnit, CodegenUnitBuildError, CodegenUnitKey};
+    use super::{CodegenUnit, CodegenUnitBuildError};
 
     #[test]
     fn units_reject_empty_and_duplicate_mir_membership() {
-        let key = key();
-
         assert_eq!(
-            CodegenUnit::try_new(key.clone(), []),
+            CodegenUnit::try_new(1, []),
             Err(CodegenUnitBuildError::Empty)
         );
 
@@ -113,25 +104,17 @@ mod tests {
         let duplicate = first.clone();
 
         assert_eq!(
-            CodegenUnit::try_new(key, [first, duplicate]),
+            CodegenUnit::try_new(1, [first, duplicate]),
             Err(CodegenUnitBuildError::DuplicateMirUnit)
         );
     }
 
     #[test]
-    fn units_canonicalize_mir_membership_independently_of_input_order() {
-        let first = CodegenUnit::try_new(key(), [mir_unit(8), mir_unit(4)]);
-        let second = CodegenUnit::try_new(key(), [mir_unit(4), mir_unit(8)]);
+    fn units_derive_equal_keys_independently_of_input_order() {
+        let first = CodegenUnit::try_new(1, [mir_unit(8), mir_unit(4)]);
+        let second = CodegenUnit::try_new(1, [mir_unit(4), mir_unit(8)]);
 
         assert_eq!(first, second);
-    }
-
-    fn key() -> CodegenUnitKey {
-        let Some(key) = CodegenUnitKey::try_new(1, "package.main.0") else {
-            panic!("test codegen unit key must be valid");
-        };
-
-        key
     }
 
     fn mir_unit(unit: u32) -> MirUnit {
