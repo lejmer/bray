@@ -181,6 +181,13 @@ fn preparsed_fragment(
     elements: &[CatalogSurfaceElement],
 ) -> Result<PreparsedSyntaxFragment, PreparsedSyntaxFragmentError> {
     let source = anchor.source().raw();
+
+    let source_id = SourceId::generated(source)
+        .ok_or(PreparsedSyntaxFragmentError::GeneratedSourceIdOutOfRange)?;
+
+    let identity = SourceIdentity::generated(source)
+        .ok_or(PreparsedSyntaxFragmentError::GeneratedSourceIdOutOfRange)?;
+
     let events = elements.iter().map(|element| match element {
         CatalogSurfaceElement::EnterNode(kind) => PreparsedSyntaxEvent::EnterNode(*kind),
         CatalogSurfaceElement::Token(token) => PreparsedSyntaxEvent::Token {
@@ -190,12 +197,7 @@ fn preparsed_fragment(
         CatalogSurfaceElement::ExitNode(kind) => PreparsedSyntaxEvent::ExitNode(*kind),
     });
 
-    PreparsedSyntaxFragment::try_new(
-        SourceId::new(source),
-        SourceIdentity::new(source),
-        "generated-catalog-surface",
-        events,
-    )
+    PreparsedSyntaxFragment::try_new(source_id, identity, "generated-catalog-surface", events)
 }
 
 fn declaration_signature(elements: &[CatalogSurfaceElement]) -> CatalogDeclarationSignature {
@@ -271,6 +273,24 @@ mod tests {
         declaration_signature,
     };
     use bray_syntax::SyntaxKind;
+
+    use crate::COMPILER_KNOWN_CATALOG;
+
+    #[test]
+    fn reconstructed_surfaces_use_the_generated_source_domain() {
+        let Some(surface) = COMPILER_KNOWN_CATALOG.declaration_surfaces().first() else {
+            panic!("generated catalog must contain declaration surfaces");
+        };
+
+        let fragment = match surface.syntax_fragment() {
+            Ok(fragment) => fragment,
+            Err(error) => panic!("generated catalog surface must reconstruct: {error:?}"),
+        };
+
+        assert!(fragment.source().source_id().is_generated());
+        assert_eq!(fragment.source().source_id().to_index(), None);
+        assert!(fragment.source().identity().is_generated());
+    }
 
     #[test]
     fn signature_scanning_ignores_nested_callable_modifiers() {

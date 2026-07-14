@@ -3,10 +3,10 @@ use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{
     AnySymbolId, CallableContractSymbolId, CallableContractTypeFact, CallableContractsFact,
     CallableSignatureFact, CallableSymbolId, ExactSymbolId, GenericConstraintsFact, GenericOwnerId,
-    ImplementationSubjectFact, ImplementationSymbolId, ImplementedTraitApplicationFact,
-    InherentTypeMemberValueFact, StructFieldSymbolId, StructFieldTypeFact, SymbolCompletionLevel,
-    SymbolFactCompletionRequest, SymbolFactContract, SymbolFactForcer, SymbolFactKind,
-    SymbolFactRequest, TraitTypeFulfillmentValueFact,
+    ImplementationCoherenceFact, ImplementationSubjectFact, ImplementationSymbolId,
+    ImplementedTraitApplicationFact, InherentTypeMemberValueFact, StructFieldSymbolId,
+    StructFieldTypeFact, SymbolCompletionLevel, SymbolFactCompletionRequest, SymbolFactContract,
+    SymbolFactForcer, SymbolFactKind, SymbolFactRequest, TraitTypeFulfillmentValueFact,
 };
 
 use super::super::context::CompilationBinderFacts;
@@ -64,7 +64,10 @@ impl SymbolFactForcer for CompilationBinderFacts<'_> {
                 force_typed::<ImplementedTraitApplicationFact>(self, owner)
             }
             SymbolFactKind::ImplementationCoherence => {
-                force_implementation_coherence_dependencies(self, request.symbol())
+                let owner = ImplementationSymbolId::try_from_any(request.symbol())
+                    .ok_or(FactQueryError::InfrastructureFailure)?;
+
+                force_typed::<ImplementationCoherenceFact>(self, owner)
             }
             SymbolFactKind::ConstantDeclaredType
             | SymbolFactKind::ConstantDefinition
@@ -76,19 +79,6 @@ impl SymbolFactForcer for CompilationBinderFacts<'_> {
             | SymbolFactKind::OverloadArms => Err(FactQueryError::InfrastructureFailure),
         }
     }
-}
-
-fn force_implementation_coherence_dependencies(
-    facts: &CompilationBinderFacts<'_>,
-    symbol: AnySymbolId,
-) -> Result<DiagnosticBag, FactQueryError> {
-    let owner = ImplementationSymbolId::try_from_any(symbol)
-        .ok_or(FactQueryError::InfrastructureFailure)?;
-
-    force_typed::<ImplementationSubjectFact>(facts, owner)?;
-    force_typed::<ImplementedTraitApplicationFact>(facts, owner)?;
-
-    Ok(DiagnosticBag::new())
 }
 
 impl Compilation {
@@ -166,10 +156,13 @@ mod tests {
     use bray_binder::SymbolFactProvider;
     use bray_compiler_known::CompilerKnownDeclarationKey;
     use bray_symbols::{
-        CallableContractSymbolId, CallableContractTypeFact, CallableSignatureFact, ExactSymbolId,
-        FunctionSymbolId, SelfTypeContext, StructFieldSymbolId, StructFieldTypeFact,
-        StructSymbolId, SymbolFactRequest, TraitCallableMemberSymbolId, TraitSymbolId,
-        TraitTypeFulfillmentSymbolId, TraitTypeFulfillmentValueFact, TypeData,
+        CallableContractClauseKind, CallableContractSymbolId, CallableContractTypeFact,
+        CallableContractsFact, CallableSignatureFact, ExactSymbolId, FunctionSymbolId,
+        GenericConstraintsFact, GenericOwnerId, ImplementationCoherenceFact,
+        ImplementationSymbolId, NamedTraitImplementationSymbolId, SelfTypeContext,
+        StructFieldSymbolId, StructFieldTypeFact, StructSymbolId, SymbolFactRequest,
+        TraitCallableMemberSymbolId, TraitSymbolId, TraitTypeFulfillmentSymbolId,
+        TraitTypeFulfillmentValueFact, TypeData,
     };
 
     use super::{CancellationToken, Compilation, SymbolCompletionLevel};
@@ -205,6 +198,52 @@ mod tests {
 
         assert!(Arc::ptr_eq(&first_copy, &second_copy));
         assert_eq!(first_copy.value().parameters().len(), 3);
+
+        let copy_contracts = published_fact(
+            &facts,
+            SymbolFactRequest::<CallableContractsFact>::new(copy.into()),
+        );
+
+        assert_eq!(copy_contracts.value().clauses().len(), 3);
+
+        assert_eq!(
+            copy_contracts
+                .value()
+                .clauses()
+                .iter()
+                .map(|clause| clause.kind())
+                .collect::<Vec<_>>(),
+            [
+                CallableContractClauseKind::Requires,
+                CallableContractClauseKind::Ensures,
+                CallableContractClauseKind::Static,
+            ]
+        );
+
+        let pointer = declaration::<StructSymbolId>(symbols, "RawPointer");
+
+        let Some(pointer_owner) = GenericOwnerId::try_new(pointer.into()) else {
+            panic!("raw pointer must be a generic owner");
+        };
+
+        let pointer_constraints = published_fact(
+            &facts,
+            SymbolFactRequest::<GenericConstraintsFact>::new(pointer_owner),
+        );
+
+        assert_eq!(pointer_constraints.value().constraints().len(), 1);
+
+        let storage_implementation =
+            declaration::<NamedTraitImplementationSymbolId>(symbols, "BoolStorageImplementation");
+
+        let coherence = published_fact(
+            &facts,
+            SymbolFactRequest::<ImplementationCoherenceFact>::new(ImplementationSymbolId::from(
+                storage_implementation,
+            )),
+        );
+
+        assert!(coherence.value().trait_application().is_some());
 
         let unary = declaration::<CallableContractSymbolId>(symbols, "UnaryCallable");
         let unary_type = published_fact(

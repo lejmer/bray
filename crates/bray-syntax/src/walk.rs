@@ -139,6 +139,44 @@ pub trait SyntaxWalkRoot: sealed::SyntaxWalkRoot {}
 
 impl<T> SyntaxWalkRoot for T where T: sealed::SyntaxWalkRoot {}
 
+/// Returns an opaque immutable view of one typed syntax node.
+pub fn syntax_node_view(node: &impl SyntaxWalkRoot) -> SyntaxNodeView<'_> {
+    node.syntax_walk_root()
+}
+
+/// Visits each direct child node in source order without descending into it.
+pub fn walk_direct_child_nodes(
+    node: &impl SyntaxWalkRoot,
+    mut visitor: impl for<'syntax> FnMut(SyntaxNodeView<'syntax>) -> SyntaxWalkControl,
+) {
+    let mut depth = 0_usize;
+
+    walk_syntax_node(node, |event| match event {
+        SyntaxWalkEvent::EnterNode(node) => {
+            let direct_child = depth == 1;
+
+            depth += 1;
+
+            if !direct_child {
+                return SyntaxWalkControl::Continue;
+            }
+
+            match visitor(node) {
+                SyntaxWalkControl::Stop => SyntaxWalkControl::Stop,
+                SyntaxWalkControl::Continue | SyntaxWalkControl::SkipChildren => {
+                    SyntaxWalkControl::SkipChildren
+                }
+            }
+        }
+        SyntaxWalkEvent::ExitNode(_) => {
+            depth = depth.saturating_sub(1);
+
+            SyntaxWalkControl::Continue
+        }
+        SyntaxWalkEvent::Token(_) => SyntaxWalkControl::Continue,
+    });
+}
+
 /// Concrete typed syntax node cast from a generic syntax node view.
 pub trait SyntaxCast: SourceSyntaxNode + Sized {
     /// Stable syntax kind accepted by this cast.
@@ -346,8 +384,8 @@ mod tests {
     use bray_source::{SourceOrigin, TextRange, TextSize};
 
     use super::{
-        SyntaxNodeView, SyntaxWalkControl, SyntaxWalkEvent, walk_source_unit, walk_syntax_node,
-        walk_syntax_tree,
+        SyntaxNodeView, SyntaxWalkControl, SyntaxWalkEvent, walk_direct_child_nodes,
+        walk_source_unit, walk_syntax_node, walk_syntax_tree,
     };
     use crate::test_support::{snapshot, token};
     use crate::{
@@ -474,6 +512,32 @@ mod tests {
         assert_eq!(
             events.last().map(String::as_str),
             Some("exit identifier_list")
+        );
+    }
+
+    #[test]
+    fn direct_child_walk_skips_nested_content() {
+        let source_unit = identifier_list_source_unit();
+        let mut lists = source_unit.identifier_lists();
+
+        let Some(list) = lists.next() else {
+            panic!("test source unit should contain an identifier list");
+        };
+
+        let mut kinds = Vec::new();
+
+        walk_direct_child_nodes(&list, |node| {
+            kinds.push(node.kind());
+
+            SyntaxWalkControl::Continue
+        });
+
+        assert_eq!(
+            kinds,
+            [
+                SyntaxKind::IdentifierListItem,
+                SyntaxKind::IdentifierListItem,
+            ]
         );
     }
 

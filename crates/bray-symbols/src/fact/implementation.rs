@@ -22,6 +22,33 @@ impl ImplementationSubject {
     }
 }
 
+/// The stable semantic key under which one implementation participates in coherence.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct ImplementationCoherenceKey {
+    subject: TypeId,
+    trait_application: Option<TraitApplicationId>,
+}
+
+impl ImplementationCoherenceKey {
+    /// Creates a coherence key from the checked implementation surface.
+    pub const fn new(subject: TypeId, trait_application: Option<TraitApplicationId>) -> Self {
+        Self {
+            subject,
+            trait_application,
+        }
+    }
+
+    /// Returns the exact implemented subject type.
+    pub const fn subject(self) -> TypeId {
+        self.subject
+    }
+
+    /// Returns the implemented trait application for a trait implementation.
+    pub const fn trait_application(self) -> Option<TraitApplicationId> {
+        self.trait_application
+    }
+}
+
 /// The semantic inputs that select an implementation witness.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ImplementationSelectionKey {

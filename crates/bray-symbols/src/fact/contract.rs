@@ -13,8 +13,9 @@ use crate::{
 use super::{
     CallableContractSet, CallableSignature, CheckedCallableParameterDefault,
     CheckedStructFieldDefault, CheckedUnionPayloadDefault, ConstantDefinitionState,
-    ConstantInstanceKey, GenericConstraintSet, ImplementationSelection, ImplementationSelectionKey,
-    ImplementationSubject, PredicateDefinition, PredicateDefinitionState, SymbolFactKind,
+    ConstantInstanceKey, GenericConstraintSet, ImplementationCoherenceKey, ImplementationSelection,
+    ImplementationSelectionKey, ImplementationSubject, PredicateDefinition,
+    PredicateDefinitionState, SymbolFactKind,
 };
 
 mod sealed {
@@ -273,6 +274,13 @@ define_symbol_fact_contract! {
         owner: ImplementationSymbolId,
         value: Option<crate::TraitApplicationId>,
         kind: ImplementedTraitApplication,
+        erase: |owner: ImplementationSymbolId| owner.into_any(),
+    }
+    /// The checked coherence key of one implementation declaration.
+    ImplementationCoherenceFact {
+        owner: ImplementationSymbolId,
+        value: ImplementationCoherenceKey,
+        kind: ImplementationCoherence,
         erase: |owner: ImplementationSymbolId| owner.into_any(),
     }
 }

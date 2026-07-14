@@ -7,13 +7,12 @@ use bray_declarations::SyntaxAnchor;
 use bray_symbols::LocalScopeId;
 use bray_syntax::{
     ArgumentListSyntax, CallOperationSyntax, ConversionOperationSyntax, ExpressionSyntax,
-    SourceSyntaxNode, SyntaxKind, SyntaxWalkControl,
+    SourceSyntaxNode, SyntaxKind, SyntaxWalkControl, walk_direct_child_nodes,
 };
 
 use super::super::BindingResult;
 use super::super::name::symbol_name;
 use super::ExpressionBinder;
-use super::support::visit_direct_nodes;
 use crate::BinderFactContext;
 use crate::binder::Binder;
 use crate::binding::BindingError;
@@ -31,7 +30,7 @@ impl ExpressionBinder {
     {
         let mut failure = None;
 
-        visit_direct_nodes(syntax, |operation| {
+        walk_direct_child_nodes(syntax, |operation| {
             let result = match operation.kind() {
                 SyntaxKind::CallOperation => {
                     let Some(call) = operation.cast::<CallOperationSyntax>() else {

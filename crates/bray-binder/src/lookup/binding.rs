@@ -13,7 +13,7 @@ pub(crate) fn lookup_unqualified_name(
     unit: &BoundUnitLocalBuilder,
     symbols: &SymbolGraph,
     scope: LocalScopeId,
-    module: ModuleSymbolId,
+    module: Option<ModuleSymbolId>,
     name: &str,
     access: NameAccess,
 ) -> NameLookupResult<ResolvedName> {
@@ -89,7 +89,10 @@ pub(crate) fn lookup_unqualified_name(
         };
     }
 
-    let module_lookup = lookup_surface_name(symbols, module.into(), name, access);
+    let module_lookup = module
+        .map(|module| lookup_surface_name(symbols, module.into(), name, access))
+        .unwrap_or(MemberLookupResult::NotFound);
+
     let ambient_lookup = lookup_surface_name(
         symbols,
         symbols.compiler_known_environment().id().into(),

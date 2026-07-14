@@ -22,7 +22,7 @@ scope Ambient at ambient {
     declaration RawPointer {
         representation RawPointer;
 
-        surface { struct RawPointer<T> {} }
+        surface { struct RawPointer<T> with(true) {} }
     }
 
     declaration RawPointerElement {

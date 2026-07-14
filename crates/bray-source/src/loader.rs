@@ -131,7 +131,9 @@ impl SourceLoader {
             }
         };
 
-        Ok(SourceId::new(raw))
+        SourceId::stored(raw).ok_or(SourceLoadError::TooManySources {
+            count: self.loaded_count,
+        })
     }
 }
 

@@ -2,6 +2,7 @@
 
 #![forbid(unsafe_code)]
 
+mod domain;
 mod edit;
 mod encoding;
 mod id;

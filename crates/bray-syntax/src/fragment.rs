@@ -36,7 +36,7 @@ impl PreparsedSyntaxFragment {
     pub fn try_new<'text>(
         source_id: SourceId,
         identity: SourceIdentity,
-        virtual_name: impl Into<String>,
+        generated_name: impl Into<String>,
         events: impl IntoIterator<Item = PreparsedSyntaxEvent<'text>>,
     ) -> Result<Self, PreparsedSyntaxFragmentError> {
         let mut text = String::new();
@@ -107,7 +107,7 @@ impl PreparsedSyntaxFragment {
         let source = SourceSnapshot::new(
             source_id,
             identity,
-            SourceOrigin::virtual_source(virtual_name),
+            SourceOrigin::generated(generated_name),
             SourceVersion::new(0),
             text,
         )
@@ -176,6 +176,8 @@ pub enum PreparsedSyntaxFragmentError {
     MissingRoot,
     /// The reconstructed source text exceeded Bray's source-size limit.
     TextTooLarge,
+    /// A generated source ordinal could not fit its reserved identity domain.
+    GeneratedSourceIdOutOfRange,
 }
 
 fn text_size(bytes: usize) -> Result<TextSize, PreparsedSyntaxFragmentError> {
@@ -184,7 +186,7 @@ fn text_size(bytes: usize) -> Result<TextSize, PreparsedSyntaxFragmentError> {
 
 #[cfg(test)]
 mod tests {
-    use bray_source::{SourceId, SourceIdentity};
+    use bray_source::{SourceId, SourceIdentity, SourceOriginKind};
 
     use super::{PreparsedSyntaxEvent, PreparsedSyntaxFragment, PreparsedSyntaxFragmentError};
     use crate::{SourceSyntaxNode, SyntaxKind, SyntaxText, TypeExpressionSyntax};
@@ -207,6 +209,10 @@ mod tests {
         };
 
         assert_eq!(fragment.source().text(), "bool");
+        assert_eq!(
+            fragment.source().origin().kind(),
+            SourceOriginKind::Generated
+        );
         assert_eq!(ty.full_text(), "bool");
         assert_eq!(ty.source(), fragment.source());
     }

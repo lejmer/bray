@@ -642,6 +642,10 @@ Generated surface records retain balanced source-order node and token events fro
 ordinary typed `bray-syntax` fragments from those events without lexing or parsing `.braydef` text at runtime. The reconstruction API
 exposes typed nodes and opaque node views, not public green-tree storage.
 
+Reconstructed fragments use a reserved generated-source identity domain. Their IDs must not index the compilation source store or
+collide with user source IDs. Semantic failures found while binding these fragments belong to catalog validation and must not enter
+ordinary user diagnostic bags.
+
 ### Structural Generation Stages
 
 Catalog generation proceeds in deterministic stages:

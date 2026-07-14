@@ -1,14 +1,13 @@
 use bray_binder::{
-    BinderFactError, BinderFactResult, CallableTypeQualifiers, TypeExpressionBinder,
-    TypeParameterBinding,
+    BinderFactError, BinderFactResult, CallableTypeQualifiers, SymbolFactProvider,
+    TypeExpressionBinder, TypeParameterBinding,
 };
-use bray_compiler_known::{CatalogGenericParameterKind, CatalogSurfaceElement};
+use bray_compiler_known::CatalogGenericParameterKind;
 use bray_diagnostics::DiagnosticResult;
 use bray_symbols::{
-    AnySymbolId, CallableContractSet, CallableContractTypeFact, CallableContractsFact,
-    CallableParameterSymbolId, CallableSignatureFact, CallableSymbolId,
-    DependencyContractTemplateData, GenericConstraintSet, GenericConstraintsFact,
-    GenericTypeParameterSymbolId, ImplementationSubject, ImplementationSubjectFact,
+    AnySymbolId, CallableContractTypeFact, CallableParameterSymbolId, CallableSignatureFact,
+    CallableSymbolId, GenericTypeParameterSymbolId, ImplementationCoherenceFact,
+    ImplementationCoherenceKey, ImplementationSubject, ImplementationSubjectFact,
     ImplementationSymbolId, ImplementedTraitApplicationFact, InherentTypeMemberValueFact,
     ReceiverParameterSymbolId, SelfTypeContext, StructFieldTypeFact, SymbolFactContract,
     SymbolFactRequest, SymbolFactResult, SymbolGraph, SymbolName, TraitTypeFulfillmentValueFact,
@@ -16,7 +15,7 @@ use bray_symbols::{
 use bray_syntax::{
     CallableContractDeclarationSyntax, FunctionDeclarationSyntax,
     ImplementationTypeMemberBindingSyntax, NamedTraitImplementationDeclarationSyntax,
-    StructFieldDeclarationSyntax, SyntaxKind, TraitCallableMemberDeclarationSyntax,
+    StructFieldDeclarationSyntax, TraitCallableMemberDeclarationSyntax,
 };
 
 use super::super::context::CompilationBinderFacts;
@@ -36,33 +35,6 @@ where
     ) -> BinderFactResult<SymbolFactResult<C>>;
 }
 
-impl CompilationSymbolFactBinding<GenericConstraintsFact> for CompilationSymbolFacts {
-    fn cache(&self) -> &SymbolFactCache<GenericConstraintsFact> {
-        &self.generic_constraints
-    }
-
-    fn bind(
-        &self,
-        context: &CompilationBinderFacts<'_>,
-        request: SymbolFactRequest<GenericConstraintsFact>,
-    ) -> BinderFactResult<SymbolFactResult<GenericConstraintsFact>> {
-        let surface = compiler_known_surface(context.symbols, request.symbol())?;
-
-        if surface.elements().iter().any(|element| {
-            matches!(
-                element,
-                CatalogSurfaceElement::EnterNode(SyntaxKind::WithClause)
-            )
-        }) {
-            return Err(BinderFactError::DependencyUnavailable);
-        }
-
-        Ok(DiagnosticResult::without_diagnostics(
-            GenericConstraintSet::new([]),
-        ))
-    }
-}
-
 impl CompilationSymbolFactBinding<CallableSignatureFact> for CompilationSymbolFacts {
     fn cache(&self) -> &SymbolFactCache<CallableSignatureFact> {
         &self.callable_signatures
@@ -74,41 +46,6 @@ impl CompilationSymbolFactBinding<CallableSignatureFact> for CompilationSymbolFa
         request: SymbolFactRequest<CallableSignatureFact>,
     ) -> BinderFactResult<SymbolFactResult<CallableSignatureFact>> {
         bind_callable_signature(context, request.owner())
-    }
-}
-
-impl CompilationSymbolFactBinding<CallableContractsFact> for CompilationSymbolFacts {
-    fn cache(&self) -> &SymbolFactCache<CallableContractsFact> {
-        &self.callable_contracts
-    }
-
-    fn bind(
-        &self,
-        context: &CompilationBinderFacts<'_>,
-        request: SymbolFactRequest<CallableContractsFact>,
-    ) -> BinderFactResult<SymbolFactResult<CallableContractsFact>> {
-        let surface = compiler_known_surface(context.symbols, request.symbol())?;
-        let has_contracts = surface.elements().iter().any(|element| {
-            matches!(
-                element,
-                CatalogSurfaceElement::EnterNode(
-                    SyntaxKind::RequiresClause | SyntaxKind::EnsuresClause | SyntaxKind::UsesClause
-                )
-            )
-        });
-
-        if has_contracts {
-            return Err(BinderFactError::DependencyUnavailable);
-        }
-
-        let dependency = context
-            .semantic_values
-            .intern_dependency_contract_template(DependencyContractTemplateData::new([]))
-            .map_err(|_| BinderFactError::DependencyUnavailable)?;
-
-        Ok(DiagnosticResult::without_diagnostics(
-            CallableContractSet::new([], [], dependency),
-        ))
     }
 }
 
@@ -236,6 +173,31 @@ impl CompilationSymbolFactBinding<ImplementedTraitApplicationFact> for Compilati
             type_binder(context, symbol)?.bind_trait_application(&syntax.trait_application())?;
 
         Ok(result.map(Some))
+    }
+}
+
+impl CompilationSymbolFactBinding<ImplementationCoherenceFact> for CompilationSymbolFacts {
+    fn cache(&self) -> &SymbolFactCache<ImplementationCoherenceFact> {
+        &self.implementation_coherence
+    }
+
+    fn bind(
+        &self,
+        context: &CompilationBinderFacts<'_>,
+        request: SymbolFactRequest<ImplementationCoherenceFact>,
+    ) -> BinderFactResult<SymbolFactResult<ImplementationCoherenceFact>> {
+        let owner = request.owner();
+
+        let subject =
+            context.symbol_fact(SymbolFactRequest::<ImplementationSubjectFact>::new(owner))?;
+
+        let trait_application = context.symbol_fact(SymbolFactRequest::<
+            ImplementedTraitApplicationFact,
+        >::new(owner))?;
+
+        Ok(DiagnosticResult::without_diagnostics(
+            ImplementationCoherenceKey::new(subject.value().ty(), *trait_application.value()),
+        ))
     }
 }
 
@@ -477,7 +439,7 @@ fn self_type_context(symbols: &SymbolGraph, symbol: AnySymbolId) -> Option<SelfT
     None
 }
 
-fn compiler_known_surface(
+pub(super) fn compiler_known_surface(
     symbols: &SymbolGraph,
     symbol: AnySymbolId,
 ) -> BinderFactResult<&'static bray_compiler_known::CatalogDeclarationSurfaceSyntax> {

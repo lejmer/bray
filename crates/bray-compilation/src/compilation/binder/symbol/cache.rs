@@ -3,9 +3,9 @@ use std::sync::Arc;
 use bray_binder::{BinderFactError, BinderFactResult, SymbolFactProvider};
 use bray_symbols::{
     CallableContractTypeFact, CallableContractsFact, CallableSignatureFact, GenericConstraintsFact,
-    ImplementationSubjectFact, ImplementedTraitApplicationFact, InherentTypeMemberValueFact,
-    StructFieldTypeFact, SymbolFactContract, SymbolFactRequest, SymbolFactResult,
-    TraitTypeFulfillmentValueFact,
+    ImplementationCoherenceFact, ImplementationSubjectFact, ImplementedTraitApplicationFact,
+    InherentTypeMemberValueFact, StructFieldTypeFact, SymbolFactContract, SymbolFactRequest,
+    SymbolFactResult, TraitTypeFulfillmentValueFact,
 };
 
 use super::super::context::CompilationBinderFacts;
@@ -22,6 +22,7 @@ pub(in crate::compilation) struct CompilationSymbolFacts {
     pub(super) trait_type_fulfillment_values: SymbolFactCache<TraitTypeFulfillmentValueFact>,
     pub(super) implementation_subjects: SymbolFactCache<ImplementationSubjectFact>,
     pub(super) implemented_traits: SymbolFactCache<ImplementedTraitApplicationFact>,
+    pub(super) implementation_coherence: SymbolFactCache<ImplementationCoherenceFact>,
 }
 
 impl CompilationSymbolFacts {
@@ -36,6 +37,7 @@ impl CompilationSymbolFacts {
             trait_type_fulfillment_values: SymbolFactCache::new(),
             implementation_subjects: SymbolFactCache::new(),
             implemented_traits: SymbolFactCache::new(),
+            implementation_coherence: SymbolFactCache::new(),
         }
     }
 }
