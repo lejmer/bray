@@ -187,6 +187,7 @@ mod tests {
     #[test]
     fn capabilities_are_canonical_sets() {
         let platform = BackendTargetPlatform::new(TargetArchitecture::X86_64, ObjectFormat::Elf);
+
         let capabilities = BackendCapabilities::new(
             [platform.clone(), platform],
             [
@@ -203,6 +204,7 @@ mod tests {
         );
 
         assert_eq!(capabilities.target_platforms().len(), 1);
+
         assert_eq!(
             capabilities.artifact_kinds(),
             &[
@@ -210,10 +212,12 @@ mod tests {
                 BackendArtifactKind::Assembly,
             ]
         );
+
         assert_eq!(
             capabilities.debug_information_modes(),
             &[DebugInformationMode::None, DebugInformationMode::Full]
         );
+
         assert_eq!(
             capabilities.assembly_syntax_kinds(),
             &[AssemblySyntaxKind::TargetDefault, AssemblySyntaxKind::Intel]
