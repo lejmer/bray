@@ -191,7 +191,7 @@ emitted objects or bitcode and does not depend on LLVM module state or Bray MIR.
 The core dependency direction is shown below. Arrows point from a dependency to its consumer.
 
 ```text
-bray-ir --------------------> bray-codegen
+bray-ir -------------------> bray-codegen
 bray-codegen --------------> bray-codegen-llvm
 bray-codegen --------------> bray-emitter
 bray-package-interface ----> bray-emitter
