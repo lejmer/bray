@@ -88,8 +88,9 @@ pub enum CodegenUnitBuildError {
 
 #[cfg(test)]
 mod tests {
+    use bray_testing::test_mir_unit;
+
     use super::{CodegenUnit, CodegenUnitBuildError};
-    use crate::test_support::mir_unit;
 
     #[test]
     fn units_reject_empty_and_duplicate_mir_membership() {
@@ -98,7 +99,7 @@ mod tests {
             Err(CodegenUnitBuildError::Empty)
         );
 
-        let first = mir_unit(4);
+        let first = test_mir_unit(4);
         let duplicate = first.clone();
 
         assert_eq!(
@@ -109,8 +110,8 @@ mod tests {
 
     #[test]
     fn units_derive_equal_keys_independently_of_input_order() {
-        let first = CodegenUnit::try_new(1, [mir_unit(8), mir_unit(4)]);
-        let second = CodegenUnit::try_new(1, [mir_unit(4), mir_unit(8)]);
+        let first = CodegenUnit::try_new(1, [test_mir_unit(8), test_mir_unit(4)]);
+        let second = CodegenUnit::try_new(1, [test_mir_unit(4), test_mir_unit(8)]);
 
         assert_eq!(first, second);
     }

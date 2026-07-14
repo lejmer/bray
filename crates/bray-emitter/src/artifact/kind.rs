@@ -1,0 +1,141 @@
+use bray_codegen::{BackendArtifactId, BackendArtifactKind, BackendIdentity};
+
+use crate::{DependencyMetadataProducerId, LinkerProducerId};
+
+/// External or staging artifact categories understood by emission policy.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum ArtifactKind {
+    /// Human-readable target assembly.
+    Assembly,
+    /// Human-readable backend low-level IR.
+    BackendIr,
+    /// Backend-owned binary IR or bitcode.
+    BackendBitcode,
+    /// Relocatable native object.
+    RelocatableObject,
+    /// Backend-owned directly executable target module.
+    ExecutableModule,
+    /// Backend-owned separately stored debug data.
+    DebugCompanion,
+    /// Compiled package interface.
+    PackageInterface,
+    /// Compiler-owned dependency metadata.
+    DependencyMetadata,
+    /// Final executable product.
+    Executable,
+    /// Final static library product.
+    StaticLibrary,
+    /// Final shared library product.
+    SharedLibrary,
+    /// Target-required companion to a linked product.
+    LinkedCompanion,
+}
+
+impl ArtifactKind {
+    /// Returns the backend artifact category when code generation owns its bytes.
+    pub const fn backend_kind(self) -> Option<BackendArtifactKind> {
+        match self {
+            Self::Assembly => Some(BackendArtifactKind::Assembly),
+            Self::BackendIr => Some(BackendArtifactKind::BackendIr),
+            Self::BackendBitcode => Some(BackendArtifactKind::BackendBitcode),
+            Self::RelocatableObject => Some(BackendArtifactKind::RelocatableObject),
+            Self::ExecutableModule => Some(BackendArtifactKind::ExecutableModule),
+            Self::DebugCompanion => Some(BackendArtifactKind::DebugCompanion),
+            Self::PackageInterface
+            | Self::DependencyMetadata
+            | Self::Executable
+            | Self::StaticLibrary
+            | Self::SharedLibrary
+            | Self::LinkedCompanion => None,
+        }
+    }
+}
+
+impl From<BackendArtifactKind> for ArtifactKind {
+    fn from(kind: BackendArtifactKind) -> Self {
+        match kind {
+            BackendArtifactKind::RelocatableObject => Self::RelocatableObject,
+            BackendArtifactKind::Assembly => Self::Assembly,
+            BackendArtifactKind::BackendIr => Self::BackendIr,
+            BackendArtifactKind::BackendBitcode => Self::BackendBitcode,
+            BackendArtifactKind::ExecutableModule => Self::ExecutableModule,
+            BackendArtifactKind::DebugCompanion => Self::DebugCompanion,
+        }
+    }
+}
+
+/// Whether one planned artifact is mandatory for complete product emission.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum ArtifactRequirement {
+    /// Product emission cannot complete without this artifact.
+    Required,
+    /// Product emission may complete when this artifact is unavailable.
+    Optional,
+}
+
+/// Role one artifact has in the emission lifecycle.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum ArtifactRole {
+    /// Final externally visible compiler product.
+    Product,
+    /// Externally requested inspection output.
+    Inspection,
+    /// Private input staged for the native linker.
+    LinkInput,
+    /// Externally visible companion to another product artifact.
+    Companion,
+}
+
+/// Typed owner of one planned artifact contribution.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum ArtifactProducer {
+    /// Exact backend contribution and backend implementation expected by the plan.
+    Backend {
+        /// Logical codegen contribution identity.
+        artifact: BackendArtifactId,
+        /// Backend implementation and toolchain identity.
+        backend: BackendIdentity,
+    },
+    /// Completed package-interface fact.
+    PackageInterface,
+    /// Compiler-owned dependency metadata fact.
+    DependencyMetadata(DependencyMetadataProducerId),
+    /// Native linker output.
+    Linker(LinkerProducerId),
+}
+
+impl ArtifactProducer {
+    /// Returns the exact backend contribution identity when code generation owns the bytes.
+    pub const fn backend_artifact(&self) -> Option<&BackendArtifactId> {
+        match self {
+            Self::Backend { artifact, .. } => Some(artifact),
+            Self::PackageInterface | Self::DependencyMetadata(_) | Self::Linker(_) => None,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_codegen::BackendArtifactKind;
+
+    use super::ArtifactKind;
+
+    #[test]
+    fn backend_artifact_kinds_have_lossless_emitter_projections() {
+        let backend_kinds = [
+            BackendArtifactKind::RelocatableObject,
+            BackendArtifactKind::Assembly,
+            BackendArtifactKind::BackendIr,
+            BackendArtifactKind::BackendBitcode,
+            BackendArtifactKind::ExecutableModule,
+            BackendArtifactKind::DebugCompanion,
+        ];
+
+        for backend_kind in backend_kinds {
+            assert_eq!(
+                ArtifactKind::from(backend_kind).backend_kind(),
+                Some(backend_kind)
+            );
+        }
+    }
+}

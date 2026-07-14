@@ -20,6 +20,7 @@ mod local;
 mod member;
 mod name;
 mod origin;
+mod product;
 mod provider;
 mod recognized;
 mod record;
@@ -119,6 +120,7 @@ pub use member::{
 };
 pub use name::SymbolName;
 pub use origin::SymbolOrigin;
+pub use product::{ProductIdentity, ProductKind};
 pub use provider::{SymbolProvider, SymbolRecordId};
 pub use recognized::{
     RecognizedStandardLibraryDeclarationMatch, RecognizedStandardLibraryDeclarations,

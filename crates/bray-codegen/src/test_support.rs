@@ -1,8 +1,7 @@
 use std::num::{NonZeroU16, NonZeroU32};
 
-use bray_ir::{MirUnit, MirUnitBuilder};
 use bray_symbols::CallableAbi;
-use bray_testing::test_bound_unit;
+use bray_testing::test_mir_unit;
 
 use crate::{
     ArtifactContent, BackendArtifactContribution, BackendArtifactId, BackendArtifactKind,
@@ -142,24 +141,8 @@ pub(crate) fn contribution(
 }
 
 fn codegen_unit(seed: u8) -> CodegenUnit {
-    let Ok(unit) = CodegenUnit::try_new(1, [mir_unit(u32::from(seed))]) else {
+    let Ok(unit) = CodegenUnit::try_new(1, [test_mir_unit(u32::from(seed))]) else {
         panic!("test codegen unit must be valid");
-    };
-
-    unit
-}
-
-pub(crate) fn mir_unit(unit: u32) -> MirUnit {
-    let bound = test_bound_unit(unit);
-    let source = bound.key().source();
-    let mut builder = MirUnitBuilder::new(bound.identity());
-
-    let Ok(entry) = builder.push_block(source) else {
-        panic!("test MIR block must be valid");
-    };
-
-    let Ok(unit) = builder.finish(entry) else {
-        panic!("test MIR unit must be valid");
     };
 
     unit

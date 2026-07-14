@@ -197,6 +197,13 @@ dependencies = [
 [[package]]
 name = "bray-emitter"
 version = "0.0.0"
+dependencies = [
+ "bray-base",
+ "bray-codegen",
+ "bray-diagnostics",
+ "bray-symbols",
+ "bray-testing",
+]
 
 [[package]]
 name = "bray-ir"
@@ -280,6 +287,7 @@ version = "0.0.0"
 dependencies = [
  "bray-bound-tree",
  "bray-declarations",
+ "bray-ir",
  "bray-parser",
  "bray-source",
  "bray-symbols",
