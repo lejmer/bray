@@ -8,6 +8,7 @@ use bray_compiler_known::{
 };
 
 use super::CompilerKnownSymbolProvider;
+use super::role::RepresentationTarget;
 use crate::availability::resolve_owned_availability;
 use crate::{AnySymbolId, ExactSymbolId};
 
@@ -105,6 +106,10 @@ impl AvailableCompilerKnownSymbols {
         self.declaration_ids.contains(&symbol)
     }
 
+    pub(super) fn contains_value(&self, value: CompilerKnownValueId) -> bool {
+        self.value_ids.contains(&value)
+    }
+
     /// Returns an available declaration by stable key and exact symbol category.
     pub fn declaration_symbol<I: ExactSymbolId>(
         &self,
@@ -121,19 +126,20 @@ impl AvailableCompilerKnownSymbols {
 
     /// Returns an available exact symbol carrying a representation role.
     pub fn representation_symbol<I: ExactSymbolId>(&self, role: RepresentationRole) -> Option<I> {
-        let symbol = self
-            .provider
-            .role_registry()
-            .representation_symbol::<I>(role)?;
+        let RepresentationTarget::Symbol(symbol) = self.representation_target(role)? else {
+            return None;
+        };
 
-        self.contains(symbol.into()).then_some(symbol)
+        I::try_from_any(symbol)
     }
 
     /// Returns an available special value carrying a representation role.
     pub fn representation_value(&self, role: RepresentationRole) -> Option<CompilerKnownValueId> {
-        let value = self.provider.role_registry().representation_value(role)?;
+        let RepresentationTarget::Value(value) = self.representation_target(role)? else {
+            return None;
+        };
 
-        self.value_ids.contains(&value).then_some(value)
+        Some(value)
     }
 
     /// Returns available implementation declarations having the requested exact symbol kind.
@@ -141,10 +147,8 @@ impl AvailableCompilerKnownSymbols {
         &'view self,
         hook: ImplementationHook,
     ) -> impl Iterator<Item = I> + 'view {
-        self.provider
-            .role_registry()
-            .implementation_symbols::<I>(hook)
-            .filter(|symbol: &I| self.contains((*symbol).into()))
+        self.implementation_symbol_ids(hook)
+            .filter_map(I::try_from_any)
     }
 
     /// Returns the representation role carried by an available exact symbol.
@@ -172,6 +176,33 @@ impl AvailableCompilerKnownSymbols {
         }
 
         self.provider.role_registry().symbol_implementation(symbol)
+    }
+
+    pub(super) fn representation_target(
+        &self,
+        role: RepresentationRole,
+    ) -> Option<RepresentationTarget> {
+        match self.provider.role_registry().representation_target(role)? {
+            RepresentationTarget::Symbol(symbol) if self.contains(symbol) => {
+                Some(RepresentationTarget::Symbol(symbol))
+            }
+            RepresentationTarget::Value(value) if self.contains_value(value) => {
+                Some(RepresentationTarget::Value(value))
+            }
+            RepresentationTarget::Symbol(_) | RepresentationTarget::Value(_) => None,
+        }
+    }
+
+    pub(super) fn implementation_symbol_ids(
+        &self,
+        hook: ImplementationHook,
+    ) -> impl Iterator<Item = AnySymbolId> + '_ {
+        self.provider
+            .role_registry()
+            .implementation_symbol_ids(hook)
+            .iter()
+            .copied()
+            .filter(|symbol| self.contains(*symbol))
     }
 }
 

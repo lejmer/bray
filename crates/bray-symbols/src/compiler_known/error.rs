@@ -79,6 +79,70 @@ pub enum CompilerKnownSymbolBuildError {
     },
 }
 
+impl std::fmt::Display for CompilerKnownSymbolBuildError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NonCanonicalScopeId { expected, actual } => write!(
+                formatter,
+                "compiler-known scope ID {actual:?} does not match canonical ID {expected:?}"
+            ),
+            Self::NonCanonicalDeclarationId { expected, actual } => write!(
+                formatter,
+                "compiler-known declaration ID {actual:?} does not match canonical ID {expected:?}"
+            ),
+            Self::SymbolCapacityExceeded { index } => write!(
+                formatter,
+                "compiler-known symbol index {index} exceeds compact identity capacity"
+            ),
+            Self::DuplicateAmbientScope { duplicate } => {
+                write!(
+                    formatter,
+                    "compiler-known ambient scope {duplicate:?} is duplicated"
+                )
+            }
+            Self::MissingAmbientScope => {
+                formatter.write_str("compiler-known catalog has no ambient scope")
+            }
+            Self::InvalidModulePath { scope } => {
+                write!(
+                    formatter,
+                    "compiler-known scope {scope:?} has an invalid module path"
+                )
+            }
+            Self::MissingScopeOwner { declaration, scope } => write!(
+                formatter,
+                "compiler-known declaration {declaration:?} refers to missing scope {scope:?}"
+            ),
+            Self::MissingDeclarationOwner { declaration, owner } => write!(
+                formatter,
+                "compiler-known declaration {declaration:?} refers to missing declaration {owner:?}"
+            ),
+            Self::MissingRoleDeclarationSymbol { declaration } => write!(
+                formatter,
+                "compiler-known role refers to declaration {declaration:?} without a symbol"
+            ),
+            Self::DeclarationOwnerCycle { declaration } => write!(
+                formatter,
+                "compiler-known declaration ownership cycles through {declaration:?}"
+            ),
+            Self::InvalidDeclarationKind {
+                declaration,
+                catalog_kind,
+                owner_kind,
+            } => write!(
+                formatter,
+                "compiler-known declaration {declaration:?} with catalog kind {catalog_kind:?} cannot belong to {owner_kind:?}"
+            ),
+            Self::InvalidDeclarationSurface { declaration } => write!(
+                formatter,
+                "compiler-known declaration {declaration:?} has an invalid generated surface"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for CompilerKnownSymbolBuildError {}
+
 impl From<SymbolIdCapacityError> for CompilerKnownSymbolBuildError {
     fn from(error: SymbolIdCapacityError) -> Self {
         Self::SymbolCapacityExceeded { index: error.index }

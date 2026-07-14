@@ -3,6 +3,7 @@ use std::process::ExitCode;
 
 use bray_compiler_known::generate_catalog_output;
 
+const USAGE: &str = "usage: cargo xtask compiler-known <generate [--check] | check>";
 const GENERATED_SOURCE_PATH: &str =
     "crates/bray-compiler-known/src/catalog/generated/compiler_known.rs";
 const GENERATED_DIGEST_PATH: &str =
@@ -10,35 +11,59 @@ const GENERATED_DIGEST_PATH: &str =
 
 pub(crate) fn run(mut arguments: impl Iterator<Item = String>) -> ExitCode {
     let Some(command) = arguments.next() else {
-        eprintln!("usage: cargo xtask compiler-known generate [--check]");
+        eprintln!("{USAGE}");
         return ExitCode::FAILURE;
     };
 
-    if command != "compiler-known" || arguments.next().as_deref() != Some("generate") {
-        eprintln!("usage: cargo xtask compiler-known generate [--check]");
+    if command != "compiler-known" {
+        eprintln!("{USAGE}");
         return ExitCode::FAILURE;
     }
 
-    let check = match arguments.next().as_deref() {
-        None => false,
-        Some("--check") => true,
-        Some(argument) => {
-            eprintln!("unexpected argument: {argument}");
-            return ExitCode::FAILURE;
-        }
+    let Some(action) = arguments.next() else {
+        eprintln!("{USAGE}");
+        return ExitCode::FAILURE;
     };
 
-    if let Some(argument) = arguments.next() {
-        eprintln!("unexpected argument: {argument}");
-        return ExitCode::FAILURE;
-    }
+    let result = match action.as_str() {
+        "generate" => generate_command(arguments),
+        "check" => check_command(arguments),
+        _ => Err(format!("unexpected compiler-known command: {action}")),
+    };
 
-    match generate(check) {
+    match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("{error}");
             ExitCode::FAILURE
         }
+    }
+}
+
+fn generate_command(mut arguments: impl Iterator<Item = String>) -> Result<(), String> {
+    let check_only = match arguments.next().as_deref() {
+        None => false,
+        Some("--check") => true,
+        Some(argument) => return Err(format!("unexpected argument: {argument}")),
+    };
+
+    reject_trailing_argument(arguments)?;
+    generate(check_only)
+}
+
+fn check_command(arguments: impl Iterator<Item = String>) -> Result<(), String> {
+    reject_trailing_argument(arguments)?;
+    generate(true)?;
+
+    bray_compilation::check_compiler_known_catalog()
+        .map(|_| ())
+        .map_err(|error| format!("compiler-known semantic validation failed: {error}"))
+}
+
+fn reject_trailing_argument(mut arguments: impl Iterator<Item = String>) -> Result<(), String> {
+    match arguments.next() {
+        Some(argument) => Err(format!("unexpected argument: {argument}")),
+        None => Ok(()),
     }
 }
 
@@ -141,5 +166,26 @@ mod tests {
         if let Err(error) = std::fs::remove_file(&path) {
             panic!("test output should be removable: {error}");
         }
+    }
+
+    #[test]
+    fn check_command_runs_generated_and_semantic_validation() {
+        assert_eq!(
+            run(["compiler-known".to_owned(), "check".to_owned()].into_iter()),
+            std::process::ExitCode::SUCCESS
+        );
+    }
+
+    #[test]
+    fn check_command_rejects_arguments() {
+        assert_eq!(
+            run([
+                "compiler-known".to_owned(),
+                "check".to_owned(),
+                "--check".to_owned(),
+            ]
+            .into_iter()),
+            std::process::ExitCode::FAILURE
+        );
     }
 }

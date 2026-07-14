@@ -3,6 +3,7 @@
 #![forbid(unsafe_code)]
 
 mod compilation;
+mod compiler_known;
 mod fact;
 mod request;
 mod target;
@@ -12,6 +13,9 @@ mod worker;
 mod test_support;
 
 pub use compilation::{Compilation, CompilationLoadError};
+pub use compiler_known::{
+    CompilerKnownCatalogCheckError, CompilerKnownCatalogCheckReport, check_compiler_known_catalog,
+};
 pub use fact::{
     CancellationToken, CompilationFactKey, FactCycle, FactQueryError, SymbolCompletionError,
     SymbolFactKey, force_complete_symbol,

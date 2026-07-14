@@ -2,6 +2,9 @@
 
 #![forbid(unsafe_code)]
 
+#[macro_use]
+mod closed;
+
 mod availability;
 mod catalog;
 #[cfg(any(test, feature = "generation"))]

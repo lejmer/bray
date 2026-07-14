@@ -88,3 +88,21 @@ pub enum FactQueryError {
     /// Synchronized query state was poisoned or violated an internal publication invariant.
     InfrastructureFailure,
 }
+
+impl std::fmt::Display for FactQueryError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Cancelled => formatter.write_str("fact evaluation was cancelled"),
+            Self::Cycle(cycle) => write!(
+                formatter,
+                "fact evaluation encountered a dependency cycle: {:?}",
+                cycle.facts()
+            ),
+            Self::InfrastructureFailure => {
+                formatter.write_str("fact evaluation encountered an infrastructure failure")
+            }
+        }
+    }
+}
+
+impl std::error::Error for FactQueryError {}

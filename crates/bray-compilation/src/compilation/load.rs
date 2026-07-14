@@ -18,6 +18,21 @@ pub enum CompilationLoadError {
     },
 }
 
+impl std::fmt::Display for CompilationLoadError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::TooManyDiagnostics { count } => {
+                write!(
+                    formatter,
+                    "cannot assign a diagnostic after {count} diagnostics"
+                )
+            }
+        }
+    }
+}
+
+impl std::error::Error for CompilationLoadError {}
+
 pub(super) fn next_diagnostic_id(
     diagnostics: &DiagnosticBag,
 ) -> Result<DiagnosticId, CompilationLoadError> {

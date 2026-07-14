@@ -71,6 +71,89 @@ pub enum SymbolGraphBuildError {
     },
 }
 
+impl std::fmt::Display for SymbolGraphBuildError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::CompilerKnown(error) => {
+                write!(formatter, "compiler-known symbols failed: {error}")
+            }
+            Self::SymbolCapacityExceeded { index } => {
+                write!(
+                    formatter,
+                    "symbol index {index} exceeds compact identity capacity"
+                )
+            }
+            Self::MissingContainer {
+                declaration,
+                container,
+            } => write!(
+                formatter,
+                "declaration {declaration:?} refers to missing container {container:?}"
+            ),
+            Self::MissingModuleOwner {
+                declaration,
+                container,
+            } => write!(
+                formatter,
+                "declaration {declaration:?} has module container {container:?} without a symbol"
+            ),
+            Self::MissingModulePath { container } => {
+                write!(formatter, "module container {container:?} has no path")
+            }
+            Self::MissingModulePart {
+                container,
+                module_part,
+            } => write!(
+                formatter,
+                "module container {container:?} refers to missing part {module_part:?}"
+            ),
+            Self::MissingContainingDeclaration {
+                declaration,
+                container,
+            } => write!(
+                formatter,
+                "declaration {declaration:?} has container {container:?} without an introducing declaration"
+            ),
+            Self::MissingContainingSymbol {
+                declaration,
+                containing_declaration,
+            } => write!(
+                formatter,
+                "declaration {declaration:?} has containing declaration {containing_declaration:?} without a symbol"
+            ),
+            Self::InvalidSourceSymbolKind {
+                declaration,
+                declaration_kind,
+                symbol_kind,
+            } => write!(
+                formatter,
+                "declaration {declaration:?} with syntax kind {declaration_kind:?} cannot use symbol kind {symbol_kind:?}"
+            ),
+            Self::MissingRecoveredModuleAnchor { container } => write!(
+                formatter,
+                "recovered module container {container:?} has no declaration anchor"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for SymbolGraphBuildError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::CompilerKnown(error) => Some(error),
+            Self::SymbolCapacityExceeded { .. }
+            | Self::MissingContainer { .. }
+            | Self::MissingModuleOwner { .. }
+            | Self::MissingModulePath { .. }
+            | Self::MissingModulePart { .. }
+            | Self::MissingContainingDeclaration { .. }
+            | Self::MissingContainingSymbol { .. }
+            | Self::InvalidSourceSymbolKind { .. }
+            | Self::MissingRecoveredModuleAnchor { .. } => None,
+        }
+    }
+}
+
 impl From<CompilerKnownSymbolBuildError> for SymbolGraphBuildError {
     fn from(error: CompilerKnownSymbolBuildError) -> Self {
         Self::CompilerKnown(error)

@@ -127,6 +127,13 @@ macro_rules! define_symbol_graph {
                 self.compiler_known.as_ref()
             }
 
+            pub(crate) fn available_compiler_known_symbols(
+                &self,
+                rule_is_available: impl FnMut(bray_compiler_known::AvailabilityRule) -> bool,
+            ) -> crate::AvailableCompilerKnownSymbols {
+                Arc::clone(&self.compiler_known).available_symbols(rule_is_available)
+            }
+
             /// Returns package records in stable identity order.
             pub fn packages(&self) -> &[PackageSymbol] {
                 self.packages.records()
@@ -241,7 +248,9 @@ macro_rules! define_symbol_graph {
             pub fn containing_symbol(&self, symbol: AnySymbolId) -> Option<AnySymbolId> {
                 match symbol {
                     AnySymbolId::CompilerKnownEnvironment(_) | AnySymbolId::Package(_) => None,
-                    AnySymbolId::Module(_) => None,
+                    AnySymbolId::Module(id) => {
+                        self.module(id).map(|module| module.owner().into_any())
+                    }
                     AnySymbolId::CallableParameterDefaultProvider(id) => self
                         .callable_parameter_default_provider(id)
                         .map(CallableParameterDefaultProviderSymbol::containing_symbol),
@@ -756,7 +765,7 @@ for_each_declaration_symbol!(define_symbol_graph);
 
 #[cfg(test)]
 mod tests {
-    use crate::{AnySymbolId, PackageIdentity, SymbolGraph};
+    use crate::{AnySymbolId, PackageIdentity, SymbolGraph, SymbolOrigin};
 
     #[test]
     fn graph_types_are_send_and_sync() {
@@ -767,7 +776,7 @@ mod tests {
     }
 
     #[test]
-    fn erased_symbol_access_resolves_keys_and_runtime_default_providers() {
+    fn erased_symbol_access_resolves_keys_owners_and_runtime_default_providers() {
         let table = crate::test_support::declaration_table(&[concat!(
             "module app;\n",
             "func main(value: i32 = 1)\n",
@@ -800,6 +809,22 @@ mod tests {
             panic!("test source must declare one callable parameter");
         };
 
+        let Some(source_module) = graph
+            .modules()
+            .iter()
+            .find(|module| module.origin() == SymbolOrigin::Source)
+        else {
+            panic!("test source must produce one source module");
+        };
+
+        let Some(compiler_known_module) = graph
+            .modules()
+            .iter()
+            .find(|module| module.origin() == SymbolOrigin::CompilerKnown)
+        else {
+            panic!("generated catalog must produce a compiler-known module");
+        };
+
         let Some(provider_id) = parameter.default_provider() else {
             panic!("defaulted parameter must retain its provider ID");
         };
@@ -812,6 +837,16 @@ mod tests {
             graph.symbol_key(AnySymbolId::from(function.id())),
             Some(function.key())
         );
+
+        assert_eq!(
+            graph.containing_symbol(source_module.id().into()),
+            Some(source_module.owner().into_any())
+        );
+        assert_eq!(
+            graph.containing_symbol(compiler_known_module.id().into()),
+            Some(compiler_known_module.owner().into_any())
+        );
+
         assert_eq!(provider, provider_id.into());
         assert_eq!(
             graph.symbol_key(provider),

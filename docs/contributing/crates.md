@@ -62,6 +62,7 @@
       items without using a generic child-symbol model.
     - Symbols answer "what declared thing is this?"
     - Publishes compilation-local typed compiler-known role registries with forward and reverse identity lookup.
+    - Owns semantic audits of materialized compiler-known identities, ownership, typed roles, target views, and completion coverage.
     - Binding-dependent symbol facts are computed by the owning binder or checker service and coordinated through compilation
       queries.
 
