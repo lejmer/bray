@@ -123,8 +123,18 @@
 
 - `bray-codegen`
     - Backend-independent code generation interface and codegen orchestration.
-    - Converts `bray-ir` into backend-specific representations.
+    - Owns backend identity, codegen-unit requests, backend capabilities, backend-neutral artifact records, and codegen outcomes.
+    - Converts validated `bray-ir` into immutable backend artifacts through coarse typed backend contracts.
+    - Allows compilation to use an injected backend without depending on a concrete backend crate.
     - Should not own linking, artifact layout, or CLI policy.
+
+- `bray-codegen-llvm`
+    - First production code generation backend.
+    - Owns every LLVM dependency and LLVM-specific context, module, translation, verification, optimization, target-machine, and
+      artifact-generation detail.
+    - Produces backend-neutral codegen artifacts and must not make language-semantic, reachability, layout, ABI, or linking-policy
+      decisions.
+    - Must not depend on compilation, emission, driver, or command-line orchestration.
 
 - `bray-emitter`
     - Artifact emission.

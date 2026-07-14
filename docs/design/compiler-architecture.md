@@ -25,6 +25,8 @@ Binder and bound-tree implementation rules live in `docs/design/binder.md`.
 
 Semantic checker domain and analysis rules live in `docs/design/checker.md`.
 
+Code generation and backend implementation rules live in `docs/design/codegen.md`.
+
 This document is the design-level contract those implementation documents should follow.
 
 ---
@@ -580,13 +582,34 @@ IR validation failures indicate compiler bugs.
 
 ### Code Generation
 
-Code generation converts IR into backend-specific representations.
+Code generation converts validated Bray IR into immutable backend artifacts through a coarse typed backend contract.
+
+LLVM is Bray's first production backend. LLVM bindings, types, modules, target machines, optimization pipelines, and diagnostics are
+isolated in `bray-codegen-llvm`. They must not appear in `bray-ir`, backend-neutral codegen contracts, compilation facts, or
+emission APIs.
+
+`bray-codegen` owns backend identity, codegen-unit requests, backend capabilities, backend-neutral artifact records, and codegen
+outcomes. A backend consumes a complete codegen unit and translates it independently. The compiler does not reproduce LLVM's
+instruction-building API as a cross-backend abstraction.
+
+The compiler composition root supplies the selected backend through that backend-neutral contract. `bray-compilation` coordinates
+its lazy facts without depending on `bray-codegen-llvm` or inspecting backend-private state.
+
+The first product model uses native ahead-of-time generation of relocatable object artifacts. Optional assembly, LLVM IR, and
+bitcode outputs are inspection artifacts rather than durable intermediate compiler boundaries.
 
 Code generation does not own language semantics.
 
 Code generation does not own CLI policy, package policy, source discovery, artifact layout, or linking policy.
 
-Backend-specific choices should be expressed behind typed backend contracts.
+Target, ABI, layout, symbol, runtime, reachability, and generic-instantiation decisions must be explicit before code generation.
+Backend-specific legalization preserves those decisions rather than replacing them.
+
+Codegen units are lazy compilation facts with stable structural keys. Independent units can be generated in parallel, while mutable
+backend construction state remains task-local. Backend identity, target configuration, options, and backend-library revision
+participate in cache compatibility.
+
+The complete backend contract is defined in `docs/design/codegen.md`.
 
 ### Emission
 
@@ -644,6 +667,11 @@ Resolved references on bound nodes belong to binding.
 Semantic facts on source-shaped checked bound nodes belong to semantic checker services.
 
 Lower-level IR nodes belong to `bray-ir`. Lowering produces them and code generation consumes them.
+
+Backend-neutral codegen-unit, backend identity, capability, outcome, and artifact contracts belong to `bray-codegen`.
+
+LLVM contexts, modules, builders, target machines, verification, optimization, and artifact construction belong exclusively to
+`bray-codegen-llvm`.
 
 Emitted artifacts belong to emission.
 
@@ -888,6 +916,9 @@ Core language rules belong in the relevant model and checker contracts, not in b
 
 Backend support should be selected after the feature is represented in the checked bound HIR, normalized lowered-bound form, and
 lower-level `bray-ir` representation.
+
+A new backend implements the coarse codegen-unit contract. It must not require LLVM types in backend-neutral crates, reinterpret
+source semantics, or extend Bray IR with backend-owned values.
 
 ---
 
