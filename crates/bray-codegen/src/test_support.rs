@@ -149,7 +149,7 @@ fn codegen_unit(seed: u8) -> CodegenUnit {
     unit
 }
 
-fn mir_unit(unit: u32) -> MirUnit {
+pub(crate) fn mir_unit(unit: u32) -> MirUnit {
     let bound = test_bound_unit(unit);
     let source = bound.key().source();
     let mut builder = MirUnitBuilder::new(bound.identity());

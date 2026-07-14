@@ -88,10 +88,8 @@ pub enum CodegenUnitBuildError {
 
 #[cfg(test)]
 mod tests {
-    use bray_ir::{MirUnit, MirUnitBuilder};
-    use bray_testing::test_bound_unit;
-
     use super::{CodegenUnit, CodegenUnitBuildError};
+    use crate::test_support::mir_unit;
 
     #[test]
     fn units_reject_empty_and_duplicate_mir_membership() {
@@ -115,21 +113,5 @@ mod tests {
         let second = CodegenUnit::try_new(1, [mir_unit(4), mir_unit(8)]);
 
         assert_eq!(first, second);
-    }
-
-    fn mir_unit(unit: u32) -> MirUnit {
-        let bound = test_bound_unit(unit);
-        let source = bound.key().source();
-        let mut builder = MirUnitBuilder::new(bound.identity());
-
-        let Ok(entry) = builder.push_block(source) else {
-            panic!("test MIR block must be valid");
-        };
-
-        let Ok(unit) = builder.finish(entry) else {
-            panic!("test MIR unit must be valid");
-        };
-
-        unit
     }
 }
