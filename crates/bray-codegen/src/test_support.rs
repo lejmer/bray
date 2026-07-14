@@ -55,16 +55,19 @@ impl CodegenRequestFixture {
 
 pub(crate) fn codegen_request() -> CodegenRequestFixture {
     let unit = codegen_unit(1);
+
     let required_artifact = BackendArtifactId::new(
         unit.key().clone(),
         BackendArtifactKind::RelocatableObject,
         0,
     );
+
     let optional_artifact = BackendArtifactId::new(
         unit.key().clone(),
         BackendArtifactKind::RelocatableObject,
         1,
     );
+
     let entries = [
         BackendArtifactRequestEntry::new(
             required_artifact.clone(),
