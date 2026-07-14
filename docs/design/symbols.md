@@ -1756,7 +1756,7 @@ together. External diagnostic formats use source locations, rendered names, and 
 
 Local bindings are symbols, but storage identities, storage accesses, projections, temporaries, control-flow blocks, and borrow-state
 records are not.
-Those remain owned by the source-shaped or lowered-bound representation, checker state, or lower-level IR as appropriate.
+Those remain owned by the source-shaped bound representation, checker state, or backend-independent MIR as appropriate.
 
 ---
 

@@ -109,22 +109,24 @@
 
 - `bray-lowering`
     - Owns the validated borrowing boundary over canonical bound units and their required durable semantic facts.
-    - Owns the normalized lowered-bound representation produced before `bray-ir` construction.
-    - Lowers checked source-shaped bound HIR into normalized lowered-bound nodes, then translates those nodes into `bray-ir`.
+    - Lowers checked source-shaped bound HIR directly into the backend-independent MIR owned by `bray-ir`.
+    - May use task-local construction forms but does not publish a second durable lowered representation.
     - Makes implicit semantics explicit: temporaries, drops, moves, control-flow normalization, pattern lowering, short-circuiting,
       and other desugaring.
     - Materializes reachable runtime-default providers from their checked declaration-owned expressions.
     - Receives target-available typed compiler-known role views through validated lowering inputs rather than resolving hooks by name.
 
 - `bray-ir`
-    - Backend-independent lower-level intermediate representation.
+    - Backend-independent mid-level intermediate representation used as Bray's MIR.
     - Represents lowered control flow, locals, storages, explicit moves/drops, calls, branches, and other operations used by codegen.
     - Owns reusable IR walkers and visitors.
 
 - `bray-codegen`
     - Backend-independent code generation interface and codegen orchestration.
-    - Owns backend identity, codegen-unit requests, backend capabilities, backend-neutral artifact records, and codegen outcomes.
-    - Converts validated `bray-ir` into immutable backend artifacts through coarse typed backend contracts.
+    - Owns backend selection, codegen-unit partitioning, concrete monomorphized-instance collection, backend identity, capabilities,
+      requests, and outcomes.
+    - Supplies canonical layout, ABI, symbol, target, runtime, and linkage facts while translating validated `bray-ir` MIR into
+      backend-specific low-level IR.
     - Allows compilation to use an injected backend without depending on a concrete backend crate.
     - Should not own linking, artifact layout, or CLI policy.
 
@@ -132,14 +134,23 @@
     - First production code generation backend.
     - Owns every LLVM dependency and LLVM-specific context, module, translation, verification, optimization, target-machine, and
       artifact-generation detail.
-    - Produces backend-neutral codegen artifacts and must not make language-semantic, reachability, layout, ABI, or linking-policy
-      decisions.
+    - Constructs semantically complete LLVM IR and serializes emitter-requested LLVM IR, bitcode, assembly, object, and debug
+      artifacts.
+    - Must not make language-semantic, reachability, layout, ABI, artifact-policy, or linking-policy decisions.
     - Must not depend on compilation, emission, driver, or command-line orchestration.
 
 - `bray-emitter`
-    - Artifact emission.
-    - Owns object/executable/library output, output paths, linking handoff, and final emitted build products.
-    - Writes completed package-interface artifacts but does not select their semantic surface or encode their records.
+    - Artifact emission lifecycle and orchestration.
+    - Owns emission requests and plans, artifact policy, output names and sinks, backend serialization requests, staging, atomic
+      publication, artifact bookkeeping, diagnostics, and link-plan construction.
+    - Publishes completed package-interface artifacts without selecting their semantic surface or encoding their records.
+    - Does not construct backend IR, perform backend-specific serialization, or invoke the final native link.
+
+- `bray-linker`
+    - Final native linking.
+    - Owns typed link plans, embedded and system linker adapters, argument construction, invocation, linker diagnostics, and linked
+      artifact results.
+    - Consumes emitter-produced objects or bitcode and writes the linked result to an emitter-owned staging destination.
 
 - `bray-compilation`
     - Main compiler entry point and compilation context.
@@ -148,7 +159,9 @@
       domain keys supplied by lower compiler representations.
     - Caches checked-region results without maintaining a mutable compilation-wide local symbol registry.
     - Coordinates lazy package-interface loading, imported symbol facts, export-bundle construction, and interface encoding.
-    - Coordinates parsing, declaration discovery, binding and semantic analysis, lowering, codegen, and emission through explicit fact APIs.
+    - Coordinates parsing, declaration discovery, binding and semantic analysis, lowering, and codegen through explicit fact APIs.
+    - Owns the top-level effectful product-emission operation that obtains lazy facts, delegates artifact policy and publication to
+      `bray-emitter`, delegates final native linking to `bray-linker`, and merges all diagnostic bags deterministically.
 
 - `bray-driver`
     - User-facing compiler command orchestration.

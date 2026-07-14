@@ -255,8 +255,8 @@ Binding owns name resolution, path resolution, lexical-scope, shadowing, and ref
 Semantic checker services own type, trait, overload, conversion, ownership, borrowing, initialization, lifecycle, contract,
 capability, const-evaluation, and target-availability diagnostics.
 
-Lowering, IR validation, code generation, and emission diagnostics must describe compiler, target, backend, artifact, or external
-tool issues. They must not introduce new source-language semantic decisions.
+Lowering, MIR validation, code generation, emission, and linking diagnostics must describe compiler, target, backend, artifact, or
+external tool issues. They must not introduce new source-language semantic decisions.
 
 A later phase should not duplicate an earlier phase's diagnostic.
 

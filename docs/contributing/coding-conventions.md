@@ -18,14 +18,16 @@ For crate layout, crate ownership, and workspace structure, see the crate respon
 ## Compiler architecture
 
 - Keep compiler phases separated by responsibility.
-- Do not mix parsing, binding, checking, lowering, code generation, and emission logic in the same module unless there is a narrow local reason.
+- Do not mix parsing, binding, checking, lowering, code generation, emission, and linking logic in the same module unless there is a
+  narrow local reason.
 - Syntax-level crates must not perform semantic validation.
 - Parser code should produce syntax trees and syntax diagnostics only.
 - Binder code should resolve names and semantic references, but should not perform full type, ownership, aliasing, or effect validation.
 - Checker code owns type checking, ownership checking, borrow checking, alias checking, mutation authority, initialization tracking, move/drop legality, and effect/capability validation.
 - Lowering code makes checked semantics explicit before IR/codegen.
 - Codegen should not own CLI policy, package policy, output path policy, or linking policy.
-- Emitter code owns artifact emission and linking handoff.
+- Emitter code owns artifact policy, serialization coordination, publication, and typed link-plan construction. Linker code owns
+  final native linker and archiver invocation.
 - Keep source-correlated semantic information available long enough to produce good diagnostics.
 - Prefer structured compiler data over strings, flags, and ad hoc side channels.
 
@@ -124,7 +126,7 @@ For crate layout, crate ownership, and workspace structure, see the crate respon
 - User-facing text must be rendered through the locale-aware `bray-messages` infrastructure.
 - CLI and LSP output must use localized messages.
 - Diagnostic data must be designed so multiple locales can be added without changing compiler logic.
-- Do not construct user-facing prose inside parser, binder, checker, lowering, codegen, or emitter logic.
+- Do not construct user-facing prose inside parser, binder, checker, lowering, codegen, emitter, or linker logic.
 - Do not pre-render diagnostic arguments into any one language before passing them to message rendering.
 - Pass typed arguments such as symbols, types, declaration kinds, operator kinds, spans, counts, and source snippets to the renderer.
 - Let localization handle argument ordering, plural forms, list formatting, quotation style, and grammar-specific phrasing.

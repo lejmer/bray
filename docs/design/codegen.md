@@ -1,6 +1,7 @@
 # Code generation and backend design
 
-This document defines the goal-state architecture for translating validated Bray IR into backend artifacts.
+This document defines the goal-state architecture for translating validated Bray MIR into backend-specific low-level IR and
+emitter-requested backend artifacts.
 
 The language documents define Bray semantics, target profiles, layout, ABI, and linkage behavior.
 
@@ -11,8 +12,8 @@ The language documents define Bray semantics, target profiles, layout, ABI, and 
 `bray-lowering` makes implicit execution behavior explicit and constructs the backend-independent representation owned by
 `bray-ir`.
 
-This document defines the backend boundary, the first LLVM implementation, codegen-unit contracts, artifact production,
-determinism, diagnostics, and the boundary with emission.
+This document defines the backend boundary, the first LLVM implementation, codegen-unit contracts, artifact requests, backend IR
+construction, serialization, determinism, diagnostics, and the boundary with emission.
 
 ---
 
@@ -23,11 +24,13 @@ The code generation architecture should:
 - use LLVM as Bray's first production code generation backend,
 - produce native ahead-of-time artifacts as the first product model,
 - keep LLVM types and policy isolated from backend-independent compiler crates,
-- allow another backend to consume the same validated Bray IR without reimplementing language semantics,
+- allow another backend to consume the same validated Bray MIR without reimplementing language semantics,
 - expose coarse typed backend contracts instead of reproducing LLVM's instruction-building API,
 - support lazy codegen-unit facts, independent parallel generation, cancellation, and deterministic reuse,
 - preserve target, ABI, symbol, and layout decisions made by earlier compiler phases,
-- publish immutable backend artifacts without choosing final output paths or invoking the linker,
+- construct semantically complete backend IR before serialization,
+- serialize only the artifact kinds selected by an immutable emitter-owned plan,
+- publish immutable backend artifact contributions without choosing final output paths or invoking the linker,
 - report structured backend and target diagnostics without user-facing English in codegen logic,
 - make backend failures distinguishable from invalid source and compiler invariant failures.
 
@@ -53,14 +56,15 @@ Code generation does not:
 
 ### Codegen Backend
 
-A codegen backend translates one validated backend-independent Bray IR unit into one immutable set of backend artifacts.
+A codegen backend translates one validated backend-independent Bray MIR unit into semantically complete backend-specific low-level
+IR and serializes the artifact kinds requested for that unit.
 
 The backend may use an internal representation such as LLVM IR. That representation remains private to the backend
 implementation.
 
 ### Codegen Unit
 
-A codegen unit is the smallest independently generated and cached backend work item. It contains a closed validated IR surface,
+A codegen unit is the smallest independently generated and cached backend work item. It contains a closed validated MIR surface,
 its external references, selected target contract, and code generation options.
 
 A codegen unit is not a source file, syntax tree, module declaration, or arbitrary collection selected by a backend.
@@ -71,6 +75,22 @@ A backend artifact is immutable content produced by code generation, such as a r
 inspection output, or a directly executable target module.
 
 A backend artifact has a logical identity and kind but no final filesystem path.
+
+### Backend LIR
+
+Backend-specific low-level IR, abbreviated LIR, is the private executable representation constructed from Bray MIR by one codegen
+backend. LLVM IR is the first backend LIR.
+
+Backend LIR is not a durable backend-independent compiler representation. Its types and mutable state remain inside the concrete
+backend that understands and serializes it.
+
+### Backend Module
+
+A backend module is task-local mutable state used while translating one codegen unit into backend-specific low-level IR. LLVM
+modules are the first implementation.
+
+Backend modules are not durable compiler facts, do not cross the backend boundary, and are never shared between workers. The
+backend consumes them internally while producing immutable artifact contributions.
 
 ### Backend Identity
 
@@ -87,13 +107,16 @@ The code generation boundary is:
 
 ```text
 checked bound HIR and durable semantic facts
-    -> normalized lowered-bound representation
-    -> validated Bray IR
+    -> lowering
+    -> validated Bray MIR owned by bray-ir
     -> backend codegen unit
-    -> backend-private representation
-    -> immutable backend artifacts
-    -> emission and linking handoff
+    -> task-local backend-specific low-level IR
+    -> emitter-requested backend serialization
+    -> immutable backend artifact contributions
 ```
+
+An immutable emission plan is created before backend serialization. It selects required and optional artifact kinds, derives a
+typed request for each codegen unit, and later determines output names and sinks. It does not expose mutable backend state.
 
 Every language-semantic decision required to generate code must be explicit before the backend receives a unit.
 
@@ -101,7 +124,7 @@ If a backend needs to resolve a name, infer a type, select an implementation, re
 source construct, the earlier compiler contract is incomplete.
 
 Backend-specific legalization may transform operations to satisfy target instruction and object-format constraints. It must
-preserve semantics already fixed by Bray IR and the selected target contract.
+preserve semantics already fixed by Bray MIR and the selected target contract.
 
 ---
 
@@ -111,9 +134,13 @@ preserve semantics already fixed by Bray IR and the selected target contract.
 
 `bray-codegen` owns backend-independent code generation contracts:
 
+- backend selection against implementations supplied by the compiler host,
 - backend identity and capability types,
 - codegen-unit keys and immutable requests,
+- reachable concrete monomorphized-instance and unit-partitioning policy,
+- packaging of canonical layout, ABI, symbol, target, runtime, and linkage facts,
 - backend-neutral code generation options,
+- backend artifact request and contribution types,
 - backend artifact kinds and immutable artifact sets,
 - codegen outcomes and structured diagnostic contracts,
 - backend conformance contracts,
@@ -127,7 +154,7 @@ It depends on `bray-ir` and lower foundational contracts. It must not depend on 
 
 - LLVM binding dependencies,
 - LLVM contexts, modules, builders, types, values, metadata, and target machines,
-- translation from validated Bray IR to LLVM IR,
+- translation from validated Bray MIR to LLVM IR,
 - LLVM-specific legalization and optimization pipelines,
 - LLVM module verification,
 - object, assembly, LLVM IR, and bitcode generation when requested,
@@ -140,39 +167,50 @@ No other Bray crate may import LLVM bindings or expose LLVM-owned types through 
 `bray-compilation` owns lazy codegen fact coordination, cache keys, dependency scheduling, worker budgets, cancellation, and the
 selected backend service for one compilation request.
 
-It receives the selected backend through an immutable backend-neutral service contract, supplies validated codegen units to that
-backend, and caches only complete immutable outcomes. It must not depend on `bray-codegen-llvm`.
+It receives available backend implementations through immutable backend-neutral service contracts, asks `bray-codegen` to validate
+the requested selection, supplies validated MIR units and emitter-derived artifact requests, and caches only complete immutable
+outcomes. It must not depend on `bray-codegen-llvm`.
 
 ### `bray-emitter`
 
-`bray-emitter` owns final artifact layout, output paths, atomic publication, linker handoff, and emitted-product records.
+`bray-emitter` owns emission requests and plans, artifact policy, output names and sinks, deterministic publication, emitted-product
+records, and link-plan construction.
 
-It consumes backend-neutral artifacts. It must not inspect LLVM modules, LLVM target machines, Bray syntax, bound nodes, or semantic
-stores.
+It constructs backend artifact requests and consumes immutable backend artifact contributions. It must not inspect LLVM modules,
+LLVM target machines, Bray syntax, bound nodes, MIR, or semantic stores.
+
+### `bray-linker`
+
+`bray-linker` owns typed link plans, target linker drivers, invocation, linker diagnostics, and linked artifact results. It consumes
+emitted objects or bitcode and does not depend on LLVM module state or Bray MIR.
 
 ---
 
 ## Dependency Direction And Composition
 
-The code generation dependency direction is:
+The core dependency direction is shown below. Arrows point from a dependency to its consumer.
 
 ```text
-bray-ir ----------------> bray-codegen <---------------- bray-codegen-llvm
-                              ^                                  ^
-                              |                                  |
-                       bray-compilation                           |
-                              ^                                  |
-                              +---------- bray-driver ------------+
+bray-ir --------------------> bray-codegen
+bray-codegen --------------> bray-codegen-llvm
+bray-codegen --------------> bray-emitter
+bray-package-interface ----> bray-emitter
+bray-linker ---------------> bray-emitter
+bray-codegen --------------> bray-compilation
+bray-emitter --------------> bray-compilation
+bray-linker ---------------> bray-compilation
+bray-compilation ----------> bray-driver
+bray-codegen-llvm ---------> bray-driver
 ```
 
-`bray-driver` or another compiler host is the composition root. It constructs the available backend implementation, validates the
-requested backend selection, and supplies a backend-neutral service handle to `Compilation`.
+`bray-driver` or another compiler host is the composition root. It constructs the available backend implementations and supplies
+backend-neutral service handles and the requested backend identity to `Compilation`. `bray-codegen` validates the selection.
 
-`Compilation` treats the selected backend identity and capabilities as immutable request inputs. Its lazy codegen facts call the
-backend-neutral contract and do not downcast the service or inspect LLVM state.
+`Compilation` treats available backend identities and capabilities as immutable request inputs. Its lazy codegen facts use the
+selection made through `bray-codegen`, accept emitter-derived artifact requests, and do not downcast a service or inspect LLVM state.
 
 This is dependency injection at a coarse compiler boundary, not a promise that arbitrary binary backend plugins can be loaded at
-runtime. A new in-tree backend implements the same contract and is selected by the composition root without changing Bray IR,
+runtime. A new in-tree backend implements the same contract and is selected by the composition root without changing Bray MIR,
 compilation queries, or emission APIs.
 
 `bray-codegen-llvm` depends on `bray-codegen` and `bray-ir`. It must not depend on `bray-compilation`, `bray-emitter`, or command-line
@@ -199,10 +237,10 @@ This is a design contract, not a requirement to preserve these exact method sign
 `CodegenRequest` contains only the inputs required to generate one unit:
 
 - its stable codegen-unit key,
-- a validated immutable Bray IR view,
+- a validated immutable Bray MIR view,
 - a validated codegen target,
 - backend-neutral generation options,
-- requested optional inspection artifacts,
+- an immutable backend artifact request derived from the emission plan,
 - a read-only cancellation contract.
 
 `CodegenOutcome` contains:
@@ -213,7 +251,24 @@ This is a design contract, not a requirement to preserve these exact method sign
 - no partially published artifact set after cancellation or failure.
 
 The backend contract must not expose an instruction-level virtual interface such as generic `build_add`, `build_load`, or
-`build_branch` methods. Each backend owns translation from Bray IR into its own internal representation.
+`build_branch` methods. Each backend owns translation from Bray MIR into its own internal representation.
+
+`generate` conceptually brackets the complete task-local backend lifecycle:
+
+```text
+create backend module
+    -> generate backend IR
+    -> finalize debug and runtime metadata
+    -> verify
+    -> optimize
+    -> verify
+    -> serialize requested artifacts
+    -> discard mutable module state
+```
+
+The public contract does not return a mutable type-erased `BackendModule`. Keeping that module private avoids foreign-handle
+lifetime leaks, cross-worker mutation, downcasting, and cache entries that cannot be safely shared. The emitter still controls the
+artifact lifecycle through its immutable request.
 
 Backend capabilities are typed declarations of supported artifact and target features. They do not silently change language
 semantics. Unsupported required capabilities produce structured diagnostics before artifact publication.
@@ -224,8 +279,11 @@ semantics. Unsupported required capabilities produce structured diagnostics befo
 
 Codegen units should be large enough to optimize coherent code and small enough to schedule, cache, and regenerate independently.
 
-Unit partitioning is compiler policy owned above a concrete backend. The LLVM backend must not repartition the source package based
-on LLVM implementation convenience.
+Unit partitioning is codegen policy owned by `bray-codegen`, not a concrete backend. The LLVM backend must not repartition the
+source package based on LLVM implementation convenience.
+
+`bray-codegen` requests canonical compilation facts to collect reachable concrete monomorphized instances and package them into
+units. It does not rediscover reachability from syntax, reinterpret directives, or make semantic instance selections.
 
 Each unit must have:
 
@@ -274,7 +332,7 @@ override a language-visible target fact.
 
 ## Layout, ABI, And Symbols
 
-Source-level and public ABI layout decisions belong to language semantics and checking. Lowering and IR make the selected layouts
+Source-level and public ABI layout decisions belong to language semantics and checking. Lowering and MIR make the selected layouts
 and calling contracts explicit.
 
 The backend performs mechanical target realization only:
@@ -313,13 +371,13 @@ optimization and must preserve externally observable identity, linkage, debuggin
 ## Runtime Boundary
 
 Runtime entry points, compiler-known behavior roles, panic behavior, allocation hooks, async support, and lifecycle helpers must be
-resolved to explicit IR references before code generation.
+resolved to explicit MIR references before code generation.
 
-The LLVM backend may lower a known IR operation to an LLVM intrinsic or a declared runtime call. That mapping is typed backend
+The LLVM backend may lower a known MIR operation to an LLVM intrinsic or a declared runtime call. That mapping is typed backend
 policy and must have a conformance test.
 
 The backend must not locate runtime declarations by source-level names or silently inject semantically significant runtime calls
-that are absent from IR and its target contract.
+that are absent from MIR and its target contract.
 
 ---
 
@@ -334,8 +392,9 @@ that are absent from IR and its target contract.
 - directly executable target module when a target backend produces one without native linking,
 - codegen-owned debug companion data when it is not embedded in another artifact.
 
-The first LLVM product path produces relocatable native objects. Assembly, LLVM IR, and LLVM bitcode are optional requested outputs,
-not required intermediate facts for emission.
+The emitter selects required and optional kinds through `BackendArtifactRequest`. The first native LLVM product path requires
+relocatable objects for linking. Assembly, LLVM IR, and LLVM bitcode are optional requested outputs rather than mandatory durable
+intermediates.
 
 An artifact record contains:
 
@@ -346,7 +405,8 @@ An artifact record contains:
 - backend identity and target identity,
 - deterministic content digest when the producing boundary requires one.
 
-It does not contain a final output path, user-selected filename, linker command, or overwrite policy.
+It does not contain a final output path, user-selected filename, linker command, or overwrite policy. Those belong to the emission
+plan and link plan.
 
 Artifact content APIs should support memory-backed content and compiler-owned immutable spooled content. The contract must not
 require large object files to remain duplicated in memory merely to cross the emission boundary.
@@ -361,17 +421,17 @@ implementation of the backend contract.
 The LLVM backend pipeline is:
 
 ```text
-validated Bray IR
+validated Bray MIR
     -> LLVM context and module construction
     -> LLVM IR verification
     -> optimization pipeline
     -> final LLVM verification
-    -> target-machine artifact generation
-    -> backend-neutral artifact records
+    -> emitter-requested target-machine and textual serialization
+    -> immutable backend artifact contributions
 ```
 
-LLVM contexts and mutable module construction state remain task-local. No mutable LLVM module is shared between independent codegen
-workers.
+LLVM contexts and mutable module construction state remain task-local for the full generate-and-serialize operation. No mutable LLVM
+module is published as a compilation fact or shared between independent codegen workers.
 
 LLVM target initialization and immutable target-machine data may be shared only when the LLVM API and Bray wrapper contract make
 thread safety explicit. Otherwise each worker owns the required state.
@@ -381,9 +441,9 @@ preconditions. In particular:
 
 - `undef` and poison values must not represent source recovery, ordinary uninitialized storage, or an unknown semantic value,
 - `inbounds`, `noalias`, `nonnull`, `noundef`, exactness, and integer no-wrap flags require explicit supporting facts,
-- LLVM `unreachable` requires a Bray IR control-flow proof that execution cannot reach that point,
+- LLVM `unreachable` requires a Bray MIR control-flow proof that execution cannot reach that point,
 - host pointer size, host CPU features, and host data layout must never replace the selected codegen target,
-- panic and foreign-unwind behavior must follow explicit IR control and ABI contracts,
+- panic and foreign-unwind behavior must follow explicit MIR control and ABI contracts,
 - pointer provenance and address-space distinctions must survive translation.
 
 The absence of a proven optimization fact means the LLVM backend emits the conservative valid form. It does not infer a stronger
@@ -399,9 +459,9 @@ identity except through the explicit backend identity when generated bytes can d
 
 ## Verification And Failures
 
-Bray IR is validated before code generation. Invalid Bray IR is a compiler invariant failure, not an ordinary source diagnostic.
+Bray MIR is validated before code generation. Invalid Bray MIR is a compiler invariant failure, not an ordinary source diagnostic.
 
-LLVM module verification runs before optimization and before artifact generation. A verifier failure from validated Bray IR is a
+LLVM module verification runs before optimization and before artifact generation. A verifier failure from validated Bray MIR is a
 compiler bug attributed to the LLVM translation boundary.
 
 The backend should distinguish:
@@ -423,18 +483,19 @@ No failed or cancelled unit publishes a successful artifact set. Internal tempor
 
 ## Lazy Facts And Caching
 
-One codegen-unit result is a lazy compilation fact. Requesting a product artifact asks compilation for the required unit facts
-without making the caller sequence lowering, IR construction, backend generation, and artifact collection manually.
+One codegen-unit artifact contribution is a lazy compilation fact. Requesting emission first creates an immutable emission plan and
+then asks compilation for the unit contributions selected by that plan without making the caller sequence lowering, MIR
+construction, backend generation, and serialization manually.
 
 A codegen fact key includes every input that can affect output, including:
 
-- stable codegen-unit identity and IR dependency keys,
+- stable codegen-unit identity and MIR dependency keys,
 - target profile and validated codegen target,
 - backend identity and compatible backend-library revision,
 - optimization level and code generation options,
 - debug-information mode,
 - panic, relocation, and code model where applicable,
-- requested artifact kinds,
+- exact emitter-derived artifact request,
 - relevant runtime and external ABI dependencies.
 
 Cache keys must not use memory addresses, task-local numeric IDs, worker assignment, or lazy demand order.
@@ -500,7 +561,7 @@ participate in backend identity or codegen fact keys.
 LLVM optimizations must remain valid under Bray's aliasing, provenance, initialization, panic, concurrency, and foreign-boundary
 semantics. The backend may attach optimization metadata only when earlier checked and lowered facts prove the required invariant.
 
-Optimization must not repair invalid IR or make new language-semantic decisions.
+Optimization must not repair invalid MIR or make new language-semantic decisions.
 
 ---
 
@@ -523,26 +584,33 @@ Backend diagnostics may include:
 Raw LLVM messages are not Bray diagnostic prose. They may be retained as backend detail for compiler developers while the primary
 diagnostic remains structured and localized.
 
-Codegen must not duplicate diagnostics already owned by binding, checking, lowering, or IR validation.
+Codegen must not duplicate diagnostics already owned by binding, checking, lowering, or MIR validation.
 
 ---
 
 ## Emission Boundary
 
-Code generation ends when complete immutable backend artifacts are published as compiler facts.
+The emitter owns artifact policy before code generation serializes a backend module. It derives one immutable
+`BackendArtifactRequest` per codegen unit from the complete emission plan.
 
-Emission begins when those logical artifacts are assigned output paths, staged, linked when required, and atomically published as
-product outputs.
+Code generation owns the task-local backend lifecycle from MIR translation through verification, optimization, and physical
+serialization. It returns immutable backend artifact contributions and discards the mutable backend module.
 
-The emitter may combine:
+The emitter then assigns planned sinks, stages and publishes artifacts, records emitted metadata, and constructs a typed link plan.
+It may combine:
 
 - backend-generated object and debug artifacts,
 - package-interface artifacts produced by `bray-package-interface`,
 - runtime and external link inputs selected by package and target policy.
 
-The emitter must not request LLVM modules, reinterpret Bray IR, or ask a backend to make semantic decisions during linking.
+`bray-package-interface` constructs and encodes `.brayi` independently of codegen. The emitter requests that immutable artifact as a
+compilation fact, assigns its planned output, and publishes it without passing it through the selected codegen backend.
 
-The linker contract, output layout, atomic publication, and emitted-product receipt belong in `docs/design/emitter.md`.
+The emitter must not request or retain LLVM modules, reinterpret Bray MIR, or ask a backend to make semantic decisions during
+serialization. It does not perform the final native link.
+
+The emission lifecycle, output layout, atomic publication, package-interface integration, and emitted-product receipt are defined
+in `docs/design/emitter.md`. The final link contract is defined in `docs/design/linker.md`.
 
 ---
 
@@ -552,7 +620,7 @@ The linker contract, output layout, atomic publication, and emitted-product rece
 
 The test surface should include:
 
-- exact translation of representative validated IR operations,
+- exact translation of representative validated MIR operations,
 - layout and ABI preservation,
 - stable symbol and linkage behavior,
 - runtime and intrinsic mappings,
@@ -577,10 +645,11 @@ The first implementation should proceed in this order:
 1. Define backend identity, target, request, outcome, and artifact contracts in `bray-codegen`.
 2. Define stable codegen-unit partitioning and lazy compilation fact keys.
 3. Add `bray-codegen-llvm` with isolated LLVM initialization and target-machine construction.
-4. Translate and verify a minimal validated Bray IR unit.
-5. Emit deterministic relocatable native objects.
-6. Add backend conformance, cancellation, parallelism, and determinism tests.
-7. Design and implement emitter staging and native linker handoff against backend-neutral artifacts.
+4. Translate and verify a minimal validated Bray MIR unit.
+5. Accept immutable emitter-derived artifact requests and serialize requested backend contributions.
+6. Emit deterministic relocatable native objects for the first native product path.
+7. Add backend conformance, cancellation, parallelism, and determinism tests.
+8. Integrate emitter publication and native linker handoff without exposing backend modules.
 
 Package-interface artifact emission may use the generic emitter publication primitives before native code generation is complete,
 but those primitives must follow the backend-neutral artifact and path-ownership boundaries defined here.

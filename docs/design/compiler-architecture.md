@@ -27,6 +27,10 @@ Semantic checker domain and analysis rules live in `docs/design/checker.md`.
 
 Code generation and backend implementation rules live in `docs/design/codegen.md`.
 
+Artifact planning, serialization, and publication rules live in `docs/design/emitter.md`.
+
+Native linker integration rules live in `docs/design/linker.md`.
+
 This document is the design-level contract those implementation documents should follow.
 
 ---
@@ -77,11 +81,11 @@ source text
 -> declaration discovery
 -> symbol construction
 -> binding and semantic analysis
--> lowering to normalized bound form
--> lower-level IR construction
--> IR validation
--> code generation
--> emission
+-> lowering to backend-independent MIR
+-> MIR validation
+-> backend IR generation
+-> artifact emission
+-> linking when required
 ```
 
 The arrows show fact dependencies, not mandatory whole-program scheduling barriers.
@@ -104,15 +108,13 @@ The main durable representations are:
 
 - a lossless syntax tree,
 - a completed source-shaped bound high-level IR view,
-- a normalized lowered-bound representation,
-- a backend-independent lower-level IR.
+- a backend-independent mid-level IR.
 
 The checked program state is the source-shaped bound HIR after the binder has completed semantic analysis and all required semantic
 facts have been populated.
 
-Lowering must receive that state through a validated borrowing view over one canonical bound unit and its required typed side facts.
-The normalized lowered-bound representation must be an execution-shaped artifact owned by `bray-lowering`, not another checked
-bound-tree wrapper or a second family of source-shaped nodes.
+Lowering receives that state through a validated borrowing view over one canonical bound unit and its required typed side facts.
+It publishes one execution-shaped MIR owned by `bray-ir`, not another durable family of lowered bound nodes.
 
 ---
 
@@ -163,8 +165,7 @@ Compiler facts should generally be lazy across stable compiler boundaries:
 - trait applications,
 - generic instantiations,
 - bound units and typed semantic facts,
-- lowered-bound units,
-- lower-level IR units,
+- MIR units,
 - backend codegen units.
 
 A lazy fact must be complete within the boundary promised by its API. If an API returns a checked callable body, the whole callable
@@ -206,8 +207,7 @@ Compiler work should be split at stable semantic boundaries:
 - implementation bodies,
 - generic instantiations,
 - checked bound units,
-- lowered-bound units,
-- lower-level IR units,
+- MIR units,
 - backend codegen units.
 
 The scheduler should run independent work in parallel whenever the dependency graph allows it.
@@ -224,9 +224,8 @@ Declaration discovery can run independently for syntax trees whose module contex
 Binding and checking can run independently for declarations and bodies once their required symbols, imported surfaces, target
 facts, and contract dependencies are available.
 
-Lowered-bound construction can run independently for checked bound units whose semantic facts are complete. Lower-level IR
-construction can run independently for lowered-bound units, and code generation can run independently for validated `bray-ir`
-units.
+MIR construction can run independently for checked bound units whose semantic facts are complete. Code generation can run
+independently for validated `bray-ir` units once their immutable emission-plan artifact requests are available.
 
 Parallel execution must be deterministic:
 
@@ -521,7 +520,7 @@ dependency-contract propagation share that graph while retaining focused typed a
 ownership, movement, borrowing, mutation-authority, and lifecycle facts use one composite storage-flow domain rather than circular
 independent passes.
 
-The control-flow graph is task-local checker infrastructure. It is neither canonical bound HIR nor normalized lowered-bound IR, and
+The control-flow graph is task-local checker infrastructure. It is neither canonical bound HIR nor published Bray MIR, and
 its block, edge, operation, and program-point IDs do not enter symbols, package interfaces, or published checked nodes. A separately
 requested tooling view can later project source-correlated control flow without exposing checker-private identity.
 
@@ -539,8 +538,7 @@ checker-local representation.
 
 ### Lowering
 
-Lowering first converts the completed source-shaped bound HIR view into a normalized lowered-bound representation. It then translates that
-representation into backend-independent lower-level IR.
+Lowering converts the completed source-shaped bound HIR view into backend-independent mid-level IR owned by `bray-ir`.
 
 Lowering owns desugaring and normalization after semantic validity is established.
 
@@ -565,38 +563,41 @@ Lowering should not make new semantic decisions.
 If lowering discovers that it needs a semantic fact that the checked bound HIR did not provide, the checker service
 contract is incomplete.
 
-The normalized lowered-bound representation remains typed semantic compiler data, but it no longer mirrors source structure as
-closely as the completed bound HIR view. It provides explicit operations and control flow that translate directly into `bray-ir`.
+Task-local lowering builders may use private intermediate forms while constructing MIR. Those forms are not separately published,
+cached, or exposed as another durable compiler representation.
 
 ### IR
 
-`bray-ir` is the compiler's backend-independent lower-level IR.
+`bray-ir` is the compiler's backend-independent mid-level IR, abbreviated MIR.
 
-It should represent explicit control flow, explicit storage, explicit operations, explicit calls, and explicit cleanup behavior.
+It represents explicit control flow, storage, operations, calls, cleanup behavior, concrete semantic instances, and the typed target
+facts required by code generation.
 
 It should not contain parser-only syntax details.
 
-IR validation checks compiler invariants after lowering.
+MIR validation checks compiler invariants after lowering.
 
-IR validation failures indicate compiler bugs.
+MIR validation failures indicate compiler bugs.
 
 ### Code Generation
 
-Code generation converts validated Bray IR into immutable backend artifacts through a coarse typed backend contract.
+Code generation converts validated Bray MIR into semantically complete backend-specific low-level IR through a coarse typed backend
+contract.
 
 LLVM is Bray's first production backend. LLVM bindings, types, modules, target machines, optimization pipelines, and diagnostics are
 isolated in `bray-codegen-llvm`. They must not appear in `bray-ir`, backend-neutral codegen contracts, compilation facts, or
 emission APIs.
 
-`bray-codegen` owns backend identity, codegen-unit requests, backend capabilities, backend-neutral artifact records, and codegen
-outcomes. A backend consumes a complete codegen unit and translates it independently. The compiler does not reproduce LLVM's
-instruction-building API as a cross-backend abstraction.
+`bray-codegen` owns backend selection, codegen-unit partitioning, reachable concrete monomorphized-instance collection, backend
+identity, capabilities, requests, and outcomes. It packages canonical layout, ABI, symbol, target, runtime, and linkage facts that
+earlier phases already resolved. It does not reinterpret source directives or rediscover language semantics.
 
 The compiler composition root supplies the selected backend through that backend-neutral contract. `bray-compilation` coordinates
 its lazy facts without depending on `bray-codegen-llvm` or inspecting backend-private state.
 
-The first product model uses native ahead-of-time generation of relocatable object artifacts. Optional assembly, LLVM IR, and
-bitcode outputs are inspection artifacts rather than durable intermediate compiler boundaries.
+The first product model uses native ahead-of-time generation. `bray-codegen-llvm` constructs LLVM IR in task-local modules. An
+emitter-owned artifact request determines whether the backend serializes LLVM IR, bitcode, assembly, relocatable objects, or debug
+artifacts from those modules.
 
 Code generation does not own language semantics.
 
@@ -606,18 +607,41 @@ Target, ABI, layout, symbol, runtime, reachability, and generic-instantiation de
 Backend-specific legalization preserves those decisions rather than replacing them.
 
 Codegen units are lazy compilation facts with stable structural keys. Independent units can be generated in parallel, while mutable
-backend construction state remains task-local. Backend identity, target configuration, options, and backend-library revision
-participate in cache compatibility.
+backend module construction remains task-local. The immutable emission plan and per-unit artifact request participate in the exact
+fact key beside backend identity, target configuration, options, and backend-library revision.
 
 The complete backend contract is defined in `docs/design/codegen.md`.
 
 ### Emission
 
-Emission owns final artifacts, output paths, object files, libraries, executables, debug data, and linking handoff.
+Emission is the lifecycle that turns completed backend artifact contributions and independently constructed package-interface
+artifacts into named external compilation artifacts.
 
-Emission should consume typed compilation outputs.
+`bray-emitter` owns the emission request, immutable emission plan, requested artifact kinds, output names and sinks, deterministic
+serialization coordination, staging, atomic publication, artifact bookkeeping, emission diagnostics, and construction of the
+typed link plan.
 
-Emission should not inspect syntax trees or bound trees to decide language behavior.
+The emission plan can logically precede code generation. Each codegen task receives an immutable derived artifact request. Its
+backend builds, finalizes, and serializes the task-local module, then returns immutable contributions. The emitter merges and
+publishes those contributions in deterministic plan order.
+
+Package-interface bytes and hashes are produced by `bray-package-interface`, not a codegen backend. The emitter includes a completed
+interface artifact when the product requests `.brayi`, assigns its output, and publishes it through the same deterministic atomic
+artifact policy.
+
+Emission does not inspect syntax trees, bound trees, or MIR to decide language behavior. It does not implement backend-specific
+serialization or perform the final native link.
+
+### Linking
+
+`bray-linker` consumes emitted objects or bitcode together with an immutable typed link plan. It owns linker selection, embedded or
+system linker adapters, process invocation, argument construction, linker diagnostics, and production of the final linked artifact.
+
+The link plan contains already selected entry-point, startup, runtime, native-library, export, search-path, and platform-option
+requirements. The linker does not discover semantic dependencies, inspect MIR, or choose product policy.
+
+The linker writes to an emitter-owned staging destination. A successful linked artifact is atomically published through the
+emitter's artifact policy.
 
 ---
 
@@ -629,8 +653,8 @@ Shared data should be shared through typed IDs, typed references, immutable tabl
 
 Durable compiler representations are immutable after publication.
 
-This includes source inputs, syntax trees, syntax nodes, syntax tokens, symbol tables, source-shaped bound nodes, lowered-bound nodes,
-checked semantic facts, lower-level IR nodes, emitted artifact descriptors, and diagnostic records.
+This includes source inputs, syntax trees, syntax nodes, syntax tokens, symbol tables, source-shaped bound nodes, checked semantic
+facts, MIR nodes, emission plans, emitted artifact descriptors, link plans, and diagnostic records.
 
 Mutable construction belongs inside local builders, task-local work state, or explicitly internal caches. Mutable construction
 state must not be exposed as shared compiler data.
@@ -660,20 +684,20 @@ Local symbol snapshots belong to their checked semantic regions and are publishe
 
 Source-shaped bound nodes must belong to `bray-bound-tree`.
 
-Normalized lowered-bound blocks and operations must belong to `bray-lowering`.
-
 Resolved references on bound nodes belong to binding.
 
 Semantic facts on source-shaped checked bound nodes belong to semantic checker services.
 
-Lower-level IR nodes belong to `bray-ir`. Lowering produces them and code generation consumes them.
+Backend-independent MIR nodes belong to `bray-ir`. Lowering produces them and code generation consumes them.
 
 Backend-neutral codegen-unit, backend identity, capability, outcome, and artifact contracts belong to `bray-codegen`.
 
 LLVM contexts, modules, builders, target machines, verification, optimization, and artifact construction belong exclusively to
 `bray-codegen-llvm`.
 
-Emitted artifacts belong to emission.
+Emission plans, output policies, and emitted artifact records belong to `bray-emitter`.
+
+Link plans, linker drivers, and linked artifact records belong to `bray-linker`.
 
 ---
 
@@ -737,7 +761,7 @@ Walker APIs should make descent behavior explicit. A walker can visit all childr
 early with an explicit result.
 
 Walkers must belong with the representation they walk. Syntax walkers belong in the syntax layer, source-shaped bound walkers belong
-in `bray-bound-tree`, normalized lowered-bound walkers belong in `bray-lowering`, and lower-level IR walkers belong in `bray-ir`.
+in `bray-bound-tree`, and MIR walkers belong in `bray-ir`.
 
 Whole-tree walkers can exist as serial convenience APIs. Parallel phases should schedule independent traversal roots, use the
 representation-owned per-root walker inside each task, keep walker state task-local, and merge phase outputs through deterministic
@@ -914,11 +938,11 @@ If a feature can be added by changing only parser code and codegen, that is a wa
 
 Core language rules belong in the relevant model and checker contracts, not in backend-specific code.
 
-Backend support should be selected after the feature is represented in the checked bound HIR, normalized lowered-bound form, and
-lower-level `bray-ir` representation.
+Backend support should be selected after the feature is represented in the checked bound HIR and backend-independent `bray-ir`
+MIR.
 
 A new backend implements the coarse codegen-unit contract. It must not require LLVM types in backend-neutral crates, reinterpret
-source semantics, or extend Bray IR with backend-owned values.
+source semantics, or extend Bray MIR with backend-owned values.
 
 ---
 
@@ -942,7 +966,8 @@ Do not place checking behavior in bound-tree definitions.
 
 Do not place lowering behavior in checker types.
 
-Do not place emission behavior in codegen interfaces.
+Do not place emission policy, output layout, publication, or linking behavior in codegen interfaces. Backend-specific serialization
+remains a codegen capability selected through an emitter-owned artifact request.
 
 ---
 
@@ -961,9 +986,15 @@ Binding tests should validate symbol resolution and scope behavior.
 
 Checker tests should validate language semantics, diagnostics, and recovery behavior.
 
-Lowering tests should validate checked-HIR-to-lowered-bound normalization, including explicit control flow and cleanup behavior.
+Lowering and MIR tests should validate checked-HIR-to-`bray-ir` translation, explicit control flow and cleanup behavior, and MIR
+invariants.
 
-IR tests should validate lowered-bound-to-`bray-ir` translation and lower-level IR invariants.
+Codegen tests should validate MIR-to-backend-IR translation and backend conformance independently of artifact naming and sinks.
+
+Emitter tests should validate artifact requests, deterministic naming, serialization coordination, atomic publication, package
+interface inclusion, and link-plan construction.
+
+Linker tests should validate typed-plan translation, target driver selection, invocation diagnostics, and staged linked outputs.
 
 End-to-end tests should validate compiler behavior across phases.
 

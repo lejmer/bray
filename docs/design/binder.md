@@ -44,7 +44,7 @@ The binder does not:
 - discover declarations already owned by `bray-declarations`,
 - construct the compilation-wide symbol identity skeleton,
 - define type, ownership, borrowing, effect, capability, contract, or target policy,
-- lower a completed source-shaped bound HIR view into normalized lowered-bound nodes or lower-level IR,
+- lower a completed source-shaped bound HIR view into backend-independent MIR,
 - execute constant expressions or runtime defaults except through the owning evaluator service,
 - own compiler command workflows or eagerly bind the whole program,
 - expose mutable bound nodes or partially checked public results.
@@ -52,9 +52,8 @@ The binder does not:
 The bound tree is not syntax with renamed node kinds. It contains resolved semantic references and checked facts that syntax alone
 cannot represent.
 
-The checked bound tree is Bray's source-shaped high-level intermediate representation. It is not the normalized lowered-bound form
-or the lower-level `bray-ir` representation. It remains closely correlated with source and diagnostics until lowering makes implicit
-execution behavior explicit.
+The checked bound tree is Bray's source-shaped high-level intermediate representation. It is not the backend-independent `bray-ir`
+MIR. It remains closely correlated with source and diagnostics until lowering makes implicit execution behavior explicit.
 
 ---
 
@@ -1215,8 +1214,7 @@ The graph is not:
 
 - the canonical source-shaped bound HIR,
 - a second published bound tree,
-- the normalized lowered-bound representation,
-- backend-independent IR,
+- backend-independent MIR,
 - a symbol or compiled package-interface fact.
 
 It splits source-shaped control only as far as semantic analysis requires. It does not introduce lowering temporaries, explicit drop
@@ -1552,27 +1550,22 @@ The bound representation must provide lowering with:
 - nested callable unit references,
 - source anchors required for downstream diagnostics.
 
-The first lowering stage must transform the completed source-shaped HIR and its required side facts into one immutable normalized
-lowered-bound unit owned by `bray-lowering`. This representation must be execution-shaped rather than another family mirroring bound
-expressions, patterns, blocks, and callable bodies. It may introduce temporaries, explicit control-flow blocks, merge values,
-cleanup paths, and other execution machinery that do not need source-level symbol identities.
+Lowering must transform the completed source-shaped HIR and its required side facts into one immutable MIR unit owned by `bray-ir`.
+MIR must be execution-shaped rather than another family mirroring bound expressions, patterns, blocks, and callable bodies. It may
+introduce temporaries, explicit control-flow blocks, merge values, cleanup paths, and other execution machinery that do not need
+source-level symbol identities.
 
-The normalized unit must retain its canonical bound-unit key and only the source anchors required for diagnostics. It must not retain
-bound node IDs as deferred semantic decisions for a later phase to reinterpret. Normalized control-flow, value, storage, and cleanup
-identities belong to the normalized unit itself.
+The MIR unit must retain its canonical bound-unit key and only the source anchors required for diagnostics. It must not retain bound
+node IDs as deferred semantic decisions for code generation to reinterpret. Control-flow, value, storage, and cleanup identities
+belong to the MIR unit itself.
 
-`LoweredUnitBuilder` must accept a validated `LoweringInput`, assign compact block identities in deterministic construction order,
-and validate source-snapshot correlation while blocks are committed. Publication must require an exact committed entry block and
-freeze the result as an immutable `LoweredUnit`. The normalized representation must define unit, block, entry, and source identity.
-Semantic operation types must be introduced only with their complete lowering contracts. Placeholder operations are forbidden.
+The MIR builder must accept a validated `LoweringInput`, assign compact block identities in deterministic construction order, and
+validate source-snapshot correlation while blocks are committed. Publication requires an exact committed entry block and freezes
+the result as an immutable MIR unit. Semantic operation types must be introduced only with their complete lowering contracts.
+Placeholder operations are forbidden.
 
-The second stage must translate that normalized bound representation into the lower-level backend-independent `bray-ir`
-representation. The split lets source-oriented semantic lowering finish before lower-level IR construction without pretending the
-checked bound tree was not already an intermediate representation.
-
-`bray-lowering` owns both transformations and the normalized representation. `bray-bound-tree` does not own a second lowered node
-family, and `bray-ir` does not depend on lowering internals. Compilation should cache the normalized unit and lower-level IR as
-separate lazy facts keyed by the canonical bound-unit key.
+`bray-lowering` owns the transformation and task-local construction state. `bray-ir` owns the published MIR types, builders, and
+validation contracts. Compilation caches the completed MIR as one lazy fact keyed by the canonical bound-unit key.
 
 Lowering must not perform name lookup, overload resolution, implementation selection, type inference, borrow checking, or contract
 proof. If lowering cannot proceed without one of those decisions, the lowering input query is incomplete and must require the missing
@@ -1695,6 +1688,6 @@ Implementation should proceed in dependency order:
 12. Define the shared checker-internal control-flow graph, typed edge refinements, and reusable fixed-point mechanics.
 13. Integrate focused checker domains as typed side facts over canonical bound units.
 14. Add deterministic diagnostic aggregation, cancellation, speculation, recovery, convergence, and parallel-query tests.
-15. Establish the completed-HIR-to-lowered-bound and lowered-bound-to-`bray-ir` boundaries before implementing production lowering.
+15. Establish the completed-HIR-to-`bray-ir` MIR boundary before implementing production lowering.
 
 Each step must publish only complete immutable facts and must not add temporary eager workflow APIs.

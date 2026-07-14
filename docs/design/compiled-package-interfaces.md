@@ -174,8 +174,9 @@ bray-diagnostics -------/            |
 - constructing the current library product's export bundle,
 - requesting deterministic interface bytes.
 
-`bray-emitter` writes already constructed interface bytes or an immutable interface artifact descriptor to the requested output
-location. It does not decide semantic reachability or encode symbol facts itself.
+`bray-emitter` includes an already constructed immutable interface artifact in the emission plan, assigns its deterministic output,
+and publishes it through the ordinary staging and atomic artifact policy. It does not pass `.brayi` through a codegen backend,
+include it in a native link plan, decide semantic reachability, or encode symbol facts itself.
 
 ---
 

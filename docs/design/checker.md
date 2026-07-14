@@ -44,7 +44,7 @@ The checker does not:
 - mutate symbols or published bound nodes,
 - construct a second durable semantic tree,
 - publish its control-flow graph, work lists, lattice states, or solver traces,
-- lower checked semantics into cleanup operations, normalized control flow, or lower-level IR,
+- lower checked semantics into cleanup operations, normalized control flow, or backend-independent MIR,
 - erase unrelated rule outcomes into one universal fact record,
 - use runtime assertion failures for ordinary invalid source,
 - infer language policy from implementation convenience.

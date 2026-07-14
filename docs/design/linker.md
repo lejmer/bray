@@ -1,0 +1,305 @@
+# Linker design
+
+This document defines the goal-state architecture for producing final native products from emitted Bray link inputs.
+
+`docs/design/compiler-architecture.md` defines the compiler-wide phase and diagnostic model.
+
+`docs/design/codegen.md` defines generation of backend-specific low-level IR and linkable object or bitcode artifacts.
+
+`docs/design/emitter.md` defines artifact policy, staging, publication, and construction of typed link plans.
+
+This document defines link-plan ownership, linker-driver selection, invocation, diagnostics, cancellation, and linked artifact
+results.
+
+---
+
+## Goals
+
+The linker architecture should:
+
+- consume one complete immutable typed link plan,
+- support an embedded linker such as LLD and configured system linkers through focused drivers,
+- keep command construction and platform quirks out of codegen and the emitter,
+- write final linked content only to emitter-owned staging destinations,
+- produce structured diagnostics for tool discovery, invocation, and linker failures,
+- preserve deterministic plan and argument ordering,
+- support executables, shared libraries, static libraries, and target-specific companion outputs,
+- observe cancellation without publishing a partial final artifact,
+- remain independent of Bray syntax, bound nodes, MIR, and backend-private modules.
+
+---
+
+## Non-Goals
+
+The linker does not:
+
+- discover reachable code or generic instances,
+- select runtime behavior or native dependencies from source directives,
+- generate LLVM IR, bitcode, assembly, or object contents,
+- encode package interfaces,
+- choose product or artifact policy,
+- assign user-facing output names,
+- publish final destinations directly,
+- reinterpret ABI, symbol, layout, or linkage semantics,
+- parse linker text into invented Bray source diagnostics,
+- act as a package manager or fetch external libraries.
+
+---
+
+## Terminology
+
+### Link Plan
+
+A `LinkPlan` is the complete immutable typed description of one native link or archive operation. `bray-linker` owns its contracts
+and validation builder. `bray-emitter` constructs it from emitted artifacts and canonical compilation facts.
+
+### Link Input
+
+A link input is an emitted or staged object, bitcode module, archive, startup object, runtime library, native library, or another
+target-supported input with explicit identity, kind, order, and provenance.
+
+### Linker Driver
+
+A linker driver translates a validated target-specific link plan into one embedded linker call or external tool invocation.
+
+Drivers own tool-specific flags, response-file syntax, quoting, environment requirements, and output interpretation.
+
+### Linked Artifact
+
+A linked artifact is the validated staging result produced by a successful linker or archiver invocation. It is not a published
+final output until `bray-emitter` atomically promotes it.
+
+---
+
+## Link Plan
+
+The link plan contains typed values for:
+
+- product identity and linked product kind,
+- selected target and object format,
+- ordered object and bitcode inputs,
+- ordered archives and native libraries,
+- entry point,
+- startup and termination objects,
+- Bray runtime components,
+- exported and retained symbols,
+- library and framework search paths,
+- target-defined subsystem and platform options,
+- relocation, code, and link model,
+- dead-stripping, section-garbage-collection, and whole-archive policy,
+- debug and companion output requirements,
+- emitter-owned staging output destinations,
+- selected linker-driver identity and revision.
+
+The plan does not contain raw command fragments supplied by source code. Source directives are resolved and validated into typed
+link requirements before emission.
+
+Plan construction rejects missing inputs, duplicate incompatible inputs, unsupported combinations, output collisions, invalid
+target options, and a driver that cannot satisfy the selected target contract.
+
+Input order is canonical where the platform permits it and language-defined where order affects linker semantics.
+
+---
+
+## Driver Selection
+
+The selected target profile and compiler host provide the available linker drivers. `bray-linker` validates the requested or default
+driver against the plan's target and product kind.
+
+Initial driver categories include:
+
+- embedded LLD,
+- external LLD,
+- configured platform system linker,
+- static-library archiver,
+- target-specific linker driver when a platform requires one.
+
+The architecture does not require every compiler distribution to expose every driver. Missing required support is a structured
+target-toolchain diagnostic.
+
+Driver identity and revision participate in linked-artifact cache or reproducibility metadata whenever they can affect output.
+
+Arbitrary linker executables found on `PATH` are not silently treated as compatible. Tool discovery and compatibility policy are
+explicit compiler-host inputs.
+
+---
+
+## Invocation Boundary
+
+The conceptual linker service is:
+
+```rust
+pub trait LinkerDriver: Send + Sync {
+    fn identity(&self) -> LinkerIdentity;
+
+    fn supports(&self, target: &LinkTarget) -> bool;
+
+    fn link(&self, plan: &LinkPlan, cancellation: &CancellationToken) -> LinkOutcome;
+}
+```
+
+This is a design shape rather than a requirement to preserve the exact signature.
+
+The driver receives a complete plan and writes only to its emitter-owned staging destinations. It returns linked artifact metadata,
+structured diagnostics, cancellation, or failure. It does not publish final paths.
+
+External process execution belongs behind an injectable process boundary so tests can inspect exact invocations without launching a
+real linker.
+
+The linker must not invoke a shell to interpret constructed command text. External tools receive an executable path and an explicit
+argument vector. Response files use driver-owned deterministic encoding when command length or platform rules require them.
+
+---
+
+## Static Libraries
+
+Static-library creation is part of the linker domain even when the platform tool is called an archiver rather than a linker.
+
+The static-library driver consumes ordered object inputs and produces one archive staging artifact. It owns archive indexing,
+deterministic member metadata, target archive format, and tool invocation.
+
+Archive member timestamps, user IDs, group IDs, permissions, and names must be normalized where the format permits so equivalent
+inputs produce deterministic output.
+
+---
+
+## Shared Libraries And Executables
+
+Executable and shared-library plans explicitly identify their product kind, entry point, exports, runtime components, startup
+objects, and platform options.
+
+The linker does not infer an entry point from source names or object inspection. The semantic and product layers select it before
+the plan is constructed.
+
+Shared-library import libraries, export definition files, debug companions, and similar target outputs are separate typed staging
+artifacts recorded in the link outcome and later published by the emitter.
+
+---
+
+## Package Interfaces
+
+Compiled package interfaces are not linker inputs.
+
+`.brayi` publication can accompany a library product, but the interface artifact is produced by `bray-package-interface` and
+published independently by `bray-emitter`.
+
+The linker must not inspect, rewrite, embed, hash, or validate `.brayi` content unless a future target defines a separate explicit
+container contract. Such a contract would not turn package interfaces into ordinary native linker inputs.
+
+---
+
+## Staging And Publication
+
+The emitter creates every linked output staging destination before invocation and records it in the plan.
+
+The linker writes only to those staging destinations. It cannot choose or replace the final user-visible path.
+
+After successful invocation, `bray-linker` validates that every required output exists and returns `LinkedArtifact` records with
+kind, staging identity, observed length, and available tool metadata.
+
+`bray-emitter` validates expected output relationships and atomically publishes the linked artifacts. If invocation or validation
+fails, the emitter removes staging state and preserves existing final outputs.
+
+---
+
+## Diagnostics
+
+Linker diagnostics describe:
+
+- unavailable or incompatible linker drivers,
+- missing planned inputs,
+- unsupported product and target combinations,
+- process creation and termination failures,
+- response-file failures,
+- linker exit status,
+- missing or malformed linked outputs,
+- cancellation and resource limits.
+
+Diagnostics use stable message IDs and typed arguments such as target, driver, product, input artifact, native library, symbol,
+output kind, and exit status. User-facing English is rendered through `bray-messages`.
+
+External linker stdout and stderr are retained as explicitly labeled external-tool detail. They are not treated as localized Bray
+diagnostic text and do not receive invented source spans.
+
+When canonical symbol provenance is available, a linker diagnostic can relate an unresolved or duplicate external symbol to a Bray
+declaration through typed related information. The linker does not reverse-engineer source locations from mangled names.
+
+---
+
+## Cancellation And Failure
+
+Cancellation is checked before process creation, while waiting for an external tool, before validating outputs, and before returning
+a successful result.
+
+An external process boundary should terminate a cancellable child process when the platform contract permits it. If termination
+cannot be guaranteed, a completed result is discarded after cancellation and never published.
+
+Link failure leaves no published new final artifact. Staging cleanup is coordinated with the emitter.
+
+Failure does not invalidate completed MIR, codegen artifacts, package-interface artifacts, or emission plans. A later request can
+reuse those pure facts with corrected toolchain or destination state.
+
+---
+
+## Determinism
+
+The same link plan, driver identity, tool revision, and input bytes should produce byte-equivalent linked artifacts where the target
+toolchain supports deterministic output.
+
+The driver must suppress or normalize timestamps, random identifiers, host paths, process identifiers, and environment-derived
+metadata when supported.
+
+Argument order, response-file contents, environment construction, and diagnostic ordering follow the immutable plan rather than
+hash-map or filesystem enumeration order.
+
+When a toolchain cannot provide deterministic output, the driver reports that capability explicitly. It must not claim reusable
+deterministic artifacts.
+
+---
+
+## Parallelism
+
+Independent products can link concurrently subject to compiler process and I/O budgets.
+
+One link plan is executed once. Drivers must not create hidden compiler-owned worker pools that violate configured resource policy.
+
+Linking begins only after all required inputs are complete. It does not block unrelated MIR, codegen, interface, or emission tasks
+whose fact dependencies are ready.
+
+---
+
+## Testing Strategy
+
+Linker tests should cover:
+
+- exact typed plan validation,
+- deterministic input and argument ordering,
+- embedded and external driver selection,
+- response-file encoding and quoting,
+- executable, shared-library, and static-library plans,
+- target-specific companion outputs,
+- missing tool and process failures,
+- external stdout and stderr attachment,
+- cancellation and child-process termination behavior,
+- missing linked output rejection,
+- emitter-owned staging and publication boundaries,
+- deterministic repeated invocations with a controlled test driver,
+- exclusion of `.brayi` from native link inputs.
+
+Most tests should use recording drivers and process doubles. A smaller target-gated integration suite can invoke supported production
+linkers.
+
+---
+
+## Initial Implementation Order
+
+The linker should be implemented in this order:
+
+1. Define typed plan, input, product, driver identity, outcome, and linked artifact contracts.
+2. Implement deterministic plan validation and ordering.
+3. Add an injectable external process boundary and recording test driver.
+4. Implement the first supported native linker driver.
+5. Implement deterministic static-library archiving.
+6. Integrate emitter-owned staging and linked artifact publication.
+7. Add structured diagnostics, cancellation, response files, and companion outputs.
+8. Add target-gated end-to-end executable and library tests.
