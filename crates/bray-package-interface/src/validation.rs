@@ -98,12 +98,7 @@ impl ValidatedPackageInterface {
     ) -> Result<crate::InterfaceSemanticFacts, InterfaceValidationError> {
         let sections: Vec<_> = self.sections().collect();
 
-        crate::decode_semantic_facts(
-            &sections,
-            surface.symbols().symbols().len(),
-            surface.dependencies().len(),
-            self.limits,
-        )
+        crate::decode_semantic_facts(&sections, surface, self.limits)
     }
 }
 

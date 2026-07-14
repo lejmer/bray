@@ -23,7 +23,7 @@ pub(super) fn decode_support_graph(
 
     validate_record_count(section, [count])?;
 
-    let mut entities = Vec::with_capacity(count);
+    let mut entities = context.allocate_items(&reader, count)?;
 
     for _ in 0..count {
         entities.push(match read_u32(&mut reader)? {

@@ -4,18 +4,19 @@ mod directory;
 mod support;
 mod surface;
 mod template;
+#[cfg(test)]
+mod test_support;
 mod value;
 
 use crate::semantic::codec::common::SemanticDecodeContext;
 use crate::{
     InterfaceSectionTag, InterfaceSemanticFacts, InterfaceValidationError,
-    InterfaceValidationLimits, ValidatedInterfaceSection,
+    InterfaceValidationLimits, PackageInterfaceSurface, ValidatedInterfaceSection,
 };
 
 pub fn decode_semantic_facts(
     sections: &[ValidatedInterfaceSection<'_>],
-    symbol_count: usize,
-    dependency_count: usize,
+    surface: &PackageInterfaceSurface,
     limits: InterfaceValidationLimits,
 ) -> Result<InterfaceSemanticFacts, InterfaceValidationError> {
     validate_decode_allocation(sections, limits)?;
@@ -51,7 +52,7 @@ pub fn decode_semantic_facts(
         return Err(InterfaceValidationError::Malformed);
     }
 
-    facts.validate(symbol_count, dependency_count, limits)?;
+    facts.validate(surface, limits)?;
 
     Ok(facts)
 }

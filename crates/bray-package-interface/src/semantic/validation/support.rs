@@ -1,15 +1,18 @@
 use std::collections::BTreeSet;
 
-use bray_symbols::SymbolKind;
+use bray_symbols::{ExternalSymbolKey, SymbolKind};
 
 use crate::semantic::model::{InterfaceSemanticFacts, InterfaceSupportEntity};
 use crate::validation::is_strictly_sorted;
-use crate::{InterfaceValidationError, semantic::validation::fact::validate_index};
+use crate::{
+    InterfaceValidationError, PackageInterfaceSurface, semantic::validation::fact::validate_index,
+};
 
 use super::checked_index;
 
 pub(super) fn validate_support_entities(
     facts: &InterfaceSemanticFacts,
+    surface: &PackageInterfaceSurface,
 ) -> Result<Vec<(usize, usize)>, InterfaceValidationError> {
     if !is_strictly_sorted(&facts.support_entities) {
         return Err(InterfaceValidationError::Malformed);
@@ -32,14 +35,16 @@ pub(super) fn validate_support_entities(
                 template_entities.push((entity_index, template_index));
             }
             InterfaceSupportEntity::Declaration(declaration) => {
-                if !is_support_declaration_kind(declaration.kind())
+                if !valid_support_key(declaration, surface)
+                    || !is_support_declaration_kind(declaration.kind())
                     || !declaration_keys.insert(declaration)
                 {
                     return Err(InterfaceValidationError::Malformed);
                 }
             }
             InterfaceSupportEntity::Implementation(implementation) => {
-                if !is_implementation_kind(implementation.declaration().kind())
+                if !valid_support_key(implementation.declaration(), surface)
+                    || !implementation.declaration().kind().is_implementation()
                     || !declaration_keys.insert(implementation.declaration())
                 {
                     return Err(InterfaceValidationError::Malformed);
@@ -66,6 +71,11 @@ pub(super) fn validate_support_entities(
     Ok(template_entities)
 }
 
+fn valid_support_key(key: &ExternalSymbolKey, surface: &PackageInterfaceSurface) -> bool {
+    key.package_identity() == surface.identity().package()
+        && surface.symbol_by_external_key(key).is_none()
+}
+
 fn is_support_declaration_kind(kind: SymbolKind) -> bool {
     !matches!(
         kind,
@@ -73,15 +83,6 @@ fn is_support_declaration_kind(kind: SymbolKind) -> bool {
             | SymbolKind::Package
             | SymbolKind::Module
             | SymbolKind::InherentImplementation
-            | SymbolKind::UnnamedTraitImplementation
-            | SymbolKind::NamedTraitImplementation
-    )
-}
-
-fn is_implementation_kind(kind: SymbolKind) -> bool {
-    matches!(
-        kind,
-        SymbolKind::InherentImplementation
             | SymbolKind::UnnamedTraitImplementation
             | SymbolKind::NamedTraitImplementation
     )

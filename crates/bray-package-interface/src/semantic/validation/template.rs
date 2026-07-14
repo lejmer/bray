@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 
 use bray_bound_tree::CheckedTemplateNodeId;
-use bray_symbols::InterfaceSupportEntityId;
+use bray_symbols::{InterfaceSupportEntityId, SymbolKind};
 
 use crate::semantic::model::{
     InterfaceCheckedTemplate, InterfaceCheckedTemplateInputKind, InterfaceCheckedTemplateNode,
@@ -10,23 +10,34 @@ use crate::semantic::model::{
 };
 use crate::validation::is_strictly_sorted;
 use crate::{
-    InterfaceLimit, InterfaceValidationError, InterfaceValidationLimits,
-    semantic::validation::fact::{validate_index, validate_symbol},
+    InterfaceLimit, InterfaceValidationError, InterfaceValidationLimits, PackageInterfaceSurface,
+    semantic::validation::fact::{validate_index, validate_symbol, validate_symbol_kind},
 };
 
 use super::checked_index;
 use super::support::validate_support_entities;
 
+#[derive(Clone, Copy)]
+struct TemplateValidationContext<'facts> {
+    facts: &'facts InterfaceSemanticFacts,
+    template: &'facts InterfaceCheckedTemplate,
+    entity_index: usize,
+    surface: &'facts PackageInterfaceSurface,
+    symbol_count: usize,
+    dependency_count: usize,
+}
+
 impl InterfaceSemanticFacts {
     pub(super) fn validate_template_facts(
         &self,
-        symbol_count: usize,
-        dependency_count: usize,
+        surface: &PackageInterfaceSurface,
         limits: InterfaceValidationLimits,
     ) -> Result<(), InterfaceValidationError> {
         validate_declaration_order(self)?;
 
-        let template_entities = validate_support_entities(self)?;
+        let template_entities = validate_support_entities(self, surface)?;
+        let symbol_count = surface.symbols().symbols().len();
+        let dependency_count = surface.dependencies().len();
 
         if template_entities.len() != self.checked_templates.len()
             || self.declaration_templates.len() != self.checked_templates.len()
@@ -47,13 +58,27 @@ impl InterfaceSemanticFacts {
                 u64::try_from(graph_size).unwrap_or(u64::MAX),
             )?;
 
-            validate_template(self, template, entity_index, symbol_count, dependency_count)?;
+            validate_template(
+                self,
+                template,
+                entity_index,
+                surface,
+                symbol_count,
+                dependency_count,
+            )?;
         }
 
         let mut mapped_entities = BTreeSet::new();
 
         for declaration in &*self.declaration_templates {
             validate_symbol(declaration.owner(), symbol_count, dependency_count)?;
+
+            if !declaration
+                .kind()
+                .accepts_owner(validate_symbol_kind(declaration.owner(), surface)?)
+            {
+                return Err(InterfaceValidationError::Malformed);
+            }
 
             let entity_index = support_index(declaration.entity(), self.support_entities.len())?;
 
@@ -98,6 +123,7 @@ fn validate_template(
     facts: &InterfaceSemanticFacts,
     template: &InterfaceCheckedTemplate,
     entity_index: usize,
+    surface: &PackageInterfaceSurface,
     symbol_count: usize,
     dependency_count: usize,
 ) -> Result<(), InterfaceValidationError> {
@@ -111,13 +137,29 @@ fn validate_template(
         return Err(InterfaceValidationError::Malformed);
     }
 
+    let mut input_kinds = BTreeSet::new();
+
     for input in template.inputs() {
+        if !input_kinds.insert(input.kind()) {
+            return Err(InterfaceValidationError::Malformed);
+        }
+
         validate_index(input.ty().to_index(), facts.types.len())?;
 
         match input.kind() {
-            InterfaceCheckedTemplateInputKind::GenericType(parameter)
-            | InterfaceCheckedTemplateInputKind::GenericConstant(parameter) => {
+            InterfaceCheckedTemplateInputKind::GenericType(parameter) => {
                 validate_symbol(parameter, symbol_count, dependency_count)?;
+
+                if validate_symbol_kind(parameter, surface)? != SymbolKind::GenericTypeParameter {
+                    return Err(InterfaceValidationError::Malformed);
+                }
+            }
+            InterfaceCheckedTemplateInputKind::GenericConstant(parameter) => {
+                validate_symbol(parameter, symbol_count, dependency_count)?;
+
+                if validate_symbol_kind(parameter, surface)? != SymbolKind::GenericConstParameter {
+                    return Err(InterfaceValidationError::Malformed);
+                }
             }
             InterfaceCheckedTemplateInputKind::Receiver
             | InterfaceCheckedTemplateInputKind::Parameter(_)
@@ -125,17 +167,18 @@ fn validate_template(
         }
     }
 
+    let context = TemplateValidationContext {
+        facts,
+        template,
+        entity_index,
+        surface,
+        symbol_count,
+        dependency_count,
+    };
+
     for (node_index, node) in template.nodes().iter().enumerate() {
         validate_index(node.ty().to_index(), facts.types.len())?;
-        validate_operation(
-            facts,
-            template,
-            node,
-            node_index,
-            entity_index,
-            symbol_count,
-            dependency_count,
-        )?;
+        validate_operation(context, node, node_index)?;
     }
 
     for temporary in template.temporaries() {
@@ -175,92 +218,57 @@ fn validate_template(
     }
 
     for witness in template.behavior().witnesses() {
-        validate_implementation_reference(
-            facts,
-            witness,
-            entity_index,
-            symbol_count,
-            dependency_count,
-        )?;
+        validate_implementation_reference(context, witness)?;
     }
 
     Ok(())
 }
 
 fn validate_operation(
-    facts: &InterfaceSemanticFacts,
-    template: &InterfaceCheckedTemplate,
+    context: TemplateValidationContext<'_>,
     node: &InterfaceCheckedTemplateNode,
     node_index: usize,
-    entity_index: usize,
-    symbol_count: usize,
-    dependency_count: usize,
 ) -> Result<(), InterfaceValidationError> {
-    validate_operation_references(
-        facts,
-        template,
-        node.operation(),
-        node_index,
-        entity_index,
-        symbol_count,
-        dependency_count,
-    )?;
+    validate_operation_references(context, node.operation(), node_index)?;
 
-    validate_operation_type(facts, template, node)
+    validate_operation_type(context.facts, context.template, node)
 }
 
 fn validate_operation_references(
-    facts: &InterfaceSemanticFacts,
-    template: &InterfaceCheckedTemplate,
+    context: TemplateValidationContext<'_>,
     operation: &InterfaceCheckedTemplateOperation,
     node_index: usize,
-    entity_index: usize,
-    symbol_count: usize,
-    dependency_count: usize,
 ) -> Result<(), InterfaceValidationError> {
     match operation {
         InterfaceCheckedTemplateOperation::Input(input) => {
-            checked_index(compact_index(input.raw()), template.inputs().len())?;
+            checked_index(compact_index(input.raw()), context.template.inputs().len())?;
         }
         InterfaceCheckedTemplateOperation::Constant(constant) => {
-            validate_index(constant.to_index(), facts.constant_terms.len())?;
+            validate_index(constant.to_index(), context.facts.constant_terms.len())?;
         }
         InterfaceCheckedTemplateOperation::Declaration(declaration) => {
-            validate_template_reference(
-                facts,
-                declaration,
-                entity_index,
-                symbol_count,
-                dependency_count,
-            )?;
+            validate_template_reference(context, declaration)?;
         }
         InterfaceCheckedTemplateOperation::Call {
             callable,
             arguments,
             implementation,
         } => {
-            validate_template_reference(
-                facts,
-                callable,
-                entity_index,
-                symbol_count,
-                dependency_count,
-            )?;
+            let callable_kind = validate_template_reference(context, callable)?;
+
+            if !callable_kind.is_callable() {
+                return Err(InterfaceValidationError::Malformed);
+            }
+
             validate_prior_nodes(arguments, node_index)?;
 
             if let Some(implementation) = implementation {
-                validate_implementation_reference(
-                    facts,
-                    implementation,
-                    entity_index,
-                    symbol_count,
-                    dependency_count,
-                )?;
+                validate_implementation_reference(context, implementation)?;
             }
         }
         InterfaceCheckedTemplateOperation::Convert { value, target } => {
             validate_prior_node(*value, node_index)?;
-            validate_index(target.to_index(), facts.types.len())?;
+            validate_index(target.to_index(), context.facts.types.len())?;
         }
         InterfaceCheckedTemplateOperation::Tuple(elements) => {
             validate_prior_nodes(elements, node_index)?;
@@ -270,13 +278,7 @@ fn validate_operation_references(
         }
         InterfaceCheckedTemplateOperation::Project { subject, member } => {
             validate_prior_node(*subject, node_index)?;
-            validate_template_reference(
-                facts,
-                member,
-                entity_index,
-                symbol_count,
-                dependency_count,
-            )?;
+            validate_template_reference(context, member)?;
         }
         InterfaceCheckedTemplateOperation::Conditional {
             condition,
@@ -289,9 +291,11 @@ fn validate_operation_references(
             validate_prior_nodes(&[*left, *right], node_index)?;
         }
         InterfaceCheckedTemplateOperation::Temporary(temporary) => {
-            let temporary_index =
-                checked_index(compact_index(temporary.raw()), template.temporaries().len())?;
-            let temporary = template.temporaries()[temporary_index];
+            let temporary_index = checked_index(
+                compact_index(temporary.raw()),
+                context.template.temporaries().len(),
+            )?;
+            let temporary = context.template.temporaries()[temporary_index];
 
             validate_prior_node(temporary.initializer(), node_index)?;
         }
@@ -364,50 +368,53 @@ fn validate_operation_type(
 }
 
 fn validate_template_reference(
-    facts: &InterfaceSemanticFacts,
+    context: TemplateValidationContext<'_>,
     reference: &InterfaceTemplateReference,
-    entity_index: usize,
-    symbol_count: usize,
-    dependency_count: usize,
-) -> Result<(), InterfaceValidationError> {
+) -> Result<SymbolKind, InterfaceValidationError> {
     match reference {
         InterfaceTemplateReference::Symbol(symbol) => {
-            validate_symbol(symbol, symbol_count, dependency_count)
+            validate_symbol(symbol, context.symbol_count, context.dependency_count)?;
+
+            validate_symbol_kind(symbol, context.surface)
         }
         InterfaceTemplateReference::Support(entity) => {
-            let reference_index = support_index(*entity, facts.support_entities.len())?;
+            let reference_index = support_index(*entity, context.facts.support_entities.len())?;
 
-            if reference_index >= entity_index
-                || !matches!(
-                    facts.support_entities[reference_index],
-                    InterfaceSupportEntity::Declaration(_)
-                )
-            {
+            if reference_index >= context.entity_index {
                 return Err(InterfaceValidationError::Malformed);
             }
 
-            Ok(())
+            let InterfaceSupportEntity::Declaration(declaration) =
+                &context.facts.support_entities[reference_index]
+            else {
+                return Err(InterfaceValidationError::Malformed);
+            };
+
+            Ok(declaration.kind())
         }
     }
 }
 
 fn validate_implementation_reference(
-    facts: &InterfaceSemanticFacts,
+    context: TemplateValidationContext<'_>,
     reference: &InterfaceImplementationReference,
-    entity_index: usize,
-    symbol_count: usize,
-    dependency_count: usize,
 ) -> Result<(), InterfaceValidationError> {
     match reference {
         InterfaceImplementationReference::Symbol(symbol) => {
-            validate_symbol(symbol, symbol_count, dependency_count)
+            validate_symbol(symbol, context.symbol_count, context.dependency_count)?;
+
+            if !validate_symbol_kind(symbol, context.surface)?.is_implementation() {
+                return Err(InterfaceValidationError::Malformed);
+            }
+
+            Ok(())
         }
         InterfaceImplementationReference::Support(entity) => {
-            let reference_index = support_index(*entity, facts.support_entities.len())?;
+            let reference_index = support_index(*entity, context.facts.support_entities.len())?;
 
-            if reference_index >= entity_index
+            if reference_index >= context.entity_index
                 || !matches!(
-                    facts.support_entities[reference_index],
+                    context.facts.support_entities[reference_index],
                     InterfaceSupportEntity::Implementation(_)
                 )
             {

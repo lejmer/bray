@@ -41,6 +41,28 @@ impl DecodeBudget {
         self.limits
     }
 
+    pub(crate) fn allocate_items<T>(
+        &mut self,
+        reader: &WireReader<'_>,
+        count: usize,
+    ) -> Result<Vec<T>, InterfaceValidationError> {
+        const MINIMUM_ITEM_WIRE_BYTES: usize = std::mem::size_of::<u32>();
+
+        if count.saturating_mul(MINIMUM_ITEM_WIRE_BYTES) > reader.remaining() {
+            return Err(InterfaceValidationError::Truncated);
+        }
+
+        self.charge_items::<T>(count)?;
+
+        let mut values = Vec::new();
+
+        values
+            .try_reserve_exact(count)
+            .map_err(|_| InterfaceValidationError::Malformed)?;
+
+        Ok(values)
+    }
+
     pub(crate) fn charge_items<T>(&mut self, count: usize) -> Result<(), InterfaceValidationError> {
         self.charge(count.saturating_mul(std::mem::size_of::<T>()))
     }

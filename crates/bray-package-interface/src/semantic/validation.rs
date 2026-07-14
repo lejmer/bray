@@ -5,22 +5,25 @@ mod value;
 
 use crate::{
     InterfaceLimit, InterfaceSemanticFacts, InterfaceValidationError, InterfaceValidationLimits,
+    PackageInterfaceSurface,
 };
 
 impl InterfaceSemanticFacts {
     pub(crate) fn validate(
         &self,
-        symbol_count: usize,
-        dependency_count: usize,
+        surface: &PackageInterfaceSurface,
         limits: InterfaceValidationLimits,
     ) -> Result<(), InterfaceValidationError> {
         for count in self.table_counts() {
             limits.check(InterfaceLimit::RecordCount, saturating_u64(count))?;
         }
 
+        let symbol_count = surface.symbols().symbols().len();
+        let dependency_count = surface.dependencies().len();
+
         self.validate_value_graph(symbol_count, dependency_count, limits)?;
         self.validate_surface_facts(symbol_count, dependency_count, limits)?;
-        self.validate_template_facts(symbol_count, dependency_count, limits)
+        self.validate_template_facts(surface, limits)
     }
 
     fn table_counts(&self) -> [usize; 17] {

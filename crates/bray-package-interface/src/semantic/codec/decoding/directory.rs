@@ -21,7 +21,7 @@ pub(super) fn decode_fact_directory(
     limits.check(InterfaceLimit::RecordCount, section.record_count())?;
 
     let mut reader = WireReader::new(section.bytes());
-    let mut entries = Vec::with_capacity(count);
+    let mut entries = context.allocate_items(&reader, count)?;
 
     for _ in 0..count {
         let owner = read_symbol_reference(&mut reader, context)?;

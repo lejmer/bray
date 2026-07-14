@@ -3,7 +3,7 @@ use std::sync::Arc;
 use bray_base::{shared_slice, sorted_unique_shared_slice};
 use bray_symbols::{
     ConstantTermId, DependencyContractTemplateId, ExternalSymbolKey, LifecycleObligationKind,
-    SymbolOrdinal, TypeId,
+    SymbolKind, SymbolOrdinal, TypeId,
 };
 
 use super::{CheckedTemplateInputId, CheckedTemplateNodeId, CheckedTemplateTemporaryId};
@@ -21,6 +21,36 @@ pub enum CheckedTemplateKind {
     GenericConstraint,
     /// A callable precondition, postcondition, or static contract clause.
     CallableContract,
+}
+
+impl CheckedTemplateKind {
+    /// Returns whether this template category can be owned by the supplied declaration kind.
+    pub const fn accepts_owner(self, owner: SymbolKind) -> bool {
+        match self {
+            Self::RuntimeDefault => matches!(
+                owner,
+                SymbolKind::CallableParameterDefaultProvider
+                    | SymbolKind::StructFieldDefaultProvider
+                    | SymbolKind::UnionPayloadDefaultProvider
+            ),
+            Self::ConstantDefinition => matches!(
+                owner,
+                SymbolKind::Constant
+                    | SymbolKind::TraitConstantMember
+                    | SymbolKind::TraitConstantFulfillment
+            ),
+            Self::PredicateDefinition => matches!(
+                owner,
+                SymbolKind::Predicate
+                    | SymbolKind::TraitPredicateMember
+                    | SymbolKind::TraitPredicateFulfillment
+            ),
+            Self::GenericConstraint => owner.can_be_source_declared(),
+            Self::CallableContract => {
+                matches!(owner, SymbolKind::CallableContract) || owner.is_callable()
+            }
+        }
+    }
 }
 
 /// Whether checked construction completed without semantic recovery.

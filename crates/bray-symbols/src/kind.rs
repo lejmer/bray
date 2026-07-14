@@ -157,6 +157,38 @@ impl SymbolKind {
                 | Self::UnionPayloadDefaultProvider
         ) && !self.is_local()
     }
+
+    /// Returns whether this kind denotes a declared callable or lifecycle operation.
+    pub const fn is_callable(self) -> bool {
+        matches!(
+            self,
+            Self::Function
+                | Self::TypeCallableMember
+                | Self::TraitCallableMember
+                | Self::TraitCallableFulfillment
+                | Self::Constructor
+                | Self::Finalizer
+                | Self::Destructor
+                | Self::ScopeEnter
+                | Self::ScopeExit
+                | Self::TraitFinalizerRequirement
+                | Self::TraitDestructorRequirement
+                | Self::TraitScopeEnterRequirement
+                | Self::TraitScopeExitRequirement
+                | Self::TraitScopeEnterFulfillment
+                | Self::TraitScopeExitFulfillment
+        )
+    }
+
+    /// Returns whether this kind denotes an inherent or trait implementation declaration.
+    pub const fn is_implementation(self) -> bool {
+        matches!(
+            self,
+            Self::InherentImplementation
+                | Self::UnnamedTraitImplementation
+                | Self::NamedTraitImplementation
+        )
+    }
 }
 
 /// Closed typed relationship between ordinary semantic symbols.

@@ -11,16 +11,15 @@ pub use model::EncodedSemanticSection;
 use crate::wire::WireEncoder;
 use crate::{
     InterfaceSectionTag, InterfaceSemanticFacts, InterfaceValidationError,
-    InterfaceValidationLimits,
+    InterfaceValidationLimits, PackageInterfaceSurface,
 };
 
 pub fn encode_semantic_facts(
     facts: &InterfaceSemanticFacts,
-    symbol_count: usize,
-    dependency_count: usize,
+    surface: &PackageInterfaceSurface,
     limits: InterfaceValidationLimits,
 ) -> Result<Vec<EncodedSemanticSection>, InterfaceValidationError> {
-    facts.validate(symbol_count, dependency_count, limits)?;
+    facts.validate(surface, limits)?;
 
     Ok(vec![
         directory::encode_fact_directory(facts),

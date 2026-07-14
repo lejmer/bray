@@ -44,6 +44,10 @@ impl<'bytes> WireReader<'bytes> {
         Ok(bytes)
     }
 
+    pub(crate) const fn remaining(&self) -> usize {
+        self.bytes.len() - self.position
+    }
+
     pub(crate) fn finish(self) -> Result<(), WireDecodeError> {
         if self.position == self.bytes.len() {
             Ok(())

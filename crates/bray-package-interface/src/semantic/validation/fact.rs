@@ -1,8 +1,9 @@
 use crate::validation::is_strictly_sorted;
 use crate::{
     InterfaceLimit, InterfaceSemanticFacts, InterfaceSymbolReference, InterfaceValidationError,
-    InterfaceValidationLimits,
+    InterfaceValidationLimits, PackageInterfaceSurface,
 };
+use bray_symbols::SymbolKind;
 
 use super::saturating_u64;
 
@@ -148,6 +149,33 @@ pub(super) fn validate_symbol(
         InterfaceSymbolReference::Local(id) => validate_index(id.to_index(), symbol_count),
         InterfaceSymbolReference::Dependency { dependency, .. } => {
             validate_index(dependency.to_index(), dependency_count)
+        }
+    }
+}
+
+pub(super) fn validate_symbol_kind(
+    reference: &InterfaceSymbolReference,
+    surface: &PackageInterfaceSurface,
+) -> Result<SymbolKind, InterfaceValidationError> {
+    match reference {
+        InterfaceSymbolReference::Local(id) => surface
+            .symbols()
+            .symbol(*id)
+            .map(|symbol| symbol.kind())
+            .ok_or(InterfaceValidationError::Malformed),
+        InterfaceSymbolReference::Dependency { dependency, key } => {
+            let Some(dependency) = dependency
+                .to_index()
+                .and_then(|index| surface.dependencies().get(index))
+            else {
+                return Err(InterfaceValidationError::Malformed);
+            };
+
+            if key.package_identity() != dependency.package() {
+                return Err(InterfaceValidationError::Malformed);
+            }
+
+            Ok(key.kind())
         }
     }
 }
