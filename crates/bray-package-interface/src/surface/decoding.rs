@@ -10,6 +10,7 @@ use super::{
 };
 use crate::decode::{DecodeBudget, map_wire_error, read_optional_u32, read_u32};
 use crate::tag::WireTag;
+use crate::validation::is_strictly_sorted;
 use crate::wire::WireReader;
 use crate::{
     InterfaceContentHash, InterfaceLimit, InterfaceSectionTag, InterfaceValidationError,
@@ -88,10 +89,8 @@ fn decode_strings(
 ) -> Result<Vec<Arc<str>>, InterfaceValidationError> {
     let count = checked_count(section.record_count())?;
 
-    budget.charge_items::<Arc<str>>(count)?;
-
     let mut reader = WireReader::new(section.bytes());
-    let mut strings = Vec::with_capacity(count);
+    let mut strings = budget.allocate_items(&reader, count)?;
 
     for _ in 0..count {
         let length = usize::try_from(read_u32(&mut reader)?)
@@ -149,10 +148,8 @@ fn decode_dependencies(
 ) -> Result<Vec<InterfaceDependency>, InterfaceValidationError> {
     let count = checked_count(section.record_count())?;
 
-    budget.charge_items::<InterfaceDependency>(count)?;
-
     let mut reader = WireReader::new(section.bytes());
-    let mut dependencies = Vec::with_capacity(count);
+    let mut dependencies = budget.allocate_items(&reader, count)?;
 
     for _ in 0..count {
         let package = package_identity(read_string(&mut reader, strings)?)?;
@@ -175,10 +172,8 @@ fn decode_symbols(
 ) -> Result<Vec<ImportedSymbolIdentityInput>, InterfaceValidationError> {
     let count = checked_count(section.record_count())?;
 
-    budget.charge_items::<ImportedSymbolIdentityInput>(count)?;
-
     let mut reader = WireReader::new(section.bytes());
-    let mut symbols = Vec::with_capacity(count);
+    let mut symbols = budget.allocate_items(&reader, count)?;
 
     for index in 0..count {
         let kind = read_tag(&mut reader)?;
@@ -189,6 +184,7 @@ fn decode_symbols(
             kind,
             container,
             &symbols,
+            budget,
         )?;
         let id =
             InterfaceSymbolId::try_from_index(index).ok_or(InterfaceValidationError::Malformed)?;
@@ -207,10 +203,8 @@ fn decode_relationships(
 ) -> Result<Vec<SymbolRelationship>, InterfaceValidationError> {
     let count = checked_count(section.record_count())?;
 
-    budget.charge_items::<SymbolRelationship>(count)?;
-
     let mut reader = WireReader::new(section.bytes());
-    let mut relationships = Vec::with_capacity(count);
+    let mut relationships = budget.allocate_items(&reader, count)?;
 
     for _ in 0..count {
         relationships.push(SymbolRelationship::new(
@@ -233,10 +227,8 @@ fn decode_exports(
 ) -> Result<Vec<ExportedLookupEdge>, InterfaceValidationError> {
     let count = checked_count(section.record_count())?;
 
-    budget.charge_items::<ExportedLookupEdge>(count)?;
-
     let mut reader = WireReader::new(section.bytes());
-    let mut exports = Vec::with_capacity(count);
+    let mut exports = budget.allocate_items(&reader, count)?;
 
     for _ in 0..count {
         let owner = InterfaceSymbolId::new(read_u32(&mut reader)?);
@@ -257,10 +249,6 @@ fn decode_exports(
     reader.finish().map_err(map_wire_error)?;
 
     Ok(exports)
-}
-
-fn is_strictly_sorted<T: Ord>(values: &[T]) -> bool {
-    values.windows(2).all(|pair| pair[0] < pair[1])
 }
 
 pub(super) fn read_string<'a>(

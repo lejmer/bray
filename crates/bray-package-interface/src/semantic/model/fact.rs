@@ -185,6 +185,8 @@ pub enum InterfaceSemanticFactKind {
     GenericConstraint,
     /// Complete callable contract set.
     CallableContracts,
+    /// Source-independent checked declaration-owned template.
+    DeclarationTemplate,
     /// Public implementation subject and applied trait.
     Implementation,
     /// Required target fact value.

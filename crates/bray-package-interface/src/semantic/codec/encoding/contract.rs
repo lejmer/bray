@@ -10,7 +10,7 @@ use crate::semantic::model::{
 use crate::tag::WireTag;
 use crate::wire::WireEncoder;
 use crate::{InterfaceSectionTag, InterfaceSemanticFacts};
-use bray_symbols::{BorrowKind, LifecycleObligationKind};
+use bray_symbols::BorrowKind;
 
 pub(super) fn encode_contracts(facts: &InterfaceSemanticFacts) -> EncodedSemanticSection {
     let mut encoder = WireEncoder::new();
@@ -158,12 +158,7 @@ pub(super) fn encode_dependency_requirement_kind(
         InterfaceDependencyRequirementKind::ScopedCapabilityLive => encoder.write_u32(5),
         InterfaceDependencyRequirementKind::LifecycleObligation(kind) => {
             encoder.write_u32(6);
-            encoder.write_u32(match kind {
-                LifecycleObligationKind::Destruction => 1,
-                LifecycleObligationKind::Finalization => 2,
-                LifecycleObligationKind::Cancellation => 3,
-                LifecycleObligationKind::Joining => 4,
-            });
+            encoder.write_u32(kind.to_wire());
         }
     }
 }

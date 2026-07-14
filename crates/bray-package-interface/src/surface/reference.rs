@@ -16,6 +16,7 @@ pub(super) fn decode_local_key_component(
     kind: SymbolKind,
     container: Option<InterfaceSymbolId>,
     symbols: &[ImportedSymbolIdentityInput],
+    budget: &mut DecodeBudget,
 ) -> Result<ExternalSymbolKey, InterfaceValidationError> {
     let shape = read_u32(reader)?;
 
@@ -28,7 +29,7 @@ pub(super) fn decode_local_key_component(
 
             ExternalSymbolKey::module(
                 local_owner(container, symbols)?,
-                decode_module_path(reader, strings)?,
+                decode_module_path(reader, strings, budget)?,
             )
             .ok_or(InterfaceValidationError::Malformed)
         }
@@ -59,7 +60,7 @@ pub(super) fn decode_external_key(
         let kind: SymbolKind = read_tag(reader)?;
         let shape = read_u32(reader)?;
         key = Some(decode_external_key_component(
-            reader, strings, key, kind, shape,
+            reader, strings, key, kind, shape, budget,
         )?);
     }
 
@@ -72,12 +73,13 @@ fn decode_external_key_component(
     owner: Option<ExternalSymbolKey>,
     kind: SymbolKind,
     shape: u32,
+    budget: &mut DecodeBudget,
 ) -> Result<ExternalSymbolKey, InterfaceValidationError> {
     match shape {
         1 if owner.is_none() => decode_package_key(reader, strings, kind, None),
         2 => ExternalSymbolKey::module(
             owner.ok_or(InterfaceValidationError::Malformed)?,
-            decode_module_path(reader, strings)?,
+            decode_module_path(reader, strings, budget)?,
         )
         .ok_or(InterfaceValidationError::Malformed),
         3 => decode_declaration_key(
@@ -145,10 +147,11 @@ fn decode_synthesized_key(
 fn decode_module_path(
     reader: &mut WireReader<'_>,
     strings: &[Arc<str>],
+    budget: &mut DecodeBudget,
 ) -> Result<ModulePathKey, InterfaceValidationError> {
     let count =
         usize::try_from(read_u32(reader)?).map_err(|_| InterfaceValidationError::Malformed)?;
-    let mut segments = Vec::with_capacity(count);
+    let mut segments = budget.allocate_items(reader, count)?;
 
     // Module paths share the validated string table instead of allocating duplicate text.
     for _ in 0..count {

@@ -1,19 +1,22 @@
 mod common;
 mod contract;
 mod directory;
+mod support;
 mod surface;
+mod template;
+#[cfg(test)]
+mod test_support;
 mod value;
 
 use crate::semantic::codec::common::SemanticDecodeContext;
 use crate::{
     InterfaceSectionTag, InterfaceSemanticFacts, InterfaceValidationError,
-    InterfaceValidationLimits, ValidatedInterfaceSection,
+    InterfaceValidationLimits, PackageInterfaceSurface, ValidatedInterfaceSection,
 };
 
 pub fn decode_semantic_facts(
     sections: &[ValidatedInterfaceSection<'_>],
-    symbol_count: usize,
-    dependency_count: usize,
+    surface: &PackageInterfaceSurface,
     limits: InterfaceValidationLimits,
 ) -> Result<InterfaceSemanticFacts, InterfaceValidationError> {
     validate_decode_allocation(sections, limits)?;
@@ -24,16 +27,20 @@ pub fn decode_semantic_facts(
     let types = required_section(sections, InterfaceSectionTag::SemanticTypes)?;
     let constants = required_section(sections, InterfaceSectionTag::Constants)?;
     let contracts = required_section(sections, InterfaceSectionTag::Contracts)?;
+    let templates = required_section(sections, InterfaceSectionTag::DeclarationTemplates)?;
     let implementations = required_section(sections, InterfaceSectionTag::Implementations)?;
     let targets = required_section(sections, InterfaceSectionTag::TargetDependencies)?;
     let provenance = optional_section(sections, InterfaceSectionTag::SourceProvenance);
+    let support = required_section(sections, InterfaceSectionTag::SupportGraph)?;
 
     let mut facts = value::decode_types(types, limits, &mut context)?;
 
     value::decode_constants(constants, limits, &mut context, &mut facts)?;
     contract::decode_contracts(contracts, limits, &mut context, &mut facts)?;
+    template::decode_templates(templates, limits, &mut context, &mut facts)?;
     surface::decode_implementations(implementations, limits, &mut context, &mut facts)?;
     surface::decode_target_dependencies(targets, limits, &mut context, &mut facts)?;
+    support::decode_support_graph(support, limits, &mut context, &mut facts)?;
 
     if let Some(provenance) = provenance {
         surface::decode_provenance(provenance, limits, &mut context, &mut facts)?;
@@ -45,7 +52,7 @@ pub fn decode_semantic_facts(
         return Err(InterfaceValidationError::Malformed);
     }
 
-    facts.validate(symbol_count, dependency_count, limits)?;
+    facts.validate(surface, limits)?;
 
     Ok(facts)
 }
@@ -67,9 +74,11 @@ fn validate_decode_allocation(
                     | InterfaceSectionTag::SemanticTypes
                     | InterfaceSectionTag::Constants
                     | InterfaceSectionTag::Contracts
+                    | InterfaceSectionTag::DeclarationTemplates
                     | InterfaceSectionTag::Implementations
                     | InterfaceSectionTag::TargetDependencies
                     | InterfaceSectionTag::SourceProvenance
+                    | InterfaceSectionTag::SupportGraph
             )
         })
         .try_fold(0_u64, |total, section| {

@@ -4,7 +4,7 @@ use bray_declarations::SyntaxAnchor;
 use bray_source::SourceVersion;
 use bray_symbols::{SymbolKey, SymbolKind};
 
-use crate::ExactBoundNodeId;
+use crate::{CheckedTemplateKind, ExactBoundNodeId};
 
 /// Classifies an independently published checked semantic unit.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -28,53 +28,17 @@ pub enum BoundUnitKind {
 impl BoundUnitKind {
     const fn accepts_owner(self, owner: SymbolKind) -> bool {
         match self {
-            Self::CallableBody => is_callable_body_owner(owner),
+            Self::CallableBody => owner.is_callable(),
             Self::AnonymousCallable => false,
-            Self::RuntimeDefault => matches!(
-                owner,
-                SymbolKind::CallableParameterDefaultProvider
-                    | SymbolKind::StructFieldDefaultProvider
-                    | SymbolKind::UnionPayloadDefaultProvider
-            ),
-            Self::ConstantTemplate => matches!(
-                owner,
-                SymbolKind::Constant
-                    | SymbolKind::TraitConstantMember
-                    | SymbolKind::TraitConstantFulfillment
-            ),
-            Self::PredicateDefinition => matches!(
-                owner,
-                SymbolKind::Predicate
-                    | SymbolKind::TraitPredicateMember
-                    | SymbolKind::TraitPredicateFulfillment
-            ),
-            Self::Constraint => owner.can_be_source_declared(),
-            Self::ContractClause => {
-                matches!(owner, SymbolKind::CallableContract) || is_callable_body_owner(owner)
+            Self::RuntimeDefault => CheckedTemplateKind::RuntimeDefault.accepts_owner(owner),
+            Self::ConstantTemplate => CheckedTemplateKind::ConstantDefinition.accepts_owner(owner),
+            Self::PredicateDefinition => {
+                CheckedTemplateKind::PredicateDefinition.accepts_owner(owner)
             }
+            Self::Constraint => CheckedTemplateKind::GenericConstraint.accepts_owner(owner),
+            Self::ContractClause => CheckedTemplateKind::CallableContract.accepts_owner(owner),
         }
     }
-}
-
-const fn is_callable_body_owner(owner: SymbolKind) -> bool {
-    matches!(
-        owner,
-        SymbolKind::Function
-            | SymbolKind::TypeCallableMember
-            | SymbolKind::Constructor
-            | SymbolKind::Finalizer
-            | SymbolKind::Destructor
-            | SymbolKind::ScopeEnter
-            | SymbolKind::ScopeExit
-            | SymbolKind::TraitCallableMember
-            | SymbolKind::TraitFinalizerRequirement
-            | SymbolKind::TraitDestructorRequirement
-            | SymbolKind::TraitScopeEnterRequirement
-            | SymbolKind::TraitScopeExitRequirement
-            | SymbolKind::TraitCallableFulfillment
-            | SymbolKind::TraitScopeEnterFulfillment
-            | SymbolKind::TraitScopeExitFulfillment
-    )
 }
 
 /// Identifies one exact published bound unit in a compilation snapshot.

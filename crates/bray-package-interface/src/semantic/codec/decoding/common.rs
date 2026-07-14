@@ -1,9 +1,7 @@
 use crate::semantic::codec::common::{map_wire_error, read_count, read_u32};
 use crate::tag::WireTag;
 use crate::wire::WireReader;
-use crate::{
-    InterfaceLimit, InterfaceValidationError, InterfaceValidationLimits, ValidatedInterfaceSection,
-};
+use crate::{InterfaceLimit, InterfaceValidationError, ValidatedInterfaceSection};
 use bray_symbols::RealConstantBits;
 use std::sync::Arc;
 
@@ -28,11 +26,11 @@ pub(super) fn validate_record_count(
 
 pub(super) fn read_ids<T>(
     reader: &mut WireReader<'_>,
-    limits: InterfaceValidationLimits,
+    context: &mut crate::semantic::codec::common::SemanticDecodeContext,
     create: impl Fn(u32) -> T,
 ) -> Result<Arc<[T]>, InterfaceValidationError> {
-    let count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
-    let mut values = Vec::with_capacity(count);
+    let count = read_count(reader, context.limits(), InterfaceLimit::RecordCount)?;
+    let mut values = context.allocate_items(reader, count)?;
 
     for _ in 0..count {
         values.push(create(read_u32(reader)?));

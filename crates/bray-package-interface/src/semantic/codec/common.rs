@@ -49,7 +49,7 @@ pub(super) fn read_symbol_reference(
     }
 }
 
-fn write_external_key(encoder: &mut WireEncoder, key: &ExternalSymbolKey) {
+pub(super) fn write_external_key(encoder: &mut WireEncoder, key: &ExternalSymbolKey) {
     let mut components = Vec::new();
     let mut current = Some(key);
 
@@ -106,7 +106,7 @@ fn write_external_key(encoder: &mut WireEncoder, key: &ExternalSymbolKey) {
     }
 }
 
-fn read_external_key(
+pub(super) fn read_external_key(
     reader: &mut WireReader<'_>,
     context: &mut SemanticDecodeContext,
 ) -> Result<ExternalSymbolKey, InterfaceValidationError> {
@@ -129,7 +129,7 @@ fn read_external_key(
 
         key = Some(match shape {
             1 if key.is_none() && kind == SymbolKind::Package => {
-                let package = PackageIdentity::try_new(read_string(reader, limits)?)
+                let package = PackageIdentity::try_new(read_string(reader, context)?)
                     .ok_or(InterfaceValidationError::Malformed)?;
 
                 ExternalSymbolKey::package(package)
@@ -138,10 +138,10 @@ fn read_external_key(
                 let owner = key.ok_or(InterfaceValidationError::Malformed)?;
                 let segment_count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
 
-                let mut segments = Vec::with_capacity(segment_count);
+                let mut segments = context.allocate_items(reader, segment_count)?;
 
                 for _ in 0..segment_count {
-                    segments.push(read_string(reader, limits)?);
+                    segments.push(read_string(reader, context)?);
                 }
 
                 let path =
@@ -154,7 +154,7 @@ fn read_external_key(
 
                 match read_u32(reader)? {
                     1 => {
-                        let name = SymbolName::try_new(read_string(reader, limits)?)
+                        let name = SymbolName::try_new(read_string(reader, context)?)
                             .ok_or(InterfaceValidationError::Malformed)?;
 
                         ExternalSymbolKey::named(owner, kind, name)
@@ -206,11 +206,23 @@ impl SemanticDecodeContext {
         self.budget.limits()
     }
 
+    pub(super) fn allocate_items<T>(
+        &mut self,
+        reader: &WireReader<'_>,
+        count: usize,
+    ) -> Result<Vec<T>, InterfaceValidationError> {
+        self.budget.allocate_items(reader, count)
+    }
+
     fn charge_external_reference(
         &mut self,
         component_count: usize,
     ) -> Result<(), InterfaceValidationError> {
         self.budget.charge_external_reference(component_count)
+    }
+
+    fn charge(&mut self, bytes: usize) -> Result<(), InterfaceValidationError> {
+        self.budget.charge(bytes)
     }
 }
 
@@ -221,9 +233,12 @@ pub(super) fn write_string(encoder: &mut WireEncoder, value: &str) {
 
 pub(super) fn read_string(
     reader: &mut WireReader<'_>,
-    limits: InterfaceValidationLimits,
+    context: &mut SemanticDecodeContext,
 ) -> Result<Arc<str>, InterfaceValidationError> {
-    let length = read_count(reader, limits, InterfaceLimit::StringLength)?;
+    let length = read_count(reader, context.limits(), InterfaceLimit::StringLength)?;
+
+    context.charge(length)?;
+
     let bytes = reader.read_bytes(length).map_err(map_wire_error)?;
     let value = str::from_utf8(bytes).map_err(|_| InterfaceValidationError::Malformed)?;
 

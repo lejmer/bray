@@ -26,7 +26,7 @@ pub(super) fn decode_implementations(
 
     validate_record_count(section, [implementation_count, coherence_count])?;
 
-    let mut implementations = Vec::with_capacity(implementation_count);
+    let mut implementations = context.allocate_items(&reader, implementation_count)?;
 
     for _ in 0..implementation_count {
         implementations.push(InterfaceImplementationRecord::new(
@@ -36,7 +36,7 @@ pub(super) fn decode_implementations(
         ));
     }
 
-    let mut coherence = Vec::with_capacity(coherence_count);
+    let mut coherence = context.allocate_items(&reader, coherence_count)?;
 
     for _ in 0..coherence_count {
         let subject = InterfaceTypeId::new(read_u32(&mut reader)?);
@@ -44,7 +44,7 @@ pub(super) fn decode_implementations(
 
         let count = read_count(&mut reader, limits, InterfaceLimit::RecordCount)?;
 
-        let mut candidates = Vec::with_capacity(count);
+        let mut candidates = context.allocate_items(&reader, count)?;
 
         for _ in 0..count {
             candidates.push(read_symbol_reference(&mut reader, context)?);
@@ -78,7 +78,7 @@ pub(super) fn decode_target_dependencies(
 
     validate_record_count(section, [target_count, abi_count])?;
 
-    let mut targets = Vec::with_capacity(target_count);
+    let mut targets = context.allocate_items(&reader, target_count)?;
 
     for _ in 0..target_count {
         targets.push(InterfaceTargetFactDependency::new(
@@ -87,7 +87,7 @@ pub(super) fn decode_target_dependencies(
         ));
     }
 
-    let mut abis = Vec::with_capacity(abi_count);
+    let mut abis = context.allocate_items(&reader, abi_count)?;
 
     for _ in 0..abi_count {
         abis.push(InterfaceAbiDependency::new(
@@ -116,11 +116,11 @@ pub(super) fn decode_provenance(
     limits.check(InterfaceLimit::RecordCount, section.record_count())?;
 
     let mut reader = WireReader::new(section.bytes());
-    let mut values = Vec::with_capacity(count);
+    let mut values = context.allocate_items(&reader, count)?;
 
     for _ in 0..count {
         let symbol = read_symbol_reference(&mut reader, context)?;
-        let document = read_string(&mut reader, limits)?;
+        let document = read_string(&mut reader, context)?;
 
         let start = read_u32(&mut reader)?;
         let end = read_u32(&mut reader)?;

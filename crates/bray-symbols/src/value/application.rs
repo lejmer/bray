@@ -1,4 +1,4 @@
-use crate::{AnySymbolId, ImplementationSymbolId, SymbolKind, TraitSymbolId};
+use crate::{AnySymbolId, ImplementationSymbolId, TraitSymbolId};
 
 use super::GenericSubstitutionId;
 
@@ -9,7 +9,7 @@ pub struct CallableDefinitionId(AnySymbolId);
 impl CallableDefinitionId {
     /// Creates a callable definition from an exact supported symbol category.
     pub const fn try_new(symbol: AnySymbolId) -> Option<Self> {
-        if is_callable_definition(symbol.kind()) {
+        if symbol.kind().is_callable() {
             return Some(Self(symbol));
         }
 
@@ -20,27 +20,6 @@ impl CallableDefinitionId {
     pub const fn symbol(self) -> AnySymbolId {
         self.0
     }
-}
-
-const fn is_callable_definition(kind: SymbolKind) -> bool {
-    matches!(
-        kind,
-        SymbolKind::Function
-            | SymbolKind::TypeCallableMember
-            | SymbolKind::Constructor
-            | SymbolKind::Finalizer
-            | SymbolKind::Destructor
-            | SymbolKind::ScopeEnter
-            | SymbolKind::ScopeExit
-            | SymbolKind::TraitCallableMember
-            | SymbolKind::TraitFinalizerRequirement
-            | SymbolKind::TraitDestructorRequirement
-            | SymbolKind::TraitScopeEnterRequirement
-            | SymbolKind::TraitScopeExitRequirement
-            | SymbolKind::TraitCallableFulfillment
-            | SymbolKind::TraitScopeEnterFulfillment
-            | SymbolKind::TraitScopeExitFulfillment
-    )
 }
 
 /// The immutable structural key for one applied trait.

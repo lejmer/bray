@@ -4,6 +4,8 @@ mod constant;
 mod dependency;
 mod fact;
 mod id;
+mod support;
+mod template;
 mod ty;
 
 pub use application::{
@@ -28,8 +30,18 @@ pub use fact::{
     InterfaceSourceProvenance, InterfaceTargetFactDependency,
 };
 pub use id::{
-    InterfaceCallableInstanceId, InterfaceConstantTermId, InterfaceConstantValueId,
-    InterfaceDependencyContractId, InterfaceGenericSubstitutionId,
+    InterfaceCallableInstanceId, InterfaceCheckedTemplateId, InterfaceConstantTermId,
+    InterfaceConstantValueId, InterfaceDependencyContractId, InterfaceGenericSubstitutionId,
     InterfaceImplementationInstanceId, InterfaceTraitApplicationId, InterfaceTypeId,
+};
+pub use support::{
+    InterfaceImplementationReference, InterfaceSupportEntity, InterfaceSupportImplementation,
+    InterfaceTemplateReference,
+};
+pub use template::{
+    InterfaceCheckedTemplate, InterfaceCheckedTemplateBehavior, InterfaceCheckedTemplateInput,
+    InterfaceCheckedTemplateInputKind, InterfaceCheckedTemplateNode,
+    InterfaceCheckedTemplateOperation, InterfaceCheckedTemplateTemporary,
+    InterfaceDeclarationTemplate,
 };
 pub use ty::{InterfaceCallableParameter, InterfaceType};

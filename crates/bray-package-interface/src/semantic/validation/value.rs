@@ -1,3 +1,4 @@
+use crate::validation::is_strictly_sorted;
 use crate::{
     InterfaceLimit, InterfaceSemanticFacts, InterfaceTypeId, InterfaceValidationError,
     InterfaceValidationLimits,
@@ -71,11 +72,7 @@ impl InterfaceSemanticFacts {
         }
 
         for contract in &*self.dependency_contracts {
-            if !contract
-                .requirements
-                .windows(2)
-                .all(|pair| pair[0] < pair[1])
-            {
+            if !is_strictly_sorted(&contract.requirements) {
                 return Err(InterfaceValidationError::Malformed);
             }
 

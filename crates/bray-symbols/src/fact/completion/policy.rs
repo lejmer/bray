@@ -165,24 +165,7 @@ const fn supports_members(kind: SymbolKind) -> bool {
 }
 
 const fn supports_callable_facts(kind: SymbolKind) -> bool {
-    matches!(
-        kind,
-        SymbolKind::Function
-            | SymbolKind::TypeCallableMember
-            | SymbolKind::TraitCallableMember
-            | SymbolKind::TraitCallableFulfillment
-            | SymbolKind::Constructor
-            | SymbolKind::Finalizer
-            | SymbolKind::Destructor
-            | SymbolKind::ScopeEnter
-            | SymbolKind::ScopeExit
-            | SymbolKind::TraitFinalizerRequirement
-            | SymbolKind::TraitDestructorRequirement
-            | SymbolKind::TraitScopeEnterRequirement
-            | SymbolKind::TraitScopeExitRequirement
-            | SymbolKind::TraitScopeEnterFulfillment
-            | SymbolKind::TraitScopeExitFulfillment
-    )
+    kind.is_callable()
 }
 
 const fn supports_constant_facts(kind: SymbolKind) -> bool {
@@ -204,12 +187,7 @@ const fn supports_predicate_facts(kind: SymbolKind) -> bool {
 }
 
 const fn supports_implementation_facts(kind: SymbolKind) -> bool {
-    matches!(
-        kind,
-        SymbolKind::InherentImplementation
-            | SymbolKind::UnnamedTraitImplementation
-            | SymbolKind::NamedTraitImplementation
-    )
+    kind.is_implementation()
 }
 
 #[cfg(test)]

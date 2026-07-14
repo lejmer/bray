@@ -1,7 +1,9 @@
+use crate::validation::is_strictly_sorted;
 use crate::{
     InterfaceLimit, InterfaceSemanticFacts, InterfaceSymbolReference, InterfaceValidationError,
-    InterfaceValidationLimits,
+    InterfaceValidationLimits, PackageInterfaceSurface,
 };
+use bray_symbols::SymbolKind;
 
 use super::saturating_u64;
 
@@ -24,7 +26,7 @@ impl InterfaceSemanticFacts {
                 .implementations
                 .windows(2)
                 .all(|pair| pair[0].implementation < pair[1].implementation)
-            || !self.coherence.windows(2).all(|pair| pair[0] < pair[1])
+            || !is_strictly_sorted(&self.coherence)
             || !self
                 .target_dependencies
                 .windows(2)
@@ -33,7 +35,7 @@ impl InterfaceSemanticFacts {
                 .abi_dependencies
                 .windows(2)
                 .all(|pair| pair[0].symbol < pair[1].symbol)
-            || !self.provenance.windows(2).all(|pair| pair[0] < pair[1])
+            || !is_strictly_sorted(&self.provenance)
         {
             return Err(InterfaceValidationError::Malformed);
         }
@@ -151,13 +153,36 @@ pub(super) fn validate_symbol(
     }
 }
 
+pub(super) fn validate_symbol_kind(
+    reference: &InterfaceSymbolReference,
+    surface: &PackageInterfaceSurface,
+) -> Result<SymbolKind, InterfaceValidationError> {
+    match reference {
+        InterfaceSymbolReference::Local(id) => surface
+            .symbols()
+            .symbol(*id)
+            .map(|symbol| symbol.kind())
+            .ok_or(InterfaceValidationError::Malformed),
+        InterfaceSymbolReference::Dependency { dependency, key } => {
+            let Some(dependency) = dependency
+                .to_index()
+                .and_then(|index| surface.dependencies().get(index))
+            else {
+                return Err(InterfaceValidationError::Malformed);
+            };
+
+            if key.package_identity() != dependency.package() {
+                return Err(InterfaceValidationError::Malformed);
+            }
+
+            Ok(key.kind())
+        }
+    }
+}
+
 pub(super) fn validate_index(
     index: Option<usize>,
     length: usize,
 ) -> Result<(), InterfaceValidationError> {
-    if index.is_none_or(|index| index >= length) {
-        return Err(InterfaceValidationError::Malformed);
-    }
-
-    Ok(())
+    super::checked_index(index, length).map(|_| ())
 }

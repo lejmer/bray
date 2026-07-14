@@ -13,7 +13,7 @@ use crate::wire::WireReader;
 use crate::{
     InterfaceLimit, InterfaceValidationError, InterfaceValidationLimits, ValidatedInterfaceSection,
 };
-use bray_symbols::{LifecycleObligationKind, SymbolOrdinal};
+use bray_symbols::SymbolOrdinal;
 
 pub(super) fn decode_contracts(
     section: ValidatedInterfaceSection<'_>,
@@ -32,11 +32,11 @@ pub(super) fn decode_contracts(
         [dependency_count, constraint_count, callable_count],
     )?;
 
-    let mut dependencies = Vec::with_capacity(dependency_count);
+    let mut dependencies = context.allocate_items(&reader, dependency_count)?;
 
     for _ in 0..dependency_count {
         let requirement_count = read_count(&mut reader, limits, InterfaceLimit::RecordCount)?;
-        let mut requirements = Vec::with_capacity(requirement_count);
+        let mut requirements = context.allocate_items(&reader, requirement_count)?;
 
         for _ in 0..requirement_count {
             requirements.push(decode_dependency_requirement(
@@ -50,7 +50,7 @@ pub(super) fn decode_contracts(
         dependencies.push(InterfaceDependencyContract::new(requirements));
     }
 
-    let mut constraints = Vec::with_capacity(constraint_count);
+    let mut constraints = context.allocate_items(&reader, constraint_count)?;
 
     for _ in 0..constraint_count {
         constraints.push(InterfaceConstraint::new(
@@ -62,13 +62,13 @@ pub(super) fn decode_contracts(
         ));
     }
 
-    let mut callable_contracts = Vec::with_capacity(callable_count);
+    let mut callable_contracts = context.allocate_items(&reader, callable_count)?;
 
     for _ in 0..callable_count {
         let owner = read_symbol_reference(&mut reader, context)?;
         let clause_count = read_count(&mut reader, limits, InterfaceLimit::RecordCount)?;
 
-        let mut clauses = Vec::with_capacity(clause_count);
+        let mut clauses = context.allocate_items(&reader, clause_count)?;
 
         for _ in 0..clause_count {
             clauses.push(InterfaceCallableContractClause::new(
@@ -82,7 +82,7 @@ pub(super) fn decode_contracts(
 
         let capability_count = read_count(&mut reader, limits, InterfaceLimit::RecordCount)?;
 
-        let mut capabilities = Vec::with_capacity(capability_count);
+        let mut capabilities = context.allocate_items(&reader, capability_count)?;
 
         for _ in 0..capability_count {
             capabilities.push(read_symbol_reference(&mut reader, context)?);
@@ -122,7 +122,7 @@ pub(super) fn decode_dependency_requirement(
             let guard = decode_dependency_guard(reader, limits, context)?;
             let count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
 
-            let mut requirements = Vec::with_capacity(count);
+            let mut requirements = context.allocate_items(reader, count)?;
 
             for _ in 0..count {
                 requirements.push(decode_dependency_requirement(
@@ -159,7 +159,7 @@ pub(super) fn decode_dependency_subject(
 
     let count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
 
-    let mut projections = Vec::with_capacity(count);
+    let mut projections = context.allocate_items(reader, count)?;
 
     for _ in 0..count {
         projections.push(match read_u32(reader)? {
@@ -211,13 +211,7 @@ pub(super) fn decode_dependency_requirement_kind(
         )),
         5 => Ok(InterfaceDependencyRequirementKind::ScopedCapabilityLive),
         6 => Ok(InterfaceDependencyRequirementKind::LifecycleObligation(
-            match read_u32(reader)? {
-                1 => LifecycleObligationKind::Destruction,
-                2 => LifecycleObligationKind::Finalization,
-                3 => LifecycleObligationKind::Cancellation,
-                4 => LifecycleObligationKind::Joining,
-                _ => return Err(InterfaceValidationError::Malformed),
-            },
+            decode_tag(read_u32(reader)?)?,
         )),
         _ => Err(InterfaceValidationError::Malformed),
     }
