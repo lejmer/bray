@@ -75,6 +75,29 @@ impl BoundUnitId {
     }
 }
 
+/// A borrowing view of one canonical bound unit's stable and compilation-local identities.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct BoundUnitIdentity<'unit> {
+    key: &'unit BoundUnitKey,
+    unit: BoundUnitId,
+}
+
+impl<'unit> BoundUnitIdentity<'unit> {
+    pub(crate) const fn new(key: &'unit BoundUnitKey, unit: BoundUnitId) -> Self {
+        Self { key, unit }
+    }
+
+    /// Returns the unit's stable semantic key.
+    pub const fn key(self) -> &'unit BoundUnitKey {
+        self.key
+    }
+
+    /// Returns the unit's compilation-local identity.
+    pub const fn unit(self) -> BoundUnitId {
+        self.unit
+    }
+}
+
 /// Stable source correlation for a bound unit or bound node.
 ///
 /// The syntax anchor identifies the source construct within a parsed snapshot. The source

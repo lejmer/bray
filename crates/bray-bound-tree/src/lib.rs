@@ -60,7 +60,7 @@ pub use tree::{
     BoundWalkEvent, BoundWalkOutcome, walk_bound_tree,
 };
 pub use unit::{
-    AnonymousCallableUnitKey, BoundSourceAnchor, BoundUnitId, BoundUnitKey, BoundUnitKeyData,
-    BoundUnitKind, DeclaredBoundUnitKey,
+    AnonymousCallableUnitKey, BoundSourceAnchor, BoundUnitId, BoundUnitIdentity, BoundUnitKey,
+    BoundUnitKeyData, BoundUnitKind, DeclaredBoundUnitKey,
 };
 pub use view::BoundUnitView;

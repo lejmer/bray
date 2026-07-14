@@ -5,8 +5,20 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
+[features]
+bound-unit = [
+    "dep:bray-bound-tree",
+    "dep:bray-declarations",
+    "dep:bray-parser",
+    "dep:bray-symbols",
+]
+
 [dependencies]
+bray-bound-tree = { path = "../bray-bound-tree", optional = true }
+bray-declarations = { path = "../bray-declarations", optional = true }
+bray-parser = { path = "../bray-parser", optional = true }
 bray-source = { path = "../bray-source" }
+bray-symbols = { path = "../bray-symbols", features = ["test-support"], optional = true }
 bray-syntax = { path = "../bray-syntax" }
 
 [lints]

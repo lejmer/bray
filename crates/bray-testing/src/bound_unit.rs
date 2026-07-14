@@ -2,20 +2,19 @@ use bray_bound_tree::{
     BoundCallableBody, BoundNodeOrigin, BoundSourceAnchor, BoundTreeBuilder, BoundUnit,
     BoundUnitId, BoundUnitKey, BoundUnitRoot,
 };
-use bray_declarations::{DeclarationId, discover_source_unit_declarations};
+use bray_declarations::discover_source_unit_declarations;
 use bray_parser::parse_source_unit;
-use bray_source::{
-    SourceId, SourceIdentity, SourceOrigin, SourceSnapshot, SourceVersion, TextSize,
-};
+use bray_source::TextSize;
+use bray_symbols::testing::source_function_key;
 use bray_symbols::{
     LocalScopeBoundary, LocalSymbolRegionId, LocalSymbolRegionKey, LocalSymbolRegionRole,
-    LocalSymbolSnapshot, LocalSymbolSnapshotBuilder, ModulePathKey, PackageIdentity, SymbolKey,
-    SymbolKind, SymbolRootKey,
+    LocalSymbolSnapshot, LocalSymbolSnapshotBuilder,
 };
 
-pub(crate) use bray_symbols::testing::available_compiler_known_symbols;
+use crate::test_source_snapshot;
 
-pub(crate) fn bound_unit(unit: u32) -> BoundUnit {
+/// Builds one canonical recovered callable-body unit for semantic boundary tests.
+pub fn test_bound_unit(unit: u32) -> BoundUnit {
     let (key, local_symbols) = unit_identity(unit);
 
     let mut tree = BoundTreeBuilder::new(BoundUnitId::new(unit));
@@ -39,7 +38,7 @@ pub(crate) fn bound_unit(unit: u32) -> BoundUnit {
 }
 
 fn unit_identity(unit: u32) -> (BoundUnitKey, LocalSymbolSnapshot) {
-    let snapshot = source();
+    let snapshot = test_source_snapshot("module example;");
     let parsed = parse_source_unit(&snapshot);
 
     assert!(parsed.diagnostics().is_empty());
@@ -53,7 +52,7 @@ fn unit_identity(unit: u32) -> (BoundUnitKey, LocalSymbolSnapshot) {
     };
 
     let source = BoundSourceAnchor::new(part.syntax_anchor(), snapshot.version());
-    let owner = function_key();
+    let owner = source_function_key();
 
     let Some(key) = BoundUnitKey::callable_body(owner.clone(), source) else {
         panic!("function must support a callable body");
@@ -85,37 +84,4 @@ fn unit_identity(unit: u32) -> (BoundUnitKey, LocalSymbolSnapshot) {
     };
 
     (key, symbols)
-}
-
-fn function_key() -> SymbolKey {
-    let Some(package) = PackageIdentity::try_new("example.package") else {
-        panic!("test package identity must be valid");
-    };
-
-    let Some(path) = ModulePathKey::try_new(["example"]) else {
-        panic!("test module path must be valid");
-    };
-
-    let module = SymbolKey::module(SymbolRootKey::Package(package), path);
-
-    let Some(function) =
-        SymbolKey::source_declaration(module, SymbolKind::Function, DeclarationId::new(0))
-    else {
-        panic!("function symbols must be source-declared");
-    };
-
-    function
-}
-
-fn source() -> SourceSnapshot {
-    match SourceSnapshot::new(
-        SourceId::new(0),
-        SourceIdentity::new(0),
-        SourceOrigin::virtual_source("lowering-test"),
-        SourceVersion::new(1),
-        "module example;",
-    ) {
-        Ok(snapshot) => snapshot,
-        Err(error) => panic!("test source must fit: {error:?}"),
-    }
 }

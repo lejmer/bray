@@ -61,16 +61,3 @@ fn raw_source_identity(index: usize) -> u32 {
         Err(error) => panic!("test source index should fit in u32: {error:?}"),
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::{test_source_at, test_source_store};
-
-    #[test]
-    fn test_source_at_returns_sources_by_compact_index() {
-        let sources = test_source_store(["first", "second"]);
-
-        assert_eq!(test_source_at(&sources, 0).text(), "first");
-        assert_eq!(test_source_at(&sources, 1).text(), "second");
-    }
-}

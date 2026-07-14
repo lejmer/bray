@@ -119,7 +119,7 @@
 - `bray-ir`
     - Backend-independent mid-level intermediate representation used as Bray's MIR.
     - Represents lowered control flow, locals, storages, explicit moves/drops, calls, branches, and other operations used by codegen.
-    - Owns reusable IR walkers and visitors.
+    - Owns generic MIR builders, representation validation, and reusable IR walkers and visitors.
 
 - `bray-codegen`
     - Backend-independent code generation interface and codegen orchestration.
