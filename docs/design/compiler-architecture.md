@@ -575,6 +575,9 @@ facts required by code generation.
 
 It should not contain parser-only syntax details.
 
+`bray-ir` owns generic MIR builders and validates representation invariants as construction commits nodes and control-flow blocks.
+Lowering may retain additional private task-local state while driving those builders.
+
 MIR validation checks compiler invariants after lowering.
 
 MIR validation failures indicate compiler bugs.

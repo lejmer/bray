@@ -193,6 +193,14 @@ version = "0.0.0"
 [[package]]
 name = "bray-ir"
 version = "0.0.0"
+dependencies = [
+ "bray-bound-tree",
+ "bray-declarations",
+ "bray-parser",
+ "bray-source",
+ "bray-symbols",
+ "bray-testing",
+]
 
 [[package]]
 name = "bray-lowering"

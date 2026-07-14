@@ -1559,13 +1559,14 @@ The MIR unit must retain its canonical bound-unit key and only the source anchor
 node IDs as deferred semantic decisions for code generation to reinterpret. Control-flow, value, storage, and cleanup identities
 belong to the MIR unit itself.
 
-The MIR builder must accept a validated `LoweringInput`, assign compact block identities in deterministic construction order, and
-validate source-snapshot correlation while blocks are committed. Publication requires an exact committed entry block and freezes
-the result as an immutable MIR unit. Semantic operation types must be introduced only with their complete lowering contracts.
-Placeholder operations are forbidden.
+Lowering must validate `LoweringInput` before starting MIR construction and pass its canonical bound unit to the MIR builder. The
+builder must assign compact block identities in deterministic construction order and validate source-snapshot correlation while
+blocks are committed. Publication requires an exact committed entry block and freezes the result as an immutable MIR unit. Semantic
+operation types must be introduced only with their complete lowering contracts. Placeholder operations are forbidden.
 
-`bray-lowering` owns the transformation and task-local construction state. `bray-ir` owns the published MIR types, builders, and
-validation contracts. Compilation caches the completed MIR as one lazy fact keyed by the canonical bound-unit key.
+`bray-lowering` owns the transformation and lowering-specific task-local construction state. `bray-ir` owns the published MIR
+types, generic MIR builders, and validation contracts. Compilation caches the completed MIR as one lazy fact keyed by the canonical
+bound-unit key.
 
 Lowering must not perform name lookup, overload resolution, implementation selection, type inference, borrow checking, or contract
 proof. If lowering cannot proceed without one of those decisions, the lowering input query is incomplete and must require the missing
