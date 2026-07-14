@@ -77,7 +77,7 @@ pub(crate) fn codegen_request() -> CodegenRequestFixture {
     ];
 
     let serialization =
-        BackendSerializationOptions::new(crate::AssemblySyntax::TargetDefault, false);
+        BackendSerializationOptions::new(crate::AssemblySyntaxKind::TargetDefault, false);
 
     let Ok(artifacts) = BackendArtifactRequest::try_new(
         unit.key().clone(),

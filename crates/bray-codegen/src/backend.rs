@@ -3,7 +3,7 @@ use std::sync::Arc;
 use bray_base::{shared_str, sorted_unique_shared_slice};
 
 use crate::{
-    AssemblySyntax, BackendArtifactKind, CodegenFailure, CodegenOutcome, CodegenRequest,
+    AssemblySyntaxKind, BackendArtifactKind, CodegenFailure, CodegenOutcome, CodegenRequest,
     CodegenTarget, DebugInformationMode, ObjectFormat, TargetArchitecture,
 };
 
@@ -86,7 +86,7 @@ pub struct BackendCapabilities {
     target_platforms: Arc<[BackendTargetPlatform]>,
     artifact_kinds: Arc<[BackendArtifactKind]>,
     debug_information_modes: Arc<[DebugInformationMode]>,
-    assembly_syntaxes: Arc<[AssemblySyntax]>,
+    assembly_syntax_kinds: Arc<[AssemblySyntaxKind]>,
 }
 
 impl BackendCapabilities {
@@ -95,13 +95,13 @@ impl BackendCapabilities {
         target_platforms: impl IntoIterator<Item = BackendTargetPlatform>,
         artifact_kinds: impl IntoIterator<Item = BackendArtifactKind>,
         debug_information_modes: impl IntoIterator<Item = DebugInformationMode>,
-        assembly_syntaxes: impl IntoIterator<Item = AssemblySyntax>,
+        assembly_syntax_kinds: impl IntoIterator<Item =AssemblySyntaxKind>,
     ) -> Self {
         Self {
             target_platforms: sorted_unique_shared_slice(target_platforms),
             artifact_kinds: sorted_unique_shared_slice(artifact_kinds),
             debug_information_modes: sorted_unique_shared_slice(debug_information_modes),
-            assembly_syntaxes: sorted_unique_shared_slice(assembly_syntaxes),
+            assembly_syntax_kinds: sorted_unique_shared_slice(assembly_syntax_kinds),
         }
     }
 
@@ -120,9 +120,9 @@ impl BackendCapabilities {
         &self.debug_information_modes
     }
 
-    /// Returns supported human-readable assembly syntaxes in canonical order.
-    pub fn assembly_syntaxes(&self) -> &[AssemblySyntax] {
-        &self.assembly_syntaxes
+    /// Returns supported human-readable assembly syntax kinds in canonical order.
+    pub fn assembly_syntax_kinds(&self) -> &[AssemblySyntaxKind] {
+        &self.assembly_syntax_kinds
     }
 
     /// Returns whether the backend declares support for this architecture and object format.
@@ -149,9 +149,9 @@ impl BackendCapabilities {
         self.debug_information_modes.binary_search(&mode).is_ok()
     }
 
-    /// Returns whether the backend supports one assembly serialization syntax.
-    pub fn supports_assembly_syntax(&self, syntax: AssemblySyntax) -> bool {
-        self.assembly_syntaxes.binary_search(&syntax).is_ok()
+    /// Returns whether the backend supports one assembly serialization syntax kind.
+    pub fn supports_assembly_syntax_kind(&self, syntax_kind: AssemblySyntaxKind) -> bool {
+        self.assembly_syntax_kinds.binary_search(&syntax_kind).is_ok()
     }
 }
 
@@ -177,7 +177,7 @@ pub trait CodegenBackend: Send + Sync {
 mod tests {
     use super::{BackendCapabilities, BackendIdentity, BackendTargetPlatform, CodegenBackend};
     use crate::{
-        ArtifactSpool, AssemblySyntax, BackendArtifactContribution, BackendArtifactKind,
+        ArtifactSpool, AssemblySyntaxKind, BackendArtifactContribution, BackendArtifactKind,
         BackendArtifactRequest, CodegenOutcome, CodegenRequest, CodegenTarget, CodegenUnit,
         DebugInformationMode, ObjectFormat, TargetArchitecture,
     };
@@ -197,7 +197,7 @@ mod tests {
                 DebugInformationMode::None,
                 DebugInformationMode::Full,
             ],
-            [AssemblySyntax::TargetDefault, AssemblySyntax::Intel],
+            [AssemblySyntaxKind::TargetDefault, AssemblySyntaxKind::Intel],
         );
 
         assert_eq!(capabilities.target_platforms().len(), 1);
@@ -213,8 +213,8 @@ mod tests {
             &[DebugInformationMode::None, DebugInformationMode::Full]
         );
         assert_eq!(
-            capabilities.assembly_syntaxes(),
-            &[AssemblySyntax::TargetDefault, AssemblySyntax::Intel]
+            capabilities.assembly_syntax_kinds(),
+            &[AssemblySyntaxKind::TargetDefault, AssemblySyntaxKind::Intel]
         );
     }
 

@@ -118,9 +118,9 @@ impl LinkableArtifactRequirement {
     }
 }
 
-/// Requested syntax for human-readable assembly contributions.
+/// Requested syntax kind for human-readable assembly contributions.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum AssemblySyntax {
+pub enum AssemblySyntaxKind {
     /// Use the target's canonical assembly syntax.
     TargetDefault,
     /// Use Intel assembly syntax where the target supports it.
@@ -132,22 +132,22 @@ pub enum AssemblySyntax {
 /// Validated output-affecting serialization policy shared with a backend.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct BackendSerializationOptions {
-    assembly_syntax: AssemblySyntax,
+    assembly_syntax_kind: AssemblySyntaxKind,
     annotate_backend_ir: bool,
 }
 
 impl BackendSerializationOptions {
     /// Creates typed backend serialization policy.
-    pub const fn new(assembly_syntax: AssemblySyntax, annotate_backend_ir: bool) -> Self {
+    pub const fn new(assembly_syntax_kind: AssemblySyntaxKind, annotate_backend_ir: bool) -> Self {
         Self {
-            assembly_syntax,
+            assembly_syntax_kind,
             annotate_backend_ir,
         }
     }
 
     /// Returns the requested assembly syntax.
-    pub const fn assembly_syntax(self) -> AssemblySyntax {
-        self.assembly_syntax
+    pub const fn assembly_syntax_kind(self) -> AssemblySyntaxKind {
+        self.assembly_syntax_kind
     }
 
     /// Returns whether inspection IR should retain backend annotations.
@@ -327,7 +327,7 @@ fn validate_serialization_options(
     entries: &[BackendArtifactRequestEntry],
     options: BackendSerializationOptions,
 ) -> Result<(), BackendArtifactRequestBuildError> {
-    if options.assembly_syntax() != AssemblySyntax::TargetDefault
+    if options.assembly_syntax_kind() != AssemblySyntaxKind::TargetDefault
         && !has_kind(entries, BackendArtifactKind::Assembly)
     {
         return Err(BackendArtifactRequestBuildError::UnexpectedAssemblySyntax);
@@ -347,7 +347,7 @@ fn has_kind(entries: &[BackendArtifactRequestEntry], kind: BackendArtifactKind) 
 #[cfg(test)]
 mod tests {
     use super::{
-        AssemblySyntax, BackendArtifactId, BackendArtifactKind, BackendArtifactRequest,
+        AssemblySyntaxKind, BackendArtifactId, BackendArtifactKind, BackendArtifactRequest,
         BackendArtifactRequestBuildError, BackendArtifactRequestEntry, BackendArtifactRequirement,
         BackendSerializationOptions, DebugInformationOutputMode, LinkableArtifactRequirement,
     };
@@ -399,6 +399,6 @@ mod tests {
     }
 
     fn serialization() -> BackendSerializationOptions {
-        BackendSerializationOptions::new(AssemblySyntax::TargetDefault, false)
+        BackendSerializationOptions::new(AssemblySyntaxKind::TargetDefault, false)
     }
 }

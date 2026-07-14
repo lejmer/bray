@@ -17,7 +17,7 @@ mod test_support;
 pub use artifact::{
     ArtifactContent, ArtifactContentBuildError, ArtifactContentSource, ArtifactDigest,
     ArtifactDigestAlgorithm, ArtifactSpool, ArtifactSpoolError, ArtifactSpoolOperation,
-    ArtifactSpoolWriter, AssemblySyntax, BackendArtifactContribution, BackendArtifactId,
+    ArtifactSpoolWriter, AssemblySyntaxKind, BackendArtifactContribution, BackendArtifactId,
     BackendArtifactKind, BackendArtifactRequest, BackendArtifactRequestBuildError,
     BackendArtifactRequestEntry, BackendArtifactRequirement, BackendArtifactSet,
     BackendArtifactSetBuildError, BackendSerializationOptions, DebugInformationOutputMode,
