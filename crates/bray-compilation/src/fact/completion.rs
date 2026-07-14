@@ -37,6 +37,9 @@ impl<E: std::fmt::Display> std::fmt::Display for SymbolCompletionError<E> {
             Self::UnknownSymbol(symbol) => {
                 write!(formatter, "symbol completion root {symbol:?} is unknown")
             }
+            Self::Provider(error) => {
+                write!(formatter, "symbol completion provider failed: {error}")
+            }
             Self::Fact { request, error } => write!(
                 formatter,
                 "symbol fact {:?} for {:?} failed: {error}",
@@ -54,7 +57,7 @@ where
 {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::Fact { error, .. } => Some(error),
+            Self::Provider(error) | Self::Fact { error, .. } => Some(error),
             Self::Cancelled | Self::UnknownSymbol(_) | Self::WorkerFailure => None,
         }
     }

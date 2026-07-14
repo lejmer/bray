@@ -4,7 +4,6 @@ use bray_compiler_known::{
     AvailabilityRule, CatalogScopeLocation, CompilerKnownDeclarationId,
     CompilerKnownDeclarationOwner, CompilerKnownRepresentationTarget,
 };
-use bray_diagnostics::DiagnosticBag;
 
 use super::{
     audit::{
@@ -14,9 +13,8 @@ use super::{
     role::RepresentationTarget,
 };
 use crate::{
-    AnySymbolId, ModulePathKey, NeverCancelSymbolCompletion, SymbolCompletionLevel,
-    SymbolFactCompletionRequest, SymbolFactForcer, SymbolGraph, SymbolKey, SymbolKeyData,
-    SymbolRootKey,
+    AnySymbolId, ModulePathKey, NeverCancelSymbolCompletion, SymbolCompletionLevel, SymbolGraph,
+    SymbolKey, SymbolKeyData, SymbolRootKey,
 };
 
 impl<'graph> CompilerKnownCatalogAudit<'graph> {
@@ -69,58 +67,6 @@ impl<'graph> CompilerKnownCatalogAudit<'graph> {
     /// Returns the deterministic audit summary.
     pub const fn report(&self) -> CompilerKnownCatalogAuditReport {
         self.report
-    }
-}
-
-impl SymbolFactForcer for CompilerKnownCatalogAudit<'_> {
-    type Error = CompilerKnownCatalogAuditError;
-
-    fn force(&self, request: SymbolFactCompletionRequest) -> Result<DiagnosticBag, Self::Error> {
-        if !request.kind().is_applicable_to(request.symbol()) {
-            return Err(CompilerKnownCatalogAuditError::InvalidCompletionFact {
-                symbol: request.symbol(),
-            });
-        }
-
-        let provider = self.graph.compiler_known_provider();
-
-        let is_scope = provider
-            .scope_symbols()
-            .values()
-            .copied()
-            .any(|symbol| symbol.into_any() == request.symbol());
-
-        if is_scope {
-            return Ok(DiagnosticBag::new());
-        }
-
-        let Some(declaration) = provider.declaration_id(request.symbol()) else {
-            return Err(CompilerKnownCatalogAuditError::InvalidCompletionFact {
-                symbol: request.symbol(),
-            });
-        };
-
-        let catalog = provider.catalog();
-
-        let Some(descriptor) = catalog.compiler_known_declaration(declaration) else {
-            return Err(CompilerKnownCatalogAuditError::InvalidDeclaration(
-                declaration,
-            ));
-        };
-
-        let Some(surface) = catalog.declaration_surface(descriptor.surface()) else {
-            return Err(CompilerKnownCatalogAuditError::InvalidDeclaration(
-                declaration,
-            ));
-        };
-
-        if surface.kind() != descriptor.kind() {
-            return Err(CompilerKnownCatalogAuditError::InvalidDeclaration(
-                declaration,
-            ));
-        }
-
-        Ok(DiagnosticBag::new())
     }
 }
 

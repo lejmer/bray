@@ -39,7 +39,7 @@ pub enum CompilerKnownScopeSymbolId {
 }
 
 impl CompilerKnownScopeSymbolId {
-    fn into_any(self) -> AnySymbolId {
+    pub(in crate::compiler_known) fn into_any(self) -> AnySymbolId {
         match self {
             Self::Environment(id) => id.into(),
             Self::Module(id) => id.into(),

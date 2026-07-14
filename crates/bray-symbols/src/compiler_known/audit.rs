@@ -3,7 +3,7 @@ use bray_compiler_known::{
     ImplementationHook, RepresentationRole,
 };
 
-use crate::{AnySymbolId, SymbolGraph};
+use crate::SymbolGraph;
 
 /// One target-availability profile exercised by catalog validation.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -130,11 +130,6 @@ pub enum CompilerKnownCatalogAuditError {
     IncompleteCompletion,
     /// The compiler-known completion plan could not be constructed.
     InvalidCompletionPlan,
-    /// One planned semantic fact does not resolve to generated declaration data.
-    InvalidCompletionFact {
-        /// The symbol owning the invalid request.
-        symbol: AnySymbolId,
-    },
 }
 
 impl std::fmt::Display for CompilerKnownCatalogAuditError {
@@ -196,10 +191,6 @@ impl std::fmt::Display for CompilerKnownCatalogAuditError {
             Self::InvalidCompletionPlan => {
                 formatter.write_str("compiler-known completion plan is invalid")
             }
-            Self::InvalidCompletionFact { symbol } => write!(
-                formatter,
-                "compiler-known completion fact for {symbol:?} is invalid"
-            ),
         }
     }
 }

@@ -1,15 +1,14 @@
 use bray_compiler_known::AvailabilityRule;
-use bray_declarations::{DeclarationChunkResult, merge_declaration_chunks};
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{
     CompilerKnownCatalogAudit, CompilerKnownCatalogAuditError, CompilerKnownCatalogAuditReport,
-    CompilerKnownTargetProfile, PackageIdentity, SymbolCompletionLevel, SymbolGraph,
-    SymbolGraphBuildError,
+    CompilerKnownTargetProfile, PackageIdentity, SymbolCompletionLevel,
 };
 
 use crate::{
-    CancellationToken, SymbolCompletionError, TargetAvailabilityFacts, WorkerBudget,
-    WorkerBudgetError, force_complete_symbol,
+    CancellationToken, Compilation, CompilationLoadError, CompilationOptions, CompilationRequest,
+    FactQueryError, SymbolCompletionError, TargetAvailabilityFacts, WorkerBudget,
+    WorkerBudgetError,
 };
 
 /// Deterministic result of checking generated compiler-known semantic data.
@@ -59,36 +58,43 @@ struct CompilerKnownCatalogCheckOutcome {
 fn check_compiler_known_catalog_with(
     workers: WorkerBudget,
 ) -> Result<CompilerKnownCatalogCheckOutcome, CompilerKnownCatalogCheckError> {
-    let declarations = merge_declaration_chunks(std::iter::empty::<&DeclarationChunkResult>());
-
-    if !declarations.diagnostics().is_empty() {
-        return Err(CompilerKnownCatalogCheckError::DeclarationDiagnostics);
-    }
-
     let Some(package) = PackageIdentity::try_new("bray.catalog.validation") else {
         return Err(CompilerKnownCatalogCheckError::InvalidPackageIdentity);
     };
 
-    let graph = SymbolGraph::build_source(package, declarations.table())
-        .map_err(CompilerKnownCatalogCheckError::SymbolGraph)?;
+    let options =
+        CompilationOptions::new(workers).with_target_availability(TargetAvailabilityFacts::all());
+
+    // The private validation compilation has no source package because catalog symbols are its
+    // only semantic roots.
+    let request = CompilationRequest::with_options(package, Vec::new(), options);
+
+    let compilation =
+        Compilation::load(request).map_err(CompilerKnownCatalogCheckError::CompilationLoad)?;
+
+    if !compilation.declaration_diagnostics().is_empty() {
+        return Err(CompilerKnownCatalogCheckError::DeclarationDiagnostics);
+    }
+
+    let graph = compilation
+        .symbol_graph()
+        .map_err(CompilerKnownCatalogCheckError::Fact)?;
 
     let mut audit =
-        CompilerKnownCatalogAudit::new(&graph).map_err(CompilerKnownCatalogCheckError::Audit)?;
+        CompilerKnownCatalogAudit::new(graph).map_err(CompilerKnownCatalogCheckError::Audit)?;
 
     audit_target_views(&mut audit)?;
 
     let root = graph.roots().compiler_known().into();
     let cancellation = CancellationToken::new();
 
-    let diagnostics = force_complete_symbol(
-        &graph,
-        root,
-        SymbolCompletionLevel::DeclarationSurface,
-        workers,
-        &cancellation,
-        &audit,
-    )
-    .map_err(CompilerKnownCatalogCheckError::Completion)?;
+    let diagnostics = compilation
+        .force_complete_symbol(
+            root,
+            SymbolCompletionLevel::DeclarationSurface,
+            &cancellation,
+        )
+        .map_err(CompilerKnownCatalogCheckError::Completion)?;
 
     Ok(CompilerKnownCatalogCheckOutcome {
         audit: audit.report(),
@@ -139,12 +145,14 @@ pub enum CompilerKnownCatalogCheckError {
     InvalidPackageIdentity,
     /// Constructing an empty declaration table unexpectedly produced diagnostics.
     DeclarationDiagnostics,
-    /// The generated catalog could not produce a valid symbol graph.
-    SymbolGraph(SymbolGraphBuildError),
+    /// The private catalog-validation compilation could not be loaded.
+    CompilationLoad(CompilationLoadError),
+    /// A lazy compiler fact required by catalog validation failed.
+    Fact(FactQueryError),
     /// The compiler-known semantic audit found an inconsistent identity or role.
     Audit(CompilerKnownCatalogAuditError),
     /// Recursive semantic completion failed.
-    Completion(SymbolCompletionError<CompilerKnownCatalogAuditError>),
+    Completion(SymbolCompletionError<FactQueryError>),
     /// The fixed parallel validation budget could not be constructed.
     WorkerBudget(WorkerBudgetError),
     /// Independent serial and parallel validation produced different immutable results.
@@ -162,9 +170,13 @@ impl std::fmt::Display for CompilerKnownCatalogCheckError {
             Self::DeclarationDiagnostics => {
                 formatter.write_str("empty compiler-known validation package produced declarations")
             }
-            Self::SymbolGraph(error) => {
-                write!(formatter, "compiler-known symbol graph failed: {error}")
+            Self::CompilationLoad(error) => {
+                write!(
+                    formatter,
+                    "compiler-known validation compilation failed: {error}"
+                )
             }
+            Self::Fact(error) => write!(formatter, "compiler-known fact failed: {error}"),
             Self::Audit(error) => write!(formatter, "compiler-known audit failed: {error}"),
             Self::Completion(error) => {
                 write!(formatter, "compiler-known completion failed: {error}")
@@ -188,7 +200,8 @@ impl std::fmt::Display for CompilerKnownCatalogCheckError {
 impl std::error::Error for CompilerKnownCatalogCheckError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::SymbolGraph(error) => Some(error),
+            Self::CompilationLoad(error) => Some(error),
+            Self::Fact(error) => Some(error),
             Self::Audit(error) => Some(error),
             Self::Completion(error) => Some(error),
             Self::WorkerBudget(error) => Some(error),
