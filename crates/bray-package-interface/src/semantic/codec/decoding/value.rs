@@ -428,7 +428,9 @@ mod tests {
 
         let store = SemanticValueStore::try_new()
             .unwrap_or_else(|error| panic!("semantic store creation failed: {error:?}"));
+
         let resolver = resolver(&surface);
+
         let imported = decoded
             .intern(&store, &resolver)
             .unwrap_or_else(|error| panic!("semantic interning failed: {error:?}"));
@@ -456,9 +458,12 @@ mod tests {
     #[test]
     fn semantic_interning_rejects_wrong_symbol_categories() {
         let (surface, facts) = fixture();
+
         let store = SemanticValueStore::try_new()
             .unwrap_or_else(|error| panic!("semantic store creation failed: {error:?}"));
+
         let mut resolver = resolver(&surface);
+
         let function = symbol_reference(&surface, SymbolKind::Function);
 
         let InterfaceSymbolReference::Local(function_id) = function else {
@@ -479,9 +484,12 @@ mod tests {
     #[test]
     fn semantic_interning_rejects_trait_applications_on_inherent_implementations() {
         let (surface, facts) = fixture();
+
         let store = SemanticValueStore::try_new()
             .unwrap_or_else(|error| panic!("semantic store creation failed: {error:?}"));
+
         let resolver = resolver(&surface);
+
         let structure = symbol_reference(&surface, SymbolKind::Struct);
         let implementation = symbol_reference(&surface, SymbolKind::InherentImplementation);
         let trait_definition = symbol_reference(&surface, SymbolKind::Trait);
@@ -519,9 +527,12 @@ mod tests {
     #[test]
     fn semantic_decoding_rejects_unknown_tags_and_declared_count_mismatches() {
         let (surface, facts) = fixture();
+
         let limits = InterfaceValidationLimits::default();
+
         let sections = encode_semantic_facts(&facts, &surface, limits)
             .unwrap_or_else(|error| panic!("semantic encoding failed: {error:?}"));
+
         let mut owned: Vec<_> = sections
             .iter()
             .map(|section| {
@@ -574,6 +585,7 @@ mod tests {
     #[test]
     fn cyclic_structural_type_graphs_are_rejected() {
         let surface = interface_surface(package_identity(), [], []);
+
         let facts = InterfaceSemanticFacts::new().with_values(
             [],
             [InterfaceType::Nullable(InterfaceTypeId::new(0))],
@@ -593,13 +605,16 @@ mod tests {
 
         let package = PackageIdentity::try_new("dependency.package")
             .unwrap_or_else(|| panic!("dependency package identity must be valid"));
+
         let surface = semantic_surface([package.clone()]);
+
         let mut facts = facts(&surface);
 
         let owner = ExternalSymbolKey::package(package);
 
         let name = SymbolName::try_new("pointer_width")
             .unwrap_or_else(|| panic!("target fact name must be valid"));
+
         let key = ExternalSymbolKey::named(owner, SymbolKind::Constant, name)
             .unwrap_or_else(|| panic!("constant external key must be valid"));
 
@@ -735,6 +750,7 @@ mod tests {
         dependencies: impl IntoIterator<Item = PackageIdentity>,
     ) -> crate::PackageInterfaceSurface {
         let module = test_module_key(package_identity(), "semantic");
+
         let symbols = [
             named_key(module.clone(), SymbolKind::Struct, "record"),
             named_key(module.clone(), SymbolKind::Constant, "answer"),

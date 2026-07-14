@@ -47,6 +47,7 @@ impl InterfaceSemanticFacts {
 
         for (entity_index, template_index) in template_entities {
             let template = &self.checked_templates[template_index];
+
             let graph_size = template
                 .inputs()
                 .len()
@@ -188,6 +189,7 @@ fn validate_template(
         )?;
 
         validate_index(temporary.ty().to_index(), facts.types.len())?;
+
         validate_index(
             temporary.dependency_contract().to_index(),
             facts.dependency_contracts.len(),
@@ -230,7 +232,6 @@ fn validate_operation(
     node_index: usize,
 ) -> Result<(), InterfaceValidationError> {
     validate_operation_references(context, node.operation(), node_index)?;
-
     validate_operation_type(context.facts, context.template, node)
 }
 
@@ -295,6 +296,7 @@ fn validate_operation_references(
                 compact_index(temporary.raw()),
                 context.template.temporaries().len(),
             )?;
+
             let temporary = context.template.temporaries()[temporary_index];
 
             validate_prior_node(temporary.initializer(), node_index)?;
@@ -374,7 +376,6 @@ fn validate_template_reference(
     match reference {
         InterfaceTemplateReference::Symbol(symbol) => {
             validate_symbol(symbol, context.symbol_count, context.dependency_count)?;
-
             validate_symbol_kind(symbol, context.surface)
         }
         InterfaceTemplateReference::Support(entity) => {
