@@ -95,7 +95,7 @@ impl BackendCapabilities {
         target_platforms: impl IntoIterator<Item = BackendTargetPlatform>,
         artifact_kinds: impl IntoIterator<Item = BackendArtifactKind>,
         debug_information_modes: impl IntoIterator<Item = DebugInformationMode>,
-        assembly_syntax_kinds: impl IntoIterator<Item =AssemblySyntaxKind>,
+        assembly_syntax_kinds: impl IntoIterator<Item = AssemblySyntaxKind>,
     ) -> Self {
         Self {
             target_platforms: sorted_unique_shared_slice(target_platforms),
@@ -127,7 +127,7 @@ impl BackendCapabilities {
 
     /// Returns whether the backend declares support for this architecture and object format.
     ///
-    /// Complete target validation remains backend-specific through [`CodegenBackend::validate_target`].
+    /// Complete target validation remains backend-specific through [`CodeGenerator::validate_target`].
     pub fn supports_platform(&self, target: &CodegenTarget) -> bool {
         let machine = target.machine();
 
@@ -151,7 +151,9 @@ impl BackendCapabilities {
 
     /// Returns whether the backend supports one assembly serialization syntax kind.
     pub fn supports_assembly_syntax_kind(&self, syntax_kind: AssemblySyntaxKind) -> bool {
-        self.assembly_syntax_kinds.binary_search(&syntax_kind).is_ok()
+        self.assembly_syntax_kinds
+            .binary_search(&syntax_kind)
+            .is_ok()
     }
 }
 
@@ -159,7 +161,7 @@ impl BackendCapabilities {
 ///
 /// Implementations own all mutable backend modules and low-level IR internally. Only immutable
 /// contributions cross this boundary.
-pub trait CodegenBackend: Send + Sync {
+pub trait CodeGenerator: Send + Sync {
     /// Returns the stable backend and toolchain identity used by codegen fact keys.
     fn identity(&self) -> &BackendIdentity;
 
@@ -175,7 +177,7 @@ pub trait CodegenBackend: Send + Sync {
 
 #[cfg(test)]
 mod tests {
-    use super::{BackendCapabilities, BackendIdentity, BackendTargetPlatform, CodegenBackend};
+    use super::{BackendCapabilities, BackendIdentity, BackendTargetPlatform, CodeGenerator};
     use crate::{
         ArtifactSpool, AssemblySyntaxKind, BackendArtifactContribution, BackendArtifactKind,
         BackendArtifactRequest, CodegenOutcome, CodegenRequest, CodegenTarget, CodegenUnit,
@@ -222,7 +224,7 @@ mod tests {
     fn backend_contracts_are_send_and_sync() {
         fn assert_send_sync<T: ?Sized + Send + Sync>() {}
 
-        assert_send_sync::<dyn CodegenBackend>();
+        assert_send_sync::<dyn CodeGenerator>();
         assert_send_sync::<CodegenRequest<'static>>();
         assert_send_sync::<CodegenUnit>();
         assert_send_sync::<CodegenTarget>();

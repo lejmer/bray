@@ -223,7 +223,7 @@ or package orchestration crates.
 The backend API should remain coarse and typed. Its conceptual shape is:
 
 ```rust
-pub trait CodegenBackend: Send + Sync {
+pub trait CodeGenerator: Send + Sync {
     fn identity(&self) -> BackendIdentity;
 
     fn capabilities(&self) -> BackendCapabilities;

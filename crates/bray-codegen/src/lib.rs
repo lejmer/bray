@@ -23,7 +23,7 @@ pub use artifact::{
     BackendArtifactSetBuildError, BackendSerializationOptions, DebugInformationOutputMode,
     LinkableArtifactRequirement,
 };
-pub use backend::{BackendCapabilities, BackendIdentity, BackendTargetPlatform, CodegenBackend};
+pub use backend::{BackendCapabilities, BackendIdentity, BackendTargetPlatform, CodeGenerator};
 pub use cancellation::CodegenCancellation;
 pub use options::{CodegenOptions, DebugInformationMode, OptimizationLevel, SizePreference};
 pub use outcome::{CodegenFailure, CodegenOutcome, CodegenStatus};
