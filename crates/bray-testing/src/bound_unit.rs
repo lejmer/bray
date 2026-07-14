@@ -4,18 +4,17 @@ use bray_bound_tree::{
 };
 use bray_declarations::discover_source_unit_declarations;
 use bray_parser::parse_source_unit;
-use bray_source::{
-    SourceId, SourceIdentity, SourceOrigin, SourceSnapshot, SourceVersion, TextSize,
-};
+use bray_source::TextSize;
+use bray_symbols::testing::source_function_key;
 use bray_symbols::{
     LocalScopeBoundary, LocalSymbolRegionId, LocalSymbolRegionKey, LocalSymbolRegionRole,
     LocalSymbolSnapshot, LocalSymbolSnapshotBuilder,
 };
 
-pub(crate) use bray_symbols::testing::available_compiler_known_symbols;
-use bray_symbols::testing::source_function_key;
+use crate::test_source_snapshot;
 
-pub(crate) fn bound_unit(unit: u32) -> BoundUnit {
+/// Builds one canonical recovered callable-body unit for semantic boundary tests.
+pub fn test_bound_unit(unit: u32) -> BoundUnit {
     let (key, local_symbols) = unit_identity(unit);
 
     let mut tree = BoundTreeBuilder::new(BoundUnitId::new(unit));
@@ -39,7 +38,7 @@ pub(crate) fn bound_unit(unit: u32) -> BoundUnit {
 }
 
 fn unit_identity(unit: u32) -> (BoundUnitKey, LocalSymbolSnapshot) {
-    let snapshot = source();
+    let snapshot = test_source_snapshot("module example;");
     let parsed = parse_source_unit(&snapshot);
 
     assert!(parsed.diagnostics().is_empty());
@@ -85,17 +84,4 @@ fn unit_identity(unit: u32) -> (BoundUnitKey, LocalSymbolSnapshot) {
     };
 
     (key, symbols)
-}
-
-fn source() -> SourceSnapshot {
-    match SourceSnapshot::new(
-        SourceId::new(0),
-        SourceIdentity::new(0),
-        SourceOrigin::virtual_source("lowering-test"),
-        SourceVersion::new(1),
-        "module example;",
-    ) {
-        Ok(snapshot) => snapshot,
-        Err(error) => panic!("test source must fit: {error:?}"),
-    }
 }

@@ -195,10 +195,7 @@ name = "bray-ir"
 version = "0.0.0"
 dependencies = [
  "bray-bound-tree",
- "bray-declarations",
- "bray-parser",
  "bray-source",
- "bray-symbols",
  "bray-testing",
 ]
 
@@ -207,10 +204,8 @@ name = "bray-lowering"
 version = "0.0.0"
 dependencies = [
  "bray-bound-tree",
- "bray-declarations",
- "bray-parser",
- "bray-source",
  "bray-symbols",
+ "bray-testing",
 ]
 
 [[package]]
@@ -275,7 +270,11 @@ dependencies = [
 name = "bray-testing"
 version = "0.0.0"
 dependencies = [
+ "bray-bound-tree",
+ "bray-declarations",
+ "bray-parser",
  "bray-source",
+ "bray-symbols",
  "bray-syntax",
 ]
 

@@ -79,13 +79,14 @@ pub enum LoweringInputError {
 #[cfg(test)]
 mod tests {
     use bray_bound_tree::{BoundUnitId, CheckedControlFlowFacts, ControlCompletion};
+    use bray_symbols::testing::available_compiler_known_symbols;
+    use bray_testing::test_bound_unit;
 
     use super::{LoweringInput, LoweringInputError};
-    use crate::test_support::{available_compiler_known_symbols, bound_unit};
 
     #[test]
     fn input_borrows_the_canonical_unit_and_matching_side_facts() {
-        let unit = bound_unit(4);
+        let unit = test_bound_unit(4);
 
         let control_flow = CheckedControlFlowFacts::new(
             unit.unit(),
@@ -113,7 +114,7 @@ mod tests {
 
     #[test]
     fn input_rejects_foreign_and_wrong_category_side_facts() {
-        let unit = bound_unit(4);
+        let unit = test_bound_unit(4);
 
         let foreign = CheckedControlFlowFacts::new(
             BoundUnitId::new(5),

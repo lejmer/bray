@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use bray_bound_tree::{BoundSourceAnchor, BoundUnit, BoundUnitId, BoundUnitKey};
+use bray_bound_tree::{BoundSourceAnchor, BoundUnitId, BoundUnitIdentity, BoundUnitKey};
 
 /// Identifies one basic block in a Bray MIR unit.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -88,12 +88,12 @@ pub struct MirUnitBuilder {
 
 impl MirUnitBuilder {
     /// Starts MIR construction for one canonical bound-unit identity.
-    pub fn new(unit: &BoundUnit) -> Self {
+    pub fn new(identity: BoundUnitIdentity<'_>) -> Self {
         Self {
-            // Publication retains the Arc-backed key after the lowering input borrow ends.
-            key: unit.key().clone(),
-            unit: unit.unit(),
-            source: unit.key().source(),
+            // Publication retains the Arc-backed key after the identity view borrow ends.
+            key: identity.key().clone(),
+            unit: identity.unit(),
+            source: identity.key().source(),
             blocks: Vec::new(),
         }
     }
@@ -175,30 +175,20 @@ fn same_source_snapshot(expected: BoundSourceAnchor, actual: BoundSourceAnchor) 
 
 #[cfg(test)]
 mod tests {
-    use bray_bound_tree::{
-        BoundCallableBody, BoundNodeOrigin, BoundSourceAnchor, BoundTreeBuilder, BoundUnit,
-        BoundUnitId, BoundUnitKey, BoundUnitRoot,
-    };
-    use bray_declarations::discover_source_unit_declarations;
-    use bray_parser::parse_source_unit;
-    use bray_source::{SourceVersion, TextSize};
-    use bray_symbols::testing::source_function_key;
-    use bray_symbols::{
-        LocalScopeBoundary, LocalSymbolRegionId, LocalSymbolRegionKey, LocalSymbolRegionRole,
-        LocalSymbolSnapshot, LocalSymbolSnapshotBuilder,
-    };
-    use bray_testing::test_source_snapshot;
+    use bray_bound_tree::{BoundSourceAnchor, BoundUnitId};
+    use bray_source::SourceVersion;
+    use bray_testing::test_bound_unit;
 
     use super::{MirBlockId, MirUnitBuildError, MirUnitBuilder};
 
     #[test]
     fn builders_publish_identity_entry_and_source_order() {
-        let bound = bound_unit(4);
+        let bound = test_bound_unit(4);
         let key = bound.key().clone();
         let unit = bound.unit();
         let source = key.source();
 
-        let mut builder = MirUnitBuilder::new(&bound);
+        let mut builder = MirUnitBuilder::new(bound.identity());
 
         let first = push_block(&mut builder, source);
         let second = push_block(&mut builder, source);
@@ -219,10 +209,10 @@ mod tests {
 
     #[test]
     fn builders_reject_foreign_sources_and_entry_blocks() {
-        let bound = bound_unit(4);
+        let bound = test_bound_unit(4);
         let unit = bound.unit();
         let source = bound.key().source();
-        let missing_builder = MirUnitBuilder::new(&bound);
+        let missing_builder = MirUnitBuilder::new(bound.identity());
         let missing = MirBlockId::from_slot(unit, 0);
 
         assert_eq!(
@@ -230,7 +220,7 @@ mod tests {
             Err(MirUnitBuildError::MissingEntry(missing))
         );
 
-        let mut builder = MirUnitBuilder::new(&bound);
+        let mut builder = MirUnitBuilder::new(bound.identity());
 
         let foreign_source = BoundSourceAnchor::new(
             source.syntax(),
@@ -265,79 +255,6 @@ mod tests {
 
         assert_send_sync::<super::MirUnit>();
         assert_send_sync::<MirBlockId>();
-    }
-
-    fn bound_unit(unit: u32) -> BoundUnit {
-        let (key, local_symbols) = unit_identity(unit);
-
-        let mut tree = BoundTreeBuilder::new(BoundUnitId::new(unit));
-        let body = BoundCallableBody::error(BoundNodeOrigin::source(key.source()), None);
-
-        let root = match tree.push_callable_body(body) {
-            Ok(root) => root,
-            Err(error) => panic!("test callable body must fit: {error:?}"),
-        };
-
-        match BoundUnit::try_new(
-            key,
-            tree.finish(),
-            local_symbols,
-            [],
-            BoundUnitRoot::CallableBody(root),
-        ) {
-            Ok(unit) => unit,
-            Err(error) => panic!("test bound unit must validate: {error:?}"),
-        }
-    }
-
-    fn unit_identity(unit: u32) -> (BoundUnitKey, LocalSymbolSnapshot) {
-        let snapshot = test_source_snapshot("module example;");
-        let parsed = parse_source_unit(&snapshot);
-
-        assert!(parsed.diagnostics().is_empty());
-
-        let declarations = discover_source_unit_declarations(parsed.source_unit());
-
-        assert!(declarations.diagnostics().is_empty());
-
-        let [part] = declarations.chunk().module_parts() else {
-            panic!("test source must contain one module part");
-        };
-
-        let source = BoundSourceAnchor::new(part.syntax_anchor(), snapshot.version());
-        let owner = source_function_key();
-
-        let Some(key) = BoundUnitKey::callable_body(owner.clone(), source) else {
-            panic!("function must support a callable body");
-        };
-
-        let Some(region_key) = LocalSymbolRegionKey::try_new(
-            owner,
-            LocalSymbolRegionRole::CallableBody,
-            [source.syntax()],
-            None,
-        ) else {
-            panic!("test local symbol region key must be valid");
-        };
-
-        let mut symbols =
-            LocalSymbolSnapshotBuilder::new(LocalSymbolRegionId::new(unit), region_key);
-
-        if let Err(error) = symbols.push_scope(
-            None,
-            LocalScopeBoundary::Root,
-            source.syntax(),
-            TextSize::ZERO,
-        ) {
-            panic!("test root scope must validate: {error:?}");
-        }
-
-        let symbols = match symbols.finish() {
-            Ok(symbols) => symbols,
-            Err(error) => panic!("test local symbols must validate: {error:?}"),
-        };
-
-        (key, symbols)
     }
 
     fn push_block(builder: &mut MirUnitBuilder, source: BoundSourceAnchor) -> MirBlockId {

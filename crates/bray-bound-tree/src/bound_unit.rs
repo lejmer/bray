@@ -7,7 +7,8 @@ use bray_symbols::{
 
 use crate::{
     BoundBlockId, BoundCallableBodyId, BoundExpressionId, BoundNodeKind, BoundTree, BoundUnitId,
-    BoundUnitKey, BoundUnitKeyData, BoundUnitKind, BoundUnitView, DeclaredBoundUnitKey,
+    BoundUnitIdentity, BoundUnitKey, BoundUnitKeyData, BoundUnitKind, BoundUnitView,
+    DeclaredBoundUnitKey,
 };
 
 /// One immutable bound semantic unit and its exact root.
@@ -60,6 +61,11 @@ impl BoundUnit {
     /// Returns this unit's compilation-local identity.
     pub const fn unit(&self) -> BoundUnitId {
         self.tree.unit()
+    }
+
+    /// Returns the coherent stable and compilation-local identity pair for this unit.
+    pub const fn identity(&self) -> BoundUnitIdentity<'_> {
+        BoundUnitIdentity::new(&self.key, self.tree.unit())
     }
 
     /// Returns the immutable source-shaped bound tree.
@@ -370,6 +376,8 @@ mod tests {
 
         assert_eq!(unit.key(), &key);
         assert_eq!(unit.unit(), BoundUnitId::new(20));
+        assert_eq!(unit.identity().key(), &key);
+        assert_eq!(unit.identity().unit(), BoundUnitId::new(20));
         assert_eq!(unit.root(), BoundUnitRoot::CallableBody(root));
         assert!(unit.tree().callable_body(root).is_some());
         assert_eq!(unit.local_symbols().region(), LocalSymbolRegionId::new(20));
