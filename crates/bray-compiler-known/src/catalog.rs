@@ -60,7 +60,8 @@ pub use source::{
 #[cfg(any(test, feature = "generation"))]
 pub use source::{CatalogKind, CatalogSource, CatalogSourceInventory};
 pub use surface::{
-    CatalogDeclarationSurfaceSyntax, CatalogSurfaceElement, CatalogSurfaceToken,
+    CatalogDeclarationSignature, CatalogDeclarationSurfaceSyntax, CatalogGenericParameter,
+    CatalogGenericParameterKind, CatalogSurfaceElement, CatalogSurfaceToken,
     CatalogTypeSurfaceSyntax,
 };
 

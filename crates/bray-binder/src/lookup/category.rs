@@ -63,7 +63,7 @@ impl ResolvedMemberName {
     }
 }
 
-pub(super) fn classify_type(name: ResolvedName) -> Option<ResolvedTypeName> {
+pub(crate) fn classify_type(name: ResolvedName) -> Option<ResolvedTypeName> {
     let ResolvedName::Surface(symbol) = name else {
         return None;
     };

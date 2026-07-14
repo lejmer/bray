@@ -111,6 +111,9 @@ impl InterfaceSemanticFacts {
             InterfaceType::TypeParameter(parameter) => {
                 validate_symbol(parameter, symbol_count, dependency_count)?;
             }
+            InterfaceType::ContextualSelf(context) => {
+                validate_symbol(context, symbol_count, dependency_count)?;
+            }
             InterfaceType::AssociatedTypeProjection {
                 application,
                 member,
@@ -457,6 +460,7 @@ fn direct_type_children(ty: &InterfaceType) -> Vec<InterfaceTypeId> {
             .collect(),
         InterfaceType::Named { .. }
         | InterfaceType::TypeParameter(_)
+        | InterfaceType::ContextualSelf(_)
         | InterfaceType::AssociatedTypeProjection { .. }
         | InterfaceType::TraitView(_) => Vec::new(),
     }

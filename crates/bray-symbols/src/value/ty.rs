@@ -2,7 +2,10 @@ use std::sync::Arc;
 
 use bray_base::shared_slice;
 
-use crate::{GenericTypeParameterSymbolId, NamedTypeSymbolId, TraitTypeMemberSymbolId};
+use crate::{
+    AnySymbolId, GenericTypeParameterSymbolId, ImplementationSymbolId, NamedTypeSymbolId,
+    SymbolKind, TraitSymbolId, TraitTypeMemberSymbolId,
+};
 
 use super::{
     ConstantTermId, DependencyContractTemplateId, GenericSubstitutionId, TraitApplicationId, TypeId,
@@ -71,6 +74,56 @@ pub enum CallableParameterMode {
     Immutable,
     /// The parameter binding has mutable local authority.
     Mutable,
+}
+
+/// The declaration context that gives the contextual `Self` type its meaning.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum SelfTypeContext {
+    /// A member declared directly by one named structural type.
+    NamedType(NamedTypeSymbolId),
+    /// A member or constraint declared by one trait.
+    Trait(TraitSymbolId),
+    /// A member or constraint declared by one implementation.
+    Implementation(ImplementationSymbolId),
+}
+
+impl SelfTypeContext {
+    /// Classifies an exact symbol that can define contextual `Self`.
+    pub const fn try_new(symbol: AnySymbolId) -> Option<Self> {
+        match symbol {
+            AnySymbolId::Struct(id) => Some(Self::NamedType(NamedTypeSymbolId::Struct(id))),
+            AnySymbolId::Union(id) => Some(Self::NamedType(NamedTypeSymbolId::Union(id))),
+            AnySymbolId::Trait(id) => Some(Self::Trait(id)),
+            AnySymbolId::InherentImplementation(id) => {
+                Some(Self::Implementation(ImplementationSymbolId::Inherent(id)))
+            }
+            AnySymbolId::UnnamedTraitImplementation(id) => Some(Self::Implementation(
+                ImplementationSymbolId::UnnamedTrait(id),
+            )),
+            AnySymbolId::NamedTraitImplementation(id) => {
+                Some(Self::Implementation(ImplementationSymbolId::NamedTrait(id)))
+            }
+            _ => None,
+        }
+    }
+
+    /// Returns the exact declaration context retained by this type.
+    pub fn symbol(self) -> AnySymbolId {
+        match self {
+            Self::NamedType(id) => id.into_any(),
+            Self::Trait(id) => id.into(),
+            Self::Implementation(id) => id.into_any(),
+        }
+    }
+
+    /// Returns the exact symbol kind of the declaration context.
+    pub const fn kind(self) -> SymbolKind {
+        match self {
+            Self::NamedType(id) => id.kind(),
+            Self::Trait(id) => id.kind(),
+            Self::Implementation(id) => id.kind(),
+        }
+    }
 }
 
 /// A validated semantic callable-parameter name.
@@ -219,6 +272,8 @@ pub enum TypeData {
     },
     /// A generic type parameter.
     TypeParameter(GenericTypeParameterSymbolId),
+    /// The contextual `Self` type tied to its declaration context.
+    ContextualSelf(SelfTypeContext),
     /// A trait type member whose selected value remains context-dependent.
     AssociatedTypeProjection {
         /// The exact applied trait.
@@ -268,7 +323,10 @@ impl TypeData {
 
 #[cfg(test)]
 mod tests {
-    use super::CallableParameterName;
+    use super::{CallableParameterName, SelfTypeContext};
+    use crate::{
+        AnySymbolId, FunctionSymbolId, StructSymbolId, SymbolId, SymbolKind, TraitSymbolId,
+    };
 
     #[test]
     fn callable_parameter_names_reject_empty_text() {
@@ -279,5 +337,28 @@ mod tests {
         };
 
         assert_eq!(name.as_str(), "value");
+    }
+
+    #[test]
+    fn contextual_self_accepts_only_declaration_contexts() {
+        let structure = StructSymbolId::from_symbol_id(SymbolId::new(1));
+        let trait_symbol = TraitSymbolId::from_symbol_id(SymbolId::new(2));
+
+        let Some(structure_context) = SelfTypeContext::try_new(structure.into()) else {
+            panic!("named types must define contextual Self");
+        };
+
+        let Some(trait_context) = SelfTypeContext::try_new(trait_symbol.into()) else {
+            panic!("traits must define contextual Self");
+        };
+
+        assert_eq!(structure_context.symbol(), AnySymbolId::Struct(structure));
+        assert_eq!(structure_context.kind(), SymbolKind::Struct);
+        assert_eq!(trait_context.symbol(), AnySymbolId::Trait(trait_symbol));
+        assert_eq!(trait_context.kind(), SymbolKind::Trait);
+
+        let function = FunctionSymbolId::from_symbol_id(SymbolId::new(3));
+
+        assert!(SelfTypeContext::try_new(function.into()).is_none());
     }
 }

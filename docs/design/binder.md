@@ -237,6 +237,7 @@ pub enum TypeData {
         substitution: GenericSubstitutionId,
     },
     TypeParameter(GenericTypeParameterSymbolId),
+    ContextualSelf(SelfTypeContext),
     AssociatedTypeProjection {
         application: TraitApplicationId,
         member: TraitTypeMemberSymbolId,
@@ -267,6 +268,9 @@ identity.
 
 A named constructed type retains its exact definition symbol and ordered generic substitution. Structural type records retain every
 subject type and compile-time argument that participates in identity.
+
+Contextual `Self` retains the exact named type, trait, or implementation context that gives the type its meaning. It is not lowered
+to an error type or represented as a synthetic generic parameter.
 
 Associated type projections remain explicit canonical types while their selected type is not globally fixed. A context that selects
 an implementation can resolve the projection through an ordinary semantic fact without mutating the original `TypeId`.

@@ -397,11 +397,11 @@ impl PredicateParameterRelationships {
 
 impl GenericParameterRelationships {
     fn new(id: AnySymbolId, index: &RelationshipIndex) -> Option<Self> {
-        let (owner, ordinal) = owner_and_ordinal(id, index)?;
+        let (owner, _) = owner_and_ordinal(id, index)?;
 
         Some(Self {
             owner: GenericOwnerId::try_new(owner)?,
-            ordinal,
+            ordinal: ordinal_within_generic_parameters(id, index),
         })
     }
 }
@@ -476,6 +476,23 @@ fn owner_and_ordinal(child: AnySymbolId, index: &RelationshipIndex) -> Option<(A
 }
 
 fn ordinal_within_kind(child: AnySymbolId, index: &RelationshipIndex) -> u32 {
+    ordinal_among(child, index, |candidate| candidate.kind() == child.kind())
+}
+
+fn ordinal_within_generic_parameters(child: AnySymbolId, index: &RelationshipIndex) -> u32 {
+    ordinal_among(child, index, |candidate| {
+        matches!(
+            candidate,
+            AnySymbolId::GenericTypeParameter(_) | AnySymbolId::GenericConstParameter(_)
+        )
+    })
+}
+
+fn ordinal_among(
+    child: AnySymbolId,
+    index: &RelationshipIndex,
+    mut belongs_to_group: impl FnMut(AnySymbolId) -> bool,
+) -> u32 {
     let Some((owner, _)) = owner_and_ordinal(child, index) else {
         return 0;
     };
@@ -483,8 +500,9 @@ fn ordinal_within_kind(child: AnySymbolId, index: &RelationshipIndex) -> u32 {
     index
         .children(owner)
         .iter()
-        .filter(|candidate| candidate.kind() == child.kind())
-        .position(|candidate| *candidate == child)
+        .copied()
+        .filter(|candidate| belongs_to_group(*candidate))
+        .position(|candidate| candidate == child)
         .and_then(|ordinal| u32::try_from(ordinal).ok())
         .unwrap_or(0)
 }

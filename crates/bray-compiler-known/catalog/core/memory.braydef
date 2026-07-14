@@ -10,7 +10,10 @@ scope CoreMemory at core.memory {
                 destination: RawPointer<u8>,
                 source: RawPointer<u8>,
                 count: usize,
-            );
+            )
+                requires(true)
+                ensures(true)
+                with(true);
         }
     }
 }

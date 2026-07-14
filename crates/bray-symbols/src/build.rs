@@ -284,7 +284,7 @@ fn source_member_entry(
     Some(MemberEntry::new(symbol, name, visibility, validity))
 }
 
-fn receiver_owner(symbol: AnySymbolId, is_static: bool) -> Option<CallableSymbolId> {
+pub(crate) fn receiver_owner(symbol: AnySymbolId, is_static: bool) -> Option<CallableSymbolId> {
     match symbol {
         AnySymbolId::TypeCallableMember(id) if !is_static => Some(id.into()),
         AnySymbolId::TraitCallableMember(id) if !is_static => Some(id.into()),
@@ -591,13 +591,22 @@ mod tests {
 
         assert_eq!(graph.roots().compiler_known().symbol_id().raw(), 0);
         assert_eq!(graph.roots().packages().len(), 1);
-        assert_eq!(graph.roots().packages()[0].symbol_id().raw(), 15);
+
+        let source_symbol_start = graph.compiler_known_provider().next_symbol_index();
+        let Some(source_symbol_start) = u32::try_from(source_symbol_start).ok() else {
+            panic!("compiler-known symbol count should fit compact symbol IDs");
+        };
+
+        assert_eq!(
+            graph.roots().packages()[0].symbol_id().raw(),
+            source_symbol_start
+        );
         assert_eq!(graph.modules().len(), 3);
 
         let package = &graph.packages()[0];
         let module = source_module(&graph);
 
-        assert_eq!(module.id().symbol_id().raw(), 16);
+        assert_eq!(module.id().symbol_id().raw(), source_symbol_start + 1);
         assert_eq!(package.modules(), [module.id()]);
         assert_eq!(module.owner(), ModuleOwnerId::from(package.id()));
         assert_eq!(module.origin(), SymbolOrigin::Source);
@@ -724,7 +733,13 @@ mod tests {
             panic!("source field relationship must resolve");
         };
 
-        let generic = &graph.generic_type_parameters()[0];
+        let Some(generic) = graph
+            .generic_type_parameters()
+            .iter()
+            .find(|parameter| parameter.origin() == SymbolOrigin::Source)
+        else {
+            panic!("source structure should retain its generic parameter");
+        };
 
         assert_eq!(field.containing_symbol(), structure.id().into());
         assert_eq!(generic.containing_symbol(), structure.id().into());
@@ -740,7 +755,13 @@ mod tests {
         assert_eq!(payload.containing_symbol(), variant.id().into());
 
         let function = source_function(&graph);
-        let parameter = &graph.callable_parameters()[0];
+        let Some(parameter) = graph
+            .callable_parameters()
+            .iter()
+            .find(|parameter| parameter.origin() == SymbolOrigin::Source)
+        else {
+            panic!("source function should retain its callable parameter");
+        };
 
         assert_eq!(parameter.containing_symbol(), function.id().into());
     }
@@ -770,6 +791,17 @@ mod tests {
         assert_eq!(function.generic_type_parameters().len(), 1);
         assert_eq!(function.generic_const_parameters().len(), 1);
         assert_eq!(function.parameters().len(), 2);
+
+        let type_parameter = graph.generic_type_parameter(function.generic_type_parameters()[0]);
+        let const_parameter = graph.generic_const_parameter(function.generic_const_parameters()[0]);
+
+        let (Some(type_parameter), Some(const_parameter)) = (type_parameter, const_parameter)
+        else {
+            panic!("generic parameter relationships must resolve to typed records");
+        };
+
+        assert_eq!(type_parameter.ordinal(), 0);
+        assert_eq!(const_parameter.ordinal(), 1);
 
         let first_parameter = graph.callable_parameter(function.parameters()[0]);
 
@@ -873,7 +905,13 @@ mod tests {
     fn recovered_runtime_defaults_keep_deterministic_provider_identities() {
         let table = declaration_table(&["module app; func make(value: Int = ) {}"]);
         let graph = build_graph(&table);
-        let parameter = &graph.callable_parameters()[0];
+        let Some(parameter) = graph
+            .callable_parameters()
+            .iter()
+            .find(|parameter| parameter.origin() == SymbolOrigin::Source)
+        else {
+            panic!("source function should retain its recovered callable parameter");
+        };
 
         assert_eq!(
             parameter.default_presence(),

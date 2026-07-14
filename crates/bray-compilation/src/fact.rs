@@ -1,9 +1,11 @@
 mod cache;
 mod cancellation;
+mod cell_map;
 mod completion;
 mod error;
 mod key;
 mod runtime;
+mod symbol;
 mod unit;
 mod unit_identity;
 
@@ -15,6 +17,8 @@ pub use key::{CompilationFactKey, SymbolFactKey};
 pub(crate) use cache::FactCell;
 #[cfg(test)]
 pub(crate) use cache::{FactCellTestEvent, FactCellTestObserver};
+pub(crate) use cell_map::FactCellMap;
 pub(crate) use runtime::FactRuntime;
+pub(crate) use symbol::SymbolFactCache;
 pub(crate) use unit::{PublishedUnitFact, UnitFactCache};
 pub(crate) use unit_identity::BoundUnitIdentityMap;

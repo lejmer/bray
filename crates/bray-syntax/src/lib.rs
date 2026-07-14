@@ -3,6 +3,7 @@
 #![forbid(unsafe_code)]
 
 mod builder;
+mod fragment;
 mod green;
 mod kind;
 mod list;
@@ -16,6 +17,7 @@ mod tree;
 mod trivia;
 mod walk;
 
+pub use fragment::{PreparsedSyntaxEvent, PreparsedSyntaxFragment, PreparsedSyntaxFragmentError};
 pub use kind::SyntaxKind;
 pub use node::{SourceSyntaxNode, SyntaxNode};
 pub use syntax::{
@@ -150,5 +152,6 @@ pub use tree::SyntaxTree;
 pub use trivia::SyntaxTrivia;
 pub use walk::{
     SyntaxCast, SyntaxNodeView, SyntaxWalkControl, SyntaxWalkEvent, SyntaxWalkRoot,
-    walk_source_unit, walk_syntax_node, walk_syntax_tree,
+    syntax_node_view, walk_direct_child_nodes, walk_source_unit, walk_syntax_node,
+    walk_syntax_tree,
 };

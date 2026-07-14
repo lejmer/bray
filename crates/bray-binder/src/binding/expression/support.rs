@@ -3,44 +3,10 @@ use bray_bound_tree::{
     BoundUnresolvedReferenceKind,
 };
 use bray_symbols::MemberLookupResult;
-use bray_syntax::{
-    SourceSyntaxNode, SyntaxKind, SyntaxNodeView, SyntaxWalkControl, SyntaxWalkEvent,
-    SyntaxWalkRoot, walk_syntax_node,
-};
+use bray_syntax::{SourceSyntaxNode, SyntaxKind};
 
 use crate::binding::name::symbol_name;
 use crate::lookup::ResolvedName;
-
-pub(super) fn visit_direct_nodes(
-    node: &impl SyntaxWalkRoot,
-    mut visitor: impl for<'syntax> FnMut(SyntaxNodeView<'syntax>) -> SyntaxWalkControl,
-) {
-    let mut stack_depth = 0_usize;
-
-    walk_syntax_node(node, |event| match event {
-        SyntaxWalkEvent::EnterNode(node) => {
-            if stack_depth == 1 {
-                stack_depth += 1;
-
-                if visitor(node) == SyntaxWalkControl::Stop {
-                    return SyntaxWalkControl::Stop;
-                }
-
-                return SyntaxWalkControl::SkipChildren;
-            }
-
-            stack_depth += 1;
-
-            SyntaxWalkControl::Continue
-        }
-        SyntaxWalkEvent::ExitNode(_) => {
-            stack_depth = stack_depth.saturating_sub(1);
-
-            SyntaxWalkControl::Continue
-        }
-        SyntaxWalkEvent::Token(_) => SyntaxWalkControl::Continue,
-    });
-}
 
 pub(super) fn classify_operator(kind: SyntaxKind) -> Option<BoundOperator> {
     Some(match kind {

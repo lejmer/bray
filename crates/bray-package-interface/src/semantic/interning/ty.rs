@@ -2,12 +2,12 @@ use std::sync::Arc;
 
 use bray_symbols::{
     CallableParameterData, CallableParameterName, GenericTypeParameterSymbolId, NamedTypeSymbolId,
-    SemanticValueStore, TraitTypeMemberSymbolId, TypeData,
+    SelfTypeContext, SemanticValueStore, TraitTypeMemberSymbolId, TypeData,
 };
 
 use crate::{InterfaceSemanticFacts, InterfaceType};
 
-use super::common::{collect_ids, resolve_exact, resolve_family};
+use super::common::{collect_ids, invalid_symbol, resolve_exact, resolve_family, resolve_symbol};
 use super::{InterfaceSemanticInternError, InterfaceSymbolResolver, InternState};
 
 impl InternState {
@@ -57,6 +57,14 @@ impl InternState {
                 >(
                     symbols, parameter
                 )?))
+            }
+            InterfaceType::ContextualSelf(context) => {
+                let symbol = resolve_symbol(symbols, context)?;
+                let Some(context) = SelfTypeContext::try_new(symbol) else {
+                    return Err(invalid_symbol(context));
+                };
+
+                Some(TypeData::ContextualSelf(context))
             }
             InterfaceType::AssociatedTypeProjection {
                 application,

@@ -18,7 +18,7 @@ pub(super) fn validate_type_data(
     data: &TypeData,
 ) -> Result<(), SemanticValueStoreError> {
     match data {
-        TypeData::Error | TypeData::TypeParameter(_) => {}
+        TypeData::Error | TypeData::TypeParameter(_) | TypeData::ContextualSelf(_) => {}
         TypeData::Named { substitution, .. } => {
             tables.substitutions.get(store, *substitution)?;
         }
@@ -287,6 +287,7 @@ pub(super) fn validate_concrete_substitution(
                 match data {
                     TypeData::Error
                     | TypeData::TypeParameter(_)
+                    | TypeData::ContextualSelf(_)
                     | TypeData::AssociatedTypeProjection { .. } => {
                         return Err(SemanticValueStoreError::OpenSubstitution);
                     }

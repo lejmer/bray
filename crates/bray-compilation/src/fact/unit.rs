@@ -1,11 +1,10 @@
-use std::collections::BTreeMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use bray_binder::BinderDependency;
 use bray_bound_tree::BoundUnitKey;
 use bray_diagnostics::DiagnosticResult;
 
-use super::{CancellationToken, CompilationFactKey, FactCell, FactQueryError, FactRuntime};
+use super::{CancellationToken, CompilationFactKey, FactCellMap, FactQueryError, FactRuntime};
 
 #[cfg(test)]
 use super::FactCellTestObserver;
@@ -44,15 +43,13 @@ impl<T> PublishedUnitFact<T> {
 
 #[derive(Debug)]
 pub(crate) struct UnitFactCache<T> {
-    cells: Mutex<UnitCells<T>>,
+    cells: FactCellMap<BoundUnitKey, Arc<PublishedUnitFact<T>>>,
 }
-
-type UnitCells<T> = BTreeMap<BoundUnitKey, Arc<FactCell<Arc<PublishedUnitFact<T>>>>>;
 
 impl<T> UnitFactCache<T> {
     pub(crate) const fn new() -> Self {
         Self {
-            cells: Mutex::new(BTreeMap::new()),
+            cells: FactCellMap::new(),
         }
     }
 
@@ -68,7 +65,8 @@ impl<T> UnitFactCache<T> {
             return Err(FactQueryError::InfrastructureFailure);
         }
 
-        let cell = self.cell(&unit_key)?;
+        // The map owns the immutable unit identity independently of the caller's request.
+        let cell = self.cells.cell(unit_key.clone())?;
 
         let published = cell.get_or_compute(runtime, fact_key, cancellation, || {
             let (result, dependencies) = compute()?;
@@ -83,31 +81,9 @@ impl<T> UnitFactCache<T> {
         Ok(Arc::clone(published))
     }
 
-    fn cell(
-        &self,
-        key: &BoundUnitKey,
-    ) -> Result<Arc<FactCell<Arc<PublishedUnitFact<T>>>>, FactQueryError> {
-        let mut cells = self
-            .cells
-            .lock()
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
-
-        // The map owns one shared synchronization cell per exact immutable unit identity.
-        Ok(Arc::clone(
-            cells
-                .entry(key.clone())
-                .or_insert_with(|| Arc::new(FactCell::new())),
-        ))
-    }
-
     #[cfg(test)]
     pub(crate) fn is_published(&self, key: &BoundUnitKey) -> Result<bool, FactQueryError> {
-        let cells = self
-            .cells
-            .lock()
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
-
-        Ok(cells.get(key).is_some_and(|cell| cell.get().is_some()))
+        self.cells.is_published(key)
     }
 
     #[cfg(test)]
@@ -116,7 +92,8 @@ impl<T> UnitFactCache<T> {
         key: &BoundUnitKey,
         observer: FactCellTestObserver,
     ) -> Result<(), FactQueryError> {
-        self.cell(key)?.set_test_observer(observer)
+        // Test observers attach to the same exact cell used by production publication.
+        self.cells.cell(key.clone())?.set_test_observer(observer)
     }
 }
 

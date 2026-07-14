@@ -312,12 +312,14 @@ impl ExpressionBinder {
         scope: LocalScopeId,
         access: NameAccess,
     ) -> PathBindingContext {
-        PathBindingContext::new(
-            scope,
-            self.path_context.module(),
-            self.path_context.module_owner(),
-            access,
-        )
+        match self.path_context.module() {
+            Some(module) => {
+                PathBindingContext::new(scope, module, self.path_context.module_owner(), access)
+            }
+            None => {
+                PathBindingContext::without_module(scope, self.path_context.module_owner(), access)
+            }
+        }
     }
 
     pub(in crate::binding::expression) fn push<C>(

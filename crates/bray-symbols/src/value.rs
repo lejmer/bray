@@ -34,5 +34,5 @@ pub use substitution::{
 pub use ty::{
     BorrowKind, CallableAbi, CallableConstness, CallableExecution, CallableParameterData,
     CallableParameterMode, CallableParameterName, CallablePosition, CallableTrust,
-    CallableTypeData, TypeData,
+    CallableTypeData, SelfTypeContext, TypeData,
 };

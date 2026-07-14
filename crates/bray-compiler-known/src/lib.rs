@@ -14,7 +14,8 @@ pub use availability::AvailabilityRule;
 pub use catalog::generator_input_inventory;
 pub use catalog::{
     CATALOG_SOURCE_DIGEST, COMPILER_KNOWN_CATALOG, CatalogDeclarationKind,
-    CatalogDeclarationSurface, CatalogDeclarationSurfaceSyntax, CatalogPath, CatalogScopeLocation,
+    CatalogDeclarationSignature, CatalogDeclarationSurface, CatalogDeclarationSurfaceSyntax,
+    CatalogGenericParameter, CatalogGenericParameterKind, CatalogPath, CatalogScopeLocation,
     CatalogSourceAnchor, CatalogSourceId, CatalogSurfaceContext, CatalogSurfaceElement,
     CatalogSurfaceToken, CatalogTokenSpelling, CatalogTypeSurface, CatalogTypeSurfaceSyntax,
     CompilerKnownCatalog, CompilerKnownCatalogRoleRegistry, CompilerKnownDeclarationDescriptor,

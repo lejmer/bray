@@ -9,13 +9,13 @@ use super::category::ResolvedName;
 use crate::{BinderFactContext, binder::Binder};
 
 #[derive(Debug, Eq, PartialEq)]
-pub(super) struct NameReference {
+pub(crate) struct NameReference {
     text: String,
     span: SourceSpan,
 }
 
 impl NameReference {
-    pub(super) fn new(
+    pub(crate) fn new(
         text: impl Into<String>,
         source: bray_source::SourceId,
         range: TextRange,
@@ -26,11 +26,11 @@ impl NameReference {
         }
     }
 
-    pub(super) fn text(&self) -> &str {
+    pub(crate) fn text(&self) -> &str {
         &self.text
     }
 
-    pub(super) const fn span(&self) -> SourceSpan {
+    pub(crate) const fn span(&self) -> SourceSpan {
         self.span
     }
 }
@@ -43,13 +43,23 @@ pub(super) fn report_lookup_result<C, T>(
 ) where
     C: BinderFactContext + ?Sized,
 {
+    if let Some(diagnostic) = lookup_diagnostic(reference, expected, result) {
+        binder.add_diagnostic(diagnostic);
+    }
+}
+
+pub(crate) fn lookup_diagnostic<T>(
+    reference: &NameReference,
+    expected: DiagnosticNameKind,
+    result: &NameLookupResult<T>,
+) -> Option<Diagnostic> {
     let kind = match result {
-        MemberLookupResult::Found(_) => return,
+        MemberLookupResult::Found(_) => return None,
         MemberLookupResult::NotFound => DiagnosticKind::BindingUnresolvedName,
         MemberLookupResult::WrongKind(_) => DiagnosticKind::BindingWrongNameKind,
         MemberLookupResult::Ambiguous(_) => DiagnosticKind::BindingAmbiguousName,
         MemberLookupResult::Inaccessible(_) => DiagnosticKind::BindingInaccessibleName,
-        MemberLookupResult::Malformed(candidates) if candidates.is_empty() => return,
+        MemberLookupResult::Malformed(candidates) if candidates.is_empty() => return None,
         MemberLookupResult::Malformed(_) => DiagnosticKind::BindingMalformedName,
     };
 
@@ -65,7 +75,7 @@ pub(super) fn report_lookup_result<C, T>(
         diagnostic = diagnostic.with_arg(DiagnosticArg::expected_name_kind(expected));
     }
 
-    binder.add_diagnostic(diagnostic);
+    Some(diagnostic)
 }
 
 pub(super) fn malformed_lookup<T>() -> NameLookupResult<T> {

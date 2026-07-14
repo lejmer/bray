@@ -29,7 +29,7 @@ pub(crate) enum NameAccess {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct PathBindingContext {
     scope: bray_symbols::LocalScopeId,
-    module: ModuleSymbolId,
+    module: Option<ModuleSymbolId>,
     module_owner: ModuleOwnerId,
     access: NameAccess,
 }
@@ -43,7 +43,20 @@ impl PathBindingContext {
     ) -> Self {
         Self {
             scope,
-            module,
+            module: Some(module),
+            module_owner,
+            access,
+        }
+    }
+
+    pub(crate) const fn without_module(
+        scope: bray_symbols::LocalScopeId,
+        module_owner: ModuleOwnerId,
+        access: NameAccess,
+    ) -> Self {
+        Self {
+            scope,
+            module: None,
             module_owner,
             access,
         }
@@ -53,7 +66,7 @@ impl PathBindingContext {
         self.scope
     }
 
-    pub(crate) const fn module(self) -> ModuleSymbolId {
+    pub(crate) const fn module(self) -> Option<ModuleSymbolId> {
         self.module
     }
 
@@ -229,6 +242,22 @@ where
         path: &PathSyntax,
     ) -> NameLookupResult<ResolvedValueName> {
         self.bind_classified_path(context, path, DiagnosticNameKind::Value, classify_value)
+    }
+
+    pub(crate) fn bind_surface_path(
+        &mut self,
+        context: PathBindingContext,
+        path: &PathSyntax,
+    ) -> NameLookupResult<AnySymbolId> {
+        self.bind_classified_path(
+            context,
+            path,
+            DiagnosticNameKind::Symbol,
+            |name| match name {
+                ResolvedName::Surface(symbol) => Some(symbol),
+                ResolvedName::Local(_) => None,
+            },
+        )
     }
 
     pub(crate) fn bind_reference_identifier(

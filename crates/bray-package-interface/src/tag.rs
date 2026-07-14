@@ -67,6 +67,9 @@ wire_tags!(SynthesizedSymbolRole {
     4 => SynthesizedSymbolRole::CallableParameterDefaultProvider,
     5 => SynthesizedSymbolRole::StructFieldDefaultProvider,
     6 => SynthesizedSymbolRole::UnionPayloadDefaultProvider,
+    7 => SynthesizedSymbolRole::DeclaredGenericTypeParameter,
+    8 => SynthesizedSymbolRole::DeclaredGenericConstParameter,
+    9 => SynthesizedSymbolRole::CallableParameter,
 });
 
 wire_tags!(SymbolKind {

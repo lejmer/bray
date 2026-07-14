@@ -835,6 +835,10 @@ An implementation exposes:
 - its coherence-key or coherence-key-set fact,
 - its optional implementation-overload-family membership.
 
+The implementation-coherence fact publishes a typed key containing the checked subject type and the optional checked trait
+application. It must force those prerequisite facts and must not report success after merely requesting them. Candidate aggregation
+and conflict diagnostics consume this key through checker-owned coherence queries.
+
 An inherent implementation has no implemented trait application.
 
 A named trait implementation has a source-level implementation name. An unnamed implementation remains a symbol but is not
@@ -1047,11 +1051,13 @@ Examples:
 - generic constraints,
 - callable signature,
 - callable contracts,
+- callable-contract declared type,
 - constant declared type,
 - constant definition template,
 - constant instance value,
 - callable parameter default,
 - struct field type and default,
+- implementation type-member value,
 - union payload field type and default,
 - predicate definition,
 - union variant payload,

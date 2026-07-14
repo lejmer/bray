@@ -3,18 +3,19 @@ use std::marker::PhantomData;
 use bray_diagnostics::DiagnosticResult;
 
 use crate::{
-    AnySymbolId, CallableParameterSymbolId, CallableSymbolId, ConstantSymbolId, GenericOwnerId,
-    ImplementationSymbolId, PredicateSymbolId, StructFieldSymbolId,
-    TraitConstantFulfillmentSymbolId, TraitConstantMemberSymbolId,
-    TraitPredicateFulfillmentSymbolId, TraitPredicateMemberSymbolId, TypeId,
-    UnionPayloadFieldSymbolId,
+    AnySymbolId, CallableContractSymbolId, CallableParameterSymbolId, CallableSymbolId,
+    ConstantSymbolId, GenericOwnerId, ImplementationSymbolId, InherentTypeMemberSymbolId,
+    PredicateSymbolId, StructFieldSymbolId, TraitConstantFulfillmentSymbolId,
+    TraitConstantMemberSymbolId, TraitPredicateFulfillmentSymbolId, TraitPredicateMemberSymbolId,
+    TraitTypeFulfillmentSymbolId, TypeId, UnionPayloadFieldSymbolId,
 };
 
 use super::{
     CallableContractSet, CallableSignature, CheckedCallableParameterDefault,
     CheckedStructFieldDefault, CheckedUnionPayloadDefault, ConstantDefinitionState,
-    ConstantInstanceKey, GenericConstraintSet, ImplementationSelection, ImplementationSelectionKey,
-    ImplementationSubject, PredicateDefinition, PredicateDefinitionState, SymbolFactKind,
+    ConstantInstanceKey, GenericConstraintSet, ImplementationCoherenceKey, ImplementationSelection,
+    ImplementationSelectionKey, ImplementationSubject, PredicateDefinition,
+    PredicateDefinitionState, SymbolFactKind,
 };
 
 mod sealed {
@@ -27,7 +28,7 @@ mod sealed {
 /// sealed contract keeps the owner, value, and erased fact category coupled at compile time.
 pub trait SymbolFactContract: sealed::Sealed + Copy + Send + Sync + 'static {
     /// The exact symbol family that can own this fact.
-    type Owner: Copy + Send + Sync + 'static;
+    type Owner: Copy + Ord + Send + Sync + 'static;
     /// The immutable semantic value published by the fact.
     type Value: Send + Sync + 'static;
 
@@ -142,6 +143,13 @@ define_symbol_fact_contract! {
         kind: CallableContracts,
         erase: |owner: CallableSymbolId| owner.into_any(),
     }
+    /// The checked callable type named by one callable-contract declaration.
+    CallableContractTypeFact {
+        owner: CallableContractSymbolId,
+        value: TypeId,
+        kind: CallableContractType,
+        erase: |owner: CallableContractSymbolId| owner.into(),
+    }
     /// The declared type of one compile-time constant definition.
     ConstantDeclaredTypeFact {
         owner: ConstantSymbolId,
@@ -198,6 +206,20 @@ define_symbol_fact_contract! {
         kind: StructFieldType,
         erase: |owner: StructFieldSymbolId| owner.into(),
     }
+    /// The checked type value supplied by one inherent implementation member.
+    InherentTypeMemberValueFact {
+        owner: InherentTypeMemberSymbolId,
+        value: TypeId,
+        kind: TypeMemberValue,
+        erase: |owner: InherentTypeMemberSymbolId| owner.into(),
+    }
+    /// The checked type value supplied by one trait implementation fulfillment.
+    TraitTypeFulfillmentValueFact {
+        owner: TraitTypeFulfillmentSymbolId,
+        value: TypeId,
+        kind: TypeMemberValue,
+        erase: |owner: TraitTypeFulfillmentSymbolId| owner.into(),
+    }
     /// The checked runtime default of one struct field.
     StructFieldDefaultFact {
         owner: StructFieldSymbolId,
@@ -252,6 +274,13 @@ define_symbol_fact_contract! {
         owner: ImplementationSymbolId,
         value: Option<crate::TraitApplicationId>,
         kind: ImplementedTraitApplication,
+        erase: |owner: ImplementationSymbolId| owner.into_any(),
+    }
+    /// The checked coherence key of one implementation declaration.
+    ImplementationCoherenceFact {
+        owner: ImplementationSymbolId,
+        value: ImplementationCoherenceKey,
+        kind: ImplementationCoherence,
         erase: |owner: ImplementationSymbolId| owner.into_any(),
     }
 }

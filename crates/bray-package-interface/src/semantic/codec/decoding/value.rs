@@ -157,6 +157,9 @@ pub(super) fn decode_type(
             target: InterfaceTypeId::new(read_u32(reader)?),
         }),
         11 => decode_callable_type(reader, limits),
+        12 => Ok(InterfaceType::ContextualSelf(read_symbol_reference(
+            reader, context,
+        )?)),
         _ => Err(InterfaceValidationError::Malformed),
     }
 }
@@ -361,8 +364,9 @@ pub(super) fn decode_constant_projection(
 mod tests {
     use bray_symbols::{
         AnySymbolId, CallableAbi, ConstantSymbolId, ExternalSymbolKey, FunctionSymbolId,
-        InherentImplementationSymbolId, PackageIdentity, SemanticValueStore, StructSymbolId,
-        SymbolId, SymbolKind, SymbolName, TraitSymbolId,
+        InherentImplementationSymbolId, NamedTypeSymbolId, PackageIdentity, SelfTypeContext,
+        SemanticValueStore, StructSymbolId, SymbolId, SymbolKind, SymbolName, TraitSymbolId,
+        TypeData,
     };
 
     use super::super::decode_semantic_facts;
@@ -424,12 +428,24 @@ mod tests {
             .intern(&store, &resolver)
             .unwrap_or_else(|error| panic!("semantic interning failed: {error:?}"));
 
-        assert_eq!(imported.types().len(), 1);
+        assert_eq!(imported.types().len(), 2);
         assert_eq!(imported.constant_values().len(), 1);
         assert_eq!(imported.constant_terms().len(), 1);
         assert_eq!(imported.dependency_contracts().len(), 1);
         assert_eq!(imported.constraints().len(), 1);
         assert_eq!(imported.callable_contracts().len(), 1);
+
+        let contextual = match store.type_data(imported.types()[1]) {
+            Ok(contextual) => contextual,
+            Err(error) => panic!("contextual Self type must be interned: {error:?}"),
+        };
+
+        assert_eq!(
+            contextual.as_ref(),
+            &TypeData::ContextualSelf(SelfTypeContext::NamedType(NamedTypeSymbolId::Struct(
+                StructSymbolId::from_symbol_id(SymbolId::new(0))
+            )))
+        );
     }
 
     #[test]
@@ -656,10 +672,13 @@ mod tests {
             )
             .with_values(
                 [InterfaceDependencyContract::new([])],
-                [InterfaceType::Named {
-                    definition: struct_reference.clone(),
-                    substitution: InterfaceGenericSubstitutionId::new(0),
-                }],
+                [
+                    InterfaceType::Named {
+                        definition: struct_reference.clone(),
+                        substitution: InterfaceGenericSubstitutionId::new(0),
+                    },
+                    InterfaceType::ContextualSelf(struct_reference.clone()),
+                ],
                 [InterfaceConstantValue::new(
                     InterfaceTypeId::new(0),
                     InterfaceConstantValueKind::Boolean(true),

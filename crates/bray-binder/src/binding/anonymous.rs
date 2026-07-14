@@ -190,7 +190,7 @@ mod tests {
             binder.unit(),
             facts.symbols(),
             boundary.scope(),
-            module.id(),
+            Some(module.id()),
             "captured",
             crate::lookup::NameAccess::Internal,
         );
@@ -201,7 +201,7 @@ mod tests {
             binder.unit(),
             facts.symbols(),
             boundary.scope(),
-            module.id(),
+            Some(module.id()),
             "value",
             crate::lookup::NameAccess::Internal,
         );

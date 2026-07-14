@@ -15,15 +15,17 @@ pub use constant::{
     ConstantDefinition, ConstantDefinitionState, ConstantInstanceKey, ErrorConstantDefinition,
 };
 pub use contract::{
-    CallableContractsFact, CallableParameterDefaultFact, CallableSignatureFact,
-    ConstantDeclaredTypeFact, ConstantDefinitionFact, ConstantInstanceValueFact,
-    GenericConstraintsFact, ImplementationSelectionFact, ImplementationSubjectFact,
-    ImplementedTraitApplicationFact, PredicateDefinitionFact, SemanticFactContract,
-    SemanticFactResult, StructFieldDefaultFact, StructFieldTypeFact, SymbolFactContract,
-    SymbolFactRequest, SymbolFactResult, TraitConstantFulfillmentDeclaredTypeFact,
+    CallableContractTypeFact, CallableContractsFact, CallableParameterDefaultFact,
+    CallableSignatureFact, ConstantDeclaredTypeFact, ConstantDefinitionFact,
+    ConstantInstanceValueFact, GenericConstraintsFact, ImplementationCoherenceFact,
+    ImplementationSelectionFact, ImplementationSubjectFact, ImplementedTraitApplicationFact,
+    InherentTypeMemberValueFact, PredicateDefinitionFact, SemanticFactContract, SemanticFactResult,
+    StructFieldDefaultFact, StructFieldTypeFact, SymbolFactContract, SymbolFactRequest,
+    SymbolFactResult, TraitConstantFulfillmentDeclaredTypeFact,
     TraitConstantFulfillmentDefinitionFact, TraitConstantMemberDeclaredTypeFact,
     TraitConstantMemberDefinitionFact, TraitPredicateFulfillmentDefinitionFact,
-    TraitPredicateMemberDefinitionFact, UnionPayloadFieldDefaultFact, UnionPayloadFieldTypeFact,
+    TraitPredicateMemberDefinitionFact, TraitTypeFulfillmentValueFact,
+    UnionPayloadFieldDefaultFact, UnionPayloadFieldTypeFact,
 };
 pub use default::{
     CallableParameterDefaultSurface, CallableParameterDefaultValue,
@@ -37,7 +39,8 @@ pub use default::{
 };
 pub use implementation::{
     ImplementationAmbiguity, ImplementationAmbiguityError, ImplementationCandidate,
-    ImplementationSelection, ImplementationSelectionKey, ImplementationSubject,
+    ImplementationCoherenceKey, ImplementationSelection, ImplementationSelectionKey,
+    ImplementationSubject,
 };
 pub use predicate::{
     CallableContractClause, CallableContractClauseKind, CallableContractSet, CheckedConstraint,

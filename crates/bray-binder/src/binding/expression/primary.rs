@@ -8,14 +8,12 @@ use bray_syntax::{
     AccessExpressionSyntax, ForExpressionSyntax, GeneralGeneratorExpressionSyntax,
     LambdaExpressionSyntax, LeadingDotVariantExpressionSyntax, MatchExpressionSyntax,
     PrimaryExpressionSyntax, SourceSyntaxNode, SpawnExpressionSyntax, SyntaxKind, SyntaxNodeView,
-    SyntaxWalkControl,
+    SyntaxWalkControl, walk_direct_child_nodes,
 };
 
 use super::super::{BindingError, BindingResult};
 use super::ExpressionBinder;
-use super::support::{
-    ReferenceResolution, classify_reference_result, structured_kind, visit_direct_nodes,
-};
+use super::support::{ReferenceResolution, classify_reference_result, structured_kind};
 use crate::BinderFactContext;
 use crate::binder::Binder;
 use crate::lookup::NameAccess;
@@ -60,7 +58,7 @@ impl ExpressionBinder {
 
         let mut result = None;
 
-        visit_direct_nodes(syntax, |root| {
+        walk_direct_child_nodes(syntax, |root| {
             result = Some(self.bind_primary_node(binder, scope, root, syntax));
 
             SyntaxWalkControl::Stop
@@ -237,7 +235,7 @@ impl ExpressionBinder {
 
         let mut failure = None;
 
-        visit_direct_nodes(syntax, |operation| {
+        walk_direct_child_nodes(syntax, |operation| {
             let result = match operation.kind() {
                 SyntaxKind::MemberAccessOperation => {
                     let Some(member) = operation.cast::<bray_syntax::MemberAccessOperationSyntax>()
