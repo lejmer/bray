@@ -8,6 +8,10 @@ use crate::limits::{InterfaceLimit, InterfaceValidationLimits, InterfaceValidati
 use crate::section::{DirectoryEntry, InterfaceSectionTag, ValidatedInterfaceSection};
 use crate::wire::WireDecodeError;
 
+pub(crate) fn is_strictly_sorted<T: Ord>(values: &[T]) -> bool {
+    values.windows(2).all(|pair| pair[0] < pair[1])
+}
+
 /// Immutable package-interface bytes with an eagerly validated structural envelope.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ValidatedPackageInterface {
@@ -394,9 +398,9 @@ mod tests {
         assert_mutation_error(
             &bytes,
             8,
-            2,
+            3,
             InterfaceValidationError::UnsupportedFormatRevision {
-                actual: crate::InterfaceFormatRevision::new(2),
+                actual: crate::InterfaceFormatRevision::new(3),
             },
         );
         assert_mutation_error(
@@ -703,7 +707,7 @@ mod tests {
 
         assert_eq!(
             DiagnosticRenderer::english().render(&revision).message(),
-            "unsupported package-interface format revision 9; expected 1"
+            "unsupported package-interface format revision 9; expected 2"
         );
     }
 

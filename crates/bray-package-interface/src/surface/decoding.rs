@@ -10,6 +10,7 @@ use super::{
 };
 use crate::decode::{DecodeBudget, map_wire_error, read_optional_u32, read_u32};
 use crate::tag::WireTag;
+use crate::validation::is_strictly_sorted;
 use crate::wire::WireReader;
 use crate::{
     InterfaceContentHash, InterfaceLimit, InterfaceSectionTag, InterfaceValidationError,
@@ -257,10 +258,6 @@ fn decode_exports(
     reader.finish().map_err(map_wire_error)?;
 
     Ok(exports)
-}
-
-fn is_strictly_sorted<T: Ord>(values: &[T]) -> bool {
-    values.windows(2).all(|pair| pair[0] < pair[1])
 }
 
 pub(super) fn read_string<'a>(

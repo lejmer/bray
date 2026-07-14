@@ -49,7 +49,7 @@ pub(super) fn read_symbol_reference(
     }
 }
 
-fn write_external_key(encoder: &mut WireEncoder, key: &ExternalSymbolKey) {
+pub(super) fn write_external_key(encoder: &mut WireEncoder, key: &ExternalSymbolKey) {
     let mut components = Vec::new();
     let mut current = Some(key);
 
@@ -106,7 +106,7 @@ fn write_external_key(encoder: &mut WireEncoder, key: &ExternalSymbolKey) {
     }
 }
 
-fn read_external_key(
+pub(super) fn read_external_key(
     reader: &mut WireReader<'_>,
     context: &mut SemanticDecodeContext,
 ) -> Result<ExternalSymbolKey, InterfaceValidationError> {

@@ -2,6 +2,7 @@ use crate::semantic::codec::common::{
     SemanticDecodeContext, map_wire_error, read_symbol_reference, read_u32,
 };
 use crate::tag::WireTag;
+use crate::validation::is_strictly_sorted;
 use crate::wire::WireReader;
 use crate::{
     InterfaceLimit, InterfaceSectionTag, InterfaceSemanticFactEntry, InterfaceSemanticFactKind,
@@ -40,7 +41,7 @@ pub(super) fn decode_fact_directory(
 
     reader.finish().map_err(map_wire_error)?;
 
-    if !entries.windows(2).all(|pair| pair[0] < pair[1]) {
+    if !is_strictly_sorted(&entries) {
         return Err(InterfaceValidationError::Malformed);
     }
 

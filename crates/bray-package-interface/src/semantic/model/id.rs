@@ -33,4 +33,5 @@ define_interface_value_ids! {
     InterfaceCallableInstanceId,
     InterfaceImplementationInstanceId,
     InterfaceDependencyContractId,
+    InterfaceCheckedTemplateId,
 }

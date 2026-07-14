@@ -1,3 +1,4 @@
+use crate::validation::is_strictly_sorted;
 use crate::{
     InterfaceLimit, InterfaceSemanticFacts, InterfaceSymbolReference, InterfaceValidationError,
     InterfaceValidationLimits,
@@ -24,7 +25,7 @@ impl InterfaceSemanticFacts {
                 .implementations
                 .windows(2)
                 .all(|pair| pair[0].implementation < pair[1].implementation)
-            || !self.coherence.windows(2).all(|pair| pair[0] < pair[1])
+            || !is_strictly_sorted(&self.coherence)
             || !self
                 .target_dependencies
                 .windows(2)
@@ -33,7 +34,7 @@ impl InterfaceSemanticFacts {
                 .abi_dependencies
                 .windows(2)
                 .all(|pair| pair[0].symbol < pair[1].symbol)
-            || !self.provenance.windows(2).all(|pair| pair[0] < pair[1])
+            || !is_strictly_sorted(&self.provenance)
         {
             return Err(InterfaceValidationError::Malformed);
         }
@@ -155,9 +156,5 @@ pub(super) fn validate_index(
     index: Option<usize>,
     length: usize,
 ) -> Result<(), InterfaceValidationError> {
-    if index.is_none_or(|index| index >= length) {
-        return Err(InterfaceValidationError::Malformed);
-    }
-
-    Ok(())
+    super::checked_index(index, length).map(|_| ())
 }

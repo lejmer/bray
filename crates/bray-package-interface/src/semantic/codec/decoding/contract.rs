@@ -13,7 +13,7 @@ use crate::wire::WireReader;
 use crate::{
     InterfaceLimit, InterfaceValidationError, InterfaceValidationLimits, ValidatedInterfaceSection,
 };
-use bray_symbols::{LifecycleObligationKind, SymbolOrdinal};
+use bray_symbols::SymbolOrdinal;
 
 pub(super) fn decode_contracts(
     section: ValidatedInterfaceSection<'_>,
@@ -211,13 +211,7 @@ pub(super) fn decode_dependency_requirement_kind(
         )),
         5 => Ok(InterfaceDependencyRequirementKind::ScopedCapabilityLive),
         6 => Ok(InterfaceDependencyRequirementKind::LifecycleObligation(
-            match read_u32(reader)? {
-                1 => LifecycleObligationKind::Destruction,
-                2 => LifecycleObligationKind::Finalization,
-                3 => LifecycleObligationKind::Cancellation,
-                4 => LifecycleObligationKind::Joining,
-                _ => return Err(InterfaceValidationError::Malformed),
-            },
+            decode_tag(read_u32(reader)?)?,
         )),
         _ => Err(InterfaceValidationError::Malformed),
     }

@@ -219,6 +219,7 @@ name = "bray-package-interface"
 version = "0.0.0"
 dependencies = [
  "blake3",
+ "bray-bound-tree",
  "bray-diagnostics",
  "bray-messages",
  "bray-symbols",

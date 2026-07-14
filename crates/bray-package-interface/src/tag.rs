@@ -1,7 +1,8 @@
+use bray_bound_tree::{CheckedTemplateKind, CheckedTemplateShortCircuitKind};
 use bray_symbols::{
     BorrowKind, CallableAbi, CallableConstness, CallableContractClauseKind, CallableExecution,
     CallableParameterMode, CallablePosition, CallableTrust, ConstantBinaryOperation,
-    ConstantUnaryOperation, SymbolKind, SynthesizedSymbolRole,
+    ConstantUnaryOperation, LifecycleObligationKind, SymbolKind, SynthesizedSymbolRole,
 };
 
 use super::{
@@ -203,11 +204,33 @@ wire_tags!(InterfaceSemanticFactKind {
     3 => InterfaceSemanticFactKind::Implementation,
     4 => InterfaceSemanticFactKind::TargetFact,
     5 => InterfaceSemanticFactKind::Abi,
+    6 => InterfaceSemanticFactKind::DeclarationTemplate,
+});
+
+wire_tags!(CheckedTemplateKind {
+    1 => CheckedTemplateKind::RuntimeDefault,
+    2 => CheckedTemplateKind::ConstantDefinition,
+    3 => CheckedTemplateKind::PredicateDefinition,
+    4 => CheckedTemplateKind::GenericConstraint,
+    5 => CheckedTemplateKind::CallableContract,
+});
+
+wire_tags!(CheckedTemplateShortCircuitKind {
+    1 => CheckedTemplateShortCircuitKind::And,
+    2 => CheckedTemplateShortCircuitKind::Or,
+});
+
+wire_tags!(LifecycleObligationKind {
+    1 => LifecycleObligationKind::Destruction,
+    2 => LifecycleObligationKind::Finalization,
+    3 => LifecycleObligationKind::Cancellation,
+    4 => LifecycleObligationKind::Joining,
 });
 
 #[cfg(test)]
 mod tests {
-    use bray_symbols::SymbolKind;
+    use bray_bound_tree::{CheckedTemplateKind, CheckedTemplateShortCircuitKind};
+    use bray_symbols::{LifecycleObligationKind, SymbolKind};
 
     use super::WireTag;
     use crate::SymbolRelationshipKind;
@@ -238,5 +261,57 @@ mod tests {
 
         assert_eq!(SymbolRelationshipKind::from_wire(0), None);
         assert_eq!(SymbolRelationshipKind::from_wire(15), None);
+    }
+
+    #[test]
+    fn checked_template_tags_are_exact_and_closed() {
+        let kinds = [
+            CheckedTemplateKind::RuntimeDefault,
+            CheckedTemplateKind::ConstantDefinition,
+            CheckedTemplateKind::PredicateDefinition,
+            CheckedTemplateKind::GenericConstraint,
+            CheckedTemplateKind::CallableContract,
+        ];
+
+        for (index, kind) in kinds.into_iter().enumerate() {
+            let wire = index_u32(index + 1);
+
+            assert_eq!(CheckedTemplateKind::from_wire(wire), Some(kind));
+            assert_eq!(kind.to_wire(), wire);
+        }
+
+        assert_eq!(CheckedTemplateKind::from_wire(0), None);
+        assert_eq!(CheckedTemplateKind::from_wire(6), None);
+
+        assert_eq!(CheckedTemplateShortCircuitKind::And.to_wire(), 1);
+        assert_eq!(CheckedTemplateShortCircuitKind::Or.to_wire(), 2);
+        assert_eq!(CheckedTemplateShortCircuitKind::from_wire(3), None);
+    }
+
+    #[test]
+    fn lifecycle_obligation_tags_are_shared_by_contracts_and_templates() {
+        let obligations = [
+            LifecycleObligationKind::Destruction,
+            LifecycleObligationKind::Finalization,
+            LifecycleObligationKind::Cancellation,
+            LifecycleObligationKind::Joining,
+        ];
+
+        for (index, obligation) in obligations.into_iter().enumerate() {
+            let wire = index_u32(index + 1);
+
+            assert_eq!(LifecycleObligationKind::from_wire(wire), Some(obligation));
+            assert_eq!(obligation.to_wire(), wire);
+        }
+
+        assert_eq!(LifecycleObligationKind::from_wire(0), None);
+        assert_eq!(LifecycleObligationKind::from_wire(5), None);
+    }
+
+    fn index_u32(index: usize) -> u32 {
+        match u32::try_from(index) {
+            Ok(index) => index,
+            Err(_) => panic!("small test index must fit in u32"),
+        }
     }
 }

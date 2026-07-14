@@ -2,11 +2,12 @@ use std::sync::Arc;
 
 use super::{
     InterfaceAbiDependency, InterfaceCallableContract, InterfaceCallableInstance,
-    InterfaceCoherenceRecord, InterfaceConstantTerm, InterfaceConstantValue, InterfaceConstraint,
+    InterfaceCheckedTemplate, InterfaceCoherenceRecord, InterfaceConstantTerm,
+    InterfaceConstantValue, InterfaceConstraint, InterfaceDeclarationTemplate,
     InterfaceDependencyContract, InterfaceGenericSubstitution, InterfaceImplementationInstance,
     InterfaceImplementationRecord, InterfaceSemanticFactEntry, InterfaceSemanticFactKind,
-    InterfaceSourceProvenance, InterfaceTargetFactDependency, InterfaceTraitApplication,
-    InterfaceType,
+    InterfaceSourceProvenance, InterfaceSupportEntity, InterfaceTargetFactDependency,
+    InterfaceTraitApplication, InterfaceType,
 };
 
 /// Complete immutable semantic fact tables ready for package-interface encoding.
@@ -22,6 +23,9 @@ pub struct InterfaceSemanticFacts {
     pub(crate) constant_terms: Arc<[InterfaceConstantTerm]>,
     pub(crate) constraints: Arc<[InterfaceConstraint]>,
     pub(crate) callable_contracts: Arc<[InterfaceCallableContract]>,
+    pub(crate) checked_templates: Arc<[InterfaceCheckedTemplate]>,
+    pub(crate) declaration_templates: Arc<[InterfaceDeclarationTemplate]>,
+    pub(crate) support_entities: Arc<[InterfaceSupportEntity]>,
     pub(crate) implementations: Arc<[InterfaceImplementationRecord]>,
     pub(crate) coherence: Arc<[InterfaceCoherenceRecord]>,
     pub(crate) target_dependencies: Arc<[InterfaceTargetFactDependency]>,
@@ -75,6 +79,20 @@ impl InterfaceSemanticFacts {
     ) -> Self {
         self.constraints = constraints.into_iter().collect();
         self.callable_contracts = callable_contracts.into_iter().collect();
+
+        self
+    }
+
+    /// Replaces checked declaration-owned templates and their private support graph.
+    pub fn with_templates(
+        mut self,
+        checked_templates: impl IntoIterator<Item = InterfaceCheckedTemplate>,
+        declaration_templates: impl IntoIterator<Item = InterfaceDeclarationTemplate>,
+        support_entities: impl IntoIterator<Item = InterfaceSupportEntity>,
+    ) -> Self {
+        self.checked_templates = checked_templates.into_iter().collect();
+        self.declaration_templates = declaration_templates.into_iter().collect();
+        self.support_entities = support_entities.into_iter().collect();
 
         self
     }
@@ -138,6 +156,21 @@ impl InterfaceSemanticFacts {
         &self.callable_contracts
     }
 
+    /// Returns source-independent checked templates in artifact-local ID order.
+    pub fn checked_templates(&self) -> &[InterfaceCheckedTemplate] {
+        &self.checked_templates
+    }
+
+    /// Returns declaration-owned template facts in canonical owner order.
+    pub fn declaration_templates(&self) -> &[InterfaceDeclarationTemplate] {
+        &self.declaration_templates
+    }
+
+    /// Returns the private support graph in deterministic dependency order.
+    pub fn support_entities(&self) -> &[InterfaceSupportEntity] {
+        &self.support_entities
+    }
+
     /// Returns public implementation records in canonical order.
     pub fn implementations(&self) -> &[InterfaceImplementationRecord] {
         &self.implementations
@@ -188,6 +221,17 @@ impl InterfaceSemanticFacts {
                 record: checked_record(index),
             });
 
+        let declaration_templates =
+            self.declaration_templates
+                .iter()
+                .enumerate()
+                .map(|(index, fact)| InterfaceSemanticFactEntry {
+                    owner: fact.owner().clone(),
+                    kind: InterfaceSemanticFactKind::DeclarationTemplate,
+                    section: crate::InterfaceSectionTag::DeclarationTemplates,
+                    record: checked_record(index),
+                });
+
         let implementations = self
             .implementations
             .iter()
@@ -223,6 +267,7 @@ impl InterfaceSemanticFacts {
 
         let mut entries: Vec<_> = constraints
             .chain(callable_contracts)
+            .chain(declaration_templates)
             .chain(implementations)
             .chain(targets)
             .chain(abis)

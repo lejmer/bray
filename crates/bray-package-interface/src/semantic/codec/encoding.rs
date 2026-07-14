@@ -1,7 +1,9 @@
 mod contract;
 mod directory;
 mod model;
+mod support;
 mod surface;
+mod template;
 mod value;
 
 pub use model::EncodedSemanticSection;
@@ -25,9 +27,11 @@ pub fn encode_semantic_facts(
         value::encode_types(facts),
         value::encode_constants(facts),
         contract::encode_contracts(facts),
+        template::encode_templates(facts),
         surface::encode_implementations(facts),
         surface::encode_target_dependencies(facts),
         surface::encode_provenance(facts),
+        support::encode_support_graph(facts),
     ])
 }
 

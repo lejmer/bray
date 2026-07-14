@@ -1,4 +1,6 @@
 mod fact;
+mod support;
+mod template;
 mod value;
 
 use crate::{
@@ -17,10 +19,11 @@ impl InterfaceSemanticFacts {
         }
 
         self.validate_value_graph(symbol_count, dependency_count, limits)?;
-        self.validate_surface_facts(symbol_count, dependency_count, limits)
+        self.validate_surface_facts(symbol_count, dependency_count, limits)?;
+        self.validate_template_facts(symbol_count, dependency_count, limits)
     }
 
-    fn table_counts(&self) -> [usize; 14] {
+    fn table_counts(&self) -> [usize; 17] {
         [
             self.substitutions.len(),
             self.trait_applications.len(),
@@ -32,6 +35,9 @@ impl InterfaceSemanticFacts {
             self.constant_terms.len(),
             self.constraints.len(),
             self.callable_contracts.len(),
+            self.checked_templates.len(),
+            self.declaration_templates.len(),
+            self.support_entities.len(),
             self.implementations.len(),
             self.coherence.len(),
             self.target_dependencies.len(),
@@ -42,4 +48,11 @@ impl InterfaceSemanticFacts {
 
 fn saturating_u64(value: usize) -> u64 {
     u64::try_from(value).unwrap_or(u64::MAX)
+}
+
+fn checked_index(index: Option<usize>, length: usize) -> Result<usize, InterfaceValidationError> {
+    match index {
+        Some(index) if index < length => Ok(index),
+        _ => Err(InterfaceValidationError::Malformed),
+    }
 }
