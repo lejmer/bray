@@ -5,5 +5,15 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
+[dependencies]
+bray-base = { path = "../bray-base" }
+bray-bound-tree = { path = "../bray-bound-tree" }
+bray-diagnostics = { path = "../bray-diagnostics" }
+bray-ir = { path = "../bray-ir" }
+bray-symbols = { path = "../bray-symbols" }
+
+[dev-dependencies]
+bray-testing = { path = "../bray-testing", features = ["bound-unit"] }
+
 [lints]
 workspace = true

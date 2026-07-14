@@ -123,6 +123,14 @@ dependencies = [
 [[package]]
 name = "bray-codegen"
 version = "0.0.0"
+dependencies = [
+ "bray-base",
+ "bray-bound-tree",
+ "bray-diagnostics",
+ "bray-ir",
+ "bray-symbols",
+ "bray-testing",
+]
 
 [[package]]
 name = "bray-compilation"

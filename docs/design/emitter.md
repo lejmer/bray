@@ -228,7 +228,7 @@ does not call instruction-level backend APIs.
 - staging, atomic publication, emitted length and digest bookkeeping,
 - publication diagnostics.
 
-The interface artifact does not pass through `CodegenBackend`, does not participate in the native link plan, and is never rebuilt by
+The interface artifact does not pass through `CodeGenerator`, does not participate in the native link plan, and is never rebuilt by
 the emitter.
 
 Final library emission publishes `.brayi` only after the complete library product check required by emission succeeds. A standalone

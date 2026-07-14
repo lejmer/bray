@@ -1,0 +1,188 @@
+use std::sync::Arc;
+
+use bray_base::{shared_str, sorted_unique_shared_slice};
+
+use super::{
+    CodeModel, RelocationModel, TargetAbi, TargetCompatibility, TargetDataLayout, TargetIdentity,
+    TargetMachineProperties, TargetSymbolConvention,
+};
+
+/// Complete target semantics that no backend may rediscover or override.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct TargetContract {
+    machine: TargetMachineProperties,
+    data_layout: TargetDataLayout,
+    abi: TargetAbi,
+    symbols: TargetSymbolConvention,
+    compatibility: TargetCompatibility,
+}
+
+impl TargetContract {
+    /// Composes independently validated machine, layout, ABI, symbol, and compatibility facts.
+    pub const fn new(
+        machine: TargetMachineProperties,
+        data_layout: TargetDataLayout,
+        abi: TargetAbi,
+        symbols: TargetSymbolConvention,
+        compatibility: TargetCompatibility,
+    ) -> Self {
+        Self {
+            machine,
+            data_layout,
+            abi,
+            symbols,
+            compatibility,
+        }
+    }
+}
+
+/// Backend-private machine selection that does not change language-visible target semantics.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct TargetMachineSelection {
+    relocation_model: RelocationModel,
+    code_model: CodeModel,
+    cpu: Arc<str>,
+    features: Arc<[Arc<str>]>,
+}
+
+impl TargetMachineSelection {
+    /// Creates a machine selection from non-empty canonical CPU and feature names.
+    pub fn try_new<Features, Feature>(
+        relocation_model: RelocationModel,
+        code_model: CodeModel,
+        cpu: impl Into<Arc<str>>,
+        features: Features,
+    ) -> Result<Self, CodegenTargetBuildError>
+    where
+        Features: IntoIterator<Item = Feature>,
+        Feature: Into<Arc<str>>,
+    {
+        let cpu = shared_str(cpu);
+        let features: Vec<_> = features.into_iter().map(Into::into).collect();
+
+        if cpu.is_empty() {
+            return Err(CodegenTargetBuildError::EmptyCpu);
+        }
+
+        if features.iter().any(|feature| feature.is_empty()) {
+            return Err(CodegenTargetBuildError::EmptyFeature);
+        }
+
+        Ok(Self {
+            relocation_model,
+            code_model,
+            cpu,
+            features: sorted_unique_shared_slice(features),
+        })
+    }
+}
+
+/// Validated backend-neutral target configuration for code generation.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct CodegenTarget {
+    identity: TargetIdentity,
+    triple: Arc<str>,
+    contract: TargetContract,
+    selection: TargetMachineSelection,
+}
+
+impl CodegenTarget {
+    /// Creates a complete target from validated semantic and machine-selection components.
+    pub fn try_new(
+        identity: TargetIdentity,
+        triple: impl Into<Arc<str>>,
+        contract: TargetContract,
+        selection: TargetMachineSelection,
+    ) -> Result<Self, CodegenTargetBuildError> {
+        let triple = shared_str(triple);
+
+        if triple.is_empty() {
+            return Err(CodegenTargetBuildError::EmptyTriple);
+        }
+
+        Ok(Self {
+            identity,
+            triple,
+            contract,
+            selection,
+        })
+    }
+
+    /// Returns the stable target identity used by codegen facts and artifacts.
+    pub const fn identity(&self) -> &TargetIdentity {
+        &self.identity
+    }
+
+    /// Returns the canonical target triple.
+    pub fn triple(&self) -> &str {
+        &self.triple
+    }
+
+    /// Returns validated pointer, alignment, platform, and byte-order facts.
+    pub const fn machine(&self) -> &TargetMachineProperties {
+        &self.contract.machine
+    }
+
+    /// Returns validated scalar, aggregate, and address-space layout facts.
+    pub const fn data_layout(&self) -> &TargetDataLayout {
+        &self.contract.data_layout
+    }
+
+    /// Returns exact callable ABI mappings.
+    pub const fn abi(&self) -> &TargetAbi {
+        &self.contract.abi
+    }
+
+    /// Returns target symbol spelling and linkage rules.
+    pub const fn symbols(&self) -> &TargetSymbolConvention {
+        &self.contract.symbols
+    }
+
+    /// Returns target-profile and backend-contract compatibility metadata.
+    pub const fn compatibility(&self) -> &TargetCompatibility {
+        &self.contract.compatibility
+    }
+
+    /// Returns the selected relocation policy.
+    pub const fn relocation_model(&self) -> RelocationModel {
+        self.selection.relocation_model
+    }
+
+    /// Returns the selected code model.
+    pub const fn code_model(&self) -> CodeModel {
+        self.selection.code_model
+    }
+
+    /// Returns the canonical target CPU name.
+    pub fn cpu(&self) -> &str {
+        &self.selection.cpu
+    }
+
+    /// Returns enabled target features in canonical deterministic order.
+    pub fn features(&self) -> impl ExactSizeIterator<Item = &str> {
+        self.selection.features.iter().map(AsRef::as_ref)
+    }
+}
+
+/// A contract violation that prevents complete codegen-target publication.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CodegenTargetBuildError {
+    /// The canonical target triple is empty.
+    EmptyTriple,
+    /// The canonical target CPU name is empty.
+    EmptyCpu,
+    /// One target feature has an empty canonical name.
+    EmptyFeature,
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::codegen_target;
+
+    #[test]
+    fn targets_canonicalize_machine_features() {
+        let target = codegen_target();
+
+        assert_eq!(target.features().collect::<Vec<_>>(), ["avx", "sse4.2"]);
+    }
+}
