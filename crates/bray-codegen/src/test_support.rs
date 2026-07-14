@@ -228,6 +228,7 @@ fn target_data_layout() -> TargetDataLayout {
     let four_bytes = NonZeroU16::new(4).unwrap_or(NonZeroU16::MIN);
     let aggregate_alignment = NonZeroU32::new(8).unwrap_or(NonZeroU32::MIN);
     let integer_width = NonZeroU16::new(32).unwrap_or(NonZeroU16::MIN);
+
     let scalar_inputs = [
         (TargetScalarKind::Boolean, byte, byte),
         (
@@ -236,6 +237,7 @@ fn target_data_layout() -> TargetDataLayout {
             four_bytes,
         ),
     ];
+
     let scalars = scalar_inputs.into_iter().map(|(kind, size, alignment)| {
         let Ok(layout) = TargetScalarLayout::try_new(kind, size, alignment) else {
             panic!("test scalar layout must be valid");
