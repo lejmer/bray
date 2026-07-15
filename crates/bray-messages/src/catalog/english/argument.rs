@@ -13,6 +13,8 @@ pub(crate) fn format_value(value: &DiagnosticArgValue) -> String {
         DiagnosticArgValue::Character(character) => format_english_character(*character),
         DiagnosticArgValue::DeclarationName(name) => format_english_quoted_text(name),
         DiagnosticArgValue::ReferencedName(name) => format_english_quoted_text(name),
+        DiagnosticArgValue::PackageIdentity(identity) => format_english_quoted_text(identity),
+        DiagnosticArgValue::ProductIdentity(identity) => format_english_quoted_text(identity),
         DiagnosticArgValue::NameKind(kind) => format_english_name_kind(*kind).to_owned(),
         DiagnosticArgValue::FilePath(path) => path.display().to_string(),
         DiagnosticArgValue::InputIndex(input_index) => input_index.to_string(),

@@ -10,26 +10,12 @@ use crate::InterfaceSectionTag;
 use crate::tag::WireTag;
 use crate::wire::WireEncoder;
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the package artifact assembler consumes encoded identity sections"
-    )
-)]
 pub(crate) struct EncodedSurfaceSection {
     pub(crate) tag: InterfaceSectionTag,
     pub(crate) record_count: u64,
     pub(crate) payload: Vec<u8>,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the package artifact assembler consumes encoded identity sections"
-    )
-)]
 pub(crate) fn encode_surface(surface: &PackageInterfaceSurface) -> Vec<EncodedSurfaceSection> {
     let strings = StringEncoder::new(surface);
 

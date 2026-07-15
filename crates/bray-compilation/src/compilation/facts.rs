@@ -8,7 +8,7 @@ use bray_declarations::{
     discover_source_unit_declarations, merge_declaration_chunks,
 };
 use bray_diagnostics::DiagnosticBag;
-use bray_package_interface::ImportedSemanticFacts;
+use bray_package_interface::{ImportedSemanticFact, ImportedSemanticFacts};
 use bray_parser::{SourceUnitSyntaxResult, SyntaxTreeResult, parse_source_unit};
 use bray_source::{SourceId, SourceInput, SourceLoadError, SourceSnapshot, SourceStore};
 use bray_symbols::{
@@ -19,8 +19,8 @@ use bray_symbols::{
 use bray_syntax::SyntaxTree;
 
 use crate::fact::{
-    BoundUnitIdentityMap, CancellationToken, CompilationFactKey, FactCell, FactQueryError,
-    FactRuntime, PublishedUnitFact, UnitFactCache,
+    BoundUnitIdentityMap, CancellationToken, CompilationFactKey, FactCell, FactCellMap,
+    FactQueryError, FactRuntime, ImportedSemanticFactKey, PublishedUnitFact, UnitFactCache,
 };
 use crate::request::{CompilationOptions, CompilationRequest, DependencyInterfaceInput};
 use crate::worker::WorkerBudget;
@@ -59,8 +59,12 @@ pub(super) struct CompilationState {
         Vec<FactCell<super::imported::LoadedDependencyInterface>>,
     pub(super) imported_symbol_skeleton:
         FactCell<bray_diagnostics::DiagnosticResult<Option<Arc<ImportedSymbolSkeleton>>>>,
-    pub(super) imported_semantic_facts:
+    pub(super) imported_semantic_graphs:
         Vec<FactCell<bray_diagnostics::DiagnosticResult<Option<Arc<ImportedSemanticFacts>>>>>,
+    pub(super) imported_semantic_facts: FactCellMap<
+        ImportedSemanticFactKey,
+        Arc<bray_diagnostics::DiagnosticResult<Arc<[ImportedSemanticFact]>>>,
+    >,
     pub(super) imported_diagnostics: FactCell<DiagnosticBag>,
     pub(super) semantic_diagnostics: FactCell<DiagnosticBag>,
     pub(super) target_facts: CompilationTargetFacts,
@@ -136,7 +140,8 @@ impl Compilation {
                 semantic_values: FactCell::new(),
                 loaded_dependency_interfaces: empty_fact_caches(dependency_count),
                 imported_symbol_skeleton: FactCell::new(),
-                imported_semantic_facts: empty_fact_caches(dependency_count),
+                imported_semantic_graphs: empty_fact_caches(dependency_count),
+                imported_semantic_facts: FactCellMap::new(),
                 imported_diagnostics: FactCell::new(),
                 semantic_diagnostics: FactCell::new(),
                 target_facts: CompilationTargetFacts,
@@ -383,18 +388,16 @@ impl Compilation {
         }
     }
 
-    pub(super) fn query_fact<'a, T>(
+    pub(super) fn query_fact_with_cancellation<'a, T>(
         &self,
         key: CompilationFactKey,
         cache: &'a FactCell<T>,
-        compute: impl FnOnce() -> Result<T, FactQueryError>,
+        cancellation: &CancellationToken,
+        compute: impl FnOnce(&CancellationToken) -> Result<T, FactQueryError>,
     ) -> Result<&'a T, FactQueryError> {
-        cache.get_or_compute(
-            &self.state.fact_runtime,
-            key,
-            &self.state.cancellation,
-            compute,
-        )
+        cache.get_or_compute(&self.state.fact_runtime, key, cancellation, || {
+            compute(cancellation)
+        })
     }
 
     pub(super) fn unit_fact<T>(

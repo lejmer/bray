@@ -1,7 +1,8 @@
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use bray_package_interface::{InterfaceProductIdentity, InterfaceValidationPolicy};
-use bray_source::SourceInput;
+use bray_source::{SourceInput, SourceSpan};
 use bray_symbols::PackageIdentity;
 
 use crate::TargetAvailabilityFacts;
@@ -57,6 +58,8 @@ pub struct CompilationRequest {
 pub struct DependencyInterfaceInput {
     package: PackageIdentity,
     product: InterfaceProductIdentity,
+    artifact_path: Arc<Path>,
+    dependency_span: Option<SourceSpan>,
     bytes: Arc<[u8]>,
     validation_policy: InterfaceValidationPolicy,
 }
@@ -66,15 +69,25 @@ impl DependencyInterfaceInput {
     pub fn new(
         package: PackageIdentity,
         product: InterfaceProductIdentity,
+        artifact_path: impl Into<PathBuf>,
         bytes: impl Into<Arc<[u8]>>,
         validation_policy: InterfaceValidationPolicy,
     ) -> Self {
         Self {
             package,
             product,
+            artifact_path: Arc::from(artifact_path.into()),
+            dependency_span: None,
             bytes: bytes.into(),
             validation_policy,
         }
+    }
+
+    /// Returns a copy correlated with the source dependency that selected this artifact.
+    pub const fn with_dependency_span(mut self, dependency_span: SourceSpan) -> Self {
+        self.dependency_span = Some(dependency_span);
+
+        self
     }
 
     /// Returns the package identity selected by package resolution.
@@ -85,6 +98,16 @@ impl DependencyInterfaceInput {
     /// Returns the product identity selected by package resolution.
     pub const fn product(&self) -> &InterfaceProductIdentity {
         &self.product
+    }
+
+    /// Returns the stable artifact path supplied by package resolution.
+    pub fn artifact_path(&self) -> &Path {
+        &self.artifact_path
+    }
+
+    /// Returns the source dependency that selected this artifact, when available.
+    pub const fn dependency_span(&self) -> Option<SourceSpan> {
+        self.dependency_span
     }
 
     /// Returns the immutable untrusted artifact bytes.
@@ -222,6 +245,7 @@ mod tests {
         DependencyInterfaceInput::new(
             package,
             product,
+            "test.dependency.brayi",
             Arc::<[u8]>::from([1, 2, 3]),
             InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
         )

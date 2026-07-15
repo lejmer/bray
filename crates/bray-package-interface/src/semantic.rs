@@ -7,8 +7,8 @@ pub use codec::{EncodedSemanticSection, decode_semantic_facts, encode_semantic_f
 pub use interning::{
     ImportedAbiDependency, ImportedCallableContractFact, ImportedCoherenceFact,
     ImportedConstraintFact, ImportedDeclarationTemplateFact, ImportedImplementationFact,
-    ImportedSemanticFacts, ImportedSourceProvenance, ImportedTargetFactDependency,
-    InterfaceSemanticInternError, InterfaceSymbolResolver,
+    ImportedSemanticFact, ImportedSemanticFacts, ImportedSourceProvenance,
+    ImportedTargetFactDependency, InterfaceSemanticInternError, InterfaceSymbolResolver,
 };
 pub use model::{
     InterfaceAbiDependency, InterfaceCallableContract, InterfaceCallableContractClause,

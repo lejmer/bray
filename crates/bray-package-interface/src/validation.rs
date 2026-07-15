@@ -320,17 +320,14 @@ mod tests {
     use bray_messages::DiagnosticRenderer;
 
     use super::ValidatedPackageInterface;
+    use crate::artifact::{EncodedArtifactSection, assemble_sections};
     use crate::diagnostic::InterfaceValidationError;
-    use crate::hash::{compute_artifact_hash, compute_content_hash, compute_section_hash};
-    use crate::header::{BYTE_ORDER_MARKER, InterfaceHeader, MAGIC};
+    use crate::header::InterfaceHeader;
     use crate::limits::{InterfaceLimit, InterfaceValidationLimits, InterfaceValidationPolicy};
     use crate::section::{DirectoryEntry, InterfaceSectionTag};
-    use crate::wire::WireEncoder;
     use crate::{CURRENT_FORMAT_REVISION, InterfaceLanguageRevision};
 
     const LANGUAGE_REVISION: InterfaceLanguageRevision = InterfaceLanguageRevision::new(7);
-    const CONTENT_HASH_OFFSET: usize = 48;
-    const ARTIFACT_HASH_OFFSET: usize = 80;
 
     struct SectionFixture<'bytes> {
         tag: InterfaceSectionTag,
@@ -612,13 +609,13 @@ mod tests {
         );
         assert_mutation_error(
             &bytes,
-            CONTENT_HASH_OFFSET,
+            InterfaceHeader::CONTENT_HASH_OFFSET,
             0xff,
             InterfaceValidationError::HashMismatch,
         );
         assert_mutation_error(
             &bytes,
-            ARTIFACT_HASH_OFFSET,
+            InterfaceHeader::ARTIFACT_HASH_OFFSET,
             0xff,
             InterfaceValidationError::HashMismatch,
         );
@@ -714,89 +711,19 @@ mod tests {
     }
 
     fn artifact(sections: &[SectionFixture<'_>]) -> Vec<u8> {
-        let payload_length = sections
+        let sections = sections
             .iter()
-            .map(|section| section.payload.len())
-            .sum::<usize>();
+            .map(|section| {
+                EncodedArtifactSection::new(
+                    section.tag,
+                    section.record_count,
+                    section.payload.to_vec(),
+                )
+            })
+            .collect::<Vec<_>>();
 
-        let directory_offset = InterfaceHeader::LENGTH + payload_length;
-
-        let directory_length = sections.len() * DirectoryEntry::LENGTH;
-        let file_length = directory_offset + directory_length;
-
-        let mut encoder = WireEncoder::new();
-
-        encoder.write_bytes(&MAGIC);
-        encoder.write_u16(CURRENT_FORMAT_REVISION.raw());
-        encoder.write_u16(LANGUAGE_REVISION.raw());
-        encoder.write_u32(BYTE_ORDER_MARKER);
-        encoder.write_u64(0);
-        encoder.write_u64(wire_length(file_length));
-        encoder.write_u64(wire_length(directory_offset));
-        encoder.write_u64(wire_length(directory_length));
-        encoder.write_bytes(&[0; 32]);
-        encoder.write_bytes(&[0; 32]);
-
-        let mut entries = Vec::with_capacity(sections.len());
-        let mut payload_offset = InterfaceHeader::LENGTH;
-
-        for section in sections {
-            let entry_without_checksum = DirectoryEntry::for_test(
-                section.tag,
-                wire_length(payload_offset),
-                wire_length(section.payload.len()),
-                section.record_count,
-                crate::InterfaceSectionHash::from_bytes([0; 32]),
-            );
-
-            let checksum = compute_section_hash(&entry_without_checksum, section.payload);
-
-            entries.push(DirectoryEntry::for_test(
-                section.tag,
-                wire_length(payload_offset),
-                wire_length(section.payload.len()),
-                section.record_count,
-                checksum,
-            ));
-
-            encoder.write_bytes(section.payload);
-
-            payload_offset += section.payload.len();
-        }
-
-        for entry in &entries {
-            encoder.write_u32(entry.tag().wire_value());
-            encoder.write_u32(0);
-            encoder.write_u64(entry.offset());
-            encoder.write_u64(entry.length());
-            encoder.write_u64(entry.record_count());
-            encoder.write_bytes(entry.checksum().as_bytes());
-        }
-
-        let mut bytes = encoder.into_bytes();
-
-        let decoded = match InterfaceHeader::decode(&bytes) {
-            Ok(decoded) => decoded,
-            Err(error) => panic!("test header must decode: {error:?}"),
-        };
-
-        let content_hash = match compute_content_hash(&decoded.header, &entries, &bytes) {
-            Some(hash) => hash,
-            None => panic!("test content hash inputs must be valid"),
-        };
-
-        bytes[CONTENT_HASH_OFFSET..CONTENT_HASH_OFFSET + 32]
-            .copy_from_slice(content_hash.as_bytes());
-
-        let artifact_hash = match compute_artifact_hash(&bytes) {
-            Some(hash) => hash,
-            None => panic!("test artifact must include the artifact-hash field"),
-        };
-
-        bytes[ARTIFACT_HASH_OFFSET..ARTIFACT_HASH_OFFSET + 32]
-            .copy_from_slice(artifact_hash.as_bytes());
-
-        bytes
+        assemble_sections(&sections, LANGUAGE_REVISION)
+            .unwrap_or_else(|error| panic!("test artifact must encode: {error:?}"))
     }
 
     fn validate(bytes: Vec<u8>) -> ValidatedPackageInterface {

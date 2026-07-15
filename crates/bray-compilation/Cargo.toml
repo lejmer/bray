@@ -18,5 +18,8 @@ bray-source = { path = "../bray-source" }
 bray-symbols = { path = "../bray-symbols" }
 bray-syntax = { path = "../bray-syntax" }
 
+[dev-dependencies]
+bray-package-interface = { path = "../bray-package-interface", features = ["test-support"] }
+
 [lints]
 workspace = true

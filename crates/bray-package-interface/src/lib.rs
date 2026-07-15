@@ -2,6 +2,8 @@
 
 #![forbid(unsafe_code)]
 
+#[cfg(any(test, feature = "test-support"))]
+mod artifact;
 mod construction;
 mod decode;
 mod diagnostic;
@@ -14,6 +16,9 @@ mod surface;
 mod tag;
 mod validation;
 mod wire;
+
+#[cfg(feature = "test-support")]
+pub mod test_support;
 
 pub use construction::{
     ImportedInterfaceSymbolResolver, ImportedSymbolConstructionError, LoadedInterfaceSurface,
@@ -30,27 +35,28 @@ pub use section::{InterfaceSectionTag, ValidatedInterfaceSection};
 pub use semantic::{
     EncodedSemanticSection, ImportedAbiDependency, ImportedCallableContractFact,
     ImportedCoherenceFact, ImportedConstraintFact, ImportedDeclarationTemplateFact,
-    ImportedImplementationFact, ImportedSemanticFacts, ImportedSourceProvenance,
-    ImportedTargetFactDependency, InterfaceAbiDependency, InterfaceCallableContract,
-    InterfaceCallableContractClause, InterfaceCallableInstance, InterfaceCallableInstanceId,
-    InterfaceCallableParameter, InterfaceCheckedTemplate, InterfaceCheckedTemplateBehavior,
-    InterfaceCheckedTemplateId, InterfaceCheckedTemplateInput, InterfaceCheckedTemplateInputKind,
-    InterfaceCheckedTemplateNode, InterfaceCheckedTemplateOperation,
-    InterfaceCheckedTemplateTemporary, InterfaceCoherenceRecord, InterfaceConstantProjection,
-    InterfaceConstantTerm, InterfaceConstantTermId, InterfaceConstantValue,
-    InterfaceConstantValueId, InterfaceConstantValueKind, InterfaceConstraint,
-    InterfaceDeclarationTemplate, InterfaceDependencyContract, InterfaceDependencyContractId,
-    InterfaceDependencyGuard, InterfaceDependencyProjection, InterfaceDependencyRequirement,
-    InterfaceDependencyRequirementKind, InterfaceDependencyRequirementValue,
-    InterfaceDependencySubject, InterfaceDependencySubjectRoot, InterfaceGenericArgument,
-    InterfaceGenericBinding, InterfaceGenericSubstitution, InterfaceGenericSubstitutionId,
-    InterfaceImplementationInstance, InterfaceImplementationInstanceId,
-    InterfaceImplementationRecord, InterfaceImplementationReference, InterfacePredicateSummary,
-    InterfaceSemanticFactEntry, InterfaceSemanticFactKind, InterfaceSemanticFacts,
-    InterfaceSemanticInternError, InterfaceSourceProvenance, InterfaceSupportEntity,
-    InterfaceSupportImplementation, InterfaceSymbolResolver, InterfaceTargetFactDependency,
-    InterfaceTemplateReference, InterfaceTraitApplication, InterfaceTraitApplicationId,
-    InterfaceType, InterfaceTypeId, decode_semantic_facts, encode_semantic_facts,
+    ImportedImplementationFact, ImportedSemanticFact, ImportedSemanticFacts,
+    ImportedSourceProvenance, ImportedTargetFactDependency, InterfaceAbiDependency,
+    InterfaceCallableContract, InterfaceCallableContractClause, InterfaceCallableInstance,
+    InterfaceCallableInstanceId, InterfaceCallableParameter, InterfaceCheckedTemplate,
+    InterfaceCheckedTemplateBehavior, InterfaceCheckedTemplateId, InterfaceCheckedTemplateInput,
+    InterfaceCheckedTemplateInputKind, InterfaceCheckedTemplateNode,
+    InterfaceCheckedTemplateOperation, InterfaceCheckedTemplateTemporary, InterfaceCoherenceRecord,
+    InterfaceConstantProjection, InterfaceConstantTerm, InterfaceConstantTermId,
+    InterfaceConstantValue, InterfaceConstantValueId, InterfaceConstantValueKind,
+    InterfaceConstraint, InterfaceDeclarationTemplate, InterfaceDependencyContract,
+    InterfaceDependencyContractId, InterfaceDependencyGuard, InterfaceDependencyProjection,
+    InterfaceDependencyRequirement, InterfaceDependencyRequirementKind,
+    InterfaceDependencyRequirementValue, InterfaceDependencySubject,
+    InterfaceDependencySubjectRoot, InterfaceGenericArgument, InterfaceGenericBinding,
+    InterfaceGenericSubstitution, InterfaceGenericSubstitutionId, InterfaceImplementationInstance,
+    InterfaceImplementationInstanceId, InterfaceImplementationRecord,
+    InterfaceImplementationReference, InterfacePredicateSummary, InterfaceSemanticFactEntry,
+    InterfaceSemanticFactKind, InterfaceSemanticFacts, InterfaceSemanticInternError,
+    InterfaceSourceProvenance, InterfaceSupportEntity, InterfaceSupportImplementation,
+    InterfaceSymbolResolver, InterfaceTargetFactDependency, InterfaceTemplateReference,
+    InterfaceTraitApplication, InterfaceTraitApplicationId, InterfaceType, InterfaceTypeId,
+    decode_semantic_facts, encode_semantic_facts,
 };
 pub use surface::{
     DependencyInterfaceId, ExportedLookupEdge, ExportedLookupKind, InterfaceDependency,

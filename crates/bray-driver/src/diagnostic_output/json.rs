@@ -181,6 +181,8 @@ enum DiagnosticArgValueJson {
     Character(char),
     DeclarationName(String),
     ReferencedName(String),
+    PackageIdentity(String),
+    ProductIdentity(String),
     NameKind(&'static str),
     FilePath(String),
     InputIndex(u64),
@@ -210,6 +212,12 @@ impl DiagnosticArgValueJson {
             DiagnosticArgValue::Character(character) => Self::Character(*character),
             DiagnosticArgValue::DeclarationName(name) => Self::DeclarationName(name.to_owned()),
             DiagnosticArgValue::ReferencedName(name) => Self::ReferencedName(name.to_owned()),
+            DiagnosticArgValue::PackageIdentity(identity) => {
+                Self::PackageIdentity(identity.to_owned())
+            }
+            DiagnosticArgValue::ProductIdentity(identity) => {
+                Self::ProductIdentity(identity.to_owned())
+            }
             DiagnosticArgValue::NameKind(kind) => Self::NameKind((*kind).as_str()),
             DiagnosticArgValue::FilePath(path) => Self::FilePath(path_to_output_string(path)),
             DiagnosticArgValue::InputIndex(input_index) => Self::InputIndex(*input_index),
@@ -390,7 +398,15 @@ mod tests {
         .with_arg(DiagnosticArg::new(
             DiagnosticArgName::ExpectedRevision,
             DiagnosticArgValue::Revision(1),
-        ));
+        ))
+        .with_note(
+            DiagnosticNote::new(DiagnosticNoteKind::InterfaceDependencyContext)
+                .with_arg(DiagnosticArg::expected_package_identity(
+                    "example.dependency",
+                ))
+                .with_arg(DiagnosticArg::expected_product_identity("library"))
+                .with_arg(DiagnosticArg::artifact_path("dependency.brayi")),
+        );
 
         let bag = DiagnosticBag::single(diagnostic);
 
@@ -416,6 +432,15 @@ mod tests {
         assert_eq!(args[2]["value"]["value"], 12);
         assert_eq!(args[3]["value"]["kind"], "revision");
         assert_eq!(args[3]["value"]["value"], 1);
+
+        let note_args = &output["diagnostics"][0]["notes"][0]["args"];
+
+        assert_eq!(note_args[0]["value"]["kind"], "package_identity");
+        assert_eq!(note_args[0]["value"]["value"], "example.dependency");
+        assert_eq!(note_args[1]["value"]["kind"], "product_identity");
+        assert_eq!(note_args[1]["value"]["value"], "library");
+        assert_eq!(note_args[2]["value"]["kind"], "file_path");
+        assert_eq!(note_args[2]["value"]["value"], "dependency.brayi");
     }
 
     #[test]

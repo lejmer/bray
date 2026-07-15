@@ -31,4 +31,9 @@ impl EncodedSemanticSection {
     pub fn payload(&self) -> &[u8] {
         &self.payload
     }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub(crate) fn into_parts(self) -> (InterfaceSectionTag, u64, Vec<u8>) {
+        (self.tag, self.record_count, self.payload)
+    }
 }

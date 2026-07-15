@@ -75,6 +75,8 @@ pub enum DiagnosticNoteKind {
     UnicodeEscapeMustBeScalar,
     /// Block comment terminator rule.
     BlockCommentNeedsTerminator,
+    /// Package-selection context for an external interface diagnostic.
+    InterfaceDependencyContext,
 }
 
 impl DiagnosticNoteKind {
@@ -102,6 +104,7 @@ impl DiagnosticNoteKind {
             Self::EscapeMustBeKnown => "escape_must_be_known",
             Self::UnicodeEscapeMustBeScalar => "unicode_escape_must_be_scalar",
             Self::BlockCommentNeedsTerminator => "block_comment_needs_terminator",
+            Self::InterfaceDependencyContext => "interface_dependency_context",
         }
     }
 }

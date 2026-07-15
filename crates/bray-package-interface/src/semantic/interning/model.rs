@@ -9,7 +9,7 @@ use bray_symbols::{
     SemanticValueStore, SemanticValueStoreError, TraitApplicationId, TypeId,
 };
 
-use crate::{InterfaceSemanticFacts, InterfaceSymbolReference};
+use crate::{InterfaceSemanticFactKind, InterfaceSemanticFacts, InterfaceSymbolReference};
 
 use super::InternState;
 
@@ -76,6 +76,23 @@ pub struct ImportedDeclarationTemplateFact {
     pub(super) kind: CheckedTemplateKind,
     pub(super) ordinal: bray_symbols::SymbolOrdinal,
     pub(super) template: Arc<CheckedTemplate>,
+}
+
+/// One exact imported symbol-owned semantic fact.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ImportedSemanticFact {
+    /// One checked generic constraint.
+    GenericConstraint(ImportedConstraintFact),
+    /// One complete callable contract set.
+    CallableContracts(ImportedCallableContractFact),
+    /// One source-independent checked declaration-owned template.
+    DeclarationTemplate(ImportedDeclarationTemplateFact),
+    /// One public implementation surface.
+    Implementation(ImportedImplementationFact),
+    /// One required target fact value.
+    TargetFact(ImportedTargetFactDependency),
+    /// One required callable ABI.
+    Abi(ImportedAbiDependency),
 }
 
 impl ImportedDeclarationTemplateFact {
@@ -253,6 +270,59 @@ impl ImportedSourceProvenance {
 }
 
 impl ImportedSemanticFacts {
+    /// Selects exact symbol-owned facts without exposing interface table storage.
+    pub fn symbol_facts(
+        &self,
+        owner: AnySymbolId,
+        kind: InterfaceSemanticFactKind,
+    ) -> Vec<ImportedSemanticFact> {
+        // Exact results own shallow Arc-backed fact views independently of the shared graph.
+        match kind {
+            InterfaceSemanticFactKind::GenericConstraint => self
+                .constraints
+                .iter()
+                .copied()
+                .filter(|fact| fact.owner().symbol() == owner)
+                .map(ImportedSemanticFact::GenericConstraint)
+                .collect(),
+            InterfaceSemanticFactKind::CallableContracts => self
+                .callable_contracts
+                .iter()
+                .filter(|fact| fact.owner().into_any() == owner)
+                .cloned()
+                .map(ImportedSemanticFact::CallableContracts)
+                .collect(),
+            InterfaceSemanticFactKind::DeclarationTemplate => self
+                .declaration_templates
+                .iter()
+                .filter(|fact| fact.owner() == owner)
+                .cloned()
+                .map(ImportedSemanticFact::DeclarationTemplate)
+                .collect(),
+            InterfaceSemanticFactKind::Implementation => self
+                .implementations
+                .iter()
+                .copied()
+                .filter(|fact| fact.implementation().into_any() == owner)
+                .map(ImportedSemanticFact::Implementation)
+                .collect(),
+            InterfaceSemanticFactKind::TargetFact => self
+                .target_dependencies
+                .iter()
+                .copied()
+                .filter(|fact| AnySymbolId::from(fact.fact()) == owner)
+                .map(ImportedSemanticFact::TargetFact)
+                .collect(),
+            InterfaceSemanticFactKind::Abi => self
+                .abi_dependencies
+                .iter()
+                .copied()
+                .filter(|fact| fact.symbol().into_any() == owner)
+                .map(ImportedSemanticFact::Abi)
+                .collect(),
+        }
+    }
+
     /// Returns canonical semantic types in interface table order.
     pub fn types(&self) -> &[TypeId] {
         &self.types

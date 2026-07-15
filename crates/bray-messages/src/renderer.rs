@@ -211,6 +211,33 @@ mod tests {
     }
 
     #[test]
+    fn renderer_localizes_dependency_interface_context() {
+        let diagnostic = Diagnostic::new(
+            DiagnosticId::new(0),
+            DiagnosticKind::InterfaceInvalidMagic,
+            SeverityKind::Error,
+        )
+        .with_note(
+            DiagnosticNote::new(DiagnosticNoteKind::InterfaceDependencyContext)
+                .with_arg(DiagnosticArg::expected_package_identity(
+                    "example.dependency",
+                ))
+                .with_arg(DiagnosticArg::expected_product_identity("library"))
+                .with_arg(DiagnosticArg::artifact_path("dependency.brayi")),
+        );
+        let rendered = DiagnosticRenderer::english().render(&diagnostic);
+        let [note] = rendered.notes() else {
+            panic!("expected one rendered note: {rendered:?}");
+        };
+
+        assert_eq!(note.rendered_kind(), RenderedDiagnosticNoteKind::Note);
+        assert_eq!(
+            note.message(),
+            "while loading package 'example.dependency' product 'library' from dependency.brayi"
+        );
+    }
+
+    #[test]
     fn renderer_renders_labels_with_spans_styles_and_typed_args() {
         let span = SourceSpan::new(
             SourceId::new(1),
