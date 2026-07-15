@@ -1,6 +1,6 @@
 use bray_diagnostics::{DiagnosticArgName, DiagnosticKind};
 
-use super::{MessageTemplate, MessageTemplatePart};
+use crate::catalog::{MessageTemplate, MessageTemplatePart};
 
 const INVALID_MAGIC: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
     "invalid compiled package-interface file identity",
@@ -41,7 +41,7 @@ const RESOURCE_LIMIT_EXCEEDED: &[MessageTemplatePart] = &[
     MessageTemplatePart::Arg(DiagnosticArgName::MaximumCount),
 ];
 
-pub(super) const fn english_interface_diagnostic_template(kind: DiagnosticKind) -> MessageTemplate {
+pub(super) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate {
     let parts = match kind {
         DiagnosticKind::InterfaceInvalidMagic => INVALID_MAGIC,
         DiagnosticKind::InterfaceUnsupportedFormatRevision => UNSUPPORTED_FORMAT_REVISION,

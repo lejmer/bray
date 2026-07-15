@@ -6,8 +6,10 @@ use crate::locale::DiagnosticLocale;
 use crate::rendered_diagnostic::RenderedDiagnosticNoteKind;
 
 use super::english::{
-    english_diagnostic_template, english_label_style, english_label_template, english_note_heading,
-    english_note_kind, english_note_template, english_severity_label,
+    diagnostic_template as english_diagnostic_template, label_style as english_label_style,
+    label_template as english_label_template, note_heading as english_note_heading,
+    note_kind as english_note_kind, note_template as english_note_template,
+    severity_label as english_severity_label,
 };
 use super::template::MessageTemplate;
 
