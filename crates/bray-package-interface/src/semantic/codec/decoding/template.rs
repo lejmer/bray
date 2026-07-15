@@ -321,9 +321,9 @@ mod tests {
     use super::super::decode_semantic_facts;
     use super::super::test_support::{
         interface_surface, key_by_kind as symbol_key, local_by_kind as symbol_reference,
-        module_key as test_module_key, named_key,
     };
     use crate::semantic::codec::encode_semantic_facts;
+    use crate::test_support::{module_key as test_module_key, named_key};
     use crate::{
         EncodedSemanticSection, InterfaceCheckedTemplate, InterfaceCheckedTemplateBehavior,
         InterfaceCheckedTemplateId, InterfaceCheckedTemplateInput,

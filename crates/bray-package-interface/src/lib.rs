@@ -17,7 +17,7 @@ mod tag;
 mod validation;
 mod wire;
 
-#[cfg(feature = "test-support")]
+#[cfg(any(test, feature = "test-support"))]
 pub mod test_support;
 
 pub use construction::{

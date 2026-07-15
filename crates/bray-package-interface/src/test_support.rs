@@ -88,6 +88,7 @@ fn identity_surface(
     keys.insert(ExternalSymbolKey::package(package.clone()));
 
     let keys: Vec<_> = keys.into_iter().collect();
+
     let records = keys.iter().enumerate().map(|(index, key)| {
         let container = key
             .owner()
@@ -108,6 +109,7 @@ fn identity_surface(
         let owner_index = keys
             .binary_search(owner)
             .unwrap_or_else(|_| panic!("test symbol owner must be present"));
+
         let kind = match (owner.kind(), key.kind()) {
             (SymbolKind::Package, SymbolKind::Module) => SymbolRelationshipKind::PackageModule,
             (SymbolKind::Module, SymbolKind::Function) => SymbolRelationshipKind::ModuleMember,
@@ -194,7 +196,10 @@ fn template_facts(
         )
 }
 
-fn insert_key_and_owners(keys: &mut BTreeSet<ExternalSymbolKey>, key: ExternalSymbolKey) {
+pub(crate) fn insert_key_and_owners(
+    keys: &mut BTreeSet<ExternalSymbolKey>,
+    key: ExternalSymbolKey,
+) {
     let mut current = Some(key);
 
     while let Some(key) = current {
@@ -203,14 +208,14 @@ fn insert_key_and_owners(keys: &mut BTreeSet<ExternalSymbolKey>, key: ExternalSy
     }
 }
 
-fn interface_symbol_id(index: usize) -> InterfaceSymbolId {
+pub(crate) fn interface_symbol_id(index: usize) -> InterfaceSymbolId {
     let raw = u32::try_from(index)
         .unwrap_or_else(|error| panic!("test symbol count must fit interface IDs: {error:?}"));
 
     InterfaceSymbolId::new(raw)
 }
 
-fn module_key(package: PackageIdentity, segment: &str) -> ExternalSymbolKey {
+pub(crate) fn module_key(package: PackageIdentity, segment: &str) -> ExternalSymbolKey {
     let path = ModulePathKey::try_new([segment])
         .unwrap_or_else(|| panic!("test module path must be valid"));
 
@@ -218,7 +223,11 @@ fn module_key(package: PackageIdentity, segment: &str) -> ExternalSymbolKey {
         .unwrap_or_else(|| panic!("test module key must be valid"))
 }
 
-fn named_key(owner: ExternalSymbolKey, kind: SymbolKind, name: &str) -> ExternalSymbolKey {
+pub(crate) fn named_key(
+    owner: ExternalSymbolKey,
+    kind: SymbolKind,
+    name: &str,
+) -> ExternalSymbolKey {
     let name =
         SymbolName::try_new(name).unwrap_or_else(|| panic!("test symbol name must be valid"));
 

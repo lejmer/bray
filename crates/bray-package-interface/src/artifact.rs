@@ -40,13 +40,16 @@ pub(crate) fn assemble_sections(
     let payload_length = sections.iter().try_fold(0_usize, |total, section| {
         total.checked_add(section.payload.len())
     });
+
     let directory_length = sections
         .len()
         .checked_mul(DirectoryEntry::LENGTH)
         .ok_or(InterfaceValidationError::Malformed)?;
+
     let directory_offset = InterfaceHeader::LENGTH
         .checked_add(payload_length.ok_or(InterfaceValidationError::Malformed)?)
         .ok_or(InterfaceValidationError::Malformed)?;
+
     let file_length = directory_offset
         .checked_add(directory_length)
         .ok_or(InterfaceValidationError::Malformed)?;
@@ -75,6 +78,7 @@ pub(crate) fn assemble_sections(
             section.record_count,
             checksum,
         ));
+
         encoder.write_bytes(&section.payload);
 
         payload_offset = payload_offset
