@@ -101,13 +101,17 @@ fn encode_header(
     directory_length: usize,
 ) -> Result<(), InterfaceValidationError> {
     encoder.write_bytes(&MAGIC);
+
     encoder.write_u16(CURRENT_FORMAT_REVISION.raw());
     encoder.write_u16(language_revision.raw());
     encoder.write_u32(BYTE_ORDER_MARKER);
+
     encoder.write_u64(InterfaceRequiredFlags::NONE.bits());
+
     encoder.write_u64(usize_to_u64(file_length)?);
     encoder.write_u64(usize_to_u64(directory_offset)?);
     encoder.write_u64(usize_to_u64(directory_length)?);
+
     encoder.write_bytes(&[0; 32]);
     encoder.write_bytes(&[0; 32]);
 
@@ -129,10 +133,13 @@ fn encoded_directory_entry(
 
 fn encode_directory_entry(encoder: &mut WireEncoder, entry: DirectoryEntry) {
     encoder.write_u32(entry.tag().wire_value());
+
     encoder.write_u32(0);
+
     encoder.write_u64(entry.offset());
     encoder.write_u64(entry.length());
     encoder.write_u64(entry.record_count());
+
     encoder.write_bytes(entry.checksum().as_bytes());
 }
 

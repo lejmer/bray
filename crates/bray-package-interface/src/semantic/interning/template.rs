@@ -88,6 +88,7 @@ impl InternState {
 
         for input in template.inputs() {
             let kind = convert_input_kind(input.kind(), symbols)?;
+
             let ty = self
                 .type_id(input.ty())
                 .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)?;
@@ -99,6 +100,7 @@ impl InternState {
 
         for node in template.nodes() {
             let operation = convert_operation(self, node.operation(), facts, symbols)?;
+
             let ty = self
                 .type_id(node.ty())
                 .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)?;
@@ -112,6 +114,7 @@ impl InternState {
             let ty = self
                 .type_id(temporary.ty())
                 .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)?;
+
             let dependency = self
                 .dependency_contract_id(temporary.dependency_contract())
                 .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)?;
@@ -231,6 +234,7 @@ fn convert_behavior(
     symbols: &impl InterfaceSymbolResolver,
 ) -> Result<CheckedTemplateBehavior, InterfaceSemanticInternError> {
     let behavior = template.behavior();
+
     let dependency_contract = state
         .dependency_contract_id(behavior.dependency_contract())
         .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)?;
