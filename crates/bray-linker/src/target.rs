@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use bray_base::NonEmptySharedStr;
-use bray_codegen::{CodeModel, ObjectFormat, RelocationModel, TargetArchitecture, TargetIdentity};
+use bray_target::{CodeModel, ObjectFormat, RelocationModel, TargetArchitecture, TargetIdentity};
 
 /// Native linkage model selected before link-plan construction.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -97,7 +97,7 @@ pub enum LinkTargetBuildError {
 
 #[cfg(test)]
 mod tests {
-    use bray_codegen::{
+    use bray_target::{
         CodeModel, ObjectFormat, RelocationModel, TargetArchitecture, TargetIdentity,
     };
 

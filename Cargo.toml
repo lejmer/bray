@@ -20,6 +20,7 @@ members = [
     "crates/bray-source",
     "crates/bray-symbols",
     "crates/bray-syntax",
+    "crates/bray-target",
     "crates/bray-testing",
     "crates/brayc",
     "xtask",

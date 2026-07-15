@@ -10,6 +10,7 @@ bray-base = { path = "../bray-base" }
 bray-codegen = { path = "../bray-codegen" }
 bray-diagnostics = { path = "../bray-diagnostics" }
 bray-symbols = { path = "../bray-symbols" }
+bray-target = { path = "../bray-target" }
 
 [dev-dependencies]
 bray-testing = { path = "../bray-testing", features = ["mir-unit"] }

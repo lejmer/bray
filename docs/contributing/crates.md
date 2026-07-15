@@ -122,12 +122,17 @@
     - Represents lowered control flow, locals, storages, explicit moves/drops, calls, branches, and other operations used by codegen.
     - Owns generic MIR builders, representation validation, and reusable IR walkers and visitors.
 
+- `bray-target`
+    - Stable target identities and machine-model contracts shared by backend-neutral output phases.
+    - Owns processor architecture, object format, byte order, relocation model, code model, and validated machine properties.
+    - Must not depend on syntax, bound HIR, MIR, code generation, emission, or linking.
+
 - `bray-codegen`
     - Backend-independent code generation interface and codegen orchestration.
     - Owns backend selection, codegen-unit partitioning, concrete monomorphized-instance collection, backend identity, capabilities,
       requests, and outcomes.
-    - Supplies canonical layout, ABI, symbol, target, runtime, and linkage facts while translating validated `bray-ir` MIR into
-      backend-specific low-level IR.
+    - Supplies canonical layout, ABI, symbol, runtime, and linkage facts while translating validated `bray-ir` MIR into
+      backend-specific low-level IR using shared `bray-target` contracts.
     - Allows compilation to use an injected backend without depending on a concrete backend crate.
     - Should not own linking, artifact layout, or CLI policy.
 

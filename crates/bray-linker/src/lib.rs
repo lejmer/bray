@@ -27,6 +27,7 @@ pub use outcome::{
 pub use output::{
     LinkedArtifact, LinkedArtifactKind, LinkedArtifactRequirement, LinkedProductKind,
     PlannedLinkedArtifact, StagingDestination, StagingDestinationBuildError, StagingDestinationId,
+    StagingPathKey,
 };
 pub use plan::{
     LinkPlan, LinkPlanBuildError, LinkPlanBuilder, LinkSearchPath, LinkSearchPathBuildError,

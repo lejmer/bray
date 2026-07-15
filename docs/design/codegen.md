@@ -130,6 +130,12 @@ preserve semantics already fixed by Bray MIR and the selected target contract.
 
 ## Crate Ownership
 
+### `bray-target`
+
+`bray-target` owns stable target identities and machine-model values shared by backend-neutral output phases. This includes
+architecture, object format, byte order, relocation model, code model, and validated machine properties. It remains independent of
+syntax, bound HIR, MIR, codegen policy, emission, and linking.
+
 ### `bray-codegen`
 
 `bray-codegen` owns backend-independent code generation contracts:
@@ -192,6 +198,9 @@ The core dependency direction is shown below. Arrows point from a dependency to 
 
 ```text
 bray-ir -------------------> bray-codegen
+bray-target ---------------> bray-codegen
+bray-target ---------------> bray-emitter
+bray-target ---------------> bray-linker
 bray-codegen --------------> bray-codegen-llvm
 bray-codegen --------------> bray-emitter
 bray-package-interface ----> bray-emitter
@@ -304,6 +313,9 @@ Changing partitioning policy invalidates affected codegen facts. It does not cha
 ## Target Contract
 
 The selected language-level target profile remains the authority for target facts visible to Bray programs.
+
+Stable target identity and machine-model values come from `bray-target`. `bray-codegen` composes those shared values with ABI,
+layout, symbol, compatibility, CPU, feature, and backend-selection facts in `CodegenTarget` rather than owning parallel copies.
 
 Code generation also needs compiler-private machine configuration that does not belong under `std.target`, including backend
 feature strings, object-format controls, relocation model, code model, and toolchain details. These values belong in a validated

@@ -609,6 +609,9 @@ Code generation does not own CLI policy, package policy, source discovery, artif
 Target, ABI, layout, symbol, runtime, reachability, and generic-instantiation decisions must be explicit before code generation.
 Backend-specific legalization preserves those decisions rather than replacing them.
 
+Stable target identities and machine-model contracts belong to `bray-target`. Code generation, emission, and linking consume that
+shared lower boundary without depending on one another for target vocabulary.
+
 Codegen units are lazy compilation facts with stable structural keys. Independent units can be generated in parallel, while mutable
 backend module construction remains task-local. The immutable emission plan and per-unit artifact request participate in the exact
 fact key beside backend identity, target configuration, options, and backend-library revision.
@@ -692,6 +695,9 @@ Resolved references on bound nodes belong to binding.
 Semantic facts on source-shaped checked bound nodes belong to semantic checker services.
 
 Backend-independent MIR nodes belong to `bray-ir`. Lowering produces them and code generation consumes them.
+
+Stable target identities, architectures, object formats, byte order, relocation models, code models, and validated machine
+properties belong to `bray-target`.
 
 Backend-neutral codegen-unit, backend identity, capability, outcome, and artifact contracts belong to `bray-codegen`.
 

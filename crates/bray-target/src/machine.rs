@@ -1,6 +1,6 @@
 use std::num::{NonZeroU16, NonZeroU32};
 
-/// Processor architecture understood by backend-neutral code generation.
+/// Processor architecture understood across backend-neutral native-output phases.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum TargetArchitecture {
     /// 32-bit x86.
@@ -47,10 +47,10 @@ pub enum Endianness {
     Big,
 }
 
-/// Relocation policy used when producing machine code.
+/// Relocation policy used when producing or linking machine code.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum RelocationModel {
-    /// Backend-selected target default.
+    /// Toolchain-selected target default.
     Default,
     /// Statically addressed code.
     Static,
@@ -60,10 +60,10 @@ pub enum RelocationModel {
     DynamicNoPic,
 }
 
-/// Addressing range policy used when producing machine code.
+/// Addressing range policy used when producing or linking machine code.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum CodeModel {
-    /// Backend-selected target default.
+    /// Toolchain-selected target default.
     Default,
     /// Smallest addressing range supported by the target.
     Tiny,
@@ -77,7 +77,7 @@ pub enum CodeModel {
     Kernel,
 }
 
-/// Validated machine representation facts shared by all backends.
+/// Validated machine representation facts shared by backend-neutral compiler phases.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct TargetMachineProperties {
     architecture: TargetArchitecture,
@@ -89,7 +89,7 @@ pub struct TargetMachineProperties {
 }
 
 impl TargetMachineProperties {
-    /// Creates machine facts when the pointer width is byte-addressable.
+    /// Creates machine facts when pointer and alignment values are valid.
     pub const fn try_new(
         architecture: TargetArchitecture,
         object_format: ObjectFormat,
@@ -153,8 +153,8 @@ mod tests {
     use super::{Endianness, ObjectFormat, TargetArchitecture, TargetMachineProperties};
 
     #[test]
-    fn machine_properties_reject_non_byte_addressable_pointers() {
-        let pointer_width = NonZeroU16::new(12).unwrap_or(NonZeroU16::MIN);
+    fn machine_properties_reject_invalid_pointer_and_alignment_facts() {
+        let non_byte_addressable_width = NonZeroU16::new(12).unwrap_or(NonZeroU16::MIN);
         let alignment = NonZeroU32::new(16).unwrap_or(NonZeroU32::MIN);
 
         assert_eq!(
@@ -162,8 +162,23 @@ mod tests {
                 TargetArchitecture::X86_64,
                 ObjectFormat::Elf,
                 Endianness::Little,
-                pointer_width,
+                non_byte_addressable_width,
                 alignment,
+                alignment,
+            ),
+            None
+        );
+
+        let pointer_width = NonZeroU16::new(64).unwrap_or(NonZeroU16::MIN);
+        let invalid_alignment = NonZeroU32::new(3).unwrap_or(NonZeroU32::MIN);
+
+        assert_eq!(
+            TargetMachineProperties::try_new(
+                TargetArchitecture::X86_64,
+                ObjectFormat::Elf,
+                Endianness::Little,
+                pointer_width,
+                invalid_alignment,
                 alignment,
             ),
             None

@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use bray_codegen::TargetIdentity;
+use bray_target::TargetIdentity;
 
 use crate::{
     ArtifactKind, ArtifactRequirement, OutputSinkId, ProductIdentity, ProductKind,

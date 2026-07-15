@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use bray_base::NonEmptySharedStr;
 
-/// Stable compiler-facing identity of one validated code generation target.
+/// Stable compiler-facing identity of one validated compilation target.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct TargetIdentity(NonEmptySharedStr);
 

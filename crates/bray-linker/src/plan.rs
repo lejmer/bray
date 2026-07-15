@@ -301,6 +301,13 @@ pub enum LinkPlanBuildError {
     MissingDebugCompanion,
     /// A debug companion was staged without companion debug policy.
     UnexpectedDebugCompanion,
+    /// One staged output category is incompatible with the selected product category.
+    IncompatibleOutputKind {
+        /// Selected native product category.
+        product: LinkedProductKind,
+        /// Incompatible staged artifact category.
+        artifact: LinkedArtifactKind,
+    },
 }
 
 fn validate_inputs(inputs: &[LinkInput]) -> Result<(), LinkPlanBuildError> {
@@ -360,11 +367,18 @@ fn validate_outputs(
     for output in outputs {
         let destination = output.destination().id();
 
+        if !product_kind.accepts_artifact_kind(output.kind()) {
+            return Err(LinkPlanBuildError::IncompatibleOutputKind {
+                product: product_kind,
+                artifact: output.kind(),
+            });
+        }
+
         if !destinations.insert(destination) {
             return Err(LinkPlanBuildError::DuplicateOutput(destination));
         }
 
-        if let Some(first) = paths.insert(output.destination().path(), destination) {
+        if let Some(first) = paths.insert(output.destination().path_key(), destination) {
             return Err(LinkPlanBuildError::OutputPathCollision {
                 first,
                 second: destination,
@@ -398,7 +412,9 @@ fn validate_outputs(
 
 #[cfg(test)]
 mod tests {
-    use crate::test_support::{link_input, link_plan_builder, planned_output};
+    use crate::test_support::{
+        link_input, link_plan_builder, planned_output, planned_output_with_key,
+    };
     use crate::{
         DebugLinkPolicy, LinkInputId, LinkPlanBuildError, LinkPolicy, LinkSymbolName,
         LinkedArtifactKind, LinkedArtifactRequirement, StagingDestinationId,
@@ -475,10 +491,11 @@ mod tests {
             LinkedArtifactRequirement::Required,
             "same.stage",
         ));
-        colliding_outputs.push_output(planned_output(
+        colliding_outputs.push_output(planned_output_with_key(
             1,
             LinkedArtifactKind::DebugCompanion,
             LinkedArtifactRequirement::Optional,
+            ".\\same.stage",
             "same.stage",
         ));
 
@@ -608,6 +625,36 @@ mod tests {
         assert_eq!(
             unexpected_companion.finish(),
             Err(LinkPlanBuildError::UnexpectedDebugCompanion)
+        );
+    }
+
+    #[test]
+    fn plans_reject_outputs_for_another_product_kind() {
+        let mut builder = link_plan_builder();
+
+        builder.push_input(link_input(0, "main.o"));
+
+        builder.push_output(planned_output(
+            0,
+            LinkedArtifactKind::Executable,
+            LinkedArtifactRequirement::Required,
+            "application.stage",
+        ));
+        builder.push_output(planned_output(
+            1,
+            LinkedArtifactKind::ImportLibrary,
+            LinkedArtifactRequirement::Optional,
+            "application.lib.stage",
+        ));
+
+        builder.set_entry_point(symbol("_start"));
+
+        assert_eq!(
+            builder.finish(),
+            Err(LinkPlanBuildError::IncompatibleOutputKind {
+                product: crate::LinkedProductKind::Executable,
+                artifact: LinkedArtifactKind::ImportLibrary,
+            })
         );
     }
 

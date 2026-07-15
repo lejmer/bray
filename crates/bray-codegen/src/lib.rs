@@ -29,11 +29,10 @@ pub use options::{CodegenOptions, DebugInformationMode, OptimizationLevel, SizeP
 pub use outcome::{CodegenFailure, CodegenOutcome, CodegenStatus};
 pub use request::{CodegenRequest, CodegenRequestBuildError};
 pub use target::{
-    CallableAbiMapping, CodeModel, CodegenLinkage, CodegenTarget, CodegenTargetBuildError,
-    Endianness, ObjectFormat, RelocationModel, TargetAbi, TargetAbiBuildError, TargetAddressSpace,
-    TargetAddressSpaceKind, TargetArchitecture, TargetCallingConvention, TargetCompatibility,
-    TargetContract, TargetDataLayout, TargetDataLayoutBuildError, TargetIdentity,
-    TargetMachineProperties, TargetMachineSelection, TargetScalarKind, TargetScalarLayout,
-    TargetScalarLayoutBuildError, TargetSymbolConvention, TargetSymbolConventionBuildError,
+    CallableAbiMapping, CodegenLinkage, CodegenTarget, CodegenTargetBuildError, TargetAbi,
+    TargetAbiBuildError, TargetAddressSpace, TargetAddressSpaceKind, TargetCallingConvention,
+    TargetCompatibility, TargetContract, TargetDataLayout, TargetDataLayoutBuildError,
+    TargetMachineSelection, TargetScalarKind, TargetScalarLayout, TargetScalarLayoutBuildError,
+    TargetSymbolConvention, TargetSymbolConventionBuildError,
 };
 pub use unit::{CodegenUnit, CodegenUnitBuildError, CodegenUnitKey};

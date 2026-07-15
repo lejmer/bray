@@ -1,11 +1,9 @@
 use std::sync::Arc;
 
 use bray_base::{NonEmptySharedStr, sorted_unique_shared_slice};
+use bray_target::{CodeModel, RelocationModel, TargetIdentity, TargetMachineProperties};
 
-use super::{
-    CodeModel, RelocationModel, TargetAbi, TargetCompatibility, TargetDataLayout, TargetIdentity,
-    TargetMachineProperties, TargetSymbolConvention,
-};
+use super::{TargetAbi, TargetCompatibility, TargetDataLayout, TargetSymbolConvention};
 
 /// Complete target semantics that no backend may rediscover or override.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]

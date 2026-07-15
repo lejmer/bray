@@ -1,5 +1,8 @@
 use std::num::NonZeroU64;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+use bray_base::NonEmptySharedStr;
 
 /// Native product category produced by one link plan.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -19,6 +22,30 @@ impl LinkedProductKind {
             Self::Executable => LinkedArtifactKind::Executable,
             Self::SharedLibrary => LinkedArtifactKind::SharedLibrary,
             Self::StaticLibrary => LinkedArtifactKind::StaticLibrary,
+        }
+    }
+
+    pub(crate) const fn accepts_artifact_kind(self, artifact: LinkedArtifactKind) -> bool {
+        match self {
+            Self::Executable => matches!(
+                artifact,
+                LinkedArtifactKind::Executable
+                    | LinkedArtifactKind::DebugCompanion
+                    | LinkedArtifactKind::PlatformCompanion
+            ),
+            Self::SharedLibrary => matches!(
+                artifact,
+                LinkedArtifactKind::SharedLibrary
+                    | LinkedArtifactKind::ImportLibrary
+                    | LinkedArtifactKind::DebugCompanion
+                    | LinkedArtifactKind::PlatformCompanion
+            ),
+            Self::StaticLibrary => matches!(
+                artifact,
+                LinkedArtifactKind::StaticLibrary
+                    | LinkedArtifactKind::DebugCompanion
+                    | LinkedArtifactKind::PlatformCompanion
+            ),
         }
     }
 }
@@ -65,11 +92,28 @@ impl StagingDestinationId {
     }
 }
 
+/// Host-normalized identity used to detect staging path aliases.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct StagingPathKey(NonEmptySharedStr);
+
+impl StagingPathKey {
+    /// Creates a staging path key unless its emitter-normalized representation is empty.
+    pub fn try_new(value: impl Into<Arc<str>>) -> Option<Self> {
+        NonEmptySharedStr::try_new(value).map(Self)
+    }
+
+    /// Returns the opaque emitter-normalized representation.
+    pub fn as_str(&self) -> &str {
+        self.0.as_str()
+    }
+}
+
 /// Exact emitter-owned filesystem destination available to the linker.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct StagingDestination {
     id: StagingDestinationId,
     path: PathBuf,
+    path_key: StagingPathKey,
 }
 
 impl StagingDestination {
@@ -77,6 +121,7 @@ impl StagingDestination {
     pub fn try_new(
         id: StagingDestinationId,
         path: impl Into<PathBuf>,
+        path_key: StagingPathKey,
     ) -> Result<Self, StagingDestinationBuildError> {
         let path = path.into();
 
@@ -84,7 +129,7 @@ impl StagingDestination {
             return Err(StagingDestinationBuildError::EmptyPath);
         }
 
-        Ok(Self { id, path })
+        Ok(Self { id, path, path_key })
     }
 
     /// Returns the emitter-assigned staging identity.
@@ -95,6 +140,11 @@ impl StagingDestination {
     /// Returns the exact filesystem path writable by the selected driver.
     pub fn path(&self) -> &Path {
         &self.path
+    }
+
+    /// Returns the emitter-normalized identity used for collision detection.
+    pub const fn path_key(&self) -> &StagingPathKey {
+        &self.path_key
     }
 }
 
@@ -185,7 +235,7 @@ impl LinkedArtifact {
 mod tests {
     use super::{
         LinkedArtifactKind, LinkedProductKind, StagingDestination, StagingDestinationBuildError,
-        StagingDestinationId,
+        StagingDestinationId, StagingPathKey,
     };
 
     #[test]
@@ -208,8 +258,12 @@ mod tests {
 
     #[test]
     fn staging_destinations_require_paths() {
+        let Some(path_key) = StagingPathKey::try_new("output.stage") else {
+            panic!("test staging path key must be valid");
+        };
+
         assert_eq!(
-            StagingDestination::try_new(StagingDestinationId::new(0), ""),
+            StagingDestination::try_new(StagingDestinationId::new(0), "", path_key),
             Err(StagingDestinationBuildError::EmptyPath)
         );
     }

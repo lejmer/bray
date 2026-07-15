@@ -1,19 +1,21 @@
 use std::num::{NonZeroU16, NonZeroU32};
 
 use bray_symbols::CallableAbi;
+use bray_target::{
+    CodeModel, Endianness, ObjectFormat, RelocationModel, TargetArchitecture, TargetIdentity,
+    TargetMachineProperties,
+};
 use bray_testing::test_mir_unit;
 
 use crate::{
     ArtifactContent, BackendArtifactContribution, BackendArtifactId, BackendArtifactKind,
     BackendArtifactRequest, BackendArtifactRequestEntry, BackendArtifactRequirement,
-    BackendIdentity, BackendSerializationOptions, CallableAbiMapping, CodeModel,
-    CodegenCancellation, CodegenLinkage, CodegenOptions, CodegenRequest, CodegenTarget,
-    CodegenUnit, CodegenUnitKey, DebugInformationMode, DebugInformationOutputMode, Endianness,
-    LinkableArtifactRequirement, ObjectFormat, OptimizationLevel, RelocationModel, SizePreference,
-    TargetAbi, TargetAddressSpace, TargetAddressSpaceKind, TargetArchitecture,
-    TargetCallingConvention, TargetCompatibility, TargetContract, TargetDataLayout, TargetIdentity,
-    TargetMachineProperties, TargetMachineSelection, TargetScalarKind, TargetScalarLayout,
-    TargetSymbolConvention,
+    BackendIdentity, BackendSerializationOptions, CallableAbiMapping, CodegenCancellation,
+    CodegenLinkage, CodegenOptions, CodegenRequest, CodegenTarget, CodegenUnit, CodegenUnitKey,
+    DebugInformationMode, DebugInformationOutputMode, LinkableArtifactRequirement,
+    OptimizationLevel, SizePreference, TargetAbi, TargetAddressSpace, TargetAddressSpaceKind,
+    TargetCallingConvention, TargetCompatibility, TargetContract, TargetDataLayout,
+    TargetMachineSelection, TargetScalarKind, TargetScalarLayout, TargetSymbolConvention,
 };
 
 pub(crate) struct CodegenRequestFixture {

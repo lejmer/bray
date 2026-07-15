@@ -1,14 +1,14 @@
 use std::num::NonZeroU64;
 
-use bray_codegen::{CodeModel, ObjectFormat, RelocationModel, TargetArchitecture, TargetIdentity};
 use bray_symbols::{PackageIdentity, ProductIdentity};
+use bray_target::{CodeModel, ObjectFormat, RelocationModel, TargetArchitecture, TargetIdentity};
 
 use crate::{
     DeadStripPolicy, DebugLinkPolicy, LinkInput, LinkInputId, LinkInputKind, LinkInputMode,
     LinkInputProvenance, LinkInputSource, LinkModel, LinkPlan, LinkPlanBuilder, LinkPolicy,
     LinkTarget, LinkedArtifact, LinkedArtifactKind, LinkedArtifactRequirement, LinkedProductKind,
     LinkerDriverIdentity, LinkerDriverKind, PlannedLinkedArtifact, SectionGarbageCollectionPolicy,
-    StagingDestination, StagingDestinationId,
+    StagingDestination, StagingDestinationId, StagingPathKey,
 };
 
 pub(crate) fn link_plan_builder() -> LinkPlanBuilder {
@@ -74,8 +74,31 @@ pub(crate) fn planned_output(
     PlannedLinkedArtifact::new(kind, requirement, staging_destination(ordinal, path))
 }
 
+pub(crate) fn planned_output_with_key(
+    ordinal: u32,
+    kind: LinkedArtifactKind,
+    requirement: LinkedArtifactRequirement,
+    path: &str,
+    path_key: &str,
+) -> PlannedLinkedArtifact {
+    PlannedLinkedArtifact::new(
+        kind,
+        requirement,
+        staging_destination_with_key(ordinal, path, path_key),
+    )
+}
+
 pub(crate) fn staging_destination(ordinal: u32, path: &str) -> StagingDestination {
-    let Ok(destination) = StagingDestination::try_new(StagingDestinationId::new(ordinal), path)
+    staging_destination_with_key(ordinal, path, path)
+}
+
+fn staging_destination_with_key(ordinal: u32, path: &str, path_key: &str) -> StagingDestination {
+    let Some(path_key) = StagingPathKey::try_new(path_key) else {
+        panic!("test staging path key must be valid");
+    };
+
+    let Ok(destination) =
+        StagingDestination::try_new(StagingDestinationId::new(ordinal), path, path_key)
     else {
         panic!("test staging destination must be valid");
     };

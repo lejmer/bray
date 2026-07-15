@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
-use bray_codegen::TargetIdentity;
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::ProductIdentity;
+use bray_target::TargetIdentity;
 
 use crate::{
     LinkInputId, LinkPlan, LinkedArtifact, LinkedArtifactRequirement, LinkerDriverIdentity,
@@ -191,11 +191,11 @@ impl LinkOutcome {
         }
     }
 
-    /// Creates a cancelled result without diagnostics or partial staged outputs.
-    pub const fn cancelled() -> Self {
+    /// Creates a cancelled result without partial staged outputs.
+    pub const fn cancelled(diagnostics: DiagnosticBag) -> Self {
         Self {
             status: LinkStatus::Cancelled,
-            diagnostics: DiagnosticBag::new(),
+            diagnostics,
         }
     }
 
@@ -302,12 +302,18 @@ mod tests {
     #[test]
     fn failed_and_cancelled_outcomes_expose_no_partial_artifacts() {
         let failed = LinkOutcome::failed(LinkFailure::Invocation, DiagnosticBag::new());
-        let cancelled = LinkOutcome::cancelled();
+        let diagnostics = DiagnosticBag::single(Diagnostic::new(
+            DiagnosticId::new(1),
+            DiagnosticKind::RequestMissingSourceInput,
+            SeverityKind::Error,
+        ));
+        let cancelled = LinkOutcome::cancelled(diagnostics.clone());
 
         assert!(matches!(failed.status(), LinkStatus::Failed(_)));
         assert_eq!(failed.artifacts(), None);
 
         assert!(matches!(cancelled.status(), LinkStatus::Cancelled));
         assert_eq!(cancelled.artifacts(), None);
+        assert_eq!(cancelled.diagnostics(), &diagnostics);
     }
 }
