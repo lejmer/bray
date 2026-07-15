@@ -2,17 +2,10 @@
 
 #![forbid(unsafe_code)]
 
-#[expect(
-    dead_code,
-    reason = "BRA-166 and BRA-167 will use private artifact construction and validation"
-)]
 mod artifact;
-#[expect(
-    dead_code,
-    reason = "BRA-167 will construct emission outcomes after atomic publication"
-)]
 mod outcome;
 mod plan;
+mod publication;
 mod request;
 mod sink;
 
@@ -31,7 +24,10 @@ pub use plan::{
     EmissionPlanner, EmissionPlanningError, PackageInterfacePolicy, PlannedArtifact,
     PlannedArtifactDestination,
 };
+pub use publication::ArtifactPublisher;
 pub use request::{
     EmissionRequest, EmissionRequestBuildError, RequestedArtifact, RequestedArtifactDestination,
 };
-pub use sink::{OutputSink, OutputSinkId, ReplacementPolicy};
+pub use sink::{
+    IndirectOutputSink, OutputSink, OutputSinkId, OutputSinkResolver, ReplacementPolicy,
+};

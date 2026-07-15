@@ -136,10 +136,11 @@ impl DiagnosticRenderer {
 #[cfg(test)]
 mod tests {
     use bray_diagnostics::{
-        Diagnostic, DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticBag,
-        DiagnosticId, DiagnosticIoErrorKind, DiagnosticKind, DiagnosticLabel, DiagnosticLabelKind,
-        DiagnosticLabelStyle, DiagnosticModuleTrust, DiagnosticNameKind, DiagnosticNote,
-        DiagnosticNoteKind, DiagnosticVisibility, SeverityKind,
+        Diagnostic, DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticArtifactKind,
+        DiagnosticBag, DiagnosticId, DiagnosticIoErrorKind, DiagnosticKind, DiagnosticLabel,
+        DiagnosticLabelKind, DiagnosticLabelStyle, DiagnosticModuleTrust, DiagnosticNameKind,
+        DiagnosticNote, DiagnosticNoteKind, DiagnosticOutputSink, DiagnosticVisibility,
+        SeverityKind,
     };
     use bray_source::{SourceId, SourceSpan, TextRange, TextSize};
     use bray_syntax::SyntaxKind;
@@ -185,6 +186,30 @@ mod tests {
         assert_eq!(
             note.message(),
             "source files must be readable before compilation"
+        );
+    }
+
+    #[test]
+    fn renderer_localizes_structured_emission_diagnostics() {
+        let diagnostic = Diagnostic::new(
+            DiagnosticId::new(0),
+            DiagnosticKind::EmissionArtifactWriteFailed,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::artifact_kind(
+            DiagnosticArtifactKind::PackageInterface,
+        ))
+        .with_arg(DiagnosticArg::artifact_ordinal(0))
+        .with_arg(DiagnosticArg::output_sink(DiagnosticOutputSink::Memory(
+            "host.output".to_owned(),
+        )))
+        .with_arg(DiagnosticArg::io_error_kind(DiagnosticIoErrorKind::Other));
+
+        let rendered = DiagnosticRenderer::english().render(&diagnostic);
+
+        assert_eq!(
+            rendered.message(),
+            "could not write artifact output memory collector 'host.output': other I/O error"
         );
     }
 

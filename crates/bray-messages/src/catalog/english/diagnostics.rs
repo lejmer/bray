@@ -37,6 +37,50 @@ const REQUEST_INVALID_WORKER_BUDGET: &[MessageTemplatePart] = &[MessageTemplateP
     "worker budget must be greater than zero",
 )];
 
+const EMISSION_MISSING_CONTRIBUTION: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("missing required "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ArtifactKind),
+    MessageTemplatePart::Text(" artifact contribution"),
+];
+
+const EMISSION_INVALID_CONTRIBUTION: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Arg(DiagnosticArgName::ArtifactKind),
+    MessageTemplatePart::Text(" artifact contribution does not match the emission plan"),
+];
+
+const EMISSION_ARTIFACT_READ_FAILED: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("could not read "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ArtifactKind),
+    MessageTemplatePart::Text(" artifact content: "),
+    MessageTemplatePart::Arg(DiagnosticArgName::IoErrorKind),
+];
+
+const EMISSION_ARTIFACT_OPEN_FAILED: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("could not open artifact output "),
+    MessageTemplatePart::Arg(DiagnosticArgName::OutputSink),
+    MessageTemplatePart::Text(": "),
+    MessageTemplatePart::Arg(DiagnosticArgName::IoErrorKind),
+];
+
+const EMISSION_ARTIFACT_WRITE_FAILED: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("could not write artifact output "),
+    MessageTemplatePart::Arg(DiagnosticArgName::OutputSink),
+    MessageTemplatePart::Text(": "),
+    MessageTemplatePart::Arg(DiagnosticArgName::IoErrorKind),
+];
+
+const EMISSION_ARTIFACT_FLUSH_FAILED: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("could not flush artifact output "),
+    MessageTemplatePart::Arg(DiagnosticArgName::OutputSink),
+    MessageTemplatePart::Text(": "),
+    MessageTemplatePart::Arg(DiagnosticArgName::IoErrorKind),
+];
+
+const EMISSION_ARTIFACT_DIGEST_MISMATCH: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Arg(DiagnosticArgName::ArtifactKind),
+    MessageTemplatePart::Text(" artifact content does not match its declared digest"),
+];
+
 const LEXICAL_INVALID_CHARACTER: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("invalid character "),
     MessageTemplatePart::Arg(DiagnosticArgName::Character),
@@ -366,6 +410,27 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         }
         DiagnosticKind::BindingIncoherentAlternativePattern => {
             MessageTemplate::new(BINDING_INCOHERENT_ALTERNATIVE_PATTERN)
+        }
+        DiagnosticKind::EmissionMissingContribution => {
+            MessageTemplate::new(EMISSION_MISSING_CONTRIBUTION)
+        }
+        DiagnosticKind::EmissionInvalidContribution => {
+            MessageTemplate::new(EMISSION_INVALID_CONTRIBUTION)
+        }
+        DiagnosticKind::EmissionArtifactReadFailed => {
+            MessageTemplate::new(EMISSION_ARTIFACT_READ_FAILED)
+        }
+        DiagnosticKind::EmissionArtifactOpenFailed => {
+            MessageTemplate::new(EMISSION_ARTIFACT_OPEN_FAILED)
+        }
+        DiagnosticKind::EmissionArtifactWriteFailed => {
+            MessageTemplate::new(EMISSION_ARTIFACT_WRITE_FAILED)
+        }
+        DiagnosticKind::EmissionArtifactFlushFailed => {
+            MessageTemplate::new(EMISSION_ARTIFACT_FLUSH_FAILED)
+        }
+        DiagnosticKind::EmissionArtifactDigestMismatch => {
+            MessageTemplate::new(EMISSION_ARTIFACT_DIGEST_MISMATCH)
         }
         DiagnosticKind::InterfaceInvalidMagic
         | DiagnosticKind::InterfaceUnsupportedFormatRevision

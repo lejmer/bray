@@ -99,6 +99,20 @@ pub enum DiagnosticKind {
     BindingNameAlreadyDefined,
     /// Alternatives do not introduce one coherent set of pattern bindings.
     BindingIncoherentAlternativePattern,
+    /// A required planned artifact contribution was not supplied.
+    EmissionMissingContribution,
+    /// An artifact contribution does not satisfy the immutable emission plan.
+    EmissionInvalidContribution,
+    /// Completed artifact content could not be read for validation or publication.
+    EmissionArtifactReadFailed,
+    /// A planned external artifact destination could not be opened.
+    EmissionArtifactOpenFailed,
+    /// Complete artifact bytes could not be written to their destination.
+    EmissionArtifactWriteFailed,
+    /// A completed artifact destination could not be flushed.
+    EmissionArtifactFlushFailed,
+    /// Completed artifact bytes do not match the producer-supplied digest.
+    EmissionArtifactDigestMismatch,
 }
 
 impl DiagnosticKind {
@@ -152,6 +166,13 @@ impl DiagnosticKind {
             Self::BindingMalformedName => 6005,
             Self::BindingNameAlreadyDefined => 6006,
             Self::BindingIncoherentAlternativePattern => 6007,
+            Self::EmissionMissingContribution => 9001,
+            Self::EmissionInvalidContribution => 9002,
+            Self::EmissionArtifactReadFailed => 9003,
+            Self::EmissionArtifactOpenFailed => 9004,
+            Self::EmissionArtifactWriteFailed => 9005,
+            Self::EmissionArtifactFlushFailed => 9006,
+            Self::EmissionArtifactDigestMismatch => 9007,
         };
 
         DiagnosticCode::new(raw)
@@ -209,6 +230,13 @@ impl DiagnosticKind {
             Self::BindingMalformedName => "binding_malformed_name",
             Self::BindingNameAlreadyDefined => "binding_name_already_defined",
             Self::BindingIncoherentAlternativePattern => "binding_incoherent_alternative_pattern",
+            Self::EmissionMissingContribution => "emission_missing_contribution",
+            Self::EmissionInvalidContribution => "emission_invalid_contribution",
+            Self::EmissionArtifactReadFailed => "emission_artifact_read_failed",
+            Self::EmissionArtifactOpenFailed => "emission_artifact_open_failed",
+            Self::EmissionArtifactWriteFailed => "emission_artifact_write_failed",
+            Self::EmissionArtifactFlushFailed => "emission_artifact_flush_failed",
+            Self::EmissionArtifactDigestMismatch => "emission_artifact_digest_mismatch",
         }
     }
 }
@@ -263,7 +291,7 @@ mod tests {
         }
     }
 
-    fn all_diagnostic_kinds() -> [DiagnosticKind; 45] {
+    fn all_diagnostic_kinds() -> [DiagnosticKind; 54] {
         [
             DiagnosticKind::SourceFileReadFailed,
             DiagnosticKind::SourceInvalidUtf8,
@@ -310,6 +338,15 @@ mod tests {
             DiagnosticKind::BindingInaccessibleName,
             DiagnosticKind::BindingWrongNameKind,
             DiagnosticKind::BindingMalformedName,
+            DiagnosticKind::BindingNameAlreadyDefined,
+            DiagnosticKind::BindingIncoherentAlternativePattern,
+            DiagnosticKind::EmissionMissingContribution,
+            DiagnosticKind::EmissionInvalidContribution,
+            DiagnosticKind::EmissionArtifactReadFailed,
+            DiagnosticKind::EmissionArtifactOpenFailed,
+            DiagnosticKind::EmissionArtifactWriteFailed,
+            DiagnosticKind::EmissionArtifactFlushFailed,
+            DiagnosticKind::EmissionArtifactDigestMismatch,
         ]
     }
 }

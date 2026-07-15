@@ -44,6 +44,30 @@ impl DiagnosticArg {
         )
     }
 
+    /// Creates an artifact-kind argument.
+    pub const fn artifact_kind(kind: DiagnosticArtifactKind) -> Self {
+        Self::new(
+            DiagnosticArgName::ArtifactKind,
+            DiagnosticArgValue::ArtifactKind(kind),
+        )
+    }
+
+    /// Creates a same-kind artifact ordinal argument.
+    pub const fn artifact_ordinal(ordinal: u32) -> Self {
+        Self::new(
+            DiagnosticArgName::ArtifactOrdinal,
+            DiagnosticArgValue::ArtifactOrdinal(ordinal),
+        )
+    }
+
+    /// Creates an output-sink argument.
+    pub const fn output_sink(sink: DiagnosticOutputSink) -> Self {
+        Self::new(
+            DiagnosticArgName::OutputSink,
+            DiagnosticArgValue::OutputSink(sink),
+        )
+    }
+
     /// Creates an expected package-identity argument.
     pub fn expected_package_identity(identity: impl Into<String>) -> Self {
         Self::new(
@@ -221,6 +245,10 @@ pub enum DiagnosticArgName {
     ActualCount,
     /// Path of an external compiler artifact.
     ArtifactPath,
+    /// Category of compiler artifact involved in an operation.
+    ArtifactKind,
+    /// Stable same-category artifact ordinal.
+    ArtifactOrdinal,
     /// Actual interface or language revision.
     ActualRevision,
     /// Byte that participates in the diagnostic.
@@ -263,6 +291,8 @@ pub enum DiagnosticArgName {
     InterfaceSection,
     /// Stable I/O error category from the host.
     IoErrorKind,
+    /// Typed external output destination.
+    OutputSink,
     /// Maximum accepted count or size.
     MaximumCount,
     /// Expected interface or language revision.
@@ -291,6 +321,8 @@ impl DiagnosticArgName {
         match self {
             Self::ActualCount => "actual_count",
             Self::ArtifactPath => "artifact_path",
+            Self::ArtifactKind => "artifact_kind",
+            Self::ArtifactOrdinal => "artifact_ordinal",
             Self::ActualRevision => "actual_revision",
             Self::Byte => "byte",
             Self::ByteCount => "byte_count",
@@ -312,6 +344,7 @@ impl DiagnosticArgName {
             Self::InterfaceLimit => "interface_limit",
             Self::InterfaceSection => "interface_section",
             Self::IoErrorKind => "io_error_kind",
+            Self::OutputSink => "output_sink",
             Self::MaximumCount => "maximum_count",
             Self::ExpectedRevision => "expected_revision",
             Self::SourceName => "source_name",
@@ -335,6 +368,10 @@ pub enum DiagnosticArgValue {
     Byte(u8),
     /// Source byte count.
     ByteCount(u64),
+    /// Compiler artifact category.
+    ArtifactKind(DiagnosticArtifactKind),
+    /// Same-category artifact ordinal.
+    ArtifactOrdinal(u32),
     /// Source character.
     Character(char),
     /// Source-level declaration name.
@@ -357,6 +394,8 @@ pub enum DiagnosticArgValue {
     InterfaceSection(DiagnosticInterfaceSection),
     /// Stable I/O error category from the host.
     IoErrorKind(DiagnosticIoErrorKind),
+    /// Typed external output destination.
+    OutputSink(DiagnosticOutputSink),
     /// Effective declaration visibility.
     Visibility(DiagnosticVisibility),
     /// Effective module trust state.
@@ -381,6 +420,66 @@ pub enum DiagnosticArgValue {
     WorkerCount(u64),
     /// Interface or language revision.
     Revision(u64),
+}
+
+/// Locale-neutral compiler artifact category used by diagnostics.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum DiagnosticArtifactKind {
+    /// Human-readable target assembly.
+    Assembly,
+    /// Human-readable backend low-level IR.
+    BackendIr,
+    /// Backend binary IR or bitcode.
+    BackendBitcode,
+    /// Relocatable native object.
+    RelocatableObject,
+    /// Backend-owned directly executable module.
+    ExecutableModule,
+    /// Separately stored debug data.
+    DebugCompanion,
+    /// Compiled package interface.
+    PackageInterface,
+    /// Compiler-owned dependency metadata.
+    DependencyMetadata,
+    /// Final executable product.
+    Executable,
+    /// Final static library product.
+    StaticLibrary,
+    /// Final shared library product.
+    SharedLibrary,
+    /// Target-required linked companion.
+    LinkedCompanion,
+}
+
+impl DiagnosticArtifactKind {
+    /// Returns the stable machine key for this artifact category.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Assembly => "assembly",
+            Self::BackendIr => "backend_ir",
+            Self::BackendBitcode => "backend_bitcode",
+            Self::RelocatableObject => "relocatable_object",
+            Self::ExecutableModule => "executable_module",
+            Self::DebugCompanion => "debug_companion",
+            Self::PackageInterface => "package_interface",
+            Self::DependencyMetadata => "dependency_metadata",
+            Self::Executable => "executable",
+            Self::StaticLibrary => "static_library",
+            Self::SharedLibrary => "shared_library",
+            Self::LinkedCompanion => "linked_companion",
+        }
+    }
+}
+
+/// Locale-neutral external output destination used by diagnostics.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum DiagnosticOutputSink {
+    /// Filesystem artifact path.
+    Filesystem(PathBuf),
+    /// Host-owned in-memory collector identity.
+    Memory(String),
+    /// Host-owned writable stream identity.
+    Stream(String),
 }
 
 /// Locale-neutral semantic category expected from name binding.
@@ -624,10 +723,12 @@ mod tests {
             DiagnosticIoErrorKind::from(ErrorKind::NotFound),
             DiagnosticIoErrorKind::NotFound
         );
+
         assert_eq!(
             DiagnosticIoErrorKind::from(ErrorKind::ConnectionReset),
             DiagnosticIoErrorKind::Other
         );
+
         assert_eq!(DiagnosticIoErrorKind::NotFound.as_str(), "not_found");
     }
 }

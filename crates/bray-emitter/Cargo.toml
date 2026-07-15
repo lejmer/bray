@@ -11,6 +11,8 @@ bray-codegen = { path = "../bray-codegen" }
 bray-diagnostics = { path = "../bray-diagnostics" }
 bray-symbols = { path = "../bray-symbols" }
 bray-target = { path = "../bray-target" }
+blake3 = "1"
+sha2 = "0.10"
 
 [dev-dependencies]
 bray-testing = { path = "../bray-testing", features = ["mir-unit"] }

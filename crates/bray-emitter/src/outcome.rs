@@ -1,7 +1,6 @@
 use bray_diagnostics::DiagnosticBag;
 
-use crate::artifact::EmittedArtifactSetBuildError;
-use crate::{ArtifactId, EmissionPlan, EmittedArtifact, EmittedArtifactSet};
+use crate::{ArtifactId, EmittedArtifactSet};
 
 /// Structured reason one emission operation could not publish a complete product.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -41,18 +40,13 @@ pub struct EmissionOutcome {
 }
 
 impl EmissionOutcome {
-    /// Validates complete records against the plan before publishing product success.
     pub(crate) fn try_complete(
-        plan: &EmissionPlan,
-        artifacts: impl IntoIterator<Item = EmittedArtifact>,
+        artifacts: EmittedArtifactSet,
         diagnostics: DiagnosticBag,
-    ) -> Result<Self, EmissionOutcomeBuildError> {
+    ) -> Result<Self, DiagnosticBag> {
         if diagnostics.has_errors() {
-            return Err(EmissionOutcomeBuildError::ErrorDiagnostics(diagnostics));
+            return Err(diagnostics);
         }
-
-        let artifacts = EmittedArtifactSet::try_new(plan, artifacts)
-            .map_err(EmissionOutcomeBuildError::InvalidArtifacts)?;
 
         Ok(Self {
             status: EmissionStatus::Complete(artifacts),
@@ -69,7 +63,7 @@ impl EmissionOutcome {
     }
 
     /// Creates a canceled outcome without diagnostics or partial product success.
-    pub(crate) const fn cancelled() -> Self {
+    pub const fn cancelled() -> Self {
         Self {
             status: EmissionStatus::Cancelled,
             diagnostics: DiagnosticBag::new(),
@@ -95,44 +89,24 @@ impl EmissionOutcome {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) enum EmissionOutcomeBuildError {
-    ErrorDiagnostics(DiagnosticBag),
-    InvalidArtifacts(EmittedArtifactSetBuildError),
-}
-
 #[cfg(test)]
 mod tests {
     use bray_diagnostics::{Diagnostic, DiagnosticBag, DiagnosticId, DiagnosticKind, SeverityKind};
 
-    use super::{EmissionFailure, EmissionOutcome, EmissionOutcomeBuildError, EmissionStatus};
+    use super::{EmissionFailure, EmissionOutcome, EmissionStatus};
     use crate::test_support::{emission_plan, emitted_artifact};
-
-    #[test]
-    fn outcomes_reject_error_diagnostics_for_complete_status() {
-        let plan = emission_plan();
-        let artifact = emitted_artifact(&plan);
-
-        let diagnostics = DiagnosticBag::single(Diagnostic::new(
-            DiagnosticId::new(1),
-            DiagnosticKind::RequestMissingSourceInput,
-            SeverityKind::Error,
-        ));
-
-        assert_eq!(
-            EmissionOutcome::try_complete(&plan, [artifact], diagnostics.clone()),
-            Err(EmissionOutcomeBuildError::ErrorDiagnostics(diagnostics))
-        );
-    }
 
     #[test]
     fn outcomes_expose_artifacts_only_after_complete_plan_validation() {
         let plan = emission_plan();
         let artifact = emitted_artifact(&plan);
 
-        let Ok(complete) = EmissionOutcome::try_complete(&plan, [artifact], DiagnosticBag::new())
-        else {
+        let Ok(artifacts) = crate::EmittedArtifactSet::try_new(&plan, [artifact]) else {
             panic!("matching test artifact must complete emission");
+        };
+
+        let Ok(complete) = EmissionOutcome::try_complete(artifacts, DiagnosticBag::new()) else {
+            panic!("error-free artifacts must complete emission");
         };
 
         assert!(matches!(complete.status(), EmissionStatus::Complete(_)));
@@ -143,5 +117,26 @@ mod tests {
 
         assert_eq!(failed.artifacts(), None);
         assert_eq!(cancelled.artifacts(), None);
+    }
+
+    #[test]
+    fn complete_outcomes_reject_error_diagnostics() {
+        let plan = emission_plan();
+        let artifact = emitted_artifact(&plan);
+
+        let Ok(artifacts) = crate::EmittedArtifactSet::try_new(&plan, [artifact]) else {
+            panic!("matching test artifact must complete emission");
+        };
+
+        let diagnostics = DiagnosticBag::single(Diagnostic::new(
+            DiagnosticId::new(0),
+            DiagnosticKind::EmissionArtifactWriteFailed,
+            SeverityKind::Error,
+        ));
+
+        assert_eq!(
+            EmissionOutcome::try_complete(artifacts, diagnostics.clone()),
+            Err(diagnostics)
+        );
     }
 }

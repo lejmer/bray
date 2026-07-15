@@ -178,6 +178,8 @@ enum DiagnosticArgValueJson {
     Count(u64),
     Byte(u8),
     ByteCount(u64),
+    ArtifactKind(&'static str),
+    ArtifactOrdinal(u32),
     Character(char),
     DeclarationName(String),
     ReferencedName(String),
@@ -189,6 +191,7 @@ enum DiagnosticArgValueJson {
     InterfaceLimit(&'static str),
     InterfaceSection(&'static str),
     IoErrorKind(&'static str),
+    OutputSink(DiagnosticOutputSinkJson),
     Visibility(&'static str),
     ModuleTrust(&'static str),
     SourceName(String),
@@ -209,6 +212,8 @@ impl DiagnosticArgValueJson {
             DiagnosticArgValue::Count(count) => Self::Count(*count),
             DiagnosticArgValue::Byte(byte) => Self::Byte(*byte),
             DiagnosticArgValue::ByteCount(byte_count) => Self::ByteCount(*byte_count),
+            DiagnosticArgValue::ArtifactKind(kind) => Self::ArtifactKind((*kind).as_str()),
+            DiagnosticArgValue::ArtifactOrdinal(ordinal) => Self::ArtifactOrdinal(*ordinal),
             DiagnosticArgValue::Character(character) => Self::Character(*character),
             DiagnosticArgValue::DeclarationName(name) => Self::DeclarationName(name.to_owned()),
             DiagnosticArgValue::ReferencedName(name) => Self::ReferencedName(name.to_owned()),
@@ -226,6 +231,9 @@ impl DiagnosticArgValueJson {
                 Self::InterfaceSection((*section).as_str())
             }
             DiagnosticArgValue::IoErrorKind(kind) => Self::IoErrorKind((*kind).as_str()),
+            DiagnosticArgValue::OutputSink(sink) => {
+                Self::OutputSink(DiagnosticOutputSinkJson::from_sink(sink))
+            }
             DiagnosticArgValue::Visibility(visibility) => Self::Visibility((*visibility).as_str()),
             DiagnosticArgValue::ModuleTrust(trust) => Self::ModuleTrust((*trust).as_str()),
             DiagnosticArgValue::SourceName(name) => Self::SourceName(name.clone()),
@@ -240,6 +248,30 @@ impl DiagnosticArgValueJson {
             }
             DiagnosticArgValue::WorkerCount(worker_count) => Self::WorkerCount(*worker_count),
             DiagnosticArgValue::Revision(revision) => Self::Revision(*revision),
+        }
+    }
+}
+
+#[derive(Serialize)]
+#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
+enum DiagnosticOutputSinkJson {
+    Filesystem(String),
+    Memory(String),
+    Stream(String),
+}
+
+impl DiagnosticOutputSinkJson {
+    fn from_sink(sink: &bray_diagnostics::DiagnosticOutputSink) -> Self {
+        match sink {
+            bray_diagnostics::DiagnosticOutputSink::Filesystem(path) => {
+                Self::Filesystem(path_to_output_string(path))
+            }
+            bray_diagnostics::DiagnosticOutputSink::Memory(identity) => {
+                Self::Memory(identity.to_owned())
+            }
+            bray_diagnostics::DiagnosticOutputSink::Stream(identity) => {
+                Self::Stream(identity.to_owned())
+            }
         }
     }
 }
@@ -287,12 +319,12 @@ mod tests {
         Diagnostic, DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticBag,
         DiagnosticId, DiagnosticInterfaceLimit, DiagnosticInterfaceSection, DiagnosticKind,
         DiagnosticModuleTrust, DiagnosticNameKind, DiagnosticNote, DiagnosticNoteKind,
-        DiagnosticVisibility, SeverityKind,
+        DiagnosticOutputSink, DiagnosticVisibility, SeverityKind,
     };
     use bray_source::{SourceSpan, TextRange, TextSize};
     use bray_syntax::SyntaxKind;
 
-    use super::write_json_diagnostics;
+    use super::{DiagnosticOutputSinkJson, write_json_diagnostics};
     use crate::diagnostic_output::test_support::file_source_store;
 
     #[test]
@@ -555,6 +587,19 @@ mod tests {
         assert_eq!(trust_args[0]["value"]["kind"], "module_trust");
         assert_eq!(trust_args[0]["value"]["value"], "trusted");
         assert_eq!(trust_args[1]["value"]["value"], "ordinary");
+    }
+
+    #[test]
+    fn json_output_serializes_typed_artifact_sinks() {
+        let sink = DiagnosticOutputSink::Memory("host.output".to_owned());
+        let value = DiagnosticOutputSinkJson::from_sink(&sink);
+
+        let Ok(value) = serde_json::to_value(value) else {
+            panic!("diagnostic output sink must serialize");
+        };
+
+        assert_eq!(value["kind"], "memory");
+        assert_eq!(value["value"], "host.output");
     }
 
     #[test]
