@@ -1,10 +1,11 @@
 use std::sync::Arc;
 
 use bray_base::{NonEmptySharedStr, sorted_unique_shared_slice};
+use bray_target::{ObjectFormat, TargetArchitecture};
 
 use crate::{
     AssemblySyntaxKind, BackendArtifactKind, CodegenFailure, CodegenOutcome, CodegenRequest,
-    CodegenTarget, DebugInformationMode, ObjectFormat, TargetArchitecture,
+    CodegenTarget, DebugInformationMode,
 };
 
 /// Stable compiler-facing identity of one backend implementation and compatible toolchain.
@@ -169,11 +170,13 @@ pub trait CodeGenerator: Send + Sync {
 
 #[cfg(test)]
 mod tests {
+    use bray_target::{ObjectFormat, TargetArchitecture};
+
     use super::{BackendCapabilities, BackendIdentity, BackendTargetPlatform, CodeGenerator};
     use crate::{
         ArtifactSpool, AssemblySyntaxKind, BackendArtifactContribution, BackendArtifactKind,
         BackendArtifactRequest, CodegenOutcome, CodegenRequest, CodegenTarget, CodegenUnit,
-        DebugInformationMode, ObjectFormat, TargetArchitecture,
+        DebugInformationMode,
     };
 
     #[test]

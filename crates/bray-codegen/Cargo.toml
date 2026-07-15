@@ -11,6 +11,7 @@ bray-bound-tree = { path = "../bray-bound-tree" }
 bray-diagnostics = { path = "../bray-diagnostics" }
 bray-ir = { path = "../bray-ir" }
 bray-symbols = { path = "../bray-symbols" }
+bray-target = { path = "../bray-target" }
 
 [dev-dependencies]
 bray-testing = { path = "../bray-testing", features = ["mir-unit"] }

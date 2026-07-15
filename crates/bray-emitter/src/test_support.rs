@@ -2,9 +2,10 @@ use bray_codegen::{
     ArtifactDigest, ArtifactDigestAlgorithm, AssemblySyntaxKind, BackendArtifactId,
     BackendArtifactKind, BackendArtifactRequest, BackendArtifactRequestEntry,
     BackendArtifactRequirement, BackendIdentity, BackendSerializationOptions, CodegenUnit,
-    DebugInformationOutputMode, LinkableArtifactRequirement, TargetIdentity,
+    DebugInformationOutputMode, LinkableArtifactRequirement,
 };
 use bray_symbols::PackageIdentity;
+use bray_target::TargetIdentity;
 use bray_testing::test_mir_unit;
 
 use crate::{

@@ -1,8 +1,10 @@
 use std::sync::Arc;
 
+use bray_target::TargetIdentity;
+
 use crate::{
     ArtifactContent, ArtifactDigest, BackendArtifactId, BackendIdentity, CodegenRequest,
-    CodegenUnitKey, TargetIdentity,
+    CodegenUnitKey,
 };
 
 /// One immutable logically identified artifact contribution produced by a backend.

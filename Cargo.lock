@@ -129,6 +129,7 @@ dependencies = [
  "bray-diagnostics",
  "bray-ir",
  "bray-symbols",
+ "bray-target",
  "bray-testing",
 ]
 
@@ -202,6 +203,7 @@ dependencies = [
  "bray-codegen",
  "bray-diagnostics",
  "bray-symbols",
+ "bray-target",
  "bray-testing",
 ]
 
@@ -212,6 +214,16 @@ dependencies = [
  "bray-bound-tree",
  "bray-source",
  "bray-testing",
+]
+
+[[package]]
+name = "bray-linker"
+version = "0.0.0"
+dependencies = [
+ "bray-base",
+ "bray-diagnostics",
+ "bray-symbols",
+ "bray-target",
 ]
 
 [[package]]
@@ -280,6 +292,13 @@ version = "0.0.0"
 dependencies = [
  "bray-base",
  "bray-source",
+]
+
+[[package]]
+name = "bray-target"
+version = "0.0.0"
+dependencies = [
+ "bray-base",
 ]
 
 [[package]]

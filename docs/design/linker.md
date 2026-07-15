@@ -192,6 +192,10 @@ container contract. Such a contract would not turn package interfaces into ordin
 
 The emitter creates every linked output staging destination before invocation and records it in the plan.
 
+Each destination carries both its exact writable path and an emitter-validated normalized path identity. The linker compares the
+normalized identities when rejecting output collisions, including aliases that use different textual paths for the same host
+filesystem destination.
+
 The linker writes only to those staging destinations. It cannot choose or replace the final user-visible path.
 
 After successful invocation, `bray-linker` validates that every required output exists and returns `LinkedArtifact` records with

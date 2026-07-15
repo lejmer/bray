@@ -1,0 +1,12 @@
+[package]
+name = "bray-target"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+bray-base = { path = "../bray-base" }
+
+[lints]
+workspace = true
