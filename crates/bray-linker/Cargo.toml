@@ -1,0 +1,15 @@
+[package]
+name = "bray-linker"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+bray-base = { path = "../bray-base" }
+bray-codegen = { path = "../bray-codegen" }
+bray-diagnostics = { path = "../bray-diagnostics" }
+bray-symbols = { path = "../bray-symbols" }
+
+[lints]
+workspace = true

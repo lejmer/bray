@@ -215,6 +215,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "bray-linker"
+version = "0.0.0"
+dependencies = [
+ "bray-base",
+ "bray-codegen",
+ "bray-diagnostics",
+ "bray-symbols",
+]
+
+[[package]]
 name = "bray-lowering"
 version = "0.0.0"
 dependencies = [
