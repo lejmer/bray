@@ -71,7 +71,7 @@ pub(super) fn encode_provenance(facts: &InterfaceSemanticFacts) -> EncodedSemant
 
     for provenance in &*facts.provenance {
         write_symbol_reference(&mut encoder, &provenance.symbol);
-        write_string(&mut encoder, &provenance.document);
+        write_string(&mut encoder, provenance.document.as_str());
 
         encoder.write_u32(provenance.start);
         encoder.write_u32(provenance.end);

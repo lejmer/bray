@@ -1,29 +1,23 @@
 use std::borrow::Borrow;
 use std::sync::Arc;
 
-use bray_base::shared_str;
+use bray_base::NonEmptySharedStr;
 
 /// A validated ordinary semantic symbol name.
 ///
 /// Missing or recovered names remain absent instead of being represented by an empty name.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct SymbolName(Arc<str>);
+pub struct SymbolName(NonEmptySharedStr);
 
 impl SymbolName {
     /// Creates a name unless its canonical representation is empty.
     pub fn try_new(name: impl Into<Arc<str>>) -> Option<Self> {
-        let name = shared_str(name);
-
-        if name.is_empty() {
-            return None;
-        }
-
-        Some(Self(name))
+        NonEmptySharedStr::try_new(name).map(Self)
     }
 
     /// Returns the canonical name text.
     pub fn as_str(&self) -> &str {
-        &self.0
+        self.0.as_str()
     }
 }
 
@@ -56,6 +50,5 @@ mod tests {
         };
 
         assert_eq!(name.as_str(), "item");
-        assert!(Arc::ptr_eq(&name.0, &text));
     }
 }

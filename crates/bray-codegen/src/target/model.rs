@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use bray_base::{shared_str, sorted_unique_shared_slice};
+use bray_base::{NonEmptySharedStr, sorted_unique_shared_slice};
 
 use super::{
     CodeModel, RelocationModel, TargetAbi, TargetCompatibility, TargetDataLayout, TargetIdentity,
@@ -41,8 +41,8 @@ impl TargetContract {
 pub struct TargetMachineSelection {
     relocation_model: RelocationModel,
     code_model: CodeModel,
-    cpu: Arc<str>,
-    features: Arc<[Arc<str>]>,
+    cpu: NonEmptySharedStr,
+    features: Arc<[NonEmptySharedStr]>,
 }
 
 impl TargetMachineSelection {
@@ -57,16 +57,18 @@ impl TargetMachineSelection {
         Features: IntoIterator<Item = Feature>,
         Feature: Into<Arc<str>>,
     {
-        let cpu = shared_str(cpu);
-        let features: Vec<_> = features.into_iter().map(Into::into).collect();
-
-        if cpu.is_empty() {
+        let Some(cpu) = NonEmptySharedStr::try_new(cpu) else {
             return Err(CodegenTargetBuildError::EmptyCpu);
-        }
+        };
 
-        if features.iter().any(|feature| feature.is_empty()) {
+        let features: Option<Vec<_>> = features
+            .into_iter()
+            .map(NonEmptySharedStr::try_new)
+            .collect();
+
+        let Some(features) = features else {
             return Err(CodegenTargetBuildError::EmptyFeature);
-        }
+        };
 
         Ok(Self {
             relocation_model,
@@ -81,7 +83,7 @@ impl TargetMachineSelection {
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CodegenTarget {
     identity: TargetIdentity,
-    triple: Arc<str>,
+    triple: NonEmptySharedStr,
     contract: TargetContract,
     selection: TargetMachineSelection,
 }
@@ -94,11 +96,9 @@ impl CodegenTarget {
         contract: TargetContract,
         selection: TargetMachineSelection,
     ) -> Result<Self, CodegenTargetBuildError> {
-        let triple = shared_str(triple);
-
-        if triple.is_empty() {
+        let Some(triple) = NonEmptySharedStr::try_new(triple) else {
             return Err(CodegenTargetBuildError::EmptyTriple);
-        }
+        };
 
         Ok(Self {
             identity,
@@ -115,7 +115,7 @@ impl CodegenTarget {
 
     /// Returns the canonical target triple.
     pub fn triple(&self) -> &str {
-        &self.triple
+        self.triple.as_str()
     }
 
     /// Returns validated pointer, alignment, platform, and byte-order facts.
@@ -155,12 +155,15 @@ impl CodegenTarget {
 
     /// Returns the canonical target CPU name.
     pub fn cpu(&self) -> &str {
-        &self.selection.cpu
+        self.selection.cpu.as_str()
     }
 
     /// Returns enabled target features in canonical deterministic order.
     pub fn features(&self) -> impl ExactSizeIterator<Item = &str> {
-        self.selection.features.iter().map(AsRef::as_ref)
+        self.selection
+            .features
+            .iter()
+            .map(NonEmptySharedStr::as_str)
     }
 }
 

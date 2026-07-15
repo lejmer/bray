@@ -50,6 +50,7 @@
 
 - `bray-symbols`
     - Semantic identities for declared things.
+    - Owns canonical package-product identities and language-level product kinds shared by semantic and output phases.
     - Owns typed symbol IDs, kind-specific symbol models, semantic containment, typed member relationships, lookup contracts, and
       lazy symbol-fact contracts.
     - Owns canonical semantic types, closed constant values, open constant terms, generic substitutions, portable dependency-contract

@@ -13,7 +13,7 @@ bray-ir = { path = "../bray-ir" }
 bray-symbols = { path = "../bray-symbols" }
 
 [dev-dependencies]
-bray-testing = { path = "../bray-testing", features = ["bound-unit"] }
+bray-testing = { path = "../bray-testing", features = ["mir-unit"] }
 
 [lints]
 workspace = true

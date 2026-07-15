@@ -12,10 +12,12 @@ bound-unit = [
     "dep:bray-parser",
     "dep:bray-symbols",
 ]
+mir-unit = ["bound-unit", "dep:bray-ir"]
 
 [dependencies]
 bray-bound-tree = { path = "../bray-bound-tree", optional = true }
 bray-declarations = { path = "../bray-declarations", optional = true }
+bray-ir = { path = "../bray-ir", optional = true }
 bray-parser = { path = "../bray-parser", optional = true }
 bray-source = { path = "../bray-source" }
 bray-symbols = { path = "../bray-symbols", features = ["test-support"], optional = true }
