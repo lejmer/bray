@@ -503,6 +503,7 @@ mod tests {
             "same-output",
             0,
         );
+
         let second = linked_artifact(
             ArtifactKind::LinkedCompanion,
             crate::ArtifactRole::Companion,
@@ -551,6 +552,7 @@ mod tests {
         };
 
         assert_eq!(plan.backend_requests().len(), 1);
+
         assert!(matches!(
             plan.artifacts()[0].destination(),
             PlannedArtifactDestination::Publish(_)
@@ -573,6 +575,7 @@ mod tests {
 
         let interface_id =
             ArtifactId::new(request.product().clone(), ArtifactKind::PackageInterface, 0);
+
         let metadata_id = ArtifactId::new(
             request.product().clone(),
             ArtifactKind::DependencyMetadata,
@@ -589,6 +592,7 @@ mod tests {
                 artifact: interface_id,
             }),
         );
+
         let metadata = PlannedArtifact::new(
             metadata_id.clone(),
             ArtifactRequirement::Required,
@@ -615,6 +619,7 @@ mod tests {
             "application",
             0,
         );
+
         let artifact_id = artifact.id().clone();
 
         let request = crate::test_support::emission_request([RequestedArtifact::new(
@@ -656,6 +661,7 @@ mod tests {
         assert_eq!(plan.artifacts().len(), 2);
         assert_eq!(plan.published_artifacts().count(), 1);
         assert_eq!(plan.staged_artifacts().count(), 1);
+
         assert!(
             plan.backend_request(plan.backend_requests()[0].unit())
                 .is_some()

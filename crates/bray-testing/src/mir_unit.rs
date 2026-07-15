@@ -6,6 +6,7 @@ use crate::test_bound_unit;
 pub fn test_mir_unit(unit: u32) -> MirUnit {
     let bound = test_bound_unit(unit);
     let source = bound.key().source();
+
     let mut builder = MirUnitBuilder::new(bound.identity());
 
     let Ok(entry) = builder.push_block(source) else {

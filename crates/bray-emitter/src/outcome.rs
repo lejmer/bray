@@ -68,7 +68,7 @@ impl EmissionOutcome {
         }
     }
 
-    /// Creates a cancelled outcome without diagnostics or partial product success.
+    /// Creates a canceled outcome without diagnostics or partial product success.
     pub(crate) const fn cancelled() -> Self {
         Self {
             status: EmissionStatus::Cancelled,
@@ -111,7 +111,6 @@ mod tests {
     #[test]
     fn outcomes_reject_error_diagnostics_for_complete_status() {
         let plan = emission_plan();
-
         let artifact = emitted_artifact(&plan);
 
         let diagnostics = DiagnosticBag::single(Diagnostic::new(
@@ -129,7 +128,6 @@ mod tests {
     #[test]
     fn outcomes_expose_artifacts_only_after_complete_plan_validation() {
         let plan = emission_plan();
-
         let artifact = emitted_artifact(&plan);
 
         let Ok(complete) = EmissionOutcome::try_complete(&plan, [artifact], DiagnosticBag::new())

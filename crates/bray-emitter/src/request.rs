@@ -183,6 +183,7 @@ mod tests {
             ),
             Err(EmissionRequestBuildError::Empty)
         );
+
         assert_eq!(
             try_request(
                 RequestedArtifactDestination::FilesystemDirectory("out".into()),
