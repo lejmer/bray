@@ -83,7 +83,7 @@ impl<I> MemberEntry<I> {
     }
 }
 
-/// A construction failure for an immutable typed member collection.
+/// A validation failure for an immutable typed member collection.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MemberCollectionBuildError<I> {
     /// The same semantic identity was supplied more than once.
@@ -234,7 +234,7 @@ where
 /// An immutable ordinary-name index over typed member candidates.
 ///
 /// The ID type should be a closed family containing every semantic category that competes in the
-/// owner's ordinary namespace. Entry enumeration preserves construction order; map ordering never
+/// owner's ordinary namespace. Entry enumeration preserves candidate order; map ordering never
 /// creates lookup precedence.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MemberLookupIndex<I> {

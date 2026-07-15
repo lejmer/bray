@@ -8,7 +8,7 @@ pub struct BoundCallableBody {
 }
 
 impl BoundCallableBody {
-    /// Creates a checked callable body backed by a block.
+    /// Creates a checked callable body with its root block.
     pub const fn block(origin: BoundNodeOrigin, block: BoundBlockId) -> Self {
         Self {
             origin,

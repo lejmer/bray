@@ -196,7 +196,7 @@ impl Compilation {
         self.state.options.target_availability()
     }
 
-    /// Returns the lazily published target-filtered compiler-known symbol view.
+    /// Returns the compiler-known symbols available for the selected target.
     pub fn available_compiler_known_symbols(&self) -> &AvailableCompilerKnownSymbols {
         self.fact(
             CompilationFactKey::AvailableCompilerKnownSymbols,
@@ -302,7 +302,7 @@ impl Compilation {
         self.declaration_table_result().diagnostics()
     }
 
-    /// Returns the lazily constructed compilation-wide symbol graph.
+    /// Returns the compilation-wide symbol graph.
     pub fn symbol_graph(&self) -> Result<&SymbolGraph, FactQueryError> {
         self.fact(
             CompilationFactKey::SymbolGraph,

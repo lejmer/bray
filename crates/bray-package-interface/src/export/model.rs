@@ -147,7 +147,7 @@ pub enum PackageInterfaceExportSurfaceError {
     Surface(PackageInterfaceSurfaceBuildError),
 }
 
-/// Failure while freezing a semantically complete package-interface export bundle.
+/// Failure while validating a package-interface export bundle.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum PackageInterfaceExportBuildError {
     /// One exported declaration has no completed semantic fact in the bundle.
@@ -165,7 +165,7 @@ pub struct PackageInterfaceExportBundle {
 }
 
 impl PackageInterfaceExportBundle {
-    /// Validates and freezes one structurally and semantically complete export graph.
+    /// Creates an export bundle after validating structural and semantic completeness.
     pub fn try_new(
         surface: PackageInterfaceSurface,
         semantic_facts: InterfaceSemanticFacts,

@@ -1,7 +1,6 @@
 /// Read-only cancellation observation for one code generation request.
 ///
-/// Compilation owns cancellation and publication. Backends observe the signal between major
-/// phases and before returning artifacts, without publishing task-local partial work.
+/// Backends must observe cancellation between major phases and before returning artifacts.
 pub trait CodegenCancellation: Send + Sync {
     /// Returns whether the current code generation request should stop.
     fn is_cancelled(&self) -> bool;

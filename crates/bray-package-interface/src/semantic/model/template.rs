@@ -320,7 +320,7 @@ impl InterfaceCheckedTemplate {
     }
 }
 
-/// One declaration-owned template addressable through the lazy fact directory.
+/// One declaration-owned template addressable through the fact directory.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct InterfaceDeclarationTemplate {
     owner: InterfaceSymbolReference,

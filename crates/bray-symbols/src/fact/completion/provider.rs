@@ -4,7 +4,7 @@ use super::SymbolFactCompletionRequest;
 
 /// Read-only cancellation contract used while planning symbol completion.
 pub trait SymbolCompletionCancellation: Sync {
-    /// Returns whether the current completion request should stop without publication.
+    /// Returns whether the current completion request should stop.
     fn is_cancelled(&self) -> bool;
 }
 

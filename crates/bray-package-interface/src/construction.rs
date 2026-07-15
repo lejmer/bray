@@ -20,7 +20,7 @@ pub struct LoadedInterfaceSurface<'surface> {
 }
 
 impl<'surface> LoadedInterfaceSurface<'surface> {
-    /// Creates a construction view without retaining a codec reader or artifact bytes.
+    /// Creates a view over one validated package surface.
     pub const fn new(
         interface: ImportedInterfaceId,
         content_hash: InterfaceContentHash,
@@ -126,7 +126,7 @@ pub struct ImportedInterfaceSymbolResolver<'surface> {
 }
 
 impl<'surface> ImportedInterfaceSymbolResolver<'surface> {
-    /// Creates a resolver over the exact loaded surfaces used to construct `symbols`.
+    /// Creates a resolver for the loaded surfaces associated with `symbols`.
     pub fn try_new(
         current: LoadedInterfaceSurface<'surface>,
         surfaces: impl IntoIterator<Item = LoadedInterfaceSurface<'surface>>,

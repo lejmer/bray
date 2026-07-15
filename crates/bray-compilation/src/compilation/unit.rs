@@ -19,7 +19,7 @@ use super::binder::CompilationBinderFacts;
 use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError, PublishedUnitFact};
 
 impl Compilation {
-    /// Returns one lazily bound immutable semantic unit.
+    /// Returns one bound semantic unit and its diagnostics.
     pub fn bound_unit(
         &self,
         key: BoundUnitKey,
@@ -29,7 +29,7 @@ impl Compilation {
         Ok(Arc::clone(published.result()))
     }
 
-    /// Returns durable control-flow facts for one lazily bound semantic unit.
+    /// Returns the control-flow facts and diagnostics for one bound semantic unit.
     pub fn checked_control_flow(
         &self,
         key: BoundUnitKey,

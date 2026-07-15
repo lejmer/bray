@@ -47,7 +47,7 @@ enum LocalSymbolMutation {
     PostconditionResult { scope: usize },
 }
 
-/// An opaque position in one task-local local-symbol builder.
+/// A checkpoint in one local-symbol builder.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct LocalSymbolSnapshotCheckpoint {
     region: LocalSymbolRegionId,
@@ -60,7 +60,7 @@ pub struct LocalSymbolSnapshotCheckpoint {
     mutations: usize,
 }
 
-/// A task-local builder that freezes region-scoped symbols and lexical scopes atomically.
+/// Builder for one region's local symbols and lexical scopes.
 #[derive(Debug)]
 pub struct LocalSymbolSnapshotBuilder {
     region: LocalSymbolRegionId,
@@ -77,7 +77,7 @@ pub struct LocalSymbolSnapshotBuilder {
 }
 
 impl LocalSymbolSnapshotBuilder {
-    /// Begins deterministic construction for one exact local semantic region.
+    /// Creates a builder for one exact local semantic region.
     pub fn new(region: LocalSymbolRegionId, key: LocalSymbolRegionKey) -> Self {
         Self {
             region,
@@ -403,7 +403,7 @@ impl LocalSymbolSnapshotBuilder {
         Ok(())
     }
 
-    /// Returns the lexical parent of one scope under construction.
+    /// Returns the current lexical parent of one scope.
     pub fn scope_parent(
         &self,
         scope: LocalScopeId,
@@ -417,7 +417,7 @@ impl LocalSymbolSnapshotBuilder {
         Ok(scope.parent)
     }
 
-    /// Returns the lexical boundary category of one scope under construction.
+    /// Returns the current lexical boundary category of one scope.
     pub fn scope_boundary(
         &self,
         scope: LocalScopeId,
@@ -425,7 +425,7 @@ impl LocalSymbolSnapshotBuilder {
         self.checked_scope(scope).map(|scope| scope.boundary)
     }
 
-    /// Returns named local candidates currently visible in one scope under construction.
+    /// Returns named local candidates currently visible in one scope.
     pub fn local_symbols_named(
         &self,
         scope: LocalScopeId,
@@ -440,7 +440,7 @@ impl LocalSymbolSnapshotBuilder {
         Ok(scope.local_names.get(name).map_or(&[], Vec::as_slice))
     }
 
-    /// Returns whether one named local candidate under construction contains recovery.
+    /// Returns whether one current named local candidate contains recovery.
     pub fn local_symbol_is_recovered(
         &self,
         symbol: AnyLocalSymbolId,
@@ -478,7 +478,7 @@ impl LocalSymbolSnapshotBuilder {
         .ok_or(LocalSymbolBuildError::UnknownLocalSymbol)
     }
 
-    /// Returns declaration-surface candidates currently visible in one scope under construction.
+    /// Returns declaration-surface candidates currently visible in one scope.
     pub fn surface_symbols_named(
         &self,
         scope: LocalScopeId,
@@ -493,7 +493,7 @@ impl LocalSymbolSnapshotBuilder {
         Ok(scope.surface_names.get(name).map_or(&[], Vec::as_slice))
     }
 
-    /// Captures arena lengths and the mutation-trail position for transactional rollback.
+    /// Captures the current builder state for later rollback.
     pub const fn checkpoint(&self) -> LocalSymbolSnapshotCheckpoint {
         LocalSymbolSnapshotCheckpoint {
             region: self.region,
@@ -581,7 +581,7 @@ impl LocalSymbolSnapshotBuilder {
         true
     }
 
-    /// Freezes all region-local records into one immutable snapshot.
+    /// Completes and returns the validated local-symbol snapshot.
     pub fn finish(self) -> Result<LocalSymbolSnapshot, LocalSymbolBuildError> {
         if self.scopes.is_empty() {
             return Err(LocalSymbolBuildError::MissingRootScope);

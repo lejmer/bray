@@ -132,9 +132,7 @@ impl sealed::SyntaxWalkRoot for SyntaxNodeView<'_> {
 
 /// A Bray-owned typed syntax node or opaque node view that can be traversed.
 ///
-/// This trait is sealed because traversal requires access to Bray's immutable
-/// green syntax storage. It is exported only as the bound of
-/// [`walk_syntax_node`].
+/// This trait is sealed and exported only as the bound of [`walk_syntax_node`].
 pub trait SyntaxWalkRoot: sealed::SyntaxWalkRoot {}
 
 impl<T> SyntaxWalkRoot for T where T: sealed::SyntaxWalkRoot {}

@@ -6,7 +6,7 @@ use bray_compiler_known::{
 
 use crate::{ExactSymbolId, SymbolKind};
 
-/// A category-typed route to one compiler-known declaration's ordinary lazy facts.
+/// A category-typed route to one compiler-known declaration's semantic facts.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CompilerKnownSymbolFactKey<I: ExactSymbolId> {
     declaration: CompilerKnownDeclarationId,
@@ -32,7 +32,7 @@ impl<I: ExactSymbolId> CompilerKnownSymbolFactKey<I> {
     }
 }
 
-/// Descriptor-backed declaration facts resolved only when requested.
+/// Semantic facts supplied by one compiler-known declaration descriptor.
 #[derive(Clone, Copy, Debug)]
 pub struct CompilerKnownDeclarationFact<'catalog> {
     descriptor: &'catalog CompilerKnownDeclarationDescriptor,
@@ -55,7 +55,7 @@ impl<'catalog> CompilerKnownDeclarationFact<'catalog> {
         self.descriptor
     }
 
-    /// Returns generated pre-parsed declaration syntax without reading `.braydef` input.
+    /// Returns the declaration's parsed syntax surface.
     pub const fn surface(&self) -> &'catalog CatalogDeclarationSurfaceSyntax {
         self.surface
     }

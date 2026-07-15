@@ -57,7 +57,7 @@ pub struct EmissionRequest {
 }
 
 impl EmissionRequest {
-    /// Validates and freezes one host artifact request.
+    /// Creates a host artifact request after validating its outputs and sink.
     pub fn try_new(
         product: ProductIdentity,
         product_kind: ProductKind,
@@ -149,7 +149,7 @@ impl EmissionRequest {
     }
 }
 
-/// A contract violation that prevents an emission request from being frozen.
+/// A contract violation that prevents creation of an emission request.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum EmissionRequestBuildError {
     /// No external artifact category was requested.

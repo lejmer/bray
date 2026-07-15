@@ -77,7 +77,7 @@ impl CodegenUnit {
     }
 }
 
-/// A contract violation that prevents codegen-unit publication.
+/// A contract violation that prevents creation of a codegen unit.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CodegenUnitBuildError {
     /// The partition contains no definitions.

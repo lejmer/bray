@@ -43,7 +43,7 @@ impl InterfaceSupportImplementation {
         }
     }
 
-    /// Returns the stable declaration identity without publishing an imported symbol.
+    /// Returns the stable declaration identity.
     pub const fn declaration(&self) -> &ExternalSymbolKey {
         &self.declaration
     }

@@ -179,7 +179,7 @@ pub struct InterfaceSourceProvenance {
     pub(crate) end: u32,
 }
 
-/// Symbol-owned semantic fact category addressable through the lazy fact directory.
+/// Symbol-owned semantic fact category addressable through the fact directory.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum InterfaceSemanticFactKind {
     /// Checked generic constraint.
@@ -196,7 +196,7 @@ pub enum InterfaceSemanticFactKind {
     Abi,
 }
 
-/// One stable lazy fact-directory entry.
+/// One stable fact-directory entry.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct InterfaceSemanticFactEntry {
     pub(crate) owner: InterfaceSymbolReference,

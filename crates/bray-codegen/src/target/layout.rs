@@ -66,7 +66,7 @@ impl TargetScalarLayout {
     }
 }
 
-/// A contract violation that prevents scalar-layout publication.
+/// A contract violation that prevents creation of a scalar layout.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TargetScalarLayoutBuildError {
     /// The selected storage size cannot contain the scalar value width.
@@ -187,7 +187,7 @@ impl TargetDataLayout {
     }
 }
 
-/// A contract violation that prevents target data-layout publication.
+/// A contract violation that prevents creation of a target data layout.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TargetDataLayoutBuildError {
     /// No scalar representation was supplied.

@@ -196,7 +196,7 @@ impl InterfaceSemanticFacts {
         &self.provenance
     }
 
-    /// Builds the canonical lazy symbol-fact directory.
+    /// Returns the canonical symbol-fact directory.
     pub fn fact_directory(&self) -> Arc<[InterfaceSemanticFactEntry]> {
         // References retain Arc-backed external keys so directory ownership stays shallow.
         let constraints =

@@ -293,7 +293,7 @@ impl ExportedLookupEdge {
 /// Invalid semantic input supplied for package-interface identity sections.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum PackageInterfaceSurfaceBuildError {
-    /// Compiled interfaces can publish only library products.
+    /// Compiled interfaces can describe only library products.
     NonLibraryProduct,
     /// The dependency table cannot use compact dependency IDs.
     DependencyCountOverflow,

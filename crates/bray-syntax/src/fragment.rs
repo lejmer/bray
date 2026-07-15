@@ -23,8 +23,7 @@ pub enum PreparsedSyntaxEvent<'text> {
 
 /// An immutable typed-syntax fragment reconstructed from validated parser output.
 ///
-/// This is intended for checked-in generated syntax data. It does not parse text and does not
-/// expose immutable green-tree storage.
+/// This is intended for checked-in generated syntax data and does not parse text.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PreparsedSyntaxFragment {
     source: SourceSnapshot,

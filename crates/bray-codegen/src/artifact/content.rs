@@ -13,7 +13,7 @@ const SPOOL_CREATE_ATTEMPTS: usize = 128;
 pub enum ArtifactSpoolOperation {
     /// Create compiler-private spool storage.
     Create,
-    /// Flush the writable spool before publication.
+    /// Flush pending writes.
     Flush,
     /// Read final spool metadata.
     Metadata,
@@ -56,7 +56,7 @@ impl ArtifactSpoolError {
     }
 }
 
-/// Task-local writable compiler spool before immutable publication.
+/// Writable compiler-owned artifact content.
 #[derive(Debug)]
 pub struct ArtifactSpoolWriter {
     path: Option<PathBuf>,
@@ -103,7 +103,7 @@ impl ArtifactSpoolWriter {
         ))
     }
 
-    /// Flushes and freezes the spool into an immutable owning handle.
+    /// Flushes pending writes and returns completed artifact content.
     pub fn finish(mut self) -> Result<ArtifactSpool, ArtifactSpoolError> {
         let Some(mut file) = self.file.take() else {
             return Err(ArtifactSpoolError::invalid_state());
@@ -227,7 +227,7 @@ enum ArtifactContentStorage {
     CompilerSpool(ArtifactSpool),
 }
 
-/// Borrowed view of immutable artifact content storage.
+/// Borrowed view of immutable artifact content.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ArtifactContentSource<'content> {
     /// Bytes retained in immutable shared memory.
@@ -257,7 +257,7 @@ impl ArtifactContent {
         })
     }
 
-    /// Creates content backed by an owning compiler-private immutable spool.
+    /// Creates content from a completed compiler-owned spool.
     pub fn compiler_spool(spool: ArtifactSpool) -> Self {
         let byte_len = spool.byte_len();
 

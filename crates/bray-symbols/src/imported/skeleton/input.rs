@@ -91,7 +91,7 @@ impl ImportedLookupEdge {
     }
 }
 
-/// One validated interface identity surface prepared for semantic symbol construction.
+/// One validated interface identity surface used to create semantic symbols.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ImportedSymbolSkeletonInput {
     interface: ImportedInterfaceId,
@@ -101,7 +101,7 @@ pub struct ImportedSymbolSkeletonInput {
 }
 
 impl ImportedSymbolSkeletonInput {
-    /// Creates immutable origin-neutral construction input.
+    /// Creates immutable origin-neutral symbol input.
     pub fn new(
         interface: ImportedInterfaceId,
         symbols: ImportedPackageIdentitySurface,
@@ -116,7 +116,7 @@ impl ImportedSymbolSkeletonInput {
         }
     }
 
-    /// Returns the loaded-interface handle used by lazy fact keys.
+    /// Returns the loaded interface containing these symbols.
     pub const fn interface(&self) -> ImportedInterfaceId {
         self.interface
     }

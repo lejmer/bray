@@ -165,7 +165,7 @@ impl CodegenTarget {
     }
 }
 
-/// A contract violation that prevents complete codegen-target publication.
+/// A contract violation that prevents creation of a codegen target.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CodegenTargetBuildError {
     /// The canonical target triple is empty.

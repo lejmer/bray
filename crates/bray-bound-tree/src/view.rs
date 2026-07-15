@@ -4,10 +4,9 @@ use crate::{
     BoundTree, BoundTreeBuilder, BoundUnitId, BoundUnitKey, BoundUnitKind,
 };
 
-/// A read-only view of committed task-local or published bound structure.
+/// A read-only view of available bound structure.
 ///
-/// Checker services can inspect nodes committed so far without receiving mutable binder-owned
-/// construction state. The same API also reads a frozen published tree.
+/// Checker services can inspect available nodes without receiving mutable access to the tree.
 #[derive(Clone, Copy, Debug)]
 pub struct BoundUnitView<'unit> {
     key: &'unit BoundUnitKey,
@@ -40,7 +39,7 @@ impl<'unit> BoundUnitView<'unit> {
         }
     }
 
-    /// Returns the stable construction key of the bound unit.
+    /// Returns the stable semantic key of the bound unit.
     pub const fn key(self) -> &'unit BoundUnitKey {
         self.key
     }

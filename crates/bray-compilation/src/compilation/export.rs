@@ -13,7 +13,7 @@ use bray_symbols::{
 use super::Compilation;
 use crate::fact::CompilationFactKey;
 
-/// Failure while selecting and freezing the current library product's public interface.
+/// Failure while producing the current library product's public interface.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum PackageInterfaceExportError {
     /// Source, syntax, declaration, or imported-interface errors make the product invalid.
@@ -24,14 +24,14 @@ pub enum PackageInterfaceExportError {
     IncompletePublicDeclarationFacts(SymbolKind),
     /// A reachable using or export declaration has no completed public lookup fact.
     IncompletePublicLookupFacts(DeclarationKind),
-    /// Canonical identity-surface construction rejected the selected graph.
+    /// Canonical identity-surface validation rejected the selected graph.
     Surface(PackageInterfaceExportSurfaceError),
-    /// Semantic or support-graph validation rejected the frozen bundle.
+    /// Semantic or support-graph validation rejected the export bundle.
     Bundle(PackageInterfaceExportBuildError),
 }
 
 impl Compilation {
-    /// Returns the current library product's lazily frozen interface export, when configured.
+    /// Returns the current library product's interface export, when configured.
     pub fn package_interface_export_bundle(
         &self,
     ) -> Option<&Result<Arc<PackageInterfaceExportBundle>, PackageInterfaceExportError>> {

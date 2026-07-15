@@ -270,7 +270,7 @@ impl ImportedSourceProvenance {
 }
 
 impl ImportedSemanticFacts {
-    /// Selects exact symbol-owned facts without exposing interface table storage.
+    /// Returns the exact facts selected by symbol owner and category.
     pub fn symbol_facts(
         &self,
         owner: AnySymbolId,
@@ -405,7 +405,7 @@ impl ImportedSemanticFacts {
 }
 
 impl InterfaceSemanticFacts {
-    /// Resolves and interns this complete semantic graph without publishing partial tables.
+    /// Resolves and validates this complete semantic graph into canonical semantic values.
     pub fn intern(
         &self,
         store: &SemanticValueStore,

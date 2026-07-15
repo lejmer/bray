@@ -72,8 +72,8 @@ macro_rules! define_bound_node_ids {
 
         /// A closed type-erased reference to any substantial bound node.
         ///
-        /// Exact typed IDs remain the canonical storage and API types. This erasure is intended
-        /// for heterogeneous infrastructure such as diagnostics, visitors, and tooling.
+        /// Exact typed IDs remain the preferred API types. This erasure is intended for
+        /// heterogeneous infrastructure such as diagnostics, visitors, and tooling.
         #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
         pub enum AnyBoundNodeId {
             $(

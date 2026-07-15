@@ -286,7 +286,7 @@ impl CompilerKnownSymbolProvider {
         &self.role_registry
     }
 
-    /// Creates a typed route to lazy facts when a key has the requested ordinary symbol kind.
+    /// Creates a typed fact key when a declaration has the requested ordinary symbol kind.
     pub fn fact_key<I: ExactSymbolId>(
         &self,
         key: &CompilerKnownDeclarationKey,

@@ -7,10 +7,10 @@ use crate::{
     InterfaceSymbolId, PackageIdentity, SymbolKind, SymbolOrigin,
 };
 
-/// One decoded symbol identity record awaiting whole-surface validation.
+/// One imported symbol identity record awaiting whole-surface validation.
 ///
-/// The package-interface decoder can construct these records from bounded wire values. A record
-/// becomes trusted semantic input only as part of a validated [`ImportedPackageIdentitySurface`].
+/// A record becomes trusted semantic input only as part of a validated
+/// [`ImportedPackageIdentitySurface`].
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ImportedSymbolIdentityInput {
     id: InterfaceSymbolId,
@@ -56,7 +56,7 @@ impl ImportedSymbolIdentityInput {
     }
 }
 
-/// One symbol identity published through a validated imported package surface.
+/// One symbol identity from a validated imported package surface.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ImportedSymbolIdentity(ImportedSymbolIdentityInput);
 
@@ -232,10 +232,9 @@ impl ImportedPackageIdentitySurface {
     }
 }
 
-/// A category-typed route to one imported symbol's lazily decoded semantic facts.
+/// A category-typed route to one imported symbol's semantic facts.
 ///
-/// `I` is the exact ordinary symbol ID type used after the imported identity skeleton is mapped
-/// into the consuming compilation. The key contains no reader, byte offset, or codec state.
+/// `I` is the exact ordinary symbol ID type used in the consuming compilation.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ImportedSymbolFactKey<I: ExactSymbolId> {
     interface: ImportedInterfaceId,
@@ -244,7 +243,7 @@ pub struct ImportedSymbolFactKey<I: ExactSymbolId> {
 }
 
 impl<I: ExactSymbolId> ImportedSymbolFactKey<I> {
-    /// Returns the loaded-interface handle used to route the lazy fact request.
+    /// Returns the loaded interface containing the symbol.
     pub const fn interface(self) -> ImportedInterfaceId {
         self.interface
     }

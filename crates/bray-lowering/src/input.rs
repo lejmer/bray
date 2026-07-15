@@ -3,7 +3,7 @@ use bray_symbols::AvailableCompilerKnownSymbols;
 
 /// A validated borrowed view of the completed checked HIR required by lowering.
 ///
-/// The view keeps the canonical bound unit and its independently published semantic facts
+/// The view keeps the canonical bound unit and its associated semantic facts
 /// separate. Adding another required checker domain extends this input rather than creating a
 /// copied or progressively wrapped bound-tree representation.
 #[derive(Clone, Copy)]

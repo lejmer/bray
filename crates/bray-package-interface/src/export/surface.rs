@@ -11,7 +11,7 @@ use crate::{
     PackageInterfaceSurface, SymbolRelationship,
 };
 
-/// Assigns canonical symbol-table identities and freezes one selected public surface.
+/// Creates a public surface with canonical symbol identities.
 pub fn build_package_interface_surface(
     identity: PackageInterfaceIdentity,
     dependencies: impl IntoIterator<Item = InterfaceDependency>,

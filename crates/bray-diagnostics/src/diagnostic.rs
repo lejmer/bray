@@ -7,7 +7,7 @@ use crate::label::DiagnosticLabel;
 use crate::note::DiagnosticNote;
 use crate::severity::SeverityKind;
 
-/// Locale-neutral diagnostic record published by a compiler phase.
+/// Locale-neutral diagnostic record produced by a compiler phase.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct Diagnostic {
     id: DiagnosticId,

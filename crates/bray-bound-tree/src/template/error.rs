@@ -18,7 +18,7 @@ pub enum CheckedTemplateBuildError {
         /// The repeated declaration of the input role.
         duplicate: CheckedTemplateInputId,
     },
-    /// An input read publishes a type different from its declaration.
+    /// An input read produces a type different from its declaration.
     InputTypeMismatch {
         /// The operation reading the input.
         node: CheckedTemplateNodeId,
@@ -26,7 +26,7 @@ pub enum CheckedTemplateBuildError {
         input: CheckedTemplateInputId,
         /// The type declared by the input.
         expected: TypeId,
-        /// The type published by the operation.
+        /// The type produced by the operation.
         actual: TypeId,
     },
     /// An operation or result references a node outside the template.
@@ -56,7 +56,7 @@ pub enum CheckedTemplateBuildError {
         /// The type declared by the temporary.
         actual: TypeId,
     },
-    /// A temporary read publishes a type different from the temporary.
+    /// A temporary read produces a type different from the temporary.
     TemporaryTypeMismatch {
         /// The operation reading the temporary.
         node: CheckedTemplateNodeId,
@@ -64,7 +64,7 @@ pub enum CheckedTemplateBuildError {
         temporary: CheckedTemplateTemporaryId,
         /// The type carried by the temporary.
         expected: TypeId,
-        /// The type published by the operation.
+        /// The type produced by the operation.
         actual: TypeId,
     },
     /// A conversion result differs from its checked destination type.
@@ -73,7 +73,7 @@ pub enum CheckedTemplateBuildError {
         node: CheckedTemplateNodeId,
         /// The checked conversion target.
         expected: TypeId,
-        /// The type published by the operation.
+        /// The type produced by the operation.
         actual: TypeId,
     },
     /// Conditional branches do not produce one coherent result type.
@@ -91,7 +91,7 @@ pub enum CheckedTemplateBuildError {
         node: CheckedTemplateNodeId,
         /// The coherent branch result type.
         expected: TypeId,
-        /// The type published by the operation.
+        /// The type produced by the operation.
         actual: TypeId,
     },
     /// Short-circuit operands do not have one coherent type.
@@ -109,7 +109,7 @@ pub enum CheckedTemplateBuildError {
         node: CheckedTemplateNodeId,
         /// The coherent operand type.
         expected: TypeId,
-        /// The type published by the operation.
+        /// The type produced by the operation.
         actual: TypeId,
     },
     /// Array construction children do not have one coherent element type.

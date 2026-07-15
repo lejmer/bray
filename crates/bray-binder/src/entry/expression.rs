@@ -43,7 +43,7 @@ macro_rules! define_pending_expression_unit {
                 &self.nested_units
             }
 
-            /// Freezes the immutable bound semantic unit for publication.
+            /// Completes and returns the bound semantic unit.
             pub fn finish(self) -> Result<BoundUnitComputation, BoundUnitBindingError> {
                 $assemble(self.output, self.nested_units, self.root).map_err(map_assembly_error)
             }
@@ -78,7 +78,7 @@ define_pending_expression_unit!(
     bind_expression_unit,
     BoundExpressionId,
     BindingContext::Expression,
-    "A committed runtime-default expression awaiting bound-unit publication.",
+    "A bound runtime-default expression ready to complete its semantic unit.",
     "Binds one runtime-default expression into committed task-local state."
 );
 define_pending_expression_unit!(
@@ -88,7 +88,7 @@ define_pending_expression_unit!(
     bind_expression_unit,
     BoundExpressionId,
     BindingContext::ConstantExpression,
-    "A committed constant-template expression awaiting bound-unit publication.",
+    "A bound constant-template expression ready to complete its semantic unit.",
     "Binds one constant-template expression into committed task-local state."
 );
 define_pending_expression_unit!(
@@ -98,7 +98,7 @@ define_pending_expression_unit!(
     bind_expression_unit,
     BoundExpressionId,
     BindingContext::PredicateExpression,
-    "A committed predicate-definition expression awaiting bound-unit publication.",
+    "A bound predicate-definition expression ready to complete its semantic unit.",
     "Binds one predicate-definition expression into committed task-local state."
 );
 define_pending_expression_unit!(
@@ -108,7 +108,7 @@ define_pending_expression_unit!(
     bind_expression_sequence_unit,
     BoundBlockId,
     BindingContext::PredicateExpression,
-    "A committed constraint expression sequence awaiting bound-unit publication.",
+    "A bound constraint expression sequence ready to complete its semantic unit.",
     "Binds one constraint expression sequence into committed task-local state."
 );
 define_pending_expression_unit!(
@@ -118,7 +118,7 @@ define_pending_expression_unit!(
     bind_expression_sequence_unit,
     BoundBlockId,
     BindingContext::ContractClause,
-    "A committed contract-clause expression sequence awaiting bound-unit publication.",
+    "A bound contract-clause expression sequence ready to complete its semantic unit.",
     "Binds one contract-clause expression sequence into committed task-local state."
 );
 

@@ -17,7 +17,7 @@ pub enum SemanticValueStoreError {
         /// The store that issued the supplied ID.
         actual: SemanticValueStoreId,
     },
-    /// An ID does not address a published entry of its exact category.
+    /// An ID does not address an entry of its exact category.
     UnknownId {
         /// The table addressed by the invalid ID.
         kind: SemanticValueKind,

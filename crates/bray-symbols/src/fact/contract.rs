@@ -22,14 +22,13 @@ mod sealed {
     pub trait Sealed {}
 }
 
-/// Maps one typed symbol owner to the immutable value published by a lazy symbol fact.
+/// Maps one typed symbol owner to its immutable semantic fact value.
 ///
-/// The compilation query layer owns caching, cancellation, and dependency scheduling. This
-/// sealed contract keeps the owner, value, and erased fact category coupled at compile time.
+/// This sealed contract keeps the owner, value, and erased fact category coupled at compile time.
 pub trait SymbolFactContract: sealed::Sealed + Copy + Send + Sync + 'static {
     /// The exact symbol family that can own this fact.
     type Owner: Copy + Ord + Send + Sync + 'static;
-    /// The immutable semantic value published by the fact.
+    /// The immutable semantic value supplied by the fact.
     type Value: Send + Sync + 'static;
 
     /// The category used by erased query coordination and completion.
@@ -39,24 +38,23 @@ pub trait SymbolFactContract: sealed::Sealed + Copy + Send + Sync + 'static {
     fn erase_owner(owner: Self::Owner) -> AnySymbolId;
 }
 
-/// The diagnostic-bearing result published by one typed symbol fact contract.
+/// The diagnostic-bearing result of one typed symbol fact contract.
 pub type SymbolFactResult<C> = DiagnosticResult<<C as SymbolFactContract>::Value>;
 
-/// Couples an instance-specific semantic fact key to its immutable published value.
+/// Couples an instance-specific semantic fact key to its immutable value.
 ///
-/// These facts retain semantic inputs beyond one symbol owner. Compilation still owns caching,
-/// cancellation, target selection, and publication around the typed domain contract.
+/// These facts retain semantic inputs beyond one symbol owner.
 pub trait SemanticFactContract: sealed::Sealed + Copy + Send + Sync + 'static {
     /// The complete symbol-domain inputs excluding compilation snapshot and target context.
     type Key: Send + Sync + 'static;
-    /// The immutable semantic value published by the fact.
+    /// The immutable semantic value supplied by the fact.
     type Value: Send + Sync + 'static;
 }
 
-/// The diagnostic-bearing result published by an instance-specific semantic fact contract.
+/// The diagnostic-bearing result of an instance-specific semantic fact contract.
 pub type SemanticFactResult<C> = DiagnosticResult<<C as SemanticFactContract>::Value>;
 
-/// A typed request for one symbol-owned lazy fact.
+/// A typed request for one symbol-owned semantic fact.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct SymbolFactRequest<C: SymbolFactContract> {
     owner: C::Owner,

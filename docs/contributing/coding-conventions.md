@@ -246,6 +246,10 @@ For crate layout, crate ownership, and workspace structure, see the crate respon
 - Keep documentation phrased as the current project shape, not as a migration note.
 - Link to the owning reference or convention page instead of duplicating long rules across documents.
 - Document public APIs with `///` doc comments.
+- Describe public APIs in terms of their purpose, observable behavior, caller obligations, and
+  relevant failure conditions.
+- Do not expose internal storage, caching, construction, publication, or phase-coordination
+  mechanics in public API documentation unless they materially affect callers.
 - Document invariants that callers, implementers, or future compiler phases must preserve.
 - Keep design documentation aligned with implementation when behavior changes.
 - Do not document speculative future behavior as if it already exists.

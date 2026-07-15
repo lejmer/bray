@@ -1,8 +1,7 @@
 /// Read-only cancellation observation for one native link operation.
 ///
-/// Compilation owns cancellation and publication. Linker drivers observe this signal before
-/// invocation, while waiting for external tools, before validating outputs, and before returning
-/// success.
+/// Linker drivers must observe cancellation before invocation, while waiting for external tools,
+/// before validating outputs, and before returning success.
 pub trait LinkCancellation: Send + Sync {
     /// Returns whether the current link operation should stop.
     fn is_cancelled(&self) -> bool;

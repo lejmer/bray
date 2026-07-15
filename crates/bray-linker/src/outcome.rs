@@ -150,9 +150,9 @@ fn validate_artifact(
 pub enum LinkStatus {
     /// Every required staged artifact was produced and validated.
     Complete(LinkedArtifactSet),
-    /// Linking failed without publishing partial staged outputs.
+    /// Linking failed without returning partial staged outputs.
     Failed(LinkFailure),
-    /// Cancellation was observed before successful result publication.
+    /// Cancellation was observed before a successful result was available.
     Cancelled,
 }
 
@@ -218,7 +218,7 @@ impl LinkOutcome {
     }
 }
 
-/// A contract violation that prevents successful link-outcome publication.
+/// A contract violation that prevents creation of a successful link outcome.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum LinkOutcomeBuildError {
     /// Error diagnostics contradict a successful status.

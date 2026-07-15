@@ -12,7 +12,7 @@ use super::{
     RecognizedStandardLibraryScopeKey,
 };
 
-/// The immutable target-independent descriptor graph published by the catalog.
+/// The immutable target-independent descriptor graph of the catalog.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CompilerKnownCatalog {
     pub(super) compiler_known_scopes: Cow<'static, [CompilerKnownScopeDescriptor]>,

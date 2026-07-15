@@ -6,7 +6,7 @@ use bray_symbols::{SymbolKey, SymbolKind};
 
 use crate::{CheckedTemplateKind, ExactBoundNodeId};
 
-/// Classifies an independently published checked semantic unit.
+/// Classifies an independently checked semantic unit.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum BoundUnitKind {
     /// A declared callable or lifecycle body.
@@ -41,7 +41,7 @@ impl BoundUnitKind {
     }
 }
 
-/// Identifies one exact published bound unit in a compilation snapshot.
+/// Identifies one exact bound unit in a compilation snapshot.
 ///
 /// Raw values are compilation-local handles. Persisted identities must use
 /// [`BoundUnitKey`] instead.
@@ -221,7 +221,7 @@ impl BoundUnitKeyData {
     }
 }
 
-/// A cheaply cloned deterministic semantic construction key for a bound unit.
+/// A stable deterministic semantic identity for a bound unit.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct BoundUnitKey(Arc<BoundUnitKeyData>);
 

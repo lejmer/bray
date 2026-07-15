@@ -13,12 +13,12 @@ pub enum BoundUnitBindingError {
     MissingOwner,
     /// The unit owner is not contained by a logical module.
     MissingModule,
-    /// Canonical semantic value construction failed.
+    /// A canonical semantic value could not be created.
     SemanticValue(SemanticValueStoreError),
-    /// Bound-tree or local-symbol construction violated an internal contract.
+    /// Bound-tree or local-symbol validation failed.
     Construction,
     /// Binding could not establish a complete recovery-aware root.
     Binding,
-    /// Bound-unit assembly violated an internal contract.
+    /// Bound-unit validation failed.
     Assembly,
 }
