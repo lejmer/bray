@@ -76,9 +76,28 @@ const EMISSION_ARTIFACT_FLUSH_FAILED: &[MessageTemplatePart] = &[
     MessageTemplatePart::Arg(DiagnosticArgName::IoErrorKind),
 ];
 
+const EMISSION_ARTIFACT_COMMIT_FAILED: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("could not commit artifact output "),
+    MessageTemplatePart::Arg(DiagnosticArgName::OutputSink),
+    MessageTemplatePart::Text(": "),
+    MessageTemplatePart::Arg(DiagnosticArgName::IoErrorKind),
+];
+
 const EMISSION_ARTIFACT_DIGEST_MISMATCH: &[MessageTemplatePart] = &[
     MessageTemplatePart::Arg(DiagnosticArgName::ArtifactKind),
-    MessageTemplatePart::Text(" artifact content does not match its declared digest"),
+    MessageTemplatePart::Text(" artifact declared digest "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ExpectedArtifactDigest),
+    MessageTemplatePart::Text(", but content digest was "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ActualArtifactDigest),
+];
+
+const EMISSION_ARTIFACT_LENGTH_MISMATCH: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Arg(DiagnosticArgName::ArtifactKind),
+    MessageTemplatePart::Text(" artifact declared "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ExpectedByteCount),
+    MessageTemplatePart::Text(" bytes, but content contained "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ActualByteCount),
+    MessageTemplatePart::Text(" bytes"),
 ];
 
 const LEXICAL_INVALID_CHARACTER: &[MessageTemplatePart] = &[
@@ -431,6 +450,12 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         }
         DiagnosticKind::EmissionArtifactDigestMismatch => {
             MessageTemplate::new(EMISSION_ARTIFACT_DIGEST_MISMATCH)
+        }
+        DiagnosticKind::EmissionArtifactLengthMismatch => {
+            MessageTemplate::new(EMISSION_ARTIFACT_LENGTH_MISMATCH)
+        }
+        DiagnosticKind::EmissionArtifactCommitFailed => {
+            MessageTemplate::new(EMISSION_ARTIFACT_COMMIT_FAILED)
         }
         DiagnosticKind::InterfaceInvalidMagic
         | DiagnosticKind::InterfaceUnsupportedFormatRevision

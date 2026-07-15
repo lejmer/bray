@@ -60,6 +60,38 @@ impl DiagnosticArg {
         )
     }
 
+    /// Creates an expected artifact byte-count argument.
+    pub const fn expected_byte_count(byte_count: u64) -> Self {
+        Self::new(
+            DiagnosticArgName::ExpectedByteCount,
+            DiagnosticArgValue::ByteCount(byte_count),
+        )
+    }
+
+    /// Creates an actual artifact byte-count argument.
+    pub const fn actual_byte_count(byte_count: u64) -> Self {
+        Self::new(
+            DiagnosticArgName::ActualByteCount,
+            DiagnosticArgValue::ByteCount(byte_count),
+        )
+    }
+
+    /// Creates an expected artifact-digest argument.
+    pub const fn expected_artifact_digest(digest: DiagnosticArtifactDigest) -> Self {
+        Self::new(
+            DiagnosticArgName::ExpectedArtifactDigest,
+            DiagnosticArgValue::ArtifactDigest(digest),
+        )
+    }
+
+    /// Creates an actual artifact-digest argument.
+    pub const fn actual_artifact_digest(digest: DiagnosticArtifactDigest) -> Self {
+        Self::new(
+            DiagnosticArgName::ActualArtifactDigest,
+            DiagnosticArgValue::ArtifactDigest(digest),
+        )
+    }
+
     /// Creates an output-sink argument.
     pub const fn output_sink(sink: DiagnosticOutputSink) -> Self {
         Self::new(
@@ -243,6 +275,10 @@ impl DiagnosticArg {
 pub enum DiagnosticArgName {
     /// Actual externally supplied count or size.
     ActualCount,
+    /// Actual completed artifact byte count.
+    ActualByteCount,
+    /// Actual digest measured from completed artifact bytes.
+    ActualArtifactDigest,
     /// Path of an external compiler artifact.
     ArtifactPath,
     /// Category of compiler artifact involved in an operation.
@@ -265,6 +301,10 @@ pub enum DiagnosticArgName {
     ReferencedName,
     /// Semantic category required at a name reference.
     ExpectedNameKind,
+    /// Expected completed artifact byte count.
+    ExpectedByteCount,
+    /// Expected producer-supplied artifact digest.
+    ExpectedArtifactDigest,
     /// Syntax kind that was present in source.
     ActualSyntaxKind,
     /// Syntax kind that was expected by the compiler phase.
@@ -320,6 +360,8 @@ impl DiagnosticArgName {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::ActualCount => "actual_count",
+            Self::ActualByteCount => "actual_byte_count",
+            Self::ActualArtifactDigest => "actual_artifact_digest",
             Self::ArtifactPath => "artifact_path",
             Self::ArtifactKind => "artifact_kind",
             Self::ArtifactOrdinal => "artifact_ordinal",
@@ -331,6 +373,8 @@ impl DiagnosticArgName {
             Self::DeclarationName => "declaration_name",
             Self::ReferencedName => "referenced_name",
             Self::ExpectedNameKind => "expected_name_kind",
+            Self::ExpectedByteCount => "expected_byte_count",
+            Self::ExpectedArtifactDigest => "expected_artifact_digest",
             Self::ActualSyntaxKind => "actual_syntax_kind",
             Self::ExpectedSyntaxKind => "expected_syntax_kind",
             Self::ExpectedPackageIdentity => "expected_package_identity",
@@ -368,6 +412,8 @@ pub enum DiagnosticArgValue {
     Byte(u8),
     /// Source byte count.
     ByteCount(u64),
+    /// Deterministic compiler artifact digest.
+    ArtifactDigest(DiagnosticArtifactDigest),
     /// Compiler artifact category.
     ArtifactKind(DiagnosticArtifactKind),
     /// Same-category artifact ordinal.
@@ -420,6 +466,49 @@ pub enum DiagnosticArgValue {
     WorkerCount(u64),
     /// Interface or language revision.
     Revision(u64),
+}
+
+/// Locale-neutral deterministic artifact digest used by diagnostics.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct DiagnosticArtifactDigest {
+    algorithm: DiagnosticArtifactDigestAlgorithm,
+    bytes: [u8; 32],
+}
+
+impl DiagnosticArtifactDigest {
+    /// Creates a digest from its typed algorithm and exact bytes.
+    pub const fn new(algorithm: DiagnosticArtifactDigestAlgorithm, bytes: [u8; 32]) -> Self {
+        Self { algorithm, bytes }
+    }
+
+    /// Returns the digest algorithm.
+    pub const fn algorithm(&self) -> DiagnosticArtifactDigestAlgorithm {
+        self.algorithm
+    }
+
+    /// Returns the exact digest bytes.
+    pub fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+}
+
+/// Locale-neutral deterministic artifact digest algorithm.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum DiagnosticArtifactDigestAlgorithm {
+    /// BLAKE3 with its standard 256-bit output.
+    Blake3,
+    /// SHA-256.
+    Sha256,
+}
+
+impl DiagnosticArtifactDigestAlgorithm {
+    /// Returns the stable machine key for this digest algorithm.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Blake3 => "blake3",
+            Self::Sha256 => "sha256",
+        }
+    }
 }
 
 /// Locale-neutral compiler artifact category used by diagnostics.
@@ -635,8 +724,8 @@ mod tests {
     use bray_syntax::SyntaxKind;
 
     use super::{
-        DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticIoErrorKind,
-        DiagnosticNameKind,
+        DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticArtifactDigest,
+        DiagnosticArtifactDigestAlgorithm, DiagnosticIoErrorKind, DiagnosticNameKind,
     };
 
     #[test]
@@ -662,6 +751,26 @@ mod tests {
             arg.value(),
             &DiagnosticArgValue::SyntaxKind(SyntaxKind::FuncKeyword)
         );
+    }
+
+    #[test]
+    fn artifact_mismatch_args_keep_expected_and_actual_facts_typed() {
+        let digest =
+            DiagnosticArtifactDigest::new(DiagnosticArtifactDigestAlgorithm::Blake3, [0_u8; 32]);
+
+        let expected_digest = DiagnosticArg::expected_artifact_digest(digest.clone());
+        let actual_length = DiagnosticArg::actual_byte_count(4);
+
+        assert_eq!(
+            expected_digest.name(),
+            DiagnosticArgName::ExpectedArtifactDigest
+        );
+        assert_eq!(
+            expected_digest.value(),
+            &DiagnosticArgValue::ArtifactDigest(digest)
+        );
+        assert_eq!(actual_length.name(), DiagnosticArgName::ActualByteCount);
+        assert_eq!(actual_length.value(), &DiagnosticArgValue::ByteCount(4));
     }
 
     #[test]

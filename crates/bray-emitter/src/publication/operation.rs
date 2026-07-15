@@ -1,5 +1,5 @@
 use std::cmp::Ordering;
-use std::fs::OpenOptions;
+use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Write};
 
 use bray_codegen::ArtifactDigest;
@@ -8,8 +8,8 @@ use bray_diagnostics::{DiagnosticBag, DiagnosticId, SeverityKind};
 use super::content::{ContentValidationError, open_content, validate_content};
 use super::diagnostic::{PublicationError, PublicationErrorKind};
 use crate::{
-    ArtifactContribution, ArtifactRequirement, EmissionFailure, EmissionOutcome, EmissionPlan,
-    EmittedArtifact, EmittedArtifactSet, IndirectOutputSink, OutputSink, OutputSinkResolver,
+    ArtifactContribution, ArtifactRequirement, EmissionOutcome, EmissionPlan, EmittedArtifact,
+    EmittedArtifactSet, IndirectOutputSink, OutputSink, OutputSinkResolver, OutputSinkTransaction,
     PlannedArtifact, PlannedArtifactDestination, ReplacementPolicy,
 };
 
@@ -62,16 +62,9 @@ impl<'resolver> ArtifactPublisher<'resolver> {
         }
 
         let diagnostics = diagnostics.into_bag();
+        let artifacts = EmittedArtifactSet::from_publication(plan, emitted);
 
-        match EmittedArtifactSet::try_new(plan, emitted) {
-            Ok(artifacts) => match EmissionOutcome::try_complete(artifacts, diagnostics) {
-                Ok(outcome) => outcome,
-                Err(diagnostics) => {
-                    EmissionOutcome::failed(EmissionFailure::IncompleteProduct, diagnostics)
-                }
-            },
-            Err(_) => EmissionOutcome::failed(EmissionFailure::IncompleteProduct, diagnostics),
-        }
+        EmissionOutcome::complete(artifacts, diagnostics)
     }
 
     fn publish_artifact(
@@ -132,6 +125,13 @@ impl<'resolver> ArtifactPublisher<'resolver> {
             )
         })?;
 
+        writer.commit().map_err(|error| {
+            (
+                requirement,
+                planned_error(planned, PublicationErrorKind::Commit(error.kind())),
+            )
+        })?;
+
         // Publication records own stable plan facts independently of the borrowed plan.
         Ok(EmittedArtifact::new(
             planned.id().clone(),
@@ -147,7 +147,7 @@ impl<'resolver> ArtifactPublisher<'resolver> {
         &self,
         sink: &OutputSink,
         replacement: ReplacementPolicy,
-    ) -> io::Result<Box<dyn Write + Send>> {
+    ) -> io::Result<PublicationOutput> {
         match sink {
             OutputSink::Filesystem(path) => {
                 let mut options = OpenOptions::new();
@@ -163,9 +163,7 @@ impl<'resolver> ArtifactPublisher<'resolver> {
                     }
                 }
 
-                options
-                    .open(path)
-                    .map(|file| Box::new(file) as Box<dyn Write + Send>)
+                options.open(path).map(PublicationOutput::Filesystem)
             }
             OutputSink::Memory {
                 collector,
@@ -187,18 +185,50 @@ impl<'resolver> ArtifactPublisher<'resolver> {
         &self,
         sink: IndirectOutputSink<'_>,
         replacement: ReplacementPolicy,
-    ) -> io::Result<Box<dyn Write + Send>> {
+    ) -> io::Result<PublicationOutput> {
         let Some(resolver) = self.resolver else {
             return Err(io::Error::from(io::ErrorKind::NotFound));
         };
 
-        resolver.open(sink, replacement)
+        resolver
+            .open(sink, replacement)
+            .map(PublicationOutput::Indirect)
     }
 }
 
 impl Default for ArtifactPublisher<'_> {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+enum PublicationOutput {
+    Filesystem(File),
+    Indirect(Box<dyn OutputSinkTransaction>),
+}
+
+impl PublicationOutput {
+    fn commit(self) -> io::Result<()> {
+        match self {
+            Self::Filesystem(_) => Ok(()),
+            Self::Indirect(transaction) => transaction.commit(),
+        }
+    }
+}
+
+impl Write for PublicationOutput {
+    fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+        match self {
+            Self::Filesystem(file) => file.write(buffer),
+            Self::Indirect(transaction) => transaction.write(buffer),
+        }
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        match self {
+            Self::Filesystem(file) => file.flush(),
+            Self::Indirect(transaction) => transaction.flush(),
+        }
     }
 }
 
@@ -229,7 +259,7 @@ fn prepare_contributions<'plan>(
     }
 
     for contribution in &contributions {
-        validate_contribution(plan, contribution)?;
+        validate_contribution_destination(plan, contribution)?;
     }
 
     let mut contributions = contributions.into_iter().peekable();
@@ -262,6 +292,22 @@ fn prepare_contributions<'plan>(
             continue;
         };
 
+        if contribution.producer() != planned.producer() {
+            let error = contribution_error(
+                &contribution,
+                plan,
+                PublicationErrorKind::InvalidContribution,
+            );
+
+            if planned.requirement() == ArtifactRequirement::Optional {
+                diagnostics.warning(error);
+
+                continue;
+            }
+
+            return Err(error);
+        }
+
         match validate_content(contribution.content(), contribution.digest()) {
             Ok(digest) => prepared.push(PreparedArtifact {
                 planned,
@@ -286,7 +332,7 @@ fn prepare_contributions<'plan>(
     Ok(prepared)
 }
 
-fn validate_contribution(
+fn validate_contribution_destination(
     plan: &EmissionPlan,
     contribution: &ArtifactContribution,
 ) -> Result<(), PublicationError> {
@@ -301,8 +347,7 @@ fn validate_contribution(
     if !matches!(
         planned.destination(),
         PlannedArtifactDestination::Publish(_)
-    ) || contribution.producer() != planned.producer()
-    {
+    ) {
         return Err(contribution_error(
             contribution,
             plan,
@@ -316,8 +361,13 @@ fn validate_contribution(
 fn content_error(planned: &PlannedArtifact, error: ContentValidationError) -> PublicationError {
     let kind = match error {
         ContentValidationError::Read(kind) => PublicationErrorKind::Read(kind),
-        ContentValidationError::DigestMismatch => PublicationErrorKind::DigestMismatch,
-        ContentValidationError::LengthMismatch | ContentValidationError::DigestConstruction => {
+        ContentValidationError::LengthMismatch { expected, actual } => {
+            PublicationErrorKind::LengthMismatch { expected, actual }
+        }
+        ContentValidationError::DigestMismatch { expected, actual } => {
+            PublicationErrorKind::digest_mismatch(expected, actual)
+        }
+        ContentValidationError::LengthOverflow | ContentValidationError::DigestConstruction => {
             PublicationErrorKind::InvalidContribution
         }
     };
@@ -353,46 +403,61 @@ fn planned_error(planned: &PlannedArtifact, kind: PublicationErrorKind) -> Publi
 }
 
 struct PublicationDiagnostics {
-    next_id: u32,
-    bag: DiagnosticBag,
+    pending: Vec<PendingDiagnostic>,
 }
 
 impl PublicationDiagnostics {
     const fn new() -> Self {
         Self {
-            next_id: 0,
-            bag: DiagnosticBag::new(),
+            pending: Vec::new(),
         }
     }
 
     fn warning(&mut self, error: PublicationError) {
-        let (_, diagnostic) = error.into_diagnostic(self.next_id(), SeverityKind::Warning);
-
-        self.bag.add(diagnostic);
+        self.pending.push(PendingDiagnostic {
+            error,
+            severity: SeverityKind::Warning,
+        });
     }
 
     fn failed(mut self, error: PublicationError) -> EmissionOutcome {
-        let failure = error.failure();
-        let (artifact, diagnostic) = error.into_diagnostic(self.next_id(), SeverityKind::Error);
+        // Failed outcomes retain the Arc-backed artifact identity after diagnostics consume error.
+        let artifact = error.artifact().clone();
+        let failure = error.failure().with_artifact(artifact);
 
-        self.bag.add(diagnostic);
+        self.pending.push(PendingDiagnostic {
+            error,
+            severity: SeverityKind::Error,
+        });
 
-        EmissionOutcome::failed(failure.with_artifact(artifact), self.bag)
+        EmissionOutcome::failed(failure, self.into_bag())
     }
 
-    fn next_id(&mut self) -> DiagnosticId {
-        let id = DiagnosticId::new(self.next_id);
+    fn into_bag(mut self) -> DiagnosticBag {
+        self.pending
+            .sort_by(|left, right| left.error.artifact().cmp(right.error.artifact()));
 
-        if let Some(next) = self.next_id.checked_add(1) {
-            self.next_id = next;
+        let mut bag = DiagnosticBag::with_capacity(self.pending.len());
+        let mut next_id = 0_u32;
+
+        for pending in self.pending {
+            let id = DiagnosticId::new(next_id);
+            let (_, diagnostic) = pending.error.into_diagnostic(id, pending.severity);
+
+            bag.add(diagnostic);
+
+            if let Some(id) = next_id.checked_add(1) {
+                next_id = id;
+            }
         }
 
-        id
+        bag
     }
+}
 
-    fn into_bag(self) -> DiagnosticBag {
-        self.bag
-    }
+struct PendingDiagnostic {
+    error: PublicationError,
+    severity: SeverityKind,
 }
 
 #[cfg(test)]
@@ -402,17 +467,18 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use bray_codegen::{ArtifactContent, ArtifactDigest, ArtifactDigestAlgorithm};
-    use bray_diagnostics::{DiagnosticKind, SeverityKind};
+    use bray_diagnostics::{DiagnosticArgName, DiagnosticArgValue, DiagnosticKind, SeverityKind};
     use bray_testing::TemporaryFile;
 
     use super::ArtifactPublisher;
     use crate::test_support::{product_identity, target_identity};
     use crate::{
         ArtifactContribution, ArtifactId, ArtifactKind, ArtifactProducer, ArtifactRequirement,
-        ArtifactRole, EmissionFailure, EmissionOutcome, EmissionPlan, EmissionRequest,
-        EmissionStatus, IndirectOutputSink, OutputSink, OutputSinkId, OutputSinkResolver,
-        PlannedArtifact, PlannedArtifactDestination, ProductKind, ReplacementPolicy,
-        RequestedArtifact, RequestedArtifactDestination,
+        ArtifactRole, DependencyMetadataProducerId, EmissionFailure, EmissionOutcome, EmissionPlan,
+        EmissionRequest, EmissionStatus, IndirectOutputSink, LinkerProducerId, OutputSink,
+        OutputSinkId, OutputSinkResolver, OutputSinkTransaction, PlannedArtifact,
+        PlannedArtifactDestination, ProductKind, ReplacementPolicy, RequestedArtifact,
+        RequestedArtifactDestination,
     };
 
     #[test]
@@ -447,6 +513,32 @@ mod tests {
 
         assert_complete_artifact(&outcome, b"stream bytes");
         assert_eq!(resolver.bytes("test.stream"), b"stream bytes");
+    }
+
+    #[test]
+    fn failed_indirect_writes_discard_buffered_bytes() {
+        let Some(stream) = OutputSinkId::try_new("test.partial") else {
+            panic!("test stream identity must be valid");
+        };
+
+        let plan = stream_plan(stream);
+        let resolver = PartiallyFailingResolver::new();
+        let contribution = contribution(&plan, b"partial bytes must stay hidden", None);
+
+        let outcome =
+            ArtifactPublisher::with_sink_resolver(&resolver).publish(&plan, [contribution]);
+
+        assert!(matches!(
+            outcome.status(),
+            EmissionStatus::Failed(EmissionFailure::Publication(_))
+        ));
+
+        assert_eq!(
+            outcome.diagnostics().diagnostics()[0].kind(),
+            DiagnosticKind::EmissionArtifactWriteFailed
+        );
+
+        assert_eq!(resolver.bytes(), b"");
     }
 
     #[test]
@@ -511,7 +603,148 @@ mod tests {
             DiagnosticKind::EmissionArtifactDigestMismatch
         );
 
+        let diagnostic = &outcome.diagnostics().diagnostics()[0];
+
+        let Some(expected) = diagnostic
+            .args()
+            .iter()
+            .find(|arg| arg.name() == DiagnosticArgName::ExpectedArtifactDigest)
+        else {
+            panic!("digest mismatch must retain the declared digest");
+        };
+
+        let DiagnosticArgValue::ArtifactDigest(expected) = expected.value() else {
+            panic!("expected digest argument must remain typed");
+        };
+
+        let Some(actual) = diagnostic
+            .args()
+            .iter()
+            .find(|arg| arg.name() == DiagnosticArgName::ActualArtifactDigest)
+        else {
+            panic!("digest mismatch must retain the measured digest");
+        };
+
+        let DiagnosticArgValue::ArtifactDigest(actual) = actual.value() else {
+            panic!("actual digest argument must remain typed");
+        };
+
+        assert_eq!(expected.bytes(), &[0_u8; 32]);
+        assert_eq!(actual.bytes(), blake3::hash(b"content").as_bytes());
+
         assert_eq!(resolver.bytes("test.digest"), b"");
+    }
+
+    #[test]
+    fn optional_structural_failures_warn_and_omit_the_artifact() {
+        let Some(collector) = OutputSinkId::try_new("test.optional") else {
+            panic!("test collector identity must be valid");
+        };
+
+        let plan = memory_artifact_plan(
+            collector.clone(),
+            [package_interface_spec(), dependency_metadata_spec()],
+        );
+
+        let resolver = CapturingResolver::new([collector]);
+
+        let interface = contribution_for(
+            &plan,
+            ArtifactKind::PackageInterface,
+            b"interface",
+            None,
+            None,
+        );
+
+        let metadata = contribution_for(
+            &plan,
+            ArtifactKind::DependencyMetadata,
+            b"metadata",
+            None,
+            Some(ArtifactProducer::DependencyMetadata(
+                DependencyMetadataProducerId::new(1),
+            )),
+        );
+
+        let outcome =
+            ArtifactPublisher::with_sink_resolver(&resolver).publish(&plan, [metadata, interface]);
+
+        let Some(artifacts) = outcome.artifacts() else {
+            panic!("an invalid optional contribution must not fail the product");
+        };
+
+        assert_eq!(artifacts.artifacts().len(), 1);
+        assert_eq!(outcome.diagnostics().warnings().count(), 1);
+        assert_eq!(
+            outcome.diagnostics().diagnostics()[0].kind(),
+            DiagnosticKind::EmissionInvalidContribution
+        );
+    }
+
+    #[test]
+    fn mixed_publication_warnings_follow_canonical_artifact_order() {
+        let Some(collector) = OutputSinkId::try_new("test.order") else {
+            panic!("test collector identity must be valid");
+        };
+
+        let plan = memory_artifact_plan(
+            collector.clone(),
+            [
+                package_interface_spec(),
+                dependency_metadata_spec(),
+                executable_spec(),
+            ],
+        );
+
+        let resolver =
+            CapturingResolver::failing_open([collector], ArtifactKind::DependencyMetadata);
+
+        let interface = contribution_for(
+            &plan,
+            ArtifactKind::PackageInterface,
+            b"interface",
+            None,
+            None,
+        );
+
+        let metadata = contribution_for(
+            &plan,
+            ArtifactKind::DependencyMetadata,
+            b"metadata",
+            None,
+            None,
+        );
+
+        let Some(wrong_digest) =
+            ArtifactDigest::try_new(ArtifactDigestAlgorithm::Blake3, [0_u8; 32])
+        else {
+            panic!("test digest must be valid");
+        };
+
+        let executable = contribution_for(
+            &plan,
+            ArtifactKind::Executable,
+            b"executable",
+            Some(wrong_digest),
+            None,
+        );
+
+        let outcome = ArtifactPublisher::with_sink_resolver(&resolver)
+            .publish(&plan, [executable, metadata, interface]);
+
+        assert!(outcome.artifacts().is_some());
+
+        assert_eq!(
+            outcome
+                .diagnostics()
+                .iter()
+                .map(|diagnostic| diagnostic.kind())
+                .collect::<Vec<_>>(),
+            vec![
+                DiagnosticKind::EmissionArtifactOpenFailed,
+                DiagnosticKind::EmissionArtifactDigestMismatch,
+            ]
+        );
     }
 
     #[test]
@@ -542,18 +775,7 @@ mod tests {
     }
 
     fn memory_plan(collector: OutputSinkId) -> EmissionPlan {
-        let id = ArtifactId::new(product_identity(), ArtifactKind::PackageInterface, 0);
-
-        let sink = OutputSink::Memory {
-            collector: collector.clone(),
-            artifact: id,
-        };
-
-        publication_plan(
-            RequestedArtifactDestination::Memory(collector),
-            sink,
-            ReplacementPolicy::RequireAbsent,
-        )
+        memory_artifact_plan(collector, [package_interface_spec()])
     }
 
     fn stream_plan(stream: OutputSinkId) -> EmissionPlan {
@@ -606,25 +828,114 @@ mod tests {
         plan
     }
 
+    fn memory_artifact_plan(
+        collector: OutputSinkId,
+        artifacts: impl IntoIterator<Item = TestArtifactSpec>,
+    ) -> EmissionPlan {
+        let artifacts: Vec<_> = artifacts.into_iter().collect();
+
+        let requested = artifacts
+            .iter()
+            .map(|artifact| RequestedArtifact::new(artifact.kind, artifact.requirement));
+
+        let Ok(request) = EmissionRequest::try_new(
+            product_identity(),
+            ProductKind::Library,
+            target_identity(),
+            RequestedArtifactDestination::Memory(collector.clone()),
+            requested,
+            ReplacementPolicy::RequireAbsent,
+        ) else {
+            panic!("test memory publication request must be valid");
+        };
+
+        let product = request.product().clone();
+
+        let planned = artifacts.into_iter().map(|artifact| {
+            let id = ArtifactId::new(product.clone(), artifact.kind, 0);
+
+            PlannedArtifact::new(
+                id.clone(),
+                artifact.requirement,
+                artifact.role,
+                artifact.producer,
+                PlannedArtifactDestination::Publish(OutputSink::Memory {
+                    collector: collector.clone(),
+                    artifact: id,
+                }),
+            )
+        });
+
+        let Ok(plan) = EmissionPlan::try_new(request, None, planned, []) else {
+            panic!("test memory publication plan must be valid");
+        };
+
+        plan
+    }
+
+    fn package_interface_spec() -> TestArtifactSpec {
+        TestArtifactSpec {
+            kind: ArtifactKind::PackageInterface,
+            requirement: ArtifactRequirement::Required,
+            role: ArtifactRole::Product,
+            producer: ArtifactProducer::PackageInterface,
+        }
+    }
+
+    fn dependency_metadata_spec() -> TestArtifactSpec {
+        TestArtifactSpec {
+            kind: ArtifactKind::DependencyMetadata,
+            requirement: ArtifactRequirement::Optional,
+            role: ArtifactRole::Companion,
+            producer: ArtifactProducer::DependencyMetadata(DependencyMetadataProducerId::new(0)),
+        }
+    }
+
+    fn executable_spec() -> TestArtifactSpec {
+        TestArtifactSpec {
+            kind: ArtifactKind::Executable,
+            requirement: ArtifactRequirement::Optional,
+            role: ArtifactRole::Product,
+            producer: ArtifactProducer::Linker(LinkerProducerId::new(0)),
+        }
+    }
+
+    struct TestArtifactSpec {
+        kind: ArtifactKind,
+        requirement: ArtifactRequirement,
+        role: ArtifactRole,
+        producer: ArtifactProducer,
+    }
+
     fn contribution(
         plan: &EmissionPlan,
         bytes: &[u8],
         digest: Option<ArtifactDigest>,
     ) -> ArtifactContribution {
-        let Some(planned) = plan.published_artifacts().next() else {
-            panic!("test plan must publish one artifact");
+        contribution_for(plan, ArtifactKind::PackageInterface, bytes, digest, None)
+    }
+
+    fn contribution_for(
+        plan: &EmissionPlan,
+        kind: ArtifactKind,
+        bytes: &[u8],
+        digest: Option<ArtifactDigest>,
+        producer: Option<ArtifactProducer>,
+    ) -> ArtifactContribution {
+        let Some(planned) = plan
+            .published_artifacts()
+            .find(|artifact| artifact.id().kind() == kind)
+        else {
+            panic!("test plan must publish the requested artifact kind");
         };
 
         let Ok(content) = ArtifactContent::try_memory(bytes.to_vec()) else {
             panic!("test artifact content must be valid");
         };
 
-        ArtifactContribution::new(
-            planned.id().clone(),
-            planned.producer().clone(),
-            content,
-            digest,
-        )
+        let producer = producer.unwrap_or_else(|| planned.producer().clone());
+
+        ArtifactContribution::new(planned.id().clone(), producer, content, digest)
     }
 
     fn assert_complete_artifact(outcome: &EmissionOutcome, expected: &[u8]) {
@@ -657,16 +968,28 @@ mod tests {
 
     struct CapturingResolver {
         sinks: BTreeMap<String, Arc<Mutex<Vec<u8>>>>,
+        fail_open: Option<ArtifactKind>,
     }
 
     impl CapturingResolver {
         fn new(sinks: impl IntoIterator<Item = OutputSinkId>) -> Self {
+            Self::with_failure(sinks, None)
+        }
+
+        fn failing_open(sinks: impl IntoIterator<Item = OutputSinkId>, kind: ArtifactKind) -> Self {
+            Self::with_failure(sinks, Some(kind))
+        }
+
+        fn with_failure(
+            sinks: impl IntoIterator<Item = OutputSinkId>,
+            fail_open: Option<ArtifactKind>,
+        ) -> Self {
             let sinks = sinks
                 .into_iter()
                 .map(|sink| (sink.as_str().to_owned(), Arc::new(Mutex::new(Vec::new()))))
                 .collect();
 
-            Self { sinks }
+            Self { sinks, fail_open }
         }
 
         fn bytes(&self, sink: &str) -> Vec<u8> {
@@ -687,39 +1010,127 @@ mod tests {
             &self,
             sink: IndirectOutputSink<'_>,
             _replacement: ReplacementPolicy,
-        ) -> io::Result<Box<dyn Write + Send>> {
-            let identity = match sink {
-                IndirectOutputSink::Memory { collector, .. } => collector,
-                IndirectOutputSink::Stream(stream) => stream,
+        ) -> io::Result<Box<dyn OutputSinkTransaction>> {
+            let (identity, artifact_kind) = match sink {
+                IndirectOutputSink::Memory {
+                    collector,
+                    artifact,
+                } => (collector, Some(artifact.kind())),
+                IndirectOutputSink::Stream(stream) => (stream, None),
             };
+
+            if artifact_kind.is_some_and(|kind| self.fail_open == Some(kind)) {
+                return Err(io::Error::from(io::ErrorKind::BrokenPipe));
+            }
 
             let Some(bytes) = self.sinks.get(identity.as_str()) else {
                 return Err(io::Error::from(io::ErrorKind::NotFound));
             };
 
             Ok(Box::new(CapturingWriter {
-                bytes: Arc::clone(bytes),
+                destination: Arc::clone(bytes),
+                buffer: Vec::new(),
             }))
         }
     }
 
     struct CapturingWriter {
-        bytes: Arc<Mutex<Vec<u8>>>,
+        destination: Arc<Mutex<Vec<u8>>>,
+        buffer: Vec<u8>,
     }
 
     impl Write for CapturingWriter {
         fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
-            let mut bytes = self
-                .bytes
-                .lock()
-                .map_err(|_| io::Error::from(io::ErrorKind::Other))?;
-
-            bytes.extend_from_slice(buffer);
+            self.buffer.extend_from_slice(buffer);
 
             Ok(buffer.len())
         }
 
         fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl OutputSinkTransaction for CapturingWriter {
+        fn commit(self: Box<Self>) -> io::Result<()> {
+            let mut destination = self
+                .destination
+                .lock()
+                .map_err(|_| io::Error::from(io::ErrorKind::Other))?;
+
+            *destination = self.buffer;
+
+            Ok(())
+        }
+    }
+
+    #[derive(Default)]
+    struct PartiallyFailingResolver {
+        destination: Arc<Mutex<Vec<u8>>>,
+    }
+
+    impl PartiallyFailingResolver {
+        fn new() -> Self {
+            Self::default()
+        }
+
+        fn bytes(&self) -> Vec<u8> {
+            let Ok(bytes) = self.destination.lock() else {
+                panic!("test sink lock must be available");
+            };
+
+            bytes.clone()
+        }
+    }
+
+    impl OutputSinkResolver for PartiallyFailingResolver {
+        fn open(
+            &self,
+            _sink: IndirectOutputSink<'_>,
+            _replacement: ReplacementPolicy,
+        ) -> io::Result<Box<dyn OutputSinkTransaction>> {
+            Ok(Box::new(PartiallyFailingTransaction {
+                destination: Arc::clone(&self.destination),
+                buffer: Vec::new(),
+                accepted_write: false,
+            }))
+        }
+    }
+
+    struct PartiallyFailingTransaction {
+        destination: Arc<Mutex<Vec<u8>>>,
+        buffer: Vec<u8>,
+        accepted_write: bool,
+    }
+
+    impl Write for PartiallyFailingTransaction {
+        fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+            if self.accepted_write {
+                return Err(io::Error::from(io::ErrorKind::BrokenPipe));
+            }
+
+            let accepted = buffer.len().min(3);
+
+            self.buffer.extend_from_slice(&buffer[..accepted]);
+            self.accepted_write = true;
+
+            Ok(accepted)
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl OutputSinkTransaction for PartiallyFailingTransaction {
+        fn commit(self: Box<Self>) -> io::Result<()> {
+            let mut destination = self
+                .destination
+                .lock()
+                .map_err(|_| io::Error::from(io::ErrorKind::Other))?;
+
+            *destination = self.buffer;
+
             Ok(())
         }
     }

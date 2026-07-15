@@ -311,22 +311,26 @@ impl ArtifactDigestAlgorithm {
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct ArtifactDigest {
     algorithm: ArtifactDigestAlgorithm,
-    bytes: Arc<[u8]>,
+    bytes: [u8; 32],
 }
 
 impl ArtifactDigest {
     /// Creates a digest when its byte length matches the selected algorithm.
-    pub fn try_new(
-        algorithm: ArtifactDigestAlgorithm,
-        bytes: impl Into<Arc<[u8]>>,
-    ) -> Option<Self> {
-        let bytes = bytes.into();
+    pub fn try_new(algorithm: ArtifactDigestAlgorithm, bytes: impl AsRef<[u8]>) -> Option<Self> {
+        let bytes = bytes.as_ref();
 
         if bytes.len() != algorithm.byte_len() {
             return None;
         }
 
-        Some(Self { algorithm, bytes })
+        let mut digest = [0_u8; 32];
+
+        digest.copy_from_slice(bytes);
+
+        Some(Self {
+            algorithm,
+            bytes: digest,
+        })
     }
 
     /// Returns the digest algorithm.
@@ -337,6 +341,11 @@ impl ArtifactDigest {
     /// Returns the exact digest bytes.
     pub fn bytes(&self) -> &[u8] {
         &self.bytes
+    }
+
+    /// Returns the exact digest bytes by value.
+    pub const fn into_bytes(self) -> [u8; 32] {
+        self.bytes
     }
 }
 

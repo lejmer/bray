@@ -136,11 +136,11 @@ impl DiagnosticRenderer {
 #[cfg(test)]
 mod tests {
     use bray_diagnostics::{
-        Diagnostic, DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticArtifactKind,
-        DiagnosticBag, DiagnosticId, DiagnosticIoErrorKind, DiagnosticKind, DiagnosticLabel,
-        DiagnosticLabelKind, DiagnosticLabelStyle, DiagnosticModuleTrust, DiagnosticNameKind,
-        DiagnosticNote, DiagnosticNoteKind, DiagnosticOutputSink, DiagnosticVisibility,
-        SeverityKind,
+        Diagnostic, DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticArtifactDigest,
+        DiagnosticArtifactDigestAlgorithm, DiagnosticArtifactKind, DiagnosticBag, DiagnosticId,
+        DiagnosticIoErrorKind, DiagnosticKind, DiagnosticLabel, DiagnosticLabelKind,
+        DiagnosticLabelStyle, DiagnosticModuleTrust, DiagnosticNameKind, DiagnosticNote,
+        DiagnosticNoteKind, DiagnosticOutputSink, DiagnosticVisibility, SeverityKind,
     };
     use bray_source::{SourceId, SourceSpan, TextRange, TextSize};
     use bray_syntax::SyntaxKind;
@@ -211,6 +211,36 @@ mod tests {
             rendered.message(),
             "could not write artifact output memory collector 'host.output': other I/O error"
         );
+    }
+
+    #[test]
+    fn renderer_localizes_artifact_digest_mismatch_facts() {
+        let expected =
+            DiagnosticArtifactDigest::new(DiagnosticArtifactDigestAlgorithm::Sha256, [0_u8; 32]);
+
+        let actual =
+            DiagnosticArtifactDigest::new(DiagnosticArtifactDigestAlgorithm::Sha256, [1_u8; 32]);
+
+        let diagnostic = Diagnostic::new(
+            DiagnosticId::new(0),
+            DiagnosticKind::EmissionArtifactDigestMismatch,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::artifact_kind(
+            DiagnosticArtifactKind::PackageInterface,
+        ))
+        .with_arg(DiagnosticArg::expected_artifact_digest(expected))
+        .with_arg(DiagnosticArg::actual_artifact_digest(actual));
+
+        let rendered = DiagnosticRenderer::english().render(&diagnostic);
+
+        let expected = format!(
+            "package interface artifact declared digest SHA-256 {}, but content digest was SHA-256 {}",
+            "00".repeat(32),
+            "01".repeat(32)
+        );
+
+        assert_eq!(rendered.message(), expected);
     }
 
     #[test]

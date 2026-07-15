@@ -29,5 +29,6 @@ pub use request::{
     EmissionRequest, EmissionRequestBuildError, RequestedArtifact, RequestedArtifactDestination,
 };
 pub use sink::{
-    IndirectOutputSink, OutputSink, OutputSinkId, OutputSinkResolver, ReplacementPolicy,
+    IndirectOutputSink, OutputSink, OutputSinkId, OutputSinkResolver, OutputSinkTransaction,
+    ReplacementPolicy,
 };

@@ -178,6 +178,7 @@ enum DiagnosticArgValueJson {
     Count(u64),
     Byte(u8),
     ByteCount(u64),
+    ArtifactDigest(DiagnosticArtifactDigestJson),
     ArtifactKind(&'static str),
     ArtifactOrdinal(u32),
     Character(char),
@@ -212,6 +213,9 @@ impl DiagnosticArgValueJson {
             DiagnosticArgValue::Count(count) => Self::Count(*count),
             DiagnosticArgValue::Byte(byte) => Self::Byte(*byte),
             DiagnosticArgValue::ByteCount(byte_count) => Self::ByteCount(*byte_count),
+            DiagnosticArgValue::ArtifactDigest(digest) => {
+                Self::ArtifactDigest(DiagnosticArtifactDigestJson::from_digest(digest))
+            }
             DiagnosticArgValue::ArtifactKind(kind) => Self::ArtifactKind((*kind).as_str()),
             DiagnosticArgValue::ArtifactOrdinal(ordinal) => Self::ArtifactOrdinal(*ordinal),
             DiagnosticArgValue::Character(character) => Self::Character(*character),
@@ -248,6 +252,22 @@ impl DiagnosticArgValueJson {
             }
             DiagnosticArgValue::WorkerCount(worker_count) => Self::WorkerCount(*worker_count),
             DiagnosticArgValue::Revision(revision) => Self::Revision(*revision),
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct DiagnosticArtifactDigestJson {
+    algorithm: &'static str,
+    bytes: Vec<u8>,
+}
+
+impl DiagnosticArtifactDigestJson {
+    fn from_digest(digest: &bray_diagnostics::DiagnosticArtifactDigest) -> Self {
+        Self {
+            algorithm: digest.algorithm().as_str(),
+            // JSON output owns its DTO independently of the diagnostic bag.
+            bytes: digest.bytes().to_vec(),
         }
     }
 }
@@ -316,15 +336,16 @@ impl SourceSpanJson {
 #[cfg(test)]
 mod tests {
     use bray_diagnostics::{
-        Diagnostic, DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticBag,
-        DiagnosticId, DiagnosticInterfaceLimit, DiagnosticInterfaceSection, DiagnosticKind,
-        DiagnosticModuleTrust, DiagnosticNameKind, DiagnosticNote, DiagnosticNoteKind,
-        DiagnosticOutputSink, DiagnosticVisibility, SeverityKind,
+        Diagnostic, DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticArtifactDigest,
+        DiagnosticArtifactDigestAlgorithm, DiagnosticBag, DiagnosticId, DiagnosticInterfaceLimit,
+        DiagnosticInterfaceSection, DiagnosticKind, DiagnosticModuleTrust, DiagnosticNameKind,
+        DiagnosticNote, DiagnosticNoteKind, DiagnosticOutputSink, DiagnosticVisibility,
+        SeverityKind,
     };
     use bray_source::{SourceSpan, TextRange, TextSize};
     use bray_syntax::SyntaxKind;
 
-    use super::{DiagnosticOutputSinkJson, write_json_diagnostics};
+    use super::{DiagnosticArtifactDigestJson, DiagnosticOutputSinkJson, write_json_diagnostics};
     use crate::diagnostic_output::test_support::file_source_store;
 
     #[test]
@@ -590,16 +611,30 @@ mod tests {
     }
 
     #[test]
-    fn json_output_serializes_typed_artifact_sinks() {
+    fn json_output_serializes_typed_artifact_facts() {
         let sink = DiagnosticOutputSink::Memory("host.output".to_owned());
-        let value = DiagnosticOutputSinkJson::from_sink(&sink);
+        let sink = DiagnosticOutputSinkJson::from_sink(&sink);
 
-        let Ok(value) = serde_json::to_value(value) else {
+        let Ok(sink) = serde_json::to_value(sink) else {
             panic!("diagnostic output sink must serialize");
         };
 
-        assert_eq!(value["kind"], "memory");
-        assert_eq!(value["value"], "host.output");
+        assert_eq!(sink["kind"], "memory");
+        assert_eq!(sink["value"], "host.output");
+
+        let digest =
+            DiagnosticArtifactDigest::new(DiagnosticArtifactDigestAlgorithm::Blake3, [3_u8; 32]);
+
+        let digest = DiagnosticArtifactDigestJson::from_digest(&digest);
+
+        let Ok(digest) = serde_json::to_value(digest) else {
+            panic!("diagnostic artifact digest must serialize");
+        };
+
+        assert_eq!(digest["algorithm"], "blake3");
+        assert_eq!(digest["bytes"].as_array().map(Vec::len), Some(32));
+        assert_eq!(digest["bytes"][0], 3);
+        assert_eq!(digest["bytes"][31], 3);
     }
 
     #[test]

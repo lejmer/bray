@@ -56,14 +56,23 @@ pub enum IndirectOutputSink<'sink> {
     Stream(&'sink OutputSinkId),
 }
 
-/// Host boundary that resolves immutable sink identities to owned writable handles.
+/// Transactional write operation for one indirect artifact sink.
+///
+/// Written bytes must remain hidden until `commit` succeeds. Dropping an operation before a
+/// successful commit must discard its buffered bytes.
+pub trait OutputSinkTransaction: Write + Send {
+    /// Makes the complete buffered artifact visible at its selected sink.
+    fn commit(self: Box<Self>) -> io::Result<()>;
+}
+
+/// Host boundary that resolves immutable sink identities to transactional writes.
 pub trait OutputSinkResolver: Send + Sync {
-    /// Opens the selected indirect sink using the plan's replacement policy.
+    /// Opens a transaction for the selected indirect sink and replacement policy.
     fn open(
         &self,
         sink: IndirectOutputSink<'_>,
         replacement: ReplacementPolicy,
-    ) -> io::Result<Box<dyn Write + Send>>;
+    ) -> io::Result<Box<dyn OutputSinkTransaction>>;
 }
 
 impl OutputSink {

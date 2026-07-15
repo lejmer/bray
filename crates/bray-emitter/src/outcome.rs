@@ -40,18 +40,14 @@ pub struct EmissionOutcome {
 }
 
 impl EmissionOutcome {
-    pub(crate) fn try_complete(
+    pub(crate) const fn complete(
         artifacts: EmittedArtifactSet,
         diagnostics: DiagnosticBag,
-    ) -> Result<Self, DiagnosticBag> {
-        if diagnostics.has_errors() {
-            return Err(diagnostics);
-        }
-
-        Ok(Self {
+    ) -> Self {
+        Self {
             status: EmissionStatus::Complete(artifacts),
             diagnostics,
-        })
+        }
     }
 
     /// Creates a failed outcome without a partial product success claim.
@@ -91,7 +87,7 @@ impl EmissionOutcome {
 
 #[cfg(test)]
 mod tests {
-    use bray_diagnostics::{Diagnostic, DiagnosticBag, DiagnosticId, DiagnosticKind, SeverityKind};
+    use bray_diagnostics::DiagnosticBag;
 
     use super::{EmissionFailure, EmissionOutcome, EmissionStatus};
     use crate::test_support::{emission_plan, emitted_artifact};
@@ -101,13 +97,8 @@ mod tests {
         let plan = emission_plan();
         let artifact = emitted_artifact(&plan);
 
-        let Ok(artifacts) = crate::EmittedArtifactSet::try_new(&plan, [artifact]) else {
-            panic!("matching test artifact must complete emission");
-        };
-
-        let Ok(complete) = EmissionOutcome::try_complete(artifacts, DiagnosticBag::new()) else {
-            panic!("error-free artifacts must complete emission");
-        };
+        let artifacts = crate::EmittedArtifactSet::from_publication(&plan, [artifact]);
+        let complete = EmissionOutcome::complete(artifacts, DiagnosticBag::new());
 
         assert!(matches!(complete.status(), EmissionStatus::Complete(_)));
         assert!(complete.artifacts().is_some());
@@ -117,26 +108,5 @@ mod tests {
 
         assert_eq!(failed.artifacts(), None);
         assert_eq!(cancelled.artifacts(), None);
-    }
-
-    #[test]
-    fn complete_outcomes_reject_error_diagnostics() {
-        let plan = emission_plan();
-        let artifact = emitted_artifact(&plan);
-
-        let Ok(artifacts) = crate::EmittedArtifactSet::try_new(&plan, [artifact]) else {
-            panic!("matching test artifact must complete emission");
-        };
-
-        let diagnostics = DiagnosticBag::single(Diagnostic::new(
-            DiagnosticId::new(0),
-            DiagnosticKind::EmissionArtifactWriteFailed,
-            SeverityKind::Error,
-        ));
-
-        assert_eq!(
-            EmissionOutcome::try_complete(artifacts, diagnostics.clone()),
-            Err(diagnostics)
-        );
     }
 }

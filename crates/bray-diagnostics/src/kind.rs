@@ -113,6 +113,10 @@ pub enum DiagnosticKind {
     EmissionArtifactFlushFailed,
     /// Completed artifact bytes do not match the producer-supplied digest.
     EmissionArtifactDigestMismatch,
+    /// Completed artifact bytes do not match the producer-supplied length.
+    EmissionArtifactLengthMismatch,
+    /// A complete indirect artifact write could not be committed.
+    EmissionArtifactCommitFailed,
 }
 
 impl DiagnosticKind {
@@ -173,6 +177,8 @@ impl DiagnosticKind {
             Self::EmissionArtifactWriteFailed => 9005,
             Self::EmissionArtifactFlushFailed => 9006,
             Self::EmissionArtifactDigestMismatch => 9007,
+            Self::EmissionArtifactLengthMismatch => 9008,
+            Self::EmissionArtifactCommitFailed => 9009,
         };
 
         DiagnosticCode::new(raw)
@@ -237,6 +243,8 @@ impl DiagnosticKind {
             Self::EmissionArtifactWriteFailed => "emission_artifact_write_failed",
             Self::EmissionArtifactFlushFailed => "emission_artifact_flush_failed",
             Self::EmissionArtifactDigestMismatch => "emission_artifact_digest_mismatch",
+            Self::EmissionArtifactLengthMismatch => "emission_artifact_length_mismatch",
+            Self::EmissionArtifactCommitFailed => "emission_artifact_commit_failed",
         }
     }
 }
@@ -291,7 +299,7 @@ mod tests {
         }
     }
 
-    fn all_diagnostic_kinds() -> [DiagnosticKind; 54] {
+    fn all_diagnostic_kinds() -> [DiagnosticKind; 56] {
         [
             DiagnosticKind::SourceFileReadFailed,
             DiagnosticKind::SourceInvalidUtf8,
@@ -347,6 +355,8 @@ mod tests {
             DiagnosticKind::EmissionArtifactWriteFailed,
             DiagnosticKind::EmissionArtifactFlushFailed,
             DiagnosticKind::EmissionArtifactDigestMismatch,
+            DiagnosticKind::EmissionArtifactLengthMismatch,
+            DiagnosticKind::EmissionArtifactCommitFailed,
         ]
     }
 }

@@ -1,7 +1,9 @@
+use std::fmt::Write as _;
+
 use bray_diagnostics::{
-    DiagnosticArgValue, DiagnosticArtifactKind, DiagnosticInterfaceLimit,
-    DiagnosticInterfaceSection, DiagnosticIoErrorKind, DiagnosticModuleTrust, DiagnosticNameKind,
-    DiagnosticOutputSink,
+    DiagnosticArgValue, DiagnosticArtifactDigest, DiagnosticArtifactDigestAlgorithm,
+    DiagnosticArtifactKind, DiagnosticInterfaceLimit, DiagnosticInterfaceSection,
+    DiagnosticIoErrorKind, DiagnosticModuleTrust, DiagnosticNameKind, DiagnosticOutputSink,
 };
 use bray_source::{SourceInputKind, SourceLocation, SourceOrigin, SourceSpan};
 use bray_syntax::SyntaxKind;
@@ -11,6 +13,7 @@ pub(crate) fn format_value(value: &DiagnosticArgValue) -> String {
         DiagnosticArgValue::Count(count) => count.to_string(),
         DiagnosticArgValue::Byte(byte) => format!("0x{byte:02X}"),
         DiagnosticArgValue::ByteCount(byte_count) => byte_count.to_string(),
+        DiagnosticArgValue::ArtifactDigest(digest) => format_english_artifact_digest(digest),
         DiagnosticArgValue::ArtifactKind(kind) => format_english_artifact_kind(*kind).to_owned(),
         DiagnosticArgValue::ArtifactOrdinal(ordinal) => ordinal.to_string(),
         DiagnosticArgValue::Character(character) => format_english_character(*character),
@@ -44,6 +47,24 @@ pub(crate) fn format_value(value: &DiagnosticArgValue) -> String {
         DiagnosticArgValue::WorkerCount(worker_count) => worker_count.to_string(),
         DiagnosticArgValue::Revision(revision) => revision.to_string(),
     }
+}
+
+fn format_english_artifact_digest(digest: &DiagnosticArtifactDigest) -> String {
+    let algorithm = match digest.algorithm() {
+        DiagnosticArtifactDigestAlgorithm::Blake3 => "BLAKE3",
+        DiagnosticArtifactDigestAlgorithm::Sha256 => "SHA-256",
+    };
+
+    let mut formatted = String::with_capacity(algorithm.len() + 1 + digest.bytes().len() * 2);
+
+    formatted.push_str(algorithm);
+    formatted.push(' ');
+
+    for byte in digest.bytes() {
+        let _ = write!(formatted, "{byte:02x}");
+    }
+
+    formatted
 }
 
 const fn format_english_artifact_kind(kind: DiagnosticArtifactKind) -> &'static str {

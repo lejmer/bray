@@ -60,24 +60,37 @@ pub(super) fn validate_content(
         }
 
         let Ok(read) = u64::try_from(read) else {
-            return Err(ContentValidationError::LengthMismatch);
+            return Err(ContentValidationError::LengthOverflow);
         };
 
         let Some(next_byte_len) = byte_len.checked_add(read) else {
-            return Err(ContentValidationError::LengthMismatch);
+            return Err(ContentValidationError::LengthOverflow);
         };
 
         byte_len = next_byte_len;
     }
 
     if byte_len != content.byte_len() {
-        return Err(ContentValidationError::LengthMismatch);
+        return Err(ContentValidationError::LengthMismatch {
+            expected: content.byte_len(),
+            actual: byte_len,
+        });
     }
 
-    if let (Some(expected), Some(hasher)) = (expected, expected_hasher)
-        && hasher.finish().as_slice() != expected.bytes()
-    {
-        return Err(ContentValidationError::DigestMismatch);
+    if let (Some(expected), Some(hasher)) = (expected, expected_hasher) {
+        let actual_bytes = hasher.finish();
+
+        if actual_bytes.as_slice() != expected.bytes() {
+            let Some(actual) = ArtifactDigest::try_new(expected.algorithm(), actual_bytes) else {
+                return Err(ContentValidationError::DigestConstruction);
+            };
+
+            return Err(ContentValidationError::DigestMismatch {
+                // The error must own the declared digest after the contribution borrow ends.
+                expected: expected.clone(),
+                actual,
+            });
+        }
     }
 
     let bytes = *canonical.finalize().as_bytes();
@@ -119,8 +132,15 @@ impl ExpectedDigestHasher {
 #[derive(Debug)]
 pub(super) enum ContentValidationError {
     Read(io::ErrorKind),
-    LengthMismatch,
-    DigestMismatch,
+    LengthMismatch {
+        expected: u64,
+        actual: u64,
+    },
+    DigestMismatch {
+        expected: ArtifactDigest,
+        actual: ArtifactDigest,
+    },
+    LengthOverflow,
     DigestConstruction,
 }
 
@@ -139,10 +159,9 @@ mod tests {
             panic!("test artifact content must be valid");
         };
 
-        let Some(expected) = ArtifactDigest::try_new(
-            ArtifactDigestAlgorithm::Sha256,
-            Sha256::digest(bytes).to_vec(),
-        ) else {
+        let Some(expected) =
+            ArtifactDigest::try_new(ArtifactDigestAlgorithm::Sha256, Sha256::digest(bytes))
+        else {
             panic!("test SHA-256 digest must be valid");
         };
 
