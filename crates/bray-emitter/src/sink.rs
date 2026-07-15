@@ -3,6 +3,8 @@ use std::sync::Arc;
 
 use bray_base::shared_str;
 
+use crate::ArtifactId;
+
 /// Host-supplied identity resolved to an in-memory collector or writable stream at publication.
 ///
 /// The identity deliberately carries no open handle or mutable collector state, which keeps
@@ -33,8 +35,13 @@ impl OutputSinkId {
 pub enum OutputSink {
     /// Final filesystem artifact path.
     Filesystem(PathBuf),
-    /// Host-owned in-memory collector resolved by identity during publication.
-    Memory(OutputSinkId),
+    /// Host-owned in-memory collector and deterministic artifact key.
+    Memory {
+        /// Collector resolved by the host during publication.
+        collector: OutputSinkId,
+        /// Artifact key used within the collector.
+        artifact: ArtifactId,
+    },
     /// Host-owned writable stream resolved by identity during publication.
     Stream(OutputSinkId),
 }

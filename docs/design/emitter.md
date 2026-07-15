@@ -53,7 +53,10 @@ The emitter does not:
 ### Emission Request
 
 An `EmissionRequest` describes the product and external artifacts requested by the compiler host. It contains typed product,
-destination, artifact, replacement, diagnostic, and target-output options.
+target identity, destination, artifact, and replacement intent.
+
+Target-output facts and compilation diagnostic policy remain facts of their owning target and compilation contexts. Planning
+requests those facts rather than duplicating them in the host's artifact request.
 
 It does not contain mutable compiler state or backend-private values.
 

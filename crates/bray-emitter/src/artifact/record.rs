@@ -20,7 +20,7 @@ pub struct EmittedArtifact {
 
 impl EmittedArtifact {
     /// Creates one completed publication record before complete-set validation.
-    pub const fn new(
+    pub(crate) const fn new(
         id: ArtifactId,
         sink: OutputSink,
         producer: ArtifactProducer,
@@ -78,7 +78,7 @@ pub struct EmittedArtifactSet {
 
 impl EmittedArtifactSet {
     /// Validates and freezes complete externally published records for one plan.
-    pub fn try_new(
+    pub(crate) fn try_new(
         plan: &EmissionPlan,
         artifacts: impl IntoIterator<Item = EmittedArtifact>,
     ) -> Result<Self, EmittedArtifactSetBuildError> {
@@ -141,7 +141,7 @@ impl EmittedArtifactSet {
 
 /// A contract violation that prevents complete publication records from being exposed.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum EmittedArtifactSetBuildError {
+pub(crate) enum EmittedArtifactSetBuildError {
     /// One logical artifact identity appears more than once.
     DuplicateArtifact(ArtifactId),
     /// A required externally published artifact has no completed record.

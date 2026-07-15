@@ -1,8 +1,7 @@
 use bray_diagnostics::DiagnosticBag;
 
-use crate::{
-    ArtifactId, EmissionPlan, EmittedArtifact, EmittedArtifactSet, EmittedArtifactSetBuildError,
-};
+use crate::artifact::EmittedArtifactSetBuildError;
+use crate::{ArtifactId, EmissionPlan, EmittedArtifact, EmittedArtifactSet};
 
 /// Structured reason one emission operation could not publish a complete product.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -43,12 +42,17 @@ pub struct EmissionOutcome {
 
 impl EmissionOutcome {
     /// Validates complete records against the plan before publishing product success.
-    pub fn try_complete(
+    pub(crate) fn try_complete(
         plan: &EmissionPlan,
         artifacts: impl IntoIterator<Item = EmittedArtifact>,
         diagnostics: DiagnosticBag,
-    ) -> Result<Self, EmittedArtifactSetBuildError> {
-        let artifacts = EmittedArtifactSet::try_new(plan, artifacts)?;
+    ) -> Result<Self, EmissionOutcomeBuildError> {
+        if diagnostics.has_errors() {
+            return Err(EmissionOutcomeBuildError::ErrorDiagnostics(diagnostics));
+        }
+
+        let artifacts = EmittedArtifactSet::try_new(plan, artifacts)
+            .map_err(EmissionOutcomeBuildError::InvalidArtifacts)?;
 
         Ok(Self {
             status: EmissionStatus::Complete(artifacts),
@@ -57,7 +61,7 @@ impl EmissionOutcome {
     }
 
     /// Creates a failed outcome without a partial product success claim.
-    pub const fn failed(failure: EmissionFailure, diagnostics: DiagnosticBag) -> Self {
+    pub(crate) const fn failed(failure: EmissionFailure, diagnostics: DiagnosticBag) -> Self {
         Self {
             status: EmissionStatus::Failed(failure),
             diagnostics,
@@ -65,7 +69,7 @@ impl EmissionOutcome {
     }
 
     /// Creates a cancelled outcome without diagnostics or partial product success.
-    pub const fn cancelled() -> Self {
+    pub(crate) const fn cancelled() -> Self {
         Self {
             status: EmissionStatus::Cancelled,
             diagnostics: DiagnosticBag::new(),
@@ -91,12 +95,36 @@ impl EmissionOutcome {
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum EmissionOutcomeBuildError {
+    ErrorDiagnostics(DiagnosticBag),
+    InvalidArtifacts(EmittedArtifactSetBuildError),
+}
+
 #[cfg(test)]
 mod tests {
-    use bray_diagnostics::DiagnosticBag;
+    use bray_diagnostics::{Diagnostic, DiagnosticBag, DiagnosticId, DiagnosticKind, SeverityKind};
 
-    use super::{EmissionFailure, EmissionOutcome, EmissionStatus};
+    use super::{EmissionFailure, EmissionOutcome, EmissionOutcomeBuildError, EmissionStatus};
     use crate::test_support::{emission_plan, emitted_artifact};
+
+    #[test]
+    fn outcomes_reject_error_diagnostics_for_complete_status() {
+        let plan = emission_plan();
+
+        let artifact = emitted_artifact(&plan);
+
+        let diagnostics = DiagnosticBag::single(Diagnostic::new(
+            DiagnosticId::new(1),
+            DiagnosticKind::RequestMissingSourceInput,
+            SeverityKind::Error,
+        ));
+
+        assert_eq!(
+            EmissionOutcome::try_complete(&plan, [artifact], diagnostics.clone()),
+            Err(EmissionOutcomeBuildError::ErrorDiagnostics(diagnostics))
+        );
+    }
 
     #[test]
     fn outcomes_expose_artifacts_only_after_complete_plan_validation() {

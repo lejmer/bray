@@ -142,7 +142,7 @@ pub(crate) fn backend_artifact_plan_parts() -> (
             0,
         ),
         ArtifactRequirement::Required,
-        ArtifactRole::Product,
+        ArtifactRole::Inspection,
         ArtifactProducer::Backend {
             artifact: backend_artifact,
             backend: backend.clone(),

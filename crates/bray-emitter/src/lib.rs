@@ -2,8 +2,20 @@
 
 #![forbid(unsafe_code)]
 
+#[expect(
+    dead_code,
+    reason = "BRA-166 and BRA-167 will use private artifact construction and validation"
+)]
 mod artifact;
+#[expect(
+    dead_code,
+    reason = "BRA-167 will construct emission outcomes after atomic publication"
+)]
 mod outcome;
+#[expect(
+    dead_code,
+    reason = "BRA-166 will use private plan construction and validation"
+)]
 mod plan;
 mod request;
 mod sink;
@@ -14,11 +26,11 @@ mod test_support;
 pub use artifact::{
     ArtifactContribution, ArtifactId, ArtifactKind, ArtifactProducer, ArtifactRequirement,
     ArtifactRole, DependencyMetadataProducerId, EmittedArtifact, EmittedArtifactSet,
-    EmittedArtifactSetBuildError, LinkerProducerId,
+    LinkerProducerId,
 };
 pub use bray_symbols::{ProductIdentity, ProductKind};
 pub use outcome::{EmissionFailure, EmissionOutcome, EmissionStatus};
-pub use plan::{EmissionPlan, EmissionPlanBuildError, PlannedArtifact, PlannedArtifactDestination};
+pub use plan::{EmissionPlan, PlannedArtifact, PlannedArtifactDestination};
 pub use request::{
     EmissionRequest, EmissionRequestBuildError, RequestedArtifact, RequestedArtifactDestination,
 };

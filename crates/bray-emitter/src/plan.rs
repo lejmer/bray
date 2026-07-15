@@ -32,7 +32,7 @@ pub struct PlannedArtifact {
 
 impl PlannedArtifact {
     /// Creates one exact artifact operation before complete-plan validation.
-    pub const fn new(
+    pub(crate) const fn new(
         id: ArtifactId,
         requirement: ArtifactRequirement,
         role: ArtifactRole,
@@ -85,7 +85,7 @@ pub struct EmissionPlan {
 
 impl EmissionPlan {
     /// Validates and freezes one complete deterministic emission plan.
-    pub fn try_new(
+    pub(crate) fn try_new(
         request: EmissionRequest,
         backend: Option<BackendIdentity>,
         artifacts: impl IntoIterator<Item = PlannedArtifact>,
@@ -164,7 +164,7 @@ impl EmissionPlan {
 
 /// A structural contract violation that prevents immutable plan publication.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum EmissionPlanBuildError {
+pub(crate) enum EmissionPlanBuildError {
     /// The plan contains no artifacts.
     Empty,
     /// One artifact belongs to another selected product.
@@ -173,6 +173,8 @@ pub enum EmissionPlanBuildError {
     DuplicateArtifact(ArtifactId),
     /// Two externally published artifacts select the same output sink.
     DuplicateSink(OutputSink),
+    /// An in-memory sink uses a key other than its planned artifact identity.
+    MemoryArtifactIdentityMismatch(ArtifactId),
     /// A required external artifact category has no published artifact.
     MissingRequestedArtifact(ArtifactKind),
     /// A published artifact category was not present in the host request.
@@ -181,6 +183,8 @@ pub enum EmissionPlanBuildError {
     RequirementMismatch(ArtifactId),
     /// An artifact role is incompatible with publication or private staging.
     RoleDestinationMismatch(ArtifactId),
+    /// An artifact category is incompatible with its product-lifecycle role.
+    KindRoleMismatch(ArtifactId),
     /// A producer is not permitted to construct the planned artifact category.
     ProducerKindMismatch(ArtifactId),
     /// A backend producer names a different selected backend.
@@ -225,7 +229,7 @@ fn validate_artifacts(
             ));
         }
 
-        validate_role_destination(artifact)?;
+        validate_role(artifact)?;
         validate_destination(request, artifact, &mut sinks)?;
         validate_producer(backend, artifact)?;
     }
@@ -273,6 +277,18 @@ fn validate_destination<'sink>(
         ));
     }
 
+    if let OutputSink::Memory {
+        artifact: sink_artifact,
+        ..
+    } = sink
+        && sink_artifact != artifact.id()
+    {
+        // Plan errors retain Arc-backed artifact identities after validation returns.
+        return Err(EmissionPlanBuildError::MemoryArtifactIdentityMismatch(
+            artifact.id().clone(),
+        ));
+    }
+
     if !sinks.insert(sink) {
         // Plan errors retain owned destination facts after validation returns.
         return Err(EmissionPlanBuildError::DuplicateSink(sink.clone()));
@@ -281,8 +297,8 @@ fn validate_destination<'sink>(
     Ok(())
 }
 
-fn validate_role_destination(artifact: &PlannedArtifact) -> Result<(), EmissionPlanBuildError> {
-    let valid = matches!(
+fn validate_role(artifact: &PlannedArtifact) -> Result<(), EmissionPlanBuildError> {
+    let destination_is_valid = matches!(
         (artifact.role(), artifact.destination()),
         (ArtifactRole::LinkInput, PlannedArtifactDestination::Stage)
             | (
@@ -291,14 +307,21 @@ fn validate_role_destination(artifact: &PlannedArtifact) -> Result<(), EmissionP
             )
     );
 
-    if valid {
-        return Ok(());
+    if !destination_is_valid {
+        // Plan errors retain Arc-backed artifact identities after validation returns.
+        return Err(EmissionPlanBuildError::RoleDestinationMismatch(
+            artifact.id().clone(),
+        ));
     }
 
-    // Plan errors retain Arc-backed artifact identities after validation returns.
-    Err(EmissionPlanBuildError::RoleDestinationMismatch(
-        artifact.id().clone(),
-    ))
+    if !artifact.id().kind().supports_role(artifact.role()) {
+        // Plan errors retain Arc-backed artifact identities after validation returns.
+        return Err(EmissionPlanBuildError::KindRoleMismatch(
+            artifact.id().clone(),
+        ));
+    }
+
+    Ok(())
 }
 
 fn validate_producer(
@@ -449,8 +472,16 @@ fn validate_backend_requests(
 #[cfg(test)]
 mod tests {
     use super::{EmissionPlan, EmissionPlanBuildError};
-    use crate::test_support::{backend_artifact_plan_parts, emission_plan, linked_artifact};
-    use crate::{ArtifactKind, OutputSink, PlannedArtifactDestination};
+    use crate::test_support::{
+        backend_artifact_plan_parts, emission_plan, linked_artifact, product_identity,
+        target_identity,
+    };
+    use crate::{
+        ArtifactId, ArtifactKind, ArtifactProducer, ArtifactRequirement, ArtifactRole,
+        DependencyMetadataProducerId, EmissionRequest, OutputSink, OutputSinkId, PlannedArtifact,
+        PlannedArtifactDestination, ProductKind, ReplacementPolicy, RequestedArtifact,
+        RequestedArtifactDestination,
+    };
 
     #[test]
     fn plans_are_deterministic_and_reject_sink_collisions() {
@@ -527,6 +558,77 @@ mod tests {
     }
 
     #[test]
+    fn memory_collectors_accept_distinct_planned_artifact_keys() {
+        let Some(collector) = OutputSinkId::try_new("host.output") else {
+            panic!("test memory collector identity must be valid");
+        };
+
+        let request = memory_request(
+            collector.clone(),
+            [
+                ArtifactKind::PackageInterface,
+                ArtifactKind::DependencyMetadata,
+            ],
+        );
+
+        let interface_id =
+            ArtifactId::new(request.product().clone(), ArtifactKind::PackageInterface, 0);
+        let metadata_id = ArtifactId::new(
+            request.product().clone(),
+            ArtifactKind::DependencyMetadata,
+            0,
+        );
+
+        let interface = PlannedArtifact::new(
+            interface_id.clone(),
+            ArtifactRequirement::Required,
+            ArtifactRole::Product,
+            ArtifactProducer::PackageInterface,
+            PlannedArtifactDestination::Publish(OutputSink::Memory {
+                collector: collector.clone(),
+                artifact: interface_id,
+            }),
+        );
+        let metadata = PlannedArtifact::new(
+            metadata_id.clone(),
+            ArtifactRequirement::Required,
+            ArtifactRole::Companion,
+            ArtifactProducer::DependencyMetadata(DependencyMetadataProducerId::new(0)),
+            PlannedArtifactDestination::Publish(OutputSink::Memory {
+                collector,
+                artifact: metadata_id,
+            }),
+        );
+
+        let Ok(plan) = EmissionPlan::try_new(request, None, [metadata, interface], []) else {
+            panic!("distinct keys in one memory collector must form a valid plan");
+        };
+
+        assert_eq!(plan.published_artifacts().count(), 2);
+    }
+
+    #[test]
+    fn plans_reject_artifact_kinds_with_incompatible_roles() {
+        let artifact = linked_artifact(
+            ArtifactKind::Executable,
+            ArtifactRole::Inspection,
+            "application",
+            0,
+        );
+        let artifact_id = artifact.id().clone();
+
+        let request = crate::test_support::emission_request([RequestedArtifact::new(
+            ArtifactKind::Executable,
+            ArtifactRequirement::Required,
+        )]);
+
+        assert_eq!(
+            EmissionPlan::try_new(request, None, [artifact], []),
+            Err(EmissionPlanBuildError::KindRoleMismatch(artifact_id))
+        );
+    }
+
+    #[test]
     fn one_immutable_contribution_can_feed_published_and_staged_artifacts() {
         let (request, backend, published, backend_request) = backend_artifact_plan_parts();
 
@@ -571,6 +673,28 @@ mod tests {
         };
 
         id.clone()
+    }
+
+    fn memory_request(
+        collector: OutputSinkId,
+        kinds: impl IntoIterator<Item = ArtifactKind>,
+    ) -> EmissionRequest {
+        let artifacts = kinds
+            .into_iter()
+            .map(|kind| RequestedArtifact::new(kind, ArtifactRequirement::Required));
+
+        let Ok(request) = EmissionRequest::try_new(
+            product_identity(),
+            ProductKind::Executable,
+            target_identity(),
+            RequestedArtifactDestination::Memory(collector),
+            artifacts,
+            ReplacementPolicy::RequireAbsent,
+        ) else {
+            panic!("test memory emission request must be valid");
+        };
+
+        request
     }
 
     fn assert_send_sync<T: Send + Sync>() {}

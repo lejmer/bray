@@ -49,6 +49,23 @@ impl ArtifactKind {
             | Self::LinkedCompanion => None,
         }
     }
+
+    pub(crate) const fn supports_role(self, role: ArtifactRole) -> bool {
+        match self {
+            Self::Assembly | Self::BackendIr => matches!(role, ArtifactRole::Inspection),
+            Self::BackendBitcode | Self::RelocatableObject => {
+                matches!(role, ArtifactRole::Inspection | ArtifactRole::LinkInput)
+            }
+            Self::ExecutableModule
+            | Self::PackageInterface
+            | Self::Executable
+            | Self::StaticLibrary
+            | Self::SharedLibrary => matches!(role, ArtifactRole::Product),
+            Self::DebugCompanion | Self::DependencyMetadata | Self::LinkedCompanion => {
+                matches!(role, ArtifactRole::Companion)
+            }
+        }
+    }
 }
 
 impl From<BackendArtifactKind> for ArtifactKind {
