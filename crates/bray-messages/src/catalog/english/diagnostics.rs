@@ -365,7 +365,11 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         | DiagnosticKind::InterfaceMalformed
         | DiagnosticKind::InterfaceHashMismatch
         | DiagnosticKind::InterfaceSectionChecksumMismatch
-        | DiagnosticKind::InterfaceResourceLimitExceeded => interface_diagnostic_template(kind),
+        | DiagnosticKind::InterfaceResourceLimitExceeded
+        | DiagnosticKind::InterfacePackageIdentityMismatch
+        | DiagnosticKind::InterfaceProductIdentityMismatch
+        | DiagnosticKind::InterfaceDependencyGraphInvalid
+        | DiagnosticKind::InterfaceSemanticFactsInvalid => interface_diagnostic_template(kind),
     }
 }
 

@@ -77,6 +77,14 @@ pub enum DiagnosticKind {
     InterfaceSectionChecksumMismatch,
     /// Untrusted package-interface input exceeds a configured resource ceiling.
     InterfaceResourceLimitExceeded,
+    /// A package interface does not describe the package selected by package resolution.
+    InterfacePackageIdentityMismatch,
+    /// A package interface does not describe the product selected by package resolution.
+    InterfaceProductIdentityMismatch,
+    /// Selected dependency interfaces do not form the exact required dependency graph.
+    InterfaceDependencyGraphInvalid,
+    /// Decoded package-interface semantic facts cannot be published in this compilation.
+    InterfaceSemanticFactsInvalid,
     /// Name binding could not find a declaration or local with the requested spelling.
     BindingUnresolvedName,
     /// Name binding found more than one candidate for one ordinary name.
@@ -133,6 +141,10 @@ impl DiagnosticKind {
             Self::InterfaceHashMismatch => 5007,
             Self::InterfaceSectionChecksumMismatch => 5008,
             Self::InterfaceResourceLimitExceeded => 5009,
+            Self::InterfacePackageIdentityMismatch => 5010,
+            Self::InterfaceProductIdentityMismatch => 5011,
+            Self::InterfaceDependencyGraphInvalid => 5012,
+            Self::InterfaceSemanticFactsInvalid => 5013,
             Self::BindingUnresolvedName => 6001,
             Self::BindingAmbiguousName => 6002,
             Self::BindingInaccessibleName => 6003,
@@ -186,6 +198,10 @@ impl DiagnosticKind {
             Self::InterfaceHashMismatch => "interface_hash_mismatch",
             Self::InterfaceSectionChecksumMismatch => "interface_section_checksum_mismatch",
             Self::InterfaceResourceLimitExceeded => "interface_resource_limit_exceeded",
+            Self::InterfacePackageIdentityMismatch => "interface_package_identity_mismatch",
+            Self::InterfaceProductIdentityMismatch => "interface_product_identity_mismatch",
+            Self::InterfaceDependencyGraphInvalid => "interface_dependency_graph_invalid",
+            Self::InterfaceSemanticFactsInvalid => "interface_semantic_facts_invalid",
             Self::BindingUnresolvedName => "binding_unresolved_name",
             Self::BindingAmbiguousName => "binding_ambiguous_name",
             Self::BindingInaccessibleName => "binding_inaccessible_name",
@@ -247,7 +263,7 @@ mod tests {
         }
     }
 
-    fn all_diagnostic_kinds() -> [DiagnosticKind; 41] {
+    fn all_diagnostic_kinds() -> [DiagnosticKind; 45] {
         [
             DiagnosticKind::SourceFileReadFailed,
             DiagnosticKind::SourceInvalidUtf8,
@@ -285,6 +301,10 @@ mod tests {
             DiagnosticKind::InterfaceHashMismatch,
             DiagnosticKind::InterfaceSectionChecksumMismatch,
             DiagnosticKind::InterfaceResourceLimitExceeded,
+            DiagnosticKind::InterfacePackageIdentityMismatch,
+            DiagnosticKind::InterfaceProductIdentityMismatch,
+            DiagnosticKind::InterfaceDependencyGraphInvalid,
+            DiagnosticKind::InterfaceSemanticFactsInvalid,
             DiagnosticKind::BindingUnresolvedName,
             DiagnosticKind::BindingAmbiguousName,
             DiagnosticKind::BindingInaccessibleName,

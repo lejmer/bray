@@ -311,7 +311,10 @@ mod tests {
         CheckedTemplateShortCircuitKind, CheckedTemplateTemporaryId,
     };
     use bray_symbols::{
-        ExternalSymbolKey, InterfaceSupportEntityId, LifecycleObligationKind, PackageIdentity,
+        AnySymbolId, CallableParameterDefaultProviderSymbolId, ConstantSymbolId, ExternalSymbolKey,
+        FunctionSymbolId, GenericConstParameterSymbolId, GenericTypeParameterSymbolId,
+        InterfaceSupportEntityId, LifecycleObligationKind, ModuleSymbolId, PackageIdentity,
+        PackageSymbolId, PredicateSymbolId, SemanticValueStore, StructSymbolId, SymbolId,
         SymbolKind, SymbolOrdinal, SynthesizedSymbolRole,
     };
 
@@ -329,9 +332,9 @@ mod tests {
         InterfaceConstantTerm, InterfaceConstantValue, InterfaceConstantValueId,
         InterfaceConstantValueKind, InterfaceDeclarationTemplate, InterfaceDependencyContract,
         InterfaceImplementationReference, InterfaceSectionTag, InterfaceSemanticFacts,
-        InterfaceSupportEntity, InterfaceSupportImplementation, InterfaceTemplateReference,
-        InterfaceType, InterfaceTypeId, InterfaceValidationError, InterfaceValidationLimits,
-        ValidatedInterfaceSection,
+        InterfaceSupportEntity, InterfaceSupportImplementation, InterfaceSymbolReference,
+        InterfaceSymbolResolver, InterfaceTemplateReference, InterfaceType, InterfaceTypeId,
+        InterfaceValidationError, InterfaceValidationLimits, ValidatedInterfaceSection,
     };
 
     #[test]
@@ -349,6 +352,25 @@ mod tests {
         let decoded = decode_semantic_facts(&views, &surface, limits);
 
         assert_eq!(decoded, Ok(facts));
+    }
+
+    #[test]
+    fn declaration_templates_intern_to_ordinary_checked_templates() {
+        let (surface, facts) = template_fixture();
+        let resolver = resolver(&surface);
+        let store = SemanticValueStore::try_new()
+            .unwrap_or_else(|error| panic!("semantic store creation failed: {error:?}"));
+
+        let imported = facts
+            .intern(&store, &resolver)
+            .unwrap_or_else(|error| panic!("template interning failed: {error:?}"));
+
+        assert_eq!(imported.declaration_templates().len(), 5);
+
+        for template in imported.declaration_templates() {
+            assert_eq!(template.kind(), template.template().kind());
+            assert_eq!(template.ordinal(), SymbolOrdinal::new(0));
+        }
     }
 
     #[test]
@@ -958,6 +980,68 @@ mod tests {
         ];
 
         interface_surface(package_identity(), symbols, [])
+    }
+
+    struct Resolver {
+        symbols: Vec<AnySymbolId>,
+        keys: Vec<ExternalSymbolKey>,
+    }
+
+    impl InterfaceSymbolResolver for Resolver {
+        fn resolve(&self, reference: &InterfaceSymbolReference) -> Option<AnySymbolId> {
+            let InterfaceSymbolReference::Local(symbol) = reference else {
+                return None;
+            };
+
+            self.symbols.get(symbol.to_index()?).copied()
+        }
+
+        fn external_key(&self, reference: &InterfaceSymbolReference) -> Option<ExternalSymbolKey> {
+            let InterfaceSymbolReference::Local(symbol) = reference else {
+                return None;
+            };
+
+            self.keys.get(symbol.to_index()?).cloned()
+        }
+    }
+
+    fn resolver(surface: &crate::PackageInterfaceSurface) -> Resolver {
+        let keys = surface
+            .symbols()
+            .symbols()
+            .iter()
+            .map(|identity| identity.key().clone())
+            .collect();
+
+        let symbols = surface
+            .symbols()
+            .symbols()
+            .iter()
+            .map(|identity| {
+                let id = SymbolId::new(identity.id().raw());
+
+                match identity.kind() {
+                    SymbolKind::Package => PackageSymbolId::from_symbol_id(id).into(),
+                    SymbolKind::Module => ModuleSymbolId::from_symbol_id(id).into(),
+                    SymbolKind::Function => FunctionSymbolId::from_symbol_id(id).into(),
+                    SymbolKind::Struct => StructSymbolId::from_symbol_id(id).into(),
+                    SymbolKind::CallableParameterDefaultProvider => {
+                        CallableParameterDefaultProviderSymbolId::from_symbol_id(id).into()
+                    }
+                    SymbolKind::GenericTypeParameter => {
+                        GenericTypeParameterSymbolId::from_symbol_id(id).into()
+                    }
+                    SymbolKind::GenericConstParameter => {
+                        GenericConstParameterSymbolId::from_symbol_id(id).into()
+                    }
+                    SymbolKind::Constant => ConstantSymbolId::from_symbol_id(id).into(),
+                    SymbolKind::Predicate => PredicateSymbolId::from_symbol_id(id).into(),
+                    kind => panic!("unexpected test symbol kind: {kind:?}"),
+                }
+            })
+            .collect();
+
+        Resolver { symbols, keys }
     }
 
     fn helper_key() -> ExternalSymbolKey {

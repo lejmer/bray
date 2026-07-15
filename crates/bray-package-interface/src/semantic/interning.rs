@@ -5,13 +5,14 @@ mod dependency;
 mod model;
 mod state;
 mod surface;
+mod template;
 mod ty;
 
 pub use model::{
     ImportedAbiDependency, ImportedCallableContractFact, ImportedCoherenceFact,
-    ImportedConstraintFact, ImportedImplementationFact, ImportedSemanticFacts,
-    ImportedSourceProvenance, ImportedTargetFactDependency, InterfaceSemanticInternError,
-    InterfaceSymbolResolver,
+    ImportedConstraintFact, ImportedDeclarationTemplateFact, ImportedImplementationFact,
+    ImportedSemanticFacts, ImportedSourceProvenance, ImportedTargetFactDependency,
+    InterfaceSemanticInternError, InterfaceSymbolResolver,
 };
 
 use state::InternState;

@@ -20,6 +20,6 @@ pub use fact::{
     CancellationToken, CompilationFactKey, FactCycle, FactQueryError, SymbolCompletionError,
     SymbolFactKey, force_complete_symbol,
 };
-pub use request::{CompilationOptions, CompilationRequest};
+pub use request::{CompilationOptions, CompilationRequest, DependencyInterfaceInput};
 pub use target::TargetAvailabilityFacts;
 pub use worker::{WorkerBudget, WorkerBudgetError};

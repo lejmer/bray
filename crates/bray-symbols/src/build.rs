@@ -54,7 +54,7 @@ pub(crate) fn build_source_symbol_graph(
         &mut allocator,
     )?;
 
-    match graph.finish() {
+    match graph.finish(allocator.next_index()) {
         Ok(graph) => Ok(graph),
         Err((declaration_id, symbol_kind)) => {
             let declaration_kind = declarations

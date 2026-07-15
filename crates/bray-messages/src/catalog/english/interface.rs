@@ -40,6 +40,18 @@ const RESOURCE_LIMIT_EXCEEDED: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("; maximum "),
     MessageTemplatePart::Arg(DiagnosticArgName::MaximumCount),
 ];
+const PACKAGE_IDENTITY_MISMATCH: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "package interface does not match the selected package",
+)];
+const PRODUCT_IDENTITY_MISMATCH: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "package interface does not match the selected product",
+)];
+const DEPENDENCY_GRAPH_INVALID: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "package-interface dependency graph does not match the selected dependencies",
+)];
+const SEMANTIC_FACTS_INVALID: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "package-interface semantic facts cannot be loaded",
+)];
 
 pub(super) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate {
     let parts = match kind {
@@ -52,6 +64,10 @@ pub(super) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         DiagnosticKind::InterfaceHashMismatch => HASH_MISMATCH,
         DiagnosticKind::InterfaceSectionChecksumMismatch => SECTION_CHECKSUM_MISMATCH,
         DiagnosticKind::InterfaceResourceLimitExceeded => RESOURCE_LIMIT_EXCEEDED,
+        DiagnosticKind::InterfacePackageIdentityMismatch => PACKAGE_IDENTITY_MISMATCH,
+        DiagnosticKind::InterfaceProductIdentityMismatch => PRODUCT_IDENTITY_MISMATCH,
+        DiagnosticKind::InterfaceDependencyGraphInvalid => DEPENDENCY_GRAPH_INVALID,
+        DiagnosticKind::InterfaceSemanticFactsInvalid => SEMANTIC_FACTS_INVALID,
         _ => unreachable!(),
     };
 

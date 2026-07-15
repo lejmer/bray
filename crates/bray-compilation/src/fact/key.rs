@@ -1,6 +1,6 @@
 use bray_bound_tree::BoundUnitKey;
 use bray_source::SourceId;
-use bray_symbols::{AnySymbolId, SymbolFactKind};
+use bray_symbols::{AnySymbolId, ImportedInterfaceId, SymbolFactKind};
 
 /// The exact compilation-local key for one symbol-owned semantic fact.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -49,6 +49,14 @@ pub enum CompilationFactKey {
     DeclarationChunk(SourceId),
     /// The deterministically merged declaration table.
     DeclarationTable,
+    /// Structural validation and identity decoding for one compiled dependency interface.
+    DependencyInterface(ImportedInterfaceId),
+    /// Diagnostics owned by all selected compiled dependency interfaces.
+    ImportedDiagnostics,
+    /// Decoded and remapped semantic facts for one compiled dependency interface.
+    ImportedSemanticFacts(ImportedInterfaceId),
+    /// The deterministic compilation-local imported symbol identity skeleton.
+    ImportedSymbolSkeleton,
     /// The canonical semantic value store for this compilation snapshot.
     SemanticValueStore,
     /// Binding and semantic-analysis diagnostics for the source package.
@@ -73,6 +81,10 @@ impl CompilationFactKey {
             | Self::CheckDiagnostics
             | Self::DeclarationChunk(_)
             | Self::DeclarationTable
+            | Self::DependencyInterface(_)
+            | Self::ImportedDiagnostics
+            | Self::ImportedSemanticFacts(_)
+            | Self::ImportedSymbolSkeleton
             | Self::SemanticValueStore
             | Self::SemanticDiagnostics
             | Self::SourceUnitSyntax(_)

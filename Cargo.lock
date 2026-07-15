@@ -143,6 +143,7 @@ dependencies = [
  "bray-compiler-known",
  "bray-declarations",
  "bray-diagnostics",
+ "bray-package-interface",
  "bray-parser",
  "bray-source",
  "bray-symbols",
