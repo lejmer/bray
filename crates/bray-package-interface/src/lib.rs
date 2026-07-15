@@ -2,6 +2,8 @@
 
 #![forbid(unsafe_code)]
 
+#[cfg(any(test, feature = "test-support"))]
+mod artifact;
 mod construction;
 mod decode;
 mod diagnostic;
@@ -15,8 +17,12 @@ mod tag;
 mod validation;
 mod wire;
 
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_support;
+
 pub use construction::{
-    ImportedSymbolConstructionError, LoadedInterfaceSurface, construct_imported_symbol_skeletons,
+    ImportedInterfaceSymbolResolver, ImportedSymbolConstructionError, LoadedInterfaceSurface,
+    construct_imported_symbol_skeletons,
 };
 pub use diagnostic::InterfaceValidationError;
 pub use hash::{InterfaceArtifactHash, InterfaceContentHash, InterfaceSectionHash};
@@ -28,12 +34,13 @@ pub use limits::{InterfaceLimit, InterfaceValidationLimits, InterfaceValidationP
 pub use section::{InterfaceSectionTag, ValidatedInterfaceSection};
 pub use semantic::{
     EncodedSemanticSection, ImportedAbiDependency, ImportedCallableContractFact,
-    ImportedCoherenceFact, ImportedConstraintFact, ImportedImplementationFact,
-    ImportedSemanticFacts, ImportedSourceProvenance, ImportedTargetFactDependency,
-    InterfaceAbiDependency, InterfaceCallableContract, InterfaceCallableContractClause,
-    InterfaceCallableInstance, InterfaceCallableInstanceId, InterfaceCallableParameter,
-    InterfaceCheckedTemplate, InterfaceCheckedTemplateBehavior, InterfaceCheckedTemplateId,
-    InterfaceCheckedTemplateInput, InterfaceCheckedTemplateInputKind, InterfaceCheckedTemplateNode,
+    ImportedCoherenceFact, ImportedConstraintFact, ImportedDeclarationTemplateFact,
+    ImportedImplementationFact, ImportedSemanticFact, ImportedSemanticFacts,
+    ImportedSourceProvenance, ImportedTargetFactDependency, InterfaceAbiDependency,
+    InterfaceCallableContract, InterfaceCallableContractClause, InterfaceCallableInstance,
+    InterfaceCallableInstanceId, InterfaceCallableParameter, InterfaceCheckedTemplate,
+    InterfaceCheckedTemplateBehavior, InterfaceCheckedTemplateId, InterfaceCheckedTemplateInput,
+    InterfaceCheckedTemplateInputKind, InterfaceCheckedTemplateNode,
     InterfaceCheckedTemplateOperation, InterfaceCheckedTemplateTemporary, InterfaceCoherenceRecord,
     InterfaceConstantProjection, InterfaceConstantTerm, InterfaceConstantTermId,
     InterfaceConstantValue, InterfaceConstantValueId, InterfaceConstantValueKind,

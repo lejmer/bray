@@ -36,6 +36,7 @@ impl InternState {
         let target_dependencies = self.convert_target_dependencies(facts, symbols)?;
         let abi_dependencies = self.convert_abi_dependencies(facts, symbols)?;
         let provenance = self.convert_provenance(facts, symbols)?;
+        let declaration_templates = self.convert_declaration_templates(facts, symbols)?;
 
         Ok(ImportedSemanticFacts {
             types: finish_table(self.types)?,
@@ -46,6 +47,7 @@ impl InternState {
             substitutions: finish_table(self.substitutions)?,
             implementation_instances: finish_table(self.implementation_instances)?,
             callable_instances: finish_table(self.callable_instances)?,
+            declaration_templates: declaration_templates.into(),
             constraints: constraints.into(),
             callable_contracts: callable_contracts.into(),
             implementations: implementations.into(),

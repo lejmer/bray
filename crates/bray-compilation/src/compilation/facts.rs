@@ -8,19 +8,21 @@ use bray_declarations::{
     discover_source_unit_declarations, merge_declaration_chunks,
 };
 use bray_diagnostics::DiagnosticBag;
+use bray_package_interface::{ImportedSemanticFact, ImportedSemanticFacts};
 use bray_parser::{SourceUnitSyntaxResult, SyntaxTreeResult, parse_source_unit};
 use bray_source::{SourceId, SourceInput, SourceLoadError, SourceSnapshot, SourceStore};
 use bray_symbols::{
     AvailableCompilerKnownSymbols, CompilerKnownSymbolBuildError, CompilerKnownSymbolProvider,
-    PackageIdentity, SemanticValueStore, SemanticValueStoreCreateError, SymbolGraph,
+    ImportedSymbolSkeleton, PackageIdentity, SemanticValueStore, SemanticValueStoreCreateError,
+    SymbolGraph,
 };
 use bray_syntax::SyntaxTree;
 
 use crate::fact::{
-    BoundUnitIdentityMap, CancellationToken, CompilationFactKey, FactCell, FactQueryError,
-    FactRuntime, PublishedUnitFact, UnitFactCache,
+    BoundUnitIdentityMap, CancellationToken, CompilationFactKey, FactCell, FactCellMap,
+    FactQueryError, FactRuntime, ImportedSemanticFactKey, PublishedUnitFact, UnitFactCache,
 };
-use crate::request::{CompilationOptions, CompilationRequest};
+use crate::request::{CompilationOptions, CompilationRequest, DependencyInterfaceInput};
 use crate::worker::WorkerBudget;
 
 use super::binder::{CompilationSymbolFacts, CompilationTargetFacts};
@@ -40,6 +42,7 @@ pub(super) struct CompilationState {
     options: CompilationOptions,
     sources: SourceStore,
     source_diagnostics: DiagnosticBag,
+    pub(super) dependency_interfaces: Box<[DependencyInterfaceInput]>,
     pub(super) fact_runtime: FactRuntime,
     pub(super) cancellation: CancellationToken,
     source_unit_syntax: Vec<FactCell<SourceUnitSyntaxResult>>,
@@ -52,6 +55,17 @@ pub(super) struct CompilationState {
     bound_unit_identities: FactCell<Result<BoundUnitIdentityMap, FactQueryError>>,
     symbol_graph: FactCell<Result<SymbolGraph, FactQueryError>>,
     semantic_values: FactCell<Result<SemanticValueStore, SemanticValueStoreCreateError>>,
+    pub(super) loaded_dependency_interfaces:
+        Vec<FactCell<super::imported::LoadedDependencyInterface>>,
+    pub(super) imported_symbol_skeleton:
+        FactCell<bray_diagnostics::DiagnosticResult<Option<Arc<ImportedSymbolSkeleton>>>>,
+    pub(super) imported_semantic_graphs:
+        Vec<FactCell<bray_diagnostics::DiagnosticResult<Option<Arc<ImportedSemanticFacts>>>>>,
+    pub(super) imported_semantic_facts: FactCellMap<
+        ImportedSemanticFactKey,
+        Arc<bray_diagnostics::DiagnosticResult<Arc<[ImportedSemanticFact]>>>,
+    >,
+    pub(super) imported_diagnostics: FactCell<DiagnosticBag>,
     pub(super) semantic_diagnostics: FactCell<DiagnosticBag>,
     pub(super) target_facts: CompilationTargetFacts,
     pub(super) symbol_facts: CompilationSymbolFacts,
@@ -63,7 +77,12 @@ pub(super) struct CompilationState {
 impl Compilation {
     /// Loads source inputs into durable compilation state without requesting derived facts.
     pub fn load(request: CompilationRequest) -> Result<Self, CompilationLoadError> {
-        let (package_identity, options, source_inputs) = request.into_parts();
+        let (package_identity, options, source_inputs, mut dependency_interfaces) =
+            request.into_parts();
+
+        dependency_interfaces.sort_by(|left, right| {
+            (left.package(), left.product()).cmp(&(right.package(), right.product()))
+        });
 
         let mut sources = SourceStore::with_capacity(source_inputs.len());
         let mut diagnostics = DiagnosticBag::new();
@@ -99,6 +118,7 @@ impl Compilation {
         }
 
         let source_count = sources.len();
+        let dependency_count = dependency_interfaces.len();
 
         Ok(Self {
             state: Arc::new(CompilationState {
@@ -106,6 +126,7 @@ impl Compilation {
                 options,
                 sources,
                 source_diagnostics: diagnostics,
+                dependency_interfaces: dependency_interfaces.into_boxed_slice(),
                 fact_runtime: FactRuntime::default(),
                 cancellation: CancellationToken::new(),
                 source_unit_syntax: empty_fact_caches(source_count),
@@ -117,6 +138,11 @@ impl Compilation {
                 bound_unit_identities: FactCell::new(),
                 symbol_graph: FactCell::new(),
                 semantic_values: FactCell::new(),
+                loaded_dependency_interfaces: empty_fact_caches(dependency_count),
+                imported_symbol_skeleton: FactCell::new(),
+                imported_semantic_graphs: empty_fact_caches(dependency_count),
+                imported_semantic_facts: FactCellMap::new(),
+                imported_diagnostics: FactCell::new(),
                 semantic_diagnostics: FactCell::new(),
                 target_facts: CompilationTargetFacts,
                 symbol_facts: CompilationSymbolFacts::new(),
@@ -360,6 +386,18 @@ impl Compilation {
                 panic!("compilation fact infrastructure failed")
             }
         }
+    }
+
+    pub(super) fn query_fact_with_cancellation<'a, T>(
+        &self,
+        key: CompilationFactKey,
+        cache: &'a FactCell<T>,
+        cancellation: &CancellationToken,
+        compute: impl FnOnce(&CancellationToken) -> Result<T, FactQueryError>,
+    ) -> Result<&'a T, FactQueryError> {
+        cache.get_or_compute(&self.state.fact_runtime, key, cancellation, || {
+            compute(cancellation)
+        })
     }
 
     pub(super) fn unit_fact<T>(

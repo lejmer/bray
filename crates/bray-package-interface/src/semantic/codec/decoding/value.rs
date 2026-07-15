@@ -371,11 +371,9 @@ mod tests {
     };
 
     use super::super::decode_semantic_facts;
-    use super::super::test_support::{
-        interface_surface, local_by_kind as symbol_reference, module_key as test_module_key,
-        named_key,
-    };
+    use super::super::test_support::{interface_surface, local_by_kind as symbol_reference};
     use crate::semantic::codec::encode_semantic_facts;
+    use crate::test_support::{module_key as test_module_key, named_key};
     use crate::{
         DependencyInterfaceId, InterfaceAbiDependency, InterfaceCallableContract,
         InterfaceConstantTerm, InterfaceConstantValue, InterfaceConstantValueId,
@@ -390,6 +388,7 @@ mod tests {
 
     struct Resolver {
         symbols: Vec<AnySymbolId>,
+        keys: Vec<bray_symbols::ExternalSymbolKey>,
     }
 
     impl InterfaceSymbolResolver for Resolver {
@@ -399,6 +398,17 @@ mod tests {
             };
 
             self.symbols.get(id.to_index()?).copied()
+        }
+
+        fn external_key(
+            &self,
+            reference: &InterfaceSymbolReference,
+        ) -> Option<bray_symbols::ExternalSymbolKey> {
+            let InterfaceSymbolReference::Local(id) = reference else {
+                return None;
+            };
+
+            self.keys.get(id.to_index()?).cloned()
         }
     }
 
@@ -781,6 +791,13 @@ mod tests {
     }
 
     fn resolver(surface: &crate::PackageInterfaceSurface) -> Resolver {
+        let keys = surface
+            .symbols()
+            .symbols()
+            .iter()
+            .map(|identity| identity.key().clone())
+            .collect();
+
         let symbols = surface
             .symbols()
             .symbols()
@@ -803,7 +820,7 @@ mod tests {
             })
             .collect();
 
-        Resolver { symbols }
+        Resolver { symbols, keys }
     }
 
     fn decode_owned(

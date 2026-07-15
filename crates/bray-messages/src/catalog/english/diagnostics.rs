@@ -241,6 +241,15 @@ const NOTE_UNICODE_ESCAPE_MUST_BE_SCALAR: &[MessageTemplatePart] = &[MessageTemp
 const NOTE_BLOCK_COMMENT_NEEDS_TERMINATOR: &[MessageTemplatePart] =
     &[MessageTemplatePart::Text("block comments must be closed")];
 
+const NOTE_INTERFACE_DEPENDENCY_CONTEXT: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("while loading package "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ExpectedPackageIdentity),
+    MessageTemplatePart::Text(" product "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ExpectedProductIdentity),
+    MessageTemplatePart::Text(" from "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ArtifactPath),
+];
+
 pub(crate) const fn severity_label(severity: SeverityKind) -> &'static str {
     match severity {
         SeverityKind::Error => "error",
@@ -258,7 +267,8 @@ pub(crate) const fn note_kind(kind: DiagnosticNoteKind) -> RenderedDiagnosticNot
         | DiagnosticNoteKind::IdentifiersMustBeAscii
         | DiagnosticNoteKind::OnlyImaginaryNumericSuffix
         | DiagnosticNoteKind::CharacterLiteralMustContainOneScalar
-        | DiagnosticNoteKind::UnicodeEscapeMustBeScalar => RenderedDiagnosticNoteKind::Note,
+        | DiagnosticNoteKind::UnicodeEscapeMustBeScalar
+        | DiagnosticNoteKind::InterfaceDependencyContext => RenderedDiagnosticNoteKind::Note,
         DiagnosticNoteKind::SourceFileMustBeReadable
         | DiagnosticNoteKind::SourceMustBeUtf8
         | DiagnosticNoteKind::SourceInputRequired
@@ -365,7 +375,11 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         | DiagnosticKind::InterfaceMalformed
         | DiagnosticKind::InterfaceHashMismatch
         | DiagnosticKind::InterfaceSectionChecksumMismatch
-        | DiagnosticKind::InterfaceResourceLimitExceeded => interface_diagnostic_template(kind),
+        | DiagnosticKind::InterfaceResourceLimitExceeded
+        | DiagnosticKind::InterfacePackageIdentityMismatch
+        | DiagnosticKind::InterfaceProductIdentityMismatch
+        | DiagnosticKind::InterfaceDependencyGraphInvalid
+        | DiagnosticKind::InterfaceSemanticFactsInvalid => interface_diagnostic_template(kind),
     }
 }
 
@@ -421,6 +435,9 @@ pub(crate) const fn note_template(kind: DiagnosticNoteKind) -> MessageTemplate {
         }
         DiagnosticNoteKind::BlockCommentNeedsTerminator => {
             MessageTemplate::new(NOTE_BLOCK_COMMENT_NEEDS_TERMINATOR)
+        }
+        DiagnosticNoteKind::InterfaceDependencyContext => {
+            MessageTemplate::new(NOTE_INTERFACE_DEPENDENCY_CONTEXT)
         }
     }
 }

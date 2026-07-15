@@ -72,6 +72,8 @@ pub struct InterfaceHeader {
 
 impl InterfaceHeader {
     pub(crate) const LENGTH: usize = 112;
+    #[cfg(any(test, feature = "test-support"))]
+    pub(crate) const CONTENT_HASH_OFFSET: usize = 48;
     pub(crate) const ARTIFACT_HASH_OFFSET: usize = 80;
 
     pub(crate) fn decode(bytes: &[u8]) -> Result<DecodedHeader, WireDecodeError> {

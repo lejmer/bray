@@ -36,6 +36,30 @@ impl DiagnosticArg {
         )
     }
 
+    /// Creates an external package-interface artifact-path argument.
+    pub fn artifact_path(path: impl Into<PathBuf>) -> Self {
+        Self::new(
+            DiagnosticArgName::ArtifactPath,
+            DiagnosticArgValue::FilePath(path.into()),
+        )
+    }
+
+    /// Creates an expected package-identity argument.
+    pub fn expected_package_identity(identity: impl Into<String>) -> Self {
+        Self::new(
+            DiagnosticArgName::ExpectedPackageIdentity,
+            DiagnosticArgValue::PackageIdentity(identity.into()),
+        )
+    }
+
+    /// Creates an expected package-product identity argument.
+    pub fn expected_product_identity(identity: impl Into<String>) -> Self {
+        Self::new(
+            DiagnosticArgName::ExpectedProductIdentity,
+            DiagnosticArgValue::ProductIdentity(identity.into()),
+        )
+    }
+
     /// Creates a zero-based input-index argument from a platform index.
     pub fn input_index(input_index: usize) -> Option<Self> {
         let input_index = u64::try_from(input_index).ok()?;
@@ -195,6 +219,8 @@ impl DiagnosticArg {
 pub enum DiagnosticArgName {
     /// Actual externally supplied count or size.
     ActualCount,
+    /// Path of an external compiler artifact.
+    ArtifactPath,
     /// Actual interface or language revision.
     ActualRevision,
     /// Byte that participates in the diagnostic.
@@ -215,6 +241,10 @@ pub enum DiagnosticArgName {
     ActualSyntaxKind,
     /// Syntax kind that was expected by the compiler phase.
     ExpectedSyntaxKind,
+    /// Package identity selected by package resolution.
+    ExpectedPackageIdentity,
+    /// Package-product identity selected by package resolution.
+    ExpectedProductIdentity,
     /// Effective visibility established by an earlier declaration.
     ExpectedVisibility,
     /// Effective visibility supplied by the current declaration.
@@ -260,6 +290,7 @@ impl DiagnosticArgName {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::ActualCount => "actual_count",
+            Self::ArtifactPath => "artifact_path",
             Self::ActualRevision => "actual_revision",
             Self::Byte => "byte",
             Self::ByteCount => "byte_count",
@@ -270,6 +301,8 @@ impl DiagnosticArgName {
             Self::ExpectedNameKind => "expected_name_kind",
             Self::ActualSyntaxKind => "actual_syntax_kind",
             Self::ExpectedSyntaxKind => "expected_syntax_kind",
+            Self::ExpectedPackageIdentity => "expected_package_identity",
+            Self::ExpectedProductIdentity => "expected_product_identity",
             Self::ExpectedVisibility => "expected_visibility",
             Self::ActualVisibility => "actual_visibility",
             Self::ExpectedModuleTrust => "expected_module_trust",
@@ -308,6 +341,10 @@ pub enum DiagnosticArgValue {
     DeclarationName(String),
     /// Name spelling used by a semantic reference.
     ReferencedName(String),
+    /// Stable package identity.
+    PackageIdentity(String),
+    /// Stable package-product identity.
+    ProductIdentity(String),
     /// Semantic category required at a name reference.
     NameKind(DiagnosticNameKind),
     /// Source file or external artifact path.

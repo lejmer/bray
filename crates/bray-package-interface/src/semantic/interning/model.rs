@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use bray_base::NonEmptySharedStr;
+use bray_bound_tree::{CheckedTemplate, CheckedTemplateKind};
 use bray_symbols::{
     AnySymbolId, CallableContractSet, CallableInstanceId, CallableSymbolId, CheckedConstraint,
     ConstantTermId, ConstantValueId, DependencyContractTemplateId, GenericOwnerId,
@@ -8,7 +9,7 @@ use bray_symbols::{
     SemanticValueStore, SemanticValueStoreError, TraitApplicationId, TypeId,
 };
 
-use crate::{InterfaceSemanticFacts, InterfaceSymbolReference};
+use crate::{InterfaceSemanticFactKind, InterfaceSemanticFacts, InterfaceSymbolReference};
 
 use super::InternState;
 
@@ -16,6 +17,12 @@ use super::InternState;
 pub trait InterfaceSymbolResolver {
     /// Resolves one validated interface symbol reference.
     fn resolve(&self, reference: &InterfaceSymbolReference) -> Option<AnySymbolId>;
+
+    /// Resolves one validated interface symbol reference to its stable external identity.
+    fn external_key(
+        &self,
+        reference: &InterfaceSymbolReference,
+    ) -> Option<bray_symbols::ExternalSymbolKey>;
 }
 
 /// Failure while publishing decoded interface semantics into a compilation.
@@ -29,6 +36,10 @@ pub enum InterfaceSemanticInternError {
     UnresolvedValueGraph,
     /// The canonical semantic store rejected a decoded value.
     SemanticStore(SemanticValueStoreError),
+    /// A checked-template graph failed ordinary template validation after remapping.
+    InvalidTemplate(bray_bound_tree::CheckedTemplateBuildError),
+    /// A declaration-owned template references an incompatible private support entity.
+    InvalidSupportEntity(bray_symbols::InterfaceSupportEntityId),
 }
 
 impl From<SemanticValueStoreError> for InterfaceSemanticInternError {
@@ -48,6 +59,7 @@ pub struct ImportedSemanticFacts {
     pub(super) substitutions: Arc<[GenericSubstitutionId]>,
     pub(super) implementation_instances: Arc<[ImplementationInstanceId]>,
     pub(super) callable_instances: Arc<[CallableInstanceId]>,
+    pub(super) declaration_templates: Arc<[ImportedDeclarationTemplateFact]>,
     pub(super) constraints: Arc<[ImportedConstraintFact]>,
     pub(super) callable_contracts: Arc<[ImportedCallableContractFact]>,
     pub(super) implementations: Arc<[ImportedImplementationFact]>,
@@ -55,6 +67,54 @@ pub struct ImportedSemanticFacts {
     pub(super) target_dependencies: Arc<[ImportedTargetFactDependency]>,
     pub(super) abi_dependencies: Arc<[ImportedAbiDependency]>,
     pub(super) provenance: Arc<[ImportedSourceProvenance]>,
+}
+
+/// One imported declaration-owned checked template and its exact semantic owner.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ImportedDeclarationTemplateFact {
+    pub(super) owner: AnySymbolId,
+    pub(super) kind: CheckedTemplateKind,
+    pub(super) ordinal: bray_symbols::SymbolOrdinal,
+    pub(super) template: Arc<CheckedTemplate>,
+}
+
+/// One exact imported symbol-owned semantic fact.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ImportedSemanticFact {
+    /// One checked generic constraint.
+    GenericConstraint(ImportedConstraintFact),
+    /// One complete callable contract set.
+    CallableContracts(ImportedCallableContractFact),
+    /// One source-independent checked declaration-owned template.
+    DeclarationTemplate(ImportedDeclarationTemplateFact),
+    /// One public implementation surface.
+    Implementation(ImportedImplementationFact),
+    /// One required target fact value.
+    TargetFact(ImportedTargetFactDependency),
+    /// One required callable ABI.
+    Abi(ImportedAbiDependency),
+}
+
+impl ImportedDeclarationTemplateFact {
+    /// Returns the declaration that owns this template.
+    pub const fn owner(&self) -> AnySymbolId {
+        self.owner
+    }
+
+    /// Returns the declaration-owned template category.
+    pub const fn kind(&self) -> CheckedTemplateKind {
+        self.kind
+    }
+
+    /// Returns the stable ordinal within the owner and template category.
+    pub const fn ordinal(&self) -> bray_symbols::SymbolOrdinal {
+        self.ordinal
+    }
+
+    /// Returns the immutable source-independent checked template.
+    pub fn template(&self) -> &CheckedTemplate {
+        &self.template
+    }
 }
 
 /// One imported generic constraint and its exact owning declaration.
@@ -210,6 +270,59 @@ impl ImportedSourceProvenance {
 }
 
 impl ImportedSemanticFacts {
+    /// Selects exact symbol-owned facts without exposing interface table storage.
+    pub fn symbol_facts(
+        &self,
+        owner: AnySymbolId,
+        kind: InterfaceSemanticFactKind,
+    ) -> Vec<ImportedSemanticFact> {
+        // Exact results own shallow Arc-backed fact views independently of the shared graph.
+        match kind {
+            InterfaceSemanticFactKind::GenericConstraint => self
+                .constraints
+                .iter()
+                .copied()
+                .filter(|fact| fact.owner().symbol() == owner)
+                .map(ImportedSemanticFact::GenericConstraint)
+                .collect(),
+            InterfaceSemanticFactKind::CallableContracts => self
+                .callable_contracts
+                .iter()
+                .filter(|fact| fact.owner().into_any() == owner)
+                .cloned()
+                .map(ImportedSemanticFact::CallableContracts)
+                .collect(),
+            InterfaceSemanticFactKind::DeclarationTemplate => self
+                .declaration_templates
+                .iter()
+                .filter(|fact| fact.owner() == owner)
+                .cloned()
+                .map(ImportedSemanticFact::DeclarationTemplate)
+                .collect(),
+            InterfaceSemanticFactKind::Implementation => self
+                .implementations
+                .iter()
+                .copied()
+                .filter(|fact| fact.implementation().into_any() == owner)
+                .map(ImportedSemanticFact::Implementation)
+                .collect(),
+            InterfaceSemanticFactKind::TargetFact => self
+                .target_dependencies
+                .iter()
+                .copied()
+                .filter(|fact| AnySymbolId::from(fact.fact()) == owner)
+                .map(ImportedSemanticFact::TargetFact)
+                .collect(),
+            InterfaceSemanticFactKind::Abi => self
+                .abi_dependencies
+                .iter()
+                .copied()
+                .filter(|fact| fact.symbol().into_any() == owner)
+                .map(ImportedSemanticFact::Abi)
+                .collect(),
+        }
+    }
+
     /// Returns canonical semantic types in interface table order.
     pub fn types(&self) -> &[TypeId] {
         &self.types
@@ -248,6 +361,11 @@ impl ImportedSemanticFacts {
     /// Returns canonical callable instances in interface table order.
     pub fn callable_instances(&self) -> &[CallableInstanceId] {
         &self.callable_instances
+    }
+
+    /// Returns imported declaration-owned templates in canonical interface order.
+    pub fn declaration_templates(&self) -> &[ImportedDeclarationTemplateFact] {
+        &self.declaration_templates
     }
 
     /// Returns imported constraints in interface order.

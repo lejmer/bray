@@ -6,9 +6,9 @@ mod validation;
 pub use codec::{EncodedSemanticSection, decode_semantic_facts, encode_semantic_facts};
 pub use interning::{
     ImportedAbiDependency, ImportedCallableContractFact, ImportedCoherenceFact,
-    ImportedConstraintFact, ImportedImplementationFact, ImportedSemanticFacts,
-    ImportedSourceProvenance, ImportedTargetFactDependency, InterfaceSemanticInternError,
-    InterfaceSymbolResolver,
+    ImportedConstraintFact, ImportedDeclarationTemplateFact, ImportedImplementationFact,
+    ImportedSemanticFact, ImportedSemanticFacts, ImportedSourceProvenance,
+    ImportedTargetFactDependency, InterfaceSemanticInternError, InterfaceSymbolResolver,
 };
 pub use model::{
     InterfaceAbiDependency, InterfaceCallableContract, InterfaceCallableContractClause,

@@ -1,10 +1,8 @@
 use std::collections::BTreeSet;
 
-use bray_symbols::{
-    ExternalSymbolKey, ImportedSymbolIdentityInput, InterfaceSymbolId, ModulePathKey,
-    PackageIdentity, SymbolKind, SymbolName,
-};
+use bray_symbols::{ExternalSymbolKey, ImportedSymbolIdentityInput, PackageIdentity, SymbolKind};
 
+use crate::test_support::{insert_key_and_owners, interface_symbol_id};
 use crate::{
     InterfaceContentHash, InterfaceDependency, InterfaceProductIdentity, InterfaceProductKind,
     InterfaceSymbolReference, PackageInterfaceIdentity, PackageInterfaceSurface,
@@ -55,13 +53,6 @@ pub(super) fn interface_surface(
     .unwrap_or_else(|error| panic!("test interface surface must be valid: {error:?}"))
 }
 
-fn interface_symbol_id(index: usize) -> InterfaceSymbolId {
-    InterfaceSymbolId::new(
-        u32::try_from(index)
-            .unwrap_or_else(|error| panic!("test symbol count must fit interface IDs: {error:?}")),
-    )
-}
-
 pub(super) fn local(
     surface: &PackageInterfaceSurface,
     key: &ExternalSymbolKey,
@@ -91,35 +82,6 @@ pub(super) fn key_by_kind(
         .find(|symbol| symbol.kind() == kind)
         .map(|symbol| symbol.key().clone())
         .unwrap_or_else(|| panic!("test symbol kind must be present"))
-}
-
-pub(super) fn module_key(package: PackageIdentity, segment: &str) -> ExternalSymbolKey {
-    let path = ModulePathKey::try_new([segment])
-        .unwrap_or_else(|| panic!("test module path must be valid"));
-
-    ExternalSymbolKey::module(ExternalSymbolKey::package(package), path)
-        .unwrap_or_else(|| panic!("test module key must be valid"))
-}
-
-pub(super) fn named_key(
-    owner: ExternalSymbolKey,
-    kind: SymbolKind,
-    name: &str,
-) -> ExternalSymbolKey {
-    let name =
-        SymbolName::try_new(name).unwrap_or_else(|| panic!("test symbol name must be valid"));
-
-    ExternalSymbolKey::named(owner, kind, name)
-        .unwrap_or_else(|| panic!("test symbol key must be valid"))
-}
-
-fn insert_key_and_owners(keys: &mut BTreeSet<ExternalSymbolKey>, key: ExternalSymbolKey) {
-    let mut current = Some(key);
-
-    while let Some(key) = current {
-        current = key.owner().cloned();
-        keys.insert(key);
-    }
 }
 
 fn package_interface_identity(package: PackageIdentity) -> PackageInterfaceIdentity {

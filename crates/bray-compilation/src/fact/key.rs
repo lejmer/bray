@@ -1,6 +1,45 @@
 use bray_bound_tree::BoundUnitKey;
+use bray_package_interface::InterfaceSemanticFactKind;
 use bray_source::SourceId;
-use bray_symbols::{AnySymbolId, SymbolFactKind};
+use bray_symbols::{AnySymbolId, ImportedInterfaceId, InterfaceSymbolId, SymbolFactKind};
+
+/// The exact artifact-local address of one imported symbol-owned fact category.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct ImportedSemanticFactKey {
+    interface: ImportedInterfaceId,
+    owner: InterfaceSymbolId,
+    kind: InterfaceSemanticFactKind,
+}
+
+impl ImportedSemanticFactKey {
+    /// Creates one exact imported semantic-fact address.
+    pub const fn new(
+        interface: ImportedInterfaceId,
+        owner: InterfaceSymbolId,
+        kind: InterfaceSemanticFactKind,
+    ) -> Self {
+        Self {
+            interface,
+            owner,
+            kind,
+        }
+    }
+
+    /// Returns the loaded interface containing this fact.
+    pub const fn interface(self) -> ImportedInterfaceId {
+        self.interface
+    }
+
+    /// Returns the interface-local symbol that owns this fact.
+    pub const fn owner(self) -> InterfaceSymbolId {
+        self.owner
+    }
+
+    /// Returns the exact semantic fact category.
+    pub const fn kind(self) -> InterfaceSemanticFactKind {
+        self.kind
+    }
+}
 
 /// The exact compilation-local key for one symbol-owned semantic fact.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -49,6 +88,16 @@ pub enum CompilationFactKey {
     DeclarationChunk(SourceId),
     /// The deterministically merged declaration table.
     DeclarationTable,
+    /// Structural validation and identity decoding for one compiled dependency interface.
+    DependencyInterface(ImportedInterfaceId),
+    /// Diagnostics owned by all selected compiled dependency interfaces.
+    ImportedDiagnostics,
+    /// Decoded and remapped semantic facts for one compiled dependency interface.
+    ImportedSemanticGraph(ImportedInterfaceId),
+    /// One exact decoded and remapped imported symbol-owned fact category.
+    ImportedSemanticFact(ImportedSemanticFactKey),
+    /// The deterministic compilation-local imported symbol identity skeleton.
+    ImportedSymbolSkeleton,
     /// The canonical semantic value store for this compilation snapshot.
     SemanticValueStore,
     /// Binding and semantic-analysis diagnostics for the source package.
@@ -73,6 +122,11 @@ impl CompilationFactKey {
             | Self::CheckDiagnostics
             | Self::DeclarationChunk(_)
             | Self::DeclarationTable
+            | Self::DependencyInterface(_)
+            | Self::ImportedDiagnostics
+            | Self::ImportedSemanticGraph(_)
+            | Self::ImportedSemanticFact(_)
+            | Self::ImportedSymbolSkeleton
             | Self::SemanticValueStore
             | Self::SemanticDiagnostics
             | Self::SourceUnitSyntax(_)
@@ -93,7 +147,7 @@ impl From<SymbolFactKey> for CompilationFactKey {
 mod tests {
     use bray_symbols::{AnySymbolId, FunctionSymbolId, SymbolFactKind, SymbolId};
 
-    use super::{CompilationFactKey, SymbolFactKey};
+    use super::{CompilationFactKey, ImportedSemanticFactKey, SymbolFactKey};
 
     #[test]
     fn symbol_fact_keys_keep_exact_identity_and_category() {
@@ -114,6 +168,7 @@ mod tests {
         fn assert_send_sync<T: Send + Sync>() {}
 
         assert_send_sync::<CompilationFactKey>();
+        assert_send_sync::<ImportedSemanticFactKey>();
         assert_send_sync::<SymbolFactKey>();
     }
 }

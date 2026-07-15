@@ -1,9 +1,9 @@
 use std::collections::BTreeMap;
 
 use bray_symbols::{
-    ImportedInterfaceId, ImportedLookupEdge, ImportedSymbolRelationship, ImportedSymbolSkeleton,
-    ImportedSymbolSkeletonBuildError, ImportedSymbolSkeletonInput, InterfaceSymbolId,
-    PackageIdentity, SymbolId,
+    AnySymbolId, ExternalSymbolKey, ImportedInterfaceId, ImportedLookupEdge,
+    ImportedSymbolRelationship, ImportedSymbolSkeleton, ImportedSymbolSkeletonBuildError,
+    ImportedSymbolSkeletonInput, InterfaceSymbolId, PackageIdentity, SymbolId,
 };
 
 use crate::{
@@ -116,6 +116,52 @@ pub fn construct_imported_symbol_skeletons<'surface>(
 
     ImportedSymbolSkeleton::try_new(first_symbol_id, inputs)
         .map_err(ImportedSymbolConstructionError::Symbols)
+}
+
+/// Resolves validated interface references through one immutable imported symbol skeleton.
+pub struct ImportedInterfaceSymbolResolver<'surface> {
+    current: LoadedInterfaceSurface<'surface>,
+    package_index: BTreeMap<PackageIdentity, LoadedInterfaceSurface<'surface>>,
+    symbols: &'surface ImportedSymbolSkeleton,
+}
+
+impl<'surface> ImportedInterfaceSymbolResolver<'surface> {
+    /// Creates a resolver over the exact loaded surfaces used to construct `symbols`.
+    pub fn try_new(
+        current: LoadedInterfaceSurface<'surface>,
+        surfaces: impl IntoIterator<Item = LoadedInterfaceSurface<'surface>>,
+        symbols: &'surface ImportedSymbolSkeleton,
+    ) -> Result<Self, ImportedSymbolConstructionError> {
+        let surfaces: Vec<_> = surfaces.into_iter().collect();
+        let package_index = package_index(&surfaces)?;
+
+        validate_dependencies(&surfaces, &package_index)?;
+
+        Ok(Self {
+            current,
+            package_index,
+            symbols,
+        })
+    }
+
+    fn resolve_external_key(
+        &self,
+        reference: &InterfaceSymbolReference,
+    ) -> Result<ExternalSymbolKey, ImportedSymbolConstructionError> {
+        lookup_target_key(self.current, &self.package_index, reference)
+    }
+}
+
+impl crate::InterfaceSymbolResolver for ImportedInterfaceSymbolResolver<'_> {
+    fn resolve(&self, reference: &InterfaceSymbolReference) -> Option<AnySymbolId> {
+        let key = self.resolve_external_key(reference).ok()?;
+
+        self.symbols.symbol_by_external_key(&key)
+    }
+
+    fn external_key(&self, reference: &InterfaceSymbolReference) -> Option<ExternalSymbolKey> {
+        self.resolve_external_key(reference).ok()
+    }
 }
 
 fn package_index<'surface>(
@@ -259,7 +305,7 @@ mod tests {
     };
 
     use super::{
-        ImportedSymbolConstructionError, LoadedInterfaceSurface,
+        ImportedInterfaceSymbolResolver, ImportedSymbolConstructionError, LoadedInterfaceSurface,
         construct_imported_symbol_skeletons,
     };
     use crate::{
@@ -389,6 +435,7 @@ mod tests {
     fn construction_views_are_send_and_sync() {
         fn assert_send_sync<T: Send + Sync>() {}
 
+        assert_send_sync::<ImportedInterfaceSymbolResolver<'static>>();
         assert_send_sync::<LoadedInterfaceSurface<'static>>();
     }
 

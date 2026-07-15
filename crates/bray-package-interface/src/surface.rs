@@ -1,4 +1,5 @@
 mod decoding;
+#[cfg(any(test, feature = "test-support"))]
 mod encoding;
 mod model;
 mod reference;
@@ -13,3 +14,5 @@ pub use model::{
 };
 
 pub(crate) use decoding::decode_surface;
+#[cfg(any(test, feature = "test-support"))]
+pub(crate) use encoding::{EncodedSurfaceSection, encode_surface};

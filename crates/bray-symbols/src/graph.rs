@@ -61,6 +61,7 @@ macro_rules! define_symbol_graph {
         #[derive(Clone, Debug, Eq, PartialEq)]
         pub struct SymbolGraph {
             roots: SymbolGraphRoots,
+            next_symbol_index: usize,
             compiler_known: Arc<CompilerKnownSymbolProvider>,
             packages: TypedSymbolRecords<PackageSymbolId, PackageSymbol>,
             modules: TypedSymbolRecords<ModuleSymbolId, ModuleSymbol>,
@@ -115,6 +116,11 @@ macro_rules! define_symbol_graph {
             /// Returns the forest roots.
             pub const fn roots(&self) -> &SymbolGraphRoots {
                 &self.roots
+            }
+
+            /// Returns the first compact symbol index not occupied by this graph.
+            pub const fn next_symbol_index(&self) -> usize {
+                self.next_symbol_index
             }
 
             /// Returns the single compiler-known environment record.
@@ -550,6 +556,7 @@ macro_rules! define_symbol_graph {
 
             pub(crate) fn finish(
                 mut self,
+                next_symbol_index: usize,
             ) -> Result<SymbolGraph, (DeclarationId, SymbolKind)> {
                 for (erased_id, identity) in std::mem::take(&mut self.pending_sources) {
                     let Some(declaration) = identity.source_declaration() else {
@@ -686,6 +693,7 @@ macro_rules! define_symbol_graph {
 
                 Ok(SymbolGraph {
                     roots: self.roots,
+                    next_symbol_index,
                     compiler_known: self.compiler_known,
                     packages,
                     modules,

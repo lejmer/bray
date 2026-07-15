@@ -43,6 +43,7 @@ impl Compilation {
                     self.source_diagnostics(),
                     self.syntax_tree_result().diagnostics(),
                     self.declaration_diagnostics(),
+                    self.imported_diagnostics(),
                     self.semantic_diagnostics(),
                 ])
             },

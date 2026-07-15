@@ -1,4 +1,8 @@
-use bray_source::SourceInput;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+use bray_package_interface::{InterfaceProductIdentity, InterfaceValidationPolicy};
+use bray_source::{SourceInput, SourceSpan};
 use bray_symbols::PackageIdentity;
 
 use crate::TargetAvailabilityFacts;
@@ -46,6 +50,80 @@ pub struct CompilationRequest {
     package_identity: PackageIdentity,
     options: CompilationOptions,
     sources: Vec<SourceInput>,
+    dependency_interfaces: Vec<DependencyInterfaceInput>,
+}
+
+/// One package-selected compiled dependency interface supplied to a compilation.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DependencyInterfaceInput {
+    package: PackageIdentity,
+    product: InterfaceProductIdentity,
+    artifact_path: Arc<Path>,
+    dependency_span: Option<SourceSpan>,
+    bytes: Arc<[u8]>,
+    validation_policy: InterfaceValidationPolicy,
+}
+
+impl DependencyInterfaceInput {
+    /// Creates one immutable untrusted dependency-interface input.
+    pub fn new(
+        package: PackageIdentity,
+        product: InterfaceProductIdentity,
+        artifact_path: impl Into<PathBuf>,
+        bytes: impl Into<Arc<[u8]>>,
+        validation_policy: InterfaceValidationPolicy,
+    ) -> Self {
+        Self {
+            package,
+            product,
+            artifact_path: Arc::from(artifact_path.into()),
+            dependency_span: None,
+            bytes: bytes.into(),
+            validation_policy,
+        }
+    }
+
+    /// Returns a copy correlated with the source dependency that selected this artifact.
+    pub const fn with_dependency_span(mut self, dependency_span: SourceSpan) -> Self {
+        self.dependency_span = Some(dependency_span);
+
+        self
+    }
+
+    /// Returns the package identity selected by package resolution.
+    pub const fn package(&self) -> &PackageIdentity {
+        &self.package
+    }
+
+    /// Returns the product identity selected by package resolution.
+    pub const fn product(&self) -> &InterfaceProductIdentity {
+        &self.product
+    }
+
+    /// Returns the stable artifact path supplied by package resolution.
+    pub fn artifact_path(&self) -> &Path {
+        &self.artifact_path
+    }
+
+    /// Returns the source dependency that selected this artifact, when available.
+    pub const fn dependency_span(&self) -> Option<SourceSpan> {
+        self.dependency_span
+    }
+
+    /// Returns the immutable untrusted artifact bytes.
+    pub fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+
+    pub(crate) fn shared_bytes(&self) -> Arc<[u8]> {
+        // Validation retains immutable request bytes, so sharing avoids copying dependency files.
+        Arc::clone(&self.bytes)
+    }
+
+    /// Returns the compatibility and resource policy for this artifact.
+    pub const fn validation_policy(&self) -> InterfaceValidationPolicy {
+        self.validation_policy
+    }
 }
 
 impl CompilationRequest {
@@ -64,7 +142,18 @@ impl CompilationRequest {
             package_identity,
             options,
             sources,
+            dependency_interfaces: Vec::new(),
         }
+    }
+
+    /// Returns a copy owning the selected compiled dependency interfaces.
+    pub fn with_dependency_interfaces(
+        mut self,
+        dependency_interfaces: impl IntoIterator<Item = DependencyInterfaceInput>,
+    ) -> Self {
+        self.dependency_interfaces = dependency_interfaces.into_iter().collect();
+
+        self
     }
 
     /// Returns the source package identity selected for this compilation.
@@ -82,20 +171,42 @@ impl CompilationRequest {
         &self.sources
     }
 
+    /// Returns selected dependency interfaces in package-request order.
+    pub fn dependency_interfaces(&self) -> &[DependencyInterfaceInput] {
+        &self.dependency_interfaces
+    }
+
     /// Consumes the request into its parts.
-    pub fn into_parts(self) -> (PackageIdentity, CompilationOptions, Vec<SourceInput>) {
-        (self.package_identity, self.options, self.sources)
+    pub fn into_parts(
+        self,
+    ) -> (
+        PackageIdentity,
+        CompilationOptions,
+        Vec<SourceInput>,
+        Vec<DependencyInterfaceInput>,
+    ) {
+        (
+            self.package_identity,
+            self.options,
+            self.sources,
+            self.dependency_interfaces,
+        )
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
+    use bray_package_interface::{
+        InterfaceLanguageRevision, InterfaceProductIdentity, InterfaceValidationPolicy,
+    };
     use bray_source::{SourceIdentity, SourceInput, SourceVersion};
     use bray_symbols::PackageIdentity;
 
     use crate::worker::WorkerBudget;
 
-    use super::{CompilationOptions, CompilationRequest};
+    use super::{CompilationOptions, CompilationRequest, DependencyInterfaceInput};
 
     #[test]
     fn compilation_requests_hold_sources_and_options() {
@@ -113,10 +224,30 @@ mod tests {
         };
 
         let request =
-            CompilationRequest::with_options(package_identity.clone(), vec![source], options);
+            CompilationRequest::with_options(package_identity.clone(), vec![source], options)
+                .with_dependency_interfaces([dependency_interface()]);
 
         assert_eq!(request.package_identity(), &package_identity);
         assert_eq!(request.options(), options);
         assert_eq!(request.sources().len(), 1);
+        assert_eq!(request.dependency_interfaces().len(), 1);
+    }
+
+    fn dependency_interface() -> DependencyInterfaceInput {
+        let Some(package) = PackageIdentity::try_new("test.dependency") else {
+            panic!("test dependency package identity must be valid");
+        };
+
+        let Some(product) = InterfaceProductIdentity::try_new("main") else {
+            panic!("test product identity must be valid");
+        };
+
+        DependencyInterfaceInput::new(
+            package,
+            product,
+            "test.dependency.brayi",
+            Arc::<[u8]>::from([1, 2, 3]),
+            InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
+        )
     }
 }
