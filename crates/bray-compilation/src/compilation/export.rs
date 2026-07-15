@@ -64,6 +64,7 @@ impl Compilation {
 
         // Package identities and external keys are Arc-backed values retained by the bundle.
         let package_key = ExternalSymbolKey::package(self.package_identity().clone());
+
         let mut selected = vec![ExportSymbolInput::new(package_key.clone(), None)];
         let mut relationships = Vec::new();
 
