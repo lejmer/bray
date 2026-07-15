@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use bray_base::{shared_str, sorted_unique_shared_slice};
+use bray_base::{NonEmptySharedStr, shared_str, sorted_unique_shared_slice};
 
 /// Linkage category already selected for one generated definition or reference.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -27,7 +27,7 @@ pub enum CodegenLinkage {
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct TargetSymbolConvention {
     global_prefix: Arc<str>,
-    private_prefix: Arc<str>,
+    private_prefix: NonEmptySharedStr,
     supported_linkages: Arc<[CodegenLinkage]>,
 }
 
@@ -39,12 +39,11 @@ impl TargetSymbolConvention {
         supported_linkages: impl IntoIterator<Item = CodegenLinkage>,
     ) -> Result<Self, TargetSymbolConventionBuildError> {
         let global_prefix = shared_str(global_prefix);
-        let private_prefix = shared_str(private_prefix);
         let supported_linkages = sorted_unique_shared_slice(supported_linkages);
 
-        if private_prefix.is_empty() {
+        let Some(private_prefix) = NonEmptySharedStr::try_new(private_prefix) else {
             return Err(TargetSymbolConventionBuildError::EmptyPrivatePrefix);
-        }
+        };
 
         if supported_linkages.is_empty() {
             return Err(TargetSymbolConventionBuildError::MissingLinkages);
@@ -64,7 +63,7 @@ impl TargetSymbolConvention {
 
     /// Returns the prefix reserved for private generated symbols.
     pub fn private_prefix(&self) -> &str {
-        &self.private_prefix
+        self.private_prefix.as_str()
     }
 
     /// Returns supported linkage categories in canonical order.

@@ -1,13 +1,13 @@
 use std::sync::Arc;
 
-use bray_base::{shared_str, sorted_unique_shared_slice};
+use bray_base::{NonEmptySharedStr, sorted_unique_shared_slice};
 
 /// Versioned agreement between a target profile and backend-neutral code generation.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct TargetCompatibility {
-    target_profile_revision: Arc<str>,
+    target_profile_revision: NonEmptySharedStr,
     codegen_contract_revision: u32,
-    backend_requirements: Arc<[Arc<str>]>,
+    backend_requirements: Arc<[NonEmptySharedStr]>,
 }
 
 impl TargetCompatibility {
@@ -21,17 +21,13 @@ impl TargetCompatibility {
         Requirements: IntoIterator<Item = Requirement>,
         Requirement: Into<Arc<str>>,
     {
-        let target_profile_revision = shared_str(target_profile_revision);
-        let backend_requirements: Vec<_> =
-            backend_requirements.into_iter().map(Into::into).collect();
+        let target_profile_revision = NonEmptySharedStr::try_new(target_profile_revision)?;
+        let backend_requirements: Option<Vec<_>> = backend_requirements
+            .into_iter()
+            .map(NonEmptySharedStr::try_new)
+            .collect();
 
-        if target_profile_revision.is_empty()
-            || backend_requirements
-                .iter()
-                .any(|requirement| requirement.is_empty())
-        {
-            return None;
-        }
+        let backend_requirements = backend_requirements?;
 
         Some(Self {
             target_profile_revision,
@@ -42,7 +38,7 @@ impl TargetCompatibility {
 
     /// Returns the language target-profile revision validated by compilation.
     pub fn target_profile_revision(&self) -> &str {
-        &self.target_profile_revision
+        self.target_profile_revision.as_str()
     }
 
     /// Returns the backend-neutral codegen contract revision required by the target.
@@ -52,6 +48,8 @@ impl TargetCompatibility {
 
     /// Returns additional backend requirements in canonical order.
     pub fn backend_requirements(&self) -> impl ExactSizeIterator<Item = &str> {
-        self.backend_requirements.iter().map(AsRef::as_ref)
+        self.backend_requirements
+            .iter()
+            .map(NonEmptySharedStr::as_str)
     }
 }

@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use bray_base::NonEmptySharedStr;
 use bray_symbols::{CallableAbi, CallableContractClauseKind, SymbolOrdinal};
 
 use super::{
@@ -173,7 +174,7 @@ impl InterfaceAbiDependency {
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct InterfaceSourceProvenance {
     pub(crate) symbol: InterfaceSymbolReference,
-    pub(crate) document: Arc<str>,
+    pub(crate) document: NonEmptySharedStr,
     pub(crate) start: u32,
     pub(crate) end: u32,
 }
@@ -234,9 +235,9 @@ impl InterfaceSourceProvenance {
         start: u32,
         end: u32,
     ) -> Option<Self> {
-        let document = document.into();
+        let document = NonEmptySharedStr::try_new(document)?;
 
-        if document.is_empty() || start > end {
+        if start > end {
             return None;
         }
 

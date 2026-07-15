@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use bray_symbols::{
     CallableContractClause, CallableContractSet, CallableInstanceId, CallableSymbolId,
     CheckedConstraint, ConstantTermId, ConstantValueId, DependencyContractTemplateId,
@@ -259,7 +257,8 @@ impl InternState {
             .map(|input| {
                 Ok(ImportedSourceProvenance {
                     symbol: resolve_symbol(symbols, &input.symbol)?,
-                    document: Arc::clone(&input.document),
+                    // Imported facts retain the Arc-backed document identity independently.
+                    document: input.document.clone(),
                     start: input.start,
                     end: input.end,
                 })

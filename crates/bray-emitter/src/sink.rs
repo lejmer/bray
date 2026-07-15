@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use bray_base::shared_str;
+use bray_base::NonEmptySharedStr;
 
 use crate::ArtifactId;
 
@@ -10,23 +10,17 @@ use crate::ArtifactId;
 /// The identity deliberately carries no open handle or mutable collector state, which keeps
 /// requests and plans immutable and safe to share between workers.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct OutputSinkId(Arc<str>);
+pub struct OutputSinkId(NonEmptySharedStr);
 
 impl OutputSinkId {
     /// Creates a sink identity unless its canonical representation is empty.
     pub fn try_new(value: impl Into<Arc<str>>) -> Option<Self> {
-        let value = shared_str(value);
-
-        if value.is_empty() {
-            return None;
-        }
-
-        Some(Self(value))
+        NonEmptySharedStr::try_new(value).map(Self)
     }
 
     /// Returns the canonical host-supplied sink identity.
     pub fn as_str(&self) -> &str {
-        &self.0
+        self.0.as_str()
     }
 }
 

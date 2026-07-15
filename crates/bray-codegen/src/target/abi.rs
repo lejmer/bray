@@ -1,27 +1,21 @@
 use std::sync::Arc;
 
-use bray_base::shared_str;
+use bray_base::NonEmptySharedStr;
 use bray_symbols::CallableAbi;
 
 /// Canonical target calling convention selected for one language-level ABI.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct TargetCallingConvention(Arc<str>);
+pub struct TargetCallingConvention(NonEmptySharedStr);
 
 impl TargetCallingConvention {
     /// Creates a calling convention unless its canonical name is empty.
     pub fn try_new(value: impl Into<Arc<str>>) -> Option<Self> {
-        let value = shared_str(value);
-
-        if value.is_empty() {
-            return None;
-        }
-
-        Some(Self(value))
+        NonEmptySharedStr::try_new(value).map(Self)
     }
 
     /// Returns the canonical target calling-convention name.
     pub fn as_str(&self) -> &str {
-        &self.0
+        self.0.as_str()
     }
 }
 

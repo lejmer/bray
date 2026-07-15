@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use bray_base::NonEmptySharedStr;
 pub use bray_symbols::SymbolRelationshipKind;
 use bray_symbols::{
     ExternalSymbolKey, ImportedIdentitySurfaceError, ImportedPackageIdentitySurface,
@@ -11,23 +12,17 @@ use crate::InterfaceContentHash;
 
 /// Opaque package-layer identity of one selected product.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct InterfaceProductIdentity(Arc<str>);
+pub struct InterfaceProductIdentity(NonEmptySharedStr);
 
 impl InterfaceProductIdentity {
     /// Creates a product identity unless its canonical representation is empty.
     pub fn try_new(value: impl Into<Arc<str>>) -> Option<Self> {
-        let value = value.into();
-
-        if value.is_empty() {
-            return None;
-        }
-
-        Some(Self(value))
+        NonEmptySharedStr::try_new(value).map(Self)
     }
 
     /// Returns the opaque canonical product identity.
     pub fn as_str(&self) -> &str {
-        &self.0
+        self.0.as_str()
     }
 }
 
@@ -54,7 +49,7 @@ pub struct PackageInterfaceIdentity {
     package: PackageIdentity,
     product: InterfaceProductIdentity,
     kind: InterfaceProductKind,
-    public_surface: Arc<str>,
+    public_surface: NonEmptySharedStr,
 }
 
 impl PackageInterfaceIdentity {
@@ -65,11 +60,7 @@ impl PackageInterfaceIdentity {
         kind: InterfaceProductKind,
         public_surface: impl Into<Arc<str>>,
     ) -> Option<Self> {
-        let public_surface = public_surface.into();
-
-        if public_surface.is_empty() {
-            return None;
-        }
+        let public_surface = NonEmptySharedStr::try_new(public_surface)?;
 
         Some(Self {
             package,
@@ -96,7 +87,7 @@ impl PackageInterfaceIdentity {
 
     /// Returns the package-layer public-surface identity.
     pub fn public_surface(&self) -> &str {
-        &self.public_surface
+        self.public_surface.as_str()
     }
 }
 

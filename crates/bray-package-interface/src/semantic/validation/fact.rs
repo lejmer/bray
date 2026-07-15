@@ -128,10 +128,10 @@ impl InterfaceSemanticFacts {
 
             limits.check(
                 InterfaceLimit::StringLength,
-                saturating_u64(provenance.document.len()),
+                saturating_u64(provenance.document.as_str().len()),
             )?;
 
-            if provenance.document.is_empty() || provenance.start > provenance.end {
+            if provenance.start > provenance.end {
                 return Err(InterfaceValidationError::Malformed);
             }
         }

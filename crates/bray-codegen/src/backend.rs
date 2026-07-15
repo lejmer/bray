@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use bray_base::{shared_str, sorted_unique_shared_slice};
+use bray_base::{NonEmptySharedStr, sorted_unique_shared_slice};
 
 use crate::{
     AssemblySyntaxKind, BackendArtifactKind, CodegenFailure, CodegenOutcome, CodegenRequest,
@@ -10,9 +10,9 @@ use crate::{
 /// Stable compiler-facing identity of one backend implementation and compatible toolchain.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct BackendIdentity {
-    name: Arc<str>,
-    revision: Arc<str>,
-    toolchain_revision: Arc<str>,
+    name: NonEmptySharedStr,
+    revision: NonEmptySharedStr,
+    toolchain_revision: NonEmptySharedStr,
 }
 
 impl BackendIdentity {
@@ -22,34 +22,26 @@ impl BackendIdentity {
         revision: impl Into<Arc<str>>,
         toolchain_revision: impl Into<Arc<str>>,
     ) -> Option<Self> {
-        let name = shared_str(name);
-        let revision = shared_str(revision);
-        let toolchain_revision = shared_str(toolchain_revision);
-
-        if name.is_empty() || revision.is_empty() || toolchain_revision.is_empty() {
-            return None;
-        }
-
         Some(Self {
-            name,
-            revision,
-            toolchain_revision,
+            name: NonEmptySharedStr::try_new(name)?,
+            revision: NonEmptySharedStr::try_new(revision)?,
+            toolchain_revision: NonEmptySharedStr::try_new(toolchain_revision)?,
         })
     }
 
     /// Returns the stable backend name.
     pub fn name(&self) -> &str {
-        &self.name
+        self.name.as_str()
     }
 
     /// Returns the Bray backend implementation revision.
     pub fn revision(&self) -> &str {
-        &self.revision
+        self.revision.as_str()
     }
 
     /// Returns the compatible backend-library or toolchain revision.
     pub fn toolchain_revision(&self) -> &str {
-        &self.toolchain_revision
+        self.toolchain_revision.as_str()
     }
 }
 

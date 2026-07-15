@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use bray_base::shared_str;
+use bray_base::NonEmptySharedStr;
 
 use crate::PackageIdentity;
 
@@ -8,17 +8,13 @@ use crate::PackageIdentity;
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ProductIdentity {
     package: PackageIdentity,
-    name: Arc<str>,
+    name: NonEmptySharedStr,
 }
 
 impl ProductIdentity {
     /// Creates a product identity unless its package-local canonical name is empty.
     pub fn try_new(package: PackageIdentity, name: impl Into<Arc<str>>) -> Option<Self> {
-        let name = shared_str(name);
-
-        if name.is_empty() {
-            return None;
-        }
+        let name = NonEmptySharedStr::try_new(name)?;
 
         Some(Self { package, name })
     }
@@ -30,7 +26,7 @@ impl ProductIdentity {
 
     /// Returns the package-local canonical product name.
     pub fn name(&self) -> &str {
-        &self.name
+        self.name.as_str()
     }
 }
 

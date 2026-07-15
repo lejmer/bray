@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use bray_base::{shared_slice, shared_str};
+use bray_base::{NonEmptySharedStr, shared_slice};
 use bray_compiler_known::CompilerKnownDeclarationKey;
 use bray_declarations::DeclarationId;
 
@@ -11,23 +11,17 @@ use crate::{ExternalSymbolKey, SymbolKind};
 /// Symbol infrastructure treats the value as opaque. Package selection and canonicalization own
 /// its syntax and normalization rules.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct PackageIdentity(Arc<str>);
+pub struct PackageIdentity(NonEmptySharedStr);
 
 impl PackageIdentity {
     /// Creates a package identity unless the canonical representation is empty.
     pub fn try_new(value: impl Into<Arc<str>>) -> Option<Self> {
-        let value = shared_str(value);
-
-        if value.is_empty() {
-            return None;
-        }
-
-        Some(Self(value))
+        NonEmptySharedStr::try_new(value).map(Self)
     }
 
     /// Returns the opaque canonical package identity.
     pub fn as_str(&self) -> &str {
-        &self.0
+        self.0.as_str()
     }
 }
 
@@ -39,7 +33,7 @@ impl AsRef<str> for PackageIdentity {
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 enum ModulePathKeyData {
-    Present(Arc<[Arc<str>]>),
+    Present(Arc<[NonEmptySharedStr]>),
     Recovered(DeclarationId),
 }
 
@@ -57,9 +51,14 @@ impl ModulePathKey {
         I: IntoIterator<Item = S>,
         S: Into<Arc<str>>,
     {
-        let segments: Vec<Arc<str>> = segments.into_iter().map(Into::into).collect();
+        let segments: Option<Vec<_>> = segments
+            .into_iter()
+            .map(NonEmptySharedStr::try_new)
+            .collect();
 
-        if segments.is_empty() || segments.iter().any(|segment| segment.is_empty()) {
+        let segments = segments?;
+
+        if segments.is_empty() {
             return None;
         }
 
@@ -73,7 +72,7 @@ impl ModulePathKey {
             ModulePathKeyData::Recovered(_) => &[],
         };
 
-        segments.iter().map(AsRef::as_ref)
+        segments.iter().map(NonEmptySharedStr::as_str)
     }
 
     /// Returns whether this path represents recovered syntax without a present segment.

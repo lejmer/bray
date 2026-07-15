@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use bray_base::NonEmptySharedStr;
 use bray_symbols::{
     AnySymbolId, CallableContractSet, CallableInstanceId, CallableSymbolId, CheckedConstraint,
     ConstantTermId, ConstantValueId, DependencyContractTemplateId, GenericOwnerId,
@@ -186,7 +187,7 @@ impl ImportedAbiDependency {
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ImportedSourceProvenance {
     pub(super) symbol: AnySymbolId,
-    pub(super) document: Arc<str>,
+    pub(super) document: NonEmptySharedStr,
     pub(super) start: u32,
     pub(super) end: u32,
 }
@@ -199,7 +200,7 @@ impl ImportedSourceProvenance {
 
     /// Returns the normalized source document identity.
     pub fn document(&self) -> &str {
-        &self.document
+        self.document.as_str()
     }
 
     /// Returns the half-open source range.
