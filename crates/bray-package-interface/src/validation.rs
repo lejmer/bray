@@ -723,6 +723,7 @@ mod tests {
             .collect::<Vec<_>>();
 
         assemble_sections(&sections, LANGUAGE_REVISION)
+            .map(|artifact| artifact.bytes().to_vec())
             .unwrap_or_else(|error| panic!("test artifact must encode: {error:?}"))
     }
 

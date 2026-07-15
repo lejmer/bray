@@ -130,7 +130,6 @@ impl DirectoryEntry {
         }
     }
 
-    #[cfg(any(test, feature = "test-support"))]
     pub(crate) const fn for_encoded(
         tag: InterfaceSectionTag,
         offset: u64,
@@ -155,7 +154,6 @@ impl DirectoryEntry {
         self.length
     }
 
-    #[cfg(any(test, feature = "test-support"))]
     pub(crate) const fn offset(self) -> u64 {
         self.offset
     }

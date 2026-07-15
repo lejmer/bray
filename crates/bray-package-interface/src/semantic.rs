@@ -3,6 +3,7 @@ mod interning;
 mod model;
 mod validation;
 
+pub(crate) use codec::encode_validated_semantic_facts;
 pub use codec::{EncodedSemanticSection, decode_semantic_facts, encode_semantic_facts};
 pub use interning::{
     ImportedAbiDependency, ImportedCallableContractFact, ImportedCoherenceFact,

@@ -12,8 +12,8 @@ use crate::{
     InterfaceCheckedTemplateOperation, InterfaceDeclarationTemplate, InterfaceDependencyContract,
     InterfaceLanguageRevision, InterfaceProductIdentity, InterfaceProductKind,
     InterfaceSemanticFacts, InterfaceSupportEntity, InterfaceSymbolReference, InterfaceType,
-    InterfaceTypeId, InterfaceValidationError, PackageInterfaceIdentity, PackageInterfaceSurface,
-    SymbolRelationship, SymbolRelationshipKind,
+    InterfaceTypeId, PackageInterfaceExportBundle, PackageInterfaceIdentity,
+    PackageInterfaceSurface, SymbolRelationship, SymbolRelationshipKind, encode_package_interface,
 };
 
 /// One valid encoded interface used by cross-crate compilation tests.
@@ -28,16 +28,33 @@ pub struct EncodedTemplateTestInterface {
     pub bytes: Vec<u8>,
 }
 
-fn encode_test_interface(
-    surface: &PackageInterfaceSurface,
-    facts: &InterfaceSemanticFacts,
-    language_revision: InterfaceLanguageRevision,
-) -> Result<Vec<u8>, InterfaceValidationError> {
-    crate::artifact::encode_interface_artifact(surface, facts, language_revision)
-}
-
 /// Builds one valid interface containing a declaration-owned checked template.
 pub fn encoded_template_test_interface() -> EncodedTemplateTestInterface {
+    let bundle = package_interface_export_bundle();
+    let package = bundle.surface().identity().package().clone();
+    let product = bundle.surface().identity().product().clone();
+
+    let template_owner = bundle
+        .surface()
+        .symbols()
+        .symbols()
+        .iter()
+        .find(|symbol| symbol.kind() == SymbolKind::Function)
+        .map(|symbol| symbol.id())
+        .unwrap_or_else(|| panic!("test template owner must be present"));
+
+    let encoded = encode_package_interface(&bundle)
+        .unwrap_or_else(|error| panic!("test interface must encode: {error:?}"));
+
+    EncodedTemplateTestInterface {
+        package,
+        product,
+        template_owner,
+        bytes: encoded.bytes().to_vec(),
+    }
+}
+
+pub(crate) fn package_interface_export_bundle() -> PackageInterfaceExportBundle {
     let package = package("example.dependency");
     let product = product("library");
 
@@ -63,15 +80,8 @@ pub fn encoded_template_test_interface() -> EncodedTemplateTestInterface {
 
     let facts = template_facts(&surface, template_owner);
 
-    let bytes = encode_test_interface(&surface, &facts, InterfaceLanguageRevision::new(0))
-        .unwrap_or_else(|error| panic!("test interface must encode: {error:?}"));
-
-    EncodedTemplateTestInterface {
-        package,
-        product,
-        template_owner,
-        bytes,
-    }
+    PackageInterfaceExportBundle::try_new(surface, facts, InterfaceLanguageRevision::new(0))
+        .unwrap_or_else(|error| panic!("test export bundle must be valid: {error:?}"))
 }
 
 fn identity_surface(
