@@ -12,7 +12,7 @@ pub enum SymbolCompletionLevel {
     DeclarationSurface,
 }
 
-/// An exact category of lazy semantic fact owned by a declaration symbol.
+/// An exact category of semantic fact owned by a declaration symbol.
 ///
 /// Instance-specific facts with additional semantic inputs use their own typed keys rather than
 /// discarding those inputs into this symbol-only category.

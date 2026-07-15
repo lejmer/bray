@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-/// Immutable shared text whose construction guarantees at least one byte.
+/// Immutable shared text containing at least one byte.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct NonEmptySharedStr(Arc<str>);
 
@@ -28,7 +28,7 @@ impl AsRef<str> for NonEmptySharedStr {
     }
 }
 
-/// Creates immutable shared string storage.
+/// Creates an immutable shared string.
 pub fn shared_str(text: impl Into<Arc<str>>) -> Arc<str> {
     text.into()
 }

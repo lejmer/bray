@@ -303,7 +303,7 @@ impl<'facts, C: BinderFactContext + ?Sized> Binder<'facts, C> {
     }
 }
 
-/// Frozen task-local output awaiting bound-unit assembly.
+/// Completed binding state used to create a bound unit.
 #[derive(Debug)]
 pub(crate) struct BinderOutput {
     unit: BoundUnitConstructionResult,

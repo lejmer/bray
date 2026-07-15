@@ -152,8 +152,7 @@ impl BackendCapabilities {
 
 /// Coarse backend service boundary for one complete codegen-unit operation.
 ///
-/// Implementations own all mutable backend modules and low-level IR internally. Only immutable
-/// contributions cross this boundary.
+/// Generated contributions crossing this boundary must be immutable.
 pub trait CodeGenerator: Send + Sync {
     /// Returns the stable backend and toolchain identity used by codegen fact keys.
     fn identity(&self) -> &BackendIdentity;

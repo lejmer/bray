@@ -111,7 +111,7 @@ impl DependencyInterfaceId {
         usize::try_from(self.0).ok()
     }
 
-    pub(super) fn try_from_index(index: usize) -> Option<Self> {
+    pub(crate) fn try_from_index(index: usize) -> Option<Self> {
         u32::try_from(index).ok().map(Self)
     }
 }
@@ -293,7 +293,7 @@ impl ExportedLookupEdge {
 /// Invalid semantic input supplied for package-interface identity sections.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum PackageInterfaceSurfaceBuildError {
-    /// Compiled interfaces can publish only library products.
+    /// Compiled interfaces can describe only library products.
     NonLibraryProduct,
     /// The dependency table cannot use compact dependency IDs.
     DependencyCountOverflow,

@@ -5,9 +5,8 @@ pub enum BinderFactError {
     Cancelled,
     /// A required fact could not be supplied by the coordinating query layer.
     ///
-    /// Compilation owns the exact cache, cycle, scheduling, and infrastructure policy behind
-    /// this boundary. Ordinary malformed source must instead produce an error-aware fact value
-    /// with structured diagnostics.
+    /// Ordinary malformed source must instead produce an error-aware fact value with structured
+    /// diagnostics.
     DependencyUnavailable,
 }
 

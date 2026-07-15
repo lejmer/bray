@@ -11,7 +11,7 @@ use crate::publication::{
 };
 use crate::{BinderFactContext, BoundUnitComputation};
 
-/// A committed declared callable body awaiting bound-unit publication.
+/// A bound declared callable body ready to complete its semantic unit.
 pub struct PendingBoundCallableBody {
     output: BinderOutput,
     nested_units: Vec<BoundUnitKey>,
@@ -24,14 +24,14 @@ impl PendingBoundCallableBody {
         &self.nested_units
     }
 
-    /// Freezes the immutable bound callable unit for publication.
+    /// Completes and returns the bound callable unit.
     pub fn finish(self) -> Result<BoundUnitComputation, BoundUnitBindingError> {
         assemble_callable_body(self.output, self.nested_units, self.root)
             .map_err(map_assembly_error)
     }
 }
 
-/// A committed anonymous callable awaiting bound-unit publication.
+/// A bound anonymous callable ready to complete its semantic unit.
 pub struct PendingBoundAnonymousCallable {
     output: BinderOutput,
     nested_units: Vec<BoundUnitKey>,
@@ -45,14 +45,14 @@ impl PendingBoundAnonymousCallable {
         &self.nested_units
     }
 
-    /// Freezes the immutable bound anonymous callable unit for publication.
+    /// Completes and returns the bound anonymous callable unit.
     pub fn finish(self) -> Result<BoundUnitComputation, BoundUnitBindingError> {
         assemble_anonymous_callable(self.output, self.nested_units, self.callable, self.root)
             .map_err(map_assembly_error)
     }
 }
 
-/// Binds one declared callable body into committed task-local state.
+/// Binds one declared callable body.
 pub fn bind_callable_body<C>(
     facts: &C,
     unit: BoundUnitId,
@@ -105,7 +105,7 @@ where
     })
 }
 
-/// Binds one independently analyzed anonymous callable into committed task-local state.
+/// Binds one independently analyzed anonymous callable.
 pub fn bind_anonymous_callable<C>(
     facts: &C,
     unit: BoundUnitId,

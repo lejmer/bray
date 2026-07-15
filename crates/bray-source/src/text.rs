@@ -2,8 +2,8 @@ use std::ops::Range;
 
 /// UTF-8 byte offset inside source text.
 ///
-/// Compiler spans use byte offsets internally. Line and column coordinates are
-/// derived presentation data, not the span representation.
+/// Compiler spans are represented by byte offsets. Line and column coordinates
+/// are derived presentation data.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct TextSize(u32);
 

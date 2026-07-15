@@ -29,7 +29,7 @@ impl LocalSymbolSnapshot {
         &self.key
     }
 
-    /// Returns lexical scopes in deterministic construction order.
+    /// Returns lexical scopes in canonical order.
     pub fn scopes(&self) -> &[LocalScope] {
         &self.scopes
     }

@@ -2,11 +2,11 @@
 
 #![forbid(unsafe_code)]
 
-#[cfg(any(test, feature = "test-support"))]
 mod artifact;
 mod construction;
 mod decode;
 mod diagnostic;
+mod export;
 mod hash;
 mod header;
 mod limits;
@@ -25,6 +25,11 @@ pub use construction::{
     construct_imported_symbol_skeletons,
 };
 pub use diagnostic::InterfaceValidationError;
+pub use export::{
+    EncodedPackageInterface, ExportLookupInput, ExportRelationshipInput, ExportSymbolInput,
+    ExportSymbolReferenceInput, PackageInterfaceExportBuildError, PackageInterfaceExportBundle,
+    PackageInterfaceExportSurfaceError, build_package_interface_surface, encode_package_interface,
+};
 pub use hash::{InterfaceArtifactHash, InterfaceContentHash, InterfaceSectionHash};
 pub use header::{
     CURRENT_FORMAT_REVISION, InterfaceFormatRevision, InterfaceHeader, InterfaceLanguageRevision,

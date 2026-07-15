@@ -118,8 +118,8 @@ where
 /// Reads file arguments as bytes and converts them into source inputs.
 ///
 /// Source identities are assigned deterministically by file argument order,
-/// starting at zero. UTF-8 validation and byte-order-mark handling remain with
-/// the source loader used by compilation construction.
+/// starting at zero. The resulting inputs are validated when compilation loads
+/// their source text.
 pub fn source_inputs_from_file_arguments<I, P>(
     file_arguments: I,
 ) -> Result<Vec<SourceInput>, DriverSourceInputError>

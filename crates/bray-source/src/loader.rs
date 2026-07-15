@@ -35,7 +35,7 @@ impl From<SourceUtf8Error> for SourceLoadError {
 ///
 /// `SourceLoader` assigns [`SourceId`] values deterministically in load order.
 /// It validates source bytes as UTF-8 and removes an initial UTF-8 byte order
-/// mark before publishing source text. It preserves source newline spellings
+/// mark from the resulting source text. It preserves source newline spellings
 /// exactly. It does not perform file, LSP, or standard-input I/O. Callers
 /// resolve external input into [`SourceInput`] before loading.
 #[derive(Debug, Default, Eq, PartialEq)]
@@ -63,7 +63,7 @@ impl SourceLoader {
 
     /// Loads source text and metadata into an immutable source snapshot.
     ///
-    /// A leading byte order mark character is removed before publication.
+    /// A leading byte order mark character is removed from the resulting text.
     pub fn load_snapshot(
         &mut self,
         identity: SourceIdentity,
@@ -79,7 +79,7 @@ impl SourceLoader {
     /// Loads source bytes and metadata into an immutable source snapshot.
     ///
     /// Bytes must be valid UTF-8. A leading UTF-8 byte order mark is removed
-    /// before publication.
+    /// from the resulting text.
     pub fn load_bytes(
         &mut self,
         identity: SourceIdentity,

@@ -231,7 +231,7 @@ macro_rules! define_declaration_symbol_records {
                     self.id
                 }
 
-                /// Returns this symbol's deterministic construction key.
+                /// Returns this symbol's stable semantic key.
                 pub const fn key(&self) -> &SymbolKey {
                     self.identity.key()
                 }
@@ -278,7 +278,7 @@ macro_rules! define_declaration_symbol_records {
                     }
                 }
 
-                /// Returns the imported lazy-fact route, when interface-backed.
+                /// Returns the imported semantic-fact key, when available.
                 pub fn imported_fact_key(&self) -> Option<ImportedSymbolFactKey<crate::$id>> {
                     self.identity.imported_fact_key()
                 }
@@ -792,7 +792,7 @@ impl ReceiverParameterSymbol {
         0
     }
 
-    /// Returns the imported lazy-fact route, when interface-backed.
+    /// Returns the imported semantic-fact key, when available.
     pub fn imported_fact_key(
         &self,
     ) -> Option<ImportedSymbolFactKey<crate::ReceiverParameterSymbolId>> {

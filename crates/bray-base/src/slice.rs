@@ -1,11 +1,11 @@
 use std::sync::Arc;
 
-/// Creates immutable shared slice storage from an ordered item sequence.
+/// Creates an immutable shared slice from an ordered item sequence.
 pub fn shared_slice<T>(items: impl IntoIterator<Item = T>) -> Arc<[T]> {
     Arc::<[T]>::from(items.into_iter().collect::<Vec<_>>())
 }
 
-/// Creates deterministically sorted, duplicate-free immutable shared slice storage.
+/// Creates a deterministically sorted, duplicate-free immutable shared slice.
 pub fn sorted_unique_shared_slice<T>(items: impl IntoIterator<Item = T>) -> Arc<[T]>
 where
     T: Ord,

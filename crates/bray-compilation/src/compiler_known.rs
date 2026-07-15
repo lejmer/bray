@@ -143,11 +143,11 @@ fn audit_target_views(
 pub enum CompilerKnownCatalogCheckError {
     /// The private validation package identity is invalid.
     InvalidPackageIdentity,
-    /// Constructing an empty declaration table unexpectedly produced diagnostics.
+    /// An empty declaration table unexpectedly produced diagnostics.
     DeclarationDiagnostics,
     /// The private catalog-validation compilation could not be loaded.
     CompilationLoad(CompilationLoadError),
-    /// A lazy compiler fact required by catalog validation failed.
+    /// A compiler fact required by catalog validation failed.
     Fact(FactQueryError),
     /// The compiler-known semantic audit found an inconsistent identity or role.
     Audit(CompilerKnownCatalogAuditError),

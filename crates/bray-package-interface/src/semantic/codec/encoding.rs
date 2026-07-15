@@ -21,7 +21,13 @@ pub fn encode_semantic_facts(
 ) -> Result<Vec<EncodedSemanticSection>, InterfaceValidationError> {
     facts.validate(surface, limits)?;
 
-    Ok(vec![
+    Ok(encode_validated_semantic_facts(facts))
+}
+
+pub(crate) fn encode_validated_semantic_facts(
+    facts: &InterfaceSemanticFacts,
+) -> Vec<EncodedSemanticSection> {
+    vec![
         directory::encode_fact_directory(facts),
         value::encode_types(facts),
         value::encode_constants(facts),
@@ -31,7 +37,7 @@ pub fn encode_semantic_facts(
         surface::encode_target_dependencies(facts),
         surface::encode_provenance(facts),
         support::encode_support_graph(facts),
-    ])
+    ]
 }
 
 fn section(

@@ -12,9 +12,8 @@ pub trait SymbolRecordId: ExactSymbolId {
 
 /// Provides checked read-only access to one exact category of compilation-wide symbols.
 ///
-/// Providers may use different origin-specific storage internally, but callers observe only the
-/// canonical kind-specific record selected by [`SymbolRecordId`]. An unknown ID returns `None`.
-/// Provider implementations must support concurrent read-only requests.
+/// An unknown ID returns `None`. Provider implementations must support concurrent read-only
+/// requests.
 pub trait SymbolProvider<I>: Send + Sync
 where
     I: SymbolRecordId,

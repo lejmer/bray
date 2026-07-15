@@ -7,16 +7,14 @@ use crate::severity::SeverityKind;
 /// Ordered collection of diagnostics produced by one compiler operation.
 ///
 /// A bag preserves insertion order. Callers that need global deterministic
-/// ordering should add diagnostics in deterministic phase order or sort before
-/// publication at the owning boundary.
+/// ordering should add diagnostics in deterministic phase order or sort them.
 ///
 /// Merge deduplication compares structured facts: severity, kind, primary span,
 /// labels, notes, and typed arguments. Localized rendered text and diagnostic
 /// IDs are excluded from the key.
 ///
-/// `DiagnosticBag` has no interior mutability. Shared access is thread-safe:
-/// immutable bags can be read concurrently by multiple workers, while mutation
-/// requires exclusive `&mut self` access or caller-owned synchronization.
+/// Shared access is thread-safe. Mutation requires exclusive `&mut self` access
+/// or caller-owned synchronization.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct DiagnosticBag {
     diagnostics: Vec<Diagnostic>,

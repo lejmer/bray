@@ -48,7 +48,7 @@ impl SymbolGraphRoots {
         &self.packages
     }
 
-    /// Iterates over every root without erasing the stored kind-specific records.
+    /// Iterates over every root while preserving its exact symbol category.
     pub fn iter(&self) -> impl Iterator<Item = SymbolRootId> + '_ {
         std::iter::once(SymbolRootId::from(self.compiler_known))
             .chain(self.packages.iter().copied().map(SymbolRootId::from))

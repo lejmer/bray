@@ -77,7 +77,7 @@ pub struct EmittedArtifactSet {
 }
 
 impl EmittedArtifactSet {
-    /// Validates and freezes complete externally published records for one plan.
+    /// Creates a complete artifact set after validating it against the plan.
     pub(crate) fn try_new(
         plan: &EmissionPlan,
         artifacts: impl IntoIterator<Item = EmittedArtifact>,
@@ -139,7 +139,7 @@ impl EmittedArtifactSet {
     }
 }
 
-/// A contract violation that prevents complete publication records from being exposed.
+/// A contract violation that prevents creation of a complete artifact set.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum EmittedArtifactSetBuildError {
     /// One logical artifact identity appears more than once.

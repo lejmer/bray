@@ -4,21 +4,19 @@ use crate::section::DirectoryEntry;
 use crate::surface::{EncodedSurfaceSection, encode_surface};
 use crate::wire::WireEncoder;
 use crate::{
-    CURRENT_FORMAT_REVISION, InterfaceLanguageRevision, InterfaceRequiredFlags,
-    InterfaceSectionTag, InterfaceSemanticFacts, InterfaceValidationError,
-    InterfaceValidationLimits, PackageInterfaceSurface, encode_semantic_facts,
+    CURRENT_FORMAT_REVISION, EncodedPackageInterface, InterfaceLanguageRevision,
+    InterfaceRequiredFlags, InterfaceSectionTag, InterfaceValidationError,
+    PackageInterfaceExportBundle,
 };
 
 pub(crate) fn encode_interface_artifact(
-    surface: &PackageInterfaceSurface,
-    facts: &InterfaceSemanticFacts,
-    language_revision: InterfaceLanguageRevision,
-) -> Result<Vec<u8>, InterfaceValidationError> {
-    let mut sections = encode_surface(surface)
+    bundle: &PackageInterfaceExportBundle,
+) -> Result<EncodedPackageInterface, InterfaceValidationError> {
+    let mut sections = encode_surface(bundle.surface())
         .into_iter()
         .map(EncodedArtifactSection::from_surface)
         .chain(
-            encode_semantic_facts(facts, surface, InterfaceValidationLimits::default())?
+            crate::semantic::encode_validated_semantic_facts(bundle.semantic_facts())
                 .into_iter()
                 .map(EncodedArtifactSection::from_semantic),
         )
@@ -30,13 +28,13 @@ pub(crate) fn encode_interface_artifact(
         return Err(InterfaceValidationError::Malformed);
     }
 
-    assemble_sections(&sections, language_revision)
+    assemble_sections(&sections, bundle.language_revision())
 }
 
 pub(crate) fn assemble_sections(
     sections: &[EncodedArtifactSection],
     language_revision: InterfaceLanguageRevision,
-) -> Result<Vec<u8>, InterfaceValidationError> {
+) -> Result<EncodedPackageInterface, InterfaceValidationError> {
     let payload_length = sections.iter().try_fold(0_usize, |total, section| {
         total.checked_add(section.payload.len())
     });
@@ -146,7 +144,7 @@ fn encode_directory_entry(encoder: &mut WireEncoder, entry: DirectoryEntry) {
 fn finish_hashes(
     mut bytes: Vec<u8>,
     entries: &[DirectoryEntry],
-) -> Result<Vec<u8>, InterfaceValidationError> {
+) -> Result<EncodedPackageInterface, InterfaceValidationError> {
     let decoded =
         InterfaceHeader::decode(&bytes).map_err(|_| InterfaceValidationError::Malformed)?;
 
@@ -161,7 +159,11 @@ fn finish_hashes(
     bytes[InterfaceHeader::ARTIFACT_HASH_OFFSET..InterfaceHeader::ARTIFACT_HASH_OFFSET + 32]
         .copy_from_slice(artifact_hash.as_bytes());
 
-    Ok(bytes)
+    Ok(EncodedPackageInterface::new(
+        bytes,
+        content_hash,
+        artifact_hash,
+    ))
 }
 
 fn usize_to_u64(value: usize) -> Result<u64, InterfaceValidationError> {

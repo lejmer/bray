@@ -7,7 +7,7 @@ use crate::{
 /// A typed failure while committing a node to a per-unit bound-tree builder.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BoundTreeBuildError {
-    /// The category-specific arena cannot represent another slot.
+    /// The requested node category cannot represent another node.
     ArenaCapacityExceeded(BoundNodeKind),
     /// A node relationship refers to a different bound unit.
     ForeignNode {
@@ -18,16 +18,16 @@ pub enum BoundTreeBuildError {
         /// The category of the referenced node.
         kind: BoundNodeKind,
     },
-    /// A node relationship refers to a slot that has not been committed.
+    /// A node relationship refers to a node that has not been added.
     MissingNode {
         /// The category of the missing node.
         kind: BoundNodeKind,
-        /// The category-specific slot that was requested.
+        /// The missing node position.
         slot: u32,
     },
 }
 
-/// An opaque position in one task-local bound-tree builder.
+/// A checkpoint in one bound-tree builder.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct BoundTreeCheckpoint {
     unit: BoundUnitId,
@@ -37,7 +37,7 @@ pub struct BoundTreeCheckpoint {
     callable_bodies: usize,
 }
 
-/// Task-local mutable construction storage that freezes into one immutable [`BoundTree`].
+/// Mutable builder for one immutable [`BoundTree`].
 #[derive(Debug)]
 pub struct BoundTreeBuilder {
     unit: BoundUnitId,
@@ -48,7 +48,7 @@ pub struct BoundTreeBuilder {
 }
 
 impl BoundTreeBuilder {
-    /// Creates empty bound storage for one semantic unit.
+    /// Creates an empty bound-tree builder for one semantic unit.
     pub const fn new(unit: BoundUnitId) -> Self {
         Self {
             unit,
@@ -144,7 +144,7 @@ impl BoundTreeBuilder {
         BoundUnitView::building(self, key)
     }
 
-    /// Captures the current arena lengths for later transactional rollback.
+    /// Captures the current builder state for later rollback.
     pub const fn checkpoint(&self) -> BoundTreeCheckpoint {
         BoundTreeCheckpoint {
             unit: self.unit,
@@ -164,7 +164,7 @@ impl BoundTreeBuilder {
             && checkpoint.callable_bodies <= self.callable_bodies.len()
     }
 
-    /// Restores every category arena to a checkpoint from this unit.
+    /// Restores every node category to a checkpoint from this unit.
     pub fn rollback(&mut self, checkpoint: BoundTreeCheckpoint) -> bool {
         if !self.can_rollback_to(checkpoint) {
             return false;
@@ -178,7 +178,7 @@ impl BoundTreeBuilder {
         true
     }
 
-    /// Freezes all committed nodes into immutable dense storage.
+    /// Completes and returns the bound tree.
     pub fn finish(self) -> BoundTree {
         BoundTree::new(
             self.unit,

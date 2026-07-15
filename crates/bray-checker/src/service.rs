@@ -9,8 +9,7 @@ pub struct DefaultControlFlowChecker;
 ///
 /// Implementations must observe request cancellation while doing substantial
 /// work and return [`CheckerOutcome::Cancelled`] without partial results or
-/// diagnostics. Implementations own semantic rules but never mutate or publish
-/// the borrowed bound unit view.
+/// diagnostics.
 pub trait ControlFlowChecker: Sync {
     /// Checks one committed bound unit's control flow.
     fn check_control_flow(

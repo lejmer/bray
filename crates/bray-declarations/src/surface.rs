@@ -6,10 +6,7 @@ use bray_syntax::{
 
 /// Stable source-backed reference to a syntax node used by later compiler phases.
 ///
-/// Declaration discovery uses anchors instead of storing typed syntax nodes in
-/// the declaration table. Later phases can use the source ID, syntax kind, and
-/// range to correlate records with parsed syntax without depending on green tree
-/// internals.
+/// The source ID, syntax kind, and range correlate a declaration with parsed syntax.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct SyntaxAnchor {
     source_id: SourceId,

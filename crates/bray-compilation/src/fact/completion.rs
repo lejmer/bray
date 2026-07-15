@@ -13,7 +13,7 @@ use crate::WorkerBudget;
 /// An outer force-completion outcome that is not a source diagnostic.
 #[derive(Debug, Eq, PartialEq)]
 pub enum SymbolCompletionError<E> {
-    /// Completion was cancelled and no partial diagnostics were published.
+    /// Completion was cancelled and no partial diagnostics were returned.
     Cancelled,
     /// The requested root does not belong to the symbol graph.
     UnknownSymbol(AnySymbolId),
@@ -65,9 +65,7 @@ where
 
 /// Forces one symbol-owned subtree and deterministically aggregates fact diagnostics.
 ///
-/// The symbol graph owns recursive traversal and fact applicability. Compilation owns bounded
-/// scheduling, cancellation, and publication policy. Diagnostics become observable only after
-/// the complete plan succeeds.
+/// Diagnostics are returned only after every required fact completes successfully.
 pub fn force_complete_symbol<F>(
     graph: &SymbolGraph,
     root: AnySymbolId,

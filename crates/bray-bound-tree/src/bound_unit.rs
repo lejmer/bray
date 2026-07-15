@@ -22,7 +22,7 @@ pub struct BoundUnit {
 }
 
 impl BoundUnit {
-    /// Validates and assembles one immutable bound unit.
+    /// Creates a bound unit after validating its root, identities, and nested units.
     pub fn try_new(
         key: BoundUnitKey,
         tree: BoundTree,
@@ -112,7 +112,7 @@ pub enum BoundUnitRoot {
     ExpressionSequence(BoundBlockId),
 }
 
-/// A contract violation that prevents publication of a bound unit.
+/// A contract violation that prevents creation of a bound unit.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BoundUnitBuildError {
     /// The root category does not match the semantic unit key.

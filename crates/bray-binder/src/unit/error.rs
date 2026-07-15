@@ -4,7 +4,7 @@ use bray_symbols::{
     AnonymousCallableSymbolId, AnyLocalSymbolId, LocalScopeId, LocalSymbolBuildError, SymbolOrdinal,
 };
 
-/// A structural failure while integrating bound-tree and local-region construction.
+/// A structural failure while completing a bound tree and local-symbol region.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum BoundUnitConstructionError {
     /// The bound-tree contract rejected a node relationship.

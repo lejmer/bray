@@ -32,7 +32,7 @@ pub(crate) struct BoundUnitLocalCheckpoint {
     anonymous_parameters: usize,
 }
 
-/// Binder-owned construction of bound nodes, local symbols, and lexical scopes for one unit.
+/// Builder for one unit's bound nodes, local symbols, and lexical scopes.
 #[derive(Debug)]
 pub(crate) struct BoundUnitLocalBuilder {
     key: BoundUnitKey,

@@ -341,7 +341,7 @@ impl SymbolKeyData {
     }
 }
 
-/// A cheaply cloned deterministic semantic construction key for a surface symbol.
+/// A stable deterministic semantic identity for a surface symbol.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct SymbolKey(Arc<SymbolKeyData>);
 
@@ -400,7 +400,7 @@ impl SymbolKey {
         Self(Arc::new(SymbolKeyData::Synthesized(key)))
     }
 
-    /// Creates a construction key for an imported interface symbol.
+    /// Creates a semantic key for an imported interface symbol.
     pub fn external(key: ExternalSymbolKey) -> Self {
         Self(Arc::new(SymbolKeyData::External(key)))
     }

@@ -167,7 +167,7 @@ pub struct BackendArtifactRequest {
 }
 
 impl BackendArtifactRequest {
-    /// Validates and freezes one codegen unit's complete emitter-derived artifact request.
+    /// Creates an artifact request after validating all requested outputs.
     pub fn try_new(
         unit: CodegenUnitKey,
         entries: impl IntoIterator<Item = BackendArtifactRequestEntry>,
@@ -258,7 +258,7 @@ impl BackendArtifactRequest {
     }
 }
 
-/// A contract violation that prevents an artifact request from being frozen.
+/// A contract violation that prevents creation of an artifact request.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum BackendArtifactRequestBuildError {
     /// No output contribution was requested.

@@ -6,26 +6,20 @@ use crate::{BinderFactContext, BinderFactResult};
 
 /// Provides shared immutable access to one category of symbol-facing semantic fact.
 ///
-/// Implement this trait separately for each supported [`SymbolFactContract`]. The coordinating
-/// query layer routes source, compiler-known, synthesized, and imported symbols internally.
-/// Binder code does not branch on symbol storage origin. Repeated completed requests must expose
-/// the same published result.
+/// Implement this trait separately for each supported [`SymbolFactContract`]. Equivalent completed
+/// requests must return equivalent results.
 pub trait SymbolFactProvider<Contract>: Send + Sync
 where
     Contract: SymbolFactContract,
 {
-    /// Returns the published fact for the typed request.
+    /// Returns the fact for the typed request.
     fn symbol_fact(
         &self,
         request: SymbolFactRequest<Contract>,
     ) -> BinderFactResult<Arc<SymbolFactResult<Contract>>>;
 }
 
-/// Computes one binding-dependent symbol fact without coordinating its publication.
-///
-/// Binder implementations return one complete immutable value with its owned diagnostics.
-/// Compilation wraps this operation in exact keys, dependency tracking, caching, cycle handling,
-/// cancellation, and atomic publication.
+/// Computes one binding-dependent symbol fact with its diagnostics.
 pub trait BindingSymbolFactProvider<Contract, Context>: Send + Sync
 where
     Contract: SymbolFactContract,

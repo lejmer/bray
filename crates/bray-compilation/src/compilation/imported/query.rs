@@ -29,7 +29,7 @@ impl super::super::Compilation {
             .and_then(ImportedInterfaceId::try_from_index)
     }
 
-    /// Returns a lazily validated identity surface and its owned diagnostics.
+    /// Returns a dependency's validated identity surface and diagnostics.
     pub fn dependency_interface_result(
         &self,
         interface: ImportedInterfaceId,
@@ -38,14 +38,14 @@ impl super::super::Compilation {
             .map(LoadedDependencyInterface::result)
     }
 
-    /// Returns the lazily constructed deterministic imported identity skeleton.
+    /// Returns the deterministic imported identity skeleton.
     pub fn imported_symbol_skeleton_result(
         &self,
     ) -> Result<&DiagnosticResult<Option<Arc<ImportedSymbolSkeleton>>>, FactQueryError> {
         self.imported_symbol_skeleton_result_with_cancellation(&self.state.cancellation)
     }
 
-    /// Returns one exact lazily remapped imported symbol-owned fact category.
+    /// Returns one exact imported symbol-owned fact category.
     pub fn imported_semantic_fact_result(
         &self,
         key: ImportedSemanticFactKey,

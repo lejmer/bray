@@ -135,7 +135,7 @@ impl BackendArtifactSet {
     }
 }
 
-/// A contract violation that prevents atomic artifact-set publication.
+/// A contract violation that prevents creation of a complete artifact set.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum BackendArtifactSetBuildError {
     /// Two contributions have the same planned logical identity.

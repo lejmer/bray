@@ -98,8 +98,8 @@ macro_rules! define_symbol_ids {
 
         /// A closed type-erased reference to any compilation-wide surface symbol.
         ///
-        /// Exact typed IDs remain the canonical storage and API types. This erasure is intended
-        /// for heterogeneous infrastructure such as diagnostics and tooling.
+        /// Exact typed IDs remain the preferred API types. This erasure is intended for
+        /// heterogeneous infrastructure such as diagnostics and tooling.
         #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
         pub enum AnySymbolId {
             $(

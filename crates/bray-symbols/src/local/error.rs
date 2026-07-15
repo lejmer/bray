@@ -15,7 +15,7 @@ pub enum LocalSymbolBuildError {
     RootHasParentScope,
     /// More than one root scope was created for one semantic region.
     DuplicateRootScope,
-    /// Snapshot publication was attempted without a root scope.
+    /// A snapshot cannot be created without a root scope.
     MissingRootScope,
     /// A local symbol was indexed outside its containing scope.
     SymbolOutsideScope,

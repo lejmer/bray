@@ -74,7 +74,7 @@ macro_rules! define_default_provider_record {
                 self.subject
             }
 
-            /// Returns the imported lazy-fact route, when interface-backed.
+            /// Returns the imported semantic-fact key, when available.
             pub fn imported_fact_key(&self) -> Option<ImportedSymbolFactKey<crate::$id>> {
                 self.imported.map(ImportedSymbolBacking::fact_key)
             }

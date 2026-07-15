@@ -83,7 +83,7 @@ pub enum DiagnosticKind {
     InterfaceProductIdentityMismatch,
     /// Selected dependency interfaces do not form the exact required dependency graph.
     InterfaceDependencyGraphInvalid,
-    /// Decoded package-interface semantic facts cannot be published in this compilation.
+    /// Decoded package-interface semantic facts cannot be used in this compilation.
     InterfaceSemanticFactsInvalid,
     /// Name binding could not find a declaration or local with the requested spelling.
     BindingUnresolvedName,

@@ -5,7 +5,7 @@ use bray_diagnostics::DiagnosticResult;
 
 use crate::BinderDependency;
 
-/// One complete binder computation awaiting compilation-owned publication.
+/// One complete diagnostic-bearing binder computation and its dependencies.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BoundUnitComputation {
     result: DiagnosticResult<BoundUnit>,
@@ -41,7 +41,7 @@ impl BoundUnitComputation {
         &self.dependencies
     }
 
-    /// Consumes the computation into its publication parts.
+    /// Consumes the computation into its result and dependencies.
     pub fn into_parts(self) -> (DiagnosticResult<BoundUnit>, Box<[BinderDependency]>) {
         (self.result, self.dependencies)
     }

@@ -76,7 +76,7 @@ pub enum LinkSearchPathBuildError {
     EmptyPath,
 }
 
-/// Task-local construction state for one immutable validated link plan.
+/// Builder for one immutable validated link plan.
 #[derive(Debug)]
 pub struct LinkPlanBuilder {
     product: ProductIdentity,
@@ -151,7 +151,7 @@ impl LinkPlanBuilder {
         self.policy = policy;
     }
 
-    /// Validates and freezes the complete link plan.
+    /// Completes the link plan after validating its inputs and options.
     pub fn finish(self) -> Result<LinkPlan, LinkPlanBuildError> {
         LinkPlan::try_from_builder(self)
     }
@@ -269,7 +269,7 @@ impl LinkPlan {
     }
 }
 
-/// A contract violation that prevents immutable link-plan publication.
+/// A contract violation that prevents creation of a link plan.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum LinkPlanBuildError {
     /// The plan contains no native link inputs.

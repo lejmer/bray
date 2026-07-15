@@ -51,8 +51,7 @@ impl ControlFlowCheckResult {
 /// The result of one focused checker service operation.
 ///
 /// Completed operations own their structured diagnostics alongside the typed
-/// value. Cancellation carries neither diagnostics nor partial results, so
-/// orchestration cannot accidentally publish abandoned checker work.
+/// value. Cancellation carries neither diagnostics nor partial results.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CheckerOutcome<T> {
     /// The operation completed with a typed value and its owned diagnostics.

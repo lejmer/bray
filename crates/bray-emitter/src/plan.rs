@@ -74,7 +74,7 @@ impl PlannedArtifact {
     }
 }
 
-/// Complete immutable emission policy frozen before artifact construction begins.
+/// Complete immutable emission policy for one product request.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EmissionPlan {
     request: EmissionRequest,
@@ -84,7 +84,7 @@ pub struct EmissionPlan {
 }
 
 impl EmissionPlan {
-    /// Validates and freezes one complete deterministic emission plan.
+    /// Creates a deterministic emission plan after validating its artifacts.
     pub(crate) fn try_new(
         request: EmissionRequest,
         backend: Option<BackendIdentity>,
@@ -162,7 +162,7 @@ impl EmissionPlan {
     }
 }
 
-/// A structural contract violation that prevents immutable plan publication.
+/// A structural contract violation that prevents creation of an emission plan.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum EmissionPlanBuildError {
     /// The plan contains no artifacts.

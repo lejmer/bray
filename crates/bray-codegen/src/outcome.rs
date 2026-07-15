@@ -29,9 +29,9 @@ pub enum CodegenFailure {
 pub enum CodegenStatus {
     /// Every requested required artifact was generated and validated.
     Complete(BackendArtifactSet),
-    /// Generation failed without publishing partial artifacts.
+    /// Generation failed without returning partial artifacts.
     Failed(CodegenFailure),
-    /// Cancellation was observed before artifact publication.
+    /// Cancellation was observed before artifacts were completed.
     Cancelled,
 }
 
@@ -43,7 +43,7 @@ pub struct CodegenOutcome {
 }
 
 impl CodegenOutcome {
-    /// Validates contributions against the authoritative request before successful publication.
+    /// Returns a complete outcome after validating contributions against the request.
     pub fn try_complete(
         request: CodegenRequest<'_>,
         contributions: impl IntoIterator<Item = BackendArtifactContribution>,

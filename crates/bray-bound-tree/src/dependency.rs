@@ -72,9 +72,8 @@ pub enum BoundDependencyRequirementKind {
 
 /// Resolves portable dependency-template subjects into exact bound-unit facts.
 ///
-/// Binder construction state implements this contract while instantiating a selected callable or
-/// value contract. Projection evaluation and validation remain with that state because they can
-/// require checked expressions, selected implementations, and current semantic facts.
+/// Implementations must resolve projections and validate them against the current checked
+/// expressions, selected implementations, and semantic facts.
 pub trait DependencyContractInstantiationContext {
     /// The typed failure returned when a formal subject or guard cannot be instantiated.
     type Error;

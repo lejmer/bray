@@ -81,11 +81,11 @@ mod tests {
 /// An outer compiler-query outcome that must not be represented as a source diagnostic.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum FactQueryError {
-    /// The requesting operation was cancelled before publication.
+    /// The requesting operation was cancelled before completion.
     Cancelled,
     /// Evaluation encountered a same-worker or cross-worker dependency cycle.
     Cycle(FactCycle),
-    /// Synchronized query state was poisoned or violated an internal publication invariant.
+    /// The fact request could not complete because compiler coordination failed.
     InfrastructureFailure,
 }
 

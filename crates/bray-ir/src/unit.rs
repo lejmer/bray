@@ -24,7 +24,7 @@ impl MirBlockId {
     }
 }
 
-/// One source-correlated basic block in deterministic MIR construction order.
+/// One source-correlated basic block in canonical MIR order.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct MirBlock {
     source: BoundSourceAnchor,
@@ -62,7 +62,7 @@ impl MirUnit {
         self.entry
     }
 
-    /// Returns one block when its ID belongs to this MIR unit and names a committed slot.
+    /// Returns the block identified within this MIR unit, when present.
     pub fn block(&self, id: MirBlockId) -> Option<&MirBlock> {
         if id.unit() != self.unit {
             return None;
@@ -71,13 +71,13 @@ impl MirUnit {
         id.to_index().and_then(|index| self.blocks.get(index))
     }
 
-    /// Returns MIR blocks in deterministic construction order.
+    /// Returns MIR blocks in canonical order.
     pub fn blocks(&self) -> &[MirBlock] {
         &self.blocks
     }
 }
 
-/// Mutable task-local construction state for one Bray MIR unit.
+/// Builder for one Bray MIR unit.
 #[derive(Debug)]
 pub struct MirUnitBuilder {
     key: BoundUnitKey,
@@ -87,7 +87,7 @@ pub struct MirUnitBuilder {
 }
 
 impl MirUnitBuilder {
-    /// Starts MIR construction for one canonical bound-unit identity.
+    /// Creates a MIR builder for one canonical bound-unit identity.
     pub fn new(identity: BoundUnitIdentity<'_>) -> Self {
         Self {
             // Publication retains the Arc-backed key after the identity view borrow ends.
@@ -119,7 +119,7 @@ impl MirUnitBuilder {
         Ok(MirBlockId::from_slot(self.unit, slot))
     }
 
-    /// Freezes the MIR block table after validating its exact entry block.
+    /// Completes the MIR unit after validating its entry block.
     pub fn finish(self, entry: MirBlockId) -> Result<MirUnit, MirUnitBuildError> {
         if entry.unit() != self.unit {
             return Err(MirUnitBuildError::ForeignEntry {
@@ -145,7 +145,7 @@ impl MirUnitBuilder {
     }
 }
 
-/// A contract violation that prevents MIR unit publication.
+/// A contract violation that prevents creation of a MIR unit.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MirUnitBuildError {
     /// The source anchor belongs to another source identity or revision.

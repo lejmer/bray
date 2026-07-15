@@ -8,11 +8,11 @@ use crate::{
 pub enum ImportedSymbolSkeletonBuildError {
     /// Two inputs use the same loaded-interface handle.
     DuplicateInterface(ImportedInterfaceId),
-    /// Two inputs publish the same package identity.
+    /// Two inputs define the same package identity.
     DuplicatePackage(PackageIdentity),
     /// Compilation-local symbol ID allocation overflowed.
     SymbolIdOverflow,
-    /// Two interface symbols publish the same stable external identity.
+    /// Two interface symbols define the same stable external identity.
     DuplicateExternalKey(ExternalSymbolKey),
     /// A relationship references an interface-local symbol that does not exist.
     RelationshipSymbolOutOfBounds {

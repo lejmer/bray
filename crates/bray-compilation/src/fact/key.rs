@@ -65,11 +65,10 @@ impl SymbolFactKey {
     }
 }
 
-/// An erased identity used only for compilation query coordination.
+/// A type-erased compilation-fact identity used for dependency coordination.
 ///
-/// Typed fact caches retain their exact value types. This key erases only enough information to
-/// detect dependency cycles and coordinate concurrent evaluation across those caches.
-/// Cloning remains cheap because the only non-copy payload, [`BoundUnitKey`], is `Arc`-backed.
+/// The key preserves enough semantic identity to detect dependency cycles and coordinate
+/// concurrent requests.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum CompilationFactKey {
     /// The target-filtered compiler-known declaration symbol view.
@@ -98,6 +97,8 @@ pub enum CompilationFactKey {
     ImportedSemanticFact(ImportedSemanticFactKey),
     /// The deterministic compilation-local imported symbol identity skeleton.
     ImportedSymbolSkeleton,
+    /// The current library product's complete immutable interface export bundle.
+    PackageInterfaceExportBundle,
     /// The canonical semantic value store for this compilation snapshot.
     SemanticValueStore,
     /// Binding and semantic-analysis diagnostics for the source package.
@@ -127,6 +128,7 @@ impl CompilationFactKey {
             | Self::ImportedSemanticGraph(_)
             | Self::ImportedSemanticFact(_)
             | Self::ImportedSymbolSkeleton
+            | Self::PackageInterfaceExportBundle
             | Self::SemanticValueStore
             | Self::SemanticDiagnostics
             | Self::SourceUnitSyntax(_)

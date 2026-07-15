@@ -7,7 +7,7 @@ use super::{
     CheckedTemplateTemporaryId,
 };
 
-/// Task-local validated construction for one portable checked template.
+/// Builder for one portable checked template.
 ///
 /// Construction validates template-local references and type equalities. The checker or interface
 /// decoder remains responsible for facts that require semantic lookup, including canonical
@@ -119,7 +119,7 @@ impl CheckedTemplateBuilder {
         Ok(id)
     }
 
-    /// Freezes a complete checked template after validating its result.
+    /// Completes the checked template after validating its result.
     pub fn finish(
         self,
         result: CheckedTemplateNodeId,

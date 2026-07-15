@@ -77,7 +77,7 @@ impl TargetSymbolConvention {
     }
 }
 
-/// A contract violation that prevents target symbol-convention publication.
+/// A contract violation that prevents creation of target symbol conventions.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TargetSymbolConventionBuildError {
     /// Private generated symbols have no reserved target prefix.

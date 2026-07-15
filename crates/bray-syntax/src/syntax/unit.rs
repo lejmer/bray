@@ -162,9 +162,8 @@ impl SourceUnitSyntax {
 
     /// Returns this source unit's syntax tokens in source order, including EOF.
     ///
-    /// Tokens are synthesized from immutable green storage and this source
-    /// unit's coordinate space. Grammar-aware code should prefer named slots
-    /// and child lists on concrete syntax nodes as those nodes are added.
+    /// Grammar-aware code should prefer named slots and child lists on concrete
+    /// syntax nodes.
     pub fn tokens(&self) -> impl Iterator<Item = SyntaxToken> + '_ {
         self.node.syntax_tokens(TextSize::ZERO)
     }

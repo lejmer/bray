@@ -5,7 +5,7 @@ use crate::{
     BoundExpressionId, BoundPattern, BoundPatternId, BoundUnitId, BoundUnitKey, BoundUnitView,
 };
 
-/// Immutable dense bound-node storage for one checked semantic unit.
+/// Immutable bound nodes for one checked semantic unit.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BoundTree {
     unit: BoundUnitId,
@@ -37,27 +37,27 @@ impl BoundTree {
         self.unit
     }
 
-    /// Returns one expression when its ID belongs to this tree and names a committed slot.
+    /// Returns the expression identified within this tree, when present.
     pub fn expression(&self, id: BoundExpressionId) -> Option<&BoundExpression> {
         self.entry(id.unit(), id.to_index(), &self.expressions)
     }
 
-    /// Returns one pattern when its ID belongs to this tree and names a committed slot.
+    /// Returns the pattern identified within this tree, when present.
     pub fn pattern(&self, id: BoundPatternId) -> Option<&BoundPattern> {
         self.entry(id.unit(), id.to_index(), &self.patterns)
     }
 
-    /// Returns one block when its ID belongs to this tree and names a committed slot.
+    /// Returns the block identified within this tree, when present.
     pub fn block(&self, id: BoundBlockId) -> Option<&BoundBlock> {
         self.entry(id.unit(), id.to_index(), &self.blocks)
     }
 
-    /// Returns one callable body when its ID belongs to this tree and names a committed slot.
+    /// Returns the callable body identified within this tree, when present.
     pub fn callable_body(&self, id: BoundCallableBodyId) -> Option<&BoundCallableBody> {
         self.entry(id.unit(), id.to_index(), &self.callable_bodies)
     }
 
-    /// Returns a read-only unit view over this published tree.
+    /// Returns a read-only view of this tree and its unit key.
     pub fn view<'tree>(&'tree self, key: &'tree BoundUnitKey) -> BoundUnitView<'tree> {
         BoundUnitView::published(self, key)
     }

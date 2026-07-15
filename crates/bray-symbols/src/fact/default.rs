@@ -170,22 +170,22 @@ impl RuntimeDefaultBehavior {
         self.ownership
     }
 
-    /// Returns checked effects in their published semantic order.
+    /// Returns checked effects in canonical semantic order.
     pub fn effects(&self) -> &[RuntimeDefaultEffectRequirement] {
         &self.effects
     }
 
-    /// Returns checked capabilities in their published semantic order.
+    /// Returns checked capabilities in canonical semantic order.
     pub fn capabilities(&self) -> &[RuntimeDefaultCapabilityRequirement] {
         &self.capabilities
     }
 
-    /// Returns trusted obligations in their published semantic order.
+    /// Returns trusted obligations in canonical semantic order.
     pub fn trusted_obligations(&self) -> &[RuntimeDefaultTrustedObligation] {
         &self.trusted_obligations
     }
 
-    /// Returns lifecycle obligations in their published semantic order.
+    /// Returns lifecycle obligations in canonical semantic order.
     pub fn lifecycle_obligations(&self) -> &[LifecycleObligationKind] {
         &self.lifecycle_obligations
     }
@@ -196,7 +196,7 @@ impl RuntimeDefaultBehavior {
     }
 }
 
-/// Locates the checked provider implementation without storing a bound-tree node ID.
+/// Identifies the checked template that supplies one runtime default.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum RuntimeDefaultTemplateReference {
     /// A source-backed checked unit selected by its declaration-owned expression anchor.

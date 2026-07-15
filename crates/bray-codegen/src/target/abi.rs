@@ -89,7 +89,7 @@ impl TargetAbi {
     }
 }
 
-/// A contract violation that prevents target ABI publication.
+/// A contract violation that prevents creation of a target ABI.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TargetAbiBuildError {
     /// Two mappings describe the same language-level callable ABI.

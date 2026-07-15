@@ -1,11 +1,12 @@
 use std::collections::BTreeSet;
 
-use bray_symbols::{ExternalSymbolKey, ImportedSymbolIdentityInput, PackageIdentity, SymbolKind};
+use bray_symbols::{ExternalSymbolKey, PackageIdentity, SymbolKind};
 
-use crate::test_support::{insert_key_and_owners, interface_symbol_id};
+use crate::test_support::insert_key_and_owners;
 use crate::{
-    InterfaceContentHash, InterfaceDependency, InterfaceProductIdentity, InterfaceProductKind,
-    InterfaceSymbolReference, PackageInterfaceIdentity, PackageInterfaceSurface,
+    ExportSymbolInput, InterfaceContentHash, InterfaceDependency, InterfaceProductIdentity,
+    InterfaceProductKind, InterfaceSymbolReference, PackageInterfaceIdentity,
+    PackageInterfaceSurface, build_package_interface_surface,
 };
 
 pub(super) fn interface_surface(
@@ -21,19 +22,9 @@ pub(super) fn interface_surface(
 
     keys.insert(ExternalSymbolKey::package(package.clone()));
 
-    let keys: Vec<_> = keys.into_iter().collect();
-    let records = keys.iter().enumerate().map(|(index, key)| {
-        let container = key
-            .owner()
-            .and_then(|owner| keys.binary_search(owner).ok().map(interface_symbol_id));
-
-        ImportedSymbolIdentityInput::new(
-            interface_symbol_id(index),
-            key.clone(),
-            key.kind(),
-            container,
-        )
-    });
+    let records = keys
+        .iter()
+        .map(|key| ExportSymbolInput::new(key.clone(), key.owner().cloned()));
 
     let dependencies = dependencies.into_iter().map(|dependency| {
         InterfaceDependency::new(
@@ -43,7 +34,7 @@ pub(super) fn interface_surface(
         )
     });
 
-    PackageInterfaceSurface::try_new(
+    build_package_interface_surface(
         package_interface_identity(package),
         dependencies,
         records,
