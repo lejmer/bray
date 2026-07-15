@@ -1,11 +1,17 @@
+use std::num::{NonZeroU16, NonZeroU32};
+
 use bray_codegen::{
     ArtifactDigest, ArtifactDigestAlgorithm, AssemblySyntaxKind, BackendArtifactId,
     BackendArtifactKind, BackendArtifactRequest, BackendArtifactRequestEntry,
-    BackendArtifactRequirement, BackendIdentity, BackendSerializationOptions, CodegenUnit,
-    DebugInformationOutputMode, LinkableArtifactRequirement,
+    BackendArtifactRequirement, BackendCapabilities, BackendIdentity, BackendSerializationOptions,
+    BackendTargetPlatform, CodegenUnit, DebugInformationMode, DebugInformationOutputMode,
+    LinkableArtifactKind, LinkableArtifactRequirement,
 };
 use bray_symbols::PackageIdentity;
-use bray_target::TargetIdentity;
+use bray_target::{
+    Endianness, ObjectFormat, TargetArchitecture, TargetIdentity, TargetMachineProperties,
+    TargetOutputDescription, TargetOutputKind, TargetOutputName,
+};
 use bray_testing::test_mir_unit;
 
 use crate::{
@@ -35,6 +41,37 @@ pub(crate) fn target_identity() -> TargetIdentity {
     target
 }
 
+pub(crate) fn target_output_description() -> TargetOutputDescription {
+    let names = [
+        output_name(TargetOutputKind::Assembly, "", ".s"),
+        output_name(TargetOutputKind::BackendIr, "", ".ll"),
+        output_name(TargetOutputKind::BackendBitcode, "", ".bc"),
+        output_name(TargetOutputKind::RelocatableObject, "", ".o"),
+        output_name(TargetOutputKind::ExecutableModule, "", ".wasm"),
+        output_name(TargetOutputKind::DebugCompanion, "", ".debug"),
+        output_name(TargetOutputKind::PackageInterface, "", ".brayi"),
+        output_name(TargetOutputKind::DependencyMetadata, "", ".brayd"),
+        output_name(TargetOutputKind::Executable, "", ""),
+        output_name(TargetOutputKind::StaticLibrary, "lib", ".a"),
+        output_name(TargetOutputKind::SharedLibrary, "lib", ".so"),
+        output_name(TargetOutputKind::LinkedCompanion, "", ".companion"),
+    ];
+
+    target_output_description_from(names)
+}
+
+pub(crate) fn target_output_description_from(
+    names: impl IntoIterator<Item = TargetOutputName>,
+) -> TargetOutputDescription {
+    let Ok(description) =
+        TargetOutputDescription::try_new(target_identity(), target_machine(), names)
+    else {
+        panic!("test target output description must be valid");
+    };
+
+    description
+}
+
 pub(crate) fn backend_identity() -> BackendIdentity {
     let Some(backend) = BackendIdentity::try_new("llvm", "bray-1", "llvm-22") else {
         panic!("test backend identity must be valid");
@@ -43,14 +80,61 @@ pub(crate) fn backend_identity() -> BackendIdentity {
     backend
 }
 
+pub(crate) fn backend_capabilities() -> BackendCapabilities {
+    BackendCapabilities::new(
+        [BackendTargetPlatform::new(
+            TargetArchitecture::X86_64,
+            ObjectFormat::Elf,
+        )],
+        [
+            BackendArtifactKind::RelocatableObject,
+            BackendArtifactKind::Assembly,
+            BackendArtifactKind::BackendIr,
+            BackendArtifactKind::BackendBitcode,
+            BackendArtifactKind::ExecutableModule,
+            BackendArtifactKind::DebugCompanion,
+        ],
+        [
+            DebugInformationMode::None,
+            DebugInformationMode::LineTables,
+            DebugInformationMode::Full,
+        ],
+        [
+            AssemblySyntaxKind::TargetDefault,
+            AssemblySyntaxKind::Intel,
+            AssemblySyntaxKind::Att,
+        ],
+    )
+}
+
+pub(crate) fn codegen_unit_key(seed: u32) -> bray_codegen::CodegenUnitKey {
+    let Ok(unit) = CodegenUnit::try_new(seed, [test_mir_unit(seed)]) else {
+        panic!("test codegen unit must be valid");
+    };
+
+    unit.key().clone()
+}
+
 pub(crate) fn emission_request(
+    artifacts: impl IntoIterator<Item = RequestedArtifact>,
+) -> EmissionRequest {
+    emission_request_for(
+        ProductKind::Executable,
+        RequestedArtifactDestination::FilesystemDirectory("out".into()),
+        artifacts,
+    )
+}
+
+pub(crate) fn emission_request_for(
+    product_kind: ProductKind,
+    destination: RequestedArtifactDestination,
     artifacts: impl IntoIterator<Item = RequestedArtifact>,
 ) -> EmissionRequest {
     let Ok(request) = EmissionRequest::try_new(
         product_identity(),
-        ProductKind::Executable,
+        product_kind,
         target_identity(),
-        RequestedArtifactDestination::FilesystemDirectory("out".into()),
+        destination,
         artifacts,
         ReplacementPolicy::RequireAbsent,
     ) else {
@@ -109,12 +193,8 @@ pub(crate) fn backend_artifact_plan_parts() -> (
 
     let backend = backend_identity();
 
-    let Ok(unit) = CodegenUnit::try_new(1, [test_mir_unit(1)]) else {
-        panic!("test codegen unit must be valid");
-    };
-
     let backend_artifact = BackendArtifactId::new(
-        unit.key().clone(),
+        codegen_unit_key(1),
         BackendArtifactKind::RelocatableObject,
         0,
     );
@@ -127,10 +207,13 @@ pub(crate) fn backend_artifact_plan_parts() -> (
     let serialization = BackendSerializationOptions::new(AssemblySyntaxKind::TargetDefault, false);
 
     let Ok(backend_request) = BackendArtifactRequest::try_new(
-        unit.key().clone(),
+        backend_artifact.unit().clone(),
         [backend_entry],
         DebugInformationOutputMode::Omit,
-        LinkableArtifactRequirement::RelocatableObject,
+        Some(LinkableArtifactRequirement::new(
+            LinkableArtifactKind::RelocatableObject,
+            BackendArtifactRequirement::Required,
+        )),
         serialization,
     ) else {
         panic!("test backend request must be valid");
@@ -179,4 +262,31 @@ fn artifact_digest() -> ArtifactDigest {
     };
 
     digest
+}
+
+pub(crate) fn output_name(kind: TargetOutputKind, prefix: &str, suffix: &str) -> TargetOutputName {
+    let Ok(name) = TargetOutputName::try_new(kind, prefix, suffix) else {
+        panic!("test target output name must be valid");
+    };
+
+    name
+}
+
+fn target_machine() -> TargetMachineProperties {
+    let pointer_width = NonZeroU16::new(64).unwrap_or(NonZeroU16::MIN);
+    let pointer_alignment = NonZeroU32::new(8).unwrap_or(NonZeroU32::MIN);
+    let stack_alignment = NonZeroU32::new(16).unwrap_or(NonZeroU32::MIN);
+
+    let Some(machine) = TargetMachineProperties::try_new(
+        TargetArchitecture::X86_64,
+        ObjectFormat::Elf,
+        Endianness::Little,
+        pointer_width,
+        pointer_alignment,
+        stack_alignment,
+    ) else {
+        panic!("test target machine properties must be valid");
+    };
+
+    machine
 }

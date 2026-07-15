@@ -609,8 +609,8 @@ Code generation does not own CLI policy, package policy, source discovery, artif
 Target, ABI, layout, symbol, runtime, reachability, and generic-instantiation decisions must be explicit before code generation.
 Backend-specific legalization preserves those decisions rather than replacing them.
 
-Stable target identities and machine-model contracts belong to `bray-target`. Code generation, emission, and linking consume that
-shared lower boundary without depending on one another for target vocabulary.
+Stable target identities, machine-model contracts, and target-output naming facts belong to `bray-target`. Code generation,
+emission, and linking consume that shared lower boundary without depending on one another for target vocabulary.
 
 Codegen units are lazy compilation facts with stable structural keys. Independent units can be generated in parallel, while mutable
 backend module construction remains task-local. The immutable emission plan and per-unit artifact request participate in the exact

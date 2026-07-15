@@ -1,4 +1,5 @@
 use bray_codegen::{BackendArtifactId, BackendArtifactKind, BackendIdentity};
+use bray_target::TargetOutputKind;
 
 use crate::{DependencyMetadataProducerId, LinkerProducerId};
 
@@ -47,6 +48,23 @@ impl ArtifactKind {
             | Self::StaticLibrary
             | Self::SharedLibrary
             | Self::LinkedCompanion => None,
+        }
+    }
+
+    pub(crate) const fn target_output_kind(self) -> TargetOutputKind {
+        match self {
+            Self::Assembly => TargetOutputKind::Assembly,
+            Self::BackendIr => TargetOutputKind::BackendIr,
+            Self::BackendBitcode => TargetOutputKind::BackendBitcode,
+            Self::RelocatableObject => TargetOutputKind::RelocatableObject,
+            Self::ExecutableModule => TargetOutputKind::ExecutableModule,
+            Self::DebugCompanion => TargetOutputKind::DebugCompanion,
+            Self::PackageInterface => TargetOutputKind::PackageInterface,
+            Self::DependencyMetadata => TargetOutputKind::DependencyMetadata,
+            Self::Executable => TargetOutputKind::Executable,
+            Self::StaticLibrary => TargetOutputKind::StaticLibrary,
+            Self::SharedLibrary => TargetOutputKind::SharedLibrary,
+            Self::LinkedCompanion => TargetOutputKind::LinkedCompanion,
         }
     }
 

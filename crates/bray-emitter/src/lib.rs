@@ -12,10 +12,6 @@ mod artifact;
     reason = "BRA-167 will construct emission outcomes after atomic publication"
 )]
 mod outcome;
-#[expect(
-    dead_code,
-    reason = "BRA-166 will use private plan construction and validation"
-)]
 mod plan;
 mod request;
 mod sink;
@@ -30,7 +26,11 @@ pub use artifact::{
 };
 pub use bray_symbols::{ProductIdentity, ProductKind};
 pub use outcome::{EmissionFailure, EmissionOutcome, EmissionStatus};
-pub use plan::{EmissionPlan, PlannedArtifact, PlannedArtifactDestination};
+pub use plan::{
+    BackendEmissionPolicy, EmissionBackend, EmissionBackendBuildError, EmissionPlan,
+    EmissionPlanner, EmissionPlanningError, PackageInterfacePolicy, PlannedArtifact,
+    PlannedArtifactDestination,
+};
 pub use request::{
     EmissionRequest, EmissionRequestBuildError, RequestedArtifact, RequestedArtifactDestination,
 };

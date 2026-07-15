@@ -13,5 +13,6 @@ pub use contribution::{
 pub use request::{
     AssemblySyntaxKind, BackendArtifactId, BackendArtifactKind, BackendArtifactRequest,
     BackendArtifactRequestBuildError, BackendArtifactRequestEntry, BackendArtifactRequirement,
-    BackendSerializationOptions, DebugInformationOutputMode, LinkableArtifactRequirement,
+    BackendSerializationOptions, DebugInformationOutputMode, LinkableArtifactKind,
+    LinkableArtifactRequirement,
 };

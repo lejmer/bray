@@ -12,10 +12,11 @@ use crate::{
     BackendArtifactRequest, BackendArtifactRequestEntry, BackendArtifactRequirement,
     BackendIdentity, BackendSerializationOptions, CallableAbiMapping, CodegenCancellation,
     CodegenLinkage, CodegenOptions, CodegenRequest, CodegenTarget, CodegenUnit, CodegenUnitKey,
-    DebugInformationMode, DebugInformationOutputMode, LinkableArtifactRequirement,
-    OptimizationLevel, SizePreference, TargetAbi, TargetAddressSpace, TargetAddressSpaceKind,
-    TargetCallingConvention, TargetCompatibility, TargetContract, TargetDataLayout,
-    TargetMachineSelection, TargetScalarKind, TargetScalarLayout, TargetSymbolConvention,
+    DebugInformationMode, DebugInformationOutputMode, LinkableArtifactKind,
+    LinkableArtifactRequirement, OptimizationLevel, SizePreference, TargetAbi, TargetAddressSpace,
+    TargetAddressSpaceKind, TargetCallingConvention, TargetCompatibility, TargetContract,
+    TargetDataLayout, TargetMachineSelection, TargetScalarKind, TargetScalarLayout,
+    TargetSymbolConvention,
 };
 
 pub(crate) struct CodegenRequestFixture {
@@ -87,7 +88,10 @@ pub(crate) fn codegen_request() -> CodegenRequestFixture {
         unit.key().clone(),
         entries,
         DebugInformationOutputMode::Omit,
-        LinkableArtifactRequirement::RelocatableObject,
+        Some(LinkableArtifactRequirement::new(
+            LinkableArtifactKind::RelocatableObject,
+            BackendArtifactRequirement::Required,
+        )),
         serialization,
     ) else {
         panic!("test artifact request must be valid");

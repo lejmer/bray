@@ -4,9 +4,14 @@
 
 mod identity;
 mod machine;
+mod output;
 
 pub use identity::TargetIdentity;
 pub use machine::{
     CodeModel, Endianness, ObjectFormat, RelocationModel, TargetArchitecture,
     TargetMachineProperties,
+};
+pub use output::{
+    TargetOutputDescription, TargetOutputDescriptionBuildError, TargetOutputKind, TargetOutputName,
+    TargetOutputNameBuildError,
 };

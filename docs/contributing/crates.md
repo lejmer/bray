@@ -124,7 +124,8 @@
 
 - `bray-target`
     - Stable target identities and machine-model contracts shared by backend-neutral output phases.
-    - Owns processor architecture, object format, byte order, relocation model, code model, and validated machine properties.
+    - Owns processor architecture, object format, byte order, relocation model, code model, validated machine properties, and typed
+      target-output naming facts.
     - Must not depend on syntax, bound HIR, MIR, code generation, emission, or linking.
 
 - `bray-codegen`
