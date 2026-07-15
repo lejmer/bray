@@ -1,7 +1,10 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use bray_package_interface::{InterfaceProductIdentity, InterfaceValidationPolicy};
+use bray_package_interface::{
+    InterfaceLanguageRevision, InterfaceProductIdentity, InterfaceValidationPolicy,
+    PackageInterfaceIdentity,
+};
 use bray_source::{SourceInput, SourceSpan};
 use bray_symbols::PackageIdentity;
 
@@ -51,6 +54,37 @@ pub struct CompilationRequest {
     options: CompilationOptions,
     sources: Vec<SourceInput>,
     dependency_interfaces: Vec<DependencyInterfaceInput>,
+    package_interface_export: Option<PackageInterfaceExportRequest>,
+}
+
+/// Package-layer identity inputs for the current library product's lazy interface export.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PackageInterfaceExportRequest {
+    identity: PackageInterfaceIdentity,
+    language_revision: InterfaceLanguageRevision,
+}
+
+impl PackageInterfaceExportRequest {
+    /// Creates an export request from one validated package-layer product identity.
+    pub const fn new(
+        identity: PackageInterfaceIdentity,
+        language_revision: InterfaceLanguageRevision,
+    ) -> Self {
+        Self {
+            identity,
+            language_revision,
+        }
+    }
+
+    /// Returns the selected package, product, and public-surface identity.
+    pub const fn identity(&self) -> &PackageInterfaceIdentity {
+        &self.identity
+    }
+
+    /// Returns the language semantic revision used by the product.
+    pub const fn language_revision(&self) -> InterfaceLanguageRevision {
+        self.language_revision
+    }
 }
 
 /// One package-selected compiled dependency interface supplied to a compilation.
@@ -143,6 +177,7 @@ impl CompilationRequest {
             options,
             sources,
             dependency_interfaces: Vec::new(),
+            package_interface_export: None,
         }
     }
 
@@ -152,6 +187,16 @@ impl CompilationRequest {
         dependency_interfaces: impl IntoIterator<Item = DependencyInterfaceInput>,
     ) -> Self {
         self.dependency_interfaces = dependency_interfaces.into_iter().collect();
+
+        self
+    }
+
+    /// Returns a copy configured to expose one lazily constructed library interface.
+    pub fn with_package_interface_export(
+        mut self,
+        package_interface_export: PackageInterfaceExportRequest,
+    ) -> Self {
+        self.package_interface_export = Some(package_interface_export);
 
         self
     }
@@ -176,6 +221,11 @@ impl CompilationRequest {
         &self.dependency_interfaces
     }
 
+    /// Returns the selected current-product interface export, when requested.
+    pub const fn package_interface_export(&self) -> Option<&PackageInterfaceExportRequest> {
+        self.package_interface_export.as_ref()
+    }
+
     /// Consumes the request into its parts.
     pub fn into_parts(
         self,
@@ -184,12 +234,14 @@ impl CompilationRequest {
         CompilationOptions,
         Vec<SourceInput>,
         Vec<DependencyInterfaceInput>,
+        Option<PackageInterfaceExportRequest>,
     ) {
         (
             self.package_identity,
             self.options,
             self.sources,
             self.dependency_interfaces,
+            self.package_interface_export,
         )
     }
 }
@@ -206,7 +258,10 @@ mod tests {
 
     use crate::worker::WorkerBudget;
 
-    use super::{CompilationOptions, CompilationRequest, DependencyInterfaceInput};
+    use super::{
+        CompilationOptions, CompilationRequest, DependencyInterfaceInput,
+        PackageInterfaceExportRequest,
+    };
 
     #[test]
     fn compilation_requests_hold_sources_and_options() {
@@ -223,14 +278,34 @@ mod tests {
             panic!("test package identity must be valid");
         };
 
+        let Some(export_identity) = bray_package_interface::PackageInterfaceIdentity::try_new(
+            package_identity.clone(),
+            product("library"),
+            bray_package_interface::InterfaceProductKind::Library,
+            "public-v1",
+        ) else {
+            panic!("test export identity must be valid");
+        };
+
+        let export =
+            PackageInterfaceExportRequest::new(export_identity, InterfaceLanguageRevision::new(0));
+
         let request =
             CompilationRequest::with_options(package_identity.clone(), vec![source], options)
-                .with_dependency_interfaces([dependency_interface()]);
+                .with_dependency_interfaces([dependency_interface()])
+                .with_package_interface_export(export);
 
         assert_eq!(request.package_identity(), &package_identity);
         assert_eq!(request.options(), options);
         assert_eq!(request.sources().len(), 1);
         assert_eq!(request.dependency_interfaces().len(), 1);
+        assert_eq!(
+            request
+                .package_interface_export()
+                .map(PackageInterfaceExportRequest::identity)
+                .map(bray_package_interface::PackageInterfaceIdentity::public_surface),
+            Some("public-v1")
+        );
     }
 
     fn dependency_interface() -> DependencyInterfaceInput {
@@ -238,16 +313,17 @@ mod tests {
             panic!("test dependency package identity must be valid");
         };
 
-        let Some(product) = InterfaceProductIdentity::try_new("main") else {
-            panic!("test product identity must be valid");
-        };
-
         DependencyInterfaceInput::new(
             package,
-            product,
+            product("main"),
             "test.dependency.brayi",
             Arc::<[u8]>::from([1, 2, 3]),
             InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
         )
+    }
+
+    fn product(value: &str) -> InterfaceProductIdentity {
+        InterfaceProductIdentity::try_new(value)
+            .unwrap_or_else(|| panic!("test product identity must be valid"))
     }
 }

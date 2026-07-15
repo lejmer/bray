@@ -8,7 +8,9 @@ use bray_declarations::{
     discover_source_unit_declarations, merge_declaration_chunks,
 };
 use bray_diagnostics::DiagnosticBag;
-use bray_package_interface::{ImportedSemanticFact, ImportedSemanticFacts};
+use bray_package_interface::{
+    ImportedSemanticFact, ImportedSemanticFacts, PackageInterfaceExportBundle,
+};
 use bray_parser::{SourceUnitSyntaxResult, SyntaxTreeResult, parse_source_unit};
 use bray_source::{SourceId, SourceInput, SourceLoadError, SourceSnapshot, SourceStore};
 use bray_symbols::{
@@ -22,7 +24,9 @@ use crate::fact::{
     BoundUnitIdentityMap, CancellationToken, CompilationFactKey, FactCell, FactCellMap,
     FactQueryError, FactRuntime, ImportedSemanticFactKey, PublishedUnitFact, UnitFactCache,
 };
-use crate::request::{CompilationOptions, CompilationRequest, DependencyInterfaceInput};
+use crate::request::{
+    CompilationOptions, CompilationRequest, DependencyInterfaceInput, PackageInterfaceExportRequest,
+};
 use crate::worker::WorkerBudget;
 
 use super::binder::{CompilationSymbolFacts, CompilationTargetFacts};
@@ -42,6 +46,7 @@ pub(super) struct CompilationState {
     options: CompilationOptions,
     sources: SourceStore,
     source_diagnostics: DiagnosticBag,
+    pub(super) package_interface_export: Option<PackageInterfaceExportRequest>,
     pub(super) dependency_interfaces: Box<[DependencyInterfaceInput]>,
     pub(super) fact_runtime: FactRuntime,
     pub(super) cancellation: CancellationToken,
@@ -72,13 +77,21 @@ pub(super) struct CompilationState {
     pub(super) bound_units: UnitFactCache<BoundUnit>,
     pub(super) checked_control_flow: UnitFactCache<CheckedControlFlowFacts>,
     pub(super) check_diagnostics: FactCell<DiagnosticBag>,
+    pub(super) package_interface_export_bundle: FactCell<
+        Result<Arc<PackageInterfaceExportBundle>, super::export::PackageInterfaceExportError>,
+    >,
 }
 
 impl Compilation {
     /// Loads source inputs into durable compilation state without requesting derived facts.
     pub fn load(request: CompilationRequest) -> Result<Self, CompilationLoadError> {
-        let (package_identity, options, source_inputs, mut dependency_interfaces) =
-            request.into_parts();
+        let (
+            package_identity,
+            options,
+            source_inputs,
+            mut dependency_interfaces,
+            package_interface_export,
+        ) = request.into_parts();
 
         dependency_interfaces.sort_by(|left, right| {
             (left.package(), left.product()).cmp(&(right.package(), right.product()))
@@ -126,6 +139,7 @@ impl Compilation {
                 options,
                 sources,
                 source_diagnostics: diagnostics,
+                package_interface_export,
                 dependency_interfaces: dependency_interfaces.into_boxed_slice(),
                 fact_runtime: FactRuntime::default(),
                 cancellation: CancellationToken::new(),
@@ -149,6 +163,7 @@ impl Compilation {
                 bound_units: UnitFactCache::new(),
                 checked_control_flow: UnitFactCache::new(),
                 check_diagnostics: FactCell::new(),
+                package_interface_export_bundle: FactCell::new(),
             }),
         })
     }

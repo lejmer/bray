@@ -111,7 +111,7 @@ impl DependencyInterfaceId {
         usize::try_from(self.0).ok()
     }
 
-    pub(super) fn try_from_index(index: usize) -> Option<Self> {
+    pub(crate) fn try_from_index(index: usize) -> Option<Self> {
         u32::try_from(index).ok().map(Self)
     }
 }

@@ -2,18 +2,20 @@ use std::collections::BTreeSet;
 
 use bray_bound_tree::{CheckedTemplateInputId, CheckedTemplateKind, CheckedTemplateNodeId};
 use bray_symbols::{
-    ExternalSymbolKey, ImportedSymbolIdentityInput, InterfaceSupportEntityId, InterfaceSymbolId,
-    ModulePathKey, PackageIdentity, SymbolKind, SymbolName, SymbolOrdinal,
+    ExternalSymbolKey, InterfaceSupportEntityId, InterfaceSymbolId, ModulePathKey, PackageIdentity,
+    SymbolKind, SymbolName, SymbolOrdinal,
 };
 
 use crate::{
-    InterfaceCheckedTemplate, InterfaceCheckedTemplateBehavior, InterfaceCheckedTemplateId,
-    InterfaceCheckedTemplateInput, InterfaceCheckedTemplateInputKind, InterfaceCheckedTemplateNode,
+    ExportRelationshipInput, ExportSymbolInput, InterfaceCheckedTemplate,
+    InterfaceCheckedTemplateBehavior, InterfaceCheckedTemplateId, InterfaceCheckedTemplateInput,
+    InterfaceCheckedTemplateInputKind, InterfaceCheckedTemplateNode,
     InterfaceCheckedTemplateOperation, InterfaceDeclarationTemplate, InterfaceDependencyContract,
     InterfaceLanguageRevision, InterfaceProductIdentity, InterfaceProductKind,
     InterfaceSemanticFacts, InterfaceSupportEntity, InterfaceSymbolReference, InterfaceType,
     InterfaceTypeId, PackageInterfaceExportBundle, PackageInterfaceIdentity,
-    PackageInterfaceSurface, SymbolRelationship, SymbolRelationshipKind, encode_package_interface,
+    PackageInterfaceSurface, SymbolRelationshipKind, build_package_interface_surface,
+    encode_package_interface,
 };
 
 /// One valid encoded interface used by cross-crate compilation tests.
@@ -97,28 +99,12 @@ fn identity_surface(
 
     keys.insert(ExternalSymbolKey::package(package.clone()));
 
-    let keys: Vec<_> = keys.into_iter().collect();
+    let records = keys
+        .iter()
+        .map(|key| ExportSymbolInput::new(key.clone(), key.owner().cloned()));
 
-    let records = keys.iter().enumerate().map(|(index, key)| {
-        let container = key
-            .owner()
-            .and_then(|owner| keys.binary_search(owner).ok())
-            .map(interface_symbol_id);
-
-        ImportedSymbolIdentityInput::new(
-            interface_symbol_id(index),
-            key.clone(),
-            key.kind(),
-            container,
-        )
-    });
-
-    let relationships = keys.iter().enumerate().filter_map(|(index, key)| {
+    let relationships = keys.iter().filter_map(|key| {
         let owner = key.owner()?;
-
-        let owner_index = keys
-            .binary_search(owner)
-            .unwrap_or_else(|_| panic!("test symbol owner must be present"));
 
         let kind = match (owner.kind(), key.kind()) {
             (SymbolKind::Package, SymbolKind::Module) => SymbolRelationshipKind::PackageModule,
@@ -129,10 +115,10 @@ fn identity_surface(
             pair => panic!("unsupported test symbol relationship: {pair:?}"),
         };
 
-        Some(SymbolRelationship::new(
+        Some(ExportRelationshipInput::new(
             kind,
-            interface_symbol_id(owner_index),
-            interface_symbol_id(index),
+            owner.clone(),
+            key.clone(),
             0,
         ))
     });
@@ -145,7 +131,7 @@ fn identity_surface(
     )
     .unwrap_or_else(|| panic!("test package interface identity must be valid"));
 
-    PackageInterfaceSurface::try_new(identity, [], records, relationships, [])
+    build_package_interface_surface(identity, [], records, relationships, [])
         .unwrap_or_else(|error| panic!("test interface surface must be valid: {error:?}"))
 }
 
@@ -216,13 +202,6 @@ pub(crate) fn insert_key_and_owners(
         current = key.owner().cloned();
         keys.insert(key);
     }
-}
-
-pub(crate) fn interface_symbol_id(index: usize) -> InterfaceSymbolId {
-    let raw = u32::try_from(index)
-        .unwrap_or_else(|error| panic!("test symbol count must fit interface IDs: {error:?}"));
-
-    InterfaceSymbolId::new(raw)
 }
 
 pub(crate) fn module_key(package: PackageIdentity, segment: &str) -> ExternalSymbolKey {

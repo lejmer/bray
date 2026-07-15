@@ -98,6 +98,8 @@ pub enum CompilationFactKey {
     ImportedSemanticFact(ImportedSemanticFactKey),
     /// The deterministic compilation-local imported symbol identity skeleton.
     ImportedSymbolSkeleton,
+    /// The current library product's complete immutable interface export bundle.
+    PackageInterfaceExportBundle,
     /// The canonical semantic value store for this compilation snapshot.
     SemanticValueStore,
     /// Binding and semantic-analysis diagnostics for the source package.
@@ -127,6 +129,7 @@ impl CompilationFactKey {
             | Self::ImportedSemanticGraph(_)
             | Self::ImportedSemanticFact(_)
             | Self::ImportedSymbolSkeleton
+            | Self::PackageInterfaceExportBundle
             | Self::SemanticValueStore
             | Self::SemanticDiagnostics
             | Self::SourceUnitSyntax(_)
