@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use bray_base::{NonEmptySharedStr, sorted_unique_shared_slice};
-use bray_target::{ObjectFormat, TargetArchitecture};
+use bray_target::{ObjectFormat, TargetArchitecture, TargetMachineProperties};
 
 use crate::{
     AssemblySyntaxKind, BackendArtifactKind, CodegenFailure, CodegenOutcome, CodegenRequest,
@@ -122,8 +122,11 @@ impl BackendCapabilities {
     ///
     /// Complete target validation remains backend-specific through [`CodeGenerator::validate_target`].
     pub fn supports_platform(&self, target: &CodegenTarget) -> bool {
-        let machine = target.machine();
+        self.supports_target_machine(target.machine())
+    }
 
+    /// Returns whether the backend declares support for these target machine properties.
+    pub fn supports_target_machine(&self, machine: &TargetMachineProperties) -> bool {
         self.target_platforms.binary_search_by(|platform| {
             platform
                 .architecture()

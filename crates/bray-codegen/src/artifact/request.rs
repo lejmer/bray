@@ -109,7 +109,8 @@ pub enum LinkableArtifactRequirement {
 }
 
 impl LinkableArtifactRequirement {
-    const fn artifact_kind(self) -> Option<BackendArtifactKind> {
+    /// Returns the backend artifact category that satisfies this link requirement.
+    pub const fn artifact_kind(self) -> Option<BackendArtifactKind> {
         match self {
             Self::None => None,
             Self::RelocatableObject => Some(BackendArtifactKind::RelocatableObject),

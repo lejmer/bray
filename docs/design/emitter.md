@@ -68,6 +68,11 @@ capabilities, and package-interface policy.
 It fixes artifact identities, required and optional artifact kinds, logical ordering, output names, sinks, per-unit backend artifact
 requests, package-interface output, staging requirements, and prospective link outputs before serialization begins.
 
+The planning boundary is an immutable `EmissionPlanner` composed from target-output facts, an optional selected backend with its
+canonical codegen-unit keys and output policy, and package-interface availability. Planning consumes one `EmissionRequest` and
+returns either the complete `EmissionPlan` or a typed planning error. Callers do not preassemble planned artifacts or backend
+artifact requests.
+
 ### Artifact Contribution
 
 An artifact contribution is immutable content produced for one planned artifact identity. Backend contributions come from codegen
@@ -273,6 +278,8 @@ Names derive from typed package, product, target, artifact-kind, and codegen-uni
 memory addresses, temporary names, or compilation-local numeric IDs whose assignment depends on lazy demand.
 
 Target-specific extensions and naming conventions are typed target-output facts. They are not raw strings assembled by codegen.
+`bray-target` represents these as a target identity, machine properties, and canonical per-artifact prefix and suffix rules. The
+emitter validates product-derived filename stems and applies those rules while resolving final sinks.
 
 Explicit user-selected output names are validated before use. They must not create path traversal, sink collisions, ambiguous
 multi-artifact destinations, or incompatible extensions without a deliberate target policy.
