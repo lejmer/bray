@@ -1,4 +1,5 @@
-use std::path::PathBuf;
+use std::ffi::{OsStr, OsString};
+use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
 use bray_base::NonEmptySharedStr;
@@ -40,6 +41,137 @@ pub enum OutputSink {
     Stream(OutputSinkId),
 }
 
+impl OutputSink {
+    pub(crate) fn collision_key(&self) -> OutputSinkCollisionKey {
+        match self {
+            Self::Filesystem(path) => {
+                OutputSinkCollisionKey::Filesystem(FilesystemCollisionKey::new(path))
+            }
+            Self::Memory {
+                collector,
+                artifact,
+            } => {
+                // Collision validation owns keys independently of the planned sink collection.
+                OutputSinkCollisionKey::Memory {
+                    collector: collector.clone(),
+                    artifact: artifact.clone(),
+                }
+            }
+            Self::Stream(stream) => {
+                // Collision validation owns keys independently of the planned sink collection.
+                OutputSinkCollisionKey::Stream(stream.clone())
+            }
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub(crate) enum OutputSinkCollisionKey {
+    Filesystem(FilesystemCollisionKey),
+    Memory {
+        collector: OutputSinkId,
+        artifact: ArtifactId,
+    },
+    Stream(OutputSinkId),
+}
+
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub(crate) struct FilesystemCollisionKey(Vec<FilesystemCollisionComponent>);
+
+impl FilesystemCollisionKey {
+    fn new(path: &Path) -> Self {
+        let mut components = Vec::new();
+
+        for component in path.components() {
+            match component {
+                Component::Prefix(prefix) => components.push(FilesystemCollisionComponent::Prefix(
+                    normalize_component(prefix.as_os_str()),
+                )),
+                Component::RootDir => components.push(FilesystemCollisionComponent::Root),
+                Component::CurDir => {}
+                Component::ParentDir => match components.last() {
+                    Some(FilesystemCollisionComponent::Normal(_)) => {
+                        components.pop();
+                    }
+                    Some(FilesystemCollisionComponent::Root) => {}
+                    _ => components.push(FilesystemCollisionComponent::Parent),
+                },
+                Component::Normal(component) => components.push(
+                    FilesystemCollisionComponent::Normal(normalize_component(component)),
+                ),
+            }
+        }
+
+        Self(components)
+    }
+}
+
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+enum FilesystemCollisionComponent {
+    Prefix(OsString),
+    Root,
+    Parent,
+    Normal(OsString),
+}
+
+#[cfg(windows)]
+fn normalize_component(component: &OsStr) -> OsString {
+    component
+        .to_string_lossy()
+        .trim_end_matches(['.', ' '])
+        .to_lowercase()
+        .into()
+}
+
+#[cfg(not(windows))]
+fn normalize_component(component: &OsStr) -> OsString {
+    component.to_owned()
+}
+
+#[cfg(windows)]
+pub(crate) fn is_valid_host_file_name(name: &OsStr) -> bool {
+    let Some(name) = name.to_str() else {
+        return false;
+    };
+
+    if name.is_empty()
+        || name.ends_with(['.', ' '])
+        || name
+            .chars()
+            .any(|character| character <= '\u{1f}' || "<>:\"/\\|?*".contains(character))
+    {
+        return false;
+    }
+
+    let base = name
+        .split('.')
+        .next()
+        .unwrap_or_default()
+        .to_ascii_uppercase();
+
+    !matches!(base.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+        && !is_numbered_reserved_name(&base, "COM")
+        && !is_numbered_reserved_name(&base, "LPT")
+}
+
+#[cfg(windows)]
+fn is_numbered_reserved_name(name: &str, prefix: &str) -> bool {
+    name.strip_prefix(prefix)
+        .is_some_and(|number| matches!(number, "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9"))
+}
+
+#[cfg(unix)]
+pub(crate) fn is_valid_host_file_name(name: &OsStr) -> bool {
+    use std::os::unix::ffi::OsStrExt;
+
+    !name.is_empty() && !name.as_bytes().contains(&0)
+}
+
+#[cfg(not(any(unix, windows)))]
+pub(crate) fn is_valid_host_file_name(name: &OsStr) -> bool {
+    !name.is_empty() && !name.to_string_lossy().contains('\0')
+}
+
 /// Policy for a planned destination that already contains an artifact.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum ReplacementPolicy {
@@ -51,7 +183,9 @@ pub enum ReplacementPolicy {
 
 #[cfg(test)]
 mod tests {
-    use super::{OutputSink, OutputSinkId};
+    use std::ffi::OsStr;
+
+    use super::{OutputSink, OutputSinkId, is_valid_host_file_name};
 
     #[test]
     fn indirect_sinks_are_immutable_identities_without_open_handles() {
@@ -63,6 +197,25 @@ mod tests {
 
         assert_eq!(id.as_str(), "host.output");
         assert_send_sync::<OutputSink>();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn host_file_names_reject_windows_reserved_forms() {
+        for name in ["CON", "nul.log", "COM1.exe", "file:", "file.", "file "] {
+            assert!(!is_valid_host_file_name(OsStr::new(name)), "{name}");
+        }
+
+        assert!(is_valid_host_file_name(OsStr::new("console.exe")));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn filesystem_collision_keys_follow_windows_path_equivalence() {
+        let first = OutputSink::Filesystem("OUT./temporary/../application".into());
+        let second = OutputSink::Filesystem("out/application".into());
+
+        assert_eq!(first.collision_key(), second.collision_key());
     }
 
     fn assert_send_sync<T: Send + Sync>() {}

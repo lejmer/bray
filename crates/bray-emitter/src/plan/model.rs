@@ -6,6 +6,8 @@ use bray_codegen::{
     CodegenUnitKey,
 };
 
+use crate::sink::OutputSinkCollisionKey;
+
 use crate::{
     ArtifactId, ArtifactKind, ArtifactProducer, ArtifactRequirement, ArtifactRole, EmissionRequest,
     OutputSink,
@@ -254,10 +256,10 @@ fn validate_artifacts(
     Ok(())
 }
 
-fn validate_destination<'sink>(
+fn validate_destination(
     request: &EmissionRequest,
-    artifact: &'sink PlannedArtifact,
-    sinks: &mut BTreeSet<&'sink OutputSink>,
+    artifact: &PlannedArtifact,
+    sinks: &mut BTreeSet<OutputSinkCollisionKey>,
 ) -> Result<(), EmissionPlanBuildError> {
     let PlannedArtifactDestination::Publish(sink) = artifact.destination() else {
         return Ok(());
@@ -289,7 +291,7 @@ fn validate_destination<'sink>(
         ));
     }
 
-    if !sinks.insert(sink) {
+    if !sinks.insert(sink.collision_key()) {
         // Plan errors retain owned destination facts after validation returns.
         return Err(EmissionPlanBuildError::DuplicateSink(sink.clone()));
     }

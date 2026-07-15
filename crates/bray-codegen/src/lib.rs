@@ -21,7 +21,7 @@ pub use artifact::{
     BackendArtifactKind, BackendArtifactRequest, BackendArtifactRequestBuildError,
     BackendArtifactRequestEntry, BackendArtifactRequirement, BackendArtifactSet,
     BackendArtifactSetBuildError, BackendSerializationOptions, DebugInformationOutputMode,
-    LinkableArtifactRequirement,
+    LinkableArtifactKind, LinkableArtifactRequirement,
 };
 pub use backend::{BackendCapabilities, BackendIdentity, BackendTargetPlatform, CodeGenerator};
 pub use cancellation::CodegenCancellation;

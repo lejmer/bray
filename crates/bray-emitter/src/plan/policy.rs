@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use bray_codegen::{
     AssemblySyntaxKind, BackendCapabilities, BackendIdentity, BackendSerializationOptions,
-    CodegenUnitKey, DebugInformationMode, DebugInformationOutputMode, LinkableArtifactRequirement,
+    CodegenUnitKey, DebugInformationMode, DebugInformationOutputMode, LinkableArtifactKind,
 };
 
 /// Output-affecting backend policy used to derive per-unit artifact requests.
@@ -10,7 +10,7 @@ use bray_codegen::{
 pub struct BackendEmissionPolicy {
     debug_information: DebugInformationMode,
     debug_output: DebugInformationOutputMode,
-    linkable_artifact: LinkableArtifactRequirement,
+    linkable_artifact: Option<LinkableArtifactKind>,
     serialization: BackendSerializationOptions,
 }
 
@@ -19,7 +19,7 @@ impl BackendEmissionPolicy {
     pub const fn new(
         debug_information: DebugInformationMode,
         debug_output: DebugInformationOutputMode,
-        linkable_artifact: LinkableArtifactRequirement,
+        linkable_artifact: Option<LinkableArtifactKind>,
         serialization: BackendSerializationOptions,
     ) -> Self {
         Self {
@@ -41,7 +41,7 @@ impl BackendEmissionPolicy {
     }
 
     /// Returns the target-selected contribution needed by native linking.
-    pub const fn linkable_artifact(self) -> LinkableArtifactRequirement {
+    pub const fn linkable_artifact(self) -> Option<LinkableArtifactKind> {
         self.linkable_artifact
     }
 
@@ -56,7 +56,7 @@ impl Default for BackendEmissionPolicy {
         Self::new(
             DebugInformationMode::None,
             DebugInformationOutputMode::Omit,
-            LinkableArtifactRequirement::None,
+            None,
             BackendSerializationOptions::new(AssemblySyntaxKind::TargetDefault, false),
         )
     }
@@ -136,7 +136,7 @@ pub enum PackageInterfacePolicy {
 mod tests {
     use bray_codegen::{
         AssemblySyntaxKind, BackendCapabilities, BackendSerializationOptions, DebugInformationMode,
-        DebugInformationOutputMode, LinkableArtifactRequirement,
+        DebugInformationOutputMode, LinkableArtifactKind,
     };
 
     use super::{BackendEmissionPolicy, EmissionBackend, EmissionBackendBuildError};
@@ -176,7 +176,7 @@ mod tests {
         let policy = BackendEmissionPolicy::new(
             DebugInformationMode::Full,
             DebugInformationOutputMode::Separate,
-            LinkableArtifactRequirement::BackendBitcode,
+            Some(LinkableArtifactKind::BackendBitcode),
             serialization,
         );
 
@@ -185,7 +185,7 @@ mod tests {
 
         assert_eq!(
             policy.linkable_artifact(),
-            LinkableArtifactRequirement::BackendBitcode
+            Some(LinkableArtifactKind::BackendBitcode)
         );
 
         assert_eq!(policy.serialization(), serialization);

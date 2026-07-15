@@ -75,6 +75,10 @@ pub enum EmissionPlanningError {
     PackageInterfaceDisabled,
     /// A linked companion was requested without a linked product artifact.
     MissingLinkedProduct,
+    /// More than one linked product was requested in one emission plan.
+    MultipleLinkedProducts,
+    /// A linked companion is required more strongly than its linked product.
+    LinkedCompanionRequirementMismatch,
     /// The requested outputs require code generation but no backend was selected.
     MissingBackend,
     /// The requested outputs require code generation but no codegen units were selected.
@@ -106,10 +110,14 @@ pub enum EmissionPlanningError {
     MissingOutputName(ArtifactKind),
     /// The product name cannot be used as one generated filename component.
     InvalidProductName,
+    /// A generated artifact name is not a valid filename on the host.
+    InvalidGeneratedFileName(ArtifactKind),
     /// One unkeyed output destination would receive more than one artifact.
     MultipleArtifactsForSingleSink,
     /// An explicit filesystem output path has no final filename component.
     MissingExplicitFileName,
+    /// An explicit filesystem output path has an invalid host filename.
+    InvalidExplicitFileName,
     /// An explicit filesystem output name conflicts with target suffix policy.
     ExplicitOutputSuffixMismatch(ArtifactKind),
     /// One artifact category exceeds the logical ordinal range.

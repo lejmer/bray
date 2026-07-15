@@ -5,7 +5,16 @@ use bray_symbols::ProductKind;
 
 use super::{EmissionPlanner, EmissionPlanningError};
 use crate::plan::{EmissionBackend, PackageInterfacePolicy};
-use crate::{ArtifactKind, ArtifactRequirement, EmissionRequest, RequestedArtifactDestination};
+use crate::{
+    ArtifactKind, ArtifactRequirement, EmissionRequest, RequestedArtifact,
+    RequestedArtifactDestination,
+};
+
+const LINKED_PRODUCT_KINDS: [ArtifactKind; 3] = [
+    ArtifactKind::Executable,
+    ArtifactKind::StaticLibrary,
+    ArtifactKind::SharedLibrary,
+];
 
 pub(super) fn validate_request(
     planner: &EmissionPlanner,
@@ -22,7 +31,7 @@ pub(super) fn validate_request(
     validate_product_artifacts(planner, request)?;
     validate_destination_shape(planner, request)?;
 
-    if request_needs_backend(request) {
+    if request_uses_backend(request) {
         validate_backend(planner, request)?;
     }
 
@@ -48,11 +57,25 @@ fn validate_product_artifacts(
         }
     }
 
-    if request.artifact(ArtifactKind::LinkedCompanion).is_some() && !has_linked_product(request) {
-        return Err(EmissionPlanningError::MissingLinkedProduct);
+    let linked_product_count = linked_product_count(request);
+
+    if linked_product_count > 1 {
+        return Err(EmissionPlanningError::MultipleLinkedProducts);
     }
 
-    Ok(())
+    let companion = request.artifact(ArtifactKind::LinkedCompanion);
+    let product = linked_product(request);
+
+    match (companion, product) {
+        (Some(_), None) => Err(EmissionPlanningError::MissingLinkedProduct),
+        (Some(companion), Some(product))
+            if companion.requirement() == ArtifactRequirement::Required
+                && product.requirement() == ArtifactRequirement::Optional =>
+        {
+            Err(EmissionPlanningError::LinkedCompanionRequirementMismatch)
+        }
+        _ => Ok(()),
+    }
 }
 
 fn validate_destination_shape(
@@ -60,10 +83,13 @@ fn validate_destination_shape(
     request: &EmissionRequest,
 ) -> Result<(), EmissionPlanningError> {
     let published_count =
-        request
-            .artifacts()
-            .iter()
-            .try_fold(0_usize, |count, artifact| {
+        request.artifacts().iter().try_fold(
+            0_usize,
+            |count, artifact| -> Result<usize, EmissionPlanningError> {
+                if !should_plan_artifact(planner, request, *artifact) {
+                    return Ok(count);
+                }
+
                 let artifact_count = if artifact.kind().backend_kind().is_some() {
                     planner.backend().map_or(0, |backend| backend.units().len())
                 } else {
@@ -73,7 +99,8 @@ fn validate_destination_shape(
                 count.checked_add(artifact_count).ok_or(
                     EmissionPlanningError::ArtifactOrdinalOverflow(artifact.kind()),
                 )
-            })?;
+            },
+        )?;
 
     if published_count > 1
         && matches!(
@@ -93,49 +120,73 @@ fn validate_backend(
     request: &EmissionRequest,
 ) -> Result<(), EmissionPlanningError> {
     let Some(backend) = planner.backend() else {
-        return Err(EmissionPlanningError::MissingBackend);
+        return if request_requires_backend(request) {
+            Err(EmissionPlanningError::MissingBackend)
+        } else {
+            Ok(())
+        };
     };
 
     if backend.units().is_empty() {
-        return Err(EmissionPlanningError::MissingCodegenUnits);
+        return if request_requires_backend(request) {
+            Err(EmissionPlanningError::MissingCodegenUnits)
+        } else {
+            Ok(())
+        };
     }
 
     if !backend
         .capabilities()
         .supports_target_machine(planner.target().machine())
     {
-        // Planning errors retain the Arc-backed target identity after validation returns.
-        return Err(EmissionPlanningError::UnsupportedBackendTarget(
-            planner.target().identity().clone(),
-        ));
+        if request_requires_backend(request) {
+            // Planning errors retain the Arc-backed target identity after validation returns.
+            return Err(EmissionPlanningError::UnsupportedBackendTarget(
+                planner.target().identity().clone(),
+            ));
+        }
+
+        return Ok(());
     }
 
     for artifact in request.artifacts() {
-        if let Some(kind) = artifact.kind().backend_kind()
+        if artifact.requirement() == ArtifactRequirement::Required
+            && let Some(kind) = artifact.kind().backend_kind()
             && !backend.capabilities().supports_artifact(kind)
         {
             return Err(EmissionPlanningError::UnsupportedBackendArtifact(kind));
         }
     }
 
-    if has_linked_product(request) {
+    if linked_product(request)
+        .is_some_and(|product| product.requirement() == ArtifactRequirement::Required)
+    {
         validate_linkable_artifact(backend)?;
     }
 
-    validate_debug_policy(backend, request)?;
-    validate_serialization_policy(backend, request)
+    if has_planned_backend_work(planner, request) {
+        validate_debug_policy(backend, request)?;
+        validate_serialization_policy(backend, request)?;
+    }
+
+    Ok(())
 }
 
 fn validate_linkable_artifact(backend: &EmissionBackend) -> Result<(), EmissionPlanningError> {
-    let Some(kind) = backend.policy().linkable_artifact().artifact_kind() else {
+    let Some(kind) = backend.policy().linkable_artifact() else {
         return Err(EmissionPlanningError::MissingLinkableArtifact);
     };
 
-    if backend.capabilities().supports_artifact(kind) {
+    if backend
+        .capabilities()
+        .supports_artifact(kind.artifact_kind())
+    {
         return Ok(());
     }
 
-    Err(EmissionPlanningError::UnsupportedBackendArtifact(kind))
+    Err(EmissionPlanningError::UnsupportedBackendArtifact(
+        kind.artifact_kind(),
+    ))
 }
 
 fn validate_debug_policy(
@@ -193,15 +244,17 @@ fn validate_serialization_policy(
     request: &EmissionRequest,
 ) -> Result<(), EmissionPlanningError> {
     let serialization = backend.policy().serialization();
-    let has_assembly = request.artifact(ArtifactKind::Assembly).is_some();
+    let assembly = request.artifact(ArtifactKind::Assembly);
 
-    if serialization.assembly_syntax_kind() != AssemblySyntaxKind::TargetDefault && !has_assembly {
+    if serialization.assembly_syntax_kind() != AssemblySyntaxKind::TargetDefault
+        && assembly.is_none()
+    {
         return Err(EmissionPlanningError::MissingSerializationArtifact(
             BackendArtifactKind::Assembly,
         ));
     }
 
-    if has_assembly
+    if assembly.is_some_and(|artifact| artifact.requirement() == ArtifactRequirement::Required)
         && !backend
             .capabilities()
             .supports_assembly_syntax_kind(serialization.assembly_syntax_kind())
@@ -238,20 +291,82 @@ const fn artifact_matches_product(kind: ArtifactKind, product: ProductKind) -> b
     }
 }
 
-fn request_needs_backend(request: &EmissionRequest) -> bool {
-    has_linked_product(request)
+fn request_uses_backend(request: &EmissionRequest) -> bool {
+    linked_product(request).is_some()
         || request
             .artifacts()
             .iter()
             .any(|artifact| artifact.kind().backend_kind().is_some())
 }
 
-pub(super) fn has_linked_product(request: &EmissionRequest) -> bool {
-    [
-        ArtifactKind::Executable,
-        ArtifactKind::StaticLibrary,
-        ArtifactKind::SharedLibrary,
-    ]
-    .into_iter()
-    .any(|kind| request.artifact(kind).is_some())
+fn request_requires_backend(request: &EmissionRequest) -> bool {
+    linked_product(request)
+        .is_some_and(|artifact| artifact.requirement() == ArtifactRequirement::Required)
+        || request.artifacts().iter().any(|artifact| {
+            artifact.requirement() == ArtifactRequirement::Required
+                && artifact.kind().backend_kind().is_some()
+        })
+}
+
+fn has_planned_backend_work(planner: &EmissionPlanner, request: &EmissionRequest) -> bool {
+    linked_product(request).is_some_and(|artifact| should_plan_artifact(planner, request, artifact))
+        || request.artifacts().iter().any(|artifact| {
+            artifact.kind().backend_kind().is_some()
+                && should_plan_artifact(planner, request, *artifact)
+        })
+}
+
+pub(super) fn should_plan_artifact(
+    planner: &EmissionPlanner,
+    request: &EmissionRequest,
+    artifact: RequestedArtifact,
+) -> bool {
+    if artifact.requirement() == ArtifactRequirement::Required {
+        return true;
+    }
+
+    match artifact.kind() {
+        ArtifactKind::Executable | ArtifactKind::StaticLibrary | ArtifactKind::SharedLibrary => {
+            optional_linked_product_is_available(planner)
+        }
+        ArtifactKind::LinkedCompanion => linked_product(request)
+            .is_some_and(|product| should_plan_artifact(planner, request, product)),
+        kind => kind
+            .backend_kind()
+            .is_none_or(|backend_kind| backend_is_available(planner, backend_kind)),
+    }
+}
+
+pub(super) fn linked_product(request: &EmissionRequest) -> Option<RequestedArtifact> {
+    LINKED_PRODUCT_KINDS
+        .into_iter()
+        .find_map(|kind| request.artifact(kind))
+}
+
+fn linked_product_count(request: &EmissionRequest) -> usize {
+    LINKED_PRODUCT_KINDS
+        .into_iter()
+        .filter(|&kind| request.artifact(kind).is_some())
+        .count()
+}
+
+fn optional_linked_product_is_available(planner: &EmissionPlanner) -> bool {
+    let Some(linkable_kind) = planner
+        .backend()
+        .and_then(|backend| backend.policy().linkable_artifact())
+    else {
+        return false;
+    };
+
+    backend_is_available(planner, linkable_kind.artifact_kind())
+}
+
+fn backend_is_available(planner: &EmissionPlanner, kind: BackendArtifactKind) -> bool {
+    planner.backend().is_some_and(|backend| {
+        !backend.units().is_empty()
+            && backend
+                .capabilities()
+                .supports_target_machine(planner.target().machine())
+            && backend.capabilities().supports_artifact(kind)
+    })
 }

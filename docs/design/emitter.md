@@ -260,8 +260,12 @@ Initial externally requestable artifact kinds include:
 - shared library,
 - target-required linked companion artifacts.
 
-The emitter validates kinds against the selected backend, target, and product. A requested format that cannot be produced is a
-structured capability diagnostic, not a silent substitution.
+The emitter validates kinds against the selected backend, target, and product. An unavailable required format produces a
+structured capability diagnostic. An unavailable optional format is omitted deterministically rather than turning the complete
+request into a failure.
+
+One emission plan contains at most one linked product. Its target-required linked companion, when requested, belongs to the same
+typed linker operation. Staged link inputs preserve the linked product's required or optional completion contract.
 
 Intermediate objects needed only for linking are planned staging artifacts. They are not published as user-visible outputs unless
 the request explicitly asks for object artifacts.
@@ -281,8 +285,9 @@ Target-specific extensions and naming conventions are typed target-output facts.
 `bray-target` represents these as a target identity, machine properties, and canonical per-artifact prefix and suffix rules. The
 emitter validates product-derived filename stems and applies those rules while resolving final sinks.
 
-Explicit user-selected output names are validated before use. They must not create path traversal, sink collisions, ambiguous
-multi-artifact destinations, or incompatible extensions without a deliberate target policy.
+Explicit user-selected output names and target-derived final filenames are validated against host filename rules before use. They
+must not create path traversal, filesystem-equivalent sink collisions, ambiguous multi-artifact destinations, or incompatible
+extensions without a deliberate target policy.
 
 Temporary filenames are private implementation details and need not be stable, but they must not enter emitted content, content
 digests, diagnostics ordering, or cache keys.

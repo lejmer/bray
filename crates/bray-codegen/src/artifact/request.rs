@@ -97,25 +97,51 @@ pub enum DebugInformationOutputMode {
     Separate,
 }
 
-/// Linkable contribution required by the selected product plan.
+/// Backend contribution category that can feed a later link operation.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum LinkableArtifactRequirement {
-    /// The selected product does not require a separately linkable contribution.
-    None,
-    /// A relocatable native object is required.
+pub enum LinkableArtifactKind {
+    /// Relocatable native object.
     RelocatableObject,
-    /// Backend bitcode is required for a later link operation.
+    /// Backend bitcode consumed by a later link operation.
     BackendBitcode,
 }
 
-impl LinkableArtifactRequirement {
-    /// Returns the backend artifact category that satisfies this link requirement.
-    pub const fn artifact_kind(self) -> Option<BackendArtifactKind> {
+impl LinkableArtifactKind {
+    /// Returns the corresponding backend artifact category.
+    pub const fn artifact_kind(self) -> BackendArtifactKind {
         match self {
-            Self::None => None,
-            Self::RelocatableObject => Some(BackendArtifactKind::RelocatableObject),
-            Self::BackendBitcode => Some(BackendArtifactKind::BackendBitcode),
+            Self::RelocatableObject => BackendArtifactKind::RelocatableObject,
+            Self::BackendBitcode => BackendArtifactKind::BackendBitcode,
         }
+    }
+}
+
+/// Exact linkable contribution needed by one selected product plan.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct LinkableArtifactRequirement {
+    kind: LinkableArtifactKind,
+    requirement: BackendArtifactRequirement,
+}
+
+impl LinkableArtifactRequirement {
+    /// Creates one typed linkable contribution requirement.
+    pub const fn new(kind: LinkableArtifactKind, requirement: BackendArtifactRequirement) -> Self {
+        Self { kind, requirement }
+    }
+
+    /// Returns the selected linkable contribution category.
+    pub const fn kind(self) -> LinkableArtifactKind {
+        self.kind
+    }
+
+    /// Returns whether the linkable contribution is mandatory.
+    pub const fn requirement(self) -> BackendArtifactRequirement {
+        self.requirement
+    }
+
+    /// Returns the corresponding backend artifact category.
+    pub const fn artifact_kind(self) -> BackendArtifactKind {
+        self.kind.artifact_kind()
     }
 }
 
@@ -163,7 +189,7 @@ pub struct BackendArtifactRequest {
     unit: CodegenUnitKey,
     entries: Arc<[BackendArtifactRequestEntry]>,
     debug_information: DebugInformationOutputMode,
-    linkable_artifact: LinkableArtifactRequirement,
+    linkable_artifact: Option<LinkableArtifactRequirement>,
     serialization: BackendSerializationOptions,
 }
 
@@ -173,7 +199,7 @@ impl BackendArtifactRequest {
         unit: CodegenUnitKey,
         entries: impl IntoIterator<Item = BackendArtifactRequestEntry>,
         debug_information: DebugInformationOutputMode,
-        linkable_artifact: LinkableArtifactRequirement,
+        linkable_artifact: Option<LinkableArtifactRequirement>,
         serialization: BackendSerializationOptions,
     ) -> Result<Self, BackendArtifactRequestBuildError> {
         let mut entries: Vec<_> = entries.into_iter().collect();
@@ -249,7 +275,7 @@ impl BackendArtifactRequest {
     }
 
     /// Returns the selected linkable contribution requirement.
-    pub const fn linkable_artifact(&self) -> LinkableArtifactRequirement {
+    pub const fn linkable_artifact(&self) -> Option<LinkableArtifactRequirement> {
         self.linkable_artifact
     }
 
@@ -268,8 +294,13 @@ pub enum BackendArtifactRequestBuildError {
     ForeignUnit(BackendArtifactId),
     /// One logical contribution identity appears more than once.
     DuplicateIdentity(BackendArtifactId),
-    /// The selected linkable contribution is not present as a required entry.
-    MissingRequiredLinkableArtifact(BackendArtifactKind),
+    /// The selected linkable contribution is not present with sufficient requirement strength.
+    MissingLinkableArtifact {
+        /// Missing backend artifact category.
+        kind: BackendArtifactKind,
+        /// Required contribution strength.
+        requirement: BackendArtifactRequirement,
+    },
     /// Separate debug output has no required debug companion contribution.
     MissingRequiredDebugCompanion,
     /// A debug companion was requested for an embedded or omitted debug mode.
@@ -282,17 +313,25 @@ pub enum BackendArtifactRequestBuildError {
 
 fn validate_linkable_requirement(
     entries: &[BackendArtifactRequestEntry],
-    requirement: LinkableArtifactRequirement,
+    requirement: Option<LinkableArtifactRequirement>,
 ) -> Result<(), BackendArtifactRequestBuildError> {
-    let Some(kind) = requirement.artifact_kind() else {
+    let Some(requirement) = requirement else {
         return Ok(());
     };
+    let kind = requirement.artifact_kind();
 
-    if has_required_kind(entries, kind) {
+    if entries.iter().any(|entry| {
+        entry.id().kind() == kind
+            && (requirement.requirement() == BackendArtifactRequirement::Optional
+                || entry.requirement() == BackendArtifactRequirement::Required)
+    }) {
         return Ok(());
     }
 
-    Err(BackendArtifactRequestBuildError::MissingRequiredLinkableArtifact(kind))
+    Err(BackendArtifactRequestBuildError::MissingLinkableArtifact {
+        kind,
+        requirement: requirement.requirement(),
+    })
 }
 
 fn validate_debug_output(
@@ -350,7 +389,8 @@ mod tests {
     use super::{
         AssemblySyntaxKind, BackendArtifactId, BackendArtifactKind, BackendArtifactRequest,
         BackendArtifactRequestBuildError, BackendArtifactRequestEntry, BackendArtifactRequirement,
-        BackendSerializationOptions, DebugInformationOutputMode, LinkableArtifactRequirement,
+        BackendSerializationOptions, DebugInformationOutputMode, LinkableArtifactKind,
+        LinkableArtifactRequirement,
     };
     use crate::test_support::codegen_unit_key;
 
@@ -364,14 +404,16 @@ mod tests {
                 unit.clone(),
                 [object.clone()],
                 DebugInformationOutputMode::Omit,
-                LinkableArtifactRequirement::BackendBitcode,
+                Some(LinkableArtifactRequirement::new(
+                    LinkableArtifactKind::BackendBitcode,
+                    BackendArtifactRequirement::Required,
+                )),
                 serialization(),
             ),
-            Err(
-                BackendArtifactRequestBuildError::MissingRequiredLinkableArtifact(
-                    BackendArtifactKind::BackendBitcode
-                )
-            )
+            Err(BackendArtifactRequestBuildError::MissingLinkableArtifact {
+                kind: BackendArtifactKind::BackendBitcode,
+                requirement: BackendArtifactRequirement::Required,
+            })
         );
 
         let debug = entry(unit.clone(), BackendArtifactKind::DebugCompanion, 0);
@@ -381,7 +423,10 @@ mod tests {
                 unit,
                 [object, debug],
                 DebugInformationOutputMode::Embedded,
-                LinkableArtifactRequirement::RelocatableObject,
+                Some(LinkableArtifactRequirement::new(
+                    LinkableArtifactKind::RelocatableObject,
+                    BackendArtifactRequirement::Required,
+                )),
                 serialization(),
             ),
             Err(BackendArtifactRequestBuildError::UnexpectedDebugCompanion)

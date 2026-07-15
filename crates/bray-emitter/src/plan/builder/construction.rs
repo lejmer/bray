@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::ffi::OsStr;
 use std::path::Path;
 
 use bray_codegen::{
@@ -9,8 +10,9 @@ use bray_codegen::{
 use super::super::{
     EmissionPlan, EmissionPlanBuildError, PlannedArtifact, PlannedArtifactDestination,
 };
-use super::validation::has_linked_product;
+use super::validation::{linked_product, should_plan_artifact};
 use super::{EmissionPlanner, EmissionPlanningError};
+use crate::sink::is_valid_host_file_name;
 use crate::{
     ArtifactId, ArtifactKind, ArtifactProducer, ArtifactRequirement, ArtifactRole,
     DependencyMetadataProducerId, EmissionRequest, LinkerProducerId, OutputSink, RequestedArtifact,
@@ -24,7 +26,6 @@ pub(super) struct PlanBuilder<'planner> {
     backend_entries:
         BTreeMap<bray_codegen::CodegenUnitKey, BTreeMap<BackendArtifactKind, ArtifactRequirement>>,
     next_artifact_ordinals: BTreeMap<ArtifactKind, u32>,
-    next_linker_ordinal: u32,
 }
 
 impl<'planner> PlanBuilder<'planner> {
@@ -35,7 +36,6 @@ impl<'planner> PlanBuilder<'planner> {
             artifacts: Vec::new(),
             backend_entries: BTreeMap::new(),
             next_artifact_ordinals: BTreeMap::new(),
-            next_linker_ordinal: 0,
         }
     }
 
@@ -43,10 +43,12 @@ impl<'planner> PlanBuilder<'planner> {
         let requested = self.request.artifacts().to_vec();
 
         for artifact in requested {
-            self.add_requested_artifact(artifact)?;
+            if should_plan_artifact(self.planner, &self.request, artifact) {
+                self.add_requested_artifact(artifact)?;
+            }
         }
 
-        if has_linked_product(&self.request) {
+        if self.planned_linked_product().is_some() {
             self.add_link_inputs()?;
         }
 
@@ -62,6 +64,11 @@ impl<'planner> PlanBuilder<'planner> {
 
         EmissionPlan::try_new(self.request, backend, self.artifacts, backend_requests)
             .map_err(map_plan_error)
+    }
+
+    fn planned_linked_product(&self) -> Option<RequestedArtifact> {
+        linked_product(&self.request)
+            .filter(|&artifact| should_plan_artifact(self.planner, &self.request, artifact))
     }
 
     fn add_requested_artifact(
@@ -131,11 +138,18 @@ impl<'planner> PlanBuilder<'planner> {
             return Err(EmissionPlanningError::MissingBackend);
         };
 
-        let Some(backend_kind) = backend.policy().linkable_artifact().artifact_kind() else {
+        let Some(linkable_kind) = backend.policy().linkable_artifact() else {
             return Err(EmissionPlanningError::MissingLinkableArtifact);
         };
 
+        let backend_kind = linkable_kind.artifact_kind();
         let artifact_kind = ArtifactKind::from(backend_kind);
+
+        let Some(linked_product) = linked_product(&self.request) else {
+            return Err(EmissionPlanningError::MissingLinkedProduct);
+        };
+
+        let requirement = linked_product.requirement();
 
         for unit in backend.units() {
             let id = self.next_artifact_id(artifact_kind)?;
@@ -143,11 +157,11 @@ impl<'planner> PlanBuilder<'planner> {
             // The contribution identity must own its structural unit key independently of policy.
             let backend_id = BackendArtifactId::new(unit.clone(), backend_kind, 0);
 
-            self.record_backend_entry(unit, backend_kind, ArtifactRequirement::Required);
+            self.record_backend_entry(unit, backend_kind, requirement);
 
             self.artifacts.push(PlannedArtifact::new(
                 id,
-                ArtifactRequirement::Required,
+                requirement,
                 ArtifactRole::LinkInput,
                 ArtifactProducer::Backend {
                     artifact: backend_id,
@@ -170,13 +184,7 @@ impl<'planner> PlanBuilder<'planner> {
             ArtifactKind::Executable
             | ArtifactKind::StaticLibrary
             | ArtifactKind::SharedLibrary
-            | ArtifactKind::LinkedCompanion => {
-                let ordinal = self.next_linker_ordinal;
-
-                self.next_linker_ordinal = self.next_linker_ordinal.saturating_add(1);
-
-                ArtifactProducer::Linker(LinkerProducerId::new(ordinal))
-            }
+            | ArtifactKind::LinkedCompanion => ArtifactProducer::Linker(LinkerProducerId::new(0)),
             ArtifactKind::Assembly
             | ArtifactKind::BackendIr
             | ArtifactKind::BackendBitcode
@@ -226,8 +234,15 @@ impl<'planner> PlanBuilder<'planner> {
             return Err(EmissionPlanningError::MissingOutputName(kind));
         };
 
-        name.file_name(stem)
-            .ok_or(EmissionPlanningError::InvalidProductName)
+        let Some(file_name) = name.file_name(stem) else {
+            return Err(EmissionPlanningError::InvalidProductName);
+        };
+
+        if !is_valid_host_file_name(OsStr::new(&file_name)) {
+            return Err(EmissionPlanningError::InvalidGeneratedFileName(kind));
+        }
+
+        Ok(file_name)
     }
 
     fn validate_explicit_file_name(
@@ -238,6 +253,10 @@ impl<'planner> PlanBuilder<'planner> {
         let Some(file_name) = path.file_name() else {
             return Err(EmissionPlanningError::MissingExplicitFileName);
         };
+
+        if !is_valid_host_file_name(file_name) {
+            return Err(EmissionPlanningError::InvalidExplicitFileName);
+        }
 
         let Some(name) = self.planner.target().name(kind.target_output_kind()) else {
             return Err(EmissionPlanningError::MissingOutputName(kind));
@@ -302,12 +321,11 @@ impl<'planner> PlanBuilder<'planner> {
             return Ok(Vec::new());
         };
 
-        let linked_product = has_linked_product(&self.request);
-        let linkable_artifact = if linked_product {
-            backend.policy().linkable_artifact()
-        } else {
-            LinkableArtifactRequirement::None
-        };
+        let linkable_artifact = self.planned_linked_product().and_then(|artifact| {
+            backend.policy().linkable_artifact().map(|kind| {
+                LinkableArtifactRequirement::new(kind, backend_requirement(artifact.requirement()))
+            })
+        });
 
         self.backend_entries
             .iter()
@@ -421,7 +439,7 @@ mod tests {
     use bray_codegen::{
         AssemblySyntaxKind, BackendArtifactKind, BackendArtifactRequirement, BackendCapabilities,
         BackendSerializationOptions, BackendTargetPlatform, DebugInformationMode,
-        DebugInformationOutputMode, LinkableArtifactRequirement,
+        DebugInformationOutputMode, LinkableArtifactKind, LinkableArtifactRequirement,
     };
     use bray_target::{ObjectFormat, TargetArchitecture, TargetOutputKind};
 
@@ -440,7 +458,7 @@ mod tests {
     fn planning_is_deterministic_and_derives_exact_per_unit_backend_requests() {
         let first_unit = codegen_unit_key(1);
         let second_unit = codegen_unit_key(2);
-        let policy = backend_policy(LinkableArtifactRequirement::RelocatableObject);
+        let policy = backend_policy(Some(LinkableArtifactKind::RelocatableObject));
 
         let first_planner = planner(
             backend_capabilities(),
@@ -497,7 +515,10 @@ mod tests {
 
             assert_eq!(
                 request.linkable_artifact(),
-                LinkableArtifactRequirement::RelocatableObject
+                Some(LinkableArtifactRequirement::new(
+                    LinkableArtifactKind::RelocatableObject,
+                    BackendArtifactRequirement::Required,
+                ))
             );
         }
 
@@ -565,11 +586,179 @@ mod tests {
     }
 
     #[test]
+    fn optional_backend_artifacts_are_omitted_when_unavailable() {
+        let capabilities = BackendCapabilities::new(
+            [BackendTargetPlatform::new(
+                TargetArchitecture::X86_64,
+                ObjectFormat::Elf,
+            )],
+            [BackendArtifactKind::RelocatableObject],
+            [DebugInformationMode::None],
+            [AssemblySyntaxKind::TargetDefault],
+        );
+
+        let planner = planner(
+            capabilities,
+            [codegen_unit_key(1)],
+            backend_policy(Some(LinkableArtifactKind::RelocatableObject)),
+        );
+
+        let request = emission_request_for(
+            ProductKind::Executable,
+            RequestedArtifactDestination::FilesystemDirectory("out".into()),
+            [
+                RequestedArtifact::new(ArtifactKind::Executable, ArtifactRequirement::Required),
+                RequestedArtifact::new(ArtifactKind::Assembly, ArtifactRequirement::Optional),
+            ],
+        );
+
+        let Ok(plan) = planner.plan(request) else {
+            panic!("test emission plan must be valid");
+        };
+
+        assert!(
+            plan.artifacts()
+                .iter()
+                .all(|artifact| artifact.id().kind() != ArtifactKind::Assembly)
+        );
+
+        assert_eq!(
+            plan.backend_requests()[0].linkable_artifact(),
+            Some(LinkableArtifactRequirement::new(
+                LinkableArtifactKind::RelocatableObject,
+                BackendArtifactRequirement::Required,
+            ))
+        );
+    }
+
+    #[test]
+    fn optional_linked_products_preserve_optional_backend_inputs() {
+        let planner = EmissionPlanner::new(
+            target_output_description(),
+            emission_backend(
+                backend_capabilities(),
+                [codegen_unit_key(1)],
+                backend_policy(Some(LinkableArtifactKind::RelocatableObject)),
+            ),
+            PackageInterfacePolicy::LibraryProducts,
+        );
+
+        let request = emission_request_for(
+            ProductKind::Library,
+            RequestedArtifactDestination::FilesystemDirectory("out".into()),
+            [
+                RequestedArtifact::new(
+                    ArtifactKind::PackageInterface,
+                    ArtifactRequirement::Required,
+                ),
+                RequestedArtifact::new(ArtifactKind::StaticLibrary, ArtifactRequirement::Optional),
+            ],
+        );
+
+        let Ok(plan) = planner.plan(request) else {
+            panic!("test emission plan must be valid");
+        };
+
+        let Some(staged) = plan.staged_artifacts().next() else {
+            panic!("test emission plan must stage a link input");
+        };
+
+        assert_eq!(staged.requirement(), ArtifactRequirement::Optional);
+        assert_eq!(plan.backend_requests()[0].optional().count(), 1);
+
+        assert_eq!(
+            plan.backend_requests()[0].linkable_artifact(),
+            Some(LinkableArtifactRequirement::new(
+                LinkableArtifactKind::RelocatableObject,
+                BackendArtifactRequirement::Optional,
+            ))
+        );
+    }
+
+    #[test]
+    fn linked_companions_share_one_unambiguous_link_operation() {
+        let planner = planner(
+            backend_capabilities(),
+            [codegen_unit_key(1)],
+            backend_policy(Some(LinkableArtifactKind::RelocatableObject)),
+        );
+
+        let request = emission_request_for(
+            ProductKind::Executable,
+            RequestedArtifactDestination::FilesystemDirectory("out".into()),
+            [
+                RequestedArtifact::new(ArtifactKind::Executable, ArtifactRequirement::Required),
+                RequestedArtifact::new(
+                    ArtifactKind::LinkedCompanion,
+                    ArtifactRequirement::Required,
+                ),
+            ],
+        );
+
+        let Ok(plan) = planner.plan(request) else {
+            panic!("test emission plan must be valid");
+        };
+
+        let product = plan
+            .published_artifacts()
+            .find(|artifact| artifact.id().kind() == ArtifactKind::Executable);
+
+        let companion = plan
+            .published_artifacts()
+            .find(|artifact| artifact.id().kind() == ArtifactKind::LinkedCompanion);
+
+        assert_eq!(
+            product.map(|artifact| artifact.producer()),
+            companion.map(|artifact| artifact.producer())
+        );
+    }
+
+    #[test]
+    fn planning_rejects_ambiguous_linked_products() {
+        let planner = planner(
+            backend_capabilities(),
+            [codegen_unit_key(1)],
+            backend_policy(Some(LinkableArtifactKind::RelocatableObject)),
+        );
+
+        let request = emission_request_for(
+            ProductKind::Library,
+            RequestedArtifactDestination::FilesystemDirectory("out".into()),
+            [
+                RequestedArtifact::new(ArtifactKind::StaticLibrary, ArtifactRequirement::Required),
+                RequestedArtifact::new(ArtifactKind::SharedLibrary, ArtifactRequirement::Optional),
+            ],
+        );
+
+        assert_eq!(
+            planner.plan(request),
+            Err(EmissionPlanningError::MultipleLinkedProducts)
+        );
+
+        let requirement_mismatch = emission_request_for(
+            ProductKind::Library,
+            RequestedArtifactDestination::FilesystemDirectory("out".into()),
+            [
+                RequestedArtifact::new(ArtifactKind::StaticLibrary, ArtifactRequirement::Optional),
+                RequestedArtifact::new(
+                    ArtifactKind::LinkedCompanion,
+                    ArtifactRequirement::Required,
+                ),
+            ],
+        );
+
+        assert_eq!(
+            planner.plan(requirement_mismatch),
+            Err(EmissionPlanningError::LinkedCompanionRequirementMismatch)
+        );
+    }
+
+    #[test]
     fn planning_rejects_backend_capability_and_single_sink_conflicts() {
         let unsupported = planner(
             BackendCapabilities::default(),
             [codegen_unit_key(1)],
-            backend_policy(LinkableArtifactRequirement::None),
+            backend_policy(None),
         );
 
         let assembly_request = emission_request_for(
@@ -601,7 +790,7 @@ mod tests {
         let unsupported_artifact = planner(
             missing_assembly,
             [codegen_unit_key(1)],
-            backend_policy(LinkableArtifactRequirement::None),
+            backend_policy(None),
         );
 
         let assembly_request = emission_request_for(
@@ -623,7 +812,7 @@ mod tests {
         let multiple_units = planner(
             backend_capabilities(),
             [codegen_unit_key(1), codegen_unit_key(2)],
-            backend_policy(LinkableArtifactRequirement::None),
+            backend_policy(None),
         );
 
         let single_file_request = emission_request_for(
@@ -643,7 +832,7 @@ mod tests {
         let single_unit = planner(
             backend_capabilities(),
             [codegen_unit_key(1)],
-            backend_policy(LinkableArtifactRequirement::None),
+            backend_policy(None),
         );
 
         let wrong_suffix = emission_request_for(
@@ -675,7 +864,7 @@ mod tests {
             emission_backend(
                 backend_capabilities(),
                 [codegen_unit_key(1)],
-                backend_policy(LinkableArtifactRequirement::None),
+                backend_policy(None),
             ),
             PackageInterfacePolicy::Disabled,
         );
@@ -740,6 +929,65 @@ mod tests {
         );
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn planning_rejects_host_invalid_and_equivalent_file_names() {
+        let invalid_name_planner = EmissionPlanner::new(
+            target_output_description_from([output_name(TargetOutputKind::Assembly, "", ":")]),
+            emission_backend(
+                backend_capabilities(),
+                [codegen_unit_key(1)],
+                backend_policy(None),
+            ),
+            PackageInterfacePolicy::Disabled,
+        );
+
+        let assembly_request = emission_request_for(
+            ProductKind::Executable,
+            RequestedArtifactDestination::FilesystemDirectory("out".into()),
+            [RequestedArtifact::new(
+                ArtifactKind::Assembly,
+                ArtifactRequirement::Required,
+            )],
+        );
+
+        assert_eq!(
+            invalid_name_planner.plan(assembly_request),
+            Err(EmissionPlanningError::InvalidGeneratedFileName(
+                ArtifactKind::Assembly
+            ))
+        );
+
+        let collision_planner = EmissionPlanner::new(
+            target_output_description_from([
+                output_name(TargetOutputKind::Assembly, "", ".out"),
+                output_name(TargetOutputKind::BackendIr, "", ".OUT"),
+            ]),
+            emission_backend(
+                backend_capabilities(),
+                [codegen_unit_key(1)],
+                backend_policy(None),
+            ),
+            PackageInterfacePolicy::Disabled,
+        );
+
+        let collision_request = emission_request_for(
+            ProductKind::Executable,
+            RequestedArtifactDestination::FilesystemDirectory("out".into()),
+            [
+                RequestedArtifact::new(ArtifactKind::Assembly, ArtifactRequirement::Required),
+                RequestedArtifact::new(ArtifactKind::BackendIr, ArtifactRequirement::Required),
+            ],
+        );
+
+        assert_eq!(
+            collision_planner.plan(collision_request),
+            Err(EmissionPlanningError::OutputCollision(
+                OutputSink::Filesystem("out/application.OUT".into())
+            ))
+        );
+    }
+
     #[test]
     fn planning_validates_debug_and_serialization_policy_before_backend_requests() {
         let serialization = BackendSerializationOptions::new(AssemblySyntaxKind::Intel, false);
@@ -747,7 +995,7 @@ mod tests {
         let invalid_policy = BackendEmissionPolicy::new(
             DebugInformationMode::None,
             DebugInformationOutputMode::Separate,
-            LinkableArtifactRequirement::None,
+            None,
             serialization,
         );
 
@@ -800,7 +1048,7 @@ mod tests {
         Some(backend)
     }
 
-    fn backend_policy(linkable: LinkableArtifactRequirement) -> BackendEmissionPolicy {
+    fn backend_policy(linkable: Option<LinkableArtifactKind>) -> BackendEmissionPolicy {
         BackendEmissionPolicy::new(
             DebugInformationMode::None,
             DebugInformationOutputMode::Omit,

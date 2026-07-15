@@ -5,7 +5,7 @@ use bray_codegen::{
     BackendArtifactKind, BackendArtifactRequest, BackendArtifactRequestEntry,
     BackendArtifactRequirement, BackendCapabilities, BackendIdentity, BackendSerializationOptions,
     BackendTargetPlatform, CodegenUnit, DebugInformationMode, DebugInformationOutputMode,
-    LinkableArtifactRequirement,
+    LinkableArtifactKind, LinkableArtifactRequirement,
 };
 use bray_symbols::PackageIdentity;
 use bray_target::{
@@ -210,7 +210,10 @@ pub(crate) fn backend_artifact_plan_parts() -> (
         backend_artifact.unit().clone(),
         [backend_entry],
         DebugInformationOutputMode::Omit,
-        LinkableArtifactRequirement::RelocatableObject,
+        Some(LinkableArtifactRequirement::new(
+            LinkableArtifactKind::RelocatableObject,
+            BackendArtifactRequirement::Required,
+        )),
         serialization,
     ) else {
         panic!("test backend request must be valid");
