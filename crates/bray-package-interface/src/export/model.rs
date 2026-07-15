@@ -171,6 +171,8 @@ impl PackageInterfaceExportBundle {
         semantic_facts: InterfaceSemanticFacts,
         language_revision: InterfaceLanguageRevision,
     ) -> Result<Self, PackageInterfaceExportBuildError> {
+        let semantic_facts = canonicalize_owner_addressed_facts(semantic_facts);
+
         validate_semantic_coverage(&surface, &semantic_facts)?;
 
         semantic_facts
@@ -267,6 +269,19 @@ fn validate_semantic_coverage(
     Ok(())
 }
 
+fn canonicalize_owner_addressed_facts(mut facts: InterfaceSemanticFacts) -> InterfaceSemanticFacts {
+    Arc::make_mut(&mut facts.constraints).sort();
+    Arc::make_mut(&mut facts.callable_contracts).sort();
+    Arc::make_mut(&mut facts.declaration_templates).sort();
+    Arc::make_mut(&mut facts.implementations).sort();
+    Arc::make_mut(&mut facts.coherence).sort();
+    Arc::make_mut(&mut facts.target_dependencies).sort();
+    Arc::make_mut(&mut facts.abi_dependencies).sort();
+    Arc::make_mut(&mut facts.provenance).sort();
+
+    facts
+}
+
 const fn requires_owned_semantic_fact(kind: bray_symbols::SymbolKind) -> bool {
     !matches!(
         kind,
@@ -285,12 +300,13 @@ const fn requires_owned_semantic_fact(kind: bray_symbols::SymbolKind) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use bray_symbols::{ExternalSymbolKey, SymbolKind};
+    use bray_symbols::{CallableAbi, ExternalSymbolKey, SymbolKind};
 
     use crate::test_support::package_interface_export_bundle;
     use crate::{
-        InterfaceLanguageRevision, InterfaceSemanticFacts, InterfaceValidationError,
-        PackageInterfaceExportBuildError, PackageInterfaceExportBundle,
+        InterfaceAbiDependency, InterfaceLanguageRevision, InterfaceSemanticFacts,
+        InterfaceSymbolReference, InterfaceValidationError, PackageInterfaceExportBuildError,
+        PackageInterfaceExportBundle, encode_package_interface,
     };
 
     #[test]
@@ -341,6 +357,65 @@ mod tests {
                 function
             ))
         );
+    }
+
+    #[test]
+    fn owner_addressed_semantic_fact_order_does_not_affect_encoded_artifacts() {
+        let complete = package_interface_export_bundle();
+        let symbols = complete.surface().symbols().symbols();
+
+        let [first_owner, second_owner] = symbols
+            .iter()
+            .filter(|symbol| {
+                matches!(
+                    symbol.kind(),
+                    SymbolKind::Function | SymbolKind::GenericTypeParameter
+                )
+            })
+            .map(|symbol| InterfaceSymbolReference::Local(symbol.id()))
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap_or_else(|_| panic!("test surface must contain two semantic fact owners"));
+
+        let first_facts = complete.semantic_facts().clone().with_target_dependencies(
+            [],
+            [
+                InterfaceAbiDependency::new(first_owner.clone(), CallableAbi::Bray),
+                InterfaceAbiDependency::new(second_owner.clone(), CallableAbi::C),
+            ],
+        );
+
+        let second_facts = complete.semantic_facts().clone().with_target_dependencies(
+            [],
+            [
+                InterfaceAbiDependency::new(second_owner, CallableAbi::C),
+                InterfaceAbiDependency::new(first_owner, CallableAbi::Bray),
+            ],
+        );
+
+        let first = PackageInterfaceExportBundle::try_new(
+            complete.surface().clone(),
+            first_facts,
+            InterfaceLanguageRevision::new(0),
+        )
+        .unwrap_or_else(|error| panic!("forward semantic facts must build: {error:?}"));
+
+        let second = PackageInterfaceExportBundle::try_new(
+            complete.surface().clone(),
+            second_facts,
+            InterfaceLanguageRevision::new(0),
+        )
+        .unwrap_or_else(|error| panic!("reversed semantic facts must build: {error:?}"));
+
+        assert_eq!(first, second);
+
+        let first = encode_package_interface(&first)
+            .unwrap_or_else(|error| panic!("forward semantic facts must encode: {error:?}"));
+
+        let second = encode_package_interface(&second)
+            .unwrap_or_else(|error| panic!("reversed semantic facts must encode: {error:?}"));
+
+        assert_eq!(first, second);
     }
 
     #[test]
