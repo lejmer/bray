@@ -38,6 +38,7 @@ impl CompilationOptions {
         target_availability: TargetAvailabilityFacts,
     ) -> Self {
         self.target_availability = target_availability;
+
         self
     }
 
@@ -57,7 +58,7 @@ pub struct CompilationRequest {
     package_interface_export: Option<PackageInterfaceExportRequest>,
 }
 
-/// Package-layer identity inputs for the current library product's lazy interface export.
+/// Package-layer identity inputs for the current library product's interface export.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PackageInterfaceExportRequest {
     identity: PackageInterfaceIdentity,
@@ -191,7 +192,7 @@ impl CompilationRequest {
         self
     }
 
-    /// Returns a copy configured to expose one lazily constructed library interface.
+    /// Returns a copy configured to produce one library interface.
     pub fn with_package_interface_export(
         mut self,
         package_interface_export: PackageInterfaceExportRequest,
@@ -299,6 +300,7 @@ mod tests {
         assert_eq!(request.options(), options);
         assert_eq!(request.sources().len(), 1);
         assert_eq!(request.dependency_interfaces().len(), 1);
+
         assert_eq!(
             request
                 .package_interface_export()
