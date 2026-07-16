@@ -7,4 +7,4 @@ pub use plan::{
     SymbolFactCompletionRequest,
 };
 pub use policy::{SymbolCompletionLevel, SymbolFactKind};
-pub use provider::{NeverCancelSymbolCompletion, SymbolCompletionCancellation, SymbolFactForcer};
+pub use provider::{NeverCancelSymbolCompletion, SymbolFactForcer};

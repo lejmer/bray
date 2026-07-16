@@ -1,6 +1,8 @@
 use std::fs::File;
 use std::io::{self, Cursor, Read};
+use std::path::Path;
 
+use bray_base::Cancellation;
 use bray_codegen::{
     ArtifactContent, ArtifactContentSource, ArtifactDigest, ArtifactDigestAlgorithm,
 };
@@ -35,14 +37,41 @@ pub(super) fn open_content(content: &ArtifactContent) -> Result<ContentReader<'_
 pub(super) fn validate_content(
     content: &ArtifactContent,
     expected: Option<&ArtifactDigest>,
+    cancellation: &dyn Cancellation,
 ) -> Result<ArtifactDigest, ContentValidationError> {
-    let mut reader = open_content(content).map_err(ContentValidationError::Read)?;
+    let reader = open_content(content).map_err(ContentValidationError::Read)?;
+
+    validate_reader(reader, content.byte_len(), expected, cancellation)
+}
+
+pub(super) fn validate_staged_content(
+    path: &Path,
+    expected_byte_len: u64,
+    expected_digest: Option<&ArtifactDigest>,
+    cancellation: &dyn Cancellation,
+) -> Result<ArtifactDigest, ContentValidationError> {
+    let reader = File::open(path).map_err(|error| ContentValidationError::Read(error.kind()))?;
+
+    validate_reader(reader, expected_byte_len, expected_digest, cancellation)
+}
+
+fn validate_reader(
+    mut reader: impl Read,
+    expected_byte_len: u64,
+    expected_digest: Option<&ArtifactDigest>,
+    cancellation: &dyn Cancellation,
+) -> Result<ArtifactDigest, ContentValidationError> {
     let mut canonical = blake3::Hasher::new();
-    let mut expected_hasher = expected.map(|digest| ExpectedDigestHasher::new(digest.algorithm()));
+    let mut expected_hasher =
+        expected_digest.map(|digest| ExpectedDigestHasher::new(digest.algorithm()));
     let mut byte_len = 0_u64;
     let mut buffer = [0_u8; COPY_BUFFER_LEN];
 
     loop {
+        if cancellation.is_cancelled() {
+            return Err(ContentValidationError::Cancelled);
+        }
+
         let read = reader
             .read(&mut buffer)
             .map_err(|error| ContentValidationError::Read(error.kind()))?;
@@ -70,14 +99,14 @@ pub(super) fn validate_content(
         byte_len = next_byte_len;
     }
 
-    if byte_len != content.byte_len() {
+    if byte_len != expected_byte_len {
         return Err(ContentValidationError::LengthMismatch {
-            expected: content.byte_len(),
+            expected: expected_byte_len,
             actual: byte_len,
         });
     }
 
-    if let (Some(expected), Some(hasher)) = (expected, expected_hasher) {
+    if let (Some(expected), Some(hasher)) = (expected_digest, expected_hasher) {
         let actual_bytes = hasher.finish();
 
         if actual_bytes.as_slice() != expected.bytes() {
@@ -131,6 +160,7 @@ impl ExpectedDigestHasher {
 
 #[derive(Debug)]
 pub(super) enum ContentValidationError {
+    Cancelled,
     Read(io::ErrorKind),
     LengthMismatch {
         expected: u64,
@@ -165,11 +195,15 @@ mod tests {
             panic!("test SHA-256 digest must be valid");
         };
 
-        let Ok(actual) = validate_content(&content, Some(&expected)) else {
+        let Ok(actual) = validate_content(&content, Some(&expected), &never_cancelled) else {
             panic!("matching content digest must validate");
         };
 
         assert_eq!(actual.algorithm(), ArtifactDigestAlgorithm::Blake3);
         assert_eq!(actual.bytes(), blake3::hash(bytes).as_bytes());
+    }
+
+    fn never_cancelled() -> bool {
+        false
     }
 }

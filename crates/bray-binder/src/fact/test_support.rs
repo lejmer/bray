@@ -3,6 +3,7 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 
+use bray_base::Cancellation;
 use bray_declarations::{
     DeclarationTable, discover_source_unit_declarations, merge_declaration_chunks,
 };
@@ -17,8 +18,8 @@ use bray_symbols::{
 use bray_syntax::SyntaxTree;
 
 use super::{
-    BinderCancellation, BinderFactContext, BinderFactError, BinderFactResult, SymbolFactProvider,
-    TargetFactProvider, TargetFactResult,
+    BinderFactContext, BinderFactError, BinderFactResult, SymbolFactProvider, TargetFactProvider,
+    TargetFactResult,
 };
 
 pub(crate) struct TestSymbolFacts {
@@ -64,7 +65,7 @@ impl TestCancellation {
     }
 }
 
-impl BinderCancellation for TestCancellation {
+impl Cancellation for TestCancellation {
     fn is_cancelled(&self) -> bool {
         self.cancelled.load(Ordering::Acquire)
     }

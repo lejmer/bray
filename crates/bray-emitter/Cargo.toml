@@ -12,7 +12,9 @@ bray-diagnostics = { path = "../bray-diagnostics" }
 bray-symbols = { path = "../bray-symbols" }
 bray-target = { path = "../bray-target" }
 blake3 = "1"
+renamore = "0.3"
 sha2 = "0.10"
+tempfile = "3"
 
 [dev-dependencies]
 bray-testing = { path = "../bray-testing", features = ["mir-unit"] }

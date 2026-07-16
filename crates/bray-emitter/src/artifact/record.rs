@@ -68,7 +68,7 @@ impl EmittedArtifact {
     }
 }
 
-/// Complete canonically ordered externally published artifacts for one emission plan.
+/// Canonically ordered artifacts published during one emission operation.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EmittedArtifactSet {
     product: ProductIdentity,
@@ -91,7 +91,7 @@ impl EmittedArtifactSet {
         }
     }
 
-    /// Returns the product represented by this complete publication set.
+    /// Returns the product associated with this publication operation.
     pub const fn product(&self) -> &ProductIdentity {
         &self.product
     }

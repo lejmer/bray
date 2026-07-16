@@ -1,9 +1,11 @@
 use std::collections::BTreeSet;
 
+use bray_base::Cancellation;
+
 use crate::{AnySymbolId, RuntimeDefaultPresence, SymbolGraph};
 
 use super::policy::SYMBOL_FACT_KINDS;
-use super::{SymbolCompletionCancellation, SymbolCompletionLevel, SymbolFactKind};
+use super::{SymbolCompletionLevel, SymbolFactKind};
 
 /// One erased symbol-fact request in a force-completion plan.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -64,7 +66,7 @@ impl SymbolCompletionPlan {
         cancellation: &C,
     ) -> Result<Self, SymbolCompletionPlanError>
     where
-        C: SymbolCompletionCancellation + ?Sized,
+        C: Cancellation + ?Sized,
     {
         if !graph.contains_symbol(root) {
             return Err(SymbolCompletionPlanError::UnknownSymbol(root));
@@ -164,7 +166,7 @@ impl SymbolGraph {
         cancellation: &C,
     ) -> Result<SymbolCompletionPlan, SymbolCompletionPlanError>
     where
-        C: SymbolCompletionCancellation + ?Sized,
+        C: Cancellation + ?Sized,
     {
         SymbolCompletionPlan::build(self, root, level, cancellation)
     }

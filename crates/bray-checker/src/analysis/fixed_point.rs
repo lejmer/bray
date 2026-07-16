@@ -1,8 +1,7 @@
 use std::collections::VecDeque;
 
+use bray_base::Cancellation;
 use bray_bound_tree::BoundUnitId;
-
-use crate::CheckerCancellation;
 
 use super::id::AnalysisBlockId;
 use super::model::{AnalysisBlock, AnalysisEdge, ControlFlowGraph};
@@ -68,7 +67,7 @@ pub(crate) enum FixedPointOutcome<State> {
 pub(crate) fn solve_fixed_point<D: FixedPointDomain>(
     graph: &ControlFlowGraph,
     domain: &D,
-    cancellation: &dyn CheckerCancellation,
+    cancellation: &dyn Cancellation,
 ) -> FixedPointOutcome<FixedPointResult<D::State>> {
     let mut states = std::iter::repeat_with(|| domain.bottom())
         .take(graph.blocks().len())

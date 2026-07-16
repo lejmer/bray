@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 
+use bray_base::Cancellation;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
     BorrowKind, CallableAbi, CallableConstness, CallableExecution, CallableParameterData,
@@ -17,7 +18,7 @@ use bray_syntax::{
 };
 
 use super::contract::{CallableTypeQualifiers, TypeParameterBinding};
-use crate::{BinderCancellation, BinderFactError, BinderFactResult};
+use crate::{BinderFactError, BinderFactResult};
 
 /// Binds ordinary type-expression and trait-application syntax into canonical semantic values.
 pub struct TypeExpressionBinder<'facts> {
@@ -26,7 +27,7 @@ pub struct TypeExpressionBinder<'facts> {
     pub(super) module: Option<ModuleSymbolId>,
     pub(super) type_parameters: BTreeMap<SymbolName, GenericTypeParameterSymbolId>,
     pub(super) self_type: Option<SelfTypeContext>,
-    pub(super) cancellation: &'facts dyn BinderCancellation,
+    pub(super) cancellation: &'facts dyn Cancellation,
     pub(super) diagnostics: DiagnosticBag,
 }
 
@@ -38,7 +39,7 @@ impl<'facts> TypeExpressionBinder<'facts> {
         module: Option<ModuleSymbolId>,
         type_parameters: impl IntoIterator<Item = TypeParameterBinding>,
         self_type: Option<SelfTypeContext>,
-        cancellation: &'facts dyn BinderCancellation,
+        cancellation: &'facts dyn Cancellation,
     ) -> Self {
         let type_parameters = type_parameters
             .into_iter()

@@ -9,8 +9,7 @@ use bray_bound_tree::{
     BoundUnit, BoundUnitKey, BoundUnitKind, BoundUnitRoot, CheckedControlFlowFacts,
 };
 use bray_checker::{
-    CheckerCancellation, CheckerOutcome, ControlFlowChecker, DefaultControlFlowChecker,
-    UnitCheckRequest, UnitCheckRoot,
+    CheckerOutcome, ControlFlowChecker, DefaultControlFlowChecker, UnitCheckRequest, UnitCheckRoot,
 };
 use bray_diagnostics::DiagnosticResult;
 
@@ -126,13 +125,11 @@ fn check_control_flow(
         BoundUnitRoot::ExpressionSequence(block) => UnitCheckRoot::ExpressionSequence(block),
     };
 
-    let bridge = CheckerCancellationBridge(cancellation);
-
     let request = UnitCheckRequest::new(
         bound.view(),
         root,
         available_compiler_known_symbols,
-        &bridge,
+        cancellation,
     )
     .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
@@ -155,14 +152,6 @@ const fn map_binding_error(error: BoundUnitBindingError) -> FactQueryError {
         | BoundUnitBindingError::Construction
         | BoundUnitBindingError::Binding
         | BoundUnitBindingError::Assembly => FactQueryError::InfrastructureFailure,
-    }
-}
-
-struct CheckerCancellationBridge<'cancellation>(&'cancellation CancellationToken);
-
-impl CheckerCancellation for CheckerCancellationBridge<'_> {
-    fn is_cancelled(&self) -> bool {
-        self.0.is_cancelled()
     }
 }
 

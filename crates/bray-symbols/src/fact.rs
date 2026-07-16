@@ -7,9 +7,9 @@ mod predicate;
 mod signature;
 
 pub use completion::{
-    NeverCancelSymbolCompletion, SymbolCompletionCancellation, SymbolCompletionLevel,
-    SymbolCompletionPlan, SymbolCompletionPlanError, SymbolCompletionUnit,
-    SymbolFactCompletionRequest, SymbolFactForcer, SymbolFactKind,
+    NeverCancelSymbolCompletion, SymbolCompletionLevel, SymbolCompletionPlan,
+    SymbolCompletionPlanError, SymbolCompletionUnit, SymbolFactCompletionRequest, SymbolFactForcer,
+    SymbolFactKind,
 };
 pub use constant::{
     ConstantDefinition, ConstantDefinitionState, ConstantInstanceKey, ErrorConstantDefinition,
