@@ -35,10 +35,10 @@ pub use node::{
     BoundLocalConstant, BoundMatchArm, BoundMatchExpression, BoundMemberAccessExpression,
     BoundMemberSelector, BoundNameExpression, BoundNodeKind, BoundOperator, BoundPattern,
     BoundPatternId, BoundPatternKind, BoundPatternMode, BoundPatternTarget, BoundReferenceTarget,
-    BoundSpawnExpression, BoundSpawnInput, BoundSpawnMode, BoundStructConstructionExpression,
-    BoundStructFieldInitializer, BoundStructuredExpression, BoundStructuredExpressionKind,
-    BoundTraitQualifiedMemberExpression, BoundTypeReference, BoundUnaryExpression,
-    BoundUnresolvedReferenceExpression, BoundUnresolvedReferenceKind, ExactBoundNodeId,
+    BoundStructConstructionExpression, BoundStructFieldInitializer, BoundStructuredExpression,
+    BoundStructuredExpressionKind, BoundTraitQualifiedMemberExpression, BoundTypeReference,
+    BoundUnaryExpression, BoundUnresolvedReferenceExpression, BoundUnresolvedReferenceKind,
+    ExactBoundNodeId,
 };
 pub use origin::{
     BoundNodeOrdinal, BoundNodeOrigin, BoundSynthesisRole, SynthesizedBoundNodeOrigin,

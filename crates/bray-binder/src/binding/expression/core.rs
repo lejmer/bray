@@ -418,8 +418,8 @@ where
 mod tests {
     use crate::fact::test_support::TestFixture;
     use bray_bound_tree::{
-        BoundControlTransferKind, BoundExpression, BoundOperator, BoundSpawnInput, BoundSpawnMode,
-        BoundStructuredExpressionKind, BoundWalkControl, BoundWalkEvent, walk_bound_tree,
+        BoundControlTransferKind, BoundExpression, BoundOperator, BoundStructuredExpressionKind,
+        BoundWalkControl, BoundWalkEvent, walk_bound_tree,
     };
 
     #[test]
@@ -739,9 +739,6 @@ mod tests {
             "            yield item;\n",
             "        }\n",
             "    };\n",
-            "    spawn size;\n",
-            "    spawn detached size;\n",
-            "    spawn thread size(value = size);\n",
             "}",
         ));
 
@@ -777,8 +774,6 @@ mod tests {
         let mut trait_qualified = false;
         let mut generator_region = None;
         let mut yield_target = None;
-        let mut spawn_modes = Vec::new();
-        let mut thread_arguments = None;
 
         walk_bound_tree(result.unit().tree(), block, |event| {
             let BoundWalkEvent::Enter(node) = event else {
@@ -821,13 +816,6 @@ mod tests {
                 {
                     yield_target = expression.target();
                 }
-                BoundExpression::Spawn(expression) => {
-                    spawn_modes.push(expression.mode());
-
-                    if let BoundSpawnInput::Thread { arguments, .. } = expression.input() {
-                        thread_arguments = Some(arguments.len());
-                    }
-                }
                 _ => {}
             }
 
@@ -838,16 +826,5 @@ mod tests {
         assert!(expected_construction);
         assert!(trait_qualified);
         assert_eq!(yield_target, generator_region);
-
-        assert_eq!(
-            spawn_modes,
-            [
-                BoundSpawnMode::Task,
-                BoundSpawnMode::DetachedTask,
-                BoundSpawnMode::Thread,
-            ]
-        );
-
-        assert_eq!(thread_arguments, Some(1));
     }
 }

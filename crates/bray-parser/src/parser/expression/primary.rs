@@ -52,8 +52,6 @@ impl Parser {
             SyntaxKind::TryKeyword => self.parse_result_propagation_primary_expression(at_boundary),
             SyntaxKind::CatchKeyword => self.parse_catch_primary_expression(at_boundary),
             SyntaxKind::AwaitKeyword => self.parse_await_primary_expression(at_boundary),
-            SyntaxKind::AsyncKeyword => self.parse_async_block_primary_expression(),
-            SyntaxKind::SpawnKeyword => self.parse_spawn_primary_expression(at_boundary),
             SyntaxKind::BoxKeyword => self.parse_type_form_construction_primary_expression(),
             SyntaxKind::AllKeyword | SyntaxKind::AnyKeyword => {
                 self.parse_boolean_fold_primary_expression()
@@ -402,15 +400,6 @@ impl Parser {
         primary.build()
     }
 
-    fn parse_async_block_primary_expression(&mut self) -> PrimaryExpressionSyntax {
-        let start = self.peek().full_range().start();
-        let mut primary = PrimaryExpressionSyntax::builder(self.syntax_source(), start);
-
-        primary.push_async_block_expression(self.parse_async_block_expression());
-
-        primary.build()
-    }
-
     fn parse_type_form_construction_primary_expression(&mut self) -> PrimaryExpressionSyntax {
         let start = self.peek().full_range().start();
         let mut primary = PrimaryExpressionSyntax::builder(self.syntax_source(), start);
@@ -426,18 +415,6 @@ impl Parser {
         let mut primary = PrimaryExpressionSyntax::builder(self.syntax_source(), start);
 
         primary.push_boolean_fold_expression(self.parse_boolean_fold_expression());
-
-        primary.build()
-    }
-
-    fn parse_spawn_primary_expression(
-        &mut self,
-        at_boundary: &mut dyn FnMut(&mut Parser) -> bool,
-    ) -> PrimaryExpressionSyntax {
-        let start = self.peek().full_range().start();
-        let mut primary = PrimaryExpressionSyntax::builder(self.syntax_source(), start);
-
-        primary.push_spawn_expression(self.parse_spawn_expression(at_boundary));
 
         primary.build()
     }
@@ -724,6 +701,18 @@ mod tests {
         assert_eq!(expression.full_text(), "@value");
         assert_eq!(skipped.full_text(), "@value");
 
+        assert_eq!(
+            diagnostic_kinds(&diagnostics),
+            [DiagnosticKind::SyntaxExpectedExpression]
+        );
+    }
+
+    #[test]
+    fn parser_rejects_removed_async_block_syntax() {
+        let (expression, diagnostics) =
+            parse_expression_until_semicolon_for_test("async { return value; };");
+
+        assert!(expression.is_recovered());
         assert_eq!(
             diagnostic_kinds(&diagnostics),
             [DiagnosticKind::SyntaxExpectedExpression]

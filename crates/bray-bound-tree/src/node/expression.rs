@@ -6,7 +6,6 @@ mod flow;
 mod generator;
 mod recovery;
 mod selection;
-mod spawn;
 
 pub use category::{
     BoundAnonymousCallableExpression, BoundArgument, BoundAssignmentExpression,
@@ -26,4 +25,3 @@ pub use selection::{
     BoundLeadingDotVariantExpression, BoundMemberAccessExpression, BoundMemberSelector,
     BoundNameExpression, BoundReferenceTarget, BoundTraitQualifiedMemberExpression,
 };
-pub use spawn::{BoundSpawnExpression, BoundSpawnInput, BoundSpawnMode};

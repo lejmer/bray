@@ -749,7 +749,7 @@ mod tests {
     };
     use crate::{
         AbsenceExpressionSyntax, AccessExpressionSyntax, ArgumentListSyntax, ArgumentSyntax,
-        ArrayExpressionSyntax, AssertionExpressionSyntax, AsyncBlockExpressionSyntax,
+        ArrayExpressionSyntax, AssertionExpressionSyntax,
         AsyncCapableLifecycleMemberModifiersSyntax, AwaitExpressionSyntax, BlockExpressionSyntax,
         BlockItemSyntax, BlockModuleDeclarationSyntax, BooleanFoldExpressionSyntax,
         BorrowExpressionSyntax, BreakExpressionSyntax, CallOperationSyntax,
@@ -779,10 +779,10 @@ mod tests {
         PrimaryExpressionSyntax, ResultPropagationExpressionSyntax, ReturnExpressionSyntax,
         ScopeEnterMemberDeclarationSyntax, ScopeExitMemberDeclarationSyntax,
         SequencedExpressionSyntax, SliceIndexOperationSyntax, SourceSyntaxNode,
-        SourceUnitModuleDeclarationSyntax, SpawnExpressionSyntax, StructConstructionBodySyntax,
-        StructDeclarationSyntax, StructFieldInitializerSyntax, SyncLifecycleMemberModifiersSyntax,
-        SyntaxKind, SyntaxNode, SyntaxText, SyntaxToken, SyntaxTrivia, TraitApplicationSyntax,
-        TraitBodySyntax, TraitConstantMemberDeclarationSyntax, TraitDeclarationSyntax,
+        SourceUnitModuleDeclarationSyntax, StructConstructionBodySyntax, StructDeclarationSyntax,
+        StructFieldInitializerSyntax, SyncLifecycleMemberModifiersSyntax, SyntaxKind, SyntaxNode,
+        SyntaxText, SyntaxToken, SyntaxTrivia, TraitApplicationSyntax, TraitBodySyntax,
+        TraitConstantMemberDeclarationSyntax, TraitDeclarationSyntax,
         TraitDestructorRequirementDeclarationSyntax, TraitFinalizerRequirementDeclarationSyntax,
         TraitModifiersSyntax, TraitPredicateMemberDeclarationSyntax,
         TraitPredicateMemberModifiersSyntax, TraitQualifiedMemberOperationSyntax,
@@ -1360,8 +1360,6 @@ mod tests {
         assert_send_sync::<ResultPropagationExpressionSyntax>();
         assert_send_sync::<CatchExpressionSyntax>();
         assert_send_sync::<AwaitExpressionSyntax>();
-        assert_send_sync::<AsyncBlockExpressionSyntax>();
-        assert_send_sync::<SpawnExpressionSyntax>();
         assert_send_sync::<TypeFormConstructionExpressionSyntax>();
         assert_send_sync::<BooleanFoldExpressionSyntax>();
         assert_send_sync::<YieldExpressionSyntax>();

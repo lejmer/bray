@@ -7,7 +7,6 @@ mod generator;
 mod postfix;
 mod primary;
 mod selection;
-mod spawn;
 mod support;
 
 pub(crate) use core::ExpressionBinder;

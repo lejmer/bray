@@ -377,8 +377,6 @@ pub enum BoundStructuredExpressionKind {
     TypeFormConstruction,
     /// Boolean folding over operands.
     BooleanFold,
-    /// An asynchronous block.
-    AsyncBlock,
     /// An explicit panic.
     Panic,
 }

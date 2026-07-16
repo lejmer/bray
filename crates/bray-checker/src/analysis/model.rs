@@ -78,7 +78,6 @@ pub(crate) enum AnalysisEdgeKind {
     AsyncSuspend,
     AsyncResume,
     AsyncCancel,
-    TaskCompletion,
     Yield,
     Recovery,
 }

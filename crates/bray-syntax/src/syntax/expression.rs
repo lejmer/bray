@@ -47,12 +47,10 @@ pub use effect::{
     TrustBoundaryExpressionSyntax, TrustBoundaryExpressionSyntaxBuilder,
 };
 pub use flow::{
-    AsyncBlockExpressionSyntax, AsyncBlockExpressionSyntaxBuilder, BreakExpressionSyntax,
-    BreakExpressionSyntaxBuilder, ContinueExpressionSyntax, ContinueExpressionSyntaxBuilder,
-    PanicExpressionSyntax, PanicExpressionSyntaxBuilder, ReturnExpressionSyntax,
-    ReturnExpressionSyntaxBuilder, SpawnExpressionSyntax, SpawnExpressionSyntaxBuilder,
-    WithExpressionSyntax, WithExpressionSyntaxBuilder, YieldExpressionSyntax,
-    YieldExpressionSyntaxBuilder,
+    BreakExpressionSyntax, BreakExpressionSyntaxBuilder, ContinueExpressionSyntax,
+    ContinueExpressionSyntaxBuilder, PanicExpressionSyntax, PanicExpressionSyntaxBuilder,
+    ReturnExpressionSyntax, ReturnExpressionSyntaxBuilder, WithExpressionSyntax,
+    WithExpressionSyntaxBuilder, YieldExpressionSyntax, YieldExpressionSyntaxBuilder,
 };
 pub use generator::{
     GeneralGeneratorExpressionSyntax, GeneralGeneratorExpressionSyntaxBuilder,
