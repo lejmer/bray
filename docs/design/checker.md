@@ -553,17 +553,16 @@ The domain state is a typed product over storage identities and capabilities. It
 - attached destruction, finalization, joining, cancellation, and scoped-use obligations,
 - already attached dependency requirements carried by the current value.
 
-This composite state is the sole flow owner for lifecycle, scope, async-computation, task, joining, cancellation, and other run
-obligations.
+This composite state is the sole flow owner for lifecycle, scope, async-computation, task, standard-library child-run, joining,
+cancellation, and other run obligations.
 Later domains consume its finalized results and cannot maintain another independently merged obligation state.
 
 The implementation must represent impossible combinations structurally where practical. It must not use one bag of optional fields
 for every storage category.
 
 Transfers cover construction, assignment, observation, copy, move, consumption, borrow, reborrow, mutation, projection, variant
-replacement, nullable replacement, destruction, finalization, scope enter and exit, async-computation or task transfer, task start,
-join, cancellation,
-panic exit, and ordinary control exit.
+replacement, nullable replacement, destruction, finalization, scope enter and exit, async-computation or child-run-owner transfer,
+task start, join, cancellation, run-result forwarding, panic exit, and ordinary control exit.
 
 Storage overlap uses a closed typed result:
 
@@ -606,10 +605,12 @@ Moving a value moves its dependency contract. Copying creates the contract requi
 combines child requirements. Nullable and union contracts retain guards for presence and active variants. Calls instantiate portable
 symbol templates into unit-local subjects.
 
-Generic bodies use open dependency subjects. An operation that publishes such a subject to a synchronized shared owner or an
-independent run adds an open run-transfer term naming the destination class. The term remains in the portable template and is
-validated against concrete value dependencies at instantiation. This is the same analysis for user declarations, standard-library
-declarations, and private trusted ABI wrappers; no package or textual declaration name is special.
+Generic bodies use open dependency subjects. An operation that publishes such a subject to a synchronized shared owner, an
+independent in-process run, or an encoded child-process protocol adds an open transfer term naming the destination class. The term
+remains in the portable template and is validated against concrete value dependencies at instantiation. Process transfer terms add
+encoding and process-isolation requirements rather than pretending that an address-space-local borrow can move. This is the same
+analysis for user declarations, standard-library declarations, and private trusted ABI wrappers; no package or textual declaration
+name is special.
 
 The merge is a deterministic normalized union of requirements with typed guards. Requirements are discharged only by a checked
 operation that proves their resolution. Recovery preserves conservative requirements rather than dropping them.
@@ -666,11 +667,17 @@ deferred into `Future<T>`. Direct await validates the deferred contract against 
 postconditions only on normal completion. Task start records the contract for runtime lane selection and publishes postconditions
 only in a `RunResult.Completed` refinement.
 
+`try` on `RunResult<T>` produces one normal value edge and two current-run abnormal-propagation edges. The checker does not search
+for a callable returning `RunResult<R>`. It verifies that the panicked edge transfers the existing `PanicReport`, the cancelled edge
+enters current-run cancellation, and both edges execute every intervening lifecycle and structured-cleanup obligation. An enclosing
+catch captures only the panicked edge.
+
 For each async lexical scope exit, composite storage flow emits one two-phase cleanup plan: all owned unresolved tasks receive
 cancellation before any task is awaited, then normal reverse lifecycle resolution proceeds with dependency ordering. Lowering
-consumes this plan without repeating flow analysis. The plan names separate descriptor broadcast visitors and lifecycle-resolution
-operations for concrete and erased state and statically rejects normal implicit task cleanup when a possible completion payload has
-fallible lifecycle resolution.
+consumes this plan without repeating flow analysis. Ordinary standard-library `Thread<T>` and `Process<T>` lifecycle obligations
+participate through their checked declaration contracts rather than compiler name recognition. The plan names separate descriptor
+broadcast visitors and lifecycle-resolution operations for concrete and erased state and statically rejects normal implicit child
+cleanup when a possible completion payload or infrastructure outcome cannot be resolved in the current context.
 
 The complete implementation contract is defined in `docs/design/async-runtime.md`.
 

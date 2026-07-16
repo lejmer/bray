@@ -166,17 +166,24 @@ Construction, finalization, destruction, scoped-use, and lifecycle-obligation ru
 
 ## Concurrency
 
-A **run** is an independently executing task or an operating-system thread created through an ordinary library contract.
+A **run** is a dynamic execution domain that ultimately completes normally, panics, or is cancelled. Ordinary calls and direct
+awaits remain in the current run; tasks, native threads, and typed child processes create child runs.
 
 A **task** is an asynchronous run managed by Bray's async rules.
 
 A **thread** is an operating-system execution context when the target and selected standard library support thread execution.
 
+A **process** is an isolated operating-system execution and resource domain when the target and selected standard library support
+process creation.
+
 A **run boundary** separates independently executing work and converts a crossing panic or cancellation into the outcome defined by
-the owning handle contract.
+the owning observation contract.
 
 A **task obligation** is the compiler-known requirement to join, cancel, transfer, or automatically resolve `Task<T>` before its
-owner ends. Ordinary standard-library thread handles can carry an analogous library-defined lifecycle obligation.
+owner ends. Ordinary standard-library `Thread<T>` and `Process<T>` owners carry analogous library-defined lifecycle obligations.
+
+The **root run** is owned by the executable or test product host. A synchronous entrypoint executes as that run; an async entrypoint
+is driven as a host-owned root task without a source-visible `Task<T>`.
 
 **Cancellation** requests that a run stop according to its cancellation contract.
 

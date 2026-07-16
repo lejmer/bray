@@ -150,8 +150,9 @@ An async test whose run boundary reports `RunResult.Panicked(report)` fails with
 
 An async test whose run boundary reports `RunResult.Cancelled` is reported as cancelled.
 
-Tasks created by a test obey ordinary [task](../async-and-concurrency/task-handles-and-obligations.md) and [structured scope
-exit](../async-and-concurrency/structured-task-scope-exit.md) rules. Root scope cleanup cancels and waits for unresolved owned tasks
+Children created by a test obey ordinary [task](../async-and-concurrency/task-handles-and-obligations.md), [standard-library
+thread and process](../async-and-concurrency/standard-library-concurrency.md), and [structured scope
+exit](../async-and-concurrency/structured-task-scope-exit.md) rules. Root scope and product cleanup resolve every owned child run
 before the test outcome is reported.
 
 Lifecycle, finalization, destruction, panic, cancellation, and cleanup behavior during test execution follows the ordinary language

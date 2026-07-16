@@ -176,6 +176,11 @@ A synchronous-only product omits the async runtime unless another selected depen
 ABI contract is defined in `docs/design/async-runtime.md`. The product-host cleanup-report sink is a separate typed startup and
 termination service and remains linkable without an async scheduler when synchronous lifecycle or native-thread cleanup requires it.
 
+An async executable link plan names the distinguished main-thread-lane entry and drive roles, the internal root
+terminal-observation role, and structured shutdown ordering. Native-thread and child-process platform services used by ordinary
+standard-library declarations are linked through their selected trusted product dependencies rather than becoming compiler-known
+runtime symbols.
+
 The linker does not infer an entry point from source names or object inspection. The semantic and product layers select it before
 the plan is constructed.
 

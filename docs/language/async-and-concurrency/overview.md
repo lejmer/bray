@@ -12,6 +12,7 @@ The core async surface is:
 - `Future<T>.start()`,
 - `Task<T>.join()` and `Task<T>.cancel()`,
 - the compiler-known run-boundary union `RunResult<T>`,
+- the compiler-known execution predicates `blocking_execution()`, `compute_execution()`, and `main_thread_execution()`,
 - ordinary lexical scopes as structured task ownership boundaries.
 
 There are no async block, spawn, detached-task, thread-spawn, race, select, runtime, blocking, or compute expression forms.
@@ -23,8 +24,13 @@ Every `Task<T>` is a linear source-level ownership obligation. Moving the handle
 owned when a lexical scope exits, scope cleanup requests cancellation and waits for the task before ownership ends. Bray has no
 detached task state without a source-level owner.
 
-Operating-system threads, channels, synchronization types, timers, task combinators, and other concurrency facilities are ordinary
-standard-library declarations implemented over the private runtime ABI. They do not add compiler-known types or syntax.
+Every executable has one host-owned root run. A synchronous entrypoint is that run directly; an async entrypoint is transferred
+into a host-owned root task with no source-visible `Task<T>`. Child tasks, operating-system threads, and processes remain owned by
+that root or by a checked nested source owner until their terminal outcomes and payload lifecycles resolve.
+
+Operating-system threads, child processes, parallel algorithms, channels, synchronization types, timers, task combinators, and
+other concurrency facilities are ordinary standard-library declarations implemented over private trusted ABI operations. They do
+not add compiler-known types or syntax.
 
 ## Navigation
 

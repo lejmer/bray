@@ -20,7 +20,7 @@ inherit the same async execution context; no async block form exists.
 
 Before the child first executes, the checker verifies that the current execution context satisfies the child computation's deferred
 body effects, capabilities, lifecycle contract, execution requirements, and thread-affinity constraints. Awaiting a computation
-requiring `blocking_execution()` or `compute_execution()` from an incompatible lane is rejected.
+requiring `blocking_execution()`, `compute_execution()`, or `main_thread_execution()` from an incompatible lane is rejected.
 
 Normal completion establishes the postcondition template carried by the consumed computation and applies its `result` facts to the
 produced `T`. Panic and cancellation establish none of those facts. If control flow merged computations from multiple producers,

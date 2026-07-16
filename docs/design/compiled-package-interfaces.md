@@ -445,11 +445,12 @@ The consuming compiler decodes the structural template into its local `bray-symb
 portable template into a unit-local `BoundDependencyContractId` using the exact receiver, argument, result, capability, and selected
 implementation facts for the use site.
 
-Portable dependency templates include open run-transfer terms for generic subjects published to synchronized shared ownership or
-an independent task or thread. Each term records the subject projection and destination run class. A consumer instantiates it with
-the concrete argument's storage, affinity, synchronization, and lifecycle dependencies; it does not re-check the generic body or
-look for a marker trait. This representation is what permits ordinary separately compiled generic `std.channel` and `std.thread`
-declarations to enforce cross-run safety without compiler recognition of their names.
+Portable dependency templates include open transfer terms for generic subjects published to synchronized shared ownership, an
+independent task or thread, or a typed child-process protocol. Each term records the subject projection and destination class. A
+consumer instantiates it with the concrete argument's storage, affinity, synchronization, encoding, process-locality, and lifecycle
+dependencies; it does not re-check the generic body or look for a marker trait. This representation is what permits ordinary
+separately compiled generic `std.channel`, `std.thread`, `std.process`, and `std.parallel` declarations to enforce cross-run safety
+without compiler recognition of their names.
 
 ### Async Declaration Metadata
 

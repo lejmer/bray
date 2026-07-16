@@ -8,7 +8,7 @@ The compiler-known surface includes:
 - structural type forms such as tuple types, fixed-size array types, slice types, nullable types, borrow types, trait-view types, owned-indirection types, and callable types,
 - compiler-known async and run-boundary types `Future<T>`, `Task<T>`, `RunResult<T>`, and `PanicReport`,
 - compiler-known result and conversion types such as `Result<T, E>` and `ConversionError`,
-- compiler-known execution-context predicates `blocking_execution()` and `compute_execution()`,
+- compiler-known execution-context predicates `blocking_execution()`, `compute_execution()`, and `main_thread_execution()`,
 - compiler-known raw memory declarations and trusted predicates under `core.memory`,
 - compiler-known target facts under the ambient `target` path,
 - compiler-known type-form support traits such as `Storage<T>`,

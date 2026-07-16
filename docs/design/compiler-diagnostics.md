@@ -113,16 +113,17 @@ Examples:
 - trusted obligation not discharged,
 - target-unavailable declaration.
 
-Async diagnostic identities include await outside async execution, task start outside active runtime execution, non-`Future<T>` await
-operands, incompatible execution lanes, unsatisfied product runtime requirements, escaping async or task dependencies,
-thread-affinity conflicts, unresolved async finalization in synchronous scope, consumed-task reuse, incoherent task-flow merge,
-fallible unobserved completion payloads, incompatible generic run transfer, unavailable blocking context for thread-handle
-resolution, invalid frame-descriptor phase contracts, large frames or retained values, recursive dynamic frame storage, missing
-cancellation observations, and cleanup blockers.
+Async and parallel-execution diagnostic identities include await outside async execution, task start outside active runtime
+execution, non-`Future<T>` await operands, incompatible execution lanes, unsatisfied product runtime requirements, unavailable
+main-thread execution, escaping async or child-run dependencies, thread-affinity conflicts, unresolved async finalization in
+synchronous scope, consumed-task reuse, incoherent task-flow merge, fallible unobserved completion payloads, incompatible generic
+run or process transfer, unavailable blocking context for thread-owner resolution, invalid frame-descriptor phase contracts, large
+frames or retained values, recursive dynamic frame storage, missing cancellation observations, process-protocol incompatibility,
+and cleanup blockers.
 
-These diagnostics carry typed frame, task, dependency, requirement, lane, owner, lifecycle, descriptor-role, and source-origin
-arguments. They do not carry pre-rendered dependency explanations. Async inspection and diagnostic requirements are defined in
-`docs/design/async-runtime.md`.
+These diagnostics carry typed frame, run kind, task, dependency, requirement, lane, owner, lifecycle, protocol, resource-budget,
+descriptor-role, and source-origin arguments. They do not carry pre-rendered dependency explanations. Async inspection and
+diagnostic requirements are defined in `docs/design/async-runtime.md`.
 
 Rendered diagnostic codes can be derived from diagnostic identity, but the identity remains the compiler-internal stable key.
 

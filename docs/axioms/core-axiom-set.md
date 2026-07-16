@@ -57,7 +57,9 @@
 12. **Asynchronous execution is structured and first-class.**
 
     Async calls create owned inactive computations, direct await composes them into the current task, and starting creates an
-    independently running task with one source-level owner. Every lexical block is a structured task boundary, cancellation is
-    broadcast before task finalization, and no task is detached from ownership. Async representation is protected, execution-lane
-    requirements and completion facts are contractual, cleanup failures remain owned and reportable, and low-level runtime
-    machinery belongs to the trusted product substrate.
+    independently running task with one source-level owner. Tasks, native threads, and child processes are owned child runs beneath
+    one host-owned executable root. Every lexical block is a structured task boundary, cancellation is broadcast before task
+    finalization, and no child run is detached from ownership. Async representation is protected, execution-lane requirements and
+    completion facts are contractual, run-result propagation forwards panic and cancellation without exceptions, cleanup failures
+    remain owned and reportable, parallelism uses explicit resource budgets, and low-level runtime machinery belongs to the trusted
+    product substrate.

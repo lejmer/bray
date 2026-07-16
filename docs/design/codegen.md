@@ -386,9 +386,11 @@ Runtime entry points, compiler-known behavior roles, panic behavior, allocation 
 resolved to explicit MIR references before code generation.
 
 Async MIR carries typed frame identities, resume states, direct-await composition, task start, cancellation, terminal publication,
-cleanup-incident transfer, and checked phase-one broadcast and phase-two lifecycle plans. Concrete and erased descriptors retain
-separate entry points for those phases. The backend must not lower every async call as a task or mandatory heap allocation. Direct
-await has no task-control-block or scheduler semantics; `Future<T>.start()` is the independent task-storage boundary.
+current-run forwarding of observed `RunResult<T>`, cleanup-incident transfer, and checked phase-one broadcast and phase-two
+lifecycle plans. Concrete and erased descriptors retain separate entry points for those phases. The backend must not lower every
+async call as a task or mandatory heap allocation. Direct await has no task-control-block or scheduler semantics;
+`Future<T>.start()` is the independent task-storage boundary. Async entrypoint lowering pins the host-owned root frame to the
+distinguished main-thread lane and preserves the internal terminal root outcome through product shutdown.
 
 Frame descriptor and runtime ABI lowering follows `docs/design/async-runtime.md`.
 

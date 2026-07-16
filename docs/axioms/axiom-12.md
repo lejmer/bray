@@ -11,6 +11,10 @@ Awaiting consumes and composes an async computation into the current task. Start
 and returns the sole source-level `Task<T>` owner. The distinction between computation and task is explicit in the type system rather
 than expressed by additional control-flow keywords.
 
+Every executing operation belongs to one run. Direct calls and direct awaits remain in that run. Tasks, native threads, and child
+processes create owned child runs. The executable host owns the root process, main thread, and root run; an async entrypoint is driven
+as a host-owned root task without a source-visible task owner.
+
 Suspension preserves every value, borrow, capability, effect, execution requirement, fact dependency, and lifecycle obligation
 needed to resume or resolve the computation. Moving `Future<T>` or `Task<T>` transfers these dependencies.
 
@@ -32,9 +36,18 @@ source pinning. Independent task storage begins at the start boundary, while dyn
 runtime-managed storage.
 
 Asynchronous behavior and execution requirements are part of behavioral contracts. `blocking_execution()` and
-`compute_execution()` describe runtime-lane facts; async invocation defers them, direct await checks them, and task start selects a
-compatible lane.
+`compute_execution()` describe progress-policy facts, while `main_thread_execution()` describes the distinguished initial-thread
+fact. Async invocation defers them, direct await checks them, and task start selects a compatible lane.
+
+`RunResult<T>` makes a child run's normal, panicked, or cancelled terminal state explicit. Matching preserves that state as a value.
+`try` unwraps normal completion and forwards panic or cancellation into the current run. `catch` converts only panic in the current
+run into `Result<T, PanicReport>`; it does not intercept cancellation or inspect a nested run-result value implicitly.
 
 Low-level runtime machinery is a versioned trusted product substrate. Channels, operating-system threads, synchronization types,
-timers, checkpoints, and concurrent combinators are ordinary standard-library Bray over that private ABI. Their generic cross-run
-safety comes from ordinary inferred open dependency contracts, not compiler-recognized library names or marker types.
+child processes, parallel algorithms, timers, checkpoints, and concurrent combinators are ordinary standard-library Bray over
+private trusted ABI operations. Their generic cross-run safety comes from ordinary inferred open dependency contracts, not
+compiler-recognized library names or marker types. Parallel algorithms use explicit resource budgets; no ordinary loop or library
+call creates unbounded hidden parallelism.
+
+Structured product shutdown resolves every source-owned task, thread, process, payload, and cleanup incident before runtime
+infrastructure and process-scoped resources end. Normal root return never detaches child work.

@@ -564,10 +564,10 @@ categories as source declarations.
 Compiler-provided implementation bodies are not Bray source bodies, but their declaration surfaces still produce ordinary typed
 symbols.
 
-`Future<T>`, `Task<T>`, `RunResult<T>`, `PanicReport`, `blocking_execution()`, `compute_execution()`, and the inherent `start`,
-`join`, and `cancel` members use ordinary category-specific symbols backed by closed compiler-known roles. Their semantic phases
-select them by role identity, never spelling. Hidden async frame identities are semantic values or lowering identities, not
-declaration symbols.
+`Future<T>`, `Task<T>`, `RunResult<T>`, `PanicReport`, `blocking_execution()`, `compute_execution()`,
+`main_thread_execution()`, and the inherent `start`, `join`, and `cancel` members use ordinary category-specific symbols backed by
+closed compiler-known roles. Their semantic phases select them by role identity, never spelling. Hidden async frame identities are
+semantic values or lowering identities, not declaration symbols.
 
 Compiler-known surfaces are supplied by the immutable descriptor catalog defined in
 `docs/design/compiler-known-catalog.md`. Stable catalog keys identify language-defined entries across compilations. Symbol

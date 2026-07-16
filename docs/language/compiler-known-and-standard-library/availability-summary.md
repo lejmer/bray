@@ -9,7 +9,7 @@
 | `Result<T, E>`, `RunResult<T>` | yes | yes | no |
 | `Future<T>`, `Task<T>` | yes | yes | no |
 | `PanicReport`, `ConversionError` | yes | yes | no |
-| `blocking_execution()`, `compute_execution()` | yes | yes | no |
+| `blocking_execution()`, `compute_execution()`, `main_thread_execution()` | yes | yes | no |
 | `core.memory` raw memory declarations | yes | yes, when target-available | no |
 | `target` facts | yes | yes | no |
 | Compiler-known traits | yes | yes, when target-available | no |

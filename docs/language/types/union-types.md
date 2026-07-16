@@ -569,7 +569,8 @@ language-defined result rule states otherwise.
 
 The `try` expression unwraps `Result.Ok` and propagates `Result.Error` according to result propagation rules.
 
-`RunResult<T>` is the compiler-known union type for observing a task run boundary through `Task<T>.join()` or `Task<T>.cancel()`.
+`RunResult<T>` is the compiler-known union type for observing a run boundary. Compiler-known task observation produces it directly;
+ordinary standard-library thread and conforming child-process facilities use the same type in their public contracts.
 
 Its semantic declaration is:
 
@@ -591,13 +592,13 @@ ordered suppressed panics and type-erased cleanup incidents produced while unwin
 incidents produced while reaching cancellation are transferred to the mandatory host cleanup-report sink when the boundary is
 observed or automatically resolved, as defined by the cancellation rules.
 
-A fallible computation observed through a task boundary uses `RunResult<Result<T, E>>`.
+A fallible computation observed through a run boundary uses `RunResult<Result<T, E>>`.
 
 `RunResult<T>` uses ordinary union construction, matching, ownership, movement, borrowing, and coverage rules unless a
 language-defined task observation rule states otherwise.
 
-The `try` expression unwraps `RunResult.Completed` and propagates `RunResult.Panicked` or `RunResult.Cancelled` according to
-run-result propagation rules.
+The `try` expression unwraps `RunResult.Completed` and forwards `RunResult.Panicked` or `RunResult.Cancelled` as the corresponding
+terminal outcome of the current run.
 
 ```bray
 match result

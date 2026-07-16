@@ -215,8 +215,9 @@ Files should be grouped by semantic domain rather than by implementation consume
 - recognized standard-library identities.
 
 The async catalog group includes protected representation roles for `Future<T>` and `Task<T>`, inherent member roles for `start`,
-`join`, and `cancel`, and predicate roles for `blocking_execution()` and `compute_execution()`. It does not include runtime,
-executor, scheduler, thread-handle, channel, race, select, checkpoint, or cancellation-token declarations.
+`join`, and `cancel`, and predicate roles for `blocking_execution()`, `compute_execution()`, and
+`main_thread_execution()`. It does not include runtime, executor, scheduler, thread, process, channel, parallel-algorithm, race,
+select, checkpoint, or cancellation-token declarations.
 
 No compiler-known catalog scope uses the `std` package root. `std` identities appear only in the recognized or ordinary
 standard-library catalog sections and remain subject to normal package visibility.

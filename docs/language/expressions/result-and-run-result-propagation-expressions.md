@@ -14,6 +14,9 @@ The operand type selects the propagation behavior. Expected result type does not
 
 `try` unwraps exactly one layer.
 
+`try` is a propagation expression. It does not begin a try-catch statement, install an exception handler, or create a resumable
+exception region.
+
 For an operand of type `Result<T, E>`, the normal continuation has type `T`.
 
 If the operand is the `Result.Ok` variant, `try` evaluates to its `value` payload.
@@ -24,34 +27,35 @@ boundary as a `Result.Error` value.
 A result propagation boundary for a `Result.Error` outcome is:
 
 - a callable execution scope whose result type is `Result<R, F>` where `E` is compatible with `F`,
-- a single-yield region whose result type is `Result<R, F>` where `E` is compatible with `F`,
-- a callable execution scope whose result type is `RunResult<Result<R, F>>` where `E` is compatible with `F`,
-- a single-yield region whose result type is `RunResult<Result<R, F>>` where `E` is compatible with `F`.
-
-When `Result.Error` propagates to a `RunResult<Result<R, F>>` boundary, the supplied boundary value is
-`RunResult.Completed(Result.Error(error))`.
+- a single-yield region whose result type is `Result<R, F>` where `E` is compatible with `F`.
 
 For an operand of type `RunResult<T>`, the normal continuation has type `T`.
 
 If the operand is the `RunResult.Completed` variant, `try` evaluates to its `value` payload.
 
-If the operand is the `RunResult.Panicked` variant, `try` propagates its `report` payload to the nearest compatible run-result
-propagation boundary as a `RunResult.Panicked` value.
+If the operand is the `RunResult.Panicked` variant, `try` forwards its `report` payload into panic propagation in the current run.
 
-If the operand is `RunResult.Cancelled`, `try` propagates `RunResult.Cancelled` to the nearest compatible run-result propagation
-boundary.
+If the operand is `RunResult.Cancelled`, `try` forwards cancellation as the cancellation outcome of the current run.
 
-A run-result propagation boundary is:
+Every executing Bray operation belongs to one current run. The current run is one of:
 
-- a callable execution scope whose result type is `RunResult<R>`,
-- a single-yield region whose result type is `RunResult<R>`.
+- the executable or test root run,
+- a runtime-scheduled task run,
+- a standard-library native-thread run,
+- a standard-library child-process run using the conforming Bray process protocol,
+- another trusted execution root whose contract establishes the same run-outcome semantics.
 
-The propagated `RunResult.Panicked` or `RunResult.Cancelled` value does not depend on the boundary's success type.
+Ordinary synchronous calls and direct awaits do not create a new run. Run-result forwarding can therefore leave nested callable and
+block scopes while resolving their ordinary lifecycle obligations, just as panic or cancellation propagation already does. It does
+not search for a handler, select a result type, return a `RunResult` value from an intervening callable, or resume an abandoned
+continuation.
 
-If no compatible propagation boundary is available, `try` is rejected.
+Forwarding `RunResult.Panicked(report)` continues panic propagation with the existing report rather than constructing a new panic
+payload. An enclosing `catch` in the current run can convert that propagation into `Result.Error(report)`. Forwarding
+`RunResult.Cancelled` enters the current run's cancellation cleanup even when the cancellation originated in a different child run.
 
-Nested callable execution scopes and nested yield-capable regions create their own propagation boundaries when their result type is
-compatible with the propagated outcome.
+`try` on `RunResult<T>` has the panic and cancellation effects of those forwarding paths. It is rejected in a context that cannot
+participate in run execution, including constant and predicate evaluation.
 
 Error payload types must be compatible through ordinary type compatibility. If the source error type does not fit the boundary
 error type, the program must map the error explicitly before propagation.
@@ -76,16 +80,22 @@ func load_user(pos id: UserId) -> Result<User, LoadError>
 ```
 
 ```bray
-async func collect(pos task: Task<Result<User, LoadError>>) -> RunResult<Result<User, LoadError>>
+async func main_work(pos task: Task<Result<User, LoadError>>) -> Result<unit, LoadError>
 {
     let result = try await task.join();
     let user = try result;
 
-    return RunResult.Completed(Result.Ok(user));
+    use(user);
+    return Result.Ok(unit);
 }
 ```
 
-In the `collect` example, `await task.join()` has type `RunResult<Result<User, LoadError>>`.
+In `main_work`, the first `try` unwraps `RunResult.Completed` or forwards the child task's panic or cancellation into the current
+run. The second `try` unwraps `Result.Ok` or propagates the recoverable `LoadError` to the callable's lexical result boundary. Each
+`try` removes exactly one semantic layer.
+
+Explicitly returning or storing `RunResult<T>` remains valid. It is used when the caller wants to inspect or preserve the child-run
+outcome instead of forwarding it.
 
 ## Navigation
 

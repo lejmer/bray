@@ -25,9 +25,13 @@ already active. Incident ownership and observation follow the async cancellation
 If an ordinary scope cannot resolve a lifecycle obligation, transfer it to a valid owner, or convert it into an explicit fallback
 ownership form, the program is rejected. The abnormal-exit fallback does not weaken that rule for normal execution.
 
-For an unresolved `Task<T>` or `std.thread.Handle<T>`, this normal-exit check includes the lifecycle of a possible unobserved
-`Completed(T)` payload. Task cleanup can drive asynchronous infallible finalization; thread-handle cleanup is synchronous. Either
-implicit path is rejected when payload finalization can return `Result.Error`, requiring explicit terminal observation and handling.
+For an unresolved `Task<T>`, `std.thread.Thread<T>`, or `std.process.Process<T>`, this normal-exit check includes the lifecycle of a
+possible unobserved `Completed(T)` payload. Task and process cleanup can drive asynchronous infallible finalization; thread-owner
+cleanup is synchronous. An implicit path is rejected when it cannot completely resolve a possible payload and terminal
+infrastructure outcome in its current execution context, requiring explicit terminal observation and handling.
+
+The executable root performs the same ownership and lifecycle checks before product shutdown. Root return does not detach an
+unresolved child run.
 
 ## Navigation
 

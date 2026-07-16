@@ -53,6 +53,9 @@ An entry point function:
 An entry point can be `async`. An executable with an async entrypoint selects exactly one conforming async runtime implementation
 and runtime ABI version through its product configuration.
 
+Product configuration also selects the root parallel-resource limits available to `std.parallel` for runtime tasks, native threads,
+and child processes. These limits are host-owned capacity authorities, not implicit queries of the build or execution machine.
+
 For an entry point with no explicit result type, the result type is `unit`.
 
 `unit` completion is successful executable completion.
@@ -63,14 +66,22 @@ For an entry point with no explicit result type, the result type is `unit`.
 
 An `i32` result is the executable's numeric exit result.
 
-The product runtime contract maps successful completion, failed completion, panic completion, cancellation completion, and numeric
-exit results to the host process or embedding environment.
+The product host owns the executable root run. It observes that run as if it produced `RunResult<T>` and maps successful completion,
+failed completion, panic completion, cancellation completion, and numeric exit results to the host process or embedding
+environment.
 
 For an async entrypoint, the compiler emits a host stub that invokes the entrypoint to create `Future<T>`, transfers its hidden frame
-into the runtime root task, drives that task to terminal completion, resolves root-owned child tasks, and performs the same result
+into the host-owned runtime root task on the distinguished main-thread lane, drives that task to terminal completion, performs
+structured product shutdown for every root-owned task, thread, process, and lifecycle obligation, and performs the same result
 mapping. No source-level runtime value, runtime import, or inner async block is synthesized.
 
 The async entrypoint body is the root lexical structured task scope.
+
+The host process and its initial operating-system thread do not produce source-visible `std.process.Process<T>` or
+`std.thread.Thread<T>` values. Those standard-library types represent source ownership of child runs created within the product.
+
+The complete root-run, main-thread, terminal-observation, and product-shutdown rules are defined by
+[Execution roots and product shutdown](../async-and-concurrency/execution-roots-and-product-shutdown.md).
 
 `@entrypoint` does not change a function's name, module, visibility, callable type, ABI, contract, overload participation, or
 export behavior.

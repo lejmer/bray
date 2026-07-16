@@ -1,0 +1,166 @@
+# Execution roots and product shutdown
+
+Every executing Bray operation belongs to exactly one **run**. A run is the dynamic ownership and control-flow domain that
+ultimately completes normally, panics, or is cancelled.
+
+Ordinary synchronous calls and direct awaits remain in the current run. The following operations create child runs:
+
+- `Future<T>.start()` creates a runtime-scheduled child task,
+- `std.thread.start(...)` creates a child operating-system thread,
+- `std.process.start(...)` creates a child operating-system process.
+
+The corresponding owned observation values are `Task<T>`, `std.thread.Thread<T>`, and `std.process.Process<T>`. The standard-library
+types are not compiler-known. Every child run has exactly one source-level owner until its terminal outcome and payload lifecycle
+are resolved.
+
+## Executable root
+
+The host operating system or embedding environment creates the executable's process and initial operating-system thread. Those two
+roots are not represented by a source-visible `std.process.Process<T>` or `std.thread.Thread<T>` value: no Bray owner inside the
+same process created them and no such owner can join itself.
+
+The product host owns one root run:
+
+```text
+host process
+└── main operating-system thread
+    └── executable root run
+        ├── runtime-scheduled child tasks
+        ├── explicitly created child threads
+        └── explicitly created child processes
+```
+
+A synchronous entrypoint executes directly as the root run on the main thread.
+
+An async entrypoint invocation creates `Future<T>`. The compiler-generated host stub transfers that frame into a host-owned root
+task and drives it to terminal completion. The root task is a task run boundary but has no source-visible `Task<T>` because the
+product host, rather than Bray source, owns its resolution obligation.
+
+Runtime worker, reactor, blocking-lane, and compute-lane threads are product infrastructure. They are not source-visible
+`std.thread.Thread<T>` children and cannot be joined, detached, or retained by source.
+
+The product host also owns the configured root parallel-resource authority for runtime tasks, native threads, and child processes.
+`std.parallel.Budget` values reserve bounded portions of that authority. Source cannot manufacture capacity beyond the product
+limit by constructing additional budget objects.
+
+## Main-thread execution
+
+The process's initial thread establishes `main_thread_execution()`.
+
+A synchronous executable root additionally establishes `blocking_execution()` and `compute_execution()`.
+
+An async executable root is driven on the runtime's distinguished main-thread lane. That lane establishes
+`main_thread_execution()` but does not establish `blocking_execution()` or `compute_execution()` merely because it uses an
+operating-system thread. Directly awaited computations therefore remain on the main-thread lane and must satisfy its progress
+contract. CPU-bound or blocking work is moved to a compatible runtime lane with `start()` or composed through an ordinary
+standard-library thread, process, or parallel algorithm.
+
+The root task remains on the main-thread lane for its lifetime. Child tasks without a live exact-thread dependency can migrate
+among compatible runtime workers. A child retaining main-thread-affine state is pinned to the main-thread lane through the ordinary
+dependency and affinity rules.
+
+`main_thread_execution()` is an execution-context fact, not ownership of a `MainThread` handle. Standard-library or user APIs that
+must execute on the initial thread state that requirement in `requires(...)`.
+
+Ordinary observational thread identity can use a standard-library surface semantically equivalent to:
+
+```bray
+struct Id {}
+
+func current_id() -> Id;
+func main_id() -> Id;
+func is_main() -> bool;
+```
+
+These declarations belong to `std.thread`. Their values do not grant execution authority, establish
+`main_thread_execution()`, keep a thread alive, or permit joining it.
+
+## Current-process facilities
+
+The current process is observed through ordinary standard-library operations such as process identity, arguments, environment, and
+host integration. Those operations do not manufacture an owning `std.process.Process<T>` for the current process.
+
+The minimum observational surface under `std.process` is semantically equivalent to:
+
+```bray
+struct Id {}
+
+func current_id() -> Id;
+func arguments() -> Arguments;
+func environment() -> Environment;
+```
+
+`Arguments` and `Environment` are ordinary owned or borrowed standard-library views selected by the product contract. Process
+identity and environment access do not grant child-process creation, termination, raw-handle, or shared-memory authority.
+
+Normal process termination occurs only after the executable root run and its owned lifecycle obligations resolve. A safe ordinary
+process-exit operation cannot silently bypass structured cleanup. A platform may expose an explicitly aborting operation through a
+trusted standard-library contract, but that operation is catastrophic termination and does not claim to run source lifecycle code.
+
+## Root outcome
+
+The product host observes the root run as if it had the following outcome:
+
+```bray
+RunResult<T>
+```
+
+This observation is a host operation rather than a source-level `Task<T>.join()`.
+
+For an entrypoint returning `Result<unit, E>`, the conceptual root outcome is
+`RunResult<Result<unit, E>>`. The product contract maps:
+
+- `RunResult.Completed(Result.Ok(unit))` to successful completion,
+- `RunResult.Completed(Result.Error(error))` to recoverable executable failure,
+- `RunResult.Panicked(report)` to panic termination and panic reporting,
+- `RunResult.Cancelled` to the product's interrupted or cancelled termination policy.
+
+An `i32` normal result supplies the numeric exit result. The host never resumes the root continuation after observing a terminal
+outcome.
+
+A product-host shutdown request, such as an embedding cancellation request or a target signal mapped by product policy, requests
+cooperative cancellation of the root run and wakes a suspended root task. The root observes it at the same language-defined
+cancellation points as any other run. Noncooperative synchronous or foreign work can delay graceful product shutdown. An
+unmaskable operating-system termination is catastrophic host termination and is outside the source lifecycle guarantee.
+
+Source in the root run uses the ordinary propagation rules. A synchronous main can forward a child-thread outcome:
+
+```bray
+let value = try thread.join();
+```
+
+An async main can separate recoverable process infrastructure failure from the child run outcome:
+
+```bray
+let child_run = try await process.join();
+let value = try child_run;
+```
+
+The first `try` propagates `Result.Error` through main's lexical `Result` boundary. The second forwards child panic or cancellation
+into the executable root run. As an alternative to the second line, `catch (try child_run)` can recover the forwarded panic as
+`Result<T, PanicReport>` but does not catch cancellation.
+
+## Structured product shutdown
+
+Before the host reports the root outcome or returns control to the embedding environment, it performs this ordered shutdown:
+
+1. Resolve the root lexical scope, including its phase-one cancellation broadcast to every root-owned unresolved task.
+2. Complete ordinary lifecycle resolution for root-owned tasks and standard-library child-run owners.
+3. Resolve or reap every explicitly created child thread and process according to its checked owner contract.
+4. Complete shielded finalization and transfer every suppressed cleanup incident to its owning panic report or the mandatory
+   cleanup-report sink.
+5. Verify that every parallel-budget reservation has returned to the root authority.
+6. Shut down runtime infrastructure after no source run can use it.
+7. Resolve main-thread and process-scoped standard-library resources.
+8. Map the terminal root outcome to the host product contract.
+
+The host does not silently detach source-owned work during shutdown. A long-lived child can outlive an inner lexical block only by
+moving its owning value to a valid enclosing source owner. It cannot outlive the executable root unless an external process has
+explicitly ceased to be a child of the Bray product under a separately specified operating-system handoff contract.
+
+## Navigation
+
+- [Language index](../index.md)
+- [Async and concurrency index](../async-and-concurrency.md)
+- Previous: [Execution requirements](execution-requirements.md)
+- Next: [Entrypoints and runtime selection](entrypoints-and-runtime.md)

@@ -54,7 +54,8 @@ The always-available compiler-known value entries are:
 The always-available compiler-known predicate entries are:
 
 - `blocking_execution()`,
-- `compute_execution()`.
+- `compute_execution()`,
+- `main_thread_execution()`.
 
 The compiler-provided inherent async member entries are:
 
@@ -109,8 +110,9 @@ The recognized standard-library entries include:
 - raw-memory helper operations under `std.memory`,
 - standard storage policy types and helpers used with compiler-known type forms.
 
-Channels, operating-system threads, task combinators, synchronization types, task checkpoints, cancellation observation, and runtime
-selection types are ordinary standard-library or product declarations. They are not compiler-known or recognized by source name.
+Channels, operating-system threads, child processes, parallel algorithms, task combinators, synchronization types, task
+checkpoints, cancellation observation, and runtime selection types are ordinary standard-library or product declarations. They are
+not compiler-known or recognized by source name.
 
 Recognized standard-library entries are usable only through ordinary visibility, import, and path rules.
 

@@ -953,7 +953,8 @@ package interfaces, and cross-compilation structural identity. Numeric template 
 serialized.
 
 `bray-bound-tree` owns `BoundDependencyContractId`. A bound contract is the instantiated contract for a value, storage access,
-borrow, callable value, trait view, task, thread, or other result inside one bound unit. It can reference exact
+borrow, callable value, trait view, task, thread, process protocol, parallel budget, or other result inside one bound unit. It can
+reference exact
 `StorageIdentityId`, `StorageAccessId`, `BorrowCapabilityId`, scoped capability, implementation witness, and lifecycle-obligation
 identities valid in that unit.
 

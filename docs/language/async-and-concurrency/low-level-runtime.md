@@ -5,6 +5,7 @@ Low-level async runtime machinery is part of the trusted product substrate and i
 The language-defined runtime contract provides semantic operations equivalent to:
 
 - running a root frame,
+- driving the distinguished main-thread lane,
 - starting a task from an inactive frame,
 - resuming and suspending a frame,
 - waking a task,
@@ -15,7 +16,7 @@ The language-defined runtime contract provides semantic operations equivalent to
 - resolving frame lifecycle only after cancellation broadcast,
 - accepting, reporting, and destroying ordered cleanup incidents,
 - creating, waiting on, signalling, and destroying runtime events,
-- selecting compatible cooperative, local, blocking, and compute lanes,
+- selecting compatible cooperative, local, main-thread, blocking, and compute lanes,
 - resolving runtime shutdown.
 
 These operation descriptions do not reserve Bray declaration names. Their binary symbols, calling conventions, frame descriptors,
@@ -34,6 +35,15 @@ A conforming runtime must preserve:
 - lane execution facts,
 - structured root shutdown.
 
+Native thread creation, child process creation and signalling, typed process-protocol transport, process reaping, and parallel
+resource budgets are ordinary standard-library services over private trusted product or platform ABI declarations. They are not
+additional compiler-known runtime operations. When an async wrapper integrates them with task suspension, its trusted contract must
+connect the external completion event to the runtime without blocking a cooperative worker.
+
+The product host supplies bounded root task, thread, and process authorities to the private standard-library budget implementation.
+Reservation and release are synchronized product operations. They expose no source runtime handle and cannot be bypassed by
+constructing another ordinary `Budget` value.
+
 Private standard-library implementation modules can bind the ABI through trusted foreign declarations. Those declarations remain
 ordinary private `std` source declarations and are not recognized by their source paths. A different standard library can organize
 its wrappers differently while targeting the same ABI.
@@ -51,8 +61,9 @@ infallibly destroys every payload. A product policy
 can additionally terminate or render richer diagnostics, but cannot silently discard the batch or change source
 `RunResult.Cancelled` into a payload-bearing variant.
 
-A runtime or wrapper is nonconforming if its safe surface permits data races, dangling dependencies, duplicate task ownership,
-unsynchronized shared mutation, leaked scoped capabilities, unresolved task obligations, or destruction of a running frame.
+A runtime or wrapper is nonconforming if its safe surface permits data races, dangling dependencies, duplicate child-run ownership,
+unsynchronized shared mutation, leaked scoped capabilities, unresolved task, thread, or process obligations, unbounded hidden
+parallelism, or destruction of a running frame.
 
 ## Navigation
 

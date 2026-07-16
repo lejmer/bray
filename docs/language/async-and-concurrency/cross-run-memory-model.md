@@ -1,7 +1,7 @@
 # Cross-run memory model
 
-Independently running tasks are concurrent runs when their execution can overlap. An `Future<T>` that is only directly awaited is
-part of the current task and is not a separate run.
+Independently running tasks, native threads, and child processes are concurrent runs when their execution can overlap. A
+`Future<T>` that is only directly awaited is part of the current run and is not a separate run.
 
 Starting a task creates a start edge: every effect used to initialize and transfer its frame occurs before the new task can observe
 that state.
@@ -14,6 +14,8 @@ A synchronization edge is created by:
 - the task start edge,
 - terminal completion observed by `await task.join()` or `await task.cancel()`,
 - automatic task finalization completing at scope exit,
+- native-thread start and terminal observation through `std.thread.Thread<T>`,
+- child-process protocol send, receive, and terminal observation through `std.process.Process<T>`,
 - operations whose safe type or declaration contract explicitly synchronizes access,
 - atomic operations according to their ordering contract,
 - trusted runtime declarations whose safe internal contract establishes synchronization.
@@ -28,9 +30,17 @@ Cancellation request alone is not a completion edge. The completion edge is esta
 terminal task outcome and a join, cancel, or automatic finalizer observes it.
 
 Operating-system threads created through the standard library participate through the ownership and synchronization contract of
-`std.thread.Handle<T>`. Thread start establishes a release-to-acquire edge into the native entry root. `join`, `cancel`, automatic
-handle finalization, and `std.thread.run` terminal observation establish the corresponding completion edge back to the observer.
-That handle is an ordinary standard-library type, not a separate compiler-known thread-handle category.
+`std.thread.Thread<T>`. Thread start establishes a release-to-acquire edge into the native entry root. `join`, `cancel`, automatic
+thread-owner finalization, and `std.thread.run` terminal observation establish the corresponding completion edge back to the
+observer. That owner is an ordinary standard-library type, not a separate compiler-known thread category.
+
+Child processes do not share the Bray memory model merely because they share an operating-system parent. Their typed input and
+output protocols create value-transfer and terminal-observation edges. Shared memory, inherited handles, or memory-mapped storage
+create cross-process visibility only through the explicit synchronization contract of the standard-library type that owns them.
+
+The executable root run begins after product initialization and ends only after structured product shutdown. Terminal observation
+of every root-owned child therefore happens before main-thread and process-scoped resource destruction and before the host reports
+the root outcome.
 
 ## Navigation
 
