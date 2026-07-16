@@ -672,6 +672,11 @@ for a callable returning `RunResult<R>`. It verifies that the panicked edge tran
 enters current-run cancellation, and both edges execute every intervening lifecycle and structured-cleanup obligation. An enclosing
 catch captures only the panicked edge.
 
+The cancelled edge contributes `may_cancel_current_run` to the checked body-effect summary, as do run checkpoints and
+cancellation-aware operations. This is panic-like implicit abnormal-control metadata rather than a source callable modifier or an
+overload/assignment discriminator. Constant, predicate, and other effect-free contexts reject it. Exported checked declaration
+metadata preserves it for diagnostics, lowering, and inspection.
+
 For each async lexical scope exit, composite storage flow emits one two-phase cleanup plan: all owned unresolved tasks receive
 cancellation before any task is awaited, then normal reverse lifecycle resolution proceeds with dependency ordering. Lowering
 consumes this plan without repeating flow analysis. Ordinary standard-library `Thread<T>` and `Process<T>` lifecycle obligations

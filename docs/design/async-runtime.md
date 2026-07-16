@@ -262,6 +262,11 @@ The bound operation records the source run result, current-run identity class, p
 required cleanup edges. MIR validation rejects lowering that copies the report, resumes an abandoned continuation, converts
 cancellation into panic, or skips lifecycle resolution.
 
+Cancellation forwarding, run checkpoints, and cancellation-aware operations add `may_cancel_current_run` to the checked body
+effect summary. The term is preserved in declaration metadata but creates no source keyword or callable-type clause; it is the
+cancellation counterpart to implicit panic propagation. Lowering uses it to retain abnormal cleanup edges, while effect-free
+contexts reject it.
+
 ---
 
 ## Recursion and representation erasure
