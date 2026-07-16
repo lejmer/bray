@@ -27,7 +27,7 @@ Task completion creates a completion edge from every effect in the completed tas
 that receives its `RunResult<T>`. Automatic finalization creates the same edge before dependent owner storage is resolved.
 
 Cancellation request alone is not a completion edge. The completion edge is established only when cancellation cleanup reaches a
-terminal task outcome and a join, cancel, or automatic finalizer observes it.
+terminal run outcome and an owner, host, join, cancel, or automatic finalizer observes it.
 
 Operating-system threads created through the standard library participate through the ownership and synchronization contract of
 `std.thread.Thread<T>`. Thread start establishes a release-to-acquire edge into the native entry root. `join`, `cancel`, automatic
@@ -38,9 +38,10 @@ Child processes do not share the Bray memory model merely because they share an 
 output protocols create value-transfer and terminal-observation edges. Shared memory, inherited handles, or memory-mapped storage
 create cross-process visibility only through the explicit synchronization contract of the standard-library type that owns them.
 
-The executable root run begins after product initialization and ends only after structured product shutdown. Terminal observation
-of every root-owned child therefore happens before main-thread and process-scoped resource destruction and before the host reports
-the root outcome.
+The executable root run begins after product initialization. Its generated root frame observes every root-scope owned child and
+completes root lexical lifecycle cleanup before publishing the final terminal record. The root run ends at that publication.
+Host-side outcome mapping, cleanup-sink draining, runtime-infrastructure shutdown, and process-scoped host resource destruction
+follow the root completion edge and therefore cannot race source execution.
 
 ## Navigation
 

@@ -649,8 +649,8 @@ serialization or perform the final native link.
 system linker adapters, process invocation, argument construction, linker diagnostics, and production of the final linked artifact.
 
 The link plan contains already selected entry-point, startup, runtime, distinguished main-thread-lane, structured-shutdown,
-root-parallel-resource, native-library, export, search-path, and platform-option requirements. The linker does not discover semantic
-dependencies, inspect MIR, or choose product policy.
+task/thread/process hard-limit, native-library, export, search-path, and platform-option requirements. The linker does not discover
+semantic dependencies, inspect MIR, or choose product policy.
 
 The linker writes to an emitter-owned staging destination. A successful linked artifact is atomically published through the
 emitter's artifact policy.

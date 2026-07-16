@@ -61,5 +61,5 @@
     one host-owned executable root. Every lexical block is a structured task boundary, cancellation is broadcast before task
     finalization, and no child run is detached from ownership. Async representation is protected, execution-lane requirements and
     completion facts are contractual, run-result propagation forwards panic and cancellation without exceptions, cleanup failures
-    remain owned and reportable, parallelism uses explicit resource budgets, and low-level runtime machinery belongs to the trusted
-    product substrate.
+    remain owned and reportable, parallelism uses domain-typed library budgets beneath independent product limits, and low-level
+    runtime machinery belongs to a role-contracted trusted product substrate.

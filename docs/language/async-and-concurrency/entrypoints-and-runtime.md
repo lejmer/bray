@@ -18,17 +18,20 @@ For an async entrypoint, the compiler emits a host entry stub that:
 1. validates and initializes the executable product's selected runtime implementation,
 2. invokes the async entrypoint to create its root `Future<T>`,
 3. transfers that frame into the runtime's host-owned root task on the distinguished main-thread lane,
-4. drives the root task to `RunResult<T>`,
-5. resolves every root-owned task, thread, process, and lifecycle obligation through structured product shutdown,
-6. shuts down runtime infrastructure only after no source run can use it,
-7. maps normal result, recoverable entry failure, cancellation, and panic to the product runtime contract.
+4. drives the root body to an outcome candidate,
+5. lets the generated root frame complete root lexical task broadcast and ordinary lifecycle resolution,
+6. observes the final `RunResult<T>`-equivalent terminal record,
+7. maps normal result, recoverable entry failure, cancellation, and panic to the product runtime contract,
+8. drains cleanup reports and shuts down runtime infrastructure only after no source run can use it.
 
 Before shutdown, the host drains the mandatory cleanup-report sink. Suppressed cleanup incidents that are not owned by a returned
 `PanicReport` are therefore observable to host diagnostics even though `RunResult.Cancelled` has no source payload.
 
 The root task is a task boundary but does not produce a source-visible `Task<T>` handle. Its normal result forms remain the
 entrypoint forms defined by executable products. The host's terminal observation is equivalent to observing `RunResult<T>`, but it
-is not a source-level join and cannot resume the root continuation.
+is not a source-level join and cannot resume the root continuation. The host does not search for or re-resolve source-owned tasks,
+threads, or processes after publication; those obligations were already handled by the generated root frame's checked lexical
+cleanup.
 
 The root task remains on the distinguished main-thread lane for its lifetime. That lane establishes
 `main_thread_execution()` and does not automatically establish `blocking_execution()` or `compute_execution()`. Explicit child

@@ -585,17 +585,17 @@ union RunResult<T>
 
 `RunResult.Completed` carries the computation's declared result.
 
-`RunResult.Panicked` carries the panic report produced by a panic caught at the task boundary. The protected report can also own
-ordered suppressed panics and type-erased cleanup incidents produced while unwinding that boundary.
+`RunResult.Panicked` carries the panic report produced by a panic caught at the observed run boundary. The protected report can also
+own ordered suppressed panics and type-erased cleanup incidents produced while unwinding that boundary.
 
-`RunResult.Cancelled` records that the task boundary was cancelled before normal completion. It has no payload. Type-erased cleanup
-incidents produced while reaching cancellation are transferred to the mandatory host cleanup-report sink when the boundary is
-observed or automatically resolved, as defined by the cancellation rules.
+`RunResult.Cancelled` records that the observed run boundary was cancelled before normal completion. It has no payload. Type-erased
+cleanup incidents produced while reaching cancellation are transferred to the mandatory host cleanup-report sink when the boundary
+is observed or automatically resolved, as defined by the cancellation rules.
 
 A fallible computation observed through a run boundary uses `RunResult<Result<T, E>>`.
 
 `RunResult<T>` uses ordinary union construction, matching, ownership, movement, borrowing, and coverage rules unless a
-language-defined task observation rule states otherwise.
+language-defined run-observation rule states otherwise.
 
 The `try` expression unwraps `RunResult.Completed` and forwards `RunResult.Panicked` or `RunResult.Cancelled` as the corresponding
 terminal outcome of the current run.

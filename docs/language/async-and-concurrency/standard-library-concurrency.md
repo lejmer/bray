@@ -7,9 +7,19 @@ by name by the language.
 The standard library is written in Bray over the compiler-known types and private trusted runtime ABI declarations. Its public
 surface does not expose those private ABI declarations.
 
-## Task utilities
+## Run and task utilities
 
-`std.task` provides ordinary functions including:
+`std.run` provides the universal logical-run surface:
+
+```bray
+func cancellation_requested() -> bool;
+func checkpoint();
+```
+
+`cancellation_requested()` reports the current run's request state. `checkpoint()` enters cancellation when a request is pending
+and otherwise returns normally. Executable roots, tasks, native threads, and conforming child-process roots all use this state.
+
+`std.task` provides async-domain conveniences including:
 
 ```bray
 func cancellation_requested() -> bool;
@@ -17,9 +27,8 @@ async func checkpoint();
 async func yield_now();
 ```
 
-`cancellation_requested()` returns the current task's request state and returns `false` when called outside task execution.
-`checkpoint()` observes cancellation and otherwise permits continued execution. `yield_now()` additionally allows another ready
-task to run. Their implementation uses private runtime operations.
+The task helpers delegate to `std.run`. `yield_now()` additionally allows another ready task to run. Native-thread helpers under
+`std.thread` likewise delegate to the same logical state. Their implementations use private runtime operations.
 
 ## Channels and synchronization
 
@@ -37,7 +46,10 @@ union ReceiveResult<T>
     Closed;
 }
 
-struct Sender<T> {}
+struct Sender<T>
+{
+    internal state: SenderState<T>;
+}
 
 impl Sender<T>
 {
@@ -46,7 +58,10 @@ impl Sender<T>
     func close();
 }
 
-struct Receiver<T> {}
+struct Receiver<T>
+{
+    internal state: ReceiverState<T>;
+}
 
 impl Receiver<T>
 {
@@ -64,9 +79,10 @@ instantiates the template for that destination. A concrete use is rejected when 
 thread affinity, unsynchronized mutation authority, or a lifecycle obligation that the receiver cannot resolve. This is ordinary
 generic dependency-contract inference, not a channel-specific trait bound or compiler-recognized `std` declaration.
 
-The protected fields shown empty here are standard-library implementation details, not compiler-protected representations. Bounded
-channel construction, asynchronous send, asynchronous receive, closure, and explicit sender duplication are implemented with
-ordinary ownership, unions, atomics, synchronization types, async functions, and a runtime-backed event primitive.
+The internal state types in these conceptual signatures are implementation placeholders, not public contracts. The owner types have
+no public primary construction. Bounded channel construction, asynchronous send, asynchronous receive, closure, and explicit sender
+duplication are implemented with ordinary ownership, unions, atomics, synchronization types, async functions, and a runtime-backed
+event primitive.
 
 Cancellation-safe channel operations register a waiter before suspension, withdraw an uncommitted waiter during cancellation, and
 transfer an owned message only at the operation's atomic commit point. Before commit, the sending frame still owns the value and
@@ -118,7 +134,21 @@ callable Entry<State, T> = func(pos state: State) -> T
         compute_execution(),
     );
 
-struct Thread<T> {}
+struct Thread<T>
+{
+    internal state: ThreadState<T>;
+}
+
+struct ThreadFailure
+{
+    internal state: ThreadFailureState;
+}
+
+union ThreadError
+{
+    Capacity;
+    Creation(pos failure: ThreadFailure);
+}
 
 impl Thread<T>
 {
@@ -132,16 +162,28 @@ impl Thread<T>
         requires(blocking_execution());
 }
 
-func start<State, T>(pos entry: Entry<State, T>, pos state: State) -> Thread<T>;
+func start<State, T>(
+    pos entry: Entry<State, T>,
+    pos state: State,
+) -> Result<Thread<T>, ThreadError>;
+
 func cancellation_requested() -> bool;
 func checkpoint();
-async func run<State, T>(pos entry: Entry<State, T>, pos state: State) -> T;
+
+async func run<State, T>(
+    pos entry: Entry<State, T>,
+    pos state: State,
+) -> Result<T, ThreadError>;
 ```
 
 `start` evaluates the non-capturing synchronous entry callable and explicit state in the creating run, transfers the state to a new
-operating-system thread, and returns an ordinary standard-library `Thread<T>`. `join` blocks the calling thread until completion.
-`cancel` cooperatively requests cancellation and then blocks until completion. The owner's ordinary synchronous finalization
-requests cancellation and joins when ownership otherwise ends.
+operating-system thread, and returns an ordinary standard-library `Thread<T>`. Capacity exhaustion and operating-system creation
+failure are recoverable `ThreadError` values. Once creation succeeds, the safe wrapper invariant makes `join` and `cancel`
+operationally infallible: failure of the trusted substrate to observe a successfully created thread is a catastrophic contract bug,
+not an ordinary resource error. `join` blocks the calling thread until completion. `cancel` cooperatively requests cancellation and
+then blocks until completion. The owner's ordinary synchronous finalization requests cancellation and joins when ownership
+otherwise ends. `Thread<T>` and `ThreadFailure` have no public primary construction; their internal state can be created only by
+the standard-library implementation.
 
 After waiting, automatic thread-owner finalization treats an unobserved `Completed(T)` by the payload rules below, accepts
 `Cancelled`, propagates an unobserved thread panic on ordinary exit, and records it as a suppressed child-run panic when another
@@ -162,16 +204,17 @@ payload. During panic, synchronous infallible payload cleanup proceeds normally;
 be owned by the public thread owner whose possible implicit cleanup path cannot drive them, so public `start` rejects that
 instantiation.
 
-Thread cancellation is observed through `std.thread.cancellation_requested()`. `std.thread.checkpoint()` terminates the thread run
-with `RunResult.Cancelled` when a request is pending and otherwise returns normally. Native or noncooperative work can delay
-cancellation indefinitely. The safe contracts of `Entry`, `Thread`, and `start` carry every ownership, dependency, affinity, and
-cross-run visibility rule required by the transferred state.
+Thread cancellation is observed through `std.thread.cancellation_requested()` or `std.run.cancellation_requested()`.
+`std.thread.checkpoint()` and `std.run.checkpoint()` terminate the thread run with `RunResult.Cancelled` when a request is pending
+and otherwise return normally. Native or noncooperative work can delay cancellation indefinitely. The safe contracts of `Entry`,
+`Thread`, and `start` carry every ownership, dependency, affinity, and cross-run visibility rule required by the transferred state.
 
-`run` is the async bridge. It creates an operating-system thread without blocking a cooperative runtime worker, suspends the current
-task until the thread completes, and propagates the thread's normal result, cancellation, or panic into the current task. Starting
-the returned computation creates the ordinary `Task<T>` observation boundary. Its implementation uses a private ordinary
-async-finalizable bridge owner rather than the public synchronously finalized `Thread<T>`, so `run` can preserve a `T` whose
-lifecycle requires an async context.
+`run` is the async bridge. It creates an operating-system thread without blocking a cooperative runtime worker and suspends the
+current task until the thread completes. Creation failure produces `Result.Error(ThreadError)`. Normal thread completion produces
+`Result.Ok(value)`. A child cancellation or panic is forwarded into the current async computation rather than nested inside the
+outer `Result`. Starting the returned computation creates the ordinary `Task<Result<T, ThreadError>>` observation boundary. Its
+implementation uses a private ordinary async-finalizable bridge owner rather than the public synchronously finalized `Thread<T>`,
+so `run` can preserve a `T` whose lifecycle requires an async context.
 
 If cancellation of the current task is observed while `run` is waiting, the bridge requests native-thread cancellation exactly
 once, enters shielded cleanup, and waits for the thread to terminate before allowing current-task cancellation to continue. The
@@ -191,21 +234,54 @@ tasks, and creating native threads remain private trusted implementation operati
 ## Child processes
 
 `std.process.Process<T>` is the ordinary standard-library owner for a child process whose selected completion protocol can produce
-a value of type `T`.
+a value of type `T`. Process binding is explicit and does not depend on compiler reflection, synthesized serialization, or a
+compiler-recognized entrypoint shape.
 
 The minimum typed-process surface is semantically equivalent to:
 
 ```bray
-struct Program<Input, T> {}
-struct Process<T> {}
-struct ProcessFailure {}
+struct Executable
+{
+    internal state: ExecutableState;
+}
+
+struct Codec<T>
+{
+    internal state: CodecState<T>;
+}
+
+struct TerminationPolicy
+{
+    internal state: TerminationPolicyState;
+}
+
+struct Program<Input, T>
+{
+    internal state: ProgramState<Input, T>;
+}
+
+struct Process<T>
+{
+    internal state: ProcessState<T>;
+}
+
+struct ProcessFailure
+{
+    internal state: ProcessFailureState;
+}
+
+struct CodecFailure
+{
+    internal state: CodecFailureState;
+}
 
 union ProcessError
 {
     Creation(pos failure: ProcessFailure);
     Transport(pos failure: ProcessFailure);
     Protocol(pos failure: ProcessFailure);
-    Decoding(pos failure: ProcessFailure);
+    Encoding(pos failure: CodecFailure);
+    Decoding(pos failure: CodecFailure);
     ForcedTermination(pos failure: ProcessFailure);
     Reaping(pos failure: ProcessFailure);
 }
@@ -214,7 +290,37 @@ impl Process<T>
 {
     consume async func join() -> Result<RunResult<T>, ProcessError>;
     consume async func cancel() -> Result<RunResult<T>, ProcessError>;
+    async finalize() -> Result<unit, ProcessError>;
 }
+
+callable Worker<Input, T> = async func(pos input: Input) -> T;
+callable Encoder<T> = func(pos value: &T) -> Result<Bytes, CodecFailure>;
+callable Decoder<T> = func(pos bytes: Bytes) -> Result<T, CodecFailure>;
+
+func executable_from_path(pos path: Path, pos digest: Digest) -> Result<Executable, ProcessError>;
+func executable_from_dependency(pos dependency: ProductDependency) -> Result<Executable, ProcessError>;
+
+func wait_for_cooperative_exit() -> TerminationPolicy;
+func force_after(pos grace: Duration) -> Result<TerminationPolicy, ProcessError>;
+
+func codec<T>(
+    pos encode: Encoder<T>,
+    pos decode: Decoder<T>,
+    pos fingerprint: ProtocolFingerprint,
+) -> Codec<T>;
+
+func program<Input, T>(
+    pos executable: Executable,
+    pos input_codec: Codec<Input>,
+    pos output_codec: Codec<T>,
+    pos termination: TerminationPolicy,
+) -> Result<Program<Input, T>, ProcessError>;
+
+async func serve<Input, T>(
+    pos worker: Worker<Input, T>,
+    pos input_codec: Codec<Input>,
+    pos output_codec: Codec<T>,
+) -> Result<unit, ProcessError>;
 
 async func start<Input, T>(
     pos program: Program<Input, T>,
@@ -228,14 +334,33 @@ func run_blocking<Input, T>(
     requires(blocking_execution());
 ```
 
-`Program<Input, T>` is a standard-library description of a separately built executable product and its versioned input/output
-protocol. It is not an arbitrary callable moved into another address space. The protocol declares serialization, executable
-identity, target compatibility, panic-report compatibility, cancellation transport, and output decoding. Checking the generic
-standard-library bodies infers the portable dependency requirements for the encoded input and decoded output.
+`Executable` is an authenticated descriptor obtained either from an explicit path plus product digest or from the current
+product's declared dependency manifest. It is not discovered by name or compiler reflection. `Codec<T>` owns ordinary encoder and
+decoder callable witnesses plus a schema-and-protocol fingerprint. `TerminationPolicy` selects cooperative wait and permitted
+target-specific escalation. `Program<Input, T>` stores those four values and validates their target, protocol, panic-report, and
+cancellation compatibility. None of these owner types has public primary construction.
 
-`start` performs process creation and protocol negotiation without blocking a cooperative worker. `Result.Error` represents
-creation, transport, protocol, or decoding failure in the observing process. `Result.Ok(process)` transfers the sole source-level
-child-process ownership obligation to the returned `Process<T>`.
+The callable aliases and supporting path, bytes, digest, duration, dependency, and fingerprint types are ordinary standard-library
+declarations. A `ProductDependency` is obtained from ordinary product-manifest lookup rather than constructed from an unchecked
+string. `wait_for_cooperative_exit()` waits indefinitely after cancellation; `force_after(grace)` constructs a policy only when the
+target supports the required termination and reaping behavior. A codec is explicit: the compiler synthesizes no serialization
+implementation and does not inspect `T` to invent one. Checking the generic bodies infers the portable dependency requirements for
+encoded input and decoded output.
+
+A conforming child executable uses an ordinary async entrypoint that directly awaits `std.process.serve(worker, input_codec,
+output_codec)`. `serve` performs the authenticated protocol handshake, decodes the input, registers the private host terminal
+reporter, and directly awaits `worker(input)` in the child executable root. Normal completion encodes `T`. If the worker or child
+root panics or is cancelled, the product host reporter sends the compatible panic or cancellation outcome. This is ordinary Bray
+library composition over private ABI operations; it needs no language directive, compiler-known process type, callable reflection,
+or synthesized child-entry code. An input-decoding or output-encoding error is reported through the protocol as observer-side
+`ProcessError`, not as a child `Completed(T)`.
+
+The parent handshake authenticates the executable digest and the input, output, panic-report, cancellation, and protocol
+fingerprints before transferring the input. A mismatch is `ProcessError.Protocol`.
+
+`start` performs input encoding, process creation, and protocol negotiation without blocking a cooperative worker. `Result.Error`
+represents creation, transport, protocol, or encoding failure in the observing process. `Result.Ok(process)` transfers the sole
+source-level child-process ownership obligation to the returned `Process<T>`.
 
 `join` waits without requesting cancellation. `cancel` requests cooperative process cancellation and then waits. Their outer
 `Result` represents observer-side infrastructure failure. Their inner `RunResult<T>` represents the child run:
@@ -245,10 +370,15 @@ child-process ownership obligation to the returned `Process<T>`.
 - `Cancelled` is confirmed cooperative child cancellation.
 
 A consuming `join` or `cancel` returns only after the operating-system child has terminated and been reaped, including on
-`Result.Error`. Protocol or decoding failure cannot discard ownership of a still-running process. If cooperative cancellation
-fails, the selected `Program` termination policy decides whether to continue waiting or escalate to a target-supported forced
-termination. Forced termination is reported by the outer process-error layer and is not mislabeled `RunResult.Cancelled`. An
-operation whose policy cannot establish terminal ownership resolution does not return.
+`Result.Error`. Protocol or decoding failure cannot discard ownership of a still-running process. Received terminal payload bytes
+remain raw protocol storage until termination, reaping, framing, authentication, and all other infrastructure checks that can
+produce `ProcessError` have completed. Only then may the decoder construct and commit `T` or `PanicReport`. A decoder's partial
+values are ordinarily lifecycle-resolved on error, and after a decoded terminal payload is committed there is no later outer
+`ProcessError` path.
+
+If cooperative cancellation fails, the selected `Program` termination policy decides whether to continue waiting or escalate to a
+target-supported forced termination. Forced termination is reported by the outer process-error layer and is not mislabeled
+`RunResult.Cancelled`. An operation whose policy cannot establish terminal ownership resolution does not return.
 
 The layers remain intentionally distinct:
 
@@ -265,16 +395,14 @@ An arbitrary external executable uses a standard-library program adapter whose c
 A signal, nonzero status, malformed output, Bray panic, and cooperative cancellation are not silently conflated. Only a conforming
 Bray protocol can construct `RunResult.Panicked(PanicReport)`.
 
-`Process<T>` is asynchronously finalizable. If ownership ends unresolved, cleanup requests cancellation, waits or escalates
-according to the program's statically selected termination policy, reaps the operating-system child, and resolves any decoded
-payload. A safe default cannot leak a zombie process or silently leave a child running. A policy permitting operating-system
-handoff must be selected explicitly and changes the operation from child-process ownership to an external-service registration
-contract.
+`Process<T>` has an explicitly fallible async finalizer. If ownership ends unresolved, cleanup requests cancellation, waits or
+escalates according to the stored termination policy, reaps the operating-system child, and resolves any terminal payload. Because
+that cleanup can return `ProcessError`, implicit unresolved `Process<T>` finalization is rejected on normal scope exit. Source must
+consume the process with `join()` or `cancel()` and handle the outer infrastructure result. During panic or cancellation, shielded
+cleanup attempts the same policy; failure becomes an owned cleanup incident under the ordinary abnormal-exit rules.
 
-On a normal scope exit, implicit process finalization is valid only when its selected policy and every possible decoded `T` can be
-resolved infallibly in that async context. Otherwise source must explicitly consume the process with `join()` or `cancel()` and
-handle the outer infrastructure result. During panic or cancellation, cleanup still resolves the child; fallible cleanup outcomes
-become owned cleanup incidents under the ordinary abnormal-exit rules.
+Operating-system handoff or detached service registration is a separate standard-library API and owner type. It is never a
+`Process<T>` finalization policy, because successful handoff ends the child-process ownership contract rather than resolving it.
 
 `run_blocking` provides the synchronous composition path. It creates, waits for, observes, and reaps the child as one call and never
 publishes a `Process<T>` owner. It is available without selecting an async runtime, but cannot make progress on a cooperative async
@@ -292,47 +420,51 @@ loop and no algorithm creates an unbounded private worker pool.
 The minimum resource-policy surface is semantically equivalent to:
 
 ```bray
-union Domain
-{
-    Tasks;
-    Threads;
-    Processes;
-}
+struct TaskDomain {}
+struct ThreadDomain {}
+struct ProcessDomain {}
 
-struct Budget {}
+struct Budget<Domain>
+{
+    internal state: BudgetState<Domain>;
+}
 
 union BudgetError
 {
     Zero;
-    Unavailable(pos domain: Domain);
     Insufficient(pos requested: usize, pos available: usize);
 }
 
-impl Budget
+impl Budget<Domain>
 {
-    func domain() -> Domain;
     func maximum_active() -> usize;
-    mut func split(pos maximum_active: usize) -> Result<Budget, BudgetError>;
+    mut func split(pos maximum_active: usize) -> Result<Budget<Domain>, BudgetError>;
 }
 
-func budget(pos domain: Domain, pos maximum_active: usize) -> Result<Budget, BudgetError>;
+func task_budget(pos maximum_active: usize) -> Result<Budget<TaskDomain>, BudgetError>;
+func thread_budget(pos maximum_active: usize) -> Result<Budget<ThreadDomain>, BudgetError>;
+func process_budget(pos maximum_active: usize) -> Result<Budget<ProcessDomain>, BudgetError>;
 ```
 
-`Budget` is an owned synchronized resource authority, not a copyable integer hint. A parallel algorithm borrows or consumes it and
-holds one internal permit for each active child run until that child reaches terminal observation. Nested algorithms use the same
-budget or an explicitly split child budget, so copying a numeric limit cannot accidentally multiply process-wide parallelism.
-Construction reserves permits from the product host's configured root authority for that domain. Independent budgets therefore
-cannot collectively exceed the product limit. Destroying a budget releases its reservation. Construction rejects zero,
-target-unavailable domains, and requests the remaining root authority cannot satisfy. Product capacity is selected configuration,
-not an unbounded ambient machine query.
+`Budget<Domain>` is an owned synchronized algorithm bound, not a copyable integer hint and not global machine or product authority.
+A parallel algorithm borrows or consumes it and holds one internal library permit for each active child until terminal observation.
+Its domain parameter prevents passing a task budget to a thread or process algorithm. The state is internal and there is no public
+primary construction.
+
+Independent budgets can collectively request more work than the machine or product can supply. Runtime task limits bound
+simultaneously executing lanes and queue excess ready tasks without changing the infallible source contract of
+`Future<T>.start()`. Native-thread and child-process hard limits are enforced through their recoverable creation errors.
+`Future<T>.start()` does not consult or charge a `Budget<TaskDomain>`; the standard-library parallel algorithm acquires its own
+permit before calling `start()`. Thread and process algorithms likewise acquire a permit before invoking their fallible creation
+operations and release it only after terminal observation.
 
 `split` reserves part of a mutable parent budget and returns a child budget carrying a dependency on that parent. The parent cannot
 end while the child exists, and the reserved capacity returns to the parent when the child is destroyed. A failed split leaves the
 parent unchanged.
 
-A parallel operation receives or owns a `Budget` and states its cancellation, failure, ordering, and deterministic-result policy
-in its ordinary callable contract or explicit policy value. Implementations use runtime tasks, native threads, or child processes
-according to the budget's explicit domain:
+A parallel operation receives or owns a domain-specific budget and states its cancellation, failure, ordering, and
+deterministic-result policy in its ordinary callable contract or explicit policy value. Implementations use runtime tasks, native
+threads, or child processes according to the budget's explicit domain:
 
 - task parallelism uses `Future<T>`, `Task<T>`, and structured task cleanup,
 - thread parallelism uses `std.thread.Thread<T>` or its async bridge,
@@ -346,6 +478,10 @@ values or uses an explicit shared-memory contract.
 Cancellation is hierarchical. Cancelling a parallel operation broadcasts cancellation to all owned runs before waiting for any of
 them. A policy can collect terminal outcomes, stop after a failure, or reduce successful values, but it cannot silently discard a
 panic, cancellation, recoverable error, or payload lifecycle obligation.
+
+A thread-domain algorithm handles `ThreadError` as its recoverable creation layer. Its async bridge can return that error while
+forwarding a successfully created child's later panic or cancellation into the algorithm run. Process-domain algorithms preserve
+the distinct `ProcessError` and `RunResult<T>` layers.
 
 These algorithms need no new syntax or compiler-known types. Arrays and collections, generics, non-capturing callables, `Future<T>`,
 `Task<T>`, `RunResult<T>`, `std.thread.Thread<T>`, `std.process.Process<T>`, channels, synchronization, and private trusted ABI

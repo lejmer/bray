@@ -53,8 +53,8 @@ An entry point function:
 An entry point can be `async`. An executable with an async entrypoint selects exactly one conforming async runtime implementation
 and runtime ABI version through its product configuration.
 
-Product configuration also selects the root parallel-resource limits available to `std.parallel` for runtime tasks, native threads,
-and child processes. These limits are host-owned capacity authorities, not implicit queries of the build or execution machine.
+Product configuration can select hard limits for runtime tasks, native threads, and child processes. Ordinary
+`std.parallel.Budget<Domain>` values are library-side algorithm bounds and do not expose or reserve those host authorities.
 
 For an entry point with no explicit result type, the result type is `unit`.
 
@@ -70,10 +70,11 @@ The product host owns the executable root run. It observes that run as if it pro
 failed completion, panic completion, cancellation completion, and numeric exit results to the host process or embedding
 environment.
 
-For an async entrypoint, the compiler emits a host stub that invokes the entrypoint to create `Future<T>`, transfers its hidden frame
-into the host-owned runtime root task on the distinguished main-thread lane, drives that task to terminal completion, performs
-structured product shutdown for every root-owned task, thread, process, and lifecycle obligation, and performs the same result
-mapping. No source-level runtime value, runtime import, or inner async block is synthesized.
+For an async entrypoint, the compiler emits a host stub that invokes the entrypoint to create `Future<T>` and transfers its hidden
+frame into the host-owned runtime root task on the distinguished main-thread lane. The generated root frame performs root lexical
+task broadcast and ordinary lifecycle cleanup before publishing its final terminal record. The host then maps that record, drains
+cleanup reports, and shuts down runtime infrastructure. It does not discover source owners or repeat their lifecycle resolution.
+No source-level runtime value, runtime import, or inner async block is synthesized.
 
 The async entrypoint body is the root lexical structured task scope.
 

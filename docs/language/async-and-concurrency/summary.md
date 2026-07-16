@@ -22,16 +22,17 @@ Async frames are opaque compiler-managed values. Direct await does not semantica
 task-owned storage begins at `start()`. Recursive suspended depth can require dynamic storage without source boxing or pinning.
 
 The executable host owns the root process, main thread, and root run. A synchronous main is the root run directly; an async main is
-driven as a host-owned root task on the distinguished main-thread lane. Structured product shutdown resolves all source-owned
-tasks, threads, processes, payloads, and cleanup incidents before runtime infrastructure and process-scoped resources end.
+driven as a host-owned root task on the distinguished main-thread lane. The generated root frame resolves source-owned tasks,
+threads, processes, budgets, and cleanup incidents before terminal publication. Host shutdown then maps the terminal record, drains
+reports, and ends runtime infrastructure and process-scoped resources.
 
 The executable product selects one conforming runtime. `std.thread.Thread<T>`, `std.process.Process<T>`, parallel algorithms,
 channels, synchronization, checkpoints, timers, and concurrent combinators remain ordinary standard-library Bray over private
 trusted ABI operations.
 
-Parallel algorithms use owned `std.parallel.Budget` authorities reserved from product-configured task, thread, or process capacity.
-Nested algorithms share or split those authorities, so ordinary library composition cannot multiply a numeric limit into hidden
-unbounded parallelism.
+Parallel algorithms use domain-typed `std.parallel.Budget<Domain>` values as owned library-side bounds. Nested algorithms share or
+split those bounds. Independent budgets remain subject to the underlying runtime or product hard limits and do not modify
+`Future<T>.start()` semantics.
 
 ## Navigation
 

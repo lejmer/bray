@@ -390,7 +390,8 @@ current-run forwarding of observed `RunResult<T>`, cleanup-incident transfer, an
 lifecycle plans. Concrete and erased descriptors retain separate entry points for those phases. The backend must not lower every
 async call as a task or mandatory heap allocation. Direct await has no task-control-block or scheduler semantics;
 `Future<T>.start()` is the independent task-storage boundary. Async entrypoint lowering pins the host-owned root frame to the
-distinguished main-thread lane and preserves the internal terminal root outcome through product shutdown.
+distinguished main-thread lane, completes checked root lexical cleanup before terminal publication, and preserves the published
+terminal outcome through subsequent product shutdown.
 
 Frame descriptor and runtime ABI lowering follows `docs/design/async-runtime.md`.
 

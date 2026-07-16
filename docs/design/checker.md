@@ -676,8 +676,10 @@ For each async lexical scope exit, composite storage flow emits one two-phase cl
 cancellation before any task is awaited, then normal reverse lifecycle resolution proceeds with dependency ordering. Lowering
 consumes this plan without repeating flow analysis. Ordinary standard-library `Thread<T>` and `Process<T>` lifecycle obligations
 participate through their checked declaration contracts rather than compiler name recognition. The plan names separate descriptor
-broadcast visitors and lifecycle-resolution operations for concrete and erased state and statically rejects normal implicit child
-cleanup when a possible completion payload or infrastructure outcome cannot be resolved in the current context.
+broadcast visitors and lifecycle-resolution operations for concrete and erased state. It rejects implicit thread cleanup when a
+possible completion payload cannot be resolved synchronously and infallibly. Because the ordinary process finalizer returns
+`Result<unit, ProcessError>`, it always rejects an unresolved `Process<T>` on normal exit and requires explicit consuming
+observation; abnormal cleanup can record its failure as an incident.
 
 The complete implementation contract is defined in `docs/design/async-runtime.md`.
 

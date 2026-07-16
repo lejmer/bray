@@ -1,6 +1,7 @@
 # Cancellation and memory visibility
 
-Cancellation requests are observed by tasks through cancellation points and operation contracts.
+Cancellation requests are observed by executable roots, tasks, native threads, and conforming child-process roots through their
+domain-specific cancellation points and operation contracts.
 
 A cancellation request does not grant direct access to the cancelled run's captured storage.
 

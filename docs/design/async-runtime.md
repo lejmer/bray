@@ -301,10 +301,20 @@ cannot outlive terminal task storage except through the ABI's internal reclamati
 
 ## Cancellation and completion lowering
 
-A cancellation request atomically marks the task and makes a suspended cancellation-aware operation resumable. The generated frame
-checks the request at each language-defined observation point.
+Every executable root, task, standard-library native thread, and conforming child-process root has one logical run-cancellation
+state. An external request atomically marks that state and wakes a cancellation-aware wait. The run observes the request at its
+domain-defined await, checkpoint, or cancellation-aware operation.
 
-Cancellation cleanup masks further delivery while retaining the request for `std.task.cancellation_requested()`. Generated cleanup
+`try RunResult.Cancelled` uses a distinct checked lowering: it marks the current run requested and immediately commits control to
+cancellation cleanup without waiting for another checkpoint. This makes the request observable to lifecycle code while preventing
+the abandoned ordinary continuation from resuming.
+
+`std.run.cancellation_requested()` and `std.run.checkpoint()` are ordinary wrappers over the current-root ABI record. Task and
+thread helpers delegate to them. Async roots use task observation rules; synchronous roots use explicit run checkpoints and
+cancellation-aware synchronous operations. A conforming child-process host maps the authenticated parent request to its child root
+state.
+
+Cancellation cleanup masks further delivery while retaining the request for `std.run.cancellation_requested()`. Generated cleanup
 drives async finalizers, records fallible-finalization errors as owned cleanup incidents during abnormal exit, and always reaches
 infallible destruction unless cleanup panics or a noncooperative operation never returns.
 
@@ -340,6 +350,13 @@ resume and destruction. Cleanup-report sink support is part of the product-host 
 without linking an async scheduler.
 
 ABI symbol spellings and calling conventions are selected by the target/runtime contract. They do not become source declarations.
+The ABI artifact also carries immutable compiler-readable semantic-contract records keyed by closed binary ABI roles. Records cover
+ownership transfer, open run-transfer subjects, synchronization and visibility edges, callback-root execution facts, cancellation,
+panic behavior, lifecycle ownership, and capabilities. A private standard-library binding is explicitly associated with a
+compatible role during the trusted product-and-standard-library build. The compiler validates the role, signature, ABI version,
+target, and record schema, checks wrappers using the record, and trusts the substrate implementation. It never discovers these
+contracts from source spelling or an extern body.
+
 The runtime receives compiler-generated frame descriptors and never parses source types or compiled package interfaces.
 
 The product runtime advertises:
@@ -357,9 +374,9 @@ The product runtime advertises:
 Runtime implementations must be deterministic with respect to language-defined ownership and lifecycle outcomes even though task
 interleaving is not deterministic.
 
-The product host independently supplies configured root task, thread, and process budget authorities. Those authorities remain
-available to synchronous products that use standard-library threads, processes, or blocking parallel algorithms without selecting
-an async runtime.
+Product and runtime configuration can impose hard limits on tasks, native threads, and child processes. Task limits bound
+simultaneously executing lanes and queue excess ready tasks without changing `Future<T>.start()`. Native-thread and process limits
+use recoverable creation failures. All are independent of ordinary library-side parallel budgets.
 
 ---
 
@@ -395,7 +412,7 @@ For an async entrypoint, lowering creates a compiler-owned host stub and root fr
 - host-to-root cancellation and wake roles,
 - reachable execution-lane requirements,
 - distinguished main-thread-lane startup and drive roles,
-- configured root parallel-resource authorities,
+- configured task, thread, and process hard limits,
 - reactor or event features required by linked standard-library code,
 - target and panic ABI compatibility facts.
 
@@ -404,10 +421,14 @@ entrypoint executes as the root run and establishes `blocking_execution()`, `com
 `main_thread_execution()`. An async entrypoint frame becomes a host-owned root task pinned to the distinguished main-thread lane;
 that lane establishes `main_thread_execution()` but not the blocking or compute predicates.
 
-The host observes the root through an internal `RunResult<T>`-equivalent terminal record, resolves every source-owned task, thread,
-process, parallel-budget reservation, payload, and cleanup incident, shuts runtime infrastructure down only after source
-obligations end, and then maps the terminal record to the product exit contract. The root observation never creates a source
-`Task<T>` and cannot resume source execution.
+The root body first creates an outcome candidate. Before publication, the generated root frame performs its checked phase-one task
+broadcast and phase-two ordinary lifecycle resolution, including standard-library thread, process, budget, and synchronization
+owners. Cleanup can replace the candidate with a panic outcome. Only then does the runtime publish the internal
+`RunResult<T>`-equivalent terminal record and end the root run.
+
+The host observes that final record, owns and maps or reports any `Completed(T)` payload, drains the cleanup-report sink, then shuts
+runtime infrastructure and host process resources down. It does not discover source owners, match standard-library type names, or
+repeat their lifecycle resolution. Root observation never creates a source `Task<T>` and cannot resume source execution.
 
 The linker validates the selected runtime artifact metadata against the plan. It does not choose a runtime, inspect source names, or
 infer requirements from unresolved symbols.
@@ -419,16 +440,16 @@ it.
 
 ## Standard-library boundary
 
-`std.task`, `std.channel`, `std.concurrent`, `std.parallel`, `std.sync`, `std.thread`, and `std.process` are ordinary Bray modules.
-Their public declarations are encoded in package interfaces exactly like user-library declarations.
+`std.run`, `std.task`, `std.channel`, `std.concurrent`, `std.parallel`, `std.sync`, `std.thread`, and `std.process` are ordinary Bray
+modules. Their public declarations are encoded in package interfaces exactly like user-library declarations.
 
-Private trusted declarations bind runtime events, current-task cancellation state, checkpoint/yield operations, native-thread
-creation, child-process creation and transport, parallel-budget reservation, reactor registration, and other nonportable services.
-Their trusted contracts must establish every ownership, dependency, visibility, cancellation, and lifecycle fact used by safe
-wrappers.
+Private trusted declarations bind runtime events, current-run cancellation state, checkpoint/yield operations, native-thread
+creation, child-process creation and transport, reactor registration, and other nonportable services. Their associated ABI-role
+contract records must establish every ownership, dependency, visibility, callback-root, cancellation, and lifecycle fact used by
+safe wrappers. The association is private product metadata; public wrapper interfaces contain only ordinary inferred contracts.
 
 Generic operations that publish values to synchronized shared storage or an independent run produce open run-transfer terms in the
-ordinary inferred dependency template. A private ABI operation declares that semantic boundary in its checked trusted contract;
+ordinary inferred dependency template. A private ABI operation obtains that semantic boundary from its ABI-role contract record;
 the compiler does not recognize its source name. Consumers instantiate the exported term with concrete value dependencies, so
 `std.channel`, `std.thread`, `std.process`, and `std.parallel` reject creating-run borrows, incompatible affinity, unsynchronized
 mutation, unencodable process-local state, and undrivable lifecycle obligations without a public marker trait or another
@@ -443,21 +464,35 @@ request-thread-cancellation, shielded wait, terminal lifecycle resolution, and c
 uses a private async-finalizable standard-library owner rather than the public synchronous thread owner, preserving ordinary Bray
 expressibility while allowing async lifecycle resolution of `T`.
 
-`std.process.Process<T>` is an ordinary asynchronously finalizable standard-library owner. Its outer `Result` reports process
-creation, transport, protocol, and decoding failures; its inner `RunResult<T>` represents a conforming Bray child run. Generic
-program descriptions and process protocols infer ordinary encoding, transfer, target, compatibility, cancellation, and output
-lifecycle contracts. Raw external programs adapt their explicit exit representation rather than pretending every nonzero status or
-signal is a Bray panic.
+`std.process.Process<T>` is an ordinary asynchronously finalizable standard-library owner whose explicit finalizer returns
+`Result<unit, ProcessError>`. Normal scope exit therefore rejects an unresolved owner and requires an explicit consuming `join` or
+`cancel`; abnormal cleanup records finalizer failure as a cleanup incident. Its outer `Result` reports process creation, transport,
+protocol, encoding, decoding, termination, and reaping failures; its inner `RunResult<T>` represents a conforming Bray child run.
 
-`std.parallel` algorithms accept explicit resource budgets and execution-domain policy. Their generic bodies use tasks, threads, or
-processes without hidden unbounded worker creation. Scoped task and thread algorithms can retain checked borrows only while they own
-and resolve every child before return; process algorithms transfer encoded values and cannot borrow process-local memory. Budget
-construction reserves permits from product-configured root authorities, and nested algorithms share or explicitly split those
-reservations rather than multiplying numeric hints.
+`Executable`, `Codec<T>`, `TerminationPolicy`, and `Program<Input, T>` are ordinary nonforgeable standard-library owners with
+internal represented state. Executable identity comes from an explicit path plus digest or a declared product dependency. Codecs
+contain explicit encoder/decoder witnesses and fingerprints; the compiler synthesizes no serialization. A child executable's
+ordinary async main directly awaits `std.process.serve(worker, codecs...)`, which registers a private host terminal reporter and
+maps root completion, panic, or cancellation into the authenticated protocol. The handshake validates executable and protocol
+identity. Parent observation retains raw payload bytes until termination, reaping, and all fallible protocol checks complete, and
+only then decodes and commits `T` or `PanicReport`; no outer process error is possible after that commit. Raw external programs adapt
+their explicit exit representation rather than pretending every nonzero status or signal is a Bray panic.
+
+`std.parallel` algorithms accept `Budget<TaskDomain>`, `Budget<ThreadDomain>`, or `Budget<ProcessDomain>`. These ordinary
+nonforgeable standard-library owners bound one algorithm hierarchy; they are not product capacity authority and do not change
+`Future<T>.start()`. Algorithms acquire a library permit before child creation and release it after terminal observation. Nested
+algorithms share or split a same-domain parent; independent budgets can collectively exceed product capacity and remain subject to
+the underlying creation limits. Scoped task and thread algorithms can retain checked borrows only while they own and resolve every
+child before return; process algorithms transfer encoded values and cannot borrow process-local memory.
+
+Native-thread creation returns `Result<Thread<T>, ThreadError>` so capacity and operating-system creation failures remain
+recoverable. After successful creation, safe `Thread<T>.join()` and `.cancel()` produce `RunResult<T>` without another operational
+error layer. The async bridge returns `Result<T, ThreadError>` for creation failure and normal completion, while forwarding a
+successfully created child's later panic or cancellation into the awaiting run.
 
 The compiler does not synthesize channel, process, budget, or combinator implementations. Fixed arrays, const generics,
 non-capturing callables, ordinary unions and products, `Future<T>`, `Task<T>`, and private trusted event, thread, process, transport,
-and reservation wrappers are sufficient to implement the standard algorithms.
+and operating-system wrappers are sufficient to implement the standard algorithms.
 
 ---
 
@@ -483,7 +518,9 @@ Async diagnostics use structured identities and typed arguments. Required catego
 - async loop with no cancellation observation opportunity,
 - task started and immediately joined when direct await is equivalent,
 - child thread or process ownership escapes its provider,
-- process protocol cannot encode or preserve a transferred dependency.
+- process protocol cannot encode or preserve a transferred dependency,
+- unresolved fallible `Process<T>` finalization on normal exit,
+- private ABI binding role, signature, version, or semantic-contract schema mismatch.
 
 Diagnostics point to the operation, the dependency or requirement origin, and the owner or lane that fails to preserve it. Compiler
 logic emits message IDs and typed source/symbol/type/requirement arguments only.
@@ -491,6 +528,9 @@ logic emits message IDs and typed source/symbol/type/requirement arguments only.
 Inspection output exposes frame size and alignment, retained values by suspension point, recursive or erased dynamic-storage sites,
 task allocation sites, lane requirements, affinity causes, and structured cleanup obligations. Runtime tracing correlates task IDs,
 parent owners, start sites, current suspension sites, wake causes, cancellation state, join waiters, and cleanup blockers.
+Compiled-interface inspection renders public open run-transfer terms with their subject and declaration origins. Trusted
+product-and-standard-library inspection additionally renders each private binding's ABI role, contract-record digest, validated
+signature, target, and ABI version without exposing that role through ordinary package lookup.
 
 ---
 
@@ -516,6 +556,10 @@ The implementation requires focused tests for:
 - open generic run-transfer template instantiation and synchronous/native execution-root facts,
 - blocking thread-owner contracts and async thread-bridge cancellation,
 - typed process protocol layering, cancellation, reaping, and payload lifecycle,
+- process executable and codec authentication plus decode-after-reap commit ordering,
+- recoverable native-thread capacity and creation failure,
+- universal root, task, thread, and child-process cancellation state and forwarded-cancellation entry,
+- private ABI role-contract validation and public-wrapper contract erasure,
 - explicit parallel resource budgets and scoped task, thread, and process execution,
 - `try RunResult<T>` current-run forwarding and its interaction with `catch`,
 - compiled-interface round trips for async metadata,

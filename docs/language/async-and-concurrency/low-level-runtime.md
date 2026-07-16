@@ -9,7 +9,7 @@ The language-defined runtime contract provides semantic operations equivalent to
 - starting a task from an inactive frame,
 - resuming and suspending a frame,
 - waking a task,
-- requesting task cancellation,
+- requesting cancellation of a runtime-owned run,
 - registering and waking join waiters,
 - observing cancellation and checkpoints,
 - traversing owned task obligations without lifecycle resolution,
@@ -29,24 +29,33 @@ A conforming runtime must preserve:
 - exactly-once frame completion and destruction,
 - cancellation request and cleanup shielding rules,
 - phase-separated task broadcast through concrete and erased frame state,
-- task run-boundary panic capture,
+- run-boundary panic capture,
 - ownership and mandatory reporting of suppressed cleanup incidents,
 - join and cancellation completion visibility edges,
 - lane execution facts,
 - structured root shutdown.
 
-Native thread creation, child process creation and signalling, typed process-protocol transport, process reaping, and parallel
-resource budgets are ordinary standard-library services over private trusted product or platform ABI declarations. They are not
+Native thread creation, child process creation and signalling, typed process-protocol transport, process reaping, and hard product
+resource limits are ordinary standard-library services over private trusted product or platform ABI declarations. They are not
 additional compiler-known runtime operations. When an async wrapper integrates them with task suspension, its trusted contract must
-connect the external completion event to the runtime without blocking a cooperative worker.
-
-The product host supplies bounded root task, thread, and process authorities to the private standard-library budget implementation.
-Reservation and release are synchronized product operations. They expose no source runtime handle and cannot be bypassed by
-constructing another ordinary `Budget` value.
+connect the external completion event to the runtime without blocking a cooperative worker. Ordinary parallel budgets are
+standard-library permit hierarchies and require no product-host budget authority.
 
 Private standard-library implementation modules can bind the ABI through trusted foreign declarations. Those declarations remain
 ordinary private `std` source declarations and are not recognized by their source paths. A different standard library can organize
 its wrappers differently while targeting the same ABI.
+
+The product and runtime ABI artifact includes an immutable compiler-readable semantic-contract table keyed by closed binary ABI
+roles rather than source symbol names. A table entry can encode ownership transfer, open run-transfer subjects, synchronization and
+visibility edges, callback execution-root facts, cancellation state and observation behavior, panic behavior, lifecycle ownership,
+and capability requirements. During the trusted product-and-standard-library build, each private foreign binding declaration is
+explicitly associated with one compatible ABI role. The compiler validates the role, signature, target, ABI version, and contract
+record schema, then checks the binding and its ordinary Bray wrappers using that record. It trusts the selected substrate to
+implement the record.
+
+The association is private build metadata, not source syntax, a package path convention, or a compiler-known declaration. It is not
+published through the public standard-library surface. Public wrapper bodies infer ordinary portable dependency and callable
+contracts from their checked uses, so consumer interfaces contain no private ABI role identities.
 
 Trusted runtime declarations that affect scheduling, memory visibility, synchronization, cancellation, foreign callbacks, or
 device access must expose safe internal contracts covering ownership, borrowing, visibility edges, cancellation, panic, fact

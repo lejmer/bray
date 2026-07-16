@@ -45,9 +45,11 @@ run into `Result<T, PanicReport>`; it does not intercept cancellation or inspect
 
 Low-level runtime machinery is a versioned trusted product substrate. Channels, operating-system threads, synchronization types,
 child processes, parallel algorithms, timers, checkpoints, and concurrent combinators are ordinary standard-library Bray over
-private trusted ABI operations. Their generic cross-run safety comes from ordinary inferred open dependency contracts, not
-compiler-recognized library names or marker types. Parallel algorithms use explicit resource budgets; no ordinary loop or library
-call creates unbounded hidden parallelism.
+private trusted ABI operations. Private ABI bindings receive compiler-readable semantic contracts from closed binary roles, while
+their public wrappers expose only ordinary inferred contracts. Their generic cross-run safety does not depend on
+compiler-recognized library names or marker types. Parallel algorithms use domain-typed library budgets; underlying product and
+runtime hard limits remain independently enforced.
 
-Structured product shutdown resolves every source-owned task, thread, process, payload, and cleanup incident before runtime
-infrastructure and process-scoped resources end. Normal root return never detaches child work.
+The generated root frame resolves every source-owned task, thread, process, payload, and cleanup incident before publishing the
+root terminal outcome. The host then maps that outcome and shuts down runtime infrastructure and process-scoped resources. Normal
+root return never detaches child work.

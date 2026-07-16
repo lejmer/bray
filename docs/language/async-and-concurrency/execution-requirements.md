@@ -48,7 +48,7 @@ Ordinary synchronous calls inherit the current context's facts. Entering an ordi
 
 For a synchronous callable, these requirements are checked at the call as ordinary preconditions.
 
-For an async callable, invocation does not execute the body, so these two requirements are deferred into the produced `Future<T>`
+For an async callable, invocation does not execute the body, so these execution requirements are deferred into the produced `Future<T>`
 instead of being required merely to construct it. Other invocation-time preconditions remain checked at invocation according to
 ordinary call rules.
 

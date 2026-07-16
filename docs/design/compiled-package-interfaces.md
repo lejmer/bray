@@ -45,6 +45,11 @@ The package interface does not:
 - serve as the object-code, debug-information, documentation, or source-map format,
 - guarantee compatibility with obsolete interface format revisions.
 
+Private product/runtime ABI semantic-contract tables are not ordinary library package interfaces. They belong to the selected
+trusted ABI artifact, use closed binary ABI role identities, and are consumed only while checking private standard-library or
+product bindings. A public wrapper's inferred portable contract can enter `.brayi`; its private binding role and trusted ABI
+contract record cannot.
+
 The package and build layer supplies opaque package, product, and dependency identities. The interface records and validates those
 identities but does not decide how a package manager obtains them. Each identity type used in an artifact must provide a canonical
 serialized form and semantic equality contract.
@@ -371,6 +376,9 @@ For every exported declaration, the interface records the applicable checked sur
 - lifecycle obligations and default availability,
 - target-fact dependencies,
 - runtime default provider identity and checked template reference.
+
+Export validation rejects a public semantic fact that refers to a private product/runtime ABI role. The producing compilation must
+have reduced such a dependency to the ordinary inferred public contract of the wrapper declaration.
 
 The interface records semantic answers, not the source syntax from which they were derived.
 

@@ -37,9 +37,14 @@ requirement. Each concrete call or movement instantiates it with the actual valu
 preserves every resulting dependency.
 
 This rule applies to user code and standard-library code equally. A trusted private runtime operation that creates a thread or
-publishes synchronized storage declares the same boundary in its checked contract; its source name or package does not receive
-special recognition. Open run-transfer requirements are semantic dependency-template terms, not source predicates, traits,
-compiler-known types, implicit implementations, or new syntax.
+publishes synchronized storage obtains the same boundary from the selected product ABI's compiler-readable semantic contract. The
+private binding is associated with a closed binary ABI role during the trusted product-and-standard-library build; its source name
+or package receives no special recognition. The compiler validates the role and contract encoding, checks ordinary wrappers from
+it, and trusts the substrate implementation. Public wrapper interfaces export only the inferred portable dependency template, not
+the private role.
+
+Open run-transfer requirements and the related synchronization, callback-root, cancellation, and visibility terms are semantic
+contract metadata. They are not source predicates, traits, compiler-known types, implicit implementations, or new syntax.
 
 Each expression that produces a value or access path also produces a dependency contract.
 

@@ -1,25 +1,48 @@
 # Cancellation
 
-Cancellation is a cooperative abnormal exit from an incomplete async task and from child computations composed into that task.
+Cancellation is a cooperative abnormal exit from an incomplete run. Every executable root, async task, standard-library native
+thread, and conforming child-process root has a logical cancellation state.
 
-Driving the computation returned by `Task<T>.cancel()` and structured scope exit request task cancellation. A request sets the
-task's cancellation state and wakes the task if it is suspended in a cancellation-aware runtime operation. Repeated requests are
-idempotent.
+A run enters cancellation in either of two ways:
 
-A task observes a pending request:
+- an owner or host requests cancellation and the run later observes the pending request,
+- `try RunResult.Cancelled` forwards an already observed child-run cancellation into the current run.
 
-- before an await suspends,
-- after an await resumes,
-- at `std.task.checkpoint()`,
-- in cancellation-aware standard-library and runtime operations.
+A request marks the run's cancellation state and wakes it when its execution domain supports a cancellation-aware wait. Repeated
+requests are idempotent. Requesting cancellation does not itself prove completion.
 
-After observation, the task stops ordinary body execution, cancels the currently awaited child computation, and resolves initialized
-frame state through abnormal-exit lifecycle ordering. Cancellation does not produce the callable's ordinary result type. The task
-boundary reaches `RunResult.Cancelled` unless cleanup panics or normal completion won the race before cancellation was committed.
+Forwarding `RunResult.Cancelled` marks the current run as cancellation-requested and immediately commits the current control path to
+cancellation cleanup. It does not wait for another checkpoint. Lifecycle bodies therefore observe cancellation as requested while
+resolving that path.
 
-Pure computation that contains no await, checkpoint, or cancellation-aware operation can delay cancellation indefinitely. Bray does
-not preempt arbitrary source instructions. Implementations should diagnose async loops or long-running computation paths with no
-suspension or checkpoint opportunity.
+The ordinary standard-library run surface is semantically equivalent to:
+
+```bray
+func cancellation_requested() -> bool;
+func checkpoint();
+```
+
+These declarations belong to `std.run`. `cancellation_requested()` reports the current run's logical request state.
+`checkpoint()` enters cancellation when a request is pending and otherwise returns normally. Neither declaration is compiler-known.
+
+Each run domain adds its own observation operations:
+
+- an async task observes before await suspension, after await resumption, at `std.task.checkpoint()`, and in cancellation-aware async
+  operations;
+- a native thread observes at `std.thread.checkpoint()`, `std.run.checkpoint()`, and cancellation-aware blocking operations;
+- an async executable root uses the task observation rules on its distinguished main-thread lane;
+- a synchronous executable root observes at `std.run.checkpoint()` and cancellation-aware synchronous standard-library operations;
+- a conforming child-process host maps a parent cancellation message into cancellation of its executable root;
+- a trusted foreign execution root observes only at points declared by its trusted contract.
+
+After observation or forwarding, the run stops ordinary body execution and resolves initialized state through abnormal-exit
+lifecycle ordering. An async task also cancels its currently directly awaited child computation. Cancellation does not produce the
+callable's ordinary result type. An uncaught cancellation reaches the current run boundary as `RunResult.Cancelled` unless cleanup
+panics or normal completion won a permitted request race before cancellation was committed.
+
+Pure computation containing no checkpoint or cancellation-aware operation can delay a request indefinitely. Bray does not preempt
+arbitrary source instructions. Implementations should diagnose evident async loops or long-running computation paths with no
+observation opportunity.
 
 ## Cleanup shielding
 
@@ -38,7 +61,7 @@ Cancellation and panic cleanup provide the universal abandonment path:
 2. If it succeeds, continue to ordinary destruction.
 3. If it returns `Result.Error`, record the error as a suppressed cleanup incident, abandon graceful finalization, and run the
    synchronous infallible destructor and represented-part destruction anyway.
-4. If cleanup panics, the task boundary reports `RunResult.Panicked`; an already active panic is retained as the primary report and
+4. If cleanup panics, the run boundary reports `RunResult.Panicked`; an already active panic is retained as the primary report and
    later cleanup panics are attached as suppressed reports.
 
 A cleanup incident is an owned, type-erased runtime record containing the finalizer error value, its concrete type descriptor, the
@@ -61,8 +84,9 @@ a `PanicReport` resolves every attached entry. A non-panic finalizer error alone
 Destructors therefore remain synchronous, infallible, and last-resort representational cleanup. No cancellation-specific lifecycle
 declaration, parameter, or modifier exists.
 
-A lifecycle body that needs to select graceful behavior can call `std.task.cancellation_requested()`. That function is an ordinary
-standard-library declaration, not a keyword or compiler-known source name.
+A lifecycle body that needs to select graceful behavior can call `std.run.cancellation_requested()`. Task- and thread-specific
+helpers delegate to the same logical state. These functions are ordinary standard-library declarations, not keywords or
+compiler-known source names.
 
 ## Navigation
 

@@ -39,9 +39,11 @@ product host, rather than Bray source, owns its resolution obligation.
 Runtime worker, reactor, blocking-lane, and compute-lane threads are product infrastructure. They are not source-visible
 `std.thread.Thread<T>` children and cannot be joined, detached, or retained by source.
 
-The product host also owns the configured root parallel-resource authority for runtime tasks, native threads, and child processes.
-`std.parallel.Budget` values reserve bounded portions of that authority. Source cannot manufacture capacity beyond the product
-limit by constructing additional budget objects.
+Product and runtime configuration can impose hard limits on runtime tasks, native threads, and child processes. Ordinary
+`std.parallel.Budget<Domain>` values are algorithm-local concurrency bounds; they do not represent or reserve the host's hard-limit
+authority. Runtime task limits bound simultaneously executing lanes and can queue ready tasks; native-thread and process limits
+surface through their ordinary recoverable creation errors. A parallel algorithm remains subject to both its library permit and
+those underlying rules.
 
 ## Main-thread execution
 
@@ -142,17 +144,24 @@ into the executable root run. As an alternative to the second line, `catch (try 
 
 ## Structured product shutdown
 
-Before the host reports the root outcome or returns control to the embedding environment, it performs this ordered shutdown:
+The root body first produces an outcome candidate. Before that outcome becomes terminal, the compiler-generated root frame executes
+the root lexical cleanup plan:
 
-1. Resolve the root lexical scope, including its phase-one cancellation broadcast to every root-owned unresolved task.
-2. Complete ordinary lifecycle resolution for root-owned tasks and standard-library child-run owners.
-3. Resolve or reap every explicitly created child thread and process according to its checked owner contract.
-4. Complete shielded finalization and transfer every suppressed cleanup incident to its owning panic report or the mandatory
-   cleanup-report sink.
-5. Verify that every parallel-budget reservation has returned to the root authority.
-6. Shut down runtime infrastructure after no source run can use it.
-7. Resolve main-thread and process-scoped standard-library resources.
-8. Map the terminal root outcome to the host product contract.
+1. Broadcast cancellation to every root-scope owned unresolved task.
+2. Perform ordinary reverse lifecycle resolution, including task observation and the checked finalizers of ordinary
+   standard-library thread, process, budget, and synchronization owners.
+3. Complete shielded abnormal cleanup and attach or transfer every suppressed cleanup incident.
+4. Replace the outcome candidate with a panic outcome when cleanup panics according to the ordinary primary-and-suppressed panic
+   rules.
+5. Commit and publish the final root terminal record only after root lexical cleanup is complete.
+
+The product host does not rediscover source owners, inspect standard-library type names, or perform a second source lifecycle pass.
+It observes the already-final root terminal record, takes ownership of any `Completed(T)` payload, maps or reports the outcome, and
+resolves that payload under the product contract. It then drains the mandatory cleanup-report sink, shuts down runtime
+infrastructure after no source run can use it, resolves host-owned process resources, and returns control to the embedding
+environment.
+
+The root run ends at terminal publication. Product shutdown follows terminal observation and is not part of the root run.
 
 The host does not silently detach source-owned work during shutdown. A long-lived child can outlive an inner lexical block only by
 moving its owning value to a valid enclosing source owner. It cannot outlive the executable root unless an external process has
