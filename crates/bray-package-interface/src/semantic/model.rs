@@ -25,9 +25,10 @@ pub use dependency::{
 };
 pub use fact::{
     InterfaceAbiDependency, InterfaceCallableContract, InterfaceCallableContractClause,
-    InterfaceCoherenceRecord, InterfaceConstraint, InterfaceImplementationRecord,
-    InterfacePredicateSummary, InterfaceSemanticFactEntry, InterfaceSemanticFactKind,
-    InterfaceSourceProvenance, InterfaceTargetFactDependency,
+    InterfaceCallablePhaseBehavior, InterfaceCoherenceRecord, InterfaceConstraint,
+    InterfaceImplementationRecord, InterfacePredicateSummary, InterfaceSemanticFactEntry,
+    InterfaceSemanticFactKind, InterfaceSourceProvenance, InterfaceTargetFactDependency,
+    InterfaceTrustedCapabilityRequirement,
 };
 pub use id::{
     InterfaceCallableInstanceId, InterfaceCheckedTemplateId, InterfaceConstantTermId,
@@ -39,8 +40,8 @@ pub use support::{
     InterfaceTemplateReference,
 };
 pub use template::{
-    InterfaceCheckedTemplate, InterfaceCheckedTemplateBehavior, InterfaceCheckedTemplateInput,
-    InterfaceCheckedTemplateInputKind, InterfaceCheckedTemplateNode,
+    InterfaceCheckedTemplate, InterfaceCheckedTemplateBehavior, InterfaceCheckedTemplateExecution,
+    InterfaceCheckedTemplateInput, InterfaceCheckedTemplateInputKind, InterfaceCheckedTemplateNode,
     InterfaceCheckedTemplateOperation, InterfaceCheckedTemplateTemporary,
     InterfaceDeclarationTemplate,
 };

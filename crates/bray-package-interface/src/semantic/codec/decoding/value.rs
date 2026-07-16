@@ -190,7 +190,9 @@ pub(super) fn decode_callable_type(
         execution: decode_tag(read_u32(reader)?)?,
         trust: decode_tag(read_u32(reader)?)?,
         abi: decode_tag(read_u32(reader)?)?,
-        dependency_contract: InterfaceDependencyContractId::new(read_u32(reader)?),
+        invocation_dependency_contract: InterfaceDependencyContractId::new(read_u32(reader)?),
+        deferred_dependency_contract: read_optional_u32(reader)?
+            .map(InterfaceDependencyContractId::new),
     })
 }
 
@@ -364,7 +366,8 @@ pub(super) fn decode_constant_projection(
 #[cfg(test)]
 mod tests {
     use bray_symbols::{
-        AnySymbolId, CallableAbi, ConstantSymbolId, ExternalSymbolKey, FunctionSymbolId,
+        AnySymbolId, CallableAbi, CallableConstness, CallableExecution, CallableParameterMode,
+        CallablePosition, CallableTrust, ConstantSymbolId, ExternalSymbolKey, FunctionSymbolId,
         InherentImplementationSymbolId, ModuleSymbolId, NamedTypeSymbolId, PackageIdentity,
         PackageSymbolId, SelfTypeContext, SemanticValueStore, StructSymbolId, SymbolId, SymbolKind,
         SymbolName, SymbolOrdinal, TraitSymbolId, TypeData,
@@ -376,9 +379,9 @@ mod tests {
     use crate::test_support::{module_key as test_module_key, named_key};
     use crate::{
         DependencyInterfaceId, InterfaceAbiDependency, InterfaceCallableContract,
-        InterfaceConstantTerm, InterfaceConstantValue, InterfaceConstantValueId,
-        InterfaceConstantValueKind, InterfaceConstraint, InterfaceDependencyContract,
-        InterfaceDependencyContractId, InterfaceGenericSubstitution,
+        InterfaceCallableParameter, InterfaceConstantTerm, InterfaceConstantValue,
+        InterfaceConstantValueId, InterfaceConstantValueKind, InterfaceConstraint,
+        InterfaceDependencyContract, InterfaceDependencyContractId, InterfaceGenericSubstitution,
         InterfaceGenericSubstitutionId, InterfaceImplementationRecord, InterfacePredicateSummary,
         InterfaceSemanticFacts, InterfaceSemanticInternError, InterfaceSourceProvenance,
         InterfaceSymbolReference, InterfaceSymbolResolver, InterfaceTargetFactDependency,
@@ -445,12 +448,29 @@ mod tests {
             .intern(&store, &resolver)
             .unwrap_or_else(|error| panic!("semantic interning failed: {error:?}"));
 
-        assert_eq!(imported.types().len(), 2);
+        assert_eq!(imported.types().len(), 3);
         assert_eq!(imported.constant_values().len(), 1);
         assert_eq!(imported.constant_terms().len(), 1);
         assert_eq!(imported.dependency_contracts().len(), 1);
         assert_eq!(imported.constraints().len(), 1);
         assert_eq!(imported.callable_contracts().len(), 1);
+
+        let callable_contract = imported.callable_contracts()[0].contract();
+
+        assert_eq!(callable_contract.invocation_preconditions().len(), 1);
+        assert_eq!(callable_contract.static_constraints().len(), 1);
+
+        assert_eq!(
+            callable_contract.normal_completion_postconditions().len(),
+            1
+        );
+
+        assert_eq!(
+            callable_contract
+                .deferred_execution_behavior()
+                .map(|behavior| behavior.current_run_cancellation()),
+            Some(bray_symbols::CurrentRunCancellation::MayEnter)
+        );
 
         let contextual = match store.type_data(imported.types()[1]) {
             Ok(contextual) => contextual,
@@ -462,6 +482,23 @@ mod tests {
             &TypeData::ContextualSelf(SelfTypeContext::NamedType(NamedTypeSymbolId::Struct(
                 StructSymbolId::from_symbol_id(symbol_id(&surface, SymbolKind::Struct))
             )))
+        );
+
+        let callable = match store.type_data(imported.types()[2]) {
+            Ok(callable) => callable,
+            Err(error) => panic!("callable type must be interned: {error:?}"),
+        };
+        let TypeData::Callable(callable) = callable.as_ref() else {
+            panic!("third imported type must be callable");
+        };
+
+        assert_eq!(callable.execution(), CallableExecution::Asynchronous);
+
+        assert!(
+            callable
+                .dependency_contracts()
+                .deferred_execution()
+                .is_some()
         );
     }
 
@@ -617,7 +654,6 @@ mod tests {
             .unwrap_or_else(|| panic!("dependency package identity must be valid"));
 
         let surface = semantic_surface([package.clone()]);
-
         let mut facts = facts(&surface);
 
         let owner = ExternalSymbolKey::package(package);
@@ -721,6 +757,22 @@ mod tests {
                         substitution: InterfaceGenericSubstitutionId::new(0),
                     },
                     InterfaceType::ContextualSelf(struct_reference.clone()),
+                    InterfaceType::Callable {
+                        parameters: [InterfaceCallableParameter::new(
+                            "arg",
+                            CallablePosition::PositionalOrNamed,
+                            CallableParameterMode::Immutable,
+                            InterfaceTypeId::new(0),
+                        )]
+                        .into(),
+                        result: InterfaceTypeId::new(0),
+                        constness: CallableConstness::Runtime,
+                        execution: CallableExecution::Asynchronous,
+                        trust: CallableTrust::Safe,
+                        abi: CallableAbi::Bray,
+                        invocation_dependency_contract: InterfaceDependencyContractId::new(0),
+                        deferred_dependency_contract: Some(InterfaceDependencyContractId::new(0)),
+                    },
                 ],
                 [InterfaceConstantValue::new(
                     InterfaceTypeId::new(0),
@@ -738,9 +790,41 @@ mod tests {
                 )],
                 [InterfaceCallableContract::new(
                     function_reference.clone(),
-                    [],
-                    [],
-                    InterfaceDependencyContractId::new(0),
+                    [
+                        crate::InterfaceCallableContractClause::new(
+                            bray_symbols::SymbolOrdinal::new(0),
+                            bray_symbols::CallableContractClauseKind::Requires,
+                            InterfacePredicateSummary::new(InterfaceDependencyContractId::new(0)),
+                        ),
+                        crate::InterfaceCallableContractClause::new(
+                            bray_symbols::SymbolOrdinal::new(1),
+                            bray_symbols::CallableContractClauseKind::Ensures,
+                            InterfacePredicateSummary::new(InterfaceDependencyContractId::new(0)),
+                        ),
+                        crate::InterfaceCallableContractClause::new(
+                            bray_symbols::SymbolOrdinal::new(2),
+                            bray_symbols::CallableContractClauseKind::Static,
+                            InterfacePredicateSummary::new(InterfaceDependencyContractId::new(0)),
+                        ),
+                    ],
+                    crate::InterfaceCallablePhaseBehavior::new(
+                        [],
+                        [],
+                        [],
+                        [],
+                        [],
+                        InterfaceDependencyContractId::new(0),
+                        bray_symbols::CurrentRunCancellation::NotEntered,
+                    ),
+                    Some(crate::InterfaceCallablePhaseBehavior::new(
+                        [],
+                        [],
+                        [],
+                        [function_reference.clone()],
+                        [bray_symbols::LifecycleObligationKind::Finalization],
+                        InterfaceDependencyContractId::new(0),
+                        bray_symbols::CurrentRunCancellation::MayEnter,
+                    )),
                 )],
             )
             .with_target_dependencies(

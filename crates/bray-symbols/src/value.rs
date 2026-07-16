@@ -32,7 +32,7 @@ pub use substitution::{
     GenericSubstitutionShapeError,
 };
 pub use ty::{
-    BorrowKind, CallableAbi, CallableConstness, CallableExecution, CallableParameterData,
-    CallableParameterMode, CallableParameterName, CallablePosition, CallableTrust,
-    CallableTypeData, SelfTypeContext, TypeData,
+    BorrowKind, CallableAbi, CallableConstness, CallableDependencyContracts, CallableExecution,
+    CallableParameterData, CallableParameterMode, CallableParameterName, CallablePosition,
+    CallableTrust, CallableTypeData, SelfTypeContext, TypeData,
 };

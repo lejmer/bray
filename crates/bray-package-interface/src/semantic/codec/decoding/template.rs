@@ -3,11 +3,12 @@ use bray_symbols::{InterfaceSupportEntityId, SymbolOrdinal};
 
 use super::common::{decode_tag, validate_record_count};
 use crate::semantic::codec::common::{
-    SemanticDecodeContext, map_wire_error, read_count, read_symbol_reference, read_u32,
+    SemanticDecodeContext, map_wire_error, read_count, read_symbol_reference,
+    read_symbol_references, read_u32,
 };
 use crate::semantic::model::{
-    InterfaceCheckedTemplate, InterfaceCheckedTemplateBehavior, InterfaceCheckedTemplateInput,
-    InterfaceCheckedTemplateInputKind, InterfaceCheckedTemplateNode,
+    InterfaceCheckedTemplate, InterfaceCheckedTemplateBehavior, InterfaceCheckedTemplateExecution,
+    InterfaceCheckedTemplateInput, InterfaceCheckedTemplateInputKind, InterfaceCheckedTemplateNode,
     InterfaceCheckedTemplateOperation, InterfaceCheckedTemplateTemporary, InterfaceConstantTermId,
     InterfaceDeclarationTemplate, InterfaceDependencyContractId, InterfaceImplementationReference,
     InterfaceSemanticFacts, InterfaceTemplateReference, InterfaceTypeId,
@@ -104,6 +105,7 @@ fn decode_template(
     let effects = read_symbol_references(reader, limits, context)?;
     let capabilities = read_symbol_references(reader, limits, context)?;
     let trusted_obligations = read_symbol_references(reader, limits, context)?;
+    let execution_requirements = read_symbol_references(reader, limits, context)?;
     let lifecycle_count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
 
     let mut lifecycle_obligations = context.allocate_items(reader, lifecycle_count)?;
@@ -113,6 +115,7 @@ fn decode_template(
     }
 
     let dependency_contract = InterfaceDependencyContractId::new(read_u32(reader)?);
+    let current_run_cancellation = decode_tag(read_u32(reader)?)?;
 
     let witness_count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
     let mut witnesses = context.allocate_items(reader, witness_count)?;
@@ -125,6 +128,7 @@ fn decode_template(
         effects,
         capabilities,
         trusted_obligations,
+        InterfaceCheckedTemplateExecution::new(execution_requirements, current_run_cancellation),
         lifecycle_obligations,
         dependency_contract,
         witnesses,
@@ -259,21 +263,6 @@ fn read_node_ids(
     Ok(nodes)
 }
 
-fn read_symbol_references(
-    reader: &mut WireReader<'_>,
-    limits: InterfaceValidationLimits,
-    context: &mut SemanticDecodeContext,
-) -> Result<Vec<crate::InterfaceSymbolReference>, InterfaceValidationError> {
-    let count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
-    let mut references = context.allocate_items(reader, count)?;
-
-    for _ in 0..count {
-        references.push(read_symbol_reference(reader, context)?);
-    }
-
-    Ok(references)
-}
-
 fn decode_template_reference(
     reader: &mut WireReader<'_>,
     context: &mut SemanticDecodeContext,
@@ -399,6 +388,10 @@ mod tests {
             [],
             [],
             [],
+            crate::InterfaceCheckedTemplateExecution::new(
+                [],
+                bray_symbols::CurrentRunCancellation::NotEntered,
+            ),
             [],
             crate::InterfaceDependencyContractId::new(0),
             [],
@@ -729,6 +722,10 @@ mod tests {
                 [],
                 [],
                 [],
+                crate::InterfaceCheckedTemplateExecution::new(
+                    [],
+                    bray_symbols::CurrentRunCancellation::NotEntered,
+                ),
                 [],
                 crate::InterfaceDependencyContractId::new(0),
                 witnesses,
@@ -880,6 +877,10 @@ mod tests {
             [symbol_reference(surface, SymbolKind::Function)],
             [symbol_reference(surface, SymbolKind::Function)],
             [symbol_reference(surface, SymbolKind::Function)],
+            crate::InterfaceCheckedTemplateExecution::new(
+                [symbol_reference(surface, SymbolKind::Function)],
+                bray_symbols::CurrentRunCancellation::MayEnter,
+            ),
             [LifecycleObligationKind::Joining],
             crate::InterfaceDependencyContractId::new(0),
             [implementation],

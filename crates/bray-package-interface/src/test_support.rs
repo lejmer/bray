@@ -175,6 +175,10 @@ fn template_facts(
         [],
         [],
         [],
+        crate::InterfaceCheckedTemplateExecution::new(
+            [],
+            bray_symbols::CurrentRunCancellation::NotEntered,
+        ),
         [],
         crate::InterfaceDependencyContractId::new(0),
         [],

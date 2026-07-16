@@ -1,13 +1,14 @@
 use bray_binder::{
-    BinderFactError, BinderFactResult, PredicateClauseBindingContext, bind_predicate_clause,
-    bind_trusted_capability_clause,
+    BinderFactError, BinderFactResult, PredicateClauseBindingContext, SymbolFactProvider,
+    bind_predicate_clause, bind_trusted_capability_clause,
 };
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
     AnySymbolId, CallableContractClause, CallableContractClauseKind, CallableContractSet,
-    CallableContractsFact, CheckedConstraint, DependencyContractTemplateData, GenericConstraintSet,
-    GenericConstraintsFact, SymbolFactRequest, SymbolFactResult, SymbolGraph, SymbolOrdinal,
-    TrustedCapabilityRequirement,
+    CallableContractsFact, CallableExecution, CallablePhaseBehavior, CallableSignatureFact,
+    CallableSymbolId, CheckedConstraint, CurrentRunCancellation, DependencyContractTemplateData,
+    DependencyContractTemplateId, GenericConstraintSet, GenericConstraintsFact, SymbolFactRequest,
+    SymbolFactResult, SymbolGraph, SymbolOrdinal, TrustedCapabilityRequirement, TypeData,
 };
 use bray_syntax::{
     EnsuresClauseSyntax, RequiresClauseSyntax, SyntaxKind, SyntaxNodeView, SyntaxWalkControl,
@@ -43,7 +44,7 @@ impl CompilationSymbolFactBinding<CallableContractsFact> for CompilationSymbolFa
         context: &CompilationBinderFacts<'_>,
         request: SymbolFactRequest<CallableContractsFact>,
     ) -> BinderFactResult<SymbolFactResult<CallableContractsFact>> {
-        bind_callable_contracts(context, request.symbol())
+        bind_callable_contracts(context, request.owner())
     }
 }
 
@@ -82,9 +83,9 @@ fn bind_generic_constraints(
 
 fn bind_callable_contracts(
     context: &CompilationBinderFacts<'_>,
-    owner: AnySymbolId,
+    owner: CallableSymbolId,
 ) -> BinderFactResult<SymbolFactResult<CallableContractsFact>> {
-    let fragment = compiler_known_fragment(context.symbols, owner)?;
+    let fragment = compiler_known_fragment(context.symbols, owner.into_any())?;
     let clauses = direct_contract_clauses(fragment.root());
 
     let mut predicates = Vec::new();
@@ -95,7 +96,7 @@ fn bind_callable_contracts(
         match clause {
             ContractClauseSyntax::Requires(clause) => bind_callable_predicates(
                 context,
-                owner,
+                owner.into_any(),
                 syntax_node_view(&clause),
                 clause.expressions(),
                 CallableContractClauseKind::Requires,
@@ -104,7 +105,7 @@ fn bind_callable_contracts(
             )?,
             ContractClauseSyntax::Ensures(clause) => bind_callable_predicates(
                 context,
-                owner,
+                owner.into_any(),
                 syntax_node_view(&clause),
                 clause.expressions(),
                 CallableContractClauseKind::Ensures,
@@ -113,7 +114,7 @@ fn bind_callable_contracts(
             )?,
             ContractClauseSyntax::With(clause) => bind_callable_predicates(
                 context,
-                owner,
+                owner.into_any(),
                 syntax_node_view(&clause),
                 clause.expressions(),
                 CallableContractClauseKind::Static,
@@ -121,7 +122,7 @@ fn bind_callable_contracts(
                 &mut diagnostics,
             )?,
             ContractClauseSyntax::Uses(clause) => {
-                let result = bind_trusted_capability_clause(context, owner, &clause)?;
+                let result = bind_trusted_capability_clause(context, owner.into_any(), &clause)?;
                 let (symbols, clause_diagnostics) = result.into_parts();
                 diagnostics = diagnostics.merged(&clause_diagnostics);
 
@@ -139,10 +140,49 @@ fn bind_callable_contracts(
         .intern_dependency_contract_template(DependencyContractTemplateData::new([]))
         .map_err(|_| BinderFactError::DependencyUnavailable)?;
 
+    let signature = context.symbol_fact(SymbolFactRequest::<CallableSignatureFact>::new(owner))?;
+    let execution = match context
+        .semantic_values
+        .type_data(signature.value().callable_type())
+    {
+        Ok(data) => match &*data {
+            TypeData::Callable(callable) => callable.execution(),
+            _ => return Err(BinderFactError::DependencyUnavailable),
+        },
+        _ => return Err(BinderFactError::DependencyUnavailable),
+    };
+
+    let (invocation_behavior, deferred_execution_behavior) =
+        callable_phase_behaviors(execution, capabilities, dependency);
+
     publish_catalog_result(
-        CallableContractSet::new(predicates, capabilities, dependency),
+        CallableContractSet::new(predicates, invocation_behavior, deferred_execution_behavior),
         diagnostics,
     )
+}
+
+fn callable_phase_behaviors(
+    execution: CallableExecution,
+    trusted_capabilities: Vec<TrustedCapabilityRequirement>,
+    dependencies: DependencyContractTemplateId,
+) -> (CallablePhaseBehavior, Option<CallablePhaseBehavior>) {
+    let body_behavior = CallablePhaseBehavior::new(
+        [],
+        [],
+        trusted_capabilities,
+        [],
+        [],
+        dependencies,
+        CurrentRunCancellation::NotEntered,
+    );
+
+    match execution {
+        CallableExecution::Synchronous => (body_behavior, None),
+        CallableExecution::Asynchronous => (
+            CallablePhaseBehavior::empty(dependencies),
+            Some(body_behavior),
+        ),
+    }
 }
 
 enum ContractClauseSyntax {

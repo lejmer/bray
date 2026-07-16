@@ -1,8 +1,8 @@
 use bray_bound_tree::{CheckedTemplateKind, CheckedTemplateShortCircuitKind};
 use bray_symbols::{
-    BorrowKind, CallableAbi, CallableConstness, CallableContractClauseKind, CallableExecution,
-    CallableParameterMode, CallablePosition, CallableTrust, ConstantBinaryOperation,
-    ConstantUnaryOperation, LifecycleObligationKind, SymbolKind, SynthesizedSymbolRole,
+    BorrowKind, CallableAbi, CallableConstness, CallableExecution, CallableParameterMode,
+    CallablePosition, CallableTrust, ConstantBinaryOperation, ConstantUnaryOperation,
+    CurrentRunCancellation, LifecycleObligationKind, SymbolKind, SynthesizedSymbolRole,
 };
 
 use super::{
@@ -164,12 +164,6 @@ wire_tags!(CallableAbi {
     3 => CallableAbi::System,
 });
 
-wire_tags!(CallableContractClauseKind {
-    1 => CallableContractClauseKind::Requires,
-    2 => CallableContractClauseKind::Ensures,
-    3 => CallableContractClauseKind::Static,
-});
-
 wire_tags!(ConstantUnaryOperation {
     1 => ConstantUnaryOperation::Identity,
     2 => ConstantUnaryOperation::Negate,
@@ -227,10 +221,15 @@ wire_tags!(LifecycleObligationKind {
     4 => LifecycleObligationKind::Joining,
 });
 
+wire_tags!(CurrentRunCancellation {
+    1 => CurrentRunCancellation::NotEntered,
+    2 => CurrentRunCancellation::MayEnter,
+});
+
 #[cfg(test)]
 mod tests {
     use bray_bound_tree::{CheckedTemplateKind, CheckedTemplateShortCircuitKind};
-    use bray_symbols::{LifecycleObligationKind, SymbolKind};
+    use bray_symbols::{CurrentRunCancellation, LifecycleObligationKind, SymbolKind};
 
     use super::WireTag;
     use crate::SymbolRelationshipKind;
@@ -306,6 +305,20 @@ mod tests {
 
         assert_eq!(LifecycleObligationKind::from_wire(0), None);
         assert_eq!(LifecycleObligationKind::from_wire(5), None);
+    }
+
+    #[test]
+    fn current_run_cancellation_tags_are_shared_by_contracts_and_templates() {
+        assert_eq!(CurrentRunCancellation::NotEntered.to_wire(), 1);
+        assert_eq!(CurrentRunCancellation::MayEnter.to_wire(), 2);
+
+        assert_eq!(
+            CurrentRunCancellation::from_wire(2),
+            Some(CurrentRunCancellation::MayEnter)
+        );
+
+        assert_eq!(CurrentRunCancellation::from_wire(0), None);
+        assert_eq!(CurrentRunCancellation::from_wire(3), None);
     }
 
     fn index_u32(index: usize) -> u32 {

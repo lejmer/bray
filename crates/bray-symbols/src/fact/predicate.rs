@@ -149,38 +149,71 @@ impl TrustedCapabilityRequirement {
 /// Checked callable contracts, trusted obligations, and portable dependencies.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CallableContractSet {
-    clauses: Arc<[CallableContractClause]>,
-    trusted_capabilities: Arc<[TrustedCapabilityRequirement]>,
-    dependency_contract: DependencyContractTemplateId,
+    invocation_preconditions: Arc<[CallableContractClause]>,
+    static_constraints: Arc<[CallableContractClause]>,
+    normal_completion_postconditions: Arc<[CallableContractClause]>,
+    invocation_behavior: Arc<super::CallablePhaseBehavior>,
+    deferred_execution_behavior: Option<Arc<super::CallablePhaseBehavior>>,
 }
 
 impl CallableContractSet {
-    /// Creates a checked callable contract surface in declaration order.
+    /// Creates a checked callable contract with explicit invocation and completion phases.
     pub fn new(
         clauses: impl IntoIterator<Item = CallableContractClause>,
-        trusted_capabilities: impl IntoIterator<Item = TrustedCapabilityRequirement>,
-        dependency_contract: DependencyContractTemplateId,
+        invocation_behavior: super::CallablePhaseBehavior,
+        deferred_execution_behavior: Option<super::CallablePhaseBehavior>,
     ) -> Self {
+        let mut invocation_preconditions = Vec::new();
+        let mut static_constraints = Vec::new();
+        let mut normal_completion_postconditions = Vec::new();
+
+        for clause in clauses {
+            match clause.kind() {
+                CallableContractClauseKind::Requires => invocation_preconditions.push(clause),
+                CallableContractClauseKind::Ensures => {
+                    normal_completion_postconditions.push(clause);
+                }
+                CallableContractClauseKind::Static => static_constraints.push(clause),
+            }
+        }
+
         Self {
-            clauses: shared_slice(clauses),
-            trusted_capabilities: shared_slice(trusted_capabilities),
-            dependency_contract,
+            invocation_preconditions: shared_slice(invocation_preconditions),
+            static_constraints: shared_slice(static_constraints),
+            normal_completion_postconditions: shared_slice(normal_completion_postconditions),
+            invocation_behavior: Arc::new(invocation_behavior),
+            deferred_execution_behavior: deferred_execution_behavior.map(Arc::new),
         }
     }
 
-    /// Returns predicate-bearing clauses in declaration order.
-    pub fn clauses(&self) -> &[CallableContractClause] {
-        &self.clauses
+    /// Returns preconditions checked before callable invocation.
+    pub fn invocation_preconditions(&self) -> &[CallableContractClause] {
+        &self.invocation_preconditions
     }
 
-    /// Returns trusted capabilities in declaration order.
-    pub fn trusted_capabilities(&self) -> &[TrustedCapabilityRequirement] {
-        &self.trusted_capabilities
+    /// Returns constraints checked while selecting or instantiating the callable.
+    pub fn static_constraints(&self) -> &[CallableContractClause] {
+        &self.static_constraints
     }
 
-    /// Returns the normalized portable dependency contract.
-    pub const fn dependency_contract(&self) -> DependencyContractTemplateId {
-        self.dependency_contract
+    /// Returns facts published exclusively after normal completion.
+    pub fn normal_completion_postconditions(&self) -> &[CallableContractClause] {
+        &self.normal_completion_postconditions
+    }
+
+    /// Returns behavior incurred while invoking the callable.
+    pub fn invocation_behavior(&self) -> &super::CallablePhaseBehavior {
+        &self.invocation_behavior
+    }
+
+    /// Returns behavior retained by an async future until direct await or task execution.
+    ///
+    /// Starting the future transfers this contract unchanged to the produced task.
+    pub fn deferred_execution_behavior(&self) -> Option<&super::CallablePhaseBehavior> {
+        match &self.deferred_execution_behavior {
+            Some(behavior) => Some(behavior.as_ref()),
+            None => None,
+        }
     }
 }
 
@@ -221,7 +254,14 @@ pub enum PredicateDefinitionState<T> {
 
 #[cfg(test)]
 mod tests {
-    use super::{CallableContractSet, GenericConstraintSet, PredicateDefinitionState};
+    use super::{
+        CallableContractClause, CallableContractClauseKind, CallableContractSet,
+        GenericConstraintSet, PredicateDefinitionState, PredicateSemanticSummary,
+    };
+    use crate::{
+        CallablePhaseBehavior, CurrentRunCancellation, DependencyContractTemplateData,
+        SemanticValueStore, SymbolOrdinal,
+    };
 
     #[test]
     fn empty_constraint_sets_are_stable() {
@@ -236,5 +276,57 @@ mod tests {
 
         assert_send_sync::<CallableContractSet>();
         assert_send_sync::<PredicateDefinitionState<super::PredicateDefinition>>();
+    }
+
+    #[test]
+    fn callable_contracts_separate_invocation_and_normal_completion() {
+        let Ok(store) = SemanticValueStore::try_new() else {
+            panic!("semantic value store must be available");
+        };
+        
+        let Ok(dependencies) =
+            store.intern_dependency_contract_template(DependencyContractTemplateData::new([]))
+        else {
+            panic!("empty dependency contract must be valid");
+        };
+        
+        let predicate = PredicateSemanticSummary::new(dependencies);
+        
+        let behavior = CallablePhaseBehavior::new(
+            [],
+            [],
+            [],
+            [],
+            [],
+            dependencies,
+            CurrentRunCancellation::MayEnter,
+        );
+        
+        let contract = CallableContractSet::new(
+            [
+                CallableContractClause::new(
+                    SymbolOrdinal::new(0),
+                    CallableContractClauseKind::Requires,
+                    predicate,
+                ),
+                CallableContractClause::new(
+                    SymbolOrdinal::new(1),
+                    CallableContractClauseKind::Ensures,
+                    predicate,
+                ),
+            ],
+            CallablePhaseBehavior::empty(dependencies),
+            Some(behavior),
+        );
+
+        assert_eq!(contract.invocation_preconditions().len(), 1);
+        assert_eq!(contract.normal_completion_postconditions().len(), 1);
+        
+        assert_eq!(
+            contract
+                .deferred_execution_behavior()
+                .map(CallablePhaseBehavior::current_run_cancellation),
+            Some(CurrentRunCancellation::MayEnter)
+        );
     }
 }

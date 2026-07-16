@@ -1,11 +1,13 @@
 use bray_symbols::{
-    CallableContractClause, CallableContractSet, CallableInstanceId, CallableSymbolId,
-    CheckedConstraint, ConstantTermId, ConstantValueId, DependencyContractTemplateId,
-    GenericOwnerId, GenericSubstitutionId, ImplementationInstanceId, ImplementationSubject,
-    ImplementationSymbolId, PredicateSemanticSummary, SymbolOrdinal, TraitApplicationId,
+    CallableCapabilityRequirement, CallableContractClause, CallableContractSet,
+    CallableEffectRequirement, CallableExecutionRequirement, CallableInstanceId,
+    CallablePhaseBehavior, CallableSymbolId, CheckedConstraint, ConstantTermId, ConstantValueId,
+    DependencyContractTemplateId, GenericOwnerId, GenericSubstitutionId, ImplementationInstanceId,
+    ImplementationSubject, ImplementationSymbolId, PredicateSemanticSummary, TraitApplicationId,
     TrustedCapabilityRequirement, TypeId,
 };
 
+use crate::semantic::model::InterfaceCallablePhaseBehavior;
 use crate::{
     InterfaceCallableInstanceId, InterfaceConstantTermId, InterfaceConstantValueId,
     InterfaceDependencyContractId, InterfaceGenericSubstitutionId,
@@ -97,9 +99,18 @@ impl InternState {
             .callable_contracts
             .iter()
             .map(|input| {
-                let mut clauses = Vec::with_capacity(input.clauses.len());
+                let clause_count = input.invocation_preconditions.len()
+                    + input.static_constraints.len()
+                    + input.normal_completion_postconditions.len();
 
-                for clause in &*input.clauses {
+                let mut clauses = Vec::with_capacity(clause_count);
+
+                for clause in input
+                    .invocation_preconditions
+                    .iter()
+                    .chain(input.static_constraints.iter())
+                    .chain(input.normal_completion_postconditions.iter())
+                {
                     let dependency = self
                         .dependency_contract_id(clause.predicate.dependency_contract)
                         .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)?;
@@ -111,32 +122,78 @@ impl InternState {
                     ));
                 }
 
-                let capabilities = input
-                    .trusted_capabilities
-                    .iter()
-                    .enumerate()
-                    .map(|(index, reference)| {
-                        let ordinal = u32::try_from(index)
-                            .map(SymbolOrdinal::new)
-                            .map_err(|_| InterfaceSemanticInternError::UnresolvedValueGraph)?;
+                let invocation_behavior =
+                    self.convert_callable_behavior(&input.invocation_behavior, symbols)?;
 
-                        Ok(TrustedCapabilityRequirement::new(
-                            ordinal,
-                            resolve_symbol(symbols, reference)?,
-                        ))
-                    })
-                    .collect::<Result<Vec<_>, InterfaceSemanticInternError>>()?;
-
-                let dependency = self
-                    .dependency_contract_id(input.dependency_contract)
-                    .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)?;
+                let deferred_execution_behavior = input
+                    .deferred_execution_behavior
+                    .as_ref()
+                    .map(|behavior| self.convert_callable_behavior(behavior, symbols))
+                    .transpose()?;
 
                 Ok(ImportedCallableContractFact {
                     owner: resolve_family::<CallableSymbolId>(symbols, &input.owner)?,
-                    contract: CallableContractSet::new(clauses, capabilities, dependency),
+                    contract: CallableContractSet::new(
+                        clauses,
+                        invocation_behavior,
+                        deferred_execution_behavior,
+                    ),
                 })
             })
             .collect()
+    }
+
+    fn convert_callable_behavior(
+        &self,
+        input: &InterfaceCallablePhaseBehavior,
+        symbols: &impl InterfaceSymbolResolver,
+    ) -> Result<CallablePhaseBehavior, InterfaceSemanticInternError> {
+        let effects = input
+            .effects
+            .iter()
+            .map(|reference| resolve_symbol(symbols, reference).map(CallableEffectRequirement::new))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let capabilities = input
+            .capabilities
+            .iter()
+            .map(|reference| {
+                resolve_symbol(symbols, reference).map(CallableCapabilityRequirement::new)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let trusted_capabilities = input
+            .trusted_capabilities
+            .iter()
+            .map(|requirement| {
+                Ok(TrustedCapabilityRequirement::new(
+                    requirement.ordinal,
+                    resolve_symbol(symbols, &requirement.capability)?,
+                ))
+            })
+            .collect::<Result<Vec<_>, InterfaceSemanticInternError>>()?;
+
+        let execution_requirements = input
+            .execution_requirements
+            .iter()
+            .map(|reference| {
+                resolve_symbol(symbols, reference).map(CallableExecutionRequirement::new)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let dependency = self
+            .dependency_contract_id(input.dependency_contract)
+            .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)?;
+
+        Ok(CallablePhaseBehavior::new(
+            effects,
+            capabilities,
+            trusted_capabilities,
+            execution_requirements,
+            input.lifecycle_obligations.iter().copied(),
+            dependency,
+            input.current_run_cancellation,
+        ))
     }
 
     pub(super) fn convert_implementations(

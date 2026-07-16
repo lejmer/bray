@@ -1,19 +1,21 @@
 use super::common::{decode_tag, validate_record_count};
 use crate::semantic::codec::common::{
-    SemanticDecodeContext, map_wire_error, read_count, read_symbol_reference, read_u32,
+    SemanticDecodeContext, map_wire_error, read_count, read_symbol_reference,
+    read_symbol_references, read_u32,
 };
 use crate::semantic::model::{
-    InterfaceCallableContract, InterfaceCallableContractClause, InterfaceConstantTermId,
-    InterfaceConstraint, InterfaceDependencyContract, InterfaceDependencyContractId,
-    InterfaceDependencyGuard, InterfaceDependencyProjection, InterfaceDependencyRequirement,
-    InterfaceDependencyRequirementKind, InterfaceDependencySubject, InterfaceDependencySubjectRoot,
-    InterfaceImplementationInstanceId, InterfacePredicateSummary, InterfaceSemanticFacts,
+    InterfaceCallableContract, InterfaceCallableContractClause, InterfaceCallablePhaseBehavior,
+    InterfaceConstantTermId, InterfaceConstraint, InterfaceDependencyContract,
+    InterfaceDependencyContractId, InterfaceDependencyGuard, InterfaceDependencyProjection,
+    InterfaceDependencyRequirement, InterfaceDependencyRequirementKind, InterfaceDependencySubject,
+    InterfaceDependencySubjectRoot, InterfaceImplementationInstanceId, InterfacePredicateSummary,
+    InterfaceSemanticFacts, InterfaceTrustedCapabilityRequirement,
 };
 use crate::wire::WireReader;
 use crate::{
     InterfaceLimit, InterfaceValidationError, InterfaceValidationLimits, ValidatedInterfaceSection,
 };
-use bray_symbols::SymbolOrdinal;
+use bray_symbols::{CallableContractClauseKind, SymbolOrdinal};
 
 pub(super) fn decode_contracts(
     section: ValidatedInterfaceSection<'_>,
@@ -66,33 +68,40 @@ pub(super) fn decode_contracts(
 
     for _ in 0..callable_count {
         let owner = read_symbol_reference(&mut reader, context)?;
-        let clause_count = read_count(&mut reader, limits, InterfaceLimit::RecordCount)?;
 
-        let mut clauses = context.allocate_items(&reader, clause_count)?;
+        let mut decoded_clauses = decode_callable_clauses(
+            &mut reader,
+            limits,
+            context,
+            CallableContractClauseKind::Requires,
+        )?;
 
-        for _ in 0..clause_count {
-            clauses.push(InterfaceCallableContractClause::new(
-                SymbolOrdinal::new(read_u32(&mut reader)?),
-                decode_tag(read_u32(&mut reader)?)?,
-                InterfacePredicateSummary::new(InterfaceDependencyContractId::new(read_u32(
-                    &mut reader,
-                )?)),
-            ));
-        }
+        decoded_clauses.extend(decode_callable_clauses(
+            &mut reader,
+            limits,
+            context,
+            CallableContractClauseKind::Static,
+        )?);
 
-        let capability_count = read_count(&mut reader, limits, InterfaceLimit::RecordCount)?;
+        decoded_clauses.extend(decode_callable_clauses(
+            &mut reader,
+            limits,
+            context,
+            CallableContractClauseKind::Ensures,
+        )?);
 
-        let mut capabilities = context.allocate_items(&reader, capability_count)?;
-
-        for _ in 0..capability_count {
-            capabilities.push(read_symbol_reference(&mut reader, context)?);
-        }
+        let invocation_behavior = decode_callable_behavior(&mut reader, limits, context)?;
+        let deferred_execution_behavior = match read_u32(&mut reader)? {
+            0 => None,
+            1 => Some(decode_callable_behavior(&mut reader, limits, context)?),
+            _ => return Err(InterfaceValidationError::Malformed),
+        };
 
         callable_contracts.push(InterfaceCallableContract::new(
             owner,
-            clauses,
-            capabilities,
-            InterfaceDependencyContractId::new(read_u32(&mut reader)?),
+            decoded_clauses,
+            invocation_behavior,
+            deferred_execution_behavior,
         ));
     }
 
@@ -103,6 +112,67 @@ pub(super) fn decode_contracts(
     facts.callable_contracts = callable_contracts.into();
 
     Ok(())
+}
+
+fn decode_callable_clauses(
+    reader: &mut WireReader<'_>,
+    limits: InterfaceValidationLimits,
+    context: &mut SemanticDecodeContext,
+    kind: CallableContractClauseKind,
+) -> Result<Vec<InterfaceCallableContractClause>, InterfaceValidationError> {
+    let count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
+    let mut clauses = context.allocate_items(reader, count)?;
+
+    for _ in 0..count {
+        clauses.push(InterfaceCallableContractClause::new(
+            SymbolOrdinal::new(read_u32(reader)?),
+            kind,
+            InterfacePredicateSummary::new(InterfaceDependencyContractId::new(read_u32(reader)?)),
+        ));
+    }
+
+    Ok(clauses)
+}
+
+fn decode_callable_behavior(
+    reader: &mut WireReader<'_>,
+    limits: InterfaceValidationLimits,
+    context: &mut SemanticDecodeContext,
+) -> Result<InterfaceCallablePhaseBehavior, InterfaceValidationError> {
+    let effects = read_symbol_references(reader, limits, context)?;
+    let capabilities = read_symbol_references(reader, limits, context)?;
+    let execution_requirements = read_symbol_references(reader, limits, context)?;
+
+    let trusted_count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
+
+    let mut trusted_capabilities = context.allocate_items(reader, trusted_count)?;
+
+    for _ in 0..trusted_count {
+        trusted_capabilities.push(InterfaceTrustedCapabilityRequirement::new(
+            SymbolOrdinal::new(read_u32(reader)?),
+            read_symbol_reference(reader, context)?,
+        ));
+    }
+
+    let lifecycle_count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
+    let mut lifecycle_obligations = context.allocate_items(reader, lifecycle_count)?;
+
+    for _ in 0..lifecycle_count {
+        lifecycle_obligations.push(decode_tag(read_u32(reader)?)?);
+    }
+
+    let dependency_contract = InterfaceDependencyContractId::new(read_u32(reader)?);
+    let current_run_cancellation = decode_tag(read_u32(reader)?)?;
+
+    Ok(InterfaceCallablePhaseBehavior::new(
+        effects,
+        capabilities,
+        trusted_capabilities,
+        execution_requirements,
+        lifecycle_obligations,
+        dependency_contract,
+        current_run_cancellation,
+    ))
 }
 
 pub(super) fn decode_dependency_requirement(

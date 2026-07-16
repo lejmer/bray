@@ -2,9 +2,10 @@ use std::sync::Arc;
 
 use bray_bound_tree::{
     CheckedTemplateBehavior, CheckedTemplateBuilder, CheckedTemplateCapability,
-    CheckedTemplateCompletion, CheckedTemplateEffect, CheckedTemplateInput,
-    CheckedTemplateInputKind, CheckedTemplateNode, CheckedTemplateOperation,
-    CheckedTemplateTrustedObligation, CheckedTemplateWitness,
+    CheckedTemplateCompletion, CheckedTemplateEffect, CheckedTemplateExecution,
+    CheckedTemplateExecutionRequirement, CheckedTemplateInput, CheckedTemplateInputKind,
+    CheckedTemplateNode, CheckedTemplateOperation, CheckedTemplateTrustedObligation,
+    CheckedTemplateWitness,
 };
 use bray_symbols::{ExternalSymbolKey, InterfaceSupportEntityId};
 
@@ -257,6 +258,16 @@ fn convert_behavior(
                 external_key(symbols, reference).map(CheckedTemplateTrustedObligation::new)
             })
             .collect::<Result<Vec<_>, _>>()?,
+        CheckedTemplateExecution::new(
+            behavior
+                .execution_requirements()
+                .iter()
+                .map(|reference| {
+                    external_key(symbols, reference).map(CheckedTemplateExecutionRequirement::new)
+                })
+                .collect::<Result<Vec<_>, _>>()?,
+            behavior.current_run_cancellation(),
+        ),
         behavior.lifecycle_obligations().iter().copied(),
         dependency_contract,
         behavior

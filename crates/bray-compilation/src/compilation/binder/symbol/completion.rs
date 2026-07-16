@@ -160,9 +160,9 @@ mod tests {
     use bray_binder::SymbolFactProvider;
     use bray_compiler_known::CompilerKnownDeclarationKey;
     use bray_symbols::{
-        CallableContractClauseKind, CallableContractSymbolId, CallableContractTypeFact,
-        CallableContractsFact, CallableExecution, CallableSignatureFact, ExactSymbolId,
-        FunctionSymbolId, GenericConstraintsFact, GenericOwnerId, ImplementationCoherenceFact,
+        CallableContractSymbolId, CallableContractTypeFact, CallableContractsFact,
+        CallableExecution, CallableSignatureFact, ExactSymbolId, FunctionSymbolId,
+        GenericConstraintsFact, GenericOwnerId, ImplementationCoherenceFact,
         ImplementationSymbolId, NamedTraitImplementationSymbolId, SelfTypeContext,
         StructFieldSymbolId, StructFieldTypeFact, StructSymbolId, SymbolFactRequest,
         TraitCallableMemberSymbolId, TraitSymbolId, TraitTypeFulfillmentSymbolId,
@@ -209,20 +209,22 @@ mod tests {
             SymbolFactRequest::<CallableContractsFact>::new(copy.into()),
         );
 
-        assert_eq!(copy_contracts.value().clauses().len(), 3);
-
+        assert_eq!(copy_contracts.value().invocation_preconditions().len(), 1);
+        assert_eq!(copy_contracts.value().static_constraints().len(), 1);
+        
         assert_eq!(
             copy_contracts
                 .value()
-                .clauses()
-                .iter()
-                .map(|clause| clause.kind())
-                .collect::<Vec<_>>(),
-            [
-                CallableContractClauseKind::Requires,
-                CallableContractClauseKind::Ensures,
-                CallableContractClauseKind::Static,
-            ]
+                .normal_completion_postconditions()
+                .len(),
+            1
+        );
+        
+        assert!(
+            copy_contracts
+                .value()
+                .deferred_execution_behavior()
+                .is_none()
         );
 
         let pointer = declaration::<StructSymbolId>(symbols, "RawPointer");
@@ -311,6 +313,18 @@ mod tests {
             TypeData::Callable(callable)
                 if callable.execution() == CallableExecution::Asynchronous
         ));
+
+        let join_contracts = published_fact(
+            &facts,
+            SymbolFactRequest::<CallableContractsFact>::new(join.into()),
+        );
+
+        assert!(
+            join_contracts
+                .value()
+                .deferred_execution_behavior()
+                .is_some()
+        );
 
         let item = declaration::<TraitTypeFulfillmentSymbolId>(symbols, "BoolStorageItem");
         let item_type = published_fact(

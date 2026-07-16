@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use bray_base::{shared_slice, sorted_unique_shared_slice};
 use bray_symbols::{
-    ConstantTermId, DependencyContractTemplateId, ExternalSymbolKey, LifecycleObligationKind,
-    SymbolKind, SymbolOrdinal, TypeId,
+    ConstantTermId, CurrentRunCancellation, DependencyContractTemplateId, ExternalSymbolKey,
+    LifecycleObligationKind, SymbolKind, SymbolOrdinal, TypeId,
 };
 
 use super::{CheckedTemplateInputId, CheckedTemplateNodeId, CheckedTemplateTemporaryId};
@@ -134,6 +134,40 @@ define_stable_requirement!(
     "One checked trusted obligation retained by a template."
 );
 define_stable_requirement!(
+    CheckedTemplateExecutionRequirement,
+    "One checked execution-lane predicate required while evaluating a template."
+);
+
+/// Execution-context behavior retained by a checked template.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct CheckedTemplateExecution {
+    requirements: Arc<[CheckedTemplateExecutionRequirement]>,
+    current_run_cancellation: CurrentRunCancellation,
+}
+
+impl CheckedTemplateExecution {
+    /// Creates normalized execution-context behavior.
+    pub fn new(
+        requirements: impl IntoIterator<Item = CheckedTemplateExecutionRequirement>,
+        current_run_cancellation: CurrentRunCancellation,
+    ) -> Self {
+        Self {
+            requirements: sorted_unique_shared_slice(requirements),
+            current_run_cancellation,
+        }
+    }
+
+    /// Returns execution-lane requirements in canonical semantic-set order.
+    pub fn requirements(&self) -> &[CheckedTemplateExecutionRequirement] {
+        &self.requirements
+    }
+
+    /// Returns whether evaluation can enter cancellation for its current run.
+    pub const fn current_run_cancellation(&self) -> CurrentRunCancellation {
+        self.current_run_cancellation
+    }
+}
+define_stable_requirement!(
     CheckedTemplateWitness,
     "One selected implementation required by a checked template."
 );
@@ -144,6 +178,7 @@ pub struct CheckedTemplateBehavior {
     effects: Arc<[CheckedTemplateEffect]>,
     capabilities: Arc<[CheckedTemplateCapability]>,
     trusted_obligations: Arc<[CheckedTemplateTrustedObligation]>,
+    execution: CheckedTemplateExecution,
     lifecycle_obligations: Arc<[LifecycleObligationKind]>,
     dependency_contract: DependencyContractTemplateId,
     witnesses: Arc<[CheckedTemplateWitness]>,
@@ -155,6 +190,7 @@ impl CheckedTemplateBehavior {
         effects: impl IntoIterator<Item = CheckedTemplateEffect>,
         capabilities: impl IntoIterator<Item = CheckedTemplateCapability>,
         trusted_obligations: impl IntoIterator<Item = CheckedTemplateTrustedObligation>,
+        execution: CheckedTemplateExecution,
         lifecycle_obligations: impl IntoIterator<Item = LifecycleObligationKind>,
         dependency_contract: DependencyContractTemplateId,
         witnesses: impl IntoIterator<Item = CheckedTemplateWitness>,
@@ -163,6 +199,7 @@ impl CheckedTemplateBehavior {
             effects: sorted_unique_shared_slice(effects),
             capabilities: sorted_unique_shared_slice(capabilities),
             trusted_obligations: sorted_unique_shared_slice(trusted_obligations),
+            execution,
             lifecycle_obligations: sorted_unique_shared_slice(lifecycle_obligations),
             dependency_contract,
             witnesses: sorted_unique_shared_slice(witnesses),
@@ -184,6 +221,11 @@ impl CheckedTemplateBehavior {
         &self.trusted_obligations
     }
 
+    /// Returns execution-lane requirements in canonical semantic-set order.
+    pub fn execution_requirements(&self) -> &[CheckedTemplateExecutionRequirement] {
+        self.execution.requirements()
+    }
+
     /// Returns lifecycle obligations in canonical semantic-set order.
     pub fn lifecycle_obligations(&self) -> &[LifecycleObligationKind] {
         &self.lifecycle_obligations
@@ -192,6 +234,11 @@ impl CheckedTemplateBehavior {
     /// Returns the normalized portable dependency contract.
     pub const fn dependency_contract(&self) -> DependencyContractTemplateId {
         self.dependency_contract
+    }
+
+    /// Returns whether evaluation can enter cancellation for its current run.
+    pub const fn current_run_cancellation(&self) -> CurrentRunCancellation {
+        self.execution.current_run_cancellation()
     }
 
     /// Returns selected implementation witnesses in canonical semantic-set order.
@@ -462,6 +509,7 @@ mod tests {
 
     use super::{
         CheckedTemplateBehavior, CheckedTemplateCapability, CheckedTemplateEffect,
+        CheckedTemplateExecution, CheckedTemplateExecutionRequirement,
         CheckedTemplateTrustedObligation, CheckedTemplateWitness,
     };
 
@@ -487,6 +535,14 @@ mod tests {
                 CheckedTemplateTrustedObligation::new(second_key.clone()),
                 CheckedTemplateTrustedObligation::new(first_key.clone()),
             ],
+            CheckedTemplateExecution::new(
+                [
+                    CheckedTemplateExecutionRequirement::new(second_key.clone()),
+                    CheckedTemplateExecutionRequirement::new(first_key.clone()),
+                    CheckedTemplateExecutionRequirement::new(second_key.clone()),
+                ],
+                bray_symbols::CurrentRunCancellation::MayEnter,
+            ),
             [
                 LifecycleObligationKind::Joining,
                 LifecycleObligationKind::Destruction,
@@ -513,6 +569,13 @@ mod tests {
                 CheckedTemplateTrustedObligation::new(second_key.clone()),
                 CheckedTemplateTrustedObligation::new(first_key.clone()),
             ],
+            CheckedTemplateExecution::new(
+                [
+                    CheckedTemplateExecutionRequirement::new(first_key.clone()),
+                    CheckedTemplateExecutionRequirement::new(second_key.clone()),
+                ],
+                bray_symbols::CurrentRunCancellation::MayEnter,
+            ),
             [
                 LifecycleObligationKind::Destruction,
                 LifecycleObligationKind::Joining,
@@ -526,6 +589,7 @@ mod tests {
 
         assert_eq!(first, second);
         assert_eq!(first.effects().len(), 2);
+        assert_eq!(first.execution_requirements().len(), 2);
         assert_eq!(first.capabilities().len(), 2);
         assert_eq!(first.trusted_obligations().len(), 2);
         assert_eq!(first.lifecycle_obligations().len(), 2);

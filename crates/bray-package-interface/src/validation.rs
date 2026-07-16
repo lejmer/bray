@@ -279,6 +279,7 @@ fn checked_range(
     let end = offset
         .checked_add(length)
         .ok_or(CheckedRangeError::Overflow)?;
+
     let start = usize::try_from(offset).map_err(|_| CheckedRangeError::Overflow)?;
     let end = usize::try_from(end).map_err(|_| CheckedRangeError::Overflow)?;
 
@@ -360,6 +361,7 @@ mod tests {
             interface.header().format_revision(),
             CURRENT_FORMAT_REVISION
         );
+
         assert_eq!(interface.header().language_revision(), LANGUAGE_REVISION);
 
         let Some(strings) = interface.section(InterfaceSectionTag::Strings) else {
@@ -391,14 +393,16 @@ mod tests {
         let bytes = artifact(&[]);
 
         assert_mutation_error(&bytes, 0, 0, InterfaceValidationError::InvalidMagic);
+
         assert_mutation_error(
             &bytes,
             8,
-            3,
+            4,
             InterfaceValidationError::UnsupportedFormatRevision {
-                actual: crate::InterfaceFormatRevision::new(3),
+                actual: crate::InterfaceFormatRevision::new(4),
             },
         );
+
         assert_mutation_error(
             &bytes,
             10,
@@ -408,6 +412,7 @@ mod tests {
                 actual: InterfaceLanguageRevision::new(8),
             },
         );
+
         assert_mutation_error(&bytes, 12, 0, InterfaceValidationError::UnsupportedEncoding);
         assert_mutation_error(&bytes, 16, 1, InterfaceValidationError::UnsupportedEncoding);
     }
@@ -572,6 +577,7 @@ mod tests {
             wire_length(bytes.len()),
             wire_length(bytes.len()) - 1,
         );
+
         assert_limit_error(
             &bytes,
             InterfaceValidationLimits::default().with_section_count(0),
@@ -579,6 +585,7 @@ mod tests {
             1,
             0,
         );
+
         assert_limit_error(
             &bytes,
             InterfaceValidationLimits::default().with_records_per_section(2),
@@ -586,6 +593,7 @@ mod tests {
             3,
             2,
         );
+
         assert_limit_error(
             &bytes,
             InterfaceValidationLimits::default().with_decoded_allocation(6),
@@ -611,12 +619,14 @@ mod tests {
                 section: InterfaceSectionTag::Strings,
             },
         );
+
         assert_mutation_error(
             &bytes,
             InterfaceHeader::CONTENT_HASH_OFFSET,
             0xff,
             InterfaceValidationError::HashMismatch,
         );
+
         assert_mutation_error(
             &bytes,
             InterfaceHeader::ARTIFACT_HASH_OFFSET,
@@ -643,6 +653,7 @@ mod tests {
             first.header().content_hash(),
             second.header().content_hash()
         );
+
         assert_ne!(
             first.header().artifact_hash(),
             second.header().artifact_hash()
@@ -660,10 +671,12 @@ mod tests {
         let diagnostic = error.into_diagnostic(DiagnosticId::new(4));
 
         assert_eq!(diagnostic.id(), DiagnosticId::new(4));
+
         assert_eq!(
             diagnostic.kind(),
             DiagnosticKind::InterfaceResourceLimitExceeded
         );
+
         assert_eq!(
             diagnostic.args(),
             &[
@@ -681,6 +694,7 @@ mod tests {
                 ),
             ]
         );
+
         assert_eq!(
             DiagnosticRenderer::english().render(&diagnostic).message(),
             "package interface exceeds the configured record count limit: 12; maximum 10"
@@ -703,7 +717,7 @@ mod tests {
 
         assert_eq!(
             DiagnosticRenderer::english().render(&revision).message(),
-            "unsupported package-interface format revision 9; expected 2"
+            "unsupported package-interface format revision 9; expected 3"
         );
     }
 

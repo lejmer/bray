@@ -3,14 +3,14 @@ use std::collections::BTreeMap;
 use bray_base::Cancellation;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
-    BorrowKind, CallableAbi, CallableConstness, CallableExecution, CallableParameterData,
-    CallableParameterMode, CallableParameterName, CallableParameterSignature,
-    CallableParameterSymbolId, CallablePosition, CallableSignature, CallableSymbolId,
-    CallableTrust, CallableTypeData, DependencyContractTemplateData, GenericArgument,
-    GenericOwnerId, GenericSubstitutionData, GenericTypeParameterSymbolId, MemberLookupResult,
-    ModuleSymbolId, NamedTypeSymbolId, ReceiverParameterSignature, ReceiverParameterSymbolId,
-    SelfTypeContext, SemanticValueStore, SymbolGraph, SymbolName, TraitApplicationId, TypeData,
-    TypeId,
+    BorrowKind, CallableAbi, CallableConstness, CallableDependencyContracts, CallableExecution,
+    CallableParameterData, CallableParameterMode, CallableParameterName,
+    CallableParameterSignature, CallableParameterSymbolId, CallablePosition, CallableSignature,
+    CallableSymbolId, CallableTrust, CallableTypeData, DependencyContractTemplateData,
+    GenericArgument, GenericOwnerId, GenericSubstitutionData, GenericTypeParameterSymbolId,
+    MemberLookupResult, ModuleSymbolId, NamedTypeSymbolId, ReceiverParameterSignature,
+    ReceiverParameterSymbolId, SelfTypeContext, SemanticValueStore, SymbolGraph, SymbolName,
+    TraitApplicationId, TypeData, TypeId,
 };
 use bray_syntax::{
     GenericArgumentListSyntax, ImplementationSubjectSyntax, ParameterListSyntax, ParameterSyntax,
@@ -173,10 +173,13 @@ impl<'facts> TypeExpressionBinder<'facts> {
             callable_parameters,
             result,
             qualifiers.constness,
-            qualifiers.execution,
             qualifiers.trust,
             CallableAbi::Bray,
-            dependency_contract,
+            CallableDependencyContracts::for_execution(
+                qualifiers.execution,
+                dependency_contract,
+                dependency_contract,
+            ),
         )))?;
 
         self.check_cancellation()?;
@@ -424,10 +427,13 @@ impl<'facts> TypeExpressionBinder<'facts> {
             parameters,
             result,
             constness,
-            execution,
             trust,
             CallableAbi::Bray,
-            dependency_contract,
+            CallableDependencyContracts::for_execution(
+                execution,
+                dependency_contract,
+                dependency_contract,
+            ),
         );
 
         self.intern_type(TypeData::Callable(callable))

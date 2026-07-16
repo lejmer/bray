@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use crate::validation::is_strictly_sorted;
 use crate::{
     InterfaceLimit, InterfaceSemanticFacts, InterfaceSymbolReference, InterfaceValidationError,
@@ -6,6 +8,9 @@ use crate::{
 use bray_symbols::SymbolKind;
 
 use super::saturating_u64;
+use crate::semantic::model::{
+    InterfaceCallableContract, InterfaceCallableContractClause, InterfaceCallablePhaseBehavior,
+};
 
 impl InterfaceSemanticFacts {
     pub(super) fn validate_surface_facts(
@@ -49,30 +54,7 @@ impl InterfaceSemanticFacts {
         }
 
         for contract in &*self.callable_contracts {
-            validate_symbol(&contract.owner, symbol_count, dependency_count)?;
-            validate_index(
-                contract.dependency_contract.to_index(),
-                self.dependency_contracts.len(),
-            )?;
-
-            if !contract
-                .clauses
-                .windows(2)
-                .all(|pair| pair[0].ordinal < pair[1].ordinal)
-            {
-                return Err(InterfaceValidationError::Malformed);
-            }
-
-            for clause in &*contract.clauses {
-                validate_index(
-                    clause.predicate.dependency_contract.to_index(),
-                    self.dependency_contracts.len(),
-                )?;
-            }
-
-            for capability in &*contract.trusted_capabilities {
-                validate_symbol(capability, symbol_count, dependency_count)?;
-            }
+            self.validate_callable_contract(contract, symbol_count, dependency_count)?;
         }
 
         for implementation in &*self.implementations {
@@ -137,6 +119,106 @@ impl InterfaceSemanticFacts {
         }
 
         Ok(())
+    }
+
+    fn validate_callable_contract(
+        &self,
+        contract: &InterfaceCallableContract,
+        symbol_count: usize,
+        dependency_count: usize,
+    ) -> Result<(), InterfaceValidationError> {
+        validate_symbol(&contract.owner, symbol_count, dependency_count)?;
+        self.validate_callable_clauses(&contract.invocation_preconditions)?;
+        self.validate_callable_clauses(&contract.static_constraints)?;
+        self.validate_callable_clauses(&contract.normal_completion_postconditions)?;
+
+        let mut clause_ordinals = BTreeSet::new();
+
+        for clause in contract
+            .invocation_preconditions
+            .iter()
+            .chain(contract.static_constraints.iter())
+            .chain(contract.normal_completion_postconditions.iter())
+        {
+            if !clause_ordinals.insert(clause.ordinal) {
+                return Err(InterfaceValidationError::Malformed);
+            }
+        }
+
+        self.validate_callable_behavior(
+            &contract.invocation_behavior,
+            symbol_count,
+            dependency_count,
+        )?;
+
+        if let Some(behavior) = &contract.deferred_execution_behavior {
+            self.validate_callable_behavior(behavior, symbol_count, dependency_count)?;
+        }
+
+        Ok(())
+    }
+
+    fn validate_callable_clauses(
+        &self,
+        clauses: &[InterfaceCallableContractClause],
+    ) -> Result<(), InterfaceValidationError> {
+        if !clauses
+            .windows(2)
+            .all(|pair| pair[0].ordinal < pair[1].ordinal)
+        {
+            return Err(InterfaceValidationError::Malformed);
+        }
+
+        for clause in clauses {
+            validate_index(
+                clause.predicate.dependency_contract.to_index(),
+                self.dependency_contracts.len(),
+            )?;
+        }
+
+        Ok(())
+    }
+
+    fn validate_callable_behavior(
+        &self,
+        behavior: &InterfaceCallablePhaseBehavior,
+        symbol_count: usize,
+        dependency_count: usize,
+    ) -> Result<(), InterfaceValidationError> {
+        for requirements in [
+            &behavior.effects,
+            &behavior.capabilities,
+            &behavior.execution_requirements,
+        ] {
+            if !is_strictly_sorted(requirements) {
+                return Err(InterfaceValidationError::Malformed);
+            }
+
+            for requirement in &**requirements {
+                validate_symbol(requirement, symbol_count, dependency_count)?;
+            }
+        }
+
+        if !behavior
+            .trusted_capabilities
+            .windows(2)
+            .all(|pair| pair[0].ordinal < pair[1].ordinal)
+        {
+            return Err(InterfaceValidationError::Malformed);
+        }
+
+        for requirement in &*behavior.trusted_capabilities {
+            validate_symbol(&requirement.capability, symbol_count, dependency_count)?;
+        }
+
+        if !is_strictly_sorted(&behavior.lifecycle_obligations) {
+            return Err(InterfaceValidationError::Malformed);
+        }
+
+        validate_index(
+            behavior.dependency_contract.to_index(),
+            self.dependency_contracts.len(),
+        )
     }
 }
 

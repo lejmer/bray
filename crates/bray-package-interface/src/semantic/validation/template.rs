@@ -132,6 +132,7 @@ fn validate_template(
         || !is_strictly_sorted(template.behavior().effects())
         || !is_strictly_sorted(template.behavior().capabilities())
         || !is_strictly_sorted(template.behavior().trusted_obligations())
+        || !is_strictly_sorted(template.behavior().execution_requirements())
         || !is_strictly_sorted(template.behavior().lifecycle_obligations())
         || !is_strictly_sorted(template.behavior().witnesses())
     {
@@ -215,6 +216,7 @@ fn validate_template(
         .iter()
         .chain(template.behavior().capabilities())
         .chain(template.behavior().trusted_obligations())
+        .chain(template.behavior().execution_requirements())
     {
         validate_symbol(symbol, symbol_count, dependency_count)?;
     }
