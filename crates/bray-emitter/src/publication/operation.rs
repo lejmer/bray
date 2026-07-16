@@ -551,6 +551,7 @@ mod tests {
 
         let plan = memory_artifact_plan(collector.clone(), [package_interface_spec()]);
         let resolver = CapturingResolver::new([collector]);
+
         let interface = plan
             .package_interface()
             .unwrap_or_else(|| panic!("test plan must retain its package interface"));
@@ -659,8 +660,10 @@ mod tests {
         let outcome = ArtifactPublisher::new(&cancellation).publish(&plan, [contribution]);
 
         assert!(matches!(outcome.status(), EmissionStatus::Cancelled));
+
         assert!(outcome.artifacts().artifacts().is_empty());
         assert!(outcome.diagnostics().is_empty());
+
         assert_eq!(file_bytes(&destination), b"existing");
         assert_eq!(directory_entry_count(directory.path()), 1);
     }
@@ -708,6 +711,7 @@ mod tests {
         ));
 
         assert_eq!(outcome.artifacts().artifacts().len(), 1);
+
         assert_eq!(
             outcome.artifacts().artifacts()[0].sink(),
             &OutputSink::Filesystem(interface_path.clone())
@@ -959,6 +963,7 @@ mod tests {
         artifacts: impl IntoIterator<Item = (TestArtifactSpec, PathBuf)>,
     ) -> EmissionPlan {
         let artifacts: Vec<_> = artifacts.into_iter().collect();
+
         let package_interface = artifacts
             .iter()
             .any(|(artifact, _)| artifact.kind == ArtifactKind::PackageInterface)
@@ -1041,6 +1046,7 @@ mod tests {
         artifacts: impl IntoIterator<Item = TestArtifactSpec>,
     ) -> EmissionPlan {
         let artifacts: Vec<_> = artifacts.into_iter().collect();
+
         let package_interface = artifacts
             .iter()
             .any(|artifact| artifact.kind == ArtifactKind::PackageInterface)
@@ -1338,6 +1344,7 @@ mod tests {
             let accepted = buffer.len().min(3);
 
             self.buffer.extend_from_slice(&buffer[..accepted]);
+
             self.accepted_write = true;
 
             Ok(accepted)

@@ -365,8 +365,10 @@ mod tests {
     #[test]
     fn completed_artifacts_retain_identity_length_and_exact_hash_integrity() {
         let bundle = package_interface_export_bundle();
+
         let artifact = encode_package_interface(&bundle)
             .unwrap_or_else(|error| panic!("test interface must encode: {error:?}"));
+
         let byte_len = u64::try_from(artifact.bytes().len())
             .unwrap_or_else(|_| panic!("test artifact length must fit the contract"));
 
@@ -375,6 +377,7 @@ mod tests {
         assert_eq!(artifact.validate_integrity(), Ok(()));
 
         let mut wrong_length = artifact.clone();
+
         wrong_length.byte_len += 1;
 
         assert!(matches!(
@@ -384,7 +387,9 @@ mod tests {
 
         let mut wrong_hash = artifact;
         let mut bytes = wrong_hash.bytes().to_vec();
+
         bytes[0] ^= 0xff;
+
         wrong_hash.bytes = Arc::from(bytes);
 
         assert!(matches!(
@@ -396,12 +401,15 @@ mod tests {
     #[test]
     fn completed_artifacts_reject_embedded_hash_mismatches() {
         let bundle = package_interface_export_bundle();
+
         let artifact = encode_package_interface(&bundle)
             .unwrap_or_else(|error| panic!("test interface must encode: {error:?}"));
+
         let mut wrong_content_hash = artifact.clone();
         let mut bytes = wrong_content_hash.bytes().to_vec();
 
         bytes[InterfaceHeader::CONTENT_HASH_OFFSET] ^= 0xff;
+
         wrong_content_hash.bytes = Arc::from(bytes);
 
         assert!(matches!(
@@ -413,6 +421,7 @@ mod tests {
         let mut bytes = wrong_artifact_hash.bytes().to_vec();
 
         bytes[InterfaceHeader::ARTIFACT_HASH_OFFSET] ^= 0xff;
+
         wrong_artifact_hash.bytes = Arc::from(bytes);
 
         assert!(matches!(
