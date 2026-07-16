@@ -134,12 +134,10 @@ impl ExpressionBinder {
                 self.error_type,
             ))
         } else {
-            BoundExpression::Call(BoundCallExpression::new(
+            BoundExpression::Call(BoundCallExpression::pending(
                 binder.source_origin(syntax),
                 callee,
                 arguments,
-                None,
-                false,
             ))
         };
 

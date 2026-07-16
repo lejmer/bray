@@ -10,15 +10,17 @@ pub use block::{
 pub use callable::{BoundCallableBody, BoundCallableBodyKind, BoundErrorCallableBody};
 pub use expression::{
     BoundAnonymousCallableExpression, BoundArgument, BoundAssignmentExpression,
-    BoundBinaryExpression, BoundBlockExpression, BoundCallExpression,
+    BoundAwaitExpression, BoundAwaitResolution, BoundBinaryExpression, BoundBlockExpression,
+    BoundCallExpression, BoundCallResolution, BoundCallResult, BoundCallableTarget,
     BoundControlTransferExpression, BoundControlTransferKind, BoundConversionExpression,
     BoundErrorCallExpression, BoundErrorConversionExpression, BoundErrorExpression,
-    BoundExpression, BoundForExpression, BoundGeneratorExpression,
-    BoundLeadingDotVariantExpression, BoundMatchArm, BoundMatchExpression,
-    BoundMemberAccessExpression, BoundMemberSelector, BoundNameExpression, BoundOperator,
-    BoundReferenceTarget, BoundStructConstructionExpression, BoundStructFieldInitializer,
-    BoundStructuredExpression, BoundStructuredExpressionKind, BoundTraitQualifiedMemberExpression,
-    BoundUnaryExpression, BoundUnresolvedReferenceExpression, BoundUnresolvedReferenceKind,
+    BoundExpression, BoundForExpression, BoundFutureComposition, BoundFutureConstruction,
+    BoundGeneratorExpression, BoundLeadingDotVariantExpression, BoundMatchArm,
+    BoundMatchExpression, BoundMemberAccessExpression, BoundMemberSelector, BoundNameExpression,
+    BoundOperator, BoundReferenceTarget, BoundResolvedCall, BoundStructConstructionExpression,
+    BoundStructFieldInitializer, BoundStructuredExpression, BoundStructuredExpressionKind,
+    BoundTraitQualifiedMemberExpression, BoundUnaryExpression, BoundUnresolvedReferenceExpression,
+    BoundUnresolvedReferenceKind,
 };
 pub use id::{
     AnyBoundNodeId, BoundBlockId, BoundCallableBodyId, BoundExpressionId, BoundNodeKind,

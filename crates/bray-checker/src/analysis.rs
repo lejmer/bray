@@ -2,6 +2,7 @@ mod assembly;
 mod build;
 mod check;
 mod control;
+mod execution;
 mod fixed_point;
 mod id;
 mod model;

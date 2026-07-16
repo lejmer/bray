@@ -170,6 +170,7 @@ impl<'view> ControlFlowGraphBuilder<'view> {
             BoundExpression::Structured(expression) => {
                 self.build_structured(id, expression, current)
             }
+            BoundExpression::Await(expression) => self.build_await(id, *expression, current),
             BoundExpression::For(expression) => self.build_for(id, expression, current),
             BoundExpression::Match(expression) => self.build_match(id, expression, current),
             BoundExpression::Generator(expression) => {
@@ -352,12 +353,12 @@ impl<'view> ControlFlowGraphBuilder<'view> {
 #[cfg(test)]
 mod tests {
     use bray_bound_tree::{
-        AnyBoundNodeId, BoundBinaryExpression, BoundBlock, BoundBlockItem, BoundCallableBody,
-        BoundControlTransferExpression, BoundControlTransferKind, BoundErrorExpression,
-        BoundExpression, BoundExpressionId, BoundForExpression, BoundMatchArm,
-        BoundMatchExpression, BoundNodeOrigin, BoundOperator, BoundPattern, BoundPatternKind,
-        BoundPatternMode, BoundStructuredExpression, BoundStructuredExpressionKind, BoundTree,
-        BoundTreeBuilder, BoundUnitId, BoundUnitKey,
+        AnyBoundNodeId, BoundAwaitExpression, BoundBinaryExpression, BoundBlock, BoundBlockItem,
+        BoundCallableBody, BoundControlTransferExpression, BoundControlTransferKind,
+        BoundErrorExpression, BoundExpression, BoundExpressionId, BoundForExpression,
+        BoundMatchArm, BoundMatchExpression, BoundNodeOrigin, BoundOperator, BoundPattern,
+        BoundPatternKind, BoundPatternMode, BoundStructuredExpression,
+        BoundStructuredExpressionKind, BoundTree, BoundTreeBuilder, BoundUnitId, BoundUnitKey,
     };
 
     use super::{ControlFlowGraphBuildOutcome, build_control_flow_graph};
@@ -520,6 +521,44 @@ mod tests {
                 .edges()
                 .iter()
                 .any(|edge| edge.kind() == AnalysisEdgeKind::Catch)
+        );
+    }
+
+    #[test]
+    fn direct_await_has_suspend_resume_and_current_run_cancellation_paths() {
+        let key = callable_key();
+        let unit = BoundUnitId::new(10);
+        let origin = BoundNodeOrigin::source(key.source());
+
+        let mut builder = BoundTreeBuilder::new(unit);
+        let operand = push_error_expression(&mut builder, origin);
+        let await_expression = push_expression(
+            &mut builder,
+            BoundExpression::Await(BoundAwaitExpression::pending(origin, operand, false)),
+        );
+
+        let root = push_callable_root(&mut builder, origin, [await_expression]);
+        let tree = builder.finish();
+        let graph = graph(&tree, &key, root);
+
+        for edge in [
+            AnalysisEdgeKind::AsyncSuspend,
+            AnalysisEdgeKind::AsyncResume,
+            AnalysisEdgeKind::AsyncCancel,
+        ] {
+            assert!(
+                graph
+                    .edges()
+                    .iter()
+                    .any(|candidate| candidate.kind() == edge)
+            );
+        }
+
+        assert!(
+            graph
+                .exits()
+                .iter()
+                .any(|exit| exit.kind() == AnalysisExitKind::Cancellation)
         );
     }
 

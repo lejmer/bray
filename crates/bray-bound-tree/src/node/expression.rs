@@ -1,20 +1,27 @@
+mod call;
 mod category;
 mod construction;
 mod control;
 mod core;
+mod execution;
 mod flow;
 mod generator;
 mod recovery;
 mod selection;
 
+pub use call::{
+    BoundArgument, BoundCallExpression, BoundCallResolution, BoundCallResult, BoundCallableTarget,
+    BoundFutureConstruction, BoundResolvedCall,
+};
 pub use category::{
-    BoundAnonymousCallableExpression, BoundArgument, BoundAssignmentExpression,
-    BoundBinaryExpression, BoundCallExpression, BoundConversionExpression, BoundOperator,
-    BoundStructuredExpression, BoundStructuredExpressionKind, BoundUnaryExpression,
+    BoundAnonymousCallableExpression, BoundAssignmentExpression, BoundBinaryExpression,
+    BoundConversionExpression, BoundOperator, BoundStructuredExpression,
+    BoundStructuredExpressionKind, BoundUnaryExpression,
 };
 pub use construction::{BoundStructConstructionExpression, BoundStructFieldInitializer};
 pub use control::{BoundForExpression, BoundMatchArm, BoundMatchExpression};
 pub use core::{BoundBlockExpression, BoundErrorExpression, BoundExpression};
+pub use execution::{BoundAwaitExpression, BoundAwaitResolution, BoundFutureComposition};
 pub use flow::{BoundControlTransferExpression, BoundControlTransferKind};
 pub use generator::BoundGeneratorExpression;
 pub use recovery::{

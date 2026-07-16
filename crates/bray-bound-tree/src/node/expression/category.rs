@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use bray_base::shared_slice;
 use bray_declarations::SyntaxAnchor;
-use bray_symbols::{SymbolName, TypeId};
+use bray_symbols::TypeId;
 
 use crate::{BoundBlockId, BoundExpressionId, BoundNodeOrigin, BoundPatternId, BoundUnitKey};
 
@@ -118,109 +118,6 @@ macro_rules! define_operator_expression {
 define_operator_expression!(BoundUnaryExpression, "A source unary operation.");
 define_operator_expression!(BoundBinaryExpression, "A source binary operation.");
 define_operator_expression!(BoundAssignmentExpression, "A source assignment operation.");
-
-/// One source-ordered input to overload selection.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct BoundArgument {
-    expression: BoundExpressionId,
-    name: Option<SymbolName>,
-    is_recovered: bool,
-}
-
-impl BoundArgument {
-    /// Creates a positional or named call argument.
-    pub const fn new(
-        expression: BoundExpressionId,
-        name: Option<SymbolName>,
-        is_recovered: bool,
-    ) -> Self {
-        Self {
-            expression,
-            name,
-            is_recovered,
-        }
-    }
-
-    /// Returns the argument expression.
-    pub const fn expression(&self) -> BoundExpressionId {
-        self.expression
-    }
-
-    /// Returns the canonical argument name when named.
-    pub const fn name(&self) -> Option<&SymbolName> {
-        self.name.as_ref()
-    }
-
-    /// Returns whether recovery contributed to this argument.
-    pub const fn is_recovered(&self) -> bool {
-        self.is_recovered
-    }
-}
-
-/// A call expression retaining inputs for later overload selection.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct BoundCallExpression {
-    origin: BoundNodeOrigin,
-    callee: BoundExpressionId,
-    arguments: Arc<[BoundArgument]>,
-    operands: Arc<[BoundExpressionId]>,
-    ty: Option<TypeId>,
-    is_recovered: bool,
-}
-
-impl BoundCallExpression {
-    /// Creates a call with arguments in source evaluation order.
-    pub fn new(
-        origin: BoundNodeOrigin,
-        callee: BoundExpressionId,
-        arguments: impl IntoIterator<Item = BoundArgument>,
-        ty: Option<TypeId>,
-        is_recovered: bool,
-    ) -> Self {
-        let arguments = shared_slice(arguments);
-        let operands = shared_slice(
-            std::iter::once(callee).chain(arguments.iter().map(|argument| argument.expression())),
-        );
-
-        Self {
-            origin,
-            callee,
-            arguments,
-            operands,
-            ty,
-            is_recovered,
-        }
-    }
-
-    /// Returns the source or synthesized origin.
-    pub const fn origin(&self) -> BoundNodeOrigin {
-        self.origin
-    }
-
-    /// Returns the callable expression supplied to overload selection.
-    pub const fn callee(&self) -> BoundExpressionId {
-        self.callee
-    }
-
-    /// Returns arguments in source evaluation order.
-    pub fn arguments(&self) -> &[BoundArgument] {
-        &self.arguments
-    }
-
-    /// Returns the checked or recovery type.
-    pub const fn ty(&self) -> Option<TypeId> {
-        self.ty
-    }
-
-    /// Returns whether recovery contributed to this expression.
-    pub const fn is_recovered(&self) -> bool {
-        self.is_recovered
-    }
-
-    pub(crate) fn operands(&self) -> &[BoundExpressionId] {
-        &self.operands
-    }
-}
 
 /// An explicit conversion retaining its operand and resolved target type when available.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -371,8 +268,6 @@ pub enum BoundStructuredExpressionKind {
     ResultPropagation,
     /// Panic catching.
     Catch,
-    /// Asynchronous result waiting.
-    Await,
     /// Construction through a type form.
     TypeFormConstruction,
     /// Boolean folding over operands.
