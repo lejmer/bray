@@ -49,7 +49,9 @@ The computed body effect summary must be valid for the callable's declaration su
 
 Constant-evaluation eligibility is declared with the `const` function modifier.
 
-`requires(...)` declares caller obligations and preconditions.
+`requires(...)` declares caller obligations and preconditions. For an async callable, requirements about supplied values and
+invocation state are checked while constructing the frame, while requirements about the execution context are carried by the
+resulting computation until execution.
 
 `ensures(...)` declares established facts after normal completion.
 
@@ -124,6 +126,8 @@ Cancellation is an async and run-boundary effect.
 An `async` callable type carries suspendable execution and cancellation participation.
 
 Calling an async function creates an async computation whose cancellation behavior is governed by [Async and concurrency](../async-and-concurrency.md).
+Body effects, body capabilities, execution-context requirements, and normal-completion facts belong to the computation's execution
+contract; they are not effects or facts of inactive-frame construction.
 
 Awaiting an async computation, starting it as a task, joining a task, cancelling a task, and observing a run boundary must satisfy
 the async computation's ownership, borrowing, capability, effect, finalization, and cancellation obligations.
@@ -138,7 +142,9 @@ authority.
 
 `blocking_execution()` and `compute_execution()` are compiler-provided context predicates used in `requires(...)`. For synchronous
 calls they are immediate preconditions. Async invocation defers them into `Async<T>` because invocation does not execute the body;
-direct await validates them against the current lane and task start selects a satisfying lane.
+direct await validates them against the current lane and task start selects a satisfying lane. The same phase distinction applies
+to body effects and capabilities: direct await requires them from the current execution context, while task start proves that the
+selected lane and every dependency transferred into it satisfy them.
 
 ### Effects in callable types
 

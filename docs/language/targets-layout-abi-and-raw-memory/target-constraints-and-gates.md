@@ -45,7 +45,8 @@ The operand of `@target(...)` is an ordinary compile-time boolean expression eva
 
 Target-selection context uses ordinary constant-expression syntax and semantics.
 
-The expression can reference compiler-known target facts under `target`, literals, compiler-known target-fact enum values, and built-in boolean, comparison, field-access, and grouping expressions that are valid in constant-evaluation context.
+The expression can reference compiler-known target facts under `target`, literals, compiler-known target-fact enum values, and
+built-in boolean, comparison, field-access, and grouping expressions that are valid in constant-evaluation context.
 
 The expression cannot reference declarations contributed by the source graph being selected.
 

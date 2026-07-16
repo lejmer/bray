@@ -173,7 +173,8 @@ facts, reactor and event features, and target/panic compatibility. The linker va
 metadata. It does not choose a runtime or infer async requirements from unresolved symbols.
 
 A synchronous-only product omits the async runtime unless another selected dependency explicitly requires it. The full selection and
-ABI contract is defined in `docs/design/async-runtime.md`.
+ABI contract is defined in `docs/design/async-runtime.md`. The product-host cleanup-report sink is a separate typed startup and
+termination service and remains linkable without an async scheduler when synchronous lifecycle or native-thread cleanup requires it.
 
 The linker does not infer an entry point from source names or object inspection. The semantic and product layers select it before
 the plan is constructed.

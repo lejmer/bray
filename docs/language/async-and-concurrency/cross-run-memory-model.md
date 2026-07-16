@@ -28,7 +28,9 @@ Cancellation request alone is not a completion edge. The completion edge is esta
 terminal task outcome and a join, cancel, or automatic finalizer observes it.
 
 Operating-system threads created through the standard library participate through the ownership and synchronization contract of
-`std.thread.Handle<T>`. That handle is an ordinary standard-library type, not a separate compiler-known thread-handle category.
+`std.thread.Handle<T>`. Thread start establishes a release-to-acquire edge into the native entry root. `join`, `cancel`, automatic
+handle finalization, and `std.thread.run` terminal observation establish the corresponding completion edge back to the observer.
+That handle is an ordinary standard-library type, not a separate compiler-known thread-handle category.
 
 ## Navigation
 

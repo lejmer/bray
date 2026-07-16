@@ -427,7 +427,9 @@ Facts retain typed subjects and dependencies on values, storage identities, stor
 capabilities, target facts, and implementation witnesses. Trusted provenance is part of the fact and cannot be reconstructed from a
 boolean result.
 
-`requires(...)` obligations are checked at the call boundary. `ensures(...)` facts enter only normal-completion successors.
+Synchronous `requires(...)` obligations are checked at the call boundary and `ensures(...)` facts enter only normal-completion
+successors. For async calls, the checker splits invocation requirements from the deferred execution contract and publishes
+`ensures(...)` facts only after normal direct-await completion or in a `RunResult.Completed` refinement.
 `with(...)` constraints are checked in the generic semantic context. Trusted obligations must be proved, visibly acknowledged, or
 propagated through the declaration contract.
 
@@ -604,6 +606,11 @@ Moving a value moves its dependency contract. Copying creates the contract requi
 combines child requirements. Nullable and union contracts retain guards for presence and active variants. Calls instantiate portable
 symbol templates into unit-local subjects.
 
+Generic bodies use open dependency subjects. An operation that publishes such a subject to a synchronized shared owner or an
+independent run adds an open run-transfer term naming the destination class. The term remains in the portable template and is
+validated against concrete value dependencies at instantiation. This is the same analysis for user declarations, standard-library
+declarations, and private trusted ABI wrappers; no package or textual declaration name is special.
+
 The merge is a deterministic normalized union of requirements with typed guards. Requirements are discharged only by a checked
 operation that proves their resolution. Recovery preserves conservative requirements rather than dropping them.
 
@@ -620,8 +627,8 @@ This domain computes the body effect summary and validates effect, capability us
 It observes selected calls and lifecycle operations, mutation, allocation, deallocation, I/O, async creation, suspension, task
 start, join, cancellation, panic behavior, trusted operations, and dependency transfers.
 
-It consumes composite storage results for capability availability and for lifecycle, scope, async-computation, task, joining, cancellation,
-and other run obligations. It does not transfer or merge those states again.
+It consumes composite storage results for capability availability and for lifecycle, scope, async-computation, task, joining,
+cancellation, and other run obligations. It does not transfer or merge those states again.
 
 Its state retains:
 
@@ -650,16 +657,20 @@ These rules follow `docs/language/callables/effects-and-capabilities.md`, `docs/
 
 ### Async Frame And Task Plans
 
-Async checking publishes typed frame, suspension, deferred-execution-requirement, affinity, and structured cleanup results. It does
-not assign machine frame layout.
+Async checking publishes typed frame, suspension, deferred-execution-contract, affinity, and structured cleanup results. It does not
+assign machine frame layout.
 
-For each async invocation, the checker separates ordinary invocation preconditions from the compiler-known execution predicates
-deferred into `Async<T>`. Direct await validates those predicates against the current execution lane. Task start records the
-requirements for runtime lane selection and product validation.
+For each async invocation, the checker separates argument evaluation, transfer, value preconditions, generic constraints, and frame
+construction from body effects, capabilities, execution predicates, lifecycle behavior, and normal-completion postconditions
+deferred into `Async<T>`. Direct await validates the deferred contract against the current execution context and publishes
+postconditions only on normal completion. Task start records the contract for runtime lane selection and publishes postconditions
+only in a `RunResult.Completed` refinement.
 
 For each async lexical scope exit, composite storage flow emits one two-phase cleanup plan: all owned unresolved tasks receive
 cancellation before any task is awaited, then normal reverse lifecycle resolution proceeds with dependency ordering. Lowering
-consumes this plan without repeating flow analysis.
+consumes this plan without repeating flow analysis. The plan names separate descriptor broadcast visitors and lifecycle-resolution
+operations for concrete and erased state and statically rejects normal implicit task cleanup when a possible completion payload has
+fallible lifecycle resolution.
 
 The complete implementation contract is defined in `docs/design/async-runtime.md`.
 

@@ -3,7 +3,9 @@
 Asynchronous execution is part of the language's semantic model.
 
 Calling an async callable creates an owned inactive `Async<T>` whose normal completion type is `T`. Calling it does not execute the
-body or create independently running work.
+body or create independently running work. Invocation checks argument transfer and value preconditions; body effects, capabilities,
+execution requirements, lifecycle behavior, and postconditions travel with the computation until execution, and postconditions are
+established only by normal completion.
 
 Awaiting consumes and composes an async computation into the current task. Starting consumes it into an independently running task
 and returns the sole source-level `Task<T>` owner. The distinction between computation and task is explicit in the type system rather
@@ -17,11 +19,13 @@ owner whose contract preserves all dependencies and its eventual resolution. Bra
 owner.
 
 When async scope exit owns unresolved tasks, cancellation is requested for all of them before any is awaited. Cleanup then resolves
-them in ordinary lifecycle order before dependent storage or capabilities end.
+them in ordinary lifecycle order before dependent storage or capabilities end. Concrete and erased representations preserve this
+as distinct recursive broadcast and lifecycle-resolution phases.
 
 Cancellation is cooperative. It is observed at suspension points, checkpoints, and cancellation-aware operations. Cleanup is
 shielded from repeated delivery and uses synchronous infallible destruction as the abnormal-exit fallback when graceful
-finalization fails.
+finalization fails. Unobserved completion values receive their full lifecycle; suppressed failures remain owned until a panic report
+or mandatory host-reporting boundary consumes them.
 
 Async representation is protected. Direct await does not semantically require task creation, scheduler mediation, source boxing, or
 source pinning. Independent task storage begins at the start boundary, while dynamically recursive suspended depth can require
@@ -32,4 +36,5 @@ Asynchronous behavior and execution requirements are part of behavioral contract
 compatible lane.
 
 Low-level runtime machinery is a versioned trusted product substrate. Channels, operating-system threads, synchronization types,
-timers, checkpoints, and concurrent combinators are ordinary standard-library Bray over that private ABI.
+timers, checkpoints, and concurrent combinators are ordinary standard-library Bray over that private ABI. Their generic cross-run
+safety comes from ordinary inferred open dependency contracts, not compiler-recognized library names or marker types.

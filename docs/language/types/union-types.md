@@ -584,9 +584,12 @@ union RunResult<T>
 
 `RunResult.Completed` carries the computation's declared result.
 
-`RunResult.Panicked` carries the panic report produced by a panic caught at the task boundary.
+`RunResult.Panicked` carries the panic report produced by a panic caught at the task boundary. The protected report can also own
+ordered suppressed panics and type-erased cleanup incidents produced while unwinding that boundary.
 
-`RunResult.Cancelled` records that the task boundary was cancelled before normal completion.
+`RunResult.Cancelled` records that the task boundary was cancelled before normal completion. It has no payload. Type-erased cleanup
+incidents produced while reaching cancellation are transferred to the mandatory host cleanup-report sink when the boundary is
+observed or automatically resolved, as defined by the cancellation rules.
 
 A fallible computation observed through a task boundary uses `RunResult<Result<T, E>>`.
 
@@ -621,7 +624,9 @@ match result
 }
 ```
 
-`PanicReport` is a compiler-known [protected-representation](../compiler-known-and-standard-library/protected-representation.md) type that preserves the panic message and source context carried by a panic.
+`PanicReport` is a compiler-known [protected-representation](../compiler-known-and-standard-library/protected-representation.md) type
+that preserves the panic message and source context carried by a panic and owns any ordered suppressed reports and cleanup
+incidents attached during cleanup. Its synchronous infallible destruction resolves all attached type-erased payloads.
 
 `ConversionError` is the compiler-known error type used by built-in fallible conversions.
 
@@ -697,7 +702,9 @@ impl Task<T>
 Calling either method consumes the handle and produces `Async<RunResult<T>>`. Awaiting that computation resolves the task obligation.
 Unresolved task ownership carries compiler-known asynchronous finalization and structured scope cleanup.
 
-[Task handles and obligations](../async-and-concurrency/task-handles-and-obligations.md), [Task transfers and escapes](../async-and-concurrency/task-transfers-and-escapes.md), and [Structured task scope exit](../async-and-concurrency/structured-task-scope-exit.md) define the complete task contract.
+[Task handles and obligations](../async-and-concurrency/task-handles-and-obligations.md),
+[Task transfers and escapes](../async-and-concurrency/task-transfers-and-escapes.md), and
+[Structured task scope exit](../async-and-concurrency/structured-task-scope-exit.md) define the complete task contract.
 
 ## Union API compatibility
 

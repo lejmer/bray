@@ -17,6 +17,11 @@ A dependency contract can include:
 - finalization or destruction obligations that must remain attached to the value,
 - facts whose validity depends on the same storage, capability, or ownership state.
 
+It can also contain an open run-transfer requirement. Such a requirement states that an owned subject and every dependency it can
+carry must remain valid if ownership or access moves to a distinct task, native thread, or synchronized shared owner. It identifies
+the destination run class and rejects creating-run borrows, incompatible thread affinity, unsynchronized shared mutation, and
+lifecycle obligations that the destination cannot drive.
+
 A dependency contract is not part of surface syntax.
 
 It is part of the compiler-visible semantic contract of the value or declaration that carries it.
@@ -24,6 +29,17 @@ It is part of the compiler-visible semantic contract of the value or declaration
 For exported declarations, compiled interfaces, documentation, incremental compilation, and separate compilation, the compiler records the inferred dependency contract as interface metadata.
 
 Two compilers must reject and accept the same programs according to these dependency-contract rules, even though the source code does not write those contracts explicitly.
+
+A generic body is checked with open dependency subjects for its type and value parameters. When an ordinary operation transfers a
+generic value to a possibly independent run or shared owner, the checker retains an open run-transfer requirement instead of either
+assuming the value is transferable or rejecting the generic declaration. The exported portable dependency template records that
+requirement. Each concrete call or movement instantiates it with the actual value contract and is accepted only when the destination
+preserves every resulting dependency.
+
+This rule applies to user code and standard-library code equally. A trusted private runtime operation that creates a thread or
+publishes synchronized storage declares the same boundary in its checked contract; its source name or package does not receive
+special recognition. Open run-transfer requirements are semantic dependency-template terms, not source predicates, traits,
+compiler-known types, implicit implementations, or new syntax.
 
 Each expression that produces a value or access path also produces a dependency contract.
 
@@ -42,7 +58,9 @@ Lambda expressions do not capture enclosing local state.
 A trait view carries the dependency contract of the access or storage form that contains the view, plus the requirements of the implementation witness needed for the selected trait application.
 
 An `Async<T>` carries the dependency contract of its hidden frame state. A `Task<T>` preserves that contract across the independent
-run boundary and adds the task-resolution obligation represented by the handle.
+run boundary and adds the task-resolution obligation represented by the handle. Their value contracts also preserve the deferred
+execution contract and guaranteed normal-completion postcondition template; control-flow merge retains only guarantees common to
+every reachable producer.
 
 Moving a value moves its dependency contract with the value.
 

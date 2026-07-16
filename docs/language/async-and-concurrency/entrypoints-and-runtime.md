@@ -22,8 +22,11 @@ For an async entrypoint, the compiler emits a host entry stub that:
 5. resolves every root-owned task through ordinary structured scope cleanup,
 6. maps normal result, recoverable entry failure, cancellation, and panic to the product runtime contract.
 
-The root task is a task boundary but does not produce a source-visible `Task<T>` handle. Its normal result forms remain the entrypoint
-forms defined by executable products.
+Before shutdown, the host drains the mandatory cleanup-report sink. Suppressed cleanup incidents that are not owned by a returned
+`PanicReport` are therefore observable to host diagnostics even though `RunResult.Cancelled` has no source payload.
+
+The root task is a task boundary but does not produce a source-visible `Task<T>` handle. Its normal result forms remain the
+entrypoint forms defined by executable products.
 
 An executable product selects exactly one conforming async runtime implementation and runtime ABI version when it contains an async
 entrypoint or reachable task start. Libraries do not select runtimes and do not expose runtime implementation types in public

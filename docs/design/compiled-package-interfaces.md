@@ -445,14 +445,22 @@ The consuming compiler decodes the structural template into its local `bray-symb
 portable template into a unit-local `BoundDependencyContractId` using the exact receiver, argument, result, capability, and selected
 implementation facts for the use site.
 
+Portable dependency templates include open run-transfer terms for generic subjects published to synchronized shared ownership or
+an independent task or thread. Each term records the subject projection and destination run class. A consumer instantiates it with
+the concrete argument's storage, affinity, synchronization, and lifecycle dependencies; it does not re-check the generic body or
+look for a marker trait. This representation is what permits ordinary separately compiled generic `std.channel` and `std.thread`
+declarations to enforce cross-run safety without compiler recognition of their names.
+
 ### Async Declaration Metadata
 
-An exported async callable records its declared completion type, async callable contract, normalized immediate preconditions,
-deferred `blocking_execution()` and `compute_execution()` requirements, portable dependency contract, hidden frame descriptor
-compatibility reference, affinity requirements, and required runtime ABI features.
+An exported async callable records its declared completion type, async callable contract, normalized invocation contract, deferred
+body effects, capabilities, execution requirements and lifecycle behavior, normal-completion postcondition template, portable
+dependency contract, hidden frame descriptor compatibility reference, state-indexed affinity requirements, and required runtime
+ABI features.
 
 The hidden frame representation is not encoded as an ordinary source generic argument or public field. Concrete non-generic frames
-publish target-specific size, alignment, move, resume, cancellation, result-move, cleanup, and destruction descriptor references.
+publish target-specific size, alignment, move, resume, cancellation entry, phase-one owned-task broadcast, phase-two lifecycle
+resolution, result-move, and destruction descriptor references.
 Generic async declarations publish checked frame templates or implementation references under the same generic distribution policy
 as other executable generic bodies.
 

@@ -59,4 +59,5 @@
     Async calls create owned inactive computations, direct await composes them into the current task, and starting creates an
     independently running task with one source-level owner. Every lexical block is a structured task boundary, cancellation is
     broadcast before task finalization, and no task is detached from ownership. Async representation is protected, execution-lane
-    requirements are contractual, and low-level runtime machinery belongs to the trusted product substrate.
+    requirements and completion facts are contractual, cleanup failures remain owned and reportable, and low-level runtime
+    machinery belongs to the trusted product substrate.

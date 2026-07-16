@@ -29,9 +29,12 @@ A finalizer can be synchronous or asynchronous.
 
 The surrounding context must be able to drive asynchronous finalization before ownership ends, transfer the obligation, or convert it into an explicit fallback ownership form.
 
-During panic or cancellation cleanup, a finalizer returning `Result.Error` records suppressed cleanup information and permits the
-synchronous destructor and represented-part destruction to run as the universal abnormal-exit fallback. This fallback is not
+During panic or cancellation cleanup, a finalizer returning `Result.Error` records an owned suppressed cleanup incident and permits
+the synchronous destructor and represented-part destruction to run as the universal abnormal-exit fallback. This fallback is not
 available to ordinary source-level scope exit and cannot be explicitly invoked to ignore a finalization failure.
+
+Cleanup-incident ownership, reporting, ordering, and destruction are defined by
+[Cancellation](../async-and-concurrency/cancellation.md#fallible-finalization-during-abnormal-exit).
 
 ## Navigation
 

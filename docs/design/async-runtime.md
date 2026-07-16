@@ -72,11 +72,18 @@ The bound async invocation records:
 - ordered receiver and argument transfers,
 - inferred dependency-contract input subjects,
 - immediate invocation preconditions,
-- deferred execution-context requirements,
+- deferred body effects, capabilities, execution-context requirements, and lifecycle contract,
+- normal-completion postcondition template over `T`,
 - source span and origin chain.
 
-Only `blocking_execution()` and `compute_execution()` requirements are deferred from call time to execution time. Other preconditions
-remain ordinary invocation requirements. The binder identifies these predicates by compiler-known declaration identity.
+Value preconditions, argument transfers, generic constraints, and frame-construction effects remain ordinary invocation
+requirements. Body effects and capabilities, `blocking_execution()` and `compute_execution()`, suspension and cancellation
+behavior, and `ensures(...)` facts belong to the deferred execution contract. The binder identifies the execution predicates by
+compiler-known declaration identity and preserves all other phase classifications from checked callable metadata.
+
+Direct-await normal completion instantiates the postcondition template against the produced `T`. Started execution instantiates it
+only on a control-flow edge refined to `RunResult.Completed(value)`. Frame construction and `Cancelled` or `Panicked` observation
+must not publish body postconditions.
 
 An ordinary function returning `Async<T>` binds as an ordinary call and cannot construct a frame. Only invocation of a callable whose
 callable contract is async creates an async frame operation.
@@ -108,8 +115,10 @@ Frame metadata contains:
 - move-before-start operation,
 - resume operation,
 - cancellation-entry operation,
+- phase-one owned-task broadcast visitor,
+- phase-two lifecycle-resolution operation,
 - completion-result move operation,
-- cleanup and destruction operations,
+- infallible destruction operation,
 - source-correlated suspension and retained-value information,
 - execution requirements and affinity facts.
 
@@ -138,6 +147,10 @@ The checker rejects:
 - destruction of storage or capability release before dependent task resolution,
 - task migration when retained state is thread-affine.
 
+Affinity facts identify an exact origin thread or compatible lane class for each live control state. A backend can use
+state-sensitive migration only when its descriptor preserves those state-indexed facts; otherwise it uses their conservative union
+and pins the task for its whole lifetime.
+
 The checker represents affinity as a typed dependency property. It does not insert an implicit clone, shared owner, `'static`
 conversion, or detached lifetime.
 
@@ -155,12 +168,19 @@ Composite storage flow owns task-obligation state. For every async lexical block
 - tasks already resolved or moved away,
 - dependency ordering between tasks and other lifecycle values,
 - the ordinary reverse lifecycle sequence,
-- abnormal-exit primary and suppressed-report state.
+- abnormal-exit primary and suppressed-report state,
+- descriptor traversal roots for concrete, erased, active-child, aggregate, and recursive-indirect frame state,
+- whether an unobserved completion payload is infallibly lifecycle-resolvable on the selected exit.
 
 The plan contains two explicit phases:
 
 1. cancellation request for every selected task, with no waits,
 2. async finalization and ordinary lifecycle resolution after all requests.
+
+Phase one invokes only descriptor broadcast visitors. A visitor follows initialized ownership paths through inactive erased frames,
+the active direct-await child, guarded aggregates, and recursive indirections; it can request cancellation but cannot resume, wait,
+finalize, or destroy. Phase two invokes the distinct lifecycle-resolution operations after the complete traversal returns. MIR
+validation rejects a descriptor or cleanup plan that can discover a new phase-one task while phase two is running.
 
 This is one composite plan, not independently recomputed task and lifecycle passes. Control-flow merge preserves a conservative
 obligation when any reachable predecessor still owns it. Partial aggregates use initialized and moved-part facts.
@@ -186,6 +206,7 @@ Bray MIR represents async behavior with typed operations rather than runtime sym
 - complete task with value, cancellation, or panic,
 - execute checked cleanup phase one,
 - execute checked cleanup phase two,
+- append and transfer an owned cleanup incident,
 - move terminal `RunResult<T>`,
 - destroy terminal task control state.
 
@@ -210,7 +231,8 @@ Direct-await lowering must not semantically:
 - create an independent cancellation owner.
 
 The parent task's resume operation delegates to the active child until it completes or suspends. The parent cancellation path enters
-the child's cancellation cleanup before continuing parent cleanup.
+the child's phase-one broadcast traversal before any phase-two cleanup, then enters the child's cancellation cleanup during
+phase-two resolution.
 
 Before the child begins, lowering emits the checked lane-requirement assertion established by semantic analysis. This is a typed MIR
 fact or validation operation, not a call to the source predicate.
@@ -228,7 +250,8 @@ not forced through that allocation strategy.
 
 When differently represented `Async<T>` values merge into homogeneous storage, lowering uses checked existential frame metadata and
 an appropriate result-place or erased-storage plan. Erasure strategy must preserve movement before first resume and stable storage
-after execution begins.
+after execution begins. Its descriptor retains separate phase-one broadcast and phase-two lifecycle entry points; an erased generic
+cleanup callback is insufficient.
 
 ---
 
@@ -257,14 +280,25 @@ A cancellation request atomically marks the task and makes a suspended cancellat
 checks the request at each language-defined observation point.
 
 Cancellation cleanup masks further delivery while retaining the request for `std.task.cancellation_requested()`. Generated cleanup
-drives async finalizers, records fallible-finalization errors as suppressed cleanup data during abnormal exit, and always reaches
+drives async finalizers, records fallible-finalization errors as owned cleanup incidents during abnormal exit, and always reaches
 infallible destruction unless cleanup panics or a noncooperative operation never returns.
+
+Each cleanup incident contains an erased owned error payload, a concrete type-and-destruction descriptor, producer and source
+identity, and deterministic encounter ordinal. The active cleanup context owns an ordered incident list. Terminal observation
+transfers a cancelled run's list, together with suppressed child-run panic reports, to the mandatory product-host cleanup-report
+sink. A panicked run transfers cleanup incidents and later panics into the protected `PanicReport` suppressed-entry storage. Either
+the sink reports and then infallibly destroys each payload, or `PanicReport` retains ownership until its own destruction does so. No
+ABI path can discard the list. Incident construction is the abnormal-exit abandonment conversion, so its erased payload descriptor
+has no remaining graceful finalization operation.
 
 The task control block has exactly one terminal state:
 
 - completed with initialized `T`,
-- cancelled with no `T`,
-- panicked with initialized `PanicReport` and optional suppressed reports.
+- cancelled with no `T` plus runtime-owned cleanup incidents and suppressed child-run panics pending sink delivery,
+- panicked with initialized `PanicReport` owning optional suppressed panics and cleanup incidents.
+
+A cleanup panic commits or replaces cancellation with the panicked terminal state. A non-panic cleanup incident does not change the
+cancelled variant observed by source.
 
 Racing normal completion and cancellation commit through one atomic terminal transition. `cancel()` can therefore observe normal
 completion when completion won. Join waiters acquire the terminal state and establish the completion visibility edge.
@@ -275,7 +309,9 @@ completion when completion won. Join waiters acquire the terminal state and esta
 
 The runtime ABI is a versioned product contract. It includes typed binary roles equivalent to root execution, task allocation and
 start, frame resume, suspension registration, wake, cancellation request and observation, join registration, terminal publication,
-runtime events, compatible-lane selection, and structured shutdown.
+runtime events, compatible-lane selection, cleanup-incident transfer and reporting, and structured shutdown. The frame-descriptor
+ABI versions phase-one broadcast and phase-two lifecycle operations independently from resume and destruction. Cleanup-report sink
+support is part of the product-host ABI and remains available to synchronous products without linking an async scheduler.
 
 ABI symbol spellings and calling conventions are selected by the target/runtime contract. They do not become source declarations.
 The runtime receives compiler-generated frame descriptors and never parses source types or compiled package interfaces.
@@ -288,7 +324,8 @@ The product runtime advertises:
 - `blocking_execution()` availability,
 - `compute_execution()` availability,
 - reactor and event support required by the selected standard library,
-- target and panic ABI compatibility.
+- target and panic ABI compatibility,
+- cleanup-report sink support and cleanup-incident descriptor compatibility.
 
 Runtime implementations must be deterministic with respect to language-defined ownership and lifecycle outcomes even though task
 interleaving is not deterministic.
@@ -300,11 +337,13 @@ interleaving is not deterministic.
 An exported async declaration records:
 
 - async callable contract and completion type,
-- normalized immediate and deferred requirements,
+- normalized invocation contract and deferred execution contract,
+- normal-completion postcondition template,
 - portable dependency-contract template,
 - hidden frame identity or generic frame-template identity,
 - frame descriptor compatibility reference,
 - suspension and cleanup behavior needed by downstream lowering,
+- versioned phase-one broadcast and phase-two lifecycle descriptor roles,
 - required runtime ABI features.
 
 Public APIs expose `Async<T>` as the invocation type without exposing hidden frame layout through source reflection. A consuming
@@ -343,9 +382,19 @@ Private trusted declarations bind runtime events, current-task cancellation stat
 creation, reactor registration, and other nonportable services. Their trusted contracts must establish every ownership, dependency,
 visibility, cancellation, and lifecycle fact used by safe wrappers.
 
+Generic operations that publish values to synchronized shared storage or an independent run produce open run-transfer terms in the
+ordinary inferred dependency template. A private ABI operation declares that semantic boundary in its checked trusted contract;
+the compiler does not recognize its source name. Consumers instantiate the exported term with concrete value dependencies, so
+`std.channel` and `std.thread` reject creating-run borrows, incompatible affinity, unsynchronized mutation, and undrivable lifecycle
+obligations without a public marker trait or another compiler-known type.
+
 `std.thread.Handle<T>` and its entry callable are ordinary standard-library types, allowing synchronous-only products to use native
 threads without selecting the async runtime. The standard library's async thread bridge integrates those handles with runtime events
-when used from tasks.
+when used from tasks. Synchronous executable roots and native-thread roots establish both execution predicates; ordinary sync calls
+only inherit them. Blocking `Handle<T>` join, cancel, and finalization contracts require `blocking_execution()`. The async bridge
+turns current-task cancellation into request-thread-cancellation, shielded wait, terminal lifecycle resolution, and continuation of
+the original task cancellation. It uses a private async-finalizable standard-library owner rather than the public synchronous
+handle, preserving ordinary Bray expressibility while allowing async lifecycle resolution of `T`.
 
 The compiler does not synthesize channel or combinator implementations. Fixed arrays, const generics, non-capturing async lambdas,
 ordinary unions and products, `Async<T>`, `Task<T>`, and private event wrappers are sufficient to implement the standard algorithms.
@@ -387,16 +436,21 @@ parent owners, start sites, current suspension sites, wake causes, cancellation 
 The implementation requires focused tests for:
 
 - async invocation type and nonexecution,
+- invocation-versus-execution effects, requirements, and postcondition timing,
 - ordinary member resolution of `start`, `join`, and `cancel`,
 - direct await without a task boundary,
 - recursive async frame formation,
 - dependency propagation through `Async<T>` and `Task<T>`,
 - two-phase cancellation broadcast before waits,
+- phase-separated traversal through erased, active-child, aggregate, and recursive frame state,
 - nested aggregate and partial-move task cleanup,
 - normal, cancelled, and panicked run results,
 - fallible and asynchronous cleanup under normal and abnormal exits,
+- unobserved completion-payload lifecycle checks and ordered cleanup-incident reporting,
 - lane requirement deferral, direct-await rejection, start routing, and product rejection,
 - thread-affinity preservation,
+- open generic run-transfer template instantiation and synchronous/native execution-root facts,
+- blocking thread-handle contracts and async thread-bridge cancellation,
 - compiled-interface round trips for async metadata,
 - runtime ABI version and feature mismatch,
 - async entrypoint root lowering,

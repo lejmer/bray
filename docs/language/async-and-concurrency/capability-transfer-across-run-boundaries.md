@@ -10,8 +10,12 @@ If a capability depends on the creating task, lexical storage, a resource scope,
 callback context, `Task<T>` preserves that dependency. Moving the handle is valid only when the destination owner preserves every
 lifetime, affinity, synchronization, cancellation, destruction, and finalization requirement.
 
-A thread-affine capability pins the task to a compatible runtime lane. It does not require a different task type. A migratable task
-can run on any selected worker satisfying its execution requirements.
+A thread-affine capability records the exact origin thread or a typed compatible-lane class in the dependency contract. A task
+retaining it can run only on that thread or on a lane proven to belong to that class. The requirement is not a boolean “local” flag.
+The frame descriptor records the requirement for every control state; an implementation can migrate only between states whose live
+dependency sets permit the destination, and must conservatively pin the whole task when it does not implement state-sensitive
+affinity. No different task type is required. A migratable task has no live affinity requirement and can run on any selected worker
+satisfying its execution requirements.
 
 There is no detached capability category. Work can outlive its creating block only by moving `Task<T>` to another statically valid
 owner. The handle and all dependencies remain source-visible obligations.

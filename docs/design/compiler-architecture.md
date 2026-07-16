@@ -563,9 +563,10 @@ Lowering should not make new semantic decisions.
 If lowering discovers that it needs a semantic fact that the checked bound HIR did not provide, the checker service
 contract is incomplete.
 
-Async lowering consumes hidden frame identities, suspension liveness, deferred execution requirements, affinity facts, and
-two-phase scope cleanup plans. It emits typed MIR operations rather than calls selected by source-level runtime or standard-library
-names. `docs/design/async-runtime.md` defines the phase ownership and runtime boundary.
+Async lowering consumes hidden frame identities, suspension liveness, invocation and deferred execution contracts, state-indexed
+affinity facts, postcondition templates, and two-phase scope cleanup plans with distinct descriptor visitors. It emits typed MIR
+operations rather than calls selected by source-level runtime or standard-library names. `docs/design/async-runtime.md` defines the
+phase ownership and runtime boundary.
 
 Task-local lowering builders may use private intermediate forms while constructing MIR. Those forms are not separately published,
 cached, or exposed as another durable compiler representation.

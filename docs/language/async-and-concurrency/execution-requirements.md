@@ -23,7 +23,16 @@ async func read(pos file: &File) -> Data
 latency contract of a cooperative lane.
 
 These predicates describe execution-context facts. Source cannot establish them with an assertion, trusted boundary, witness,
-ordinary predicate implementation, or user-defined value. The selected runtime establishes them for compatible lanes.
+ordinary predicate implementation, or user-defined value. They are established only by a language-defined execution root or a
+selected runtime lane:
+
+- a synchronous executable entrypoint root establishes both predicates for its host thread;
+- every `std.thread` native entry root establishes both predicates for that dedicated operating-system thread;
+- an async runtime lane establishes exactly the predicates advertised for that lane;
+- a test root follows its synchronous or async product entry contract;
+- a foreign callback establishes neither predicate unless its trusted ABI contract explicitly supplies a compatible execution root.
+
+Ordinary synchronous calls inherit the current context's facts. Entering an ordinary synchronous function does not create them.
 
 For a synchronous callable, these requirements are checked at the call as ordinary preconditions.
 

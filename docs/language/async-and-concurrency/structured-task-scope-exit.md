@@ -17,6 +17,12 @@ Task cleanup occurs in two phases.
 Before waiting for or normally finalizing any owned unresolved task, cleanup requests cancellation for every such task. Requests are
 issued in deterministic reverse ownership-resolution order, but no task is awaited during this phase.
 
+Phase-one traversal is recursive over initialized ownership state. Every concrete or erased async-frame descriptor provides a
+cancellation-broadcast visitor that finds task obligations in inactive frames, the active direct-await child, nested aggregates,
+and dynamically indirect recursive-frame storage. The visitor can inspect initialization and active-variant state and request task
+cancellation, but cannot resume, await, finalize, destroy, or otherwise resolve any visited value. Each unique owned obligation is
+visited once according to its ownership path.
+
 This broadcast prevents one child from blocking cleanup before its siblings have received cancellation. Requesting cancellation for
 an already terminal task has no effect.
 
@@ -24,6 +30,11 @@ an already terminal task has no effect.
 
 After cancellation has been requested for all owned tasks, ordinary reverse lifecycle ordering resumes. Each task's automatic async
 finalizer waits for terminal completion and applies the unobserved-result rules.
+
+Concrete and erased frame descriptors expose a separate lifecycle-resolution operation for this phase. It can drive finalizers,
+wait for tasks, move or discard completion values, and destroy initialized state according to the checked cleanup plan, but it
+cannot introduce a phase-one task that was absent from the completed broadcast traversal. Descriptor version mismatch is a product
+or compiled-interface error, never a reason to combine the phases.
 
 Task cleanup completes before destruction or finalization of any value that an owned task depends on. Dependencies therefore impose
 ordering edges in addition to ordinary reverse declaration and represented-part order.

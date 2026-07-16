@@ -17,13 +17,17 @@ a cancellation-shielded context when it can suspend.
 On ordinary exit, fallible finalization returning `Result.Error` leaves its obligation unresolved. The value cannot be destroyed,
 and the program must handle, transfer, or represent the failure through an allowed source-level lifecycle path.
 
-On panic or cancellation exit, cleanup attempts the same finalizer. If it returns `Result.Error`, the failure is recorded as
-suppressed cleanup information and graceful finalization is abandoned. The synchronous infallible destructor and represented-part
+On panic or cancellation exit, cleanup attempts the same finalizer. If it returns `Result.Error`, the failure is recorded as an
+owned suppressed cleanup incident and graceful finalization is abandoned. The synchronous infallible destructor and represented-part
 destruction then run. A cleanup panic becomes or is attached to the task's `PanicReport` according to whether another panic is
-already active.
+already active. Incident ownership and observation follow the async cancellation rules.
 
 If an ordinary scope cannot resolve a lifecycle obligation, transfer it to a valid owner, or convert it into an explicit fallback
 ownership form, the program is rejected. The abnormal-exit fallback does not weaken that rule for normal execution.
+
+For an unresolved `Task<T>` or `std.thread.Handle<T>`, this normal-exit check includes the lifecycle of a possible unobserved
+`Completed(T)` payload. Task cleanup can drive asynchronous infallible finalization; thread-handle cleanup is synchronous. Either
+implicit path is rejected when payload finalization can return `Result.Error`, requiring explicit terminal observation and handling.
 
 ## Navigation
 

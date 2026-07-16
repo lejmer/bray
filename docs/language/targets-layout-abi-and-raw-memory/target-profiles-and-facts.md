@@ -115,9 +115,11 @@ target.alignment.max_storage
 target.alignment.max_allocation
 ```
 
-`target.identity.name`, `target.identity.arch`, `target.identity.vendor`, `target.identity.system`, `target.identity.environment`, and `target.identity.abi` have type `string`.
+`target.identity.name`, `target.identity.arch`, `target.identity.vendor`, `target.identity.system`,
+`target.identity.environment`, and `target.identity.abi` have type `string`.
 
-`target.pointer.bits`, `target.pointer.bytes`, `target.alignment.max_storage`, and `target.alignment.max_allocation` have type `usize`.
+`target.pointer.bits`, `target.pointer.bytes`, `target.alignment.max_storage`, and `target.alignment.max_allocation` have type
+`usize`.
 
 The other facts listed above have type `bool`.
 

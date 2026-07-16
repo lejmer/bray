@@ -23,9 +23,9 @@ resolved by async cleanup.
 - `RunResult.Cancelled` when the task reaches cancellation before normal completion,
 - `RunResult.Panicked(report)` when a panic crosses the task boundary.
 
-When driven, `cancel()` first requests cancellation idempotently and wakes a suspended task, then waits for the same terminal outcomes. A task
-that completed before the request can therefore produce `Completed`, and a task that panicked before or during cancellation can
-produce `Panicked`.
+When driven, `cancel()` first requests cancellation idempotently and wakes a suspended task, then waits for the same terminal
+outcomes. A task that completed before the request can therefore produce `Completed`, and a task that panicked before or during
+cancellation can produce `Panicked`.
 
 Consuming either method transfers the resolution obligation into the returned async computation. Awaiting that computation resolves
 the obligation and produces the `RunResult<T>`. Moving it preserves the obligation through its dependency and lifecycle contract. If
@@ -41,10 +41,20 @@ An unresolved `Task<T>` has a compiler-known asynchronous finalization obligatio
 
 1. requests cancellation if it has not already been requested,
 2. waits in a cancellation-shielded cleanup context for terminal completion,
-3. destroys an unobserved `Completed(T)` payload,
+3. resolves an unobserved `Completed(T)` payload through `T`'s complete finalization, destruction, and represented-part lifecycle,
 4. accepts `Cancelled` as expected cleanup,
 5. propagates an unobserved child panic on ordinary scope exit,
 6. records an unobserved child panic as a suppressed panic when the parent is already panicking or cancelling.
+
+Implicit task resolution on an otherwise-normal scope exit is well formed only when every possible `Completed(T)` payload can be
+fully resolved in that async context without a fallible finalizer. An asynchronous but infallible finalizer is driven before
+destruction. If `T` has fallible finalization, the checker rejects normal implicit resolution; source must explicitly observe
+`await task.join()` or `await task.cancel()` and preserve, transfer, or explicitly handle the `Completed(value)` lifecycle
+obligation. This is a static rule because cleanup cannot assume that cancellation will beat an already completed task.
+
+During parent panic or cancellation, an unobserved completed payload follows the universal abnormal-exit lifecycle path. Its
+finalizer is attempted in shielded cleanup; an error becomes an ordered cleanup incident and destruction still runs. A cleanup
+panic follows the task-boundary panic rules.
 
 After terminal resolution, its synchronous destructor releases the runtime task-control storage.
 

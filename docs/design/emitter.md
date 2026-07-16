@@ -346,6 +346,8 @@ The plan is assembled from already resolved compilation and target facts:
 - startup and termination objects,
 - runtime libraries,
 - selected async runtime ABI version, root entry stub, execution-lane requirements, and runtime feature metadata when applicable,
+- product-host cleanup-report sink ABI identity when reachable cleanup can produce suppressed entries, independently of async
+  runtime selection,
 - native and system libraries,
 - exported symbols and visibility requirements,
 - search paths supplied by package and target configuration,

@@ -14,7 +14,7 @@ producing `Result<Response, FetchError>`.
 
 Calling an async callable evaluates its receiver, explicit arguments, and omitted defaults exactly once in ordinary call evaluation
 order. Those values are transferred into a newly created owned async computation according to the selected callable's receiver and
-parameter modes.
+parameter modes. Invocation checks generic constraints and value preconditions at that point.
 
 If the selected async callable declares result type `T`, its invocation expression has type `Async<T>`.
 
@@ -24,7 +24,8 @@ Calling an async callable:
 - does not create a task,
 - does not interact with the scheduler,
 - does not require a running async execution context,
-- does not by itself satisfy deferred execution requirements.
+- does not by itself incur body effects or establish body postconditions,
+- does not by itself satisfy the deferred execution contract.
 
 `async func(A...) -> T` remains distinct from `func(A...) -> Async<T>`. Asyncness is part of the callable contract, the async body is
 checked as producing `T`, and only an async callable invocation can create its protected frame representation. An ordinary function
@@ -32,7 +33,8 @@ can accept, move, store, or return an existing `Async<T>` value but cannot const
 
 `Async<T>` is compiler-known, protected-representation, owned, move-only, and not directly constructible. It contains the inactive
 computation frame and every owned value, borrow, capability, fact dependency, execution requirement, effect, and lifecycle
-obligation required to execute or discard that frame.
+obligation required to execute or discard that frame. It also carries the body's normal-completion postcondition template. Direct
+await applies that template only after normal completion; a started task preserves it only for a `RunResult.Completed` refinement.
 
 An `Async<T>` value can be:
 

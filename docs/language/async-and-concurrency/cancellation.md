@@ -36,10 +36,27 @@ Cancellation and panic cleanup provide the universal abandonment path:
 
 1. Attempt the ordinary finalizer in shielded cleanup.
 2. If it succeeds, continue to ordinary destruction.
-3. If it returns `Result.Error`, record the error as suppressed cleanup information, abandon graceful finalization, and run the
+3. If it returns `Result.Error`, record the error as a suppressed cleanup incident, abandon graceful finalization, and run the
    synchronous infallible destructor and represented-part destruction anyway.
 4. If cleanup panics, the task boundary reports `RunResult.Panicked`; an already active panic is retained as the primary report and
    later cleanup panics are attached as suppressed reports.
+
+A cleanup incident is an owned, type-erased runtime record containing the finalizer error value, its concrete type descriptor, the
+finalizer and source location that produced it, and its deterministic encounter ordinal. Cleanup owns incidents in reverse
+lifecycle encounter order until the surrounding run boundary is resolved. Creating the incident is the language-defined explicit
+abandonment representation for that error payload: its graceful finalization obligation has already been abandoned, so the
+descriptor performs only synchronous infallible destruction when incident ownership ends.
+
+If cancellation remains the terminal outcome, `RunResult.Cancelled` intentionally remains payload-free: source callers do not gain
+an unbounded union of arbitrary finalizer error types. Instead, observing or automatically resolving that boundary transfers the
+ordered incidents and any suppressed child-run panic reports to the product's mandatory host cleanup-report sink. The host and
+runtime inspection tooling can report each entry's kind, type, origin, and ordinal; richer error rendering is available only when
+the error type's ordinary diagnostic contract provides it. The sink consumes each error value or panic report and runs its
+infallible destruction after reporting. It must not silently discard an entry.
+
+If cleanup panics, the terminal outcome is `RunResult.Panicked`. The cleanup panic becomes the primary `PanicReport` unless a panic
+was already active; non-panic incidents and later panics are retained as ordered suppressed entries owned by that report. Destroying
+a `PanicReport` resolves every attached entry. A non-panic finalizer error alone does not change `Cancelled` into `Panicked`.
 
 Destructors therefore remain synchronous, infallible, and last-resort representational cleanup. No cancellation-specific lifecycle
 declaration, parameter, or modifier exists.

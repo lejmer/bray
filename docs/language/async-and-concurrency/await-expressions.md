@@ -19,8 +19,12 @@ Direct await does not produce `RunResult<T>` because it does not cross an indepe
 inherit the same async execution context; no async block form exists.
 
 Before the child first executes, the checker verifies that the current execution context satisfies the child computation's deferred
-execution requirements and thread-affinity constraints. Awaiting a computation requiring `blocking_execution()` or
-`compute_execution()` from an incompatible lane is rejected.
+body effects, capabilities, lifecycle contract, execution requirements, and thread-affinity constraints. Awaiting a computation
+requiring `blocking_execution()` or `compute_execution()` from an incompatible lane is rejected.
+
+Normal completion establishes the postcondition template carried by the consumed computation and applies its `result` facts to the
+produced `T`. Panic and cancellation establish none of those facts. If control flow merged computations from multiple producers,
+only postconditions guaranteed by every possible producer survive in the merged computation contract.
 
 The current task's cancellation request is checked before a child suspends and after it resumes. Cancellation-aware runtime
 operations can also observe the request while performing the await.

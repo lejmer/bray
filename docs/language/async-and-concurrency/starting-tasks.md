@@ -29,12 +29,16 @@ Starting performs these semantic steps:
 4. Move the inactive frame into that storage before its first resume.
 5. Create the cancellation state, completion state, and join-waiter state.
 6. Make the task schedulable.
-7. Return `Task<T>` carrying the computation's dependency and execution contracts.
+7. Return `Task<T>` carrying the computation's dependency, execution, and normal-completion postcondition contracts.
+
+Observing `RunResult.Completed(value)` establishes the postcondition template preserved by that particular task and applies its
+`result` facts to `value`. Moving a task preserves the template. Merging tasks or computations from different producers retains only
+postconditions guaranteed by every reachable producer; the common source type `Task<T>` does not invent producer-specific facts.
 
 If the selected product runtime cannot provide a required lane, product validation rejects the program before execution. If task
 storage or another runtime resource cannot be acquired before publication, `start()` panics in the calling task and resolves the
-consumed inactive frame during panic cleanup. Once the task has been published, `start()` returns its handle and later runtime failure
-is represented only through that task's terminal outcome or the product's catastrophic runtime-failure policy.
+consumed inactive frame during panic cleanup. Once the task has been published, `start()` returns its handle and later runtime
+failure is represented only through that task's terminal outcome or the product's catastrophic runtime-failure policy.
 
 There is no detached start operation. Moving `Task<T>` transfers its ownership obligation, but an independently running task always
 has a source-level owner until its terminal result is resolved.

@@ -32,11 +32,20 @@ A call to a callable returning `unit` produces `unit`.
 A call to a callable returning `never` has no normal continuation.
 
 A call to an async callable whose declared result is `T` produces an owned `Async<T>`. The async body is still checked as producing
-`T`, and invocation defers the execution-context predicates defined by the async contract into that computation.
+`T`. Invocation checks the callable's invocation contract and transfers its execution contract into that computation.
 
 A call expression can use ordinary and trusted facts from the fact context to satisfy the selected callable contract.
 
-A call expression can establish facts from the callable's `ensures(...)` clause after successful completion.
+A synchronous call expression can establish facts from the callable's `ensures(...)` clause after successful completion. Constructing
+an `Async<T>` establishes no body postcondition. The postconditions of an async callable become available only after direct await
+completes normally, or within a `RunResult.Completed(value)` refinement after observing a started task. Postconditions mentioning
+`result` describe that completed value.
+
+Argument evaluation, argument transfer, generic constraints, and value preconditions are invocation-time behavior for both sync and
+async calls. Effects, capabilities, execution requirements, and lifecycle behavior of an async body are execution-time behavior.
+They are carried by the produced `Async<T>` and checked when it is directly awaited, started, or resolved during cleanup. Merely
+constructing the frame is charged only for invocation-time behavior such as argument evaluation, ownership transfer, and any frame
+storage operation required by the selected representation.
 
 A call expression participates in overload resolution when the callee resolves to an overload declaration.
 
