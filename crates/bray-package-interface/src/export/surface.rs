@@ -274,7 +274,7 @@ mod tests {
             .unwrap_or_else(|| panic!("test module key must be valid"))
     }
 
-    fn encode(surface: crate::PackageInterfaceSurface) -> crate::EncodedPackageInterface {
+    fn encode(surface: crate::PackageInterfaceSurface) -> crate::InterfaceArtifact {
         let bundle = PackageInterfaceExportBundle::try_new(
             surface,
             InterfaceSemanticFacts::new(),

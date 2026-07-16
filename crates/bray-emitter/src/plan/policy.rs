@@ -123,15 +123,6 @@ pub enum EmissionBackendBuildError {
     DuplicateCodegenUnit,
 }
 
-/// Availability policy for compiled package-interface output.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum PackageInterfacePolicy {
-    /// Package-interface output is unavailable for this planning request.
-    Disabled,
-    /// Package-interface output is available for library products.
-    LibraryProducts,
-}
-
 #[cfg(test)]
 mod tests {
     use bray_codegen::{

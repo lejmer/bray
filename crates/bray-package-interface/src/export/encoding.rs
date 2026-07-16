@@ -1,9 +1,9 @@
-use crate::{EncodedPackageInterface, InterfaceValidationError, PackageInterfaceExportBundle};
+use crate::{InterfaceArtifact, InterfaceValidationError, PackageInterfaceExportBundle};
 
 /// Encodes one validated export bundle without consulting mutable compiler state.
 pub fn encode_package_interface(
     bundle: &PackageInterfaceExportBundle,
-) -> Result<EncodedPackageInterface, InterfaceValidationError> {
+) -> Result<InterfaceArtifact, InterfaceValidationError> {
     crate::artifact::encode_interface_artifact(bundle)
 }
 
@@ -37,7 +37,7 @@ mod tests {
         assert_eq!(encoded.artifact_hash(), validated.header().artifact_hash());
     }
 
-    fn encode(bundle: &PackageInterfaceExportBundle) -> crate::EncodedPackageInterface {
+    fn encode(bundle: &PackageInterfaceExportBundle) -> crate::InterfaceArtifact {
         encode_package_interface(bundle)
             .unwrap_or_else(|error| panic!("valid export bundle must encode: {error:?}"))
     }

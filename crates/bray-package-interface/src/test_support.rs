@@ -56,10 +56,34 @@ pub fn encoded_template_test_interface() -> EncodedTemplateTestInterface {
     }
 }
 
+/// Builds one complete immutable package-interface artifact for emitter tests.
+pub fn interface_artifact() -> crate::InterfaceArtifact {
+    encode_package_interface(&package_interface_export_bundle())
+        .unwrap_or_else(|error| panic!("test interface must encode: {error:?}"))
+}
+
+/// Builds one complete test artifact for the supplied package-local product identity.
+pub fn interface_artifact_for(
+    package: PackageIdentity,
+    product_name: &str,
+) -> crate::InterfaceArtifact {
+    let product = product(product_name);
+
+    encode_package_interface(&package_interface_export_bundle_for(package, product))
+        .unwrap_or_else(|error| panic!("test interface must encode: {error:?}"))
+}
+
 pub(crate) fn package_interface_export_bundle() -> PackageInterfaceExportBundle {
     let package = package("example.dependency");
     let product = product("library");
 
+    package_interface_export_bundle_for(package, product)
+}
+
+fn package_interface_export_bundle_for(
+    package: PackageIdentity,
+    product: InterfaceProductIdentity,
+) -> PackageInterfaceExportBundle {
     let module = module_key(package.clone(), "templates");
 
     let function = named_key(module, SymbolKind::Function, "run");

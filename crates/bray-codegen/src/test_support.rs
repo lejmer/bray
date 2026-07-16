@@ -2,10 +2,8 @@ use std::num::{NonZeroU16, NonZeroU32};
 
 use bray_base::Cancellation;
 use bray_symbols::CallableAbi;
-use bray_target::{
-    CodeModel, Endianness, ObjectFormat, RelocationModel, TargetArchitecture, TargetIdentity,
-    TargetMachineProperties,
-};
+use bray_target::test_support::test_target_machine;
+use bray_target::{CodeModel, RelocationModel, TargetIdentity};
 use bray_testing::test_mir_unit;
 
 use crate::{
@@ -189,23 +187,8 @@ pub(crate) fn codegen_target() -> CodegenTarget {
 }
 
 fn target_contract() -> TargetContract {
-    let pointer_width = NonZeroU16::new(64).unwrap_or(NonZeroU16::MIN);
-    let pointer_alignment = NonZeroU32::new(8).unwrap_or(NonZeroU32::MIN);
-    let stack_alignment = NonZeroU32::new(16).unwrap_or(NonZeroU32::MIN);
-
-    let Some(machine) = TargetMachineProperties::try_new(
-        TargetArchitecture::X86_64,
-        ObjectFormat::Elf,
-        Endianness::Little,
-        pointer_width,
-        pointer_alignment,
-        stack_alignment,
-    ) else {
-        panic!("test target machine properties must be valid");
-    };
-
     TargetContract::new(
-        machine,
+        test_target_machine(),
         target_data_layout(),
         target_abi(),
         target_symbols(),

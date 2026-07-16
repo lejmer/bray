@@ -6,6 +6,7 @@ use bray_codegen::{
     BackendArtifactId, BackendArtifactKind, BackendArtifactRequest, BackendArtifactRequestEntry,
     BackendArtifactRequirement, LinkableArtifactRequirement,
 };
+use bray_package_interface::InterfaceArtifact;
 
 use super::super::{
     EmissionPlan, EmissionPlanBuildError, PlannedArtifact, PlannedArtifactDestination,
@@ -22,6 +23,7 @@ use crate::{
 pub(super) struct PlanBuilder<'planner> {
     planner: &'planner EmissionPlanner,
     request: EmissionRequest,
+    package_interface: Option<InterfaceArtifact>,
     artifacts: Vec<PlannedArtifact>,
     backend_entries:
         BTreeMap<bray_codegen::CodegenUnitKey, BTreeMap<BackendArtifactKind, ArtifactRequirement>>,
@@ -29,10 +31,15 @@ pub(super) struct PlanBuilder<'planner> {
 }
 
 impl<'planner> PlanBuilder<'planner> {
-    pub(super) fn new(planner: &'planner EmissionPlanner, request: EmissionRequest) -> Self {
+    pub(super) fn new(
+        planner: &'planner EmissionPlanner,
+        request: EmissionRequest,
+        package_interface: Option<InterfaceArtifact>,
+    ) -> Self {
         Self {
             planner,
             request,
+            package_interface,
             artifacts: Vec::new(),
             backend_entries: BTreeMap::new(),
             next_artifact_ordinals: BTreeMap::new(),
@@ -41,9 +48,15 @@ impl<'planner> PlanBuilder<'planner> {
 
     pub(super) fn build(mut self) -> Result<EmissionPlan, EmissionPlanningError> {
         let requested = self.request.artifacts().to_vec();
+        let package_interface_available = self.package_interface.is_some();
 
         for artifact in requested {
-            if should_plan_artifact(self.planner, &self.request, artifact) {
+            if should_plan_artifact(
+                self.planner,
+                &self.request,
+                artifact,
+                package_interface_available,
+            ) {
                 self.add_requested_artifact(artifact)?;
             }
         }
@@ -62,13 +75,19 @@ impl<'planner> PlanBuilder<'planner> {
                 .map(|backend| backend.identity().clone())
         };
 
-        EmissionPlan::try_new(self.request, backend, self.artifacts, backend_requests)
-            .map_err(map_plan_error)
+        EmissionPlan::try_new(
+            self.request,
+            backend,
+            self.artifacts,
+            backend_requests,
+            self.package_interface,
+        )
+        .map_err(map_plan_error)
     }
 
     fn planned_linked_product(&self) -> Option<RequestedArtifact> {
         linked_product(&self.request)
-            .filter(|&artifact| should_plan_artifact(self.planner, &self.request, artifact))
+            .filter(|&artifact| should_plan_artifact(self.planner, &self.request, artifact, false))
     }
 
     fn add_requested_artifact(
@@ -426,7 +445,10 @@ fn map_plan_error(error: EmissionPlanBuildError) -> EmissionPlanningError {
         | EmissionPlanBuildError::DuplicateBackendRequest(_)
         | EmissionPlanBuildError::MissingBackendRequest(_)
         | EmissionPlanBuildError::UnmappedBackendRequest(_)
-        | EmissionPlanBuildError::BackendRequirementMismatch(_) => {
+        | EmissionPlanBuildError::BackendRequirementMismatch(_)
+        | EmissionPlanBuildError::MissingPackageInterfaceArtifact
+        | EmissionPlanBuildError::UnexpectedPackageInterfaceArtifact
+        | EmissionPlanBuildError::PackageInterfaceProductMismatch => {
             EmissionPlanningError::InconsistentPlan
         }
     }
@@ -446,12 +468,11 @@ mod tests {
     use super::super::{EmissionPlanner, EmissionPlanningError};
     use crate::test_support::{
         backend_capabilities, backend_identity, codegen_unit_key, emission_request_for,
-        output_name, target_output_description, target_output_description_from,
+        interface_artifact, output_name, target_output_description, target_output_description_from,
     };
     use crate::{
         ArtifactKind, ArtifactRequirement, BackendEmissionPolicy, EmissionBackend, OutputSink,
-        PackageInterfacePolicy, PlannedArtifactDestination, ProductKind, RequestedArtifact,
-        RequestedArtifactDestination,
+        PlannedArtifactDestination, ProductKind, RequestedArtifact, RequestedArtifactDestination,
     };
 
     #[test]
@@ -552,7 +573,7 @@ mod tests {
         let planner = EmissionPlanner::new(
             target_output_description(),
             None,
-            PackageInterfacePolicy::LibraryProducts,
+            Some(interface_artifact()),
         );
 
         let request = emission_request_for(
@@ -582,6 +603,84 @@ mod tests {
             &PlannedArtifactDestination::Publish(OutputSink::Filesystem(
                 "out/application.brayi".into()
             ))
+        );
+    }
+
+    #[test]
+    fn package_interface_planning_validates_exact_product_identity() {
+        let foreign = bray_package_interface::test_support::interface_artifact();
+        let actual = foreign.identity().clone();
+        let planner = EmissionPlanner::new(target_output_description(), None, Some(foreign));
+
+        let request = emission_request_for(
+            ProductKind::Library,
+            RequestedArtifactDestination::FilesystemDirectory("out".into()),
+            [RequestedArtifact::new(
+                ArtifactKind::PackageInterface,
+                ArtifactRequirement::Required,
+            )],
+        );
+
+        let expected = request.product().clone();
+
+        assert_eq!(
+            planner.plan(request),
+            Err(EmissionPlanningError::PackageInterfaceProductMismatch { expected, actual })
+        );
+    }
+
+    #[test]
+    fn package_interface_planning_rejects_unrequested_completed_artifacts() {
+        let planner = EmissionPlanner::new(
+            target_output_description(),
+            None,
+            Some(interface_artifact()),
+        );
+
+        let request = emission_request_for(
+            ProductKind::Library,
+            RequestedArtifactDestination::FilesystemDirectory("out".into()),
+            [RequestedArtifact::new(
+                ArtifactKind::DependencyMetadata,
+                ArtifactRequirement::Required,
+            )],
+        );
+
+        assert_eq!(
+            planner.plan(request),
+            Err(EmissionPlanningError::UnexpectedPackageInterfaceArtifact)
+        );
+    }
+
+    #[test]
+    fn unavailable_optional_package_interfaces_are_omitted() {
+        let planner = EmissionPlanner::new(target_output_description(), None, None);
+
+        let request = emission_request_for(
+            ProductKind::Library,
+            RequestedArtifactDestination::FilesystemDirectory("out".into()),
+            [
+                RequestedArtifact::new(
+                    ArtifactKind::PackageInterface,
+                    ArtifactRequirement::Optional,
+                ),
+                RequestedArtifact::new(
+                    ArtifactKind::DependencyMetadata,
+                    ArtifactRequirement::Required,
+                ),
+            ],
+        );
+
+        let Ok(plan) = planner.plan(request) else {
+            panic!("optional unavailable package interface must not invalidate the plan");
+        };
+
+        assert!(plan.package_interface().is_none());
+
+        assert!(
+            plan.artifacts()
+                .iter()
+                .all(|artifact| artifact.id().kind() != ArtifactKind::PackageInterface)
         );
     }
 
@@ -640,7 +739,7 @@ mod tests {
                 [codegen_unit_key(1)],
                 backend_policy(Some(LinkableArtifactKind::RelocatableObject)),
             ),
-            PackageInterfacePolicy::LibraryProducts,
+            Some(interface_artifact()),
         );
 
         let request = emission_request_for(
@@ -866,7 +965,7 @@ mod tests {
                 [codegen_unit_key(1)],
                 backend_policy(None),
             ),
-            PackageInterfacePolicy::Disabled,
+            None,
         );
 
         let collision_request = emission_request_for(
@@ -888,7 +987,7 @@ mod tests {
         let interface_planner = EmissionPlanner::new(
             target_output_description(),
             None,
-            PackageInterfacePolicy::LibraryProducts,
+            Some(interface_artifact()),
         );
 
         let executable_interface = emission_request_for(
@@ -908,11 +1007,8 @@ mod tests {
             })
         );
 
-        let disabled_interface_planner = EmissionPlanner::new(
-            target_output_description(),
-            None,
-            PackageInterfacePolicy::Disabled,
-        );
+        let missing_interface_planner =
+            EmissionPlanner::new(target_output_description(), None, None);
 
         let library_interface = emission_request_for(
             ProductKind::Library,
@@ -924,8 +1020,8 @@ mod tests {
         );
 
         assert_eq!(
-            disabled_interface_planner.plan(library_interface),
-            Err(EmissionPlanningError::PackageInterfaceDisabled)
+            missing_interface_planner.plan(library_interface),
+            Err(EmissionPlanningError::MissingPackageInterfaceArtifact)
         );
     }
 
@@ -939,7 +1035,7 @@ mod tests {
                 [codegen_unit_key(1)],
                 backend_policy(None),
             ),
-            PackageInterfacePolicy::Disabled,
+            None,
         );
 
         let assembly_request = emission_request_for(
@@ -968,7 +1064,7 @@ mod tests {
                 [codegen_unit_key(1)],
                 backend_policy(None),
             ),
-            PackageInterfacePolicy::Disabled,
+            None,
         );
 
         let collision_request = emission_request_for(
@@ -1031,7 +1127,7 @@ mod tests {
         EmissionPlanner::new(
             target_output_description(),
             emission_backend(capabilities, units, policy),
-            PackageInterfacePolicy::Disabled,
+            None,
         )
     }
 

@@ -178,15 +178,12 @@ fn is_valid_name_stem(stem: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use std::num::{NonZeroU16, NonZeroU32};
-
     use super::{
         TargetOutputDescription, TargetOutputDescriptionBuildError, TargetOutputKind,
         TargetOutputName, TargetOutputNameBuildError,
     };
-    use crate::{
-        Endianness, ObjectFormat, TargetArchitecture, TargetIdentity, TargetMachineProperties,
-    };
+    use crate::TargetIdentity;
+    use crate::test_support::test_target_machine;
 
     #[test]
     fn output_names_reject_path_fragments() {
@@ -208,7 +205,7 @@ mod tests {
 
         let Ok(description) = TargetOutputDescription::try_new(
             target_identity(),
-            target_machine(),
+            test_target_machine(),
             [object.clone(), executable.clone()],
         ) else {
             panic!("test target output description must be valid");
@@ -232,7 +229,7 @@ mod tests {
         assert_eq!(
             TargetOutputDescription::try_new(
                 target_identity(),
-                target_machine(),
+                test_target_machine(),
                 [object.clone(), object],
             ),
             Err(TargetOutputDescriptionBuildError::DuplicateKind(
@@ -255,24 +252,5 @@ mod tests {
         };
 
         identity
-    }
-
-    fn target_machine() -> TargetMachineProperties {
-        let pointer_width = NonZeroU16::new(64).unwrap_or(NonZeroU16::MIN);
-        let pointer_alignment = NonZeroU32::new(8).unwrap_or(NonZeroU32::MIN);
-        let stack_alignment = NonZeroU32::new(16).unwrap_or(NonZeroU32::MIN);
-
-        let Some(machine) = TargetMachineProperties::try_new(
-            TargetArchitecture::X86_64,
-            ObjectFormat::Elf,
-            Endianness::Little,
-            pointer_width,
-            pointer_alignment,
-            stack_alignment,
-        ) else {
-            panic!("test target machine properties must be valid");
-        };
-
-        machine
     }
 }

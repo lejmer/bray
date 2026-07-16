@@ -2,19 +2,20 @@ use bray_codegen::{
     AssemblySyntaxKind, BackendArtifactKind, BackendArtifactRequestBuildError,
     DebugInformationMode, DebugInformationOutputMode,
 };
+use bray_package_interface::{InterfaceArtifact, PackageInterfaceIdentity};
 use bray_symbols::ProductKind;
 use bray_target::{TargetIdentity, TargetOutputDescription};
 
 use super::{construction::PlanBuilder, validation::validate_request};
-use crate::plan::{EmissionBackend, EmissionPlan, PackageInterfacePolicy};
-use crate::{ArtifactKind, EmissionRequest, OutputSink};
+use crate::plan::{EmissionBackend, EmissionPlan};
+use crate::{ArtifactKind, EmissionRequest, OutputSink, ProductIdentity};
 
-/// Immutable target, backend, and package policy used to plan product emission.
+/// Immutable target and completed producer inputs used to plan product emission.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EmissionPlanner {
     target: TargetOutputDescription,
     backend: Option<EmissionBackend>,
-    package_interface: PackageInterfacePolicy,
+    package_interface: Option<InterfaceArtifact>,
 }
 
 impl EmissionPlanner {
@@ -22,7 +23,7 @@ impl EmissionPlanner {
     pub const fn new(
         target: TargetOutputDescription,
         backend: Option<EmissionBackend>,
-        package_interface: PackageInterfacePolicy,
+        package_interface: Option<InterfaceArtifact>,
     ) -> Self {
         Self {
             target,
@@ -33,9 +34,10 @@ impl EmissionPlanner {
 
     /// Derives the complete artifact and backend request plan for one host request.
     pub fn plan(&self, request: EmissionRequest) -> Result<EmissionPlan, EmissionPlanningError> {
-        validate_request(self, &request)?;
+        validate_request(self, &request, self.package_interface.as_ref())?;
 
-        PlanBuilder::new(self, request).build()
+        // The plan retains the immutable Arc-backed artifact independently of the planner.
+        PlanBuilder::new(self, request, self.package_interface.clone()).build()
     }
 
     /// Returns the selected target output facts.
@@ -46,11 +48,6 @@ impl EmissionPlanner {
     /// Returns the selected backend facts when code generation is available.
     pub const fn backend(&self) -> Option<&EmissionBackend> {
         self.backend.as_ref()
-    }
-
-    /// Returns package-interface availability for planned products.
-    pub const fn package_interface_policy(&self) -> PackageInterfacePolicy {
-        self.package_interface
     }
 }
 
@@ -71,8 +68,17 @@ pub enum EmissionPlanningError {
         /// Incompatible requested artifact category.
         artifact: ArtifactKind,
     },
-    /// Package-interface output is disabled by the selected policy.
-    PackageInterfaceDisabled,
+    /// A required package-interface output has no completed artifact.
+    MissingPackageInterfaceArtifact,
+    /// A completed package-interface artifact was supplied without a matching request.
+    UnexpectedPackageInterfaceArtifact,
+    /// The completed package-interface artifact belongs to another product.
+    PackageInterfaceProductMismatch {
+        /// Product selected by the emission request.
+        expected: ProductIdentity,
+        /// Product recorded by the completed package interface.
+        actual: PackageInterfaceIdentity,
+    },
     /// A linked companion was requested without a linked product artifact.
     MissingLinkedProduct,
     /// More than one linked product was requested in one emission plan.

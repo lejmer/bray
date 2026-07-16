@@ -14,6 +14,7 @@ bray-symbols = { path = "../bray-symbols" }
 bray-target = { path = "../bray-target" }
 
 [dev-dependencies]
+bray-target = { path = "../bray-target", features = ["test-support"] }
 bray-testing = { path = "../bray-testing", features = ["mir-unit"] }
 
 [lints]
