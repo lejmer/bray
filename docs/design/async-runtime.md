@@ -13,6 +13,17 @@ The implementation has three separate layers:
 2. Compiler-generated frame, task, cleanup, and runtime ABI operations.
 3. Ordinary standard-library Bray over private trusted ABI declarations.
 
+Within the third layer, implementation responsibility is further divided:
+
+- ordinary safe Bray owns public concurrency policy, typed owners, channels, protocols, codecs, budgets, combinators, and parallel
+  algorithms,
+- trusted Bray owns portable low-level runtime data structures, raw internal representation, callbacks, and safe platform-handle
+  wrappers,
+- target bindings own only operating-system mechanisms that cannot be produced inside the Bray abstract machine.
+
+The runtime ABI does not mandate C, Rust, or any other implementation language. An ABI implementation can be separately compiled
+Bray. `extern` means the declaration body is supplied by another linked artifact, not that the artifact is necessarily foreign.
+
 The compiler-known source environment contains only:
 
 - `Future<T>`,
@@ -498,6 +509,25 @@ successfully created child's later panic or cancellation into the awaiting run.
 The compiler does not synthesize channel, process, budget, or combinator implementations. Fixed arrays, const generics,
 non-capturing callables, ordinary unions and products, `Future<T>`, `Task<T>`, and private trusted event, thread, process, transport,
 and operating-system wrappers are sufficient to implement the standard algorithms.
+
+### Implementation-language allocation
+
+The reference architecture implements all public `std` concurrency and parallelism behavior in Bray. This includes channels,
+concurrent combinators, thread and process owner state machines, typed process protocols, codecs, termination policies, budgets,
+structured cancellation composition, and parallel algorithms.
+
+Target-independent scheduler and reactor policy should be trusted Bray where compiler-provided atomics, memory operations, runtime
+roles, and target contracts are sufficient. Suitable Bray-owned internals include ready queues, work-stealing policy, waiter lists,
+timer heaps, task registries, join state, cancellation state, cleanup-report routing, protocol framing, and permit accounting.
+
+The irreducible target boundary supplies native thread and process creation, kernel wait/wake operations, process signalling and
+reaping, platform event polling, virtual-memory acquisition, and target-specific unwind, signal, thread-local, or host-report
+integration. Direct private FFI declarations are sufficient when the target exposes stable callable symbols. A custom native shim is
+allowed only to normalize an otherwise unsuitable platform ABI; it must remain a mechanism layer and cannot implement Bray
+ownership, structured concurrency, cancellation policy, process protocol semantics, budgets, or parallel algorithms.
+
+The backend and link plan record whether each required private role is implemented by compiler lowering, a Bray runtime artifact, a
+direct platform binding, or a native shim. This choice is not source-visible and cannot change the role's checked semantic contract.
 
 ---
 

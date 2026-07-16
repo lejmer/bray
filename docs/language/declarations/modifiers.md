@@ -20,7 +20,8 @@ Modifier validity depends on the declaration form and declaration context.
 
 `trusted` marks declarations or declaration contexts that participate in trusted capability and trusted obligation rules.
 
-`extern` marks a callable declaration whose implementation is supplied outside Bray source.
+`extern` marks a callable declaration whose body is supplied by another linked artifact. The artifact can itself contain separately
+compiled Bray; the selected ABI determines whether the call is foreign.
 
 `const` marks a callable body as valid in constant-evaluation context.
 

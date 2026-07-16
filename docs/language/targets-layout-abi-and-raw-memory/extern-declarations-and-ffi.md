@@ -1,8 +1,13 @@
 # Extern declarations and FFI
 
-The `extern` modifier declares a callable whose implementation is supplied outside Bray source.
+The `extern` modifier declares a callable whose implementation body is supplied by another linked artifact rather than by this
+declaration.
 
 An extern callable declaration has no Bray body and ends with `;`.
+
+The providing artifact can contain separately compiled Bray code, compiler-generated runtime code, a platform or system library, or
+code written in another language. `extern` therefore does not by itself mean C, FFI, or foreign code. The selected callable ABI and
+link dependency determine whether the call crosses a foreign boundary.
 
 ```bray
 @link(name = "c")
@@ -16,7 +21,7 @@ extern trusted func get_process_id() -> i32
 
 Name resolution, visibility, module membership, using declarations, overload declarations, callable type checking, contract checking, and trusted obligation checking apply normally.
 
-An extern callable with a foreign ABI must declare:
+An extern callable that crosses a foreign ABI must declare:
 
 - an explicit `@abi(...)` directive,
 - an external symbol through `@symbol(...)`,
@@ -28,7 +33,7 @@ The `uses(foreign_call)` capability is consumed by the external call boundary.
 
 An extern trusted declaration is permitted only in a trusted module.
 
-The extern declaration's signature and contract are the Bray-visible contract for the foreign symbol.
+The extern declaration's signature and contract are the Bray-visible contract for the linked symbol.
 
 If the foreign symbol requires pointer validity, initialization, alignment, lifetime, ownership, thread-affinity, callback, reentrancy, or resource-state facts, those facts must appear in the declaration's parameter types, result types, or contract clauses.
 

@@ -50,6 +50,10 @@ their public wrappers expose only ordinary inferred contracts. Their generic cro
 compiler-recognized library names or marker types. Parallel algorithms use domain-typed library budgets; underlying product and
 runtime hard limits remain independently enforced.
 
+Public concurrency policy, owners, protocols, combinators, and parallel algorithms are Bray source. Portable low-level internals
+should be trusted Bray. Foreign or native code is confined to target mechanisms that Bray cannot perform without the host platform,
+and an ABI or `extern` boundary does not imply a foreign implementation language.
+
 The generated root frame resolves every source-owned task, thread, process, payload, and cleanup incident before publishing the
 root terminal outcome. The host then maps that outcome and shuts down runtime infrastructure and process-scoped resources. Normal
 root return never detaches child work.

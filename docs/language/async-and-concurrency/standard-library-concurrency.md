@@ -7,6 +7,42 @@ by name by the language.
 The standard library is written in Bray over the compiler-known types and private trusted runtime ABI declarations. Its public
 surface does not expose those private ABI declarations.
 
+## Implementation boundary
+
+The concurrency and parallelism implementation is divided into three layers:
+
+| Layer | Required role |
+| --- | --- |
+| Ordinary safe Bray | Public owners, state machines, protocols, policies, combinators, budgets, and parallel algorithms |
+| Trusted Bray | Raw internal representations, atomics-based synchronization internals, runtime-event integration, callback context handling, and safe wrappers around platform handles |
+| Product or platform boundary | Operations unavailable in the Bray abstract machine, such as creating native threads or processes, waiting on operating-system events, signalling or reaping processes, polling platform reactors, and acquiring virtual memory |
+
+The public standard-library layer is Bray source. In particular, channel semantics, task combinators, thread and process ownership,
+typed process protocols, codecs, termination policy, budgets, cancellation composition, and parallel algorithms are not delegated
+to C, Rust, or another foreign library.
+
+Portable target-independent internals should also be trusted Bray. This includes ready queues, waiter lists, permit accounting,
+reference management, protocol framing, timer data structures, scheduler policy, and lifecycle state machines when the required
+atomic, memory, and runtime operations are available through Bray contracts.
+
+The bottom layer is necessarily target-specific because Bray source cannot by itself ask an operating system to create a native
+thread, create or reap a process, wait on a kernel object, or poll a platform event facility. A target can supply those mechanisms
+through:
+
+- direct private Bray `extern` declarations for stable platform or system-library symbols,
+- compiler-lowered target operations or private runtime ABI roles,
+- a separately built runtime artifact whose implementation is itself Bray,
+- a narrow native shim when the platform ABI cannot be represented cleanly or safely as direct declarations.
+
+An `extern` declaration does not imply a C implementation. It states that the body is supplied by another linked artifact. That
+artifact can be compiled Bray, compiler-generated runtime code, a platform library, or code written in another language. A
+genuinely foreign ABI uses the ordinary FFI and `foreign_call` rules.
+
+A native shim is mechanism only. It can normalize awkward platform macros, calling conventions, signal or unwind trampolines, or
+unstable structure layouts, but it must not own Bray-level channel behavior, structured cancellation, task ownership, process
+protocol policy, codecs, budgets, or parallel algorithms. Replacing direct platform bindings with a shim must not change the public
+Bray contracts.
+
 ## Run and task utilities
 
 `std.run` provides the universal logical-run surface:
@@ -229,7 +265,9 @@ standard-library owner rather than a compiler-known type, and there is no thread
 
 Because these facilities can be declared with ordinary callable types, structs, methods, generics, explicit state, lifecycle
 declarations, `Future<T>`, `Task<T>`, and `RunResult<T>`, their public semantics are expressible in Bray. Parking threads, waking
-tasks, and creating native threads remain private trusted implementation operations rather than pretending to be portable Bray code.
+tasks, and creating native threads remain private trusted implementation operations rather than pretending to be portable Bray
+code. Thread-entry trampolines and terminal-state publication can be trusted Bray exported through the platform callback ABI; only
+the native thread creation, wait, and wake mechanism must cross the platform boundary.
 
 ## Child processes
 
@@ -485,7 +523,8 @@ the distinct `ProcessError` and `RunResult<T>` layers.
 
 These algorithms need no new syntax or compiler-known types. Arrays and collections, generics, non-capturing callables, `Future<T>`,
 `Task<T>`, `RunResult<T>`, `std.thread.Thread<T>`, `std.process.Process<T>`, channels, synchronization, and private trusted ABI
-wrappers are sufficient to implement their public semantics in Bray.
+wrappers are sufficient to implement their public semantics in Bray. No foreign-language implementation is required for these
+algorithms.
 
 ## Navigation
 

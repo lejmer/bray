@@ -30,6 +30,10 @@ The executable product selects one conforming runtime. `std.thread.Thread<T>`, `
 channels, synchronization, checkpoints, timers, and concurrent combinators remain ordinary standard-library Bray over private
 trusted ABI operations.
 
+Public concurrency policy, protocols, owners, combinators, budgets, and parallel algorithms are implemented in Bray. Portable
+runtime internals should be trusted Bray; direct FFI or a narrow native shim is reserved for operating-system thread, process,
+wait/wake, event, virtual-memory, unwind, and host-integration mechanisms that the Bray abstract machine cannot perform itself.
+
 Parallel algorithms use domain-typed `std.parallel.Budget<Domain>` values as owned library-side bounds. Nested algorithms share or
 split those bounds. Independent budgets remain subject to the underlying runtime or product hard limits and do not modify
 `Future<T>.start()` semantics.

@@ -32,6 +32,10 @@ Operating-system threads, child processes, parallel algorithms, channels, synchr
 other concurrency facilities are ordinary standard-library declarations implemented over private trusted ABI operations. They do
 not add compiler-known types or syntax.
 
+Their public policy and ownership behavior are Bray source. Portable low-level internals can be trusted Bray. Only irreducible
+operating-system mechanisms require a direct platform binding or narrow native shim, and a private ABI or `extern` declaration does
+not imply that its implementation language is C or another foreign language.
+
 ## Navigation
 
 - [Language index](../index.md)

@@ -36,6 +36,9 @@ The foreign implementation body is not Bray source and is not type checked as Br
 
 A foreign callable that requires trusted facts must state them as trusted requirements.
 
+An extern callable resolved to a separately compiled Bray artifact is not a foreign boundary merely because it is extern. Its
+private ABI and linkage contract still require validation, but `foreign_call` applies only when execution crosses a foreign ABI.
+
 Declarations for foreign APIs must describe every caller-visible foreign obligation, including pointer validity, alignment, initialization state, byte count, element count, lifetime behavior, ownership transfer, aliasing permissions, thread-affinity requirements, synchronization requirements, callback reentrancy behavior, resource acquisition and release obligations, ordinary error return conventions, and panic boundary behavior.
 
 ## Navigation

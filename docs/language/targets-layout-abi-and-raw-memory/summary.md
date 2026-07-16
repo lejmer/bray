@@ -10,7 +10,7 @@ Default physical layout is compiler-defined and not public ABI.
 
 `@abi(...)` creates explicit callable ABI contracts.
 
-`extern` imports callable implementations supplied outside Bray source.
+`extern` imports callable bodies supplied by another linked artifact. The artifact can contain Bray or non-Bray code.
 
 `@link(...)` and `@symbol(...)` bind ABI-facing declarations to external artifacts and symbols.
 
