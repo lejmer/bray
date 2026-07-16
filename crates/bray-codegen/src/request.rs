@@ -1,6 +1,8 @@
+use bray_base::Cancellation;
+
 use crate::{
-    BackendArtifactRequest, BackendIdentity, CodegenCancellation, CodegenOptions, CodegenTarget,
-    CodegenUnit, DebugInformationMode, DebugInformationOutputMode,
+    BackendArtifactRequest, BackendIdentity, CodegenOptions, CodegenTarget, CodegenUnit,
+    DebugInformationMode, DebugInformationOutputMode,
 };
 
 /// Borrowed immutable inputs for one complete backend operation.
@@ -11,7 +13,7 @@ pub struct CodegenRequest<'request> {
     target: &'request CodegenTarget,
     options: &'request CodegenOptions,
     artifacts: &'request BackendArtifactRequest,
-    cancellation: &'request dyn CodegenCancellation,
+    cancellation: &'request dyn Cancellation,
 }
 
 impl<'request> CodegenRequest<'request> {
@@ -22,7 +24,7 @@ impl<'request> CodegenRequest<'request> {
         target: &'request CodegenTarget,
         options: &'request CodegenOptions,
         artifacts: &'request BackendArtifactRequest,
-        cancellation: &'request dyn CodegenCancellation,
+        cancellation: &'request dyn Cancellation,
     ) -> Result<Self, CodegenRequestBuildError> {
         if artifacts.unit() != unit.key() {
             return Err(CodegenRequestBuildError::ArtifactUnitMismatch);
@@ -71,7 +73,7 @@ impl<'request> CodegenRequest<'request> {
     }
 
     /// Returns the compilation-owned cancellation observer.
-    pub const fn cancellation(self) -> &'request dyn CodegenCancellation {
+    pub const fn cancellation(self) -> &'request dyn Cancellation {
         self.cancellation
     }
 }

@@ -1,5 +1,6 @@
 use std::num::{NonZeroU16, NonZeroU32};
 
+use bray_base::Cancellation;
 use bray_symbols::CallableAbi;
 use bray_target::{
     CodeModel, Endianness, ObjectFormat, RelocationModel, TargetArchitecture, TargetIdentity,
@@ -10,8 +11,8 @@ use bray_testing::test_mir_unit;
 use crate::{
     ArtifactContent, BackendArtifactContribution, BackendArtifactId, BackendArtifactKind,
     BackendArtifactRequest, BackendArtifactRequestEntry, BackendArtifactRequirement,
-    BackendIdentity, BackendSerializationOptions, CallableAbiMapping, CodegenCancellation,
-    CodegenLinkage, CodegenOptions, CodegenRequest, CodegenTarget, CodegenUnit, CodegenUnitKey,
+    BackendIdentity, BackendSerializationOptions, CallableAbiMapping, CodegenLinkage,
+    CodegenOptions, CodegenRequest, CodegenTarget, CodegenUnit, CodegenUnitKey,
     DebugInformationMode, DebugInformationOutputMode, LinkableArtifactKind,
     LinkableArtifactRequirement, OptimizationLevel, SizePreference, TargetAbi, TargetAddressSpace,
     TargetAddressSpaceKind, TargetCallingConvention, TargetCompatibility, TargetContract,
@@ -115,7 +116,7 @@ pub(crate) fn codegen_request() -> CodegenRequestFixture {
 
 struct NeverCancelled;
 
-impl CodegenCancellation for NeverCancelled {
+impl Cancellation for NeverCancelled {
     fn is_cancelled(&self) -> bool {
         false
     }

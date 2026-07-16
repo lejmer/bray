@@ -2,7 +2,6 @@
 
 #![forbid(unsafe_code)]
 
-mod cancellation;
 mod driver;
 mod input;
 mod outcome;
@@ -14,7 +13,6 @@ mod target;
 #[cfg(test)]
 mod test_support;
 
-pub use cancellation::LinkCancellation;
 pub use driver::{LinkerDriverIdentity, LinkerDriverKind};
 pub use input::{
     LinkInput, LinkInputBuildError, LinkInputId, LinkInputKind, LinkInputMode, LinkInputProvenance,

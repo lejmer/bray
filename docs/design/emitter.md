@@ -315,6 +315,10 @@ The publication sequence is:
 
 Cancellation or failure removes private staging state and does not publish the planned artifact.
 
+Publication receives a read-only cancellation observer from its compilation-owned caller. It checks that observer while copying and
+validating staged content and immediately before promotion. Cancellation after another artifact has already been promoted does not
+delete or roll back that completed artifact.
+
 Atomicity is guaranteed per artifact. Product-wide atomic publication across unrelated filesystem paths is not claimed by ordinary
 file replacement. A future managed-generation layout can provide a stronger product transaction without weakening the per-artifact
 contract.

@@ -144,7 +144,7 @@ const fn completion_kind(kind: AnalysisExitKind) -> ControlCompletionKind {
     }
 }
 
-impl crate::CheckerCancellation for UnitCheckRequest<'_> {
+impl bray_base::Cancellation for UnitCheckRequest<'_> {
     fn is_cancelled(&self) -> bool {
         (*self).is_cancelled()
     }

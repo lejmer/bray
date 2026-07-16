@@ -1,8 +1,9 @@
+use bray_base::Cancellation;
 use bray_declarations::DeclarationTable;
 use bray_symbols::{SemanticValueStore, SymbolGraph};
 use bray_syntax::SyntaxTree;
 
-use crate::{BinderCancellation, TargetFactProvider};
+use crate::TargetFactProvider;
 
 /// Injected read-only facts available to one binding computation.
 pub trait BinderFactContext: Send + Sync {
@@ -11,7 +12,7 @@ pub trait BinderFactContext: Send + Sync {
     /// The origin-neutral provider for symbol-facing semantic facts.
     type SymbolFacts: Send + Sync + ?Sized;
     /// The compilation-owned cancellation observer.
-    type Cancellation: BinderCancellation + ?Sized;
+    type Cancellation: Cancellation + ?Sized;
 
     /// Returns the immutable syntax input for this compilation snapshot.
     fn syntax(&self) -> &SyntaxTree;

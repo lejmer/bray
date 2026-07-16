@@ -3,22 +3,14 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 
-use bray_binder::BinderCancellation;
+use bray_base::Cancellation;
 
 use super::FactQueryError;
-
-use bray_symbols::SymbolCompletionCancellation;
 
 /// A shareable cancellation signal for one compiler request.
 #[derive(Clone, Debug, Default)]
 pub struct CancellationToken {
     cancelled: Arc<AtomicBool>,
-}
-
-impl SymbolCompletionCancellation for CancellationToken {
-    fn is_cancelled(&self) -> bool {
-        self.is_cancelled()
-    }
 }
 
 impl CancellationToken {
@@ -46,7 +38,7 @@ impl CancellationToken {
     }
 }
 
-impl BinderCancellation for CancellationToken {
+impl Cancellation for CancellationToken {
     fn is_cancelled(&self) -> bool {
         Self::is_cancelled(self)
     }
@@ -54,7 +46,7 @@ impl BinderCancellation for CancellationToken {
 
 #[cfg(test)]
 mod tests {
-    use bray_binder::BinderCancellation;
+    use bray_base::Cancellation;
 
     use super::CancellationToken;
 
@@ -80,10 +72,10 @@ mod tests {
     fn cancellation_tokens_serve_binder_requests_read_only() {
         let token = CancellationToken::new();
 
-        assert!(!BinderCancellation::is_cancelled(&token));
+        assert!(!Cancellation::is_cancelled(&token));
 
         token.cancel();
 
-        assert!(BinderCancellation::is_cancelled(&token));
+        assert!(Cancellation::is_cancelled(&token));
     }
 }

@@ -1,37 +1,46 @@
 use std::cmp::Ordering;
-use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Write};
 
-use bray_codegen::ArtifactDigest;
+use bray_base::Cancellation;
+use bray_codegen::{ArtifactContent, ArtifactDigest};
 use bray_diagnostics::{DiagnosticBag, DiagnosticId, SeverityKind};
 
-use super::content::{ContentValidationError, open_content, validate_content};
+use super::content::{
+    ContentValidationError, open_content, validate_content, validate_staged_content,
+};
 use super::diagnostic::{PublicationError, PublicationErrorKind};
+use super::staging::FilesystemStaging;
 use crate::{
     ArtifactContribution, ArtifactRequirement, EmissionOutcome, EmissionPlan, EmittedArtifact,
-    EmittedArtifactSet, IndirectOutputSink, OutputSink, OutputSinkResolver, OutputSinkTransaction,
-    PlannedArtifact, PlannedArtifactDestination, ReplacementPolicy,
+    EmittedArtifactSet, IndirectOutputSink, OutputSink, OutputSinkResolver, PlannedArtifact,
+    PlannedArtifactDestination, ReplacementPolicy,
 };
 
 const COPY_BUFFER_LEN: usize = 64 * 1024;
 
 /// Publishes validated artifact contributions to the immutable plan's external sinks.
 #[derive(Clone, Copy)]
-pub struct ArtifactPublisher<'resolver> {
-    resolver: Option<&'resolver dyn OutputSinkResolver>,
+pub struct ArtifactPublisher<'host> {
+    cancellation: &'host dyn Cancellation,
+    resolver: Option<&'host dyn OutputSinkResolver>,
 }
 
-impl ArtifactPublisher<'_> {
+impl<'host> ArtifactPublisher<'host> {
     /// Creates a publisher for filesystem-only plans.
-    pub const fn new() -> Self {
-        Self { resolver: None }
-    }
-}
-
-impl<'resolver> ArtifactPublisher<'resolver> {
-    /// Creates a publisher that can resolve memory collectors and writable streams.
-    pub const fn with_sink_resolver(resolver: &'resolver dyn OutputSinkResolver) -> Self {
+    pub const fn new(cancellation: &'host dyn Cancellation) -> Self {
         Self {
+            cancellation,
+            resolver: None,
+        }
+    }
+
+    /// Creates a publisher that can resolve memory collectors and writable streams.
+    pub const fn with_sink_resolver(
+        cancellation: &'host dyn Cancellation,
+        resolver: &'host dyn OutputSinkResolver,
+    ) -> Self {
+        Self {
+            cancellation,
             resolver: Some(resolver),
         }
     }
@@ -44,6 +53,10 @@ impl<'resolver> ArtifactPublisher<'resolver> {
     ) -> EmissionOutcome {
         let mut diagnostics = PublicationDiagnostics::new();
 
+        if self.cancellation.is_cancelled() {
+            return diagnostics.cancelled();
+        }
+
         let prepared = match prepare_contributions(plan, contributions, &mut diagnostics) {
             Ok(prepared) => prepared,
             Err(error) => return diagnostics.failed(error),
@@ -52,12 +65,19 @@ impl<'resolver> ArtifactPublisher<'resolver> {
         let mut emitted = Vec::with_capacity(prepared.len());
 
         for artifact in prepared {
+            if self.cancellation.is_cancelled() {
+                return diagnostics.cancelled();
+            }
+
             match self.publish_artifact(plan.request().replacement(), artifact) {
                 Ok(artifact) => emitted.push(artifact),
-                Err((ArtifactRequirement::Optional, error)) => {
+                Err(ArtifactPublicationFailure::Cancelled) => return diagnostics.cancelled(),
+                Err(ArtifactPublicationFailure::Failed(ArtifactRequirement::Optional, error)) => {
                     diagnostics.warning(error);
                 }
-                Err((_, error)) => return diagnostics.failed(error),
+                Err(ArtifactPublicationFailure::Failed(_, error)) => {
+                    return diagnostics.failed(error);
+                }
             }
         }
 
@@ -71,66 +91,45 @@ impl<'resolver> ArtifactPublisher<'resolver> {
         &self,
         replacement: ReplacementPolicy,
         artifact: PreparedArtifact<'_>,
-    ) -> Result<EmittedArtifact, (ArtifactRequirement, PublicationError)> {
+    ) -> Result<EmittedArtifact, ArtifactPublicationFailure> {
         let planned = artifact.planned;
-        let requirement = planned.requirement();
 
         let PlannedArtifactDestination::Publish(sink) = planned.destination() else {
-            return Err((
-                requirement,
-                planned_error(planned, PublicationErrorKind::InvalidContribution),
+            return Err(artifact_failure(
+                planned,
+                PublicationErrorKind::InvalidContribution,
             ));
         };
 
-        let mut reader = open_content(artifact.contribution.content()).map_err(|kind| {
-            (
-                requirement,
-                planned_error(planned, PublicationErrorKind::Read(kind)),
-            )
-        })?;
-
-        let mut writer = self.open_output(sink, replacement).map_err(|error| {
-            (
-                requirement,
-                planned_error(planned, PublicationErrorKind::Open(error.kind())),
-            )
-        })?;
-
-        let mut buffer = [0_u8; COPY_BUFFER_LEN];
-
-        loop {
-            let read = reader.read(&mut buffer).map_err(|error| {
-                (
-                    requirement,
-                    planned_error(planned, PublicationErrorKind::Read(error.kind())),
-                )
-            })?;
-
-            if read == 0 {
-                break;
-            }
-
-            writer.write_all(&buffer[..read]).map_err(|error| {
-                (
-                    requirement,
-                    planned_error(planned, PublicationErrorKind::Write(error.kind())),
-                )
-            })?;
-        }
-
-        writer.flush().map_err(|error| {
-            (
-                requirement,
-                planned_error(planned, PublicationErrorKind::Flush(error.kind())),
-            )
-        })?;
-
-        writer.commit().map_err(|error| {
-            (
-                requirement,
-                planned_error(planned, PublicationErrorKind::Commit(error.kind())),
-            )
-        })?;
+        let digest = match sink {
+            OutputSink::Filesystem(path) => self.publish_filesystem(
+                planned,
+                artifact.contribution.content(),
+                artifact.contribution.digest(),
+                path,
+                replacement,
+            )?,
+            OutputSink::Memory {
+                collector,
+                artifact: artifact_id,
+            } => self.publish_indirect(
+                planned,
+                artifact.contribution.content(),
+                artifact.contribution.digest(),
+                IndirectOutputSink::Memory {
+                    collector,
+                    artifact: artifact_id,
+                },
+                replacement,
+            )?,
+            OutputSink::Stream(stream) => self.publish_indirect(
+                planned,
+                artifact.contribution.content(),
+                artifact.contribution.digest(),
+                IndirectOutputSink::Stream(stream),
+                replacement,
+            )?,
+        };
 
         // Publication records own stable plan facts independently of the borrowed plan.
         Ok(EmittedArtifact::new(
@@ -139,103 +138,134 @@ impl<'resolver> ArtifactPublisher<'resolver> {
             planned.producer().clone(),
             planned.role(),
             artifact.contribution.content().byte_len(),
-            artifact.digest,
+            digest,
         ))
     }
 
-    fn open_output(
+    fn publish_filesystem(
         &self,
-        sink: &OutputSink,
+        planned: &PlannedArtifact,
+        content: &ArtifactContent,
+        expected_digest: Option<&ArtifactDigest>,
+        destination: &std::path::Path,
         replacement: ReplacementPolicy,
-    ) -> io::Result<PublicationOutput> {
-        match sink {
-            OutputSink::Filesystem(path) => {
-                let mut options = OpenOptions::new();
+    ) -> Result<ArtifactDigest, ArtifactPublicationFailure> {
+        let mut staging = FilesystemStaging::create(destination)
+            .map_err(|error| artifact_failure(planned, PublicationErrorKind::Open(error.kind())))?;
 
-                options.write(true);
+        self.copy_content(planned, content, &mut staging)?;
 
-                match replacement {
-                    ReplacementPolicy::RequireAbsent => {
-                        options.create_new(true);
-                    }
-                    ReplacementPolicy::ReplaceExisting => {
-                        options.create(true).truncate(true);
-                    }
-                }
-
-                options.open(path).map(PublicationOutput::Filesystem)
-            }
-            OutputSink::Memory {
-                collector,
-                artifact,
-            } => self.open_indirect(
-                IndirectOutputSink::Memory {
-                    collector,
-                    artifact,
-                },
-                replacement,
-            ),
-            OutputSink::Stream(stream) => {
-                self.open_indirect(IndirectOutputSink::Stream(stream), replacement)
-            }
+        if self.cancellation.is_cancelled() {
+            return Err(ArtifactPublicationFailure::Cancelled);
         }
+
+        let staging = staging.finish().map_err(|error| {
+            artifact_failure(planned, PublicationErrorKind::Flush(error.kind()))
+        })?;
+
+        let digest = validate_staged_content(
+            staging.path(),
+            content.byte_len(),
+            expected_digest,
+            self.cancellation,
+        )
+        .map_err(|error| content_failure(planned, error))?;
+
+        if self.cancellation.is_cancelled() {
+            return Err(ArtifactPublicationFailure::Cancelled);
+        }
+
+        staging.promote(destination, replacement).map_err(|error| {
+            artifact_failure(planned, PublicationErrorKind::Commit(error.kind()))
+        })?;
+
+        Ok(digest)
     }
 
-    fn open_indirect(
+    fn publish_indirect(
         &self,
+        planned: &PlannedArtifact,
+        content: &ArtifactContent,
+        expected_digest: Option<&ArtifactDigest>,
         sink: IndirectOutputSink<'_>,
         replacement: ReplacementPolicy,
-    ) -> io::Result<PublicationOutput> {
+    ) -> Result<ArtifactDigest, ArtifactPublicationFailure> {
+        let digest = validate_content(content, expected_digest, self.cancellation)
+            .map_err(|error| content_failure(planned, error))?;
+
+        if self.cancellation.is_cancelled() {
+            return Err(ArtifactPublicationFailure::Cancelled);
+        }
+
         let Some(resolver) = self.resolver else {
-            return Err(io::Error::from(io::ErrorKind::NotFound));
+            return Err(artifact_failure(
+                planned,
+                PublicationErrorKind::Open(io::ErrorKind::NotFound),
+            ));
         };
 
-        resolver
+        let mut transaction = resolver
             .open(sink, replacement)
-            .map(PublicationOutput::Indirect)
-    }
-}
+            .map_err(|error| artifact_failure(planned, PublicationErrorKind::Open(error.kind())))?;
 
-impl Default for ArtifactPublisher<'_> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+        self.copy_content(planned, content, transaction.as_mut())?;
 
-enum PublicationOutput {
-    Filesystem(File),
-    Indirect(Box<dyn OutputSinkTransaction>),
-}
+        transaction.flush().map_err(|error| {
+            artifact_failure(planned, PublicationErrorKind::Flush(error.kind()))
+        })?;
 
-impl PublicationOutput {
-    fn commit(self) -> io::Result<()> {
-        match self {
-            Self::Filesystem(_) => Ok(()),
-            Self::Indirect(transaction) => transaction.commit(),
+        if self.cancellation.is_cancelled() {
+            return Err(ArtifactPublicationFailure::Cancelled);
         }
-    }
-}
 
-impl Write for PublicationOutput {
-    fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
-        match self {
-            Self::Filesystem(file) => file.write(buffer),
-            Self::Indirect(transaction) => transaction.write(buffer),
-        }
+        transaction.commit().map_err(|error| {
+            artifact_failure(planned, PublicationErrorKind::Commit(error.kind()))
+        })?;
+
+        Ok(digest)
     }
 
-    fn flush(&mut self) -> io::Result<()> {
-        match self {
-            Self::Filesystem(file) => file.flush(),
-            Self::Indirect(transaction) => transaction.flush(),
+    fn copy_content(
+        &self,
+        planned: &PlannedArtifact,
+        content: &ArtifactContent,
+        writer: &mut dyn Write,
+    ) -> Result<(), ArtifactPublicationFailure> {
+        let mut reader = open_content(content)
+            .map_err(|kind| artifact_failure(planned, PublicationErrorKind::Read(kind)))?;
+
+        let mut buffer = [0_u8; COPY_BUFFER_LEN];
+
+        loop {
+            if self.cancellation.is_cancelled() {
+                return Err(ArtifactPublicationFailure::Cancelled);
+            }
+
+            let read = reader.read(&mut buffer).map_err(|error| {
+                artifact_failure(planned, PublicationErrorKind::Read(error.kind()))
+            })?;
+
+            if read == 0 {
+                break;
+            }
+
+            writer.write_all(&buffer[..read]).map_err(|error| {
+                artifact_failure(planned, PublicationErrorKind::Write(error.kind()))
+            })?;
         }
+
+        Ok(())
     }
 }
 
 struct PreparedArtifact<'plan> {
     planned: &'plan PlannedArtifact,
     contribution: ArtifactContribution,
-    digest: ArtifactDigest,
+}
+
+enum ArtifactPublicationFailure {
+    Cancelled,
+    Failed(ArtifactRequirement, PublicationError),
 }
 
 fn prepare_contributions<'plan>(
@@ -308,17 +338,10 @@ fn prepare_contributions<'plan>(
             return Err(error);
         }
 
-        match validate_content(contribution.content(), contribution.digest()) {
-            Ok(digest) => prepared.push(PreparedArtifact {
-                planned,
-                contribution,
-                digest,
-            }),
-            Err(error) if planned.requirement() == ArtifactRequirement::Optional => {
-                diagnostics.warning(content_error(planned, error));
-            }
-            Err(error) => return Err(content_error(planned, error)),
-        }
+        prepared.push(PreparedArtifact {
+            planned,
+            contribution,
+        });
     }
 
     if let Some(contribution) = contributions.next() {
@@ -358,8 +381,12 @@ fn validate_contribution_destination(
     Ok(())
 }
 
-fn content_error(planned: &PlannedArtifact, error: ContentValidationError) -> PublicationError {
+fn content_failure(
+    planned: &PlannedArtifact,
+    error: ContentValidationError,
+) -> ArtifactPublicationFailure {
     let kind = match error {
+        ContentValidationError::Cancelled => return ArtifactPublicationFailure::Cancelled,
         ContentValidationError::Read(kind) => PublicationErrorKind::Read(kind),
         ContentValidationError::LengthMismatch { expected, actual } => {
             PublicationErrorKind::LengthMismatch { expected, actual }
@@ -372,7 +399,14 @@ fn content_error(planned: &PlannedArtifact, error: ContentValidationError) -> Pu
         }
     };
 
-    planned_error(planned, kind)
+    artifact_failure(planned, kind)
+}
+
+fn artifact_failure(
+    planned: &PlannedArtifact,
+    kind: PublicationErrorKind,
+) -> ArtifactPublicationFailure {
+    ArtifactPublicationFailure::Failed(planned.requirement(), planned_error(planned, kind))
 }
 
 fn contribution_error(
@@ -433,6 +467,10 @@ impl PublicationDiagnostics {
         EmissionOutcome::failed(failure, self.into_bag())
     }
 
+    fn cancelled(self) -> EmissionOutcome {
+        EmissionOutcome::cancelled(self.into_bag())
+    }
+
     fn into_bag(mut self) -> DiagnosticBag {
         self.pending
             .sort_by(|left, right| left.error.artifact().cmp(right.error.artifact()));
@@ -464,6 +502,8 @@ struct PendingDiagnostic {
 mod tests {
     use std::collections::BTreeMap;
     use std::io::{self, Write};
+    use std::path::{Path, PathBuf};
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, Mutex};
 
     use bray_codegen::{ArtifactContent, ArtifactDigest, ArtifactDigestAlgorithm};
@@ -491,8 +531,8 @@ mod tests {
         let resolver = CapturingResolver::new([collector]);
         let contribution = contribution(&plan, b"interface bytes", None);
 
-        let outcome =
-            ArtifactPublisher::with_sink_resolver(&resolver).publish(&plan, [contribution]);
+        let outcome = ArtifactPublisher::with_sink_resolver(&never_cancelled, &resolver)
+            .publish(&plan, [contribution]);
 
         assert_complete_artifact(&outcome, b"interface bytes");
         assert_eq!(resolver.bytes("test.memory"), b"interface bytes");
@@ -508,8 +548,8 @@ mod tests {
         let resolver = CapturingResolver::new([stream]);
         let contribution = contribution(&plan, b"stream bytes", None);
 
-        let outcome =
-            ArtifactPublisher::with_sink_resolver(&resolver).publish(&plan, [contribution]);
+        let outcome = ArtifactPublisher::with_sink_resolver(&never_cancelled, &resolver)
+            .publish(&plan, [contribution]);
 
         assert_complete_artifact(&outcome, b"stream bytes");
         assert_eq!(resolver.bytes("test.stream"), b"stream bytes");
@@ -525,8 +565,8 @@ mod tests {
         let resolver = PartiallyFailingResolver::new();
         let contribution = contribution(&plan, b"partial bytes must stay hidden", None);
 
-        let outcome =
-            ArtifactPublisher::with_sink_resolver(&resolver).publish(&plan, [contribution]);
+        let outcome = ArtifactPublisher::with_sink_resolver(&never_cancelled, &resolver)
+            .publish(&plan, [contribution]);
 
         assert!(matches!(
             outcome.status(),
@@ -548,7 +588,7 @@ mod tests {
 
         let require_absent = filesystem_plan(output.path(), ReplacementPolicy::RequireAbsent);
 
-        let outcome = ArtifactPublisher::new().publish(
+        let outcome = ArtifactPublisher::new(&never_cancelled).publish(
             &require_absent,
             [contribution(&require_absent, contribution_bytes, None)],
         );
@@ -560,18 +600,94 @@ mod tests {
 
         assert_eq!(
             outcome.diagnostics().diagnostics()[0].kind(),
-            DiagnosticKind::EmissionArtifactOpenFailed
+            DiagnosticKind::EmissionArtifactCommitFailed
         );
 
         assert_eq!(file_bytes(output.path()), b"existing");
 
         let replace = filesystem_plan(output.path(), ReplacementPolicy::ReplaceExisting);
 
-        let outcome = ArtifactPublisher::new()
+        let outcome = ArtifactPublisher::new(&never_cancelled)
             .publish(&replace, [contribution(&replace, contribution_bytes, None)]);
 
         assert_complete_artifact(&outcome, contribution_bytes);
         assert_eq!(file_bytes(output.path()), contribution_bytes);
+    }
+
+    #[test]
+    fn cancellation_during_staged_validation_preserves_the_destination() {
+        let Ok(directory) = tempfile::tempdir() else {
+            panic!("test output directory must be created");
+        };
+
+        let destination = directory.path().join("application.brayi");
+
+        if std::fs::write(&destination, b"existing").is_err() {
+            panic!("test destination must be written");
+        }
+
+        let plan = filesystem_plan(&destination, ReplacementPolicy::ReplaceExisting);
+        let contribution = contribution(&plan, b"replacement", None);
+        let observations = AtomicUsize::new(0);
+        let cancellation = || observations.fetch_add(1, Ordering::AcqRel) >= 5;
+
+        let outcome = ArtifactPublisher::new(&cancellation).publish(&plan, [contribution]);
+
+        assert!(matches!(outcome.status(), EmissionStatus::Cancelled));
+        assert!(outcome.diagnostics().is_empty());
+        assert_eq!(file_bytes(&destination), b"existing");
+        assert_eq!(directory_entry_count(directory.path()), 1);
+    }
+
+    #[test]
+    fn failure_does_not_claim_or_attempt_a_cross_path_transaction() {
+        let Ok(directory) = tempfile::tempdir() else {
+            panic!("test output directory must be created");
+        };
+
+        let interface_path = directory.path().join("application.brayi");
+        let metadata_path = directory.path().join("application.brayd");
+
+        if std::fs::write(&interface_path, b"old interface").is_err() {
+            panic!("test interface destination must be written");
+        }
+
+        if std::fs::create_dir(&metadata_path).is_err() {
+            panic!("test metadata destination directory must be created");
+        }
+
+        let plan = filesystem_artifact_plan([
+            (package_interface_spec(), interface_path.clone()),
+            (required_dependency_metadata_spec(), metadata_path.clone()),
+        ]);
+
+        let interface = contribution_for(
+            &plan,
+            ArtifactKind::PackageInterface,
+            b"new interface",
+            None,
+            None,
+        );
+
+        let metadata = contribution_for(
+            &plan,
+            ArtifactKind::DependencyMetadata,
+            b"metadata",
+            None,
+            None,
+        );
+
+        let outcome =
+            ArtifactPublisher::new(&never_cancelled).publish(&plan, [metadata, interface]);
+
+        assert!(matches!(
+            outcome.status(),
+            EmissionStatus::Failed(EmissionFailure::Publication(_))
+        ));
+
+        assert_eq!(file_bytes(&interface_path), b"new interface");
+        assert!(metadata_path.is_dir());
+        assert_eq!(directory_entry_count(directory.path()), 2);
     }
 
     #[test]
@@ -590,8 +706,8 @@ mod tests {
         };
 
         let contribution = contribution(&plan, b"content", Some(wrong_digest));
-        let outcome =
-            ArtifactPublisher::with_sink_resolver(&resolver).publish(&plan, [contribution]);
+        let outcome = ArtifactPublisher::with_sink_resolver(&never_cancelled, &resolver)
+            .publish(&plan, [contribution]);
 
         assert!(matches!(
             outcome.status(),
@@ -666,8 +782,8 @@ mod tests {
             )),
         );
 
-        let outcome =
-            ArtifactPublisher::with_sink_resolver(&resolver).publish(&plan, [metadata, interface]);
+        let outcome = ArtifactPublisher::with_sink_resolver(&never_cancelled, &resolver)
+            .publish(&plan, [metadata, interface]);
 
         let Some(artifacts) = outcome.artifacts() else {
             panic!("an invalid optional contribution must not fail the product");
@@ -675,6 +791,7 @@ mod tests {
 
         assert_eq!(artifacts.artifacts().len(), 1);
         assert_eq!(outcome.diagnostics().warnings().count(), 1);
+
         assert_eq!(
             outcome.diagnostics().diagnostics()[0].kind(),
             DiagnosticKind::EmissionInvalidContribution
@@ -729,7 +846,7 @@ mod tests {
             None,
         );
 
-        let outcome = ArtifactPublisher::with_sink_resolver(&resolver)
+        let outcome = ArtifactPublisher::with_sink_resolver(&never_cancelled, &resolver)
             .publish(&plan, [executable, metadata, interface]);
 
         assert!(outcome.artifacts().is_some());
@@ -754,7 +871,7 @@ mod tests {
         };
 
         let plan = memory_plan(collector);
-        let outcome = ArtifactPublisher::new().publish(&plan, []);
+        let outcome = ArtifactPublisher::new(&never_cancelled).publish(&plan, []);
 
         assert!(matches!(
             outcome.status(),
@@ -786,12 +903,51 @@ mod tests {
         )
     }
 
-    fn filesystem_plan(path: &std::path::Path, replacement: ReplacementPolicy) -> EmissionPlan {
+    fn filesystem_plan(path: &Path, replacement: ReplacementPolicy) -> EmissionPlan {
         publication_plan(
             RequestedArtifactDestination::FilesystemFile(path.to_owned()),
             OutputSink::Filesystem(path.to_owned()),
             replacement,
         )
+    }
+
+    fn filesystem_artifact_plan(
+        artifacts: impl IntoIterator<Item = (TestArtifactSpec, PathBuf)>,
+    ) -> EmissionPlan {
+        let artifacts: Vec<_> = artifacts.into_iter().collect();
+
+        let requested = artifacts
+            .iter()
+            .map(|(artifact, _)| RequestedArtifact::new(artifact.kind, artifact.requirement));
+
+        let Ok(request) = EmissionRequest::try_new(
+            product_identity(),
+            ProductKind::Library,
+            target_identity(),
+            RequestedArtifactDestination::FilesystemDirectory("unused".into()),
+            requested,
+            ReplacementPolicy::ReplaceExisting,
+        ) else {
+            panic!("test filesystem publication request must be valid");
+        };
+
+        let product = request.product().clone();
+
+        let planned = artifacts.into_iter().map(|(artifact, path)| {
+            PlannedArtifact::new(
+                ArtifactId::new(product.clone(), artifact.kind, 0),
+                artifact.requirement,
+                artifact.role,
+                artifact.producer,
+                PlannedArtifactDestination::Publish(OutputSink::Filesystem(path)),
+            )
+        });
+
+        let Ok(plan) = EmissionPlan::try_new(request, None, planned, []) else {
+            panic!("test filesystem publication plan must be valid");
+        };
+
+        plan
     }
 
     fn publication_plan(
@@ -891,6 +1047,15 @@ mod tests {
         }
     }
 
+    fn required_dependency_metadata_spec() -> TestArtifactSpec {
+        TestArtifactSpec {
+            kind: ArtifactKind::DependencyMetadata,
+            requirement: ArtifactRequirement::Required,
+            role: ArtifactRole::Companion,
+            producer: ArtifactProducer::DependencyMetadata(DependencyMetadataProducerId::new(0)),
+        }
+    }
+
     fn executable_spec() -> TestArtifactSpec {
         TestArtifactSpec {
             kind: ArtifactKind::Executable,
@@ -958,12 +1123,20 @@ mod tests {
         );
     }
 
-    fn file_bytes(path: &std::path::Path) -> Vec<u8> {
+    fn file_bytes(path: &Path) -> Vec<u8> {
         let Ok(bytes) = std::fs::read(path) else {
             panic!("published test artifact must be readable");
         };
 
         bytes
+    }
+
+    fn directory_entry_count(path: &Path) -> usize {
+        let Ok(entries) = std::fs::read_dir(path) else {
+            panic!("test output directory must be readable");
+        };
+
+        entries.count()
     }
 
     struct CapturingResolver {
@@ -1053,14 +1226,12 @@ mod tests {
 
     impl OutputSinkTransaction for CapturingWriter {
         fn commit(self: Box<Self>) -> io::Result<()> {
-            let mut destination = self
-                .destination
-                .lock()
-                .map_err(|_| io::Error::from(io::ErrorKind::Other))?;
+            let Self {
+                destination,
+                buffer,
+            } = *self;
 
-            *destination = self.buffer;
-
-            Ok(())
+            commit_buffer(destination, buffer)
         }
     }
 
@@ -1124,14 +1295,27 @@ mod tests {
 
     impl OutputSinkTransaction for PartiallyFailingTransaction {
         fn commit(self: Box<Self>) -> io::Result<()> {
-            let mut destination = self
-                .destination
-                .lock()
-                .map_err(|_| io::Error::from(io::ErrorKind::Other))?;
+            let Self {
+                destination,
+                buffer,
+                ..
+            } = *self;
 
-            *destination = self.buffer;
-
-            Ok(())
+            commit_buffer(destination, buffer)
         }
+    }
+
+    fn commit_buffer(destination: Arc<Mutex<Vec<u8>>>, buffer: Vec<u8>) -> io::Result<()> {
+        let mut destination = destination
+            .lock()
+            .map_err(|_| io::Error::from(io::ErrorKind::Other))?;
+
+        *destination = buffer;
+
+        Ok(())
+    }
+
+    fn never_cancelled() -> bool {
+        false
     }
 }

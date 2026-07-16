@@ -58,11 +58,11 @@ impl EmissionOutcome {
         }
     }
 
-    /// Creates a canceled outcome without diagnostics or partial product success.
-    pub const fn cancelled() -> Self {
+    /// Creates a canceled outcome without a partial product success claim.
+    pub const fn cancelled(diagnostics: DiagnosticBag) -> Self {
         Self {
             status: EmissionStatus::Cancelled,
-            diagnostics: DiagnosticBag::new(),
+            diagnostics,
         }
     }
 
@@ -104,7 +104,7 @@ mod tests {
         assert!(complete.artifacts().is_some());
 
         let failed = EmissionOutcome::failed(EmissionFailure::Planning, DiagnosticBag::new());
-        let cancelled = EmissionOutcome::cancelled();
+        let cancelled = EmissionOutcome::cancelled(DiagnosticBag::new());
 
         assert_eq!(failed.artifacts(), None);
         assert_eq!(cancelled.artifacts(), None);

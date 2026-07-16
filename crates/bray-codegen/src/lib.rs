@@ -4,7 +4,6 @@
 
 mod artifact;
 mod backend;
-mod cancellation;
 mod options;
 mod outcome;
 mod request;
@@ -24,7 +23,6 @@ pub use artifact::{
     LinkableArtifactKind, LinkableArtifactRequirement,
 };
 pub use backend::{BackendCapabilities, BackendIdentity, BackendTargetPlatform, CodeGenerator};
-pub use cancellation::CodegenCancellation;
 pub use options::{CodegenOptions, DebugInformationMode, OptimizationLevel, SizePreference};
 pub use outcome::{CodegenFailure, CodegenOutcome, CodegenStatus};
 pub use request::{CodegenRequest, CodegenRequestBuildError};

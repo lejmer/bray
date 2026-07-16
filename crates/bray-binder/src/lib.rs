@@ -56,8 +56,8 @@ pub use entry::{
     bind_predicate_definition, bind_runtime_default,
 };
 pub use fact::{
-    BinderCancellation, BinderFactContext, BinderFactError, BinderFactResult,
-    BindingSymbolFactProvider, SymbolFactProvider, TargetFactProvider, TargetFactResult,
+    BinderFactContext, BinderFactError, BinderFactResult, BindingSymbolFactProvider,
+    SymbolFactProvider, TargetFactProvider, TargetFactResult,
 };
 pub use result::BoundUnitComputation;
 pub use surface::{

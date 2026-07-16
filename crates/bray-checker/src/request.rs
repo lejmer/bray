@@ -1,10 +1,9 @@
+use bray_base::Cancellation;
 use bray_bound_tree::{
     AnyBoundNodeId, BoundBlockId, BoundCallableBodyId, BoundExpressionId, BoundUnitKind,
     BoundUnitView,
 };
 use bray_symbols::AvailableCompilerKnownSymbols;
-
-use crate::CheckerCancellation;
 
 /// Typed inputs for whole-unit semantic checking.
 #[derive(Clone, Copy)]
@@ -12,7 +11,7 @@ pub struct UnitCheckRequest<'view> {
     view: BoundUnitView<'view>,
     root: UnitCheckRoot,
     available_compiler_known_symbols: &'view AvailableCompilerKnownSymbols,
-    cancellation: &'view dyn CheckerCancellation,
+    cancellation: &'view dyn Cancellation,
 }
 
 /// The exact root category of one independently checked semantic unit.
@@ -72,7 +71,7 @@ impl<'view> UnitCheckRequest<'view> {
         view: BoundUnitView<'view>,
         root: UnitCheckRoot,
         available_compiler_known_symbols: &'view AvailableCompilerKnownSymbols,
-        cancellation: &'view dyn CheckerCancellation,
+        cancellation: &'view dyn Cancellation,
     ) -> Result<Self, UnitCheckRequestError> {
         if root.node().unit() != view.unit() {
             return Err(UnitCheckRequestError::ForeignRoot);

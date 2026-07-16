@@ -1,18 +1,13 @@
+use bray_base::Cancellation;
 use bray_diagnostics::DiagnosticBag;
 
 use super::SymbolFactCompletionRequest;
-
-/// Read-only cancellation contract used while planning symbol completion.
-pub trait SymbolCompletionCancellation: Sync {
-    /// Returns whether the current completion request should stop.
-    fn is_cancelled(&self) -> bool;
-}
 
 /// A cancellation source that never cancels completion planning.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct NeverCancelSymbolCompletion;
 
-impl SymbolCompletionCancellation for NeverCancelSymbolCompletion {
+impl Cancellation for NeverCancelSymbolCompletion {
     fn is_cancelled(&self) -> bool {
         false
     }
@@ -45,9 +40,10 @@ where
 
 #[cfg(test)]
 mod tests {
+    use bray_base::Cancellation;
     use bray_diagnostics::DiagnosticBag;
 
-    use super::{NeverCancelSymbolCompletion, SymbolCompletionCancellation, SymbolFactForcer};
+    use super::{NeverCancelSymbolCompletion, SymbolFactForcer};
     use crate::{
         AnySymbolId, FunctionSymbolId, SymbolFactCompletionRequest, SymbolFactKind, SymbolId,
     };
