@@ -11,7 +11,7 @@ Target profiles, target facts, target constraints, target-conditional declaratio
 A module contribution can be gated by the selected target profile with `@target(...)`.
 
 ```bray
-@target(std.target.atomic.u64)
+@target(target.atomic.u64)
 module counters;
 ```
 

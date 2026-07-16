@@ -1,29 +1,49 @@
 # Low-level runtime
 
-Low-level async runtime machinery is part of the trusted substrate.
+Low-level async runtime machinery is part of the trusted product substrate and is not a source-visible compiler-known package.
 
-Executors, reactors, wakers, completion queues, foreign async callbacks, device async integration, and custom scheduling primitives are implemented through trusted capabilities and exposed through safe async contracts.
+The language-defined runtime contract provides semantic operations equivalent to:
 
-Trusted runtime declarations that affect scheduling, cross-run memory visibility, synchronization, cancellation, or foreign callbacks must expose a safe contract that states:
+- running a root frame,
+- starting a task from an inactive frame,
+- resuming and suspending a frame,
+- waking a task,
+- requesting task cancellation,
+- registering and waking join waiters,
+- observing cancellation and checkpoints,
+- creating, waiting on, signalling, and destroying runtime events,
+- selecting compatible cooperative, local, blocking, and compute lanes,
+- resolving runtime shutdown.
 
-- ownership effects,
-- borrow effects,
-- synchronization edges,
-- cancellation behavior,
-- panic behavior,
-- trusted facts,
-- fact invalidation,
-- capability requirements visible to callers.
+These operation descriptions do not reserve Bray declaration names. Their binary symbols, calling conventions, frame descriptors,
+and versioning belong to the private runtime ABI.
 
-Trusted runtime declarations can use raw memory, unchecked aliasing, target intrinsics, device memory, or foreign calls only through the trusted capabilities defined by the contract, trust, and [raw memory rules](../targets-layout-abi-and-raw-memory.md).
+A conforming runtime must preserve:
 
-Foreign or device operations that can access Bray-owned storage must either be represented by a synchronization contract or be treated by their declaration contract as affecting every reachable storage item they can touch.
+- `Async<T>` and `Task<T>` ownership and movement,
+- dependency and affinity contracts,
+- exactly-once frame completion and destruction,
+- cancellation request and cleanup shielding rules,
+- task run-boundary panic capture,
+- join and cancellation completion visibility edges,
+- lane execution facts,
+- structured root shutdown.
 
-A trusted declaration cannot expose an ordinary safe API that permits data races, dangling borrows, unsynchronized shared mutation, invalid raw memory access, leaked scoped capabilities, or unresolved run obligations.
+Private standard-library implementation modules can bind the ABI through trusted foreign declarations. Those declarations remain
+ordinary private `std` source declarations and are not recognized by their source paths. A different standard library can organize
+its wrappers differently while targeting the same ABI.
+
+Trusted runtime declarations that affect scheduling, memory visibility, synchronization, cancellation, foreign callbacks, or
+device access must expose safe internal contracts covering ownership, borrowing, visibility edges, cancellation, panic, fact
+invalidation, and capability requirements. They can use raw memory, target intrinsics, device memory, platform APIs, and foreign
+calls only through the corresponding trusted capabilities.
+
+A runtime or wrapper is nonconforming if its safe surface permits data races, dangling dependencies, duplicate task ownership,
+unsynchronized shared mutation, leaked scoped capabilities, unresolved task obligations, or destruction of a running frame.
 
 ## Navigation
 
 - [Language index](../index.md)
 - [Async and concurrency index](../async-and-concurrency.md)
-- Previous: [Capability transfer across run boundaries](capability-transfer-across-run-boundaries.md)
+- Previous: [Standard-library concurrency](standard-library-concurrency.md)
 - Next: [Summary](summary.md)

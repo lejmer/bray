@@ -11,7 +11,7 @@ A module contribution can be gated by the selected target profile with `@target(
 `@target(...)` attaches to a source-unit module declaration or a block module declaration.
 
 ```bray
-@target(std.target.atomic.u64)
+@target(target.atomic.u64)
 module counters;
 
 using std.atomic;
@@ -25,7 +25,7 @@ func add(pos counter: &std.atomic.AtomicU64, amount: u64) -> u64
 A fallback module contribution can use the negated target fact:
 
 ```bray
-@target(!std.target.atomic.u64)
+@target(!target.atomic.u64)
 module counters;
 
 struct Counter
@@ -45,7 +45,7 @@ The operand of `@target(...)` is an ordinary compile-time boolean expression eva
 
 Target-selection context uses ordinary constant-expression syntax and semantics.
 
-The expression can reference compiler-known target facts under `std.target`, literals, compiler-known target-fact enum values, and built-in boolean, comparison, field-access, and grouping expressions that are valid in constant-evaluation context.
+The expression can reference compiler-known target facts under `target`, literals, compiler-known target-fact enum values, and built-in boolean, comparison, field-access, and grouping expressions that are valid in constant-evaluation context.
 
 The expression cannot reference declarations contributed by the source graph being selected.
 

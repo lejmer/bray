@@ -4,6 +4,9 @@ A **standard-library declaration** is an ordinary declaration supplied by a stan
 
 The standard-library root package is `std`.
 
+The `std` package namespace is reserved exclusively for standard-library packages. Compiler-known declarations, target facts, and
+private runtime ABI symbols do not occupy `std` paths.
+
 Standard-library declarations are not automatically visible.
 
 Source code can use a standard-library declaration only when the declaration is reachable through the `std` package root and visible through normal import or path rules.

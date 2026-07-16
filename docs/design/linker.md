@@ -168,6 +168,13 @@ inputs produce deterministic output.
 Executable and shared-library plans explicitly identify their product kind, entry point, exports, runtime components, startup
 objects, and platform options.
 
+An async executable or test plan also identifies the selected runtime artifact, runtime ABI version, root entry stub, required lane
+facts, reactor and event features, and target/panic compatibility. The linker validates those typed inputs against runtime artifact
+metadata. It does not choose a runtime or infer async requirements from unresolved symbols.
+
+A synchronous-only product omits the async runtime unless another selected dependency explicitly requires it. The full selection and
+ABI contract is defined in `docs/design/async-runtime.md`.
+
 The linker does not infer an entry point from source names or object inspection. The semantic and product layers select it before
 the plan is constructed.
 

@@ -1,37 +1,38 @@
 # Cross-run memory model
 
-Tasks and threads are concurrent runs when their execution can overlap with another live run.
+Independently running tasks are concurrent runs when their execution can overlap. An `Async<T>` that is only directly awaited is
+part of the current task and is not a separate run.
 
-An async computation that is only awaited in the current execution flow is not a concurrent run by itself.
+Starting a task creates a start edge: every effect used to initialize and transfer its frame occurs before the new task can observe
+that state.
 
-A task becomes a concurrent run when it is spawned.
-
-A thread becomes a concurrent run when it is spawned.
-
-Within one run, ordinary expression evaluation order defines the order of memory effects.
-
-Between concurrent runs, memory effects are ordered only by language-defined synchronization edges.
+Within one run, ordinary expression evaluation and async resumption order define the order of memory effects. Between concurrent
+runs, effects are ordered only by language-defined synchronization edges.
 
 A synchronization edge is created by:
 
-- transferring captured state into a spawned task or explicit thread entry state into a spawned thread before that run can observe the state,
-- joining a task or thread,
-- completing task or thread cancellation,
-- operations whose type or declaration contract explicitly synchronizes access,
+- the task start edge,
+- terminal completion observed by `await task.join()` or `await task.cancel()`,
+- automatic task finalization completing at scope exit,
+- operations whose safe type or declaration contract explicitly synchronizes access,
 - atomic operations according to their ordering contract,
-- trusted runtime declarations whose safe contract establishes synchronization.
+- trusted runtime declarations whose safe internal contract establishes synchronization.
 
-Moving a task handle or thread handle transfers the obligation represented by that handle.
+Moving `Task<T>` transfers its source-level obligation and dependency contract but does not by itself synchronize with the running
+task.
 
-Moving a handle does not by itself create a synchronization edge with the run owned by the handle.
+Task completion creates a completion edge from every effect in the completed task, including cleanup effects, to the continuation
+that receives its `RunResult<T>`. Automatic finalization creates the same edge before dependent owner storage is resolved.
 
-Joining a task or thread creates a completion edge from the joined run to the continuation after the `catch handle.join()` expression.
+Cancellation request alone is not a completion edge. The completion edge is established only when cancellation cleanup reaches a
+terminal task outcome and a join, cancel, or automatic finalizer observes it.
 
-Completing cancellation creates a completion edge from the cancelled run's cleanup path to the continuation after the cancellation operation.
+Operating-system threads created through the standard library participate through the ownership and synchronization contract of
+`std.thread.Handle<T>`. That handle is an ordinary standard-library type, not a separate compiler-known thread-handle category.
 
 ## Navigation
 
 - [Language index](../index.md)
 - [Async and concurrency index](../async-and-concurrency.md)
-- Previous: [Cancellation](cancellation.md)
+- Previous: [Entrypoints and runtime selection](entrypoints-and-runtime.md)
 - Next: [Data-race prevention](data-race-prevention.md)

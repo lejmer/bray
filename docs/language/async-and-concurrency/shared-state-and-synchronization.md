@@ -20,9 +20,9 @@ The matching `exit` declaration releases that scoped capability and establishes 
 
 The scoped capability cannot escape its valid scope unless its type contract explicitly preserves the protected storage, synchronization state, and dependency contract.
 
-Library synchronization declarations are ordinary declarations.
-
-They become meaningful to the compiler through their language-defined or recognized standard-library contracts, not through special call syntax.
+Library synchronization declarations are ordinary declarations. Their safe public contracts carry dependency, scoped capability,
+and synchronization-edge information through ordinary type and callable contracts. Channel, mutex, and event declaration names are
+not compiler-recognized and use no special call syntax.
 
 ## Navigation
 

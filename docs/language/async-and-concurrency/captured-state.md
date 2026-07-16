@@ -1,32 +1,30 @@
 # Captured state
 
-Suspension captures every live value, borrow, capability, effect, fact dependency, and finalization obligation needed to resume the async computation.
+Creation and suspension preserve every live value, borrow, capability, effect, fact dependency, execution requirement, and lifecycle
+obligation needed to begin, resume, cancel, or destroy an async computation.
 
-A value moved into an async computation is owned by that computation until the value is returned, moved elsewhere, destroyed, or transferred into a spawned task.
+A receiver or argument moved into an async call is owned by the returned `Async<T>` until it is returned, moved elsewhere,
+destroyed, or transferred into a task by `start()`.
 
-A borrow captured by an async computation remains active for the computation's lifetime.
+A borrow transferred into an async call remains active for the async computation's dependency lifetime. A mutable borrow remains
+exclusive for that lifetime. A scoped capability remains held until the computation releases it or its owner resolves the
+computation.
 
-A mutable borrow captured by an async computation remains exclusive for the computation's lifetime.
+An async computation cannot move to an owner that may outlive borrowed storage or a scoped capability it depends on. These
+dependencies are inferred from the selected callable contract, argument mapping, defaults, body, suspension liveness, and selected
+implementations and are carried by `Async<T>` even though they are not written as source lifetime parameters.
 
-A scoped capability captured by an async computation remains held for the computation's lifetime.
+Direct await transfers the captured state into the current task for the duration of the await. `start()` transfers it into the new
+task, and `Task<T>` preserves the same dependency contract. Moving either handle transfers, rather than duplicates, the dependency
+obligations.
 
-An async computation cannot outlive a borrowed value or scoped capability it captures.
-
-The compiler tracks captured state across:
-
-- suspension,
-- movement,
-- await,
-- spawn,
-- cancellation,
-- destruction,
-- task transfer.
-
-Captured state contributes to the async computation's dependency contract.
+Captured-state analysis distinguishes lifetime from mobility. A task whose state is safe to migrate can execute on compatible
+runtime workers. A task containing thread-affine state remains pinned to a compatible execution lane. Thread affinity is an inferred
+dependency fact, not a separate public task type.
 
 ## Navigation
 
 - [Language index](../index.md)
 - [Async and concurrency index](../async-and-concurrency.md)
-- Previous: [Async functions and computations](async-functions-and-computations.md)
+- Previous: [Async representation and storage](async-representation-and-storage.md)
 - Next: [Await expressions](await-expressions.md)

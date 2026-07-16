@@ -1,115 +1,63 @@
 # Task handles and obligations
 
-`Task<T>` is an owned task handle.
+`Task<T>` is the compiler-known protected-representation handle for an independently running computation whose normal result is `T`.
+It is owned, move-only, not directly constructible, and carries a linear task-resolution obligation.
 
-`Task<T>` is not copyable.
-
-Moving a `Task<T>` transfers the task obligation.
-
-A task handle can be joined, cancelled, or moved to transfer the task obligation to another owner.
-
-The join operation consumes the task handle.
-
-Task joins are observed with `catch`:
+`Task<T>` has this compiler-provided inherent method surface:
 
 ```bray
-let result: RunResult<T> = catch task.join();
-```
-
-A task join expression is valid only as the operand of `catch`.
-
-If the task completed normally with a value of type `T`, `catch task.join()` produces `RunResult.Completed(value)`.
-
-If the task panicked, `catch task.join()` produces `RunResult.Panicked(report)`.
-
-If the task was cancelled before normal completion, `catch task.join()` produces `RunResult.Cancelled`.
-
-Joining a task resolves the task obligation regardless of which `RunResult` variant is produced.
-
-The cancellation operation consumes the task handle:
-
-```bray
-task.cancel();
-```
-
-Cancelling a task drives cancellation to completion according to the task contract.
-
-Cancelling a task destroys owned captured state and releases captured capabilities according to ordinary destruction and finalization rules.
-
-Cancelling a task resolves the task obligation.
-
-## Task obligation checking
-
-The compiler tracks live task obligations in the same control-flow state as ownership, initialization, movement, destruction, finalization, borrow, and capability state.
-
-Each `spawn` creates one live task obligation.
-
-Each `spawn detached` creates one live task obligation owned by the returned task handle.
-
-The obligation is resolved when the task is joined or cancelled.
-
-The obligation is transferred when the task handle is moved to another valid owner.
-
-Every non-panic source-level path that exits an `async` block must leave no unresolved task obligation owned by that block.
-
-Source-level exits that require resolved task obligations include:
-
-- natural block completion,
-- `yield`,
-- `return`,
-- `continue`,
-- nullable propagation,
-- result propagation,
-- run-result propagation.
-
-An explicit `panic` expression inside an async block cancels task obligations owned by that block before the panic propagates.
-
-An exit path can transfer a task obligation as part of the exit by yielding or returning the task handle.
-
-After a task handle is transferred, the old owner no longer has the task obligation.
-
-At control-flow merge points, task-obligation state must be coherent.
-
-A task handle cannot be joined, cancelled, transferred, or used on a path where that handle is no longer live.
-
-This is valid:
-
-```bray
-async
+impl Task<T>
 {
-    let task = spawn hash_file(file);
-
-    if cancelled
-    {
-        task.cancel();
-        yield Result.Error(HashError.Cancelled);
-    }
-
-    let result = try catch task.join();
-    yield result;
+    consume async func join() -> RunResult<T>;
+    consume async func cancel() -> RunResult<T>;
 }
 ```
 
-This is invalid because the `yield` path leaves the async block while `task` is still owned by the block:
+Both method calls consume the handle into an inactive `Async<RunResult<T>>` according to ordinary async method-call typing. Calling
+the method alone neither waits nor requests cancellation; those effects begin when the returned computation is awaited, started, or
+resolved by async cleanup.
 
-```bray
-async
-{
-    let task = spawn hash_file(file);
+`join()` waits for the task without requesting cancellation. It produces:
 
-    if cancelled
-    {
-        yield Result.Error(HashError.Cancelled);
-    }
+- `RunResult.Completed(value)` when the task completes normally with `value: T`,
+- `RunResult.Cancelled` when the task reaches cancellation before normal completion,
+- `RunResult.Panicked(report)` when a panic crosses the task boundary.
 
-    let result = try catch task.join();
-    yield result;
-}
-```
+When driven, `cancel()` first requests cancellation idempotently and wakes a suspended task, then waits for the same terminal outcomes. A task
+that completed before the request can therefore produce `Completed`, and a task that panicked before or during cancellation can
+produce `Panicked`.
+
+Consuming either method transfers the resolution obligation into the returned async computation. Awaiting that computation resolves
+the obligation and produces the `RunResult<T>`. Moving it preserves the obligation through its dependency and lifecycle contract. If
+the inactive join or cancel computation reaches async scope cleanup, its captured task is resolved there without silently
+abandoning it. It cannot reach the end of a synchronous owner because its captured task requires asynchronous finalization.
+
+`Task<T>` does not expose detach, raw poll, raw wake, task-control-block access, cancellation-token access, completion testing, or a
+non-waiting public cancellation method.
+
+## Automatic lifecycle behavior
+
+An unresolved `Task<T>` has a compiler-known asynchronous finalization obligation. Its automatic finalizer:
+
+1. requests cancellation if it has not already been requested,
+2. waits in a cancellation-shielded cleanup context for terminal completion,
+3. destroys an unobserved `Completed(T)` payload,
+4. accepts `Cancelled` as expected cleanup,
+5. propagates an unobserved child panic on ordinary scope exit,
+6. records an unobserved child panic as a suppressed panic when the parent is already panicking or cancelling.
+
+After terminal resolution, its synchronous destructor releases the runtime task-control storage.
+
+A synchronous scope cannot end ownership of an unresolved task because it cannot drive asynchronous finalization. Such a scope must
+consume the task through an operation whose async result is transferred, or move the task to an owner whose contract preserves the
+obligation. Otherwise the program is rejected.
+
+The checker tracks task obligations with ownership, movement, partial initialization, lifecycle, borrow, capability, effect, and
+fact state. Tasks nested in aggregates carry the same obligation through their initialized access paths.
 
 ## Navigation
 
 - [Language index](../index.md)
 - [Async and concurrency index](../async-and-concurrency.md)
-- Previous: [Task spawn expressions](task-spawn-expressions.md)
+- Previous: [Starting tasks](starting-tasks.md)
 - Next: [Task transfers and escapes](task-transfers-and-escapes.md)

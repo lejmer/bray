@@ -81,9 +81,8 @@ The following type categories have language-defined copy contracts:
 The following type categories are not copyable by default:
 
 - mutable borrow values,
+- `Async<T>`,
 - `Task<T>`,
-- `Thread<T>`,
-- async computations,
 - `box[S] T`,
 - `box[S] view TraitApplication`,
 - `box[S] [T]`,

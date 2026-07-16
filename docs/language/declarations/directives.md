@@ -5,7 +5,7 @@ A **directive** is a compile-time instruction attached to a source element.
 Directive syntax uses `@` followed by the directive name.
 
 ```bray
-@target(std.target.atomic.u64)
+@target(target.atomic.u64)
 module counters;
 
 @layout(c)

@@ -445,6 +445,23 @@ The consuming compiler decodes the structural template into its local `bray-symb
 portable template into a unit-local `BoundDependencyContractId` using the exact receiver, argument, result, capability, and selected
 implementation facts for the use site.
 
+### Async Declaration Metadata
+
+An exported async callable records its declared completion type, async callable contract, normalized immediate preconditions,
+deferred `blocking_execution()` and `compute_execution()` requirements, portable dependency contract, hidden frame descriptor
+compatibility reference, affinity requirements, and required runtime ABI features.
+
+The hidden frame representation is not encoded as an ordinary source generic argument or public field. Concrete non-generic frames
+publish target-specific size, alignment, move, resume, cancellation, result-move, cleanup, and destruction descriptor references.
+Generic async declarations publish checked frame templates or implementation references under the same generic distribution policy
+as other executable generic bodies.
+
+A consuming compiler rejects an incompatible frame descriptor or runtime ABI revision before lowering imported use. Libraries record
+requirements but never select a runtime implementation. Executable and test product formation unions reachable requirements before
+code generation and linking.
+
+The complete metadata and compatibility contract is defined in `docs/design/async-runtime.md`.
+
 ### Checked Declaration-Owned Templates
 
 Runtime defaults, generic constant definitions, predicate definitions, contract expressions, and other declaration-owned facts that

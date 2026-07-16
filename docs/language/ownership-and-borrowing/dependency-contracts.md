@@ -4,7 +4,8 @@ Bray does not have source-level lifetime parameters or source-level lifetime ann
 
 Lifetime and capability dependency contracts are semantic facts inferred and checked by the compiler.
 
-A dependency contract records the non-local requirements that must remain true for a value, access path, callable value, trait view, task handle, thread handle, or stored field to remain valid.
+A dependency contract records the non-local requirements that must remain true for a value, access path, callable value, trait view,
+async computation, task handle, or stored field to remain valid.
 
 A dependency contract can include:
 
@@ -40,9 +41,8 @@ Lambda expressions do not capture enclosing local state.
 
 A trait view carries the dependency contract of the access or storage form that contains the view, plus the requirements of the implementation witness needed for the selected trait application.
 
-A task handle carries the dependency contract of the captured task state and the task obligation represented by the handle.
-
-A thread handle carries the dependency contract of the captured thread state and the thread obligation represented by the handle.
+An `Async<T>` carries the dependency contract of its hidden frame state. A `Task<T>` preserves that contract across the independent
+run boundary and adds the task-resolution obligation represented by the handle.
 
 Moving a value moves its dependency contract with the value.
 

@@ -56,6 +56,7 @@
 
 12. **Asynchronous execution is structured and first-class.**
 
-    Asynchronous execution is part of Bray's semantic model. Async computations are owned values, suspension is governed by ownership and capability rules,
-    spawned work is scope-bound by default, and detached work uses explicit ownership-extending task handles. Async finalization obligations are part of type contracts
-    and are tracked by the compiler across every exit path. Low-level async runtime machinery belongs to the trusted substrate.
+    Async calls create owned inactive computations, direct await composes them into the current task, and starting creates an
+    independently running task with one source-level owner. Every lexical block is a structured task boundary, cancellation is
+    broadcast before task finalization, and no task is detached from ownership. Async representation is protected, execution-lane
+    requirements are contractual, and low-level runtime machinery belongs to the trusted product substrate.

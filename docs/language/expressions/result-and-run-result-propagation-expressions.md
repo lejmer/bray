@@ -76,16 +76,16 @@ func load_user(pos id: UserId) -> Result<User, LoadError>
 ```
 
 ```bray
-func collect(pos task: Task<Result<User, LoadError>>) -> RunResult<Result<User, LoadError>>
+async func collect(pos task: Task<Result<User, LoadError>>) -> RunResult<Result<User, LoadError>>
 {
-    let result = try catch task.join();
+    let result = try await task.join();
     let user = try result;
 
     return RunResult.Completed(Result.Ok(user));
 }
 ```
 
-In the `collect` example, `catch task.join()` has type `RunResult<Result<User, LoadError>>`.
+In the `collect` example, `await task.join()` has type `RunResult<Result<User, LoadError>>`.
 
 ## Navigation
 

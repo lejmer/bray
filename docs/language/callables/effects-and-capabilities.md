@@ -41,7 +41,7 @@ The body effect summary is derived from:
 - assignments and mutation,
 - allocation and deallocation,
 - I/O,
-- async computation creation, `await`, `spawn`, task joins, and task cancellation,
+- async computation creation, `await`, task start, task joins, and task cancellation,
 - panic-catching boundaries,
 - trusted capability use.
 
@@ -125,16 +125,20 @@ An `async` callable type carries suspendable execution and cancellation particip
 
 Calling an async function creates an async computation whose cancellation behavior is governed by [Async and concurrency](../async-and-concurrency.md).
 
-Awaiting an async computation, spawning it as a task, joining a task, cancelling a task, and observing a run boundary must satisfy
+Awaiting an async computation, starting it as a task, joining a task, cancelling a task, and observing a run boundary must satisfy
 the async computation's ownership, borrowing, capability, effect, finalization, and cancellation obligations.
 
-A synchronous callable cancels a task through ownership of a task handle or another value whose contract gives cancellation
-authority.
+A synchronous callable can request task cancellation only by constructing or transferring an async cancellation computation; it
+cannot drive that computation or end an unresolved task obligation without an async execution context.
 
 That authority is represented by the parameter, receiver, or field type that carries the task obligation.
 
 Task cancellation is represented through `async`, task-handle ownership, and the contracts of values that carry cancellation
 authority.
+
+`blocking_execution()` and `compute_execution()` are compiler-provided context predicates used in `requires(...)`. For synchronous
+calls they are immediate preconditions. Async invocation defers them into `Async<T>` because invocation does not execute the body;
+direct await validates them against the current lane and task start selects a satisfying lane.
 
 ### Effects in callable types
 

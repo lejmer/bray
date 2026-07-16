@@ -22,9 +22,10 @@ A panic-catching boundary does not resume the panicked continuation.
 
 The `catch` expression is the source-level panic-catching expression.
 
-For ordinary synchronous code, `catch` reports a caught panic as `Result.Error(report)`.
+`catch` reports a caught panic as `Result.Error(report)`.
 
-For task or thread observation, `catch` reports a caught panic as `RunResult.Panicked(report)`.
+A panic crossing an independently running task boundary is captured by that boundary and observed through `Task<T>.join()` or
+`Task<T>.cancel()` as `RunResult.Panicked(report)`.
 
 If a panic reaches the program root without being caught, the program terminates.
 

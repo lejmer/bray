@@ -771,6 +771,8 @@ Variant-specific records retain their meaningful relationships. For example:
 
 - a bound name expression stores its exact resolved reference,
 - a bound call stores the selected callable target, argument mapping, conversions, and used default providers,
+- a bound async call additionally stores completion type, produced `Async<T>` type, hidden frame identity, immediate preconditions,
+  and deferred execution requirements,
 - a bound member access stores the selected member and receiver facts,
 - a bound local declaration stores its bound initializer and introduced local symbol IDs,
 - a bound pattern stores exact introduced bindings, projections, and pattern-checking facts,
@@ -817,6 +819,11 @@ Facts stored on or indexed by bound nodes include, where meaningful:
 - constant or predicate context validity,
 - control completion such as normal, `never`, return, break, continue, yield, propagation, or cancellation behavior,
 - source-correlated error facts used for recovery.
+
+Async facts also include hidden frame identity, suspension sites, execution requirements, affinity causes, task-boundary operations,
+and checked structured cleanup plan references where later lowering or diagnostics require them. These remain typed semantic facts;
+they are not encoded as source generic arguments or runtime symbol strings. The complete contract is defined in
+`docs/design/async-runtime.md`.
 
 Not every fact belongs as a field on every node. Category-specific records and typed side tables should represent only meaningful
 states.

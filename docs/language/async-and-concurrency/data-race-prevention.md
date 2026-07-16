@@ -13,19 +13,20 @@ Safe Bray source must be data-race-free by construction.
 
 If the compiler cannot prove that potentially overlapping concurrent accesses are disjoint, ordered, immutable, or mediated by a valid synchronization contract, the program is rejected.
 
-Moving owned state into a spawned task or thread transfers exclusive ownership of that state to the spawned run.
+Moving owned state into a started task transfers exclusive ownership of that state to the new run.
 
 After the move, the creating run has no access path that owns the moved state.
 
-Copying a value into a spawned task or thread is valid only when the copied value's type contract permits use in that run boundary.
+Copying a value into a started task is valid only when the copied value's type contract permits use in that run boundary.
 
-Copyability does not imply cross-thread sharing, detached execution safety, atomic access, or synchronized interior mutation.
+Copyability does not imply cross-thread sharing, independent-task transfer safety, atomic access, or synchronized interior mutation.
 
-Capturing a shared borrow into a concurrent run keeps the shared borrow active for the lifetime carried by the task or thread handle.
+Capturing a shared borrow into a concurrent run keeps the shared borrow active for the dependency lifetime carried by `Task<T>`.
 
 While that shared borrow is active, incompatible mutation, movement, destruction, finalization, reinitialization, or variant replacement of the reached storage remains suspended in every run.
 
-Capturing a mutable borrow into a concurrent run transfers exclusive mutation authority to that run for the lifetime carried by the task or thread handle.
+Capturing a mutable borrow into a concurrent run transfers exclusive mutation authority to that run for the dependency lifetime
+carried by `Task<T>`.
 
 No other run can observe, mutate, move, destroy, finalize, reinitialize, or otherwise incompatibly access the reached storage until the mutable borrow is resolved.
 

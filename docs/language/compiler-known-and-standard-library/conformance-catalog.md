@@ -33,8 +33,8 @@ The always-available compiler-known type entries are:
 - `RunResult<T>`,
 - `PanicReport`,
 - `ConversionError`,
+- `Async<T>`,
 - `Task<T>`,
-- `Thread<T>`,
 - structural tuple type forms,
 - structural fixed-size array type forms,
 - slice type forms,
@@ -50,6 +50,17 @@ The always-available compiler-known value entries are:
 - `false`,
 - `unit`,
 - `none`.
+
+The always-available compiler-known predicate entries are:
+
+- `blocking_execution()`,
+- `compute_execution()`.
+
+The compiler-provided inherent async member entries are:
+
+- `Async<T>.start()`,
+- `Task<T>.join()`,
+- `Task<T>.cancel()`.
 
 ## Target-available compiler-known entries
 
@@ -83,11 +94,10 @@ The compiler-known traits and contracts include:
 The reserved compiler-known paths include:
 
 - `core.memory`,
-- `std.target`.
+- `target`.
 
-`std.target` is a compiler-known path even though it uses the `std` prefix.
-
-It is not an ordinary standard-library module.
+No compiler-known declaration is owned by the `std` package. The `std` root is reserved exclusively for ordinary standard-library
+packages and their declarations.
 
 ## Recognized standard-library entries
 
@@ -98,6 +108,9 @@ The recognized standard-library entries include:
 - string operations under `std.string`,
 - raw-memory helper operations under `std.memory`,
 - standard storage policy types and helpers used with compiler-known type forms.
+
+Channels, operating-system threads, task combinators, synchronization types, task checkpoints, cancellation observation, and runtime
+selection types are ordinary standard-library or product declarations. They are not compiler-known or recognized by source name.
 
 Recognized standard-library entries are usable only through ordinary visibility, import, and path rules.
 

@@ -50,8 +50,8 @@ An entry point function:
 - does not expose trusted caller obligations,
 - is not `const`.
 
-An entry point can be `async` only when the executable product context supplies an async runtime contract for async entry
-execution.
+An entry point can be `async`. An executable with an async entrypoint selects exactly one conforming async runtime implementation
+and runtime ABI version through its product configuration.
 
 For an entry point with no explicit result type, the result type is `unit`.
 
@@ -65,6 +65,12 @@ An `i32` result is the executable's numeric exit result.
 
 The product runtime contract maps successful completion, failed completion, panic completion, cancellation completion, and numeric
 exit results to the host process or embedding environment.
+
+For an async entrypoint, the compiler emits a host stub that invokes the entrypoint to create `Async<T>`, transfers its hidden frame
+into the runtime root task, drives that task to terminal completion, resolves root-owned child tasks, and performs the same result
+mapping. No source-level runtime value, runtime import, or inner async block is synthesized.
+
+The async entrypoint body is the root lexical structured task scope.
 
 `@entrypoint` does not change a function's name, module, visibility, callable type, ABI, contract, overload participation, or
 export behavior.

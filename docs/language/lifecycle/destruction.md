@@ -14,6 +14,10 @@ A destructor can observe and mutate represented parts when its declaration contr
 
 A destructor cannot create a finalization obligation that remains unresolved after the destructor returns.
 
+During panic or cancellation cleanup, destruction can follow an attempted fallible finalizer that returned `Result.Error`. In that
+case graceful finalization has been abandoned, the error is retained as suppressed cleanup information, and the destructor performs
+infallible representational teardown.
+
 A destructor cannot let `self`, a represented-part access path, a borrow from `self`, or a capability derived from `self` escape.
 
 If a destructor consumes or destroys a represented part, that part becomes uninitialized and is not destroyed again after the destructor returns.

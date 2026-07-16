@@ -345,6 +345,7 @@ The plan is assembled from already resolved compilation and target facts:
 - entry point,
 - startup and termination objects,
 - runtime libraries,
+- selected async runtime ABI version, root entry stub, execution-lane requirements, and runtime feature metadata when applicable,
 - native and system libraries,
 - exported symbols and visibility requirements,
 - search paths supplied by package and target configuration,
@@ -353,6 +354,9 @@ The plan is assembled from already resolved compilation and target facts:
 
 The emitter does not rediscover these requirements from source directives. It maps canonical facts to emitted paths and validates
 that every plan input exists in the emission plan.
+
+Async runtime requirements arrive as already resolved product facts defined by `docs/design/async-runtime.md`. The emitter does not
+select a runtime, infer requirements from MIR, or locate runtime components by source-level names.
 
 `.brayi` is excluded from the native link plan.
 

@@ -80,7 +80,9 @@ Accepted foreign ABI representation categories are:
 
 For `c`, accepted aggregate layout contracts are `@layout(c)` and compatible `@layout(transparent)`.
 
-Borrow types, slices, default-layout products, default-layout unions, trait-view types, owned-indirection types, task handles, thread handles, and callable values without the selected foreign ABI contract need an explicit ABI wrapper or lowering declaration before they can cross a foreign ABI boundary.
+Borrow types, slices, default-layout products, default-layout unions, trait-view types, owned-indirection types, async computations,
+task handles, and callable values without the selected foreign ABI contract need an explicit ABI wrapper or lowering declaration
+before they can cross a foreign ABI boundary.
 
 `@abi(...)` does not change ownership, borrowing, lifetime, panic, contract, trusted capability, generic, overload, or evaluation rules.
 

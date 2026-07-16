@@ -2,7 +2,7 @@
 
 Target profiles and target facts are part of the target, layout, ABI, and raw memory rules.
 
-`std.target` is a compiler-known path, and its declarations are available according to the compiler-known declaration rules.
+`target` is a compiler-known path, and its declarations are available according to the compiler-known declaration rules.
 
 The target fact groups, target fact types, target-profile validation rules, and target-dependent constant rules are defined in [Target profiles and facts](../targets-layout-abi-and-raw-memory/target-profiles-and-facts.md).
 

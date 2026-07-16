@@ -569,7 +569,7 @@ language-defined result rule states otherwise.
 
 The `try` expression unwraps `Result.Ok` and propagates `Result.Error` according to result propagation rules.
 
-`RunResult<T>` is the compiler-known union type for observing a task or thread run boundary through `catch`.
+`RunResult<T>` is the compiler-known union type for observing a task run boundary through `Task<T>.join()` or `Task<T>.cancel()`.
 
 Its semantic declaration is:
 
@@ -584,14 +584,14 @@ union RunResult<T>
 
 `RunResult.Completed` carries the computation's declared result.
 
-`RunResult.Panicked` carries the panic report produced by a panic caught at the task or thread boundary.
+`RunResult.Panicked` carries the panic report produced by a panic caught at the task boundary.
 
-`RunResult.Cancelled` records that the task or thread boundary was cancelled before normal completion.
+`RunResult.Cancelled` records that the task boundary was cancelled before normal completion.
 
-A fallible computation observed through a task or thread boundary uses `RunResult<Result<T, E>>`.
+A fallible computation observed through a task boundary uses `RunResult<Result<T, E>>`.
 
 `RunResult<T>` uses ordinary union construction, matching, ownership, movement, borrowing, and coverage rules unless a
-language-defined task or thread observation rule states otherwise.
+language-defined task observation rule states otherwise.
 
 The `try` expression unwraps `RunResult.Completed` and propagates `RunResult.Panicked` or `RunResult.Cancelled` according to
 run-result propagation rules.
@@ -650,9 +650,33 @@ Those details remain available from the conversion operation and type-checking c
 
 User-defined fallible conversions do not use `ConversionError` unless their selected `CheckedConvertTo<Target>.Error` type is `ConversionError`.
 
+## Compiler-known async computations
+
+`Async<T>` is the compiler-known protected-representation type for an owned inactive async computation whose normal completion type
+is `T`.
+
+`Async<T>` is not copyable or directly constructible. Async callable invocation creates it. Direct await consumes it into the
+current task, and `start()` consumes it into an independently running `Task<T>`.
+
+Its semantic inherent method declaration is:
+
+```bray
+impl Async<T>
+{
+    consume func start() -> Task<T>;
+}
+```
+
+The compiler-known environment owns this inherent implementation. Source and standard-library packages cannot replace or extend it.
+
+An `Async<T>` carries every dependency, execution requirement, and lifecycle obligation held by its hidden frame. Ending ownership
+without executing the body resolves initialized frame state and requires an async cleanup context when that state has asynchronous
+finalization obligations.
+
 ## Compiler-known task handles
 
-`Task<T>` is the compiler-known linear task handle type for a spawned asynchronous task whose ordinary result type is `T`.
+`Task<T>` is the compiler-known protected-representation linear handle for an independently running async task whose ordinary result
+type is `T`.
 
 `Task<T>` is an owned value.
 
@@ -660,23 +684,20 @@ User-defined fallible conversions do not use `ConversionError` unless their sele
 
 Moving a `Task<T>` transfers the task obligation.
 
-Joining or cancelling a `Task<T>` consumes the handle and resolves the task obligation.
+Its semantic inherent method declarations are:
 
-[Task handles and obligations](../async-and-concurrency/task-handles-and-obligations.md) and [Task transfers and escapes](../async-and-concurrency/task-transfers-and-escapes.md) define task handle creation, joining, cancellation, transfers, escape rules, borrowing rules, and obligation checking.
+```bray
+impl Task<T>
+{
+    consume async func join() -> RunResult<T>;
+    consume async func cancel() -> RunResult<T>;
+}
+```
 
-## Compiler-known thread handles
+Calling either method consumes the handle and produces `Async<RunResult<T>>`. Awaiting that computation resolves the task obligation.
+Unresolved task ownership carries compiler-known asynchronous finalization and structured scope cleanup.
 
-`Thread<T>` is the compiler-known linear thread handle type for a spawned synchronous thread whose ordinary result type is `T`.
-
-`Thread<T>` is an owned value.
-
-`Thread<T>` is not copyable.
-
-Moving a `Thread<T>` transfers the thread obligation.
-
-Joining or cancelling a `Thread<T>` consumes the handle and resolves the thread obligation.
-
-[Thread handles and obligations](../async-and-concurrency/thread-handles-and-obligations.md) and [Thread entry state](../async-and-concurrency/thread-entry-state.md) define thread handle creation, joining, cancellation, transfers, escape rules, borrowing rules, capture restrictions, and obligation checking.
+[Task handles and obligations](../async-and-concurrency/task-handles-and-obligations.md), [Task transfers and escapes](../async-and-concurrency/task-transfers-and-escapes.md), and [Structured task scope exit](../async-and-concurrency/structured-task-scope-exit.md) define the complete task contract.
 
 ## Union API compatibility
 

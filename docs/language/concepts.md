@@ -166,16 +166,17 @@ Construction, finalization, destruction, scoped-use, and lifecycle-obligation ru
 
 ## Concurrency
 
-A **run** is an independently executing task or thread.
+A **run** is an independently executing task or an operating-system thread created through an ordinary library contract.
 
 A **task** is an asynchronous run managed by Bray's async rules.
 
-A **thread** is an operating-system or runtime thread run when the target supports thread execution.
+A **thread** is an operating-system execution context when the target and selected standard library support thread execution.
 
-A **run boundary** is the boundary crossed when source starts an asynchronous task, thread, or detached run.
+A **run boundary** separates independently executing work and converts a crossing panic or cancellation into the outcome defined by
+the owning handle contract.
 
-A **task obligation** or **thread obligation** is the requirement to join, cancel, transfer, or otherwise resolve a run handle before
-the owning scope exits.
+A **task obligation** is the compiler-known requirement to join, cancel, transfer, or automatically resolve `Task<T>` before its
+owner ends. Ordinary standard-library thread handles can carry an analogous library-defined lifecycle obligation.
 
 **Cancellation** requests that a run stop according to its cancellation contract.
 

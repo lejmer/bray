@@ -1,28 +1,29 @@
 # Scope exits, panics, and cancellation
 
-Scope exit resolves local ownership and lifecycle state for the scope being left.
+Scope exit resolves local ownership and lifecycle state for the scope being left. Initialized owned values whose ownership remains
+in the scope are resolved; moved values are not. Partially initialized values resolve only initialized represented parts.
 
-Initialized local owned values whose ownership remains in the scope are resolved when the scope exits.
+Reachable exits must merge to coherent ownership, borrowing, initialization, destruction, finalization, capability, effect, task,
+and fact-context state.
 
-Values moved out of the scope are not resolved as local owned values.
+In async execution, each lexical block is also a structured task boundary. Before ordinary reverse lifecycle resolution, every
+unresolved task obligation whose owner ends at that boundary receives cancellation. Only after all requests have been issued does
+normal lifecycle resolution wait for individual tasks. Dependency ordering ensures tasks resolve before storage and capabilities
+they use.
 
-Partially initialized local values resolve only initialized represented parts.
+Panic propagation and cancellation use ordinary lifecycle ordering after the task cancellation-broadcast phase. Cleanup executes in
+a cancellation-shielded context when it can suspend.
 
-Reachable exits from a region must merge to coherent ownership, borrowing, initialization, destruction, finalization, capability, effect, task-obligation, and fact-context state.
+On ordinary exit, fallible finalization returning `Result.Error` leaves its obligation unresolved. The value cannot be destroyed,
+and the program must handle, transfer, or represent the failure through an allowed source-level lifecycle path.
 
-Panic propagation and cancellation use the same lifecycle ordering as ordinary scope exit.
+On panic or cancellation exit, cleanup attempts the same finalizer. If it returns `Result.Error`, the failure is recorded as
+suppressed cleanup information and graceful finalization is abandoned. The synchronous infallible destructor and represented-part
+destruction then run. A cleanup panic becomes or is attached to the task's `PanicReport` according to whether another panic is
+already active.
 
-When a panic exits a region, local lifecycle obligations are resolved according to the same ordering as ordinary non-panic exits unless a more specific async or run-boundary rule applies.
-
-When cancellation exits an async computation or run boundary, owned captured state is resolved according to async cancellation, ownership, destruction, finalization, and capability rules.
-
-If an async block owns live task obligations and a panic reaches the block boundary, the async block cancels those tasks before the panic continues according to [Async block expressions](../async-and-concurrency/async-block-expressions.md).
-
-Fallible finalization that returns `Result.Error` leaves the finalization obligation unresolved.
-
-A value with an unresolved finalization obligation cannot be destroyed.
-
-If a scope cannot resolve a lifecycle obligation, transfer it to a valid owner, or convert it into an explicit fallback ownership form, the program is rejected.
+If an ordinary scope cannot resolve a lifecycle obligation, transfer it to a valid owner, or convert it into an explicit fallback
+ownership form, the program is rejected. The abnormal-exit fallback does not weaken that rule for normal execution.
 
 ## Navigation
 

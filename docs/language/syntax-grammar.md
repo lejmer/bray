@@ -336,8 +336,6 @@ primary-expression =
     | result-propagation-expression
     | catch-expression
     | await-expression
-    | async-block-expression
-    | spawn-expression
     | type-form-construction-expression
     | boolean-fold-expression
     | yield-expression
@@ -424,25 +422,6 @@ with-expression =
     "with" irrefutable-pattern [ ":" type-expression ] "=" expression
     block-expression ;
 
-async-block-expression =
-    "async" block-expression ;
-
-spawn-expression =
-      task-spawn-expression
-    | detached-task-spawn-expression
-    | thread-spawn-expression ;
-
-task-spawn-expression =
-    "spawn" expression ;
-
-detached-task-spawn-expression =
-    "spawn" "detached" expression ;
-
-thread-spawn-expression =
-    "spawn" "thread" thread-spawn-callee argument-list ;
-
-thread-spawn-callee =
-    access-expression ;
 
 yield-expression =
     "yield" [ expression ] ;
@@ -464,8 +443,6 @@ The parser accepts omitted operands for `yield`, `return`, and `break`. Semantic
 valid target contexts.
 
 The block after a `with` header belongs to the `with-expression`. It is not parsed as part of the initializer expression.
-
-The block after `async` belongs to the `async-block-expression`.
 
 ### Argument lists
 

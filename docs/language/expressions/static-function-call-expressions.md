@@ -35,9 +35,9 @@ lookup(table)
 
 Static function call argument validation, missing default handling, and parameter-context checking follow the [argument binding](arguments.md) rules.
 
-A static function call produces the static function’s declared result.
+A synchronous static function call produces the static function's declared result.
 
-A static function call to an async static function produces an owned async computation.
+A call to an async static function whose declared result is `T` produces an owned `Async<T>`.
 
 A static function call can use ordinary and trusted facts from the fact context to satisfy preconditions.
 

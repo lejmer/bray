@@ -44,8 +44,6 @@ Expressions compute values, produce access paths, perform effects, control evalu
 - [Break expressions](expressions/break-expressions.md)
 - [Continue expressions](expressions/continue-expressions.md)
 - [Await expressions](expressions/await-expressions.md)
-- [Async block expressions](expressions/async-block-expressions.md)
-- [Spawn expressions](expressions/spawn-expressions.md)
 - [Conversion expressions](expressions/conversion-expressions.md)
 - [Pattern-bearing expressions](expressions/pattern-bearing-expressions.md)
 - [Predicate expressions](expressions/predicate-expressions.md)

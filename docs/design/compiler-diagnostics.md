@@ -113,6 +113,14 @@ Examples:
 - trusted obligation not discharged,
 - target-unavailable declaration.
 
+Async diagnostic identities include await outside async execution, task start outside active runtime execution, non-`Async<T>` await
+operands, incompatible execution lanes, unsatisfied product runtime requirements, escaping async or task dependencies,
+thread-affinity conflicts, unresolved async finalization in synchronous scope, consumed-task reuse, incoherent task-flow merge,
+large frames or retained values, recursive dynamic frame storage, missing cancellation observations, and cleanup blockers.
+
+These diagnostics carry typed frame, task, dependency, requirement, lane, owner, and source-origin arguments. They do not carry
+pre-rendered dependency explanations. Async inspection and diagnostic requirements are defined in `docs/design/async-runtime.md`.
+
 Rendered diagnostic codes can be derived from diagnostic identity, but the identity remains the compiler-internal stable key.
 
 The code format is a user-interface and tooling contract owned by the diagnostics crate.

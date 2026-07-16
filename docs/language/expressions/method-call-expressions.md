@@ -119,9 +119,10 @@ The selected implementation must participate in the checking context.
 
 View formation does not permit downcasting, runtime type tests, field access on the hidden concrete type, or calls outside the view surface.
 
-A method call produces the method’s declared result.
+A synchronous method call produces the method's declared result.
 
-A method call to an async method produces an owned async computation.
+A call to an async method whose declared result is `T` produces an owned `Async<T>`. This rule makes the compiler-provided
+`Task<T>.join()` and `Task<T>.cancel()` calls produce `Async<RunResult<T>>` through ordinary method-call typing.
 
 A method call can establish facts from the method’s `ensures(...)` clause after successful completion.
 
