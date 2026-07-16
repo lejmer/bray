@@ -7,6 +7,7 @@ use bray_symbols::{
     ImplementedTraitApplicationFact, InherentTypeMemberValueFact, StructFieldSymbolId,
     StructFieldTypeFact, SymbolCompletionLevel, SymbolFactCompletionRequest, SymbolFactContract,
     SymbolFactForcer, SymbolFactKind, SymbolFactRequest, TraitTypeFulfillmentValueFact,
+    UnionPayloadFieldSymbolId, UnionPayloadFieldTypeFact,
 };
 
 use super::super::context::CompilationBinderFacts;
@@ -69,11 +70,14 @@ impl SymbolFactForcer for CompilationBinderFacts<'_> {
 
                 force_typed::<ImplementationCoherenceFact>(self, owner)
             }
+            SymbolFactKind::UnionPayloadFieldType => force_exact::<
+                UnionPayloadFieldTypeFact,
+                UnionPayloadFieldSymbolId,
+            >(self, request.symbol()),
             SymbolFactKind::ConstantDeclaredType
             | SymbolFactKind::ConstantDefinition
             | SymbolFactKind::CallableParameterDefault
             | SymbolFactKind::StructFieldDefault
-            | SymbolFactKind::UnionPayloadFieldType
             | SymbolFactKind::UnionPayloadFieldDefault
             | SymbolFactKind::PredicateDefinition
             | SymbolFactKind::OverloadArms => Err(FactQueryError::InfrastructureFailure),
@@ -157,12 +161,13 @@ mod tests {
     use bray_compiler_known::CompilerKnownDeclarationKey;
     use bray_symbols::{
         CallableContractClauseKind, CallableContractSymbolId, CallableContractTypeFact,
-        CallableContractsFact, CallableSignatureFact, ExactSymbolId, FunctionSymbolId,
-        GenericConstraintsFact, GenericOwnerId, ImplementationCoherenceFact,
+        CallableContractsFact, CallableExecution, CallableSignatureFact, ExactSymbolId,
+        FunctionSymbolId, GenericConstraintsFact, GenericOwnerId, ImplementationCoherenceFact,
         ImplementationSymbolId, NamedTraitImplementationSymbolId, SelfTypeContext,
         StructFieldSymbolId, StructFieldTypeFact, StructSymbolId, SymbolFactRequest,
         TraitCallableMemberSymbolId, TraitSymbolId, TraitTypeFulfillmentSymbolId,
-        TraitTypeFulfillmentValueFact, TypeData,
+        TraitTypeFulfillmentValueFact, TypeCallableMemberSymbolId, TypeData,
+        UnionPayloadFieldSymbolId, UnionPayloadFieldTypeFact,
     };
 
     use super::{CancellationToken, Compilation, SymbolCompletionLevel};
@@ -265,6 +270,46 @@ mod tests {
         assert!(matches!(
             type_data(&compilation, *element_type.value()),
             TypeData::TypeParameter(_)
+        ));
+
+        let completed_value =
+            declaration::<UnionPayloadFieldSymbolId>(symbols, "RunResultVariant0CompletedValue");
+
+        let completed_value_type = published_fact(
+            &facts,
+            SymbolFactRequest::<UnionPayloadFieldTypeFact>::new(completed_value),
+        );
+
+        assert!(matches!(
+            type_data(&compilation, *completed_value_type.value()),
+            TypeData::TypeParameter(_)
+        ));
+
+        let start = declaration::<TypeCallableMemberSymbolId>(symbols, "FutureStart");
+        let start_signature = published_fact(
+            &facts,
+            SymbolFactRequest::<CallableSignatureFact>::new(start.into()),
+        );
+
+        assert!(start_signature.value().parameters().is_empty());
+        assert!(start_signature.value().receiver().is_some());
+
+        assert!(matches!(
+            type_data(&compilation, start_signature.value().result()),
+            TypeData::Named { definition, .. }
+                if definition == declaration::<StructSymbolId>(symbols, "Task").into()
+        ));
+
+        let join = declaration::<TypeCallableMemberSymbolId>(symbols, "TaskJoin");
+        let join_signature = published_fact(
+            &facts,
+            SymbolFactRequest::<CallableSignatureFact>::new(join.into()),
+        );
+
+        assert!(matches!(
+            type_data(&compilation, join_signature.value().callable_type()),
+            TypeData::Callable(callable)
+                if callable.execution() == CallableExecution::Asynchronous
         ));
 
         let item = declaration::<TraitTypeFulfillmentSymbolId>(symbols, "BoolStorageItem");

@@ -65,10 +65,10 @@ define_catalog_enum! {
         PanicReport => "PanicReport",
         /// A compiler-known conversion error.
         ConversionError => "ConversionError",
+        /// An owned inactive asynchronous computation.
+        Future => "Future",
         /// A protected task handle.
         Task => "Task",
-        /// A protected thread handle.
-        Thread => "Thread",
         /// The language-known `true` value.
         BooleanTrue => "BooleanTrue",
         /// The language-known `false` value.

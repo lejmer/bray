@@ -748,8 +748,21 @@ mod tests {
             panic!("source union relationship must resolve");
         };
 
-        let variant = &graph.union_variants()[0];
-        let payload = &graph.union_payload_fields()[0];
+        let Some(variant) = graph
+            .union_variants()
+            .iter()
+            .find(|variant| variant.origin() == SymbolOrigin::Source)
+        else {
+            panic!("source union should retain its variant");
+        };
+
+        let Some(payload) = graph
+            .union_payload_fields()
+            .iter()
+            .find(|payload| payload.origin() == SymbolOrigin::Source)
+        else {
+            panic!("source union variant should retain its payload");
+        };
 
         assert_eq!(variant.containing_symbol(), union.id().into());
         assert_eq!(payload.containing_symbol(), variant.id().into());

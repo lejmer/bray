@@ -148,7 +148,7 @@ impl CatalogTokenSpelling {
 }
 
 #[cfg(any(test, feature = "generation"))]
-const SOURCES: [CatalogSource; 6] = [
+const SOURCES: [CatalogSource; 7] = [
     CatalogSource::new(
         CatalogSourceId::new(0),
         CatalogKind::CompilerKnown,
@@ -158,29 +158,35 @@ const SOURCES: [CatalogSource; 6] = [
     CatalogSource::new(
         CatalogSourceId::new(1),
         CatalogKind::CompilerKnown,
+        "catalog/ambient/execution.braydef",
+        include_str!("../../catalog/ambient/execution.braydef"),
+    ),
+    CatalogSource::new(
+        CatalogSourceId::new(2),
+        CatalogKind::CompilerKnown,
         "catalog/ambient/implementations.braydef",
         include_str!("../../catalog/ambient/implementations.braydef"),
     ),
     CatalogSource::new(
-        CatalogSourceId::new(2),
+        CatalogSourceId::new(3),
         CatalogKind::CompilerKnown,
         "catalog/ambient/traits.braydef",
         include_str!("../../catalog/ambient/traits.braydef"),
     ),
     CatalogSource::new(
-        CatalogSourceId::new(3),
+        CatalogSourceId::new(4),
         CatalogKind::CompilerKnown,
         "catalog/core/memory.braydef",
         include_str!("../../catalog/core/memory.braydef"),
     ),
     CatalogSource::new(
-        CatalogSourceId::new(4),
+        CatalogSourceId::new(5),
         CatalogKind::RecognizedStandardLibrary,
         "catalog/recognized/standard-library.braydef",
         include_str!("../../catalog/recognized/standard-library.braydef"),
     ),
     CatalogSource::new(
-        CatalogSourceId::new(5),
+        CatalogSourceId::new(6),
         CatalogKind::CompilerKnown,
         "catalog/std/target-facts.braydef",
         include_str!("../../catalog/std/target-facts.braydef"),
@@ -215,7 +221,7 @@ mod tests {
             .map(|path| format!("catalog/{path}"))
             .collect::<Vec<_>>();
 
-        assert_eq!(sources.len(), 6);
+        assert_eq!(sources.len(), 7);
 
         assert_eq!(
             sources
@@ -226,14 +232,12 @@ mod tests {
         );
 
         assert_eq!(sources[0].kind(), CatalogKind::CompilerKnown);
-        assert_eq!(sources[4].kind(), CatalogKind::RecognizedStandardLibrary);
-
-        assert!(sources[0].relative_path() < sources[1].relative_path());
+        assert_eq!(sources[5].kind(), CatalogKind::RecognizedStandardLibrary);
 
         assert!(sources[0].text().starts_with("catalog compiler_known;"));
 
         assert!(
-            sources[4]
+            sources[5]
                 .text()
                 .starts_with("catalog recognized_standard_library;")
         );

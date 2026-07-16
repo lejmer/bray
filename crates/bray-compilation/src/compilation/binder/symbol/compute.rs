@@ -11,11 +11,13 @@ use bray_symbols::{
     ImplementationSymbolId, ImplementedTraitApplicationFact, InherentTypeMemberValueFact,
     ReceiverParameterSymbolId, SelfTypeContext, StructFieldTypeFact, SymbolFactContract,
     SymbolFactRequest, SymbolFactResult, SymbolGraph, SymbolName, TraitTypeFulfillmentValueFact,
+    UnionPayloadFieldTypeFact,
 };
 use bray_syntax::{
     CallableContractDeclarationSyntax, FunctionDeclarationSyntax,
     ImplementationTypeMemberBindingSyntax, NamedTraitImplementationDeclarationSyntax,
     StructFieldDeclarationSyntax, TraitCallableMemberDeclarationSyntax,
+    TypeCallableMemberDeclarationSyntax, UnionPayloadFieldSyntax,
 };
 
 use super::super::context::CompilationBinderFacts;
@@ -79,6 +81,23 @@ impl CompilationSymbolFactBinding<StructFieldTypeFact> for CompilationSymbolFact
     ) -> BinderFactResult<SymbolFactResult<StructFieldTypeFact>> {
         let symbol = AnySymbolId::from(request.owner());
         let syntax = declaration_syntax::<StructFieldDeclarationSyntax>(context.symbols, symbol)?;
+
+        type_binder(context, symbol)?.bind_type_expression(&syntax.type_expression())
+    }
+}
+
+impl CompilationSymbolFactBinding<UnionPayloadFieldTypeFact> for CompilationSymbolFacts {
+    fn cache(&self) -> &SymbolFactCache<UnionPayloadFieldTypeFact> {
+        &self.union_payload_field_types
+    }
+
+    fn bind(
+        &self,
+        context: &CompilationBinderFacts<'_>,
+        request: SymbolFactRequest<UnionPayloadFieldTypeFact>,
+    ) -> BinderFactResult<SymbolFactResult<UnionPayloadFieldTypeFact>> {
+        let symbol = AnySymbolId::from(request.owner());
+        let syntax = declaration_syntax::<UnionPayloadFieldSyntax>(context.symbols, symbol)?;
 
         type_binder(context, symbol)?.bind_type_expression(&syntax.type_expression())
     }
@@ -214,7 +233,7 @@ fn bind_callable_signature(
 
     let (parameters, receiver) = callable_relationships(context.symbols, callable)?;
 
-    match callable {
+    let (parameter_list, result, qualifiers) = match callable {
         CallableSymbolId::Function(_) => {
             let syntax = fragment
                 .cast::<FunctionDeclarationSyntax>()
@@ -227,17 +246,31 @@ fn bind_callable_signature(
                 is_trusted: modifiers.trusted_token().is_some(),
             });
 
-            let result = syntax.callable_result_clause();
+            (
+                syntax.parameter_list(),
+                syntax
+                    .callable_result_clause()
+                    .map(|clause| clause.type_expression()),
+                qualifiers,
+            )
+        }
+        CallableSymbolId::TypeMember(_) => {
+            let syntax = fragment
+                .cast::<TypeCallableMemberDeclarationSyntax>()
+                .ok_or(BinderFactError::DependencyUnavailable)?;
 
-            type_binder(context, symbol)?.bind_callable_signature(
-                callable,
-                parameters,
-                receiver,
-                &syntax.parameter_list(),
-                result
-                    .as_ref()
-                    .map(|clause| clause.type_expression())
-                    .as_ref(),
+            let modifiers = syntax.type_callable_member_modifiers();
+            let qualifiers = callable_qualifiers(CallableModifierPresence {
+                is_constant: modifiers.const_token().is_some(),
+                is_async: modifiers.async_token().is_some(),
+                is_trusted: modifiers.trusted_token().is_some(),
+            });
+
+            (
+                syntax.parameter_list(),
+                syntax
+                    .callable_result_clause()
+                    .map(|clause| clause.type_expression()),
                 qualifiers,
             )
         }
@@ -253,22 +286,25 @@ fn bind_callable_signature(
                 is_trusted: modifiers.trusted_token().is_some(),
             });
 
-            let result = syntax.callable_result_clause();
-
-            type_binder(context, symbol)?.bind_callable_signature(
-                callable,
-                parameters,
-                receiver,
-                &syntax.parameter_list(),
-                result
-                    .as_ref()
-                    .map(|clause| clause.type_expression())
-                    .as_ref(),
+            (
+                syntax.parameter_list(),
+                syntax
+                    .callable_result_clause()
+                    .map(|clause| clause.type_expression()),
                 qualifiers,
             )
         }
-        _ => Err(BinderFactError::DependencyUnavailable),
-    }
+        _ => return Err(BinderFactError::DependencyUnavailable),
+    };
+
+    type_binder(context, symbol)?.bind_callable_signature(
+        callable,
+        parameters,
+        receiver,
+        &parameter_list,
+        result.as_ref(),
+        qualifiers,
+    )
 }
 
 #[derive(Clone, Copy)]
@@ -308,6 +344,9 @@ fn callable_relationships(
     match callable {
         CallableSymbolId::Function(id) => symbols
             .function(id)
+            .map(|symbol| (symbol.parameters(), symbol.receiver())),
+        CallableSymbolId::TypeMember(id) => symbols
+            .type_callable_member(id)
             .map(|symbol| (symbol.parameters(), symbol.receiver())),
         CallableSymbolId::TraitMember(id) => symbols
             .trait_callable_member(id)

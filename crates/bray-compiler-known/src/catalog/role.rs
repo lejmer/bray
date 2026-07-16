@@ -185,4 +185,51 @@ mod tests {
             Some(ImplementationHook::MemoryCopy)
         );
     }
+
+    #[test]
+    fn execution_roles_resolve_the_minimal_language_surface() {
+        let roles = COMPILER_KNOWN_CATALOG.role_registry();
+
+        for (role, expected_key) in [
+            (RepresentationRole::Future, "Future"),
+            (RepresentationRole::Task, "Task"),
+            (RepresentationRole::RunResult, "RunResult"),
+            (RepresentationRole::PanicReport, "PanicReport"),
+        ] {
+            let Some(CompilerKnownRepresentationTarget::Declaration(declaration)) =
+                roles.representation_target(role)
+            else {
+                panic!("execution representation role must resolve to a declaration");
+            };
+
+            assert_eq!(
+                COMPILER_KNOWN_CATALOG
+                    .compiler_known_declaration(declaration)
+                    .map(|descriptor| descriptor.key().as_str()),
+                Some(expected_key)
+            );
+        }
+
+        for (hook, expected_key) in [
+            (ImplementationHook::FutureStart, "FutureStart"),
+            (ImplementationHook::TaskJoin, "TaskJoin"),
+            (ImplementationHook::TaskCancel, "TaskCancel"),
+            (ImplementationHook::BlockingExecution, "BlockingExecution"),
+            (ImplementationHook::ComputeExecution, "ComputeExecution"),
+            (
+                ImplementationHook::MainThreadExecution,
+                "MainThreadExecution",
+            ),
+        ] {
+            let declarations = roles
+                .implementation_declarations(hook)
+                .filter_map(|declaration| {
+                    COMPILER_KNOWN_CATALOG.compiler_known_declaration(declaration)
+                })
+                .map(|descriptor| descriptor.key().as_str())
+                .collect::<Vec<_>>();
+
+            assert_eq!(declarations, [expected_key]);
+        }
+    }
 }

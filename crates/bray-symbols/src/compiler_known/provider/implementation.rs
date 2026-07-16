@@ -646,6 +646,8 @@ fn declaration_owner(
 mod tests {
     use std::sync::Arc;
 
+    use bray_compiler_known::COMPILER_KNOWN_CATALOG;
+
     use crate::compiler_known::test_support::{
         build_provider, declaration_key, scope_key, struct_id,
     };
@@ -670,7 +672,6 @@ mod tests {
         };
 
         assert_eq!(bool_id.kind(), SymbolKind::Struct);
-        assert_eq!(bool_id.symbol_id().raw(), 3);
     }
 
     #[test]
@@ -698,7 +699,10 @@ mod tests {
             None
         );
 
-        assert_eq!(provider.declaration_symbols().len(), 14);
+        assert_eq!(
+            provider.declaration_symbols().len(),
+            COMPILER_KNOWN_CATALOG.compiler_known_declarations().len()
+        );
     }
 
     #[test]
