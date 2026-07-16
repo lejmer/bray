@@ -3,11 +3,79 @@ use std::io;
 use bray_codegen::{ArtifactDigest, ArtifactDigestAlgorithm};
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticArtifactDigest, DiagnosticArtifactDigestAlgorithm,
-    DiagnosticArtifactKind, DiagnosticId, DiagnosticIoErrorKind, DiagnosticKind,
+    DiagnosticArtifactKind, DiagnosticBag, DiagnosticId, DiagnosticIoErrorKind, DiagnosticKind,
     DiagnosticOutputSink, SeverityKind,
 };
 
-use crate::{ArtifactId, ArtifactKind, EmissionFailure, OutputSink};
+use crate::{
+    ArtifactId, ArtifactKind, EmissionFailure, EmissionOutcome, EmittedArtifactSet, OutputSink,
+};
+
+pub(super) struct PublicationDiagnostics {
+    pending: Vec<PendingDiagnostic>,
+}
+
+impl PublicationDiagnostics {
+    pub(super) const fn new() -> Self {
+        Self {
+            pending: Vec::new(),
+        }
+    }
+
+    pub(super) fn warning(&mut self, error: PublicationError) {
+        self.pending.push(PendingDiagnostic {
+            error,
+            severity: SeverityKind::Warning,
+        });
+    }
+
+    pub(super) fn failed(
+        mut self,
+        artifacts: EmittedArtifactSet,
+        error: PublicationError,
+    ) -> EmissionOutcome {
+        // Failed outcomes retain the Arc-backed artifact identity after diagnostics consume error.
+        let artifact = error.artifact().clone();
+        let failure = error.failure().with_artifact(artifact);
+
+        self.pending.push(PendingDiagnostic {
+            error,
+            severity: SeverityKind::Error,
+        });
+
+        EmissionOutcome::failed(failure, artifacts, self.into_bag())
+    }
+
+    pub(super) fn cancelled(self, artifacts: EmittedArtifactSet) -> EmissionOutcome {
+        EmissionOutcome::cancelled(artifacts, self.into_bag())
+    }
+
+    pub(super) fn into_bag(mut self) -> DiagnosticBag {
+        self.pending
+            .sort_by(|left, right| left.error.artifact().cmp(right.error.artifact()));
+
+        let mut bag = DiagnosticBag::with_capacity(self.pending.len());
+        let mut next_id = 0_u32;
+
+        for pending in self.pending {
+            let id = DiagnosticId::new(next_id);
+            let (_, diagnostic) = pending.error.into_diagnostic(id, pending.severity);
+
+            bag.add(diagnostic);
+
+            if let Some(id) = next_id.checked_add(1) {
+                next_id = id;
+            }
+        }
+
+        bag
+    }
+}
+
+struct PendingDiagnostic {
+    error: PublicationError,
+    severity: SeverityKind,
+}
 
 #[derive(Debug)]
 pub(super) struct PublicationError {

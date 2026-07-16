@@ -27,6 +27,7 @@ The emitter architecture should:
 - own deterministic output names, sinks, staging, atomic publication, and artifact bookkeeping,
 - construct complete typed link plans without performing the final native link,
 - preserve complete diagnostics when artifact construction or publication cannot continue,
+- retain exact records for artifacts published before later failure or cancellation,
 - publish no incomplete individual artifact and never report a partial product as complete.
 
 ---
@@ -310,10 +311,15 @@ The publication sequence is:
 3. Write the complete contribution or let the linker write its result to that staging path.
 4. Close and flush the producer boundary.
 5. Validate expected length, digest, and artifact kind where available.
-6. Atomically promote or replace the final destination.
-7. Record the completed emitted artifact.
+6. Apply the final artifact permission policy while the staging path remains private.
+7. Atomically promote or replace the final destination.
+8. Record the completed emitted artifact.
 
 Cancellation or failure removes private staging state and does not publish the planned artifact.
+
+New Unix filesystem outputs use artifact-appropriate executable or data modes subject to the process umask. Replacing an existing
+regular file preserves its permissions. A require-absent publication fails when the host filesystem cannot provide atomic
+no-replace promotion rather than using a non-atomic fallback.
 
 Publication receives a read-only cancellation observer from its compilation-owned caller. It checks that observer while copying and
 validating staged content and immediately before promotion. Cancellation after another artifact has already been promoted does not

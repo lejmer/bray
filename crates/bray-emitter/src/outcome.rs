@@ -25,7 +25,7 @@ pub enum EmissionFailure {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum EmissionStatus {
     /// Every required external artifact was completely published and validated.
-    Complete(EmittedArtifactSet),
+    Complete,
     /// Emission failed without claiming partial product success.
     Failed(EmissionFailure),
     /// Cancellation was observed before product success was published.
@@ -36,6 +36,7 @@ pub enum EmissionStatus {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EmissionOutcome {
     status: EmissionStatus,
+    artifacts: EmittedArtifactSet,
     diagnostics: DiagnosticBag,
 }
 
@@ -45,23 +46,33 @@ impl EmissionOutcome {
         diagnostics: DiagnosticBag,
     ) -> Self {
         Self {
-            status: EmissionStatus::Complete(artifacts),
+            status: EmissionStatus::Complete,
+            artifacts,
             diagnostics,
         }
     }
 
     /// Creates a failed outcome without a partial product success claim.
-    pub(crate) const fn failed(failure: EmissionFailure, diagnostics: DiagnosticBag) -> Self {
+    pub(crate) const fn failed(
+        failure: EmissionFailure,
+        artifacts: EmittedArtifactSet,
+        diagnostics: DiagnosticBag,
+    ) -> Self {
         Self {
             status: EmissionStatus::Failed(failure),
+            artifacts,
             diagnostics,
         }
     }
 
     /// Creates a canceled outcome without a partial product success claim.
-    pub const fn cancelled(diagnostics: DiagnosticBag) -> Self {
+    pub(crate) const fn cancelled(
+        artifacts: EmittedArtifactSet,
+        diagnostics: DiagnosticBag,
+    ) -> Self {
         Self {
             status: EmissionStatus::Cancelled,
+            artifacts,
             diagnostics,
         }
     }
@@ -76,12 +87,9 @@ impl EmissionOutcome {
         &self.diagnostics
     }
 
-    /// Returns the complete publication set only after successful emission.
-    pub const fn artifacts(&self) -> Option<&EmittedArtifactSet> {
-        match &self.status {
-            EmissionStatus::Complete(artifacts) => Some(artifacts),
-            EmissionStatus::Failed(_) | EmissionStatus::Cancelled => None,
-        }
+    /// Returns every artifact published before the operation reached its final status.
+    pub const fn artifacts(&self) -> &EmittedArtifactSet {
+        &self.artifacts
     }
 }
 
@@ -93,20 +101,28 @@ mod tests {
     use crate::test_support::{emission_plan, emitted_artifact};
 
     #[test]
-    fn outcomes_expose_artifacts_only_after_complete_plan_validation() {
+    fn outcomes_separate_product_status_from_published_artifacts() {
         let plan = emission_plan();
         let artifact = emitted_artifact(&plan);
 
         let artifacts = crate::EmittedArtifactSet::from_publication(&plan, [artifact]);
         let complete = EmissionOutcome::complete(artifacts, DiagnosticBag::new());
 
-        assert!(matches!(complete.status(), EmissionStatus::Complete(_)));
-        assert!(complete.artifacts().is_some());
+        assert!(matches!(complete.status(), EmissionStatus::Complete));
+        assert_eq!(complete.artifacts().artifacts().len(), 1);
 
-        let failed = EmissionOutcome::failed(EmissionFailure::Planning, DiagnosticBag::new());
-        let cancelled = EmissionOutcome::cancelled(DiagnosticBag::new());
+        let failed = EmissionOutcome::failed(
+            EmissionFailure::Planning,
+            crate::EmittedArtifactSet::from_publication(&plan, []),
+            DiagnosticBag::new(),
+        );
 
-        assert_eq!(failed.artifacts(), None);
-        assert_eq!(cancelled.artifacts(), None);
+        let cancelled = EmissionOutcome::cancelled(
+            crate::EmittedArtifactSet::from_publication(&plan, []),
+            DiagnosticBag::new(),
+        );
+
+        assert!(failed.artifacts().artifacts().is_empty());
+        assert!(cancelled.artifacts().artifacts().is_empty());
     }
 }

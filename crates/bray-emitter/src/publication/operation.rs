@@ -3,12 +3,11 @@ use std::io::{self, Read, Write};
 
 use bray_base::Cancellation;
 use bray_codegen::{ArtifactContent, ArtifactDigest};
-use bray_diagnostics::{DiagnosticBag, DiagnosticId, SeverityKind};
 
 use super::content::{
     ContentValidationError, open_content, validate_content, validate_staged_content,
 };
-use super::diagnostic::{PublicationError, PublicationErrorKind};
+use super::diagnostic::{PublicationDiagnostics, PublicationError, PublicationErrorKind};
 use super::staging::FilesystemStaging;
 use crate::{
     ArtifactContribution, ArtifactRequirement, EmissionOutcome, EmissionPlan, EmittedArtifact,
@@ -54,35 +53,37 @@ impl<'host> ArtifactPublisher<'host> {
         let mut diagnostics = PublicationDiagnostics::new();
 
         if self.cancellation.is_cancelled() {
-            return diagnostics.cancelled();
+            return diagnostics.cancelled(publication_set(plan, []));
         }
 
         let prepared = match prepare_contributions(plan, contributions, &mut diagnostics) {
             Ok(prepared) => prepared,
-            Err(error) => return diagnostics.failed(error),
+            Err(error) => return diagnostics.failed(publication_set(plan, []), error),
         };
 
         let mut emitted = Vec::with_capacity(prepared.len());
 
         for artifact in prepared {
             if self.cancellation.is_cancelled() {
-                return diagnostics.cancelled();
+                return diagnostics.cancelled(publication_set(plan, emitted));
             }
 
             match self.publish_artifact(plan.request().replacement(), artifact) {
                 Ok(artifact) => emitted.push(artifact),
-                Err(ArtifactPublicationFailure::Cancelled) => return diagnostics.cancelled(),
+                Err(ArtifactPublicationFailure::Cancelled) => {
+                    return diagnostics.cancelled(publication_set(plan, emitted));
+                }
                 Err(ArtifactPublicationFailure::Failed(ArtifactRequirement::Optional, error)) => {
                     diagnostics.warning(error);
                 }
                 Err(ArtifactPublicationFailure::Failed(_, error)) => {
-                    return diagnostics.failed(error);
+                    return diagnostics.failed(publication_set(plan, emitted), error);
                 }
             }
         }
 
         let diagnostics = diagnostics.into_bag();
-        let artifacts = EmittedArtifactSet::from_publication(plan, emitted);
+        let artifacts = publication_set(plan, emitted);
 
         EmissionOutcome::complete(artifacts, diagnostics)
     }
@@ -150,7 +151,7 @@ impl<'host> ArtifactPublisher<'host> {
         destination: &std::path::Path,
         replacement: ReplacementPolicy,
     ) -> Result<ArtifactDigest, ArtifactPublicationFailure> {
-        let mut staging = FilesystemStaging::create(destination)
+        let mut staging = FilesystemStaging::create(destination, planned.id().kind(), replacement)
             .map_err(|error| artifact_failure(planned, PublicationErrorKind::Open(error.kind())))?;
 
         self.copy_content(planned, content, &mut staging)?;
@@ -256,6 +257,13 @@ impl<'host> ArtifactPublisher<'host> {
 
         Ok(())
     }
+}
+
+fn publication_set(
+    plan: &EmissionPlan,
+    artifacts: impl IntoIterator<Item = EmittedArtifact>,
+) -> EmittedArtifactSet {
+    EmittedArtifactSet::from_publication(plan, artifacts)
 }
 
 struct PreparedArtifact<'plan> {
@@ -436,68 +444,6 @@ fn planned_error(planned: &PlannedArtifact, kind: PublicationErrorKind) -> Publi
     PublicationError::new(planned.id().clone(), sink, kind)
 }
 
-struct PublicationDiagnostics {
-    pending: Vec<PendingDiagnostic>,
-}
-
-impl PublicationDiagnostics {
-    const fn new() -> Self {
-        Self {
-            pending: Vec::new(),
-        }
-    }
-
-    fn warning(&mut self, error: PublicationError) {
-        self.pending.push(PendingDiagnostic {
-            error,
-            severity: SeverityKind::Warning,
-        });
-    }
-
-    fn failed(mut self, error: PublicationError) -> EmissionOutcome {
-        // Failed outcomes retain the Arc-backed artifact identity after diagnostics consume error.
-        let artifact = error.artifact().clone();
-        let failure = error.failure().with_artifact(artifact);
-
-        self.pending.push(PendingDiagnostic {
-            error,
-            severity: SeverityKind::Error,
-        });
-
-        EmissionOutcome::failed(failure, self.into_bag())
-    }
-
-    fn cancelled(self) -> EmissionOutcome {
-        EmissionOutcome::cancelled(self.into_bag())
-    }
-
-    fn into_bag(mut self) -> DiagnosticBag {
-        self.pending
-            .sort_by(|left, right| left.error.artifact().cmp(right.error.artifact()));
-
-        let mut bag = DiagnosticBag::with_capacity(self.pending.len());
-        let mut next_id = 0_u32;
-
-        for pending in self.pending {
-            let id = DiagnosticId::new(next_id);
-            let (_, diagnostic) = pending.error.into_diagnostic(id, pending.severity);
-
-            bag.add(diagnostic);
-
-            if let Some(id) = next_id.checked_add(1) {
-                next_id = id;
-            }
-        }
-
-        bag
-    }
-}
-
-struct PendingDiagnostic {
-    error: PublicationError,
-    severity: SeverityKind,
-}
-
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
@@ -634,6 +580,7 @@ mod tests {
         let outcome = ArtifactPublisher::new(&cancellation).publish(&plan, [contribution]);
 
         assert!(matches!(outcome.status(), EmissionStatus::Cancelled));
+        assert!(outcome.artifacts().artifacts().is_empty());
         assert!(outcome.diagnostics().is_empty());
         assert_eq!(file_bytes(&destination), b"existing");
         assert_eq!(directory_entry_count(directory.path()), 1);
@@ -685,9 +632,55 @@ mod tests {
             EmissionStatus::Failed(EmissionFailure::Publication(_))
         ));
 
+        assert_eq!(outcome.artifacts().artifacts().len(), 1);
+        assert_eq!(
+            outcome.artifacts().artifacts()[0].sink(),
+            &OutputSink::Filesystem(interface_path.clone())
+        );
+
         assert_eq!(file_bytes(&interface_path), b"new interface");
         assert!(metadata_path.is_dir());
         assert_eq!(directory_entry_count(directory.path()), 2);
+    }
+
+    #[test]
+    fn cancellation_retains_records_for_already_published_artifacts() {
+        let Ok(directory) = tempfile::tempdir() else {
+            panic!("test output directory must be created");
+        };
+
+        let interface_path = directory.path().join("application.brayi");
+        let metadata_path = directory.path().join("application.brayd");
+
+        let plan = filesystem_artifact_plan([
+            (package_interface_spec(), interface_path.clone()),
+            (required_dependency_metadata_spec(), metadata_path.clone()),
+        ]);
+
+        let interface = contribution_for(
+            &plan,
+            ArtifactKind::PackageInterface,
+            b"interface",
+            None,
+            None,
+        );
+
+        let metadata = contribution_for(
+            &plan,
+            ArtifactKind::DependencyMetadata,
+            b"metadata",
+            None,
+            None,
+        );
+
+        let cancellation = || interface_path.exists();
+        let outcome = ArtifactPublisher::new(&cancellation).publish(&plan, [metadata, interface]);
+
+        assert!(matches!(outcome.status(), EmissionStatus::Cancelled));
+        assert_eq!(outcome.artifacts().artifacts().len(), 1);
+        assert!(interface_path.is_file());
+        assert!(!metadata_path.exists());
+        assert_eq!(directory_entry_count(directory.path()), 1);
     }
 
     #[test]
@@ -785,10 +778,9 @@ mod tests {
         let outcome = ArtifactPublisher::with_sink_resolver(&never_cancelled, &resolver)
             .publish(&plan, [metadata, interface]);
 
-        let Some(artifacts) = outcome.artifacts() else {
-            panic!("an invalid optional contribution must not fail the product");
-        };
+        let artifacts = outcome.artifacts();
 
+        assert!(matches!(outcome.status(), EmissionStatus::Complete));
         assert_eq!(artifacts.artifacts().len(), 1);
         assert_eq!(outcome.diagnostics().warnings().count(), 1);
 
@@ -849,7 +841,8 @@ mod tests {
         let outcome = ArtifactPublisher::with_sink_resolver(&never_cancelled, &resolver)
             .publish(&plan, [executable, metadata, interface]);
 
-        assert!(outcome.artifacts().is_some());
+        assert!(matches!(outcome.status(), EmissionStatus::Complete));
+        assert_eq!(outcome.artifacts().artifacts().len(), 1);
 
         assert_eq!(
             outcome
@@ -1104,14 +1097,13 @@ mod tests {
     }
 
     fn assert_complete_artifact(outcome: &EmissionOutcome, expected: &[u8]) {
-        let Some(artifacts) = outcome.artifacts() else {
-            panic!("publication must complete");
-        };
+        let artifacts = outcome.artifacts();
 
         let Ok(expected_len) = u64::try_from(expected.len()) else {
             panic!("test artifact length must fit the publication contract");
         };
 
+        assert!(matches!(outcome.status(), EmissionStatus::Complete));
         assert!(outcome.diagnostics().is_empty());
 
         assert_eq!(artifacts.artifacts().len(), 1);
