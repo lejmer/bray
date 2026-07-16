@@ -86,6 +86,10 @@ supplied writable stream or in-memory collector for embedding and tests.
 
 A sink defines where bytes go, not what those bytes mean.
 
+Memory collectors and streams are resolved only at publication through a host-provided transactional write boundary. Bytes written
+to that operation remain hidden until an explicit commit succeeds. Dropping an uncommitted operation discards its buffered bytes,
+so an indirect sink cannot expose a partial artifact after a write, flush, cancellation, or commit failure.
+
 ### Emitted Artifact
 
 An `EmittedArtifact` records one successfully completed external artifact, including its identity, kind, destination, byte length,

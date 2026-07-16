@@ -1,4 +1,5 @@
 use std::ffi::{OsStr, OsString};
+use std::io::{self, Write};
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
@@ -39,6 +40,39 @@ pub enum OutputSink {
     },
     /// Host-owned writable stream resolved by identity during publication.
     Stream(OutputSinkId),
+}
+
+/// Borrowed indirect destination resolved to a writable host sink at publication.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum IndirectOutputSink<'sink> {
+    /// Host-owned in-memory collector and deterministic artifact key.
+    Memory {
+        /// Collector selected by the emission request.
+        collector: &'sink OutputSinkId,
+        /// Artifact key within the collector.
+        artifact: &'sink ArtifactId,
+    },
+    /// Host-owned writable stream.
+    Stream(&'sink OutputSinkId),
+}
+
+/// Transactional write operation for one indirect artifact sink.
+///
+/// Written bytes must remain hidden until `commit` succeeds. Dropping an operation before a
+/// successful commit must discard its buffered bytes.
+pub trait OutputSinkTransaction: Write + Send {
+    /// Makes the complete buffered artifact visible at its selected sink.
+    fn commit(self: Box<Self>) -> io::Result<()>;
+}
+
+/// Host boundary that resolves immutable sink identities to transactional writes.
+pub trait OutputSinkResolver: Send + Sync {
+    /// Opens a transaction for the selected indirect sink and replacement policy.
+    fn open(
+        &self,
+        sink: IndirectOutputSink<'_>,
+        replacement: ReplacementPolicy,
+    ) -> io::Result<Box<dyn OutputSinkTransaction>>;
 }
 
 impl OutputSink {
@@ -177,7 +211,7 @@ pub(crate) fn is_valid_host_file_name(name: &OsStr) -> bool {
 pub enum ReplacementPolicy {
     /// Publication fails when the destination already exists or contains an artifact.
     RequireAbsent,
-    /// Publication may atomically replace an existing artifact.
+    /// Publication may replace an existing artifact.
     ReplaceExisting,
 }
 

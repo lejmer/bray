@@ -1,6 +1,9 @@
+use std::fmt::Write as _;
+
 use bray_diagnostics::{
-    DiagnosticArgValue, DiagnosticInterfaceLimit, DiagnosticInterfaceSection,
-    DiagnosticIoErrorKind, DiagnosticModuleTrust, DiagnosticNameKind,
+    DiagnosticArgValue, DiagnosticArtifactDigest, DiagnosticArtifactDigestAlgorithm,
+    DiagnosticArtifactKind, DiagnosticInterfaceLimit, DiagnosticInterfaceSection,
+    DiagnosticIoErrorKind, DiagnosticModuleTrust, DiagnosticNameKind, DiagnosticOutputSink,
 };
 use bray_source::{SourceInputKind, SourceLocation, SourceOrigin, SourceSpan};
 use bray_syntax::SyntaxKind;
@@ -10,6 +13,9 @@ pub(crate) fn format_value(value: &DiagnosticArgValue) -> String {
         DiagnosticArgValue::Count(count) => count.to_string(),
         DiagnosticArgValue::Byte(byte) => format!("0x{byte:02X}"),
         DiagnosticArgValue::ByteCount(byte_count) => byte_count.to_string(),
+        DiagnosticArgValue::ArtifactDigest(digest) => format_english_artifact_digest(digest),
+        DiagnosticArgValue::ArtifactKind(kind) => format_english_artifact_kind(*kind).to_owned(),
+        DiagnosticArgValue::ArtifactOrdinal(ordinal) => ordinal.to_string(),
         DiagnosticArgValue::Character(character) => format_english_character(*character),
         DiagnosticArgValue::DeclarationName(name) => format_english_quoted_text(name),
         DiagnosticArgValue::ReferencedName(name) => format_english_quoted_text(name),
@@ -25,6 +31,7 @@ pub(crate) fn format_value(value: &DiagnosticArgValue) -> String {
             format_english_interface_section(*section).to_owned()
         }
         DiagnosticArgValue::IoErrorKind(kind) => format_english_io_error_kind(*kind).to_owned(),
+        DiagnosticArgValue::OutputSink(sink) => format_english_output_sink(sink),
         DiagnosticArgValue::Visibility(visibility) => visibility.as_str().to_owned(),
         DiagnosticArgValue::ModuleTrust(trust) => format_english_module_trust(*trust).to_owned(),
         DiagnosticArgValue::SourceName(name) => name.clone(),
@@ -39,6 +46,53 @@ pub(crate) fn format_value(value: &DiagnosticArgValue) -> String {
         DiagnosticArgValue::SourceSpan(span) => format_source_span(*span),
         DiagnosticArgValue::WorkerCount(worker_count) => worker_count.to_string(),
         DiagnosticArgValue::Revision(revision) => revision.to_string(),
+    }
+}
+
+fn format_english_artifact_digest(digest: &DiagnosticArtifactDigest) -> String {
+    let algorithm = match digest.algorithm() {
+        DiagnosticArtifactDigestAlgorithm::Blake3 => "BLAKE3",
+        DiagnosticArtifactDigestAlgorithm::Sha256 => "SHA-256",
+    };
+
+    let mut formatted = String::with_capacity(algorithm.len() + 1 + digest.bytes().len() * 2);
+
+    formatted.push_str(algorithm);
+    formatted.push(' ');
+
+    for byte in digest.bytes() {
+        let _ = write!(formatted, "{byte:02x}");
+    }
+
+    formatted
+}
+
+const fn format_english_artifact_kind(kind: DiagnosticArtifactKind) -> &'static str {
+    match kind {
+        DiagnosticArtifactKind::Assembly => "assembly",
+        DiagnosticArtifactKind::BackendIr => "backend IR",
+        DiagnosticArtifactKind::BackendBitcode => "backend bitcode",
+        DiagnosticArtifactKind::RelocatableObject => "relocatable object",
+        DiagnosticArtifactKind::ExecutableModule => "executable module",
+        DiagnosticArtifactKind::DebugCompanion => "debug companion",
+        DiagnosticArtifactKind::PackageInterface => "package interface",
+        DiagnosticArtifactKind::DependencyMetadata => "dependency metadata",
+        DiagnosticArtifactKind::Executable => "executable",
+        DiagnosticArtifactKind::StaticLibrary => "static library",
+        DiagnosticArtifactKind::SharedLibrary => "shared library",
+        DiagnosticArtifactKind::LinkedCompanion => "linked companion",
+    }
+}
+
+fn format_english_output_sink(sink: &DiagnosticOutputSink) -> String {
+    match sink {
+        DiagnosticOutputSink::Filesystem(path) => path.display().to_string(),
+        DiagnosticOutputSink::Memory(identity) => {
+            format!("memory collector {}", format_english_quoted_text(identity))
+        }
+        DiagnosticOutputSink::Stream(identity) => {
+            format!("stream {}", format_english_quoted_text(identity))
+        }
     }
 }
 

@@ -178,6 +178,9 @@ enum DiagnosticArgValueJson {
     Count(u64),
     Byte(u8),
     ByteCount(u64),
+    ArtifactDigest(DiagnosticArtifactDigestJson),
+    ArtifactKind(&'static str),
+    ArtifactOrdinal(u32),
     Character(char),
     DeclarationName(String),
     ReferencedName(String),
@@ -189,6 +192,7 @@ enum DiagnosticArgValueJson {
     InterfaceLimit(&'static str),
     InterfaceSection(&'static str),
     IoErrorKind(&'static str),
+    OutputSink(DiagnosticOutputSinkJson),
     Visibility(&'static str),
     ModuleTrust(&'static str),
     SourceName(String),
@@ -209,6 +213,11 @@ impl DiagnosticArgValueJson {
             DiagnosticArgValue::Count(count) => Self::Count(*count),
             DiagnosticArgValue::Byte(byte) => Self::Byte(*byte),
             DiagnosticArgValue::ByteCount(byte_count) => Self::ByteCount(*byte_count),
+            DiagnosticArgValue::ArtifactDigest(digest) => {
+                Self::ArtifactDigest(DiagnosticArtifactDigestJson::from_digest(digest))
+            }
+            DiagnosticArgValue::ArtifactKind(kind) => Self::ArtifactKind((*kind).as_str()),
+            DiagnosticArgValue::ArtifactOrdinal(ordinal) => Self::ArtifactOrdinal(*ordinal),
             DiagnosticArgValue::Character(character) => Self::Character(*character),
             DiagnosticArgValue::DeclarationName(name) => Self::DeclarationName(name.to_owned()),
             DiagnosticArgValue::ReferencedName(name) => Self::ReferencedName(name.to_owned()),
@@ -226,6 +235,9 @@ impl DiagnosticArgValueJson {
                 Self::InterfaceSection((*section).as_str())
             }
             DiagnosticArgValue::IoErrorKind(kind) => Self::IoErrorKind((*kind).as_str()),
+            DiagnosticArgValue::OutputSink(sink) => {
+                Self::OutputSink(DiagnosticOutputSinkJson::from_sink(sink))
+            }
             DiagnosticArgValue::Visibility(visibility) => Self::Visibility((*visibility).as_str()),
             DiagnosticArgValue::ModuleTrust(trust) => Self::ModuleTrust((*trust).as_str()),
             DiagnosticArgValue::SourceName(name) => Self::SourceName(name.clone()),
@@ -240,6 +252,46 @@ impl DiagnosticArgValueJson {
             }
             DiagnosticArgValue::WorkerCount(worker_count) => Self::WorkerCount(*worker_count),
             DiagnosticArgValue::Revision(revision) => Self::Revision(*revision),
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct DiagnosticArtifactDigestJson {
+    algorithm: &'static str,
+    bytes: Vec<u8>,
+}
+
+impl DiagnosticArtifactDigestJson {
+    fn from_digest(digest: &bray_diagnostics::DiagnosticArtifactDigest) -> Self {
+        Self {
+            algorithm: digest.algorithm().as_str(),
+            // JSON output owns its DTO independently of the diagnostic bag.
+            bytes: digest.bytes().to_vec(),
+        }
+    }
+}
+
+#[derive(Serialize)]
+#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
+enum DiagnosticOutputSinkJson {
+    Filesystem(String),
+    Memory(String),
+    Stream(String),
+}
+
+impl DiagnosticOutputSinkJson {
+    fn from_sink(sink: &bray_diagnostics::DiagnosticOutputSink) -> Self {
+        match sink {
+            bray_diagnostics::DiagnosticOutputSink::Filesystem(path) => {
+                Self::Filesystem(path_to_output_string(path))
+            }
+            bray_diagnostics::DiagnosticOutputSink::Memory(identity) => {
+                Self::Memory(identity.to_owned())
+            }
+            bray_diagnostics::DiagnosticOutputSink::Stream(identity) => {
+                Self::Stream(identity.to_owned())
+            }
         }
     }
 }
@@ -284,15 +336,16 @@ impl SourceSpanJson {
 #[cfg(test)]
 mod tests {
     use bray_diagnostics::{
-        Diagnostic, DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticBag,
-        DiagnosticId, DiagnosticInterfaceLimit, DiagnosticInterfaceSection, DiagnosticKind,
-        DiagnosticModuleTrust, DiagnosticNameKind, DiagnosticNote, DiagnosticNoteKind,
-        DiagnosticVisibility, SeverityKind,
+        Diagnostic, DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticArtifactDigest,
+        DiagnosticArtifactDigestAlgorithm, DiagnosticBag, DiagnosticId, DiagnosticInterfaceLimit,
+        DiagnosticInterfaceSection, DiagnosticKind, DiagnosticModuleTrust, DiagnosticNameKind,
+        DiagnosticNote, DiagnosticNoteKind, DiagnosticOutputSink, DiagnosticVisibility,
+        SeverityKind,
     };
     use bray_source::{SourceSpan, TextRange, TextSize};
     use bray_syntax::SyntaxKind;
 
-    use super::write_json_diagnostics;
+    use super::{DiagnosticArtifactDigestJson, DiagnosticOutputSinkJson, write_json_diagnostics};
     use crate::diagnostic_output::test_support::file_source_store;
 
     #[test]
@@ -555,6 +608,33 @@ mod tests {
         assert_eq!(trust_args[0]["value"]["kind"], "module_trust");
         assert_eq!(trust_args[0]["value"]["value"], "trusted");
         assert_eq!(trust_args[1]["value"]["value"], "ordinary");
+    }
+
+    #[test]
+    fn json_output_serializes_typed_artifact_facts() {
+        let sink = DiagnosticOutputSink::Memory("host.output".to_owned());
+        let sink = DiagnosticOutputSinkJson::from_sink(&sink);
+
+        let Ok(sink) = serde_json::to_value(sink) else {
+            panic!("diagnostic output sink must serialize");
+        };
+
+        assert_eq!(sink["kind"], "memory");
+        assert_eq!(sink["value"], "host.output");
+
+        let digest =
+            DiagnosticArtifactDigest::new(DiagnosticArtifactDigestAlgorithm::Blake3, [3_u8; 32]);
+
+        let digest = DiagnosticArtifactDigestJson::from_digest(&digest);
+
+        let Ok(digest) = serde_json::to_value(digest) else {
+            panic!("diagnostic artifact digest must serialize");
+        };
+
+        assert_eq!(digest["algorithm"], "blake3");
+        assert_eq!(digest["bytes"].as_array().map(Vec::len), Some(32));
+        assert_eq!(digest["bytes"][0], 3);
+        assert_eq!(digest["bytes"][31], 3);
     }
 
     #[test]
