@@ -3,10 +3,9 @@ use std::sync::Arc;
 use bray_symbols::{ExternalSymbolKey, SymbolName};
 
 use crate::{
-    DependencyInterfaceId, ExportedLookupKind, InterfaceArtifactHash, InterfaceContentHash,
-    InterfaceLanguageRevision, InterfaceSemanticFacts, InterfaceSymbolReference,
-    InterfaceValidationError, PackageInterfaceSurface, PackageInterfaceSurfaceBuildError,
-    SymbolRelationshipKind,
+    DependencyInterfaceId, ExportedLookupKind, InterfaceLanguageRevision, InterfaceSemanticFacts,
+    InterfaceSymbolReference, InterfaceValidationError, PackageInterfaceSurface,
+    PackageInterfaceSurfaceBuildError, SymbolRelationshipKind,
 };
 
 /// One symbol selected for a library product's public identity surface.
@@ -202,49 +201,6 @@ impl PackageInterfaceExportBundle {
     }
 }
 
-/// Complete deterministic bytes and identities of one encoded package interface.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct EncodedPackageInterface {
-    bytes: Arc<[u8]>,
-    content_hash: InterfaceContentHash,
-    artifact_hash: InterfaceArtifactHash,
-}
-
-impl EncodedPackageInterface {
-    pub(crate) fn new(
-        bytes: Vec<u8>,
-        content_hash: InterfaceContentHash,
-        artifact_hash: InterfaceArtifactHash,
-    ) -> Self {
-        Self {
-            bytes: bytes.into(),
-            content_hash,
-            artifact_hash,
-        }
-    }
-
-    /// Returns the complete canonical artifact bytes.
-    pub fn bytes(&self) -> &[u8] {
-        &self.bytes
-    }
-
-    /// Returns the semantic content identity of the encoded interface.
-    pub const fn content_hash(&self) -> InterfaceContentHash {
-        self.content_hash
-    }
-
-    /// Returns the identity of the exact encoded artifact bytes.
-    pub const fn artifact_hash(&self) -> InterfaceArtifactHash {
-        self.artifact_hash
-    }
-}
-
-impl AsRef<[u8]> for EncodedPackageInterface {
-    fn as_ref(&self) -> &[u8] {
-        self.bytes()
-    }
-}
-
 fn validate_semantic_coverage(
     surface: &PackageInterfaceSurface,
     semantic_facts: &InterfaceSemanticFacts,
@@ -423,7 +379,7 @@ mod tests {
         fn assert_send_sync<T: Send + Sync>() {}
 
         assert_send_sync::<PackageInterfaceExportBundle>();
-        assert_send_sync::<super::EncodedPackageInterface>();
+        assert_send_sync::<crate::InterfaceArtifact>();
         assert_send_sync::<ExternalSymbolKey>();
     }
 }

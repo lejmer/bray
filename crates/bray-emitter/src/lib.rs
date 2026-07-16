@@ -21,8 +21,7 @@ pub use bray_symbols::{ProductIdentity, ProductKind};
 pub use outcome::{EmissionFailure, EmissionOutcome, EmissionStatus};
 pub use plan::{
     BackendEmissionPolicy, EmissionBackend, EmissionBackendBuildError, EmissionPlan,
-    EmissionPlanner, EmissionPlanningError, PackageInterfacePolicy, PlannedArtifact,
-    PlannedArtifactDestination,
+    EmissionPlanner, EmissionPlanningError, PlannedArtifact, PlannedArtifactDestination,
 };
 pub use publication::ArtifactPublisher;
 pub use request::{

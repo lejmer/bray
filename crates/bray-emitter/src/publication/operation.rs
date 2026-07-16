@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 use std::io::{self, Read, Write};
 
 use bray_base::Cancellation;
-use bray_codegen::{ArtifactContent, ArtifactDigest};
+use bray_codegen::{ArtifactContent, ArtifactDigest, ArtifactDigestAlgorithm};
 
 use super::content::{
     ContentValidationError, open_content, validate_content, validate_staged_content,
@@ -10,9 +10,9 @@ use super::content::{
 use super::diagnostic::{PublicationDiagnostics, PublicationError, PublicationErrorKind};
 use super::staging::FilesystemStaging;
 use crate::{
-    ArtifactContribution, ArtifactRequirement, EmissionOutcome, EmissionPlan, EmittedArtifact,
-    EmittedArtifactSet, IndirectOutputSink, OutputSink, OutputSinkResolver, PlannedArtifact,
-    PlannedArtifactDestination, ReplacementPolicy,
+    ArtifactContribution, ArtifactId, ArtifactKind, ArtifactProducer, ArtifactRequirement,
+    EmissionOutcome, EmissionPlan, EmittedArtifact, EmittedArtifactSet, IndirectOutputSink,
+    OutputSink, OutputSinkResolver, PlannedArtifact, PlannedArtifactDestination, ReplacementPolicy,
 };
 
 const COPY_BUFFER_LEN: usize = 64 * 1024;
@@ -44,7 +44,7 @@ impl<'host> ArtifactPublisher<'host> {
         }
     }
 
-    /// Validates and publishes complete contributions in deterministic plan order.
+    /// Publishes the plan-owned package interface and supplied contributions in plan order.
     pub fn publish(
         &self,
         plan: &EmissionPlan,
@@ -283,6 +283,10 @@ fn prepare_contributions<'plan>(
 ) -> Result<Vec<PreparedArtifact<'plan>>, PublicationError> {
     let mut contributions: Vec<_> = contributions.into_iter().collect();
 
+    if let Some(package_interface) = package_interface_contribution(plan)? {
+        contributions.push(package_interface);
+    }
+
     contributions.sort_unstable_by(|left, right| left.id().cmp(right.id()));
 
     if let Some(pair) = contributions
@@ -361,6 +365,61 @@ fn prepare_contributions<'plan>(
     }
 
     Ok(prepared)
+}
+
+fn package_interface_contribution(
+    plan: &EmissionPlan,
+) -> Result<Option<ArtifactContribution>, PublicationError> {
+    let Some(interface) = plan.package_interface() else {
+        return Ok(None);
+    };
+
+    let Some(planned) = plan
+        .published_artifacts()
+        .find(|artifact| artifact.id().kind() == ArtifactKind::PackageInterface)
+    else {
+        let id = ArtifactId::new(
+            plan.request().product().clone(),
+            ArtifactKind::PackageInterface,
+            0,
+        );
+
+        return Err(PublicationError::new(
+            id,
+            None,
+            PublicationErrorKind::InvalidContribution,
+        ));
+    };
+
+    interface
+        .validate_integrity()
+        .map_err(|_| planned_error(planned, PublicationErrorKind::InvalidContribution))?;
+
+    let content = ArtifactContent::try_memory(interface.shared_bytes())
+        .map_err(|_| planned_error(planned, PublicationErrorKind::InvalidContribution))?;
+
+    if content.byte_len() != interface.byte_len() {
+        return Err(planned_error(
+            planned,
+            PublicationErrorKind::LengthMismatch {
+                expected: interface.byte_len(),
+                actual: content.byte_len(),
+            },
+        ));
+    }
+
+    let digest = ArtifactDigest::try_new(
+        ArtifactDigestAlgorithm::Blake3,
+        blake3::hash(interface.bytes()).as_bytes(),
+    )
+    .ok_or_else(|| planned_error(planned, PublicationErrorKind::InvalidContribution))?;
+
+    Ok(Some(ArtifactContribution::new(
+        planned.id().clone(),
+        ArtifactProducer::PackageInterface,
+        content,
+        Some(digest),
+    )))
 }
 
 fn validate_contribution_destination(
@@ -457,7 +516,7 @@ mod tests {
     use bray_testing::TemporaryFile;
 
     use super::ArtifactPublisher;
-    use crate::test_support::{product_identity, target_identity};
+    use crate::test_support::{interface_artifact, product_identity, target_identity};
     use crate::{
         ArtifactContribution, ArtifactId, ArtifactKind, ArtifactProducer, ArtifactRequirement,
         ArtifactRole, DependencyMetadataProducerId, EmissionFailure, EmissionOutcome, EmissionPlan,
@@ -475,13 +534,33 @@ mod tests {
 
         let plan = memory_plan(collector.clone());
         let resolver = CapturingResolver::new([collector]);
-        let contribution = contribution(&plan, b"interface bytes", None);
+        let contribution = contribution(&plan, b"artifact bytes", None);
 
         let outcome = ArtifactPublisher::with_sink_resolver(&never_cancelled, &resolver)
             .publish(&plan, [contribution]);
 
-        assert_complete_artifact(&outcome, b"interface bytes");
-        assert_eq!(resolver.bytes("test.memory"), b"interface bytes");
+        assert_complete_artifact(&outcome, b"artifact bytes");
+        assert_eq!(resolver.bytes("test.memory"), b"artifact bytes");
+    }
+
+    #[test]
+    fn package_interface_publication_uses_the_completed_plan_artifact() {
+        let Some(collector) = OutputSinkId::try_new("test.package-interface") else {
+            panic!("test collector identity must be valid");
+        };
+
+        let plan = memory_artifact_plan(collector.clone(), [package_interface_spec()]);
+        let resolver = CapturingResolver::new([collector]);
+        let interface = plan
+            .package_interface()
+            .unwrap_or_else(|| panic!("test plan must retain its package interface"));
+
+        let outcome =
+            ArtifactPublisher::with_sink_resolver(&never_cancelled, &resolver).publish(&plan, []);
+
+        assert_complete_artifact(&outcome, interface.bytes());
+
+        assert_eq!(resolver.bytes("test.package-interface"), interface.bytes());
     }
 
     #[test]
@@ -608,13 +687,10 @@ mod tests {
             (required_dependency_metadata_spec(), metadata_path.clone()),
         ]);
 
-        let interface = contribution_for(
-            &plan,
-            ArtifactKind::PackageInterface,
-            b"new interface",
-            None,
-            None,
-        );
+        let interface_bytes = plan
+            .package_interface()
+            .map(bray_package_interface::InterfaceArtifact::bytes)
+            .unwrap_or_else(|| panic!("test plan must retain its package interface"));
 
         let metadata = contribution_for(
             &plan,
@@ -624,8 +700,7 @@ mod tests {
             None,
         );
 
-        let outcome =
-            ArtifactPublisher::new(&never_cancelled).publish(&plan, [metadata, interface]);
+        let outcome = ArtifactPublisher::new(&never_cancelled).publish(&plan, [metadata]);
 
         assert!(matches!(
             outcome.status(),
@@ -638,7 +713,7 @@ mod tests {
             &OutputSink::Filesystem(interface_path.clone())
         );
 
-        assert_eq!(file_bytes(&interface_path), b"new interface");
+        assert_eq!(file_bytes(&interface_path), interface_bytes);
         assert!(metadata_path.is_dir());
         assert_eq!(directory_entry_count(directory.path()), 2);
     }
@@ -657,14 +732,6 @@ mod tests {
             (required_dependency_metadata_spec(), metadata_path.clone()),
         ]);
 
-        let interface = contribution_for(
-            &plan,
-            ArtifactKind::PackageInterface,
-            b"interface",
-            None,
-            None,
-        );
-
         let metadata = contribution_for(
             &plan,
             ArtifactKind::DependencyMetadata,
@@ -674,7 +741,7 @@ mod tests {
         );
 
         let cancellation = || interface_path.exists();
-        let outcome = ArtifactPublisher::new(&cancellation).publish(&plan, [metadata, interface]);
+        let outcome = ArtifactPublisher::new(&cancellation).publish(&plan, [metadata]);
 
         assert!(matches!(outcome.status(), EmissionStatus::Cancelled));
         assert_eq!(outcome.artifacts().artifacts().len(), 1);
@@ -757,14 +824,6 @@ mod tests {
 
         let resolver = CapturingResolver::new([collector]);
 
-        let interface = contribution_for(
-            &plan,
-            ArtifactKind::PackageInterface,
-            b"interface",
-            None,
-            None,
-        );
-
         let metadata = contribution_for(
             &plan,
             ArtifactKind::DependencyMetadata,
@@ -776,7 +835,7 @@ mod tests {
         );
 
         let outcome = ArtifactPublisher::with_sink_resolver(&never_cancelled, &resolver)
-            .publish(&plan, [metadata, interface]);
+            .publish(&plan, [metadata]);
 
         let artifacts = outcome.artifacts();
 
@@ -808,14 +867,6 @@ mod tests {
         let resolver =
             CapturingResolver::failing_open([collector], ArtifactKind::DependencyMetadata);
 
-        let interface = contribution_for(
-            &plan,
-            ArtifactKind::PackageInterface,
-            b"interface",
-            None,
-            None,
-        );
-
         let metadata = contribution_for(
             &plan,
             ArtifactKind::DependencyMetadata,
@@ -839,7 +890,7 @@ mod tests {
         );
 
         let outcome = ArtifactPublisher::with_sink_resolver(&never_cancelled, &resolver)
-            .publish(&plan, [executable, metadata, interface]);
+            .publish(&plan, [executable, metadata]);
 
         assert!(matches!(outcome.status(), EmissionStatus::Complete));
         assert_eq!(outcome.artifacts().artifacts().len(), 1);
@@ -885,7 +936,7 @@ mod tests {
     }
 
     fn memory_plan(collector: OutputSinkId) -> EmissionPlan {
-        memory_artifact_plan(collector, [package_interface_spec()])
+        memory_artifact_plan(collector, [required_dependency_metadata_spec()])
     }
 
     fn stream_plan(stream: OutputSinkId) -> EmissionPlan {
@@ -908,6 +959,10 @@ mod tests {
         artifacts: impl IntoIterator<Item = (TestArtifactSpec, PathBuf)>,
     ) -> EmissionPlan {
         let artifacts: Vec<_> = artifacts.into_iter().collect();
+        let package_interface = artifacts
+            .iter()
+            .any(|(artifact, _)| artifact.kind == ArtifactKind::PackageInterface)
+            .then(interface_artifact);
 
         let requested = artifacts
             .iter()
@@ -936,7 +991,7 @@ mod tests {
             )
         });
 
-        let Ok(plan) = EmissionPlan::try_new(request, None, planned, []) else {
+        let Ok(plan) = EmissionPlan::try_new(request, None, planned, [], package_interface) else {
             panic!("test filesystem publication plan must be valid");
         };
 
@@ -954,7 +1009,7 @@ mod tests {
             target_identity(),
             destination,
             [RequestedArtifact::new(
-                ArtifactKind::PackageInterface,
+                ArtifactKind::DependencyMetadata,
                 ArtifactRequirement::Required,
             )],
             replacement,
@@ -963,14 +1018,18 @@ mod tests {
         };
 
         let artifact = PlannedArtifact::new(
-            ArtifactId::new(request.product().clone(), ArtifactKind::PackageInterface, 0),
+            ArtifactId::new(
+                request.product().clone(),
+                ArtifactKind::DependencyMetadata,
+                0,
+            ),
             ArtifactRequirement::Required,
-            ArtifactRole::Product,
-            ArtifactProducer::PackageInterface,
+            ArtifactRole::Companion,
+            ArtifactProducer::DependencyMetadata(DependencyMetadataProducerId::new(0)),
             PlannedArtifactDestination::Publish(sink),
         );
 
-        let Ok(plan) = EmissionPlan::try_new(request, None, [artifact], []) else {
+        let Ok(plan) = EmissionPlan::try_new(request, None, [artifact], [], None) else {
             panic!("test publication plan must be valid");
         };
 
@@ -982,6 +1041,10 @@ mod tests {
         artifacts: impl IntoIterator<Item = TestArtifactSpec>,
     ) -> EmissionPlan {
         let artifacts: Vec<_> = artifacts.into_iter().collect();
+        let package_interface = artifacts
+            .iter()
+            .any(|artifact| artifact.kind == ArtifactKind::PackageInterface)
+            .then(interface_artifact);
 
         let requested = artifacts
             .iter()
@@ -1015,7 +1078,7 @@ mod tests {
             )
         });
 
-        let Ok(plan) = EmissionPlan::try_new(request, None, planned, []) else {
+        let Ok(plan) = EmissionPlan::try_new(request, None, planned, [], package_interface) else {
             panic!("test memory publication plan must be valid");
         };
 
@@ -1070,7 +1133,7 @@ mod tests {
         bytes: &[u8],
         digest: Option<ArtifactDigest>,
     ) -> ArtifactContribution {
-        contribution_for(plan, ArtifactKind::PackageInterface, bytes, digest, None)
+        contribution_for(plan, ArtifactKind::DependencyMetadata, bytes, digest, None)
     }
 
     fn contribution_for(

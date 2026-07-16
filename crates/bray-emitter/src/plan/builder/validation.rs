@@ -1,10 +1,12 @@
 use bray_codegen::{
     AssemblySyntaxKind, BackendArtifactKind, DebugInformationMode, DebugInformationOutputMode,
 };
+use bray_package_interface::InterfaceArtifact;
 use bray_symbols::ProductKind;
 
 use super::{EmissionPlanner, EmissionPlanningError};
-use crate::plan::{EmissionBackend, PackageInterfacePolicy};
+use crate::plan::EmissionBackend;
+use crate::plan::model::package_interface_matches_product;
 use crate::{
     ArtifactKind, ArtifactRequirement, EmissionRequest, RequestedArtifact,
     RequestedArtifactDestination,
@@ -19,6 +21,7 @@ const LINKED_PRODUCT_KINDS: [ArtifactKind; 3] = [
 pub(super) fn validate_request(
     planner: &EmissionPlanner,
     request: &EmissionRequest,
+    package_interface: Option<&InterfaceArtifact>,
 ) -> Result<(), EmissionPlanningError> {
     if request.target() != planner.target().identity() {
         // Planning errors retain both Arc-backed target identities after validation returns.
@@ -28,8 +31,8 @@ pub(super) fn validate_request(
         });
     }
 
-    validate_product_artifacts(planner, request)?;
-    validate_destination_shape(planner, request)?;
+    validate_product_artifacts(request, package_interface)?;
+    validate_destination_shape(planner, request, package_interface.is_some())?;
 
     if request_uses_backend(request) {
         validate_backend(planner, request)?;
@@ -39,8 +42,8 @@ pub(super) fn validate_request(
 }
 
 fn validate_product_artifacts(
-    planner: &EmissionPlanner,
     request: &EmissionRequest,
+    package_interface: Option<&InterfaceArtifact>,
 ) -> Result<(), EmissionPlanningError> {
     for artifact in request.artifacts() {
         if !artifact_matches_product(artifact.kind(), request.product_kind()) {
@@ -49,13 +52,9 @@ fn validate_product_artifacts(
                 artifact: artifact.kind(),
             });
         }
-
-        if artifact.kind() == ArtifactKind::PackageInterface
-            && planner.package_interface_policy() != PackageInterfacePolicy::LibraryProducts
-        {
-            return Err(EmissionPlanningError::PackageInterfaceDisabled);
-        }
     }
+
+    validate_package_interface(request, package_interface)?;
 
     let linked_product_count = linked_product_count(request);
 
@@ -78,15 +77,42 @@ fn validate_product_artifacts(
     }
 }
 
+fn validate_package_interface(
+    request: &EmissionRequest,
+    package_interface: Option<&InterfaceArtifact>,
+) -> Result<(), EmissionPlanningError> {
+    let requested = request.artifact(ArtifactKind::PackageInterface);
+
+    match (requested, package_interface) {
+        (None, None) => Ok(()),
+        (Some(requested), None) if requested.requirement() == ArtifactRequirement::Required => {
+            Err(EmissionPlanningError::MissingPackageInterfaceArtifact)
+        }
+        (Some(_), None) => Ok(()),
+        (None, Some(_)) => Err(EmissionPlanningError::UnexpectedPackageInterfaceArtifact),
+        (Some(_), Some(package_interface))
+            if !package_interface_matches_product(package_interface, request) =>
+        {
+            Err(EmissionPlanningError::PackageInterfaceProductMismatch {
+                // Planning failures retain identities after both request borrows end.
+                expected: request.product().clone(),
+                actual: package_interface.identity().clone(),
+            })
+        }
+        (Some(_), Some(_)) => Ok(()),
+    }
+}
+
 fn validate_destination_shape(
     planner: &EmissionPlanner,
     request: &EmissionRequest,
+    package_interface_available: bool,
 ) -> Result<(), EmissionPlanningError> {
     let published_count =
         request.artifacts().iter().try_fold(
             0_usize,
             |count, artifact| -> Result<usize, EmissionPlanningError> {
-                if !should_plan_artifact(planner, request, *artifact) {
+                if !should_plan_artifact(planner, request, *artifact, package_interface_available) {
                     return Ok(count);
                 }
 
@@ -309,10 +335,11 @@ fn request_requires_backend(request: &EmissionRequest) -> bool {
 }
 
 fn has_planned_backend_work(planner: &EmissionPlanner, request: &EmissionRequest) -> bool {
-    linked_product(request).is_some_and(|artifact| should_plan_artifact(planner, request, artifact))
+    linked_product(request)
+        .is_some_and(|artifact| should_plan_artifact(planner, request, artifact, false))
         || request.artifacts().iter().any(|artifact| {
             artifact.kind().backend_kind().is_some()
-                && should_plan_artifact(planner, request, *artifact)
+                && should_plan_artifact(planner, request, *artifact, false)
         })
 }
 
@@ -320,17 +347,19 @@ pub(super) fn should_plan_artifact(
     planner: &EmissionPlanner,
     request: &EmissionRequest,
     artifact: RequestedArtifact,
+    package_interface_available: bool,
 ) -> bool {
     if artifact.requirement() == ArtifactRequirement::Required {
         return true;
     }
 
     match artifact.kind() {
+        ArtifactKind::PackageInterface => package_interface_available,
         ArtifactKind::Executable | ArtifactKind::StaticLibrary | ArtifactKind::SharedLibrary => {
             optional_linked_product_is_available(planner)
         }
         ArtifactKind::LinkedCompanion => linked_product(request)
-            .is_some_and(|product| should_plan_artifact(planner, request, product)),
+            .is_some_and(|product| should_plan_artifact(planner, request, product, false)),
         kind => kind
             .backend_kind()
             .is_none_or(|backend_kind| backend_is_available(planner, backend_kind)),

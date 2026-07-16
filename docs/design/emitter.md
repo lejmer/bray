@@ -70,9 +70,9 @@ It fixes artifact identities, required and optional artifact kinds, logical orde
 requests, package-interface output, staging requirements, and prospective link outputs before serialization begins.
 
 The planning boundary is an immutable `EmissionPlanner` composed from target-output facts, an optional selected backend with its
-canonical codegen-unit keys and output policy, and package-interface availability. Planning consumes one `EmissionRequest` and
-returns either the complete `EmissionPlan` or a typed planning error. Callers do not preassemble planned artifacts or backend
-artifact requests.
+canonical codegen-unit keys and output policy, and an optional completed `InterfaceArtifact` for the selected product. Planning
+consumes one `EmissionRequest` and returns either the complete `EmissionPlan` or a typed planning error. Callers do not preassemble
+planned artifacts or backend artifact requests.
 
 ### Artifact Contribution
 
@@ -109,13 +109,13 @@ The logical lifecycle is:
 
 ```text
 EmissionRequest
-    -> validate product, target, backend capabilities, and destinations
+    -> request completed package-interface artifact when the request selects `.brayi`
+    -> validate product, target, backend capabilities, interface identity, and destinations
     -> freeze immutable EmissionPlan
     -> request required package and semantic diagnostics
     -> request planned MIR and codegen-unit facts
     -> backend constructs task-local modules
     -> backend serializes requested artifact contributions
-    -> request completed package-interface artifact when planned
     -> validate and merge contributions in plan order
     -> stage required contributions
     -> construct immutable LinkPlan when required

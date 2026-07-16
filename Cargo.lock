@@ -223,6 +223,7 @@ dependencies = [
  "bray-base",
  "bray-codegen",
  "bray-diagnostics",
+ "bray-package-interface",
  "bray-symbols",
  "bray-target",
  "bray-testing",

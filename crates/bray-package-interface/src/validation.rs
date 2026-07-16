@@ -318,6 +318,7 @@ mod tests {
         DiagnosticInterfaceLimit, DiagnosticKind,
     };
     use bray_messages::DiagnosticRenderer;
+    use bray_symbols::PackageIdentity;
 
     use super::ValidatedPackageInterface;
     use crate::artifact::{EncodedArtifactSection, assemble_sections};
@@ -325,7 +326,10 @@ mod tests {
     use crate::header::InterfaceHeader;
     use crate::limits::{InterfaceLimit, InterfaceValidationLimits, InterfaceValidationPolicy};
     use crate::section::{DirectoryEntry, InterfaceSectionTag};
-    use crate::{CURRENT_FORMAT_REVISION, InterfaceLanguageRevision};
+    use crate::{
+        CURRENT_FORMAT_REVISION, InterfaceLanguageRevision, InterfaceProductIdentity,
+        InterfaceProductKind, PackageInterfaceIdentity,
+    };
 
     const LANGUAGE_REVISION: InterfaceLanguageRevision = InterfaceLanguageRevision::new(7);
 
@@ -722,9 +726,27 @@ mod tests {
             })
             .collect::<Vec<_>>();
 
-        assemble_sections(&sections, LANGUAGE_REVISION)
+        assemble_sections(&sections, interface_identity(), LANGUAGE_REVISION)
             .map(|artifact| artifact.bytes().to_vec())
             .unwrap_or_else(|error| panic!("test artifact must encode: {error:?}"))
+    }
+
+    fn interface_identity() -> PackageInterfaceIdentity {
+        let Some(package) = PackageIdentity::try_new("example.package") else {
+            panic!("test package identity must be valid");
+        };
+
+        let Some(product) = InterfaceProductIdentity::try_new("library") else {
+            panic!("test product identity must be valid");
+        };
+
+        PackageInterfaceIdentity::try_new(
+            package,
+            product,
+            InterfaceProductKind::Library,
+            "public-v1",
+        )
+        .unwrap_or_else(|| panic!("test package-interface identity must be valid"))
     }
 
     fn validate(bytes: Vec<u8>) -> ValidatedPackageInterface {

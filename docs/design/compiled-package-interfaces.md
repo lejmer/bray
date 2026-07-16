@@ -887,7 +887,7 @@ Encoding conceptually accepts an immutable bundle:
 ```rust
 pub fn encode_package_interface(
     bundle: &PackageInterfaceExportBundle,
-) -> DiagnosticResult<EncodedPackageInterface>;
+) -> DiagnosticResult<InterfaceArtifact>;
 ```
 
 The encoder does not receive a mutable compilation or invoke binder/checker workflows itself. `bray-compilation` supplies completed

@@ -33,6 +33,15 @@ pub(crate) fn product_identity() -> ProductIdentity {
     product
 }
 
+pub(crate) fn interface_artifact() -> bray_package_interface::InterfaceArtifact {
+    let product = product_identity();
+
+    bray_package_interface::test_support::interface_artifact_for(
+        product.package().clone(),
+        product.name(),
+    )
+}
+
 pub(crate) fn target_identity() -> TargetIdentity {
     let Some(target) = TargetIdentity::try_new("x86_64-unknown-linux-gnu") else {
         panic!("test target identity must be valid");
@@ -145,10 +154,14 @@ pub(crate) fn emission_request_for(
 }
 
 pub(crate) fn emission_plan() -> EmissionPlan {
-    let request = emission_request([RequestedArtifact::new(
-        ArtifactKind::PackageInterface,
-        ArtifactRequirement::Required,
-    )]);
+    let request = emission_request_for(
+        ProductKind::Library,
+        RequestedArtifactDestination::FilesystemDirectory("out".into()),
+        [RequestedArtifact::new(
+            ArtifactKind::PackageInterface,
+            ArtifactRequirement::Required,
+        )],
+    );
 
     let artifact = PlannedArtifact::new(
         ArtifactId::new(request.product().clone(), ArtifactKind::PackageInterface, 0),
@@ -158,7 +171,8 @@ pub(crate) fn emission_plan() -> EmissionPlan {
         PlannedArtifactDestination::Publish(OutputSink::Filesystem("application.brayi".into())),
     );
 
-    let Ok(plan) = EmissionPlan::try_new(request, None, [artifact], []) else {
+    let Ok(plan) = EmissionPlan::try_new(request, None, [artifact], [], Some(interface_artifact()))
+    else {
         panic!("test emission plan must be valid");
     };
 

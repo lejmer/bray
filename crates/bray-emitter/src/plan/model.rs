@@ -5,6 +5,7 @@ use bray_codegen::{
     BackendArtifactId, BackendArtifactRequest, BackendArtifactRequirement, BackendIdentity,
     CodegenUnitKey,
 };
+use bray_package_interface::{InterfaceArtifact, InterfaceProductKind};
 
 use crate::sink::OutputSinkCollisionKey;
 
@@ -76,11 +77,12 @@ impl PlannedArtifact {
     }
 }
 
-/// Complete immutable emission policy for one product request.
+/// Complete immutable emission plan for one product request.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EmissionPlan {
     request: EmissionRequest,
     backend: Option<BackendIdentity>,
+    package_interface: Option<InterfaceArtifact>,
     artifacts: Arc<[PlannedArtifact]>,
     backend_requests: Arc<[BackendArtifactRequest]>,
 }
@@ -92,6 +94,7 @@ impl EmissionPlan {
         backend: Option<BackendIdentity>,
         artifacts: impl IntoIterator<Item = PlannedArtifact>,
         backend_requests: impl IntoIterator<Item = BackendArtifactRequest>,
+        package_interface: Option<InterfaceArtifact>,
     ) -> Result<Self, EmissionPlanBuildError> {
         let mut artifacts: Vec<_> = artifacts.into_iter().collect();
         let mut backend_requests: Vec<_> = backend_requests.into_iter().collect();
@@ -100,11 +103,13 @@ impl EmissionPlan {
         backend_requests.sort_unstable_by(|left, right| left.unit().cmp(right.unit()));
 
         validate_artifacts(&request, backend.as_ref(), &artifacts)?;
+        validate_package_interface(&request, &artifacts, package_interface.as_ref())?;
         validate_backend_requests(&artifacts, &backend_requests)?;
 
         Ok(Self {
             request,
             backend,
+            package_interface,
             artifacts: artifacts.into(),
             backend_requests: backend_requests.into(),
         })
@@ -118,6 +123,11 @@ impl EmissionPlan {
     /// Returns the selected backend identity when code generation participates in the plan.
     pub const fn backend(&self) -> Option<&BackendIdentity> {
         self.backend.as_ref()
+    }
+
+    /// Returns the completed package interface included in this plan.
+    pub const fn package_interface(&self) -> Option<&InterfaceArtifact> {
+        self.package_interface.as_ref()
     }
 
     /// Returns all planned artifacts in canonical logical-identity order.
@@ -203,6 +213,50 @@ pub(crate) enum EmissionPlanBuildError {
     UnmappedBackendRequest(BackendArtifactId),
     /// A backend request entry does not preserve the strongest mapped artifact requirement.
     BackendRequirementMismatch(BackendArtifactId),
+    /// A planned package-interface artifact has no completed content.
+    MissingPackageInterfaceArtifact,
+    /// Completed package-interface content has no planned artifact.
+    UnexpectedPackageInterfaceArtifact,
+    /// Completed package-interface content belongs to another product.
+    PackageInterfaceProductMismatch,
+}
+
+fn validate_package_interface(
+    request: &EmissionRequest,
+    artifacts: &[PlannedArtifact],
+    package_interface: Option<&InterfaceArtifact>,
+) -> Result<(), EmissionPlanBuildError> {
+    let planned = artifacts
+        .iter()
+        .any(|artifact| artifact.id().kind() == ArtifactKind::PackageInterface);
+
+    match (planned, package_interface) {
+        (false, None) => Ok(()),
+        (true, None) => Err(EmissionPlanBuildError::MissingPackageInterfaceArtifact),
+        (false, Some(_)) => Err(EmissionPlanBuildError::UnexpectedPackageInterfaceArtifact),
+        (true, Some(package_interface))
+            if !package_interface_matches_product(package_interface, request) =>
+        {
+            Err(EmissionPlanBuildError::PackageInterfaceProductMismatch)
+        }
+        (true, Some(_)) => Ok(()),
+    }
+}
+
+pub(super) fn package_interface_matches_product(
+    package_interface: &InterfaceArtifact,
+    request: &EmissionRequest,
+) -> bool {
+    let identity = package_interface.identity();
+    let expected_kind = match request.product_kind() {
+        crate::ProductKind::Executable => InterfaceProductKind::Executable,
+        crate::ProductKind::Library => InterfaceProductKind::Library,
+        crate::ProductKind::Test => InterfaceProductKind::Test,
+    };
+
+    identity.package() == request.product().package()
+        && identity.product().as_str() == request.product().name()
+        && identity.kind() == expected_kind
 }
 
 fn validate_artifacts(
@@ -475,8 +529,8 @@ fn validate_backend_requests(
 mod tests {
     use super::{EmissionPlan, EmissionPlanBuildError};
     use crate::test_support::{
-        backend_artifact_plan_parts, emission_plan, linked_artifact, product_identity,
-        target_identity,
+        backend_artifact_plan_parts, emission_plan, interface_artifact, linked_artifact,
+        product_identity, target_identity,
     };
     use crate::{
         ArtifactId, ArtifactKind, ArtifactProducer, ArtifactRequirement, ArtifactRole,
@@ -494,6 +548,7 @@ mod tests {
             plan.backend().cloned(),
             plan.artifacts().iter().cloned().rev(),
             plan.backend_requests().iter().cloned().rev(),
+            plan.package_interface().cloned(),
         );
 
         assert_eq!(reversed, Ok(plan.clone()));
@@ -519,7 +574,7 @@ mod tests {
         ]);
 
         assert_eq!(
-            EmissionPlan::try_new(request, None, [first, second], [],),
+            EmissionPlan::try_new(request, None, [first, second], [], None),
             Err(EmissionPlanBuildError::DuplicateSink(
                 OutputSink::Filesystem("same-output".into())
             ))
@@ -536,13 +591,15 @@ mod tests {
                 Some(backend.clone()),
                 [artifact.clone()],
                 [],
+                None,
             ),
             Err(EmissionPlanBuildError::MissingBackendRequest(
                 backend_artifact_id(&artifact)
             ))
         );
 
-        let Ok(plan) = EmissionPlan::try_new(request, Some(backend), [artifact], [backend_request])
+        let Ok(plan) =
+            EmissionPlan::try_new(request, Some(backend), [artifact], [backend_request], None)
         else {
             panic!("matching test backend request must produce a valid plan");
         };
@@ -600,7 +657,13 @@ mod tests {
             }),
         );
 
-        let Ok(plan) = EmissionPlan::try_new(request, None, [metadata, interface], []) else {
+        let Ok(plan) = EmissionPlan::try_new(
+            request,
+            None,
+            [metadata, interface],
+            [],
+            Some(interface_artifact()),
+        ) else {
             panic!("distinct keys in one memory collector must form a valid plan");
         };
 
@@ -624,7 +687,7 @@ mod tests {
         )]);
 
         assert_eq!(
-            EmissionPlan::try_new(request, None, [artifact], []),
+            EmissionPlan::try_new(request, None, [artifact], [], None),
             Err(EmissionPlanBuildError::KindRoleMismatch(artifact_id))
         );
     }
@@ -650,6 +713,7 @@ mod tests {
             Some(backend),
             [staged, published],
             [backend_request],
+            None,
         ) else {
             panic!("one backend contribution may satisfy multiple planned artifact operations");
         };
@@ -687,7 +751,7 @@ mod tests {
 
         let Ok(request) = EmissionRequest::try_new(
             product_identity(),
-            ProductKind::Executable,
+            ProductKind::Library,
             target_identity(),
             RequestedArtifactDestination::Memory(collector),
             artifacts,
