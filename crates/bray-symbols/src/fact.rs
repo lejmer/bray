@@ -2,6 +2,7 @@ mod completion;
 mod constant;
 mod contract;
 mod default;
+mod execution;
 mod implementation;
 mod predicate;
 mod signature;
@@ -36,6 +37,10 @@ pub use default::{
     RuntimeDefaultProviderInput, RuntimeDefaultTemplateReference, RuntimeDefaultTrustedObligation,
     StructFieldDefaultSurface, StructFieldDefaultValue, UnionPayloadDefaultSurface,
     UnionPayloadDefaultValue,
+};
+pub use execution::{
+    CallableCapabilityRequirement, CallableEffectRequirement, CallableExecutionRequirement,
+    CallablePhaseBehavior, CurrentRunCancellation,
 };
 pub use implementation::{
     ImplementationAmbiguity, ImplementationAmbiguityError, ImplementationCandidate,

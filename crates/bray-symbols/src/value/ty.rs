@@ -49,6 +49,67 @@ pub enum CallableExecution {
     Asynchronous,
 }
 
+/// Portable dependency templates for invocation and deferred async execution.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct CallableDependencyContracts {
+    invocation: DependencyContractTemplateId,
+    deferred_execution: Option<DependencyContractTemplateId>,
+}
+
+impl CallableDependencyContracts {
+    /// Creates dependencies for an immediately executing callable.
+    pub const fn synchronous(invocation: DependencyContractTemplateId) -> Self {
+        Self {
+            invocation,
+            deferred_execution: None,
+        }
+    }
+
+    /// Creates dependencies for lazy async invocation and deferred body execution.
+    ///
+    /// The deferred template is retained by `Future<T>` and transfers unchanged to `Task<T>`
+    /// when the future is started.
+    pub const fn asynchronous(
+        invocation: DependencyContractTemplateId,
+        deferred_execution: DependencyContractTemplateId,
+    ) -> Self {
+        Self {
+            invocation,
+            deferred_execution: Some(deferred_execution),
+        }
+    }
+
+    /// Creates the phase shape required by the callable execution mode.
+    pub const fn for_execution(
+        execution: CallableExecution,
+        invocation: DependencyContractTemplateId,
+        deferred_execution: DependencyContractTemplateId,
+    ) -> Self {
+        match execution {
+            CallableExecution::Synchronous => Self::synchronous(invocation),
+            CallableExecution::Asynchronous => Self::asynchronous(invocation, deferred_execution),
+        }
+    }
+
+    /// Returns dependencies incurred while invoking the callable.
+    pub const fn invocation(self) -> DependencyContractTemplateId {
+        self.invocation
+    }
+
+    /// Returns dependencies retained by deferred async execution.
+    pub const fn deferred_execution(self) -> Option<DependencyContractTemplateId> {
+        self.deferred_execution
+    }
+
+    /// Returns the callable execution mode implied by the phase shape.
+    pub const fn execution(self) -> CallableExecution {
+        match self.deferred_execution {
+            Some(_) => CallableExecution::Asynchronous,
+            None => CallableExecution::Synchronous,
+        }
+    }
+}
+
 /// A callable's trust boundary.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum CallableTrust {
@@ -194,10 +255,9 @@ pub struct CallableTypeData {
     parameters: Arc<[CallableParameterData]>,
     result: TypeId,
     constness: CallableConstness,
-    execution: CallableExecution,
     trust: CallableTrust,
     abi: CallableAbi,
-    dependency_contract: DependencyContractTemplateId,
+    dependency_contracts: CallableDependencyContracts,
 }
 
 impl CallableTypeData {
@@ -206,19 +266,17 @@ impl CallableTypeData {
         parameters: impl IntoIterator<Item = CallableParameterData>,
         result: TypeId,
         constness: CallableConstness,
-        execution: CallableExecution,
         trust: CallableTrust,
         abi: CallableAbi,
-        dependency_contract: DependencyContractTemplateId,
+        dependency_contracts: CallableDependencyContracts,
     ) -> Self {
         Self {
             parameters: shared_slice(parameters),
             result,
             constness,
-            execution,
             trust,
             abi,
-            dependency_contract,
+            dependency_contracts,
         }
     }
 
@@ -239,7 +297,7 @@ impl CallableTypeData {
 
     /// Returns the callable execution mode.
     pub const fn execution(&self) -> CallableExecution {
-        self.execution
+        self.dependency_contracts.execution()
     }
 
     /// Returns the callable trust boundary.
@@ -252,9 +310,9 @@ impl CallableTypeData {
         self.abi
     }
 
-    /// Returns the portable caller-visible dependency contract.
-    pub const fn dependency_contract(&self) -> DependencyContractTemplateId {
-        self.dependency_contract
+    /// Returns invocation and deferred-execution dependency templates.
+    pub const fn dependency_contracts(&self) -> CallableDependencyContracts {
+        self.dependency_contracts
     }
 }
 
@@ -323,9 +381,12 @@ impl TypeData {
 
 #[cfg(test)]
 mod tests {
-    use super::{CallableParameterName, SelfTypeContext};
+    use super::{
+        CallableDependencyContracts, CallableExecution, CallableParameterName, SelfTypeContext,
+    };
     use crate::{
-        AnySymbolId, FunctionSymbolId, StructSymbolId, SymbolId, SymbolKind, TraitSymbolId,
+        AnySymbolId, DependencyContractTemplateData, FunctionSymbolId, SemanticValueStore,
+        StructSymbolId, SymbolId, SymbolKind, TraitSymbolId,
     };
 
     #[test]
@@ -337,6 +398,26 @@ mod tests {
         };
 
         assert_eq!(name.as_str(), "value");
+    }
+
+    #[test]
+    fn async_callable_dependencies_retain_a_distinct_deferred_phase() {
+        let Ok(store) = SemanticValueStore::try_new() else {
+            panic!("semantic value store must be available");
+        };
+        let Ok(dependencies) =
+            store.intern_dependency_contract_template(DependencyContractTemplateData::new([]))
+        else {
+            panic!("empty dependency contract must be valid");
+        };
+
+        let synchronous = CallableDependencyContracts::synchronous(dependencies);
+        let asynchronous = CallableDependencyContracts::asynchronous(dependencies, dependencies);
+
+        assert_eq!(synchronous.execution(), CallableExecution::Synchronous);
+        assert_eq!(synchronous.deferred_execution(), None);
+        assert_eq!(asynchronous.execution(), CallableExecution::Asynchronous);
+        assert_eq!(asynchronous.deferred_execution(), Some(dependencies));
     }
 
     #[test]

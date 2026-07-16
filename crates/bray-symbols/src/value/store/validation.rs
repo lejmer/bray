@@ -45,9 +45,15 @@ pub(super) fn validate_type_data(
 
             tables.types.get(store, callable.result())?;
 
+            let dependencies = callable.dependency_contracts();
+
             tables
                 .dependency_contracts
-                .get(store, callable.dependency_contract())?;
+                .get(store, dependencies.invocation())?;
+
+            if let Some(deferred) = dependencies.deferred_execution() {
+                tables.dependency_contracts.get(store, deferred)?;
+            }
         }
     }
 

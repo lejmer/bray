@@ -49,6 +49,32 @@ pub(super) fn read_symbol_reference(
     }
 }
 
+pub(super) fn write_symbol_references(
+    encoder: &mut WireEncoder,
+    references: &[InterfaceSymbolReference],
+) {
+    write_count(encoder, references.len());
+
+    for reference in references {
+        write_symbol_reference(encoder, reference);
+    }
+}
+
+pub(super) fn read_symbol_references(
+    reader: &mut WireReader<'_>,
+    limits: InterfaceValidationLimits,
+    context: &mut SemanticDecodeContext,
+) -> Result<Vec<InterfaceSymbolReference>, InterfaceValidationError> {
+    let count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
+    let mut references = context.allocate_items(reader, count)?;
+
+    for _ in 0..count {
+        references.push(read_symbol_reference(reader, context)?);
+    }
+
+    Ok(references)
+}
+
 pub(super) fn write_external_key(encoder: &mut WireEncoder, key: &ExternalSymbolKey) {
     let mut components = Vec::new();
     let mut current = Some(key);

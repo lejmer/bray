@@ -101,7 +101,9 @@ pub enum InterfaceType {
         trust: CallableTrust,
         /// Calling convention.
         abi: CallableAbi,
-        /// Portable dependency contract.
-        dependency_contract: InterfaceDependencyContractId,
+        /// Dependencies incurred while invoking the callable.
+        invocation_dependency_contract: InterfaceDependencyContractId,
+        /// Dependencies retained by a lazy async body and transferred from future to task.
+        deferred_dependency_contract: Option<InterfaceDependencyContractId>,
     },
 }

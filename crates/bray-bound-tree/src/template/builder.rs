@@ -900,7 +900,18 @@ mod tests {
             panic!("empty dependency contract must be valid");
         };
 
-        let behavior = CheckedTemplateBehavior::new([], [], [], [], dependencies, []);
+        let behavior = CheckedTemplateBehavior::new(
+            [],
+            [],
+            [],
+            crate::CheckedTemplateExecution::new(
+                [],
+                bray_symbols::CurrentRunCancellation::NotEntered,
+            ),
+            [],
+            dependencies,
+            [],
+        );
 
         (ty, alternative, behavior)
     }

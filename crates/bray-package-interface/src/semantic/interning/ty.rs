@@ -119,15 +119,28 @@ impl InternState {
                 execution,
                 trust,
                 abi,
-                dependency_contract,
+                invocation_dependency_contract,
+                deferred_dependency_contract,
             } => {
                 let Some(result) = self.type_id(*result) else {
                     return Ok(None);
                 };
 
-                let Some(dependency_contract) = self.dependency_contract_id(*dependency_contract)
+                let Some(invocation_dependency_contract) =
+                    self.dependency_contract_id(*invocation_dependency_contract)
                 else {
                     return Ok(None);
+                };
+
+                let deferred_dependency_contract = match deferred_dependency_contract {
+                    Some(contract) => {
+                        let Some(contract) = self.dependency_contract_id(*contract) else {
+                            return Ok(None);
+                        };
+
+                        contract
+                    }
+                    None => invocation_dependency_contract,
                 };
 
                 let mut converted = Vec::with_capacity(parameters.len());
@@ -154,10 +167,13 @@ impl InternState {
                     converted,
                     result,
                     *constness,
-                    *execution,
                     *trust,
                     *abi,
-                    dependency_contract,
+                    bray_symbols::CallableDependencyContracts::for_execution(
+                        *execution,
+                        invocation_dependency_contract,
+                        deferred_dependency_contract,
+                    ),
                 )))
             }
         })

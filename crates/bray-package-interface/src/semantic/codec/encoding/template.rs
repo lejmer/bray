@@ -1,6 +1,8 @@
 use super::model::EncodedSemanticSection;
 use super::section;
-use crate::semantic::codec::common::{write_count, write_symbol_reference};
+use crate::semantic::codec::common::{
+    write_count, write_symbol_reference, write_symbol_references,
+};
 use crate::semantic::model::{
     InterfaceCheckedTemplate, InterfaceCheckedTemplateInputKind, InterfaceCheckedTemplateOperation,
     InterfaceImplementationReference, InterfaceTemplateReference,
@@ -64,6 +66,7 @@ fn encode_template(encoder: &mut WireEncoder, template: &InterfaceCheckedTemplat
     write_symbol_references(encoder, behavior.effects());
     write_symbol_references(encoder, behavior.capabilities());
     write_symbol_references(encoder, behavior.trusted_obligations());
+    write_symbol_references(encoder, behavior.execution_requirements());
 
     write_count(encoder, behavior.lifecycle_obligations().len());
 
@@ -72,6 +75,7 @@ fn encode_template(encoder: &mut WireEncoder, template: &InterfaceCheckedTemplat
     }
 
     encoder.write_u32(behavior.dependency_contract().raw());
+    encoder.write_u32(behavior.current_run_cancellation().to_wire());
     write_count(encoder, behavior.witnesses().len());
 
     for witness in behavior.witnesses() {
@@ -177,17 +181,6 @@ fn write_node_ids(encoder: &mut WireEncoder, nodes: &[bray_bound_tree::CheckedTe
 
     for node in nodes {
         encoder.write_u32(node.raw());
-    }
-}
-
-fn write_symbol_references(
-    encoder: &mut WireEncoder,
-    references: &[crate::InterfaceSymbolReference],
-) {
-    write_count(encoder, references.len());
-
-    for reference in references {
-        write_symbol_reference(encoder, reference);
     }
 }
 

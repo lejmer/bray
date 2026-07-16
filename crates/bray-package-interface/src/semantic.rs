@@ -14,8 +14,9 @@ pub use interning::{
 pub use model::{
     InterfaceAbiDependency, InterfaceCallableContract, InterfaceCallableContractClause,
     InterfaceCallableInstance, InterfaceCallableInstanceId, InterfaceCallableParameter,
-    InterfaceCheckedTemplate, InterfaceCheckedTemplateBehavior, InterfaceCheckedTemplateId,
-    InterfaceCheckedTemplateInput, InterfaceCheckedTemplateInputKind, InterfaceCheckedTemplateNode,
+    InterfaceCallablePhaseBehavior, InterfaceCheckedTemplate, InterfaceCheckedTemplateBehavior,
+    InterfaceCheckedTemplateExecution, InterfaceCheckedTemplateId, InterfaceCheckedTemplateInput,
+    InterfaceCheckedTemplateInputKind, InterfaceCheckedTemplateNode,
     InterfaceCheckedTemplateOperation, InterfaceCheckedTemplateTemporary, InterfaceCoherenceRecord,
     InterfaceConstantProjection, InterfaceConstantTerm, InterfaceConstantTermId,
     InterfaceConstantValue, InterfaceConstantValueId, InterfaceConstantValueKind,
@@ -30,5 +31,5 @@ pub use model::{
     InterfaceSemanticFactKind, InterfaceSemanticFacts, InterfaceSourceProvenance,
     InterfaceSupportEntity, InterfaceSupportImplementation, InterfaceTargetFactDependency,
     InterfaceTemplateReference, InterfaceTraitApplication, InterfaceTraitApplicationId,
-    InterfaceType, InterfaceTypeId,
+    InterfaceTrustedCapabilityRequirement, InterfaceType, InterfaceTypeId,
 };

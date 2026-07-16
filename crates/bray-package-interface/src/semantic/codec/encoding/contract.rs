@@ -1,9 +1,12 @@
 use super::model::EncodedSemanticSection;
 use super::section;
 use super::value::write_tagged_id;
-use crate::semantic::codec::common::{write_count, write_symbol_reference};
+use crate::semantic::codec::common::{
+    write_count, write_symbol_reference, write_symbol_references,
+};
 use crate::semantic::model::{
-    InterfaceDependencyGuard, InterfaceDependencyProjection, InterfaceDependencyRequirement,
+    InterfaceCallableContractClause, InterfaceCallablePhaseBehavior, InterfaceDependencyGuard,
+    InterfaceDependencyProjection, InterfaceDependencyRequirement,
     InterfaceDependencyRequirementKind, InterfaceDependencyRequirementValue,
     InterfaceDependencySubject, InterfaceDependencySubjectRoot,
 };
@@ -35,21 +38,18 @@ pub(super) fn encode_contracts(facts: &InterfaceSemanticFacts) -> EncodedSemanti
 
     for contract in &*facts.callable_contracts {
         write_symbol_reference(&mut encoder, &contract.owner);
-        write_count(&mut encoder, contract.clauses.len());
+        encode_callable_clauses(&mut encoder, &contract.invocation_preconditions);
+        encode_callable_clauses(&mut encoder, &contract.static_constraints);
+        encode_callable_clauses(&mut encoder, &contract.normal_completion_postconditions);
+        encode_callable_behavior(&mut encoder, &contract.invocation_behavior);
 
-        for clause in &*contract.clauses {
-            encoder.write_u32(clause.ordinal.raw());
-            encoder.write_u32(clause.kind.to_wire());
-            encoder.write_u32(clause.predicate.dependency_contract.raw());
+        match &contract.deferred_execution_behavior {
+            Some(behavior) => {
+                encoder.write_u32(1);
+                encode_callable_behavior(&mut encoder, behavior);
+            }
+            None => encoder.write_u32(0),
         }
-
-        write_count(&mut encoder, contract.trusted_capabilities.len());
-
-        for capability in &*contract.trusted_capabilities {
-            write_symbol_reference(&mut encoder, capability);
-        }
-
-        encoder.write_u32(contract.dependency_contract.raw());
     }
 
     section(
@@ -57,6 +57,41 @@ pub(super) fn encode_contracts(facts: &InterfaceSemanticFacts) -> EncodedSemanti
         facts.dependency_contracts.len() + facts.constraints.len() + facts.callable_contracts.len(),
         encoder,
     )
+}
+
+fn encode_callable_clauses(encoder: &mut WireEncoder, clauses: &[InterfaceCallableContractClause]) {
+    write_count(encoder, clauses.len());
+
+    for clause in clauses {
+        encoder.write_u32(clause.ordinal.raw());
+        encoder.write_u32(clause.predicate.dependency_contract.raw());
+    }
+}
+
+fn encode_callable_behavior(encoder: &mut WireEncoder, behavior: &InterfaceCallablePhaseBehavior) {
+    for requirements in [
+        &behavior.effects,
+        &behavior.capabilities,
+        &behavior.execution_requirements,
+    ] {
+        write_symbol_references(encoder, requirements);
+    }
+
+    write_count(encoder, behavior.trusted_capabilities.len());
+
+    for requirement in &*behavior.trusted_capabilities {
+        encoder.write_u32(requirement.ordinal.raw());
+        write_symbol_reference(encoder, &requirement.capability);
+    }
+
+    write_count(encoder, behavior.lifecycle_obligations.len());
+
+    for obligation in &*behavior.lifecycle_obligations {
+        encoder.write_u32(obligation.to_wire());
+    }
+
+    encoder.write_u32(behavior.dependency_contract.raw());
+    encoder.write_u32(behavior.current_run_cancellation.to_wire());
 }
 
 pub(super) fn encode_dependency_requirement(

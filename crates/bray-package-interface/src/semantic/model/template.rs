@@ -1,10 +1,13 @@
 use std::sync::Arc;
 
+use bray_base::sorted_unique_shared_slice;
 use bray_bound_tree::{
     CheckedTemplateInputId, CheckedTemplateKind, CheckedTemplateNodeId,
     CheckedTemplateShortCircuitKind, CheckedTemplateTemporaryId,
 };
-use bray_symbols::{InterfaceSupportEntityId, LifecycleObligationKind, SymbolOrdinal};
+use bray_symbols::{
+    CurrentRunCancellation, InterfaceSupportEntityId, LifecycleObligationKind, SymbolOrdinal,
+};
 
 use super::{
     InterfaceConstantTermId, InterfaceDependencyContractId, InterfaceImplementationReference,
@@ -53,10 +56,41 @@ impl InterfaceCheckedTemplateInput {
 
 /// Portable checked behavior retained by one interface template.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct InterfaceCheckedTemplateExecution {
+    requirements: Arc<[InterfaceSymbolReference]>,
+    current_run_cancellation: CurrentRunCancellation,
+}
+
+impl InterfaceCheckedTemplateExecution {
+    /// Creates normalized execution-context behavior.
+    pub fn new(
+        requirements: impl IntoIterator<Item = InterfaceSymbolReference>,
+        current_run_cancellation: CurrentRunCancellation,
+    ) -> Self {
+        Self {
+            requirements: sorted_unique_shared_slice(requirements),
+            current_run_cancellation,
+        }
+    }
+
+    /// Returns execution-lane requirements in canonical semantic-set order.
+    pub fn requirements(&self) -> &[InterfaceSymbolReference] {
+        &self.requirements
+    }
+
+    /// Returns whether evaluation can enter cancellation for its current run.
+    pub const fn current_run_cancellation(&self) -> CurrentRunCancellation {
+        self.current_run_cancellation
+    }
+}
+
+/// Portable checked behavior retained by one interface template.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct InterfaceCheckedTemplateBehavior {
     effects: Arc<[InterfaceSymbolReference]>,
     capabilities: Arc<[InterfaceSymbolReference]>,
     trusted_obligations: Arc<[InterfaceSymbolReference]>,
+    execution: InterfaceCheckedTemplateExecution,
     lifecycle_obligations: Arc<[LifecycleObligationKind]>,
     dependency_contract: InterfaceDependencyContractId,
     witnesses: Arc<[InterfaceImplementationReference]>,
@@ -68,17 +102,19 @@ impl InterfaceCheckedTemplateBehavior {
         effects: impl IntoIterator<Item = InterfaceSymbolReference>,
         capabilities: impl IntoIterator<Item = InterfaceSymbolReference>,
         trusted_obligations: impl IntoIterator<Item = InterfaceSymbolReference>,
+        execution: InterfaceCheckedTemplateExecution,
         lifecycle_obligations: impl IntoIterator<Item = LifecycleObligationKind>,
         dependency_contract: InterfaceDependencyContractId,
         witnesses: impl IntoIterator<Item = InterfaceImplementationReference>,
     ) -> Self {
         Self {
-            effects: effects.into_iter().collect(),
-            capabilities: capabilities.into_iter().collect(),
-            trusted_obligations: trusted_obligations.into_iter().collect(),
-            lifecycle_obligations: lifecycle_obligations.into_iter().collect(),
+            effects: sorted_unique_shared_slice(effects),
+            capabilities: sorted_unique_shared_slice(capabilities),
+            trusted_obligations: sorted_unique_shared_slice(trusted_obligations),
+            execution,
+            lifecycle_obligations: sorted_unique_shared_slice(lifecycle_obligations),
             dependency_contract,
-            witnesses: witnesses.into_iter().collect(),
+            witnesses: sorted_unique_shared_slice(witnesses),
         }
     }
 
@@ -97,6 +133,11 @@ impl InterfaceCheckedTemplateBehavior {
         &self.trusted_obligations
     }
 
+    /// Returns execution-lane requirements in canonical semantic-set order.
+    pub fn execution_requirements(&self) -> &[InterfaceSymbolReference] {
+        self.execution.requirements()
+    }
+
     /// Returns lifecycle obligations in canonical semantic-set order.
     pub fn lifecycle_obligations(&self) -> &[LifecycleObligationKind] {
         &self.lifecycle_obligations
@@ -105,6 +146,11 @@ impl InterfaceCheckedTemplateBehavior {
     /// Returns the normalized portable dependency contract.
     pub const fn dependency_contract(&self) -> InterfaceDependencyContractId {
         self.dependency_contract
+    }
+
+    /// Returns whether evaluation can enter cancellation for its current run.
+    pub const fn current_run_cancellation(&self) -> CurrentRunCancellation {
+        self.execution.current_run_cancellation()
     }
 
     /// Returns selected implementations in canonical semantic-set order.

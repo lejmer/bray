@@ -8,7 +8,8 @@ pub use error::CheckedTemplateBuildError;
 pub use identity::{CheckedTemplateInputId, CheckedTemplateNodeId, CheckedTemplateTemporaryId};
 pub use model::{
     CheckedTemplate, CheckedTemplateBehavior, CheckedTemplateCapability, CheckedTemplateCompletion,
-    CheckedTemplateEffect, CheckedTemplateInput, CheckedTemplateInputKind, CheckedTemplateKind,
-    CheckedTemplateNode, CheckedTemplateOperation, CheckedTemplateShortCircuitKind,
-    CheckedTemplateTemporary, CheckedTemplateTrustedObligation, CheckedTemplateWitness,
+    CheckedTemplateEffect, CheckedTemplateExecution, CheckedTemplateExecutionRequirement,
+    CheckedTemplateInput, CheckedTemplateInputKind, CheckedTemplateKind, CheckedTemplateNode,
+    CheckedTemplateOperation, CheckedTemplateShortCircuitKind, CheckedTemplateTemporary,
+    CheckedTemplateTrustedObligation, CheckedTemplateWitness,
 };
