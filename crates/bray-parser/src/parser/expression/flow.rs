@@ -1,7 +1,6 @@
 use bray_syntax::{
-    AsyncBlockExpressionSyntax, BreakExpressionSyntax, ContinueExpressionSyntax,
-    PanicExpressionSyntax, ReturnExpressionSyntax, SpawnExpressionSyntax, SyntaxKind,
-    WithExpressionSyntax, YieldExpressionSyntax,
+    BreakExpressionSyntax, ContinueExpressionSyntax, PanicExpressionSyntax, ReturnExpressionSyntax,
+    SyntaxKind, WithExpressionSyntax, YieldExpressionSyntax,
 };
 
 use crate::parser::state::Parser;
@@ -37,52 +36,6 @@ impl Parser {
         );
 
         builder.push_block_expression(self.parse_flow_block_expression());
-
-        builder.build()
-    }
-
-    pub(in crate::parser::expression) fn parse_async_block_expression(
-        &mut self,
-    ) -> AsyncBlockExpressionSyntax {
-        let start = self.peek().full_range().start();
-        let mut builder = AsyncBlockExpressionSyntax::builder(self.syntax_source(), start);
-
-        builder.push_async_keyword(self.expect(SyntaxKind::AsyncKeyword));
-        builder.push_block_expression(self.parse_flow_block_expression());
-
-        builder.build()
-    }
-
-    pub(in crate::parser::expression) fn parse_spawn_expression(
-        &mut self,
-        at_boundary: &mut dyn FnMut(&mut Parser) -> bool,
-    ) -> SpawnExpressionSyntax {
-        let start = self.peek().full_range().start();
-        let mut builder = SpawnExpressionSyntax::builder(self.syntax_source(), start);
-
-        builder.push_spawn_keyword(self.expect(SyntaxKind::SpawnKeyword));
-
-        match self.peek().kind() {
-            SyntaxKind::DetachedKeyword => {
-                builder.push_detached_keyword(self.expect(SyntaxKind::DetachedKeyword));
-                builder.push_expression(self.parse_expression_until(at_boundary));
-            }
-            SyntaxKind::ThreadKeyword => {
-                builder.push_thread_keyword(self.expect(SyntaxKind::ThreadKeyword));
-
-                let mut at_callee_boundary = |parser: &mut Parser| {
-                    parser.at(SyntaxKind::OpenParenToken) || at_boundary(parser)
-                };
-
-                builder
-                    .push_access_expression(self.parse_access_expression(&mut at_callee_boundary));
-
-                builder.push_argument_list(self.parse_argument_list());
-            }
-            _ => {
-                builder.push_expression(self.parse_expression_until(at_boundary));
-            }
-        }
 
         builder.build()
     }
@@ -174,17 +127,11 @@ mod tests {
     use super::super::test_support::assert_expression_cases_until_semicolon_for_test;
 
     #[test]
-    fn parser_parses_block_shaped_flow_expressions() {
-        let cases = [
-            (
-                "with value: Item = source { yield value; };",
-                "with value: Item = source { yield value; }",
-            ),
-            ("async { return value; };", "async { return value; }"),
-            ("spawn worker();", "spawn worker()"),
-            ("spawn detached worker();", "spawn detached worker()"),
-            ("spawn thread worker(value);", "spawn thread worker(value)"),
-        ];
+    fn parser_parses_with_expressions() {
+        let cases = [(
+            "with value: Item = source { yield value; };",
+            "with value: Item = source { yield value; }",
+        )];
 
         assert_expression_cases_until_semicolon_for_test(&cases);
     }

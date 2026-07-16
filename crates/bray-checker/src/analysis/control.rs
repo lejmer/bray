@@ -97,23 +97,6 @@ impl ControlFlowGraphBuilder<'_> {
 
                 Some(Some(resume))
             }
-            BoundStructuredExpressionKind::AsyncBlock => {
-                self.push_bound(current, id.into());
-
-                let mut current = current;
-
-                for block in expression.blocks() {
-                    current = self
-                        .build_block(*block, current)?
-                        .unwrap_or_else(|| self.push_block());
-                }
-
-                let completion = self.push_block();
-
-                self.push_edge(current, completion, AnalysisEdgeKind::TaskCompletion, None);
-
-                Some(Some(completion))
-            }
             _ => {
                 let mut current = self.build_operands(expression.operands(), current)?;
 

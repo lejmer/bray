@@ -16,10 +16,9 @@ pub use expression::{
     BoundExpression, BoundForExpression, BoundGeneratorExpression,
     BoundLeadingDotVariantExpression, BoundMatchArm, BoundMatchExpression,
     BoundMemberAccessExpression, BoundMemberSelector, BoundNameExpression, BoundOperator,
-    BoundReferenceTarget, BoundSpawnExpression, BoundSpawnInput, BoundSpawnMode,
-    BoundStructConstructionExpression, BoundStructFieldInitializer, BoundStructuredExpression,
-    BoundStructuredExpressionKind, BoundTraitQualifiedMemberExpression, BoundUnaryExpression,
-    BoundUnresolvedReferenceExpression, BoundUnresolvedReferenceKind,
+    BoundReferenceTarget, BoundStructConstructionExpression, BoundStructFieldInitializer,
+    BoundStructuredExpression, BoundStructuredExpressionKind, BoundTraitQualifiedMemberExpression,
+    BoundUnaryExpression, BoundUnresolvedReferenceExpression, BoundUnresolvedReferenceKind,
 };
 pub use id::{
     AnyBoundNodeId, BoundBlockId, BoundCallableBodyId, BoundExpressionId, BoundNodeKind,

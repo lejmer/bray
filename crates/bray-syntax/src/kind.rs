@@ -291,10 +291,6 @@ pub enum SyntaxKind {
     CatchExpression,
     /// Await expression.
     AwaitExpression,
-    /// Async block expression.
-    AsyncBlockExpression,
-    /// Spawn expression.
-    SpawnExpression,
     /// Type-form construction expression.
     TypeFormConstructionExpression,
     /// Boolean fold expression.
@@ -362,7 +358,6 @@ pub enum SyntaxKind {
     ConsumeKeyword,
     ContinueKeyword,
     DestructKeyword,
-    DetachedKeyword,
     EachKeyword,
     ElseKeyword,
     EnsuresKeyword,
@@ -395,10 +390,8 @@ pub enum SyntaxKind {
     ReturnKeyword,
     SelfValueKeyword,
     SelfTypeKeyword,
-    SpawnKeyword,
     StaticKeyword,
     StructKeyword,
-    ThreadKeyword,
     TraitKeyword,
     TrustedKeyword,
     TrueKeyword,
@@ -607,8 +600,6 @@ impl SyntaxKind {
                 | Self::ResultPropagationExpression
                 | Self::CatchExpression
                 | Self::AwaitExpression
-                | Self::AsyncBlockExpression
-                | Self::SpawnExpression
                 | Self::TypeFormConstructionExpression
                 | Self::BooleanFoldExpression
                 | Self::YieldExpression
@@ -667,7 +658,6 @@ impl SyntaxKind {
                 | Self::ConsumeKeyword
                 | Self::ContinueKeyword
                 | Self::DestructKeyword
-                | Self::DetachedKeyword
                 | Self::EachKeyword
                 | Self::ElseKeyword
                 | Self::EnsuresKeyword
@@ -700,10 +690,8 @@ impl SyntaxKind {
                 | Self::ReturnKeyword
                 | Self::SelfValueKeyword
                 | Self::SelfTypeKeyword
-                | Self::SpawnKeyword
                 | Self::StaticKeyword
                 | Self::StructKeyword
-                | Self::ThreadKeyword
                 | Self::TraitKeyword
                 | Self::TrustedKeyword
                 | Self::TrueKeyword
@@ -901,8 +889,6 @@ impl SyntaxKind {
             Self::ResultPropagationExpression => "result_propagation_expression",
             Self::CatchExpression => "catch_expression",
             Self::AwaitExpression => "await_expression",
-            Self::AsyncBlockExpression => "async_block_expression",
-            Self::SpawnExpression => "spawn_expression",
             Self::TypeFormConstructionExpression => "type_form_construction_expression",
             Self::BooleanFoldExpression => "boolean_fold_expression",
             Self::YieldExpression => "yield_expression",
@@ -948,7 +934,6 @@ impl SyntaxKind {
             Self::ConsumeKeyword => "consume_keyword",
             Self::ContinueKeyword => "continue_keyword",
             Self::DestructKeyword => "destruct_keyword",
-            Self::DetachedKeyword => "detached_keyword",
             Self::EachKeyword => "each_keyword",
             Self::ElseKeyword => "else_keyword",
             Self::EnsuresKeyword => "ensures_keyword",
@@ -981,10 +966,8 @@ impl SyntaxKind {
             Self::ReturnKeyword => "return_keyword",
             Self::SelfValueKeyword => "self_value_keyword",
             Self::SelfTypeKeyword => "self_type_keyword",
-            Self::SpawnKeyword => "spawn_keyword",
             Self::StaticKeyword => "static_keyword",
             Self::StructKeyword => "struct_keyword",
-            Self::ThreadKeyword => "thread_keyword",
             Self::TraitKeyword => "trait_keyword",
             Self::TrustedKeyword => "trusted_keyword",
             Self::TrueKeyword => "true_keyword",
@@ -1208,8 +1191,6 @@ mod tests {
         assert!(SyntaxKind::ResultPropagationExpression.is_node());
         assert!(SyntaxKind::CatchExpression.is_node());
         assert!(SyntaxKind::AwaitExpression.is_node());
-        assert!(SyntaxKind::AsyncBlockExpression.is_node());
-        assert!(SyntaxKind::SpawnExpression.is_node());
         assert!(SyntaxKind::TypeFormConstructionExpression.is_node());
         assert!(SyntaxKind::BooleanFoldExpression.is_node());
         assert!(SyntaxKind::YieldExpression.is_node());
@@ -1722,13 +1703,6 @@ mod tests {
 
         assert_eq!(SyntaxKind::CatchExpression.as_str(), "catch_expression");
         assert_eq!(SyntaxKind::AwaitExpression.as_str(), "await_expression");
-
-        assert_eq!(
-            SyntaxKind::AsyncBlockExpression.as_str(),
-            "async_block_expression"
-        );
-
-        assert_eq!(SyntaxKind::SpawnExpression.as_str(), "spawn_expression");
 
         assert_eq!(
             SyntaxKind::TypeFormConstructionExpression.as_str(),

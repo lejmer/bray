@@ -7,8 +7,8 @@ use bray_symbols::LocalScopeId;
 use bray_syntax::{
     AccessExpressionSyntax, ForExpressionSyntax, GeneralGeneratorExpressionSyntax,
     LambdaExpressionSyntax, LeadingDotVariantExpressionSyntax, MatchExpressionSyntax,
-    PrimaryExpressionSyntax, SourceSyntaxNode, SpawnExpressionSyntax, SyntaxKind, SyntaxNodeView,
-    SyntaxWalkControl, walk_direct_child_nodes,
+    PrimaryExpressionSyntax, SourceSyntaxNode, SyntaxKind, SyntaxNodeView, SyntaxWalkControl,
+    walk_direct_child_nodes,
 };
 
 use super::super::{BindingError, BindingResult};
@@ -101,14 +101,6 @@ impl ExpressionBinder {
                 &generator.generator_iteration_expression(),
                 SyntaxAnchor::from_node(&generator),
             );
-        }
-
-        if root.kind() == SyntaxKind::SpawnExpression {
-            let Some(spawn) = root.cast::<SpawnExpressionSyntax>() else {
-                return self.push_error(binder, Some(recovery_origin));
-            };
-
-            return self.bind_spawn(binder, scope, &spawn);
         }
 
         if root.kind() == SyntaxKind::ForExpression {

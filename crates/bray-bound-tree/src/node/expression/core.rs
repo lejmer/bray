@@ -7,9 +7,9 @@ use super::{
     BoundCallExpression, BoundControlTransferExpression, BoundConversionExpression,
     BoundErrorCallExpression, BoundErrorConversionExpression, BoundForExpression,
     BoundGeneratorExpression, BoundLeadingDotVariantExpression, BoundMatchExpression,
-    BoundMemberAccessExpression, BoundNameExpression, BoundSpawnExpression,
-    BoundStructConstructionExpression, BoundStructuredExpression,
-    BoundTraitQualifiedMemberExpression, BoundUnaryExpression, BoundUnresolvedReferenceExpression,
+    BoundMemberAccessExpression, BoundNameExpression, BoundStructConstructionExpression,
+    BoundStructuredExpression, BoundTraitQualifiedMemberExpression, BoundUnaryExpression,
+    BoundUnresolvedReferenceExpression,
 };
 
 /// A checked expression retaining its exact semantic category.
@@ -55,8 +55,6 @@ pub enum BoundExpression {
     Match(BoundMatchExpression),
     /// A generator iteration and its yield-capable region.
     Generator(BoundGeneratorExpression),
-    /// A task or thread spawn.
-    Spawn(BoundSpawnExpression),
     /// An expression that could not be checked successfully.
     Error(BoundErrorExpression),
 }
@@ -85,7 +83,6 @@ impl BoundExpression {
             Self::For(expression) => expression.origin(),
             Self::Match(expression) => expression.origin(),
             Self::Generator(expression) => expression.origin(),
-            Self::Spawn(expression) => expression.origin(),
             Self::Error(expression) => expression.origin(),
         }
     }
@@ -113,7 +110,6 @@ impl BoundExpression {
             Self::For(expression) => expression.ty(),
             Self::Match(expression) => expression.ty(),
             Self::Generator(expression) => expression.ty(),
-            Self::Spawn(expression) => expression.ty(),
             Self::Error(expression) => Some(expression.ty()),
         }
     }
@@ -141,7 +137,6 @@ impl BoundExpression {
             Self::For(expression) => expression.is_recovered(),
             Self::Match(expression) => expression.is_recovered(),
             Self::Generator(expression) => expression.is_recovered(),
-            Self::Spawn(expression) => expression.is_recovered(),
             Self::Error(_) => true,
         }
     }
@@ -164,7 +159,6 @@ impl BoundExpression {
             Self::For(expression) => expression.operands(),
             Self::Match(expression) => expression.operands(),
             Self::Generator(expression) => expression.operands(),
-            Self::Spawn(expression) => expression.operands(),
             Self::Block(_)
             | Self::Name(_)
             | Self::UnresolvedReference(_)

@@ -58,7 +58,6 @@ pub(super) fn structured_kind(kind: SyntaxKind) -> Option<BoundStructuredExpress
             BoundStructuredExpressionKind::TypeFormConstruction
         }
         SyntaxKind::BooleanFoldExpression => BoundStructuredExpressionKind::BooleanFold,
-        SyntaxKind::AsyncBlockExpression => BoundStructuredExpressionKind::AsyncBlock,
         SyntaxKind::PanicExpression => BoundStructuredExpressionKind::Panic,
         _ => return None,
     })
