@@ -5,10 +5,10 @@ use bray_bound_tree::{
 use bray_declarations::SyntaxAnchor;
 use bray_symbols::LocalScopeId;
 use bray_syntax::{
-    AccessExpressionSyntax, ForExpressionSyntax, GeneralGeneratorExpressionSyntax,
-    LambdaExpressionSyntax, LeadingDotVariantExpressionSyntax, MatchExpressionSyntax,
-    PrimaryExpressionSyntax, SourceSyntaxNode, SyntaxKind, SyntaxNodeView, SyntaxWalkControl,
-    walk_direct_child_nodes,
+    AccessExpressionSyntax, AwaitExpressionSyntax, ForExpressionSyntax,
+    GeneralGeneratorExpressionSyntax, LambdaExpressionSyntax, LeadingDotVariantExpressionSyntax,
+    MatchExpressionSyntax, PrimaryExpressionSyntax, SourceSyntaxNode, SyntaxKind, SyntaxNodeView,
+    SyntaxWalkControl, walk_direct_child_nodes,
 };
 
 use super::super::{BindingError, BindingResult};
@@ -109,6 +109,14 @@ impl ExpressionBinder {
             };
 
             return self.bind_for_expression(binder, scope, &expression);
+        }
+
+        if root.kind() == SyntaxKind::AwaitExpression {
+            let Some(await_expression) = root.cast::<AwaitExpressionSyntax>() else {
+                return self.push_error(binder, Some(recovery_origin));
+            };
+
+            return self.bind_await(binder, scope, &await_expression);
         }
 
         if root.kind() == SyntaxKind::MatchExpression {

@@ -22,15 +22,25 @@ pub(crate) fn error_expression() -> BoundExpression {
 }
 
 pub(crate) fn error_type() -> bray_symbols::TypeId {
-    let Ok(store) = SemanticValueStore::try_new() else {
-        panic!("test semantic store ID must be available");
-    };
+    let store = semantic_values();
 
+    error_type_in(&store)
+}
+
+pub(crate) fn error_type_in(store: &SemanticValueStore) -> bray_symbols::TypeId {
     let Ok(ty) = store.intern_type(TypeData::Error) else {
         panic!("test error type must be interned");
     };
 
     ty
+}
+
+pub(crate) fn semantic_values() -> SemanticValueStore {
+    let Ok(store) = SemanticValueStore::try_new() else {
+        panic!("test semantic store ID must be available");
+    };
+
+    store
 }
 
 pub(crate) fn source_anchor() -> BoundSourceAnchor {

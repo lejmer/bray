@@ -454,6 +454,7 @@ mod tests {
             "        break;\n",
             "    };\n",
             "    lambda(value: i32) {};\n",
+            "    await size;\n",
             "    return size;\n",
             "}",
         ));
@@ -495,6 +496,7 @@ mod tests {
         let mut saw_targeted_break = false;
         let mut saw_targeted_return = false;
         let mut saw_lambda = false;
+        let mut saw_await = false;
 
         walk_bound_tree(result.unit().tree(), block, |event| {
             let BoundWalkEvent::Enter(node) = event else {
@@ -564,6 +566,14 @@ mod tests {
                     saw_targeted_return = true;
                 }
                 BoundExpression::AnonymousCallable(_) => saw_lambda = true,
+                BoundExpression::Await(expression) => {
+                    assert_eq!(
+                        expression.resolution(),
+                        bray_bound_tree::BoundAwaitResolution::Pending
+                    );
+
+                    saw_await = true;
+                }
                 _ => {}
             }
 
@@ -580,6 +590,7 @@ mod tests {
         assert!(saw_targeted_break);
         assert!(saw_targeted_return);
         assert!(saw_lambda);
+        assert!(saw_await);
 
         assert_eq!(result.dependencies().len(), 1);
     }

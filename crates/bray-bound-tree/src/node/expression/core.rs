@@ -3,13 +3,13 @@ use bray_symbols::TypeId;
 use crate::{BoundBlockId, BoundExpressionId, BoundNodeOrigin, BoundPatternId};
 
 use super::{
-    BoundAnonymousCallableExpression, BoundAssignmentExpression, BoundBinaryExpression,
-    BoundCallExpression, BoundControlTransferExpression, BoundConversionExpression,
-    BoundErrorCallExpression, BoundErrorConversionExpression, BoundForExpression,
-    BoundGeneratorExpression, BoundLeadingDotVariantExpression, BoundMatchExpression,
-    BoundMemberAccessExpression, BoundNameExpression, BoundStructConstructionExpression,
-    BoundStructuredExpression, BoundTraitQualifiedMemberExpression, BoundUnaryExpression,
-    BoundUnresolvedReferenceExpression,
+    BoundAnonymousCallableExpression, BoundAssignmentExpression, BoundAwaitExpression,
+    BoundBinaryExpression, BoundCallExpression, BoundControlTransferExpression,
+    BoundConversionExpression, BoundErrorCallExpression, BoundErrorConversionExpression,
+    BoundForExpression, BoundGeneratorExpression, BoundLeadingDotVariantExpression,
+    BoundMatchExpression, BoundMemberAccessExpression, BoundNameExpression,
+    BoundStructConstructionExpression, BoundStructuredExpression,
+    BoundTraitQualifiedMemberExpression, BoundUnaryExpression, BoundUnresolvedReferenceExpression,
 };
 
 /// A checked expression retaining its exact semantic category.
@@ -37,6 +37,8 @@ pub enum BoundExpression {
     ErrorConversion(BoundErrorConversionExpression),
     /// A reference to a separately checked anonymous callable unit.
     AnonymousCallable(BoundAnonymousCallableExpression),
+    /// A direct await composing a future into the current run.
+    Await(BoundAwaitExpression),
     /// A source-shaped aggregate, control-flow, or effect expression.
     Structured(BoundStructuredExpression),
     /// A struct construction preserving named field associations.
@@ -74,6 +76,7 @@ impl BoundExpression {
             Self::Conversion(expression) => expression.origin(),
             Self::ErrorConversion(expression) => expression.origin(),
             Self::AnonymousCallable(expression) => expression.origin(),
+            Self::Await(expression) => expression.origin(),
             Self::Structured(expression) => expression.origin(),
             Self::StructConstruction(expression) => expression.origin(),
             Self::MemberAccess(expression) => expression.origin(),
@@ -101,6 +104,7 @@ impl BoundExpression {
             Self::Conversion(expression) => expression.ty(),
             Self::ErrorConversion(expression) => Some(expression.ty()),
             Self::AnonymousCallable(expression) => expression.ty(),
+            Self::Await(expression) => expression.ty(),
             Self::Structured(expression) => expression.ty(),
             Self::StructConstruction(expression) => expression.ty(),
             Self::MemberAccess(expression) => expression.ty(),
@@ -128,6 +132,7 @@ impl BoundExpression {
             Self::Conversion(expression) => expression.is_recovered(),
             Self::ErrorConversion(_) => true,
             Self::AnonymousCallable(expression) => expression.is_recovered(),
+            Self::Await(expression) => expression.is_recovered(),
             Self::Structured(expression) => expression.is_recovered(),
             Self::StructConstruction(expression) => expression.is_recovered(),
             Self::MemberAccess(expression) => expression.is_recovered(),
@@ -151,6 +156,7 @@ impl BoundExpression {
             Self::ErrorCall(expression) => expression.operands(),
             Self::Conversion(expression) => expression.operands(),
             Self::ErrorConversion(expression) => expression.operands(),
+            Self::Await(expression) => expression.operands(),
             Self::Structured(expression) => expression.operands(),
             Self::StructConstruction(expression) => expression.operands(),
             Self::MemberAccess(expression) => expression.operands(),
