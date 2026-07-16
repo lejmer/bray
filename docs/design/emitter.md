@@ -64,10 +64,10 @@ It does not contain mutable compiler state or backend-private values.
 ### Emission Plan
 
 An `EmissionPlan` is the complete validated immutable plan derived from one request and the selected product, target, backend
-capabilities, and package-interface policy.
+capabilities, and completed package-interface artifact.
 
 It fixes artifact identities, required and optional artifact kinds, logical ordering, output names, sinks, per-unit backend artifact
-requests, package-interface output, staging requirements, and prospective link outputs before serialization begins.
+requests, package-interface output, staging requirements, and prospective link outputs before backend emission or publication begins.
 
 The planning boundary is an immutable `EmissionPlanner` composed from target-output facts, an optional selected backend with its
 canonical codegen-unit keys and output policy, and an optional completed `InterfaceArtifact` for the selected product. Planning
@@ -360,7 +360,9 @@ that every plan input exists in the emission plan.
 
 ## Parallelism And Determinism
 
-Independent codegen and package-interface facts can compute in parallel after the immutable plan is published.
+Package-interface construction may compute in parallel with the target and backend facts needed for planning, but the completed
+`InterfaceArtifact` must exist before the immutable plan is published. Independent codegen contributions can compute in parallel
+after plan publication.
 
 Each worker owns its mutable backend or encoding construction state. Artifact contributions are immutable before they enter the
 emitter merge.

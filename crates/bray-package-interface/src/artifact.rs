@@ -80,6 +80,23 @@ impl InterfaceArtifact {
             });
         }
 
+        let decoded = InterfaceHeader::decode(&self.bytes)
+            .map_err(|_| InterfaceArtifactIntegrityError::Malformed)?;
+
+        if decoded.header.content_hash() != self.content_hash {
+            return Err(InterfaceArtifactIntegrityError::ContentHashMismatch {
+                expected: self.content_hash,
+                actual: decoded.header.content_hash(),
+            });
+        }
+
+        if decoded.header.artifact_hash() != self.artifact_hash {
+            return Err(InterfaceArtifactIntegrityError::ArtifactHashMismatch {
+                expected: self.artifact_hash,
+                actual: decoded.header.artifact_hash(),
+            });
+        }
+
         let actual_hash =
             compute_artifact_hash(&self.bytes).ok_or(InterfaceArtifactIntegrityError::Malformed)?;
 
@@ -114,6 +131,13 @@ pub enum InterfaceArtifactIntegrityError {
     },
     /// The retained bytes cannot be hashed as a package-interface artifact.
     Malformed,
+    /// The semantic content identity no longer matches the retained bytes.
+    ContentHashMismatch {
+        /// Hash recorded when the artifact was completed.
+        expected: crate::InterfaceContentHash,
+        /// Hash declared by the retained bytes.
+        actual: crate::InterfaceContentHash,
+    },
     /// The exact-byte identity no longer matches the retained bytes.
     ArtifactHashMismatch {
         /// Hash recorded when the artifact was completed.
@@ -335,6 +359,7 @@ mod tests {
 
     use super::InterfaceArtifactIntegrityError;
     use crate::encode_package_interface;
+    use crate::header::InterfaceHeader;
     use crate::test_support::package_interface_export_bundle;
 
     #[test]
@@ -364,6 +389,34 @@ mod tests {
 
         assert!(matches!(
             wrong_hash.validate_integrity(),
+            Err(InterfaceArtifactIntegrityError::ArtifactHashMismatch { .. })
+        ));
+    }
+
+    #[test]
+    fn completed_artifacts_reject_embedded_hash_mismatches() {
+        let bundle = package_interface_export_bundle();
+        let artifact = encode_package_interface(&bundle)
+            .unwrap_or_else(|error| panic!("test interface must encode: {error:?}"));
+        let mut wrong_content_hash = artifact.clone();
+        let mut bytes = wrong_content_hash.bytes().to_vec();
+
+        bytes[InterfaceHeader::CONTENT_HASH_OFFSET] ^= 0xff;
+        wrong_content_hash.bytes = Arc::from(bytes);
+
+        assert!(matches!(
+            wrong_content_hash.validate_integrity(),
+            Err(InterfaceArtifactIntegrityError::ContentHashMismatch { .. })
+        ));
+
+        let mut wrong_artifact_hash = artifact;
+        let mut bytes = wrong_artifact_hash.bytes().to_vec();
+
+        bytes[InterfaceHeader::ARTIFACT_HASH_OFFSET] ^= 0xff;
+        wrong_artifact_hash.bytes = Arc::from(bytes);
+
+        assert!(matches!(
+            wrong_artifact_hash.validate_integrity(),
             Err(InterfaceArtifactIntegrityError::ArtifactHashMismatch { .. })
         ));
     }
