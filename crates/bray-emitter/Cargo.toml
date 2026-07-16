@@ -19,6 +19,7 @@ tempfile = "3"
 
 [dev-dependencies]
 bray-package-interface = { path = "../bray-package-interface", features = ["test-support"] }
+bray-target = { path = "../bray-target", features = ["test-support"] }
 bray-testing = { path = "../bray-testing", features = ["mir-unit"] }
 
 [lints]

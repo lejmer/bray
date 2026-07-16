@@ -6,6 +6,9 @@ mod identity;
 mod machine;
 mod output;
 
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_support;
+
 pub use identity::TargetIdentity;
 pub use machine::{
     CodeModel, Endianness, ObjectFormat, RelocationModel, TargetArchitecture,

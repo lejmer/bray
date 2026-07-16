@@ -1,5 +1,3 @@
-use std::num::{NonZeroU16, NonZeroU32};
-
 use bray_codegen::{
     ArtifactDigest, ArtifactDigestAlgorithm, AssemblySyntaxKind, BackendArtifactId,
     BackendArtifactKind, BackendArtifactRequest, BackendArtifactRequestEntry,
@@ -8,9 +6,10 @@ use bray_codegen::{
     LinkableArtifactKind, LinkableArtifactRequirement,
 };
 use bray_symbols::PackageIdentity;
+use bray_target::test_support::test_target_machine;
 use bray_target::{
-    Endianness, ObjectFormat, TargetArchitecture, TargetIdentity, TargetMachineProperties,
-    TargetOutputDescription, TargetOutputKind, TargetOutputName,
+    ObjectFormat, TargetArchitecture, TargetIdentity, TargetOutputDescription, TargetOutputKind,
+    TargetOutputName,
 };
 use bray_testing::test_mir_unit;
 
@@ -73,7 +72,7 @@ pub(crate) fn target_output_description_from(
     names: impl IntoIterator<Item = TargetOutputName>,
 ) -> TargetOutputDescription {
     let Ok(description) =
-        TargetOutputDescription::try_new(target_identity(), target_machine(), names)
+        TargetOutputDescription::try_new(target_identity(), test_target_machine(), names)
     else {
         panic!("test target output description must be valid");
     };
@@ -284,23 +283,4 @@ pub(crate) fn output_name(kind: TargetOutputKind, prefix: &str, suffix: &str) ->
     };
 
     name
-}
-
-fn target_machine() -> TargetMachineProperties {
-    let pointer_width = NonZeroU16::new(64).unwrap_or(NonZeroU16::MIN);
-    let pointer_alignment = NonZeroU32::new(8).unwrap_or(NonZeroU32::MIN);
-    let stack_alignment = NonZeroU32::new(16).unwrap_or(NonZeroU32::MIN);
-
-    let Some(machine) = TargetMachineProperties::try_new(
-        TargetArchitecture::X86_64,
-        ObjectFormat::Elf,
-        Endianness::Little,
-        pointer_width,
-        pointer_alignment,
-        stack_alignment,
-    ) else {
-        panic!("test target machine properties must be valid");
-    };
-
-    machine
 }
