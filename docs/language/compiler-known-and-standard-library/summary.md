@@ -6,7 +6,7 @@ Compiler-provided declarations are compiler-known declarations whose implementat
 
 Compiler-known declarations are available without imports when target-available.
 
-`std.target` exposes compiler-known target facts for the selected target profile.
+The ambient `target` path exposes compiler-known target facts for the selected target profile without occupying `std`.
 
 Standard-library declarations are ordinary declarations supplied by standard-library packages.
 

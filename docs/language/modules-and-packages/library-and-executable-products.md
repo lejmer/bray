@@ -50,8 +50,11 @@ An entry point function:
 - does not expose trusted caller obligations,
 - is not `const`.
 
-An entry point can be `async` only when the executable product context supplies an async runtime contract for async entry
-execution.
+An entry point can be `async`. An executable with an async entrypoint selects exactly one conforming async runtime implementation
+and runtime ABI version through its product configuration.
+
+Product configuration can select hard limits for runtime tasks, native threads, and child processes. Ordinary
+`std.parallel.Budget<Domain>` values are library-side algorithm bounds and do not expose or reserve those host authorities.
 
 For an entry point with no explicit result type, the result type is `unit`.
 
@@ -63,8 +66,23 @@ For an entry point with no explicit result type, the result type is `unit`.
 
 An `i32` result is the executable's numeric exit result.
 
-The product runtime contract maps successful completion, failed completion, panic completion, cancellation completion, and numeric
-exit results to the host process or embedding environment.
+The product host owns the executable root run. It observes that run as if it produced `RunResult<T>` and maps successful completion,
+failed completion, panic completion, cancellation completion, and numeric exit results to the host process or embedding
+environment.
+
+For an async entrypoint, the compiler emits a host stub that invokes the entrypoint to create `Future<T>` and transfers its hidden
+frame into the host-owned runtime root task on the distinguished main-thread lane. The generated root frame performs root lexical
+task broadcast and ordinary lifecycle cleanup before publishing its final terminal record. The host then maps that record, drains
+cleanup reports, and shuts down runtime infrastructure. It does not discover source owners or repeat their lifecycle resolution.
+No source-level runtime value, runtime import, or inner async block is synthesized.
+
+The async entrypoint body is the root lexical structured task scope.
+
+The host process and its initial operating-system thread do not produce source-visible `std.process.Process<T>` or
+`std.thread.Thread<T>` values. Those standard-library types represent source ownership of child runs created within the product.
+
+The complete root-run, main-thread, terminal-observation, and product-shutdown rules are defined by
+[Execution roots and product shutdown](../async-and-concurrency/execution-roots-and-product-shutdown.md).
 
 `@entrypoint` does not change a function's name, module, visibility, callable type, ABI, contract, overload participation, or
 export behavior.

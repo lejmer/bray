@@ -138,7 +138,8 @@ finalization tracking, capability checking, effect checking, and fact-context re
 
 Local bindings introduced inside the callable-body block expression are visible according to ordinary block-expression scope rules.
 
-Local owned values whose ownership remains in the callable-body block expression are destroyed when the callable-body block expression exits.
+Local owned values whose ownership remains in the callable-body block expression are resolved when the callable-body block
+expression exits. In async execution, this includes structured task and asynchronous-finalization obligations.
 
 Callable-body exits include:
 
@@ -172,17 +173,15 @@ A callable body cannot return a value with unresolved finalization obligations u
 
 A callable-body block expression must leave every reachable exit with coherent type, ownership state, initialization state, destruction state, finalization state, capability state, effect state, and fact-context state.
 
-For async callables, the callable-body block expression is checked in async execution context.
+For async callables, the callable-body block expression is checked in an active async execution context and is the root lexical task
+scope for that invocation. Every nested ordinary block is also a structured task ownership boundary.
 
-Calling an async callable creates an owned async computation.
+Calling an async callable creates an owned inactive `Future<T>`. Suspension points capture live values, borrows, capabilities,
+effects, execution requirements, and lifecycle obligations into its dependency contract.
 
-Suspension points in an async callable capture live values, borrows, capabilities, effects, and finalization obligations into the async computation’s contract.
-
-Destroying an incomplete async computation cancels it, destroys owned state, and releases capabilities according to the async computation’s contract.
-
-Ordinary destruction remains synchronous.
-
-Asynchronous finalization obligations must be completed through asynchronous execution, transferred, or converted into an explicit fallback ownership form before the owning scope exits.
+Async scope exit requests cancellation for every owned unresolved task before awaiting any of them, then performs reverse lifecycle
+resolution. Ordinary destruction remains synchronous. Asynchronous finalization obligations must be driven in async cleanup or
+transferred to another compatible owner.
 
 ## Navigation
 

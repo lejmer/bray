@@ -20,13 +20,21 @@ A finalizer must return with the value fully initialized.
 
 If a finalizer returns `Result.Error`, the finalization obligation remains unresolved.
 
-A value with an unresolved finalization obligation cannot be destroyed.
+A value with an unresolved finalization obligation cannot be destroyed during ordinary execution. Panic and cancellation cleanup
+can apply the language-defined abandonment fallback after attempting the finalizer.
 
 A finalizer can return `unit` or `Result<unit, E>`.
 
 A finalizer can be synchronous or asynchronous.
 
 The surrounding context must be able to drive asynchronous finalization before ownership ends, transfer the obligation, or convert it into an explicit fallback ownership form.
+
+During panic or cancellation cleanup, a finalizer returning `Result.Error` records an owned suppressed cleanup incident and permits
+the synchronous destructor and represented-part destruction to run as the universal abnormal-exit fallback. This fallback is not
+available to ordinary source-level scope exit and cannot be explicitly invoked to ignore a finalization failure.
+
+Cleanup-incident ownership, reporting, ordering, and destruction are defined by
+[Cancellation](../async-and-concurrency/cancellation.md#fallible-finalization-during-abnormal-exit).
 
 ## Navigation
 

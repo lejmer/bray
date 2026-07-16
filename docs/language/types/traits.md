@@ -1024,7 +1024,9 @@ If an operation needs to consume an operand or mutate caller-provided storage, i
 
 Operators not listed in the overloadable operator table are not overloadable.
 
-Assignment, compound assignment, field access, method calls, function calls, indexing, slicing, ranges, borrowing, nullable propagation, result propagation, panic catching, awaiting, spawning, construction forms, pattern matching, and lifecycle forms are not operator-overload hooks.
+Assignment, compound assignment, field access, method calls, function calls, indexing, slicing, ranges, borrowing, nullable
+propagation, result propagation, panic catching, awaiting, task starting, construction forms, pattern matching, and lifecycle forms
+are not operator-overload hooks.
 
 Unary and binary expressions using overloadable tokens follow trait implementation coherence.
 

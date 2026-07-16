@@ -554,7 +554,7 @@ Lowering makes implicit behavior explicit:
 - pattern matching decisions,
 - loop control flow,
 - short-circuit boolean flow,
-- async task boundaries,
+- async frame creation, direct await, task boundaries, and checked cleanup plans,
 - trait dispatch selection,
 - selected overload arms.
 
@@ -562,6 +562,11 @@ Lowering should not make new semantic decisions.
 
 If lowering discovers that it needs a semantic fact that the checked bound HIR did not provide, the checker service
 contract is incomplete.
+
+Async lowering consumes hidden frame identities, suspension liveness, invocation and deferred execution contracts, state-indexed
+affinity facts, postcondition templates, and two-phase scope cleanup plans with distinct descriptor visitors. It emits typed MIR
+operations rather than calls selected by source-level runtime or standard-library names. `docs/design/async-runtime.md` defines the
+phase ownership and runtime boundary.
 
 Task-local lowering builders may use private intermediate forms while constructing MIR. Those forms are not separately published,
 cached, or exposed as another durable compiler representation.
@@ -643,8 +648,9 @@ serialization or perform the final native link.
 `bray-linker` consumes emitted objects or bitcode together with an immutable typed link plan. It owns linker selection, embedded or
 system linker adapters, process invocation, argument construction, linker diagnostics, and production of the final linked artifact.
 
-The link plan contains already selected entry-point, startup, runtime, native-library, export, search-path, and platform-option
-requirements. The linker does not discover semantic dependencies, inspect MIR, or choose product policy.
+The link plan contains already selected entry-point, startup, runtime, distinguished main-thread-lane, structured-shutdown,
+task/thread/process hard-limit, native-library, export, search-path, and platform-option requirements. The linker does not discover
+semantic dependencies, inspect MIR, or choose product policy.
 
 The linker writes to an emitter-owned staging destination. A successful linked artifact is atomically published through the
 emitter's artifact policy.

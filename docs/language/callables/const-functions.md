@@ -21,7 +21,7 @@ its arguments are valid in that context and its ordinary callable contract is sa
 
 A const function must be pure, deterministic, total for valid inputs, terminating, observational, effect-free, and allocation-free.
 
-A const function cannot read runtime storage, mutate storage, perform I/O, spawn work, await, suspend, catch or raise panics as
+A const function cannot read runtime storage, mutate storage, perform I/O, start tasks, await, suspend, catch or raise panics as
 runtime behavior, use runtime dynamic dispatch, or depend on runtime identity.
 
 The body of a const function is checked in constant-evaluation context.

@@ -1,24 +1,42 @@
 # Summary
 
-Async computations are owned suspendable values.
+Calling an async callable produces an owned inactive `Future<T>` and does not execute its body.
 
-Awaiting an async computation drives it in the current execution flow.
+`await` consumes and directly composes that computation into the current task. `Future<T>.start()` consumes it into independently
+running work and returns the sole source-level `Task<T>` owner.
 
-Spawning an async computation creates a task and a linear task obligation.
+`Task<T>.join()` and `Task<T>.cancel()` are consuming async methods that produce `RunResult<T>`. `try` on a run result forwards
+panic or cancellation into the current run; `catch` catches only a panic that occurs while evaluating its operand in the current
+run.
 
-`spawn detached` requires detached-safe captured state and returns a task handle that carries the task obligation.
+Every lexical block is a structured task boundary. Scope exit requests cancellation for all owned unresolved tasks before awaiting
+any of them, then resolves them through ordinary reverse lifecycle order.
 
-`spawn thread` creates a synchronous thread from explicit entry state and returns a linear thread obligation.
+Cancellation is cooperative, cleanup is shielded, and abnormal cleanup can fall back from failed graceful finalization to infallible
+destruction. Noncooperative work can delay scope exit indefinitely.
 
-Task and thread joins are observed through `catch handle.join()` as `RunResult<T>`.
+`blocking_execution()`, `compute_execution()`, and `main_thread_execution()` are ambient execution-context predicates. Async
+invocation defers them into the computation, direct await checks the current lane, and start selects a compatible lane.
 
-Cancellation resolves incomplete async computations, tasks, and threads by satisfying ownership, lifecycle, capability, and effect obligations.
+Async frames are opaque compiler-managed values. Direct await does not semantically require task allocation or scheduler mediation;
+task-owned storage begins at `start()`. Recursive suspended depth can require dynamic storage without source boxing or pinning.
 
-Concurrent runs communicate safely only through ownership transfer, borrow contracts, synchronization contracts, atomic contracts, and trusted runtime contracts.
+The executable host owns the root process, main thread, and root run. A synchronous main is the root run directly; an async main is
+driven as a host-owned root task on the distinguished main-thread lane. The generated root frame resolves source-owned tasks,
+threads, processes, budgets, and cleanup incidents before terminal publication. Host shutdown then maps the terminal record, drains
+reports, and ends runtime infrastructure and process-scoped resources.
 
-Safe Bray source is data-race-free by construction.
+The executable product selects one conforming runtime. `std.thread.Thread<T>`, `std.process.Process<T>`, parallel algorithms,
+channels, synchronization, checkpoints, timers, and concurrent combinators remain ordinary standard-library Bray over private
+trusted ABI operations.
 
-Low-level async runtime behavior belongs behind trusted declarations with safe contracts.
+Public concurrency policy, protocols, owners, combinators, budgets, and parallel algorithms are implemented in Bray. Portable
+runtime internals should be trusted Bray; direct FFI or a narrow native shim is reserved for operating-system thread, process,
+wait/wake, event, virtual-memory, unwind, and host-integration mechanisms that the Bray abstract machine cannot perform itself.
+
+Parallel algorithms use domain-typed `std.parallel.Budget<Domain>` values as owned library-side bounds. Nested algorithms share or
+split those bounds. Independent budgets remain subject to the underlying runtime or product hard limits and do not modify
+`Future<T>.start()` semantics.
 
 ## Navigation
 

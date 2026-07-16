@@ -65,7 +65,7 @@ Forbidden in predicate expressions:
 - I/O,
 - function calls whose selected callable contract is not valid in predicate-expression context,
 - method calls whose selected callable contract is not valid in predicate-expression context,
-- async, await, spawn, `try`, or `catch`,
+- async execution, `await`, task start, `try`, or `catch`,
 - `with` expressions and resource-scope behavior,
 - runtime loops other than generator iteration expressions used to produce finite boolean operands for `all(...)` or `any(...)`,
 - dynamic dispatch with effects,

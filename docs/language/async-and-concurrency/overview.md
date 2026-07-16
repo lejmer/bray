@@ -1,35 +1,40 @@
 # Overview
 
-Bray treats asynchronous execution and run-boundary observation as part of ownership, control flow, lifecycle, and capability checking.
+Bray treats asynchronous execution and task observation as part of ownership, control flow, lifecycle, dependency, capability,
+effect, and product checking.
 
-The core async and concurrency forms are:
+The core async surface is:
 
-- async functions,
-- async computations,
+- `async` functions, methods, lambdas, and async-capable lifecycle declarations,
+- the compiler-known owned computation type `Future<T>`,
 - `await` expressions,
-- `async` block expressions,
-- `spawn` expressions,
-- `spawn detached` expressions,
-- `spawn thread` expressions,
-- task handles,
-- thread handles,
-- task and thread observation through `catch`.
+- the compiler-known owned task type `Task<T>`,
+- `Future<T>.start()`,
+- `Task<T>.join()` and `Task<T>.cancel()`,
+- the compiler-known run-boundary union `RunResult<T>`,
+- the compiler-known execution predicates `blocking_execution()`, `compute_execution()`, and `main_thread_execution()`,
+- ordinary lexical scopes as structured task ownership boundaries.
 
-An async computation is an owned value.
+There are no async block, spawn, detached-task, thread-spawn, race, select, runtime, blocking, or compute expression forms.
 
-It can own or borrow state, hold capabilities, carry effects, and carry finalization obligations.
+Calling an async callable constructs an owned inactive computation and does not independently start it. Directly awaiting that
+computation composes it into the current task. Calling `start()` consumes it and creates an independently running task.
 
-Spawned work is structured by default.
+Every `Task<T>` is a linear source-level ownership obligation. Moving the handle transfers the obligation. If the handle remains
+owned when a lexical scope exits, scope cleanup requests cancellation and waits for the task before ownership ends. Bray has no
+detached task state without a source-level owner.
 
-A non-detached spawned task belongs to the nearest enclosing `async` block until the task is completed, cancelled, or transferred to another owner.
+Every executable has one host-owned root run. A synchronous entrypoint is that run directly; an async entrypoint is transferred
+into a host-owned root task with no source-visible `Task<T>`. Child tasks, operating-system threads, and processes remain owned by
+that root or by a checked nested source owner until their terminal outcomes and payload lifecycles resolve.
 
-Detached work is explicit.
+Operating-system threads, child processes, parallel algorithms, channels, synchronization types, timers, task combinators, and
+other concurrency facilities are ordinary standard-library declarations implemented over private trusted ABI operations. They do
+not add compiler-known types or syntax.
 
-`spawn detached` creates a task whose lifetime is represented by the returned task handle and whose captured state must be detached-safe.
-
-Thread work is explicit.
-
-`spawn thread` creates a thread whose lifetime is represented by the returned thread handle and whose entry state must be valid for thread execution.
+Their public policy and ownership behavior are Bray source. Portable low-level internals can be trusted Bray. Only irreducible
+operating-system mechanisms require a direct platform binding or narrow native shim, and a private ABI or `extern` declaration does
+not imply that its implementation language is C or another foreign language.
 
 ## Navigation
 

@@ -19,7 +19,7 @@ Boundaries include:
 - storing into a field, variant payload, tuple element, array element, or box storage,
 - assigning to an existing access path,
 - passing an argument to a callable,
-- capturing into an async computation, task, or thread,
+- transferring into an async computation or task,
 - forming a trait view,
 - using or exporting a declaration surface.
 
@@ -45,7 +45,8 @@ The expected result type, assignment target type, or overload result type does n
 
 Dependency contracts are inferred from the producing expression and checked against the destination.
 
-A declaration whose public result, stored value, callable value, trait view, task handle, thread handle, or lifecycle value carries non-local dependencies exposes those dependencies through its compiler-visible declaration contract.
+A declaration whose public result, stored value, callable value, trait view, async computation, task handle, or lifecycle value
+carries non-local dependencies exposes those dependencies through its compiler-visible declaration contract.
 
 This exposure is semantic metadata, not additional source syntax.
 

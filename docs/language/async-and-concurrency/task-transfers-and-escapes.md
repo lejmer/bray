@@ -1,61 +1,45 @@
 # Task transfers and escapes
 
-Moving a task handle transfers the task obligation to the destination owner.
+Moving a task handle transfers its task-resolution obligation and every dependency carried by the task.
 
-Task-handle destinations include:
+Task destinations include local bindings, fields, variant payloads, array elements, tuple elements, parameters, returned values, and
+values supplied by `yield`.
 
-- local bindings,
-- fields,
-- variant payloads,
-- array elements,
-- tuple elements,
-- function arguments,
-- returned values,
-- values supplied by `yield`.
+A transfer is valid only when the destination owner:
 
-A task handle can be transferred only when the destination owner can legally own the task and every state item captured by the task.
+- can own the task-resolution obligation,
+- cannot outlive borrowed storage captured by the task,
+- preserves scoped capabilities until the task resolves,
+- preserves thread-affinity requirements,
+- preserves deferred execution and lifecycle requirements,
+- can perform asynchronous finalization if ownership can end while the task remains unresolved.
 
-A task that captures only owned values and detached-safe capabilities can escape the creating async block through ordinary ownership transfer.
+A task depending on local storage can move to an enclosing or sibling owner only when dependency analysis proves that the new owner
+resolves before that storage ends. A task owning all captured state can be returned or stored without a borrow dependency, but it
+still has a task-resolution obligation.
 
-A task that captures a borrow can escape only to an owner whose lifetime is proven not to outlive the borrowed storage.
+There is no detached-safe exception. Escaping work is expressed only by ordinary movement of `Task<T>` into an owner whose inferred
+or declared contract can preserve all dependencies.
 
-A task that captures a scoped capability can escape only to an owner whose contract assumes responsibility for releasing that capability before the capability's source scope exits.
-
-A task that captures local storage from its creating async block cannot escape that async block.
-
-A declaration that returns, stores, or otherwise exposes a task handle with non-local dependencies preserves those dependencies through the task handle's inferred lifetime and capability dependency contract.
-
-If the destination type or declaration contract does not preserve the task handle's capture requirements, the transfer is rejected.
-
-This is invalid unless the returned task handle's dependency contract preserves the borrow of `data`:
+For example, an async function can return a task borrowing its parameter only when the result dependency contract preserves that
+borrow:
 
 ```bray
-func start(pos data: &Data) -> Task<Result<Hash, HashError>>
+async func start_hash(pos data: &Data) -> Task<Result<Hash, HashError>>
 {
-    return async
-    {
-        let task = spawn hash(data);
-        yield task;
-    };
+    return hash(data).start();
 }
 ```
 
-This is valid because the task owns `data`:
+The returned task keeps `data` borrowed until its eventual owner joins, cancels, or automatically resolves it. A caller cannot store
+that task where it may outlive `data`.
 
-```bray
-func start(pos data: Data) -> Task<Result<Hash, HashError>>
-{
-    return async
-    {
-        let task = spawn hash(data);
-        yield task;
-    };
-}
-```
+Moving a task out of a lexical scope excludes it from that scope's automatic task cleanup. The destination becomes responsible for
+its eventual resolution.
 
 ## Navigation
 
 - [Language index](../index.md)
 - [Async and concurrency index](../async-and-concurrency.md)
 - Previous: [Task handles and obligations](task-handles-and-obligations.md)
-- Next: [Thread spawn expressions](thread-spawn-expressions.md)
+- Next: [Structured task scope exit](structured-task-scope-exit.md)

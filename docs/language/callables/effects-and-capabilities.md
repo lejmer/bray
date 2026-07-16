@@ -41,7 +41,8 @@ The body effect summary is derived from:
 - assignments and mutation,
 - allocation and deallocation,
 - I/O,
-- async computation creation, `await`, `spawn`, task joins, and task cancellation,
+- async computation creation, `await`, task start, task joins, and task cancellation,
+- current-run panic and cancellation propagation,
 - panic-catching boundaries,
 - trusted capability use.
 
@@ -49,7 +50,9 @@ The computed body effect summary must be valid for the callable's declaration su
 
 Constant-evaluation eligibility is declared with the `const` function modifier.
 
-`requires(...)` declares caller obligations and preconditions.
+`requires(...)` declares caller obligations and preconditions. For an async callable, requirements about supplied values and
+invocation state are checked while constructing the frame, while requirements about the execution context are carried by the
+resulting computation until execution.
 
 `ensures(...)` declares established facts after normal completion.
 
@@ -121,20 +124,50 @@ I/O resource, transfer an I/O obligation, or state facts about external behavior
 
 Cancellation is an async and run-boundary effect.
 
-An `async` callable type carries suspendable execution and cancellation participation.
+There are two distinct cancellation properties:
+
+- ownership authority to request cancellation of another run,
+- abnormal control propagation that ends the current run.
+
+Authority is represented by the ordinary owner or host contract, such as `Task<T>`, `Thread<T>`, `Process<T>`, or a trusted product
+binding. It cannot be manufactured by a callable modifier.
+
+Current-run cancellation is a panic-like implicit abnormal-control effect. A runtime callable can enter it by observing a pending
+request at a checkpoint or cancellation-aware operation, or by forwarding `RunResult.Cancelled` with `try`. It propagates through
+ordinary synchronous calls and direct awaits while executing lexical cleanup until the current run boundary. `catch` does not
+intercept it.
+
+No source-level `cancel` effect modifier or callable-type clause exists. Like panic propagation, current-run cancellation does not
+change overload selection or callable assignment compatibility. The compiler nevertheless records `may_cancel_current_run` in the
+checked body effect summary and compiled declaration metadata so diagnostics, effect-free-context checks, lowering, and inspection
+can preserve the abnormal edge. Absence of that summary term is not a promise that arbitrary foreign or catastrophic host
+termination cannot occur.
+
+An `async` callable type carries suspendable execution and cooperative request-observation participation. This means its computation
+can be cancelled by its owning task or root according to the async observation rules; it is separate from the implicit effect of a
+synchronous callable that explicitly checkpoints or forwards an observed child cancellation.
 
 Calling an async function creates an async computation whose cancellation behavior is governed by [Async and concurrency](../async-and-concurrency.md).
+Body effects, body capabilities, execution-context requirements, and normal-completion facts belong to the computation's execution
+contract; they are not effects or facts of inactive-frame construction.
 
-Awaiting an async computation, spawning it as a task, joining a task, cancelling a task, and observing a run boundary must satisfy
+Awaiting an async computation, starting it as a task, joining a task, cancelling a task, and observing a run boundary must satisfy
 the async computation's ownership, borrowing, capability, effect, finalization, and cancellation obligations.
 
-A synchronous callable cancels a task through ownership of a task handle or another value whose contract gives cancellation
-authority.
+A synchronous callable can request another task's cancellation only through an owner operation whose execution contract permits it;
+it cannot drive an async cancellation computation or end an unresolved task obligation without an async execution context. It can
+still end its own current run through `std.run.checkpoint()`, a cancellation-aware synchronous operation, or `try RunResult`.
 
 That authority is represented by the parameter, receiver, or field type that carries the task obligation.
 
-Task cancellation is represented through `async`, task-handle ownership, and the contracts of values that carry cancellation
-authority.
+Cancellation authority is represented through task, thread, process, and host ownership contracts. Current-run cancellation
+propagation is represented in checked control flow and body-effect metadata, not by another keyword.
+
+`blocking_execution()`, `compute_execution()`, and `main_thread_execution()` are compiler-provided context predicates used in
+`requires(...)`. For synchronous calls they are immediate preconditions. Async invocation defers them into `Future<T>` because
+invocation does not execute the body; direct await validates them against the current lane and task start selects a satisfying
+lane. The same phase distinction applies to body effects and capabilities: direct await requires them from the current execution
+context, while task start proves that the selected lane and every dependency transferred into it satisfy them.
 
 ### Effects in callable types
 
@@ -153,6 +186,9 @@ Callable types represent caller-visible effects through the ordinary callable ty
 - contract clauses for preconditions, postconditions, static constraints, trusted caller obligations, facts, and resource obligations,
 - parameter and result types for task handles, async computations, storage obligations, lifecycle obligations, and resource
   ownership.
+
+Implicit panic and current-run cancellation propagation are not separate callable-type clauses. A higher-order caller cannot use
+callable assignment to promise that an ordinary runtime callable never panics or never cancels its current run.
 
 Callable type assignment, trait implementation checking, dynamic dispatch, and public API compatibility preserve caller-visible
 effects.

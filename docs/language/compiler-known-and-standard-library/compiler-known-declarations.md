@@ -24,6 +24,9 @@ Compiler-known declarations are not dependencies.
 
 They are not imported, re-exported, versioned, or shadowed by package declarations.
 
+No compiler-known declaration is owned by the `std` package namespace. The `std` root is reserved for ordinary standard-library
+packages, all of which remain subject to ordinary path and `using` rules.
+
 When this specification gives a compiler-known declaration a semantic declaration, that declaration describes its language contract.
 
 It does not imply that user code can replace, redeclare, or emulate that declaration by spelling the same name.

@@ -83,7 +83,8 @@ An `@test` function:
 - does not expose trusted caller obligations,
 - is not `const`.
 
-An `@test` function can be `async` only when the test product context supplies an async runtime contract for async test execution.
+An `@test` function can be `async`. A test product containing async tests selects one conforming runtime implementation and runtime
+ABI version through its product configuration.
 
 For an `@test` function with no explicit result type, the result type is `unit`.
 
@@ -139,7 +140,7 @@ A synchronous test that completes with `Result.Error(error)` fails with `error` 
 
 A synchronous test that panics fails with the caught `PanicReport`.
 
-An async test is driven by the test product's async runtime contract.
+An async test invocation creates `Future<T>` and is driven as a root task by the test product's selected runtime.
 
 An async test whose run completes with `unit` or `Result.Ok(unit)` passes.
 
@@ -149,9 +150,10 @@ An async test whose run boundary reports `RunResult.Panicked(report)` fails with
 
 An async test whose run boundary reports `RunResult.Cancelled` is reported as cancelled.
 
-Tasks and threads created by a test obey ordinary [task](../async-and-concurrency/task-handles-and-obligations.md) and [thread](../async-and-concurrency/thread-handles-and-obligations.md) obligation rules.
-
-Unresolved task or thread obligations at test completion are rejected by ordinary ownership and obligation checking.
+Children created by a test obey ordinary [task](../async-and-concurrency/task-handles-and-obligations.md), [standard-library
+thread and process](../async-and-concurrency/standard-library-concurrency.md), and [structured scope
+exit](../async-and-concurrency/structured-task-scope-exit.md) rules. Root scope and product cleanup resolve every owned child run
+before the test outcome is reported.
 
 Lifecycle, finalization, destruction, panic, cancellation, and cleanup behavior during test execution follows the ordinary language
 rules.

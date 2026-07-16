@@ -2,37 +2,21 @@
 
 A **catch expression** creates a panic-catching boundary for its operand.
 
+It is an expression-level panic conversion, not the second half of a try-catch statement. Bray has no exception objects, exception
+handler search, or resumable caught continuation.
+
 ```bray
 catch expression
 ```
 
-The operand is evaluated exactly once.
+The operand is evaluated exactly once. If the operand has type `T`, the catch expression has type `Result<T, PanicReport>`.
 
-The operand form selects the catch behavior. Expected result type does not select a catch behavior or overload.
+Normal completion produces `Result.Ok(value)`. A natural `unit` completion produces `Result.Ok(unit)`. A panic produces
+`Result.Error(report)` and does not resume the panicked continuation.
 
-For an ordinary operand of type `T`, `catch expression` has type `Result<T, PanicReport>`.
+Nested catch expressions catch at the nearest enclosing boundary.
 
-If the ordinary operand completes normally with a value of type `T`, the catch expression produces `Result.Ok(value)`.
-
-If the ordinary operand completes naturally as `unit`, the catch expression produces `Result.Ok(unit)`.
-
-If the ordinary operand panics, the catch expression produces `Result.Error(report)`.
-
-For a task or thread observation operand whose joined computation has declared result type `T`, `catch expression` has type
-`RunResult<T>`.
-
-If the observed run completes normally with a value of type `T`, the catch expression produces
-`RunResult.Completed(value)`.
-
-If the observed run panics, the catch expression produces `RunResult.Panicked(report)`.
-
-If the observed run is cancelled before normal completion, the catch expression produces `RunResult.Cancelled`.
-
-Panics caught by a catch expression do not resume the panicked continuation.
-
-Nested catch expressions create nested panic-catching boundaries. A panic is caught by the nearest enclosing catch boundary.
-
-A catch expression can use a block expression as its operand.
+A catch expression can use a block expression as its operand:
 
 ```bray
 let parsed: Result<Item, PanicReport> = catch
@@ -42,26 +26,36 @@ let parsed: Result<Item, PanicReport> = catch
 };
 ```
 
-The block operand is a single-yield region for the caught operand's successful result.
+The block operand is a single-yield region for the caught operand's successful result. Result propagation within that block follows
+ordinary propagation rules.
 
-`yield value` exits the block operand and supplies the successful result.
+Run observation is not a special catch operand. `await task.join()` and `await task.cancel()` produce `RunResult<T>` directly. A
+caller can apply ordinary `catch` around the await expression only to catch a panic occurring in the current run while performing
+that operation, in which case the type is `Result<RunResult<T>, PanicReport>`. The same value-versus-propagation distinction applies
+to standard-library thread and process observation contracts.
 
-`yield;` exits the block operand and supplies `unit`.
-
-Result propagation inside a block operand whose result type is `Result<T, E>` supplies `Result.Error(error)` as the
-block operand's value according to ordinary result propagation rules.
-
-For a task or thread observation whose declared result type is `Result<T, E>`, a recoverable error from the observed run is a
-normal completion value:
+Applying `try` to the observed run result first forwards a child panic or cancellation into the current run:
 
 ```bray
-let loaded: RunResult<Result<User, LoadError>> = catch task.join();
+let recovered: Result<T, PanicReport> = catch (try await task.join());
 ```
 
-That value is `RunResult.Completed(Result.Error(error))`.
+For `RunResult.Completed(value)`, the expression produces `Result.Ok(value)`. For `RunResult.Panicked(report)`, `try` forwards the
+existing report as a panic in the current run and `catch` converts it to `Result.Error(report)`. For `RunResult.Cancelled`, `try`
+forwards cancellation out of the catch expression because `catch` catches panic, not cancellation.
 
-`return`, `break`, `continue`, nullable propagation, result propagation, run-result propagation, and other exits that target an
-outer boundary leave the catch expression without producing a result value on that path.
+Calling an async callable does not execute its body. Therefore `catch operation()` catches only a panic during argument evaluation
+or inactive-frame construction and has type `Result<Future<T>, PanicReport>`. To catch a panic produced while directly executing the
+computation in the current run, the operand must include the await:
+
+```bray
+let recovered: Result<T, PanicReport> = catch (await operation());
+```
+
+Direct await creates no child run boundary, so a body panic reaches the surrounding catch directly.
+
+`return`, `break`, `continue`, propagation, and other exits targeting an outer boundary leave the catch expression without producing
+a result value on that path.
 
 `catch` is not valid in predicate expressions, contract expressions, guard expressions, or pattern contexts.
 

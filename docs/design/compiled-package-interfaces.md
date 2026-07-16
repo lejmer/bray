@@ -45,6 +45,11 @@ The package interface does not:
 - serve as the object-code, debug-information, documentation, or source-map format,
 - guarantee compatibility with obsolete interface format revisions.
 
+Private product/runtime ABI semantic-contract tables are not ordinary library package interfaces. They belong to the selected
+trusted ABI artifact, use closed binary ABI role identities, and are consumed only while checking private standard-library or
+product bindings. A public wrapper's inferred portable contract can enter `.brayi`; its private binding role and trusted ABI
+contract record cannot.
+
 The package and build layer supplies opaque package, product, and dependency identities. The interface records and validates those
 identities but does not decide how a package manager obtains them. Each identity type used in an artifact must provide a canonical
 serialized form and semantic equality contract.
@@ -362,6 +367,7 @@ For every exported declaration, the interface records the applicable checked sur
 - callable parameter names, order, modifiers, defaults, and declared types,
 - result type,
 - callable contracts, trusted obligations, capabilities, effects, and ABI,
+- checked implicit abnormal-control summaries such as `may_cancel_current_run`,
 - inferred dependency contracts required by consumers,
 - type layout and representation contracts exposed by the public surface,
 - constant eligibility, definition template or closed value as required,
@@ -371,6 +377,9 @@ For every exported declaration, the interface records the applicable checked sur
 - lifecycle obligations and default availability,
 - target-fact dependencies,
 - runtime default provider identity and checked template reference.
+
+Export validation rejects a public semantic fact that refers to a private product/runtime ABI role. The producing compilation must
+have reduced such a dependency to the ordinary inferred public contract of the wrapper declaration.
 
 The interface records semantic answers, not the source syntax from which they were derived.
 
@@ -444,6 +453,32 @@ borrow-capability IDs, or checker-local flow state.
 The consuming compiler decodes the structural template into its local `bray-symbols` semantic store. Binding then instantiates that
 portable template into a unit-local `BoundDependencyContractId` using the exact receiver, argument, result, capability, and selected
 implementation facts for the use site.
+
+Portable dependency templates include open transfer terms for generic subjects published to synchronized shared ownership, an
+independent task or thread, or a typed child-process protocol. Each term records the subject projection and destination class. A
+consumer instantiates it with the concrete argument's storage, affinity, synchronization, encoding, process-locality, and lifecycle
+dependencies; it does not re-check the generic body or look for a marker trait. This representation is what permits ordinary
+separately compiled generic `std.channel`, `std.thread`, `std.process`, and `std.parallel` declarations to enforce cross-run safety
+without compiler recognition of their names.
+
+### Async Declaration Metadata
+
+An exported async callable records its declared completion type, async callable contract, normalized invocation contract, deferred
+body effects, capabilities, execution requirements and lifecycle behavior, normal-completion postcondition template, portable
+dependency contract, hidden frame descriptor compatibility reference, state-indexed affinity requirements, and required runtime
+ABI features.
+
+The hidden frame representation is not encoded as an ordinary source generic argument or public field. Concrete non-generic frames
+publish target-specific size, alignment, move, resume, cancellation entry, phase-one owned-task broadcast, phase-two lifecycle
+resolution, result-move, and destruction descriptor references.
+Generic async declarations publish checked frame templates or implementation references under the same generic distribution policy
+as other executable generic bodies.
+
+A consuming compiler rejects an incompatible frame descriptor or runtime ABI revision before lowering imported use. Libraries record
+requirements but never select a runtime implementation. Executable and test product formation unions reachable requirements before
+code generation and linking.
+
+The complete metadata and compatibility contract is defined in `docs/design/async-runtime.md`.
 
 ### Checked Declaration-Owned Templates
 

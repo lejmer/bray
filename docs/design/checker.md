@@ -393,7 +393,7 @@ Checking validity and evaluating a closed constant are separate typed operations
 concrete generic or target-dependent instance is evaluated.
 
 The evaluator operates on checked semantic operations, not syntax. It cannot call non-const behavior, read runtime storage, allocate
-runtime storage, perform I/O, spawn, await, use runtime dynamic dispatch, or execute another forbidden operation indirectly.
+runtime storage, perform I/O, start tasks, await, use runtime dynamic dispatch, or execute another forbidden operation indirectly.
 
 Evaluating a call to a const callable requests that callable's complete checked-body fact as a cross-unit dependency. It does not
 invoke binding or a later domain of the constant instance currently being evaluated.
@@ -427,7 +427,9 @@ Facts retain typed subjects and dependencies on values, storage identities, stor
 capabilities, target facts, and implementation witnesses. Trusted provenance is part of the fact and cannot be reconstructed from a
 boolean result.
 
-`requires(...)` obligations are checked at the call boundary. `ensures(...)` facts enter only normal-completion successors.
+Synchronous `requires(...)` obligations are checked at the call boundary and `ensures(...)` facts enter only normal-completion
+successors. For async calls, the checker splits invocation requirements from the deferred execution contract and publishes
+`ensures(...)` facts only after normal direct-await completion or in a `RunResult.Completed` refinement.
 `with(...)` constraints are checked in the generic semantic context. Trusted obligations must be proved, visibly acknowledged, or
 propagated through the declaration contract.
 
@@ -545,21 +547,22 @@ The domain state is a typed product over storage identities and capabilities. It
 - moved, consumed, destroyed, and recovery state,
 - active shared and mutable borrow capabilities,
 - mutation authority and valid reborrow ancestry,
-- active scoped, task, thread, and other flow-sensitive capabilities,
+- active scoped, async-computation, task, and other flow-sensitive capabilities,
 - known storage overlap or disjointness,
 - active union variant and nullable presence when required for storage legality,
 - attached destruction, finalization, joining, cancellation, and scoped-use obligations,
 - already attached dependency requirements carried by the current value.
 
-This composite state is the sole flow owner for lifecycle, scope, task, thread, joining, cancellation, and other run obligations.
+This composite state is the sole flow owner for lifecycle, scope, async-computation, task, standard-library child-run, joining,
+cancellation, and other run obligations.
 Later domains consume its finalized results and cannot maintain another independently merged obligation state.
 
 The implementation must represent impossible combinations structurally where practical. It must not use one bag of optional fields
 for every storage category.
 
 Transfers cover construction, assignment, observation, copy, move, consumption, borrow, reborrow, mutation, projection, variant
-replacement, nullable replacement, destruction, finalization, scope enter and exit, task or thread transfer, join, cancellation,
-panic exit, and ordinary control exit.
+replacement, nullable replacement, destruction, finalization, scope enter and exit, async-computation or child-run-owner transfer,
+task start, join, cancellation, run-result forwarding, panic exit, and ordinary control exit.
 
 Storage overlap uses a closed typed result:
 
@@ -592,7 +595,7 @@ Storage flow follows `docs/language/ownership-and-borrowing.md`, `docs/language/
 ### Dependency-Contract Propagation
 
 The dependency domain infers and normalizes the non-local requirements carried by values, accesses, borrows, callable values, trait
-views, task handles, thread handles, and obligations.
+views, async computations, task handles, and obligations.
 
 It consumes checked type, refinement, storage, capability, witness, and lifecycle results. It does not recompute those rules.
 Storage flow can retain and validate an already attached contract as opaque typed input, but it does not infer derived contracts or
@@ -602,24 +605,31 @@ Moving a value moves its dependency contract. Copying creates the contract requi
 combines child requirements. Nullable and union contracts retain guards for presence and active variants. Calls instantiate portable
 symbol templates into unit-local subjects.
 
+Generic bodies use open dependency subjects. An operation that publishes such a subject to a synchronized shared owner, an
+independent in-process run, or an encoded child-process protocol adds an open transfer term naming the destination class. The term
+remains in the portable template and is validated against concrete value dependencies at instantiation. Process transfer terms add
+encoding and process-isolation requirements rather than pretending that an address-space-local borrow can move. This is the same
+analysis for user declarations, standard-library declarations, and private trusted ABI wrappers; no package or textual declaration
+name is special.
+
 The merge is a deterministic normalized union of requirements with typed guards. Requirements are discharged only by a checked
 operation that proves their resolution. Recovery preserves conservative requirements rather than dropping them.
 
 Durable results are unit-local `BoundDependencyContractId` values and inferred portable templates required by symbol facts or
 compiled interfaces. Full propagation states remain checker-private.
 
-These rules follow `docs/language/ownership-and-borrowing/dependency-contracts.md` and the async task and thread obligation rules in
+These rules follow `docs/language/ownership-and-borrowing/dependency-contracts.md` and the async computation and task rules in
 `docs/language/async-and-concurrency.md`.
 
 ### Effects, Capabilities, Contracts, And Trust
 
 This domain computes the body effect summary and validates effect, capability use, contract, trust, and boundary requirements.
 
-It observes selected calls and lifecycle operations, mutation, allocation, deallocation, I/O, async creation, suspension, spawn,
-join, cancellation, panic behavior, trusted operations, and dependency transfers.
+It observes selected calls and lifecycle operations, mutation, allocation, deallocation, I/O, async creation, suspension, task
+start, join, cancellation, panic behavior, trusted operations, and dependency transfers.
 
-It consumes composite storage results for capability availability and for lifecycle, scope, task, thread, joining, cancellation,
-and other run obligations. It does not transfer or merge those states again.
+It consumes composite storage results for capability availability and for lifecycle, scope, async-computation, task, joining,
+cancellation, and other run obligations. It does not transfer or merge those states again.
 
 Its state retains:
 
@@ -645,6 +655,38 @@ and source-correlated exit facts needed by lowering and symbol facts.
 
 These rules follow `docs/language/callables/effects-and-capabilities.md`, `docs/language/contracts-and-trust.md`,
 `docs/language/lifecycle.md`, and `docs/language/async-and-concurrency.md`.
+
+### Async Frame And Task Plans
+
+Async checking publishes typed frame, suspension, deferred-execution-contract, affinity, and structured cleanup results. It does not
+assign machine frame layout.
+
+For each async invocation, the checker separates argument evaluation, transfer, value preconditions, generic constraints, and frame
+construction from body effects, capabilities, execution predicates, lifecycle behavior, and normal-completion postconditions
+deferred into `Future<T>`. Direct await validates the deferred contract against the current execution context and publishes
+postconditions only on normal completion. Task start records the contract for runtime lane selection and publishes postconditions
+only in a `RunResult.Completed` refinement.
+
+`try` on `RunResult<T>` produces one normal value edge and two current-run abnormal-propagation edges. The checker does not search
+for a callable returning `RunResult<R>`. It verifies that the panicked edge transfers the existing `PanicReport`, the cancelled edge
+enters current-run cancellation, and both edges execute every intervening lifecycle and structured-cleanup obligation. An enclosing
+catch captures only the panicked edge.
+
+The cancelled edge contributes `may_cancel_current_run` to the checked body-effect summary, as do run checkpoints and
+cancellation-aware operations. This is panic-like implicit abnormal-control metadata rather than a source callable modifier or an
+overload/assignment discriminator. Constant, predicate, and other effect-free contexts reject it. Exported checked declaration
+metadata preserves it for diagnostics, lowering, and inspection.
+
+For each async lexical scope exit, composite storage flow emits one two-phase cleanup plan: all owned unresolved tasks receive
+cancellation before any task is awaited, then normal reverse lifecycle resolution proceeds with dependency ordering. Lowering
+consumes this plan without repeating flow analysis. Ordinary standard-library `Thread<T>` and `Process<T>` lifecycle obligations
+participate through their checked declaration contracts rather than compiler name recognition. The plan names separate descriptor
+broadcast visitors and lifecycle-resolution operations for concrete and erased state. It rejects implicit thread cleanup when a
+possible completion payload cannot be resolved synchronously and infallibly. Because the ordinary process finalizer returns
+`Result<unit, ProcessError>`, it always rejects an unresolved `Process<T>` on normal exit and requires explicit consuming
+observation; abnormal cleanup can record its failure as an incident.
+
+The complete implementation contract is defined in `docs/design/async-runtime.md`.
 
 ---
 

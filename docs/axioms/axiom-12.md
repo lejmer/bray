@@ -2,35 +2,58 @@
 
 Asynchronous execution is part of the language's semantic model.
 
-A synchronous computation completes at the point where it is evaluated.
+Calling an async callable creates an owned inactive `Future<T>` whose normal completion type is `T`. Calling it does not execute the
+body or create independently running work. Invocation checks argument transfer and value preconditions; body effects, capabilities,
+execution requirements, lifecycle behavior, and postconditions travel with the computation until execution, and postconditions are
+established only by normal completion.
 
-An asynchronous computation is an owned value representing suspended or suspendable execution. It contains the state required to complete according to its type, ownership, lifetime,
-capability, and effect contract.
+Awaiting consumes and composes an async computation into the current task. Starting consumes it into an independently running task
+and returns the sole source-level `Task<T>` owner. The distinction between computation and task is explicit in the type system rather
+than expressed by additional control-flow keywords.
 
-Calling an asynchronous function creates an asynchronous computation. Awaiting an asynchronous computation drives it to completion and produces its declared result.
+Every executing operation belongs to one run. Direct calls and direct awaits remain in that run. Tasks, native threads, and child
+processes create owned child runs. The executable host owns the root process, main thread, and root run; an async entrypoint is driven
+as a host-owned root task without a source-visible task owner.
 
-Suspension captures the values, borrows, capabilities, and effects that remain live across the suspension point. Captured state becomes part of the asynchronous computation's ownership
-and lifetime contract.
+Suspension preserves every value, borrow, capability, effect, execution requirement, fact dependency, and lifecycle obligation
+needed to resume or resolve the computation. Moving `Future<T>` or `Task<T>` transfers these dependencies.
 
-A value moved into an asynchronous computation is owned by that computation until it is returned, moved elsewhere, or destroyed. A value borrowed by an asynchronous computation remains
-borrowed for the lifetime declared by that computation.
+Every ordinary lexical block is a structured task boundary. A task can outlive its creating block only when its handle is moved to an
+owner whose contract preserves all dependencies and its eventual resolution. Bray has no source-level detached task without an
+owner.
 
-Spawned asynchronous work is structured by default. A non-detached spawned computation belongs to an `async` block that owns its lifetime, completion, cancellation, and destruction behavior.
+When async scope exit owns unresolved tasks, cancellation is requested for all of them before any is awaited. Cleanup then resolves
+them in ordinary lifecycle order before dependent storage or capabilities end. Concrete and erased representations preserve this
+as distinct recursive broadcast and lifecycle-resolution phases.
 
-Detached asynchronous work uses an explicit ownership-extending task handle. The handle represents responsibility for joining, cancelling, or completing the detached computation
-according to its contract.
+Cancellation is cooperative. It is observed at suspension points, checkpoints, and cancellation-aware operations. Cleanup is
+shielded from repeated delivery and uses synchronous infallible destruction as the abnormal-exit fallback when graceful
+finalization fails. Unobserved completion values receive their full lifecycle; suppressed failures remain owned until a panic report
+or mandatory host-reporting boundary consumes them.
 
-Destroying an incomplete asynchronous computation cancels it. Cancellation destroys owned captured state and releases held capabilities according to ordinary destruction rules.
+Async representation is protected. Direct await does not semantically require task creation, scheduler mediation, source boxing, or
+source pinning. Independent task storage begins at the start boundary, while dynamically recursive suspended depth can require
+runtime-managed storage.
 
-Ordinary destruction is synchronous.
+Asynchronous behavior and execution requirements are part of behavioral contracts. `blocking_execution()` and
+`compute_execution()` describe progress-policy facts, while `main_thread_execution()` describes the distinguished initial-thread
+fact. Async invocation defers them, direct await checks them, and task start selects a compatible lane.
 
-A value may carry an asynchronous finalization obligation as part of its type contract. An asynchronous finalization obligation must be completed, transferred, or converted into an
-explicit fallback ownership form before the owning scope exits.
+`RunResult<T>` makes a child run's normal, panicked, or cancelled terminal state explicit. Matching preserves that state as a value.
+`try` unwraps normal completion and forwards panic or cancellation into the current run. `catch` converts only panic in the current
+run into `Result<T, PanicReport>`; it does not intercept cancellation or inspect a nested run-result value implicitly.
 
-A value with an asynchronous finalization obligation is tracked by the compiler like ownership, initialization, movement, and destruction state. Every exit path from the owning scope must
-account for the obligation.
+Low-level runtime machinery is a versioned trusted product substrate. Channels, operating-system threads, synchronization types,
+child processes, parallel algorithms, timers, checkpoints, and concurrent combinators are ordinary standard-library Bray over
+private trusted ABI operations. Private ABI bindings receive compiler-readable semantic contracts from closed binary roles, while
+their public wrappers expose only ordinary inferred contracts. Their generic cross-run safety does not depend on
+compiler-recognized library names or marker types. Parallel algorithms use domain-typed library budgets; underlying product and
+runtime hard limits remain independently enforced.
 
-Asynchronous behavior is part of behavioral contracts. A contract method is synchronous or asynchronous as part of the contract it declares.
+Public concurrency policy, owners, protocols, combinators, and parallel algorithms are Bray source. Portable low-level internals
+should be trusted Bray. Foreign or native code is confined to target mechanisms that Bray cannot perform without the host platform,
+and an ABI or `extern` boundary does not imply a foreign implementation language.
 
-Low-level async runtime machinery is part of the trusted substrate. Executors, reactors, wakers, completion queues, foreign async callbacks, device async integration, and custom scheduling
-primitives are implemented through trusted capabilities and exposed through safe async contracts.
+The generated root frame resolves every source-owned task, thread, process, payload, and cleanup incident before publishing the
+root terminal outcome. The host then maps that outcome and shuts down runtime infrastructure and process-scoped resources. Normal
+root return never detaches child work.

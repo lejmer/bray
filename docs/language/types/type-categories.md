@@ -25,7 +25,8 @@ Union types are closed tagged sum types with variants.
 
 Compiler-known result types are named union types with language-defined variant contracts.
 
-Compiler-known task and thread handle types are linear ownership types with language-defined run-boundary contracts.
+The compiler-known `Future<T>` computation and `Task<T>` handle types are protected linear ownership types with language-defined
+async and run-boundary contracts.
 
 Tuple types are fixed-size ordered product types.
 
@@ -52,8 +53,8 @@ rules.
 
 [Raw pointer type](../targets-layout-abi-and-raw-memory/raw-pointer-type.md) defines `RawPointer<T>`, raw pointer validity, raw memory operations, raw memory trusted predicates, and raw pointer standard-library helpers.
 
-All other categories listed here are defined by the product, union, compiler-known result union, compiler-known task handle,
-compiler-known thread handle, and type-form sections of this chapter.
+All other categories listed here are defined by the product, union, compiler-known result union, compiler-known async computation,
+compiler-known task handle, and type-form sections of this chapter.
 
 ## Navigation
 

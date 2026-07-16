@@ -8,9 +8,9 @@ await expression
 
 The operand is evaluated exactly once.
 
-The operand must produce an async computation.
+The operand must have type `Future<T>` for some `T`.
 
-`await` consumes the async computation and drives it to completion in the current execution flow.
+`await` consumes the async computation and composes it into the current task.
 
 If the async computation completes normally with a value of type `T`, the await expression has type `T`.
 
@@ -23,4 +23,4 @@ Await expression ownership, borrowing, cancellation, panic, capability, and effe
 - [Language index](../index.md)
 - [Expressions index](../expressions.md)
 - Previous: [Continue expressions](continue-expressions.md)
-- Next: [Async block expressions](async-block-expressions.md)
+- Next: [Conversion expressions](conversion-expressions.md)

@@ -317,7 +317,7 @@ The selected language-level target profile remains the authority for target fact
 Stable target identity and machine-model values come from `bray-target`. `bray-codegen` composes those shared values with ABI,
 layout, symbol, compatibility, CPU, feature, and backend-selection facts in `CodegenTarget` rather than owning parallel copies.
 
-Code generation also needs compiler-private machine configuration that does not belong under `std.target`, including backend
+Code generation also needs compiler-private machine configuration that does not belong under `target`, including backend
 feature strings, object-format controls, relocation model, code model, and toolchain details. These values belong in a validated
 `CodegenTarget` supplied by compilation, not in the language-visible target fact namespace.
 
@@ -384,6 +384,16 @@ optimization and must preserve externally observable identity, linkage, debuggin
 
 Runtime entry points, compiler-known behavior roles, panic behavior, allocation hooks, async support, and lifecycle helpers must be
 resolved to explicit MIR references before code generation.
+
+Async MIR carries typed frame identities, resume states, direct-await composition, task start, cancellation, terminal publication,
+current-run forwarding of observed `RunResult<T>`, cleanup-incident transfer, and checked phase-one broadcast and phase-two
+lifecycle plans. Concrete and erased descriptors retain separate entry points for those phases. The backend must not lower every
+async call as a task or mandatory heap allocation. Direct await has no task-control-block or scheduler semantics;
+`Future<T>.start()` is the independent task-storage boundary. Async entrypoint lowering pins the host-owned root frame to the
+distinguished main-thread lane, completes checked root lexical cleanup before terminal publication, and preserves the published
+terminal outcome through subsequent product shutdown.
+
+Frame descriptor and runtime ABI lowering follows `docs/design/async-runtime.md`.
 
 The LLVM backend may lower a known MIR operation to an LLVM intrinsic or a declared runtime call. That mapping is typed backend
 policy and must have a conformance test.

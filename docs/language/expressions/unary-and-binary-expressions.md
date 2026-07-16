@@ -65,7 +65,8 @@ To combine comparisons, use boolean operators explicitly.
 
 `&&` and `||` are short-circuiting.
 
-Borrow expressions, conversion expressions, field access, calls, indexing, slicing, assignment, construction, pattern-bearing forms, `try`, `catch`, `await`, `spawn`, and lifecycle forms are separate expression forms.
+Borrow expressions, conversion expressions, field access, calls, indexing, slicing, assignment, construction, pattern-bearing
+forms, `try`, `catch`, `await`, and lifecycle forms are separate expression forms.
 
 They are not unary or binary expression tokens.
 

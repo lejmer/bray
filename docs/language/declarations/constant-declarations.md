@@ -101,7 +101,9 @@ Constant evaluation is not a macro system, source rewriting system, or separate 
 
 Normal expression typing, overload selection, result propagation, panic rules, ownership rules, borrowing rules, and evaluation order apply unless a constant-evaluation rule explicitly rejects the expression form.
 
-A compile-time constant expression cannot read runtime storage, borrow runtime storage, assign, mutate, move from a runtime access path, allocate storage, perform I/O, spawn work, await, suspend, catch or raise panics as runtime behavior, use runtime dynamic dispatch, depend on address identity, or call a non-const callable.
+A compile-time constant expression cannot read runtime storage, borrow runtime storage, assign, mutate, move from a runtime access
+path, allocate storage, perform I/O, start tasks, await, suspend, catch or raise panics as runtime behavior, use runtime dynamic
+dispatch, depend on address identity, or call a non-const callable.
 
 Control-flow expressions are valid in constant-evaluation context only when their selected path can be evaluated without runtime storage, runtime effects, or runtime dispatch.
 

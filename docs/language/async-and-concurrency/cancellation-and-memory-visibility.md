@@ -1,6 +1,7 @@
 # Cancellation and memory visibility
 
-Cancellation requests are observed by tasks and threads through cancellation points and operation contracts.
+Cancellation requests are observed by executable roots, tasks, native threads, and conforming child-process roots through their
+domain-specific cancellation points and operation contracts.
 
 A cancellation request does not grant direct access to the cancelled run's captured storage.
 
@@ -8,7 +9,8 @@ Cancellation does not interrupt an atomic operation at a partial state.
 
 Cancellation does not interrupt a non-cancellable operation at an arbitrary source point.
 
-When cancellation completes, all destruction, finalization, capability release, and synchronization behavior required by the cancelled state has completed or has been transferred according to the cancelled run's contract.
+When cancellation completes, required destruction, capability release, and synchronization behavior has completed. Graceful
+finalization has either completed or failed and been recorded before abnormal cleanup applied the destructor fallback.
 
 After cancellation completes, the cancelling run observes the completion edge produced by cancellation.
 

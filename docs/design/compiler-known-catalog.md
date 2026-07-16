@@ -208,11 +208,19 @@ They must not live under `bray-syntax/src/syntax/`, the language specification, 
 Files should be grouped by semantic domain rather than by implementation consumer. Expected groups include:
 
 - ambient scalar and fundamental declarations,
-- compiler-known result and task declarations,
+- compiler-known result, async computation, task, and execution-context declarations,
 - compiler-known traits and operator contracts,
 - `core.memory` declarations,
-- `std.target` declarations,
+- `target` declarations,
 - recognized standard-library identities.
+
+The async catalog group includes protected representation roles for `Future<T>` and `Task<T>`, inherent member roles for `start`,
+`join`, and `cancel`, and predicate roles for `blocking_execution()`, `compute_execution()`, and
+`main_thread_execution()`. It does not include runtime, executor, scheduler, thread, process, channel, parallel-algorithm, race,
+select, checkpoint, or cancellation-token declarations.
+
+No compiler-known catalog scope uses the `std` package root. `std` identities appear only in the recognized or ordinary
+standard-library catalog sections and remain subject to normal package visibility.
 
 The crate owns a canonical source manifest that explicitly lists every `.braydef` input consumed by the generator. Generation must
 not enumerate the build machine's filesystem or depend on directory iteration order.
@@ -414,7 +422,7 @@ recognized declaration cannot accidentally be materialized as compiler-known.
 Every scope has an explicit stable key and location.
 
 `ambient` denotes the compiler-known environment searched according to the language's ambient lookup rules. A path such as
-`core.memory` or `std.target` denotes a compiler-known module path.
+`core.memory` or `target` denotes a compiler-known module path.
 
 A scope declaration defines catalog ownership, not a source module declaration. Scope descriptors later produce the appropriate
 typed module or compiler-known-root symbols.

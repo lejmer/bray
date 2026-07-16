@@ -4,6 +4,9 @@ A **standard-library declaration** is an ordinary declaration supplied by a stan
 
 The standard-library root package is `std`.
 
+The `std` package namespace is reserved exclusively for standard-library packages. Compiler-known declarations, target facts, and
+private runtime ABI symbols do not occupy `std` paths.
+
 Standard-library declarations are not automatically visible.
 
 Source code can use a standard-library declaration only when the declaration is reachable through the `std` package root and visible through normal import or path rules.
@@ -13,6 +16,13 @@ When this specification writes a standard-library declaration without a body, th
 It is not source syntax that standard-library packages can write.
 
 A conforming standard-library package provides the declaration through ordinary Bray source, trusted Bray source, or another declared dependency mechanism allowed by the dependency and trust rules.
+
+For concurrency and parallelism, public policy and owner behavior are ordinary Bray source. Trusted Bray or private linked
+dependencies can supply raw representation and platform mechanisms, but they do not replace the public Bray implementation with a
+foreign-language semantic subsystem.
+
+A private linked declaration does not imply that its implementation is foreign code. It can resolve to a separately compiled Bray
+runtime artifact. Only an actual crossing into a foreign ABI follows the foreign-call rules.
 
 If a declaration has no ordinary standard-library implementation because the compiler provides it, it is a compiler-provided compiler-known declaration, not a standard-library declaration.
 
