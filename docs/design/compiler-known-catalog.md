@@ -214,7 +214,7 @@ Files should be grouped by semantic domain rather than by implementation consume
 - `target` declarations,
 - recognized standard-library identities.
 
-The async catalog group includes protected representation roles for `Async<T>` and `Task<T>`, inherent member roles for `start`,
+The async catalog group includes protected representation roles for `Future<T>` and `Task<T>`, inherent member roles for `start`,
 `join`, and `cancel`, and predicate roles for `blocking_execution()` and `compute_execution()`. It does not include runtime,
 executor, scheduler, thread-handle, channel, race, select, checkpoint, or cancellation-token declarations.
 

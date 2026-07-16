@@ -662,7 +662,7 @@ assign machine frame layout.
 
 For each async invocation, the checker separates argument evaluation, transfer, value preconditions, generic constraints, and frame
 construction from body effects, capabilities, execution predicates, lifecycle behavior, and normal-completion postconditions
-deferred into `Async<T>`. Direct await validates the deferred contract against the current execution context and publishes
+deferred into `Future<T>`. Direct await validates the deferred contract against the current execution context and publishes
 postconditions only on normal completion. Task start records the contract for runtime lane selection and publishes postconditions
 only in a `RunResult.Completed` refinement.
 

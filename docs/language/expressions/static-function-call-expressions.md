@@ -37,13 +37,13 @@ Static function call argument validation, missing default handling, and paramete
 
 A synchronous static function call produces the static function's declared result.
 
-A call to an async static function whose declared result is `T` produces an owned `Async<T>`.
+A call to an async static function whose declared result is `T` produces an owned `Future<T>`.
 
 A static function call can use ordinary and trusted facts from the fact context to satisfy preconditions.
 
 A synchronous static function call can establish facts from the static function's `ensures(...)` clause after successful
 completion. An async static function establishes those facts only after normal direct-await completion or within the
-`RunResult.Completed` arm after task observation. Constructing its `Async<T>` establishes no body postcondition and carries body
+`RunResult.Completed` arm after task observation. Constructing its `Future<T>` establishes no body postcondition and carries body
 effects, capabilities, execution requirements, and lifecycle behavior until execution.
 
 A static function call participates in overload resolution when the path resolves to an overload declaration.

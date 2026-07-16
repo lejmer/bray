@@ -33,7 +33,7 @@ The always-available compiler-known type entries are:
 - `RunResult<T>`,
 - `PanicReport`,
 - `ConversionError`,
-- `Async<T>`,
+- `Future<T>`,
 - `Task<T>`,
 - structural tuple type forms,
 - structural fixed-size array type forms,
@@ -58,7 +58,7 @@ The always-available compiler-known predicate entries are:
 
 The compiler-provided inherent async member entries are:
 
-- `Async<T>.start()`,
+- `Future<T>.start()`,
 - `Task<T>.join()`,
 - `Task<T>.cancel()`.
 

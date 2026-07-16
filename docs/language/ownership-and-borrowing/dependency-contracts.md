@@ -57,7 +57,7 @@ Lambda expressions do not capture enclosing local state.
 
 A trait view carries the dependency contract of the access or storage form that contains the view, plus the requirements of the implementation witness needed for the selected trait application.
 
-An `Async<T>` carries the dependency contract of its hidden frame state. A `Task<T>` preserves that contract across the independent
+An `Future<T>` carries the dependency contract of its hidden frame state. A `Task<T>` preserves that contract across the independent
 run boundary and adds the task-resolution obligation represented by the handle. Their value contracts also preserve the deferred
 execution contract and guaranteed normal-completion postcondition template; control-flow merge retains only guarantees common to
 every reachable producer.

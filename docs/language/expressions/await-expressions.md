@@ -8,7 +8,7 @@ await expression
 
 The operand is evaluated exactly once.
 
-The operand must have type `Async<T>` for some `T`.
+The operand must have type `Future<T>` for some `T`.
 
 `await` consumes the async computation and composes it into the current task.
 

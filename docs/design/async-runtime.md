@@ -15,13 +15,13 @@ The implementation has three separate layers:
 
 The compiler-known source environment contains only:
 
-- `Async<T>`,
+- `Future<T>`,
 - `Task<T>`,
 - `RunResult<T>`,
 - `PanicReport`,
 - `blocking_execution()`,
 - `compute_execution()`,
-- `Async<T>.start()`,
+- `Future<T>.start()`,
 - `Task<T>.join()`,
 - `Task<T>.cancel()`.
 
@@ -39,12 +39,12 @@ The parser has no async-block or spawn syntax nodes. It parses `async` only as a
 `await` as the single async-specific expression form.
 
 Calls such as `read(file).start()` are ordinary call, postfix member access, and method call syntax. Declaration discovery obtains
-`Async<T>`, `Task<T>`, their protected representations, inherent members, `RunResult<T>`, and the execution predicates from the
+`Future<T>`, `Task<T>`, their protected representations, inherent members, `RunResult<T>`, and the execution predicates from the
 closed compiler-known catalog.
 
 The compiler-known catalog assigns stable semantic identities and representation roles for:
 
-- async computation type,
+- future computation type,
 - task handle type,
 - task run-result type,
 - panic report type,
@@ -68,7 +68,7 @@ The bound async invocation records:
 
 - selected callable identity and concrete instantiation,
 - declared completion type `T`,
-- produced source type `Async<T>`,
+- produced source type `Future<T>`,
 - ordered receiver and argument transfers,
 - inferred dependency-contract input subjects,
 - immediate invocation preconditions,
@@ -85,7 +85,7 @@ Direct-await normal completion instantiates the postcondition template against t
 only on a control-flow edge refined to `RunResult.Completed(value)`. Frame construction and `Cancelled` or `Panicked` observation
 must not publish body postconditions.
 
-An ordinary function returning `Async<T>` binds as an ordinary call and cannot construct a frame. Only invocation of a callable whose
+An ordinary function returning `Future<T>` binds as an ordinary call and cannot construct a frame. Only invocation of a callable whose
 callable contract is async creates an async frame operation.
 
 Member lookup for `.start()`, `.join()`, and `.cancel()` uses the ordinary associated type surface and receiver-mode rules. The
@@ -103,7 +103,7 @@ Every concrete async callable instantiation receives a stable hidden frame ident
 - target and ABI facts that affect representation,
 - async lowering revision.
 
-The source type remains `Async<T>`. The bound and lowered representations additionally carry a typed `AsyncFrameId` or equivalent
+The source type remains `Future<T>`. The bound and lowered representations additionally carry a typed `AsyncFrameId` or equivalent
 compiler-private identity. It must not be encoded as an ordinary source generic argument.
 
 Frame metadata contains:
@@ -132,13 +132,13 @@ The checker computes suspension liveness over the ordinary control-flow graph. E
 temporaries, borrows, scoped capabilities, task obligations, lifecycle obligations, selected witnesses, and facts required after
 resumption or during cleanup.
 
-The dependency domain derives the contract carried by `Async<T>` from invocation state plus every dependency retained across
+The dependency domain derives the contract carried by `Future<T>` from invocation state plus every dependency retained across
 suspension. `Task<T>` receives the same contract at start and adds independent-run ownership, affinity, cancellation, and resolution
 obligations.
 
 The checker rejects:
 
-- movement of `Async<T>` or `Task<T>` to an owner that cannot preserve a dependency,
+- movement of `Future<T>` or `Task<T>` to an owner that cannot preserve a dependency,
 - ending an async-finalizable computation or task in a synchronous cleanup context,
 - direct await from a lane that cannot satisfy deferred execution predicates,
 - direct start in an executable or test product whose selected runtime cannot satisfy a reachable execution requirement,
@@ -163,7 +163,7 @@ executable or test product validation performs the closed-world runtime satisfia
 
 Composite storage flow owns task-obligation state. For every async lexical block exit, it emits one checked cleanup plan containing:
 
-- every owned unresolved task access path at that exit, including tasks held in initialized hidden `Async<T>` frame state,
+- every owned unresolved task access path at that exit, including tasks held in initialized hidden `Future<T>` frame state,
 - aggregate projections and active guards needed to find nested tasks,
 - tasks already resolved or moved away,
 - dependency ordering between tasks and other lifecycle values,
@@ -248,7 +248,7 @@ destruction, cancellation, panic, and source-debug behavior.
 Dynamic storage is required only where runtime depth or representation erasure requires it. Nonrecursive direct-await composition is
 not forced through that allocation strategy.
 
-When differently represented `Async<T>` values merge into homogeneous storage, lowering uses checked existential frame metadata and
+When differently represented `Future<T>` values merge into homogeneous storage, lowering uses checked existential frame metadata and
 an appropriate result-place or erased-storage plan. Erasure strategy must preserve movement before first resume and stable storage
 after execution begins. Its descriptor retains separate phase-one broadcast and phase-two lifecycle entry points; an erased generic
 cleanup callback is insufficient.
@@ -257,7 +257,7 @@ cleanup callback is insufficient.
 
 ## Start and task storage
 
-`Async<T>.start()` lowers to the typed task-start operation. Before first resume it:
+`Future<T>.start()` lowers to the typed task-start operation. Before first resume it:
 
 1. selects a compatible runtime lane from deferred execution and affinity facts,
 2. requests task-owned storage sized and aligned for the control block and frame,
@@ -346,7 +346,7 @@ An exported async declaration records:
 - versioned phase-one broadcast and phase-two lifecycle descriptor roles,
 - required runtime ABI features.
 
-Public APIs expose `Async<T>` as the invocation type without exposing hidden frame layout through source reflection. A consuming
+Public APIs expose `Future<T>` as the invocation type without exposing hidden frame layout through source reflection. A consuming
 compiler validates descriptor version and target compatibility before reuse.
 
 Libraries record runtime requirements but never select a runtime. Executable and test product formation unions reachable runtime
@@ -397,7 +397,7 @@ the original task cancellation. It uses a private async-finalizable standard-lib
 handle, preserving ordinary Bray expressibility while allowing async lifecycle resolution of `T`.
 
 The compiler does not synthesize channel or combinator implementations. Fixed arrays, const generics, non-capturing async lambdas,
-ordinary unions and products, `Async<T>`, `Task<T>`, and private event wrappers are sufficient to implement the standard algorithms.
+ordinary unions and products, `Future<T>`, `Task<T>`, and private event wrappers are sufficient to implement the standard algorithms.
 
 ---
 
@@ -407,7 +407,7 @@ Async diagnostics use structured identities and typed arguments. Required catego
 
 - await outside async execution,
 - start outside active runtime execution,
-- operand is not `Async<T>`,
+- operand is not `Future<T>`,
 - incompatible direct-await execution requirement,
 - runtime cannot satisfy a reachable execution requirement,
 - async or task dependency escapes its provider,
@@ -440,7 +440,7 @@ The implementation requires focused tests for:
 - ordinary member resolution of `start`, `join`, and `cancel`,
 - direct await without a task boundary,
 - recursive async frame formation,
-- dependency propagation through `Async<T>` and `Task<T>`,
+- dependency propagation through `Future<T>` and `Task<T>`,
 - two-phase cancellation broadcast before waits,
 - phase-separated traversal through erased, active-child, aggregate, and recursive frame state,
 - nested aggregate and partial-move task cleanup,

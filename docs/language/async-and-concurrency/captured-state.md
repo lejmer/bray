@@ -3,7 +3,7 @@
 Creation and suspension preserve every live value, borrow, capability, effect, fact dependency, execution requirement, and lifecycle
 obligation needed to begin, resume, cancel, or destroy an async computation.
 
-A receiver or argument moved into an async call is owned by the returned `Async<T>` until it is returned, moved elsewhere,
+A receiver or argument moved into an async call is owned by the returned `Future<T>` until it is returned, moved elsewhere,
 destroyed, or transferred into a task by `start()`.
 
 A borrow transferred into an async call remains active for the async computation's dependency lifetime. A mutable borrow remains
@@ -12,7 +12,7 @@ computation.
 
 An async computation cannot move to an owner that may outlive borrowed storage or a scoped capability it depends on. These
 dependencies are inferred from the selected callable contract, argument mapping, defaults, body, suspension liveness, and selected
-implementations and are carried by `Async<T>` even though they are not written as source lifetime parameters.
+implementations and are carried by `Future<T>` even though they are not written as source lifetime parameters.
 
 Direct await transfers the captured state into the current task for the duration of the await. `start()` transfers it into the new
 task, and `Task<T>` preserves the same dependency contract. Moving either handle transfers, rather than duplicates, the dependency

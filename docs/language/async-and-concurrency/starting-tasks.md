@@ -1,9 +1,9 @@
 # Starting tasks
 
-`Async<T>` has this compiler-provided inherent method surface:
+`Future<T>` has this compiler-provided inherent method surface:
 
 ```bray
-impl Async<T>
+impl Future<T>
 {
     consume func start() -> Task<T>;
 }
@@ -18,12 +18,12 @@ inactive computation, creates an independently running task, and returns its sol
 to begin or complete. After the method returns, the task is eligible to run and can already be running on another compatible worker.
 
 `start()` is valid only while executing an async callable, an async-capable lifecycle body, an async entrypoint, or another context
-that the product runtime contract defines as an active async execution context. Constructing or moving `Async<T>` does not have this
+that the product runtime contract defines as an active async execution context. Constructing or moving `Future<T>` does not have this
 restriction.
 
 Starting performs these semantic steps:
 
-1. Evaluate and own the `Async<T>` receiver.
+1. Evaluate and own the `Future<T>` receiver.
 2. Select a runtime lane satisfying its deferred execution requirements and affinity facts.
 3. Obtain stable task-owned frame and control storage.
 4. Move the inactive frame into that storage before its first resume.

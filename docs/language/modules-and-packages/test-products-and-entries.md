@@ -140,7 +140,7 @@ A synchronous test that completes with `Result.Error(error)` fails with `error` 
 
 A synchronous test that panics fails with the caught `PanicReport`.
 
-An async test invocation creates `Async<T>` and is driven as a root task by the test product's selected runtime.
+An async test invocation creates `Future<T>` and is driven as a root task by the test product's selected runtime.
 
 An async test whose run completes with `unit` or `Result.Ok(unit)` passes.
 

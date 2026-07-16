@@ -25,7 +25,7 @@ Union types are closed tagged sum types with variants.
 
 Compiler-known result types are named union types with language-defined variant contracts.
 
-The compiler-known `Async<T>` computation and `Task<T>` handle types are protected linear ownership types with language-defined
+The compiler-known `Future<T>` computation and `Task<T>` handle types are protected linear ownership types with language-defined
 async and run-boundary contracts.
 
 Tuple types are fixed-size ordered product types.

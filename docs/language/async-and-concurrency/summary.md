@@ -1,8 +1,8 @@
 # Summary
 
-Calling an async callable produces an owned inactive `Async<T>` and does not execute its body.
+Calling an async callable produces an owned inactive `Future<T>` and does not execute its body.
 
-`await` consumes and directly composes that computation into the current task. `Async<T>.start()` consumes it into independently
+`await` consumes and directly composes that computation into the current task. `Future<T>.start()` consumes it into independently
 running work and returns the sole source-level `Task<T>` owner.
 
 `Task<T>.join()` and `Task<T>.cancel()` are consuming async methods that produce `RunResult<T>`. Ordinary `catch` is not involved in

@@ -66,7 +66,7 @@ An `i32` result is the executable's numeric exit result.
 The product runtime contract maps successful completion, failed completion, panic completion, cancellation completion, and numeric
 exit results to the host process or embedding environment.
 
-For an async entrypoint, the compiler emits a host stub that invokes the entrypoint to create `Async<T>`, transfers its hidden frame
+For an async entrypoint, the compiler emits a host stub that invokes the entrypoint to create `Future<T>`, transfers its hidden frame
 into the runtime root task, drives that task to terminal completion, resolves root-owned child tasks, and performs the same result
 mapping. No source-level runtime value, runtime import, or inner async block is synthesized.
 

@@ -771,7 +771,7 @@ Variant-specific records retain their meaningful relationships. For example:
 
 - a bound name expression stores its exact resolved reference,
 - a bound call stores the selected callable target, argument mapping, conversions, and used default providers,
-- a bound async call additionally stores completion type, produced `Async<T>` type, hidden frame identity, invocation contract,
+- a bound async call additionally stores completion type, produced `Future<T>` type, hidden frame identity, invocation contract,
   deferred execution contract, and normal-completion postcondition template,
 - a bound member access stores the selected member and receiver facts,
 - a bound local declaration stores its bound initializer and introduced local symbol IDs,

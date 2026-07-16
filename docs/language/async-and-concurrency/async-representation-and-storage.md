@@ -1,6 +1,6 @@
 # Async representation and storage
 
-`Async<T>` has protected representation. Source can name its completion type `T`, move the value, and call its language-defined
+`Future<T>` has protected representation. Source can name its completion type `T`, move the value, and call its language-defined
 methods, but cannot name, inspect, construct, project, lay out, or depend on the concrete frame type.
 
 Each async callable has a compiler-generated frame representation containing:
@@ -12,10 +12,10 @@ Each async callable has a compiler-generated frame representation containing:
 - cleanup state needed for cancellation, panic, and lifecycle resolution,
 - implementation metadata required to resume, cancel, move, complete, and destroy the frame.
 
-The source type `Async<T>` is an owned compiler-managed existential over that hidden frame representation. Two async callables with
-the same declared result type can have different frame layouts while both invocation expressions have source type `Async<T>`.
+The source type `Future<T>` is an owned compiler-managed existential over that hidden frame representation. Two async callables with
+the same declared result type can have different frame layouts while both invocation expressions have source type `Future<T>`.
 
-Ordinary control-flow merges, parameters, returns, and homogeneous aggregates can therefore contain `Async<T>` values from different
+Ordinary control-flow merges, parameters, returns, and homogeneous aggregates can therefore contain `Future<T>` values from different
 producers. The compiler uses closed result-place storage when all representations are known and an erased descriptor plus suitably
 owned backing storage when they are not. Representation erasure can require dynamic storage; direct await of a known producer does
 not.
@@ -32,7 +32,7 @@ ownership and lifecycle rules.
 Direct await does not semantically create a task, enqueue work, or allocate a task control block. A compiler can compose the child
 frame directly into the current frame and resume it without scheduler mediation.
 
-Before execution begins, an inactive frame can be relocated through ordinary movement of its `Async<T>` owner. Once execution has
+Before execution begins, an inactive frame can be relocated through ordinary movement of its `Future<T>` owner. Once execution has
 begun, any state whose generated representation requires a stable address remains stable until that state is completed or destroyed.
 This stability rule is enforced by generated code and is not exposed through a source-level pinning type or operation.
 

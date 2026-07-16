@@ -113,7 +113,7 @@ Examples:
 - trusted obligation not discharged,
 - target-unavailable declaration.
 
-Async diagnostic identities include await outside async execution, task start outside active runtime execution, non-`Async<T>` await
+Async diagnostic identities include await outside async execution, task start outside active runtime execution, non-`Future<T>` await
 operands, incompatible execution lanes, unsatisfied product runtime requirements, escaping async or task dependencies,
 thread-affinity conflicts, unresolved async finalization in synchronous scope, consumed-task reuse, incoherent task-flow merge,
 fallible unobserved completion payloads, incompatible generic run transfer, unavailable blocking context for thread-handle

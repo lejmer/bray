@@ -13,7 +13,7 @@ impl Task<T>
 }
 ```
 
-Both method calls consume the handle into an inactive `Async<RunResult<T>>` according to ordinary async method-call typing. Calling
+Both method calls consume the handle into an inactive `Future<RunResult<T>>` according to ordinary async method-call typing. Calling
 the method alone neither waits nor requests cancellation; those effects begin when the returned computation is awaited, started, or
 resolved by async cleanup.
 

@@ -2,9 +2,9 @@
 
 Expression syntax is defined in [Await expressions](../expressions/await-expressions.md).
 
-The operand is evaluated exactly once and must have type `Async<T>` for some `T`.
+The operand is evaluated exactly once and must have type `Future<T>` for some `T`.
 
-`await` consumes the `Async<T>` and composes its frame into the current task. It does not create another task or run boundary.
+`await` consumes the `Future<T>` and composes its frame into the current task. It does not create another task or run boundary.
 
 The current task drives the child frame until one of these events occurs:
 

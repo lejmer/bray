@@ -657,16 +657,16 @@ User-defined fallible conversions do not use `ConversionError` unless their sele
 
 ## Compiler-known async computations
 
-`Async<T>` is the compiler-known protected-representation type for an owned inactive async computation whose normal completion type
+`Future<T>` is the compiler-known protected-representation type for an owned inactive async computation whose normal completion type
 is `T`.
 
-`Async<T>` is not copyable or directly constructible. Async callable invocation creates it. Direct await consumes it into the
+`Future<T>` is not copyable or directly constructible. Async callable invocation creates it. Direct await consumes it into the
 current task, and `start()` consumes it into an independently running `Task<T>`.
 
 Its semantic inherent method declaration is:
 
 ```bray
-impl Async<T>
+impl Future<T>
 {
     consume func start() -> Task<T>;
 }
@@ -674,7 +674,7 @@ impl Async<T>
 
 The compiler-known environment owns this inherent implementation. Source and standard-library packages cannot replace or extend it.
 
-An `Async<T>` carries every dependency, execution requirement, and lifecycle obligation held by its hidden frame. Ending ownership
+An `Future<T>` carries every dependency, execution requirement, and lifecycle obligation held by its hidden frame. Ending ownership
 without executing the body resolves initialized frame state and requires an async cleanup context when that state has asynchronous
 finalization obligations.
 
@@ -699,7 +699,7 @@ impl Task<T>
 }
 ```
 
-Calling either method consumes the handle and produces `Async<RunResult<T>>`. Awaiting that computation resolves the task obligation.
+Calling either method consumes the handle and produces `Future<RunResult<T>>`. Awaiting that computation resolves the task obligation.
 Unresolved task ownership carries compiler-known asynchronous finalization and structured scope cleanup.
 
 [Task handles and obligations](../async-and-concurrency/task-handles-and-obligations.md),

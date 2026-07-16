@@ -6,10 +6,10 @@ effect, and product checking.
 The core async surface is:
 
 - `async` functions, methods, lambdas, and async-capable lifecycle declarations,
-- the compiler-known owned computation type `Async<T>`,
+- the compiler-known owned computation type `Future<T>`,
 - `await` expressions,
 - the compiler-known owned task type `Task<T>`,
-- `Async<T>.start()`,
+- `Future<T>.start()`,
 - `Task<T>.join()` and `Task<T>.cancel()`,
 - the compiler-known run-boundary union `RunResult<T>`,
 - ordinary lexical scopes as structured task ownership boundaries.

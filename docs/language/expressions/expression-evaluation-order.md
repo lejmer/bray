@@ -34,8 +34,8 @@ Method receiver expressions are evaluated before method arguments.
 
 Static function callee path resolution is checked before runtime evaluation and has no runtime evaluation step.
 
-Async invocation evaluates the receiver or callee, explicit arguments, and omitted defaults before the resulting `Async<T>` owns
-that state. `Async<T>.start()` evaluates and consumes its receiver before the new task can observe the transferred frame.
+Async invocation evaluates the receiver or callee, explicit arguments, and omitted defaults before the resulting `Future<T>` owns
+that state. `Future<T>.start()` evaluates and consumes its receiver before the new task can observe the transferred frame.
 
 Lambda expressions do not capture enclosing local bindings.
 

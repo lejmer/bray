@@ -13,7 +13,7 @@ Asyncness is part of the callable contract. An async trait member requires an as
 and public API compatibility distinguishes synchronous and asynchronous declarations.
 
 The declared result type describes successful body completion. Calling an async callable declared to return `T` evaluates and
-transfers its invocation state but does not execute the body; the invocation expression has type `Async<T>`.
+transfers its invocation state but does not execute the body; the invocation expression has type `Future<T>`.
 
 An async callable therefore has two checked contract phases:
 
@@ -22,11 +22,11 @@ An async callable therefore has two checked contract phases:
 - its execution contract covers body effects and capabilities, execution requirements, suspension, cancellation, lifecycle
   behavior, and `ensures(...)` facts established by normal body completion.
 
-The invocation expression must satisfy the first phase and stores the second in the produced `Async<T>`. Normal direct-await
+The invocation expression must satisfy the first phase and stores the second in the produced `Future<T>`. Normal direct-await
 completion establishes the execution postconditions. Across a started task boundary, those postconditions are available only in a
 control-flow arm refined to `RunResult.Completed(value)` and apply to `value`; `Cancelled` and `Panicked` establish none of them.
 
-The async body is checked in an active async execution context. It can use `await`, `Async<T>.start()`, asynchronous lifecycle
+The async body is checked in an active async execution context. It can use `await`, `Future<T>.start()`, asynchronous lifecycle
 resolution, and ordinary lexical structured task scopes.
 
 The complete computation, frame, dependency, execution-requirement, cancellation, task, and runtime rules are defined in [Async and

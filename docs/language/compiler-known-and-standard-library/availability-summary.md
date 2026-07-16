@@ -7,7 +7,7 @@
 | `RawPointer<T>` | yes | yes | no |
 | Compiler-known type forms | yes | yes, when target-available | no |
 | `Result<T, E>`, `RunResult<T>` | yes | yes | no |
-| `Async<T>`, `Task<T>` | yes | yes | no |
+| `Future<T>`, `Task<T>` | yes | yes | no |
 | `PanicReport`, `ConversionError` | yes | yes | no |
 | `blocking_execution()`, `compute_execution()` | yes | yes | no |
 | `core.memory` raw memory declarations | yes | yes, when target-available | no |

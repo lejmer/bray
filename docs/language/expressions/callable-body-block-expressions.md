@@ -176,7 +176,7 @@ A callable-body block expression must leave every reachable exit with coherent t
 For async callables, the callable-body block expression is checked in an active async execution context and is the root lexical task
 scope for that invocation. Every nested ordinary block is also a structured task ownership boundary.
 
-Calling an async callable creates an owned inactive `Async<T>`. Suspension points capture live values, borrows, capabilities,
+Calling an async callable creates an owned inactive `Future<T>`. Suspension points capture live values, borrows, capabilities,
 effects, execution requirements, and lifecycle obligations into its dependency contract.
 
 Async scope exit requests cancellation for every owned unresolved task before awaiting any of them, then performs reverse lifecycle

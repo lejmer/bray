@@ -7,7 +7,7 @@ resolved before any storage or dependency required by those tasks can end. This 
 `break`, `continue`, propagation, panic, cancellation, and every other path leaving the block.
 
 Task obligations can occur in local bindings, initialized represented parts of aggregates, or initialized hidden frame state owned
-by an inactive `Async<T>`, such as a not-yet-awaited join or cancel computation. Flow-sensitive partial-move and initialization facts
+by an inactive `Future<T>`, such as a not-yet-awaited join or cancel computation. Flow-sensitive partial-move and initialization facts
 determine which obligations remain owned at each exit.
 
 Task cleanup occurs in two phases.

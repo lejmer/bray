@@ -15,7 +15,7 @@ A protected-representation declaration can still be:
 
 Protected representation prevents user code from depending on representation details that the compiler must control.
 
-`Async<T>`, `Task<T>`, `PanicReport`, raw pointers, and selected compiler-known support types can have protected representation when
+`Future<T>`, `Task<T>`, `PanicReport`, raw pointers, and selected compiler-known support types can have protected representation when
 their owning rules require it.
 
 Protected async frame representation can carry compiler-private layout and operation metadata across compiled package interfaces.

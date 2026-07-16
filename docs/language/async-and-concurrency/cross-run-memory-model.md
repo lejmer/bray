@@ -1,6 +1,6 @@
 # Cross-run memory model
 
-Independently running tasks are concurrent runs when their execution can overlap. An `Async<T>` that is only directly awaited is
+Independently running tasks are concurrent runs when their execution can overlap. An `Future<T>` that is only directly awaited is
 part of the current task and is not a separate run.
 
 Starting a task creates a start edge: every effect used to initialize and transfer its frame occurs before the new task can observe

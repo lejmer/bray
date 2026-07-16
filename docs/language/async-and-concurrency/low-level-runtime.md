@@ -23,7 +23,7 @@ and versioning belong to the private runtime ABI.
 
 A conforming runtime must preserve:
 
-- `Async<T>` and `Task<T>` ownership and movement,
+- `Future<T>` and `Task<T>` ownership and movement,
 - dependency and affinity contracts,
 - exactly-once frame completion and destruction,
 - cancellation request and cleanup shielding rules,

@@ -141,7 +141,7 @@ Task cancellation is represented through `async`, task-handle ownership, and the
 authority.
 
 `blocking_execution()` and `compute_execution()` are compiler-provided context predicates used in `requires(...)`. For synchronous
-calls they are immediate preconditions. Async invocation defers them into `Async<T>` because invocation does not execute the body;
+calls they are immediate preconditions. Async invocation defers them into `Future<T>` because invocation does not execute the body;
 direct await validates them against the current lane and task start selects a satisfying lane. The same phase distinction applies
 to body effects and capabilities: direct await requires them from the current execution context, while task start proves that the
 selected lane and every dependency transferred into it satisfy them.

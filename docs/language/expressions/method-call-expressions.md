@@ -121,12 +121,12 @@ View formation does not permit downcasting, runtime type tests, field access on 
 
 A synchronous method call produces the method's declared result.
 
-A call to an async method whose declared result is `T` produces an owned `Async<T>`. This rule makes the compiler-provided
-`Task<T>.join()` and `Task<T>.cancel()` calls produce `Async<RunResult<T>>` through ordinary method-call typing.
+A call to an async method whose declared result is `T` produces an owned `Future<T>`. This rule makes the compiler-provided
+`Task<T>.join()` and `Task<T>.cancel()` calls produce `Future<RunResult<T>>` through ordinary method-call typing.
 
 A synchronous method call can establish facts from the method's `ensures(...)` clause after successful completion. An async method
 call establishes those facts only after normal direct-await completion or within the `RunResult.Completed` arm after task
-observation. Constructing its `Async<T>` establishes no body postcondition and carries body effects, capabilities, execution
+observation. Constructing its `Future<T>` establishes no body postcondition and carries body effects, capabilities, execution
 requirements, and lifecycle behavior until execution.
 
 A method call can require ordinary or trusted preconditions through `requires(...)`.

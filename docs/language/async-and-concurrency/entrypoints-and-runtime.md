@@ -16,7 +16,7 @@ runtime value.
 For an async entrypoint, the compiler emits a host entry stub that:
 
 1. validates and initializes the executable product's selected runtime implementation,
-2. invokes the async entrypoint to create its root `Async<T>`,
+2. invokes the async entrypoint to create its root `Future<T>`,
 3. transfers that frame into the runtime's root task,
 4. drives the root task to a terminal outcome,
 5. resolves every root-owned task through ordinary structured scope cleanup,
@@ -34,7 +34,7 @@ signatures.
 
 The runtime selection declares which execution requirements it can provide. Product validation checks every reachable deferred
 requirement carried by public compiled interfaces and selected implementations before emission. Runtime implementation choice does
-not change the source semantics of `Async<T>`, `Task<T>`, `RunResult<T>`, cancellation, or structured cleanup.
+not change the source semantics of `Future<T>`, `Task<T>`, `RunResult<T>`, cancellation, or structured cleanup.
 
 Executables with no reachable async execution need no async runtime. Runtime worker, reactor, blocking-lane, and compute-lane
 resources can be initialized lazily. A conforming product can select a single-thread runtime when its reachable contracts do not

@@ -36,7 +36,7 @@ Callable ABI is part of a callable's contract.
 
 Higher-order functions preserve caller obligations.
 
-Async functions declared to return `T` produce owned inactive `Async<T>` values when called.
+Async functions declared to return `T` produce owned inactive `Future<T>` values when called.
 
 Trusted implementation power and trusted caller obligations are distinct.
 

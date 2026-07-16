@@ -83,7 +83,7 @@ those types establish the cross-run visibility edges they expose.
 The minimum first-completion surface is:
 
 ```bray
-async func first<T, const N: usize>(pos computations: [Async<T>; N]) -> RunResult<T>
+async func first<T, const N: usize>(pos computations: [Future<T>; N]) -> RunResult<T>
     with(N > 0);
 ```
 
@@ -182,7 +182,7 @@ Synchronous programs can use `start` and `Handle<T>` without selecting the async
 or thread-spawn syntax.
 
 Because these facilities can be declared with ordinary callable types, structs, methods, generics, explicit state, lifecycle
-declarations, `Async<T>`, `Task<T>`, and `RunResult<T>`, their public semantics are expressible in Bray. Parking threads, waking
+declarations, `Future<T>`, `Task<T>`, and `RunResult<T>`, their public semantics are expressible in Bray. Parking threads, waking
 tasks, and creating native threads remain private trusted implementation operations rather than pretending to be portable Bray code.
 
 ## Navigation

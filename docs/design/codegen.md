@@ -388,7 +388,7 @@ resolved to explicit MIR references before code generation.
 Async MIR carries typed frame identities, resume states, direct-await composition, task start, cancellation, terminal publication,
 cleanup-incident transfer, and checked phase-one broadcast and phase-two lifecycle plans. Concrete and erased descriptors retain
 separate entry points for those phases. The backend must not lower every async call as a task or mandatory heap allocation. Direct
-await has no task-control-block or scheduler semantics; `Async<T>.start()` is the independent task-storage boundary.
+await has no task-control-block or scheduler semantics; `Future<T>.start()` is the independent task-storage boundary.
 
 Frame descriptor and runtime ABI lowering follows `docs/design/async-runtime.md`.
 
