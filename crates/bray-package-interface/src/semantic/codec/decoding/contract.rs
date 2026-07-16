@@ -68,18 +68,21 @@ pub(super) fn decode_contracts(
 
     for _ in 0..callable_count {
         let owner = read_symbol_reference(&mut reader, context)?;
+
         let mut decoded_clauses = decode_callable_clauses(
             &mut reader,
             limits,
             context,
             CallableContractClauseKind::Requires,
         )?;
+
         decoded_clauses.extend(decode_callable_clauses(
             &mut reader,
             limits,
             context,
             CallableContractClauseKind::Static,
         )?);
+
         decoded_clauses.extend(decode_callable_clauses(
             &mut reader,
             limits,
@@ -139,7 +142,9 @@ fn decode_callable_behavior(
     let effects = read_symbol_references(reader, limits, context)?;
     let capabilities = read_symbol_references(reader, limits, context)?;
     let execution_requirements = read_symbol_references(reader, limits, context)?;
+
     let trusted_count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
+
     let mut trusted_capabilities = context.allocate_items(reader, trusted_count)?;
 
     for _ in 0..trusted_count {
@@ -148,6 +153,7 @@ fn decode_callable_behavior(
             read_symbol_reference(reader, context)?,
         ));
     }
+
     let lifecycle_count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
     let mut lifecycle_obligations = context.allocate_items(reader, lifecycle_count)?;
 

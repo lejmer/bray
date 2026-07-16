@@ -459,10 +459,12 @@ mod tests {
 
         assert_eq!(callable_contract.invocation_preconditions().len(), 1);
         assert_eq!(callable_contract.static_constraints().len(), 1);
+
         assert_eq!(
             callable_contract.normal_completion_postconditions().len(),
             1
         );
+
         assert_eq!(
             callable_contract
                 .deferred_execution_behavior()
@@ -491,6 +493,7 @@ mod tests {
         };
 
         assert_eq!(callable.execution(), CallableExecution::Asynchronous);
+
         assert!(
             callable
                 .dependency_contracts()
@@ -651,7 +654,6 @@ mod tests {
             .unwrap_or_else(|| panic!("dependency package identity must be valid"));
 
         let surface = semantic_surface([package.clone()]);
-
         let mut facts = facts(&surface);
 
         let owner = ExternalSymbolKey::package(package);

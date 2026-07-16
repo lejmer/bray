@@ -311,10 +311,12 @@ mod tests {
     fn current_run_cancellation_tags_are_shared_by_contracts_and_templates() {
         assert_eq!(CurrentRunCancellation::NotEntered.to_wire(), 1);
         assert_eq!(CurrentRunCancellation::MayEnter.to_wire(), 2);
+
         assert_eq!(
             CurrentRunCancellation::from_wire(2),
             Some(CurrentRunCancellation::MayEnter)
         );
+
         assert_eq!(CurrentRunCancellation::from_wire(0), None);
         assert_eq!(CurrentRunCancellation::from_wire(3), None);
     }

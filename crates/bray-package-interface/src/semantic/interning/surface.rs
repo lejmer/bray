@@ -102,6 +102,7 @@ impl InternState {
                 let clause_count = input.invocation_preconditions.len()
                     + input.static_constraints.len()
                     + input.normal_completion_postconditions.len();
+
                 let mut clauses = Vec::with_capacity(clause_count);
 
                 for clause in input
@@ -123,6 +124,7 @@ impl InternState {
 
                 let invocation_behavior =
                     self.convert_callable_behavior(&input.invocation_behavior, symbols)?;
+
                 let deferred_execution_behavior = input
                     .deferred_execution_behavior
                     .as_ref()
@@ -151,6 +153,7 @@ impl InternState {
             .iter()
             .map(|reference| resolve_symbol(symbols, reference).map(CallableEffectRequirement::new))
             .collect::<Result<Vec<_>, _>>()?;
+
         let capabilities = input
             .capabilities
             .iter()
@@ -158,6 +161,7 @@ impl InternState {
                 resolve_symbol(symbols, reference).map(CallableCapabilityRequirement::new)
             })
             .collect::<Result<Vec<_>, _>>()?;
+
         let trusted_capabilities = input
             .trusted_capabilities
             .iter()
@@ -168,6 +172,7 @@ impl InternState {
                 ))
             })
             .collect::<Result<Vec<_>, InterfaceSemanticInternError>>()?;
+
         let execution_requirements = input
             .execution_requirements
             .iter()
@@ -175,6 +180,7 @@ impl InternState {
                 resolve_symbol(symbols, reference).map(CallableExecutionRequirement::new)
             })
             .collect::<Result<Vec<_>, _>>()?;
+
         let dependency = self
             .dependency_contract_id(input.dependency_contract)
             .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)?;

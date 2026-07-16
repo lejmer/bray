@@ -405,6 +405,7 @@ mod tests {
         let Ok(store) = SemanticValueStore::try_new() else {
             panic!("semantic value store must be available");
         };
+
         let Ok(dependencies) =
             store.intern_dependency_contract_template(DependencyContractTemplateData::new([]))
         else {
