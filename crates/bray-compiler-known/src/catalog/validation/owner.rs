@@ -234,6 +234,7 @@ fn implementation_kind(kind: CatalogDeclarationKind) -> bool {
     matches!(
         kind,
         CatalogDeclarationKind::Function
+            | CatalogDeclarationKind::Predicate
             | CatalogDeclarationKind::TypeConstructorMember
             | CatalogDeclarationKind::TypeCallableMember
             | CatalogDeclarationKind::TraitCallableMember

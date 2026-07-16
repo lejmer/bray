@@ -40,6 +40,18 @@ define_catalog_enum! {
         Allocate => "Allocate",
         /// Releases raw storage.
         Deallocate => "Deallocate",
+        /// Starts an inactive asynchronous computation as a task.
+        FutureStart => "FutureStart",
+        /// Joins and observes an independently running task.
+        TaskJoin => "TaskJoin",
+        /// Requests task cancellation and observes its terminal result.
+        TaskCancel => "TaskCancel",
+        /// Tests whether the current execution lane permits blocking work.
+        BlockingExecution => "BlockingExecution",
+        /// Tests whether the current execution lane permits sustained compute work.
+        ComputeExecution => "ComputeExecution",
+        /// Tests whether execution is on the distinguished initial thread.
+        MainThreadExecution => "MainThreadExecution",
     }
 }
 

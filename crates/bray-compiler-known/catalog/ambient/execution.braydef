@@ -1,0 +1,96 @@
+catalog compiler_known;
+
+scope Ambient at ambient {
+    declaration BlockingExecution {
+        implementation BlockingExecution;
+
+        surface { trusted predicate blocking_execution(); }
+    }
+
+    declaration ComputeExecution {
+        implementation ComputeExecution;
+
+        surface { trusted predicate compute_execution(); }
+    }
+
+    declaration Future {
+        representation Future;
+
+        surface { struct Future<T> {} }
+    }
+
+    declaration FutureStart {
+        owner Future;
+        implementation FutureStart;
+
+        surface { consume func start() -> Task<T> {} }
+    }
+
+    declaration MainThreadExecution {
+        implementation MainThreadExecution;
+
+        surface { trusted predicate main_thread_execution(); }
+    }
+
+    declaration PanicReport {
+        representation PanicReport;
+
+        surface { struct PanicReport {} }
+    }
+
+    declaration RunResult {
+        representation RunResult;
+
+        surface { union RunResult<T> {} }
+    }
+
+    declaration RunResultVariant0Completed {
+        owner RunResult;
+
+        surface { Completed(pos value: T); }
+    }
+
+    declaration RunResultVariant0CompletedValue {
+        owner RunResultVariant0Completed;
+
+        surface { pos value: T }
+    }
+
+    declaration RunResultVariant1Panicked {
+        owner RunResult;
+
+        surface { Panicked(pos report: PanicReport); }
+    }
+
+    declaration RunResultVariant1PanickedReport {
+        owner RunResultVariant1Panicked;
+
+        surface { pos report: PanicReport }
+    }
+
+    declaration RunResultVariant2Cancelled {
+        owner RunResult;
+
+        surface { Cancelled; }
+    }
+
+    declaration Task {
+        representation Task;
+
+        surface { struct Task<T> {} }
+    }
+
+    declaration TaskCancel {
+        owner Task;
+        implementation TaskCancel;
+
+        surface { consume async func cancel() -> RunResult<T> {} }
+    }
+
+    declaration TaskJoin {
+        owner Task;
+        implementation TaskJoin;
+
+        surface { consume async func join() -> RunResult<T> {} }
+    }
+}

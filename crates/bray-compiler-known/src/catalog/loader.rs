@@ -507,7 +507,7 @@ mod tests {
         };
 
         assert_eq!(catalog.compiler_known_scopes().len(), 3);
-        assert_eq!(catalog.compiler_known_declarations().len(), 14);
+        assert_eq!(catalog.compiler_known_declarations().len(), 29);
         assert_eq!(catalog.compiler_known_values().len(), 3);
         assert_eq!(catalog.recognized_standard_library_scopes().len(), 1);
         assert_eq!(catalog.recognized_standard_library_declarations().len(), 1);
@@ -521,6 +521,11 @@ mod tests {
         let implementation_item = declaration(&catalog, "BoolStorageItem");
         let memory_copy = declaration(&catalog, "MemoryCopy");
         let target_real = declaration(&catalog, "TargetReal16");
+        let future = declaration(&catalog, "Future");
+        let future_start = declaration(&catalog, "FutureStart");
+        let task = declaration(&catalog, "Task");
+        let task_join = declaration(&catalog, "TaskJoin");
+        let task_cancel = declaration(&catalog, "TaskCancel");
 
         assert_eq!(raw_pointer.kind(), CatalogDeclarationKind::Struct);
 
@@ -558,6 +563,43 @@ mod tests {
         assert_eq!(
             target_real.representation_role(),
             Some(RepresentationRole::ScalarR16)
+        );
+
+        assert_eq!(
+            future.representation_role(),
+            Some(RepresentationRole::Future)
+        );
+
+        assert_eq!(
+            future_start.owner(),
+            CompilerKnownDeclarationOwner::Declaration(future.id())
+        );
+
+        assert_eq!(
+            future_start.implementation_hook(),
+            Some(ImplementationHook::FutureStart)
+        );
+
+        assert_eq!(task.representation_role(), Some(RepresentationRole::Task));
+
+        assert_eq!(
+            task_join.owner(),
+            CompilerKnownDeclarationOwner::Declaration(task.id())
+        );
+
+        assert_eq!(
+            task_join.implementation_hook(),
+            Some(ImplementationHook::TaskJoin)
+        );
+
+        assert_eq!(
+            task_cancel.owner(),
+            CompilerKnownDeclarationOwner::Declaration(task.id())
+        );
+
+        assert_eq!(
+            task_cancel.implementation_hook(),
+            Some(ImplementationHook::TaskCancel)
         );
 
         let Some(core_memory) = catalog
@@ -1127,6 +1169,7 @@ mod tests {
     fn catalog_declaration_kind(declaration: &DeclarationFragmentSyntax) -> CatalogDeclarationKind {
         match declaration {
             DeclarationFragmentSyntax::Function(_) => CatalogDeclarationKind::Function,
+            DeclarationFragmentSyntax::Predicate(_) => CatalogDeclarationKind::Predicate,
             DeclarationFragmentSyntax::CallableContract(_) => {
                 CatalogDeclarationKind::CallableContract
             }
@@ -1137,6 +1180,13 @@ mod tests {
                 CatalogDeclarationKind::NamedTraitImplementation
             }
             DeclarationFragmentSyntax::StructField(_) => CatalogDeclarationKind::StructField,
+            DeclarationFragmentSyntax::UnionVariant(_) => CatalogDeclarationKind::UnionVariant,
+            DeclarationFragmentSyntax::UnionPayloadField(_) => {
+                CatalogDeclarationKind::UnionPayloadField
+            }
+            DeclarationFragmentSyntax::TypeCallableMember(_) => {
+                CatalogDeclarationKind::TypeCallableMember
+            }
             DeclarationFragmentSyntax::TraitTypeMember(_) => {
                 CatalogDeclarationKind::TraitTypeMember
             }

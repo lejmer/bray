@@ -5,7 +5,7 @@ use bray_symbols::{
     CallableContractTypeFact, CallableContractsFact, CallableSignatureFact, GenericConstraintsFact,
     ImplementationCoherenceFact, ImplementationSubjectFact, ImplementedTraitApplicationFact,
     InherentTypeMemberValueFact, StructFieldTypeFact, SymbolFactContract, SymbolFactRequest,
-    SymbolFactResult, TraitTypeFulfillmentValueFact,
+    SymbolFactResult, TraitTypeFulfillmentValueFact, UnionPayloadFieldTypeFact,
 };
 
 use super::super::context::CompilationBinderFacts;
@@ -18,6 +18,7 @@ pub(in crate::compilation) struct CompilationSymbolFacts {
     pub(super) callable_contracts: SymbolFactCache<CallableContractsFact>,
     pub(super) callable_contract_types: SymbolFactCache<CallableContractTypeFact>,
     pub(super) struct_field_types: SymbolFactCache<StructFieldTypeFact>,
+    pub(super) union_payload_field_types: SymbolFactCache<UnionPayloadFieldTypeFact>,
     pub(super) inherent_type_member_values: SymbolFactCache<InherentTypeMemberValueFact>,
     pub(super) trait_type_fulfillment_values: SymbolFactCache<TraitTypeFulfillmentValueFact>,
     pub(super) implementation_subjects: SymbolFactCache<ImplementationSubjectFact>,
@@ -33,6 +34,7 @@ impl CompilationSymbolFacts {
             callable_contracts: SymbolFactCache::new(),
             callable_contract_types: SymbolFactCache::new(),
             struct_field_types: SymbolFactCache::new(),
+            union_payload_field_types: SymbolFactCache::new(),
             inherent_type_member_values: SymbolFactCache::new(),
             trait_type_fulfillment_values: SymbolFactCache::new(),
             implementation_subjects: SymbolFactCache::new(),

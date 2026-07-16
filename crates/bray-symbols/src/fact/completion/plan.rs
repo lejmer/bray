@@ -150,6 +150,9 @@ fn completion_fact_is_applicable(
         (SymbolFactKind::UnionPayloadFieldDefault, AnySymbolId::UnionPayloadField(id)) => graph
             .union_payload_field(id)
             .is_some_and(|field| field.default_presence() != RuntimeDefaultPresence::Absent),
+        (SymbolFactKind::PredicateDefinition, AnySymbolId::Predicate(id)) => graph
+            .predicate(id)
+            .is_some_and(|predicate| predicate.origin() != crate::SymbolOrigin::CompilerProvided),
         _ => true,
     }
 }
@@ -324,6 +327,30 @@ mod tests {
                 .iter()
                 .all(|request| request.symbol() == function)
         );
+    }
+
+    #[test]
+    fn compiler_provided_predicates_do_not_require_source_definitions() {
+        let graph = graph(&["module app;"]);
+        let root = AnySymbolId::from(graph.compiler_known_environment().id());
+        let plan = completion_plan(&graph, root);
+
+        let provided_predicates = plan
+            .units()
+            .iter()
+            .filter_map(|unit| match unit.symbol() {
+                AnySymbolId::Predicate(id) => graph.predicate(id),
+                _ => None,
+            })
+            .filter(|predicate| predicate.origin() == crate::SymbolOrigin::CompilerProvided)
+            .count();
+
+        assert_eq!(provided_predicates, 3);
+
+        assert!(plan.requests().iter().all(|request| {
+            request.kind() != SymbolFactKind::PredicateDefinition
+                || !matches!(request.symbol(), AnySymbolId::Predicate(_))
+        }));
     }
 
     #[test]

@@ -153,7 +153,10 @@ mod tests {
 
     use super::CompilerKnownSymbolRoleRegistry;
     use crate::compiler_known::test_support::{build_provider, declaration_key};
-    use crate::{FunctionSymbolId, StructSymbolId, UnionSymbolId};
+    use crate::{
+        FunctionSymbolId, PredicateSymbolId, StructSymbolId, SymbolProvider,
+        TypeCallableMemberSymbolId, UnionSymbolId, UnionVariantSymbolId,
+    };
 
     #[test]
     fn roles_resolve_exact_symbols_without_catalog_key_lookup() {
@@ -220,5 +223,90 @@ mod tests {
             roles.representation_value(RepresentationRole::ScalarBool),
             None
         );
+    }
+
+    #[test]
+    fn execution_roles_materialize_as_category_specific_symbols() {
+        let provider = build_provider();
+        let roles = provider.role_registry();
+
+        assert_eq!(
+            roles.representation_symbol::<StructSymbolId>(RepresentationRole::Future),
+            provider.declaration_symbol(&declaration_key("Future"))
+        );
+
+        assert_eq!(
+            roles.representation_symbol::<StructSymbolId>(RepresentationRole::Task),
+            provider.declaration_symbol(&declaration_key("Task"))
+        );
+
+        assert_eq!(
+            roles.representation_symbol::<UnionSymbolId>(RepresentationRole::RunResult),
+            provider.declaration_symbol(&declaration_key("RunResult"))
+        );
+
+        assert_eq!(
+            roles.representation_symbol::<StructSymbolId>(RepresentationRole::PanicReport),
+            provider.declaration_symbol(&declaration_key("PanicReport"))
+        );
+
+        let Some(run_result) =
+            roles.representation_symbol::<UnionSymbolId>(RepresentationRole::RunResult)
+        else {
+            panic!("RunResult must carry the run-result representation role");
+        };
+
+        let Some(run_result) = SymbolProvider::<UnionSymbolId>::symbol(&provider, run_result)
+        else {
+            panic!("RunResult union symbol must resolve");
+        };
+
+        let variants = [
+            "RunResultVariant0Completed",
+            "RunResultVariant1Panicked",
+            "RunResultVariant2Cancelled",
+        ]
+        .map(|key| {
+            provider
+                .declaration_symbol::<UnionVariantSymbolId>(&declaration_key(key))
+                .unwrap_or_else(|| panic!("{key} must have a union-variant symbol"))
+        });
+
+        assert_eq!(run_result.variants(), variants);
+
+        for (hook, key) in [
+            (ImplementationHook::FutureStart, "FutureStart"),
+            (ImplementationHook::TaskJoin, "TaskJoin"),
+            (ImplementationHook::TaskCancel, "TaskCancel"),
+        ] {
+            assert_eq!(
+                roles
+                    .implementation_symbols::<TypeCallableMemberSymbolId>(hook)
+                    .collect::<Vec<_>>(),
+                provider
+                    .declaration_symbol(&declaration_key(key))
+                    .into_iter()
+                    .collect::<Vec<_>>()
+            );
+        }
+
+        for (hook, key) in [
+            (ImplementationHook::BlockingExecution, "BlockingExecution"),
+            (ImplementationHook::ComputeExecution, "ComputeExecution"),
+            (
+                ImplementationHook::MainThreadExecution,
+                "MainThreadExecution",
+            ),
+        ] {
+            assert_eq!(
+                roles
+                    .implementation_symbols::<PredicateSymbolId>(hook)
+                    .collect::<Vec<_>>(),
+                provider
+                    .declaration_symbol(&declaration_key(key))
+                    .into_iter()
+                    .collect::<Vec<_>>()
+            );
+        }
     }
 }

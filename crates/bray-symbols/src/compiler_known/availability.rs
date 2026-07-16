@@ -245,8 +245,7 @@ mod tests {
     use std::sync::Arc;
 
     use bray_compiler_known::{
-        AvailabilityRule, COMPILER_KNOWN_CATALOG, CompilerKnownDeclarationId, ImplementationHook,
-        RepresentationRole,
+        AvailabilityRule, COMPILER_KNOWN_CATALOG, ImplementationHook, RepresentationRole,
     };
 
     use super::resolve_availability;
@@ -346,8 +345,19 @@ mod tests {
 
     #[test]
     fn unavailable_owners_make_nested_declarations_unavailable() {
-        let owner = CompilerKnownDeclarationId::new(4);
-        let nested = CompilerKnownDeclarationId::new(5);
+        let Some(owner) = COMPILER_KNOWN_CATALOG
+            .compiler_known_declaration_by_key(&declaration_key("Future"))
+            .map(|declaration| declaration.id())
+        else {
+            panic!("Future must exist in the generated catalog");
+        };
+
+        let Some(nested) = COMPILER_KNOWN_CATALOG
+            .compiler_known_declaration_by_key(&declaration_key("FutureStart"))
+            .map(|declaration| declaration.id())
+        else {
+            panic!("FutureStart must exist in the generated catalog");
+        };
 
         let direct_availability = BTreeMap::from([(owner, false), (nested, true)]);
         let mut resolved_availability = BTreeMap::new();
