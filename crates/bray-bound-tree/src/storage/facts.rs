@@ -353,3 +353,17 @@ fn relationship<T, K: Ord + Copy>(facts: &[T], key: K, fact_key: impl Fn(&T) -> 
         .ok()
         .and_then(|index| facts.get(index))
 }
+
+#[cfg(test)]
+mod tests {
+    use bray_symbols::{AnySymbolId, FunctionSymbolId, SymbolId};
+
+    use super::SurfaceStorageSymbol;
+
+    #[test]
+    fn surface_storage_symbols_exclude_unrelated_symbol_categories() {
+        let function = AnySymbolId::from(FunctionSymbolId::from_symbol_id(SymbolId::new(7)));
+
+        assert_eq!(SurfaceStorageSymbol::from_symbol(function), None);
+    }
+}

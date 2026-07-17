@@ -427,6 +427,10 @@ mod tests {
             compilation.state.checked_control_flow.is_published(key),
             Ok(false)
         );
+        assert_eq!(
+            compilation.state.checked_storage.is_published(key),
+            Ok(false)
+        );
 
         let first = compilation.check_diagnostics();
         let second = compilation.check_diagnostics();
@@ -435,6 +439,10 @@ mod tests {
         assert_eq!(compilation.state.bound_units.is_published(key), Ok(true));
         assert_eq!(
             compilation.state.checked_control_flow.is_published(key),
+            Ok(true)
+        );
+        assert_eq!(
+            compilation.state.checked_storage.is_published(key),
             Ok(true)
         );
 
