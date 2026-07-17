@@ -6,6 +6,7 @@ mod execution;
 mod fixed_point;
 mod id;
 mod model;
+mod propagation;
 mod reachability;
 mod refinement;
 

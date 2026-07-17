@@ -130,8 +130,11 @@ impl CompilerKnownSymbolRoleRegistry {
             .filter_map(I::try_from_any)
     }
 
-    /// Returns the implementation hook carried by an exact compiler-known symbol.
-    pub fn symbol_implementation<I: ExactSymbolId>(&self, symbol: I) -> Option<ImplementationHook> {
+    /// Returns the implementation hook carried by a compiler-known symbol.
+    pub fn symbol_implementation(
+        &self,
+        symbol: impl Into<AnySymbolId>,
+    ) -> Option<ImplementationHook> {
         self.symbol_implementations.get(&symbol.into()).copied()
     }
 

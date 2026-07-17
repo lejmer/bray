@@ -14,7 +14,7 @@ pub enum ControlCompletionKind {
     Divergence,
     /// Control reaches a panic boundary.
     Panic,
-    /// Asynchronous control is cancelled.
+    /// The current run enters cancellation.
     Cancellation,
     /// Generator control yields a value.
     Yield,

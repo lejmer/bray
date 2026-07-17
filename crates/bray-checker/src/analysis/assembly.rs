@@ -3,7 +3,8 @@ use bray_bound_tree::{AnyBoundNodeId, BoundUnitId};
 use super::id::{AnalysisBlockId, AnalysisEdgeId, AnalysisOperationId, ProgramPointId};
 use super::model::{
     AnalysisBlock, AnalysisEdge, AnalysisEdgeKind, AnalysisExit, AnalysisExitKind,
-    AnalysisOperation, AnalysisOperationKind, AnalysisRefinement, ControlFlowGraph,
+    AnalysisOperation, AnalysisOperationKind, AnalysisRefinement, AnalysisScopeExitPhase,
+    AnalysisTaskOperationKind, ControlFlowGraph,
 };
 
 pub(super) struct ControlFlowGraphAssembler {
@@ -41,6 +42,58 @@ impl ControlFlowGraphAssembler {
 
     pub(super) fn push_recovery(&mut self, block: AnalysisBlockId, node: AnyBoundNodeId) {
         self.push_operation(block, AnalysisOperationKind::Recovery(node));
+    }
+
+    pub(super) fn push_direct_await(
+        &mut self,
+        block: AnalysisBlockId,
+        expression: bray_bound_tree::BoundExpressionId,
+    ) {
+        self.push_operation(block, AnalysisOperationKind::DirectAwait(expression));
+    }
+
+    pub(super) fn push_task_operation(
+        &mut self,
+        block: AnalysisBlockId,
+        expression: bray_bound_tree::BoundExpressionId,
+        kind: AnalysisTaskOperationKind,
+    ) {
+        self.push_operation(
+            block,
+            AnalysisOperationKind::TaskOperation { expression, kind },
+        );
+    }
+
+    pub(super) fn push_scope_exit(
+        &mut self,
+        current: AnalysisBlockId,
+        block: bray_bound_tree::BoundBlockId,
+    ) -> AnalysisBlockId {
+        let cancellation = self.push_block();
+
+        self.push_edge(current, cancellation, AnalysisEdgeKind::ScopeExit, None);
+
+        self.push_operation(
+            cancellation,
+            AnalysisOperationKind::ScopeExit {
+                block,
+                phase: AnalysisScopeExitPhase::TaskCancellationBroadcast,
+            },
+        );
+
+        let lifecycle = self.push_block();
+
+        self.push_edge(cancellation, lifecycle, AnalysisEdgeKind::Sequential, None);
+
+        self.push_operation(
+            lifecycle,
+            AnalysisOperationKind::ScopeExit {
+                block,
+                phase: AnalysisScopeExitPhase::LifecycleResolution,
+            },
+        );
+
+        lifecycle
     }
 
     pub(super) fn push_edge(
@@ -151,10 +204,10 @@ const fn exit_edge_kind(kind: AnalysisExitKind) -> AnalysisEdgeKind {
     match kind {
         AnalysisExitKind::NormalFallthrough => AnalysisEdgeKind::Sequential,
         AnalysisExitKind::Return => AnalysisEdgeKind::Return,
-        AnalysisExitKind::Propagation => AnalysisEdgeKind::ResultPropagation,
+        AnalysisExitKind::ResultErrorPropagation => AnalysisEdgeKind::ResultErrorPropagation,
         AnalysisExitKind::Divergence => AnalysisEdgeKind::Divergence,
         AnalysisExitKind::Panic => AnalysisEdgeKind::Panic,
-        AnalysisExitKind::Cancellation => AnalysisEdgeKind::AsyncCancel,
+        AnalysisExitKind::Cancellation => AnalysisEdgeKind::RunCancellation,
         AnalysisExitKind::Yield => AnalysisEdgeKind::Yield,
         AnalysisExitKind::Recovery => AnalysisEdgeKind::Recovery,
     }

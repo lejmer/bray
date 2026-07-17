@@ -1,3 +1,5 @@
+use std::sync::OnceLock;
+
 use bray_bound_tree::{
     BoundBlock, BoundBlockItem, BoundCallableBody, BoundCallableBodyId, BoundErrorExpression,
     BoundExpression, BoundNodeOrigin, BoundSourceAnchor, BoundTree, BoundTreeBuilder, BoundUnitId,
@@ -14,6 +16,15 @@ use bray_symbols::{
 };
 
 pub(crate) use bray_symbols::testing::available_compiler_known_symbols;
+
+pub(crate) fn semantic_values() -> &'static SemanticValueStore {
+    static VALUES: OnceLock<SemanticValueStore> = OnceLock::new();
+
+    VALUES.get_or_init(|| match SemanticValueStore::try_new() {
+        Ok(values) => values,
+        Err(error) => panic!("test semantic value store must be available: {error:?}"),
+    })
+}
 
 pub(crate) fn callable_key() -> BoundUnitKey {
     let snapshot = match source() {
@@ -99,11 +110,7 @@ pub(crate) fn normally_completing_recovered_tree(
 }
 
 pub(crate) fn error_type() -> TypeId {
-    let Ok(values) = SemanticValueStore::try_new() else {
-        panic!("test semantic value store must be available");
-    };
-
-    let Ok(ty) = values.intern_type(TypeData::Error) else {
+    let Ok(ty) = semantic_values().intern_type(TypeData::Error) else {
         panic!("test error type must be interned");
     };
 

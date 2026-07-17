@@ -3,13 +3,14 @@ use bray_bound_tree::{
     AnyBoundNodeId, BoundBlockId, BoundCallableBodyId, BoundExpressionId, BoundUnitKind,
     BoundUnitView,
 };
-use bray_symbols::AvailableCompilerKnownSymbols;
+use bray_symbols::{AvailableCompilerKnownSymbols, SemanticValueStore};
 
 /// Typed inputs for whole-unit semantic checking.
 #[derive(Clone, Copy)]
 pub struct UnitCheckRequest<'view> {
     view: BoundUnitView<'view>,
     root: UnitCheckRoot,
+    semantic_values: &'view SemanticValueStore,
     available_compiler_known_symbols: &'view AvailableCompilerKnownSymbols,
     cancellation: &'view dyn Cancellation,
 }
@@ -70,6 +71,7 @@ impl<'view> UnitCheckRequest<'view> {
     pub fn new(
         view: BoundUnitView<'view>,
         root: UnitCheckRoot,
+        semantic_values: &'view SemanticValueStore,
         available_compiler_known_symbols: &'view AvailableCompilerKnownSymbols,
         cancellation: &'view dyn Cancellation,
     ) -> Result<Self, UnitCheckRequestError> {
@@ -84,6 +86,7 @@ impl<'view> UnitCheckRequest<'view> {
         Ok(Self {
             view,
             root,
+            semantic_values,
             available_compiler_known_symbols,
             cancellation,
         })
@@ -97,6 +100,11 @@ impl<'view> UnitCheckRequest<'view> {
     /// Returns the exact bound root to analyze.
     pub const fn root(self) -> UnitCheckRoot {
         self.root
+    }
+
+    /// Returns the canonical semantic values referenced by the bound unit.
+    pub const fn semantic_values(self) -> &'view SemanticValueStore {
+        self.semantic_values
     }
 
     /// Returns target-available compiler-known identities and behavior roles.

@@ -5,6 +5,15 @@ use super::id::{AnalysisBlockId, AnalysisEdgeId, AnalysisOperationId, ProgramPoi
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(crate) enum AnalysisOperationKind {
     Bound(AnyBoundNodeId),
+    DirectAwait(BoundExpressionId),
+    TaskOperation {
+        expression: BoundExpressionId,
+        kind: AnalysisTaskOperationKind,
+    },
+    ScopeExit {
+        block: bray_bound_tree::BoundBlockId,
+        phase: AnalysisScopeExitPhase,
+    },
     Recovery(AnyBoundNodeId),
 }
 
@@ -12,8 +21,30 @@ impl AnalysisOperationKind {
     pub(crate) const fn node(self) -> AnyBoundNodeId {
         match self {
             Self::Bound(node) | Self::Recovery(node) => node,
+            Self::DirectAwait(expression) | Self::TaskOperation { expression, .. } => {
+                AnyBoundNodeId::Expression(expression)
+            }
+            Self::ScopeExit { block, .. } => AnyBoundNodeId::Block(block),
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub(crate) enum AnalysisTaskOperationKind {
+    /// `Future<T>.start()` immediately transfers the future into an owned task.
+    Start,
+    /// `Task<T>.join()` transfers the task into a lazy observation computation.
+    Join,
+    /// `Task<T>.cancel()` transfers the task into a lazy cancellation computation.
+    Cancel,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub(crate) enum AnalysisScopeExitPhase {
+    /// Requests cancellation for every recursively owned unresolved task without waiting.
+    TaskCancellationBroadcast,
+    /// Resolves joining, finalization, destruction, and related lifecycle obligations.
+    LifecycleResolution,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -70,14 +101,18 @@ pub(crate) enum AnalysisEdgeKind {
     Return,
     Divergence,
     ResultSuccess,
-    ResultPropagation,
+    ResultErrorPropagation,
+    RunResultCompleted,
+    RunResultPanicked,
+    RunResultCancelled,
     NullablePresent,
     NullableAbsent,
     Catch,
     Panic,
-    AsyncSuspend,
-    AsyncResume,
-    AsyncCancel,
+    AwaitSuspend,
+    AwaitResume,
+    RunCancellation,
+    ScopeExit,
     Yield,
     Recovery,
 }
@@ -182,7 +217,7 @@ impl AnalysisBlock {
 pub(crate) enum AnalysisExitKind {
     NormalFallthrough,
     Return,
-    Propagation,
+    ResultErrorPropagation,
     Divergence,
     Panic,
     Cancellation,
@@ -329,7 +364,7 @@ impl ControlFlowGraph {
                     exit.kind(),
                     AnalysisExitKind::NormalFallthrough
                         | AnalysisExitKind::Return
-                        | AnalysisExitKind::Propagation
+                        | AnalysisExitKind::ResultErrorPropagation
                         | AnalysisExitKind::Divergence
                         | AnalysisExitKind::Panic
                         | AnalysisExitKind::Cancellation
