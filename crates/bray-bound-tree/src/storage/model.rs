@@ -2,8 +2,9 @@ use std::sync::Arc;
 
 use bray_base::shared_slice;
 use bray_symbols::{
-    BorrowKind, CallableParameterSymbolId, ReceiverParameterSymbolId, StructFieldSymbolId,
-    SymbolOrdinal, TypeId, UnionPayloadFieldSymbolId, UnionVariantSymbolId,
+    AnonymousCallableParameterSymbolId, BorrowKind, CallableParameterSymbolId,
+    ReceiverParameterSymbolId, StructFieldSymbolId, SymbolOrdinal, TypeId,
+    UnionPayloadFieldSymbolId, UnionVariantSymbolId,
 };
 
 use crate::identity::define_unit_scoped_id;
@@ -54,6 +55,10 @@ pub enum StorageIdentity {
     Parameter(CallableParameterSymbolId),
     /// Storage supplied through a callable receiver.
     Receiver(ReceiverParameterSymbolId),
+    /// Storage supplied through an anonymous callable parameter.
+    AnonymousParameter(AnonymousCallableParameterSymbolId),
+    /// Storage identified by a compilation-wide storage-bearing declaration.
+    Surface(super::SurfaceStorageSymbol),
     /// Source-correlated temporary storage.
     Temporary(BoundExpressionId),
     /// Storage created by an allocation operation.
@@ -69,9 +74,12 @@ impl StorageIdentity {
         match self {
             Self::LocalOwned(node) => node.unit() == unit,
             Self::Temporary(expression) | Self::Allocation(expression) => expression.unit() == unit,
-            Self::Parameter(_) | Self::Receiver(_) | Self::CompilerCreated(_) | Self::Error(_) => {
-                true
-            }
+            Self::Parameter(_)
+            | Self::Receiver(_)
+            | Self::Surface(_)
+            | Self::CompilerCreated(_)
+            | Self::Error(_) => true,
+            Self::AnonymousParameter(parameter) => parameter.region().raw() == unit.raw(),
         }
     }
 }
@@ -164,9 +172,8 @@ fn optional_expression_is_valid_for(
 
 /// One evaluated occurrence of a storage access path.
 ///
-/// Access records are not structural interning keys. Repeated evaluation of an identical path
-/// creates distinct [`StorageAccessId`] values because selector values can change between
-/// occurrences.
+/// Repeated evaluation of an identical path creates distinct [`StorageAccessId`] values because
+/// selector values can change between occurrences.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct StorageAccess {
     root: StorageAccessRoot,

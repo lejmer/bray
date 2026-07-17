@@ -1,7 +1,9 @@
 use std::sync::Arc;
 
 use bray_symbols::{
-    AnySymbolId, CallableParameterSymbolId, LocalBindingSymbolId, ReceiverParameterSymbolId,
+    AnonymousCallableParameterSymbolId, AnyLocalSymbolId, AnySymbolId, CallableParameterSymbolId,
+    LocalBindingSymbolId, ReceiverParameterSymbolId, StructFieldSymbolId,
+    UnionPayloadFieldSymbolId,
 };
 
 use crate::{
@@ -18,6 +20,49 @@ pub enum StorageParameter {
     Callable(CallableParameterSymbolId),
     /// The receiver parameter of a non-static callable.
     Receiver(ReceiverParameterSymbolId),
+    /// A parameter declared by an anonymous callable in this bound unit.
+    Anonymous(AnonymousCallableParameterSymbolId),
+}
+
+impl StorageParameter {
+    /// Classifies a compilation-wide parameter symbol that introduces callable storage.
+    pub const fn from_surface_symbol(symbol: AnySymbolId) -> Option<Self> {
+        match symbol {
+            AnySymbolId::CallableParameter(parameter) => Some(Self::Callable(parameter)),
+            AnySymbolId::ReceiverParameter(receiver) => Some(Self::Receiver(receiver)),
+            _ => None,
+        }
+    }
+
+    /// Classifies a unit-local parameter symbol that introduces callable storage.
+    pub const fn from_local_symbol(symbol: AnyLocalSymbolId) -> Option<Self> {
+        match symbol {
+            AnyLocalSymbolId::AnonymousCallableParameter(parameter) => {
+                Some(Self::Anonymous(parameter))
+            }
+            _ => None,
+        }
+    }
+}
+
+/// A compilation-wide declaration category that can identify reached storage.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum SurfaceStorageSymbol {
+    /// A field selected from struct storage.
+    StructField(StructFieldSymbolId),
+    /// A field selected from the active payload of union storage.
+    UnionPayloadField(UnionPayloadFieldSymbolId),
+}
+
+impl SurfaceStorageSymbol {
+    /// Classifies a compilation-wide symbol that can participate in a storage relationship.
+    pub const fn from_symbol(symbol: AnySymbolId) -> Option<Self> {
+        match symbol {
+            AnySymbolId::StructField(field) => Some(Self::StructField(field)),
+            AnySymbolId::UnionPayloadField(field) => Some(Self::UnionPayloadField(field)),
+            _ => None,
+        }
+    }
 }
 
 /// The exact storage reached through a local or surface relationship.
@@ -117,17 +162,17 @@ impl LocalStorageFact {
 /// A checked relationship from one compilation-wide surface symbol to storage.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct SurfaceStorageFact {
-    surface: AnySymbolId,
+    surface: SurfaceStorageSymbol,
     referent: StorageReferent,
 }
 
 impl SurfaceStorageFact {
-    pub(super) const fn new(surface: AnySymbolId, referent: StorageReferent) -> Self {
+    pub(super) const fn new(surface: SurfaceStorageSymbol, referent: StorageReferent) -> Self {
         Self { surface, referent }
     }
 
     /// Returns the surface symbol that names the storage relationship.
-    pub const fn surface(self) -> AnySymbolId {
+    pub const fn surface(self) -> SurfaceStorageSymbol {
         self.surface
     }
 
@@ -162,8 +207,8 @@ impl StorageAccessFact {
 
 /// Durable storage facts for one exact checked semantic unit.
 ///
-/// Dense identity tables retain deterministic checker construction order. Relationship tables
-/// are canonical semantic maps sorted by their typed keys.
+/// Identity and access sequences follow semantic evaluation order. Relationships follow their
+/// typed semantic-key order.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CheckedStorageFacts {
     unit: BoundUnitId,
@@ -220,7 +265,7 @@ impl CheckedStorageFacts {
         self.kind
     }
 
-    /// Returns persistent storage identities in deterministic construction order.
+    /// Returns persistent storage identities in semantic evaluation order.
     pub fn identities(&self) -> &[StorageIdentity] {
         &self.identities
     }
@@ -230,7 +275,7 @@ impl CheckedStorageFacts {
         &self.accesses
     }
 
-    /// Returns borrow capabilities in deterministic creation order.
+    /// Returns borrow capabilities in semantic evaluation order.
     pub fn borrow_capabilities(&self) -> &[BorrowCapability] {
         &self.borrow_capabilities
     }
@@ -288,7 +333,7 @@ impl CheckedStorageFacts {
     }
 
     /// Returns the exact storage named by a compilation-wide surface symbol.
-    pub fn surface_storage(&self, surface: AnySymbolId) -> Option<StorageReferent> {
+    pub fn surface_storage(&self, surface: SurfaceStorageSymbol) -> Option<StorageReferent> {
         relationship(&self.surfaces, surface, |fact| fact.surface()).map(|fact| fact.referent())
     }
 

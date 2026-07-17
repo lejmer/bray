@@ -7,9 +7,11 @@ use bray_binder::{
 };
 use bray_bound_tree::{
     BoundUnit, BoundUnitKey, BoundUnitKind, BoundUnitRoot, CheckedControlFlowFacts,
+    CheckedStorageFacts,
 };
 use bray_checker::{
-    CheckerOutcome, ControlFlowChecker, DefaultControlFlowChecker, UnitCheckRequest, UnitCheckRoot,
+    CheckerOutcome, ControlFlowChecker, DefaultControlFlowChecker, DefaultStorageChecker,
+    StorageCheckError, StorageChecker, UnitCheckRequest, UnitCheckRoot,
 };
 use bray_diagnostics::DiagnosticResult;
 
@@ -35,6 +37,16 @@ impl Compilation {
     ) -> Result<Arc<DiagnosticResult<CheckedControlFlowFacts>>, FactQueryError> {
         let published =
             self.checked_control_flow_with_cancellation(key, &self.state.cancellation)?;
+
+        Ok(Arc::clone(published.result()))
+    }
+
+    /// Returns complete storage facts and diagnostics for one bound semantic unit.
+    pub fn checked_storage(
+        &self,
+        key: BoundUnitKey,
+    ) -> Result<Arc<DiagnosticResult<CheckedStorageFacts>>, FactQueryError> {
+        let published = self.checked_storage_with_cancellation(key, &self.state.cancellation)?;
 
         Ok(Arc::clone(published.result()))
     }
@@ -90,6 +102,39 @@ impl Compilation {
             },
         )
     }
+
+    fn checked_storage_with_cancellation(
+        &self,
+        key: BoundUnitKey,
+        cancellation: &CancellationToken,
+    ) -> Result<Arc<PublishedUnitFact<CheckedStorageFacts>>, FactQueryError> {
+        // Bound-unit keys are Arc-backed immutable identities shared by fact dependencies.
+        self.unit_fact(
+            &self.state.checked_storage,
+            CompilationFactKey::CheckedStorage(key.clone()),
+            key.clone(),
+            cancellation,
+            |cancellation| {
+                let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
+
+                self.checked_control_flow_with_cancellation(key.clone(), cancellation)?;
+
+                for nested in bound.result().value().nested_units() {
+                    self.checked_storage_with_cancellation(nested.clone(), cancellation)?;
+                }
+
+                let semantic_values = self.semantic_value_store()?;
+                let available_compiler_known_symbols = self.available_compiler_known_symbols();
+
+                check_storage(
+                    bound.result().value(),
+                    semantic_values,
+                    available_compiler_known_symbols,
+                    cancellation,
+                )
+            },
+        )
+    }
 }
 
 fn bind_unit(
@@ -120,17 +165,9 @@ fn check_control_flow(
     ),
     FactQueryError,
 > {
-    let root = match bound.root() {
-        BoundUnitRoot::CallableBody(body) | BoundUnitRoot::AnonymousCallable { body, .. } => {
-            UnitCheckRoot::CallableBody(body)
-        }
-        BoundUnitRoot::Expression(expression) => UnitCheckRoot::Expression(expression),
-        BoundUnitRoot::ExpressionSequence(block) => UnitCheckRoot::ExpressionSequence(block),
-    };
-
     let request = UnitCheckRequest::new(
         bound.view(),
-        root,
+        unit_check_root(bound),
         semantic_values,
         available_compiler_known_symbols,
         cancellation,
@@ -143,6 +180,51 @@ fn check_control_flow(
     };
 
     Ok((result, Box::new([])))
+}
+
+fn check_storage(
+    bound: &BoundUnit,
+    semantic_values: &bray_symbols::SemanticValueStore,
+    available_compiler_known_symbols: &bray_symbols::AvailableCompilerKnownSymbols,
+    cancellation: &CancellationToken,
+) -> Result<
+    (
+        DiagnosticResult<CheckedStorageFacts>,
+        Box<[BinderDependency]>,
+    ),
+    FactQueryError,
+> {
+    let root = unit_check_root(bound);
+    let request = UnitCheckRequest::new(
+        bound.view(),
+        root,
+        semantic_values,
+        available_compiler_known_symbols,
+        cancellation,
+    )
+    .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+    let result = match DefaultStorageChecker.check_storage(request) {
+        Ok(CheckerOutcome::Complete(result)) => result.map(|result| result.into_facts()),
+        Ok(CheckerOutcome::Cancelled) => return Err(FactQueryError::Cancelled),
+        Err(error) => return Err(map_storage_check_error(error)),
+    };
+
+    Ok((result, Box::new([])))
+}
+
+const fn unit_check_root(bound: &BoundUnit) -> UnitCheckRoot {
+    match bound.root() {
+        BoundUnitRoot::CallableBody(body) | BoundUnitRoot::AnonymousCallable { body, .. } => {
+            UnitCheckRoot::CallableBody(body)
+        }
+        BoundUnitRoot::Expression(expression) => UnitCheckRoot::Expression(expression),
+        BoundUnitRoot::ExpressionSequence(block) => UnitCheckRoot::ExpressionSequence(block),
+    }
+}
+
+const fn map_storage_check_error(_error: StorageCheckError) -> FactQueryError {
+    FactQueryError::InfrastructureFailure
 }
 
 const fn map_binding_error(error: BoundUnitBindingError) -> FactQueryError {
@@ -314,6 +396,90 @@ mod tests {
         };
 
         assert!(checked.diagnostics().is_empty());
+    }
+
+    #[test]
+    fn storage_queries_are_lazy_cached_and_depend_on_control_flow() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "func inspect()\n",
+            "{\n",
+            "    let value: i32 = 1;\n",
+            "    value;\n",
+            "}\n",
+        ));
+        let key = source_callable_body_key(&compilation);
+
+        assert_eq!(
+            compilation.state.checked_storage.is_published(&key),
+            Ok(false)
+        );
+
+        let first = match compilation.checked_storage(key.clone()) {
+            Ok(storage) => storage,
+            Err(error) => panic!("storage query must complete: {error:?}"),
+        };
+        let second = match compilation.checked_storage(key.clone()) {
+            Ok(storage) => storage,
+            Err(error) => panic!("repeated storage query must complete: {error:?}"),
+        };
+
+        assert!(Arc::ptr_eq(&first, &second));
+        assert!(first.diagnostics().is_empty());
+        assert!(!first.value().locals().is_empty());
+        assert!(!first.value().occurrences().is_empty());
+        assert_eq!(
+            compilation.state.checked_control_flow.is_published(&key),
+            Ok(true)
+        );
+        assert_eq!(
+            compilation.state.checked_storage.is_published(&key),
+            Ok(true)
+        );
+    }
+
+    #[test]
+    fn cancelled_storage_queries_publish_nothing_and_can_be_retried() {
+        let compilation = callable_compilation();
+        let key = source_callable_body_key(&compilation);
+
+        if let Err(error) = compilation.checked_control_flow(key.clone()) {
+            panic!("storage prerequisite must complete: {error:?}");
+        }
+
+        let cancellation = CancellationToken::new();
+        let gate = FactTestGate::holding(FactCellTestEvent::Computed);
+
+        if let Err(error) = compilation
+            .state
+            .checked_storage
+            .set_test_observer(&key, gate.observer())
+        {
+            panic!("storage fact must accept a test observer: {error:?}");
+        }
+
+        let checked = std::thread::scope(|scope| {
+            let request_key = key.clone();
+            let request = scope.spawn(|| {
+                compilation.checked_storage_with_cancellation(request_key, &cancellation)
+            });
+
+            gate.wait_until_observed(FactCellTestEvent::Computed, 1);
+            cancellation.cancel();
+            gate.release();
+
+            match request.join() {
+                Ok(result) => result,
+                Err(_) => panic!("cancelled storage request panicked"),
+            }
+        });
+
+        assert!(matches!(checked, Err(FactQueryError::Cancelled)));
+        assert_eq!(
+            compilation.state.checked_storage.is_published(&key),
+            Ok(false)
+        );
+        assert!(compilation.checked_storage(key).is_ok());
     }
 
     fn callable_compilation() -> Compilation {

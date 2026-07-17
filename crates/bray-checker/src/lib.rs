@@ -6,10 +6,14 @@ mod analysis;
 mod outcome;
 mod request;
 mod service;
+mod storage;
 
 #[cfg(test)]
 mod test_support;
 
-pub use outcome::{CheckerOutcome, ControlFlowCheckResult};
+pub use outcome::{CheckerOutcome, ControlFlowCheckResult, StorageCheckResult};
 pub use request::{UnitCheckRequest, UnitCheckRequestError, UnitCheckRoot};
-pub use service::{ControlFlowChecker, DefaultControlFlowChecker};
+pub use service::{
+    ControlFlowChecker, DefaultControlFlowChecker, DefaultStorageChecker, StorageChecker,
+};
+pub use storage::StorageCheckError;

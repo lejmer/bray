@@ -112,6 +112,19 @@ pub enum BoundUnitRoot {
     ExpressionSequence(BoundBlockId),
 }
 
+impl BoundUnitRoot {
+    /// Returns the exact bound node selected as the unit root.
+    pub const fn node(self) -> crate::AnyBoundNodeId {
+        match self {
+            Self::CallableBody(body) | Self::AnonymousCallable { body, .. } => {
+                crate::AnyBoundNodeId::CallableBody(body)
+            }
+            Self::Expression(expression) => crate::AnyBoundNodeId::Expression(expression),
+            Self::ExpressionSequence(block) => crate::AnyBoundNodeId::Block(block),
+        }
+    }
+}
+
 /// A contract violation that prevents creation of a bound unit.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BoundUnitBuildError {

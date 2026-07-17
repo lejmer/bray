@@ -1,4 +1,6 @@
-use bray_bound_tree::{BoundUnitId, BoundUnitKind, CheckedControlFlowFacts, ControlCompletion};
+use bray_bound_tree::{
+    BoundUnitId, BoundUnitKind, CheckedControlFlowFacts, CheckedStorageFacts, ControlCompletion,
+};
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 
 /// The control-flow facts established for one bound semantic unit.
@@ -44,6 +46,33 @@ impl ControlFlowCheckResult {
 
     /// Returns the durable control-flow facts established by this check.
     pub const fn into_facts(self) -> CheckedControlFlowFacts {
+        self.facts
+    }
+}
+
+/// The complete durable storage facts established for one bound semantic unit.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StorageCheckResult {
+    facts: CheckedStorageFacts,
+}
+
+impl StorageCheckResult {
+    pub(crate) const fn new(facts: CheckedStorageFacts) -> Self {
+        Self { facts }
+    }
+
+    /// Returns the exact bound unit described by these storage facts.
+    pub const fn unit(&self) -> BoundUnitId {
+        self.facts.unit()
+    }
+
+    /// Returns the semantic category of the checked bound unit.
+    pub const fn kind(&self) -> BoundUnitKind {
+        self.facts.kind()
+    }
+
+    /// Returns the complete storage facts established by this check.
+    pub fn into_facts(self) -> CheckedStorageFacts {
         self.facts
     }
 }

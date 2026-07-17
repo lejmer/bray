@@ -6,9 +6,8 @@ use bray_symbols::AvailableCompilerKnownSymbols;
 
 /// A validated borrowed view of the completed checked HIR required by lowering.
 ///
-/// The view keeps the canonical bound unit and its associated semantic facts
-/// separate. Adding another required checker domain extends this input rather than creating a
-/// copied or progressively wrapped bound-tree representation.
+/// Construction requires the canonical bound unit and every checked fact domain consumed by
+/// source-unit lowering. All facts must describe that exact unit and semantic category.
 #[derive(Clone)]
 pub struct LoweringInput<'unit> {
     unit: &'unit BoundUnit,
@@ -101,7 +100,7 @@ impl<'unit> LoweringInput<'unit> {
         &self.target
     }
 
-    /// Transfers this validated input into the canonical source-unit MIR builder.
+    /// Begins MIR construction for this validated source unit.
     pub fn into_mir_builder(self) -> MirUnitBuilder {
         MirUnitBuilder::for_bound(self.unit.identity(), self.unit_kind, self.target)
     }
@@ -145,8 +144,8 @@ pub enum LoweringInputError {
 #[cfg(test)]
 mod tests {
     use bray_bound_tree::{
-        BoundUnitId, CheckedControlFlowFacts, CheckedStorageFacts, CheckedStorageFactsBuilder,
-        ControlCompletion,
+        BoundUnit, BoundUnitId, CheckedControlFlowFacts, CheckedStorageFacts,
+        CheckedStorageFactsBuilder, ControlCompletion,
     };
     use bray_symbols::testing::available_compiler_known_symbols;
     use bray_testing::{test_bound_unit, test_mir_target};
@@ -162,7 +161,7 @@ mod tests {
             unit.key().kind(),
             ControlCompletion::default(),
         );
-        let storage = storage_facts(unit.unit(), unit.key().kind());
+        let storage = storage_facts(&unit);
 
         let input = match LoweringInput::try_new(
             &unit,
@@ -195,7 +194,7 @@ mod tests {
             unit.key().kind(),
             ControlCompletion::default(),
         );
-        let storage = storage_facts(unit.unit(), unit.key().kind());
+        let storage = storage_facts(&unit);
 
         assert_input_error(
             LoweringInput::try_new(
@@ -233,7 +232,8 @@ mod tests {
             },
         );
 
-        let foreign_storage = storage_facts(BoundUnitId::new(5), unit.key().kind());
+        let foreign_unit = test_bound_unit(5);
+        let foreign_storage = storage_facts(&foreign_unit);
 
         assert_input_error(
             LoweringInput::try_new(
@@ -251,28 +251,6 @@ mod tests {
             LoweringInputError::ForeignStorage {
                 expected: BoundUnitId::new(4),
                 actual: BoundUnitId::new(5),
-            },
-        );
-
-        let wrong_storage_kind =
-            storage_facts(unit.unit(), bray_bound_tree::BoundUnitKind::RuntimeDefault);
-
-        assert_input_error(
-            LoweringInput::try_new(
-                &unit,
-                &CheckedControlFlowFacts::new(
-                    unit.unit(),
-                    unit.key().kind(),
-                    ControlCompletion::default(),
-                ),
-                &wrong_storage_kind,
-                available_compiler_known_symbols(),
-                bray_ir::MirUnitKind::Synchronous,
-                test_mir_target(),
-            ),
-            LoweringInputError::StorageKindMismatch {
-                expected: unit.key().kind(),
-                actual: bray_bound_tree::BoundUnitKind::RuntimeDefault,
             },
         );
     }
@@ -296,10 +274,12 @@ mod tests {
         assert_eq!(error, expected);
     }
 
-    fn storage_facts(
-        unit: BoundUnitId,
-        kind: bray_bound_tree::BoundUnitKind,
-    ) -> CheckedStorageFacts {
-        CheckedStorageFactsBuilder::new(unit, kind).finish()
+    fn storage_facts(unit: &BoundUnit) -> CheckedStorageFacts {
+        match CheckedStorageFactsBuilder::new(unit.unit(), unit.key().kind())
+            .finish(unit.view(), unit.root().node())
+        {
+            Ok(facts) => facts,
+            Err(error) => panic!("test storage facts must be complete: {error:?}"),
+        }
     }
 }

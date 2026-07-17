@@ -1,30 +1,32 @@
 use std::collections::{BTreeMap, btree_map::Entry};
 
-use bray_symbols::{AnySymbolId, LocalBindingSymbolId};
+use bray_symbols::LocalBindingSymbolId;
 
 use super::facts::{
     CheckedStorageArenas, CheckedStorageFacts, CheckedStorageRelationships, LocalStorageFact,
     StorageAccessFact, StorageAccessOccurrence, StorageParameter, StorageParameterFact,
-    StorageReferent, SurfaceStorageFact,
+    StorageReferent, SurfaceStorageFact, SurfaceStorageSymbol,
 };
+use super::requirements::validate_required_occurrences;
 use super::support::checked_unit_entry;
 use crate::{
-    BorrowCapability, BorrowCapabilityId, BoundUnitId, BoundUnitKind, StorageAccess,
-    StorageAccessId, StorageAccessRoot, StorageIdentity, StorageIdentityId,
+    AnyBoundNodeId, BorrowCapability, BorrowCapabilityId, BoundUnitId, BoundUnitKind,
+    BoundUnitView, StorageAccess, StorageAccessId, StorageAccessRoot, StorageIdentity,
+    StorageIdentityId,
 };
 
-/// A typed failure while constructing checked storage facts.
+/// A typed failure while establishing complete checked storage facts.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CheckedStorageFactsBuildError {
-    /// A dense storage-fact arena exceeded its compact ID representation.
+    /// The unit contains more checked storage facts than its typed IDs can represent.
     CapacityExceeded,
     /// A storage record references an identity owned by another bound unit.
     ForeignUnit,
-    /// A storage record references an identity not yet present in its dense arena.
+    /// A storage record references an identity that has not been established.
     MissingIdentity,
-    /// A storage access references a borrow capability not yet present in its dense arena.
+    /// A storage access references a borrow capability that has not been established.
     MissingBorrowCapability,
-    /// A borrow capability references an access not yet present in its dense arena.
+    /// A borrow capability references an access that has not been established.
     MissingAccess,
     /// A parameter relationship does not match the persistent identity's provenance.
     ParameterIdentityMismatch,
@@ -32,9 +34,21 @@ pub enum CheckedStorageFactsBuildError {
     LocalIdentityMismatch,
     /// A typed relationship key was already assigned in this unit.
     DuplicateRelationship,
+    /// The supplied bound unit does not match the facts' unit identity or category.
+    UnitViewMismatch,
+    /// The selected unit root or one of its committed relationships does not resolve.
+    MissingBoundNode {
+        /// The bound node that could not be read through the canonical unit view.
+        node: AnyBoundNodeId,
+    },
+    /// A storage-bearing operation has no occurrence-specific checked access.
+    MissingRequiredOccurrence {
+        /// The exact source-semantic operation absent from the completed facts.
+        occurrence: StorageAccessOccurrence,
+    },
 }
 
-/// Mutable deterministic construction state for immutable [`CheckedStorageFacts`].
+/// Collects validated storage facts for one checked semantic unit.
 #[derive(Debug)]
 pub struct CheckedStorageFactsBuilder {
     unit: BoundUnitId,
@@ -44,12 +58,12 @@ pub struct CheckedStorageFactsBuilder {
     borrow_capabilities: Vec<BorrowCapability>,
     parameters: BTreeMap<StorageParameter, StorageIdentityId>,
     locals: BTreeMap<LocalBindingSymbolId, StorageReferent>,
-    surfaces: BTreeMap<AnySymbolId, StorageReferent>,
+    surfaces: BTreeMap<SurfaceStorageSymbol, StorageReferent>,
     occurrences: BTreeMap<StorageAccessOccurrence, StorageAccessId>,
 }
 
 impl CheckedStorageFactsBuilder {
-    /// Creates empty task-local storage-fact state for one checked semantic unit.
+    /// Creates an empty collection for one checked semantic unit.
     pub const fn new(unit: BoundUnitId, kind: BoundUnitKind) -> Self {
         Self {
             unit,
@@ -64,7 +78,7 @@ impl CheckedStorageFactsBuilder {
         }
     }
 
-    /// Returns the exact bound unit that will own the published facts.
+    /// Returns the exact bound unit described by these facts.
     pub const fn unit(&self) -> BoundUnitId {
         self.unit
     }
@@ -148,6 +162,12 @@ impl CheckedStorageFactsBuilder {
             (parameter, identity),
             (StorageParameter::Receiver(expected), StorageIdentity::Receiver(actual))
                 if expected == actual
+        ) || matches!(
+            (parameter, identity),
+            (
+                StorageParameter::Anonymous(expected),
+                StorageIdentity::AnonymousParameter(actual)
+            ) if expected == actual
         );
 
         if !is_matching {
@@ -189,7 +209,7 @@ impl CheckedStorageFactsBuilder {
     /// Records the exact persistent storage or access named by a surface symbol.
     pub fn record_surface_storage(
         &mut self,
-        surface: AnySymbolId,
+        surface: SurfaceStorageSymbol,
         referent: StorageReferent,
     ) -> Result<(), CheckedStorageFactsBuildError> {
         self.validate_referent(referent)?;
@@ -214,9 +234,18 @@ impl CheckedStorageFactsBuilder {
         insert_unique(&mut self.occurrences, occurrence, access)
     }
 
-    /// Freezes every arena and canonical relationship table into immutable checked facts.
-    pub fn finish(self) -> CheckedStorageFacts {
-        CheckedStorageFacts::new(
+    /// Completes storage facts after proving every required operation in the selected unit root.
+    ///
+    /// Relationships retain deterministic semantic-key order. Returns an error when the supplied
+    /// view describes another unit or when any storage-bearing operation lacks a checked access.
+    pub fn finish(
+        self,
+        view: BoundUnitView<'_>,
+        root: impl Into<AnyBoundNodeId>,
+    ) -> Result<CheckedStorageFacts, CheckedStorageFactsBuildError> {
+        validate_required_occurrences(view, root.into(), self.unit, self.kind, &self.occurrences)?;
+
+        Ok(CheckedStorageFacts::new(
             self.unit,
             self.kind,
             CheckedStorageArenas {
@@ -246,7 +275,7 @@ impl CheckedStorageFactsBuilder {
                     .map(|(occurrence, access)| StorageAccessFact::new(occurrence, access))
                     .collect(),
             },
-        )
+        ))
     }
 
     fn validate_access_root(
@@ -297,7 +326,8 @@ impl CheckedStorageFactsBuilder {
         checked_unit_entry(self.unit, id.unit(), id.storage_index(), &self.identities).copied()
     }
 
-    fn access(&self, id: StorageAccessId) -> Option<&StorageAccess> {
+    /// Returns a previously established access when it belongs to this unit.
+    pub fn access(&self, id: StorageAccessId) -> Option<&StorageAccess> {
         checked_unit_entry(self.unit, id.unit(), id.storage_index(), &self.accesses)
     }
 
@@ -345,17 +375,19 @@ fn insert_unique<K: Ord, V>(
 mod tests {
     use bray_source::TextSize;
     use bray_symbols::{
-        BorrowKind, CallableParameterSymbolId, FunctionSymbolId, LocalScopeBoundary,
-        LocalSymbolRegionId, LocalSymbolRegionKey, LocalSymbolRegionRole,
-        LocalSymbolSnapshotBuilder, ReceiverParameterSymbolId, SymbolId, SymbolKind, SymbolName,
+        BorrowKind, CallableParameterSymbolId, LocalScopeBoundary, LocalSymbolRegionId,
+        LocalSymbolRegionKey, LocalSymbolRegionRole, LocalSymbolSnapshotBuilder,
+        ReceiverParameterSymbolId, StructFieldSymbolId, SymbolId, SymbolKind, SymbolName,
     };
 
     use super::{CheckedStorageFactsBuildError, CheckedStorageFactsBuilder};
     use crate::test_support::{error_type, source_anchor, symbol_key};
     use crate::{
-        BorrowCapability, BoundDependencyContractId, BoundExpressionId, BoundUnitId, BoundUnitKind,
-        StorageAccess, StorageAccessOccurrence, StorageAccessRoot, StorageIdentity,
-        StorageParameter, StorageReferent,
+        BorrowCapability, BoundBlock, BoundBlockItem, BoundCallableBody, BoundDependencyContractId,
+        BoundExpression, BoundExpressionId, BoundNameExpression, BoundNodeOrigin,
+        BoundReferenceTarget, BoundTree, BoundTreeBuilder, BoundUnitId, BoundUnitKey,
+        BoundUnitKind, StorageAccess, StorageAccessOccurrence, StorageAccessRoot, StorageIdentity,
+        StorageParameter, StorageReferent, SurfaceStorageSymbol,
     };
 
     #[test]
@@ -363,7 +395,7 @@ mod tests {
         let unit = BoundUnitId::new(7);
         let parameter = CallableParameterSymbolId::from_symbol_id(SymbolId::new(4));
         let receiver = ReceiverParameterSymbolId::from_symbol_id(SymbolId::new(3));
-        let surface = FunctionSymbolId::from_symbol_id(SymbolId::new(2));
+        let surface = StructFieldSymbolId::from_symbol_id(SymbolId::new(2));
         let read = BoundExpressionId::from_slot(unit, 0);
         let projection = BoundExpressionId::from_slot(unit, 1);
         let borrow_read = BoundExpressionId::from_slot(unit, 2);
@@ -415,7 +447,10 @@ mod tests {
             Ok(())
         );
         assert_eq!(
-            builder.record_surface_storage(surface.into(), StorageReferent::Access(second_access)),
+            builder.record_surface_storage(
+                SurfaceStorageSymbol::StructField(surface),
+                StorageReferent::Access(second_access),
+            ),
             Ok(())
         );
         assert_eq!(
@@ -457,7 +492,7 @@ mod tests {
             Ok(())
         );
 
-        let facts = builder.finish();
+        let facts = finish(builder, unit);
 
         assert_eq!(facts.unit(), unit);
         assert_eq!(facts.kind(), BoundUnitKind::CallableBody);
@@ -483,7 +518,7 @@ mod tests {
             Some(parameter_storage)
         );
         assert_eq!(
-            facts.surface_storage(surface.into()),
+            facts.surface_storage(SurfaceStorageSymbol::StructField(surface)),
             Some(StorageReferent::Access(second_access))
         );
         assert_eq!(
@@ -558,7 +593,7 @@ mod tests {
             Err(error) => panic!("recovered access must remain publishable: {error:?}"),
         };
 
-        let facts = builder.finish();
+        let facts = finish(builder, unit);
 
         assert_eq!(
             facts.occurrence_access(StorageAccessOccurrence::Read(expression)),
@@ -576,6 +611,31 @@ mod tests {
         fn assert_send_sync<T: Send + Sync>() {}
 
         assert_send_sync::<crate::CheckedStorageFacts>();
+    }
+
+    #[test]
+    fn completion_rejects_a_missing_required_storage_occurrence() {
+        let unit = BoundUnitId::new(10);
+        let local = local_binding(unit);
+        let (tree, key, root) = completion_tree(
+            unit,
+            [BoundExpression::Name(BoundNameExpression::new(
+                BoundNodeOrigin::source(source_anchor()),
+                BoundReferenceTarget::Local(local.into()),
+                Some(error_type()),
+                false,
+            ))],
+        );
+
+        let result = CheckedStorageFactsBuilder::new(unit, BoundUnitKind::CallableBody)
+            .finish(tree.view(&key), root);
+
+        assert_eq!(
+            result,
+            Err(CheckedStorageFactsBuildError::MissingRequiredOccurrence {
+                occurrence: StorageAccessOccurrence::Read(BoundExpressionId::from_slot(unit, 0)),
+            })
+        );
     }
 
     fn push_identity(
@@ -638,5 +698,53 @@ mod tests {
             Ok(local) => local,
             Err(error) => panic!("test local binding must build: {error:?}"),
         }
+    }
+
+    fn finish(
+        builder: CheckedStorageFactsBuilder,
+        unit: BoundUnitId,
+    ) -> crate::CheckedStorageFacts {
+        let expressions = (0..5).map(|_| crate::test_support::error_expression());
+        let (tree, key, root) = completion_tree(unit, expressions);
+
+        match builder.finish(tree.view(&key), root) {
+            Ok(facts) => facts,
+            Err(error) => panic!("complete test storage facts must publish: {error:?}"),
+        }
+    }
+
+    fn completion_tree(
+        unit: BoundUnitId,
+        expressions: impl IntoIterator<Item = BoundExpression>,
+    ) -> (BoundTree, BoundUnitKey, crate::BoundCallableBodyId) {
+        let mut builder = BoundTreeBuilder::new(unit);
+        let origin = BoundNodeOrigin::source(source_anchor());
+        let mut items = Vec::new();
+
+        for expression in expressions {
+            let expression = match builder.push_expression(expression) {
+                Ok(expression) => expression,
+                Err(error) => panic!("test expression must fit: {error:?}"),
+            };
+
+            items.push(BoundBlockItem::Expression(expression));
+        }
+
+        let block = match builder.push_block(BoundBlock::new(origin, items, false)) {
+            Ok(block) => block,
+            Err(error) => panic!("test block must fit: {error:?}"),
+        };
+        let root = match builder.push_callable_body(BoundCallableBody::block(origin, block)) {
+            Ok(root) => root,
+            Err(error) => panic!("test callable body must fit: {error:?}"),
+        };
+        let key =
+            match BoundUnitKey::callable_body(symbol_key(SymbolKind::Function, 0), source_anchor())
+            {
+                Some(key) => key,
+                None => panic!("function test key must support callable bodies"),
+            };
+
+        (builder.finish(), key, root)
     }
 }

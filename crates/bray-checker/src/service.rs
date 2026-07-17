@@ -1,5 +1,6 @@
 use crate::analysis::check_control_flow;
-use crate::{CheckerOutcome, ControlFlowCheckResult, UnitCheckRequest};
+use crate::storage::{StorageCheckError, check_storage};
+use crate::{CheckerOutcome, ControlFlowCheckResult, StorageCheckResult, UnitCheckRequest};
 
 /// The standard Bray control-flow checker implementation.
 #[derive(Clone, Copy, Debug, Default)]
@@ -21,6 +22,25 @@ pub trait ControlFlowChecker: Sync {
 }
 
 impl ControlFlowChecker for DefaultControlFlowChecker {}
+
+/// The standard Bray storage checker implementation.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct DefaultStorageChecker;
+
+/// Storage checking over one committed bound semantic unit.
+///
+/// Implementations return no partial facts or diagnostics after observing cancellation.
+pub trait StorageChecker: Sync {
+    /// Checks storage identities and operation-specific accesses for one committed bound unit.
+    fn check_storage(
+        &self,
+        request: UnitCheckRequest<'_>,
+    ) -> Result<CheckerOutcome<StorageCheckResult>, StorageCheckError> {
+        check_storage(request)
+    }
+}
+
+impl StorageChecker for DefaultStorageChecker {}
 
 #[cfg(test)]
 mod tests {

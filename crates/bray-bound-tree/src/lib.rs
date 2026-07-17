@@ -49,7 +49,7 @@ pub use storage::{
     CheckedStorageFactsBuilder, LocalStorageFact, StorageAccess, StorageAccessFact,
     StorageAccessId, StorageAccessOccurrence, StorageAccessRoot, StorageIdentity,
     StorageIdentityId, StorageParameter, StorageParameterFact, StorageProjection, StorageReferent,
-    StorageRelationship, SurfaceStorageFact,
+    StorageRelationship, SurfaceStorageFact, SurfaceStorageSymbol,
 };
 pub use template::{
     CheckedTemplate, CheckedTemplateBehavior, CheckedTemplateBuildError, CheckedTemplateBuilder,
