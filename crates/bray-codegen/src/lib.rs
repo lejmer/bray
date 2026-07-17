@@ -4,6 +4,7 @@
 
 mod artifact;
 mod backend;
+mod execution;
 mod options;
 mod outcome;
 mod request;
@@ -23,6 +24,10 @@ pub use artifact::{
     LinkableArtifactKind, LinkableArtifactRequirement,
 };
 pub use backend::{BackendCapabilities, BackendIdentity, BackendTargetPlatform, CodeGenerator};
+pub use execution::{
+    CodegenExecutionMetadata, CodegenExecutionMetadataBuildError, ProtectedAsyncFrameMetadata,
+    ProtectedAsyncFrameOperationNames,
+};
 pub use options::{CodegenOptions, DebugInformationMode, OptimizationLevel, SizePreference};
 pub use outcome::{CodegenFailure, CodegenOutcome, CodegenStatus};
 pub use request::{CodegenRequest, CodegenRequestBuildError};

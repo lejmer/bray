@@ -9,6 +9,7 @@ rust-version.workspace = true
 bray-base = { path = "../bray-base" }
 bray-codegen = { path = "../bray-codegen" }
 bray-diagnostics = { path = "../bray-diagnostics" }
+bray-runtime-interface = { path = "../bray-runtime-interface" }
 bray-package-interface = { path = "../bray-package-interface" }
 bray-symbols = { path = "../bray-symbols" }
 bray-target = { path = "../bray-target" }

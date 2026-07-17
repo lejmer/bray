@@ -1,4 +1,4 @@
-use bray_ir::{MirUnit, MirUnitBuilder};
+use bray_ir::{MirSourceOrigin, MirUnit, MirUnitBuilder, MirUnitExecution};
 
 use crate::test_bound_unit;
 
@@ -7,9 +7,9 @@ pub fn test_mir_unit(unit: u32) -> MirUnit {
     let bound = test_bound_unit(unit);
     let source = bound.key().source();
 
-    let mut builder = MirUnitBuilder::new(bound.identity());
+    let mut builder = MirUnitBuilder::for_bound(bound.identity(), MirUnitExecution::Synchronous);
 
-    let Ok(entry) = builder.push_block(source) else {
+    let Ok(entry) = builder.push_block(MirSourceOrigin::Source(source)) else {
         panic!("test MIR block must be valid");
     };
 

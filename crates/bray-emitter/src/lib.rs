@@ -17,6 +17,7 @@ pub use artifact::{
     ArtifactRole, DependencyMetadataProducerId, EmittedArtifact, EmittedArtifactSet,
     LinkerProducerId,
 };
+pub use bray_runtime_interface::ExecutableHostContract;
 pub use bray_symbols::{ProductIdentity, ProductKind};
 pub use outcome::{EmissionFailure, EmissionOutcome, EmissionStatus};
 pub use plan::{

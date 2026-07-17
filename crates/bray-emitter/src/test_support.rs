@@ -5,6 +5,10 @@ use bray_codegen::{
     BackendTargetPlatform, CodegenUnit, DebugInformationMode, DebugInformationOutputMode,
     LinkableArtifactKind, LinkableArtifactRequirement,
 };
+use bray_runtime_interface::{
+    BinarySymbolName, ExecutableHostContract, ExecutableHostContractBuilder, RootExecution,
+    RuntimeAbiRole, RuntimeAbiVersion, RuntimeRoleBinding, RuntimeRoleImplementation,
+};
 use bray_symbols::PackageIdentity;
 use bray_target::test_support::test_target_machine;
 use bray_target::{
@@ -30,6 +34,39 @@ pub(crate) fn product_identity() -> ProductIdentity {
     };
 
     product
+}
+
+pub(crate) fn executable_host_contract() -> ExecutableHostContract {
+    let Some(entry) = BinarySymbolName::try_new("_bray_host_start") else {
+        panic!("test host entry symbol name must be valid");
+    };
+
+    let roles = [
+        RuntimeAbiRole::RootExecution,
+        RuntimeAbiRole::RootCancellationRequest,
+        RuntimeAbiRole::CleanupIncidentReporting,
+        RuntimeAbiRole::RootTerminalObservation,
+        RuntimeAbiRole::StructuredShutdown,
+    ]
+    .into_iter()
+    .map(runtime_role_binding);
+
+    let mut builder = ExecutableHostContractBuilder::new(
+        product_identity(),
+        entry,
+        RootExecution::Synchronous,
+        RuntimeAbiVersion::new(1, 0),
+    );
+
+    for role in roles {
+        builder.push_role_binding(role);
+    }
+
+    let Ok(host) = builder.finish() else {
+        panic!("test executable host contract must be valid");
+    };
+
+    host
 }
 
 pub(crate) fn interface_artifact() -> bray_package_interface::InterfaceArtifact {
@@ -141,6 +178,8 @@ pub(crate) fn emission_request_for(
     let Ok(request) = EmissionRequest::try_new(
         product_identity(),
         product_kind,
+        matches!(product_kind, ProductKind::Executable | ProductKind::Test)
+            .then(executable_host_contract),
         target_identity(),
         destination,
         artifacts,
@@ -150,6 +189,18 @@ pub(crate) fn emission_request_for(
     };
 
     request
+}
+
+fn runtime_role_binding(role: RuntimeAbiRole) -> RuntimeRoleBinding {
+    let Some(symbol_name) = BinarySymbolName::try_new(format!("role_{role:?}")) else {
+        panic!("test runtime role symbol name must be valid");
+    };
+
+    RuntimeRoleBinding::new(
+        role,
+        symbol_name,
+        RuntimeRoleImplementation::CompilerLowering,
+    )
 }
 
 pub(crate) fn emission_plan() -> EmissionPlan {

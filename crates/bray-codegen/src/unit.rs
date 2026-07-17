@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
-use bray_bound_tree::BoundUnitKey;
-use bray_ir::MirUnit;
+use bray_ir::{MirUnit, MirUnitKey};
 
 /// Stable structural identity of one partitioned codegen unit.
 ///
@@ -11,7 +10,7 @@ use bray_ir::MirUnit;
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CodegenUnitKey {
     partition_revision: u32,
-    mir_units: Arc<[BoundUnitKey]>,
+    mir_units: Arc<[MirUnitKey]>,
 }
 
 impl CodegenUnitKey {
@@ -21,7 +20,7 @@ impl CodegenUnitKey {
     }
 
     /// Returns canonical MIR semantic keys that structurally identify this unit.
-    pub fn mir_units(&self) -> &[BoundUnitKey] {
+    pub fn mir_units(&self) -> &[MirUnitKey] {
         &self.mir_units
     }
 }

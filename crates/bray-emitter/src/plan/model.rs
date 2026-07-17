@@ -752,6 +752,7 @@ mod tests {
         let Ok(request) = EmissionRequest::try_new(
             product_identity(),
             ProductKind::Library,
+            None,
             target_identity(),
             RequestedArtifactDestination::Memory(collector),
             artifacts,

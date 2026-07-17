@@ -2,7 +2,7 @@ use bray_diagnostics::DiagnosticBag;
 
 use crate::{
     BackendArtifactContribution, BackendArtifactKind, BackendArtifactSet,
-    BackendArtifactSetBuildError, CodegenRequest,
+    BackendArtifactSetBuildError, CodegenExecutionMetadata, CodegenRequest,
 };
 
 /// Structured reason one backend operation could not produce a complete artifact set.
@@ -28,7 +28,7 @@ pub enum CodegenFailure {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CodegenStatus {
     /// Every requested required artifact was generated and validated.
-    Complete(BackendArtifactSet),
+    Complete(Box<BackendArtifactSet>),
     /// Generation failed without returning partial artifacts.
     Failed(CodegenFailure),
     /// Cancellation was observed before artifacts were completed.
@@ -47,12 +47,13 @@ impl CodegenOutcome {
     pub fn try_complete(
         request: CodegenRequest<'_>,
         contributions: impl IntoIterator<Item = BackendArtifactContribution>,
+        execution: CodegenExecutionMetadata,
         diagnostics: DiagnosticBag,
     ) -> Result<Self, BackendArtifactSetBuildError> {
-        let artifacts = BackendArtifactSet::try_new(request, contributions)?;
+        let artifacts = BackendArtifactSet::try_new(request, contributions, execution)?;
 
         Ok(Self {
-            status: CodegenStatus::Complete(artifacts),
+            status: CodegenStatus::Complete(Box::new(artifacts)),
             diagnostics,
         })
     }
@@ -84,9 +85,9 @@ impl CodegenOutcome {
     }
 
     /// Returns the complete artifact set only after successful generation.
-    pub const fn artifacts(&self) -> Option<&BackendArtifactSet> {
+    pub fn artifacts(&self) -> Option<&BackendArtifactSet> {
         match &self.status {
-            CodegenStatus::Complete(artifacts) => Some(artifacts),
+            CodegenStatus::Complete(artifacts) => Some(artifacts.as_ref()),
             CodegenStatus::Failed(_) | CodegenStatus::Cancelled => None,
         }
     }
@@ -97,6 +98,7 @@ mod tests {
     use bray_diagnostics::DiagnosticBag;
 
     use super::{CodegenFailure, CodegenOutcome, CodegenStatus};
+    use crate::CodegenExecutionMetadata;
     use crate::test_support::{codegen_request, contribution};
 
     #[test]
@@ -104,9 +106,12 @@ mod tests {
         let fixture = codegen_request();
         let artifact = contribution(&fixture, fixture.required_artifact().clone());
 
-        let Ok(outcome) =
-            CodegenOutcome::try_complete(fixture.request(), [artifact], DiagnosticBag::new())
-        else {
+        let Ok(outcome) = CodegenOutcome::try_complete(
+            fixture.request(),
+            [artifact],
+            CodegenExecutionMetadata::default(),
+            DiagnosticBag::new(),
+        ) else {
             panic!("requested test contribution must complete generation");
         };
 

@@ -1,5 +1,5 @@
 [package]
-name = "bray-linker"
+name = "bray-runtime-interface"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -7,10 +7,7 @@ rust-version.workspace = true
 
 [dependencies]
 bray-base = { path = "../bray-base" }
-bray-diagnostics = { path = "../bray-diagnostics" }
-bray-runtime-interface = { path = "../bray-runtime-interface" }
 bray-symbols = { path = "../bray-symbols" }
-bray-target = { path = "../bray-target" }
 
 [lints]
 workspace = true

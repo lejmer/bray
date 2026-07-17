@@ -2,6 +2,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use bray_base::NonEmptySharedStr;
+use bray_runtime_interface::RuntimeArtifactId;
 use bray_symbols::PackageIdentity;
 
 /// Stable identity of one source-ordered link input.
@@ -33,8 +34,8 @@ pub enum LinkInputKind {
     StartupObject,
     /// Target termination object placed after ordinary product inputs.
     TerminationObject,
-    /// File-backed Bray runtime component.
-    RuntimeObject,
+    /// File-backed component of the selected private execution ABI.
+    RuntimeComponent,
     /// Native library selected by canonical library name.
     NativeLibrary,
     /// Platform framework selected by canonical framework name.
@@ -49,7 +50,7 @@ impl LinkInputKind {
             | Self::Archive
             | Self::StartupObject
             | Self::TerminationObject
-            | Self::RuntimeObject => matches!(source, LinkInputSource::File(_)),
+            | Self::RuntimeComponent => matches!(source, LinkInputSource::File(_)),
             Self::NativeLibrary => matches!(source, LinkInputSource::NativeLibrary(_)),
             Self::Framework => matches!(source, LinkInputSource::Framework(_)),
         }
@@ -93,17 +94,10 @@ pub enum LinkInputProvenance {
     Package(PackageIdentity),
     /// Input selected by the canonical target profile.
     TargetProfile,
-    /// Named Bray runtime component.
-    Runtime(NonEmptySharedStr),
+    /// Component of the selected separately linked Bray runtime artifact.
+    Runtime(RuntimeArtifactId),
     /// Native dependency supplied by explicit compiler-host configuration.
     HostConfiguration,
-}
-
-impl LinkInputProvenance {
-    /// Creates runtime provenance unless the canonical component name is empty.
-    pub fn try_runtime(name: impl Into<Arc<str>>) -> Option<Self> {
-        NonEmptySharedStr::try_new(name).map(Self::Runtime)
-    }
 }
 
 /// Per-input archive treatment selected before driver translation.

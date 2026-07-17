@@ -3,6 +3,7 @@
 #![forbid(unsafe_code)]
 
 mod driver;
+mod execution;
 mod input;
 mod outcome;
 mod output;
@@ -13,6 +14,7 @@ mod target;
 #[cfg(test)]
 mod test_support;
 
+pub use bray_runtime_interface::{BinarySymbolName, ExecutableHostContract};
 pub use driver::{LinkerDriverIdentity, LinkerDriverKind};
 pub use input::{
     LinkInput, LinkInputBuildError, LinkInputId, LinkInputKind, LinkInputMode, LinkInputProvenance,
@@ -29,7 +31,7 @@ pub use output::{
 };
 pub use plan::{
     LinkPlan, LinkPlanBuildError, LinkPlanBuilder, LinkSearchPath, LinkSearchPathBuildError,
-    LinkSearchPathKind, LinkSymbolName,
+    LinkSearchPathKind,
 };
 pub use policy::{
     DeadStripPolicy, DebugLinkPolicy, LinkPolicy, LinkSubsystem, SectionGarbageCollectionPolicy,

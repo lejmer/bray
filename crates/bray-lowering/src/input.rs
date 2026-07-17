@@ -1,4 +1,5 @@
 use bray_bound_tree::{BoundUnit, BoundUnitId, BoundUnitKind, CheckedControlFlowFacts};
+use bray_ir::{MirUnitBuilder, MirUnitExecution};
 use bray_symbols::AvailableCompilerKnownSymbols;
 
 /// A validated borrowed view of the completed checked HIR required by lowering.
@@ -6,11 +7,12 @@ use bray_symbols::AvailableCompilerKnownSymbols;
 /// The view keeps the canonical bound unit and its associated semantic facts
 /// separate. Adding another required checker domain extends this input rather than creating a
 /// copied or progressively wrapped bound-tree representation.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct LoweringInput<'unit> {
     unit: &'unit BoundUnit,
     control_flow: &'unit CheckedControlFlowFacts,
     available_compiler_known_symbols: &'unit AvailableCompilerKnownSymbols,
+    execution: MirUnitExecution,
 }
 
 impl<'unit> LoweringInput<'unit> {
@@ -19,6 +21,7 @@ impl<'unit> LoweringInput<'unit> {
         unit: &'unit BoundUnit,
         control_flow: &'unit CheckedControlFlowFacts,
         available_compiler_known_symbols: &'unit AvailableCompilerKnownSymbols,
+        execution: MirUnitExecution,
     ) -> Result<Self, LoweringInputError> {
         if control_flow.unit() != unit.unit() {
             return Err(LoweringInputError::ForeignControlFlow {
@@ -34,26 +37,41 @@ impl<'unit> LoweringInput<'unit> {
             });
         }
 
+        if matches!(execution, MirUnitExecution::ExecutableHost(_)) {
+            return Err(LoweringInputError::ExecutableHostRequiresSyntheticInput);
+        }
+
         Ok(Self {
             unit,
             control_flow,
             available_compiler_known_symbols,
+            execution,
         })
     }
 
     /// Returns the canonical checked source-shaped semantic unit.
-    pub const fn unit(self) -> &'unit BoundUnit {
+    pub const fn unit(&self) -> &'unit BoundUnit {
         self.unit
     }
 
     /// Returns the durable control-flow facts established for the unit.
-    pub const fn control_flow(self) -> &'unit CheckedControlFlowFacts {
+    pub const fn control_flow(&self) -> &'unit CheckedControlFlowFacts {
         self.control_flow
     }
 
     /// Returns target-available compiler-known identities and behavior roles.
-    pub const fn available_compiler_known_symbols(self) -> &'unit AvailableCompilerKnownSymbols {
+    pub const fn available_compiler_known_symbols(&self) -> &'unit AvailableCompilerKnownSymbols {
         self.available_compiler_known_symbols
+    }
+
+    /// Returns the checked execution representation selected for this source unit.
+    pub const fn execution(&self) -> &MirUnitExecution {
+        &self.execution
+    }
+
+    /// Transfers this validated input into the canonical source-unit MIR builder.
+    pub fn into_mir_builder(self) -> MirUnitBuilder {
+        MirUnitBuilder::for_bound(self.unit.identity(), self.execution)
     }
 }
 
@@ -74,6 +92,8 @@ pub enum LoweringInputError {
         /// The category named by the supplied control-flow facts.
         actual: BoundUnitKind,
     },
+    /// A compiler-generated executable host was supplied through a source-unit lowering input.
+    ExecutableHostRequiresSyntheticInput,
 }
 
 #[cfg(test)]
@@ -98,6 +118,7 @@ mod tests {
             &unit,
             &control_flow,
             available_compiler_known_symbols(),
+            bray_ir::MirUnitExecution::Synchronous,
         ) {
             Ok(input) => input,
             Err(error) => panic!("matching lowering input must validate: {error:?}"),
@@ -123,7 +144,12 @@ mod tests {
         );
 
         assert_input_error(
-            LoweringInput::try_new(&unit, &foreign, available_compiler_known_symbols()),
+            LoweringInput::try_new(
+                &unit,
+                &foreign,
+                available_compiler_known_symbols(),
+                bray_ir::MirUnitExecution::Synchronous,
+            ),
             LoweringInputError::ForeignControlFlow {
                 expected: BoundUnitId::new(4),
                 actual: BoundUnitId::new(5),
@@ -137,7 +163,12 @@ mod tests {
         );
 
         assert_input_error(
-            LoweringInput::try_new(&unit, &wrong_kind, available_compiler_known_symbols()),
+            LoweringInput::try_new(
+                &unit,
+                &wrong_kind,
+                available_compiler_known_symbols(),
+                bray_ir::MirUnitExecution::Synchronous,
+            ),
             LoweringInputError::ControlFlowKindMismatch {
                 expected: unit.key().kind(),
                 actual: bray_bound_tree::BoundUnitKind::RuntimeDefault,

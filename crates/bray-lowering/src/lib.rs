@@ -2,6 +2,8 @@
 
 #![forbid(unsafe_code)]
 
+mod host;
 mod input;
 
+pub use host::ExecutableHostLoweringInput;
 pub use input::{LoweringInput, LoweringInputError};
