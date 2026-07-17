@@ -283,15 +283,15 @@ mod tests {
         let Ok(store) = SemanticValueStore::try_new() else {
             panic!("semantic value store must be available");
         };
-        
+
         let Ok(dependencies) =
             store.intern_dependency_contract_template(DependencyContractTemplateData::new([]))
         else {
             panic!("empty dependency contract must be valid");
         };
-        
+
         let predicate = PredicateSemanticSummary::new(dependencies);
-        
+
         let behavior = CallablePhaseBehavior::new(
             [],
             [],
@@ -301,7 +301,7 @@ mod tests {
             dependencies,
             CurrentRunCancellation::MayEnter,
         );
-        
+
         let contract = CallableContractSet::new(
             [
                 CallableContractClause::new(
@@ -321,7 +321,7 @@ mod tests {
 
         assert_eq!(contract.invocation_preconditions().len(), 1);
         assert_eq!(contract.normal_completion_postconditions().len(), 1);
-        
+
         assert_eq!(
             contract
                 .deferred_execution_behavior()

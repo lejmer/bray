@@ -211,7 +211,7 @@ mod tests {
 
         assert_eq!(copy_contracts.value().invocation_preconditions().len(), 1);
         assert_eq!(copy_contracts.value().static_constraints().len(), 1);
-        
+
         assert_eq!(
             copy_contracts
                 .value()
@@ -219,7 +219,7 @@ mod tests {
                 .len(),
             1
         );
-        
+
         assert!(
             copy_contracts
                 .value()

@@ -169,9 +169,14 @@ impl AvailableCompilerKnownSymbols {
         self.provider.role_registry().value_representation(value)
     }
 
-    /// Returns the implementation hook carried by an available exact symbol.
-    pub fn symbol_implementation<I: ExactSymbolId>(&self, symbol: I) -> Option<ImplementationHook> {
-        if !self.contains(symbol.into()) {
+    /// Returns the implementation hook carried by an available compiler-known symbol.
+    pub fn symbol_implementation(
+        &self,
+        symbol: impl Into<AnySymbolId>,
+    ) -> Option<ImplementationHook> {
+        let symbol = symbol.into();
+
+        if !self.contains(symbol) {
             return None;
         }
 

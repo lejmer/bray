@@ -3,7 +3,7 @@ use bray_bound_tree::{
 };
 use bray_declarations::SyntaxAnchor;
 
-use super::build::{ControlFlowGraphBuilder, LoopContext};
+use super::build::{CatchContext, ControlFlowGraphBuilder, LoopContext};
 use super::id::AnalysisBlockId;
 use super::model::{AnalysisEdgeKind, AnalysisExitKind, AnalysisRefinement};
 
@@ -65,7 +65,7 @@ impl ControlFlowGraphBuilder<'_> {
                 let current = self.build_operands(expression.operands(), current)?;
 
                 self.push_bound(current, id.into());
-                self.build_propagation(id, current, false)
+                self.build_result_or_run_result_propagation(id, expression, current)
             }
             BoundStructuredExpressionKind::NullablePropagation => {
                 let current = self.build_operands(expression.operands(), current)?;
@@ -146,20 +146,6 @@ impl ControlFlowGraphBuilder<'_> {
         Some(Some(join))
     }
 
-    fn build_operands(
-        &mut self,
-        operands: &[BoundExpressionId],
-        mut current: AnalysisBlockId,
-    ) -> Option<AnalysisBlockId> {
-        for operand in operands {
-            current = self
-                .build_expression(*operand, current)?
-                .unwrap_or_else(|| self.push_block());
-        }
-
-        Some(current)
-    }
-
     fn build_assertion(
         &mut self,
         id: BoundExpressionId,
@@ -227,7 +213,10 @@ impl ControlFlowGraphBuilder<'_> {
 
         let join = self.push_block();
 
-        self.catches.push(join);
+        self.catches.push(CatchContext {
+            target: join,
+            scope_depth: self.scope_depth(),
+        });
 
         let mut completion = self.build_operands(operands, current)?;
 
@@ -394,6 +383,7 @@ impl ControlFlowGraphBuilder<'_> {
             target,
             continue_target: Some(header),
             completion: join,
+            scope_depth: self.scope_depth(),
         });
 
         if let Some(body_exit) = self.build_block(body, body_entry)? {
@@ -438,6 +428,7 @@ impl ControlFlowGraphBuilder<'_> {
             target,
             continue_target: Some(header),
             completion: join,
+            scope_depth: self.scope_depth(),
         });
 
         if let Some(body_exit) = self.build_block(body, body_entry)? {
@@ -470,6 +461,7 @@ impl ControlFlowGraphBuilder<'_> {
             target,
             continue_target: Some(header),
             completion: join,
+            scope_depth: self.scope_depth(),
         });
 
         let item = self
@@ -496,43 +488,5 @@ impl ControlFlowGraphBuilder<'_> {
         self.loops.pop();
 
         Some(Some(join))
-    }
-
-    fn build_propagation(
-        &mut self,
-        expression: BoundExpressionId,
-        current: AnalysisBlockId,
-        nullable: bool,
-    ) -> Option<Option<AnalysisBlockId>> {
-        let success = self.push_block();
-        let failure = self.push_block();
-
-        let (success_kind, failure_kind, success_refinement, failure_refinement) = if nullable {
-            (
-                AnalysisEdgeKind::NullablePresent,
-                AnalysisEdgeKind::NullableAbsent,
-                Some(AnalysisRefinement::NullablePresence {
-                    expression,
-                    is_present: true,
-                }),
-                Some(AnalysisRefinement::NullablePresence {
-                    expression,
-                    is_present: false,
-                }),
-            )
-        } else {
-            (
-                AnalysisEdgeKind::ResultSuccess,
-                AnalysisEdgeKind::ResultPropagation,
-                None,
-                None,
-            )
-        };
-
-        self.push_edge(current, success, success_kind, success_refinement);
-        self.push_edge(current, failure, failure_kind, failure_refinement);
-        self.push_exit(failure, AnalysisExitKind::Propagation);
-
-        Some(Some(success))
     }
 }

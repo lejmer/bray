@@ -78,10 +78,12 @@ impl Compilation {
                     self.checked_control_flow_with_cancellation(nested.clone(), cancellation)?;
                 }
 
+                let semantic_values = self.semantic_value_store()?;
                 let available_compiler_known_symbols = self.available_compiler_known_symbols();
 
                 check_control_flow(
                     bound.result().value(),
+                    semantic_values,
                     available_compiler_known_symbols,
                     cancellation,
                 )
@@ -108,6 +110,7 @@ fn bind_unit(
 
 fn check_control_flow(
     bound: &BoundUnit,
+    semantic_values: &bray_symbols::SemanticValueStore,
     available_compiler_known_symbols: &bray_symbols::AvailableCompilerKnownSymbols,
     cancellation: &CancellationToken,
 ) -> Result<
@@ -128,6 +131,7 @@ fn check_control_flow(
     let request = UnitCheckRequest::new(
         bound.view(),
         root,
+        semantic_values,
         available_compiler_known_symbols,
         cancellation,
     )

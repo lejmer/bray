@@ -135,7 +135,7 @@ const fn completion_kind(kind: AnalysisExitKind) -> ControlCompletionKind {
     match kind {
         AnalysisExitKind::NormalFallthrough => ControlCompletionKind::Normal,
         AnalysisExitKind::Return => ControlCompletionKind::Return,
-        AnalysisExitKind::Propagation => ControlCompletionKind::Propagation,
+        AnalysisExitKind::ResultErrorPropagation => ControlCompletionKind::Propagation,
         AnalysisExitKind::Divergence => ControlCompletionKind::Divergence,
         AnalysisExitKind::Panic => ControlCompletionKind::Panic,
         AnalysisExitKind::Cancellation => ControlCompletionKind::Cancellation,

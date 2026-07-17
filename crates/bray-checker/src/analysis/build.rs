@@ -43,7 +43,8 @@ pub(super) struct ControlFlowGraphBuilder<'view> {
     view: BoundUnitView<'view>,
     storage: ControlFlowGraphAssembler,
     pub(super) loops: Vec<LoopContext>,
-    pub(super) catches: Vec<AnalysisBlockId>,
+    pub(super) catches: Vec<CatchContext>,
+    scopes: Vec<BoundBlockId>,
 }
 
 #[derive(Clone, Copy)]
@@ -51,6 +52,13 @@ pub(super) struct LoopContext {
     pub(super) target: SyntaxAnchor,
     pub(super) continue_target: Option<AnalysisBlockId>,
     pub(super) completion: AnalysisBlockId,
+    pub(super) scope_depth: usize,
+}
+
+#[derive(Clone, Copy)]
+pub(super) struct CatchContext {
+    pub(super) target: AnalysisBlockId,
+    pub(super) scope_depth: usize,
 }
 
 impl<'view> ControlFlowGraphBuilder<'view> {
@@ -61,6 +69,7 @@ impl<'view> ControlFlowGraphBuilder<'view> {
             storage: ControlFlowGraphAssembler::new(request.view().unit()),
             loops: Vec::new(),
             catches: Vec::new(),
+            scopes: Vec::new(),
         }
     }
 
@@ -112,6 +121,8 @@ impl<'view> ControlFlowGraphBuilder<'view> {
 
         self.push_bound(current, id.into());
 
+        self.scopes.push(id);
+
         for item in block.items() {
             let next = self.build_block_item(item, current)?;
 
@@ -121,7 +132,11 @@ impl<'view> ControlFlowGraphBuilder<'view> {
             };
         }
 
-        Some(Some(current))
+        let Some(scope) = self.scopes.pop() else {
+            panic!("checker scope stack lost the active lexical block");
+        };
+
+        Some(Some(self.push_scope_exit(current, scope)))
     }
 
     fn build_block_item(
@@ -170,6 +185,7 @@ impl<'view> ControlFlowGraphBuilder<'view> {
             BoundExpression::Structured(expression) => {
                 self.build_structured(id, expression, current)
             }
+            BoundExpression::Call(expression) => self.build_call(id, expression, current),
             BoundExpression::Await(expression) => self.build_await(id, *expression, current),
             BoundExpression::For(expression) => self.build_for(id, expression, current),
             BoundExpression::Match(expression) => self.build_match(id, expression, current),
@@ -191,6 +207,7 @@ impl<'view> ControlFlowGraphBuilder<'view> {
                 let current = self.build_optional_operand(expression.operand(), current)?;
 
                 self.push_bound(current, id.into());
+
                 self.push_control_transfer(current, expression.kind(), expression.target());
 
                 Some(None)
@@ -205,11 +222,7 @@ impl<'view> ControlFlowGraphBuilder<'view> {
         expression: &BoundExpression,
         mut current: AnalysisBlockId,
     ) -> Option<Option<AnalysisBlockId>> {
-        for child in expression.child_expressions() {
-            current = self
-                .build_expression(child, current)?
-                .unwrap_or_else(|| self.push_block());
-        }
+        current = self.build_expressions(expression.child_expressions(), current)?;
 
         for pattern in expression.child_patterns() {
             current = self
@@ -226,6 +239,28 @@ impl<'view> ControlFlowGraphBuilder<'view> {
         self.push_bound(current, id.into());
 
         Some(Some(current))
+    }
+
+    pub(super) fn build_expressions(
+        &mut self,
+        expressions: impl IntoIterator<Item = BoundExpressionId>,
+        mut current: AnalysisBlockId,
+    ) -> Option<AnalysisBlockId> {
+        for expression in expressions {
+            current = self
+                .build_expression(expression, current)?
+                .unwrap_or_else(|| self.push_block());
+        }
+
+        Some(current)
+    }
+
+    pub(super) fn build_operands(
+        &mut self,
+        operands: &[BoundExpressionId],
+        current: AnalysisBlockId,
+    ) -> Option<AnalysisBlockId> {
+        self.build_expressions(operands.iter().copied(), current)
     }
 
     pub(super) fn build_pattern(
@@ -286,6 +321,8 @@ impl<'view> ControlFlowGraphBuilder<'view> {
             BoundControlTransferKind::Return => self.push_exit(block, AnalysisExitKind::Return),
             BoundControlTransferKind::Break => match target_loop {
                 Some(context) => {
+                    let block = self.resolve_scopes(block, context.scope_depth);
+
                     self.push_edge(block, context.completion, AnalysisEdgeKind::LoopBreak, None);
                 }
                 None => self.push_exit(block, AnalysisExitKind::Recovery),
@@ -293,6 +330,8 @@ impl<'view> ControlFlowGraphBuilder<'view> {
             BoundControlTransferKind::Continue => match target_loop {
                 Some(context) => match context.continue_target {
                     Some(header) => {
+                        let block = self.resolve_scopes(block, context.scope_depth);
+
                         self.push_edge(block, header, AnalysisEdgeKind::LoopContinue, None);
                     }
                     None => self.push_exit(block, AnalysisExitKind::Recovery),
@@ -317,6 +356,37 @@ impl<'view> ControlFlowGraphBuilder<'view> {
         self.storage.push_recovery(block, node);
     }
 
+    pub(super) fn push_direct_await(
+        &mut self,
+        block: AnalysisBlockId,
+        expression: BoundExpressionId,
+    ) {
+        match self.view.node_is_recovered(expression.into()) {
+            Some(false) => self.storage.push_direct_await(block, expression),
+            Some(true) | None => self.storage.push_recovery(block, expression.into()),
+        }
+    }
+
+    pub(super) fn push_task_operation(
+        &mut self,
+        block: AnalysisBlockId,
+        expression: BoundExpressionId,
+        kind: super::model::AnalysisTaskOperationKind,
+    ) {
+        match self.view.node_is_recovered(expression.into()) {
+            Some(false) => self.storage.push_task_operation(block, expression, kind),
+            Some(true) | None => self.storage.push_recovery(block, expression.into()),
+        }
+    }
+
+    fn push_scope_exit(
+        &mut self,
+        current: AnalysisBlockId,
+        block: BoundBlockId,
+    ) -> AnalysisBlockId {
+        self.storage.push_scope_exit(current, block)
+    }
+
     pub(super) fn push_edge(
         &mut self,
         source: AnalysisBlockId,
@@ -328,17 +398,48 @@ impl<'view> ControlFlowGraphBuilder<'view> {
     }
 
     pub(super) fn push_exit(&mut self, block: AnalysisBlockId, kind: AnalysisExitKind) {
-        if matches!(
-            kind,
-            AnalysisExitKind::Panic | AnalysisExitKind::Cancellation
-        ) && let Some(catch) = self.catches.last().copied()
+        if kind == AnalysisExitKind::Panic
+            && let Some(catch) = self.catches.last().copied()
         {
-            self.push_edge(block, catch, AnalysisEdgeKind::Catch, None);
+            let block = self.resolve_scopes(block, catch.scope_depth);
+
+            self.push_edge(block, catch.target, AnalysisEdgeKind::Catch, None);
 
             return;
         }
 
+        let block = match kind {
+            AnalysisExitKind::Divergence => block,
+            _ => self.resolve_scopes(block, 0),
+        };
+
         self.storage.push_exit(block, kind);
+    }
+
+    fn resolve_scopes(
+        &mut self,
+        mut current: AnalysisBlockId,
+        retained_depth: usize,
+    ) -> AnalysisBlockId {
+        for index in (retained_depth..self.scopes.len()).rev() {
+            let scope = self.scopes[index];
+
+            current = self.push_scope_exit(current, scope);
+        }
+
+        current
+    }
+
+    pub(super) const fn scope_depth(&self) -> usize {
+        self.scopes.len()
+    }
+
+    pub(super) const fn request(&self) -> UnitCheckRequest<'_> {
+        self.request
+    }
+
+    pub(super) const fn view(&self) -> BoundUnitView<'_> {
+        self.view
     }
 
     fn cancelled(&self) -> bool {
@@ -353,19 +454,30 @@ impl<'view> ControlFlowGraphBuilder<'view> {
 #[cfg(test)]
 mod tests {
     use bray_bound_tree::{
-        AnyBoundNodeId, BoundAwaitExpression, BoundBinaryExpression, BoundBlock, BoundBlockItem,
-        BoundCallableBody, BoundControlTransferExpression, BoundControlTransferKind,
-        BoundErrorExpression, BoundExpression, BoundExpressionId, BoundForExpression,
-        BoundMatchArm, BoundMatchExpression, BoundNodeOrigin, BoundOperator, BoundPattern,
-        BoundPatternKind, BoundPatternMode, BoundStructuredExpression,
+        AnyBoundNodeId, BoundAwaitExpression, BoundBinaryExpression, BoundBlock,
+        BoundBlockExpression, BoundBlockItem, BoundCallExpression, BoundCallResult,
+        BoundCallableBody, BoundCallableTarget, BoundControlTransferExpression,
+        BoundControlTransferKind, BoundErrorExpression, BoundExpression, BoundExpressionId,
+        BoundForExpression, BoundFutureConstruction, BoundMatchArm, BoundMatchExpression,
+        BoundNameExpression, BoundNodeOrigin, BoundOperator, BoundPattern, BoundPatternKind,
+        BoundPatternMode, BoundReferenceTarget, BoundResolvedCall, BoundStructuredExpression,
         BoundStructuredExpressionKind, BoundTree, BoundTreeBuilder, BoundUnitId, BoundUnitKey,
+    };
+    use bray_compiler_known::{ImplementationHook, RepresentationRole};
+    use bray_symbols::{
+        CallableDefinitionId, CallableInstanceData, GenericArgument, GenericOwnerId,
+        GenericParameterSymbolId, GenericSubstitutionData, NamedTypeSymbolId,
+        TypeCallableMemberSymbolId, TypeData, TypeId, UnionSymbolId,
     };
 
     use super::{ControlFlowGraphBuildOutcome, build_control_flow_graph};
     use crate::analysis::model::ControlFlowGraph;
-    use crate::analysis::model::{AnalysisEdgeKind, AnalysisExitKind, AnalysisOperationKind};
+    use crate::analysis::model::{
+        AnalysisEdgeKind, AnalysisExitKind, AnalysisOperationKind, AnalysisScopeExitPhase,
+        AnalysisTaskOperationKind,
+    };
     use crate::test_support::{
-        available_compiler_known_symbols, callable_key, error_type, recovered_tree,
+        available_compiler_known_symbols, callable_key, error_type, recovered_tree, semantic_values,
     };
     use crate::{UnitCheckRequest, UnitCheckRoot};
 
@@ -379,6 +491,7 @@ mod tests {
         let Ok(request) = UnitCheckRequest::new(
             view,
             UnitCheckRoot::CallableBody(root),
+            semantic_values(),
             available_compiler_known_symbols(),
             &|| false,
         ) else {
@@ -542,9 +655,9 @@ mod tests {
         let graph = graph(&tree, &key, root);
 
         for edge in [
-            AnalysisEdgeKind::AsyncSuspend,
-            AnalysisEdgeKind::AsyncResume,
-            AnalysisEdgeKind::AsyncCancel,
+            AnalysisEdgeKind::AwaitSuspend,
+            AnalysisEdgeKind::AwaitResume,
+            AnalysisEdgeKind::RunCancellation,
         ] {
             assert!(
                 graph
@@ -559,6 +672,225 @@ mod tests {
                 .exits()
                 .iter()
                 .any(|exit| exit.kind() == AnalysisExitKind::Cancellation)
+        );
+
+        assert!(graph.operations().iter().any(|operation| matches!(
+            operation.kind(),
+            AnalysisOperationKind::DirectAwait(expression) if expression == await_expression
+        )));
+    }
+
+    #[test]
+    fn compiler_known_task_calls_retain_their_execution_roles() {
+        let key = callable_key();
+        let unit = BoundUnitId::new(11);
+        let origin = BoundNodeOrigin::source(key.source());
+
+        let mut builder = BoundTreeBuilder::new(unit);
+        let callee = push_name_expression(&mut builder, origin, error_type());
+
+        let start = push_task_call(
+            &mut builder,
+            origin,
+            callee,
+            ImplementationHook::FutureStart,
+        );
+
+        let join = push_task_call(&mut builder, origin, callee, ImplementationHook::TaskJoin);
+
+        let cancel = push_task_call(&mut builder, origin, callee, ImplementationHook::TaskCancel);
+
+        let root = push_callable_root(&mut builder, origin, [start, join, cancel]);
+        let tree = builder.finish();
+        let graph = graph(&tree, &key, root);
+
+        let operations = graph
+            .operations()
+            .iter()
+            .filter_map(|operation| match operation.kind() {
+                AnalysisOperationKind::TaskOperation { expression, kind } => {
+                    Some((expression, kind))
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            operations,
+            [
+                (start, AnalysisTaskOperationKind::Start),
+                (join, AnalysisTaskOperationKind::Join),
+                (cancel, AnalysisTaskOperationKind::Cancel),
+            ]
+        );
+    }
+
+    #[test]
+    fn run_result_try_forwards_panic_and_universally_bypasses_catch_for_cancellation() {
+        let key = callable_key();
+        let unit = BoundUnitId::new(12);
+        let origin = BoundNodeOrigin::source(key.source());
+        let run_result_type = representation_type(RepresentationRole::RunResult);
+
+        let mut builder = BoundTreeBuilder::new(unit);
+        let operand = push_name_expression(&mut builder, origin, run_result_type);
+
+        let propagation = push_expression(
+            &mut builder,
+            BoundExpression::Structured(BoundStructuredExpression::new(
+                origin,
+                BoundStructuredExpressionKind::ResultPropagation,
+                [operand],
+                [],
+                [],
+                Some(error_type()),
+                false,
+            )),
+        );
+
+        let catching = push_expression(
+            &mut builder,
+            BoundExpression::Structured(BoundStructuredExpression::new(
+                origin,
+                BoundStructuredExpressionKind::Catch,
+                [propagation],
+                [],
+                [],
+                Some(error_type()),
+                false,
+            )),
+        );
+
+        let root = push_callable_root(&mut builder, origin, [catching]);
+        let tree = builder.finish();
+        let graph = graph(&tree, &key, root);
+
+        for edge in [
+            AnalysisEdgeKind::RunResultCompleted,
+            AnalysisEdgeKind::RunResultPanicked,
+            AnalysisEdgeKind::RunResultCancelled,
+            AnalysisEdgeKind::Catch,
+        ] {
+            assert!(
+                graph
+                    .edges()
+                    .iter()
+                    .any(|candidate| candidate.kind() == edge)
+            );
+        }
+
+        assert!(
+            graph
+                .exits()
+                .iter()
+                .any(|exit| exit.kind() == AnalysisExitKind::Cancellation)
+        );
+
+        assert!(
+            !graph
+                .exits()
+                .iter()
+                .any(|exit| exit.kind() == AnalysisExitKind::Panic)
+        );
+    }
+
+    #[test]
+    fn result_try_keeps_error_propagation_separate_from_run_forwarding() {
+        let key = callable_key();
+        let unit = BoundUnitId::new(14);
+        let origin = BoundNodeOrigin::source(key.source());
+        let result_type = representation_type(RepresentationRole::Result);
+
+        let mut builder = BoundTreeBuilder::new(unit);
+        let operand = push_name_expression(&mut builder, origin, result_type);
+
+        let propagation = push_expression(
+            &mut builder,
+            BoundExpression::Structured(BoundStructuredExpression::new(
+                origin,
+                BoundStructuredExpressionKind::ResultPropagation,
+                [operand],
+                [],
+                [],
+                Some(error_type()),
+                false,
+            )),
+        );
+
+        let root = push_callable_root(&mut builder, origin, [propagation]);
+        let tree = builder.finish();
+        let graph = graph(&tree, &key, root);
+
+        for edge in [
+            AnalysisEdgeKind::ResultSuccess,
+            AnalysisEdgeKind::ResultErrorPropagation,
+        ] {
+            assert!(
+                graph
+                    .edges()
+                    .iter()
+                    .any(|candidate| candidate.kind() == edge)
+            );
+        }
+
+        assert!(!graph.edges().iter().any(|edge| matches!(
+            edge.kind(),
+            AnalysisEdgeKind::RunResultCompleted
+                | AnalysisEdgeKind::RunResultPanicked
+                | AnalysisEdgeKind::RunResultCancelled
+        )));
+    }
+
+    #[test]
+    fn lexical_exits_broadcast_task_cancellation_before_generic_lifecycle_resolution() {
+        let key = callable_key();
+        let unit = BoundUnitId::new(13);
+        let origin = BoundNodeOrigin::source(key.source());
+
+        let mut builder = BoundTreeBuilder::new(unit);
+        let return_expression = push_expression(
+            &mut builder,
+            BoundExpression::ControlTransfer(BoundControlTransferExpression::new(
+                origin,
+                BoundControlTransferKind::Return,
+                None,
+                None,
+                Some(error_type()),
+                false,
+            )),
+        );
+
+        let inner = push_block(&mut builder, origin, [return_expression]);
+        let inner_expression = push_expression(
+            &mut builder,
+            BoundExpression::Block(BoundBlockExpression::new(
+                origin,
+                inner,
+                Some(error_type()),
+                false,
+            )),
+        );
+
+        let outer = push_block(&mut builder, origin, [inner_expression]);
+
+        let root = match builder.push_callable_body(BoundCallableBody::block(origin, outer)) {
+            Ok(root) => root,
+            Err(error) => panic!("test callable root must be valid: {error:?}"),
+        };
+
+        let tree = builder.finish();
+        let graph = graph(&tree, &key, root);
+
+        let phases = reachable_scope_exit_phases(&graph);
+
+        assert_eq!(
+            phases,
+            [
+                (inner, AnalysisScopeExitPhase::TaskCancellationBroadcast),
+                (inner, AnalysisScopeExitPhase::LifecycleResolution),
+                (outer, AnalysisScopeExitPhase::TaskCancellationBroadcast),
+                (outer, AnalysisScopeExitPhase::LifecycleResolution),
+            ]
         );
     }
 
@@ -654,6 +986,7 @@ mod tests {
         let Ok(request) = UnitCheckRequest::new(
             view,
             UnitCheckRoot::CallableBody(root),
+            semantic_values(),
             available_compiler_known_symbols(),
             &|| false,
         ) else {
@@ -666,6 +999,156 @@ mod tests {
         };
 
         graph
+    }
+
+    fn reachable_scope_exit_phases(
+        graph: &ControlFlowGraph,
+    ) -> Vec<(bray_bound_tree::BoundBlockId, AnalysisScopeExitPhase)> {
+        let mut pending = vec![graph.entry()];
+        let mut visited = vec![false; graph.blocks().len()];
+        let mut phases = Vec::new();
+
+        while let Some(block) = pending.pop() {
+            let Some(index) = block.to_index() else {
+                continue;
+            };
+
+            if visited.get(index).copied().unwrap_or(true) {
+                continue;
+            }
+
+            visited[index] = true;
+
+            let Some(block) = graph.block(block) else {
+                continue;
+            };
+
+            for operation in block.operations() {
+                let Some(operation) = graph.operation(*operation) else {
+                    continue;
+                };
+
+                if let AnalysisOperationKind::ScopeExit { block, phase } = operation.kind() {
+                    phases.push((block, phase));
+                }
+            }
+
+            for edge in block.successors().iter().rev() {
+                if let Some(edge) = graph.edge(*edge) {
+                    pending.push(edge.target());
+                }
+            }
+        }
+
+        phases
+    }
+
+    fn push_task_call(
+        builder: &mut BoundTreeBuilder,
+        origin: BoundNodeOrigin,
+        callee: BoundExpressionId,
+        hook: ImplementationHook,
+    ) -> BoundExpressionId {
+        let definition = available_compiler_known_symbols()
+            .implementation_symbols::<TypeCallableMemberSymbolId>(hook)
+            .next()
+            .unwrap_or_else(|| panic!("{hook:?} must be available to checker tests"));
+
+        let callable = callable_instance(definition);
+        let result = match hook {
+            ImplementationHook::FutureStart => BoundCallResult::Immediate(error_type()),
+            ImplementationHook::TaskJoin | ImplementationHook::TaskCancel => {
+                BoundCallResult::LazyFuture(BoundFutureConstruction::new(
+                    error_type(),
+                    error_type(),
+                ))
+            }
+            _ => panic!("test helper accepts only compiler-known task operations"),
+        };
+
+        push_expression(
+            builder,
+            BoundExpression::Call(BoundCallExpression::resolved(
+                origin,
+                callee,
+                [],
+                BoundResolvedCall::new(BoundCallableTarget::Declaration(callable), [], result),
+            )),
+        )
+    }
+
+    fn callable_instance(definition: TypeCallableMemberSymbolId) -> CallableInstanceData {
+        let Some(definition) = CallableDefinitionId::try_new(definition.into()) else {
+            panic!("compiler-known task methods must be callable definitions");
+        };
+
+        let substitution = empty_substitution(definition.symbol());
+
+        CallableInstanceData::new(definition, substitution)
+    }
+
+    fn representation_type(role: RepresentationRole) -> TypeId {
+        let Some(definition) =
+            available_compiler_known_symbols().representation_symbol::<UnionSymbolId>(role)
+        else {
+            panic!("{role:?} must be available to checker tests");
+        };
+
+        let definition = NamedTypeSymbolId::from(definition);
+        let substitution = empty_substitution(definition.into_any());
+
+        match semantic_values().intern_type(TypeData::Named {
+            definition,
+            substitution,
+        }) {
+            Ok(ty) => ty,
+            Err(error) => panic!("test representation type must be interned: {error:?}"),
+        }
+    }
+
+    fn empty_substitution(
+        symbol: bray_symbols::AnySymbolId,
+    ) -> bray_symbols::GenericSubstitutionId {
+        let Some(owner) = GenericOwnerId::try_new(symbol) else {
+            panic!("test symbol must support a generic substitution");
+        };
+
+        let substitution = GenericSubstitutionData::try_new(
+            owner,
+            std::iter::empty::<GenericParameterSymbolId>(),
+            std::iter::empty::<GenericArgument>(),
+        );
+
+        let substitution = match substitution {
+            Ok(substitution) => substitution,
+            Err(error) => panic!("empty test substitution must be valid: {error:?}"),
+        };
+
+        match semantic_values().intern_generic_substitution(substitution) {
+            Ok(substitution) => substitution,
+            Err(error) => panic!("empty test substitution must be interned: {error:?}"),
+        }
+    }
+
+    fn push_name_expression(
+        builder: &mut BoundTreeBuilder,
+        origin: BoundNodeOrigin,
+        ty: TypeId,
+    ) -> BoundExpressionId {
+        let target = available_compiler_known_symbols()
+            .representation_symbol::<UnionSymbolId>(RepresentationRole::RunResult)
+            .map(Into::into)
+            .unwrap_or_else(|| panic!("RunResult must be available to checker tests"));
+
+        push_expression(
+            builder,
+            BoundExpression::Name(BoundNameExpression::new(
+                origin,
+                BoundReferenceTarget::Surface(target),
+                Some(ty),
+                false,
+            )),
+        )
     }
 
     fn push_error_expression(
