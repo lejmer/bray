@@ -4,7 +4,7 @@
 
 mod block;
 mod control;
-mod execution;
+mod frame;
 mod id;
 mod operation;
 mod reference;
@@ -22,12 +22,10 @@ pub use control::{
     MirCleanupEdge, MirCleanupPhase, MirEdge, MirRunResultEdges, MirSwitchCase, MirTerminator,
     MirTerminatorKind,
 };
-pub use execution::{
-    MirFrameDescriptor, MirFrameDescriptorBuildError, MirFrameStateFacts, MirUnitExecution,
-};
+pub use frame::{MirFrameDescriptor, MirFrameDescriptorBuildError, MirFrameStateFacts};
 pub use id::{MirBlockId, MirFrameStateId, MirOperationId, MirStorageId, MirUnitId, MirValueId};
 pub use operation::{
-    MirBinaryOperator, MirExecutionOperation, MirOperation, MirOperationCommit, MirOperationKind,
+    MirAsyncOperation, MirBinaryOperator, MirOperation, MirOperationCommit, MirOperationKind,
     MirTaskTerminalState, MirUnaryOperator,
 };
 pub use reference::{
@@ -36,6 +34,6 @@ pub use reference::{
 pub use source::{MirSourceAnchor, MirSourceOrigin};
 pub use storage::{MirPlace, MirProjection, MirProjectionKind, MirStorage, MirStorageKind};
 pub use target::MirTargetFacts;
-pub use unit::{MirUnit, MirUnitBuildError, MirUnitBuilder, MirUnitKey};
+pub use unit::{MirUnit, MirUnitBuildError, MirUnitBuilder, MirUnitKey, MirUnitKind};
 pub use value::{MirOperand, MirValue, MirValueOrigin};
 pub use walk::{MirVisitControl, MirVisitor, walk_mir_unit};

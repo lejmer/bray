@@ -5,7 +5,7 @@ use bray_symbols::ProductIdentity;
 
 use crate::{
     MirBlock, MirBlockId, MirFrameDescriptor, MirOperation, MirOperationId, MirSourceOrigin,
-    MirStorage, MirStorageId, MirTargetFacts, MirUnitExecution, MirUnitId, MirValue, MirValueId,
+    MirStorage, MirStorageId, MirTargetFacts, MirUnitId, MirUnitKind, MirValue, MirValueId,
 };
 
 /// Stable semantic key of one MIR unit.
@@ -24,7 +24,7 @@ pub struct MirUnit {
     pub(super) unit: MirUnitId,
     pub(super) source: MirSourceOrigin,
     pub(super) target: MirTargetFacts,
-    pub(super) execution: MirUnitExecution,
+    pub(super) kind: MirUnitKind,
     pub(super) frame_descriptor: Option<MirFrameDescriptor>,
     pub(super) entry: MirBlockId,
     pub(super) blocks: Arc<[MirBlock]>,
@@ -54,9 +54,9 @@ impl MirUnit {
         &self.target
     }
 
-    /// Returns the unit's checked execution representation.
-    pub const fn execution(&self) -> &MirUnitExecution {
-        &self.execution
+    /// Returns the unit's representation category.
+    pub const fn kind(&self) -> &MirUnitKind {
+        &self.kind
     }
 
     /// Returns the hidden protected-frame descriptor when this unit owns one.

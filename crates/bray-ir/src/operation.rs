@@ -67,7 +67,7 @@ pub enum MirTaskTerminalState {
 
 /// Explicit protected-frame and task operation selected by checked lowering.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub enum MirExecutionOperation {
+pub enum MirAsyncOperation {
     /// Create an inactive protected frame in destination storage.
     CreateFrame {
         /// Stable frame representation.
@@ -229,7 +229,7 @@ pub enum MirOperationKind {
     /// Destroy a storage place after its value is no longer live.
     Destroy(MirPlace),
     /// Perform a protected-frame or task operation.
-    Execution(MirExecutionOperation),
+    Async(MirAsyncOperation),
 }
 
 /// One committed operation and its optional result value.

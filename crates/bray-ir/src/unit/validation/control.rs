@@ -61,6 +61,7 @@ pub(super) fn validate_terminator(
             let Some(descriptor) = unit.frame_descriptor() else {
                 return Err(MirUnitBuildError::MissingFrameState);
             };
+
             let expected = descriptor
                 .states()
                 .iter()
@@ -70,7 +71,9 @@ pub(super) fn validate_terminator(
             if expected != Some(resume.target()) {
                 return Err(MirUnitBuildError::InvalidFrameStateEntry(resume.target()));
             }
+
             validate_cleanup_start(unit, block_id, cancellation)?;
+
             validate_runtime_role(
                 unit,
                 *runtime,
@@ -79,6 +82,7 @@ pub(super) fn validate_terminator(
         }
         MirTerminatorKind::ForwardRunResult { result, edges } => {
             validate_operand(unit, result, block_id, None)?;
+
             validate_ordinary_edge(unit, block_id, edges.completed())?;
             validate_cleanup_start(unit, block_id, edges.panicked())?;
             validate_cleanup_start(unit, block_id, edges.cancelled())?;

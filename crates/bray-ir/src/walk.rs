@@ -88,6 +88,7 @@ pub fn walk_mir_unit<V: MirVisitor + ?Sized>(unit: &MirUnit, visitor: &mut V) {
         let Some(slot) = u32::try_from(index).ok() else {
             return;
         };
+
         let block_id = MirBlockId::from_slot(unit.unit(), slot);
 
         match visitor.visit_block(block_id, block) {
@@ -119,7 +120,7 @@ mod tests {
     use super::{MirVisitControl, MirVisitor, walk_mir_unit};
     use crate::{
         MirBlock, MirBlockId, MirBlockKind, MirSourceAnchor, MirTerminatorKind, MirUnitBuilder,
-        MirUnitExecution,
+        MirUnitKind,
     };
 
     #[test]
@@ -161,7 +162,7 @@ mod tests {
         let target = crate::test_support::test_target();
 
         let mut builder =
-            MirUnitBuilder::for_bound(bound.identity(), MirUnitExecution::Synchronous, target);
+            MirUnitBuilder::for_bound(bound.identity(), MirUnitKind::Synchronous, target);
 
         let Ok(entry) = builder.push_block(source.clone(), MirBlockKind::Ordinary) else {
             panic!("test MIR block must be valid");

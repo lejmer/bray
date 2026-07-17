@@ -3,8 +3,8 @@ use std::sync::Arc;
 use bray_target::TargetIdentity;
 
 use crate::{
-    ArtifactContent, ArtifactDigest, BackendArtifactId, BackendIdentity, CodegenExecutionMetadata,
-    CodegenRequest, CodegenUnitKey,
+    ArtifactContent, ArtifactDigest, BackendArtifactId, BackendIdentity, CodegenRequest,
+    CodegenRuntimeMetadata, CodegenUnitKey,
 };
 
 /// One immutable logically identified artifact contribution produced by a backend.
@@ -67,7 +67,7 @@ pub struct BackendArtifactSet {
     unit: CodegenUnitKey,
     backend: BackendIdentity,
     target: TargetIdentity,
-    execution: CodegenExecutionMetadata,
+    runtime_metadata: CodegenRuntimeMetadata,
     contributions: Arc<[BackendArtifactContribution]>,
 }
 
@@ -75,10 +75,10 @@ impl BackendArtifactSet {
     pub(crate) fn try_new(
         request: CodegenRequest<'_>,
         contributions: impl IntoIterator<Item = BackendArtifactContribution>,
-        execution: CodegenExecutionMetadata,
+        runtime_metadata: CodegenRuntimeMetadata,
     ) -> Result<Self, BackendArtifactSetBuildError> {
-        if !execution.matches_unit(request.unit()) {
-            return Err(BackendArtifactSetBuildError::ExecutionMetadataMismatch);
+        if !runtime_metadata.matches_unit(request.unit()) {
+            return Err(BackendArtifactSetBuildError::RuntimeMetadataMismatch);
         }
 
         let mut contributions: Vec<_> = contributions.into_iter().collect();
@@ -116,7 +116,7 @@ impl BackendArtifactSet {
             unit: request.unit().key().clone(),
             backend: request.backend().clone(),
             target: request.target().identity().clone(),
-            execution,
+            runtime_metadata,
             contributions: contributions.into(),
         })
     }
@@ -137,8 +137,8 @@ impl BackendArtifactSet {
     }
 
     /// Returns validated protected-frame and executable-host metadata.
-    pub const fn execution(&self) -> &CodegenExecutionMetadata {
-        &self.execution
+    pub const fn runtime_metadata(&self) -> &CodegenRuntimeMetadata {
+        &self.runtime_metadata
     }
 
     /// Returns contributions in canonical logical-identity order.
@@ -150,8 +150,8 @@ impl BackendArtifactSet {
 /// A contract violation that prevents creation of a complete artifact set.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum BackendArtifactSetBuildError {
-    /// Generated execution metadata does not match protected MIR membership.
-    ExecutionMetadataMismatch,
+    /// Generated runtime metadata does not match protected MIR membership.
+    RuntimeMetadataMismatch,
     /// Two contributions have the same planned logical identity.
     DuplicateArtifact(BackendArtifactId),
     /// A required planned contribution was not produced.
@@ -192,14 +192,14 @@ fn validate_contribution(
 mod tests {
     use super::{BackendArtifactContribution, BackendArtifactSet, BackendArtifactSetBuildError};
     use crate::test_support::{artifact_content, codegen_request, contribution};
-    use crate::{BackendArtifactId, BackendArtifactKind, CodegenExecutionMetadata};
+    use crate::{BackendArtifactId, BackendArtifactKind, CodegenRuntimeMetadata};
 
     #[test]
     fn artifact_sets_validate_against_authoritative_request_identities() {
         let fixture = codegen_request();
 
         assert_eq!(
-            BackendArtifactSet::try_new(fixture.request(), [], CodegenExecutionMetadata::default(),),
+            BackendArtifactSet::try_new(fixture.request(), [], CodegenRuntimeMetadata::default(),),
             Err(BackendArtifactSetBuildError::MissingRequired(
                 fixture.required_artifact().clone()
             ))
@@ -222,7 +222,7 @@ mod tests {
             BackendArtifactSet::try_new(
                 fixture.request(),
                 [foreign],
-                CodegenExecutionMetadata::default(),
+                CodegenRuntimeMetadata::default(),
             ),
             Err(BackendArtifactSetBuildError::UnrequestedArtifact(
                 foreign_id
@@ -239,7 +239,7 @@ mod tests {
         let Ok(set) = BackendArtifactSet::try_new(
             fixture.request(),
             [second, first],
-            CodegenExecutionMetadata::default(),
+            CodegenRuntimeMetadata::default(),
         ) else {
             panic!("requested test contributions must form a complete set");
         };

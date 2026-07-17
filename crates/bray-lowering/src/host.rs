@@ -31,7 +31,7 @@ impl ExecutableHostLoweringInput {
         self.unit
     }
 
-    /// Returns the validated product-host execution contract.
+    /// Returns the validated product host contract.
     pub const fn contract(&self) -> &ExecutableHostContract {
         &self.contract
     }
@@ -50,7 +50,7 @@ impl ExecutableHostLoweringInput {
 #[cfg(test)]
 mod tests {
     use bray_ir::{
-        MirBlockKind, MirSourceAnchor, MirTerminatorKind, MirUnitExecution, MirUnitId, MirUnitKey,
+        MirBlockKind, MirSourceAnchor, MirTerminatorKind, MirUnitId, MirUnitKey, MirUnitKind,
     };
     use bray_runtime_interface::{
         BinarySymbolName, ExecutableHostContract, ExecutableHostContractBuilder, RootExecution,
@@ -65,8 +65,10 @@ mod tests {
     fn host_input_creates_generated_mir_without_a_bound_unit() {
         let host = host_contract();
         let product = host.product().clone();
+
         let input =
             ExecutableHostLoweringInput::new(MirUnitId::new(90), host.clone(), test_mir_target());
+
         let mut builder = input.into_builder();
 
         let source = MirSourceAnchor::executable_host(product.clone());
@@ -84,16 +86,18 @@ mod tests {
         };
 
         assert_eq!(unit.key(), &MirUnitKey::ExecutableHost(product));
-        assert_eq!(unit.execution(), &MirUnitExecution::ExecutableHost(host));
+        assert_eq!(unit.kind(), &MirUnitKind::ExecutableHost(host));
     }
 
     fn host_contract() -> ExecutableHostContract {
         let Some(package) = PackageIdentity::try_new("example.app") else {
             panic!("test package identity must be valid");
         };
+
         let Some(product) = ProductIdentity::try_new(package, "application") else {
             panic!("test product identity must be valid");
         };
+
         let Some(entry) = BinarySymbolName::try_new("_bray_host_start") else {
             panic!("test host entry symbol name must be valid");
         };

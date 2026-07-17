@@ -1,5 +1,5 @@
 use bray_bound_tree::{BoundUnit, BoundUnitId, BoundUnitKind, CheckedControlFlowFacts};
-use bray_ir::{MirTargetFacts, MirUnitBuilder, MirUnitExecution};
+use bray_ir::{MirTargetFacts, MirUnitBuilder, MirUnitKind};
 use bray_symbols::AvailableCompilerKnownSymbols;
 
 /// A validated borrowed view of the completed checked HIR required by lowering.
@@ -12,7 +12,7 @@ pub struct LoweringInput<'unit> {
     unit: &'unit BoundUnit,
     control_flow: &'unit CheckedControlFlowFacts,
     available_compiler_known_symbols: &'unit AvailableCompilerKnownSymbols,
-    execution: MirUnitExecution,
+    unit_kind: MirUnitKind,
     target: MirTargetFacts,
 }
 
@@ -22,7 +22,7 @@ impl<'unit> LoweringInput<'unit> {
         unit: &'unit BoundUnit,
         control_flow: &'unit CheckedControlFlowFacts,
         available_compiler_known_symbols: &'unit AvailableCompilerKnownSymbols,
-        execution: MirUnitExecution,
+        unit_kind: MirUnitKind,
         target: MirTargetFacts,
     ) -> Result<Self, LoweringInputError> {
         if control_flow.unit() != unit.unit() {
@@ -39,7 +39,7 @@ impl<'unit> LoweringInput<'unit> {
             });
         }
 
-        if matches!(execution, MirUnitExecution::ExecutableHost(_)) {
+        if matches!(unit_kind, MirUnitKind::ExecutableHost(_)) {
             return Err(LoweringInputError::ExecutableHostRequiresSyntheticInput);
         }
 
@@ -47,7 +47,7 @@ impl<'unit> LoweringInput<'unit> {
             unit,
             control_flow,
             available_compiler_known_symbols,
-            execution,
+            unit_kind,
             target,
         })
     }
@@ -67,9 +67,9 @@ impl<'unit> LoweringInput<'unit> {
         self.available_compiler_known_symbols
     }
 
-    /// Returns the checked execution representation selected for this source unit.
-    pub const fn execution(&self) -> &MirUnitExecution {
-        &self.execution
+    /// Returns the MIR representation category selected for this source unit.
+    pub const fn unit_kind(&self) -> &MirUnitKind {
+        &self.unit_kind
     }
 
     /// Returns target facts selected for lowering this unit.
@@ -79,7 +79,7 @@ impl<'unit> LoweringInput<'unit> {
 
     /// Transfers this validated input into the canonical source-unit MIR builder.
     pub fn into_mir_builder(self) -> MirUnitBuilder {
-        MirUnitBuilder::for_bound(self.unit.identity(), self.execution, self.target)
+        MirUnitBuilder::for_bound(self.unit.identity(), self.unit_kind, self.target)
     }
 }
 
@@ -126,7 +126,7 @@ mod tests {
             &unit,
             &control_flow,
             available_compiler_known_symbols(),
-            bray_ir::MirUnitExecution::Synchronous,
+            bray_ir::MirUnitKind::Synchronous,
             test_mir_target(),
         ) {
             Ok(input) => input,
@@ -157,7 +157,7 @@ mod tests {
                 &unit,
                 &foreign,
                 available_compiler_known_symbols(),
-                bray_ir::MirUnitExecution::Synchronous,
+                bray_ir::MirUnitKind::Synchronous,
                 test_mir_target(),
             ),
             LoweringInputError::ForeignControlFlow {
@@ -177,7 +177,7 @@ mod tests {
                 &unit,
                 &wrong_kind,
                 available_compiler_known_symbols(),
-                bray_ir::MirUnitExecution::Synchronous,
+                bray_ir::MirUnitKind::Synchronous,
                 test_mir_target(),
             ),
             LoweringInputError::ControlFlowKindMismatch {

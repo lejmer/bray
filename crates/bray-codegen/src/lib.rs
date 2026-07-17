@@ -4,10 +4,10 @@
 
 mod artifact;
 mod backend;
-mod execution;
 mod options;
 mod outcome;
 mod request;
+mod runtime;
 mod target;
 mod unit;
 
@@ -24,13 +24,13 @@ pub use artifact::{
     LinkableArtifactKind, LinkableArtifactRequirement,
 };
 pub use backend::{BackendCapabilities, BackendIdentity, BackendTargetPlatform, CodeGenerator};
-pub use execution::{
-    CodegenExecutionMetadata, CodegenExecutionMetadataBuildError, ProtectedAsyncFrameMetadata,
-    ProtectedAsyncFrameOperationNames,
-};
 pub use options::{CodegenOptions, DebugInformationMode, OptimizationLevel, SizePreference};
 pub use outcome::{CodegenFailure, CodegenOutcome, CodegenStatus};
 pub use request::{CodegenRequest, CodegenRequestBuildError};
+pub use runtime::{
+    CodegenRuntimeMetadata, CodegenRuntimeMetadataBuildError, ProtectedAsyncFrameMetadata,
+    ProtectedAsyncFrameOperationNames,
+};
 pub use target::{
     CallableAbiMapping, CodegenLinkage, CodegenTarget, CodegenTargetBuildError, TargetAbi,
     TargetAbiBuildError, TargetAddressSpace, TargetAddressSpaceKind, TargetCallingConvention,

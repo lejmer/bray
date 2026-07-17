@@ -29,15 +29,15 @@ fn validate_task_lifecycles(unit: &MirUnit) -> Result<(), MirUnitBuildError> {
     let mut lifecycles = BTreeMap::new();
 
     for operation in unit.operations() {
-        let crate::MirOperationKind::Execution(operation) = operation.kind() else {
+        let crate::MirOperationKind::Async(operation) = operation.kind() else {
             continue;
         };
 
         match operation {
-            crate::MirExecutionOperation::StartTask { task, .. } => {
+            crate::MirAsyncOperation::StartTask { task, .. } => {
                 lifecycles.entry(*task).or_insert((0_u32, 0_u32)).0 += 1;
             }
-            crate::MirExecutionOperation::DestroyTerminalTask { task } => {
+            crate::MirAsyncOperation::DestroyTerminalTask { task } => {
                 lifecycles.entry(*task).or_insert((0_u32, 0_u32)).1 += 1;
             }
             _ => {}
@@ -54,8 +54,8 @@ fn validate_task_lifecycles(unit: &MirUnit) -> Result<(), MirUnitBuildError> {
 }
 
 fn validate_frame_descriptor(unit: &MirUnit) -> Result<(), MirUnitBuildError> {
-    let descriptor = match (unit.execution(), unit.frame_descriptor()) {
-        (crate::MirUnitExecution::ProtectedAsyncFrame(frame), Some(descriptor)) => {
+    let descriptor = match (unit.kind(), unit.frame_descriptor()) {
+        (crate::MirUnitKind::ProtectedAsyncFrame(frame), Some(descriptor)) => {
             if descriptor.frame() != *frame {
                 return Err(MirUnitBuildError::ProtectedFrameMismatch);
             }
@@ -66,21 +66,20 @@ fn validate_frame_descriptor(unit: &MirUnit) -> Result<(), MirUnitBuildError> {
 
             descriptor
         }
-        (crate::MirUnitExecution::ProtectedAsyncFrame(_), None) => {
+        (crate::MirUnitKind::ProtectedAsyncFrame(_), None) => {
             return Err(MirUnitBuildError::MissingFrameDescriptor);
         }
-        (
-            crate::MirUnitExecution::Synchronous | crate::MirUnitExecution::ExecutableHost(_),
-            Some(_),
-        ) => return Err(MirUnitBuildError::UnexpectedFrameDescriptor),
-        (crate::MirUnitExecution::ExecutableHost(host), None) => {
+        (crate::MirUnitKind::Synchronous | crate::MirUnitKind::ExecutableHost(_), Some(_)) => {
+            return Err(MirUnitBuildError::UnexpectedFrameDescriptor);
+        }
+        (crate::MirUnitKind::ExecutableHost(host), None) => {
             if host.abi_version() != unit.target().runtime_abi() {
                 return Err(MirUnitBuildError::RuntimeAbiVersionMismatch);
             }
 
             return Ok(());
         }
-        (crate::MirUnitExecution::Synchronous, None) => return Ok(()),
+        (crate::MirUnitKind::Synchronous, None) => return Ok(()),
     };
 
     for state in descriptor.states() {
@@ -137,6 +136,7 @@ fn validate_blocks(unit: &MirUnit) -> Result<(), MirUnitBuildError> {
 
         for operation in block.operations() {
             let operation_id = *operation;
+
             let Some(operation_index) = local_index(unit, operation.unit(), operation.to_index())
             else {
                 return Err(missing_or_foreign_operation(unit, operation_id));

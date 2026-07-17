@@ -1,6 +1,6 @@
 use bray_ir::{
     MirBlockKind, MirSourceAnchor, MirTargetFacts, MirTerminatorKind, MirUnit, MirUnitBuilder,
-    MirUnitExecution,
+    MirUnitKind,
 };
 use bray_symbols::{SemanticValueStore, TypeData, TypeId};
 use bray_target::TargetIdentity;
@@ -14,7 +14,7 @@ pub fn test_mir_unit(unit: u32) -> MirUnit {
 
     let mut builder = MirUnitBuilder::for_bound(
         bound.identity(),
-        MirUnitExecution::Synchronous,
+        MirUnitKind::Synchronous,
         test_mir_target(),
     );
 

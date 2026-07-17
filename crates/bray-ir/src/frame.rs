@@ -2,14 +2,12 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use bray_base::{shared_slice, sorted_unique_shared_slice};
-use bray_runtime_interface::{
-    ExecutableHostContract, ExecutionLaneRequirement, ProtectedAsyncFrameId, RuntimeAbiVersion,
-};
+use bray_runtime_interface::{ExecutionLaneRequirement, ProtectedAsyncFrameId, RuntimeAbiVersion};
 use bray_symbols::{DependencyContractTemplateId, TypeId};
 
 use crate::{MirBlockId, MirFrameStateId, MirStorageId};
 
-/// Checked execution and affinity facts for one protected-frame state.
+/// Checked lane, affinity, and storage facts for one protected-frame state.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct MirFrameStateFacts {
     state: MirFrameStateId,
@@ -20,7 +18,7 @@ pub struct MirFrameStateFacts {
 }
 
 impl MirFrameStateFacts {
-    /// Creates state-indexed execution facts.
+    /// Creates state-indexed frame facts.
     pub fn new(
         state: MirFrameStateId,
         entry: MirBlockId,
@@ -108,7 +106,7 @@ impl MirFrameDescriptor {
         self.frame
     }
 
-    /// Returns the selected private execution ABI version.
+    /// Returns the selected private runtime ABI version.
     pub const fn abi_version(&self) -> RuntimeAbiVersion {
         self.abi_version
     }
@@ -133,27 +131,6 @@ pub enum MirFrameDescriptorBuildError {
     DuplicateStateOrEntry,
 }
 
-/// Execution representation owned by one MIR unit.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum MirUnitExecution {
-    /// Ordinary synchronous control flow with no protected async frame.
-    Synchronous,
-    /// Compiler-protected inactive and resumable async-frame representation.
-    ProtectedAsyncFrame(ProtectedAsyncFrameId),
-    /// Compiler-generated native host stub for one executable or test root.
-    ExecutableHost(ExecutableHostContract),
-}
-
-impl MirUnitExecution {
-    /// Returns the protected-frame identity when this unit owns one.
-    pub const fn protected_frame(&self) -> Option<ProtectedAsyncFrameId> {
-        match self {
-            Self::ProtectedAsyncFrame(frame) => Some(*frame),
-            Self::Synchronous | Self::ExecutableHost(_) => None,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use bray_runtime_interface::{ProtectedAsyncFrameId, RuntimeAbiVersion};
@@ -162,18 +139,17 @@ mod tests {
     use super::{
         MirFrameDescriptor, MirFrameDescriptorBuildError, MirFrameStateFacts, MirFrameStateId,
     };
-    use crate::{
-        MirBlockKind, MirSourceAnchor, MirTerminatorKind, MirUnitBuilder, MirUnitExecution,
-    };
+    use crate::{MirBlockKind, MirSourceAnchor, MirTerminatorKind, MirUnitBuilder, MirUnitKind};
 
     #[test]
     fn frame_descriptors_require_unique_nonempty_state_tables() {
         let frame = ProtectedAsyncFrameId::new([3; 32]);
         let bound = test_bound_unit(3);
         let source = MirSourceAnchor::from(bound.key().source());
+
         let mut builder = MirUnitBuilder::for_bound(
             bound.identity(),
-            MirUnitExecution::ProtectedAsyncFrame(frame),
+            MirUnitKind::ProtectedAsyncFrame(frame),
             crate::test_support::test_target(),
         );
 

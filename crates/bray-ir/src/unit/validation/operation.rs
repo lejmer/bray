@@ -2,7 +2,7 @@ use bray_runtime_interface::RuntimeAbiRole;
 use bray_symbols::TypeId;
 
 use crate::{
-    MirBlockKind, MirCallTarget, MirExecutionOperation, MirOperand, MirOperation, MirOperationId,
+    MirAsyncOperation, MirBlockKind, MirCallTarget, MirOperand, MirOperation, MirOperationId,
     MirOperationKind, MirPlace, MirProjection, MirProjectionKind, MirStorage, MirStorageId,
     MirStorageKind, MirTaskTerminalState, MirUnit, MirUnitBuildError, MirValueId,
 };
@@ -50,8 +50,8 @@ pub(super) fn validate_operation(
                 validate_operand(unit, argument, block, Some(id))?;
             }
         }
-        MirOperationKind::Execution(operation) => {
-            validate_execution_operation(unit, block, id, operation)?;
+        MirOperationKind::Async(operation) => {
+            validate_async_operation(unit, block, id, operation)?;
         }
     }
 
@@ -64,21 +64,21 @@ fn validate_operation_block(
     kind: &MirOperationKind,
 ) -> Result<(), MirUnitBuildError> {
     let valid = match kind {
-        MirOperationKind::Execution(MirExecutionOperation::ExecuteCleanupBroadcast { .. }) => {
+        MirOperationKind::Async(MirAsyncOperation::ExecuteCleanupBroadcast { .. }) => {
             block_kind == MirBlockKind::CleanupBroadcast
         }
-        MirOperationKind::Execution(MirExecutionOperation::ExecuteLifecycleResolution {
-            ..
-        }) => block_kind == MirBlockKind::LifecycleResolution,
-        MirOperationKind::Execution(MirExecutionOperation::RequestTaskCancellation { .. }) => {
+        MirOperationKind::Async(MirAsyncOperation::ExecuteLifecycleResolution { .. }) => {
+            block_kind == MirBlockKind::LifecycleResolution
+        }
+        MirOperationKind::Async(MirAsyncOperation::RequestTaskCancellation { .. }) => {
             block_kind != MirBlockKind::LifecycleResolution
         }
-        MirOperationKind::Execution(
-            MirExecutionOperation::ResolveTask { .. }
-            | MirExecutionOperation::TransferCleanupIncident { .. }
-            | MirExecutionOperation::DestroyTerminalTask { .. },
+        MirOperationKind::Async(
+            MirAsyncOperation::ResolveTask { .. }
+            | MirAsyncOperation::TransferCleanupIncident { .. }
+            | MirAsyncOperation::DestroyTerminalTask { .. },
         ) => block_kind != MirBlockKind::CleanupBroadcast,
-        MirOperationKind::Execution(_) => block_kind == MirBlockKind::Ordinary,
+        MirOperationKind::Async(_) => block_kind == MirBlockKind::Ordinary,
         MirOperationKind::Finalize(_) | MirOperationKind::Destroy(_) => {
             block_kind != MirBlockKind::CleanupBroadcast
         }
@@ -108,29 +108,30 @@ fn validate_operation_result(
             | MirOperationKind::Unary { .. }
             | MirOperationKind::Binary { .. }
             | MirOperationKind::Convert { .. }
-            | MirOperationKind::Execution(
-                MirExecutionOperation::ObserveCurrentRunCancellation { .. }
-                    | MirExecutionOperation::ResolveTask { .. }
+            | MirOperationKind::Async(
+                MirAsyncOperation::ObserveCurrentRunCancellation { .. }
+                    | MirAsyncOperation::ResolveTask { .. }
             )
     );
+
     let rejects_result = matches!(
         operation.kind(),
         MirOperationKind::Store { .. }
             | MirOperationKind::Finalize(_)
             | MirOperationKind::Destroy(_)
-            | MirOperationKind::Execution(
-                MirExecutionOperation::CreateFrame { .. }
-                    | MirExecutionOperation::MoveInactiveFrame { .. }
-                    | MirExecutionOperation::ResumeFrame { .. }
-                    | MirExecutionOperation::ComposeAwaitedFrame { .. }
-                    | MirExecutionOperation::CommitAwaitedCompletion { .. }
-                    | MirExecutionOperation::StartTask { .. }
-                    | MirExecutionOperation::RequestTaskCancellation { .. }
-                    | MirExecutionOperation::PublishTerminalState { .. }
-                    | MirExecutionOperation::ExecuteCleanupBroadcast { .. }
-                    | MirExecutionOperation::ExecuteLifecycleResolution { .. }
-                    | MirExecutionOperation::TransferCleanupIncident { .. }
-                    | MirExecutionOperation::DestroyTerminalTask { .. }
+            | MirOperationKind::Async(
+                MirAsyncOperation::CreateFrame { .. }
+                    | MirAsyncOperation::MoveInactiveFrame { .. }
+                    | MirAsyncOperation::ResumeFrame { .. }
+                    | MirAsyncOperation::ComposeAwaitedFrame { .. }
+                    | MirAsyncOperation::CommitAwaitedCompletion { .. }
+                    | MirAsyncOperation::StartTask { .. }
+                    | MirAsyncOperation::RequestTaskCancellation { .. }
+                    | MirAsyncOperation::PublishTerminalState { .. }
+                    | MirAsyncOperation::ExecuteCleanupBroadcast { .. }
+                    | MirAsyncOperation::ExecuteLifecycleResolution { .. }
+                    | MirAsyncOperation::TransferCleanupIncident { .. }
+                    | MirAsyncOperation::DestroyTerminalTask { .. }
             )
     );
 
@@ -157,28 +158,29 @@ fn validate_operation_result(
     Ok(())
 }
 
-fn validate_execution_operation(
+fn validate_async_operation(
     unit: &MirUnit,
     block: crate::MirBlockId,
     operation_id: MirOperationId,
-    operation: &MirExecutionOperation,
+    operation: &MirAsyncOperation,
 ) -> Result<(), MirUnitBuildError> {
     match operation {
-        MirExecutionOperation::CreateFrame { destination, .. } => {
+        MirAsyncOperation::CreateFrame { destination, .. } => {
             validate_place(unit, destination, block, Some(operation_id))?;
             validate_place_storage_kind(unit, destination, MirStorageKind::InactiveFrame)?;
         }
-        MirExecutionOperation::MoveInactiveFrame {
+        MirAsyncOperation::MoveInactiveFrame {
             source,
             destination,
             ..
         } => {
             validate_place(unit, source, block, Some(operation_id))?;
             validate_place(unit, destination, block, Some(operation_id))?;
+
             validate_place_storage_kind(unit, source, MirStorageKind::InactiveFrame)?;
             validate_place_storage_kind(unit, destination, MirStorageKind::InactiveFrame)?;
         }
-        MirExecutionOperation::ResumeFrame {
+        MirAsyncOperation::ResumeFrame {
             frame,
             state,
             storage,
@@ -189,16 +191,16 @@ fn validate_execution_operation(
             validate_storage_kind(unit, *storage, MirStorageKind::CurrentFrame)?;
             validate_runtime_role(unit, *runtime, RuntimeAbiRole::FrameResume)?;
         }
-        MirExecutionOperation::ComposeAwaitedFrame { frame, .. } => {
+        MirAsyncOperation::ComposeAwaitedFrame { frame, .. } => {
             validate_operand(unit, frame, block, Some(operation_id))?;
         }
-        MirExecutionOperation::CommitAwaitedCompletion {
+        MirAsyncOperation::CommitAwaitedCompletion {
             value, destination, ..
         } => {
             validate_operand(unit, value, block, Some(operation_id))?;
             validate_place(unit, destination, block, Some(operation_id))?;
         }
-        MirExecutionOperation::StartTask {
+        MirAsyncOperation::StartTask {
             value,
             task,
             allocation,
@@ -206,26 +208,27 @@ fn validate_execution_operation(
             ..
         } => {
             validate_operand(unit, value, block, Some(operation_id))?;
+
             validate_storage_kind(unit, *task, MirStorageKind::ChildTask)?;
             validate_runtime_role(unit, *allocation, RuntimeAbiRole::TaskAllocation)?;
             validate_runtime_role(unit, *start, RuntimeAbiRole::TaskStart)?;
         }
-        MirExecutionOperation::RequestTaskCancellation { task, runtime } => {
+        MirAsyncOperation::RequestTaskCancellation { task, runtime } => {
             validate_storage_kind(unit, *task, MirStorageKind::ChildTask)?;
             validate_runtime_role(unit, *runtime, RuntimeAbiRole::TaskCancellationRequest)?;
         }
-        MirExecutionOperation::ObserveCurrentRunCancellation { runtime } => {
+        MirAsyncOperation::ObserveCurrentRunCancellation { runtime } => {
             validate_runtime_role(
                 unit,
                 *runtime,
                 RuntimeAbiRole::CurrentRunCancellationObservation,
             )?;
         }
-        MirExecutionOperation::ResolveTask { task, runtime } => {
+        MirAsyncOperation::ResolveTask { task, runtime } => {
             validate_storage_kind(unit, *task, MirStorageKind::ChildTask)?;
             validate_runtime_role(unit, *runtime, RuntimeAbiRole::JoinRegistration)?;
         }
-        MirExecutionOperation::PublishTerminalState {
+        MirAsyncOperation::PublishTerminalState {
             task,
             state,
             runtime,
@@ -234,19 +237,19 @@ fn validate_execution_operation(
             validate_terminal_state(unit, block, operation_id, state)?;
             validate_runtime_role(unit, *runtime, RuntimeAbiRole::TerminalPublication)?;
         }
-        MirExecutionOperation::ExecuteCleanupBroadcast { frame, runtime } => {
+        MirAsyncOperation::ExecuteCleanupBroadcast { frame, runtime } => {
             validate_current_frame(unit, *frame)?;
             validate_runtime_role(unit, *runtime, RuntimeAbiRole::FrameTaskBroadcast)?;
         }
-        MirExecutionOperation::ExecuteLifecycleResolution { frame, runtime } => {
+        MirAsyncOperation::ExecuteLifecycleResolution { frame, runtime } => {
             validate_current_frame(unit, *frame)?;
             validate_runtime_role(unit, *runtime, RuntimeAbiRole::FrameLifecycleResolution)?;
         }
-        MirExecutionOperation::TransferCleanupIncident { incident, runtime } => {
+        MirAsyncOperation::TransferCleanupIncident { incident, runtime } => {
             validate_operand(unit, incident, block, Some(operation_id))?;
             validate_runtime_role(unit, *runtime, RuntimeAbiRole::CleanupIncidentTransfer)?;
         }
-        MirExecutionOperation::DestroyTerminalTask { task } => {
+        MirAsyncOperation::DestroyTerminalTask { task } => {
             validate_storage_kind(unit, *task, MirStorageKind::ChildTask)?;
         }
     }
@@ -346,7 +349,7 @@ fn validate_current_frame(
     unit: &MirUnit,
     frame: bray_runtime_interface::ProtectedAsyncFrameId,
 ) -> Result<(), MirUnitBuildError> {
-    if unit.execution().protected_frame() != Some(frame) {
+    if unit.kind().protected_frame() != Some(frame) {
         return Err(MirUnitBuildError::ProtectedFrameMismatch);
     }
 
@@ -406,6 +409,7 @@ fn validate_value_at(
     let Some(value_data) = unit.value(value) else {
         return Err(MirUnitBuildError::MissingValue(value));
     };
+
     let valid = match value_data.origin() {
         crate::MirValueOrigin::BlockParameter(owner) => owner == block,
         crate::MirValueOrigin::Operation(operation) => {
