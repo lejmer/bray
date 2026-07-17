@@ -14,22 +14,22 @@ pub(super) fn validate_terminator(
     block: &MirBlock,
 ) -> Result<(), MirUnitBuildError> {
     match block.terminator().kind() {
-        MirTerminatorKind::Goto(edge) => validate_edge(unit, edge)?,
+        MirTerminatorKind::Goto(edge) => validate_ordinary_edge(unit, block_id, edge)?,
         MirTerminatorKind::Branch {
             condition,
             then_edge,
             else_edge,
         } => {
-            validate_operand(unit, condition)?;
-            validate_edge(unit, then_edge)?;
-            validate_edge(unit, else_edge)?;
+            validate_operand(unit, condition, block_id, None)?;
+            validate_ordinary_edge(unit, block_id, then_edge)?;
+            validate_ordinary_edge(unit, block_id, else_edge)?;
         }
         MirTerminatorKind::Switch {
             discriminant,
             cases,
             otherwise,
         } => {
-            validate_operand(unit, discriminant)?;
+            validate_operand(unit, discriminant, block_id, None)?;
 
             let mut values = BTreeSet::new();
 
@@ -38,14 +38,14 @@ pub(super) fn validate_terminator(
                     return Err(MirUnitBuildError::DuplicateSwitchCase(block_id));
                 }
 
-                validate_edge(unit, case.edge())?;
+                validate_ordinary_edge(unit, block_id, case.edge())?;
             }
 
-            validate_edge(unit, otherwise)?;
+            validate_ordinary_edge(unit, block_id, otherwise)?;
         }
         MirTerminatorKind::Return(value) => {
             if let Some(value) = value {
-                validate_operand(unit, value)?;
+                validate_operand(unit, value, block_id, None)?;
             }
         }
         MirTerminatorKind::Unreachable => {}
@@ -56,16 +56,30 @@ pub(super) fn validate_terminator(
             runtime,
         } => {
             validate_frame_state(unit, *resume_state)?;
-            validate_edge(unit, resume)?;
+            validate_ordinary_edge(unit, block_id, resume)?;
+
+            let Some(descriptor) = unit.frame_descriptor() else {
+                return Err(MirUnitBuildError::MissingFrameState);
+            };
+            let expected = descriptor
+                .states()
+                .iter()
+                .find(|state| state.state() == *resume_state)
+                .map(crate::MirFrameStateFacts::entry);
+
+            if expected != Some(resume.target()) {
+                return Err(MirUnitBuildError::InvalidFrameStateEntry(resume.target()));
+            }
             validate_cleanup_start(unit, block_id, cancellation)?;
             validate_runtime_role(
+                unit,
                 *runtime,
                 bray_runtime_interface::RuntimeAbiRole::SuspensionRegistration,
             )?;
         }
         MirTerminatorKind::ForwardRunResult { result, edges } => {
-            validate_operand(unit, result)?;
-            validate_edge(unit, edges.completed())?;
+            validate_operand(unit, result, block_id, None)?;
+            validate_ordinary_edge(unit, block_id, edges.completed())?;
             validate_cleanup_start(unit, block_id, edges.panicked())?;
             validate_cleanup_start(unit, block_id, edges.cancelled())?;
         }
@@ -83,10 +97,10 @@ pub(super) fn validate_terminator(
                 return Err(MirUnitBuildError::CleanupPhaseOrderViolation(block_id));
             }
 
-            validate_cleanup_edge(unit, edge)?;
+            validate_cleanup_edge(unit, block_id, edge)?;
         }
         MirTerminatorKind::Panic { report, cleanup } => {
-            validate_operand(unit, report)?;
+            validate_operand(unit, report, block_id, None)?;
             validate_cleanup_start(unit, block_id, cleanup)?;
         }
         MirTerminatorKind::CancelCurrentRun { cleanup } => {
@@ -106,6 +120,20 @@ pub(super) fn validate_terminator(
     Ok(())
 }
 
+fn validate_ordinary_edge(
+    unit: &MirUnit,
+    source: MirBlockId,
+    edge: &MirEdge,
+) -> Result<(), MirUnitBuildError> {
+    validate_edge(unit, source, edge)?;
+
+    if unit.block(edge.target()).map(MirBlock::kind) != Some(MirBlockKind::Ordinary) {
+        return Err(MirUnitBuildError::CleanupPhaseOrderViolation(edge.target()));
+    }
+
+    Ok(())
+}
+
 fn validate_cleanup_start(
     unit: &MirUnit,
     block: MirBlockId,
@@ -115,14 +143,15 @@ fn validate_cleanup_start(
         return Err(MirUnitBuildError::CleanupPhaseOrderViolation(block));
     }
 
-    validate_cleanup_edge(unit, cleanup)
+    validate_cleanup_edge(unit, block, cleanup)
 }
 
 fn validate_cleanup_edge(
     unit: &MirUnit,
+    source: MirBlockId,
     cleanup: &MirCleanupEdge,
 ) -> Result<(), MirUnitBuildError> {
-    validate_edge(unit, cleanup.edge())?;
+    validate_edge(unit, source, cleanup.edge())?;
 
     let target = cleanup.edge().target();
     let Some(block) = unit.block(target) else {
@@ -144,7 +173,11 @@ fn validate_cleanup_edge(
     Ok(())
 }
 
-fn validate_edge(unit: &MirUnit, edge: &MirEdge) -> Result<(), MirUnitBuildError> {
+fn validate_edge(
+    unit: &MirUnit,
+    source: MirBlockId,
+    edge: &MirEdge,
+) -> Result<(), MirUnitBuildError> {
     let Some(target) = unit.block(edge.target()) else {
         return Err(missing_or_foreign_block(unit, edge.target()));
     };
@@ -154,7 +187,7 @@ fn validate_edge(unit: &MirUnit, edge: &MirEdge) -> Result<(), MirUnitBuildError
     }
 
     for (argument, parameter) in edge.arguments().iter().zip(target.parameters()) {
-        validate_operand(unit, argument)?;
+        validate_operand(unit, argument, source, None)?;
 
         let argument_type = operand_type(unit, argument)?;
         let Some(parameter) = unit.value(*parameter) else {

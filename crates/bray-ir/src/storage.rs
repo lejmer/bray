@@ -16,10 +16,14 @@ pub enum MirStorageKind {
     Temporary,
     /// Storage for the unit's returned value.
     Return,
-    /// Stable storage retained by a protected async frame.
-    Frame,
-    /// Stable storage owned by a task control record.
-    Task,
+    /// Inactive protected-frame storage that may still be moved.
+    InactiveFrame,
+    /// Stable storage of the currently executing protected frame.
+    CurrentFrame,
+    /// Stable storage owned by the currently executing task.
+    CurrentTask,
+    /// Stable storage owned by one child task control record.
+    ChildTask,
 }
 
 /// One typed storage allocation owned by a MIR unit.
@@ -53,7 +57,7 @@ impl MirStorage {
 
 /// One typed projection from a storage place.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub enum MirProjection {
+pub enum MirProjectionKind {
     /// Dereference a pointer or reference.
     Dereference,
     /// Select a declared field or payload field.
@@ -71,6 +75,30 @@ pub enum MirProjection {
     },
     /// Select the payload of a checked union variant.
     Variant(UnionVariantSymbolId),
+}
+
+/// One projection step and its checked resulting type.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct MirProjection {
+    kind: MirProjectionKind,
+    result_type: TypeId,
+}
+
+impl MirProjection {
+    /// Creates a projection from its operation and checked result type.
+    pub const fn new(kind: MirProjectionKind, result_type: TypeId) -> Self {
+        Self { kind, result_type }
+    }
+
+    /// Returns the projection operation.
+    pub const fn kind(&self) -> &MirProjectionKind {
+        &self.kind
+    }
+
+    /// Returns the checked type after this projection.
+    pub const fn result_type(&self) -> TypeId {
+        self.result_type
+    }
 }
 
 /// A typed addressable storage location and its projections.

@@ -72,8 +72,6 @@ pub enum MirCallTarget {
     Direct(MirCallableReference),
     /// A checked callable value.
     Indirect(MirValueId),
-    /// A private compiler/runtime ABI operation.
-    Runtime(MirRuntimeReference),
 }
 
 /// One explicit call with arguments in evaluation order.

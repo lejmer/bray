@@ -352,6 +352,7 @@ dependencies = [
  "bray-declarations",
  "bray-ir",
  "bray-parser",
+ "bray-runtime-interface",
  "bray-source",
  "bray-symbols",
  "bray-syntax",

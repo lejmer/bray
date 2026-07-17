@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use crate::{
     MirBlock, MirBlockId, MirBlockKind, MirOperationId, MirUnit, MirUnitBuildError, MirValueId,
     MirValueOrigin,
@@ -18,6 +20,35 @@ pub(in crate::unit) fn validate_unit(unit: &MirUnit) -> Result<(), MirUnitBuildE
     validate_frame_descriptor(unit)?;
     validate_value_definitions(unit)?;
     validate_blocks(unit)?;
+    validate_task_lifecycles(unit)?;
+
+    Ok(())
+}
+
+fn validate_task_lifecycles(unit: &MirUnit) -> Result<(), MirUnitBuildError> {
+    let mut lifecycles = BTreeMap::new();
+
+    for operation in unit.operations() {
+        let crate::MirOperationKind::Execution(operation) = operation.kind() else {
+            continue;
+        };
+
+        match operation {
+            crate::MirExecutionOperation::StartTask { task, .. } => {
+                lifecycles.entry(*task).or_insert((0_u32, 0_u32)).0 += 1;
+            }
+            crate::MirExecutionOperation::DestroyTerminalTask { task } => {
+                lifecycles.entry(*task).or_insert((0_u32, 0_u32)).1 += 1;
+            }
+            _ => {}
+        }
+    }
+
+    for (task, (starts, destructions)) in lifecycles {
+        if starts != 1 || destructions != 1 {
+            return Err(MirUnitBuildError::InvalidTaskLifecycle(task));
+        }
+    }
 
     Ok(())
 }
@@ -29,6 +60,10 @@ fn validate_frame_descriptor(unit: &MirUnit) -> Result<(), MirUnitBuildError> {
                 return Err(MirUnitBuildError::ProtectedFrameMismatch);
             }
 
+            if descriptor.abi_version() != unit.target().runtime_abi() {
+                return Err(MirUnitBuildError::RuntimeAbiVersionMismatch);
+            }
+
             descriptor
         }
         (crate::MirUnitExecution::ProtectedAsyncFrame(_), None) => {
@@ -38,15 +73,25 @@ fn validate_frame_descriptor(unit: &MirUnit) -> Result<(), MirUnitBuildError> {
             crate::MirUnitExecution::Synchronous | crate::MirUnitExecution::ExecutableHost(_),
             Some(_),
         ) => return Err(MirUnitBuildError::UnexpectedFrameDescriptor),
-        (
-            crate::MirUnitExecution::Synchronous | crate::MirUnitExecution::ExecutableHost(_),
-            None,
-        ) => return Ok(()),
+        (crate::MirUnitExecution::ExecutableHost(host), None) => {
+            if host.abi_version() != unit.target().runtime_abi() {
+                return Err(MirUnitBuildError::RuntimeAbiVersionMismatch);
+            }
+
+            return Ok(());
+        }
+        (crate::MirUnitExecution::Synchronous, None) => return Ok(()),
     };
 
     for state in descriptor.states() {
         if state.entry().unit() != unit.unit() || unit.block(state.entry()).is_none() {
             return Err(MirUnitBuildError::InvalidFrameStateEntry(state.entry()));
+        }
+
+        for storage in state.initialized_storages() {
+            if storage.unit() != unit.unit() || unit.storage(*storage).is_none() {
+                return Err(MirUnitBuildError::MissingStorage(*storage));
+            }
         }
     }
 
@@ -111,7 +156,7 @@ fn validate_blocks(unit: &MirUnit) -> Result<(), MirUnitBuildError> {
                 return Err(MirUnitBuildError::MissingOperation(operation_id));
             };
 
-            validate_operation(unit, operation_id, operation)?;
+            validate_operation(unit, id, block.kind(), operation_id, operation)?;
         }
 
         validate_terminator(unit, id, block)?;
@@ -183,9 +228,14 @@ pub(super) fn validate_frame_state(
 }
 
 pub(super) fn validate_runtime_role(
+    unit: &MirUnit,
     runtime: crate::MirRuntimeReference,
     expected: bray_runtime_interface::RuntimeAbiRole,
 ) -> Result<(), MirUnitBuildError> {
+    if runtime.abi_version() != unit.target().runtime_abi() {
+        return Err(MirUnitBuildError::RuntimeAbiVersionMismatch);
+    }
+
     if runtime.role() != expected {
         return Err(MirUnitBuildError::RuntimeRoleMismatch {
             expected,

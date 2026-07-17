@@ -62,6 +62,18 @@ pub enum MirUnitBuildError {
         /// Role supplied by lowering.
         actual: RuntimeAbiRole,
     },
+    /// A private runtime reference uses another selected ABI version.
+    RuntimeAbiVersionMismatch,
+    /// An operation is not legal in its containing block role.
+    InvalidOperationBlock(MirOperationId),
+    /// An operation references storage with the wrong semantic role.
+    StorageKindMismatch(MirStorageId),
+    /// A typed storage operation has incompatible input and destination types.
+    StorageTypeMismatch(MirStorageId),
+    /// A value is used outside the control-flow region where it is defined.
+    ValueDoesNotDominateUse(MirValueId),
+    /// A child task does not have one start and one terminal destruction.
+    InvalidTaskLifecycle(MirStorageId),
     /// A frame operation references a frame other than the unit's protected frame.
     ProtectedFrameMismatch,
     /// A protected-frame unit has no matching hidden frame descriptor.

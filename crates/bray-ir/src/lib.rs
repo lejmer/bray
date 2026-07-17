@@ -34,7 +34,7 @@ pub use reference::{
     MirCall, MirCallTarget, MirCallableReference, MirFieldReference, MirRuntimeReference,
 };
 pub use source::{MirSourceAnchor, MirSourceOrigin};
-pub use storage::{MirPlace, MirProjection, MirStorage, MirStorageKind};
+pub use storage::{MirPlace, MirProjection, MirProjectionKind, MirStorage, MirStorageKind};
 pub use target::MirTargetFacts;
 pub use unit::{MirUnit, MirUnitBuildError, MirUnitBuilder, MirUnitKey};
 pub use value::{MirOperand, MirValue, MirValueOrigin};

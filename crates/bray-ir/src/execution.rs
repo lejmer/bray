@@ -7,8 +7,7 @@ use bray_runtime_interface::{
 };
 use bray_symbols::{DependencyContractTemplateId, TypeId};
 
-use crate::MirBlockId;
-use crate::MirFrameStateId;
+use crate::{MirBlockId, MirFrameStateId, MirStorageId};
 
 /// Checked execution and affinity facts for one protected-frame state.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -17,6 +16,7 @@ pub struct MirFrameStateFacts {
     entry: MirBlockId,
     lane_requirements: Arc<[ExecutionLaneRequirement]>,
     affinity: Option<DependencyContractTemplateId>,
+    initialized_storages: Arc<[MirStorageId]>,
 }
 
 impl MirFrameStateFacts {
@@ -26,12 +26,14 @@ impl MirFrameStateFacts {
         entry: MirBlockId,
         lane_requirements: impl IntoIterator<Item = ExecutionLaneRequirement>,
         affinity: Option<DependencyContractTemplateId>,
+        initialized_storages: impl IntoIterator<Item = MirStorageId>,
     ) -> Self {
         Self {
             state,
             entry,
             lane_requirements: sorted_unique_shared_slice(lane_requirements),
             affinity,
+            initialized_storages: sorted_unique_shared_slice(initialized_storages),
         }
     }
 
@@ -53,6 +55,11 @@ impl MirFrameStateFacts {
     /// Returns the checked state-local affinity contract, when constrained.
     pub const fn affinity(&self) -> Option<DependencyContractTemplateId> {
         self.affinity
+    }
+
+    /// Returns storages known to be initialized when this state is entered.
+    pub fn initialized_storages(&self) -> &[MirStorageId] {
+        &self.initialized_storages
     }
 }
 
@@ -186,7 +193,7 @@ mod tests {
             Err(MirFrameDescriptorBuildError::MissingState)
         );
 
-        let state = MirFrameStateFacts::new(MirFrameStateId::new(0), entry, [], None);
+        let state = MirFrameStateFacts::new(MirFrameStateId::new(0), entry, [], None, []);
 
         assert_eq!(
             MirFrameDescriptor::try_new(frame, abi, result_type, [state.clone(), state]),

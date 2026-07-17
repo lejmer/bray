@@ -18,5 +18,9 @@ pub(crate) fn test_target() -> MirTargetFacts {
         panic!("test target identity must be valid");
     };
 
-    MirTargetFacts::new(identity, bray_target::test_support::test_target_machine())
+    MirTargetFacts::new(
+        identity,
+        bray_target::test_support::test_target_machine(),
+        bray_runtime_interface::RuntimeAbiVersion::new(1, 0),
+    )
 }

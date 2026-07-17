@@ -465,6 +465,61 @@ mod tests {
     }
 
     #[test]
+    fn ordinary_edges_cannot_enter_cleanup_blocks() {
+        let bound = test_bound_unit(10);
+        let source = MirSourceAnchor::from(bound.key().source());
+        let mut builder = unit_builder(&bound, MirUnitExecution::Synchronous);
+        let entry = push_block(&mut builder, source.clone(), MirBlockKind::Ordinary);
+        let lifecycle = push_block(
+            &mut builder,
+            source.clone(),
+            MirBlockKind::LifecycleResolution,
+        );
+
+        set_terminator(
+            &mut builder,
+            entry,
+            source.clone(),
+            MirTerminatorKind::Goto(MirEdge::new(lifecycle, [])),
+        );
+        set_terminator(
+            &mut builder,
+            lifecycle,
+            source,
+            MirTerminatorKind::Return(None),
+        );
+
+        assert_eq!(
+            builder.finish(entry),
+            Err(MirUnitBuildError::CleanupPhaseOrderViolation(lifecycle))
+        );
+    }
+
+    #[test]
+    fn values_cross_blocks_only_through_block_arguments() {
+        let bound = test_bound_unit(11);
+        let source = MirSourceAnchor::from(bound.key().source());
+        let ty = crate::test_support::test_type();
+        let mut builder = unit_builder(&bound, MirUnitExecution::Synchronous);
+        let entry = push_block(&mut builder, source.clone(), MirBlockKind::Ordinary);
+        let other = push_block(&mut builder, source.clone(), MirBlockKind::Ordinary);
+        let foreign = push_parameter(&mut builder, other, source.clone(), ty);
+
+        set_terminator(
+            &mut builder,
+            entry,
+            source.clone(),
+            MirTerminatorKind::Return(Some(crate::MirOperand::Value(foreign))),
+        );
+        set_terminator(&mut builder, other, source, MirTerminatorKind::Return(None));
+
+        assert_eq!(
+            builder.finish(entry),
+            Err(MirUnitBuildError::ValueDoesNotDominateUse(foreign))
+        );
+    }
+
+    #[test]
     fn builders_reject_value_operations_without_results() {
         let bound = test_bound_unit(9);
         let source = MirSourceAnchor::from(bound.key().source());
@@ -536,7 +591,10 @@ mod tests {
         let mut builder = unit_builder(&bound, MirUnitExecution::ProtectedAsyncFrame(frame));
 
         let entry = push_block(&mut builder, source.clone(), MirBlockKind::Ordinary);
-        let storage = push_storage(&mut builder, source.clone(), ty);
+        let storage = match builder.push_storage(source.clone(), MirStorageKind::ChildTask, ty) {
+            Ok(storage) => storage,
+            Err(error) => panic!("test task storage must be valid: {error:?}"),
+        };
         let runtime =
             MirRuntimeReference::new(RuntimeAbiRole::TaskStart, RuntimeAbiVersion::new(1, 0));
 
@@ -651,7 +709,7 @@ mod tests {
         entry: crate::MirBlockId,
         result_type: bray_symbols::TypeId,
     ) -> MirFrameDescriptor {
-        let state = MirFrameStateFacts::new(MirFrameStateId::new(0), entry, [], None);
+        let state = MirFrameStateFacts::new(MirFrameStateId::new(0), entry, [], None, []);
 
         match MirFrameDescriptor::try_new(frame, RuntimeAbiVersion::new(1, 0), result_type, [state])
         {

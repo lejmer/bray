@@ -30,6 +30,12 @@ impl<'request> CodegenRequest<'request> {
             return Err(CodegenRequestBuildError::ArtifactUnitMismatch);
         }
 
+        if unit.target().identity() != target.identity()
+            || unit.target().machine() != target.machine()
+        {
+            return Err(CodegenRequestBuildError::TargetMismatch);
+        }
+
         let debug_information = options.debug_information();
         let debug_output = artifacts.debug_information();
 
@@ -85,6 +91,8 @@ pub enum CodegenRequestBuildError {
     ArtifactUnitMismatch,
     /// Generation and serialization disagree about whether debug information exists.
     DebugInformationMismatch,
+    /// MIR lowering facts do not match the selected codegen target.
+    TargetMismatch,
 }
 
 const fn debug_contract_matches(
