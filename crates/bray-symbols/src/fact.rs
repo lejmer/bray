@@ -52,4 +52,6 @@ pub use predicate::{
     ErrorPredicateDefinition, GenericConstraintSet, PredicateDefinition, PredicateDefinitionState,
     PredicateSemanticSummary, TrustedCapabilityRequirement,
 };
-pub use signature::{CallableParameterSignature, CallableSignature, ReceiverParameterSignature};
+pub use signature::{
+    CallableParameterSignature, CallableSignature, ReceiverMode, ReceiverParameterSignature,
+};

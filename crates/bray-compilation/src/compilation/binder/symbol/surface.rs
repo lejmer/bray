@@ -1,8 +1,12 @@
-use bray_binder::{BinderFactError, BinderFactResult, CallableTypeQualifiers};
-use bray_symbols::{AnySymbolId, CallableConstness, CallableExecution, CallableTrust, SymbolGraph};
+use bray_binder::{BinderFactError, BinderFactResult, CallableTypeQualifiers, bind_callable_abi};
+use bray_symbols::{
+    AnySymbolId, CallableAbi, CallableConstness, CallableExecution, CallableTrust, ReceiverMode,
+    SymbolGraph,
+};
 use bray_syntax::{
-    CallableResultClauseSyntax, ParameterListSyntax, SyntaxKind, SyntaxNodeView, SyntaxWalkControl,
-    TypeExpressionSyntax, walk_direct_child_nodes,
+    CallableDirectivesSyntax, CallableResultClauseSyntax, FunctionDirectivesSyntax,
+    ParameterListSyntax, SyntaxKind, SyntaxNodeView, SyntaxWalkControl, TypeExpressionSyntax,
+    walk_direct_child_nodes,
 };
 
 use super::super::context::CompilationBinderFacts;
@@ -17,17 +21,31 @@ pub(super) fn declaration_callable_surface(
     context: &CompilationBinderFacts<'_>,
     symbol: AnySymbolId,
 ) -> BinderFactResult<CallableSurface> {
-    with_declaration_root(context, symbol, callable_surface)
+    with_declaration_root(context, symbol, |root| callable_surface(root, symbol))
 }
 
-fn callable_surface(root: SyntaxNodeView<'_>) -> BinderFactResult<CallableSurface> {
+fn callable_surface(
+    root: SyntaxNodeView<'_>,
+    symbol: AnySymbolId,
+) -> BinderFactResult<CallableSurface> {
     let mut parameters = None;
     let mut result = None;
+    let mut abi_directives = Vec::new();
     let mut modifiers = CallableModifierPresence::default();
 
     walk_direct_child_nodes(&root, |child| {
         match child.kind() {
             SyntaxKind::ParameterList => parameters = child.cast::<ParameterListSyntax>(),
+            SyntaxKind::CallableDirectives => {
+                if let Some(directives) = child.cast::<CallableDirectivesSyntax>() {
+                    abi_directives.extend(directives.abi_directives());
+                }
+            }
+            SyntaxKind::FunctionDirectives => {
+                if let Some(directives) = child.cast::<FunctionDirectivesSyntax>() {
+                    abi_directives.extend(directives.abi_directives());
+                }
+            }
             SyntaxKind::CallableResultClause => {
                 result = child
                     .cast::<CallableResultClauseSyntax>()
@@ -41,11 +59,12 @@ fn callable_surface(root: SyntaxNodeView<'_>) -> BinderFactResult<CallableSurfac
     });
 
     let parameters = parameters.ok_or(BinderFactError::DependencyUnavailable)?;
+    let abi = bind_callable_abi(abi_directives)?;
 
     Ok(CallableSurface {
         parameters,
         result,
-        qualifiers: callable_qualifiers(modifiers),
+        qualifiers: callable_qualifiers(symbol, modifiers, abi),
     })
 }
 
@@ -55,6 +74,9 @@ fn collect_modifiers(node: SyntaxNodeView<'_>, modifiers: &mut CallableModifierP
             SyntaxKind::ConstKeyword => modifiers.is_constant = true,
             SyntaxKind::AsyncKeyword => modifiers.is_async = true,
             SyntaxKind::TrustedKeyword => modifiers.is_trusted = true,
+            SyntaxKind::StaticKeyword => modifiers.is_static = true,
+            SyntaxKind::ConsumeKeyword => modifiers.is_consuming = true,
+            SyntaxKind::MutKeyword => modifiers.is_mutable = true,
             _ => {}
         }
     }
@@ -68,6 +90,7 @@ const fn is_callable_modifier_kind(kind: SyntaxKind) -> bool {
             | SyntaxKind::TraitCallableMemberModifiers
             | SyntaxKind::ConstructorMemberModifiers
             | SyntaxKind::AsyncCapableLifecycleMemberModifiers
+            | SyntaxKind::ScopeEnterMemberModifiers
             | SyntaxKind::SyncLifecycleMemberModifiers
     )
 }
@@ -77,9 +100,16 @@ struct CallableModifierPresence {
     is_constant: bool,
     is_async: bool,
     is_trusted: bool,
+    is_static: bool,
+    is_consuming: bool,
+    is_mutable: bool,
 }
 
-fn callable_qualifiers(modifiers: CallableModifierPresence) -> CallableTypeQualifiers {
+fn callable_qualifiers(
+    symbol: AnySymbolId,
+    modifiers: CallableModifierPresence,
+    abi: CallableAbi,
+) -> CallableTypeQualifiers {
     CallableTypeQualifiers::new(
         if modifiers.is_constant {
             CallableConstness::Constant
@@ -96,7 +126,47 @@ fn callable_qualifiers(modifiers: CallableModifierPresence) -> CallableTypeQuali
         } else {
             CallableTrust::Safe
         },
+        abi,
+        receiver_mode(symbol, modifiers),
     )
+}
+
+const fn receiver_mode(
+    symbol: AnySymbolId,
+    modifiers: CallableModifierPresence,
+) -> Option<ReceiverMode> {
+    match symbol {
+        AnySymbolId::TypeCallableMember(_)
+        | AnySymbolId::TraitCallableMember(_)
+        | AnySymbolId::TraitCallableFulfillment(_) => {
+            if modifiers.is_static {
+                None
+            } else {
+                Some(receiver_mode_from_modifiers(modifiers))
+            }
+        }
+        AnySymbolId::Finalizer(_) | AnySymbolId::TraitFinalizerRequirement(_) => {
+            Some(ReceiverMode::Mutable)
+        }
+        AnySymbolId::Destructor(_) | AnySymbolId::TraitDestructorRequirement(_) => {
+            Some(ReceiverMode::ConsumingMutable)
+        }
+        AnySymbolId::ScopeEnter(_)
+        | AnySymbolId::TraitScopeEnterRequirement(_)
+        | AnySymbolId::TraitScopeEnterFulfillment(_) => {
+            Some(receiver_mode_from_modifiers(modifiers))
+        }
+        _ => None,
+    }
+}
+
+const fn receiver_mode_from_modifiers(modifiers: CallableModifierPresence) -> ReceiverMode {
+    match (modifiers.is_consuming, modifiers.is_mutable) {
+        (false, false) => ReceiverMode::Shared,
+        (false, true) => ReceiverMode::Mutable,
+        (true, false) => ReceiverMode::Consuming,
+        (true, true) => ReceiverMode::ConsumingMutable,
+    }
 }
 
 pub(super) fn compiler_known_surface(

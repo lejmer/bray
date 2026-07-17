@@ -4,6 +4,19 @@ use bray_base::shared_slice;
 
 use crate::{CallableParameterSymbolId, ReceiverParameterSymbolId, TypeId};
 
+/// The ownership and mutation authority carried by an implicit receiver.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum ReceiverMode {
+    /// Shared observation without mutation or consumption.
+    Shared,
+    /// Exclusive mutation without consumption.
+    Mutable,
+    /// Consumption without mutable local authority.
+    Consuming,
+    /// Consumption with mutable local authority.
+    ConsumingMutable,
+}
+
 /// One callable parameter and its checked declared type in signature order.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CallableParameterSignature {
@@ -33,12 +46,17 @@ impl CallableParameterSignature {
 pub struct ReceiverParameterSignature {
     parameter: ReceiverParameterSymbolId,
     ty: TypeId,
+    mode: ReceiverMode,
 }
 
 impl ReceiverParameterSignature {
     /// Creates one checked receiver signature entry.
-    pub const fn new(parameter: ReceiverParameterSymbolId, ty: TypeId) -> Self {
-        Self { parameter, ty }
+    pub const fn new(parameter: ReceiverParameterSymbolId, ty: TypeId, mode: ReceiverMode) -> Self {
+        Self {
+            parameter,
+            ty,
+            mode,
+        }
     }
 
     /// Returns the exact receiver parameter symbol.
@@ -49,6 +67,11 @@ impl ReceiverParameterSignature {
     /// Returns the checked declared receiver type.
     pub const fn ty(self) -> TypeId {
         self.ty
+    }
+
+    /// Returns the receiver's ownership and mutation mode.
+    pub const fn mode(self) -> ReceiverMode {
+        self.mode
     }
 }
 

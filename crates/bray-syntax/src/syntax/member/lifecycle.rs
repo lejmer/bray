@@ -552,6 +552,56 @@ define_source_syntax_node! {
     }
 }
 
+define_source_syntax_node! {
+    /// Optional scope-enter member modifiers in source order.
+    pub struct ScopeEnterMemberModifiersSyntax {
+        builder: ScopeEnterMemberModifiersSyntaxBuilder,
+        kind: SyntaxKind::ScopeEnterMemberModifiers,
+        source_slot: "scope_enter_member_modifiers.source",
+        node_name: "scope-enter member modifiers",
+        range_description: "scope-enter-member-modifiers",
+        debug_name: "ScopeEnterMemberModifiersSyntax",
+        builder_debug_name: "ScopeEnterMemberModifiersSyntaxBuilder",
+        skipped_syntax: false,
+        required_tokens: [],
+        optional_tokens: [
+            {
+                /// Returns the first optional `async` modifier token.
+                async_token;
+                /// Appends an `async` modifier token.
+                push_async_token;
+                kind: SyntaxKind::AsyncKeyword;
+                slot: "scope_enter_member_modifiers.async_token";
+            },
+            {
+                /// Returns the first optional `trusted` modifier token.
+                trusted_token;
+                /// Appends a `trusted` modifier token.
+                push_trusted_token;
+                kind: SyntaxKind::TrustedKeyword;
+                slot: "scope_enter_member_modifiers.trusted_token";
+            },
+            {
+                /// Returns the first optional `consume` receiver modifier token.
+                consume_token;
+                /// Appends a `consume` receiver modifier token.
+                push_consume_token;
+                kind: SyntaxKind::ConsumeKeyword;
+                slot: "scope_enter_member_modifiers.consume_token";
+            },
+            {
+                /// Returns the first optional `mut` receiver modifier token.
+                mut_token;
+                /// Appends a `mut` receiver modifier token.
+                push_mut_token;
+                kind: SyntaxKind::MutKeyword;
+                slot: "scope_enter_member_modifiers.mut_token";
+            }
+        ],
+        required_children: [],
+    }
+}
+
 define_lifecycle_body_node_with_optional_result! {
     /// Finalizer lifecycle member declaration.
     FinalizerMemberDeclarationSyntax, FinalizerMemberDeclarationSyntaxBuilder,
@@ -603,10 +653,10 @@ define_lifecycle_body_node_with_required_result! {
     keyword_push: push_enter_keyword,
     keyword_kind: SyntaxKind::EnterKeyword,
     keyword_slot: "scope_enter_member_declaration.enter_keyword",
-    modifiers_getter: async_capable_lifecycle_member_modifiers,
-    modifiers_push: push_async_capable_lifecycle_member_modifiers,
-    modifiers_type: AsyncCapableLifecycleMemberModifiersSyntax,
-    modifiers_kind: SyntaxKind::AsyncCapableLifecycleMemberModifiers,
+    modifiers_getter: scope_enter_member_modifiers,
+    modifiers_push: push_scope_enter_member_modifiers,
+    modifiers_type: ScopeEnterMemberModifiersSyntax,
+    modifiers_kind: SyntaxKind::ScopeEnterMemberModifiers,
 }
 
 define_lifecycle_body_node_with_optional_result! {
@@ -681,10 +731,10 @@ define_lifecycle_requirement_node_with_required_result! {
     keyword_push: push_enter_keyword,
     keyword_kind: SyntaxKind::EnterKeyword,
     keyword_slot: "trait_scope_enter_requirement_declaration.enter_keyword",
-    modifiers_getter: async_capable_lifecycle_member_modifiers,
-    modifiers_push: push_async_capable_lifecycle_member_modifiers,
-    modifiers_type: AsyncCapableLifecycleMemberModifiersSyntax,
-    modifiers_kind: SyntaxKind::AsyncCapableLifecycleMemberModifiers,
+    modifiers_getter: scope_enter_member_modifiers,
+    modifiers_push: push_scope_enter_member_modifiers,
+    modifiers_type: ScopeEnterMemberModifiersSyntax,
+    modifiers_kind: SyntaxKind::ScopeEnterMemberModifiers,
     semicolon_slot: "trait_scope_enter_requirement_declaration.semicolon_token",
 }
 

@@ -18,6 +18,7 @@ pub use lifecycle::{
     DestructorMemberDeclarationSyntax, DestructorMemberDeclarationSyntaxBuilder,
     FinalizerMemberDeclarationSyntax, FinalizerMemberDeclarationSyntaxBuilder,
     ScopeEnterMemberDeclarationSyntax, ScopeEnterMemberDeclarationSyntaxBuilder,
+    ScopeEnterMemberModifiersSyntax, ScopeEnterMemberModifiersSyntaxBuilder,
     ScopeExitMemberDeclarationSyntax, ScopeExitMemberDeclarationSyntaxBuilder,
     SyncLifecycleMemberModifiersSyntax, SyncLifecycleMemberModifiersSyntaxBuilder,
     TraitDestructorRequirementDeclarationSyntax,

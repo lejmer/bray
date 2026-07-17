@@ -247,9 +247,7 @@ pub(super) fn declaration_surface(
             );
 
             lifecycle_surface(
-                declaration
-                    .async_capable_lifecycle_member_modifiers()
-                    .tokens(),
+                declaration.scope_enter_member_modifiers().tokens(),
                 declaration.requires_clauses(),
                 declaration.ensures_clauses(),
                 declaration.with_clauses(),
@@ -325,9 +323,7 @@ pub(super) fn declaration_surface(
             );
 
             lifecycle_surface(
-                declaration
-                    .async_capable_lifecycle_member_modifiers()
-                    .tokens(),
+                declaration.scope_enter_member_modifiers().tokens(),
                 declaration.requires_clauses(),
                 declaration.ensures_clauses(),
                 declaration.with_clauses(),

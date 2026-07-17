@@ -305,15 +305,18 @@ mod tests {
     use bray_binder::{BinderFactError, SymbolFactProvider};
     use bray_diagnostics::DiagnosticKind;
     use bray_symbols::{
-        CallableContractTypeFact, CallableExecution, CallableSignatureFact, CallableSymbolId,
-        ConstantDeclaredTypeFact, ImplementationSubjectFact, ImplementationSymbolId,
-        ImplementedTraitApplicationFact, InherentTypeMemberValueFact, SymbolFactContract,
-        SymbolFactRequest, SymbolFactResult, SymbolOrigin,
-        TraitConstantFulfillmentDeclaredTypeFact, TraitConstantMemberDeclaredTypeFact,
-        TraitTypeFulfillmentValueFact, TypeData, UnionPayloadFieldTypeFact,
+        CallableAbi, CallableContractTypeFact, CallableExecution, CallableSignatureFact,
+        CallableSymbolId, ConstantDeclaredTypeFact, GenericArgument, ImplementationSubjectFact,
+        ImplementationSymbolId, ImplementedTraitApplicationFact, InherentTypeMemberValueFact,
+        ReceiverMode, SymbolFactRequest, SymbolOrigin, TraitConstantFulfillmentDeclaredTypeFact,
+        TraitConstantMemberDeclaredTypeFact, TraitTypeFulfillmentValueFact, TypeData,
+        UnionPayloadFieldTypeFact,
     };
 
     use super::CompilationBinderFacts;
+    use crate::compilation::binder::symbol::test_support::{
+        published_fact, symbol_graph, type_data,
+    };
     use crate::fact::CancellationToken;
     use crate::test_support::compilation;
 
@@ -322,17 +325,42 @@ mod tests {
 const enabled: bool = true;
 
 callable Transform =
-    func(value: bool) -> bool;
+    @abi(system) func(value: bool) -> bool;
+
+struct Fixed<const count: usize>
+{
+}
 
 struct Holder
 {
     value: bool;
+    default_box: box bool;
+    explicit_box: box[Heap] bool;
+    grouped: (bool);
+    tuple: (bool,);
+    slice: [bool];
+    array: [bool; 4];
+    trait_view: view Provides;
+    fixed: Fixed<4>;
 
     construct(value: bool) -> Self
     {
     }
 
     async finalize()
+    {
+    }
+
+    destruct()
+    {
+    }
+
+    consume mut enter() -> bool
+    {
+        return true;
+    }
+
+    exit(pos lease: bool)
     {
     }
 }
@@ -347,6 +375,10 @@ trait Provides
     const enabled: bool;
     type Item;
     func get() -> bool;
+    async finalize();
+    destruct();
+    consume enter() -> bool;
+    exit(pos lease: bool);
 }
 
 impl Holder(Provides)
@@ -356,7 +388,16 @@ impl Holder(Provides)
 
     func get() -> bool
     {
-        true
+        return true;
+    }
+
+    consume enter() -> bool
+    {
+        return true;
+    }
+
+    exit(pos lease: bool)
+    {
     }
 }
 
@@ -365,9 +406,10 @@ impl Holder
     type Local = bool;
 }
 
+@abi(c)
 func identity<T>(value: T) -> T
 {
-    value
+    return value;
 }
 "#;
 
@@ -404,6 +446,11 @@ func identity<T>(value: T) -> T
 
         assert_eq!(parameter.ty(), first_signature.value().result());
 
+        assert!(matches!(
+            type_data(&compilation, first_signature.value().callable_type()).as_ref(),
+            TypeData::Callable(callable) if callable.abi() == CallableAbi::C
+        ));
+
         let callable_contract = source_id(
             symbols.callable_contracts(),
             |symbol| symbol.origin(),
@@ -417,7 +464,7 @@ func identity<T>(value: T) -> T
 
         assert!(matches!(
             type_data(&compilation, *callable_contract_type.value()).as_ref(),
-            TypeData::Callable(_)
+            TypeData::Callable(callable) if callable.abi() == CallableAbi::System
         ));
 
         let constant = source_id(
@@ -472,6 +519,13 @@ func identity<T>(value: T) -> T
     #[test]
     fn source_member_and_implementation_facts_use_their_declared_surfaces() {
         let compilation = compilation(SOURCE_FACTS);
+
+        assert!(
+            compilation.syntax_tree_result().diagnostics().is_empty(),
+            "test source must parse without recovery: {:?}",
+            compilation.syntax_tree_result().diagnostics()
+        );
+
         let symbols = symbol_graph(&compilation);
         let cancellation = CancellationToken::new();
         let facts = binder_facts(&compilation, &cancellation);
@@ -544,10 +598,13 @@ func identity<T>(value: T) -> T
             SymbolFactRequest::<ImplementedTraitApplicationFact>::new(inherent_implementation),
         );
 
-        assert!(matches!(
-            type_data(&compilation, inherent_subject.value().ty()).as_ref(),
-            TypeData::Named { .. }
-        ));
+        let inherent_subject_type = type_data(&compilation, inherent_subject.value().ty());
+
+        assert!(
+            matches!(inherent_subject_type.as_ref(), TypeData::Named { .. }),
+            "unexpected inherent implementation subject: {inherent_subject_type:?}, diagnostics: {:?}",
+            inherent_subject.diagnostics()
+        );
 
         assert_eq!(*inherent_trait.value(), None);
 
@@ -613,6 +670,7 @@ func identity<T>(value: T) -> T
         );
 
         assert_eq!(constructor_signature.value().parameters().len(), 1);
+        assert!(constructor_signature.value().receiver().is_none());
         assert!(matches!(
             type_data(&compilation, constructor_signature.value().result()).as_ref(),
             TypeData::ContextualSelf(_)
@@ -633,6 +691,310 @@ func identity<T>(value: T) -> T
             type_data(&compilation, finalizer_signature.value().callable_type()).as_ref(),
             TypeData::Callable(callable)
                 if callable.execution() == CallableExecution::Asynchronous
+        ));
+
+        assert_eq!(
+            finalizer_signature
+                .value()
+                .receiver()
+                .map(|receiver| receiver.mode()),
+            Some(ReceiverMode::Mutable)
+        );
+
+        let destructor = source_id(
+            symbols.destructors(),
+            |symbol| symbol.origin(),
+            |symbol| symbol.id(),
+        );
+
+        let destructor_signature = published_fact(
+            &facts,
+            SymbolFactRequest::<CallableSignatureFact>::new(CallableSymbolId::from(destructor)),
+        );
+
+        assert_eq!(
+            destructor_signature
+                .value()
+                .receiver()
+                .map(|receiver| receiver.mode()),
+            Some(ReceiverMode::ConsumingMutable)
+        );
+
+        let scope_enter = source_id(
+            symbols.scope_enters(),
+            |symbol| symbol.origin(),
+            |symbol| symbol.id(),
+        );
+
+        let scope_enter_signature = published_fact(
+            &facts,
+            SymbolFactRequest::<CallableSignatureFact>::new(CallableSymbolId::from(scope_enter)),
+        );
+
+        assert_eq!(
+            scope_enter_signature
+                .value()
+                .receiver()
+                .map(|receiver| receiver.mode()),
+            Some(ReceiverMode::ConsumingMutable)
+        );
+
+        let scope_exit = source_id(
+            symbols.scope_exits(),
+            |symbol| symbol.origin(),
+            |symbol| symbol.id(),
+        );
+
+        let scope_exit_signature = published_fact(
+            &facts,
+            SymbolFactRequest::<CallableSignatureFact>::new(CallableSymbolId::from(scope_exit)),
+        );
+
+        assert!(scope_exit_signature.value().receiver().is_none());
+
+        let trait_finalizer = source_id(
+            symbols.trait_finalizer_requirements(),
+            |symbol| symbol.origin(),
+            |symbol| symbol.id(),
+        );
+
+        let trait_finalizer_signature = published_fact(
+            &facts,
+            SymbolFactRequest::<CallableSignatureFact>::new(CallableSymbolId::from(
+                trait_finalizer,
+            )),
+        );
+
+        assert_eq!(
+            trait_finalizer_signature
+                .value()
+                .receiver()
+                .map(|receiver| receiver.mode()),
+            Some(ReceiverMode::Mutable)
+        );
+
+        let trait_destructor = source_id(
+            symbols.trait_destructor_requirements(),
+            |symbol| symbol.origin(),
+            |symbol| symbol.id(),
+        );
+
+        let trait_destructor_signature = published_fact(
+            &facts,
+            SymbolFactRequest::<CallableSignatureFact>::new(CallableSymbolId::from(
+                trait_destructor,
+            )),
+        );
+
+        assert_eq!(
+            trait_destructor_signature
+                .value()
+                .receiver()
+                .map(|receiver| receiver.mode()),
+            Some(ReceiverMode::ConsumingMutable)
+        );
+
+        let trait_scope_enter = source_id(
+            symbols.trait_scope_enter_requirements(),
+            |symbol| symbol.origin(),
+            |symbol| symbol.id(),
+        );
+
+        let trait_scope_enter_signature = published_fact(
+            &facts,
+            SymbolFactRequest::<CallableSignatureFact>::new(CallableSymbolId::from(
+                trait_scope_enter,
+            )),
+        );
+
+        assert_eq!(
+            trait_scope_enter_signature
+                .value()
+                .receiver()
+                .map(|receiver| receiver.mode()),
+            Some(ReceiverMode::Consuming)
+        );
+
+        let trait_scope_exit = source_id(
+            symbols.trait_scope_exit_requirements(),
+            |symbol| symbol.origin(),
+            |symbol| symbol.id(),
+        );
+
+        let trait_scope_exit_signature = published_fact(
+            &facts,
+            SymbolFactRequest::<CallableSignatureFact>::new(CallableSymbolId::from(
+                trait_scope_exit,
+            )),
+        );
+
+        assert!(trait_scope_exit_signature.value().receiver().is_none());
+
+        let trait_scope_enter_fulfillment = source_id(
+            symbols.trait_scope_enter_fulfillments(),
+            |symbol| symbol.origin(),
+            |symbol| symbol.id(),
+        );
+
+        let trait_scope_enter_fulfillment_signature = published_fact(
+            &facts,
+            SymbolFactRequest::<CallableSignatureFact>::new(CallableSymbolId::from(
+                trait_scope_enter_fulfillment,
+            )),
+        );
+
+        assert_eq!(
+            trait_scope_enter_fulfillment_signature
+                .value()
+                .receiver()
+                .map(|receiver| receiver.mode()),
+            Some(ReceiverMode::Consuming)
+        );
+
+        let trait_scope_exit_fulfillment = source_id(
+            symbols.trait_scope_exit_fulfillments(),
+            |symbol| symbol.origin(),
+            |symbol| symbol.id(),
+        );
+
+        let trait_scope_exit_fulfillment_signature = published_fact(
+            &facts,
+            SymbolFactRequest::<CallableSignatureFact>::new(CallableSymbolId::from(
+                trait_scope_exit_fulfillment,
+            )),
+        );
+
+        assert!(
+            trait_scope_exit_fulfillment_signature
+                .value()
+                .receiver()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn source_type_forms_retain_structural_type_facts() {
+        let compilation = compilation(SOURCE_FACTS);
+        let symbols = symbol_graph(&compilation);
+        let cancellation = CancellationToken::new();
+        let facts = binder_facts(&compilation, &cancellation);
+        let fields = symbols
+            .struct_fields()
+            .iter()
+            .filter(|symbol| symbol.origin() == SymbolOrigin::Source)
+            .collect::<Vec<_>>();
+
+        let [
+            value,
+            default_box,
+            explicit_box,
+            grouped,
+            tuple,
+            slice,
+            array,
+            trait_view,
+            fixed,
+        ] = fields.as_slice()
+        else {
+            panic!("test source must contain all structural type-form fields: {fields:?}");
+        };
+
+        let field_type = |field: &bray_symbols::StructFieldSymbol| {
+            *published_fact(
+                &facts,
+                SymbolFactRequest::<bray_symbols::StructFieldTypeFact>::new(field.id()),
+            )
+            .value()
+        };
+
+        let value = field_type(value);
+        let default_box = field_type(default_box);
+        let explicit_box = field_type(explicit_box);
+        let grouped = field_type(grouped);
+        let tuple = field_type(tuple);
+        let slice = field_type(slice);
+        let array = field_type(array);
+        let trait_view = field_type(trait_view);
+        let fixed = field_type(fixed);
+
+        assert_eq!(default_box, explicit_box);
+        assert_eq!(grouped, value);
+
+        assert!(matches!(
+            type_data(&compilation, default_box).as_ref(),
+            TypeData::OwnedIndirection { storage, target }
+                if *target == value
+                    && matches!(type_data(&compilation, *storage).as_ref(), TypeData::Named { .. })
+        ));
+
+        assert!(matches!(
+            type_data(&compilation, tuple).as_ref(),
+            TypeData::Tuple(elements) if elements.as_ref() == [value]
+        ));
+
+        assert!(matches!(
+            type_data(&compilation, slice).as_ref(),
+            TypeData::Slice(element) if *element == value
+        ));
+
+        assert!(matches!(
+            type_data(&compilation, array).as_ref(),
+            TypeData::Array { element, .. } if *element == value
+        ));
+
+        assert!(matches!(
+            type_data(&compilation, trait_view).as_ref(),
+            TypeData::TraitView(_)
+        ));
+
+        let fixed = type_data(&compilation, fixed);
+
+        let TypeData::Named { substitution, .. } = fixed.as_ref() else {
+            panic!("constant generic application must remain a named type");
+        };
+
+        let store = compilation
+            .semantic_value_store()
+            .unwrap_or_else(|error| panic!("semantic values must be available: {error:?}"));
+        let substitution = store
+            .generic_substitution_data(*substitution)
+            .unwrap_or_else(|error| panic!("generic substitution must resolve: {error:?}"));
+
+        assert!(matches!(
+            substitution.bindings(),
+            [binding] if matches!(binding.argument(), GenericArgument::Constant(_))
+        ));
+    }
+
+    #[test]
+    fn recovered_source_types_publish_error_type_facts() {
+        let compilation = compilation(
+            r#"module app;
+
+struct Broken
+{
+    value: ;
+}
+"#,
+        );
+
+        let symbols = symbol_graph(&compilation);
+        let cancellation = CancellationToken::new();
+        let facts = binder_facts(&compilation, &cancellation);
+        let field = source_id(
+            symbols.struct_fields(),
+            |symbol| symbol.origin(),
+            |symbol| symbol.id(),
+        );
+
+        let field_type = published_fact(
+            &facts,
+            SymbolFactRequest::<bray_symbols::StructFieldTypeFact>::new(field),
+        );
+
+        assert!(matches!(
+            type_data(&compilation, *field_type.value()).as_ref(),
+            TypeData::Error
         ));
     }
 
@@ -702,20 +1064,6 @@ func invalid(value: MissingType)
         id(symbol)
     }
 
-    fn published_fact<C>(
-        facts: &CompilationBinderFacts<'_>,
-        request: SymbolFactRequest<C>,
-    ) -> Arc<SymbolFactResult<C>>
-    where
-        C: SymbolFactContract,
-        for<'facts> CompilationBinderFacts<'facts>: SymbolFactProvider<C>,
-    {
-        match facts.symbol_fact(request) {
-            Ok(result) => result,
-            Err(error) => panic!("source symbol fact must bind: {error:?}"),
-        }
-    }
-
     fn binder_facts<'compilation>(
         compilation: &'compilation crate::Compilation,
         cancellation: &'compilation CancellationToken,
@@ -723,23 +1071,6 @@ func invalid(value: MissingType)
         match compilation.binder_facts(cancellation) {
             Ok(facts) => facts,
             Err(error) => panic!("source binder facts must be available: {error:?}"),
-        }
-    }
-
-    fn symbol_graph(compilation: &crate::Compilation) -> &bray_symbols::SymbolGraph {
-        match compilation.symbol_graph() {
-            Ok(symbols) => symbols,
-            Err(error) => panic!("source symbol graph must build: {error:?}"),
-        }
-    }
-
-    fn type_data(compilation: &crate::Compilation, ty: bray_symbols::TypeId) -> Arc<TypeData> {
-        match compilation.semantic_value_store() {
-            Ok(store) => match store.type_data(ty) {
-                Ok(data) => data,
-                Err(error) => panic!("source type fact must resolve: {error:?}"),
-            },
-            Err(error) => panic!("semantic values must be available: {error:?}"),
         }
     }
 }

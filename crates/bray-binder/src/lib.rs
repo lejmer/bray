@@ -63,4 +63,6 @@ pub use result::BoundUnitComputation;
 pub use surface::{
     PredicateClauseBindingContext, bind_predicate_clause, bind_trusted_capability_clause,
 };
-pub use type_expression::{CallableTypeQualifiers, TypeExpressionBinder, TypeParameterBinding};
+pub use type_expression::{
+    CallableTypeQualifiers, TypeExpressionBinder, TypeParameterBinding, bind_callable_abi,
+};

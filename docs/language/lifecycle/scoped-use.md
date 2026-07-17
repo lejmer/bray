@@ -8,6 +8,9 @@ Scope exit declarations define how scoped use is left.
 
 Scope enter bodies have a compiler-introduced `self` binding for the access path used as the `with` initializer.
 
+The enter declaration's receiver modifiers determine the required access. No modifier requires shared access, `mut` requires mutable
+access, `consume` consumes the value, and `consume mut` also grants mutable local authority during entry.
+
 The selected enter declaration must be able to satisfy its declared ownership, borrowing, mutation, capability, effect, trusted, and lifecycle requirements from that access path.
 
 The successful enter result is the scoped capability matched by the `with` pattern.
@@ -22,6 +25,8 @@ The scoped capability can:
 The scoped capability type determines which of those behaviors applies.
 
 Scope exit bodies receive the scoped capability produced by the matching enter declaration.
+
+Exit has no `self` receiver. Its scoped capability parameter is its only value input.
 
 Exit operates on the scoped capability.
 

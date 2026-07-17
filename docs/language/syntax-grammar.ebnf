@@ -1018,7 +1018,7 @@ destructor-member-declaration =
     [ callable-result-clause ] callable-contract-clauses callable-body-block-expression ;
 
 scope-enter-member-declaration =
-    async-capable-lifecycle-member-modifiers "enter" empty-parameter-list
+    scope-enter-member-modifiers "enter" empty-parameter-list
     callable-result-clause callable-contract-clauses callable-body-block-expression ;
 
 scope-exit-member-declaration =
@@ -1031,6 +1031,15 @@ async-capable-lifecycle-member-modifiers =
 async-capable-lifecycle-member-modifier =
       "async"
     | "trusted" ;
+
+scope-enter-member-modifiers =
+    { scope-enter-member-modifier } ;
+
+scope-enter-member-modifier =
+      "async"
+    | "trusted"
+    | "consume"
+    | "mut" ;
 
 sync-lifecycle-member-modifiers =
     { sync-lifecycle-member-modifier } ;
@@ -1107,7 +1116,7 @@ trait-destructor-requirement-declaration =
     [ callable-result-clause ] callable-contract-clauses ";" ;
 
 trait-scope-enter-requirement-declaration =
-    async-capable-lifecycle-member-modifiers "enter" empty-parameter-list
+    scope-enter-member-modifiers "enter" empty-parameter-list
     callable-result-clause callable-contract-clauses ";" ;
 
 trait-scope-exit-requirement-declaration =

@@ -83,6 +83,15 @@ Scope enter declarations require a result clause because the result type is the 
 
 Scope exit declarations take exactly one scoped-capability parameter.
 
+Constructors have no receiver and no `self` binding.
+
+Finalizers have an implicit mutable receiver. Destructors have an implicit consuming mutable receiver.
+
+Scope enter declarations use the same receiver modifiers as instance methods. The default receiver is shared. `mut`, `consume`, and
+`consume mut` select the corresponding receiver modes.
+
+Scope exit declarations have no receiver. Their scoped-capability parameter is their only value input.
+
 Each lifecycle member definition has a callable body block.
 
 Lifecycle requirements in traits end with `;`.

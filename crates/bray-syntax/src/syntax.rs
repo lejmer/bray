@@ -130,6 +130,7 @@ pub use member::{
     FinalizerMemberDeclarationSyntax, FinalizerMemberDeclarationSyntaxBuilder,
     ImplementationTypeMemberBindingSyntax, ImplementationTypeMemberBindingSyntaxBuilder,
     ScopeEnterMemberDeclarationSyntax, ScopeEnterMemberDeclarationSyntaxBuilder,
+    ScopeEnterMemberModifiersSyntax, ScopeEnterMemberModifiersSyntaxBuilder,
     ScopeExitMemberDeclarationSyntax, ScopeExitMemberDeclarationSyntaxBuilder,
     SyncLifecycleMemberModifiersSyntax, SyncLifecycleMemberModifiersSyntaxBuilder,
     TraitCallableMemberDeclarationSyntax, TraitCallableMemberDeclarationSyntaxBuilder,

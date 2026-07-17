@@ -165,6 +165,8 @@ pub enum SyntaxKind {
     TypeConstructorMemberDeclaration,
     /// Optional async-capable lifecycle member modifiers in source order.
     AsyncCapableLifecycleMemberModifiers,
+    /// Optional scope-enter member modifiers in source order.
+    ScopeEnterMemberModifiers,
     /// Optional synchronous lifecycle member modifiers in source order.
     SyncLifecycleMemberModifiers,
     /// Finalizer lifecycle member declaration.
@@ -537,6 +539,7 @@ impl SyntaxKind {
                 | Self::ConstructorMemberModifiers
                 | Self::TypeConstructorMemberDeclaration
                 | Self::AsyncCapableLifecycleMemberModifiers
+                | Self::ScopeEnterMemberModifiers
                 | Self::SyncLifecycleMemberModifiers
                 | Self::FinalizerMemberDeclaration
                 | Self::DestructorMemberDeclaration
@@ -820,6 +823,7 @@ impl SyntaxKind {
             Self::AsyncCapableLifecycleMemberModifiers => {
                 "async_capable_lifecycle_member_modifiers"
             }
+            Self::ScopeEnterMemberModifiers => "scope_enter_member_modifiers",
             Self::SyncLifecycleMemberModifiers => "sync_lifecycle_member_modifiers",
             Self::FinalizerMemberDeclaration => "finalizer_member_declaration",
             Self::DestructorMemberDeclaration => "destructor_member_declaration",

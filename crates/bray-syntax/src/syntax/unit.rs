@@ -777,12 +777,12 @@ mod tests {
         OverloadModifiersSyntax, PanicExpressionSyntax, ParameterListSyntax,
         ParameterModifiersSyntax, ParameterSyntax, PathSyntax, PredicateDeclarationSyntax,
         PrimaryExpressionSyntax, ResultPropagationExpressionSyntax, ReturnExpressionSyntax,
-        ScopeEnterMemberDeclarationSyntax, ScopeExitMemberDeclarationSyntax,
-        SequencedExpressionSyntax, SliceIndexOperationSyntax, SourceSyntaxNode,
-        SourceUnitModuleDeclarationSyntax, StructConstructionBodySyntax, StructDeclarationSyntax,
-        StructFieldInitializerSyntax, SyncLifecycleMemberModifiersSyntax, SyntaxKind, SyntaxNode,
-        SyntaxText, SyntaxToken, SyntaxTrivia, TraitApplicationSyntax, TraitBodySyntax,
-        TraitConstantMemberDeclarationSyntax, TraitDeclarationSyntax,
+        ScopeEnterMemberDeclarationSyntax, ScopeEnterMemberModifiersSyntax,
+        ScopeExitMemberDeclarationSyntax, SequencedExpressionSyntax, SliceIndexOperationSyntax,
+        SourceSyntaxNode, SourceUnitModuleDeclarationSyntax, StructConstructionBodySyntax,
+        StructDeclarationSyntax, StructFieldInitializerSyntax, SyncLifecycleMemberModifiersSyntax,
+        SyntaxKind, SyntaxNode, SyntaxText, SyntaxToken, SyntaxTrivia, TraitApplicationSyntax,
+        TraitBodySyntax, TraitConstantMemberDeclarationSyntax, TraitDeclarationSyntax,
         TraitDestructorRequirementDeclarationSyntax, TraitFinalizerRequirementDeclarationSyntax,
         TraitModifiersSyntax, TraitPredicateMemberDeclarationSyntax,
         TraitPredicateMemberModifiersSyntax, TraitQualifiedMemberOperationSyntax,
@@ -1302,6 +1302,7 @@ mod tests {
         assert_send_sync::<FinalizerMemberDeclarationSyntax>();
         assert_send_sync::<DestructorMemberDeclarationSyntax>();
         assert_send_sync::<ScopeEnterMemberDeclarationSyntax>();
+        assert_send_sync::<ScopeEnterMemberModifiersSyntax>();
         assert_send_sync::<ScopeExitMemberDeclarationSyntax>();
         assert_send_sync::<ParameterListSyntax>();
         assert_send_sync::<ParameterSyntax>();

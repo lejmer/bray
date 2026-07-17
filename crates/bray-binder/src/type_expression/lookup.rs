@@ -1,7 +1,8 @@
 use bray_diagnostics::DiagnosticNameKind;
 use bray_symbols::{
-    AnySymbolId, GenericOwnerId, GenericParameterSymbolId, GenericSubstitutionData,
-    MemberLookupResult, NamedTypeSymbolId, TraitApplicationData, TraitApplicationId, TraitSymbolId,
+    AnySymbolId, GenericConstParameterSymbolId, GenericOwnerId, GenericParameterSymbolId,
+    GenericSubstitutionData, GenericTypeParameterSymbolId, MemberLookupResult, NamedTypeSymbolId,
+    TraitApplicationData, TraitApplicationId, TraitSymbolId,
 };
 use bray_syntax::{PathSyntax, SourceSyntaxNode, TraitApplicationSyntax};
 
@@ -130,19 +131,23 @@ impl TypeExpressionBinder<'_> {
         &self,
         definition: NamedTypeSymbolId,
     ) -> BinderFactResult<Vec<GenericParameterSymbolId>> {
-        let parameters = match definition {
-            NamedTypeSymbolId::Struct(id) => self
-                .symbols
-                .structure(id)
-                .map(|symbol| symbol.generic_type_parameters()),
-            NamedTypeSymbolId::Union(id) => self
-                .symbols
-                .union(id)
-                .map(|symbol| symbol.generic_type_parameters()),
+        let (type_parameters, const_parameters) = match definition {
+            NamedTypeSymbolId::Struct(id) => self.symbols.structure(id).map(|symbol| {
+                (
+                    symbol.generic_type_parameters(),
+                    symbol.generic_const_parameters(),
+                )
+            }),
+            NamedTypeSymbolId::Union(id) => self.symbols.union(id).map(|symbol| {
+                (
+                    symbol.generic_type_parameters(),
+                    symbol.generic_const_parameters(),
+                )
+            }),
         }
         .ok_or(BinderFactError::DependencyUnavailable)?;
 
-        Ok(parameters.iter().copied().map(Into::into).collect())
+        self.generic_parameters(type_parameters, const_parameters)
     }
 
     fn trait_parameters(
@@ -154,11 +159,44 @@ impl TypeExpressionBinder<'_> {
             .trait_symbol(definition)
             .ok_or(BinderFactError::DependencyUnavailable)?;
 
-        Ok(symbol
-            .generic_type_parameters()
-            .iter()
-            .copied()
-            .map(Into::into)
+        self.generic_parameters(
+            symbol.generic_type_parameters(),
+            symbol.generic_const_parameters(),
+        )
+    }
+
+    fn generic_parameters(
+        &self,
+        type_parameters: &[GenericTypeParameterSymbolId],
+        const_parameters: &[GenericConstParameterSymbolId],
+    ) -> BinderFactResult<Vec<GenericParameterSymbolId>> {
+        let mut parameters = Vec::with_capacity(type_parameters.len() + const_parameters.len());
+
+        for parameter in type_parameters {
+            let ordinal = self
+                .symbols
+                .generic_type_parameter(*parameter)
+                .map(|record| record.ordinal())
+                .ok_or(BinderFactError::DependencyUnavailable)?;
+
+            parameters.push((ordinal, GenericParameterSymbolId::from(*parameter)));
+        }
+
+        for parameter in const_parameters {
+            let ordinal = self
+                .symbols
+                .generic_const_parameter(*parameter)
+                .map(|record| record.ordinal())
+                .ok_or(BinderFactError::DependencyUnavailable)?;
+
+            parameters.push((ordinal, GenericParameterSymbolId::from(*parameter)));
+        }
+
+        parameters.sort_by_key(|(ordinal, _)| *ordinal);
+
+        Ok(parameters
+            .into_iter()
+            .map(|(_, parameter)| parameter)
             .collect())
     }
 }

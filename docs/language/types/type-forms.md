@@ -191,6 +191,8 @@ The `view` type form uses a trait application as its subject entity.
 
 `box T` is the default-storage owned-indirection type form.
 
+Its storage policy is the compiler-known `Heap` type, so `box T` and `box[Heap] T` have the same type identity.
+
 `box[S] T` is the owned-indirection type form using storage policy type `S`.
 
 A prefix type form can include compile-time arguments in square brackets.

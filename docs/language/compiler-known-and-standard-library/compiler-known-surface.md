@@ -6,6 +6,7 @@ The compiler-known surface includes:
 - the compiler-known text type `string`,
 - the compiler-known raw pointer type `RawPointer<T>`,
 - structural type forms such as tuple types, fixed-size array types, slice types, nullable types, borrow types, trait-view types, owned-indirection types, and callable types,
+- the compiler-known `Heap` storage-policy type used by default-storage owned indirection,
 - compiler-known async and run-boundary types `Future<T>`, `Task<T>`, `RunResult<T>`, and `PanicReport`,
 - compiler-known result and conversion types such as `Result<T, E>` and `ConversionError`,
 - compiler-known execution-context predicates `blocking_execution()`, `compute_execution()`, and `main_thread_execution()`,
@@ -17,6 +18,9 @@ The compiler-known surface includes:
 - the compiler-known `Copyable` contract used by static constraints,
 - compiler-known operator traits such as `Add<Rhs>`, `Equatable<Rhs>`, `Comparable<Rhs>`, and the other operator traits defined by the type rules,
 - compiler-known literals and special values such as `true`, `false`, `unit`, and `none`.
+
+`Heap` is an ambient compiler-known struct declaration with the canonical compiler-known declaration key `Heap`. Default-storage
+owned indirection refers to that exact declaration identity, not to a source declaration that happens to use the same spelling.
 
 Each compiler-known entity is governed by the owning rules for that entity.
 
