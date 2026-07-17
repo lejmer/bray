@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use bray_ir::{MirUnit, MirUnitKey};
+use bray_ir::{MirTargetFacts, MirUnit, MirUnitKey};
 
 /// Stable structural identity of one partitioned codegen unit.
 ///
@@ -29,6 +29,7 @@ impl CodegenUnitKey {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CodegenUnit {
     key: CodegenUnitKey,
+    target: MirTargetFacts,
     mir_units: Arc<[MirUnit]>,
 }
 
@@ -43,6 +44,15 @@ impl CodegenUnit {
         if mir_units.is_empty() {
             return Err(CodegenUnitBuildError::Empty);
         }
+
+        let target = mir_units[0].target();
+
+        if mir_units.iter().any(|unit| unit.target() != target) {
+            return Err(CodegenUnitBuildError::TargetMismatch);
+        }
+
+        // The codegen unit owns the compact target contract independently of MIR membership.
+        let target = target.clone();
 
         mir_units.sort_unstable_by(|left, right| left.key().cmp(right.key()));
 
@@ -61,8 +71,14 @@ impl CodegenUnit {
                 partition_revision,
                 mir_units: membership,
             },
+            target,
             mir_units: mir_units.into(),
         })
+    }
+
+    /// Returns target facts shared by every contained MIR unit.
+    pub const fn target(&self) -> &MirTargetFacts {
+        &self.target
     }
 
     /// Returns the stable structural unit key.
@@ -83,6 +99,8 @@ pub enum CodegenUnitBuildError {
     Empty,
     /// Two MIR units have the same canonical semantic key.
     DuplicateMirUnit,
+    /// MIR members were lowered for different targets.
+    TargetMismatch,
 }
 
 #[cfg(test)]

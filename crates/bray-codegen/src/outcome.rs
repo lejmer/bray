@@ -2,7 +2,7 @@ use bray_diagnostics::DiagnosticBag;
 
 use crate::{
     BackendArtifactContribution, BackendArtifactKind, BackendArtifactSet,
-    BackendArtifactSetBuildError, CodegenExecutionMetadata, CodegenRequest,
+    BackendArtifactSetBuildError, CodegenRequest, CodegenRuntimeMetadata,
 };
 
 /// Structured reason one backend operation could not produce a complete artifact set.
@@ -47,10 +47,10 @@ impl CodegenOutcome {
     pub fn try_complete(
         request: CodegenRequest<'_>,
         contributions: impl IntoIterator<Item = BackendArtifactContribution>,
-        execution: CodegenExecutionMetadata,
+        runtime_metadata: CodegenRuntimeMetadata,
         diagnostics: DiagnosticBag,
     ) -> Result<Self, BackendArtifactSetBuildError> {
-        let artifacts = BackendArtifactSet::try_new(request, contributions, execution)?;
+        let artifacts = BackendArtifactSet::try_new(request, contributions, runtime_metadata)?;
 
         Ok(Self {
             status: CodegenStatus::Complete(Box::new(artifacts)),
@@ -98,7 +98,7 @@ mod tests {
     use bray_diagnostics::DiagnosticBag;
 
     use super::{CodegenFailure, CodegenOutcome, CodegenStatus};
-    use crate::CodegenExecutionMetadata;
+    use crate::CodegenRuntimeMetadata;
     use crate::test_support::{codegen_request, contribution};
 
     #[test]
@@ -109,7 +109,7 @@ mod tests {
         let Ok(outcome) = CodegenOutcome::try_complete(
             fixture.request(),
             [artifact],
-            CodegenExecutionMetadata::default(),
+            CodegenRuntimeMetadata::default(),
             DiagnosticBag::new(),
         ) else {
             panic!("requested test contribution must complete generation");

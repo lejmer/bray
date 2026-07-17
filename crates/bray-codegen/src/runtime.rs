@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use bray_ir::MirUnitExecution;
+use bray_ir::MirUnitKind;
 use bray_runtime_interface::{BinarySymbolName, ExecutableHostContract, ProtectedAsyncFrameId};
 
 use crate::CodegenUnit;
@@ -89,20 +89,20 @@ impl ProtectedAsyncFrameMetadata {
     }
 }
 
-/// Complete execution metadata generated for one codegen unit.
+/// Complete runtime metadata generated for one codegen unit.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct CodegenExecutionMetadata {
+pub struct CodegenRuntimeMetadata {
     frames: Arc<[ProtectedAsyncFrameMetadata]>,
     executable_host: Option<ExecutableHostContract>,
 }
 
-impl CodegenExecutionMetadata {
+impl CodegenRuntimeMetadata {
     /// Validates generated frame descriptors and executable-host metadata against MIR membership.
     pub fn try_new(
         unit: &CodegenUnit,
         frames: impl IntoIterator<Item = ProtectedAsyncFrameMetadata>,
         executable_host: Option<ExecutableHostContract>,
-    ) -> Result<Self, CodegenExecutionMetadataBuildError> {
+    ) -> Result<Self, CodegenRuntimeMetadataBuildError> {
         let expected_frames = expected_frames(unit);
         let expected_host = expected_host(unit)?;
         let mut frames: Vec<_> = frames.into_iter().collect();
@@ -113,7 +113,7 @@ impl CodegenExecutionMetadata {
             .windows(2)
             .find(|pair| pair[0].frame() == pair[1].frame())
         {
-            return Err(CodegenExecutionMetadataBuildError::DuplicateFrame(
+            return Err(CodegenRuntimeMetadataBuildError::DuplicateFrame(
                 pair[0].frame(),
             ));
         }
@@ -124,11 +124,11 @@ impl CodegenExecutionMetadata {
             .collect();
 
         if actual_frames != expected_frames {
-            return Err(CodegenExecutionMetadataBuildError::FrameCoverageMismatch);
+            return Err(CodegenRuntimeMetadataBuildError::FrameCoverageMismatch);
         }
 
         if executable_host.as_ref() != expected_host {
-            return Err(CodegenExecutionMetadataBuildError::ExecutableHostMismatch);
+            return Err(CodegenRuntimeMetadataBuildError::ExecutableHostMismatch);
         }
 
         Ok(Self {
@@ -162,9 +162,9 @@ impl CodegenExecutionMetadata {
     }
 }
 
-/// A contract violation that prevents publication of codegen execution metadata.
+/// A contract violation that prevents publication of codegen runtime metadata.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum CodegenExecutionMetadataBuildError {
+pub enum CodegenRuntimeMetadataBuildError {
     /// More than one MIR unit claims the executable-host role.
     MultipleExecutableHosts,
     /// One protected frame descriptor appears more than once.
@@ -179,9 +179,9 @@ fn expected_frames(unit: &CodegenUnit) -> Vec<ProtectedAsyncFrameId> {
     let mut frames: Vec<_> = unit
         .mir_units()
         .iter()
-        .filter_map(|unit| match unit.execution() {
-            MirUnitExecution::ProtectedAsyncFrame(frame) => Some(*frame),
-            MirUnitExecution::Synchronous | MirUnitExecution::ExecutableHost(_) => None,
+        .filter_map(|unit| match unit.kind() {
+            MirUnitKind::ProtectedAsyncFrame(frame) => Some(*frame),
+            MirUnitKind::Synchronous | MirUnitKind::ExecutableHost(_) => None,
         })
         .collect();
 
@@ -191,9 +191,9 @@ fn expected_frames(unit: &CodegenUnit) -> Vec<ProtectedAsyncFrameId> {
 
 fn expected_host(
     unit: &CodegenUnit,
-) -> Result<Option<&ExecutableHostContract>, CodegenExecutionMetadataBuildError> {
+) -> Result<Option<&ExecutableHostContract>, CodegenRuntimeMetadataBuildError> {
     let mut hosts = unit.mir_units().iter().filter_map(|unit| {
-        let MirUnitExecution::ExecutableHost(host) = unit.execution() else {
+        let MirUnitKind::ExecutableHost(host) = unit.kind() else {
             return None;
         };
 
@@ -203,7 +203,7 @@ fn expected_host(
     let host = hosts.next();
 
     if hosts.next().is_some() {
-        return Err(CodegenExecutionMetadataBuildError::MultipleExecutableHosts);
+        return Err(CodegenRuntimeMetadataBuildError::MultipleExecutableHosts);
     }
 
     Ok(host)
@@ -211,25 +211,28 @@ fn expected_host(
 
 #[cfg(test)]
 mod tests {
-    use bray_ir::{MirSourceOrigin, MirUnitBuilder, MirUnitExecution};
+    use bray_ir::{
+        MirBlockKind, MirFrameDescriptor, MirFrameStateFacts, MirFrameStateId, MirSourceAnchor,
+        MirTerminatorKind, MirUnitBuilder, MirUnitKind,
+    };
     use bray_runtime_interface::{BinarySymbolName, ProtectedAsyncFrameId};
-    use bray_testing::{test_bound_unit, test_mir_unit};
+    use bray_testing::{test_bound_unit, test_mir_target, test_mir_type, test_mir_unit};
 
     use super::{
-        CodegenExecutionMetadata, CodegenExecutionMetadataBuildError, ProtectedAsyncFrameMetadata,
+        CodegenRuntimeMetadata, CodegenRuntimeMetadataBuildError, ProtectedAsyncFrameMetadata,
         ProtectedAsyncFrameOperationNames,
     };
     use crate::CodegenUnit;
 
     #[test]
-    fn synchronous_units_require_empty_execution_metadata() {
+    fn synchronous_units_require_empty_runtime_metadata() {
         let Ok(unit) = CodegenUnit::try_new(1, [test_mir_unit(4)]) else {
             panic!("test codegen unit must be valid");
         };
 
         assert_eq!(
-            CodegenExecutionMetadata::try_new(&unit, [], None),
-            Ok(CodegenExecutionMetadata::default())
+            CodegenRuntimeMetadata::try_new(&unit, [], None),
+            Ok(CodegenRuntimeMetadata::default())
         );
     }
 
@@ -243,12 +246,12 @@ mod tests {
         };
 
         assert_eq!(
-            CodegenExecutionMetadata::try_new(&unit, [], None),
-            Err(CodegenExecutionMetadataBuildError::FrameCoverageMismatch)
+            CodegenRuntimeMetadata::try_new(&unit, [], None),
+            Err(CodegenRuntimeMetadataBuildError::FrameCoverageMismatch)
         );
 
         let descriptor = ProtectedAsyncFrameMetadata::new(frame, frame_operation_names());
-        let Ok(metadata) = CodegenExecutionMetadata::try_new(&unit, [descriptor], None) else {
+        let Ok(metadata) = CodegenRuntimeMetadata::try_new(&unit, [descriptor], None) else {
             panic!("matching frame descriptor metadata must validate");
         };
 
@@ -260,18 +263,48 @@ mod tests {
         let source = bound.key().source();
         let mut builder = MirUnitBuilder::for_bound(
             bound.identity(),
-            MirUnitExecution::ProtectedAsyncFrame(frame),
+            MirUnitKind::ProtectedAsyncFrame(frame),
+            test_mir_target(),
         );
 
-        let Ok(entry) = builder.push_block(MirSourceOrigin::Source(source)) else {
+        let source = MirSourceAnchor::from(source);
+
+        let Ok(entry) = builder.push_block(source.clone(), MirBlockKind::Ordinary) else {
             panic!("test protected-frame block must validate");
         };
+
+        let Ok(()) = builder.set_terminator(entry, source, MirTerminatorKind::Return(None)) else {
+            panic!("test protected-frame terminator must validate");
+        };
+
+        let descriptor = frame_descriptor(frame, entry);
+
+        if let Err(error) = builder.set_frame_descriptor(descriptor) {
+            panic!("test frame descriptor must commit: {error:?}");
+        }
 
         let Ok(unit) = builder.finish(entry) else {
             panic!("test protected-frame MIR must validate");
         };
 
         unit
+    }
+
+    fn frame_descriptor(
+        frame: ProtectedAsyncFrameId,
+        entry: bray_ir::MirBlockId,
+    ) -> MirFrameDescriptor {
+        let state = MirFrameStateFacts::new(MirFrameStateId::new(0), entry, [], None, []);
+
+        match MirFrameDescriptor::try_new(
+            frame,
+            bray_runtime_interface::RuntimeAbiVersion::new(1, 0),
+            test_mir_type(),
+            [state],
+        ) {
+            Ok(descriptor) => descriptor,
+            Err(error) => panic!("test frame descriptor must be valid: {error:?}"),
+        }
     }
 
     fn frame_operation_names() -> ProtectedAsyncFrameOperationNames {

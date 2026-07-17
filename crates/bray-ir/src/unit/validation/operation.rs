@@ -1,0 +1,438 @@
+use bray_runtime_interface::RuntimeAbiRole;
+use bray_symbols::TypeId;
+
+use crate::{
+    MirAsyncOperation, MirBlockKind, MirCallTarget, MirOperand, MirOperation, MirOperationId,
+    MirOperationKind, MirPlace, MirProjection, MirProjectionKind, MirStorage, MirStorageId,
+    MirStorageKind, MirTaskTerminalState, MirUnit, MirUnitBuildError, MirValueId,
+};
+
+use super::core::{validate_frame_state, validate_runtime_role};
+
+pub(super) fn validate_operation(
+    unit: &MirUnit,
+    block: crate::MirBlockId,
+    block_kind: MirBlockKind,
+    id: MirOperationId,
+    operation: &MirOperation,
+) -> Result<(), MirUnitBuildError> {
+    validate_operation_result(unit, id, operation)?;
+    validate_operation_block(block_kind, id, operation.kind())?;
+
+    match operation.kind() {
+        MirOperationKind::Store { destination, value } => {
+            validate_place(unit, destination, block, Some(id))?;
+            validate_operand(unit, value, block, Some(id))?;
+
+            if operand_type(unit, value)? != destination.ty() {
+                return Err(MirUnitBuildError::StorageTypeMismatch(
+                    destination.storage(),
+                ));
+            }
+        }
+        MirOperationKind::Borrow { place, .. }
+        | MirOperationKind::Finalize(place)
+        | MirOperationKind::Destroy(place) => validate_place(unit, place, block, Some(id))?,
+        MirOperationKind::Unary { operand, .. } | MirOperationKind::Convert { operand, .. } => {
+            validate_operand(unit, operand, block, Some(id))?;
+        }
+        MirOperationKind::Binary { left, right, .. } => {
+            validate_operand(unit, left, block, Some(id))?;
+            validate_operand(unit, right, block, Some(id))?;
+        }
+        MirOperationKind::Call(call) => {
+            match call.target() {
+                MirCallTarget::Direct(_) => {}
+                MirCallTarget::Indirect(value) => validate_value_at(unit, *value, block, Some(id))?,
+            }
+
+            for argument in call.arguments() {
+                validate_operand(unit, argument, block, Some(id))?;
+            }
+        }
+        MirOperationKind::Async(operation) => {
+            validate_async_operation(unit, block, id, operation)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_operation_block(
+    block_kind: MirBlockKind,
+    operation: MirOperationId,
+    kind: &MirOperationKind,
+) -> Result<(), MirUnitBuildError> {
+    let valid = match kind {
+        MirOperationKind::Async(MirAsyncOperation::ExecuteCleanupBroadcast { .. }) => {
+            block_kind == MirBlockKind::CleanupBroadcast
+        }
+        MirOperationKind::Async(MirAsyncOperation::ExecuteLifecycleResolution { .. }) => {
+            block_kind == MirBlockKind::LifecycleResolution
+        }
+        MirOperationKind::Async(MirAsyncOperation::RequestTaskCancellation { .. }) => {
+            block_kind != MirBlockKind::LifecycleResolution
+        }
+        MirOperationKind::Async(
+            MirAsyncOperation::ResolveTask { .. }
+            | MirAsyncOperation::TransferCleanupIncident { .. }
+            | MirAsyncOperation::DestroyTerminalTask { .. },
+        ) => block_kind != MirBlockKind::CleanupBroadcast,
+        MirOperationKind::Async(_) => block_kind == MirBlockKind::Ordinary,
+        MirOperationKind::Finalize(_) | MirOperationKind::Destroy(_) => {
+            block_kind != MirBlockKind::CleanupBroadcast
+        }
+        MirOperationKind::Store { .. }
+        | MirOperationKind::Borrow { .. }
+        | MirOperationKind::Unary { .. }
+        | MirOperationKind::Binary { .. }
+        | MirOperationKind::Convert { .. }
+        | MirOperationKind::Call(_) => true,
+    };
+
+    if !valid {
+        return Err(MirUnitBuildError::InvalidOperationBlock(operation));
+    }
+
+    Ok(())
+}
+
+fn validate_operation_result(
+    unit: &MirUnit,
+    id: MirOperationId,
+    operation: &MirOperation,
+) -> Result<(), MirUnitBuildError> {
+    let requires_result = matches!(
+        operation.kind(),
+        MirOperationKind::Borrow { .. }
+            | MirOperationKind::Unary { .. }
+            | MirOperationKind::Binary { .. }
+            | MirOperationKind::Convert { .. }
+            | MirOperationKind::Async(
+                MirAsyncOperation::ObserveCurrentRunCancellation { .. }
+                    | MirAsyncOperation::ResolveTask { .. }
+            )
+    );
+
+    let rejects_result = matches!(
+        operation.kind(),
+        MirOperationKind::Store { .. }
+            | MirOperationKind::Finalize(_)
+            | MirOperationKind::Destroy(_)
+            | MirOperationKind::Async(
+                MirAsyncOperation::CreateFrame { .. }
+                    | MirAsyncOperation::MoveInactiveFrame { .. }
+                    | MirAsyncOperation::ResumeFrame { .. }
+                    | MirAsyncOperation::ComposeAwaitedFrame { .. }
+                    | MirAsyncOperation::CommitAwaitedCompletion { .. }
+                    | MirAsyncOperation::StartTask { .. }
+                    | MirAsyncOperation::RequestTaskCancellation { .. }
+                    | MirAsyncOperation::PublishTerminalState { .. }
+                    | MirAsyncOperation::ExecuteCleanupBroadcast { .. }
+                    | MirAsyncOperation::ExecuteLifecycleResolution { .. }
+                    | MirAsyncOperation::TransferCleanupIncident { .. }
+                    | MirAsyncOperation::DestroyTerminalTask { .. }
+            )
+    );
+
+    if requires_result && operation.result().is_none() {
+        return Err(MirUnitBuildError::MissingOperationResult(id));
+    }
+
+    if rejects_result && operation.result().is_some() {
+        return Err(MirUnitBuildError::UnexpectedOperationResult(id));
+    }
+
+    if let (MirOperationKind::Convert { target, .. }, Some(result)) =
+        (operation.kind(), operation.result())
+    {
+        let Some(result) = unit.value(result) else {
+            return Err(MirUnitBuildError::MissingValue(result));
+        };
+
+        if result.ty() != *target {
+            return Err(MirUnitBuildError::OperationResultTypeMismatch(id));
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_async_operation(
+    unit: &MirUnit,
+    block: crate::MirBlockId,
+    operation_id: MirOperationId,
+    operation: &MirAsyncOperation,
+) -> Result<(), MirUnitBuildError> {
+    match operation {
+        MirAsyncOperation::CreateFrame { destination, .. } => {
+            validate_place(unit, destination, block, Some(operation_id))?;
+            validate_place_storage_kind(unit, destination, MirStorageKind::InactiveFrame)?;
+        }
+        MirAsyncOperation::MoveInactiveFrame {
+            source,
+            destination,
+            ..
+        } => {
+            validate_place(unit, source, block, Some(operation_id))?;
+            validate_place(unit, destination, block, Some(operation_id))?;
+
+            validate_place_storage_kind(unit, source, MirStorageKind::InactiveFrame)?;
+            validate_place_storage_kind(unit, destination, MirStorageKind::InactiveFrame)?;
+        }
+        MirAsyncOperation::ResumeFrame {
+            frame,
+            state,
+            storage,
+            runtime,
+        } => {
+            validate_current_frame(unit, *frame)?;
+            validate_frame_state(unit, *state)?;
+            validate_storage_kind(unit, *storage, MirStorageKind::CurrentFrame)?;
+            validate_runtime_role(unit, *runtime, RuntimeAbiRole::FrameResume)?;
+        }
+        MirAsyncOperation::ComposeAwaitedFrame { frame, .. } => {
+            validate_operand(unit, frame, block, Some(operation_id))?;
+        }
+        MirAsyncOperation::CommitAwaitedCompletion {
+            value, destination, ..
+        } => {
+            validate_operand(unit, value, block, Some(operation_id))?;
+            validate_place(unit, destination, block, Some(operation_id))?;
+        }
+        MirAsyncOperation::StartTask {
+            value,
+            task,
+            allocation,
+            start,
+            ..
+        } => {
+            validate_operand(unit, value, block, Some(operation_id))?;
+
+            validate_storage_kind(unit, *task, MirStorageKind::ChildTask)?;
+            validate_runtime_role(unit, *allocation, RuntimeAbiRole::TaskAllocation)?;
+            validate_runtime_role(unit, *start, RuntimeAbiRole::TaskStart)?;
+        }
+        MirAsyncOperation::RequestTaskCancellation { task, runtime } => {
+            validate_storage_kind(unit, *task, MirStorageKind::ChildTask)?;
+            validate_runtime_role(unit, *runtime, RuntimeAbiRole::TaskCancellationRequest)?;
+        }
+        MirAsyncOperation::ObserveCurrentRunCancellation { runtime } => {
+            validate_runtime_role(
+                unit,
+                *runtime,
+                RuntimeAbiRole::CurrentRunCancellationObservation,
+            )?;
+        }
+        MirAsyncOperation::ResolveTask { task, runtime } => {
+            validate_storage_kind(unit, *task, MirStorageKind::ChildTask)?;
+            validate_runtime_role(unit, *runtime, RuntimeAbiRole::JoinRegistration)?;
+        }
+        MirAsyncOperation::PublishTerminalState {
+            task,
+            state,
+            runtime,
+        } => {
+            validate_storage_kind(unit, *task, MirStorageKind::CurrentTask)?;
+            validate_terminal_state(unit, block, operation_id, state)?;
+            validate_runtime_role(unit, *runtime, RuntimeAbiRole::TerminalPublication)?;
+        }
+        MirAsyncOperation::ExecuteCleanupBroadcast { frame, runtime } => {
+            validate_current_frame(unit, *frame)?;
+            validate_runtime_role(unit, *runtime, RuntimeAbiRole::FrameTaskBroadcast)?;
+        }
+        MirAsyncOperation::ExecuteLifecycleResolution { frame, runtime } => {
+            validate_current_frame(unit, *frame)?;
+            validate_runtime_role(unit, *runtime, RuntimeAbiRole::FrameLifecycleResolution)?;
+        }
+        MirAsyncOperation::TransferCleanupIncident { incident, runtime } => {
+            validate_operand(unit, incident, block, Some(operation_id))?;
+            validate_runtime_role(unit, *runtime, RuntimeAbiRole::CleanupIncidentTransfer)?;
+        }
+        MirAsyncOperation::DestroyTerminalTask { task } => {
+            validate_storage_kind(unit, *task, MirStorageKind::ChildTask)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_terminal_state(
+    unit: &MirUnit,
+    block: crate::MirBlockId,
+    operation: MirOperationId,
+    state: &MirTaskTerminalState,
+) -> Result<(), MirUnitBuildError> {
+    match state {
+        MirTaskTerminalState::Completed(value) | MirTaskTerminalState::Panicked(value) => {
+            validate_operand(unit, value, block, Some(operation))
+        }
+        MirTaskTerminalState::Cancelled => Ok(()),
+    }
+}
+
+pub(super) fn validate_operand(
+    unit: &MirUnit,
+    operand: &MirOperand,
+    block: crate::MirBlockId,
+    before: Option<MirOperationId>,
+) -> Result<(), MirUnitBuildError> {
+    match operand {
+        MirOperand::Value(value) => validate_value_at(unit, *value, block, before),
+        MirOperand::Constant { .. } => Ok(()),
+        MirOperand::Copy(place) | MirOperand::Move(place) => {
+            validate_place(unit, place, block, before)
+        }
+    }
+}
+
+pub(super) fn operand_type(
+    unit: &MirUnit,
+    operand: &MirOperand,
+) -> Result<TypeId, MirUnitBuildError> {
+    match operand {
+        MirOperand::Value(value) => {
+            let Some(value) = unit.value(*value) else {
+                return Err(missing_or_foreign_value(unit, *value));
+            };
+
+            Ok(value.ty())
+        }
+        MirOperand::Constant { ty, .. } => Ok(*ty),
+        MirOperand::Copy(place) | MirOperand::Move(place) => Ok(place.ty()),
+    }
+}
+
+fn validate_place(
+    unit: &MirUnit,
+    place: &MirPlace,
+    block: crate::MirBlockId,
+    before: Option<MirOperationId>,
+) -> Result<(), MirUnitBuildError> {
+    validate_storage(unit, place.storage())?;
+
+    for projection in place.projections() {
+        match projection.kind() {
+            MirProjectionKind::Index(value) => validate_value_at(unit, *value, block, before)?,
+            MirProjectionKind::Slice { start, end } => {
+                if let Some(value) = start {
+                    validate_value_at(unit, *value, block, before)?;
+                }
+
+                if let Some(value) = end {
+                    validate_value_at(unit, *value, block, before)?;
+                }
+            }
+            MirProjectionKind::Dereference
+            | MirProjectionKind::Field(_)
+            | MirProjectionKind::TupleField(_)
+            | MirProjectionKind::Variant(_) => {}
+        }
+    }
+
+    let Some(storage) = unit.storage(place.storage()) else {
+        return Err(MirUnitBuildError::MissingStorage(place.storage()));
+    };
+    let expected = place
+        .projections()
+        .last()
+        .map_or(storage.ty(), MirProjection::result_type);
+
+    if expected != place.ty() {
+        return Err(MirUnitBuildError::StorageTypeMismatch(place.storage()));
+    }
+
+    Ok(())
+}
+
+fn validate_current_frame(
+    unit: &MirUnit,
+    frame: bray_runtime_interface::ProtectedAsyncFrameId,
+) -> Result<(), MirUnitBuildError> {
+    if unit.kind().protected_frame() != Some(frame) {
+        return Err(MirUnitBuildError::ProtectedFrameMismatch);
+    }
+
+    Ok(())
+}
+
+fn validate_storage(unit: &MirUnit, storage: MirStorageId) -> Result<(), MirUnitBuildError> {
+    if unit.storage(storage).is_none() {
+        return Err(if storage.unit() == unit.unit() {
+            MirUnitBuildError::MissingStorage(storage)
+        } else {
+            MirUnitBuildError::ForeignStorage(storage)
+        });
+    }
+
+    Ok(())
+}
+
+fn validate_storage_kind(
+    unit: &MirUnit,
+    storage: MirStorageId,
+    expected: MirStorageKind,
+) -> Result<(), MirUnitBuildError> {
+    validate_storage(unit, storage)?;
+
+    if unit.storage(storage).map(MirStorage::kind) != Some(expected) {
+        return Err(MirUnitBuildError::StorageKindMismatch(storage));
+    }
+
+    Ok(())
+}
+
+fn validate_place_storage_kind(
+    unit: &MirUnit,
+    place: &MirPlace,
+    expected: MirStorageKind,
+) -> Result<(), MirUnitBuildError> {
+    validate_storage_kind(unit, place.storage(), expected)
+}
+
+pub(super) fn validate_value(unit: &MirUnit, value: MirValueId) -> Result<(), MirUnitBuildError> {
+    if unit.value(value).is_none() {
+        return Err(missing_or_foreign_value(unit, value));
+    }
+
+    Ok(())
+}
+
+fn validate_value_at(
+    unit: &MirUnit,
+    value: MirValueId,
+    block: crate::MirBlockId,
+    before: Option<MirOperationId>,
+) -> Result<(), MirUnitBuildError> {
+    validate_value(unit, value)?;
+
+    let Some(value_data) = unit.value(value) else {
+        return Err(MirUnitBuildError::MissingValue(value));
+    };
+
+    let valid = match value_data.origin() {
+        crate::MirValueOrigin::BlockParameter(owner) => owner == block,
+        crate::MirValueOrigin::Operation(operation) => {
+            let owner = unit
+                .block(block)
+                .is_some_and(|block| block.operations().contains(&operation));
+            let ordered = before.is_none_or(|before| operation.to_index() < before.to_index());
+
+            owner && ordered
+        }
+    };
+
+    if !valid {
+        return Err(MirUnitBuildError::ValueDoesNotDominateUse(value));
+    }
+
+    Ok(())
+}
+
+fn missing_or_foreign_value(unit: &MirUnit, value: MirValueId) -> MirUnitBuildError {
+    if value.unit() == unit.unit() {
+        MirUnitBuildError::MissingValue(value)
+    } else {
+        MirUnitBuildError::ForeignValue(value)
+    }
+}
