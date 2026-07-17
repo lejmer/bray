@@ -17,6 +17,12 @@ use bray_symbols::{
 
 pub(crate) use bray_symbols::testing::available_compiler_known_symbols;
 
+pub(crate) fn control_fact_selections() -> &'static crate::ControlFactSelections {
+    static SELECTIONS: OnceLock<crate::ControlFactSelections> = OnceLock::new();
+
+    SELECTIONS.get_or_init(crate::ControlFactSelections::new)
+}
+
 pub(crate) fn semantic_values() -> &'static SemanticValueStore {
     static VALUES: OnceLock<SemanticValueStore> = OnceLock::new();
 

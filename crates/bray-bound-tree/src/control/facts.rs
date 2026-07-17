@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
-use crate::{BoundExpressionId, BoundPatternId, BoundUnitId, BoundUnitKind, BoundUnitView};
+use crate::{
+    BoundExpression, BoundExpressionId, BoundPatternId, BoundUnitId, BoundUnitKind, BoundUnitView,
+};
 
 use super::validation::{
     reject_duplicate_block_results, reject_duplicate_control_transfers,
@@ -55,6 +57,18 @@ pub enum CheckedControlFlowFactsBuildError {
     InvalidPattern(BoundPatternId),
     /// A protocol fact does not name a for expression.
     InvalidForIteration(BoundExpressionId),
+    /// A control-transfer expression has no published target fact.
+    MissingControlTransfer(BoundExpressionId),
+    /// A bound block has no published result-role fact.
+    MissingBlockResult(crate::BoundBlockId),
+    /// A match expression has no published coverage fact.
+    MissingMatch(BoundExpressionId),
+    /// A bound pattern has no published semantic fact.
+    MissingPattern(BoundPatternId),
+    /// A for expression has no published iteration-protocol fact.
+    MissingForIteration(BoundExpressionId),
+    /// The bounded arena contains more nodes than its ID representation permits.
+    NodeIndexOverflow,
 }
 
 /// Local mutable construction state for immutable checked control facts.
@@ -121,6 +135,7 @@ impl CheckedControlFlowFactsBuilder {
 
         self.validate_records(view)?;
         self.sort_and_reject_duplicates()?;
+        self.validate_completeness(view)?;
 
         Ok(CheckedControlFlowFacts {
             unit: self.unit,
@@ -177,6 +192,62 @@ impl CheckedControlFlowFactsBuilder {
         self.for_iterations
             .sort_by_key(CheckedForIterationFacts::expression);
         reject_duplicate_for_iterations(&self.for_iterations)
+    }
+
+    fn validate_completeness(
+        &self,
+        view: BoundUnitView<'_>,
+    ) -> Result<(), CheckedControlFlowFactsBuildError> {
+        for (index, expression) in view.expressions().iter().enumerate() {
+            let expression_id = BoundExpressionId::from_slot(self.unit, node_slot(index)?);
+
+            match expression {
+                BoundExpression::ControlTransfer(_)
+                    if !contains_key(&self.control_transfers, expression_id, |fact| {
+                        fact.expression()
+                    }) =>
+                {
+                    return Err(CheckedControlFlowFactsBuildError::MissingControlTransfer(
+                        expression_id,
+                    ));
+                }
+                BoundExpression::Match(_)
+                    if !contains_key(&self.matches, expression_id, |fact| fact.expression()) =>
+                {
+                    return Err(CheckedControlFlowFactsBuildError::MissingMatch(
+                        expression_id,
+                    ));
+                }
+                BoundExpression::For(_)
+                    if !contains_key(&self.for_iterations, expression_id, |fact| {
+                        fact.expression()
+                    }) =>
+                {
+                    return Err(CheckedControlFlowFactsBuildError::MissingForIteration(
+                        expression_id,
+                    ));
+                }
+                _ => {}
+            }
+        }
+
+        for (index, _) in view.blocks().iter().enumerate() {
+            let block = crate::BoundBlockId::from_slot(self.unit, node_slot(index)?);
+
+            if !contains_key(&self.block_results, block, |fact| fact.block()) {
+                return Err(CheckedControlFlowFactsBuildError::MissingBlockResult(block));
+            }
+        }
+
+        for (index, _) in view.patterns().iter().enumerate() {
+            let pattern = BoundPatternId::from_slot(self.unit, node_slot(index)?);
+
+            if !contains_key(&self.patterns, pattern, CheckedPatternFacts::pattern) {
+                return Err(CheckedControlFlowFactsBuildError::MissingPattern(pattern));
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -310,16 +381,24 @@ fn find_by_key<T, K: Ord>(items: &[T], key: K, item_key: impl Fn(&T) -> K) -> Op
         .and_then(|index| items.get(index))
 }
 
+fn contains_key<T, K: Ord>(items: &[T], key: K, item_key: impl Fn(&T) -> K) -> bool {
+    find_by_key(items, key, item_key).is_some()
+}
+
+fn node_slot(index: usize) -> Result<u32, CheckedControlFlowFactsBuildError> {
+    u32::try_from(index).map_err(|_| CheckedControlFlowFactsBuildError::NodeIndexOverflow)
+}
+
 #[cfg(test)]
 mod tests {
     use crate::test_support::{error_type, source_anchor, symbol_key};
     use crate::{
         BoundBlock, BoundBlockItem, BoundCallableBody, BoundControlTransferExpression,
-        BoundControlTransferKind, BoundExpression, BoundNodeOrigin, BoundPattern, BoundPatternKind,
-        BoundPatternMode, BoundTreeBuilder, BoundUnitId, BoundUnitKey, CheckedBlockResult,
-        CheckedBlockResultRole, CheckedControlFlowFactsBuildError, CheckedControlFlowFactsBuilder,
-        CheckedControlTransfer, CheckedControlTransferTarget, CheckedPatternFacts,
-        ControlCompletion, PatternTest,
+        BoundControlTransferKind, BoundErrorExpression, BoundExpression, BoundForExpression,
+        BoundMatchExpression, BoundNodeOrigin, BoundPattern, BoundPatternKind, BoundPatternMode,
+        BoundTreeBuilder, BoundUnitId, BoundUnitKey, CheckedBlockResult, CheckedBlockResultRole,
+        CheckedControlFlowFactsBuildError, CheckedControlFlowFactsBuilder, CheckedControlTransfer,
+        CheckedControlTransferTarget, CheckedPatternFacts, ControlCompletion, PatternTest,
     };
     use bray_symbols::SymbolKind;
 
@@ -394,7 +473,7 @@ mod tests {
         };
 
         let block = push_block(&mut tree, origin, []);
-        let _body = push_callable(&mut tree, origin, block);
+        let body = push_callable(&mut tree, origin, block);
         let key = callable_key(source);
         let tree = tree.finish();
 
@@ -414,6 +493,11 @@ mod tests {
 
         let mut recovered_pattern = CheckedControlFlowFactsBuilder::new(unit);
         recovered_pattern.push_pattern(CheckedPatternFacts::recovered(parent));
+        recovered_pattern.push_pattern(CheckedPatternFacts::recovered(child));
+        recovered_pattern.push_block_result(CheckedBlockResult::new(
+            block,
+            CheckedBlockResultRole::CallableBody(body),
+        ));
         let recovered_pattern =
             match recovered_pattern.finish(tree.view(&key), ControlCompletion::default()) {
                 Ok(facts) => facts,
@@ -473,6 +557,127 @@ mod tests {
         );
     }
 
+    #[test]
+    fn publication_reports_typed_omissions_for_every_required_fact_domain() {
+        let source = source_anchor();
+        let origin = BoundNodeOrigin::source(source);
+
+        let unit = BoundUnitId::new(13);
+        let mut transfer_tree = BoundTreeBuilder::new(unit);
+        let transfer = push_return(&mut transfer_tree, origin);
+        let block = push_block(&mut transfer_tree, origin, [transfer]);
+        let _body = push_callable(&mut transfer_tree, origin, block);
+        let transfer_tree = transfer_tree.finish();
+        let key = callable_key(source);
+
+        assert_eq!(
+            CheckedControlFlowFactsBuilder::new(unit)
+                .finish(transfer_tree.view(&key), ControlCompletion::default()),
+            Err(CheckedControlFlowFactsBuildError::MissingControlTransfer(
+                transfer
+            ))
+        );
+
+        let unit = BoundUnitId::new(14);
+        let mut block_tree = BoundTreeBuilder::new(unit);
+        let block = push_block(&mut block_tree, origin, []);
+        let _body = push_callable(&mut block_tree, origin, block);
+        let block_tree = block_tree.finish();
+
+        assert_eq!(
+            CheckedControlFlowFactsBuilder::new(unit)
+                .finish(block_tree.view(&key), ControlCompletion::default()),
+            Err(CheckedControlFlowFactsBuildError::MissingBlockResult(block))
+        );
+
+        let unit = BoundUnitId::new(15);
+        let mut pattern_tree = BoundTreeBuilder::new(unit);
+        let pattern = push_binding_pattern(&mut pattern_tree, origin);
+        let block = push_block(&mut pattern_tree, origin, []);
+        let body = push_callable(&mut pattern_tree, origin, block);
+        let pattern_tree = pattern_tree.finish();
+        let mut facts = CheckedControlFlowFactsBuilder::new(unit);
+
+        facts.push_block_result(CheckedBlockResult::new(
+            block,
+            CheckedBlockResultRole::CallableBody(body),
+        ));
+
+        assert_eq!(
+            facts.finish(pattern_tree.view(&key), ControlCompletion::default()),
+            Err(CheckedControlFlowFactsBuildError::MissingPattern(pattern))
+        );
+
+        let unit = BoundUnitId::new(16);
+        let mut match_tree = BoundTreeBuilder::new(unit);
+        let subject = push_error_expression(&mut match_tree, origin);
+        let expression = match match_tree.push_expression(BoundExpression::Match(
+            BoundMatchExpression::new(origin, subject, [], Some(error_type()), false),
+        )) {
+            Ok(expression) => expression,
+            Err(error) => panic!("test match expression must fit: {error:?}"),
+        };
+        let block = push_block(&mut match_tree, origin, [expression]);
+        let body = push_callable(&mut match_tree, origin, block);
+        let match_tree = match_tree.finish();
+        let mut facts = CheckedControlFlowFactsBuilder::new(unit);
+
+        facts.push_block_result(CheckedBlockResult::new(
+            block,
+            CheckedBlockResultRole::CallableBody(body),
+        ));
+
+        assert_eq!(
+            facts.finish(match_tree.view(&key), ControlCompletion::default()),
+            Err(CheckedControlFlowFactsBuildError::MissingMatch(expression))
+        );
+
+        let unit = BoundUnitId::new(17);
+        let mut iteration_tree = BoundTreeBuilder::new(unit);
+        let source_expression = push_error_expression(&mut iteration_tree, origin);
+        let pattern = push_binding_pattern(&mut iteration_tree, origin);
+        let iteration_body = push_block(&mut iteration_tree, origin, []);
+        let expression =
+            match iteration_tree.push_expression(BoundExpression::For(BoundForExpression::new(
+                origin,
+                source_expression,
+                pattern,
+                iteration_body,
+                None,
+                Some(error_type()),
+                false,
+            ))) {
+                Ok(expression) => expression,
+                Err(error) => panic!("test for expression must fit: {error:?}"),
+            };
+        let block = push_block(&mut iteration_tree, origin, [expression]);
+        let body = push_callable(&mut iteration_tree, origin, block);
+        let iteration_tree = iteration_tree.finish();
+        let mut facts = CheckedControlFlowFactsBuilder::new(unit);
+
+        facts.push_block_result(CheckedBlockResult::new(
+            iteration_body,
+            CheckedBlockResultRole::IterationBody(expression),
+        ));
+        facts.push_block_result(CheckedBlockResult::new(
+            block,
+            CheckedBlockResultRole::CallableBody(body),
+        ));
+        facts.push_pattern(CheckedPatternFacts::resolved(
+            pattern,
+            true,
+            PatternTest::Always,
+            [],
+        ));
+
+        assert_eq!(
+            facts.finish(iteration_tree.view(&key), ControlCompletion::default()),
+            Err(CheckedControlFlowFactsBuildError::MissingForIteration(
+                expression
+            ))
+        );
+    }
+
     fn callable_key(source: crate::BoundSourceAnchor) -> BoundUnitKey {
         let owner = symbol_key(SymbolKind::Function, 0);
 
@@ -498,6 +703,19 @@ mod tests {
         match tree.push_expression(expression) {
             Ok(expression) => expression,
             Err(error) => panic!("test return expression must fit: {error:?}"),
+        }
+    }
+
+    fn push_error_expression(
+        tree: &mut BoundTreeBuilder,
+        origin: BoundNodeOrigin,
+    ) -> crate::BoundExpressionId {
+        match tree.push_expression(BoundExpression::Error(BoundErrorExpression::new(
+            origin,
+            error_type(),
+        ))) {
+            Ok(expression) => expression,
+            Err(error) => panic!("test error expression must fit: {error:?}"),
         }
     }
 

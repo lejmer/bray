@@ -51,10 +51,19 @@ impl ControlFlowGraphBuilder<'_> {
         id: BoundPatternId,
         pattern: &bray_bound_tree::BoundPattern,
     ) {
-        let fact = resolved_pattern_fact(self.view, id, pattern)
-            .unwrap_or_else(|| CheckedPatternFacts::recovered(id));
+        let fact = if pattern.is_recovered() {
+            Some(CheckedPatternFacts::recovered(id))
+        } else {
+            self.request()
+                .control_fact_selections()
+                .pattern(id)
+                .cloned()
+                .or_else(|| resolved_pattern_fact(self.view, id, pattern))
+        };
 
-        self.facts.push_pattern(fact);
+        if let Some(fact) = fact {
+            self.facts.push_pattern(fact);
+        }
     }
 }
 
@@ -63,10 +72,6 @@ fn resolved_pattern_fact(
     id: BoundPatternId,
     pattern: &bray_bound_tree::BoundPattern,
 ) -> Option<CheckedPatternFacts> {
-    if pattern.is_recovered() {
-        return None;
-    }
-
     let irrefutable = trivially_irrefutable_pattern(view, id);
 
     match pattern.kind() {

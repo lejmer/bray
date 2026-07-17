@@ -193,12 +193,24 @@ impl BoundTreeBuilder {
         entry(self.unit, id.unit(), id.to_index(), &self.expressions)
     }
 
+    pub(crate) fn expressions(&self) -> &[BoundExpression] {
+        &self.expressions
+    }
+
     pub(crate) fn pattern(&self, id: BoundPatternId) -> Option<&BoundPattern> {
         entry(self.unit, id.unit(), id.to_index(), &self.patterns)
     }
 
+    pub(crate) fn patterns(&self) -> &[BoundPattern] {
+        &self.patterns
+    }
+
     pub(crate) fn block(&self, id: BoundBlockId) -> Option<&BoundBlock> {
         entry(self.unit, id.unit(), id.to_index(), &self.blocks)
+    }
+
+    pub(crate) fn blocks(&self) -> &[BoundBlock] {
+        &self.blocks
     }
 
     pub(crate) fn callable_body(&self, id: BoundCallableBodyId) -> Option<&BoundCallableBody> {

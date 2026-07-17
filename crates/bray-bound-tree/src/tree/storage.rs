@@ -42,14 +42,26 @@ impl BoundTree {
         self.entry(id.unit(), id.to_index(), &self.expressions)
     }
 
+    pub(crate) fn expressions(&self) -> &[BoundExpression] {
+        &self.expressions
+    }
+
     /// Returns the pattern identified within this tree, when present.
     pub fn pattern(&self, id: BoundPatternId) -> Option<&BoundPattern> {
         self.entry(id.unit(), id.to_index(), &self.patterns)
     }
 
+    pub(crate) fn patterns(&self) -> &[BoundPattern] {
+        &self.patterns
+    }
+
     /// Returns the block identified within this tree, when present.
     pub fn block(&self, id: BoundBlockId) -> Option<&BoundBlock> {
         self.entry(id.unit(), id.to_index(), &self.blocks)
+    }
+
+    pub(crate) fn blocks(&self) -> &[BoundBlock] {
+        &self.blocks
     }
 
     /// Returns the callable body identified within this tree, when present.

@@ -493,7 +493,8 @@ mod tests {
         AnalysisTaskOperationKind,
     };
     use crate::test_support::{
-        available_compiler_known_symbols, callable_key, error_type, recovered_tree, semantic_values,
+        available_compiler_known_symbols, callable_key, control_fact_selections, error_type,
+        recovered_tree, semantic_values,
     };
     use crate::{UnitCheckRequest, UnitCheckRoot};
 
@@ -507,6 +508,7 @@ mod tests {
         let Ok(request) = UnitCheckRequest::new(
             view,
             UnitCheckRoot::CallableBody(root),
+            control_fact_selections(),
             semantic_values(),
             available_compiler_known_symbols(),
             &|| false,
@@ -956,7 +958,7 @@ mod tests {
             for_body,
             Some(for_else),
             Some(error_type()),
-            false,
+            true,
         ));
 
         let for_expression = push_expression(&mut builder, for_expression);
@@ -1086,6 +1088,7 @@ mod tests {
         let Ok(request) = UnitCheckRequest::new(
             tree.view(key),
             UnitCheckRoot::CallableBody(root),
+            control_fact_selections(),
             semantic_values(),
             available_compiler_known_symbols(),
             &|| false,
@@ -1294,7 +1297,7 @@ mod tests {
         let block = BoundBlock::new(
             origin,
             expressions.into_iter().map(BoundBlockItem::Expression),
-            false,
+            true,
         );
 
         match builder.push_block(block) {

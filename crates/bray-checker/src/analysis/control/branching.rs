@@ -7,7 +7,7 @@ use crate::analysis::build::{CatchContext, ControlFlowGraphBuilder};
 use crate::analysis::id::AnalysisBlockId;
 use crate::analysis::model::{AnalysisEdgeKind, AnalysisExitKind, AnalysisRefinement};
 
-use super::coverage::match_exhaustiveness;
+use super::coverage::match_exhaustiveness_with_selection;
 
 impl ControlFlowGraphBuilder<'_> {
     pub(in crate::analysis) fn build_structured(
@@ -248,8 +248,17 @@ impl ControlFlowGraphBuilder<'_> {
         let current = current.unwrap_or_else(|| self.push_block());
 
         self.push_bound(current, id.into());
-        self.facts
-            .push_for_iteration(CheckedForIterationFacts::recovered(id));
+        if expression.is_recovered() {
+            self.facts
+                .push_for_iteration(CheckedForIterationFacts::recovered(id));
+        } else if let Some(fact) = self
+            .request()
+            .control_fact_selections()
+            .for_iteration(id)
+            .cloned()
+        {
+            self.facts.push_for_iteration(fact);
+        }
 
         self.build_iteration(
             id,
@@ -272,10 +281,14 @@ impl ControlFlowGraphBuilder<'_> {
 
         self.push_bound(current, id.into());
 
-        self.facts.push_match(CheckedMatchFacts::new(
-            id,
-            match_exhaustiveness(self.view(), expression),
-        ));
+        if let Some(exhaustiveness) = match_exhaustiveness_with_selection(
+            self.view(),
+            expression,
+            self.request().control_fact_selections().match_facts(id),
+        ) {
+            self.facts
+                .push_match(CheckedMatchFacts::new(id, exhaustiveness));
+        }
 
         let join = self.push_block();
         let mut candidate = current;

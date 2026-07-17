@@ -9,7 +9,8 @@ use bray_bound_tree::{
     BoundUnit, BoundUnitKey, BoundUnitKind, BoundUnitRoot, CheckedControlFlowFacts,
 };
 use bray_checker::{
-    CheckerOutcome, ControlFlowChecker, DefaultControlFlowChecker, UnitCheckRequest, UnitCheckRoot,
+    CheckerOutcome, ControlFactSelections, ControlFlowChecker, DefaultControlFlowChecker,
+    UnitCheckRequest, UnitCheckRoot,
 };
 use bray_diagnostics::DiagnosticResult;
 
@@ -128,9 +129,11 @@ fn check_control_flow(
         BoundUnitRoot::ExpressionSequence(block) => UnitCheckRoot::ExpressionSequence(block),
     };
 
+    let control_fact_selections = ControlFactSelections::new();
     let request = UnitCheckRequest::new(
         bound.view(),
         root,
+        &control_fact_selections,
         semantic_values,
         available_compiler_known_symbols,
         cancellation,

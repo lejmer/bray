@@ -11,5 +11,8 @@ mod service;
 mod test_support;
 
 pub use outcome::{CheckerOutcome, ControlFlowCheckResult};
-pub use request::{UnitCheckRequest, UnitCheckRequestError, UnitCheckRoot};
+pub use request::{
+    ControlFactSelections, ControlFactSelectionsError, UnitCheckRequest, UnitCheckRequestError,
+    UnitCheckRoot,
+};
 pub use service::{ControlFlowChecker, DefaultControlFlowChecker};

@@ -28,8 +28,8 @@ mod tests {
 
     use super::{ControlFlowChecker, DefaultControlFlowChecker};
     use crate::test_support::{
-        available_compiler_known_symbols, callable_key, normally_completing_recovered_tree,
-        recovered_tree, semantic_values,
+        available_compiler_known_symbols, callable_key, control_fact_selections,
+        normally_completing_recovered_tree, recovered_tree, semantic_values,
     };
     use crate::{CheckerOutcome, UnitCheckRequest, UnitCheckRoot};
 
@@ -43,6 +43,7 @@ mod tests {
         let Ok(request) = UnitCheckRequest::new(
             view,
             UnitCheckRoot::CallableBody(root),
+            control_fact_selections(),
             semantic_values(),
             available_compiler_known_symbols(),
             &|| false,
@@ -82,6 +83,7 @@ mod tests {
         let Ok(request) = UnitCheckRequest::new(
             view,
             UnitCheckRoot::CallableBody(root),
+            control_fact_selections(),
             semantic_values(),
             available_compiler_known_symbols(),
             &|| true,
@@ -104,6 +106,7 @@ mod tests {
         let Ok(request) = UnitCheckRequest::new(
             view,
             UnitCheckRoot::CallableBody(root),
+            control_fact_selections(),
             semantic_values(),
             available_compiler_known_symbols(),
             &|| false,
@@ -131,6 +134,7 @@ mod tests {
         let request = UnitCheckRequest::new(
             view,
             UnitCheckRoot::CallableBody(foreign_root),
+            control_fact_selections(),
             semantic_values(),
             available_compiler_known_symbols(),
             &|| false,

@@ -57,6 +57,13 @@ impl<'unit> BoundUnitView<'unit> {
         }
     }
 
+    pub(crate) fn expressions(self) -> &'unit [BoundExpression] {
+        match self.storage {
+            BoundUnitStorageView::Building(builder) => builder.expressions(),
+            BoundUnitStorageView::Published(tree) => tree.expressions(),
+        }
+    }
+
     /// Returns one committed pattern through checked typed access.
     pub fn pattern(self, id: BoundPatternId) -> Option<&'unit BoundPattern> {
         match self.storage {
@@ -65,11 +72,25 @@ impl<'unit> BoundUnitView<'unit> {
         }
     }
 
+    pub(crate) fn patterns(self) -> &'unit [BoundPattern] {
+        match self.storage {
+            BoundUnitStorageView::Building(builder) => builder.patterns(),
+            BoundUnitStorageView::Published(tree) => tree.patterns(),
+        }
+    }
+
     /// Returns one committed block through checked typed access.
     pub fn block(self, id: BoundBlockId) -> Option<&'unit BoundBlock> {
         match self.storage {
             BoundUnitStorageView::Building(builder) => builder.block(id),
             BoundUnitStorageView::Published(tree) => tree.block(id),
+        }
+    }
+
+    pub(crate) fn blocks(self) -> &'unit [BoundBlock] {
+        match self.storage {
+            BoundUnitStorageView::Building(builder) => builder.blocks(),
+            BoundUnitStorageView::Published(tree) => tree.blocks(),
         }
     }
 
