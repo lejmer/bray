@@ -2,12 +2,13 @@ use bray_binder::SymbolFactProvider;
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{
     AnySymbolId, CallableContractSymbolId, CallableContractTypeFact, CallableContractsFact,
-    CallableSignatureFact, CallableSymbolId, ExactSymbolId, GenericConstraintsFact, GenericOwnerId,
-    ImplementationCoherenceFact, ImplementationSubjectFact, ImplementationSymbolId,
-    ImplementedTraitApplicationFact, InherentTypeMemberValueFact, StructFieldSymbolId,
-    StructFieldTypeFact, SymbolCompletionLevel, SymbolFactCompletionRequest, SymbolFactContract,
-    SymbolFactForcer, SymbolFactKind, SymbolFactRequest, TraitTypeFulfillmentValueFact,
-    UnionPayloadFieldSymbolId, UnionPayloadFieldTypeFact,
+    CallableSignatureFact, CallableSymbolId, ConstantDeclaredTypeFact, ExactSymbolId,
+    GenericConstraintsFact, GenericOwnerId, ImplementationCoherenceFact, ImplementationSubjectFact,
+    ImplementationSymbolId, ImplementedTraitApplicationFact, InherentTypeMemberValueFact,
+    StructFieldSymbolId, StructFieldTypeFact, SymbolCompletionLevel, SymbolFactCompletionRequest,
+    SymbolFactContract, SymbolFactForcer, SymbolFactKind, SymbolFactRequest,
+    TraitConstantFulfillmentDeclaredTypeFact, TraitConstantMemberDeclaredTypeFact,
+    TraitTypeFulfillmentValueFact, UnionPayloadFieldSymbolId, UnionPayloadFieldTypeFact,
 };
 
 use super::super::context::CompilationBinderFacts;
@@ -48,6 +49,9 @@ impl SymbolFactForcer for CompilationBinderFacts<'_> {
                 CallableContractTypeFact,
                 CallableContractSymbolId,
             >(self, request.symbol()),
+            SymbolFactKind::ConstantDeclaredType => {
+                force_constant_declared_type(self, request.symbol())
+            }
             SymbolFactKind::StructFieldType => {
                 force_exact::<StructFieldTypeFact, StructFieldSymbolId>(self, request.symbol())
             }
@@ -74,14 +78,29 @@ impl SymbolFactForcer for CompilationBinderFacts<'_> {
                 UnionPayloadFieldTypeFact,
                 UnionPayloadFieldSymbolId,
             >(self, request.symbol()),
-            SymbolFactKind::ConstantDeclaredType
-            | SymbolFactKind::ConstantDefinition
+            SymbolFactKind::ConstantDefinition
             | SymbolFactKind::CallableParameterDefault
             | SymbolFactKind::StructFieldDefault
             | SymbolFactKind::UnionPayloadFieldDefault
             | SymbolFactKind::PredicateDefinition
             | SymbolFactKind::OverloadArms => Err(FactQueryError::InfrastructureFailure),
         }
+    }
+}
+
+fn force_constant_declared_type(
+    facts: &CompilationBinderFacts<'_>,
+    symbol: AnySymbolId,
+) -> Result<DiagnosticBag, FactQueryError> {
+    match symbol {
+        AnySymbolId::Constant(owner) => force_typed::<ConstantDeclaredTypeFact>(facts, owner),
+        AnySymbolId::TraitConstantMember(owner) => {
+            force_typed::<TraitConstantMemberDeclaredTypeFact>(facts, owner)
+        }
+        AnySymbolId::TraitConstantFulfillment(owner) => {
+            force_typed::<TraitConstantFulfillmentDeclaredTypeFact>(facts, owner)
+        }
+        _ => Err(FactQueryError::InfrastructureFailure),
     }
 }
 

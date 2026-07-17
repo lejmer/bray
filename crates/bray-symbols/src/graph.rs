@@ -200,6 +200,14 @@ macro_rules! define_symbol_graph {
                 self.declaration_index.get(&declaration).copied()
             }
 
+            /// Returns the source syntax anchor that introduced one exact symbol.
+            pub fn declaration_syntax_anchor(&self, symbol: AnySymbolId) -> Option<SyntaxAnchor> {
+                match symbol {
+                    $(AnySymbolId::$variant(id) => self.$singular(id)?.syntax_anchor(),)+
+                    _ => None,
+                }
+            }
+
             /// Returns one exact symbol's stable semantic key.
             pub fn symbol_key(&self, symbol: AnySymbolId) -> Option<&crate::SymbolKey> {
                 match symbol {
