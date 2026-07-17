@@ -363,7 +363,7 @@ mod tests {
     }
 
     fn empty_arguments() -> CheckedArgumentMapping {
-        match CheckedArgumentMapping::try_new(None, [], []) {
+        match CheckedArgumentMapping::try_new(CallableAbi::Bray, None, [], []) {
             Ok(arguments) => arguments,
             Err(error) => panic!("empty arguments must be valid: {error:?}"),
         }

@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use bray_bound_tree::{
     BoundSourceAnchor, BoundUnit, BoundUnitKey, BoundUnitKind, CheckedControlFlowFacts,
+    CheckedExpressionFacts,
 };
 use bray_declarations::{DeclarationKind, DeclarationRecord, SyntaxAnchor};
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
@@ -67,10 +68,12 @@ impl Compilation {
                 pending.insert(unit_order_key(nested.clone()));
             }
 
-            let control_flow = self.checked_control_flow(key)?;
+            let control_flow = self.checked_control_flow(key.clone())?;
+            let expressions = self.checked_expressions(key)?;
 
             facts.push(SemanticDiagnosticFact::Bound(bound));
             facts.push(SemanticDiagnosticFact::ControlFlow(control_flow));
+            facts.push(SemanticDiagnosticFact::Expressions(expressions));
         }
 
         Ok(DiagnosticBag::merged_all(
@@ -210,6 +213,7 @@ impl Compilation {
 enum SemanticDiagnosticFact {
     Bound(Arc<DiagnosticResult<BoundUnit>>),
     ControlFlow(Arc<DiagnosticResult<CheckedControlFlowFacts>>),
+    Expressions(Arc<DiagnosticResult<CheckedExpressionFacts>>),
 }
 
 impl SemanticDiagnosticFact {
@@ -217,6 +221,7 @@ impl SemanticDiagnosticFact {
         match self {
             Self::Bound(result) => result.diagnostics(),
             Self::ControlFlow(result) => result.diagnostics(),
+            Self::Expressions(result) => result.diagnostics(),
         }
     }
 }

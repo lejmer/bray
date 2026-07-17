@@ -7,9 +7,11 @@ use bray_binder::{
 };
 use bray_bound_tree::{
     BoundUnit, BoundUnitKey, BoundUnitKind, BoundUnitRoot, CheckedControlFlowFacts,
+    CheckedExpressionFacts,
 };
 use bray_checker::{
-    CheckerOutcome, ControlFlowChecker, DefaultControlFlowChecker, UnitCheckRequest, UnitCheckRoot,
+    CheckerOutcome, ControlFlowChecker, DefaultControlFlowChecker, ExpressionFactCheckResult,
+    ExpressionFactChecker, UnitCheckRequest, UnitCheckRoot,
 };
 use bray_diagnostics::DiagnosticResult;
 
@@ -35,6 +37,17 @@ impl Compilation {
     ) -> Result<Arc<DiagnosticResult<CheckedControlFlowFacts>>, FactQueryError> {
         let published =
             self.checked_control_flow_with_cancellation(key, &self.state.cancellation)?;
+
+        Ok(Arc::clone(published.result()))
+    }
+
+    /// Returns complete checked expression facts and diagnostics for one bound semantic unit.
+    pub fn checked_expressions(
+        &self,
+        key: BoundUnitKey,
+    ) -> Result<Arc<DiagnosticResult<CheckedExpressionFacts>>, FactQueryError> {
+        let published =
+            self.checked_expressions_with_cancellation(key, &self.state.cancellation)?;
 
         Ok(Arc::clone(published.result()))
     }
@@ -90,6 +103,36 @@ impl Compilation {
             },
         )
     }
+
+    fn checked_expressions_with_cancellation(
+        &self,
+        key: BoundUnitKey,
+        cancellation: &CancellationToken,
+    ) -> Result<Arc<PublishedUnitFact<CheckedExpressionFacts>>, FactQueryError> {
+        self.unit_fact(
+            &self.state.checked_expressions,
+            CompilationFactKey::CheckedExpressions(key.clone()),
+            key.clone(),
+            cancellation,
+            |cancellation| {
+                let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
+
+                for nested in bound.result().value().nested_units() {
+                    self.checked_expressions_with_cancellation(nested.clone(), cancellation)?;
+                }
+
+                let semantic_values = self.semantic_value_store()?;
+                let available_compiler_known_symbols = self.available_compiler_known_symbols();
+
+                check_expressions(
+                    bound.result().value(),
+                    semantic_values,
+                    available_compiler_known_symbols,
+                    cancellation,
+                )
+            },
+        )
+    }
 }
 
 fn bind_unit(
@@ -120,6 +163,54 @@ fn check_control_flow(
     ),
     FactQueryError,
 > {
+    let request = unit_check_request(
+        bound,
+        semantic_values,
+        available_compiler_known_symbols,
+        cancellation,
+    )?;
+
+    let result = match DefaultControlFlowChecker.check_control_flow(request) {
+        CheckerOutcome::Complete(result) => result.map(|result| result.into_facts()),
+        CheckerOutcome::Cancelled => return Err(FactQueryError::Cancelled),
+    };
+
+    Ok((result, Box::new([])))
+}
+
+fn check_expressions(
+    bound: &BoundUnit,
+    semantic_values: &bray_symbols::SemanticValueStore,
+    available_compiler_known_symbols: &bray_symbols::AvailableCompilerKnownSymbols,
+    cancellation: &CancellationToken,
+) -> Result<
+    (
+        DiagnosticResult<CheckedExpressionFacts>,
+        Box<[BinderDependency]>,
+    ),
+    FactQueryError,
+> {
+    let request = unit_check_request(
+        bound,
+        semantic_values,
+        available_compiler_known_symbols,
+        cancellation,
+    )?;
+
+    let result = match DefaultControlFlowChecker.check_expression_facts(bound, request) {
+        CheckerOutcome::Complete(result) => result.map(ExpressionFactCheckResult::into_facts),
+        CheckerOutcome::Cancelled => return Err(FactQueryError::Cancelled),
+    };
+
+    Ok((result, Box::new([])))
+}
+
+fn unit_check_request<'facts>(
+    bound: &'facts BoundUnit,
+    semantic_values: &'facts bray_symbols::SemanticValueStore,
+    available_compiler_known_symbols: &'facts bray_symbols::AvailableCompilerKnownSymbols,
+    cancellation: &'facts CancellationToken,
+) -> Result<UnitCheckRequest<'facts>, FactQueryError> {
     let root = match bound.root() {
         BoundUnitRoot::CallableBody(body) | BoundUnitRoot::AnonymousCallable { body, .. } => {
             UnitCheckRoot::CallableBody(body)
@@ -128,21 +219,14 @@ fn check_control_flow(
         BoundUnitRoot::ExpressionSequence(block) => UnitCheckRoot::ExpressionSequence(block),
     };
 
-    let request = UnitCheckRequest::new(
+    UnitCheckRequest::new(
         bound.view(),
         root,
         semantic_values,
         available_compiler_known_symbols,
         cancellation,
     )
-    .map_err(|_| FactQueryError::InfrastructureFailure)?;
-
-    let result = match DefaultControlFlowChecker.check_control_flow(request) {
-        CheckerOutcome::Complete(result) => result.map(|result| result.into_facts()),
-        CheckerOutcome::Cancelled => return Err(FactQueryError::Cancelled),
-    };
-
-    Ok((result, Box::new([])))
+    .map_err(|_| FactQueryError::InfrastructureFailure)
 }
 
 const fn map_binding_error(error: BoundUnitBindingError) -> FactQueryError {
@@ -220,6 +304,17 @@ mod tests {
                 .skip(1)
                 .all(|fact| Arc::ptr_eq(&checked[0], fact))
         );
+
+        let first_expressions = match compilation.checked_expressions(key.clone()) {
+            Ok(facts) => facts,
+            Err(error) => panic!("first expression-fact request must complete: {error:?}"),
+        };
+        let second_expressions = match compilation.checked_expressions(key) {
+            Ok(facts) => facts,
+            Err(error) => panic!("repeated expression-fact request must complete: {error:?}"),
+        };
+
+        assert!(Arc::ptr_eq(&first_expressions, &second_expressions));
     }
 
     #[test]
@@ -295,6 +390,46 @@ mod tests {
         );
 
         assert!(compilation.checked_control_flow(key).is_ok());
+
+        let expression_cancellation = CancellationToken::new();
+        let expression_gate = FactTestGate::holding(FactCellTestEvent::Computed);
+        let expression_key = source_callable_body_key(&compilation);
+
+        if let Err(error) = compilation
+            .state
+            .checked_expressions
+            .set_test_observer(&expression_key, expression_gate.observer())
+        {
+            panic!("expression fact must accept a test observer: {error:?}");
+        }
+
+        let expressions = std::thread::scope(|scope| {
+            let request_key = expression_key.clone();
+            let request = scope.spawn(|| {
+                compilation
+                    .checked_expressions_with_cancellation(request_key, &expression_cancellation)
+            });
+
+            expression_gate.wait_until_observed(FactCellTestEvent::Computed, 1);
+            expression_cancellation.cancel();
+            expression_gate.release();
+
+            match request.join() {
+                Ok(result) => result,
+                Err(_) => panic!("cancelled expression-fact request panicked"),
+            }
+        });
+
+        assert!(matches!(expressions, Err(FactQueryError::Cancelled)));
+        assert_eq!(
+            compilation
+                .state
+                .checked_expressions
+                .is_published(&expression_key),
+            Ok(false)
+        );
+
+        assert!(compilation.checked_expressions(expression_key).is_ok());
     }
 
     #[test]

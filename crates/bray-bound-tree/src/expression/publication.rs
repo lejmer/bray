@@ -239,7 +239,7 @@ impl CheckedExpressionFacts {
         if resolved.result().ty() != result.ty()
             || !resolved
                 .arguments()
-                .is_valid_for(resolved.callable().target(), self.unit())
+                .is_valid_for(resolved.callable(), self.unit())
             || resolved
                 .arguments()
                 .receiver()
@@ -476,7 +476,8 @@ mod tests {
         ConstantValueKind, FunctionSymbolId, GenericArgument, GenericOwnerId,
         GenericParameterSymbolId, LocalScopeBoundary, LocalSymbolRegionId, LocalSymbolRegionKey,
         LocalSymbolRegionRole, LocalSymbolSnapshot, LocalSymbolSnapshotBuilder, SemanticValueStore,
-        StructFieldSymbolId, StructSymbolId, SymbolId, SymbolKind, SymbolName, TypeData,
+        StructFieldSymbolId, StructSymbolId, SymbolId, SymbolKind, SymbolName, SymbolOrdinal,
+        TypeData,
     };
 
     use super::{
@@ -908,15 +909,22 @@ mod tests {
         );
         let argument = push_expression(&mut tree, literal_expression(origin, ty));
         let mapping = match CheckedArgumentMapping::try_new(
+            CallableAbi::C,
             None,
             [CheckedExplicitArgument::new(
-                CheckedParameterTarget::Declared(first_parameter),
+                CheckedParameterTarget::Declared {
+                    callable: instance,
+                    parameter: first_parameter,
+                    ordinal: SymbolOrdinal::new(0),
+                },
                 argument,
                 CheckedConversion::new(ty, ty, CheckedConversionKind::Identity),
             )],
             [CheckedDefaultArgument::new(
+                instance,
                 second_parameter,
                 provider,
+                SymbolOrdinal::new(1),
                 None,
             )],
         ) {

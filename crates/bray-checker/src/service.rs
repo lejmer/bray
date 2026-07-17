@@ -1,5 +1,8 @@
+use bray_bound_tree::BoundUnit;
+
 use crate::analysis::check_control_flow;
-use crate::{CheckerOutcome, ControlFlowCheckResult, UnitCheckRequest};
+use crate::expression::check_expression_facts;
+use crate::{CheckerOutcome, ControlFlowCheckResult, ExpressionFactCheckResult, UnitCheckRequest};
 
 /// The standard Bray control-flow checker implementation.
 #[derive(Clone, Copy, Debug, Default)]
@@ -21,6 +24,24 @@ pub trait ControlFlowChecker: Sync {
 }
 
 impl ControlFlowChecker for DefaultControlFlowChecker {}
+
+/// Expression-fact checking over one committed bound semantic unit.
+///
+/// Implementations must observe request cancellation while doing substantial
+/// work and return [`CheckerOutcome::Cancelled`] without partial results or
+/// diagnostics.
+pub trait ExpressionFactChecker: Sync {
+    /// Publishes complete durable expression facts for one committed bound unit.
+    fn check_expression_facts(
+        &self,
+        unit: &BoundUnit,
+        request: UnitCheckRequest<'_>,
+    ) -> CheckerOutcome<ExpressionFactCheckResult> {
+        check_expression_facts(unit, request)
+    }
+}
+
+impl ExpressionFactChecker for DefaultControlFlowChecker {}
 
 #[cfg(test)]
 mod tests {

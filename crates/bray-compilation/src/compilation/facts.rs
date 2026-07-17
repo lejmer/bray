@@ -2,7 +2,7 @@ use std::fmt;
 use std::sync::Arc;
 
 use bray_binder::BinderDependency;
-use bray_bound_tree::{BoundUnit, BoundUnitKey, CheckedControlFlowFacts};
+use bray_bound_tree::{BoundUnit, BoundUnitKey, CheckedControlFlowFacts, CheckedExpressionFacts};
 use bray_declarations::{
     DeclarationChunkResult, DeclarationTable, DeclarationTableResult,
     discover_source_unit_declarations, merge_declaration_chunks,
@@ -76,6 +76,7 @@ pub(super) struct CompilationState {
     pub(super) symbol_facts: CompilationSymbolFacts,
     pub(super) bound_units: UnitFactCache<BoundUnit>,
     pub(super) checked_control_flow: UnitFactCache<CheckedControlFlowFacts>,
+    pub(super) checked_expressions: UnitFactCache<CheckedExpressionFacts>,
     pub(super) check_diagnostics: FactCell<DiagnosticBag>,
     pub(super) package_interface_export_bundle: FactCell<
         Result<Arc<PackageInterfaceExportBundle>, super::export::PackageInterfaceExportError>,
@@ -162,6 +163,7 @@ impl Compilation {
                 symbol_facts: CompilationSymbolFacts::new(),
                 bound_units: UnitFactCache::new(),
                 checked_control_flow: UnitFactCache::new(),
+                checked_expressions: UnitFactCache::new(),
                 check_diagnostics: FactCell::new(),
                 package_interface_export_bundle: FactCell::new(),
             }),

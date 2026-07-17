@@ -57,17 +57,28 @@ impl CheckedCallableReference {
 /// The implicit receiver supplied to a selected method invocation.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CheckedReceiverArgument {
+    callable: CallableInstanceId,
     parameter: ReceiverParameterSymbolId,
     expression: BoundExpressionId,
 }
 
 impl CheckedReceiverArgument {
     /// Creates a receiver-to-parameter association.
-    pub const fn new(parameter: ReceiverParameterSymbolId, expression: BoundExpressionId) -> Self {
+    pub const fn new(
+        callable: CallableInstanceId,
+        parameter: ReceiverParameterSymbolId,
+        expression: BoundExpressionId,
+    ) -> Self {
         Self {
+            callable,
             parameter,
             expression,
         }
+    }
+
+    /// Returns the exact direct callable that owns this receiver parameter.
+    pub const fn callable(self) -> CallableInstanceId {
+        self.callable
     }
 
     /// Returns the selected callable's implicit receiver parameter.
@@ -85,7 +96,14 @@ impl CheckedReceiverArgument {
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum CheckedParameterTarget {
     /// A parameter declared by a compilation-wide callable definition.
-    Declared(CallableParameterSymbolId),
+    Declared {
+        /// Exact selected direct callable instance.
+        callable: CallableInstanceId,
+        /// Exact declared parameter identity.
+        parameter: CallableParameterSymbolId,
+        /// The parameter's declaration-order ordinal.
+        ordinal: SymbolOrdinal,
+    },
     /// A parameter owned by a separately checked anonymous callable.
     Anonymous(AnonymousCallableParameterSymbolId),
     /// A parameter position in an indirect callable type.
@@ -133,23 +151,34 @@ impl CheckedExplicitArgument {
 /// One omitted parameter and the runtime-default provider selected for it.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CheckedDefaultArgument {
+    callable: CallableInstanceId,
     parameter: CallableParameterSymbolId,
     provider: CallableParameterDefaultProviderSymbolId,
+    ordinal: SymbolOrdinal,
     substitution: Option<GenericSubstitutionId>,
 }
 
 impl CheckedDefaultArgument {
     /// Creates an omitted-parameter default association.
     pub const fn new(
+        callable: CallableInstanceId,
         parameter: CallableParameterSymbolId,
         provider: CallableParameterDefaultProviderSymbolId,
+        ordinal: SymbolOrdinal,
         substitution: Option<GenericSubstitutionId>,
     ) -> Self {
         Self {
+            callable,
             parameter,
             provider,
+            ordinal,
             substitution,
         }
+    }
+
+    /// Returns the exact direct callable that owns this omitted parameter and provider.
+    pub const fn callable(self) -> CallableInstanceId {
+        self.callable
     }
 
     /// Returns the exact omitted parameter.
@@ -160,6 +189,11 @@ impl CheckedDefaultArgument {
     /// Returns the checked runtime-default provider.
     pub const fn provider(self) -> CallableParameterDefaultProviderSymbolId {
         self.provider
+    }
+
+    /// Returns the omitted parameter's declaration-order ordinal.
+    pub const fn ordinal(self) -> SymbolOrdinal {
+        self.ordinal
     }
 
     /// Returns the selected generic substitution for a generic default provider.
@@ -177,12 +211,20 @@ pub enum CheckedArgumentMappingError {
     InvalidConversion(CheckedParameterTarget),
 }
 
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+enum CheckedParameterIdentity {
+    Declared(CallableInstanceId, CallableParameterSymbolId),
+    Anonymous(AnonymousCallableParameterSymbolId),
+    Indirect(SymbolOrdinal),
+}
+
 /// Normalized receiver, explicit-argument, and default associations for one call.
 ///
 /// Explicit arguments remain in source evaluation order. Defaults remain in parameter
 /// declaration order and therefore follow every explicit argument during evaluation.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct CheckedArgumentMapping {
+    abi: CallableAbi,
     receiver: Option<CheckedReceiverArgument>,
     explicit: Arc<[CheckedExplicitArgument]>,
     defaults: Arc<[CheckedDefaultArgument]>,
@@ -191,6 +233,7 @@ pub struct CheckedArgumentMapping {
 impl CheckedArgumentMapping {
     /// Creates a mapping after validating conversions and rejecting duplicate parameters.
     pub fn try_new(
+        abi: CallableAbi,
         receiver: Option<CheckedReceiverArgument>,
         explicit: impl IntoIterator<Item = CheckedExplicitArgument>,
         defaults: impl IntoIterator<Item = CheckedDefaultArgument>,
@@ -207,21 +250,36 @@ impl CheckedArgumentMapping {
             }
         }
 
-        for parameter in explicit.iter().map(|argument| argument.parameter()).chain(
-            defaults
+        for parameter in
+            explicit
                 .iter()
-                .map(|argument| CheckedParameterTarget::Declared(argument.parameter())),
-        ) {
-            if !parameters.insert(parameter) {
+                .map(|argument| argument.parameter())
+                .chain(
+                    defaults
+                        .iter()
+                        .map(|argument| CheckedParameterTarget::Declared {
+                            callable: argument.callable(),
+                            parameter: argument.parameter(),
+                            ordinal: argument.ordinal(),
+                        }),
+                )
+        {
+            if !parameters.insert(parameter.identity()) {
                 return Err(CheckedArgumentMappingError::DuplicateParameter(parameter));
             }
         }
 
         Ok(Self {
+            abi,
             receiver,
             explicit: shared_slice(explicit),
             defaults: shared_slice(defaults),
         })
+    }
+
+    /// Returns the ABI used when this mapping was checked.
+    pub const fn abi(&self) -> CallableAbi {
+        self.abi
     }
 
     /// Returns the implicit receiver association when this is a method call.
@@ -239,11 +297,30 @@ impl CheckedArgumentMapping {
         &self.defaults
     }
 
-    pub(crate) fn is_valid_for(&self, target: CheckedCallableTarget, unit: BoundUnitId) -> bool {
-        let shape_is_valid = match target {
-            CheckedCallableTarget::Direct(_) => self.explicit.iter().all(|argument| {
-                matches!(argument.parameter(), CheckedParameterTarget::Declared(_))
-            }),
+    pub(crate) fn is_valid_for(
+        &self,
+        callable: CheckedCallableReference,
+        unit: BoundUnitId,
+    ) -> bool {
+        let shape_is_valid = match callable.target() {
+            CheckedCallableTarget::Direct(target) => {
+                self.receiver
+                    .is_none_or(|receiver| receiver.callable() == target)
+                    && self.explicit.iter().all(|argument| {
+                        matches!(
+                            argument.parameter(),
+                            CheckedParameterTarget::Declared { callable, .. } if callable == target
+                        )
+                    })
+                    && self
+                        .defaults
+                        .iter()
+                        .all(|argument| argument.callable() == target)
+                    && self
+                        .defaults
+                        .windows(2)
+                        .all(|arguments| arguments[0].ordinal() < arguments[1].ordinal())
+            }
             CheckedCallableTarget::Anonymous(_) => {
                 self.receiver.is_none()
                     && self.defaults.is_empty()
@@ -260,7 +337,8 @@ impl CheckedArgumentMapping {
             }
         };
 
-        shape_is_valid
+        self.abi == callable.abi()
+            && shape_is_valid
             && self
                 .receiver
                 .is_none_or(|receiver| receiver.expression().unit() == unit)
@@ -271,40 +349,73 @@ impl CheckedArgumentMapping {
     }
 }
 
+impl CheckedParameterTarget {
+    const fn identity(self) -> CheckedParameterIdentity {
+        match self {
+            Self::Declared {
+                callable,
+                parameter,
+                ..
+            } => CheckedParameterIdentity::Declared(callable, parameter),
+            Self::Anonymous(parameter) => CheckedParameterIdentity::Anonymous(parameter),
+            Self::Indirect(ordinal) => CheckedParameterIdentity::Indirect(ordinal),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use bray_symbols::{
-        CallableParameterDefaultProviderSymbolId, CallableParameterSymbolId, SymbolId,
-        SymbolOrdinal,
+        CallableAbi, CallableDefinitionId, CallableInstanceData, CallableInstanceId,
+        CallableParameterDefaultProviderSymbolId, CallableParameterSymbolId, FunctionSymbolId,
+        GenericArgument, GenericOwnerId, GenericParameterSymbolId, GenericSubstitutionData,
+        ReceiverParameterSymbolId, SymbolId, SymbolOrdinal,
     };
 
     use super::{
-        CheckedArgumentMapping, CheckedArgumentMappingError, CheckedCallableTarget,
-        CheckedDefaultArgument, CheckedExplicitArgument, CheckedParameterTarget,
+        CheckedArgumentMapping, CheckedArgumentMappingError, CheckedCallableReference,
+        CheckedCallableTarget, CheckedDefaultArgument, CheckedExplicitArgument,
+        CheckedParameterTarget, CheckedReceiverArgument,
     };
     use crate::{BoundExpressionId, BoundUnitId, CheckedConversion, CheckedConversionKind};
 
     #[test]
     fn argument_mappings_reject_duplicate_explicit_and_default_parameters() {
+        let callable = callable_instance(1);
         let parameter = CallableParameterSymbolId::from_symbol_id(SymbolId::new(3));
         let provider = CallableParameterDefaultProviderSymbolId::from_symbol_id(SymbolId::new(4));
         let expression = BoundExpressionId::from_slot(BoundUnitId::new(2), 0);
         let conversion = identity_conversion();
 
         let result = CheckedArgumentMapping::try_new(
+            CallableAbi::Bray,
             None,
             [CheckedExplicitArgument::new(
-                CheckedParameterTarget::Declared(parameter),
+                CheckedParameterTarget::Declared {
+                    callable,
+                    parameter,
+                    ordinal: SymbolOrdinal::new(0),
+                },
                 expression,
                 conversion,
             )],
-            [CheckedDefaultArgument::new(parameter, provider, None)],
+            [CheckedDefaultArgument::new(
+                callable,
+                parameter,
+                provider,
+                SymbolOrdinal::new(0),
+                None,
+            )],
         );
 
         assert_eq!(
             result,
             Err(CheckedArgumentMappingError::DuplicateParameter(
-                CheckedParameterTarget::Declared(parameter)
+                CheckedParameterTarget::Declared {
+                    callable,
+                    parameter,
+                    ordinal: SymbolOrdinal::new(0),
+                }
             ))
         );
     }
@@ -315,6 +426,7 @@ mod tests {
         let expression = BoundExpressionId::from_slot(unit, 0);
         let ty = crate::test_support::error_type();
         let indirect = match CheckedArgumentMapping::try_new(
+            CallableAbi::Bray,
             None,
             [CheckedExplicitArgument::new(
                 CheckedParameterTarget::Indirect(SymbolOrdinal::new(0)),
@@ -327,17 +439,26 @@ mod tests {
             Err(error) => panic!("indirect argument mapping must be valid: {error:?}"),
         };
 
-        assert!(indirect.is_valid_for(CheckedCallableTarget::Indirect(ty), unit));
+        assert!(indirect.is_valid_for(
+            CheckedCallableReference::new(CheckedCallableTarget::Indirect(ty), CallableAbi::Bray),
+            unit,
+        ));
     }
 
     #[test]
     fn argument_mappings_reject_structurally_invalid_conversions() {
+        let callable = callable_instance(1);
         let parameter = CallableParameterSymbolId::from_symbol_id(SymbolId::new(8));
         let expression = BoundExpressionId::from_slot(BoundUnitId::new(9), 0);
         let result = CheckedArgumentMapping::try_new(
+            CallableAbi::Bray,
             None,
             [CheckedExplicitArgument::new(
-                CheckedParameterTarget::Declared(parameter),
+                CheckedParameterTarget::Declared {
+                    callable,
+                    parameter,
+                    ordinal: SymbolOrdinal::new(0),
+                },
                 expression,
                 invalid_identity_conversion(),
             )],
@@ -347,7 +468,11 @@ mod tests {
         assert_eq!(
             result,
             Err(CheckedArgumentMappingError::InvalidConversion(
-                CheckedParameterTarget::Declared(parameter)
+                CheckedParameterTarget::Declared {
+                    callable,
+                    parameter,
+                    ordinal: SymbolOrdinal::new(0),
+                }
             ))
         );
     }
@@ -364,5 +489,93 @@ mod tests {
         let target = crate::test_support::tuple_type_in(&values);
 
         CheckedConversion::new(source, target, CheckedConversionKind::Identity)
+    }
+
+    #[test]
+    fn direct_calls_reject_foreign_callable_argument_plans_and_abi() {
+        let first = callable_instance(1);
+        let second = callable_instance(2);
+        let parameter = CallableParameterSymbolId::from_symbol_id(SymbolId::new(3));
+        let provider = CallableParameterDefaultProviderSymbolId::from_symbol_id(SymbolId::new(4));
+        let expression = BoundExpressionId::from_slot(BoundUnitId::new(5), 0);
+        let mapping = match CheckedArgumentMapping::try_new(
+            CallableAbi::Bray,
+            None,
+            [CheckedExplicitArgument::new(
+                CheckedParameterTarget::Declared {
+                    callable: first,
+                    parameter,
+                    ordinal: SymbolOrdinal::new(0),
+                },
+                expression,
+                identity_conversion(),
+            )],
+            [CheckedDefaultArgument::new(
+                first,
+                CallableParameterSymbolId::from_symbol_id(SymbolId::new(6)),
+                provider,
+                SymbolOrdinal::new(1),
+                None,
+            )],
+        ) {
+            Ok(mapping) => mapping,
+            Err(error) => panic!("test argument mapping must be structurally valid: {error:?}"),
+        };
+
+        assert!(!mapping.is_valid_for(
+            CheckedCallableReference::new(CheckedCallableTarget::Direct(second), CallableAbi::Bray),
+            BoundUnitId::new(5),
+        ));
+        assert!(!mapping.is_valid_for(
+            CheckedCallableReference::new(CheckedCallableTarget::Direct(first), CallableAbi::C),
+            BoundUnitId::new(5),
+        ));
+
+        let receiver_mapping = match CheckedArgumentMapping::try_new(
+            CallableAbi::Bray,
+            Some(CheckedReceiverArgument::new(
+                first,
+                ReceiverParameterSymbolId::from_symbol_id(SymbolId::new(7)),
+                expression,
+            )),
+            [],
+            [],
+        ) {
+            Ok(mapping) => mapping,
+            Err(error) => panic!("test receiver mapping must be structurally valid: {error:?}"),
+        };
+
+        assert!(!receiver_mapping.is_valid_for(
+            CheckedCallableReference::new(CheckedCallableTarget::Direct(second), CallableAbi::Bray),
+            BoundUnitId::new(5),
+        ));
+    }
+
+    fn callable_instance(symbol: u32) -> CallableInstanceId {
+        let values = crate::test_support::semantic_values();
+        let definition = FunctionSymbolId::from_symbol_id(SymbolId::new(symbol));
+        let Some(owner) = GenericOwnerId::try_new(definition.into()) else {
+            panic!("function must be a generic owner");
+        };
+        let substitution = match GenericSubstitutionData::try_new(
+            owner,
+            std::iter::empty::<GenericParameterSymbolId>(),
+            std::iter::empty::<GenericArgument>(),
+        ) {
+            Ok(substitution) => substitution,
+            Err(error) => panic!("empty substitution must be valid: {error:?}"),
+        };
+        let substitution = match values.intern_generic_substitution(substitution) {
+            Ok(substitution) => substitution,
+            Err(error) => panic!("substitution must be interned: {error:?}"),
+        };
+        let Some(definition) = CallableDefinitionId::try_new(definition.into()) else {
+            panic!("function must be callable");
+        };
+
+        match values.intern_callable_instance(CallableInstanceData::new(definition, substitution)) {
+            Ok(instance) => instance,
+            Err(error) => panic!("callable instance must be interned: {error:?}"),
+        }
     }
 }
