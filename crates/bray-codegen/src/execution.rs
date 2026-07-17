@@ -211,9 +211,12 @@ fn expected_host(
 
 #[cfg(test)]
 mod tests {
-    use bray_ir::{MirSourceOrigin, MirUnitBuilder, MirUnitExecution};
+    use bray_ir::{
+        MirBlockKind, MirFrameDescriptor, MirFrameStateFacts, MirFrameStateId, MirSourceAnchor,
+        MirTerminatorKind, MirUnitBuilder, MirUnitExecution,
+    };
     use bray_runtime_interface::{BinarySymbolName, ProtectedAsyncFrameId};
-    use bray_testing::{test_bound_unit, test_mir_unit};
+    use bray_testing::{test_bound_unit, test_mir_target, test_mir_type, test_mir_unit};
 
     use super::{
         CodegenExecutionMetadata, CodegenExecutionMetadataBuildError, ProtectedAsyncFrameMetadata,
@@ -261,17 +264,47 @@ mod tests {
         let mut builder = MirUnitBuilder::for_bound(
             bound.identity(),
             MirUnitExecution::ProtectedAsyncFrame(frame),
+            test_mir_target(),
         );
 
-        let Ok(entry) = builder.push_block(MirSourceOrigin::Source(source)) else {
+        let source = MirSourceAnchor::from(source);
+
+        let Ok(entry) = builder.push_block(source.clone(), MirBlockKind::Ordinary) else {
             panic!("test protected-frame block must validate");
         };
+
+        let Ok(()) = builder.set_terminator(entry, source, MirTerminatorKind::Return(None)) else {
+            panic!("test protected-frame terminator must validate");
+        };
+
+        let descriptor = frame_descriptor(frame, entry);
+
+        if let Err(error) = builder.set_frame_descriptor(descriptor) {
+            panic!("test frame descriptor must commit: {error:?}");
+        }
 
         let Ok(unit) = builder.finish(entry) else {
             panic!("test protected-frame MIR must validate");
         };
 
         unit
+    }
+
+    fn frame_descriptor(
+        frame: ProtectedAsyncFrameId,
+        entry: bray_ir::MirBlockId,
+    ) -> MirFrameDescriptor {
+        let state = MirFrameStateFacts::new(MirFrameStateId::new(0), entry, [], None);
+
+        match MirFrameDescriptor::try_new(
+            frame,
+            bray_runtime_interface::RuntimeAbiVersion::new(1, 0),
+            test_mir_type(),
+            [state],
+        ) {
+            Ok(descriptor) => descriptor,
+            Err(error) => panic!("test frame descriptor must be valid: {error:?}"),
+        }
     }
 
     fn frame_operation_names() -> ProtectedAsyncFrameOperationNames {

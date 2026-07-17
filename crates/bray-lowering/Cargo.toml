@@ -10,10 +10,11 @@ bray-bound-tree = { path = "../bray-bound-tree" }
 bray-runtime-interface = { path = "../bray-runtime-interface" }
 bray-ir = { path = "../bray-ir" }
 bray-symbols = { path = "../bray-symbols" }
+bray-target = { path = "../bray-target" }
 
 [dev-dependencies]
 bray-symbols = { path = "../bray-symbols", features = ["test-support"] }
-bray-testing = { path = "../bray-testing", features = ["bound-unit"] }
+bray-testing = { path = "../bray-testing", features = ["mir-unit"] }
 
 [lints]
 workspace = true

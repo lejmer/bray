@@ -1,5 +1,5 @@
 use bray_bound_tree::{BoundUnit, BoundUnitId, BoundUnitKind, CheckedControlFlowFacts};
-use bray_ir::{MirUnitBuilder, MirUnitExecution};
+use bray_ir::{MirTargetFacts, MirUnitBuilder, MirUnitExecution};
 use bray_symbols::AvailableCompilerKnownSymbols;
 
 /// A validated borrowed view of the completed checked HIR required by lowering.
@@ -13,6 +13,7 @@ pub struct LoweringInput<'unit> {
     control_flow: &'unit CheckedControlFlowFacts,
     available_compiler_known_symbols: &'unit AvailableCompilerKnownSymbols,
     execution: MirUnitExecution,
+    target: MirTargetFacts,
 }
 
 impl<'unit> LoweringInput<'unit> {
@@ -22,6 +23,7 @@ impl<'unit> LoweringInput<'unit> {
         control_flow: &'unit CheckedControlFlowFacts,
         available_compiler_known_symbols: &'unit AvailableCompilerKnownSymbols,
         execution: MirUnitExecution,
+        target: MirTargetFacts,
     ) -> Result<Self, LoweringInputError> {
         if control_flow.unit() != unit.unit() {
             return Err(LoweringInputError::ForeignControlFlow {
@@ -46,6 +48,7 @@ impl<'unit> LoweringInput<'unit> {
             control_flow,
             available_compiler_known_symbols,
             execution,
+            target,
         })
     }
 
@@ -69,9 +72,14 @@ impl<'unit> LoweringInput<'unit> {
         &self.execution
     }
 
+    /// Returns target facts selected for lowering this unit.
+    pub const fn target(&self) -> &MirTargetFacts {
+        &self.target
+    }
+
     /// Transfers this validated input into the canonical source-unit MIR builder.
     pub fn into_mir_builder(self) -> MirUnitBuilder {
-        MirUnitBuilder::for_bound(self.unit.identity(), self.execution)
+        MirUnitBuilder::for_bound(self.unit.identity(), self.execution, self.target)
     }
 }
 
@@ -100,7 +108,7 @@ pub enum LoweringInputError {
 mod tests {
     use bray_bound_tree::{BoundUnitId, CheckedControlFlowFacts, ControlCompletion};
     use bray_symbols::testing::available_compiler_known_symbols;
-    use bray_testing::test_bound_unit;
+    use bray_testing::{test_bound_unit, test_mir_target};
 
     use super::{LoweringInput, LoweringInputError};
 
@@ -119,6 +127,7 @@ mod tests {
             &control_flow,
             available_compiler_known_symbols(),
             bray_ir::MirUnitExecution::Synchronous,
+            test_mir_target(),
         ) {
             Ok(input) => input,
             Err(error) => panic!("matching lowering input must validate: {error:?}"),
@@ -149,6 +158,7 @@ mod tests {
                 &foreign,
                 available_compiler_known_symbols(),
                 bray_ir::MirUnitExecution::Synchronous,
+                test_mir_target(),
             ),
             LoweringInputError::ForeignControlFlow {
                 expected: BoundUnitId::new(4),
@@ -168,6 +178,7 @@ mod tests {
                 &wrong_kind,
                 available_compiler_known_symbols(),
                 bray_ir::MirUnitExecution::Synchronous,
+                test_mir_target(),
             ),
             LoweringInputError::ControlFlowKindMismatch {
                 expected: unit.key().kind(),
