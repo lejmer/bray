@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use bray_base::sorted_unique_shared_slice;
-use bray_execution::{BinarySymbolName, ExecutableHostContract};
+use bray_runtime_interface::{BinarySymbolName, ExecutableHostContract};
 use bray_symbols::ProductIdentity;
 
 use crate::{
@@ -123,14 +123,14 @@ impl LinkPlanBuilder {
         self.executable_host = Some(host);
     }
 
-    /// Adds one exported native symbol.
-    pub fn push_exported_symbol(&mut self, symbol: BinarySymbolName) {
-        self.exported_symbols.push(symbol);
+    /// Adds the binary symbol name of one native export.
+    pub fn push_exported_symbol(&mut self, symbol_name: BinarySymbolName) {
+        self.exported_symbols.push(symbol_name);
     }
 
-    /// Adds one native symbol that dead stripping must retain.
-    pub fn push_retained_symbol(&mut self, symbol: BinarySymbolName) {
-        self.retained_symbols.push(symbol);
+    /// Adds the binary symbol name of one native definition that dead stripping must retain.
+    pub fn push_retained_symbol(&mut self, symbol_name: BinarySymbolName) {
+        self.retained_symbols.push(symbol_name);
     }
 
     /// Appends one library or framework search path in driver-visible order.
@@ -259,12 +259,12 @@ impl LinkPlan {
         self.executable_host.as_ref()
     }
 
-    /// Returns exported symbols in canonical deterministic order.
+    /// Returns exported binary symbol names in canonical deterministic order.
     pub fn exported_symbols(&self) -> &[BinarySymbolName] {
         &self.exported_symbols
     }
 
-    /// Returns retained symbols in canonical deterministic order.
+    /// Returns retained binary symbol names in canonical deterministic order.
     pub fn retained_symbols(&self) -> &[BinarySymbolName] {
         &self.retained_symbols
     }
@@ -443,7 +443,7 @@ fn validate_outputs(
 
 #[cfg(test)]
 mod tests {
-    use bray_execution::RuntimeArtifactId;
+    use bray_runtime_interface::RuntimeArtifactId;
 
     use crate::test_support::{
         async_executable_host_contract, executable_host_contract, link_input, link_plan_builder,
@@ -471,9 +471,9 @@ mod tests {
 
         builder.set_executable_host(executable_host_contract());
 
-        builder.push_exported_symbol(symbol("zeta"));
-        builder.push_exported_symbol(symbol("alpha"));
-        builder.push_exported_symbol(symbol("alpha"));
+        builder.push_exported_symbol(binary_symbol_name("zeta"));
+        builder.push_exported_symbol(binary_symbol_name("alpha"));
+        builder.push_exported_symbol(binary_symbol_name("alpha"));
 
         let Ok(plan) = builder.finish() else {
             panic!("complete test plan must be valid");
@@ -742,12 +742,12 @@ mod tests {
         assert_send_sync::<super::LinkPlan>();
     }
 
-    fn symbol(name: &str) -> BinarySymbolName {
-        let Some(symbol) = BinarySymbolName::try_new(name) else {
+    fn binary_symbol_name(name: &str) -> BinarySymbolName {
+        let Some(symbol_name) = BinarySymbolName::try_new(name) else {
             panic!("test symbol name must be valid");
         };
 
-        symbol
+        symbol_name
     }
 
     fn runtime_input(ordinal: u32, runtime: RuntimeArtifactId) -> LinkInput {

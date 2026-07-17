@@ -1,13 +1,13 @@
 use std::sync::Arc;
 
-use bray_execution::{BinarySymbolName, ExecutableHostContract, ProtectedAsyncFrameId};
 use bray_ir::MirUnitExecution;
+use bray_runtime_interface::{BinarySymbolName, ExecutableHostContract, ProtectedAsyncFrameId};
 
 use crate::CodegenUnit;
 
-/// Target symbols emitted for one protected async-frame descriptor.
+/// Binary symbol names of the operations emitted for one protected async-frame descriptor.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ProtectedAsyncFrameSymbols {
+pub struct ProtectedAsyncFrameOperationNames {
     resume: BinarySymbolName,
     task_broadcast: BinarySymbolName,
     lifecycle_resolution: BinarySymbolName,
@@ -15,8 +15,8 @@ pub struct ProtectedAsyncFrameSymbols {
     destruction: BinarySymbolName,
 }
 
-impl ProtectedAsyncFrameSymbols {
-    /// Creates the independently versioned frame-descriptor operation symbols.
+impl ProtectedAsyncFrameOperationNames {
+    /// Creates the independently versioned frame-descriptor operation names.
     pub const fn new(
         resume: BinarySymbolName,
         task_broadcast: BinarySymbolName,
@@ -33,27 +33,27 @@ impl ProtectedAsyncFrameSymbols {
         }
     }
 
-    /// Returns the frame resume symbol.
+    /// Returns the binary symbol name of the frame-resume operation.
     pub const fn resume(&self) -> &BinarySymbolName {
         &self.resume
     }
 
-    /// Returns the phase-one owned-task broadcast symbol.
+    /// Returns the binary symbol name of the phase-one owned-task broadcast operation.
     pub const fn task_broadcast(&self) -> &BinarySymbolName {
         &self.task_broadcast
     }
 
-    /// Returns the phase-two lifecycle-resolution symbol.
+    /// Returns the binary symbol name of the phase-two lifecycle-resolution operation.
     pub const fn lifecycle_resolution(&self) -> &BinarySymbolName {
         &self.lifecycle_resolution
     }
 
-    /// Returns the completed-result move symbol.
+    /// Returns the binary symbol name of the completed-result move operation.
     pub const fn completion_move(&self) -> &BinarySymbolName {
         &self.completion_move
     }
 
-    /// Returns the infallible terminal destruction symbol.
+    /// Returns the binary symbol name of the infallible terminal-destruction operation.
     pub const fn destruction(&self) -> &BinarySymbolName {
         &self.destruction
     }
@@ -63,13 +63,19 @@ impl ProtectedAsyncFrameSymbols {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProtectedAsyncFrameMetadata {
     frame: ProtectedAsyncFrameId,
-    symbols: ProtectedAsyncFrameSymbols,
+    operation_names: ProtectedAsyncFrameOperationNames,
 }
 
 impl ProtectedAsyncFrameMetadata {
     /// Creates target-specific descriptor metadata for one protected frame.
-    pub const fn new(frame: ProtectedAsyncFrameId, symbols: ProtectedAsyncFrameSymbols) -> Self {
-        Self { frame, symbols }
+    pub const fn new(
+        frame: ProtectedAsyncFrameId,
+        operation_names: ProtectedAsyncFrameOperationNames,
+    ) -> Self {
+        Self {
+            frame,
+            operation_names,
+        }
     }
 
     /// Returns the stable protected frame identity.
@@ -77,9 +83,9 @@ impl ProtectedAsyncFrameMetadata {
         self.frame
     }
 
-    /// Returns generated descriptor-operation symbols.
-    pub const fn symbols(&self) -> &ProtectedAsyncFrameSymbols {
-        &self.symbols
+    /// Returns the binary symbol names of the generated descriptor operations.
+    pub const fn operation_names(&self) -> &ProtectedAsyncFrameOperationNames {
+        &self.operation_names
     }
 }
 
@@ -205,13 +211,13 @@ fn expected_host(
 
 #[cfg(test)]
 mod tests {
-    use bray_execution::{BinarySymbolName, ProtectedAsyncFrameId};
     use bray_ir::{MirSourceOrigin, MirUnitBuilder, MirUnitExecution};
+    use bray_runtime_interface::{BinarySymbolName, ProtectedAsyncFrameId};
     use bray_testing::{test_bound_unit, test_mir_unit};
 
     use super::{
         CodegenExecutionMetadata, CodegenExecutionMetadataBuildError, ProtectedAsyncFrameMetadata,
-        ProtectedAsyncFrameSymbols,
+        ProtectedAsyncFrameOperationNames,
     };
     use crate::CodegenUnit;
 
@@ -241,7 +247,7 @@ mod tests {
             Err(CodegenExecutionMetadataBuildError::FrameCoverageMismatch)
         );
 
-        let descriptor = ProtectedAsyncFrameMetadata::new(frame, frame_symbols());
+        let descriptor = ProtectedAsyncFrameMetadata::new(frame, frame_operation_names());
         let Ok(metadata) = CodegenExecutionMetadata::try_new(&unit, [descriptor], None) else {
             panic!("matching frame descriptor metadata must validate");
         };
@@ -268,21 +274,21 @@ mod tests {
         unit
     }
 
-    fn frame_symbols() -> ProtectedAsyncFrameSymbols {
-        ProtectedAsyncFrameSymbols::new(
-            symbol("frame_resume"),
-            symbol("frame_broadcast"),
-            symbol("frame_resolve"),
-            symbol("frame_move_completion"),
-            symbol("frame_destroy"),
+    fn frame_operation_names() -> ProtectedAsyncFrameOperationNames {
+        ProtectedAsyncFrameOperationNames::new(
+            binary_symbol_name("frame_resume"),
+            binary_symbol_name("frame_broadcast"),
+            binary_symbol_name("frame_resolve"),
+            binary_symbol_name("frame_move_completion"),
+            binary_symbol_name("frame_destroy"),
         )
     }
 
-    fn symbol(name: &str) -> BinarySymbolName {
-        let Some(symbol) = BinarySymbolName::try_new(name) else {
-            panic!("test frame symbol must be valid");
+    fn binary_symbol_name(name: &str) -> BinarySymbolName {
+        let Some(symbol_name) = BinarySymbolName::try_new(name) else {
+            panic!("test frame operation name must be valid");
         };
 
-        symbol
+        symbol_name
     }
 }

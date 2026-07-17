@@ -1,5 +1,5 @@
-use bray_execution::ExecutableHostContract;
 use bray_ir::{MirUnitBuilder, MirUnitId};
+use bray_runtime_interface::ExecutableHostContract;
 
 /// Complete synthetic input for lowering a compiler-generated executable host stub.
 ///
@@ -35,11 +35,11 @@ impl ExecutableHostLoweringInput {
 
 #[cfg(test)]
 mod tests {
-    use bray_execution::{
+    use bray_ir::{MirSourceOrigin, MirUnitExecution, MirUnitId, MirUnitKey};
+    use bray_runtime_interface::{
         BinarySymbolName, ExecutableHostContract, ExecutableHostContractBuilder, RootExecution,
         RuntimeAbiRole, RuntimeAbiVersion, RuntimeRoleBinding, RuntimeRoleImplementation,
     };
-    use bray_ir::{MirSourceOrigin, MirUnitExecution, MirUnitId, MirUnitKey};
     use bray_symbols::{PackageIdentity, ProductIdentity};
 
     use super::ExecutableHostLoweringInput;
@@ -71,7 +71,7 @@ mod tests {
             panic!("test product identity must be valid");
         };
         let Some(entry) = BinarySymbolName::try_new("_bray_host_start") else {
-            panic!("test host entry symbol must be valid");
+            panic!("test host entry symbol name must be valid");
         };
 
         let roles = [
@@ -103,10 +103,14 @@ mod tests {
     }
 
     fn role_binding(role: RuntimeAbiRole) -> RuntimeRoleBinding {
-        let Some(symbol) = BinarySymbolName::try_new(format!("role_{role:?}")) else {
-            panic!("test role symbol must be valid");
+        let Some(symbol_name) = BinarySymbolName::try_new(format!("role_{role:?}")) else {
+            panic!("test role symbol name must be valid");
         };
 
-        RuntimeRoleBinding::new(role, symbol, RuntimeRoleImplementation::CompilerLowering)
+        RuntimeRoleBinding::new(
+            role,
+            symbol_name,
+            RuntimeRoleImplementation::CompilerLowering,
+        )
     }
 }

@@ -5,7 +5,7 @@ use bray_codegen::{
     BackendTargetPlatform, CodegenUnit, DebugInformationMode, DebugInformationOutputMode,
     LinkableArtifactKind, LinkableArtifactRequirement,
 };
-use bray_execution::{
+use bray_runtime_interface::{
     BinarySymbolName, ExecutableHostContract, ExecutableHostContractBuilder, RootExecution,
     RuntimeAbiRole, RuntimeAbiVersion, RuntimeRoleBinding, RuntimeRoleImplementation,
 };
@@ -38,7 +38,7 @@ pub(crate) fn product_identity() -> ProductIdentity {
 
 pub(crate) fn executable_host_contract() -> ExecutableHostContract {
     let Some(entry) = BinarySymbolName::try_new("_bray_host_start") else {
-        panic!("test host entry symbol must be valid");
+        panic!("test host entry symbol name must be valid");
     };
 
     let roles = [
@@ -192,11 +192,15 @@ pub(crate) fn emission_request_for(
 }
 
 fn runtime_role_binding(role: RuntimeAbiRole) -> RuntimeRoleBinding {
-    let Some(symbol) = BinarySymbolName::try_new(format!("role_{role:?}")) else {
-        panic!("test runtime role symbol must be valid");
+    let Some(symbol_name) = BinarySymbolName::try_new(format!("role_{role:?}")) else {
+        panic!("test runtime role symbol name must be valid");
     };
 
-    RuntimeRoleBinding::new(role, symbol, RuntimeRoleImplementation::CompilerLowering)
+    RuntimeRoleBinding::new(
+        role,
+        symbol_name,
+        RuntimeRoleImplementation::CompilerLowering,
+    )
 }
 
 pub(crate) fn emission_plan() -> EmissionPlan {

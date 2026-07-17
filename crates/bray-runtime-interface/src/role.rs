@@ -68,7 +68,7 @@ pub enum RuntimeRoleImplementation {
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct RuntimeRoleBinding {
     role: RuntimeAbiRole,
-    symbol: BinarySymbolName,
+    symbol_name: BinarySymbolName,
     implementation: RuntimeRoleImplementation,
 }
 
@@ -76,12 +76,12 @@ impl RuntimeRoleBinding {
     /// Creates one role binding after product and target selection.
     pub const fn new(
         role: RuntimeAbiRole,
-        symbol: BinarySymbolName,
+        symbol_name: BinarySymbolName,
         implementation: RuntimeRoleImplementation,
     ) -> Self {
         Self {
             role,
-            symbol,
+            symbol_name,
             implementation,
         }
     }
@@ -91,9 +91,9 @@ impl RuntimeRoleBinding {
         self.role
     }
 
-    /// Returns the exact binary symbol selected for the role.
-    pub const fn symbol(&self) -> &BinarySymbolName {
-        &self.symbol
+    /// Returns the exact binary symbol name selected for the role.
+    pub const fn symbol_name(&self) -> &BinarySymbolName {
+        &self.symbol_name
     }
 
     /// Returns the mechanism boundary supplying the role.

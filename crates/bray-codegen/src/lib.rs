@@ -26,7 +26,7 @@ pub use artifact::{
 pub use backend::{BackendCapabilities, BackendIdentity, BackendTargetPlatform, CodeGenerator};
 pub use execution::{
     CodegenExecutionMetadata, CodegenExecutionMetadataBuildError, ProtectedAsyncFrameMetadata,
-    ProtectedAsyncFrameSymbols,
+    ProtectedAsyncFrameOperationNames,
 };
 pub use options::{CodegenOptions, DebugInformationMode, OptimizationLevel, SizePreference};
 pub use outcome::{CodegenFailure, CodegenOutcome, CodegenStatus};

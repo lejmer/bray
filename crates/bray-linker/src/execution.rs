@@ -1,4 +1,4 @@
-use bray_execution::ExecutableHostContract;
+use bray_runtime_interface::ExecutableHostContract;
 
 use crate::{LinkInput, LinkInputProvenance, LinkPlanBuildError};
 

@@ -1,4 +1,4 @@
-use bray_execution::{ExecutableHostContract, ProtectedAsyncFrameId};
+use bray_runtime_interface::{ExecutableHostContract, ProtectedAsyncFrameId};
 
 /// Execution representation owned by one MIR unit.
 #[derive(Clone, Debug, Eq, PartialEq)]

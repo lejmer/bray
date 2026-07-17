@@ -14,7 +14,7 @@ mod target;
 #[cfg(test)]
 mod test_support;
 
-pub use bray_execution::{BinarySymbolName, ExecutableHostContract};
+pub use bray_runtime_interface::{BinarySymbolName, ExecutableHostContract};
 pub use driver::{LinkerDriverIdentity, LinkerDriverKind};
 pub use input::{
     LinkInput, LinkInputBuildError, LinkInputId, LinkInputKind, LinkInputMode, LinkInputProvenance,

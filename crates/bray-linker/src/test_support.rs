@@ -1,6 +1,6 @@
 use std::num::NonZeroU64;
 
-use bray_execution::{
+use bray_runtime_interface::{
     BinarySymbolName, ExecutableHostContract, ExecutableHostContractBuilder, RootExecution,
     RuntimeAbiRole, RuntimeAbiVersion, RuntimeArtifactId, RuntimeFeature, RuntimeRoleBinding,
     RuntimeRoleImplementation,
@@ -122,7 +122,7 @@ pub(crate) fn executable_host_contract() -> ExecutableHostContract {
 pub(crate) fn async_executable_host_contract(runtime: RuntimeArtifactId) -> ExecutableHostContract {
     host_contract(
         RootExecution::Asynchronous {
-            frame: bray_execution::ProtectedAsyncFrameId::new([11; 32]),
+            frame: bray_runtime_interface::ProtectedAsyncFrameId::new([11; 32]),
         },
         Some(runtime),
     )
@@ -133,7 +133,7 @@ fn host_contract(
     runtime: Option<RuntimeArtifactId>,
 ) -> ExecutableHostContract {
     let Some(entry) = BinarySymbolName::try_new("_bray_host_start") else {
-        panic!("test host entry symbol must be valid");
+        panic!("test host entry symbol name must be valid");
     };
 
     let mut roles = vec![
@@ -183,11 +183,15 @@ pub(crate) fn product() -> ProductIdentity {
 }
 
 fn runtime_role_binding(role: RuntimeAbiRole) -> RuntimeRoleBinding {
-    let Some(symbol) = BinarySymbolName::try_new(format!("role_{role:?}")) else {
-        panic!("test runtime role symbol must be valid");
+    let Some(symbol_name) = BinarySymbolName::try_new(format!("role_{role:?}")) else {
+        panic!("test runtime role symbol name must be valid");
     };
 
-    RuntimeRoleBinding::new(role, symbol, RuntimeRoleImplementation::CompilerLowering)
+    RuntimeRoleBinding::new(
+        role,
+        symbol_name,
+        RuntimeRoleImplementation::CompilerLowering,
+    )
 }
 
 fn link_target() -> LinkTarget {

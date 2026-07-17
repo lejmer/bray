@@ -206,7 +206,7 @@ impl ExecutableHostContract {
         &self.product
     }
 
-    /// Returns the compiler-generated native process entry symbol.
+    /// Returns the binary symbol name of the compiler-generated native process entry point.
     pub const fn native_entry(&self) -> &BinarySymbolName {
         &self.native_entry
     }
@@ -434,7 +434,7 @@ mod tests {
             panic!("test product identity must be valid");
         };
         let Some(entry) = BinarySymbolName::try_new("_bray_host_start") else {
-            panic!("test host entry symbol must be valid");
+            panic!("test host entry symbol name must be valid");
         };
 
         let mut builder =
@@ -476,10 +476,10 @@ mod tests {
         role: RuntimeAbiRole,
         implementation: RuntimeRoleImplementation,
     ) -> RuntimeRoleBinding {
-        let Some(symbol) = BinarySymbolName::try_new(format!("role_{role:?}")) else {
-            panic!("test role symbol must be valid");
+        let Some(symbol_name) = BinarySymbolName::try_new(format!("role_{role:?}")) else {
+            panic!("test role symbol name must be valid");
         };
 
-        RuntimeRoleBinding::new(role, symbol, implementation)
+        RuntimeRoleBinding::new(role, symbol_name, implementation)
     }
 }

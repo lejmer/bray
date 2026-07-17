@@ -42,7 +42,7 @@ impl RuntimeAbiVersion {
     }
 }
 
-/// Canonical binary symbol spelling selected before backend translation.
+/// Canonical binary symbol name selected before backend translation.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct BinarySymbolName(NonEmptySharedStr);
 
@@ -52,7 +52,7 @@ impl BinarySymbolName {
         NonEmptySharedStr::try_new(name).map(Self)
     }
 
-    /// Returns the exact target symbol spelling.
+    /// Returns the exact binary symbol name.
     pub fn as_str(&self) -> &str {
         self.0.as_str()
     }

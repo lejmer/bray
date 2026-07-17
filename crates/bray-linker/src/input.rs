@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use bray_base::NonEmptySharedStr;
-use bray_execution::RuntimeArtifactId;
+use bray_runtime_interface::RuntimeArtifactId;
 use bray_symbols::PackageIdentity;
 
 /// Stable identity of one source-ordered link input.

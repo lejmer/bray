@@ -1,4 +1,4 @@
-//! Backend-neutral binary execution and executable-host contracts.
+//! Backend-neutral compiler/runtime interface and executable-host contracts.
 
 #![forbid(unsafe_code)]
 

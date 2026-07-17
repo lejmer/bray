@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use bray_bound_tree::{BoundSourceAnchor, BoundUnitIdentity, BoundUnitKey};
-use bray_execution::ExecutableHostContract;
+use bray_runtime_interface::ExecutableHostContract;
 use bray_symbols::ProductIdentity;
 
 use crate::MirUnitExecution;

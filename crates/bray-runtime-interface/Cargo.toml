@@ -1,5 +1,5 @@
 [package]
-name = "bray-execution"
+name = "bray-runtime-interface"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
