@@ -163,6 +163,8 @@ const fn map_binding_error(error: BoundUnitBindingError) -> FactQueryError {
 mod tests {
     use std::sync::Arc;
 
+    use bray_bound_tree::{CheckedBlockResultRole, CheckedControlTransferTarget};
+
     use super::Compilation;
     use crate::fact::{CancellationToken, FactCellTestEvent, FactQueryError};
     use crate::test_support::{FactTestGate, compilation, source_callable_body_key};
@@ -314,6 +316,41 @@ mod tests {
         };
 
         assert!(checked.diagnostics().is_empty());
+    }
+
+    #[test]
+    fn block_yield_publishes_its_exact_expression_block_target() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "func main()\n",
+            "{\n",
+            "    {\n",
+            "        yield 1;\n",
+            "    };\n",
+            "}\n",
+        ));
+        let key = source_callable_body_key(&compilation);
+        let checked = match compilation.checked_control_flow(key) {
+            Ok(checked) => checked,
+            Err(error) => panic!("block yield must publish control facts: {error:?}"),
+        };
+        let facts = checked.value();
+
+        assert!(checked.diagnostics().is_empty());
+        let [transfer] = facts.control_transfers() else {
+            panic!("block yield must publish exactly one transfer");
+        };
+        let CheckedControlTransferTarget::Block(target) = transfer.target() else {
+            panic!("yield must target its enclosing expression block");
+        };
+        let Some(result) = facts.block_result(target) else {
+            panic!("yield target must have a checked block result role");
+        };
+
+        assert!(matches!(
+            result.role(),
+            CheckedBlockResultRole::Expression(_)
+        ));
     }
 
     fn callable_compilation() -> Compilation {

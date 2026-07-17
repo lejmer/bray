@@ -7,10 +7,12 @@ use super::refinement::analyze_refinements;
 pub(crate) fn check_control_flow(
     request: UnitCheckRequest<'_>,
 ) -> CheckerOutcome<ControlFlowCheckResult> {
-    let graph = match build_control_flow_graph(request) {
-        ControlFlowGraphBuildOutcome::Complete(graph) => graph,
+    let build = match build_control_flow_graph(request) {
+        ControlFlowGraphBuildOutcome::Complete(build) => build,
         ControlFlowGraphBuildOutcome::Cancelled => return CheckerOutcome::Cancelled,
     };
+
+    let (graph, facts) = (*build).into_parts();
 
     if !graph.is_well_formed() {
         panic!("checker control-flow graph violated its construction invariants");
@@ -24,11 +26,12 @@ pub(crate) fn check_control_flow(
         return CheckerOutcome::Cancelled;
     };
 
-    let result = ControlFlowCheckResult::new(
-        graph.unit(),
-        request.view().kind(),
-        reachability.completion(),
-    );
+    let facts = match facts.finish(request.view(), reachability.completion()) {
+        Ok(facts) => facts,
+        Err(_) => panic!("checker lowering facts violated their construction invariants"),
+    };
+
+    let result = ControlFlowCheckResult::new(facts);
 
     CheckerOutcome::without_diagnostics(result)
 }

@@ -6,44 +6,38 @@ use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 /// This result is deliberately narrower than a complete semantic unit check.
 /// It does not imply that type, storage, dependency, effect, capability, or
 /// contract checking has completed.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ControlFlowCheckResult {
     facts: CheckedControlFlowFacts,
 }
 
 impl ControlFlowCheckResult {
-    pub(crate) const fn new(
-        unit: BoundUnitId,
-        kind: BoundUnitKind,
-        completion: ControlCompletion,
-    ) -> Self {
-        Self {
-            facts: CheckedControlFlowFacts::new(unit, kind, completion),
-        }
+    pub(crate) const fn new(facts: CheckedControlFlowFacts) -> Self {
+        Self { facts }
     }
 
     /// Returns the exact bound unit these control-flow facts describe.
-    pub const fn unit(self) -> BoundUnitId {
+    pub const fn unit(&self) -> BoundUnitId {
         self.facts.unit()
     }
 
     /// Returns the semantic category of the checked bound unit.
-    pub const fn kind(self) -> BoundUnitKind {
+    pub const fn kind(&self) -> BoundUnitKind {
         self.facts.kind()
     }
 
     /// Returns the unit's checked control-completion categories.
-    pub const fn completion(self) -> ControlCompletion {
+    pub const fn completion(&self) -> ControlCompletion {
         self.facts.completion()
     }
 
     /// Returns whether conservative recovery affected control-flow checking.
-    pub const fn is_recovered(self) -> bool {
+    pub fn is_recovered(&self) -> bool {
         self.facts.is_recovered()
     }
 
     /// Returns the durable control-flow facts established by this check.
-    pub const fn into_facts(self) -> CheckedControlFlowFacts {
+    pub fn into_facts(self) -> CheckedControlFlowFacts {
         self.facts
     }
 }
@@ -95,7 +89,9 @@ impl<T> CheckerOutcome<T> {
 
 #[cfg(test)]
 mod tests {
-    use bray_bound_tree::{BoundUnitId, BoundUnitKind, ControlCompletion, ControlCompletionKind};
+    use bray_bound_tree::{
+        BoundUnitId, CheckedControlFlowFactsBuilder, ControlCompletion, ControlCompletionKind,
+    };
     use bray_diagnostics::{Diagnostic, DiagnosticBag, DiagnosticId, DiagnosticKind, SeverityKind};
 
     use super::{CheckerOutcome, ControlFlowCheckResult};
@@ -103,15 +99,23 @@ mod tests {
     #[test]
     fn control_flow_results_keep_unit_category_completion_and_recovery_together() {
         let unit = BoundUnitId::new(4);
+        let key = crate::test_support::callable_key();
+        let (tree, _) = crate::test_support::recovered_tree(unit, &key);
         let completion = ControlCompletion::from_kinds([
             ControlCompletionKind::Return,
             ControlCompletionKind::Recovered,
         ]);
 
-        let result = ControlFlowCheckResult::new(unit, BoundUnitKind::CallableBody, completion);
+        let facts =
+            match CheckedControlFlowFactsBuilder::new(unit).finish(tree.view(&key), completion) {
+                Ok(facts) => facts,
+                Err(error) => panic!("test control facts must validate: {error:?}"),
+            };
+
+        let result = ControlFlowCheckResult::new(facts);
 
         assert_eq!(result.unit(), unit);
-        assert_eq!(result.kind(), BoundUnitKind::CallableBody);
+        assert_eq!(result.kind(), bray_bound_tree::BoundUnitKind::CallableBody);
         assert_eq!(result.completion(), completion);
         assert!(result.is_recovered());
     }
@@ -124,13 +128,21 @@ mod tests {
             SeverityKind::Error,
         );
 
-        let result = ControlFlowCheckResult::new(
-            BoundUnitId::new(4),
-            BoundUnitKind::CallableBody,
-            ControlCompletion::default(),
-        );
+        let unit = BoundUnitId::new(4);
+        let key = crate::test_support::callable_key();
+        let (tree, _) = crate::test_support::recovered_tree(unit, &key);
 
-        let outcome = CheckerOutcome::complete(result, DiagnosticBag::single(diagnostic.clone()));
+        let facts = match CheckedControlFlowFactsBuilder::new(unit)
+            .finish(tree.view(&key), ControlCompletion::default())
+        {
+            Ok(facts) => facts,
+            Err(error) => panic!("test control facts must validate: {error:?}"),
+        };
+
+        let result = ControlFlowCheckResult::new(facts);
+
+        let outcome =
+            CheckerOutcome::complete(result.clone(), DiagnosticBag::single(diagnostic.clone()));
 
         let Some(completed) = outcome.result() else {
             panic!("completed checker outcomes retain their result");

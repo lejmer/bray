@@ -604,9 +604,11 @@ for one compilation fact key.
 Each semantic analysis publishes only its own typed immutable facts keyed to the canonical `BoundUnit`. It does not produce another
 representation of the unit.
 
-`CheckedControlFlowFacts` stores the exact unit, unit category, and durable control-completion summary. It does not retain the
-checker-internal control-flow graph. Type, overload, implementation, ownership, borrow, contract, effect, and capability analyses
-follow the same side-fact model.
+`CheckedControlFlowFacts` stores the exact unit, unit category, durable control-completion summary, semantic control-transfer
+targets, block result roles, match coverage, checked pattern tests and projections, and selected `for`-iteration protocol
+operations. Its tables are canonical, deterministically ordered, and keyed by bound semantic IDs. Recovery is represented by typed
+fact variants rather than inferred defaults. It does not retain the checker-internal control-flow graph. Type, overload,
+implementation, ownership, borrow, contract, effect, and capability analyses follow the same side-fact model.
 
 The compilation query graph expresses completion guarantees. `checked_control_flow(key)` depends on `bound_unit(key)` and guarantees
 that its returned `CheckedControlFlowFacts` belong to that bound unit. A later whole-unit completion query depends on every required
@@ -1378,9 +1380,10 @@ Malformed bound nodes produce conservative recovery operations and edges. Unknow
 degrade to typed unknown or error states. Ordinary malformed source must not cause graph construction, transfer, or merge code to
 panic or loop forever.
 
-Lowering consumes the published bound HIR and its required durable facts. It does not consume checker-private block IDs or treat the
-control-flow graph as normalized execution. Any reusable control-structure helper must preserve this ownership boundary and cannot
-make lowering depend on checker algorithms.
+Lowering consumes the published bound HIR and its required durable facts. It uses checked semantic targets, result roles, pattern
+operations, match coverage, and iteration protocol selections to construct MIR control flow without reproducing checker policy or
+interpreting syntax anchors. It does not consume checker-private block IDs or treat the control-flow graph as normalized execution.
+Any reusable control-structure helper must preserve this ownership boundary and cannot make lowering depend on checker algorithms.
 
 ---
 

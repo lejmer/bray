@@ -17,7 +17,15 @@ mod unit;
 mod view;
 
 pub use bound_unit::{BoundUnit, BoundUnitBuildError, BoundUnitRoot};
-pub use control::{CheckedControlFlowFacts, ControlCompletion, ControlCompletionKind};
+pub use control::{
+    CheckedBlockResult, CheckedBlockResultRole, CheckedControlFlowFacts,
+    CheckedControlFlowFactsBuildError, CheckedControlFlowFactsBuilder, CheckedControlTransfer,
+    CheckedControlTransferTarget, CheckedForIterationFacts, CheckedForIterationProtocol,
+    CheckedForIterationResolution, CheckedIterationProtocolError, CheckedMatchFacts,
+    CheckedPatternChildProjection, CheckedPatternFacts, CheckedPatternResolution,
+    ControlCompletion, ControlCompletionKind, IterationAccessMode, MatchExhaustiveness,
+    PatternProjection, PatternTest,
+};
 pub use dependency::{
     BoundDependencyContract, BoundDependencyContractId, BoundDependencyGuard,
     BoundDependencyRequirement, BoundDependencyRequirementKind, BoundDependencySubject,

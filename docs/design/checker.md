@@ -488,9 +488,10 @@ Its state distinguishes reachable, unreachable, and conservative recovery contro
 union. It recognizes normal continuation, `never`, return, break, continue, yield, propagation, panic, cancellation, suspension,
 resumption, and other typed exits represented by the shared control-flow graph.
 
-Durable facts include the unit's normal and non-normal completion categories and source-correlated unreachable-operation
-facts needed by diagnostics or lowering. The complete reachable block and edge masks remain checker-private unless another domain
-consumes them during the same check.
+Durable facts include the unit's normal and non-normal completion categories, exact semantic control-transfer targets, block result
+roles, match coverage, checked pattern tests and projections, selected iteration protocol operations, and source-correlated
+unreachable-operation facts needed by diagnostics or lowering. The complete reachable block and edge masks remain checker-private
+unless another domain consumes them during the same check.
 
 Recovery control remains reachable when dropping the path could hide meaningful errors. It cannot prove normal completion or satisfy
 an exhaustiveness requirement by itself.

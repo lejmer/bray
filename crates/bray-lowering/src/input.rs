@@ -1,4 +1,4 @@
-use bray_bound_tree::{BoundUnit, BoundUnitId, BoundUnitKind, CheckedControlFlowFacts};
+use bray_bound_tree::{BoundUnit, BoundUnitId, CheckedControlFlowFacts};
 use bray_ir::{MirTargetFacts, MirUnitBuilder, MirUnitKind};
 use bray_symbols::AvailableCompilerKnownSymbols;
 
@@ -29,13 +29,6 @@ impl<'unit> LoweringInput<'unit> {
             return Err(LoweringInputError::ForeignControlFlow {
                 expected: unit.unit(),
                 actual: control_flow.unit(),
-            });
-        }
-
-        if control_flow.kind() != unit.key().kind() {
-            return Err(LoweringInputError::ControlFlowKindMismatch {
-                expected: unit.key().kind(),
-                actual: control_flow.kind(),
             });
         }
 
@@ -93,20 +86,16 @@ pub enum LoweringInputError {
         /// The unit named by the supplied control-flow facts.
         actual: BoundUnitId,
     },
-    /// Control-flow facts describe another semantic unit category.
-    ControlFlowKindMismatch {
-        /// The category carried by the canonical bound-unit key.
-        expected: BoundUnitKind,
-        /// The category named by the supplied control-flow facts.
-        actual: BoundUnitKind,
-    },
     /// A compiler-generated executable host was supplied through a source-unit lowering input.
     ExecutableHostRequiresSyntheticInput,
 }
 
 #[cfg(test)]
 mod tests {
-    use bray_bound_tree::{BoundUnitId, CheckedControlFlowFacts, ControlCompletion};
+    use bray_bound_tree::{
+        BoundUnit, BoundUnitId, CheckedControlFlowFacts, CheckedControlFlowFactsBuilder,
+        ControlCompletion,
+    };
     use bray_symbols::testing::available_compiler_known_symbols;
     use bray_testing::{test_bound_unit, test_mir_target};
 
@@ -116,11 +105,7 @@ mod tests {
     fn input_borrows_the_canonical_unit_and_matching_side_facts() {
         let unit = test_bound_unit(4);
 
-        let control_flow = CheckedControlFlowFacts::new(
-            unit.unit(),
-            unit.key().kind(),
-            ControlCompletion::default(),
-        );
+        let control_flow = control_flow(&unit);
 
         let input = match LoweringInput::try_new(
             &unit,
@@ -143,14 +128,11 @@ mod tests {
     }
 
     #[test]
-    fn input_rejects_foreign_and_wrong_category_side_facts() {
+    fn input_rejects_foreign_side_facts() {
         let unit = test_bound_unit(4);
 
-        let foreign = CheckedControlFlowFacts::new(
-            BoundUnitId::new(5),
-            unit.key().kind(),
-            ControlCompletion::default(),
-        );
+        let foreign_unit = test_bound_unit(5);
+        let foreign = control_flow(&foreign_unit);
 
         assert_input_error(
             LoweringInput::try_new(
@@ -163,26 +145,6 @@ mod tests {
             LoweringInputError::ForeignControlFlow {
                 expected: BoundUnitId::new(4),
                 actual: BoundUnitId::new(5),
-            },
-        );
-
-        let wrong_kind = CheckedControlFlowFacts::new(
-            unit.unit(),
-            bray_bound_tree::BoundUnitKind::RuntimeDefault,
-            ControlCompletion::default(),
-        );
-
-        assert_input_error(
-            LoweringInput::try_new(
-                &unit,
-                &wrong_kind,
-                available_compiler_known_symbols(),
-                bray_ir::MirUnitKind::Synchronous,
-                test_mir_target(),
-            ),
-            LoweringInputError::ControlFlowKindMismatch {
-                expected: unit.key().kind(),
-                actual: bray_bound_tree::BoundUnitKind::RuntimeDefault,
             },
         );
     }
@@ -204,5 +166,14 @@ mod tests {
         };
 
         assert_eq!(error, expected);
+    }
+
+    fn control_flow(unit: &BoundUnit) -> CheckedControlFlowFacts {
+        match CheckedControlFlowFactsBuilder::new(unit.unit())
+            .finish(unit.view(), ControlCompletion::default())
+        {
+            Ok(facts) => facts,
+            Err(error) => panic!("test control facts must validate: {error:?}"),
+        }
     }
 }
