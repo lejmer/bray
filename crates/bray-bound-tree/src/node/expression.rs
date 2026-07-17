@@ -10,7 +10,7 @@ mod recovery;
 mod selection;
 
 pub use call::{
-    BoundArgument, BoundCallExpression, BoundCallResolution, BoundCallResult, BoundCallableTarget,
+    BoundArgument, BoundCallExpression, BoundCallResolution, BoundCallResult,
     BoundFutureConstruction, BoundResolvedCall,
 };
 pub use category::{

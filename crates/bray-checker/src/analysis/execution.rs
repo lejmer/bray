@@ -65,7 +65,18 @@ impl ControlFlowGraphBuilder<'_> {
         &self,
         expression: &BoundCallExpression,
     ) -> Option<AnalysisTaskOperationKind> {
-        let target = expression.resolution().resolved()?.target().declaration()?;
+        let instance = expression
+            .resolution()
+            .resolved()?
+            .callable()
+            .target()
+            .direct()?;
+        let target = self
+            .request()
+            .semantic_values()
+            .callable_instance_data(instance)
+            .ok()?
+            .definition();
         let hook = self
             .request()
             .available_compiler_known_symbols()

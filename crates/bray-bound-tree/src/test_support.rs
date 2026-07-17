@@ -35,6 +35,14 @@ pub(crate) fn error_type_in(store: &SemanticValueStore) -> bray_symbols::TypeId 
     ty
 }
 
+pub(crate) fn tuple_type_in(store: &SemanticValueStore) -> bray_symbols::TypeId {
+    let Ok(ty) = store.intern_type(TypeData::tuple([])) else {
+        panic!("test tuple type must be interned");
+    };
+
+    ty
+}
+
 pub(crate) fn semantic_values() -> SemanticValueStore {
     let Ok(store) = SemanticValueStore::try_new() else {
         panic!("test semantic store ID must be available");

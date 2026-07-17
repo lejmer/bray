@@ -5,6 +5,7 @@
 mod bound_unit;
 mod control;
 mod dependency;
+mod expression;
 mod identity;
 mod node;
 mod origin;
@@ -24,15 +25,27 @@ pub use dependency::{
     DependencyContractInstantiationContext, DependencyContractInstantiationError,
     GuardedBoundDependencyRequirement, LifecycleObligationId, ScopedCapabilityId,
 };
+pub use expression::{
+    CheckedArgumentMapping, CheckedArgumentMappingError, CheckedCallableReference,
+    CheckedCallableTarget, CheckedConstruction, CheckedConstructionError, CheckedConstructionInput,
+    CheckedConstructionInputTarget, CheckedConstructionInputValue, CheckedConstructionTarget,
+    CheckedConversion, CheckedConversionKind, CheckedDefaultArgument, CheckedExplicitArgument,
+    CheckedExpressionFactBuildError, CheckedExpressionFactEntry, CheckedExpressionFactInput,
+    CheckedExpressionFactKind, CheckedExpressionFacts, CheckedExpressionResult,
+    CheckedExpressionStatus, CheckedIndexSelection, CheckedIndexTarget, CheckedLiteral,
+    CheckedMemberSelection, CheckedMemberTarget, CheckedOperatorSelection, CheckedOperatorTarget,
+    CheckedParameterTarget, CheckedReceiverArgument, CheckedScalarConversion,
+    CheckedTypeFormConstruction,
+};
 pub use node::{
     AnyBoundNodeId, BoundAnonymousCallableExpression, BoundArgument, BoundAssignmentExpression,
     BoundAwaitExpression, BoundAwaitResolution, BoundBinaryExpression, BoundBlock,
     BoundBlockExpression, BoundBlockId, BoundBlockItem, BoundCallExpression, BoundCallResolution,
     BoundCallResult, BoundCallableBody, BoundCallableBodyId, BoundCallableBodyKind,
-    BoundCallableTarget, BoundControlTransferExpression, BoundControlTransferKind,
-    BoundConversionExpression, BoundErrorCallExpression, BoundErrorCallableBody,
-    BoundErrorConversionExpression, BoundErrorExpression, BoundExpression, BoundExpressionId,
-    BoundForExpression, BoundFutureComposition, BoundFutureConstruction, BoundGeneratorExpression,
+    BoundControlTransferExpression, BoundControlTransferKind, BoundConversionExpression,
+    BoundErrorCallExpression, BoundErrorCallableBody, BoundErrorConversionExpression,
+    BoundErrorExpression, BoundExpression, BoundExpressionId, BoundForExpression,
+    BoundFutureComposition, BoundFutureConstruction, BoundGeneratorExpression,
     BoundLeadingDotVariantExpression, BoundLocalBinding, BoundLocalConstant, BoundMatchArm,
     BoundMatchExpression, BoundMemberAccessExpression, BoundMemberSelector, BoundNameExpression,
     BoundNodeKind, BoundOperator, BoundPattern, BoundPatternId, BoundPatternKind, BoundPatternMode,

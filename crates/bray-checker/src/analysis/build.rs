@@ -456,18 +456,19 @@ mod tests {
     use bray_bound_tree::{
         AnyBoundNodeId, BoundAwaitExpression, BoundBinaryExpression, BoundBlock,
         BoundBlockExpression, BoundBlockItem, BoundCallExpression, BoundCallResult,
-        BoundCallableBody, BoundCallableTarget, BoundControlTransferExpression,
-        BoundControlTransferKind, BoundErrorExpression, BoundExpression, BoundExpressionId,
-        BoundForExpression, BoundFutureConstruction, BoundMatchArm, BoundMatchExpression,
-        BoundNameExpression, BoundNodeOrigin, BoundOperator, BoundPattern, BoundPatternKind,
-        BoundPatternMode, BoundReferenceTarget, BoundResolvedCall, BoundStructuredExpression,
+        BoundCallableBody, BoundControlTransferExpression, BoundControlTransferKind,
+        BoundErrorExpression, BoundExpression, BoundExpressionId, BoundForExpression,
+        BoundFutureConstruction, BoundMatchArm, BoundMatchExpression, BoundNameExpression,
+        BoundNodeOrigin, BoundOperator, BoundPattern, BoundPatternKind, BoundPatternMode,
+        BoundReferenceTarget, BoundResolvedCall, BoundStructuredExpression,
         BoundStructuredExpressionKind, BoundTree, BoundTreeBuilder, BoundUnitId, BoundUnitKey,
+        CheckedArgumentMapping, CheckedCallableReference, CheckedCallableTarget,
     };
     use bray_compiler_known::{ImplementationHook, RepresentationRole};
     use bray_symbols::{
-        CallableDefinitionId, CallableInstanceData, GenericArgument, GenericOwnerId,
-        GenericParameterSymbolId, GenericSubstitutionData, NamedTypeSymbolId,
-        TypeCallableMemberSymbolId, TypeData, TypeId, UnionSymbolId,
+        CallableAbi, CallableDefinitionId, CallableInstanceData, CallableInstanceId,
+        GenericArgument, GenericOwnerId, GenericParameterSymbolId, GenericSubstitutionData,
+        NamedTypeSymbolId, TypeCallableMemberSymbolId, TypeData, TypeId, UnionSymbolId,
     };
 
     use super::{ControlFlowGraphBuildOutcome, build_control_flow_graph};
@@ -1072,19 +1073,39 @@ mod tests {
                 origin,
                 callee,
                 [],
-                BoundResolvedCall::new(BoundCallableTarget::Declaration(callable), [], result),
+                BoundResolvedCall::new(
+                    CheckedCallableReference::new(
+                        CheckedCallableTarget::Direct(callable),
+                        CallableAbi::Bray,
+                    ),
+                    [],
+                    empty_arguments(),
+                    result,
+                ),
             )),
         )
     }
 
-    fn callable_instance(definition: TypeCallableMemberSymbolId) -> CallableInstanceData {
+    fn callable_instance(definition: TypeCallableMemberSymbolId) -> CallableInstanceId {
         let Some(definition) = CallableDefinitionId::try_new(definition.into()) else {
             panic!("compiler-known task methods must be callable definitions");
         };
 
         let substitution = empty_substitution(definition.symbol());
 
-        CallableInstanceData::new(definition, substitution)
+        match semantic_values()
+            .intern_callable_instance(CallableInstanceData::new(definition, substitution))
+        {
+            Ok(instance) => instance,
+            Err(error) => panic!("test callable instance must be interned: {error:?}"),
+        }
+    }
+
+    fn empty_arguments() -> CheckedArgumentMapping {
+        match CheckedArgumentMapping::try_new(None, [], []) {
+            Ok(arguments) => arguments,
+            Err(error) => panic!("empty call arguments must be valid: {error:?}"),
+        }
     }
 
     fn representation_type(role: RepresentationRole) -> TypeId {

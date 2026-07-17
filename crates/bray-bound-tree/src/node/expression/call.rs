@@ -1,12 +1,9 @@
 use std::sync::Arc;
 
 use bray_base::{shared_slice, sorted_unique_shared_slice};
-use bray_symbols::{
-    AnonymousCallableSymbolId, CallableDefinitionId, CallableInstanceData,
-    ImplementationInstanceId, SymbolName, TypeId,
-};
+use bray_symbols::{ImplementationInstanceId, SymbolName, TypeId};
 
-use crate::{BoundExpressionId, BoundNodeOrigin};
+use crate::{BoundExpressionId, BoundNodeOrigin, CheckedArgumentMapping, CheckedCallableReference};
 
 /// One source-ordered input to overload selection.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -43,30 +40,6 @@ impl BoundArgument {
     /// Returns whether recovery contributed to this argument.
     pub const fn is_recovered(&self) -> bool {
         self.is_recovered
-    }
-}
-
-/// The exact callable value selected for an ordinary call expression.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum BoundCallableTarget {
-    /// A declaration and its complete generic substitution.
-    ///
-    /// Compiler-provided behavior is classified from this declaration identity, never from the
-    /// callee's source spelling.
-    Declaration(CallableInstanceData),
-    /// A separately bound anonymous callable unit.
-    Anonymous(AnonymousCallableSymbolId),
-    /// A dynamically selected callable value represented by its checked callable type.
-    Indirect(TypeId),
-}
-
-impl BoundCallableTarget {
-    /// Returns the declaration identity when the target is statically declared.
-    pub const fn declaration(self) -> Option<CallableDefinitionId> {
-        match self {
-            Self::Declaration(instance) => Some(instance.definition()),
-            Self::Anonymous(_) | Self::Indirect(_) => None,
-        }
     }
 }
 
@@ -119,8 +92,9 @@ impl BoundCallResult {
 /// The complete callable selection needed to interpret a checked call.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BoundResolvedCall {
-    target: BoundCallableTarget,
+    callable: CheckedCallableReference,
     implementation_witnesses: Arc<[ImplementationInstanceId]>,
+    arguments: CheckedArgumentMapping,
     result: BoundCallResult,
 }
 
@@ -130,25 +104,32 @@ impl BoundResolvedCall {
     /// For a future-producing call, the target and witnesses identify the hidden async frame
     /// independently of the source-visible `Future<T>` type.
     pub fn new(
-        target: BoundCallableTarget,
+        callable: CheckedCallableReference,
         implementation_witnesses: impl IntoIterator<Item = ImplementationInstanceId>,
+        arguments: CheckedArgumentMapping,
         result: BoundCallResult,
     ) -> Self {
         Self {
-            target,
+            callable,
             implementation_witnesses: sorted_unique_shared_slice(implementation_witnesses),
+            arguments,
             result,
         }
     }
 
-    /// Returns the exact declared, anonymous, or indirect callable target.
-    pub const fn target(&self) -> BoundCallableTarget {
-        self.target
+    /// Returns the exact callable target and ABI.
+    pub const fn callable(&self) -> CheckedCallableReference {
+        self.callable
     }
 
     /// Returns selected implementation witnesses in canonical semantic-set order.
     pub fn implementation_witnesses(&self) -> &[ImplementationInstanceId] {
         &self.implementation_witnesses
+    }
+
+    /// Returns normalized receiver, explicit-argument, and default associations.
+    pub const fn arguments(&self) -> &CheckedArgumentMapping {
+        &self.arguments
     }
 
     /// Returns whether this call executes immediately or constructs a lazy future.
@@ -276,16 +257,16 @@ impl BoundCallExpression {
 #[cfg(test)]
 mod tests {
     use bray_symbols::{
-        CallableDefinitionId, CallableInstanceData, FunctionSymbolId, GenericArgument,
-        GenericOwnerId, GenericParameterSymbolId, GenericSubstitutionData, SemanticValueStore,
-        SymbolId, TypeData,
+        CallableAbi, CallableDefinitionId, CallableInstanceData, CallableInstanceId,
+        FunctionSymbolId, GenericArgument, GenericOwnerId, GenericParameterSymbolId,
+        GenericSubstitutionData, SemanticValueStore, SymbolId, TypeData,
     };
 
-    use super::{
-        BoundCallExpression, BoundCallResult, BoundCallableTarget, BoundFutureConstruction,
-        BoundResolvedCall,
+    use super::{BoundCallExpression, BoundCallResult, BoundFutureConstruction, BoundResolvedCall};
+    use crate::{
+        BoundExpressionId, BoundUnitId, CheckedArgumentMapping, CheckedCallableReference,
+        CheckedCallableTarget,
     };
-    use crate::{BoundExpressionId, BoundUnitId};
 
     #[test]
     fn resolved_async_calls_retain_lazy_future_and_exact_callable_facts() {
@@ -299,11 +280,13 @@ mod tests {
 
         let definition = FunctionSymbolId::from_symbol_id(SymbolId::new(7));
         let callable = callable_instance(&values, definition);
-        let target = BoundCallableTarget::Declaration(callable);
+        let target =
+            CheckedCallableReference::new(CheckedCallableTarget::Direct(callable), CallableAbi::C);
 
         let resolved = BoundResolvedCall::new(
             target,
             [],
+            empty_arguments(),
             BoundCallResult::LazyFuture(BoundFutureConstruction::new(completion_type, future_type)),
         );
 
@@ -320,14 +303,9 @@ mod tests {
             panic!("resolved call must retain its semantic selection");
         };
 
-        assert_eq!(resolved.target().declaration(), Some(callable.definition()));
-        assert_eq!(
-            resolved
-                .target()
-                .declaration()
-                .map(|target| target.symbol()),
-            Some(definition.into())
-        );
+        assert_eq!(resolved.callable(), target);
+        assert_eq!(resolved.callable().abi(), CallableAbi::C);
+        assert_eq!(resolved.callable().target().direct(), Some(callable));
         assert_eq!(expression.ty(), Some(future_type));
 
         let BoundCallResult::LazyFuture(construction) = resolved.result() else {
@@ -337,8 +315,12 @@ mod tests {
         assert_eq!(construction.completion_type(), completion_type);
         assert_eq!(construction.future_type(), future_type);
 
-        let ordinary_future_return =
-            BoundResolvedCall::new(target, [], BoundCallResult::Immediate(future_type));
+        let ordinary_future_return = BoundResolvedCall::new(
+            target,
+            [],
+            empty_arguments(),
+            BoundCallResult::Immediate(future_type),
+        );
 
         assert_eq!(
             ordinary_future_return.result(),
@@ -349,7 +331,7 @@ mod tests {
     fn callable_instance(
         values: &SemanticValueStore,
         definition: FunctionSymbolId,
-    ) -> CallableInstanceData {
+    ) -> CallableInstanceId {
         let Some(owner) = GenericOwnerId::try_new(definition.into()) else {
             panic!("function must be a generic owner");
         };
@@ -374,6 +356,16 @@ mod tests {
             panic!("function must be a callable definition");
         };
 
-        CallableInstanceData::new(definition, substitution)
+        match values.intern_callable_instance(CallableInstanceData::new(definition, substitution)) {
+            Ok(instance) => instance,
+            Err(error) => panic!("callable instance must be interned: {error:?}"),
+        }
+    }
+
+    fn empty_arguments() -> CheckedArgumentMapping {
+        match CheckedArgumentMapping::try_new(None, [], []) {
+            Ok(arguments) => arguments,
+            Err(error) => panic!("empty arguments must be valid: {error:?}"),
+        }
     }
 }
