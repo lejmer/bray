@@ -2,7 +2,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use bray_base::{NonEmptySharedStr, sorted_unique_shared_slice};
+use bray_base::sorted_unique_shared_slice;
+use bray_execution::{BinarySymbolName, ExecutableHostContract};
 use bray_symbols::ProductIdentity;
 
 use crate::{
@@ -10,22 +11,6 @@ use crate::{
     LinkedArtifactRequirement, LinkedProductKind, LinkerDriverIdentity, PlannedLinkedArtifact,
     StagingDestinationId,
 };
-
-/// Canonical native symbol spelling selected before driver translation.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct LinkSymbolName(NonEmptySharedStr);
-
-impl LinkSymbolName {
-    /// Creates a symbol name unless its canonical spelling is empty.
-    pub fn try_new(name: impl Into<Arc<str>>) -> Option<Self> {
-        NonEmptySharedStr::try_new(name).map(Self)
-    }
-
-    /// Returns the canonical target symbol spelling.
-    pub fn as_str(&self) -> &str {
-        self.0.as_str()
-    }
-}
 
 /// Search-path category retained for target-specific driver translation.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -85,9 +70,10 @@ pub struct LinkPlanBuilder {
     driver: LinkerDriverIdentity,
     inputs: Vec<LinkInput>,
     outputs: Vec<PlannedLinkedArtifact>,
-    entry_point: Option<LinkSymbolName>,
-    exported_symbols: Vec<LinkSymbolName>,
-    retained_symbols: Vec<LinkSymbolName>,
+    entry_point: Option<BinarySymbolName>,
+    executable_host: Option<ExecutableHostContract>,
+    exported_symbols: Vec<BinarySymbolName>,
+    retained_symbols: Vec<BinarySymbolName>,
     search_paths: Vec<LinkSearchPath>,
     policy: LinkPolicy,
 }
@@ -109,6 +95,7 @@ impl LinkPlanBuilder {
             inputs: Vec::new(),
             outputs: Vec::new(),
             entry_point: None,
+            executable_host: None,
             exported_symbols: Vec::new(),
             retained_symbols: Vec::new(),
             search_paths: Vec::new(),
@@ -126,18 +113,23 @@ impl LinkPlanBuilder {
         self.outputs.push(output);
     }
 
-    /// Selects the canonical native entry point.
-    pub fn set_entry_point(&mut self, entry_point: LinkSymbolName) {
+    /// Selects an optional native entry point for a shared library.
+    pub fn set_entry_point(&mut self, entry_point: BinarySymbolName) {
         self.entry_point = Some(entry_point);
     }
 
+    /// Selects the compiler-generated executable host and its native process entry point.
+    pub fn set_executable_host(&mut self, host: ExecutableHostContract) {
+        self.executable_host = Some(host);
+    }
+
     /// Adds one exported native symbol.
-    pub fn push_exported_symbol(&mut self, symbol: LinkSymbolName) {
+    pub fn push_exported_symbol(&mut self, symbol: BinarySymbolName) {
         self.exported_symbols.push(symbol);
     }
 
     /// Adds one native symbol that dead stripping must retain.
-    pub fn push_retained_symbol(&mut self, symbol: LinkSymbolName) {
+    pub fn push_retained_symbol(&mut self, symbol: BinarySymbolName) {
         self.retained_symbols.push(symbol);
     }
 
@@ -166,9 +158,10 @@ pub struct LinkPlan {
     driver: LinkerDriverIdentity,
     inputs: Arc<[LinkInput]>,
     outputs: Arc<[PlannedLinkedArtifact]>,
-    entry_point: Option<LinkSymbolName>,
-    exported_symbols: Arc<[LinkSymbolName]>,
-    retained_symbols: Arc<[LinkSymbolName]>,
+    entry_point: Option<BinarySymbolName>,
+    executable_host: Option<ExecutableHostContract>,
+    exported_symbols: Arc<[BinarySymbolName]>,
+    retained_symbols: Arc<[BinarySymbolName]>,
     search_paths: Arc<[LinkSearchPath]>,
     policy: LinkPolicy,
 }
@@ -176,8 +169,17 @@ pub struct LinkPlan {
 impl LinkPlan {
     fn try_from_builder(mut builder: LinkPlanBuilder) -> Result<Self, LinkPlanBuildError> {
         validate_inputs(&builder.inputs)?;
+        crate::execution::validate_execution_inputs(
+            builder.executable_host.as_ref(),
+            &builder.inputs,
+        )?;
         validate_search_paths(&builder.search_paths)?;
-        validate_entry_point(builder.product_kind, builder.entry_point.as_ref())?;
+        validate_entry_contract(
+            &builder.product,
+            builder.product_kind,
+            builder.entry_point.as_ref(),
+            builder.executable_host.as_ref(),
+        )?;
 
         builder
             .outputs
@@ -193,6 +195,7 @@ impl LinkPlan {
             inputs: builder.inputs.into(),
             outputs: builder.outputs.into(),
             entry_point: builder.entry_point,
+            executable_host: builder.executable_host,
             exported_symbols: sorted_unique_shared_slice(builder.exported_symbols),
             retained_symbols: sorted_unique_shared_slice(builder.retained_symbols),
             search_paths: builder.search_paths.into(),
@@ -244,17 +247,25 @@ impl LinkPlan {
     }
 
     /// Returns the selected native entry point when the product has one.
-    pub const fn entry_point(&self) -> Option<&LinkSymbolName> {
-        self.entry_point.as_ref()
+    pub const fn entry_point(&self) -> Option<&BinarySymbolName> {
+        match &self.executable_host {
+            Some(host) => Some(host.native_entry()),
+            None => self.entry_point.as_ref(),
+        }
+    }
+
+    /// Returns the compiler-generated executable-host contract, when applicable.
+    pub const fn executable_host(&self) -> Option<&ExecutableHostContract> {
+        self.executable_host.as_ref()
     }
 
     /// Returns exported symbols in canonical deterministic order.
-    pub fn exported_symbols(&self) -> &[LinkSymbolName] {
+    pub fn exported_symbols(&self) -> &[BinarySymbolName] {
         &self.exported_symbols
     }
 
     /// Returns retained symbols in canonical deterministic order.
-    pub fn retained_symbols(&self) -> &[LinkSymbolName] {
+    pub fn retained_symbols(&self) -> &[BinarySymbolName] {
         &self.retained_symbols
     }
 
@@ -278,6 +289,12 @@ pub enum LinkPlanBuildError {
     DuplicateInput(LinkInputId),
     /// One search path appears more than once.
     DuplicateSearchPath,
+    /// A selected runtime artifact has no corresponding link input.
+    MissingRuntimeComponent,
+    /// A runtime component is present without a selected runtime artifact.
+    UnexpectedRuntimeComponent,
+    /// A runtime component belongs to a different runtime artifact.
+    RuntimeArtifactMismatch,
     /// The product has no required primary staging output.
     MissingPrimaryOutput,
     /// The product has more than one primary staging output.
@@ -293,9 +310,13 @@ pub enum LinkPlanBuildError {
         /// Conflicting staging identity using the path.
         second: StagingDestinationId,
     },
-    /// An executable product has no selected native entry point.
-    MissingEntryPoint,
-    /// A static-library product contains an inapplicable native entry point.
+    /// An executable product has no compiler-generated host contract.
+    MissingExecutableHost,
+    /// A non-executable product contains an inapplicable executable-host contract.
+    UnexpectedExecutableHost,
+    /// The executable-host contract belongs to another product.
+    ExecutableHostProductMismatch,
+    /// An executable or static-library product contains an inapplicable explicit entry point.
     UnexpectedEntryPoint,
     /// Companion debug output was requested without a staged debug destination.
     MissingDebugCompanion,
@@ -338,17 +359,27 @@ fn validate_search_paths(search_paths: &[LinkSearchPath]) -> Result<(), LinkPlan
     Ok(())
 }
 
-fn validate_entry_point(
+fn validate_entry_contract(
+    product: &ProductIdentity,
     product_kind: LinkedProductKind,
-    entry_point: Option<&LinkSymbolName>,
+    entry_point: Option<&BinarySymbolName>,
+    executable_host: Option<&ExecutableHostContract>,
 ) -> Result<(), LinkPlanBuildError> {
-    match (product_kind, entry_point) {
-        (LinkedProductKind::Executable, None) => Err(LinkPlanBuildError::MissingEntryPoint),
-        (LinkedProductKind::StaticLibrary, Some(_)) => {
+    match (product_kind, entry_point, executable_host) {
+        (LinkedProductKind::Executable, _, None) => Err(LinkPlanBuildError::MissingExecutableHost),
+        (LinkedProductKind::Executable, Some(_), Some(_))
+        | (LinkedProductKind::StaticLibrary, Some(_), None) => {
             Err(LinkPlanBuildError::UnexpectedEntryPoint)
         }
-        (LinkedProductKind::Executable | LinkedProductKind::SharedLibrary, Some(_))
-        | (LinkedProductKind::SharedLibrary | LinkedProductKind::StaticLibrary, None) => Ok(()),
+        (LinkedProductKind::Executable, None, Some(host)) if host.product() != product => {
+            Err(LinkPlanBuildError::ExecutableHostProductMismatch)
+        }
+        (LinkedProductKind::SharedLibrary | LinkedProductKind::StaticLibrary, _, Some(_)) => {
+            Err(LinkPlanBuildError::UnexpectedExecutableHost)
+        }
+        (LinkedProductKind::Executable, None, Some(_))
+        | (LinkedProductKind::SharedLibrary, _, None)
+        | (LinkedProductKind::StaticLibrary, None, None) => Ok(()),
     }
 }
 
@@ -412,12 +443,16 @@ fn validate_outputs(
 
 #[cfg(test)]
 mod tests {
+    use bray_execution::RuntimeArtifactId;
+
     use crate::test_support::{
-        link_input, link_plan_builder, planned_output, planned_output_with_key,
+        async_executable_host_contract, executable_host_contract, link_input, link_plan_builder,
+        planned_output, planned_output_with_key,
     };
     use crate::{
-        DebugLinkPolicy, LinkInputId, LinkPlanBuildError, LinkPolicy, LinkSymbolName,
-        LinkedArtifactKind, LinkedArtifactRequirement, StagingDestinationId,
+        BinarySymbolName, DebugLinkPolicy, LinkInput, LinkInputId, LinkInputKind, LinkInputMode,
+        LinkInputProvenance, LinkInputSource, LinkPlanBuildError, LinkPolicy, LinkedArtifactKind,
+        LinkedArtifactRequirement, StagingDestinationId,
     };
 
     #[test]
@@ -434,7 +469,7 @@ mod tests {
             "application.stage",
         ));
 
-        builder.set_entry_point(symbol("_start"));
+        builder.set_executable_host(executable_host_contract());
 
         builder.push_exported_symbol(symbol("zeta"));
         builder.push_exported_symbol(symbol("alpha"));
@@ -454,7 +489,7 @@ mod tests {
         assert_eq!(
             plan.exported_symbols()
                 .iter()
-                .map(LinkSymbolName::as_str)
+                .map(BinarySymbolName::as_str)
                 .collect::<Vec<_>>(),
             ["alpha", "zeta"]
         );
@@ -474,7 +509,7 @@ mod tests {
             "application.stage",
         ));
 
-        duplicate_inputs.set_entry_point(symbol("_start"));
+        duplicate_inputs.set_executable_host(executable_host_contract());
 
         assert_eq!(
             duplicate_inputs.finish(),
@@ -499,7 +534,7 @@ mod tests {
             "same.stage",
         ));
 
-        colliding_outputs.set_entry_point(symbol("_start"));
+        colliding_outputs.set_executable_host(executable_host_contract());
         colliding_outputs.set_policy(companion_debug_policy());
 
         assert_eq!(
@@ -526,7 +561,7 @@ mod tests {
 
         assert_eq!(
             missing_entry.finish(),
-            Err(LinkPlanBuildError::MissingEntryPoint)
+            Err(LinkPlanBuildError::MissingExecutableHost)
         );
 
         let mut missing_primary = link_plan_builder();
@@ -540,7 +575,7 @@ mod tests {
             "application.meta.stage",
         ));
 
-        missing_primary.set_entry_point(symbol("_start"));
+        missing_primary.set_executable_host(executable_host_contract());
 
         assert_eq!(
             missing_primary.finish(),
@@ -567,7 +602,7 @@ mod tests {
             "application.meta.stage",
         ));
 
-        builder.set_entry_point(symbol("_start"));
+        builder.set_executable_host(executable_host_contract());
 
         let Ok(plan) = builder.finish() else {
             panic!("complete test plan must be valid");
@@ -595,7 +630,7 @@ mod tests {
             "application.stage",
         ));
 
-        missing_companion.set_entry_point(symbol("_start"));
+        missing_companion.set_executable_host(executable_host_contract());
         missing_companion.set_policy(companion_debug_policy());
 
         assert_eq!(
@@ -620,12 +655,51 @@ mod tests {
             "application.debug.stage",
         ));
 
-        unexpected_companion.set_entry_point(symbol("_start"));
+        unexpected_companion.set_executable_host(executable_host_contract());
 
         assert_eq!(
             unexpected_companion.finish(),
             Err(LinkPlanBuildError::UnexpectedDebugCompanion)
         );
+    }
+
+    #[test]
+    fn async_host_plans_require_the_selected_runtime_component() {
+        let Some(runtime) = RuntimeArtifactId::try_new("runtime.test") else {
+            panic!("test runtime identity must be valid");
+        };
+
+        let mut missing_runtime = link_plan_builder();
+        missing_runtime.push_input(link_input(0, "main.o"));
+        missing_runtime.push_output(planned_output(
+            0,
+            LinkedArtifactKind::Executable,
+            LinkedArtifactRequirement::Required,
+            "application.stage",
+        ));
+        missing_runtime.set_executable_host(async_executable_host_contract(runtime.clone()));
+
+        assert_eq!(
+            missing_runtime.finish(),
+            Err(LinkPlanBuildError::MissingRuntimeComponent)
+        );
+
+        let mut complete = link_plan_builder();
+        complete.push_input(link_input(0, "main.o"));
+        complete.push_input(runtime_input(1, runtime.clone()));
+        complete.push_output(planned_output(
+            0,
+            LinkedArtifactKind::Executable,
+            LinkedArtifactRequirement::Required,
+            "application.stage",
+        ));
+        complete.set_executable_host(async_executable_host_contract(runtime));
+
+        let Ok(plan) = complete.finish() else {
+            panic!("matching selected runtime component must validate");
+        };
+
+        assert_eq!(plan.inputs().len(), 2);
     }
 
     #[test]
@@ -647,7 +721,7 @@ mod tests {
             "application.lib.stage",
         ));
 
-        builder.set_entry_point(symbol("_start"));
+        builder.set_executable_host(executable_host_contract());
 
         assert_eq!(
             builder.finish(),
@@ -668,12 +742,26 @@ mod tests {
         assert_send_sync::<super::LinkPlan>();
     }
 
-    fn symbol(name: &str) -> LinkSymbolName {
-        let Some(symbol) = LinkSymbolName::try_new(name) else {
+    fn symbol(name: &str) -> BinarySymbolName {
+        let Some(symbol) = BinarySymbolName::try_new(name) else {
             panic!("test symbol name must be valid");
         };
 
         symbol
+    }
+
+    fn runtime_input(ordinal: u32, runtime: RuntimeArtifactId) -> LinkInput {
+        let Ok(input) = LinkInput::try_new(
+            LinkInputId::new(ordinal),
+            LinkInputKind::RuntimeComponent,
+            LinkInputSource::file("runtime.o"),
+            LinkInputProvenance::Runtime(runtime),
+            LinkInputMode::Ordinary,
+        ) else {
+            panic!("test runtime component input must be valid");
+        };
+
+        input
     }
 
     fn companion_debug_policy() -> LinkPolicy {

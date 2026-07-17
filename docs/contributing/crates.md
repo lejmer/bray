@@ -57,6 +57,9 @@ documents.
 - `bray-emitter`
     - Artifact planning, serialization coordination, staging, publication, bookkeeping, and link-plan construction.
 
+- `bray-execution`
+    - Backend-neutral protected-frame identities, private execution ABI roles, runtime requirements, and executable-host contracts.
+
 - `bray-linker`
     - Typed native link plans, linker and archiver adapters, invocation, and linked artifact results.
 

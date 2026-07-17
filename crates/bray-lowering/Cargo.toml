@@ -7,6 +7,8 @@ rust-version.workspace = true
 
 [dependencies]
 bray-bound-tree = { path = "../bray-bound-tree" }
+bray-execution = { path = "../bray-execution" }
+bray-ir = { path = "../bray-ir" }
 bray-symbols = { path = "../bray-symbols" }
 
 [dev-dependencies]

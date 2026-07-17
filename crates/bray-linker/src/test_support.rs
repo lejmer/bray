@@ -1,5 +1,10 @@
 use std::num::NonZeroU64;
 
+use bray_execution::{
+    BinarySymbolName, ExecutableHostContract, ExecutableHostContractBuilder, RootExecution,
+    RuntimeAbiRole, RuntimeAbiVersion, RuntimeArtifactId, RuntimeFeature, RuntimeRoleBinding,
+    RuntimeRoleImplementation,
+};
 use bray_symbols::{PackageIdentity, ProductIdentity};
 use bray_target::{CodeModel, ObjectFormat, RelocationModel, TargetArchitecture, TargetIdentity};
 
@@ -38,11 +43,7 @@ pub(crate) fn link_plan() -> LinkPlan {
         "application.stage",
     ));
 
-    let Some(entry_point) = crate::LinkSymbolName::try_new("_start") else {
-        panic!("test entry-point name must be valid");
-    };
-
-    builder.set_entry_point(entry_point);
+    builder.set_executable_host(executable_host_contract());
 
     let Ok(plan) = builder.finish() else {
         panic!("complete test link plan must be valid");
@@ -114,7 +115,62 @@ pub(crate) fn linked_artifact(plan: &LinkPlan) -> LinkedArtifact {
     LinkedArtifact::new(output.kind(), output.destination().id(), NonZeroU64::MIN)
 }
 
-fn product() -> ProductIdentity {
+pub(crate) fn executable_host_contract() -> ExecutableHostContract {
+    host_contract(RootExecution::Synchronous, None)
+}
+
+pub(crate) fn async_executable_host_contract(runtime: RuntimeArtifactId) -> ExecutableHostContract {
+    host_contract(
+        RootExecution::Asynchronous {
+            frame: bray_execution::ProtectedAsyncFrameId::new([11; 32]),
+        },
+        Some(runtime),
+    )
+}
+
+fn host_contract(
+    root: RootExecution,
+    runtime: Option<RuntimeArtifactId>,
+) -> ExecutableHostContract {
+    let Some(entry) = BinarySymbolName::try_new("_bray_host_start") else {
+        panic!("test host entry symbol must be valid");
+    };
+
+    let mut roles = vec![
+        RuntimeAbiRole::RootExecution,
+        RuntimeAbiRole::RootCancellationRequest,
+        RuntimeAbiRole::CleanupIncidentReporting,
+        RuntimeAbiRole::RootTerminalObservation,
+        RuntimeAbiRole::StructuredShutdown,
+    ];
+
+    if runtime.is_some() {
+        roles.extend([
+            RuntimeAbiRole::MainThreadLaneStartup,
+            RuntimeAbiRole::MainThreadLaneDrive,
+        ]);
+    }
+
+    let mut builder =
+        ExecutableHostContractBuilder::new(product(), entry, root, RuntimeAbiVersion::new(1, 0));
+
+    for role in roles {
+        builder.push_role_binding(runtime_role_binding(role));
+    }
+
+    if let Some(runtime) = runtime {
+        builder.select_runtime(runtime);
+        builder.require_runtime_feature(RuntimeFeature::MainThreadLane);
+    }
+
+    let Ok(host) = builder.finish() else {
+        panic!("test executable host contract must be valid");
+    };
+
+    host
+}
+
+pub(crate) fn product() -> ProductIdentity {
     let Some(package) = PackageIdentity::try_new("example.package") else {
         panic!("test package identity must be valid");
     };
@@ -124,6 +180,14 @@ fn product() -> ProductIdentity {
     };
 
     product
+}
+
+fn runtime_role_binding(role: RuntimeAbiRole) -> RuntimeRoleBinding {
+    let Some(symbol) = BinarySymbolName::try_new(format!("role_{role:?}")) else {
+        panic!("test runtime role symbol must be valid");
+    };
+
+    RuntimeRoleBinding::new(role, symbol, RuntimeRoleImplementation::CompilerLowering)
 }
 
 fn link_target() -> LinkTarget {

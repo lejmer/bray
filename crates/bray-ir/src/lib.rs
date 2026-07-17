@@ -2,6 +2,11 @@
 
 #![forbid(unsafe_code)]
 
+mod execution;
 mod unit;
 
-pub use unit::{MirBlock, MirBlockId, MirUnit, MirUnitBuildError, MirUnitBuilder};
+pub use execution::{MirExecutionOperationKind, MirUnitExecution};
+pub use unit::{
+    MirBlock, MirBlockId, MirSourceOrigin, MirUnit, MirUnitBuildError, MirUnitBuilder, MirUnitId,
+    MirUnitKey,
+};

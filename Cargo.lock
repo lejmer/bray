@@ -143,8 +143,8 @@ name = "bray-codegen"
 version = "0.0.0"
 dependencies = [
  "bray-base",
- "bray-bound-tree",
  "bray-diagnostics",
+ "bray-execution",
  "bray-ir",
  "bray-symbols",
  "bray-target",
@@ -224,6 +224,7 @@ dependencies = [
  "bray-base",
  "bray-codegen",
  "bray-diagnostics",
+ "bray-execution",
  "bray-package-interface",
  "bray-symbols",
  "bray-target",
@@ -234,11 +235,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "bray-execution"
+version = "0.0.0"
+dependencies = [
+ "bray-base",
+ "bray-symbols",
+]
+
+[[package]]
 name = "bray-ir"
 version = "0.0.0"
 dependencies = [
  "bray-bound-tree",
+ "bray-execution",
  "bray-source",
+ "bray-symbols",
  "bray-testing",
 ]
 
@@ -248,6 +259,7 @@ version = "0.0.0"
 dependencies = [
  "bray-base",
  "bray-diagnostics",
+ "bray-execution",
  "bray-symbols",
  "bray-target",
 ]
@@ -257,6 +269,8 @@ name = "bray-lowering"
 version = "0.0.0"
 dependencies = [
  "bray-bound-tree",
+ "bray-execution",
+ "bray-ir",
  "bray-symbols",
  "bray-testing",
 ]

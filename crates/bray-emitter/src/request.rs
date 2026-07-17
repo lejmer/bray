@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use bray_execution::ExecutableHostContract;
 use bray_target::TargetIdentity;
 
 use crate::{
@@ -50,6 +51,7 @@ impl RequestedArtifact {
 pub struct EmissionRequest {
     product: ProductIdentity,
     product_kind: ProductKind,
+    executable_host: Option<ExecutableHostContract>,
     target: TargetIdentity,
     destination: RequestedArtifactDestination,
     artifacts: Arc<[RequestedArtifact]>,
@@ -61,11 +63,14 @@ impl EmissionRequest {
     pub fn try_new(
         product: ProductIdentity,
         product_kind: ProductKind,
+        executable_host: Option<ExecutableHostContract>,
         target: TargetIdentity,
         destination: RequestedArtifactDestination,
         artifacts: impl IntoIterator<Item = RequestedArtifact>,
         replacement: ReplacementPolicy,
     ) -> Result<Self, EmissionRequestBuildError> {
+        validate_executable_host(&product, product_kind, executable_host.as_ref())?;
+
         let mut artifacts: Vec<_> = artifacts.into_iter().collect();
 
         artifacts.sort_unstable_by_key(|artifact| artifact.kind());
@@ -103,6 +108,7 @@ impl EmissionRequest {
         Ok(Self {
             product,
             product_kind,
+            executable_host,
             target,
             destination,
             artifacts: artifacts.into(),
@@ -118,6 +124,11 @@ impl EmissionRequest {
     /// Returns the selected language-level product kind.
     pub const fn product_kind(&self) -> ProductKind {
         self.product_kind
+    }
+
+    /// Returns the compiler-generated executable-host contract, when this product has a root.
+    pub const fn executable_host(&self) -> Option<&ExecutableHostContract> {
+        self.executable_host.as_ref()
     }
 
     /// Returns the selected validated target identity.
@@ -152,6 +163,12 @@ impl EmissionRequest {
 /// A contract violation that prevents creation of an emission request.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum EmissionRequestBuildError {
+    /// An executable or test product has no compiler-generated host contract.
+    MissingExecutableHost,
+    /// A library product contains an inapplicable executable-host contract.
+    UnexpectedExecutableHost,
+    /// The executable-host contract belongs to another selected product.
+    ExecutableHostProductMismatch,
     /// No external artifact category was requested.
     Empty,
     /// No requested external artifact is required for product completion.
@@ -162,10 +179,31 @@ pub enum EmissionRequestBuildError {
     MultipleArtifactsForSingleSink,
 }
 
+fn validate_executable_host(
+    product: &ProductIdentity,
+    product_kind: ProductKind,
+    executable_host: Option<&ExecutableHostContract>,
+) -> Result<(), EmissionRequestBuildError> {
+    match (product_kind, executable_host) {
+        (ProductKind::Executable | ProductKind::Test, None) => {
+            Err(EmissionRequestBuildError::MissingExecutableHost)
+        }
+        (ProductKind::Library, Some(_)) => Err(EmissionRequestBuildError::UnexpectedExecutableHost),
+        (ProductKind::Executable | ProductKind::Test, Some(host)) if host.product() != product => {
+            Err(EmissionRequestBuildError::ExecutableHostProductMismatch)
+        }
+        (ProductKind::Executable | ProductKind::Test, Some(_)) | (ProductKind::Library, None) => {
+            Ok(())
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{EmissionRequest, EmissionRequestBuildError, RequestedArtifact};
-    use crate::test_support::{emission_request, product_identity, target_identity};
+    use crate::test_support::{
+        emission_request, executable_host_contract, product_identity, target_identity,
+    };
     use crate::{
         ArtifactKind, ArtifactRequirement, ProductKind, ReplacementPolicy,
         RequestedArtifactDestination,
@@ -240,6 +278,40 @@ mod tests {
         );
     }
 
+    #[test]
+    fn executable_hosts_are_required_only_for_root_products() {
+        let artifact = RequestedArtifact::new(
+            ArtifactKind::RelocatableObject,
+            ArtifactRequirement::Required,
+        );
+
+        assert_eq!(
+            EmissionRequest::try_new(
+                product_identity(),
+                ProductKind::Executable,
+                None,
+                target_identity(),
+                RequestedArtifactDestination::FilesystemDirectory("out".into()),
+                [artifact],
+                ReplacementPolicy::RequireAbsent,
+            ),
+            Err(EmissionRequestBuildError::MissingExecutableHost)
+        );
+
+        assert_eq!(
+            EmissionRequest::try_new(
+                product_identity(),
+                ProductKind::Library,
+                Some(executable_host_contract()),
+                target_identity(),
+                RequestedArtifactDestination::FilesystemDirectory("out".into()),
+                [artifact],
+                ReplacementPolicy::RequireAbsent,
+            ),
+            Err(EmissionRequestBuildError::UnexpectedExecutableHost)
+        );
+    }
+
     fn try_request(
         destination: RequestedArtifactDestination,
         artifacts: impl IntoIterator<Item = RequestedArtifact>,
@@ -247,6 +319,7 @@ mod tests {
         EmissionRequest::try_new(
             product_identity(),
             ProductKind::Executable,
+            Some(executable_host_contract()),
             target_identity(),
             destination,
             artifacts,
