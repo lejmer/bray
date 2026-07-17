@@ -45,8 +45,11 @@ pub use origin::{
     BoundNodeOrdinal, BoundNodeOrigin, BoundSynthesisRole, SynthesizedBoundNodeOrigin,
 };
 pub use storage::{
-    BorrowCapability, BorrowCapabilityId, StorageAccess, StorageAccessId, StorageAccessRoot,
-    StorageIdentity, StorageIdentityId, StorageProjection, StorageRelationship,
+    BorrowCapability, BorrowCapabilityId, CheckedStorageFacts, CheckedStorageFactsBuildError,
+    CheckedStorageFactsBuilder, LocalStorageFact, StorageAccess, StorageAccessFact,
+    StorageAccessId, StorageAccessOccurrence, StorageAccessRoot, StorageIdentity,
+    StorageIdentityId, StorageParameter, StorageParameterFact, StorageProjection, StorageReferent,
+    StorageRelationship, SurfaceStorageFact,
 };
 pub use template::{
     CheckedTemplate, CheckedTemplateBehavior, CheckedTemplateBuildError, CheckedTemplateBuilder,

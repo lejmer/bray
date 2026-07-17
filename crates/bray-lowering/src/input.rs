@@ -1,4 +1,6 @@
-use bray_bound_tree::{BoundUnit, BoundUnitId, BoundUnitKind, CheckedControlFlowFacts};
+use bray_bound_tree::{
+    BoundUnit, BoundUnitId, BoundUnitKind, CheckedControlFlowFacts, CheckedStorageFacts,
+};
 use bray_ir::{MirTargetFacts, MirUnitBuilder, MirUnitKind};
 use bray_symbols::AvailableCompilerKnownSymbols;
 
@@ -11,6 +13,7 @@ use bray_symbols::AvailableCompilerKnownSymbols;
 pub struct LoweringInput<'unit> {
     unit: &'unit BoundUnit,
     control_flow: &'unit CheckedControlFlowFacts,
+    storage: &'unit CheckedStorageFacts,
     available_compiler_known_symbols: &'unit AvailableCompilerKnownSymbols,
     unit_kind: MirUnitKind,
     target: MirTargetFacts,
@@ -21,6 +24,7 @@ impl<'unit> LoweringInput<'unit> {
     pub fn try_new(
         unit: &'unit BoundUnit,
         control_flow: &'unit CheckedControlFlowFacts,
+        storage: &'unit CheckedStorageFacts,
         available_compiler_known_symbols: &'unit AvailableCompilerKnownSymbols,
         unit_kind: MirUnitKind,
         target: MirTargetFacts,
@@ -39,6 +43,20 @@ impl<'unit> LoweringInput<'unit> {
             });
         }
 
+        if storage.unit() != unit.unit() {
+            return Err(LoweringInputError::ForeignStorage {
+                expected: unit.unit(),
+                actual: storage.unit(),
+            });
+        }
+
+        if storage.kind() != unit.key().kind() {
+            return Err(LoweringInputError::StorageKindMismatch {
+                expected: unit.key().kind(),
+                actual: storage.kind(),
+            });
+        }
+
         if matches!(unit_kind, MirUnitKind::ExecutableHost(_)) {
             return Err(LoweringInputError::ExecutableHostRequiresSyntheticInput);
         }
@@ -46,6 +64,7 @@ impl<'unit> LoweringInput<'unit> {
         Ok(Self {
             unit,
             control_flow,
+            storage,
             available_compiler_known_symbols,
             unit_kind,
             target,
@@ -60,6 +79,11 @@ impl<'unit> LoweringInput<'unit> {
     /// Returns the durable control-flow facts established for the unit.
     pub const fn control_flow(&self) -> &'unit CheckedControlFlowFacts {
         self.control_flow
+    }
+
+    /// Returns exact storage identities, relationships, accesses, and borrow capabilities.
+    pub const fn storage(&self) -> &'unit CheckedStorageFacts {
+        self.storage
     }
 
     /// Returns target-available compiler-known identities and behavior roles.
@@ -100,13 +124,30 @@ pub enum LoweringInputError {
         /// The category named by the supplied control-flow facts.
         actual: BoundUnitKind,
     },
+    /// Storage facts belong to another compilation-local bound unit.
+    ForeignStorage {
+        /// The canonical bound unit requested for lowering.
+        expected: BoundUnitId,
+        /// The unit named by the supplied storage facts.
+        actual: BoundUnitId,
+    },
+    /// Storage facts describe another semantic unit category.
+    StorageKindMismatch {
+        /// The category carried by the canonical bound-unit key.
+        expected: BoundUnitKind,
+        /// The category named by the supplied storage facts.
+        actual: BoundUnitKind,
+    },
     /// A compiler-generated executable host was supplied through a source-unit lowering input.
     ExecutableHostRequiresSyntheticInput,
 }
 
 #[cfg(test)]
 mod tests {
-    use bray_bound_tree::{BoundUnitId, CheckedControlFlowFacts, ControlCompletion};
+    use bray_bound_tree::{
+        BoundUnitId, CheckedControlFlowFacts, CheckedStorageFacts, CheckedStorageFactsBuilder,
+        ControlCompletion,
+    };
     use bray_symbols::testing::available_compiler_known_symbols;
     use bray_testing::{test_bound_unit, test_mir_target};
 
@@ -121,10 +162,12 @@ mod tests {
             unit.key().kind(),
             ControlCompletion::default(),
         );
+        let storage = storage_facts(unit.unit(), unit.key().kind());
 
         let input = match LoweringInput::try_new(
             &unit,
             &control_flow,
+            &storage,
             available_compiler_known_symbols(),
             bray_ir::MirUnitKind::Synchronous,
             test_mir_target(),
@@ -135,6 +178,7 @@ mod tests {
 
         assert!(std::ptr::eq(input.unit(), &unit));
         assert!(std::ptr::eq(input.control_flow(), &control_flow));
+        assert!(std::ptr::eq(input.storage(), &storage));
 
         assert!(std::ptr::eq(
             input.available_compiler_known_symbols(),
@@ -151,11 +195,13 @@ mod tests {
             unit.key().kind(),
             ControlCompletion::default(),
         );
+        let storage = storage_facts(unit.unit(), unit.key().kind());
 
         assert_input_error(
             LoweringInput::try_new(
                 &unit,
                 &foreign,
+                &storage,
                 available_compiler_known_symbols(),
                 bray_ir::MirUnitKind::Synchronous,
                 test_mir_target(),
@@ -176,11 +222,55 @@ mod tests {
             LoweringInput::try_new(
                 &unit,
                 &wrong_kind,
+                &storage,
                 available_compiler_known_symbols(),
                 bray_ir::MirUnitKind::Synchronous,
                 test_mir_target(),
             ),
             LoweringInputError::ControlFlowKindMismatch {
+                expected: unit.key().kind(),
+                actual: bray_bound_tree::BoundUnitKind::RuntimeDefault,
+            },
+        );
+
+        let foreign_storage = storage_facts(BoundUnitId::new(5), unit.key().kind());
+
+        assert_input_error(
+            LoweringInput::try_new(
+                &unit,
+                &CheckedControlFlowFacts::new(
+                    unit.unit(),
+                    unit.key().kind(),
+                    ControlCompletion::default(),
+                ),
+                &foreign_storage,
+                available_compiler_known_symbols(),
+                bray_ir::MirUnitKind::Synchronous,
+                test_mir_target(),
+            ),
+            LoweringInputError::ForeignStorage {
+                expected: BoundUnitId::new(4),
+                actual: BoundUnitId::new(5),
+            },
+        );
+
+        let wrong_storage_kind =
+            storage_facts(unit.unit(), bray_bound_tree::BoundUnitKind::RuntimeDefault);
+
+        assert_input_error(
+            LoweringInput::try_new(
+                &unit,
+                &CheckedControlFlowFacts::new(
+                    unit.unit(),
+                    unit.key().kind(),
+                    ControlCompletion::default(),
+                ),
+                &wrong_storage_kind,
+                available_compiler_known_symbols(),
+                bray_ir::MirUnitKind::Synchronous,
+                test_mir_target(),
+            ),
+            LoweringInputError::StorageKindMismatch {
                 expected: unit.key().kind(),
                 actual: bray_bound_tree::BoundUnitKind::RuntimeDefault,
             },
@@ -204,5 +294,12 @@ mod tests {
         };
 
         assert_eq!(error, expected);
+    }
+
+    fn storage_facts(
+        unit: BoundUnitId,
+        kind: bray_bound_tree::BoundUnitKind,
+    ) -> CheckedStorageFacts {
+        CheckedStorageFactsBuilder::new(unit, kind).finish()
     }
 }
