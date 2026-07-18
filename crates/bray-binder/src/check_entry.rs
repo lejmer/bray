@@ -63,6 +63,7 @@ pub fn unit_check_entry_context(
         ),
         (BoundUnitKeyData::ContractClause(_), BoundUnitRoot::ExpressionSequence(_)) => {
             let kind = contract_clause_kind(unit)?;
+
             let result = unit
                 .local_symbols()
                 .scopes()

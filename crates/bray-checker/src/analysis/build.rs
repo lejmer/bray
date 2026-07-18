@@ -22,6 +22,7 @@ where
     C: CheckerRequestContext + ?Sized,
 {
     let mut builder = ControlFlowGraphBuilder::new(request);
+
     let entry = builder.push_block();
 
     let completion = match request.root() {
@@ -495,7 +496,9 @@ mod tests {
     fn recovered_nodes_produce_typed_recovery_operations_edges_and_exits() {
         let key = callable_key();
         let unit = BoundUnitId::new(6);
+
         let (tree, root) = recovered_tree(unit, &key);
+
         let unit = callable_unit(&key, tree, root);
         let entry = callable_entry(&key);
         let context = TestCheckerContext::new(false);
@@ -650,13 +653,16 @@ mod tests {
         let origin = BoundNodeOrigin::source(key.source());
 
         let mut builder = BoundTreeBuilder::new(unit);
+
         let operand = push_error_expression(&mut builder, origin);
+
         let await_expression = push_expression(
             &mut builder,
             BoundExpression::Await(BoundAwaitExpression::pending(origin, operand, false)),
         );
 
         let root = push_callable_root(&mut builder, origin, [await_expression]);
+
         let tree = builder.finish();
         let graph = graph(&tree, &key, root);
 
@@ -693,6 +699,7 @@ mod tests {
         let origin = BoundNodeOrigin::source(key.source());
 
         let mut builder = BoundTreeBuilder::new(unit);
+
         let callee = push_name_expression(&mut builder, origin, error_type());
 
         let start = push_task_call(
@@ -703,10 +710,9 @@ mod tests {
         );
 
         let join = push_task_call(&mut builder, origin, callee, ImplementationHook::TaskJoin);
-
         let cancel = push_task_call(&mut builder, origin, callee, ImplementationHook::TaskCancel);
-
         let root = push_callable_root(&mut builder, origin, [start, join, cancel]);
+
         let tree = builder.finish();
         let graph = graph(&tree, &key, root);
 
@@ -739,6 +745,7 @@ mod tests {
         let run_result_type = representation_type(RepresentationRole::RunResult);
 
         let mut builder = BoundTreeBuilder::new(unit);
+
         let operand = push_name_expression(&mut builder, origin, run_result_type);
 
         let propagation = push_expression(
@@ -768,6 +775,7 @@ mod tests {
         );
 
         let root = push_callable_root(&mut builder, origin, [catching]);
+
         let tree = builder.finish();
         let graph = graph(&tree, &key, root);
 
@@ -808,6 +816,7 @@ mod tests {
         let result_type = representation_type(RepresentationRole::Result);
 
         let mut builder = BoundTreeBuilder::new(unit);
+
         let operand = push_name_expression(&mut builder, origin, result_type);
 
         let propagation = push_expression(
@@ -824,6 +833,7 @@ mod tests {
         );
 
         let root = push_callable_root(&mut builder, origin, [propagation]);
+
         let tree = builder.finish();
         let graph = graph(&tree, &key, root);
 
@@ -854,6 +864,7 @@ mod tests {
         let origin = BoundNodeOrigin::source(key.source());
 
         let mut builder = BoundTreeBuilder::new(unit);
+
         let return_expression = push_expression(
             &mut builder,
             BoundExpression::ControlTransfer(BoundControlTransferExpression::new(
@@ -867,6 +878,7 @@ mod tests {
         );
 
         let inner = push_block(&mut builder, origin, [return_expression]);
+
         let inner_expression = push_expression(
             &mut builder,
             BoundExpression::Block(BoundBlockExpression::new(
@@ -954,6 +966,7 @@ mod tests {
 
         let match_expression = push_expression(&mut builder, match_expression);
         let root = push_callable_root(&mut builder, origin, [for_expression, match_expression]);
+
         let tree = builder.finish();
         let graph = graph(&tree, &key, root);
 
@@ -1057,6 +1070,7 @@ mod tests {
             .unwrap_or_else(|| panic!("{hook:?} must be available to checker tests"));
 
         let callable = callable_instance(definition);
+
         let result = match hook {
             ImplementationHook::FutureStart => BoundCallResult::Immediate(error_type()),
             ImplementationHook::TaskJoin | ImplementationHook::TaskCancel => {

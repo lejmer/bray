@@ -179,9 +179,11 @@ where
         .ok_or(BoundUnitBindingError::MissingSyntax)?;
 
     let mut binder = create_binder(facts, unit, key, context)?;
+
     let root_scope = binder.unit().root_scope();
     let path_context = path_context(&binder, root_scope)?;
     let error_type = error_type(facts)?;
+
     let mut expression_binder = ExpressionBinder::new(path_context, error_type);
 
     let root = expression_binder
@@ -221,6 +223,7 @@ where
     let mut binder = create_binder(facts, unit, key, context)?;
 
     let root_scope = binder.unit().root_scope();
+
     let expression_scope = if context == BindingContext::ContractClause {
         push_contract_scope(&mut binder, root_scope, syntax, has_contract_result)
             .map_err(map_binding_error)?

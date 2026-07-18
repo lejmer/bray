@@ -46,9 +46,12 @@ mod tests {
     fn default_checking_recovers_from_an_error_body_without_panicking() {
         let key = callable_key();
         let unit = BoundUnitId::new(4);
+
         let (tree, root) = recovered_tree(unit, &key);
+
         let unit = callable_unit(&key, tree, root);
         let entry = callable_entry(&key);
+
         let context = TestCheckerContext::new(false);
 
         let Ok(request) = UnitCheckRequest::new(&unit, &entry, &context) else {
@@ -67,12 +70,14 @@ mod tests {
         };
 
         assert_eq!(result.value().unit(), unit.unit());
+
         assert!(
             result
                 .value()
                 .completion()
                 .contains(ControlCompletionKind::Recovered)
         );
+
         assert!(result.value().is_recovered());
         assert!(result.diagnostics().is_empty());
     }
@@ -81,9 +86,12 @@ mod tests {
     fn default_checking_publishes_nothing_after_cancellation() {
         let key = callable_key();
         let unit = BoundUnitId::new(5);
+
         let (tree, root) = recovered_tree(unit, &key);
+
         let unit = callable_unit(&key, tree, root);
         let entry = callable_entry(&key);
+
         let context = TestCheckerContext::new(true);
 
         let Ok(request) = UnitCheckRequest::new(&unit, &entry, &context) else {
@@ -99,9 +107,12 @@ mod tests {
     fn recovery_only_control_does_not_prove_normal_completion() {
         let key = callable_key();
         let unit = BoundUnitId::new(8);
+
         let (tree, root) = normally_completing_recovered_tree(unit, &key);
+
         let unit = callable_unit(&key, tree, root);
         let entry = callable_entry(&key);
+
         let context = TestCheckerContext::new(false);
 
         let Ok(request) = UnitCheckRequest::new(&unit, &entry, &context) else {
@@ -134,6 +145,7 @@ mod tests {
 
         let unit = callable_unit(&key, tree.finish(), root);
         let entry = callable_entry(&key);
+
         let context = TestCheckerContext::new(false);
 
         let request = match UnitCheckRequest::new(&unit, &entry, &context) {
@@ -148,7 +160,9 @@ mod tests {
     #[test]
     fn requests_reject_entry_contexts_for_another_unit_category() {
         let key = callable_key();
+
         let (tree, root) = recovered_tree(BoundUnitId::new(9), &key);
+
         let unit = callable_unit(&key, tree, root);
 
         let UnitCheckEntryContext::CallableBody(declaration) = callable_entry(&key) else {
@@ -156,9 +170,7 @@ mod tests {
         };
 
         let entry = UnitCheckEntryContext::RuntimeDefault(declaration);
-
         let context = TestCheckerContext::new(false);
-
         let request = UnitCheckRequest::new(&unit, &entry, &context);
 
         assert!(matches!(
@@ -170,11 +182,14 @@ mod tests {
     #[test]
     fn requests_reject_forged_entry_payloads() {
         let key = callable_key();
-        let (tree, root) = recovered_tree(BoundUnitId::new(10), &key);
-        let unit = callable_unit(&key, tree, root);
-        let context = TestCheckerContext::new(false);
 
+        let (tree, root) = recovered_tree(BoundUnitId::new(10), &key);
+
+        let unit = callable_unit(&key, tree, root);
+
+        let context = TestCheckerContext::new(false);
         let forged = AnySymbolId::from(FunctionSymbolId::from_symbol_id(SymbolId::new(1)));
+
         let entry = UnitCheckEntryContext::CallableBody(DeclaredUnitCheckEntry::new(
             key.clone(),
             forged,

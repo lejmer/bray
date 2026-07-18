@@ -56,9 +56,11 @@ where
         .map_err(|_| BinderFactError::DependencyUnavailable)?;
 
     let roles = facts.symbols().compiler_known_provider().role_registry();
+
     let unit = roles
         .representation_symbol::<StructSymbolId>(RepresentationRole::Unit)
         .ok_or(BinderFactError::DependencyUnavailable)?;
+
     let never = roles
         .representation_symbol::<StructSymbolId>(RepresentationRole::Never)
         .ok_or(BinderFactError::DependencyUnavailable)?;
