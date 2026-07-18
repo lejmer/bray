@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
-use bray_bound_tree::{BoundExpressionId, BoundUnitId, BoundUnitKind};
 use bray_symbols::TypeId;
+
+use crate::{BoundExpressionId, BoundUnitId, BoundUnitKind};
 
 /// Whether expression typing completed normally or retained a recovery type.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -20,7 +21,8 @@ pub struct ExpressionTypeResult {
 }
 
 impl ExpressionTypeResult {
-    pub(crate) const fn new(ty: TypeId, status: ExpressionTypeStatus) -> Self {
+    /// Creates one durable expression type result.
+    pub const fn new(ty: TypeId, status: ExpressionTypeStatus) -> Self {
         Self { ty, status }
     }
 
@@ -48,7 +50,8 @@ pub struct ExpressionTypeEntry {
 }
 
 impl ExpressionTypeEntry {
-    pub(crate) const fn new(expression: BoundExpressionId, result: ExpressionTypeResult) -> Self {
+    /// Creates one source-correlated expression type entry.
+    pub const fn new(expression: BoundExpressionId, result: ExpressionTypeResult) -> Self {
         Self { expression, result }
     }
 
@@ -63,28 +66,33 @@ impl ExpressionTypeEntry {
     }
 }
 
-/// Complete immutable expression-type results for one bound semantic unit.
+/// Complete immutable expression types for one bound semantic unit.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ExpressionTypeCheckResult {
+pub struct CheckedExpressionTypes {
     unit: BoundUnitId,
     kind: BoundUnitKind,
     entries: Arc<[ExpressionTypeEntry]>,
 }
 
-impl ExpressionTypeCheckResult {
-    pub(crate) fn new(
+impl CheckedExpressionTypes {
+    /// Creates a complete expression type table in expression ID order.
+    pub fn new(
         unit: BoundUnitId,
         kind: BoundUnitKind,
         entries: impl IntoIterator<Item = ExpressionTypeEntry>,
     ) -> Self {
+        let mut entries = entries.into_iter().collect::<Vec<_>>();
+
+        entries.sort_unstable_by_key(|entry| entry.expression());
+
         Self {
             unit,
             kind,
-            entries: entries.into_iter().collect(),
+            entries: entries.into(),
         }
     }
 
-    /// Returns the exact bound unit described by these results.
+    /// Returns the exact bound unit described by these types.
     pub const fn unit(&self) -> BoundUnitId {
         self.unit
     }
@@ -94,7 +102,7 @@ impl ExpressionTypeCheckResult {
         self.kind
     }
 
-    /// Returns results in canonical bound-expression ID order.
+    /// Returns entries in canonical bound-expression ID order.
     pub fn entries(&self) -> &[ExpressionTypeEntry] {
         &self.entries
     }
@@ -117,14 +125,42 @@ impl ExpressionTypeCheckResult {
 
 #[cfg(test)]
 mod tests {
-    use super::{ExpressionTypeCheckResult, ExpressionTypeEntry, ExpressionTypeResult};
+    use super::{
+        CheckedExpressionTypes, ExpressionTypeEntry, ExpressionTypeResult, ExpressionTypeStatus,
+    };
+    use crate::test_support::error_type;
+    use crate::{BoundExpressionId, BoundUnitId, BoundUnitKind};
 
     #[test]
-    fn expression_type_results_are_send_and_sync() {
+    fn expression_type_facts_are_send_and_sync() {
         fn assert_send_sync<T: Send + Sync>() {}
 
         assert_send_sync::<ExpressionTypeResult>();
         assert_send_sync::<ExpressionTypeEntry>();
-        assert_send_sync::<ExpressionTypeCheckResult>();
+        assert_send_sync::<CheckedExpressionTypes>();
+    }
+
+    #[test]
+    fn expression_type_tables_canonicalize_entry_order() {
+        let unit = BoundUnitId::new(1);
+        let first = BoundExpressionId::from_slot(unit, 0);
+        let second = BoundExpressionId::from_slot(unit, 1);
+        let result = ExpressionTypeResult::new(error_type(), ExpressionTypeStatus::Recovered);
+        let types = CheckedExpressionTypes::new(
+            unit,
+            BoundUnitKind::CallableBody,
+            [
+                ExpressionTypeEntry::new(second, result),
+                ExpressionTypeEntry::new(first, result),
+            ],
+        );
+
+        assert_eq!(
+            types.entries(),
+            [
+                ExpressionTypeEntry::new(first, result),
+                ExpressionTypeEntry::new(second, result),
+            ]
+        );
     }
 }

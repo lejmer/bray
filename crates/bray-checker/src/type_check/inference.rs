@@ -1,7 +1,5 @@
-use bray_bound_tree::BoundExpressionId;
+use bray_bound_tree::{BoundExpressionId, ExpressionTypeResult, ExpressionTypeStatus};
 use bray_symbols::TypeId;
-
-use super::{ExpressionTypeResult, ExpressionTypeStatus};
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub(super) struct InferenceTypeId(u32);
@@ -29,6 +27,9 @@ struct InferenceNode {
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(super) struct TypeConflict {
     pub(super) expression: BoundExpressionId,
+    pub(super) expected: TypeId,
+    pub(super) actual: TypeId,
+    pub(super) is_directional: bool,
 }
 
 pub(super) struct TypeInferenceContext {
@@ -36,6 +37,7 @@ pub(super) struct TypeInferenceContext {
     error_type: TypeId,
     never_type: TypeId,
     conflicts: Vec<TypeConflict>,
+    revision: u64,
 }
 
 impl TypeInferenceContext {
@@ -45,6 +47,7 @@ impl TypeInferenceContext {
             error_type,
             never_type,
             conflicts: Vec::new(),
+            revision: 0,
         }
     }
 
@@ -59,6 +62,7 @@ impl TypeInferenceContext {
             expectations: Vec::new(),
             is_recovered,
         });
+        self.revision = self.revision.saturating_add(1);
 
         Some(id)
     }
@@ -77,9 +81,16 @@ impl TypeInferenceContext {
         let current = self.nodes[index].evidence;
 
         match current {
-            None => self.nodes[index].evidence = Some(ty),
+            None => {
+                self.nodes[index].evidence = Some(ty);
+                self.revision = self.revision.saturating_add(1);
+            }
             Some(current) => {
                 let (merged, recovered) = self.merge_evidence(current, ty, expression);
+
+                if merged != current || recovered && !self.nodes[index].is_recovered {
+                    self.revision = self.revision.saturating_add(1);
+                }
 
                 self.nodes[index].evidence = Some(merged);
                 self.nodes[index].is_recovered |= recovered;
@@ -98,9 +109,16 @@ impl TypeInferenceContext {
             return;
         };
 
-        self.nodes[index]
+        let expectation = TypeExpectation { expression, ty };
+
+        if !self.nodes[index]
             .expectations
-            .push(TypeExpectation { expression, ty });
+            .iter()
+            .any(|current| current.expression == expression && current.ty == ty)
+        {
+            self.nodes[index].expectations.push(expectation);
+            self.revision = self.revision.saturating_add(1);
+        }
     }
 
     pub(super) fn unify(
@@ -137,6 +155,7 @@ impl TypeInferenceContext {
         };
 
         self.nodes[right_index].parent = left;
+        self.revision = self.revision.saturating_add(1);
 
         if self.nodes[left_index].rank == self.nodes[right_index].rank {
             self.nodes[left_index].rank = self.nodes[left_index].rank.saturating_add(1);
@@ -163,13 +182,62 @@ impl TypeInferenceContext {
         self.nodes.get(index)?.evidence
     }
 
-    pub(super) fn finish(
-        mut self,
+    pub(super) fn result(&mut self, id: InferenceTypeId) -> Option<ExpressionTypeResult> {
+        let root = self.find(id);
+        let index = root.to_index()?;
+        let node = self.nodes.get(index)?;
+        let ty = node.evidence?;
+        let status = if node.is_recovered || ty == self.error_type {
+            ExpressionTypeStatus::Recovered
+        } else {
+            ExpressionTypeStatus::Valid
+        };
+
+        Some(ExpressionTypeResult::new(ty, status))
+    }
+
+    pub(super) fn is_recovered(&mut self, id: InferenceTypeId) -> bool {
+        let root = self.find(id);
+        let Some(index) = root.to_index() else {
+            return true;
+        };
+
+        self.nodes.get(index).is_none_or(|node| node.is_recovered)
+    }
+
+    pub(super) const fn revision(&self) -> u64 {
+        self.revision
+    }
+
+    pub(super) fn mark_recovered(&mut self, id: InferenceTypeId) {
+        let root = self.find(id);
+        let Some(index) = root.to_index() else {
+            return;
+        };
+
+        if !self.nodes[index].is_recovered {
+            self.nodes[index].is_recovered = true;
+            self.revision = self.revision.saturating_add(1);
+        }
+    }
+
+    pub(super) fn add_directional_conflict(
+        &mut self,
+        expression: BoundExpressionId,
+        expected: TypeId,
+        actual: TypeId,
+    ) {
+        self.conflicts.push(TypeConflict {
+            expression,
+            expected,
+            actual,
+            is_directional: true,
+        });
+    }
+
+    pub(super) fn check_expectations(
+        &mut self,
         expressions: &[(BoundExpressionId, InferenceTypeId)],
-    ) -> (
-        Vec<(BoundExpressionId, ExpressionTypeResult)>,
-        Vec<TypeConflict>,
-        Vec<BoundExpressionId>,
     ) {
         let mut checked = vec![false; self.nodes.len()];
 
@@ -189,21 +257,38 @@ impl TypeInferenceContext {
                 continue;
             };
 
+            if self.nodes[index].is_recovered || actual == self.error_type {
+                self.nodes[index].is_recovered = true;
+                continue;
+            }
+
             let expectations = std::mem::take(&mut self.nodes[index].expectations);
 
-            for expectation in expectations {
+            for expectation in &expectations {
                 if self.compatibility(expectation.ty, actual) == TypeCompatibility::Incompatible {
-                    self.nodes[index].is_recovered = true;
                     self.conflicts.push(TypeConflict {
                         expression: expectation.expression,
+                        expected: expectation.ty,
+                        actual,
+                        is_directional: true,
                     });
+                    self.mark_recovered(root);
                 }
             }
 
-            if actual == self.error_type {
-                self.nodes[index].is_recovered = true;
-            }
+            self.nodes[index].expectations = expectations;
         }
+    }
+
+    pub(super) fn finish(
+        mut self,
+        expressions: &[(BoundExpressionId, InferenceTypeId)],
+    ) -> (
+        Vec<(BoundExpressionId, ExpressionTypeResult)>,
+        Vec<TypeConflict>,
+        Vec<BoundExpressionId>,
+    ) {
+        self.check_expectations(expressions);
 
         self.conflicts.sort_unstable();
         self.conflicts.dedup();
@@ -287,17 +372,18 @@ impl TypeInferenceContext {
             return (incoming, false);
         }
 
-        if current == self.error_type {
-            return (incoming, true);
+        if current == self.error_type || incoming == self.error_type {
+            return (self.error_type, true);
         }
 
-        if incoming == self.error_type {
-            return (current, true);
-        }
+        self.conflicts.push(TypeConflict {
+            expression,
+            expected: current,
+            actual: incoming,
+            is_directional: false,
+        });
 
-        self.conflicts.push(TypeConflict { expression });
-
-        (current, true)
+        (self.error_type, true)
     }
 
     fn compatibility(&self, expected: TypeId, actual: TypeId) -> TypeCompatibility {

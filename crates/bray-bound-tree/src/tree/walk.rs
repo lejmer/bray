@@ -50,7 +50,7 @@ pub fn walk_bound_tree(
 
 /// Walks one bound-unit view in deterministic source-semantic order.
 ///
-/// The traversal visits every node available through the supplied read-only view.
+/// Node relationships are resolved through the supplied read-only view.
 pub fn walk_bound_unit_view(
     view: BoundUnitView<'_>,
     root: impl Into<AnyBoundNodeId>,

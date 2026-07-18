@@ -1,121 +1,73 @@
-use std::collections::{BTreeMap, BTreeSet};
-
-use bray_bound_tree::{
-    AnyBoundNodeId, BoundExpressionId, BoundWalkControl, BoundWalkEvent, BoundWalkOutcome,
-    walk_bound_unit_view,
+use bray_bound_tree::{BoundExpressionId, CheckedExpressionTypes, ExpressionTypeEntry};
+use bray_compiler_known::RepresentationRole;
+use bray_diagnostics::{
+    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind, DiagnosticType,
+    SeverityKind,
 };
-use bray_diagnostics::{Diagnostic, DiagnosticBag, DiagnosticId, DiagnosticKind, SeverityKind};
+use bray_symbols::{NamedTypeSymbolId, StructSymbolId, TypeData, TypeId};
 
 use crate::{CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext, UnitCheckRequest};
 
-use super::canonical::CanonicalTypes;
-use super::constraints::{
-    add_expectations, add_input_evidence, add_intrinsic_constraints, add_relationship_constraints,
-    block_expectations, infer_tuples,
-};
-use super::inference::TypeInferenceContext;
-use super::{ExpressionTypeCheckResult, ExpressionTypeEntry, ExpressionTypeInput};
+use super::ExpressionTypeInput;
+use super::session::{ExpressionTypeSession, SessionProgress};
+
+#[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
+struct DiagnosticConflict {
+    expression: BoundExpressionId,
+    expected: DiagnosticType,
+    actual: DiagnosticType,
+}
 
 pub(crate) fn check_expression_types<C>(
     request: UnitCheckRequest<'_, C>,
     input: &ExpressionTypeInput,
-) -> CheckerOutcome<ExpressionTypeCheckResult>
+) -> CheckerOutcome<CheckedExpressionTypes>
 where
     C: CheckerRequestContext + ?Sized,
 {
-    if request.is_cancelled() {
-        return CheckerOutcome::Cancelled;
-    }
-
-    let nodes = match collect_nodes(request) {
-        Ok(Some(nodes)) => nodes,
-        Ok(None) => return CheckerOutcome::Cancelled,
+    let mut session = match ExpressionTypeSession::begin(request) {
+        Ok(SessionProgress::Complete(session)) => session,
+        Ok(SessionProgress::Cancelled) => return CheckerOutcome::Cancelled,
         Err(error) => return CheckerOutcome::InfrastructureFailure(error),
     };
 
-    if let Err(error) = validate_input(request, input) {
+    if let Err(error) = session.apply_input(input) {
         return CheckerOutcome::InfrastructureFailure(error);
     }
 
-    let types = match CanonicalTypes::new(request) {
-        Ok(types) => types,
+    match session.propagate() {
+        Ok(SessionProgress::Complete(())) => {}
+        Ok(SessionProgress::Cancelled) => return CheckerOutcome::Cancelled,
         Err(error) => return CheckerOutcome::InfrastructureFailure(error),
-    };
+    }
 
-    let mut inference = TypeInferenceContext::new(types.error, types.never);
-    let mut variables = BTreeMap::new();
+    let finished = session.finish();
+    let mut conflicts = Vec::with_capacity(finished.conflicts.len());
 
-    for &expression in &nodes.expressions {
-        if request.is_cancelled() {
-            return CheckerOutcome::Cancelled;
-        }
-
-        let Some(bound) = request.view().expression(expression) else {
-            return CheckerOutcome::InfrastructureFailure(
-                CheckerInfrastructureError::InvalidExpressionTypeInput { expression },
-            );
+    for conflict in finished.conflicts {
+        let mut expected = match diagnostic_type(request, conflict.expected) {
+            Ok(expected) => expected,
+            Err(error) => return CheckerOutcome::InfrastructureFailure(error),
+        };
+        let mut actual = match diagnostic_type(request, conflict.actual) {
+            Ok(actual) => actual,
+            Err(error) => return CheckerOutcome::InfrastructureFailure(error),
         };
 
-        let Some(variable) = inference.fresh(bound.is_recovered()) else {
-            return CheckerOutcome::InfrastructureFailure(
-                CheckerInfrastructureError::ExpressionTypeCapacityExceeded,
-            );
-        };
-
-        variables.insert(expression, variable);
-
-        if let Some(ty) = bound.ty() {
-            if request.semantic_values().type_data(ty).is_err() {
-                return CheckerOutcome::InfrastructureFailure(
-                    CheckerInfrastructureError::SemanticValueUnavailable,
-                );
-            }
-
-            inference.add_evidence(variable, ty, expression);
+        if !conflict.is_directional && actual < expected {
+            std::mem::swap(&mut expected, &mut actual);
         }
 
-        add_intrinsic_constraints(bound, expression, variable, &types, &mut inference);
+        conflicts.push(DiagnosticConflict {
+            expression: conflict.expression,
+            expected,
+            actual,
+        });
     }
 
-    add_relationship_constraints(
-        request.view(),
-        &nodes.expressions,
-        &variables,
-        &types,
-        &mut inference,
-    );
+    conflicts.sort_unstable();
+    conflicts.dedup();
 
-    let local_expectations = block_expectations(request.view(), &nodes.blocks);
-
-    add_input_evidence(input, &variables, &mut inference);
-
-    if let Err(error) = add_expectations(
-        request,
-        local_expectations
-            .into_iter()
-            .chain(input.expectations().iter().copied()),
-        &variables,
-        &mut inference,
-    ) {
-        return CheckerOutcome::InfrastructureFailure(error);
-    }
-
-    if let Err(error) = infer_tuples(request, &nodes.expressions, &variables, &mut inference) {
-        return CheckerOutcome::InfrastructureFailure(error);
-    }
-
-    let ordered_variables = nodes
-        .expressions
-        .iter()
-        .filter_map(|expression| {
-            variables
-                .get(expression)
-                .copied()
-                .map(|variable| (*expression, variable))
-        })
-        .collect::<Vec<_>>();
-
-    let (results, conflicts, unresolved) = inference.finish(&ordered_variables);
     let mut diagnostics = Vec::new();
 
     for conflict in conflicts {
@@ -130,11 +82,13 @@ where
                 DiagnosticKind::CheckingIncompatibleExpressionType,
                 SeverityKind::Error,
             )
-            .with_primary_span(span),
+            .with_primary_span(span)
+            .with_arg(DiagnosticArg::expected_type(conflict.expected))
+            .with_arg(DiagnosticArg::actual_type(conflict.actual)),
         );
     }
 
-    for expression in unresolved {
+    for expression in finished.unresolved {
         let span = match expression_span(request, expression) {
             Ok(span) => span,
             Err(error) => return CheckerOutcome::InfrastructureFailure(error),
@@ -150,104 +104,81 @@ where
         );
     }
 
-    let entries = results
+    let entries = finished
+        .results
         .into_iter()
         .map(|(expression, result)| ExpressionTypeEntry::new(expression, result));
 
     CheckerOutcome::complete(
-        ExpressionTypeCheckResult::new(request.view().unit(), request.view().kind(), entries),
+        CheckedExpressionTypes::new(request.view().unit(), request.view().kind(), entries),
         DiagnosticBag::from(diagnostics),
     )
 }
 
-struct CollectedNodes {
-    expressions: Vec<BoundExpressionId>,
-    blocks: Vec<bray_bound_tree::BoundBlockId>,
-}
-
-fn collect_nodes<C>(
+fn diagnostic_type<C>(
     request: UnitCheckRequest<'_, C>,
-) -> Result<Option<CollectedNodes>, CheckerInfrastructureError>
+    ty: TypeId,
+) -> Result<DiagnosticType, CheckerInfrastructureError>
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let root = match request.root() {
-        crate::UnitCheckRoot::CallableBody(body) => AnyBoundNodeId::from(body),
-        crate::UnitCheckRoot::Expression(expression) => AnyBoundNodeId::from(expression),
-        crate::UnitCheckRoot::ExpressionSequence(block) => AnyBoundNodeId::from(block),
+    let data = request
+        .semantic_values()
+        .type_data(ty)
+        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+
+    let diagnostic = match data.as_ref() {
+        TypeData::Error => DiagnosticType::Error,
+        TypeData::Named { definition, .. } => diagnostic_named_type(request, *definition),
+        TypeData::TypeParameter(_) => DiagnosticType::TypeParameter,
+        TypeData::ContextualSelf(_) => DiagnosticType::ContextualSelf,
+        TypeData::AssociatedTypeProjection { .. } => DiagnosticType::AssociatedType,
+        TypeData::Tuple(elements) => {
+            let count = u64::try_from(elements.len()).unwrap_or(u64::MAX);
+
+            DiagnosticType::Tuple(count)
+        }
+        TypeData::Array { .. } => DiagnosticType::Array,
+        TypeData::Slice(_) => DiagnosticType::Slice,
+        TypeData::Nullable(_) => DiagnosticType::Nullable,
+        TypeData::Borrow { .. } => DiagnosticType::Borrow,
+        TypeData::TraitView(_) => DiagnosticType::TraitView,
+        TypeData::OwnedIndirection { .. } => DiagnosticType::OwnedIndirection,
+        TypeData::Callable(_) => DiagnosticType::Callable,
     };
 
-    let mut expressions = BTreeSet::new();
-    let mut blocks = BTreeSet::new();
-    let outcome = walk_bound_unit_view(request.view(), root, |event| {
-        if request.is_cancelled() {
-            return BoundWalkControl::Stop;
-        }
-
-        if let BoundWalkEvent::Enter(node) = event {
-            match node {
-                AnyBoundNodeId::Expression(id) => {
-                    expressions.insert(id);
-                }
-                AnyBoundNodeId::Block(id) => {
-                    blocks.insert(id);
-                }
-                AnyBoundNodeId::Pattern(_) | AnyBoundNodeId::CallableBody(_) => {}
-            }
-        }
-
-        BoundWalkControl::Continue
-    });
-
-    match outcome {
-        BoundWalkOutcome::Completed => {}
-        BoundWalkOutcome::Stopped => return Ok(None),
-        BoundWalkOutcome::MissingNode(node) => {
-            return Err(CheckerInfrastructureError::InvalidBoundNode { node });
-        }
-    }
-
-    Ok(Some(CollectedNodes {
-        expressions: expressions.into_iter().collect(),
-        blocks: blocks.into_iter().collect(),
-    }))
+    Ok(diagnostic)
 }
 
-fn validate_input<C>(
+fn diagnostic_named_type<C>(
     request: UnitCheckRequest<'_, C>,
-    input: &ExpressionTypeInput,
-) -> Result<(), CheckerInfrastructureError>
+    definition: NamedTypeSymbolId,
+) -> DiagnosticType
 where
     C: CheckerRequestContext + ?Sized,
 {
-    if let Some(expression) = input
-        .evidence()
-        .iter()
-        .map(|evidence| evidence.expression())
-        .chain(
-            input
-                .expectations()
-                .iter()
-                .map(|expectation| expectation.expression()),
-        )
-        .find(|expression| request.view().expression(*expression).is_none())
-    {
-        return Err(CheckerInfrastructureError::InvalidExpressionTypeInput { expression });
+    let roles = [
+        (RepresentationRole::ScalarBool, DiagnosticType::Boolean),
+        (RepresentationRole::Unit, DiagnosticType::Unit),
+        (RepresentationRole::Never, DiagnosticType::Never),
+        (RepresentationRole::String, DiagnosticType::String),
+        (RepresentationRole::ScalarUsize, DiagnosticType::Usize),
+    ];
+
+    for (role, diagnostic) in roles {
+        let Some(candidate) = request
+            .available_compiler_known_symbols()
+            .representation_symbol::<StructSymbolId>(role)
+        else {
+            continue;
+        };
+
+        if definition == NamedTypeSymbolId::Struct(candidate) {
+            return diagnostic;
+        }
     }
 
-    for ty in input.evidence().iter().map(|evidence| evidence.ty()).chain(
-        input
-            .expectations()
-            .iter()
-            .map(|expectation| expectation.ty()),
-    ) {
-        request
-            .semantic_values()
-            .type_data(ty)
-            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
-    }
-
-    Ok(())
+    DiagnosticType::Named
 }
 
 fn expression_span<C>(
@@ -273,23 +204,26 @@ fn diagnostic_id(index: usize) -> DiagnosticId {
 #[cfg(test)]
 mod tests {
     use bray_bound_tree::{
-        BoundBlock, BoundBlockItem, BoundCallableBody, BoundControlTransferExpression,
-        BoundControlTransferKind, BoundExpression, BoundExpressionId, BoundNodeOrigin,
-        BoundStructuredExpression, BoundStructuredExpressionKind, BoundTreeBuilder,
-        BoundTypeReference, BoundUnit, BoundUnitId,
+        BoundAssignmentExpression, BoundBlock, BoundBlockItem, BoundCallableBody,
+        BoundControlTransferExpression, BoundControlTransferKind, BoundExpression,
+        BoundExpressionId, BoundNodeOrigin, BoundOperator, BoundStructuredExpression,
+        BoundStructuredExpressionKind, BoundTreeBuilder, BoundTypeReference, BoundUnit,
+        BoundUnitId,
     };
     use bray_diagnostics::DiagnosticKind;
     use bray_symbols::{TypeData, TypeId};
 
-    use super::ExpressionTypeCheckResult;
+    use super::super::session::{ExpressionTypeSession, SessionProgress};
     use crate::test_support::{
-        callable_entry, callable_key, callable_unit, error_type, semantic_values,
+        callable_entry, callable_key, callable_unit, distinct_source_origins, error_type,
+        semantic_values,
     };
     use crate::{
         CheckerInfrastructureError, CheckerOutcome, DefaultExpressionTypeChecker,
         ExpressionTypeChecker, ExpressionTypeEvidence, ExpressionTypeExpectation,
-        ExpressionTypeInput, ExpressionTypeStatus, UnitCheckRequest,
+        ExpressionTypeInput, UnitCheckRequest,
     };
+    use bray_bound_tree::{CheckedExpressionTypes, ExpressionTypeResult, ExpressionTypeStatus};
 
     #[test]
     fn checking_publishes_one_canonical_result_for_every_expression() {
@@ -336,6 +270,88 @@ mod tests {
     }
 
     #[test]
+    fn staged_selection_can_add_nested_results_before_finalization() {
+        let operand_type = tuple_type([]);
+        let child_type = tuple_type([operand_type]);
+        let parent_type = tuple_type([child_type]);
+        let (unit, expressions) = expression_unit(BoundUnitId::new(50), |tree, origin| {
+            let leaf = push_expression(tree, literal(origin, None));
+            let child = push_expression(
+                tree,
+                BoundExpression::Structured(BoundStructuredExpression::new(
+                    origin,
+                    BoundStructuredExpressionKind::ElementIndex,
+                    [leaf],
+                    [],
+                    [],
+                    None,
+                    false,
+                )),
+            );
+            let parent = push_expression(
+                tree,
+                BoundExpression::Structured(BoundStructuredExpression::new(
+                    origin,
+                    BoundStructuredExpressionKind::ElementIndex,
+                    [child],
+                    [],
+                    [],
+                    None,
+                    false,
+                )),
+            );
+
+            vec![leaf, child, parent]
+        });
+        let entry = callable_entry(unit.key());
+        let context = crate::test_support::TestCheckerContext::new(false);
+        let Ok(request) = UnitCheckRequest::new(&unit, &entry, &context) else {
+            panic!("test checker request must be valid");
+        };
+        let Ok(SessionProgress::Complete(mut session)) = ExpressionTypeSession::begin(request)
+        else {
+            panic!("expression type session must start");
+        };
+
+        session
+            .add_evidence(expressions[0], operand_type)
+            .unwrap_or_else(|error| panic!("leaf evidence must be valid: {error:?}"));
+        assert!(matches!(
+            session.propagate(),
+            Ok(SessionProgress::Complete(()))
+        ));
+        assert_eq!(
+            session
+                .expression_type(expressions[0])
+                .map(|result| result.ty()),
+            Some(operand_type)
+        );
+        assert_eq!(session.expression_type(expressions[1]), None);
+
+        session
+            .add_evidence(expressions[1], child_type)
+            .unwrap_or_else(|error| panic!("child selection must be valid: {error:?}"));
+        assert!(matches!(
+            session.propagate(),
+            Ok(SessionProgress::Complete(()))
+        ));
+        assert_eq!(session.expression_type(expressions[2]), None);
+
+        session
+            .add_evidence(expressions[2], parent_type)
+            .unwrap_or_else(|error| panic!("parent selection must be valid: {error:?}"));
+        assert!(matches!(
+            session.propagate(),
+            Ok(SessionProgress::Complete(()))
+        ));
+
+        let finished = session.finish();
+
+        assert!(finished.conflicts.is_empty());
+        assert!(finished.unresolved.is_empty());
+    }
+
+    #[test]
     fn local_annotations_provide_expected_types_without_selecting_actual_types() {
         let actual = tuple_type([]);
         let expected = tuple_type([actual]);
@@ -368,10 +384,201 @@ mod tests {
 
         assert_eq!(
             result.value().expression(initializer),
-            Some(crate::ExpressionTypeResult::new(
+            Some(ExpressionTypeResult::new(
                 actual,
                 ExpressionTypeStatus::Recovered,
             ))
+        );
+    }
+
+    #[test]
+    fn nested_arrays_infer_compositional_element_types() {
+        let element_type = tuple_type([]);
+        let (unit, expressions) = expression_unit(BoundUnitId::new(51), |tree, origin| {
+            let first = push_expression(tree, literal(origin, Some(element_type)));
+            let second = push_expression(tree, literal(origin, Some(element_type)));
+            let first_array = push_expression(
+                tree,
+                BoundExpression::Structured(BoundStructuredExpression::new(
+                    origin,
+                    BoundStructuredExpressionKind::Array,
+                    [first],
+                    [],
+                    [],
+                    None,
+                    false,
+                )),
+            );
+            let second_array = push_expression(
+                tree,
+                BoundExpression::Structured(BoundStructuredExpression::new(
+                    origin,
+                    BoundStructuredExpressionKind::Array,
+                    [second],
+                    [],
+                    [],
+                    None,
+                    false,
+                )),
+            );
+            let outer = push_expression(
+                tree,
+                BoundExpression::Structured(BoundStructuredExpression::new(
+                    origin,
+                    BoundStructuredExpressionKind::Array,
+                    [first_array, second_array],
+                    [],
+                    [],
+                    None,
+                    false,
+                )),
+            );
+
+            vec![first, second, first_array, second_array, outer]
+        });
+
+        let result = completed_check(&unit, &ExpressionTypeInput::new());
+
+        assert!(result.diagnostics().is_empty());
+
+        let Some(first_array) = result.value().expression(expressions[2]) else {
+            panic!("inner array must have a type");
+        };
+        let Some(outer) = result.value().expression(expressions[4]) else {
+            panic!("outer array must have a type");
+        };
+
+        assert!(matches!(
+            type_data(first_array.ty()),
+            TypeData::Array { element, .. } if element == element_type
+        ));
+        assert!(matches!(
+            type_data(outer.ty()),
+            TypeData::Array { element, .. } if element == first_array.ty()
+        ));
+    }
+
+    #[test]
+    fn conditional_types_ignore_never_branches_when_merging_values() {
+        let result_type = tuple_type([]);
+        let iterable_type = tuple_type([result_type]);
+        let [yield_origin, never_origin] = distinct_source_origins();
+        let key = callable_key();
+        let origin = BoundNodeOrigin::source(key.source());
+        let mut tree = BoundTreeBuilder::new(BoundUnitId::new(55));
+        let source = push_expression(&mut tree, literal(origin, Some(iterable_type)));
+        let condition = push_expression(
+            &mut tree,
+            BoundExpression::Structured(BoundStructuredExpression::new(
+                origin,
+                BoundStructuredExpressionKind::BooleanFold,
+                [source],
+                [],
+                [],
+                None,
+                false,
+            )),
+        );
+        let value = push_expression(&mut tree, literal(yield_origin, Some(result_type)));
+        let yielded = push_expression(
+            &mut tree,
+            BoundExpression::ControlTransfer(BoundControlTransferExpression::new(
+                yield_origin,
+                BoundControlTransferKind::Yield,
+                Some(value),
+                Some(yield_origin.source_anchor().syntax()),
+                None,
+                false,
+            )),
+        );
+        let yield_block = push_block(
+            &mut tree,
+            yield_origin,
+            [BoundBlockItem::Expression(yielded)],
+        );
+        let diverging = push_expression(
+            &mut tree,
+            BoundExpression::Structured(BoundStructuredExpression::new(
+                never_origin,
+                BoundStructuredExpressionKind::Panic,
+                [],
+                [],
+                [],
+                None,
+                false,
+            )),
+        );
+        let never_block = push_block(
+            &mut tree,
+            never_origin,
+            [BoundBlockItem::Expression(diverging)],
+        );
+        let conditional = push_expression(
+            &mut tree,
+            BoundExpression::Structured(BoundStructuredExpression::new(
+                origin,
+                BoundStructuredExpressionKind::Conditional,
+                [condition],
+                [yield_block, never_block],
+                [],
+                None,
+                false,
+            )),
+        );
+        let root_block = push_block(&mut tree, origin, [BoundBlockItem::Expression(conditional)]);
+        let root = push_callable(&mut tree, origin, root_block);
+        let unit = callable_unit(&key, tree.finish(), root);
+
+        let result = completed_check(&unit, &ExpressionTypeInput::new());
+
+        assert!(result.diagnostics().is_empty());
+        assert_eq!(
+            result
+                .value()
+                .expression(conditional)
+                .map(|result| result.ty()),
+            Some(result_type)
+        );
+    }
+
+    #[test]
+    fn conditional_conditions_must_be_boolean() {
+        let condition_type = tuple_type([]);
+        let key = callable_key();
+        let origin = BoundNodeOrigin::source(key.source());
+        let mut tree = BoundTreeBuilder::new(BoundUnitId::new(58));
+        let condition = push_expression(&mut tree, literal(origin, Some(condition_type)));
+        let branch = push_block(&mut tree, origin, []);
+        let conditional = push_expression(
+            &mut tree,
+            BoundExpression::Structured(BoundStructuredExpression::new(
+                origin,
+                BoundStructuredExpressionKind::Conditional,
+                [condition],
+                [branch],
+                [],
+                None,
+                false,
+            )),
+        );
+        let root_block = push_block(&mut tree, origin, [BoundBlockItem::Expression(conditional)]);
+        let root = push_callable(&mut tree, origin, root_block);
+        let unit = callable_unit(&key, tree.finish(), root);
+
+        let result = completed_check(&unit, &ExpressionTypeInput::new());
+
+        assert_eq!(
+            result
+                .diagnostics()
+                .by_kind(DiagnosticKind::CheckingIncompatibleExpressionType)
+                .count(),
+            1
+        );
+        assert!(
+            result
+                .value()
+                .expression(condition)
+                .is_some_and(|condition| condition.is_recovered())
         );
     }
 
@@ -415,14 +622,57 @@ mod tests {
                 .diagnostics()
                 .by_kind(DiagnosticKind::CheckingIncompatibleExpressionType)
                 .count(),
-            2
+            1
         );
         assert_eq!(
             result
                 .value()
                 .expression(expressions[1])
-                .map(crate::ExpressionTypeResult::status),
+                .map(ExpressionTypeResult::status),
             Some(ExpressionTypeStatus::Recovered)
+        );
+    }
+
+    #[test]
+    fn recovered_elements_do_not_cascade_into_aggregate_mismatches() {
+        let expected_element = tuple_type([]);
+        let actual_element = tuple_type([expected_element]);
+        let (unit, expressions) = expression_unit(BoundUnitId::new(54), |tree, origin| {
+            let element = push_expression(tree, literal(origin, Some(actual_element)));
+            let tuple = push_expression(
+                tree,
+                BoundExpression::Structured(BoundStructuredExpression::new(
+                    origin,
+                    BoundStructuredExpressionKind::Tuple,
+                    [element],
+                    [],
+                    [],
+                    None,
+                    false,
+                )),
+            );
+
+            vec![element, tuple]
+        });
+        let input = ExpressionTypeInput::new().with_expectations([ExpressionTypeExpectation::new(
+            expressions[1],
+            tuple_type([expected_element]),
+        )]);
+
+        let result = completed_check(&unit, &input);
+
+        assert_eq!(
+            result
+                .diagnostics()
+                .by_kind(DiagnosticKind::CheckingIncompatibleExpressionType)
+                .count(),
+            1
+        );
+        assert!(
+            result
+                .value()
+                .expression(expressions[1])
+                .is_some_and(|tuple| tuple.ty() == error_type() && tuple.is_recovered())
         );
     }
 
@@ -431,7 +681,21 @@ mod tests {
         let first_type = tuple_type([]);
         let second_type = tuple_type([first_type]);
         let (unit, expressions) = expression_unit(BoundUnitId::new(48), |tree, origin| {
-            vec![push_expression(tree, literal(origin, None))]
+            let leaf = push_expression(tree, literal(origin, None));
+            let aggregate = push_expression(
+                tree,
+                BoundExpression::Structured(BoundStructuredExpression::new(
+                    origin,
+                    BoundStructuredExpressionKind::Tuple,
+                    [leaf],
+                    [],
+                    [],
+                    None,
+                    false,
+                )),
+            );
+
+            vec![leaf, aggregate]
         });
         let first = ExpressionTypeEvidence::new(expressions[0], first_type);
         let second = ExpressionTypeEvidence::new(expressions[0], second_type);
@@ -442,6 +706,12 @@ mod tests {
         let reverse = completed_check(&unit, &reverse);
 
         assert_eq!(forward, reverse);
+        assert!(expressions.iter().all(|expression| {
+            forward
+                .value()
+                .expression(*expression)
+                .is_some_and(|result| result.ty() == error_type() && result.is_recovered())
+        }));
         assert_eq!(
             forward
                 .diagnostics()
@@ -580,6 +850,130 @@ mod tests {
     }
 
     #[test]
+    fn assignment_targets_directionally_constrain_values() {
+        let target_type = tuple_type([]);
+        let actual_type = tuple_type([target_type]);
+        let (unit, expressions) = expression_unit(BoundUnitId::new(52), |tree, origin| {
+            let target = push_expression(tree, literal(origin, Some(target_type)));
+            let value = push_expression(tree, literal(origin, Some(actual_type)));
+            let assignment = push_expression(
+                tree,
+                BoundExpression::Assignment(BoundAssignmentExpression::new(
+                    origin,
+                    BoundOperator::Assign,
+                    [target, value],
+                    None,
+                    false,
+                )),
+            );
+
+            vec![target, value, assignment]
+        });
+
+        let result = completed_check(&unit, &ExpressionTypeInput::new());
+
+        assert_eq!(
+            result
+                .diagnostics()
+                .by_kind(DiagnosticKind::CheckingIncompatibleExpressionType)
+                .count(),
+            1
+        );
+        assert!(
+            result
+                .value()
+                .expression(expressions[1])
+                .is_some_and(|value| value.is_recovered())
+        );
+        assert!(
+            result
+                .value()
+                .expression(expressions[2])
+                .is_some_and(|assignment| !assignment.is_recovered())
+        );
+    }
+
+    #[test]
+    fn callable_result_types_directionally_constrain_return_operands() {
+        let result_type = tuple_type([]);
+        let actual_type = tuple_type([result_type]);
+        let (unit, expressions) = expression_unit(BoundUnitId::new(56), |tree, origin| {
+            let value = push_expression(tree, literal(origin, Some(actual_type)));
+            let returned = push_expression(
+                tree,
+                BoundExpression::ControlTransfer(BoundControlTransferExpression::new(
+                    origin,
+                    BoundControlTransferKind::Return,
+                    Some(value),
+                    None,
+                    None,
+                    false,
+                )),
+            );
+
+            vec![value, returned]
+        });
+        let input = ExpressionTypeInput::new().with_callable_result_type(result_type);
+
+        let result = completed_check(&unit, &input);
+
+        assert_eq!(
+            result
+                .diagnostics()
+                .by_kind(DiagnosticKind::CheckingIncompatibleExpressionType)
+                .count(),
+            1
+        );
+        assert!(
+            result
+                .value()
+                .expression(expressions[0])
+                .is_some_and(|value| value.is_recovered())
+        );
+        assert!(
+            result
+                .value()
+                .expression(expressions[1])
+                .is_some_and(|returned| !returned.is_recovered())
+        );
+    }
+
+    #[test]
+    fn bare_return_uses_unit_for_callable_result_compatibility() {
+        let result_type = tuple_type([tuple_type([])]);
+        let (unit, expressions) = expression_unit(BoundUnitId::new(57), |tree, origin| {
+            vec![push_expression(
+                tree,
+                BoundExpression::ControlTransfer(BoundControlTransferExpression::new(
+                    origin,
+                    BoundControlTransferKind::Return,
+                    None,
+                    None,
+                    None,
+                    false,
+                )),
+            )]
+        });
+        let input = ExpressionTypeInput::new().with_callable_result_type(result_type);
+
+        let result = completed_check(&unit, &input);
+
+        assert_eq!(
+            result
+                .diagnostics()
+                .by_kind(DiagnosticKind::CheckingIncompatibleExpressionType)
+                .count(),
+            1
+        );
+        assert!(
+            result
+                .value()
+                .expression(expressions[0])
+                .is_some_and(|returned| returned.is_recovered())
+        );
+    }
+
+    #[test]
     fn foreign_type_inputs_fail_without_publishing_partial_results() {
         let (unit, _) = expression_unit(BoundUnitId::new(45), |tree, origin| {
             vec![push_expression(tree, literal(origin, None))]
@@ -625,10 +1019,29 @@ mod tests {
         assert_eq!(outcome.result(), None);
     }
 
+    #[test]
+    fn cancellation_during_constraint_construction_publishes_nothing() {
+        let (unit, _) = expression_unit(BoundUnitId::new(53), |tree, origin| {
+            (0..32)
+                .map(|_| push_expression(tree, literal(origin, None)))
+                .collect()
+        });
+        let entry = callable_entry(unit.key());
+        let context = crate::test_support::TestCheckerContext::cancelling_after(8);
+        let Ok(request) = UnitCheckRequest::new(&unit, &entry, &context) else {
+            panic!("test checker request must be valid");
+        };
+
+        let outcome = DefaultExpressionTypeChecker
+            .check_expression_types(request, &ExpressionTypeInput::new());
+
+        assert_eq!(outcome, CheckerOutcome::Cancelled);
+    }
+
     fn completed_check(
         unit: &BoundUnit,
         input: &ExpressionTypeInput,
-    ) -> bray_diagnostics::DiagnosticResult<ExpressionTypeCheckResult> {
+    ) -> bray_diagnostics::DiagnosticResult<CheckedExpressionTypes> {
         let entry = callable_entry(unit.key());
         let context = crate::test_support::TestCheckerContext::new(false);
         let Ok(request) = UnitCheckRequest::new(unit, &entry, &context) else {

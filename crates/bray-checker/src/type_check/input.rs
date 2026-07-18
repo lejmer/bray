@@ -57,6 +57,7 @@ impl ExpressionTypeExpectation {
 pub struct ExpressionTypeInput {
     evidence: Arc<[ExpressionTypeEvidence]>,
     expectations: Arc<[ExpressionTypeExpectation]>,
+    callable_result_type: Option<TypeId>,
 }
 
 impl ExpressionTypeInput {
@@ -85,11 +86,22 @@ impl ExpressionTypeInput {
         self
     }
 
+    /// Sets the declared result type for return-expression checking.
+    pub const fn with_callable_result_type(mut self, ty: TypeId) -> Self {
+        self.callable_result_type = Some(ty);
+
+        self
+    }
+
     pub(crate) fn evidence(&self) -> &[ExpressionTypeEvidence] {
         &self.evidence
     }
 
     pub(crate) fn expectations(&self) -> &[ExpressionTypeExpectation] {
         &self.expectations
+    }
+
+    pub(crate) const fn callable_result_type(&self) -> Option<TypeId> {
+        self.callable_result_type
     }
 }

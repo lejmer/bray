@@ -13,6 +13,7 @@ mod template;
 #[cfg(test)]
 mod test_support;
 mod tree;
+mod typing;
 mod unit;
 mod view;
 
@@ -60,6 +61,9 @@ pub use template::{
 pub use tree::{
     BoundTree, BoundTreeBuildError, BoundTreeBuilder, BoundTreeCheckpoint, BoundWalkControl,
     BoundWalkEvent, BoundWalkOutcome, walk_bound_tree, walk_bound_unit_view,
+};
+pub use typing::{
+    CheckedExpressionTypes, ExpressionTypeEntry, ExpressionTypeResult, ExpressionTypeStatus,
 };
 pub use unit::{
     AnonymousCallableUnitKey, BoundSourceAnchor, BoundUnitId, BoundUnitIdentity, BoundUnitKey,

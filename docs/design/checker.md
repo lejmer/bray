@@ -332,6 +332,11 @@ canonical checked or recovery `TypeId` and whether recovery affected that occurr
 bound tree, not another semantic tree. Literal adaptation and semantic selection contribute typed evidence to the same inference
 context before publication.
 
+Type inference and semantic selection cooperate through one task-local fixed point. Selection can inspect currently resolved
+operand types, contribute a selected result type or an additional expected type, and request propagation again. Intermediate
+rounds do not publish diagnostics. Cannot-infer and incompatibility diagnostics are finalized only after the cooperating domains
+reach a stable state.
+
 Expected types are directional constraints. They propagate into language-defined child contexts such as tuple and array elements,
 but an expected type alone does not establish an expression's actual type or select an overload, member, operator, conversion, or
 other operation. A completed inference variable must have independent type evidence or resolve to the canonical error type with an

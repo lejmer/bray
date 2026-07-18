@@ -200,9 +200,12 @@ const BINDING_INCOHERENT_ALTERNATIVE_PATTERN: &[MessageTemplatePart] =
         "alternative patterns must bind the same names",
     )];
 
-const CHECKING_INCOMPATIBLE_EXPRESSION_TYPE: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
-    "expression type is incompatible with the expected type",
-)];
+const CHECKING_INCOMPATIBLE_EXPRESSION_TYPE: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("expected "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ExpectedType),
+    MessageTemplatePart::Text(", but found "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ActualType),
+];
 
 const CHECKING_CANNOT_INFER_EXPRESSION_TYPE: &[MessageTemplatePart] =
     &[MessageTemplatePart::Text("cannot infer expression type")];

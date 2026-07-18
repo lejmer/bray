@@ -195,7 +195,13 @@ mod tests {
             DiagnosticId::new(0),
             DiagnosticKind::CheckingIncompatibleExpressionType,
             SeverityKind::Error,
-        );
+        )
+        .with_arg(bray_diagnostics::DiagnosticArg::expected_type(
+            bray_diagnostics::DiagnosticType::Boolean,
+        ))
+        .with_arg(bray_diagnostics::DiagnosticArg::actual_type(
+            bray_diagnostics::DiagnosticType::Tuple(2),
+        ));
         let unresolved = Diagnostic::new(
             DiagnosticId::new(1),
             DiagnosticKind::CheckingCannotInferExpressionType,
@@ -205,7 +211,7 @@ mod tests {
 
         assert_eq!(
             renderer.render(&incompatible).message(),
-            "expression type is incompatible with the expected type"
+            "expected bool, but found tuple type with 2 elements"
         );
         assert_eq!(
             renderer.render(&unresolved).message(),

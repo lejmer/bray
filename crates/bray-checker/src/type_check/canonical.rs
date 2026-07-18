@@ -12,6 +12,7 @@ pub(super) struct CanonicalTypes {
     pub(super) never: TypeId,
     pub(super) boolean: TypeId,
     pub(super) string: TypeId,
+    pub(super) usize: TypeId,
 }
 
 impl CanonicalTypes {
@@ -29,6 +30,7 @@ impl CanonicalTypes {
         let never = representation_type(request, RepresentationRole::Never)?;
         let boolean = representation_type(request, RepresentationRole::ScalarBool)?;
         let string = representation_type(request, RepresentationRole::String)?;
+        let usize = representation_type(request, RepresentationRole::ScalarUsize)?;
 
         Ok(Self {
             error,
@@ -36,6 +38,7 @@ impl CanonicalTypes {
             never,
             boolean,
             string,
+            usize,
         })
     }
 }

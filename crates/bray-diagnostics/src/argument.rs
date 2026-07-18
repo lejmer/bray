@@ -44,6 +44,19 @@ impl DiagnosticArg {
         )
     }
 
+    /// Creates an expected semantic-type argument.
+    pub const fn expected_type(ty: DiagnosticType) -> Self {
+        Self::new(
+            DiagnosticArgName::ExpectedType,
+            DiagnosticArgValue::Type(ty),
+        )
+    }
+
+    /// Creates an actual semantic-type argument.
+    pub const fn actual_type(ty: DiagnosticType) -> Self {
+        Self::new(DiagnosticArgName::ActualType, DiagnosticArgValue::Type(ty))
+    }
+
     /// Creates an artifact-kind argument.
     pub const fn artifact_kind(kind: DiagnosticArtifactKind) -> Self {
         Self::new(
@@ -287,6 +300,8 @@ pub enum DiagnosticArgName {
     ArtifactOrdinal,
     /// Actual interface or language revision.
     ActualRevision,
+    /// Semantic type found by checking.
+    ActualType,
     /// Byte that participates in the diagnostic.
     Byte,
     /// Number of bytes that participate in the diagnostic.
@@ -337,6 +352,8 @@ pub enum DiagnosticArgName {
     MaximumCount,
     /// Expected interface or language revision.
     ExpectedRevision,
+    /// Semantic type required by checking.
+    ExpectedType,
     /// Name of a virtual, generated, or test-fixture source.
     SourceName,
     /// Number of source inputs involved in the diagnostic.
@@ -366,6 +383,7 @@ impl DiagnosticArgName {
             Self::ArtifactKind => "artifact_kind",
             Self::ArtifactOrdinal => "artifact_ordinal",
             Self::ActualRevision => "actual_revision",
+            Self::ActualType => "actual_type",
             Self::Byte => "byte",
             Self::ByteCount => "byte_count",
             Self::Character => "character",
@@ -391,6 +409,7 @@ impl DiagnosticArgName {
             Self::OutputSink => "output_sink",
             Self::MaximumCount => "maximum_count",
             Self::ExpectedRevision => "expected_revision",
+            Self::ExpectedType => "expected_type",
             Self::SourceName => "source_name",
             Self::SourceCount => "source_count",
             Self::SourceInputKind => "source_input_kind",
@@ -466,6 +485,49 @@ pub enum DiagnosticArgValue {
     WorkerCount(u64),
     /// Interface or language revision.
     Revision(u64),
+    /// Locale-neutral semantic type shape.
+    Type(DiagnosticType),
+}
+
+/// Locale-neutral semantic type categories used by structured diagnostics.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum DiagnosticType {
+    /// The canonical recovery type.
+    Error,
+    /// The Boolean scalar type.
+    Boolean,
+    /// The unit type.
+    Unit,
+    /// The uninhabited type.
+    Never,
+    /// The string type.
+    String,
+    /// The machine-sized unsigned integer type.
+    Usize,
+    /// Another named type.
+    Named,
+    /// A generic type parameter.
+    TypeParameter,
+    /// The contextual `Self` type.
+    ContextualSelf,
+    /// An associated type projection.
+    AssociatedType,
+    /// A tuple with the supplied element count.
+    Tuple(u64),
+    /// A fixed-size array.
+    Array,
+    /// A dynamically sized slice.
+    Slice,
+    /// A nullable type.
+    Nullable,
+    /// A borrowed type.
+    Borrow,
+    /// A dynamically dispatched trait view.
+    TraitView,
+    /// An owned indirection type.
+    OwnedIndirection,
+    /// A callable type.
+    Callable,
 }
 
 /// Locale-neutral deterministic artifact digest used by diagnostics.

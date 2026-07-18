@@ -17,7 +17,8 @@ mod severity;
 pub use argument::{
     DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticArtifactDigest,
     DiagnosticArtifactDigestAlgorithm, DiagnosticArtifactKind, DiagnosticIoErrorKind,
-    DiagnosticModuleTrust, DiagnosticNameKind, DiagnosticOutputSink, DiagnosticVisibility,
+    DiagnosticModuleTrust, DiagnosticNameKind, DiagnosticOutputSink, DiagnosticType,
+    DiagnosticVisibility,
 };
 pub use bag::DiagnosticBag;
 pub use code::DiagnosticCode;

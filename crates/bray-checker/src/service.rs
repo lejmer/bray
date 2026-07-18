@@ -1,9 +1,10 @@
 use crate::analysis::check_control_flow;
 use crate::type_check::check_expression_types;
 use crate::{
-    CheckerOutcome, CheckerRequestContext, ControlFlowCheckResult, ExpressionTypeCheckResult,
-    ExpressionTypeInput, UnitCheckRequest,
+    CheckerOutcome, CheckerRequestContext, ControlFlowCheckResult, ExpressionTypeInput,
+    UnitCheckRequest,
 };
+use bray_bound_tree::CheckedExpressionTypes;
 
 /// The standard Bray control-flow checker implementation.
 #[derive(Clone, Copy, Debug, Default)]
@@ -46,7 +47,7 @@ where
         &self,
         request: UnitCheckRequest<'_, C>,
         input: &ExpressionTypeInput,
-    ) -> CheckerOutcome<ExpressionTypeCheckResult> {
+    ) -> CheckerOutcome<CheckedExpressionTypes> {
         check_expression_types(request, input)
     }
 }

@@ -250,6 +250,8 @@ pub enum BoundStructuredExpressionKind {
     Tuple,
     /// An array aggregate.
     Array,
+    /// An array that repeats one value by a constant count.
+    RepeatedArray,
     /// A conditional branch.
     Conditional,
     /// A conditional loop.

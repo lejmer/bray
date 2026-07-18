@@ -1,16 +1,15 @@
 use std::collections::BTreeMap;
 
 use bray_bound_tree::{
-    BoundBlockId, BoundBlockItem, BoundExpression, BoundExpressionId,
-    BoundStructuredExpressionKind, BoundUnitView,
+    BoundBlockId, BoundBlockItem, BoundExpression, BoundExpressionId, BoundStructuredExpressionKind,
 };
 use bray_symbols::{TypeData, TypeId};
 
 use crate::{CheckerInfrastructureError, CheckerRequestContext, UnitCheckRequest};
 
+use super::ExpressionTypeExpectation;
 use super::canonical::CanonicalTypes;
 use super::inference::{InferenceTypeId, TypeInferenceContext};
-use super::{ExpressionTypeEvidence, ExpressionTypeExpectation, ExpressionTypeInput};
 
 pub(super) fn add_intrinsic_constraints(
     expression: &BoundExpression,
@@ -44,15 +43,23 @@ pub(super) fn add_intrinsic_constraints(
     }
 }
 
-pub(super) fn add_relationship_constraints(
-    view: BoundUnitView<'_>,
+pub(super) fn add_relationship_constraints<C>(
+    request: UnitCheckRequest<'_, C>,
     expressions: &[BoundExpressionId],
     variables: &BTreeMap<BoundExpressionId, InferenceTypeId>,
+    block_variables: &BTreeMap<BoundBlockId, InferenceTypeId>,
     types: &CanonicalTypes,
     inference: &mut TypeInferenceContext,
-) {
+) -> bool
+where
+    C: CheckerRequestContext + ?Sized,
+{
     for &expression_id in expressions {
-        let Some(expression) = view.expression(expression_id) else {
+        if request.is_cancelled() {
+            return false;
+        }
+
+        let Some(expression) = request.view().expression(expression_id) else {
             continue;
         };
 
@@ -61,6 +68,54 @@ pub(super) fn add_relationship_constraints(
         };
 
         match expression {
+            BoundExpression::Block(block) => {
+                if let Some(block_variable) = block_variables.get(&block.block()).copied() {
+                    inference.unify(variable, block_variable, expression_id);
+                }
+            }
+            BoundExpression::Structured(structured)
+                if structured.kind() == BoundStructuredExpressionKind::Conditional =>
+            {
+                add_operand_expectation(
+                    structured.operands().first().copied(),
+                    Some(types.boolean),
+                    variables,
+                    inference,
+                );
+
+                for block in structured.blocks() {
+                    if let Some(block_variable) = block_variables.get(block).copied() {
+                        inference.unify(variable, block_variable, expression_id);
+                    }
+                }
+
+                if structured.blocks().len() < 2 {
+                    inference.add_evidence(variable, types.unit, expression_id);
+                }
+            }
+            BoundExpression::Structured(structured)
+                if structured.kind() == BoundStructuredExpressionKind::While =>
+            {
+                add_operand_expectation(
+                    structured.operands().first().copied(),
+                    Some(types.boolean),
+                    variables,
+                    inference,
+                );
+
+                if let Some(else_block) = structured.blocks().get(1)
+                    && let Some(block_variable) = block_variables.get(else_block).copied()
+                {
+                    inference.unify(variable, block_variable, expression_id);
+                } else {
+                    inference.add_evidence(variable, types.unit, expression_id);
+                }
+            }
+            BoundExpression::Structured(structured)
+                if structured.kind() == BoundStructuredExpressionKind::Loop =>
+            {
+                inference.add_evidence(variable, types.never, expression_id);
+            }
             BoundExpression::Structured(structured)
                 if structured.kind() == BoundStructuredExpressionKind::TrustBoundary =>
             {
@@ -74,20 +129,6 @@ pub(super) fn add_relationship_constraints(
                 if structured.kind() == BoundStructuredExpressionKind::BooleanFold =>
             {
                 inference.add_evidence(variable, types.boolean, expression_id);
-            }
-            BoundExpression::Structured(structured)
-                if matches!(
-                    structured.kind(),
-                    BoundStructuredExpressionKind::Conditional
-                        | BoundStructuredExpressionKind::While
-                ) =>
-            {
-                add_operand_expectation(
-                    structured.operands().first().copied(),
-                    Some(types.boolean),
-                    variables,
-                    inference,
-                );
             }
             BoundExpression::Structured(structured)
                 if structured.kind() == BoundStructuredExpressionKind::Assertion =>
@@ -118,9 +159,11 @@ pub(super) fn add_relationship_constraints(
             _ => {}
         }
     }
+
+    true
 }
 
-fn add_operand_expectation(
+pub(super) fn add_operand_expectation(
     expression: Option<BoundExpressionId>,
     expected: Option<TypeId>,
     variables: &BTreeMap<BoundExpressionId, InferenceTypeId>,
@@ -141,14 +184,21 @@ fn add_operand_expectation(
     inference.add_expectation(variable, expected, expression);
 }
 
-pub(super) fn block_expectations(
-    view: BoundUnitView<'_>,
+pub(super) fn block_expectations<C>(
+    request: UnitCheckRequest<'_, C>,
     blocks: &[BoundBlockId],
-) -> Vec<ExpressionTypeExpectation> {
+) -> Option<Vec<ExpressionTypeExpectation>>
+where
+    C: CheckerRequestContext + ?Sized,
+{
     let mut expectations = Vec::new();
 
     for &block in blocks {
-        let Some(block) = view.block(block) else {
+        if request.is_cancelled() {
+            return None;
+        }
+
+        let Some(block) = request.view().block(block) else {
             continue;
         };
 
@@ -171,7 +221,7 @@ pub(super) fn block_expectations(
         }
     }
 
-    expectations
+    Some(expectations)
 }
 
 fn push_expected_initializer(
@@ -186,38 +236,22 @@ fn push_expected_initializer(
     expectations.push(ExpressionTypeExpectation::new(expression, expected));
 }
 
-pub(super) fn add_input_evidence(
-    input: &ExpressionTypeInput,
-    variables: &BTreeMap<BoundExpressionId, InferenceTypeId>,
-    inference: &mut TypeInferenceContext,
-) {
-    for evidence in input.evidence() {
-        add_evidence(*evidence, variables, inference);
-    }
-}
-
-fn add_evidence(
-    evidence: ExpressionTypeEvidence,
-    variables: &BTreeMap<BoundExpressionId, InferenceTypeId>,
-    inference: &mut TypeInferenceContext,
-) {
-    if let Some(variable) = variables.get(&evidence.expression()).copied() {
-        inference.add_evidence(variable, evidence.ty(), evidence.expression());
-    }
-}
-
 pub(super) fn add_expectations<C>(
     request: UnitCheckRequest<'_, C>,
     expectations: impl IntoIterator<Item = ExpressionTypeExpectation>,
     variables: &BTreeMap<BoundExpressionId, InferenceTypeId>,
     inference: &mut TypeInferenceContext,
-) -> Result<(), CheckerInfrastructureError>
+) -> Result<Option<()>, CheckerInfrastructureError>
 where
     C: CheckerRequestContext + ?Sized,
 {
     let mut pending = expectations.into_iter().collect::<Vec<_>>();
 
     while let Some(expectation) = pending.pop() {
+        if request.is_cancelled() {
+            return Ok(None);
+        }
+
         let Some(variable) = variables.get(&expectation.expression()).copied() else {
             continue;
         };
@@ -269,60 +303,5 @@ where
         }
     }
 
-    Ok(())
-}
-
-pub(super) fn infer_tuples<C>(
-    request: UnitCheckRequest<'_, C>,
-    expressions: &[BoundExpressionId],
-    variables: &BTreeMap<BoundExpressionId, InferenceTypeId>,
-    inference: &mut TypeInferenceContext,
-) -> Result<(), CheckerInfrastructureError>
-where
-    C: CheckerRequestContext + ?Sized,
-{
-    for &expression_id in expressions {
-        let Some(BoundExpression::Structured(expression)) =
-            request.view().expression(expression_id)
-        else {
-            continue;
-        };
-
-        if expression.kind() != BoundStructuredExpressionKind::Tuple {
-            continue;
-        }
-
-        let mut elements = Vec::with_capacity(expression.operands().len());
-
-        for operand in expression.operands() {
-            let Some(variable) = variables.get(operand).copied() else {
-                elements.clear();
-                break;
-            };
-
-            let Some(ty) = inference.evidence(variable) else {
-                elements.clear();
-                break;
-            };
-
-            elements.push(ty);
-        }
-
-        if elements.len() != expression.operands().len() {
-            continue;
-        }
-
-        let ty = request
-            .semantic_values()
-            .intern_type(TypeData::tuple(elements))
-            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
-
-        let Some(variable) = variables.get(&expression_id).copied() else {
-            continue;
-        };
-
-        inference.add_evidence(variable, ty, expression_id);
-    }
-
-    Ok(())
+    Ok(Some(()))
 }

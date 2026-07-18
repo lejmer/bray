@@ -27,7 +27,4 @@ pub use service::{
     ControlFlowChecker, DefaultControlFlowChecker, DefaultExpressionTypeChecker,
     ExpressionTypeChecker,
 };
-pub use type_check::{
-    ExpressionTypeCheckResult, ExpressionTypeEntry, ExpressionTypeEvidence,
-    ExpressionTypeExpectation, ExpressionTypeInput, ExpressionTypeResult, ExpressionTypeStatus,
-};
+pub use type_check::{ExpressionTypeEvidence, ExpressionTypeExpectation, ExpressionTypeInput};
