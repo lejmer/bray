@@ -6,7 +6,6 @@ mod entry;
 mod fact;
 mod publication;
 mod surface;
-mod type_expression;
 
 // TODO(binder): Narrow and remove this expectation as candidate binding becomes production-used.
 #[cfg_attr(
@@ -47,6 +46,9 @@ mod binder;
 mod unit;
 
 pub use binder::BinderDependency;
+pub use binding::{
+    CallableTypeQualifiers, TypeExpressionBinder, TypeParameterBinding, bind_callable_abi,
+};
 pub use bray_checker::CheckerOutcome as BindingOutcome;
 pub use entry::{
     BoundUnitBindingError, PendingBoundAnonymousCallable, PendingBoundCallableBody,
@@ -62,7 +64,4 @@ pub use fact::{
 pub use result::BoundUnitComputation;
 pub use surface::{
     PredicateClauseBindingContext, bind_predicate_clause, bind_trusted_capability_clause,
-};
-pub use type_expression::{
-    CallableTypeQualifiers, TypeExpressionBinder, TypeParameterBinding, bind_callable_abi,
 };

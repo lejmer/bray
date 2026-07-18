@@ -1,7 +1,7 @@
 use bray_symbols::CallableAbi;
 use bray_syntax::{AbiDirectiveSyntax, CallableDirectivesSyntax, SourceSyntaxNode, SyntaxKind};
 
-use super::binding::{TypeExpressionBinder, token_text};
+use super::core::{TypeExpressionBinder, token_text};
 use crate::{BinderFactError, BinderFactResult};
 
 /// Binds the callable ABI selected by an ordered directive surface.

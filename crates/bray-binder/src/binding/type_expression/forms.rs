@@ -4,7 +4,7 @@ use bray_symbols::{
 };
 use bray_syntax::TypeExpressionSyntax;
 
-use super::binding::TypeExpressionBinder;
+use super::core::TypeExpressionBinder;
 use crate::{BinderFactError, BinderFactResult};
 
 impl TypeExpressionBinder<'_> {

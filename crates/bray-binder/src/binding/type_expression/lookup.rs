@@ -6,7 +6,7 @@ use bray_symbols::{
 };
 use bray_syntax::{PathSyntax, SourceSyntaxNode, TraitApplicationSyntax};
 
-use super::binding::{TypeExpressionBinder, token_text};
+use super::core::{TypeExpressionBinder, token_text};
 use crate::lookup::{
     NameReference, ResolvedName, classify_type, combine_name_lookups, lookup_diagnostic,
     lookup_surface_name,
