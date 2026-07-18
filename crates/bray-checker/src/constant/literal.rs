@@ -151,16 +151,29 @@ fn parse_real(
     let text = text.replace('_', "");
 
     match representation {
-        RepresentationRole::ScalarR16 => parse_float::<Half>(&text)
-            .map(|value| RealConstantBits::Binary16(value.to_bits() as u16)),
-        RepresentationRole::ScalarR32 => parse_float::<Single>(&text)
-            .map(|value| RealConstantBits::Binary32(value.to_bits() as u32)),
-        RepresentationRole::ScalarR64 => parse_float::<Double>(&text)
-            .map(|value| RealConstantBits::Binary64(value.to_bits() as u64)),
+        RepresentationRole::ScalarR16 => {
+            parse_float_bits::<Half, u16>(&text).map(RealConstantBits::Binary16)
+        }
+        RepresentationRole::ScalarR32 => {
+            parse_float_bits::<Single, u32>(&text).map(RealConstantBits::Binary32)
+        }
+        RepresentationRole::ScalarR64 => {
+            parse_float_bits::<Double, u64>(&text).map(RealConstantBits::Binary64)
+        }
         RepresentationRole::ScalarR128 => parse_float::<Quad>(&text)
             .map(|value| RealConstantBits::Binary128(value.to_bits().to_be_bytes())),
         _ => Err(LiteralValueError::Invalid),
     }
+}
+
+fn parse_float_bits<F, B>(text: &str) -> Result<B, LiteralValueError>
+where
+    F: Float,
+    B: TryFrom<u128>,
+{
+    let value = parse_float::<F>(text)?;
+
+    B::try_from(value.to_bits()).map_err(|_| LiteralValueError::Invalid)
 }
 
 fn parse_float<F>(text: &str) -> Result<F, LiteralValueError>
