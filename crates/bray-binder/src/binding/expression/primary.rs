@@ -5,7 +5,7 @@ use bray_bound_tree::{
 use bray_declarations::SyntaxAnchor;
 use bray_symbols::LocalScopeId;
 use bray_syntax::{
-    AccessExpressionSyntax, AwaitExpressionSyntax, ForExpressionSyntax,
+    AccessExpressionSyntax, ArrayExpressionSyntax, AwaitExpressionSyntax, ForExpressionSyntax,
     GeneralGeneratorExpressionSyntax, LambdaExpressionSyntax, LeadingDotVariantExpressionSyntax,
     MatchExpressionSyntax, PrimaryExpressionSyntax, SourceSyntaxNode, SyntaxKind, SyntaxNodeView,
     SyntaxWalkControl, walk_direct_child_nodes,
@@ -155,6 +155,20 @@ impl ExpressionBinder {
 
         if root.kind() == SyntaxKind::GroupedExpression {
             return self.bind_first_descendant_expression(binder, scope, root, recovery_origin);
+        }
+
+        if root.kind() == SyntaxKind::ArrayExpression {
+            let Some(array) = root.cast::<ArrayExpressionSyntax>() else {
+                return self.push_error(binder, Some(recovery_origin));
+            };
+
+            let kind = if array.semicolon_token().is_some() {
+                BoundStructuredExpressionKind::RepeatedArray
+            } else {
+                BoundStructuredExpressionKind::Array
+            };
+
+            return self.bind_structured(binder, scope, root, kind);
         }
 
         let Some(kind) = structured_kind(root.kind()) else {

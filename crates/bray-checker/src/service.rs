@@ -1,9 +1,18 @@
 use crate::analysis::check_control_flow;
-use crate::{CheckerOutcome, CheckerRequestContext, ControlFlowCheckResult, UnitCheckRequest};
+use crate::type_check::check_expression_types;
+use crate::{
+    CheckerOutcome, CheckerRequestContext, ControlFlowCheckResult, ExpressionTypeInput,
+    UnitCheckRequest,
+};
+use bray_bound_tree::CheckedExpressionTypes;
 
 /// The standard Bray control-flow checker implementation.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DefaultControlFlowChecker;
+
+/// The standard Bray expression-type checker implementation.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct DefaultExpressionTypeChecker;
 
 /// Control-flow checking over one committed bound semantic unit.
 ///
@@ -24,6 +33,29 @@ where
 }
 
 impl<C> ControlFlowChecker<C> for DefaultControlFlowChecker where C: CheckerRequestContext + ?Sized {}
+
+/// Expression type inference and compatibility checking over one bound semantic unit.
+///
+/// Type evidence can come from focused literal or selection rules. Expected types constrain
+/// compatibility but never select an overload or operation.
+pub trait ExpressionTypeChecker<C>: Sync
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    /// Resolves a canonical type or recovery type for every expression occurrence.
+    fn check_expression_types(
+        &self,
+        request: UnitCheckRequest<'_, C>,
+        input: &ExpressionTypeInput,
+    ) -> CheckerOutcome<CheckedExpressionTypes> {
+        check_expression_types(request, input)
+    }
+}
+
+impl<C> ExpressionTypeChecker<C> for DefaultExpressionTypeChecker where
+    C: CheckerRequestContext + ?Sized
+{
+}
 
 #[cfg(test)]
 mod tests {

@@ -200,6 +200,16 @@ const BINDING_INCOHERENT_ALTERNATIVE_PATTERN: &[MessageTemplatePart] =
         "alternative patterns must bind the same names",
     )];
 
+const CHECKING_INCOMPATIBLE_EXPRESSION_TYPE: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("expected "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ExpectedType),
+    MessageTemplatePart::Text(", but found "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ActualType),
+];
+
+const CHECKING_CANNOT_INFER_EXPRESSION_TYPE: &[MessageTemplatePart] =
+    &[MessageTemplatePart::Text("cannot infer expression type")];
+
 const BINDING_AMBIGUOUS_NAME: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("name "),
     MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
@@ -429,6 +439,12 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         }
         DiagnosticKind::BindingIncoherentAlternativePattern => {
             MessageTemplate::new(BINDING_INCOHERENT_ALTERNATIVE_PATTERN)
+        }
+        DiagnosticKind::CheckingIncompatibleExpressionType => {
+            MessageTemplate::new(CHECKING_INCOMPATIBLE_EXPRESSION_TYPE)
+        }
+        DiagnosticKind::CheckingCannotInferExpressionType => {
+            MessageTemplate::new(CHECKING_CANNOT_INFER_EXPRESSION_TYPE)
         }
         DiagnosticKind::EmissionMissingContribution => {
             MessageTemplate::new(EMISSION_MISSING_CONTRIBUTION)

@@ -42,7 +42,8 @@ pub enum BoundBlockItem {
 }
 
 impl BoundBlockItem {
-    pub(crate) const fn expression(&self) -> Option<BoundExpressionId> {
+    /// Returns the expression evaluated by this block item.
+    pub const fn expression(&self) -> Option<BoundExpressionId> {
         match self {
             Self::LocalBinding(binding) => Some(binding.initializer()),
             Self::LocalConstant(constant) => Some(constant.initializer()),

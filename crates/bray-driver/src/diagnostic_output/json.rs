@@ -205,6 +205,7 @@ enum DiagnosticArgValueJson {
     SourceSpan(SourceSpanJson),
     WorkerCount(u64),
     Revision(u64),
+    Type(DiagnosticTypeJson),
 }
 
 impl DiagnosticArgValueJson {
@@ -252,6 +253,46 @@ impl DiagnosticArgValueJson {
             }
             DiagnosticArgValue::WorkerCount(worker_count) => Self::WorkerCount(*worker_count),
             DiagnosticArgValue::Revision(revision) => Self::Revision(*revision),
+            DiagnosticArgValue::Type(ty) => Self::Type(DiagnosticTypeJson::from_type(*ty)),
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct DiagnosticTypeJson {
+    kind: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    element_count: Option<u64>,
+}
+
+impl DiagnosticTypeJson {
+    const fn from_type(ty: bray_diagnostics::DiagnosticType) -> Self {
+        use bray_diagnostics::DiagnosticType;
+
+        let (kind, element_count) = match ty {
+            DiagnosticType::Error => ("error", None),
+            DiagnosticType::Boolean => ("boolean", None),
+            DiagnosticType::Unit => ("unit", None),
+            DiagnosticType::Never => ("never", None),
+            DiagnosticType::String => ("string", None),
+            DiagnosticType::Usize => ("usize", None),
+            DiagnosticType::Named => ("named", None),
+            DiagnosticType::TypeParameter => ("type_parameter", None),
+            DiagnosticType::ContextualSelf => ("contextual_self", None),
+            DiagnosticType::AssociatedType => ("associated_type", None),
+            DiagnosticType::Tuple(count) => ("tuple", Some(count)),
+            DiagnosticType::Array => ("array", None),
+            DiagnosticType::Slice => ("slice", None),
+            DiagnosticType::Nullable => ("nullable", None),
+            DiagnosticType::Borrow => ("borrow", None),
+            DiagnosticType::TraitView => ("trait_view", None),
+            DiagnosticType::OwnedIndirection => ("owned_indirection", None),
+            DiagnosticType::Callable => ("callable", None),
+        };
+
+        Self {
+            kind,
+            element_count,
         }
     }
 }
@@ -427,6 +468,39 @@ mod tests {
         assert_eq!(arguments[1]["name"], "expected_name_kind");
         assert_eq!(arguments[1]["value"]["kind"], "name_kind");
         assert_eq!(arguments[1]["value"]["value"], "type");
+    }
+
+    #[test]
+    fn json_output_preserves_typed_expression_type_arguments() {
+        let diagnostic = Diagnostic::new(
+            DiagnosticId::new(0),
+            DiagnosticKind::CheckingIncompatibleExpressionType,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::expected_type(
+            bray_diagnostics::DiagnosticType::Boolean,
+        ))
+        .with_arg(DiagnosticArg::actual_type(
+            bray_diagnostics::DiagnosticType::Array,
+        ));
+        let mut output = Vec::new();
+
+        match write_json_diagnostics(&DiagnosticBag::single(diagnostic), None, &mut output) {
+            Ok(()) => {}
+            Err(error) => panic!("JSON diagnostics should write: {error:?}"),
+        }
+
+        let output: serde_json::Value = match serde_json::from_slice(&output) {
+            Ok(value) => value,
+            Err(error) => panic!("JSON diagnostics should parse: {error:?}"),
+        };
+        let arguments = &output["diagnostics"][0]["args"];
+
+        assert_eq!(arguments[0]["name"], "expected_type");
+        assert_eq!(arguments[0]["value"]["kind"], "type");
+        assert_eq!(arguments[0]["value"]["value"]["kind"], "boolean");
+        assert_eq!(arguments[1]["name"], "actual_type");
+        assert_eq!(arguments[1]["value"]["value"]["kind"], "array");
     }
 
     #[test]

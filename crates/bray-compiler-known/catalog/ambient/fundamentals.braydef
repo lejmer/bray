@@ -7,6 +7,30 @@ scope Ambient at ambient {
         surface { struct bool {} }
     }
 
+    declaration Char {
+        representation ScalarChar;
+
+        surface { struct char {} }
+    }
+
+    declaration I32 {
+        representation ScalarI32;
+
+        surface { struct i32 {} }
+    }
+
+    declaration R64 {
+        representation ScalarR64;
+
+        surface { struct r64 {} }
+    }
+
+    declaration C128 {
+        representation ScalarC128;
+
+        surface { struct c128 {} }
+    }
+
     declaration Unit {
         representation Unit;
 
@@ -29,6 +53,12 @@ scope Ambient at ambient {
         representation ScalarUsize;
 
         surface { struct usize {} }
+    }
+
+    declaration String {
+        representation String;
+
+        surface { struct string {} }
     }
 
     declaration RawPointer {

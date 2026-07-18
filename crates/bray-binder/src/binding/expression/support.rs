@@ -43,7 +43,6 @@ pub(super) fn structured_kind(kind: SyntaxKind) -> Option<BoundStructuredExpress
         SyntaxKind::UnitExpression => BoundStructuredExpressionKind::Unit,
         SyntaxKind::AbsenceExpression => BoundStructuredExpressionKind::Absence,
         SyntaxKind::TupleExpression => BoundStructuredExpressionKind::Tuple,
-        SyntaxKind::ArrayExpression => BoundStructuredExpressionKind::Array,
         SyntaxKind::ConditionalExpression => BoundStructuredExpressionKind::Conditional,
         SyntaxKind::WhileExpression => BoundStructuredExpressionKind::While,
         SyntaxKind::LoopExpression => BoundStructuredExpressionKind::Loop,

@@ -433,6 +433,8 @@ mod tests {
             "    size(value = size);\n",
             "    size.field;\n",
             "    size as i32;\n",
+            "    [size, size];\n",
+            "    [size; 2];\n",
             "    if size {};\n",
             "    for item in mut size\n",
             "    {\n",
@@ -490,6 +492,8 @@ mod tests {
         let mut saw_call = false;
         let mut saw_conversion = false;
         let mut saw_named_member = false;
+        let mut saw_array = false;
+        let mut saw_repeated_array = false;
         let mut saw_conditional = false;
         let mut saw_for_pattern = false;
         let mut saw_match_pattern = false;
@@ -543,6 +547,16 @@ mod tests {
                     saw_named_member = true;
                 }
                 BoundExpression::Structured(expression)
+                    if expression.kind() == BoundStructuredExpressionKind::Array =>
+                {
+                    saw_array = true;
+                }
+                BoundExpression::Structured(expression)
+                    if expression.kind() == BoundStructuredExpressionKind::RepeatedArray =>
+                {
+                    saw_repeated_array = true;
+                }
+                BoundExpression::Structured(expression)
                     if expression.kind() == BoundStructuredExpressionKind::Conditional =>
                 {
                     saw_conditional = true;
@@ -584,6 +598,8 @@ mod tests {
         assert!(saw_call);
         assert!(saw_conversion);
         assert!(saw_named_member);
+        assert!(saw_array);
+        assert!(saw_repeated_array);
         assert!(saw_conditional);
         assert!(saw_for_pattern);
         assert!(saw_match_pattern);

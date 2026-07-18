@@ -1,4 +1,7 @@
-use crate::{AnyBoundNodeId, BoundTree};
+use crate::{
+    AnyBoundNodeId, BoundBlock, BoundBlockId, BoundCallableBody, BoundCallableBodyId,
+    BoundExpression, BoundExpressionId, BoundPattern, BoundPatternId, BoundTree, BoundUnitView,
+};
 
 /// Controls deterministic traversal after one bound-tree event.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -40,21 +43,40 @@ enum PendingEvent {
 pub fn walk_bound_tree(
     tree: &BoundTree,
     root: impl Into<AnyBoundNodeId>,
+    visitor: impl FnMut(BoundWalkEvent) -> BoundWalkControl,
+) -> BoundWalkOutcome {
+    walk_bound_nodes(tree, root.into(), visitor)
+}
+
+/// Walks one bound-unit view in deterministic source-semantic order.
+///
+/// Node relationships are resolved through the supplied read-only view.
+pub fn walk_bound_unit_view(
+    view: BoundUnitView<'_>,
+    root: impl Into<AnyBoundNodeId>,
+    visitor: impl FnMut(BoundWalkEvent) -> BoundWalkControl,
+) -> BoundWalkOutcome {
+    walk_bound_nodes(&view, root.into(), visitor)
+}
+
+fn walk_bound_nodes(
+    source: &impl BoundNodeSource,
+    root: AnyBoundNodeId,
     mut visitor: impl FnMut(BoundWalkEvent) -> BoundWalkControl,
 ) -> BoundWalkOutcome {
-    let mut pending = vec![PendingEvent::Enter(root.into())];
+    let mut pending = vec![PendingEvent::Enter(root)];
 
     while let Some(event) = pending.pop() {
         match event {
             PendingEvent::Enter(node) => {
-                if !contains(tree, node) {
+                if !contains(source, node) {
                     return BoundWalkOutcome::MissingNode(node);
                 }
 
                 match visitor(BoundWalkEvent::Enter(node)) {
                     BoundWalkControl::Continue => {
                         pending.push(PendingEvent::Exit(node));
-                        push_children(tree, node, &mut pending);
+                        push_children(source, node, &mut pending);
                     }
                     BoundWalkControl::SkipChildren => {
                         if visitor(BoundWalkEvent::Exit(node)) == BoundWalkControl::Stop {
@@ -75,19 +97,23 @@ pub fn walk_bound_tree(
     BoundWalkOutcome::Completed
 }
 
-fn contains(tree: &BoundTree, node: AnyBoundNodeId) -> bool {
+fn contains(source: &impl BoundNodeSource, node: AnyBoundNodeId) -> bool {
     match node {
-        AnyBoundNodeId::Expression(id) => tree.expression(id).is_some(),
-        AnyBoundNodeId::Pattern(id) => tree.pattern(id).is_some(),
-        AnyBoundNodeId::Block(id) => tree.block(id).is_some(),
-        AnyBoundNodeId::CallableBody(id) => tree.callable_body(id).is_some(),
+        AnyBoundNodeId::Expression(id) => source.expression(id).is_some(),
+        AnyBoundNodeId::Pattern(id) => source.pattern(id).is_some(),
+        AnyBoundNodeId::Block(id) => source.block(id).is_some(),
+        AnyBoundNodeId::CallableBody(id) => source.callable_body(id).is_some(),
     }
 }
 
-fn push_children(tree: &BoundTree, node: AnyBoundNodeId, pending: &mut Vec<PendingEvent>) {
+fn push_children(
+    source: &impl BoundNodeSource,
+    node: AnyBoundNodeId,
+    pending: &mut Vec<PendingEvent>,
+) {
     match node {
         AnyBoundNodeId::Expression(id) => {
-            if let Some(expression) = tree.expression(id) {
+            if let Some(expression) = source.expression(id) {
                 pending.extend(
                     expression
                         .child_blocks()
@@ -117,7 +143,7 @@ fn push_children(tree: &BoundTree, node: AnyBoundNodeId, pending: &mut Vec<Pendi
             }
         }
         AnyBoundNodeId::Pattern(id) => {
-            if let Some(pattern) = tree.pattern(id) {
+            if let Some(pattern) = source.pattern(id) {
                 pending.extend(
                     pattern
                         .children()
@@ -128,7 +154,7 @@ fn push_children(tree: &BoundTree, node: AnyBoundNodeId, pending: &mut Vec<Pendi
             }
         }
         AnyBoundNodeId::Block(id) => {
-            if let Some(block) = tree.block(id) {
+            if let Some(block) = source.block(id) {
                 for item in block.items().iter().rev() {
                     if let Some(expression) = item.expression() {
                         pending.push(PendingEvent::Enter(expression.into()));
@@ -141,10 +167,53 @@ fn push_children(tree: &BoundTree, node: AnyBoundNodeId, pending: &mut Vec<Pendi
             }
         }
         AnyBoundNodeId::CallableBody(id) => {
-            if let Some(block) = tree.callable_body(id).and_then(|body| body.block_id()) {
+            if let Some(block) = source.callable_body(id).and_then(|body| body.block_id()) {
                 pending.push(PendingEvent::Enter(block.into()));
             }
         }
+    }
+}
+
+trait BoundNodeSource {
+    fn expression(&self, id: BoundExpressionId) -> Option<&BoundExpression>;
+    fn pattern(&self, id: BoundPatternId) -> Option<&BoundPattern>;
+    fn block(&self, id: BoundBlockId) -> Option<&BoundBlock>;
+    fn callable_body(&self, id: BoundCallableBodyId) -> Option<&BoundCallableBody>;
+}
+
+impl BoundNodeSource for BoundTree {
+    fn expression(&self, id: BoundExpressionId) -> Option<&BoundExpression> {
+        self.expression(id)
+    }
+
+    fn pattern(&self, id: BoundPatternId) -> Option<&BoundPattern> {
+        self.pattern(id)
+    }
+
+    fn block(&self, id: BoundBlockId) -> Option<&BoundBlock> {
+        self.block(id)
+    }
+
+    fn callable_body(&self, id: BoundCallableBodyId) -> Option<&BoundCallableBody> {
+        self.callable_body(id)
+    }
+}
+
+impl BoundNodeSource for BoundUnitView<'_> {
+    fn expression(&self, id: BoundExpressionId) -> Option<&BoundExpression> {
+        (*self).expression(id)
+    }
+
+    fn pattern(&self, id: BoundPatternId) -> Option<&BoundPattern> {
+        (*self).pattern(id)
+    }
+
+    fn block(&self, id: BoundBlockId) -> Option<&BoundBlock> {
+        (*self).block(id)
+    }
+
+    fn callable_body(&self, id: BoundCallableBodyId) -> Option<&BoundCallableBody> {
+        (*self).callable_body(id)
     }
 }
 

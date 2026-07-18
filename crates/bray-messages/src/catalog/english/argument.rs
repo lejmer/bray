@@ -46,6 +46,33 @@ pub(crate) fn format_value(value: &DiagnosticArgValue) -> String {
         DiagnosticArgValue::SourceSpan(span) => format_source_span(*span),
         DiagnosticArgValue::WorkerCount(worker_count) => worker_count.to_string(),
         DiagnosticArgValue::Revision(revision) => revision.to_string(),
+        DiagnosticArgValue::Type(ty) => format_english_type(*ty),
+    }
+}
+
+fn format_english_type(ty: bray_diagnostics::DiagnosticType) -> String {
+    use bray_diagnostics::DiagnosticType;
+
+    match ty {
+        DiagnosticType::Error => "error type".to_owned(),
+        DiagnosticType::Boolean => "bool".to_owned(),
+        DiagnosticType::Unit => "unit".to_owned(),
+        DiagnosticType::Never => "never".to_owned(),
+        DiagnosticType::String => "string".to_owned(),
+        DiagnosticType::Usize => "usize".to_owned(),
+        DiagnosticType::Named => "named type".to_owned(),
+        DiagnosticType::TypeParameter => "type parameter".to_owned(),
+        DiagnosticType::ContextualSelf => "Self".to_owned(),
+        DiagnosticType::AssociatedType => "associated type".to_owned(),
+        DiagnosticType::Tuple(1) => "tuple type with 1 element".to_owned(),
+        DiagnosticType::Tuple(count) => format!("tuple type with {count} elements"),
+        DiagnosticType::Array => "array type".to_owned(),
+        DiagnosticType::Slice => "slice type".to_owned(),
+        DiagnosticType::Nullable => "nullable type".to_owned(),
+        DiagnosticType::Borrow => "borrow type".to_owned(),
+        DiagnosticType::TraitView => "trait view type".to_owned(),
+        DiagnosticType::OwnedIndirection => "owned indirection type".to_owned(),
+        DiagnosticType::Callable => "callable type".to_owned(),
     }
 }
 

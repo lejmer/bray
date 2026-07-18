@@ -190,6 +190,36 @@ mod tests {
     }
 
     #[test]
+    fn renderer_localizes_expression_type_diagnostics() {
+        let incompatible = Diagnostic::new(
+            DiagnosticId::new(0),
+            DiagnosticKind::CheckingIncompatibleExpressionType,
+            SeverityKind::Error,
+        )
+        .with_arg(bray_diagnostics::DiagnosticArg::expected_type(
+            bray_diagnostics::DiagnosticType::Boolean,
+        ))
+        .with_arg(bray_diagnostics::DiagnosticArg::actual_type(
+            bray_diagnostics::DiagnosticType::Tuple(2),
+        ));
+        let unresolved = Diagnostic::new(
+            DiagnosticId::new(1),
+            DiagnosticKind::CheckingCannotInferExpressionType,
+            SeverityKind::Error,
+        );
+        let renderer = DiagnosticRenderer::english();
+
+        assert_eq!(
+            renderer.render(&incompatible).message(),
+            "expected bool, but found tuple type with 2 elements"
+        );
+        assert_eq!(
+            renderer.render(&unresolved).message(),
+            "cannot infer expression type"
+        );
+    }
+
+    #[test]
     fn renderer_localizes_structured_emission_diagnostics() {
         let diagnostic = Diagnostic::new(
             DiagnosticId::new(0),

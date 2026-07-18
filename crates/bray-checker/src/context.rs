@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
 use bray_base::Cancellation;
-use bray_bound_tree::{BoundSourceAnchor, BoundUnit};
+use bray_bound_tree::{AnyBoundNodeId, BoundExpressionId, BoundSourceAnchor, BoundUnit};
+use bray_compiler_known::RepresentationRole;
 use bray_source::{SourceId, SourceSpan, SourceVersion};
 use bray_symbols::{
     AnySymbolId, AvailableCompilerKnownSymbols, SemanticValueStore, SymbolFactContract,
@@ -39,6 +40,25 @@ pub enum CheckerInfrastructureError {
         /// The unavailable fact category.
         kind: SymbolFactKind,
     },
+    /// Canonical semantic value construction or lookup failed.
+    SemanticValueUnavailable,
+    /// A required compiler-known representation is unavailable for the selected target.
+    CompilerKnownRepresentationUnavailable {
+        /// The unavailable representation role.
+        role: RepresentationRole,
+    },
+    /// Type-checking input names an expression outside the requested unit.
+    InvalidExpressionTypeInput {
+        /// The invalid expression identity.
+        expression: BoundExpressionId,
+    },
+    /// A committed bound relationship names a node absent from the requested unit.
+    InvalidBoundNode {
+        /// The missing bound node identity.
+        node: AnyBoundNodeId,
+    },
+    /// One unit contains more expression variables than the checker can identify compactly.
+    ExpressionTypeCapacityExceeded,
     /// A whole-unit checker request did not match its canonical bound unit.
     InvalidUnitRequest(UnitCheckRequestError),
 }

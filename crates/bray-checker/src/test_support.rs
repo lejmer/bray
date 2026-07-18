@@ -1,11 +1,12 @@
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use bray_bound_tree::{
     BoundBlock, BoundBlockItem, BoundCallableBody, BoundCallableBodyId, BoundErrorExpression,
     BoundExpression, BoundNodeOrigin, BoundSourceAnchor, BoundTree, BoundTreeBuilder, BoundUnit,
     BoundUnitId, BoundUnitKey, BoundUnitRoot,
 };
-use bray_declarations::{DeclarationId, discover_source_unit_declarations};
+use bray_declarations::{DeclarationId, SyntaxAnchor, discover_source_unit_declarations};
 use bray_parser::parse_source_unit;
 use bray_source::{
     SourceId, SourceIdentity, SourceOrigin, SourceSnapshot, SourceSpan, SourceVersion,
@@ -26,17 +27,34 @@ use crate::{
 
 pub(crate) struct TestCheckerContext {
     cancelled: bool,
+    cancel_after: Option<usize>,
+    observations: AtomicUsize,
 }
 
 impl TestCheckerContext {
     pub(crate) const fn new(cancelled: bool) -> Self {
-        Self { cancelled }
+        Self {
+            cancelled,
+            cancel_after: None,
+            observations: AtomicUsize::new(0),
+        }
+    }
+
+    pub(crate) const fn cancelling_after(observations: usize) -> Self {
+        Self {
+            cancelled: false,
+            cancel_after: Some(observations),
+            observations: AtomicUsize::new(0),
+        }
     }
 }
 
 impl bray_base::Cancellation for TestCheckerContext {
     fn is_cancelled(&self) -> bool {
         self.cancelled
+            || self
+                .cancel_after
+                .is_some_and(|limit| self.observations.fetch_add(1, Ordering::Relaxed) >= limit)
     }
 }
 
@@ -217,6 +235,27 @@ pub(crate) fn error_type() -> TypeId {
     };
 
     ty
+}
+
+pub(crate) fn distinct_source_origins() -> [BoundNodeOrigin; 2] {
+    let parsed = parse_source_unit(source_snapshot());
+    let source_unit = parsed.source_unit();
+    let Some(module) = source_unit.source_unit_module_declaration() else {
+        panic!("test source must contain its module declaration");
+    };
+    let source = BoundSourceAnchor::new(
+        SyntaxAnchor::from_node(source_unit),
+        source_snapshot().version(),
+    );
+    let module = BoundSourceAnchor::new(
+        SyntaxAnchor::from_node(&module),
+        source_snapshot().version(),
+    );
+
+    [
+        BoundNodeOrigin::source(source),
+        BoundNodeOrigin::source(module),
+    ]
 }
 
 fn source() -> Result<SourceSnapshot, TextSizeOverflow> {
