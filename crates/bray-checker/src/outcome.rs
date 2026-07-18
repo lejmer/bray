@@ -1,6 +1,8 @@
 use bray_bound_tree::{BoundUnitId, BoundUnitKind, CheckedControlFlowFacts, ControlCompletion};
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 
+use crate::CheckerInfrastructureError;
+
 /// The control-flow facts established for one bound semantic unit.
 ///
 /// This result is deliberately narrower than a complete semantic unit check.
@@ -58,6 +60,8 @@ pub enum CheckerOutcome<T> {
     Complete(DiagnosticResult<T>),
     /// Cancellation was observed before the operation could complete.
     Cancelled,
+    /// Compiler infrastructure prevented the operation from completing.
+    InfrastructureFailure(CheckerInfrastructureError),
 }
 
 impl<T> CheckerOutcome<T> {
@@ -75,7 +79,7 @@ impl<T> CheckerOutcome<T> {
     pub const fn result(&self) -> Option<&DiagnosticResult<T>> {
         match self {
             Self::Complete(result) => Some(result),
-            Self::Cancelled => None,
+            Self::Cancelled | Self::InfrastructureFailure(_) => None,
         }
     }
 
@@ -83,13 +87,21 @@ impl<T> CheckerOutcome<T> {
     pub fn into_result(self) -> Option<DiagnosticResult<T>> {
         match self {
             Self::Complete(result) => Some(result),
-            Self::Cancelled => None,
+            Self::Cancelled | Self::InfrastructureFailure(_) => None,
         }
     }
 
     /// Returns whether cancellation prevented completion.
     pub const fn is_cancelled(&self) -> bool {
         matches!(self, Self::Cancelled)
+    }
+
+    /// Returns the infrastructure failure that prevented completion.
+    pub const fn infrastructure_failure(&self) -> Option<CheckerInfrastructureError> {
+        match self {
+            Self::InfrastructureFailure(error) => Some(*error),
+            Self::Complete(_) | Self::Cancelled => None,
+        }
     }
 }
 
@@ -99,6 +111,7 @@ mod tests {
     use bray_diagnostics::{Diagnostic, DiagnosticBag, DiagnosticId, DiagnosticKind, SeverityKind};
 
     use super::{CheckerOutcome, ControlFlowCheckResult};
+    use crate::CheckerInfrastructureError;
 
     #[test]
     fn control_flow_results_keep_unit_category_completion_and_recovery_together() {
@@ -146,6 +159,19 @@ mod tests {
 
         assert!(outcome.is_cancelled());
         assert_eq!(outcome.into_result(), None);
+    }
+
+    #[test]
+    fn infrastructure_failures_are_distinct_from_cancellation_and_diagnostics() {
+        let error = CheckerInfrastructureError::MissingSource {
+            source_id: bray_source::SourceId::new(7),
+        };
+
+        let outcome = CheckerOutcome::<ControlFlowCheckResult>::InfrastructureFailure(error);
+
+        assert!(!outcome.is_cancelled());
+        assert_eq!(outcome.result(), None);
+        assert_eq!(outcome.infrastructure_failure(), Some(error));
     }
 
     #[test]

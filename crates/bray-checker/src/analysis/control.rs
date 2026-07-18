@@ -3,11 +3,16 @@ use bray_bound_tree::{
 };
 use bray_declarations::SyntaxAnchor;
 
+use crate::CheckerRequestContext;
+
 use super::build::{CatchContext, ControlFlowGraphBuilder, LoopContext};
 use super::id::AnalysisBlockId;
 use super::model::{AnalysisEdgeKind, AnalysisExitKind, AnalysisRefinement};
 
-impl ControlFlowGraphBuilder<'_> {
+impl<C> ControlFlowGraphBuilder<'_, C>
+where
+    C: CheckerRequestContext + ?Sized,
+{
     pub(super) fn build_structured(
         &mut self,
         id: BoundExpressionId,

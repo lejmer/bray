@@ -4,7 +4,7 @@ use bray_bound_tree::{
 };
 use bray_declarations::SyntaxAnchor;
 
-use crate::{UnitCheckRequest, UnitCheckRoot};
+use crate::{CheckerRequestContext, UnitCheckRequest, UnitCheckRoot};
 
 use super::assembly::ControlFlowGraphAssembler;
 use super::id::AnalysisBlockId;
@@ -15,9 +15,12 @@ pub(crate) enum ControlFlowGraphBuildOutcome {
     Cancelled,
 }
 
-pub(crate) fn build_control_flow_graph(
-    request: UnitCheckRequest<'_>,
-) -> ControlFlowGraphBuildOutcome {
+pub(crate) fn build_control_flow_graph<C>(
+    request: UnitCheckRequest<'_, C>,
+) -> ControlFlowGraphBuildOutcome
+where
+    C: CheckerRequestContext + ?Sized,
+{
     let mut builder = ControlFlowGraphBuilder::new(request);
     let entry = builder.push_block();
 
@@ -38,8 +41,11 @@ pub(crate) fn build_control_flow_graph(
     ControlFlowGraphBuildOutcome::Complete(builder.finish(entry))
 }
 
-pub(super) struct ControlFlowGraphBuilder<'view> {
-    request: UnitCheckRequest<'view>,
+pub(super) struct ControlFlowGraphBuilder<'view, C>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    request: UnitCheckRequest<'view, C>,
     view: BoundUnitView<'view>,
     storage: ControlFlowGraphAssembler,
     pub(super) loops: Vec<LoopContext>,
@@ -61,8 +67,11 @@ pub(super) struct CatchContext {
     pub(super) scope_depth: usize,
 }
 
-impl<'view> ControlFlowGraphBuilder<'view> {
-    fn new(request: UnitCheckRequest<'view>) -> Self {
+impl<'view, C> ControlFlowGraphBuilder<'view, C>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    fn new(request: UnitCheckRequest<'view, C>) -> Self {
         Self {
             request,
             view: request.view(),
@@ -434,7 +443,7 @@ impl<'view> ControlFlowGraphBuilder<'view> {
         self.scopes.len()
     }
 
-    pub(super) const fn request(&self) -> UnitCheckRequest<'_> {
+    pub(super) const fn request(&self) -> UnitCheckRequest<'_, C> {
         self.request
     }
 
@@ -477,7 +486,8 @@ mod tests {
         AnalysisTaskOperationKind,
     };
     use crate::test_support::{
-        available_compiler_known_symbols, callable_key, error_type, recovered_tree, semantic_values,
+        TestCheckerContext, available_compiler_known_symbols, callable_entry, callable_key,
+        error_type, recovered_tree, semantic_values,
     };
     use crate::{UnitCheckRequest, UnitCheckRoot};
 
@@ -487,14 +497,12 @@ mod tests {
         let unit = BoundUnitId::new(6);
         let (tree, root) = recovered_tree(unit, &key);
         let view = tree.view(&key);
+        let entry = callable_entry(&key);
+        let context = TestCheckerContext::new(false);
 
-        let Ok(request) = UnitCheckRequest::new(
-            view,
-            UnitCheckRoot::CallableBody(root),
-            semantic_values(),
-            available_compiler_known_symbols(),
-            &|| false,
-        ) else {
+        let Ok(request) =
+            UnitCheckRequest::new(view, UnitCheckRoot::CallableBody(root), &entry, &context)
+        else {
             panic!("matching test roots must produce checker requests");
         };
 
@@ -982,14 +990,12 @@ mod tests {
         root: bray_bound_tree::BoundCallableBodyId,
     ) -> ControlFlowGraph {
         let view = tree.view(key);
+        let entry = callable_entry(key);
+        let context = TestCheckerContext::new(false);
 
-        let Ok(request) = UnitCheckRequest::new(
-            view,
-            UnitCheckRoot::CallableBody(root),
-            semantic_values(),
-            available_compiler_known_symbols(),
-            &|| false,
-        ) else {
+        let Ok(request) =
+            UnitCheckRequest::new(view, UnitCheckRoot::CallableBody(root), &entry, &context)
+        else {
             panic!("matching test roots must produce checker requests");
         };
 

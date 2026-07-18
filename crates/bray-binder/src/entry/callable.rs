@@ -163,6 +163,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::bind_callable_body;
+    use crate::BinderFactContext;
     use crate::fact::test_support::TestFixture;
 
     #[test]
@@ -189,9 +190,19 @@ mod tests {
             Err(error) => panic!("source callable body must finalize: {error:?}"),
         };
 
+        let entry =
+            match crate::unit_check_entry_context(facts.symbols(), computation.result().value()) {
+                Ok(entry) => entry,
+                Err(error) => {
+                    panic!("source callable body must establish checker entry: {error:?}")
+                }
+            };
+
         assert_eq!(
             computation.result().value().unit(),
             bray_bound_tree::BoundUnitId::new(40)
         );
+        assert_eq!(entry.kind(), bray_bound_tree::BoundUnitKind::CallableBody);
+        assert_eq!(entry.key(), computation.result().value().key());
     }
 }

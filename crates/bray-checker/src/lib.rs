@@ -3,6 +3,8 @@
 #![forbid(unsafe_code)]
 
 mod analysis;
+mod context;
+mod entry;
 mod outcome;
 mod request;
 mod service;
@@ -10,6 +12,14 @@ mod service;
 #[cfg(test)]
 mod test_support;
 
+pub use context::{
+    CheckerFactError, CheckerFactResult, CheckerInfrastructureError, CheckerRequestContext,
+    CheckerSemanticFactProvider, CheckerSource,
+};
+pub use entry::{
+    AnonymousCallableCheckEntry, ContractClauseCheckEntry, DeclaredUnitCheckEntry,
+    UnitCheckEntryContext,
+};
 pub use outcome::{CheckerOutcome, ControlFlowCheckResult};
 pub use request::{UnitCheckRequest, UnitCheckRequestError, UnitCheckRoot};
 pub use service::{ControlFlowChecker, DefaultControlFlowChecker};

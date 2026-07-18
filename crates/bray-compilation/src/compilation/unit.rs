@@ -3,18 +3,18 @@ use std::sync::Arc;
 use bray_binder::{
     BinderDependency, BoundUnitBindingError, BoundUnitComputation, bind_anonymous_callable,
     bind_callable_body, bind_constant_template, bind_constraint, bind_contract_clause,
-    bind_predicate_definition, bind_runtime_default,
+    bind_predicate_definition, bind_runtime_default, unit_check_entry_context,
 };
-use bray_bound_tree::{
-    BoundUnit, BoundUnitKey, BoundUnitKind, BoundUnitRoot, CheckedControlFlowFacts,
-};
+use bray_bound_tree::{BoundUnit, BoundUnitKey, BoundUnitKind, CheckedControlFlowFacts};
 use bray_checker::{
-    CheckerOutcome, ControlFlowChecker, DefaultControlFlowChecker, UnitCheckRequest, UnitCheckRoot,
+    CheckerOutcome, ControlFlowChecker, DefaultControlFlowChecker, UnitCheckEntryContext,
+    UnitCheckRequest, UnitCheckRoot,
 };
 use bray_diagnostics::DiagnosticResult;
 
 use super::Compilation;
 use super::binder::CompilationBinderFacts;
+use super::checker::CompilationCheckerContext;
 use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError, PublishedUnitFact};
 
 impl Compilation {
@@ -78,15 +78,11 @@ impl Compilation {
                     self.checked_control_flow_with_cancellation(nested.clone(), cancellation)?;
                 }
 
-                let semantic_values = self.semantic_value_store()?;
-                let available_compiler_known_symbols = self.available_compiler_known_symbols();
+                let context = self.checker_context_for(&key, cancellation)?;
+                let entry = unit_check_entry_context(context.symbols(), bound.result().value())
+                    .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
-                check_control_flow(
-                    bound.result().value(),
-                    semantic_values,
-                    available_compiler_known_symbols,
-                    cancellation,
-                )
+                check_control_flow(bound.result().value(), &entry, &context)
             },
         )
     }
@@ -110,9 +106,8 @@ fn bind_unit(
 
 fn check_control_flow(
     bound: &BoundUnit,
-    semantic_values: &bray_symbols::SemanticValueStore,
-    available_compiler_known_symbols: &bray_symbols::AvailableCompilerKnownSymbols,
-    cancellation: &CancellationToken,
+    entry: &UnitCheckEntryContext,
+    context: &CompilationCheckerContext<'_>,
 ) -> Result<
     (
         DiagnosticResult<CheckedControlFlowFacts>,
@@ -120,26 +115,17 @@ fn check_control_flow(
     ),
     FactQueryError,
 > {
-    let root = match bound.root() {
-        BoundUnitRoot::CallableBody(body) | BoundUnitRoot::AnonymousCallable { body, .. } => {
-            UnitCheckRoot::CallableBody(body)
-        }
-        BoundUnitRoot::Expression(expression) => UnitCheckRoot::Expression(expression),
-        BoundUnitRoot::ExpressionSequence(block) => UnitCheckRoot::ExpressionSequence(block),
-    };
+    let root = UnitCheckRoot::from_bound_root(bound.root());
 
-    let request = UnitCheckRequest::new(
-        bound.view(),
-        root,
-        semantic_values,
-        available_compiler_known_symbols,
-        cancellation,
-    )
-    .map_err(|_| FactQueryError::InfrastructureFailure)?;
+    let request = UnitCheckRequest::new(bound.view(), root, entry, context)
+        .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
     let result = match DefaultControlFlowChecker.check_control_flow(request) {
         CheckerOutcome::Complete(result) => result.map(|result| result.into_facts()),
         CheckerOutcome::Cancelled => return Err(FactQueryError::Cancelled),
+        CheckerOutcome::InfrastructureFailure(_) => {
+            return Err(FactQueryError::InfrastructureFailure);
+        }
     };
 
     Ok((result, Box::new([])))

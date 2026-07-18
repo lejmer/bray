@@ -2,11 +2,16 @@ use bray_bound_tree::{BoundExpressionId, BoundStructuredExpression};
 use bray_compiler_known::RepresentationRole;
 use bray_symbols::{ExactSymbolId, TypeData, UnionSymbolId};
 
+use crate::CheckerRequestContext;
+
 use super::build::ControlFlowGraphBuilder;
 use super::id::AnalysisBlockId;
 use super::model::{AnalysisEdgeKind, AnalysisExitKind, AnalysisRefinement};
 
-impl ControlFlowGraphBuilder<'_> {
+impl<C> ControlFlowGraphBuilder<'_, C>
+where
+    C: CheckerRequestContext + ?Sized,
+{
     pub(super) fn build_propagation(
         &mut self,
         expression: BoundExpressionId,

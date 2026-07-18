@@ -1,6 +1,6 @@
 use bray_bound_tree::{BoundUnitId, ControlCompletion, ControlCompletionKind};
 
-use crate::UnitCheckRequest;
+use crate::{CheckerRequestContext, UnitCheckRequest};
 
 use super::fixed_point::{FixedPointDomain, FixedPointOutcome, FlowDirection, solve_fixed_point};
 use super::id::{AnalysisBlockId, AnalysisEdgeId};
@@ -45,10 +45,13 @@ impl ReachabilityResult {
     }
 }
 
-pub(crate) fn analyze_reachability(
+pub(crate) fn analyze_reachability<C>(
     graph: &ControlFlowGraph,
-    request: UnitCheckRequest<'_>,
-) -> Option<ReachabilityResult> {
+    request: UnitCheckRequest<'_, C>,
+) -> Option<ReachabilityResult>
+where
+    C: CheckerRequestContext + ?Sized,
+{
     let forward_domain = ReachabilityDomain::forward(graph);
     let forward = solve_fixed_point(graph, &forward_domain, &request);
 
@@ -144,7 +147,10 @@ const fn completion_kind(kind: AnalysisExitKind) -> ControlCompletionKind {
     }
 }
 
-impl bray_base::Cancellation for UnitCheckRequest<'_> {
+impl<C> bray_base::Cancellation for UnitCheckRequest<'_, C>
+where
+    C: CheckerRequestContext + ?Sized,
+{
     fn is_cancelled(&self) -> bool {
         (*self).is_cancelled()
     }

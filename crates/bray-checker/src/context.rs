@@ -1,0 +1,121 @@
+use std::sync::Arc;
+
+use bray_base::Cancellation;
+use bray_bound_tree::BoundSourceAnchor;
+use bray_source::{SourceId, SourceSpan, SourceVersion};
+use bray_symbols::{
+    AnySymbolId, AvailableCompilerKnownSymbols, SemanticValueStore, SymbolFactContract,
+    SymbolFactKind, SymbolFactRequest, SymbolFactResult,
+};
+
+/// A checker infrastructure failure that is neither a source diagnostic nor cancellation.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum CheckerInfrastructureError {
+    /// The compilation does not contain the source named by a bound anchor.
+    MissingSource {
+        /// The unavailable source identity.
+        source_id: SourceId,
+    },
+    /// A bound anchor names a different source revision than the compilation.
+    SourceVersionMismatch {
+        /// The source whose revision did not match.
+        source_id: SourceId,
+        /// The revision retained by the bound anchor.
+        expected: SourceVersion,
+        /// The revision available in the compilation.
+        actual: SourceVersion,
+    },
+    /// A bound anchor does not cover a valid UTF-8 range in its source revision.
+    InvalidSourceRange {
+        /// The invalid source span.
+        span: SourceSpan,
+    },
+    /// A required semantic fact could not be supplied.
+    SemanticFactUnavailable {
+        /// The exact symbol that owns the fact.
+        symbol: AnySymbolId,
+        /// The unavailable fact category.
+        kind: SymbolFactKind,
+    },
+}
+
+/// A failure while requesting a checker dependency.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum CheckerFactError {
+    /// Cancellation was observed while obtaining the dependency.
+    Cancelled,
+    /// Compiler infrastructure could not supply the dependency.
+    Infrastructure(CheckerInfrastructureError),
+}
+
+/// The result of requesting one checker dependency.
+pub type CheckerFactResult<T> = Result<T, CheckerFactError>;
+
+/// The exact source span and text covered by one bound source anchor.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct CheckerSource<'source> {
+    span: SourceSpan,
+    text: &'source str,
+}
+
+impl<'source> CheckerSource<'source> {
+    /// Creates a resolved checker source view.
+    pub const fn new(span: SourceSpan, text: &'source str) -> Self {
+        Self { span, text }
+    }
+
+    /// Returns the exact anchored source span.
+    pub const fn span(self) -> SourceSpan {
+        self.span
+    }
+
+    /// Returns the source text covered by the anchor.
+    pub const fn text(self) -> &'source str {
+        self.text
+    }
+}
+
+/// Narrow immutable services shared by checker requests.
+pub trait CheckerRequestContext: Sync {
+    /// Returns the canonical semantic values used by bound structure and facts.
+    fn semantic_values(&self) -> &SemanticValueStore;
+
+    /// Returns compiler-known symbols available for the current target.
+    fn available_compiler_known_symbols(&self) -> &AvailableCompilerKnownSymbols;
+
+    /// Resolves a bound source anchor without exposing its source snapshot.
+    fn source(
+        &self,
+        anchor: BoundSourceAnchor,
+    ) -> Result<CheckerSource<'_>, CheckerInfrastructureError>;
+
+    /// Returns the cancellation source for the current request.
+    fn cancellation(&self) -> &dyn Cancellation;
+}
+
+/// Origin-neutral typed access to one family of symbol-owned semantic facts.
+pub trait CheckerSemanticFactProvider<C>: CheckerRequestContext
+where
+    C: SymbolFactContract,
+{
+    /// Returns the requested immutable semantic fact and its owned diagnostics.
+    fn symbol_fact(
+        &self,
+        request: SymbolFactRequest<C>,
+    ) -> CheckerFactResult<Arc<SymbolFactResult<C>>>;
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_symbols::CallableSignatureFact;
+
+    use super::{CheckerRequestContext, CheckerSemanticFactProvider};
+
+    #[test]
+    fn request_context_contracts_are_shareable() {
+        fn assert_sync<T: Sync + ?Sized>() {}
+
+        assert_sync::<dyn CheckerRequestContext>();
+        assert_sync::<dyn CheckerSemanticFactProvider<CallableSignatureFact>>();
+    }
+}

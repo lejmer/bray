@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use crate::UnitCheckRequest;
+use crate::{CheckerRequestContext, UnitCheckRequest};
 
 use super::fixed_point::{FixedPointDomain, FixedPointOutcome, FlowDirection, solve_fixed_point};
 use super::id::AnalysisBlockId;
@@ -28,11 +28,14 @@ impl RefinementResult {
     }
 }
 
-pub(super) fn analyze_refinements(
+pub(super) fn analyze_refinements<C>(
     graph: &ControlFlowGraph,
     reachability: &ReachabilityResult,
-    request: UnitCheckRequest<'_>,
-) -> Option<RefinementResult> {
+    request: UnitCheckRequest<'_, C>,
+) -> Option<RefinementResult>
+where
+    C: CheckerRequestContext + ?Sized,
+{
     let domain = RefinementDomain {
         graph,
         reachability,

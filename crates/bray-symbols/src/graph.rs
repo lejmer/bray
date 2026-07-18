@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use bray_declarations::{DeclarationId, SyntaxAnchor};
@@ -67,7 +67,7 @@ macro_rules! define_symbol_graph {
             modules: TypedSymbolRecords<ModuleSymbolId, ModuleSymbol>,
             module_index: BTreeMap<ModuleOwnerId, BTreeMap<ModulePathKey, ModuleSymbolId>>,
             member_indexes: BTreeMap<AnySymbolId, MemberLookupIndex<AnySymbolId>>,
-            symbol_keys: BTreeSet<crate::SymbolKey>,
+            symbol_index: BTreeMap<crate::SymbolKey, AnySymbolId>,
             declaration_index: BTreeMap<DeclarationId, AnySymbolId>,
             completion_children: BTreeMap<AnySymbolId, Box<[AnySymbolId]>>,
             callable_parameter_default_providers: TypedSymbolRecords<
@@ -255,7 +255,12 @@ macro_rules! define_symbol_graph {
 
             /// Returns whether this graph owns an exact stable symbol key.
             pub fn contains_symbol_key(&self, key: &crate::SymbolKey) -> bool {
-                self.symbol_keys.contains(key)
+                self.symbol_index.contains_key(key)
+            }
+
+            /// Returns the exact compilation-local symbol identified by a stable key.
+            pub fn symbol_for_key(&self, key: &crate::SymbolKey) -> Option<AnySymbolId> {
+                self.symbol_index.get(key).copied()
             }
 
             /// Returns the immediate semantic container of one symbol when it has one.
@@ -631,36 +636,44 @@ macro_rules! define_symbol_graph {
                     let $plural = TypedSymbolRecords::new(self.$plural, crate::$record::id);
                 )+
 
-                // Stable keys are Arc-backed and cheap to retain in the ownership-validation index.
-                let symbol_keys = std::iter::once(self.compiler_known.environment().key())
-                    .chain(packages.records().iter().map(PackageSymbol::key))
-                    .chain(modules.records().iter().map(ModuleSymbol::key))
+                // Stable keys are Arc-backed and cheap to retain in the identity index.
+                let symbol_index = std::iter::once((
+                    self.compiler_known.environment().key().clone(),
+                    self.compiler_known.environment().id().into(),
+                ))
+                    .chain(packages.records().iter().map(|symbol| {
+                        (symbol.key().clone(), symbol.id().into())
+                    }))
+                    .chain(modules.records().iter().map(|symbol| {
+                        (symbol.key().clone(), symbol.id().into())
+                    }))
                     .chain(
                         callable_parameter_default_providers
                             .records()
                             .iter()
-                            .map(CallableParameterDefaultProviderSymbol::key),
+                            .map(|symbol| (symbol.key().clone(), symbol.id().into())),
                     )
                     .chain(
                         struct_field_default_providers
                             .records()
                             .iter()
-                            .map(StructFieldDefaultProviderSymbol::key),
+                            .map(|symbol| (symbol.key().clone(), symbol.id().into())),
                     )
                     .chain(
                         union_payload_default_providers
                             .records()
                             .iter()
-                            .map(UnionPayloadDefaultProviderSymbol::key),
+                            .map(|symbol| (symbol.key().clone(), symbol.id().into())),
                     )
                     .chain(
                         receiver_parameters
                             .records()
                             .iter()
-                            .map(ReceiverParameterSymbol::key),
+                            .map(|symbol| (symbol.key().clone(), symbol.id().into())),
                     )
-                    $(.chain($plural.records().iter().map(crate::$record::key)))+
-                    .cloned()
+                    $(.chain($plural.records().iter().map(|symbol| {
+                        (symbol.key().clone(), symbol.id().into())
+                    })))+
                     .collect();
 
                 let module_index = modules
@@ -707,7 +720,7 @@ macro_rules! define_symbol_graph {
                     modules,
                     module_index,
                     member_indexes,
-                    symbol_keys,
+                    symbol_index,
                     declaration_index: self.declaration_index,
                     completion_children,
                     callable_parameter_default_providers,
@@ -852,6 +865,10 @@ mod tests {
         assert_eq!(
             graph.symbol_key(AnySymbolId::from(function.id())),
             Some(function.key())
+        );
+        assert_eq!(
+            graph.symbol_for_key(function.key()),
+            Some(function.id().into())
         );
 
         assert_eq!(
