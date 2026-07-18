@@ -17,6 +17,7 @@ pub enum ConstantReferenceResolution {
 
 /// Checked semantic inputs for one closed constant-expression evaluation.
 pub struct ConstantEvaluationInput<'types> {
+    // TODO(checker): Add selected operation and call facts when BRA-205 publishes them.
     expression_types: &'types CheckedExpressionTypes,
     references: BTreeMap<BoundExpressionId, ConstantReferenceResolution>,
     references_are_consistent: bool,

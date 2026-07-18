@@ -119,12 +119,14 @@ where
         match bound {
             BoundExpression::Literal(literal) => self.evaluate_literal(expression, *literal, ty),
             BoundExpression::Name(_) => self.evaluate_reference(expression, ty),
+            // TODO(checker): Consume BRA-205 selection facts for non-literal binary operations.
             BoundExpression::Binary(binary) => {
                 self.evaluate_complex_literal(expression, binary, ty)
             }
             BoundExpression::Structured(structured) => {
                 self.evaluate_structured(expression, structured.kind(), structured.operands(), ty)
             }
+            // TODO(checker): Evaluate selection-dependent constant forms after BRA-205.
             _ => Err(EvaluationFailure::invalid_expression(expression)),
         }
     }
@@ -243,6 +245,7 @@ where
             BoundStructuredExpressionKind::RepeatedArray => {
                 self.evaluate_repeated_array(expression, operands, ty)
             }
+            // TODO(checker): Evaluate selected construction, projection, and control forms after BRA-205.
             _ => Err(EvaluationFailure::invalid_expression(expression)),
         }
     }
