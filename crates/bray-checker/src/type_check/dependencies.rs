@@ -11,13 +11,17 @@ pub(super) struct ExpressionTypeDependencies {
     pub(super) unit: TypeId,
     pub(super) never: TypeId,
     pub(super) boolean: TypeId,
+    // TODO(checker): Remove this expectation when character literal checking uses this dependency.
     #[expect(dead_code, reason = "used by character literal checking")]
     pub(super) character: TypeId,
     pub(super) string: TypeId,
+    // TODO(checker): Remove this expectation when integer literal adaptation uses this dependency.
     #[expect(dead_code, reason = "used by integer literal adaptation")]
     pub(super) i32: TypeId,
+    // TODO(checker): Remove this expectation when real literal adaptation uses this dependency.
     #[expect(dead_code, reason = "used by real literal adaptation")]
     pub(super) r64: TypeId,
+    // TODO(checker): Remove this expectation when complex literal adaptation uses this dependency.
     #[expect(dead_code, reason = "used by complex literal adaptation")]
     pub(super) c128: TypeId,
     pub(super) usize: TypeId,
