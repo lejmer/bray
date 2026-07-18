@@ -31,6 +31,12 @@ scope Ambient at ambient {
         surface { struct usize {} }
     }
 
+    declaration String {
+        representation String;
+
+        surface { struct string {} }
+    }
+
     declaration RawPointer {
         representation RawPointer;
 

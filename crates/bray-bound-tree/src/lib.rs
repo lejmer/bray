@@ -59,7 +59,7 @@ pub use template::{
 };
 pub use tree::{
     BoundTree, BoundTreeBuildError, BoundTreeBuilder, BoundTreeCheckpoint, BoundWalkControl,
-    BoundWalkEvent, BoundWalkOutcome, walk_bound_tree,
+    BoundWalkEvent, BoundWalkOutcome, walk_bound_tree, walk_bound_unit_view,
 };
 pub use unit::{
     AnonymousCallableUnitKey, BoundSourceAnchor, BoundUnitId, BoundUnitIdentity, BoundUnitKey,

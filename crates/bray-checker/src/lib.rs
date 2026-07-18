@@ -8,6 +8,7 @@ mod entry;
 mod outcome;
 mod request;
 mod service;
+mod type_check;
 
 #[cfg(test)]
 mod test_support;
@@ -22,4 +23,11 @@ pub use entry::{
 };
 pub use outcome::{CheckerOutcome, ControlFlowCheckResult};
 pub use request::{UnitCheckRequest, UnitCheckRequestError, UnitCheckRoot};
-pub use service::{ControlFlowChecker, DefaultControlFlowChecker};
+pub use service::{
+    ControlFlowChecker, DefaultControlFlowChecker, DefaultExpressionTypeChecker,
+    ExpressionTypeChecker,
+};
+pub use type_check::{
+    ExpressionTypeCheckResult, ExpressionTypeEntry, ExpressionTypeEvidence,
+    ExpressionTypeExpectation, ExpressionTypeInput, ExpressionTypeResult, ExpressionTypeStatus,
+};

@@ -4,4 +4,6 @@ mod walk;
 
 pub use builder::{BoundTreeBuildError, BoundTreeBuilder, BoundTreeCheckpoint};
 pub use storage::BoundTree;
-pub use walk::{BoundWalkControl, BoundWalkEvent, BoundWalkOutcome, walk_bound_tree};
+pub use walk::{
+    BoundWalkControl, BoundWalkEvent, BoundWalkOutcome, walk_bound_tree, walk_bound_unit_view,
+};

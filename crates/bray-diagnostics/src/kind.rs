@@ -99,6 +99,10 @@ pub enum DiagnosticKind {
     BindingNameAlreadyDefined,
     /// Alternatives do not introduce one coherent set of pattern bindings.
     BindingIncoherentAlternativePattern,
+    /// An expression's established type is incompatible with its expected type.
+    CheckingIncompatibleExpressionType,
+    /// Available constraints cannot establish an expression's canonical type.
+    CheckingCannotInferExpressionType,
     /// A required planned artifact contribution was not supplied.
     EmissionMissingContribution,
     /// An artifact contribution does not satisfy the immutable emission plan.
@@ -170,6 +174,8 @@ impl DiagnosticKind {
             Self::BindingMalformedName => 6005,
             Self::BindingNameAlreadyDefined => 6006,
             Self::BindingIncoherentAlternativePattern => 6007,
+            Self::CheckingIncompatibleExpressionType => 7001,
+            Self::CheckingCannotInferExpressionType => 7002,
             Self::EmissionMissingContribution => 9001,
             Self::EmissionInvalidContribution => 9002,
             Self::EmissionArtifactReadFailed => 9003,
@@ -236,6 +242,8 @@ impl DiagnosticKind {
             Self::BindingMalformedName => "binding_malformed_name",
             Self::BindingNameAlreadyDefined => "binding_name_already_defined",
             Self::BindingIncoherentAlternativePattern => "binding_incoherent_alternative_pattern",
+            Self::CheckingIncompatibleExpressionType => "checking_incompatible_expression_type",
+            Self::CheckingCannotInferExpressionType => "checking_cannot_infer_expression_type",
             Self::EmissionMissingContribution => "emission_missing_contribution",
             Self::EmissionInvalidContribution => "emission_invalid_contribution",
             Self::EmissionArtifactReadFailed => "emission_artifact_read_failed",
@@ -299,7 +307,7 @@ mod tests {
         }
     }
 
-    fn all_diagnostic_kinds() -> [DiagnosticKind; 56] {
+    fn all_diagnostic_kinds() -> [DiagnosticKind; 58] {
         [
             DiagnosticKind::SourceFileReadFailed,
             DiagnosticKind::SourceInvalidUtf8,
@@ -348,6 +356,8 @@ mod tests {
             DiagnosticKind::BindingMalformedName,
             DiagnosticKind::BindingNameAlreadyDefined,
             DiagnosticKind::BindingIncoherentAlternativePattern,
+            DiagnosticKind::CheckingIncompatibleExpressionType,
+            DiagnosticKind::CheckingCannotInferExpressionType,
             DiagnosticKind::EmissionMissingContribution,
             DiagnosticKind::EmissionInvalidContribution,
             DiagnosticKind::EmissionArtifactReadFailed,

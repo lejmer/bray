@@ -190,6 +190,30 @@ mod tests {
     }
 
     #[test]
+    fn renderer_localizes_expression_type_diagnostics() {
+        let incompatible = Diagnostic::new(
+            DiagnosticId::new(0),
+            DiagnosticKind::CheckingIncompatibleExpressionType,
+            SeverityKind::Error,
+        );
+        let unresolved = Diagnostic::new(
+            DiagnosticId::new(1),
+            DiagnosticKind::CheckingCannotInferExpressionType,
+            SeverityKind::Error,
+        );
+        let renderer = DiagnosticRenderer::english();
+
+        assert_eq!(
+            renderer.render(&incompatible).message(),
+            "expression type is incompatible with the expected type"
+        );
+        assert_eq!(
+            renderer.render(&unresolved).message(),
+            "cannot infer expression type"
+        );
+    }
+
+    #[test]
     fn renderer_localizes_structured_emission_diagnostics() {
         let diagnostic = Diagnostic::new(
             DiagnosticId::new(0),

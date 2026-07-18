@@ -327,6 +327,16 @@ The type domain owns:
 Inputs use canonical `TypeId`, substitutions, selected semantic entities, typed operation categories, and source origins. Outputs use
 canonical types and category-specific compatibility or adaptation results.
 
+Whole-unit expression typing publishes one immutable result for every reachable `BoundExpressionId`. The result stores the
+canonical checked or recovery `TypeId` and whether recovery affected that occurrence. It is a focused side table over the canonical
+bound tree, not another semantic tree. Literal adaptation and semantic selection contribute typed evidence to the same inference
+context before publication.
+
+Expected types are directional constraints. They propagate into language-defined child contexts such as tuple and array elements,
+but an expected type alone does not establish an expression's actual type or select an overload, member, operator, conversion, or
+other operation. A completed inference variable must have independent type evidence or resolve to the canonical error type with an
+owned diagnostic.
+
 The canonical error type supports recovery but never proves compatibility by itself. Checks that consume an error type return a
 typed recovered result and avoid diagnostics that merely repeat the originating type failure.
 
