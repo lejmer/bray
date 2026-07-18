@@ -9,6 +9,7 @@ rust-version.workspace = true
 bray-base = { path = "../bray-base" }
 bray-bound-tree = { path = "../bray-bound-tree" }
 bray-checker = { path = "../bray-checker" }
+bray-compiler-known = { path = "../bray-compiler-known" }
 bray-declarations = { path = "../bray-declarations" }
 bray-diagnostics = { path = "../bray-diagnostics" }
 bray-source = { path = "../bray-source" }
@@ -16,8 +17,8 @@ bray-symbols = { path = "../bray-symbols" }
 bray-syntax = { path = "../bray-syntax" }
 
 [dev-dependencies]
-bray-parser = { path = "../bray-parser" }
 bray-declarations = { path = "../bray-declarations" }
+bray-parser = { path = "../bray-parser" }
 bray-symbols = { path = "../bray-symbols" }
 bray-testing = { path = "../bray-testing" }
 

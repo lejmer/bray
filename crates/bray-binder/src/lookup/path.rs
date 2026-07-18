@@ -77,6 +77,10 @@ impl PathBindingContext {
     pub(crate) const fn module_owner(self) -> ModuleOwnerId {
         self.module_owner
     }
+
+    pub(crate) const fn with_scope(self, scope: bray_symbols::LocalScopeId) -> Self {
+        Self { scope, ..self }
+    }
 }
 
 struct PathLookup {
@@ -753,7 +757,20 @@ mod tests {
             MemberLookupResult::Found(ResolvedTypeName::Named(_))
         ));
 
-        assert!(finish(binder).diagnostics().is_empty());
+        assert!(matches!(
+            binder.bind_type_path(context, &path("Unit")),
+            MemberLookupResult::NotFound
+        ));
+
+        assert_eq!(
+            finish(binder)
+                .diagnostics()
+                .diagnostics()
+                .iter()
+                .map(|diagnostic| diagnostic.kind())
+                .collect::<Vec<_>>(),
+            [DiagnosticKind::BindingUnresolvedName]
+        );
     }
 
     #[test]

@@ -31,6 +31,10 @@ impl<'compilation> CompilationBinderFacts<'compilation> {
             cancellation,
         }
     }
+
+    pub(in crate::compilation) const fn compilation(&self) -> &'compilation Compilation {
+        self.compilation
+    }
 }
 
 impl BinderFactContext for CompilationBinderFacts<'_> {

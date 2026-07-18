@@ -193,6 +193,7 @@ impl Parser {
     ) -> TypeExpressionSyntax {
         match self.peek().kind() {
             SyntaxKind::SelfTypeKeyword => self.parse_self_type_expression(),
+            SyntaxKind::UnitKeyword => self.parse_unit_type_expression(),
             SyntaxKind::OpenParenToken => self.parse_parenthesized_type_expression(at_boundary),
             SyntaxKind::OpenBracketToken => self.parse_bracketed_type_expression(at_boundary),
             kind if self.at_type_expression_boundary_kind(kind) || at_boundary(self) => {
@@ -208,6 +209,15 @@ impl Parser {
         let mut builder = TypeExpressionSyntax::builder(self.syntax_source(), start);
 
         builder.push_self_keyword(self.expect(SyntaxKind::SelfTypeKeyword));
+
+        builder.build()
+    }
+
+    fn parse_unit_type_expression(&mut self) -> TypeExpressionSyntax {
+        let start = self.peek().full_range().start();
+        let mut builder = TypeExpressionSyntax::builder(self.syntax_source(), start);
+
+        builder.push_unit_keyword(self.expect(SyntaxKind::UnitKeyword));
 
         builder.build()
     }
@@ -364,10 +374,11 @@ mod tests {
     use super::super::state::Parser;
 
     #[test]
-    fn parser_parses_path_self_prefix_tuple_slice_and_callable_type_expressions() {
+    fn parser_parses_primary_prefix_tuple_slice_and_callable_type_expressions() {
         let cases = [
             ("Value", "Value", 0, 0),
             ("Self", "Self", 0, 0),
+            ("unit", "unit", 0, 0),
             ("&mut Value", "&mut Value", 1, 0),
             ("box Value", "box Value", 1, 0),
             ("(A, B,)", "(A, B,)", 2, 2),

@@ -1,3 +1,6 @@
+use bray_binder::UnitCheckEntryContextError;
+use bray_checker::CheckerInfrastructureError;
+
 use super::CompilationFactKey;
 
 /// One detected cycle in the compilation fact dependency graph.
@@ -87,6 +90,10 @@ pub enum FactQueryError {
     Cycle(FactCycle),
     /// The fact request could not complete because compiler coordination failed.
     InfrastructureFailure,
+    /// Checker entry construction found an inconsistent bound-unit context.
+    CheckerEntryContext(UnitCheckEntryContextError),
+    /// Semantic checking could not complete because a typed dependency was unavailable.
+    CheckerInfrastructure(CheckerInfrastructureError),
 }
 
 impl std::fmt::Display for FactQueryError {
@@ -100,6 +107,18 @@ impl std::fmt::Display for FactQueryError {
             ),
             Self::InfrastructureFailure => {
                 formatter.write_str("fact evaluation encountered an infrastructure failure")
+            }
+            Self::CheckerEntryContext(error) => {
+                write!(
+                    formatter,
+                    "semantic checker entry context failed: {error:?}"
+                )
+            }
+            Self::CheckerInfrastructure(error) => {
+                write!(
+                    formatter,
+                    "semantic checking infrastructure failed: {error:?}"
+                )
             }
         }
     }

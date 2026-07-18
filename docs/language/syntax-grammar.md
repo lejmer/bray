@@ -1042,6 +1042,7 @@ qualified-type-member-operation =
 
 type-primary-expression =
       self-type-expression
+    | unit-type-expression
     | path
     | grouped-type-expression
     | tuple-type-expression
@@ -1050,6 +1051,9 @@ type-primary-expression =
 
 self-type-expression =
     "Self" ;
+
+unit-type-expression =
+    "unit" ;
 
 grouped-type-expression =
     "(" type-expression ")" ;

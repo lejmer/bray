@@ -87,8 +87,9 @@ pub(super) const fn fact_error(error: BinderFactError) -> FactQueryError {
 fn binder_error(error: FactQueryError) -> BinderFactError {
     match error {
         FactQueryError::Cancelled => BinderFactError::Cancelled,
-        FactQueryError::Cycle(_) | FactQueryError::InfrastructureFailure => {
-            BinderFactError::DependencyUnavailable
-        }
+        FactQueryError::Cycle(_)
+        | FactQueryError::InfrastructureFailure
+        | FactQueryError::CheckerEntryContext(_)
+        | FactQueryError::CheckerInfrastructure(_) => BinderFactError::DependencyUnavailable,
     }
 }

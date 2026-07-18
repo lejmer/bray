@@ -2,20 +2,81 @@ use std::sync::OnceLock;
 
 use bray_bound_tree::{
     BoundBlock, BoundBlockItem, BoundCallableBody, BoundCallableBodyId, BoundErrorExpression,
-    BoundExpression, BoundNodeOrigin, BoundSourceAnchor, BoundTree, BoundTreeBuilder, BoundUnitId,
-    BoundUnitKey,
+    BoundExpression, BoundNodeOrigin, BoundSourceAnchor, BoundTree, BoundTreeBuilder, BoundUnit,
+    BoundUnitId, BoundUnitKey, BoundUnitRoot,
 };
 use bray_declarations::{DeclarationId, discover_source_unit_declarations};
 use bray_parser::parse_source_unit;
 use bray_source::{
-    SourceId, SourceIdentity, SourceOrigin, SourceSnapshot, SourceVersion, TextSizeOverflow,
+    SourceId, SourceIdentity, SourceOrigin, SourceSnapshot, SourceSpan, SourceVersion,
+    TextSizeOverflow,
 };
 use bray_symbols::{
-    ModulePathKey, PackageIdentity, SemanticValueStore, SymbolKey, SymbolKind, SymbolRootKey,
-    TypeData, TypeId,
+    AnySymbolId, FunctionSymbolId, LocalScopeBoundary, LocalSymbolRegionId, LocalSymbolRegionKey,
+    LocalSymbolRegionRole, LocalSymbolSnapshotBuilder, ModulePathKey, PackageIdentity,
+    SemanticValueStore, SymbolId, SymbolKey, SymbolKind, SymbolRootKey, TypeData, TypeId,
 };
 
 pub(crate) use bray_symbols::testing::available_compiler_known_symbols;
+
+use crate::{
+    CheckerInfrastructureError, CheckerRequestContext, CheckerSource, DeclaredUnitCheckEntry,
+    UnitCheckEntryContext,
+};
+
+pub(crate) struct TestCheckerContext {
+    cancelled: bool,
+}
+
+impl TestCheckerContext {
+    pub(crate) const fn new(cancelled: bool) -> Self {
+        Self { cancelled }
+    }
+}
+
+impl bray_base::Cancellation for TestCheckerContext {
+    fn is_cancelled(&self) -> bool {
+        self.cancelled
+    }
+}
+
+impl CheckerRequestContext for TestCheckerContext {
+    fn entry_context_matches(&self, unit: &BoundUnit, entry: &UnitCheckEntryContext) -> bool {
+        callable_entry(unit.key()) == *entry
+    }
+
+    fn semantic_values(&self) -> &SemanticValueStore {
+        semantic_values()
+    }
+
+    fn available_compiler_known_symbols(&self) -> &bray_symbols::AvailableCompilerKnownSymbols {
+        available_compiler_known_symbols()
+    }
+
+    fn source(
+        &self,
+        anchor: BoundSourceAnchor,
+    ) -> Result<CheckerSource<'_>, CheckerInfrastructureError> {
+        let span = SourceSpan::new(anchor.syntax().source_id(), anchor.syntax().full_range());
+
+        let Some(text) = source_snapshot().text_slice(span.range()) else {
+            return Err(CheckerInfrastructureError::InvalidSourceRange { span });
+        };
+
+        Ok(CheckerSource::new(span, text))
+    }
+
+    fn cancellation(&self) -> &dyn bray_base::Cancellation {
+        self
+    }
+}
+
+pub(crate) fn callable_entry(key: &BoundUnitKey) -> UnitCheckEntryContext {
+    let owner = AnySymbolId::from(FunctionSymbolId::from_symbol_id(SymbolId::new(0)));
+
+    // Bound-unit keys are Arc-backed immutable identities shared by test requests.
+    UnitCheckEntryContext::CallableBody(DeclaredUnitCheckEntry::new(key.clone(), owner, owner))
+}
 
 pub(crate) fn semantic_values() -> &'static SemanticValueStore {
     static VALUES: OnceLock<SemanticValueStore> = OnceLock::new();
@@ -27,12 +88,9 @@ pub(crate) fn semantic_values() -> &'static SemanticValueStore {
 }
 
 pub(crate) fn callable_key() -> BoundUnitKey {
-    let snapshot = match source() {
-        Ok(snapshot) => snapshot,
-        Err(error) => panic!("test source must fit in the source range representation: {error:?}"),
-    };
+    let snapshot = source_snapshot();
 
-    let parsed = parse_source_unit(&snapshot);
+    let parsed = parse_source_unit(snapshot);
 
     assert!(parsed.diagnostics().is_empty());
 
@@ -83,6 +141,50 @@ pub(crate) fn recovered_tree(
     (builder.finish(), root)
 }
 
+pub(crate) fn callable_unit(
+    key: &BoundUnitKey,
+    tree: BoundTree,
+    root: BoundCallableBodyId,
+) -> BoundUnit {
+    let region = LocalSymbolRegionId::new(tree.unit().raw());
+
+    let Some(region_key) = LocalSymbolRegionKey::try_new(
+        key.declared_owner().clone(),
+        LocalSymbolRegionRole::CallableBody,
+        [key.source().syntax()],
+        None,
+    ) else {
+        panic!("callable test keys must form local symbol regions");
+    };
+
+    let mut symbols = LocalSymbolSnapshotBuilder::new(region, region_key);
+
+    if let Err(error) = symbols.push_scope(
+        None,
+        LocalScopeBoundary::Root,
+        key.source().syntax(),
+        key.source().syntax().full_range().start(),
+    ) {
+        panic!("callable test root scope must validate: {error:?}");
+    }
+
+    let symbols = match symbols.finish() {
+        Ok(symbols) => symbols,
+        Err(error) => panic!("callable test symbols must validate: {error:?}"),
+    };
+
+    match BoundUnit::try_new(
+        key.clone(),
+        tree,
+        symbols,
+        [],
+        BoundUnitRoot::CallableBody(root),
+    ) {
+        Ok(unit) => unit,
+        Err(error) => panic!("callable test unit must validate: {error:?}"),
+    }
+}
+
 pub(crate) fn normally_completing_recovered_tree(
     unit: BoundUnitId,
     key: &BoundUnitKey,
@@ -125,4 +227,13 @@ fn source() -> Result<SourceSnapshot, TextSizeOverflow> {
         SourceVersion::new(1),
         "module example;",
     )
+}
+
+fn source_snapshot() -> &'static SourceSnapshot {
+    static SOURCE: OnceLock<SourceSnapshot> = OnceLock::new();
+
+    SOURCE.get_or_init(|| match source() {
+        Ok(source) => source,
+        Err(error) => panic!("test source must fit in the source range representation: {error:?}"),
+    })
 }

@@ -20,6 +20,24 @@ pub(crate) fn lookup_unqualified_name(
     let mut current = Some(scope);
 
     while let Some(scope) = current {
+        if name == "result" {
+            let result = match unit.postcondition_result(scope) {
+                Ok(result) => result,
+                Err(_) => return MemberLookupResult::Malformed(Box::new([])),
+            };
+
+            if let Some(result) = result {
+                let is_recovered = unit.local_symbol_is_recovered(result.into());
+                let result = ResolvedName::Local(result.into());
+
+                return match is_recovered {
+                    Ok(true) => MemberLookupResult::Malformed(Box::new([result])),
+                    Ok(false) => MemberLookupResult::Found(result),
+                    Err(_) => MemberLookupResult::Malformed(Box::new([])),
+                };
+            }
+        }
+
         let locals = match unit.local_symbols_named(scope, name) {
             Ok(locals) => locals,
             Err(_) => return MemberLookupResult::Malformed(Box::new([])),

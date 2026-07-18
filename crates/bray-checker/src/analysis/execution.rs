@@ -1,11 +1,16 @@
 use bray_bound_tree::{BoundAwaitExpression, BoundCallExpression, BoundExpressionId};
 use bray_compiler_known::ImplementationHook;
 
+use crate::CheckerRequestContext;
+
 use super::build::ControlFlowGraphBuilder;
 use super::id::AnalysisBlockId;
 use super::model::{AnalysisEdgeKind, AnalysisExitKind, AnalysisTaskOperationKind};
 
-impl ControlFlowGraphBuilder<'_> {
+impl<C> ControlFlowGraphBuilder<'_, C>
+where
+    C: CheckerRequestContext + ?Sized,
+{
     pub(super) fn build_await(
         &mut self,
         id: BoundExpressionId,

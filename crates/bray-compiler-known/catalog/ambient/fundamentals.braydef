@@ -7,6 +7,18 @@ scope Ambient at ambient {
         surface { struct bool {} }
     }
 
+    declaration Unit {
+        representation Unit;
+
+        surface { internal struct Unit {} }
+    }
+
+    declaration Never {
+        representation Never;
+
+        surface { struct never {} }
+    }
+
     declaration U8 {
         representation ScalarU8;
 

@@ -334,6 +334,19 @@ impl LocalSymbolSnapshotBuilder {
         Ok(id)
     }
 
+    /// Returns the contextual postcondition result attached to one scope.
+    pub fn postcondition_result(
+        &self,
+        scope: LocalScopeId,
+    ) -> Result<Option<PostconditionResultSymbolId>, LocalSymbolBuildError> {
+        let scope = self
+            .scopes
+            .get(self.checked_scope_index(scope)?)
+            .ok_or(LocalSymbolBuildError::UnknownScope)?;
+
+        Ok(scope.postcondition_result)
+    }
+
     /// Inserts a named local symbol into one scope's ordinary-name index.
     pub fn insert_local_name(
         &mut self,
@@ -471,9 +484,14 @@ impl LocalSymbolSnapshotBuilder {
                         .ok_or(LocalSymbolBuildError::UnknownLocalSymbol)?,
                 )
                 .map(AnonymousCallableParameterSymbol::is_recovered),
-            AnyLocalSymbolId::AnonymousCallable(_) | AnyLocalSymbolId::PostconditionResult(_) => {
-                None
-            }
+            AnyLocalSymbolId::PostconditionResult(id) => self
+                .postcondition_results
+                .get(
+                    id.to_index()
+                        .ok_or(LocalSymbolBuildError::UnknownLocalSymbol)?,
+                )
+                .map(PostconditionResultSymbol::is_recovered),
+            AnyLocalSymbolId::AnonymousCallable(_) => None,
         }
         .ok_or(LocalSymbolBuildError::UnknownLocalSymbol)
     }
@@ -786,6 +804,7 @@ mod tests {
         };
 
         assert_eq!(block_scope.parent(), Some(root));
+
         assert_eq!(
             block_scope.local_symbols_named("value"),
             &[
@@ -804,6 +823,7 @@ mod tests {
             block_scope.local_symbols_named("limit"),
             &[AnyLocalSymbolId::from(constant)]
         );
+
         assert!(snapshot.constant(constant).is_some());
 
         assert_eq!(
@@ -872,6 +892,13 @@ mod tests {
             builder.push_postcondition_result(contract_scope, syntax, None, false),
             Err(LocalSymbolBuildError::DuplicatePostconditionResult)
         );
+
+        assert_eq!(
+            builder.postcondition_result(contract_scope),
+            Ok(Some(result))
+        );
+
+        assert_eq!(builder.local_symbol_is_recovered(result.into()), Ok(false));
 
         let snapshot = finish(builder);
 
@@ -1108,10 +1135,12 @@ mod tests {
         let abandoned = binding(&mut builder, root, "abandoned", syntax, 0, false);
 
         assert_eq!(builder.insert_local_name(root, abandoned.into()), Ok(()));
+
         assert_eq!(
             builder.insert_surface_name(root, symbol_name("surface"), surface_symbol),
             Ok(())
         );
+
         assert!(builder.rollback(checkpoint));
 
         let reused = binding(&mut builder, root, "reused", syntax, 0, false);
@@ -1182,12 +1211,14 @@ mod tests {
 
         let abandoned_parameter =
             anonymous_parameter(&mut builder, callable, callable_scope, syntax);
+
         let abandoned_result = postcondition_result(&mut builder, contract_scope, syntax);
 
         assert_eq!(
             builder.insert_local_name(callable_scope, abandoned_parameter.into()),
             Ok(())
         );
+
         assert!(builder.rollback(checkpoint));
 
         let reused_parameter = anonymous_parameter(&mut builder, callable, callable_scope, syntax);
@@ -1195,6 +1226,7 @@ mod tests {
 
         assert_eq!(abandoned_parameter, reused_parameter);
         assert_eq!(abandoned_result, reused_result);
+
         assert_eq!(
             builder.insert_local_name(callable_scope, reused_parameter.into()),
             Ok(())
@@ -1208,6 +1240,7 @@ mod tests {
                 .map(|record| record.parameters()),
             Some(&[reused_parameter][..])
         );
+
         assert_eq!(
             snapshot
                 .scope(contract_scope)

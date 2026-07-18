@@ -104,6 +104,7 @@ dependencies = [
  "bray-base",
  "bray-bound-tree",
  "bray-checker",
+ "bray-compiler-known",
  "bray-declarations",
  "bray-diagnostics",
  "bray-parser",

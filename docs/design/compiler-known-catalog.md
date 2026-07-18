@@ -91,6 +91,10 @@ A compiler-provided implementation body is not part of the declaration surface a
 A representation role is a closed Rust enum value that tells semantic and lowering code that a declaration has language-defined
 representation behavior. Examples can include scalar Boolean, signed integer, raw pointer, or task handle roles.
 
+An embedded declaration surface marked `internal` is a compiler-internal semantic identity. It can carry a representation role and
+participate in compiler facts, but it does not enter the compiler-known environment's ordinary source lookup surface. This supports
+keyword-spelled and otherwise syntax-selected language identities without creating a second identifier spelling for user code.
+
 The catalog names a role. Rust defines and implements it.
 
 ### Implementation Hook

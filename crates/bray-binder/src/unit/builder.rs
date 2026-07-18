@@ -231,6 +231,15 @@ impl BoundUnitLocalBuilder {
             .map_err(Into::into)
     }
 
+    pub(crate) fn postcondition_result(
+        &self,
+        scope: LocalScopeId,
+    ) -> Result<Option<PostconditionResultSymbolId>, BoundUnitConstructionError> {
+        self.local_symbols
+            .postcondition_result(scope)
+            .map_err(Into::into)
+    }
+
     pub(crate) fn push_root_anonymous_callable(
         &mut self,
         introduction_scope: LocalScopeId,

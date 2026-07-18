@@ -1,4 +1,5 @@
 mod binder;
+mod checker;
 mod diagnostics;
 mod export;
 mod facts;

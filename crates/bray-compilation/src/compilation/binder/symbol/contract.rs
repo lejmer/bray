@@ -207,7 +207,7 @@ fn bind_callable_predicates(
         owner,
         syntax,
         expressions,
-        PredicateClauseBindingContext::CallableContract,
+        PredicateClauseBindingContext::CallableContract(kind),
     )?;
 
     let (summaries, clause_diagnostics) = result.into_parts();

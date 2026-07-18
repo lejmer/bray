@@ -4,7 +4,7 @@ use bray_bound_tree::{
 };
 use bray_declarations::SyntaxAnchor;
 
-use crate::{UnitCheckRequest, UnitCheckRoot};
+use crate::{CheckerRequestContext, UnitCheckRequest, UnitCheckRoot};
 
 use super::assembly::ControlFlowGraphAssembler;
 use super::id::AnalysisBlockId;
@@ -15,10 +15,14 @@ pub(crate) enum ControlFlowGraphBuildOutcome {
     Cancelled,
 }
 
-pub(crate) fn build_control_flow_graph(
-    request: UnitCheckRequest<'_>,
-) -> ControlFlowGraphBuildOutcome {
+pub(crate) fn build_control_flow_graph<C>(
+    request: UnitCheckRequest<'_, C>,
+) -> ControlFlowGraphBuildOutcome
+where
+    C: CheckerRequestContext + ?Sized,
+{
     let mut builder = ControlFlowGraphBuilder::new(request);
+
     let entry = builder.push_block();
 
     let completion = match request.root() {
@@ -38,8 +42,11 @@ pub(crate) fn build_control_flow_graph(
     ControlFlowGraphBuildOutcome::Complete(builder.finish(entry))
 }
 
-pub(super) struct ControlFlowGraphBuilder<'view> {
-    request: UnitCheckRequest<'view>,
+pub(super) struct ControlFlowGraphBuilder<'view, C>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    request: UnitCheckRequest<'view, C>,
     view: BoundUnitView<'view>,
     storage: ControlFlowGraphAssembler,
     pub(super) loops: Vec<LoopContext>,
@@ -61,8 +68,11 @@ pub(super) struct CatchContext {
     pub(super) scope_depth: usize,
 }
 
-impl<'view> ControlFlowGraphBuilder<'view> {
-    fn new(request: UnitCheckRequest<'view>) -> Self {
+impl<'view, C> ControlFlowGraphBuilder<'view, C>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    fn new(request: UnitCheckRequest<'view, C>) -> Self {
         Self {
             request,
             view: request.view(),
@@ -434,7 +444,7 @@ impl<'view> ControlFlowGraphBuilder<'view> {
         self.scopes.len()
     }
 
-    pub(super) const fn request(&self) -> UnitCheckRequest<'_> {
+    pub(super) const fn request(&self) -> UnitCheckRequest<'_, C> {
         self.request
     }
 
@@ -471,30 +481,29 @@ mod tests {
     };
 
     use super::{ControlFlowGraphBuildOutcome, build_control_flow_graph};
+    use crate::UnitCheckRequest;
     use crate::analysis::model::ControlFlowGraph;
     use crate::analysis::model::{
         AnalysisEdgeKind, AnalysisExitKind, AnalysisOperationKind, AnalysisScopeExitPhase,
         AnalysisTaskOperationKind,
     };
     use crate::test_support::{
-        available_compiler_known_symbols, callable_key, error_type, recovered_tree, semantic_values,
+        TestCheckerContext, available_compiler_known_symbols, callable_entry, callable_key,
+        callable_unit, error_type, recovered_tree, semantic_values,
     };
-    use crate::{UnitCheckRequest, UnitCheckRoot};
 
     #[test]
     fn recovered_nodes_produce_typed_recovery_operations_edges_and_exits() {
         let key = callable_key();
         let unit = BoundUnitId::new(6);
-        let (tree, root) = recovered_tree(unit, &key);
-        let view = tree.view(&key);
 
-        let Ok(request) = UnitCheckRequest::new(
-            view,
-            UnitCheckRoot::CallableBody(root),
-            semantic_values(),
-            available_compiler_known_symbols(),
-            &|| false,
-        ) else {
+        let (tree, root) = recovered_tree(unit, &key);
+
+        let unit = callable_unit(&key, tree, root);
+        let entry = callable_entry(&key);
+        let context = TestCheckerContext::new(false);
+
+        let Ok(request) = UnitCheckRequest::new(&unit, &entry, &context) else {
             panic!("matching test roots must produce checker requests");
         };
 
@@ -644,13 +653,16 @@ mod tests {
         let origin = BoundNodeOrigin::source(key.source());
 
         let mut builder = BoundTreeBuilder::new(unit);
+
         let operand = push_error_expression(&mut builder, origin);
+
         let await_expression = push_expression(
             &mut builder,
             BoundExpression::Await(BoundAwaitExpression::pending(origin, operand, false)),
         );
 
         let root = push_callable_root(&mut builder, origin, [await_expression]);
+
         let tree = builder.finish();
         let graph = graph(&tree, &key, root);
 
@@ -687,6 +699,7 @@ mod tests {
         let origin = BoundNodeOrigin::source(key.source());
 
         let mut builder = BoundTreeBuilder::new(unit);
+
         let callee = push_name_expression(&mut builder, origin, error_type());
 
         let start = push_task_call(
@@ -697,10 +710,9 @@ mod tests {
         );
 
         let join = push_task_call(&mut builder, origin, callee, ImplementationHook::TaskJoin);
-
         let cancel = push_task_call(&mut builder, origin, callee, ImplementationHook::TaskCancel);
-
         let root = push_callable_root(&mut builder, origin, [start, join, cancel]);
+
         let tree = builder.finish();
         let graph = graph(&tree, &key, root);
 
@@ -733,6 +745,7 @@ mod tests {
         let run_result_type = representation_type(RepresentationRole::RunResult);
 
         let mut builder = BoundTreeBuilder::new(unit);
+
         let operand = push_name_expression(&mut builder, origin, run_result_type);
 
         let propagation = push_expression(
@@ -762,6 +775,7 @@ mod tests {
         );
 
         let root = push_callable_root(&mut builder, origin, [catching]);
+
         let tree = builder.finish();
         let graph = graph(&tree, &key, root);
 
@@ -802,6 +816,7 @@ mod tests {
         let result_type = representation_type(RepresentationRole::Result);
 
         let mut builder = BoundTreeBuilder::new(unit);
+
         let operand = push_name_expression(&mut builder, origin, result_type);
 
         let propagation = push_expression(
@@ -818,6 +833,7 @@ mod tests {
         );
 
         let root = push_callable_root(&mut builder, origin, [propagation]);
+
         let tree = builder.finish();
         let graph = graph(&tree, &key, root);
 
@@ -848,6 +864,7 @@ mod tests {
         let origin = BoundNodeOrigin::source(key.source());
 
         let mut builder = BoundTreeBuilder::new(unit);
+
         let return_expression = push_expression(
             &mut builder,
             BoundExpression::ControlTransfer(BoundControlTransferExpression::new(
@@ -861,6 +878,7 @@ mod tests {
         );
 
         let inner = push_block(&mut builder, origin, [return_expression]);
+
         let inner_expression = push_expression(
             &mut builder,
             BoundExpression::Block(BoundBlockExpression::new(
@@ -948,6 +966,7 @@ mod tests {
 
         let match_expression = push_expression(&mut builder, match_expression);
         let root = push_callable_root(&mut builder, origin, [for_expression, match_expression]);
+
         let tree = builder.finish();
         let graph = graph(&tree, &key, root);
 
@@ -981,15 +1000,11 @@ mod tests {
         key: &BoundUnitKey,
         root: bray_bound_tree::BoundCallableBodyId,
     ) -> ControlFlowGraph {
-        let view = tree.view(key);
+        let unit = callable_unit(key, tree.clone(), root);
+        let entry = callable_entry(key);
+        let context = TestCheckerContext::new(false);
 
-        let Ok(request) = UnitCheckRequest::new(
-            view,
-            UnitCheckRoot::CallableBody(root),
-            semantic_values(),
-            available_compiler_known_symbols(),
-            &|| false,
-        ) else {
+        let Ok(request) = UnitCheckRequest::new(&unit, &entry, &context) else {
             panic!("matching test roots must produce checker requests");
         };
 
@@ -1055,6 +1070,7 @@ mod tests {
             .unwrap_or_else(|| panic!("{hook:?} must be available to checker tests"));
 
         let callable = callable_instance(definition);
+
         let result = match hook {
             ImplementationHook::FutureStart => BoundCallResult::Immediate(error_type()),
             ImplementationHook::TaskJoin | ImplementationHook::TaskCancel => {

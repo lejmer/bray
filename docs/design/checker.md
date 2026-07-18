@@ -133,6 +133,16 @@ discoverable.
 Focused checker APIs use exact typed request and result records. A request contains only the semantic inputs needed by that rule,
 plus narrow read-only fact access and cancellation when the operation can request facts or perform substantial work.
 
+Whole-unit requests pair the committed bound-unit view and exact root with a closed category-specific entry context selected by the
+binder. The entry context identifies the declaration or local callable boundary that supplies parameters, generic context,
+requirements, and category-specific contextual bindings. A request whose root, unit key, unit category, and entry context do not
+agree is an infrastructure failure and cannot enter semantic analysis.
+
+The shared request context resolves source text and spans only through `BoundSourceAnchor`. It can return the anchored text and exact
+span but cannot expose a source snapshot, syntax tree, token stream, or arbitrary syntax traversal to checker rules. Symbol facts are
+requested through their typed `SymbolFactContract` without selecting a source, compiler-known, or imported implementation API at
+the checker boundary.
+
 Conceptually:
 
 ```rust
@@ -221,6 +231,10 @@ diagnostics and no partial results.
 
 Cancellation is not a semantic result and must not be represented as an error type, recovery node, unknown proof, or user
 diagnostic. Binder and compilation orchestration discard all task-local checker state after cancellation.
+
+Failures to resolve a bound source anchor, obtain a required semantic fact, or satisfy a checker request invariant are typed
+infrastructure failures. They are distinct from cancellation and from source diagnostics, and they publish neither a recovered
+semantic result nor a user-facing diagnostic.
 
 ### Diagnostics
 
