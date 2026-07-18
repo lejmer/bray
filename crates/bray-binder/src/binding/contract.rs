@@ -1,7 +1,8 @@
+use bray_compiler_known::RepresentationRole;
 use bray_declarations::SyntaxAnchor;
 use bray_symbols::{
     AnySymbolId, CallableSignatureFact, CallableSymbolId, LocalScopeBoundary, LocalScopeId,
-    SymbolFactRequest, TypeData,
+    NamedTypeSymbolId, StructSymbolId, SymbolFactRequest, TypeData,
 };
 
 use crate::binder::Binder;
@@ -54,5 +55,19 @@ where
         .type_data(signature.value().result())
         .map_err(|_| BinderFactError::DependencyUnavailable)?;
 
-    Ok(!matches!(&*result, TypeData::Tuple(elements) if elements.is_empty()))
+    let roles = facts.symbols().compiler_known_provider().role_registry();
+    let unit = roles
+        .representation_symbol::<StructSymbolId>(RepresentationRole::Unit)
+        .ok_or(BinderFactError::DependencyUnavailable)?;
+    let never = roles
+        .representation_symbol::<StructSymbolId>(RepresentationRole::Never)
+        .ok_or(BinderFactError::DependencyUnavailable)?;
+
+    let unit = NamedTypeSymbolId::Struct(unit);
+    let never = NamedTypeSymbolId::Struct(never);
+
+    Ok(!matches!(
+        &*result,
+        TypeData::Named { definition, .. } if *definition == unit || *definition == never
+    ))
 }

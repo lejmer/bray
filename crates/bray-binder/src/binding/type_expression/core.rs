@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
 use bray_base::Cancellation;
+use bray_compiler_known::RepresentationRole;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
     BorrowKind, CallableConstness, CallableDependencyContracts, CallableExecution,
@@ -9,8 +10,8 @@ use bray_symbols::{
     CallableSymbolId, CallableTrust, CallableTypeData, DependencyContractTemplateData,
     GenericArgument, GenericOwnerId, GenericSubstitutionData, GenericTypeParameterSymbolId,
     MemberLookupResult, ModuleSymbolId, NamedTypeSymbolId, ReceiverParameterSignature,
-    ReceiverParameterSymbolId, SelfTypeContext, SemanticValueStore, SymbolGraph, SymbolName,
-    TraitApplicationId, TypeData, TypeId,
+    ReceiverParameterSymbolId, SelfTypeContext, SemanticValueStore, StructSymbolId, SymbolGraph,
+    SymbolName, TraitApplicationId, TypeData, TypeId,
 };
 use bray_syntax::{
     GenericArgumentListSyntax, ImplementationSubjectSyntax, ParameterListSyntax, ParameterSyntax,
@@ -155,7 +156,7 @@ impl<'facts> TypeExpressionBinder<'facts> {
 
         let result = match result_type {
             Some(result) => self.bind_type(result)?,
-            None => self.intern_type(TypeData::tuple([]))?,
+            None => self.bind_compiler_known_type(RepresentationRole::Unit)?,
         };
 
         let receiver = match (receiver, qualifiers.receiver_mode, self.self_type) {
@@ -200,6 +201,10 @@ impl<'facts> TypeExpressionBinder<'facts> {
 
         if syntax.func_keyword().is_some() {
             return self.bind_callable_type(syntax);
+        }
+
+        if syntax.unit_keyword().is_some() {
+            return self.bind_compiler_known_type(RepresentationRole::Unit);
         }
 
         if syntax.box_keyword().is_some() {
@@ -375,6 +380,17 @@ impl<'facts> TypeExpressionBinder<'facts> {
         })
     }
 
+    fn bind_compiler_known_type(&mut self, role: RepresentationRole) -> BinderFactResult<TypeId> {
+        let definition = self
+            .symbols
+            .compiler_known_provider()
+            .role_registry()
+            .representation_symbol::<StructSymbolId>(role)
+            .ok_or(BinderFactError::DependencyUnavailable)?;
+
+        self.bind_named_type(definition.into(), None)
+    }
+
     pub(super) fn bind_generic_arguments(
         &mut self,
         arguments: Option<&GenericArgumentListSyntax>,
@@ -411,7 +427,7 @@ impl<'facts> TypeExpressionBinder<'facts> {
 
         let result = match syntax.callable_result_clauses().next() {
             Some(result) => self.bind_type(&result.type_expression())?,
-            None => self.intern_type(TypeData::tuple([]))?,
+            None => self.bind_compiler_known_type(RepresentationRole::Unit)?,
         };
 
         let modifiers = syntax.callable_modifiers().next();

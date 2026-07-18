@@ -7,8 +7,8 @@ use bray_binder::{
 };
 use bray_bound_tree::{BoundUnit, BoundUnitKey, BoundUnitKind, CheckedControlFlowFacts};
 use bray_checker::{
-    CheckerOutcome, ControlFlowChecker, DefaultControlFlowChecker, UnitCheckEntryContext,
-    UnitCheckRequest,
+    CheckerInfrastructureError, CheckerOutcome, ControlFlowChecker, DefaultControlFlowChecker,
+    UnitCheckEntryContext, UnitCheckRequest,
 };
 use bray_diagnostics::DiagnosticResult;
 
@@ -115,8 +115,9 @@ fn check_control_flow(
     ),
     FactQueryError,
 > {
-    let request = UnitCheckRequest::new(bound, entry, context)
-        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+    let request = UnitCheckRequest::new(bound, entry, context).map_err(|error| {
+        FactQueryError::CheckerInfrastructure(CheckerInfrastructureError::InvalidUnitRequest(error))
+    })?;
 
     let result = match DefaultControlFlowChecker.check_control_flow(request) {
         CheckerOutcome::Complete(result) => result.map(|result| result.into_facts()),
@@ -147,7 +148,10 @@ const fn map_binding_error(error: BoundUnitBindingError) -> FactQueryError {
 mod tests {
     use std::sync::Arc;
 
-    use super::Compilation;
+    use bray_binder::unit_check_entry_context;
+    use bray_checker::{CheckerInfrastructureError, UnitCheckEntryContext, UnitCheckRequestError};
+
+    use super::{Compilation, check_control_flow};
     use crate::fact::{CancellationToken, FactCellTestEvent, FactQueryError};
     use crate::test_support::{FactTestGate, compilation, source_callable_body_key};
 
@@ -298,6 +302,43 @@ mod tests {
         };
 
         assert!(checked.diagnostics().is_empty());
+    }
+
+    #[test]
+    fn invalid_checker_requests_preserve_their_typed_infrastructure_error() {
+        let compilation = callable_compilation();
+        let key = source_callable_body_key(&compilation);
+
+        let bound = match compilation.bound_unit(key.clone()) {
+            Ok(bound) => bound,
+            Err(error) => panic!("bound unit must be available: {error:?}"),
+        };
+
+        let context = match compilation.checker_context_for(&key, &compilation.state.cancellation) {
+            Ok(context) => context,
+            Err(error) => panic!("checker context must be available: {error:?}"),
+        };
+
+        let canonical = match unit_check_entry_context(context.symbols(), bound.value()) {
+            Ok(entry) => entry,
+            Err(error) => panic!("checker entry context must be available: {error:?}"),
+        };
+
+        let UnitCheckEntryContext::CallableBody(declaration) = canonical else {
+            panic!("callable body must produce a callable-body checker entry");
+        };
+
+        let invalid = UnitCheckEntryContext::Constraint(declaration);
+        let result = check_control_flow(bound.value(), &invalid, &context);
+
+        assert!(matches!(
+            result,
+            Err(FactQueryError::CheckerInfrastructure(
+                CheckerInfrastructureError::InvalidUnitRequest(
+                    UnitCheckRequestError::EntryContextMismatch
+                )
+            ))
+        ));
     }
 
     fn callable_compilation() -> Compilation {

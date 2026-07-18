@@ -8,7 +8,7 @@ use bray_symbols::{
     SymbolFactKind, SymbolFactRequest, SymbolFactResult,
 };
 
-use crate::UnitCheckEntryContext;
+use crate::{UnitCheckEntryContext, UnitCheckRequestError};
 
 /// A checker infrastructure failure that is neither a source diagnostic nor cancellation.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -39,6 +39,8 @@ pub enum CheckerInfrastructureError {
         /// The unavailable fact category.
         kind: SymbolFactKind,
     },
+    /// A whole-unit checker request did not match its canonical bound unit.
+    InvalidUnitRequest(UnitCheckRequestError),
 }
 
 /// A failure while requesting a checker dependency.

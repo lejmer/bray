@@ -3,7 +3,8 @@ use bray_checker::{
     AnonymousCallableCheckEntry, ContractClauseCheckEntry, DeclaredUnitCheckEntry,
     UnitCheckEntryContext,
 };
-use bray_symbols::{SymbolGraph, SymbolKind};
+use bray_symbols::{CallableContractClauseKind, SymbolGraph, SymbolKind};
+use bray_syntax::SyntaxKind;
 
 /// A bound-unit invariant that prevents checker entry-context construction.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -16,6 +17,8 @@ pub enum UnitCheckEntryContextError {
     MissingOwner,
     /// A synthesized unit owner does not resolve to its containing declaration.
     MissingDeclaration,
+    /// A contract-clause unit does not retain a recognized callable clause kind.
+    InvalidContractClauseKind,
 }
 
 /// Constructs the category-specific semantic inputs for one bound unit.
@@ -59,6 +62,7 @@ pub fn unit_check_entry_context(
             UnitCheckEntryContext::Constraint(declared_entry(symbols, unit)?),
         ),
         (BoundUnitKeyData::ContractClause(_), BoundUnitRoot::ExpressionSequence(_)) => {
+            let kind = contract_clause_kind(unit)?;
             let result = unit
                 .local_symbols()
                 .scopes()
@@ -66,10 +70,21 @@ pub fn unit_check_entry_context(
                 .find_map(bray_symbols::LocalScope::postcondition_result);
 
             Ok(UnitCheckEntryContext::ContractClause(
-                ContractClauseCheckEntry::new(declared_entry(symbols, unit)?, result),
+                ContractClauseCheckEntry::new(declared_entry(symbols, unit)?, kind, result),
             ))
         }
         _ => Err(UnitCheckEntryContextError::RootKindMismatch),
+    }
+}
+
+fn contract_clause_kind(
+    unit: &BoundUnit,
+) -> Result<CallableContractClauseKind, UnitCheckEntryContextError> {
+    match unit.key().source().syntax().syntax_kind() {
+        SyntaxKind::RequiresClause => Ok(CallableContractClauseKind::Requires),
+        SyntaxKind::EnsuresClause => Ok(CallableContractClauseKind::Ensures),
+        SyntaxKind::WithClause => Ok(CallableContractClauseKind::Static),
+        _ => Err(UnitCheckEntryContextError::InvalidContractClauseKind),
     }
 }
 

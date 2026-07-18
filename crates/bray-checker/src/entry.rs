@@ -1,7 +1,7 @@
 use bray_bound_tree::{BoundSourceAnchor, BoundUnitKey, BoundUnitKind};
 use bray_symbols::{
     AnonymousCallableParameterSymbolId, AnonymousCallableSymbolId, AnySymbolId,
-    PostconditionResultSymbolId, SymbolKey,
+    CallableContractClauseKind, PostconditionResultSymbolId, SymbolKey,
 };
 
 /// Declaration-owned inputs that select the semantic context of one checked unit.
@@ -90,6 +90,7 @@ impl AnonymousCallableCheckEntry {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ContractClauseCheckEntry {
     declaration: DeclaredUnitCheckEntry,
+    kind: CallableContractClauseKind,
     result: Option<PostconditionResultSymbolId>,
 }
 
@@ -97,10 +98,12 @@ impl ContractClauseCheckEntry {
     /// Creates a contract-clause entry context.
     pub fn new(
         declaration: DeclaredUnitCheckEntry,
+        kind: CallableContractClauseKind,
         result: Option<PostconditionResultSymbolId>,
     ) -> Self {
         Self {
             declaration,
+            kind,
             result,
         }
     }
@@ -108,6 +111,11 @@ impl ContractClauseCheckEntry {
     /// Returns the declaration-owned entry data.
     pub const fn declaration(&self) -> &DeclaredUnitCheckEntry {
         &self.declaration
+    }
+
+    /// Returns the exact callable contract-clause category.
+    pub const fn kind(&self) -> CallableContractClauseKind {
+        self.kind
     }
 
     /// Returns the normal-result binding available to a value-producing postcondition.

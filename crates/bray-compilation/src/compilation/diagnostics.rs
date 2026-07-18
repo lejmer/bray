@@ -358,6 +358,7 @@ mod tests {
     use bray_bound_tree::{BoundUnitKind, BoundUnitRoot};
     use bray_checker::UnitCheckEntryContext;
     use bray_diagnostics::DiagnosticKind;
+    use bray_symbols::CallableContractClauseKind;
 
     use crate::WorkerBudget;
     use crate::fact::FactCellTestEvent;
@@ -552,7 +553,82 @@ mod tests {
             panic!("value-producing postcondition must declare one result symbol");
         };
 
+        assert_eq!(entry.kind(), CallableContractClauseKind::Ensures);
         assert_eq!(entry.result(), Some(result.id()));
+    }
+
+    #[test]
+    fn contract_clause_entries_preserve_kind_and_exact_result_availability() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "func omitted() ensures(true)\n",
+            "{\n",
+            "}\n",
+            "func unit_result() -> unit ensures(true)\n",
+            "{\n",
+            "}\n",
+            "func never_result() -> never ensures(true)\n",
+            "{\n",
+            "}\n",
+            "func value_result() -> i32 requires(true) ensures(result == 1) with(true)\n",
+            "{\n",
+            "    return 1;\n",
+            "}\n",
+        ));
+
+        let keys = match compilation.declared_unit_keys() {
+            Ok(keys) => keys,
+            Err(error) => panic!("contract-clause keys must be discoverable: {error:?}"),
+        };
+
+        let symbols = match compilation.symbol_graph() {
+            Ok(symbols) => symbols,
+            Err(error) => panic!("symbol graph must be available: {error:?}"),
+        };
+
+        let mut entries = Vec::new();
+
+        for key in keys
+            .into_iter()
+            .filter(|key| key.kind() == BoundUnitKind::ContractClause)
+        {
+            let source_start = key.source().syntax().full_range().start();
+
+            let bound = match compilation.bound_unit(key) {
+                Ok(bound) => bound,
+                Err(error) => panic!("contract clause must bind: {error:?}"),
+            };
+
+            assert!(bound.diagnostics().is_empty());
+
+            let entry = match unit_check_entry_context(symbols, bound.value()) {
+                Ok(entry) => entry,
+                Err(error) => panic!("checker entry context must be available: {error:?}"),
+            };
+
+            let UnitCheckEntryContext::ContractClause(entry) = entry else {
+                panic!("contract clause must produce a contract-clause checker entry");
+            };
+
+            entries.push((source_start, entry.kind(), entry.result().is_some()));
+        }
+
+        entries.sort_unstable_by_key(|entry| entry.0);
+
+        assert_eq!(
+            entries
+                .into_iter()
+                .map(|(_, kind, has_result)| (kind, has_result))
+                .collect::<Vec<_>>(),
+            [
+                (CallableContractClauseKind::Ensures, false),
+                (CallableContractClauseKind::Ensures, false),
+                (CallableContractClauseKind::Ensures, false),
+                (CallableContractClauseKind::Requires, false),
+                (CallableContractClauseKind::Ensures, true),
+                (CallableContractClauseKind::Static, false),
+            ]
+        );
     }
 
     #[test]

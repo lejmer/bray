@@ -68,6 +68,14 @@ define_source_syntax_node! {
                 slot: "type_expression.self_keyword";
             },
             {
+                /// Returns the optional `unit` type keyword token.
+                unit_keyword;
+                /// Appends a `unit` type keyword token.
+                push_unit_keyword;
+                kind: SyntaxKind::UnitKeyword;
+                slot: "type_expression.unit_keyword";
+            },
+            {
                 /// Returns the optional opening parenthesis token.
                 open_paren_token;
                 /// Appends an opening parenthesis token.
