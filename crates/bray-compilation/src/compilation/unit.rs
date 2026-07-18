@@ -11,6 +11,7 @@ use bray_checker::{
     UnitCheckEntryContext, UnitCheckRequest,
 };
 use bray_diagnostics::DiagnosticResult;
+use bray_symbols::SymbolGraph;
 
 use super::Compilation;
 use super::binder::CompilationBinderFacts;
@@ -79,8 +80,7 @@ impl Compilation {
                 }
 
                 let context = self.checker_context_for(&key, cancellation)?;
-                let entry = unit_check_entry_context(context.symbols(), bound.result().value())
-                    .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                let entry = checker_entry_context(context.symbols(), bound.result().value())?;
 
                 check_control_flow(bound.result().value(), &entry, &context)
             },
@@ -102,6 +102,13 @@ fn bind_unit(
         BoundUnitKind::Constraint => bind_constraint(facts, unit, key)?.finish(),
         BoundUnitKind::ContractClause => bind_contract_clause(facts, unit, key)?.finish(),
     }
+}
+
+fn checker_entry_context(
+    symbols: &SymbolGraph,
+    bound: &BoundUnit,
+) -> Result<UnitCheckEntryContext, FactQueryError> {
+    unit_check_entry_context(symbols, bound).map_err(FactQueryError::CheckerEntryContext)
 }
 
 fn check_control_flow(
@@ -148,10 +155,10 @@ const fn map_binding_error(error: BoundUnitBindingError) -> FactQueryError {
 mod tests {
     use std::sync::Arc;
 
-    use bray_binder::unit_check_entry_context;
+    use bray_binder::{UnitCheckEntryContextError, unit_check_entry_context};
     use bray_checker::{CheckerInfrastructureError, UnitCheckEntryContext, UnitCheckRequestError};
 
-    use super::{Compilation, check_control_flow};
+    use super::{Compilation, check_control_flow, checker_entry_context};
     use crate::fact::{CancellationToken, FactCellTestEvent, FactQueryError};
     use crate::test_support::{FactTestGate, compilation, source_callable_body_key};
 
@@ -337,6 +344,37 @@ mod tests {
                 CheckerInfrastructureError::InvalidUnitRequest(
                     UnitCheckRequestError::EntryContextMismatch
                 )
+            ))
+        ));
+    }
+
+    #[test]
+    fn invalid_checker_entry_contexts_preserve_their_typed_cause() {
+        let primary = callable_compilation();
+        let key = source_callable_body_key(&primary);
+
+        let bound = match primary.bound_unit(key) {
+            Ok(bound) => bound,
+            Err(error) => panic!("bound unit must be available: {error:?}"),
+        };
+
+        let foreign = compilation(
+            r#"module other;
+func other()
+{
+}
+"#,
+        );
+
+        let symbols = match foreign.symbol_graph() {
+            Ok(symbols) => symbols,
+            Err(error) => panic!("foreign symbol graph must be available: {error:?}"),
+        };
+
+        assert!(matches!(
+            checker_entry_context(symbols, bound.value()),
+            Err(FactQueryError::CheckerEntryContext(
+                UnitCheckEntryContextError::MissingOwner
             ))
         ));
     }

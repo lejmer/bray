@@ -133,6 +133,9 @@ impl super::super::Compilation {
             Err(FactQueryError::InfrastructureFailure) => {
                 panic!("dependency-interface query infrastructure failed")
             }
+            Err(FactQueryError::CheckerEntryContext(error)) => {
+                panic!("semantic checker entry context failed: {error:?}")
+            }
             Err(FactQueryError::CheckerInfrastructure(error)) => {
                 panic!("semantic checker infrastructure failed: {error:?}")
             }

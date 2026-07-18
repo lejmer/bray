@@ -10,7 +10,7 @@ scope Ambient at ambient {
     declaration Unit {
         representation Unit;
 
-        surface { struct Unit {} }
+        surface { internal struct Unit {} }
     }
 
     declaration Never {

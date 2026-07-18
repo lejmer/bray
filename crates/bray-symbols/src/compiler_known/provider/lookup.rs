@@ -14,16 +14,18 @@ pub(super) fn add_member_entry(
     symbol: AnySymbolId,
     owner: AnySymbolId,
 ) {
+    if has_internal_visibility(surface) {
+        return;
+    }
+
     let Some(name) = member_name(surface, symbol.kind()) else {
         return;
     };
 
-    let visibility = member_visibility(surface);
-
     entries.entry(owner).or_default().push(MemberEntry::new(
         symbol,
         name,
-        visibility,
+        MemberVisibility::Public,
         MemberValidity::Valid,
     ));
 }
@@ -91,15 +93,11 @@ fn member_name(surface: &CatalogDeclarationSurfaceSyntax, kind: SymbolKind) -> O
     })
 }
 
-fn member_visibility(surface: &CatalogDeclarationSurfaceSyntax) -> MemberVisibility {
-    if surface.elements().iter().any(|element| {
+fn has_internal_visibility(surface: &CatalogDeclarationSurfaceSyntax) -> bool {
+    surface.elements().iter().any(|element| {
         matches!(
             element,
             CatalogSurfaceElement::Token(token) if token.is_internal_visibility()
         )
-    }) {
-        MemberVisibility::Internal
-    } else {
-        MemberVisibility::Public
-    }
+    })
 }

@@ -29,6 +29,9 @@ impl Compilation {
                 Err(FactQueryError::InfrastructureFailure) => {
                     panic!("semantic diagnostic infrastructure failed")
                 }
+                Err(FactQueryError::CheckerEntryContext(error)) => {
+                    panic!("semantic checker entry context failed: {error:?}")
+                }
                 Err(FactQueryError::CheckerInfrastructure(error)) => {
                     panic!("semantic checker infrastructure failed: {error:?}")
                 }

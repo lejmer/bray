@@ -374,7 +374,7 @@ mod tests {
     use super::super::state::Parser;
 
     #[test]
-    fn parser_parses_path_self_prefix_tuple_slice_and_callable_type_expressions() {
+    fn parser_parses_primary_prefix_tuple_slice_and_callable_type_expressions() {
         let cases = [
             ("Value", "Value", 0, 0),
             ("Self", "Self", 0, 0),

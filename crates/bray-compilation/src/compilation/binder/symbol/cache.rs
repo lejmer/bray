@@ -89,6 +89,7 @@ fn binder_error(error: FactQueryError) -> BinderFactError {
         FactQueryError::Cancelled => BinderFactError::Cancelled,
         FactQueryError::Cycle(_)
         | FactQueryError::InfrastructureFailure
+        | FactQueryError::CheckerEntryContext(_)
         | FactQueryError::CheckerInfrastructure(_) => BinderFactError::DependencyUnavailable,
     }
 }
