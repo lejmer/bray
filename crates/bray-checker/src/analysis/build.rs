@@ -464,13 +464,13 @@ where
 #[cfg(test)]
 mod tests {
     use bray_bound_tree::{
-        AnyBoundNodeId, BoundAwaitExpression, BoundBinaryExpression, BoundBlock,
-        BoundBlockExpression, BoundBlockItem, BoundCallExpression, BoundCallResult,
-        BoundCallableBody, BoundCallableTarget, BoundControlTransferExpression,
-        BoundControlTransferKind, BoundErrorExpression, BoundExpression, BoundExpressionId,
-        BoundForExpression, BoundFutureConstruction, BoundMatchArm, BoundMatchExpression,
-        BoundNameExpression, BoundNodeOrigin, BoundOperator, BoundPattern, BoundPatternKind,
-        BoundPatternMode, BoundReferenceTarget, BoundResolvedCall, BoundStructuredExpression,
+        AnyBoundNodeId, BoundAwaitExpression, BoundBinaryExpression, BoundBlockExpression,
+        BoundBlockItem, BoundCallExpression, BoundCallResult, BoundCallableBody,
+        BoundCallableTarget, BoundControlTransferExpression, BoundControlTransferKind,
+        BoundErrorExpression, BoundExpression, BoundExpressionId, BoundForExpression,
+        BoundFutureConstruction, BoundMatchArm, BoundMatchExpression, BoundNameExpression,
+        BoundNodeOrigin, BoundOperator, BoundPattern, BoundPatternKind, BoundPatternMode,
+        BoundReferenceTarget, BoundResolvedCall, BoundStructuredExpression,
         BoundStructuredExpressionKind, BoundTree, BoundTreeBuilder, BoundUnitId, BoundUnitKey,
     };
     use bray_compiler_known::{ImplementationHook, RepresentationRole};
@@ -489,7 +489,8 @@ mod tests {
     };
     use crate::test_support::{
         TestCheckerContext, available_compiler_known_symbols, callable_entry, callable_key,
-        callable_unit, error_type, recovered_tree, semantic_values,
+        callable_unit, error_type, push_block as push_bound_block, push_callable, push_expression,
+        recovered_tree, semantic_values,
     };
 
     #[test]
@@ -1177,16 +1178,6 @@ mod tests {
         )
     }
 
-    fn push_expression(
-        builder: &mut BoundTreeBuilder,
-        expression: BoundExpression,
-    ) -> BoundExpressionId {
-        match builder.push_expression(expression) {
-            Ok(expression) => expression,
-            Err(error) => panic!("test expression must be valid: {error:?}"),
-        }
-    }
-
     fn push_pattern(
         builder: &mut BoundTreeBuilder,
         origin: BoundNodeOrigin,
@@ -1212,16 +1203,9 @@ mod tests {
         origin: BoundNodeOrigin,
         expressions: impl IntoIterator<Item = BoundExpressionId>,
     ) -> bray_bound_tree::BoundBlockId {
-        let block = BoundBlock::new(
-            origin,
-            expressions.into_iter().map(BoundBlockItem::Expression),
-            false,
-        );
+        let items = expressions.into_iter().map(BoundBlockItem::Expression);
 
-        match builder.push_block(block) {
-            Ok(block) => block,
-            Err(error) => panic!("test block must be valid: {error:?}"),
-        }
+        push_bound_block(builder, origin, items)
     }
 
     fn push_callable_root(
@@ -1231,10 +1215,7 @@ mod tests {
     ) -> bray_bound_tree::BoundCallableBodyId {
         let block = push_block(builder, origin, expressions);
 
-        match builder.push_callable_body(BoundCallableBody::block(origin, block)) {
-            Ok(root) => root,
-            Err(error) => panic!("test callable root must be valid: {error:?}"),
-        }
+        push_callable(builder, origin, block)
     }
 
     fn block_containing(

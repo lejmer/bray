@@ -80,9 +80,47 @@ define_catalog_enum! {
     }
 }
 
+/// Classifies the numeric domain represented by a compiler-known scalar role.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum NumericRepresentationKind {
+    /// A signed, unsigned, or machine-sized integer representation.
+    Integer,
+    /// A real floating-point representation.
+    Real,
+    /// A complex floating-point representation.
+    Complex,
+}
+
+impl RepresentationRole {
+    /// Returns the numeric representation category for this role.
+    pub const fn numeric_kind(self) -> Option<NumericRepresentationKind> {
+        match self {
+            Self::ScalarI8
+            | Self::ScalarI16
+            | Self::ScalarI32
+            | Self::ScalarI64
+            | Self::ScalarI128
+            | Self::ScalarU8
+            | Self::ScalarU16
+            | Self::ScalarU32
+            | Self::ScalarU64
+            | Self::ScalarU128
+            | Self::ScalarIsize
+            | Self::ScalarUsize => Some(NumericRepresentationKind::Integer),
+            Self::ScalarR16 | Self::ScalarR32 | Self::ScalarR64 | Self::ScalarR128 => {
+                Some(NumericRepresentationKind::Real)
+            }
+            Self::ScalarC32 | Self::ScalarC64 | Self::ScalarC128 | Self::ScalarC256 => {
+                Some(NumericRepresentationKind::Complex)
+            }
+            _ => None,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::RepresentationRole;
+    use super::{NumericRepresentationKind, RepresentationRole};
 
     #[test]
     fn type_and_special_value_roles_remain_distinct() {
@@ -92,5 +130,33 @@ mod tests {
         );
 
         assert_ne!(RepresentationRole::Unit, RepresentationRole::UnitValue);
+    }
+
+    #[test]
+    fn numeric_roles_report_their_numeric_domain() {
+        let cases = [
+            (
+                RepresentationRole::ScalarI32,
+                Some(NumericRepresentationKind::Integer),
+            ),
+            (
+                RepresentationRole::ScalarUsize,
+                Some(NumericRepresentationKind::Integer),
+            ),
+            (
+                RepresentationRole::ScalarR64,
+                Some(NumericRepresentationKind::Real),
+            ),
+            (
+                RepresentationRole::ScalarC128,
+                Some(NumericRepresentationKind::Complex),
+            ),
+            (RepresentationRole::ScalarBool, None),
+            (RepresentationRole::Future, None),
+        ];
+
+        for (role, expected) in cases {
+            assert_eq!(role.numeric_kind(), expected);
+        }
     }
 }

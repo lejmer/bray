@@ -1,4 +1,4 @@
-use bray_compiler_known::RepresentationRole;
+use bray_compiler_known::{NumericRepresentationKind, RepresentationRole};
 use bray_symbols::{
     GenericArgument, GenericOwnerId, GenericParameterSymbolId, GenericSubstitutionData,
     NamedTypeSymbolId, StructSymbolId, TypeData, TypeId,
@@ -11,18 +11,10 @@ pub(super) struct ExpressionTypeDependencies {
     pub(super) unit: TypeId,
     pub(super) never: TypeId,
     pub(super) boolean: TypeId,
-    // TODO(checker): Remove this expectation when character literal checking uses this dependency.
-    #[expect(dead_code, reason = "used by character literal checking")]
     pub(super) character: TypeId,
     pub(super) string: TypeId,
-    // TODO(checker): Remove this expectation when integer literal adaptation uses this dependency.
-    #[expect(dead_code, reason = "used by integer literal adaptation")]
     pub(super) i32: TypeId,
-    // TODO(checker): Remove this expectation when real literal adaptation uses this dependency.
-    #[expect(dead_code, reason = "used by real literal adaptation")]
     pub(super) r64: TypeId,
-    // TODO(checker): Remove this expectation when complex literal adaptation uses this dependency.
-    #[expect(dead_code, reason = "used by complex literal adaptation")]
     pub(super) c128: TypeId,
     pub(super) usize: TypeId,
 }
@@ -63,10 +55,50 @@ impl ExpressionTypeDependencies {
     }
 }
 
-fn representation_type<C>(
+pub(super) fn numeric_kind<C>(
+    request: UnitCheckRequest<'_, C>,
+    ty: TypeId,
+) -> Result<Option<NumericRepresentationKind>, CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let data = request
+        .semantic_values()
+        .type_data(ty)
+        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+
+    let TypeData::Named {
+        definition: NamedTypeSymbolId::Struct(definition),
+        ..
+    } = data.as_ref()
+    else {
+        return Ok(None);
+    };
+
+    Ok(request
+        .available_compiler_known_symbols()
+        .symbol_representation(*definition)
+        .and_then(RepresentationRole::numeric_kind))
+}
+
+pub(super) fn representation_type<C>(
     request: UnitCheckRequest<'_, C>,
     role: RepresentationRole,
 ) -> Result<TypeId, CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let Some(ty) = available_representation_type(request, role)? else {
+        return Err(CheckerInfrastructureError::CompilerKnownRepresentationUnavailable { role });
+    };
+
+    Ok(ty)
+}
+
+fn available_representation_type<C>(
+    request: UnitCheckRequest<'_, C>,
+    role: RepresentationRole,
+) -> Result<Option<TypeId>, CheckerInfrastructureError>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -74,7 +106,7 @@ where
         .available_compiler_known_symbols()
         .representation_symbol::<StructSymbolId>(role)
     else {
-        return Err(CheckerInfrastructureError::CompilerKnownRepresentationUnavailable { role });
+        return Ok(None);
     };
 
     let definition = NamedTypeSymbolId::Struct(definition);
@@ -94,11 +126,13 @@ where
         .intern_generic_substitution(substitution)
         .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
 
-    request
+    let ty = request
         .semantic_values()
         .intern_type(TypeData::Named {
             definition,
             substitution,
         })
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)
+        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+
+    Ok(Some(ty))
 }

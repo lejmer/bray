@@ -3,8 +3,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use bray_bound_tree::{
     BoundBlock, BoundBlockItem, BoundCallableBody, BoundCallableBodyId, BoundErrorExpression,
-    BoundExpression, BoundNodeOrigin, BoundSourceAnchor, BoundTree, BoundTreeBuilder, BoundUnit,
-    BoundUnitId, BoundUnitKey, BoundUnitRoot,
+    BoundExpression, BoundExpressionId, BoundLiteralExpression, BoundLiteralKind,
+    BoundNameExpression, BoundNodeOrigin, BoundReferenceTarget, BoundSourceAnchor, BoundTree,
+    BoundTreeBuilder, BoundUnit, BoundUnitId, BoundUnitKey, BoundUnitRoot,
 };
 use bray_declarations::{DeclarationId, SyntaxAnchor, discover_source_unit_declarations};
 use bray_parser::parse_source_unit;
@@ -21,8 +22,9 @@ use bray_symbols::{
 pub(crate) use bray_symbols::testing::available_compiler_known_symbols;
 
 use crate::{
-    CheckerInfrastructureError, CheckerRequestContext, CheckerSource, DeclaredUnitCheckEntry,
-    UnitCheckEntryContext,
+    CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext, CheckerSource,
+    DeclaredUnitCheckEntry, DefaultExpressionTypeChecker, ExpressionTypeChecker,
+    ExpressionTypeInput, UnitCheckEntryContext, UnitCheckRequest,
 };
 
 pub(crate) struct TestCheckerContext {
@@ -200,6 +202,114 @@ pub(crate) fn callable_unit(
     ) {
         Ok(unit) => unit,
         Err(error) => panic!("callable test unit must validate: {error:?}"),
+    }
+}
+
+pub(crate) fn expression_unit(
+    unit: BoundUnitId,
+    build: impl FnOnce(&mut BoundTreeBuilder, BoundNodeOrigin) -> Vec<BoundExpressionId>,
+) -> (BoundUnit, Vec<BoundExpressionId>) {
+    let key = callable_key();
+    let origin = BoundNodeOrigin::source(key.source());
+    let mut tree = BoundTreeBuilder::new(unit);
+    let expressions = build(&mut tree, origin);
+    let items = expressions.iter().copied().map(BoundBlockItem::Expression);
+
+    let block = push_block(&mut tree, origin, items);
+    let root = push_callable(&mut tree, origin, block);
+    let unit = callable_unit(&key, tree.finish(), root);
+
+    (unit, expressions)
+}
+
+pub(crate) fn completed_expression_check(
+    unit: &BoundUnit,
+    input: &ExpressionTypeInput,
+) -> bray_diagnostics::DiagnosticResult<bray_bound_tree::CheckedExpressionTypes> {
+    let entry = callable_entry(unit.key());
+    let context = TestCheckerContext::new(false);
+    let Ok(request) = UnitCheckRequest::new(unit, &entry, &context) else {
+        panic!("test checker request must be valid");
+    };
+
+    let outcome = DefaultExpressionTypeChecker.check_expression_types(request, input);
+
+    let CheckerOutcome::Complete(result) = outcome else {
+        panic!("expression type checking must complete");
+    };
+
+    result
+}
+
+pub(crate) fn literal_expression(
+    origin: BoundNodeOrigin,
+    kind: BoundLiteralKind,
+    ty: Option<TypeId>,
+) -> BoundExpression {
+    BoundExpression::Literal(BoundLiteralExpression::new(origin, kind, ty, false))
+}
+
+pub(crate) fn integer_literal_expression(
+    origin: BoundNodeOrigin,
+    ty: Option<TypeId>,
+) -> BoundExpression {
+    literal_expression(origin, BoundLiteralKind::Integer, ty)
+}
+
+pub(crate) fn unselected_name_expression(origin: BoundNodeOrigin) -> BoundExpression {
+    let symbol = FunctionSymbolId::from_symbol_id(SymbolId::new(0));
+
+    BoundExpression::Name(BoundNameExpression::new(
+        origin,
+        BoundReferenceTarget::Surface(AnySymbolId::from(symbol)),
+        None,
+        false,
+    ))
+}
+
+pub(crate) fn push_expression(
+    tree: &mut BoundTreeBuilder,
+    expression: BoundExpression,
+) -> BoundExpressionId {
+    match tree.push_expression(expression) {
+        Ok(expression) => expression,
+        Err(error) => panic!("test expression must be valid: {error:?}"),
+    }
+}
+
+pub(crate) fn tuple_type(elements: impl IntoIterator<Item = TypeId>) -> TypeId {
+    match semantic_values().intern_type(TypeData::tuple(elements)) {
+        Ok(ty) => ty,
+        Err(error) => panic!("test tuple type must be valid: {error:?}"),
+    }
+}
+
+pub(crate) fn type_data(ty: TypeId) -> TypeData {
+    match semantic_values().type_data(ty) {
+        Ok(data) => data.as_ref().clone(),
+        Err(error) => panic!("test type must belong to the semantic store: {error:?}"),
+    }
+}
+
+pub(crate) fn push_block(
+    tree: &mut BoundTreeBuilder,
+    origin: BoundNodeOrigin,
+    items: impl IntoIterator<Item = BoundBlockItem>,
+) -> bray_bound_tree::BoundBlockId {
+    match tree.push_block(BoundBlock::new(origin, items, false)) {
+        Ok(block) => block,
+        Err(error) => panic!("test block must be valid: {error:?}"),
+    }
+}
+
+pub(crate) fn push_callable(
+    tree: &mut BoundTreeBuilder,
+    origin: BoundNodeOrigin,
+    block: bray_bound_tree::BoundBlockId,
+) -> BoundCallableBodyId {
+    match tree.push_callable_body(BoundCallableBody::block(origin, block)) {
+        Ok(body) => body,
+        Err(error) => panic!("test callable body must be valid: {error:?}"),
     }
 }
 

@@ -234,8 +234,6 @@ impl BoundAnonymousCallableExpression {
 /// Closed source-level categories whose detailed checker decisions are added by focused services.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum BoundStructuredExpressionKind {
-    /// A scalar or string literal.
-    Literal,
     /// The unit value.
     Unit,
     /// The absence value.

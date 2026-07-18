@@ -36,7 +36,7 @@ impl<C> ControlFlowChecker<C> for DefaultControlFlowChecker where C: CheckerRequ
 
 /// Expression type inference and compatibility checking over one bound semantic unit.
 ///
-/// Type evidence can come from focused literal or selection rules. Expected types constrain
+/// Type evidence can come from cooperating checking rules. Expected types constrain
 /// compatibility but never select an overload or operation.
 pub trait ExpressionTypeChecker<C>: Sync
 where

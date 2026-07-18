@@ -7,8 +7,8 @@ use bray_symbols::LocalScopeId;
 use bray_syntax::{
     AccessExpressionSyntax, ArrayExpressionSyntax, AwaitExpressionSyntax, ForExpressionSyntax,
     GeneralGeneratorExpressionSyntax, LambdaExpressionSyntax, LeadingDotVariantExpressionSyntax,
-    MatchExpressionSyntax, PrimaryExpressionSyntax, SourceSyntaxNode, SyntaxKind, SyntaxNodeView,
-    SyntaxWalkControl, walk_direct_child_nodes,
+    LiteralExpressionSyntax, MatchExpressionSyntax, PrimaryExpressionSyntax, SourceSyntaxNode,
+    SyntaxKind, SyntaxNodeView, SyntaxWalkControl, walk_direct_child_nodes,
 };
 
 use super::super::{BindingError, BindingResult};
@@ -155,6 +155,14 @@ impl ExpressionBinder {
 
         if root.kind() == SyntaxKind::GroupedExpression {
             return self.bind_first_descendant_expression(binder, scope, root, recovery_origin);
+        }
+
+        if root.kind() == SyntaxKind::LiteralExpression {
+            let Some(literal) = root.cast::<LiteralExpressionSyntax>() else {
+                return self.push_error(binder, Some(recovery_origin));
+            };
+
+            return self.bind_literal(binder, &literal);
         }
 
         if root.kind() == SyntaxKind::ArrayExpression {

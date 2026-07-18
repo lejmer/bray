@@ -159,10 +159,30 @@ where
 {
     let roles = [
         (RepresentationRole::ScalarBool, DiagnosticType::Boolean),
+        (RepresentationRole::ScalarChar, DiagnosticType::Character),
+        (RepresentationRole::ScalarI8, DiagnosticType::I8),
+        (RepresentationRole::ScalarI16, DiagnosticType::I16),
+        (RepresentationRole::ScalarI32, DiagnosticType::I32),
+        (RepresentationRole::ScalarI64, DiagnosticType::I64),
+        (RepresentationRole::ScalarI128, DiagnosticType::I128),
+        (RepresentationRole::ScalarU8, DiagnosticType::U8),
+        (RepresentationRole::ScalarU16, DiagnosticType::U16),
+        (RepresentationRole::ScalarU32, DiagnosticType::U32),
+        (RepresentationRole::ScalarU64, DiagnosticType::U64),
+        (RepresentationRole::ScalarU128, DiagnosticType::U128),
+        (RepresentationRole::ScalarIsize, DiagnosticType::Isize),
+        (RepresentationRole::ScalarUsize, DiagnosticType::Usize),
+        (RepresentationRole::ScalarR16, DiagnosticType::R16),
+        (RepresentationRole::ScalarR32, DiagnosticType::R32),
+        (RepresentationRole::ScalarR64, DiagnosticType::R64),
+        (RepresentationRole::ScalarR128, DiagnosticType::R128),
+        (RepresentationRole::ScalarC32, DiagnosticType::C32),
+        (RepresentationRole::ScalarC64, DiagnosticType::C64),
+        (RepresentationRole::ScalarC128, DiagnosticType::C128),
+        (RepresentationRole::ScalarC256, DiagnosticType::C256),
         (RepresentationRole::Unit, DiagnosticType::Unit),
         (RepresentationRole::Never, DiagnosticType::Never),
         (RepresentationRole::String, DiagnosticType::String),
-        (RepresentationRole::ScalarUsize, DiagnosticType::Usize),
     ];
 
     for (role, diagnostic) in roles {
@@ -204,26 +224,26 @@ fn diagnostic_id(index: usize) -> DiagnosticId {
 #[cfg(test)]
 mod tests {
     use bray_bound_tree::{
-        BoundAssignmentExpression, BoundBlock, BoundBlockItem, BoundCallableBody,
-        BoundControlTransferExpression, BoundControlTransferKind, BoundExpression,
-        BoundExpressionId, BoundNodeOrigin, BoundOperator, BoundStructuredExpression,
-        BoundStructuredExpressionKind, BoundTreeBuilder, BoundTypeReference, BoundUnit,
-        BoundUnitId,
+        BoundAssignmentExpression, BoundBlockItem, BoundControlTransferExpression,
+        BoundControlTransferKind, BoundExpression, BoundNodeOrigin, BoundOperator,
+        BoundStructuredExpression, BoundStructuredExpressionKind, BoundTreeBuilder,
+        BoundTypeReference, BoundUnitId, ExpressionTypeResult, ExpressionTypeStatus,
     };
     use bray_diagnostics::DiagnosticKind;
-    use bray_symbols::{TypeData, TypeId};
+    use bray_symbols::TypeData;
 
     use super::super::session::{ExpressionTypeSession, SessionProgress};
     use crate::test_support::{
-        callable_entry, callable_key, callable_unit, distinct_source_origins, error_type,
-        semantic_values,
+        callable_entry, callable_key, callable_unit, completed_expression_check as completed_check,
+        distinct_source_origins, error_type, expression_unit,
+        integer_literal_expression as literal, push_block, push_callable, push_expression,
+        tuple_type, type_data, unselected_name_expression as unselected_name,
     };
     use crate::{
         CheckerInfrastructureError, CheckerOutcome, DefaultExpressionTypeChecker,
         ExpressionTypeChecker, ExpressionTypeEvidence, ExpressionTypeExpectation,
         ExpressionTypeInput, UnitCheckRequest,
     };
-    use bray_bound_tree::{CheckedExpressionTypes, ExpressionTypeResult, ExpressionTypeStatus};
 
     #[test]
     fn checking_publishes_one_canonical_result_for_every_expression() {
@@ -724,7 +744,7 @@ mod tests {
     #[test]
     fn unresolved_and_recovered_expressions_use_the_canonical_error_type() {
         let (unit, expressions) = expression_unit(BoundUnitId::new(43), |tree, origin| {
-            let unresolved = push_expression(tree, literal(origin, None));
+            let unresolved = push_expression(tree, unselected_name(origin));
             let supplied_error = push_expression(tree, literal(origin, None));
             let recovered = push_expression(
                 tree,
@@ -1109,101 +1129,5 @@ mod tests {
             .check_expression_types(request, &ExpressionTypeInput::new());
 
         assert_eq!(outcome, CheckerOutcome::Cancelled);
-    }
-
-    fn completed_check(
-        unit: &BoundUnit,
-        input: &ExpressionTypeInput,
-    ) -> bray_diagnostics::DiagnosticResult<CheckedExpressionTypes> {
-        let entry = callable_entry(unit.key());
-        let context = crate::test_support::TestCheckerContext::new(false);
-        let Ok(request) = UnitCheckRequest::new(unit, &entry, &context) else {
-            panic!("test checker request must be valid");
-        };
-
-        let outcome = DefaultExpressionTypeChecker.check_expression_types(request, input);
-
-        let CheckerOutcome::Complete(result) = outcome else {
-            panic!("expression type checking must complete");
-        };
-
-        result
-    }
-
-    fn expression_unit(
-        unit: BoundUnitId,
-        build: impl FnOnce(&mut BoundTreeBuilder, BoundNodeOrigin) -> Vec<BoundExpressionId>,
-    ) -> (BoundUnit, Vec<BoundExpressionId>) {
-        let key = callable_key();
-        let origin = BoundNodeOrigin::source(key.source());
-        let mut tree = BoundTreeBuilder::new(unit);
-        let expressions = build(&mut tree, origin);
-        let block = push_block(
-            &mut tree,
-            origin,
-            expressions.iter().copied().map(BoundBlockItem::Expression),
-        );
-        let root = push_callable(&mut tree, origin, block);
-        let unit = callable_unit(&key, tree.finish(), root);
-
-        (unit, expressions)
-    }
-
-    fn literal(origin: BoundNodeOrigin, ty: Option<TypeId>) -> BoundExpression {
-        BoundExpression::Structured(BoundStructuredExpression::new(
-            origin,
-            BoundStructuredExpressionKind::Literal,
-            [],
-            [],
-            [],
-            ty,
-            false,
-        ))
-    }
-
-    fn push_expression(
-        tree: &mut BoundTreeBuilder,
-        expression: BoundExpression,
-    ) -> BoundExpressionId {
-        match tree.push_expression(expression) {
-            Ok(expression) => expression,
-            Err(error) => panic!("test expression must be valid: {error:?}"),
-        }
-    }
-
-    fn push_block(
-        tree: &mut BoundTreeBuilder,
-        origin: BoundNodeOrigin,
-        items: impl IntoIterator<Item = BoundBlockItem>,
-    ) -> bray_bound_tree::BoundBlockId {
-        match tree.push_block(BoundBlock::new(origin, items, false)) {
-            Ok(block) => block,
-            Err(error) => panic!("test block must be valid: {error:?}"),
-        }
-    }
-
-    fn push_callable(
-        tree: &mut BoundTreeBuilder,
-        origin: BoundNodeOrigin,
-        block: bray_bound_tree::BoundBlockId,
-    ) -> bray_bound_tree::BoundCallableBodyId {
-        match tree.push_callable_body(BoundCallableBody::block(origin, block)) {
-            Ok(body) => body,
-            Err(error) => panic!("test callable body must be valid: {error:?}"),
-        }
-    }
-
-    fn tuple_type(elements: impl IntoIterator<Item = TypeId>) -> TypeId {
-        match semantic_values().intern_type(TypeData::tuple(elements)) {
-            Ok(ty) => ty,
-            Err(error) => panic!("test tuple type must be valid: {error:?}"),
-        }
-    }
-
-    fn type_data(ty: TypeId) -> TypeData {
-        match semantic_values().type_data(ty) {
-            Ok(data) => data.as_ref().clone(),
-            Err(error) => panic!("test type must belong to the semantic store: {error:?}"),
-        }
     }
 }
