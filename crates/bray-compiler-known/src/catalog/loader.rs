@@ -506,7 +506,7 @@ mod tests {
             Err(diagnostics) => panic!("representative catalog should build: {diagnostics:#?}"),
         };
 
-        assert_eq!(catalog.compiler_known_scopes().len(), 3);
+        assert_eq!(catalog.compiler_known_scopes().len(), 2);
         assert_eq!(catalog.compiler_known_declarations().len(), 51);
         assert_eq!(catalog.compiler_known_values().len(), 3);
         assert_eq!(catalog.recognized_standard_library_scopes().len(), 1);

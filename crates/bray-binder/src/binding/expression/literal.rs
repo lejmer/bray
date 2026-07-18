@@ -29,6 +29,7 @@ impl ExpressionBinder {
             binder,
             BoundExpression::Literal(BoundLiteralExpression::new(
                 binder.source_origin(syntax),
+                token.range(),
                 kind,
                 None,
                 syntax.is_recovered(),

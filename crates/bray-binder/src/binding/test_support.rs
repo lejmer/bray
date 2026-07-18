@@ -1,10 +1,7 @@
 use bray_bound_tree::{BoundSourceAnchor, BoundUnitId, BoundUnitKey};
 use bray_declarations::SyntaxAnchor;
 use bray_symbols::{LocalSymbolRegionId, SymbolOrigin};
-use bray_syntax::{
-    BlockExpressionSyntax, SourceSyntaxNode, SyntaxCast, SyntaxWalkControl, SyntaxWalkEvent,
-    SyntaxWalkRoot, walk_syntax_node,
-};
+use bray_syntax::{BlockExpressionSyntax, SourceSyntaxNode, SyntaxCast, SyntaxWalkRoot};
 
 use crate::BinderFactContext;
 use crate::binder::{Binder, BindingContext};
@@ -96,21 +93,5 @@ pub(crate) fn first_descendant<T>(root: &impl SyntaxWalkRoot) -> Option<T>
 where
     T: SyntaxCast,
 {
-    let mut result = None;
-
-    walk_syntax_node(root, |event| {
-        let SyntaxWalkEvent::EnterNode(node) = event else {
-            return SyntaxWalkControl::Continue;
-        };
-
-        if node.kind() != T::KIND {
-            return SyntaxWalkControl::Continue;
-        }
-
-        result = node.cast();
-
-        SyntaxWalkControl::Stop
-    });
-
-    result
+    bray_testing::first_syntax_descendant(root)
 }

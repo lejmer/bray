@@ -672,7 +672,6 @@ mod tests {
 
         assert_eq!(first, second);
         assert_eq!(first.environment().id().symbol_id().raw(), 0);
-        assert_eq!(first.modules().len(), 2);
 
         let bool_key = declaration_key("Bool");
 
@@ -696,7 +695,10 @@ mod tests {
         );
 
         assert_eq!(provider.scope_symbol(&scope_key("Missing")), None);
-        assert_eq!(provider.scope_symbols().len(), 3);
+        assert_eq!(
+            provider.scope_symbols().len(),
+            COMPILER_KNOWN_CATALOG.compiler_known_scopes().len()
+        );
 
         let bool_key = declaration_key("Bool");
 
@@ -742,10 +744,13 @@ mod tests {
         assert!(bool_symbol.compiler_known_surface().is_some());
         assert!(provider.environment().structures().contains(&bool_id));
 
-        assert_eq!(
-            provider.environment().modules(),
-            [provider.modules()[0].id(), provider.modules()[1].id()]
-        );
+        let module_ids = provider
+            .modules()
+            .iter()
+            .map(|module| module.id())
+            .collect::<Vec<_>>();
+
+        assert_eq!(provider.environment().modules(), module_ids);
 
         let Some(function_id) = provider.declaration_symbol::<FunctionSymbolId>(&memory_copy_key)
         else {

@@ -520,14 +520,14 @@ pub enum DiagnosticType {
     U128,
     /// The machine-sized signed integer type.
     Isize,
+    /// The machine-sized unsigned integer type.
+    Usize,
     /// The unit type.
     Unit,
     /// The uninhabited type.
     Never,
     /// The string type.
     String,
-    /// The machine-sized unsigned integer type.
-    Usize,
     /// The 16-bit real type.
     R16,
     /// The 32-bit real type.

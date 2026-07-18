@@ -31,22 +31,34 @@ pub(crate) struct TestCheckerContext {
     cancelled: bool,
     cancel_after: Option<usize>,
     observations: AtomicUsize,
+    source: Option<SourceSnapshot>,
 }
 
 impl TestCheckerContext {
-    pub(crate) const fn new(cancelled: bool) -> Self {
+    pub(crate) fn new(cancelled: bool) -> Self {
         Self {
             cancelled,
             cancel_after: None,
             observations: AtomicUsize::new(0),
+            source: None,
         }
     }
 
-    pub(crate) const fn cancelling_after(observations: usize) -> Self {
+    pub(crate) fn cancelling_after(observations: usize) -> Self {
         Self {
             cancelled: false,
             cancel_after: Some(observations),
             observations: AtomicUsize::new(0),
+            source: None,
+        }
+    }
+
+    pub(crate) fn with_source(source: SourceSnapshot) -> Self {
+        Self {
+            cancelled: false,
+            cancel_after: None,
+            observations: AtomicUsize::new(0),
+            source: Some(source),
         }
     }
 }
@@ -62,7 +74,15 @@ impl bray_base::Cancellation for TestCheckerContext {
 
 impl CheckerRequestContext for TestCheckerContext {
     fn entry_context_matches(&self, unit: &BoundUnit, entry: &UnitCheckEntryContext) -> bool {
-        callable_entry(unit.key()) == *entry
+        match entry {
+            UnitCheckEntryContext::CallableBody(_) => callable_entry(unit.key()) == *entry,
+            UnitCheckEntryContext::ConstantTemplate(declaration) => {
+                declaration.key() == unit.key()
+                    && declaration.owner() == declaration.declaration()
+                    && declaration.owner().kind() == SymbolKind::Constant
+            }
+            _ => false,
+        }
     }
 
     fn semantic_values(&self) -> &SemanticValueStore {
@@ -78,8 +98,9 @@ impl CheckerRequestContext for TestCheckerContext {
         anchor: BoundSourceAnchor,
     ) -> Result<CheckerSource<'_>, CheckerInfrastructureError> {
         let span = SourceSpan::new(anchor.syntax().source_id(), anchor.syntax().full_range());
+        let source = self.source.as_ref().unwrap_or_else(|| source_snapshot());
 
-        let Some(text) = source_snapshot().text_slice(span.range()) else {
+        let Some(text) = source.text_slice(span.range()) else {
             return Err(CheckerInfrastructureError::InvalidSourceRange { span });
         };
 
@@ -246,7 +267,13 @@ pub(crate) fn literal_expression(
     kind: BoundLiteralKind,
     ty: Option<TypeId>,
 ) -> BoundExpression {
-    BoundExpression::Literal(BoundLiteralExpression::new(origin, kind, ty, false))
+    BoundExpression::Literal(BoundLiteralExpression::new(
+        origin,
+        origin.source_anchor().syntax().full_range(),
+        kind,
+        ty,
+        false,
+    ))
 }
 
 pub(crate) fn integer_literal_expression(

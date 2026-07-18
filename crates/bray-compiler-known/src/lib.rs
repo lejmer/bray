@@ -42,4 +42,4 @@ pub use catalog::{
 #[cfg(feature = "generation")]
 pub use catalog::{CatalogGenerationError, GeneratedCatalogOutput, generate_catalog_output};
 pub use implementation::ImplementationHook;
-pub use representation::{NumericRepresentationKind, RepresentationRole};
+pub use representation::{IntegerRepresentation, NumericRepresentationKind, RepresentationRole};

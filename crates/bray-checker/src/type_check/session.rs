@@ -191,8 +191,6 @@ where
     }
 
     pub(crate) fn propagate(&mut self) -> Result<SessionProgress<()>, CheckerInfrastructureError> {
-        let mut defaults_applied = false;
-
         loop {
             if self.request.is_cancelled() {
                 return Ok(SessionProgress::Cancelled);
@@ -225,25 +223,20 @@ where
                 continue;
             }
 
-            if !defaults_applied {
-                let Some(defaulted) = apply_literal_defaults(
-                    self.request,
-                    &self.expressions,
-                    &self.variables,
-                    &self.types,
-                    &mut self.inference,
-                ) else {
-                    return Ok(SessionProgress::Cancelled);
-                };
-
-                defaults_applied = true;
-
-                if defaulted {
-                    continue;
-                }
-            }
-
             return Ok(SessionProgress::Complete(()));
+        }
+    }
+
+    pub(crate) fn apply_literal_defaults(&mut self) -> SessionProgress<()> {
+        match apply_literal_defaults(
+            self.request,
+            &self.expressions,
+            &self.variables,
+            &self.types,
+            &mut self.inference,
+        ) {
+            Some(_) => SessionProgress::Complete(()),
+            None => SessionProgress::Cancelled,
         }
     }
 

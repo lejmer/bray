@@ -421,6 +421,25 @@ The constant domain owns:
 Checking validity and evaluating a closed constant are separate typed operations. A definition template can be valid before every
 concrete generic or target-dependent instance is evaluated.
 
+Literal type selection remains part of expression type checking. Contextual expectations select a compatible scalar
+representation before language defaults are applied. Integer literals default to `i32`, real literals default to `r64`, and complex
+literals default to `c128`. Complex literal components use the real representation associated with the selected complex type.
+Defaulting is a finalization step and must not run while callers may still add expected-type evidence.
+
+Closed evaluation receives the complete checked expression types and the results of every referenced constant dependency. The
+compilation fact layer owns dependency scheduling, caching, and cycle detection. It supplies either the referenced
+`ConstantValueId` or a cycle result for each constant-reference occurrence. The checker owns the source-correlated diagnostic and
+error-value recovery for a reported cycle.
+
+The evaluator reads literal spellings through their exact token ranges, excluding trivia, and converts them directly into the
+selected language representation. Integer values use arbitrary-width canonical magnitude storage. Floating-point and complex
+components use the selected IEEE binary format without host floating-point conversion. Equivalent typed values are interned in the
+semantic value store and published as `ConstantValueId` results.
+
+Every evaluation request has deterministic limits for evaluated operations, aggregate elements, and decoded literal bytes. Limit
+exhaustion emits a structured diagnostic and publishes a typed error constant rather than partial aggregate state. Cancellation
+publishes neither a value nor diagnostics.
+
 The evaluator operates on checked semantic operations, not syntax. It cannot call non-const behavior, read runtime storage, allocate
 runtime storage, perform I/O, start tasks, await, use runtime dynamic dispatch, or execute another forbidden operation indirectly.
 

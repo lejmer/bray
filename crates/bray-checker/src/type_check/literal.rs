@@ -1,9 +1,12 @@
 use std::collections::BTreeMap;
 
-use bray_bound_tree::{BoundExpression, BoundExpressionId, BoundLiteralKind};
-use bray_compiler_known::NumericRepresentationKind;
+use bray_bound_tree::{BoundExpression, BoundExpressionId, BoundLiteralKind, BoundOperator};
+use bray_compiler_known::{NumericRepresentationKind, RepresentationRole};
+use bray_symbols::TypeId;
 
 use crate::{CheckerInfrastructureError, CheckerRequestContext, UnitCheckRequest};
+
+use crate::representation::{representation_type, type_representation};
 
 use super::dependencies::{ExpressionTypeDependencies, numeric_kind};
 use super::inference::{InferenceTypeId, TypeInferenceContext};
@@ -18,6 +21,10 @@ where
     C: CheckerRequestContext + ?Sized,
 {
     let before = inference.revision();
+
+    if adapt_contextual_complex_literals(request, expressions, variables, inference)?.is_none() {
+        return Ok(None);
+    }
 
     for &expression in expressions {
         if request.is_cancelled() {
@@ -44,6 +51,49 @@ where
     Ok(Some(inference.revision() != before))
 }
 
+fn adapt_contextual_complex_literals<C>(
+    request: UnitCheckRequest<'_, C>,
+    expressions: &[BoundExpressionId],
+    variables: &BTreeMap<BoundExpressionId, InferenceTypeId>,
+    inference: &mut TypeInferenceContext,
+) -> Result<Option<()>, CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    for &expression in expressions {
+        if request.is_cancelled() {
+            return Ok(None);
+        }
+
+        let Some((result, real, imaginary)) = complex_literal(request, expression, variables)
+        else {
+            continue;
+        };
+
+        if inference.evidence(result).is_some() {
+            continue;
+        }
+
+        let expected = inference.try_unique_matching_expectation(result, |ty| {
+            complex_component_type(request, ty).map(|component| component.is_some())
+        })?;
+
+        let Some(expected) = expected else {
+            continue;
+        };
+
+        let Some(component) = complex_component_type(request, expected)? else {
+            continue;
+        };
+
+        inference.add_evidence(result, expected, expression);
+        inference.add_evidence(real, component, expression);
+        inference.add_evidence(imaginary, component, expression);
+    }
+
+    Ok(Some(()))
+}
+
 pub(super) fn apply_literal_defaults<C>(
     request: UnitCheckRequest<'_, C>,
     expressions: &[BoundExpressionId],
@@ -55,6 +105,8 @@ where
     C: CheckerRequestContext + ?Sized,
 {
     let before = inference.revision();
+
+    apply_complex_literal_defaults(request, expressions, variables, types, inference)?;
 
     for &expression in expressions {
         if request.is_cancelled() {
@@ -85,6 +137,98 @@ where
     Some(inference.revision() != before)
 }
 
+fn apply_complex_literal_defaults<C>(
+    request: UnitCheckRequest<'_, C>,
+    expressions: &[BoundExpressionId],
+    variables: &BTreeMap<BoundExpressionId, InferenceTypeId>,
+    types: &ExpressionTypeDependencies,
+    inference: &mut TypeInferenceContext,
+) -> Option<()>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    for &expression in expressions {
+        if request.is_cancelled() {
+            return None;
+        }
+
+        let Some((result, real, imaginary)) = complex_literal(request, expression, variables)
+        else {
+            continue;
+        };
+
+        if inference.evidence(result).is_some() {
+            continue;
+        }
+
+        inference.add_evidence(result, types.c128, expression);
+        inference.add_evidence(real, types.r64, expression);
+        inference.add_evidence(imaginary, types.r64, expression);
+    }
+
+    Some(())
+}
+
+fn complex_literal<C>(
+    request: UnitCheckRequest<'_, C>,
+    expression: BoundExpressionId,
+    variables: &BTreeMap<BoundExpressionId, InferenceTypeId>,
+) -> Option<(InferenceTypeId, InferenceTypeId, InferenceTypeId)>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let BoundExpression::Binary(binary) = request.view().expression(expression)? else {
+        return None;
+    };
+
+    if !matches!(
+        binary.operator(),
+        BoundOperator::Add | BoundOperator::Subtract
+    ) {
+        return None;
+    }
+
+    let [real, imaginary] = binary.operands() else {
+        return None;
+    };
+
+    let BoundExpression::Literal(real_literal) = request.view().expression(*real)? else {
+        return None;
+    };
+
+    let BoundExpression::Literal(imaginary_literal) = request.view().expression(*imaginary)? else {
+        return None;
+    };
+
+    if real_literal.kind() != BoundLiteralKind::Real
+        || imaginary_literal.kind() != BoundLiteralKind::Imaginary
+    {
+        return None;
+    }
+
+    Some((
+        *variables.get(&expression)?,
+        *variables.get(real)?,
+        *variables.get(imaginary)?,
+    ))
+}
+
+fn complex_component_type<C>(
+    request: UnitCheckRequest<'_, C>,
+    ty: TypeId,
+) -> Result<Option<TypeId>, CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let Some(component) =
+        type_representation(request, ty)?.and_then(RepresentationRole::complex_component)
+    else {
+        return Ok(None);
+    };
+
+    representation_type(request, component).map(Some)
+}
+
 fn numeric_literal<C>(
     request: UnitCheckRequest<'_, C>,
     expression: BoundExpressionId,
@@ -112,14 +256,15 @@ where
 #[cfg(test)]
 mod tests {
     use bray_bound_tree::{
-        BoundExpression, BoundLiteralKind, BoundStructuredExpression,
-        BoundStructuredExpressionKind, BoundUnit, BoundUnitId,
+        BoundBinaryExpression, BoundExpression, BoundLiteralKind, BoundOperator,
+        BoundStructuredExpression, BoundStructuredExpressionKind, BoundUnit, BoundUnitId,
     };
     use bray_compiler_known::RepresentationRole;
     use bray_diagnostics::{DiagnosticArg, DiagnosticKind, DiagnosticType};
     use bray_symbols::TypeId;
 
-    use super::super::dependencies::representation_type;
+    use super::super::session::{ExpressionTypeSession, SessionProgress};
+    use crate::representation::representation_type;
     use crate::test_support::{
         TestCheckerContext, callable_entry, completed_expression_check, expression_unit,
         literal_expression, push_expression, tuple_type,
@@ -190,6 +335,92 @@ mod tests {
 
         assert!(result.diagnostics().is_empty());
         assert_expression_types(result.value(), &expressions, &expected);
+    }
+
+    #[test]
+    fn expected_complex_types_adapt_literal_components() {
+        let cases = [
+            (
+                BoundUnitId::new(76),
+                RepresentationRole::ScalarC64,
+                RepresentationRole::ScalarR32,
+            ),
+            (
+                BoundUnitId::new(77),
+                RepresentationRole::ScalarC128,
+                RepresentationRole::ScalarR64,
+            ),
+        ];
+
+        for (unit, complex_role, component_role) in cases {
+            let (unit, expressions) = complex_literal_unit(unit);
+            let complex = representation(&unit, complex_role);
+            let component = representation(&unit, component_role);
+            let input = ExpressionTypeInput::new()
+                .with_expectations([ExpressionTypeExpectation::new(expressions[2], complex)]);
+
+            let result = completed_expression_check(&unit, &input);
+
+            assert!(result.diagnostics().is_empty());
+            assert_expression_types(
+                result.value(),
+                &expressions,
+                &[component, component, complex],
+            );
+        }
+    }
+
+    #[test]
+    fn unconstrained_complex_literals_use_the_complex_default() {
+        let (unit, expressions) = complex_literal_unit(BoundUnitId::new(78));
+        let component = representation(&unit, RepresentationRole::ScalarR64);
+        let complex = representation(&unit, RepresentationRole::ScalarC128);
+
+        let result = completed_expression_check(&unit, &ExpressionTypeInput::new());
+
+        assert!(result.diagnostics().is_empty());
+        assert_expression_types(
+            result.value(),
+            &expressions,
+            &[component, component, complex],
+        );
+    }
+
+    #[test]
+    fn staged_propagation_does_not_commit_numeric_defaults() {
+        let (unit, expressions) = literal_unit(BoundUnitId::new(79), [BoundLiteralKind::Integer]);
+        let entry = callable_entry(unit.key());
+        let context = TestCheckerContext::new(false);
+        let Ok(request) = UnitCheckRequest::new(&unit, &entry, &context) else {
+            panic!("literal test request must be valid");
+        };
+        let Ok(SessionProgress::Complete(mut session)) = ExpressionTypeSession::begin(request)
+        else {
+            panic!("literal type session must start");
+        };
+
+        let Ok(SessionProgress::Complete(())) = session.propagate() else {
+            panic!("initial propagation must complete");
+        };
+
+        assert_eq!(session.expression_type(expressions[0]), None);
+
+        let u64 = representation(&unit, RepresentationRole::ScalarU64);
+
+        if let Err(error) = session.add_expectation(expressions[0], u64) {
+            panic!("literal expectation must be accepted: {error:?}");
+        }
+
+        let Ok(SessionProgress::Complete(())) = session.propagate() else {
+            panic!("contextual propagation must complete");
+        };
+
+        assert_eq!(
+            session
+                .expression_type(expressions[0])
+                .map(|result| result.ty()),
+            Some(u64)
+        );
     }
 
     #[test]
@@ -321,6 +552,33 @@ mod tests {
                 .into_iter()
                 .map(|kind| push_expression(tree, literal_expression(origin, kind, None)))
                 .collect()
+        })
+    }
+
+    fn complex_literal_unit(
+        unit: BoundUnitId,
+    ) -> (BoundUnit, Vec<bray_bound_tree::BoundExpressionId>) {
+        expression_unit(unit, |tree, origin| {
+            let real = push_expression(
+                tree,
+                literal_expression(origin, BoundLiteralKind::Real, None),
+            );
+            let imaginary = push_expression(
+                tree,
+                literal_expression(origin, BoundLiteralKind::Imaginary, None),
+            );
+            let complex = push_expression(
+                tree,
+                BoundExpression::Binary(BoundBinaryExpression::new(
+                    origin,
+                    BoundOperator::Add,
+                    [real, imaginary],
+                    None,
+                    false,
+                )),
+            );
+
+            vec![real, imaginary, complex]
         })
     }
 

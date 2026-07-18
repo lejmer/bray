@@ -1,6 +1,6 @@
 catalog compiler_known;
 
-scope StandardTarget at std.target {
+scope Ambient at ambient {
     declaration TargetReal16 {
         availability Real16;
         representation ScalarR16;

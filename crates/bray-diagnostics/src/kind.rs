@@ -103,6 +103,18 @@ pub enum DiagnosticKind {
     CheckingIncompatibleExpressionType,
     /// Available constraints cannot establish an expression's canonical type.
     CheckingCannotInferExpressionType,
+    /// An expression is not permitted in compile-time constant context.
+    CheckingInvalidConstantExpression,
+    /// A literal value cannot be represented by its selected type.
+    CheckingConstantLiteralNotRepresentable,
+    /// Constant evaluation exhausted its deterministic operation budget.
+    CheckingConstantEvaluationStepLimitExceeded,
+    /// Constant evaluation exhausted its deterministic aggregate-element budget.
+    CheckingConstantAggregateLimitExceeded,
+    /// Constant evaluation exhausted its deterministic literal-byte budget.
+    CheckingConstantLiteralSizeLimitExceeded,
+    /// Constant definitions form a direct or transitive dependency cycle.
+    CheckingCyclicConstantDefinition,
     /// A required planned artifact contribution was not supplied.
     EmissionMissingContribution,
     /// An artifact contribution does not satisfy the immutable emission plan.
@@ -176,6 +188,12 @@ impl DiagnosticKind {
             Self::BindingIncoherentAlternativePattern => 6007,
             Self::CheckingIncompatibleExpressionType => 7001,
             Self::CheckingCannotInferExpressionType => 7002,
+            Self::CheckingInvalidConstantExpression => 7003,
+            Self::CheckingConstantLiteralNotRepresentable => 7004,
+            Self::CheckingConstantEvaluationStepLimitExceeded => 7005,
+            Self::CheckingConstantAggregateLimitExceeded => 7006,
+            Self::CheckingConstantLiteralSizeLimitExceeded => 7007,
+            Self::CheckingCyclicConstantDefinition => 7008,
             Self::EmissionMissingContribution => 9001,
             Self::EmissionInvalidContribution => 9002,
             Self::EmissionArtifactReadFailed => 9003,
@@ -244,6 +262,20 @@ impl DiagnosticKind {
             Self::BindingIncoherentAlternativePattern => "binding_incoherent_alternative_pattern",
             Self::CheckingIncompatibleExpressionType => "checking_incompatible_expression_type",
             Self::CheckingCannotInferExpressionType => "checking_cannot_infer_expression_type",
+            Self::CheckingInvalidConstantExpression => "checking_invalid_constant_expression",
+            Self::CheckingConstantLiteralNotRepresentable => {
+                "checking_constant_literal_not_representable"
+            }
+            Self::CheckingConstantEvaluationStepLimitExceeded => {
+                "checking_constant_evaluation_step_limit_exceeded"
+            }
+            Self::CheckingConstantAggregateLimitExceeded => {
+                "checking_constant_aggregate_limit_exceeded"
+            }
+            Self::CheckingConstantLiteralSizeLimitExceeded => {
+                "checking_constant_literal_size_limit_exceeded"
+            }
+            Self::CheckingCyclicConstantDefinition => "checking_cyclic_constant_definition",
             Self::EmissionMissingContribution => "emission_missing_contribution",
             Self::EmissionInvalidContribution => "emission_invalid_contribution",
             Self::EmissionArtifactReadFailed => "emission_artifact_read_failed",
@@ -307,7 +339,7 @@ mod tests {
         }
     }
 
-    fn all_diagnostic_kinds() -> [DiagnosticKind; 58] {
+    fn all_diagnostic_kinds() -> [DiagnosticKind; 64] {
         [
             DiagnosticKind::SourceFileReadFailed,
             DiagnosticKind::SourceInvalidUtf8,
@@ -358,6 +390,12 @@ mod tests {
             DiagnosticKind::BindingIncoherentAlternativePattern,
             DiagnosticKind::CheckingIncompatibleExpressionType,
             DiagnosticKind::CheckingCannotInferExpressionType,
+            DiagnosticKind::CheckingInvalidConstantExpression,
+            DiagnosticKind::CheckingConstantLiteralNotRepresentable,
+            DiagnosticKind::CheckingConstantEvaluationStepLimitExceeded,
+            DiagnosticKind::CheckingConstantAggregateLimitExceeded,
+            DiagnosticKind::CheckingConstantLiteralSizeLimitExceeded,
+            DiagnosticKind::CheckingCyclicConstantDefinition,
             DiagnosticKind::EmissionMissingContribution,
             DiagnosticKind::EmissionInvalidContribution,
             DiagnosticKind::EmissionArtifactReadFailed,

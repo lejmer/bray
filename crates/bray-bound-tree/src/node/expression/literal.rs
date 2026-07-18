@@ -1,3 +1,4 @@
+use bray_source::TextRange;
 use bray_symbols::TypeId;
 
 use crate::BoundNodeOrigin;
@@ -23,6 +24,7 @@ pub enum BoundLiteralKind {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct BoundLiteralExpression {
     origin: BoundNodeOrigin,
+    spelling_range: TextRange,
     kind: BoundLiteralKind,
     ty: Option<TypeId>,
     is_recovered: bool,
@@ -32,12 +34,14 @@ impl BoundLiteralExpression {
     /// Creates a literal with its source category and available checked type.
     pub const fn new(
         origin: BoundNodeOrigin,
+        spelling_range: TextRange,
         kind: BoundLiteralKind,
         ty: Option<TypeId>,
         is_recovered: bool,
     ) -> Self {
         Self {
             origin,
+            spelling_range,
             kind,
             ty,
             is_recovered,
@@ -47,6 +51,11 @@ impl BoundLiteralExpression {
     /// Returns the source or synthesized origin.
     pub const fn origin(self) -> BoundNodeOrigin {
         self.origin
+    }
+
+    /// Returns the exact source range of the literal token without trivia.
+    pub const fn spelling_range(self) -> TextRange {
+        self.spelling_range
     }
 
     /// Returns the exact source literal category.
@@ -74,7 +83,13 @@ mod tests {
     #[test]
     fn literals_retain_their_source_category_without_preselecting_a_type() {
         let origin = BoundNodeOrigin::source(source_anchor());
-        let literal = BoundLiteralExpression::new(origin, BoundLiteralKind::Integer, None, false);
+        let literal = BoundLiteralExpression::new(
+            origin,
+            source_anchor().syntax().full_range(),
+            BoundLiteralKind::Integer,
+            None,
+            false,
+        );
 
         assert_eq!(literal.origin(), origin);
         assert_eq!(literal.kind(), BoundLiteralKind::Integer);

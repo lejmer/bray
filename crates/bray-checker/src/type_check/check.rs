@@ -1,11 +1,11 @@
 use bray_bound_tree::{BoundExpressionId, CheckedExpressionTypes, ExpressionTypeEntry};
 use bray_compiler_known::RepresentationRole;
 use bray_diagnostics::{
-    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind, DiagnosticType,
-    SeverityKind,
+    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticKind, DiagnosticType, SeverityKind,
 };
 use bray_symbols::{NamedTypeSymbolId, StructSymbolId, TypeData, TypeId};
 
+use crate::diagnostic::{diagnostic_id, expression_span};
 use crate::{CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext, UnitCheckRequest};
 
 use super::ExpressionTypeInput;
@@ -33,6 +33,17 @@ where
 
     if let Err(error) = session.apply_input(input) {
         return CheckerOutcome::InfrastructureFailure(error);
+    }
+
+    match session.propagate() {
+        Ok(SessionProgress::Complete(())) => {}
+        Ok(SessionProgress::Cancelled) => return CheckerOutcome::Cancelled,
+        Err(error) => return CheckerOutcome::InfrastructureFailure(error),
+    }
+
+    match session.apply_literal_defaults() {
+        SessionProgress::Complete(()) => {}
+        SessionProgress::Cancelled => return CheckerOutcome::Cancelled,
     }
 
     match session.propagate() {
@@ -199,26 +210,6 @@ where
     }
 
     DiagnosticType::Named
-}
-
-fn expression_span<C>(
-    request: UnitCheckRequest<'_, C>,
-    expression: BoundExpressionId,
-) -> Result<bray_source::SourceSpan, CheckerInfrastructureError>
-where
-    C: CheckerRequestContext + ?Sized,
-{
-    let Some(expression) = request.view().expression(expression) else {
-        return Err(CheckerInfrastructureError::InvalidExpressionTypeInput { expression });
-    };
-
-    request
-        .source(expression.origin().source_anchor())
-        .map(|source| source.span())
-}
-
-fn diagnostic_id(index: usize) -> DiagnosticId {
-    DiagnosticId::new(u32::try_from(index).unwrap_or(u32::MAX))
 }
 
 #[cfg(test)]
