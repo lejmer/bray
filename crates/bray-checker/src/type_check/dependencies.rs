@@ -6,16 +6,24 @@ use bray_symbols::{
 
 use crate::{CheckerInfrastructureError, CheckerRequestContext, UnitCheckRequest};
 
-pub(super) struct CanonicalTypes {
+pub(super) struct ExpressionTypeDependencies {
     pub(super) error: TypeId,
     pub(super) unit: TypeId,
     pub(super) never: TypeId,
     pub(super) boolean: TypeId,
+    #[expect(dead_code, reason = "used by character literal checking")]
+    pub(super) character: TypeId,
     pub(super) string: TypeId,
+    #[expect(dead_code, reason = "used by integer literal adaptation")]
+    pub(super) i32: TypeId,
+    #[expect(dead_code, reason = "used by real literal adaptation")]
+    pub(super) r64: TypeId,
+    #[expect(dead_code, reason = "used by complex literal adaptation")]
+    pub(super) c128: TypeId,
     pub(super) usize: TypeId,
 }
 
-impl CanonicalTypes {
+impl ExpressionTypeDependencies {
     pub(super) fn new<C>(
         request: UnitCheckRequest<'_, C>,
     ) -> Result<Self, CheckerInfrastructureError>
@@ -29,7 +37,11 @@ impl CanonicalTypes {
         let unit = representation_type(request, RepresentationRole::Unit)?;
         let never = representation_type(request, RepresentationRole::Never)?;
         let boolean = representation_type(request, RepresentationRole::ScalarBool)?;
+        let character = representation_type(request, RepresentationRole::ScalarChar)?;
         let string = representation_type(request, RepresentationRole::String)?;
+        let i32 = representation_type(request, RepresentationRole::ScalarI32)?;
+        let r64 = representation_type(request, RepresentationRole::ScalarR64)?;
+        let c128 = representation_type(request, RepresentationRole::ScalarC128)?;
         let usize = representation_type(request, RepresentationRole::ScalarUsize)?;
 
         Ok(Self {
@@ -37,7 +49,11 @@ impl CanonicalTypes {
             unit,
             never,
             boolean,
+            character,
             string,
+            i32,
+            r64,
+            c128,
             usize,
         })
     }

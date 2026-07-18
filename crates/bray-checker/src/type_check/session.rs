@@ -8,10 +8,10 @@ use bray_symbols::TypeId;
 
 use crate::{CheckerInfrastructureError, CheckerRequestContext, UnitCheckRequest};
 
-use super::canonical::CanonicalTypes;
 use super::constraints::{
     add_expectations, add_intrinsic_constraints, add_relationship_constraints, block_expectations,
 };
+use super::dependencies::ExpressionTypeDependencies;
 use super::inference::{InferenceTypeId, TypeConflict, TypeInferenceContext};
 use super::propagation::propagate_dynamic_constraints;
 use super::{ExpressionTypeEvidence, ExpressionTypeExpectation, ExpressionTypeInput};
@@ -37,7 +37,7 @@ where
     variables: BTreeMap<BoundExpressionId, InferenceTypeId>,
     block_variables: BTreeMap<BoundBlockId, InferenceTypeId>,
     block_owners: BTreeMap<BoundBlockId, BoundExpressionId>,
-    types: CanonicalTypes,
+    types: ExpressionTypeDependencies,
     inference: TypeInferenceContext,
 }
 
@@ -56,7 +56,7 @@ where
             return Ok(SessionProgress::Cancelled);
         };
 
-        let types = CanonicalTypes::new(request)?;
+        let types = ExpressionTypeDependencies::new(request)?;
         let mut inference = TypeInferenceContext::new(types.error, types.never);
         let mut variables = BTreeMap::new();
         let mut block_variables = BTreeMap::new();
@@ -348,7 +348,7 @@ where
 fn initialize_expression_variables<C>(
     request: UnitCheckRequest<'_, C>,
     expressions: &[BoundExpressionId],
-    types: &CanonicalTypes,
+    types: &ExpressionTypeDependencies,
     variables: &mut BTreeMap<BoundExpressionId, InferenceTypeId>,
     inference: &mut TypeInferenceContext,
 ) -> Result<(), CheckerInfrastructureError>

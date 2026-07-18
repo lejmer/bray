@@ -1,6 +1,6 @@
-mod canonical;
 mod check;
 mod constraints;
+mod dependencies;
 mod inference;
 mod input;
 mod propagation;

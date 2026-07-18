@@ -8,14 +8,14 @@ use bray_symbols::{TypeData, TypeId};
 use crate::{CheckerInfrastructureError, CheckerRequestContext, UnitCheckRequest};
 
 use super::ExpressionTypeExpectation;
-use super::canonical::CanonicalTypes;
+use super::dependencies::ExpressionTypeDependencies;
 use super::inference::{InferenceTypeId, TypeInferenceContext};
 
 pub(super) fn add_intrinsic_constraints(
     expression: &BoundExpression,
     expression_id: BoundExpressionId,
     variable: InferenceTypeId,
-    types: &CanonicalTypes,
+    types: &ExpressionTypeDependencies,
     inference: &mut TypeInferenceContext,
 ) {
     match expression {
@@ -48,7 +48,7 @@ pub(super) fn add_relationship_constraints<C>(
     expressions: &[BoundExpressionId],
     variables: &BTreeMap<BoundExpressionId, InferenceTypeId>,
     block_variables: &BTreeMap<BoundBlockId, InferenceTypeId>,
-    types: &CanonicalTypes,
+    types: &ExpressionTypeDependencies,
     inference: &mut TypeInferenceContext,
 ) -> bool
 where

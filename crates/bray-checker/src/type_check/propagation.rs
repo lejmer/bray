@@ -11,8 +11,8 @@ use bray_symbols::{
 
 use crate::{CheckerInfrastructureError, CheckerRequestContext, UnitCheckRequest};
 
-use super::canonical::CanonicalTypes;
 use super::constraints::add_operand_expectation;
+use super::dependencies::ExpressionTypeDependencies;
 use super::inference::{InferenceTypeId, TypeInferenceContext};
 
 pub(super) fn propagate_dynamic_constraints<C>(
@@ -21,7 +21,7 @@ pub(super) fn propagate_dynamic_constraints<C>(
     variables: &BTreeMap<BoundExpressionId, InferenceTypeId>,
     block_variables: &BTreeMap<BoundBlockId, InferenceTypeId>,
     block_owners: &BTreeMap<BoundBlockId, BoundExpressionId>,
-    types: &CanonicalTypes,
+    types: &ExpressionTypeDependencies,
     inference: &mut TypeInferenceContext,
 ) -> Result<Option<bool>, CheckerInfrastructureError>
 where
@@ -102,7 +102,7 @@ fn propagate_blocks<C>(
     block_variables: &BTreeMap<BoundBlockId, InferenceTypeId>,
     block_owners: &BTreeMap<BoundBlockId, BoundExpressionId>,
     variables: &BTreeMap<BoundExpressionId, InferenceTypeId>,
-    types: &CanonicalTypes,
+    types: &ExpressionTypeDependencies,
     inference: &mut TypeInferenceContext,
 ) -> Result<bool, CheckerInfrastructureError>
 where
@@ -147,7 +147,7 @@ fn propagate_control_transfer(
     expression_id: BoundExpressionId,
     variables: &BTreeMap<BoundExpressionId, InferenceTypeId>,
     block_variables: &BTreeMap<BoundBlockId, InferenceTypeId>,
-    types: &CanonicalTypes,
+    types: &ExpressionTypeDependencies,
     inference: &mut TypeInferenceContext,
 ) {
     let Some(BoundExpression::ControlTransfer(transfer)) = view.expression(expression_id) else {
@@ -209,7 +209,7 @@ fn add_transfer_value(
     operand: Option<BoundExpressionId>,
     transfer: BoundExpressionId,
     variables: &BTreeMap<BoundExpressionId, InferenceTypeId>,
-    types: &CanonicalTypes,
+    types: &ExpressionTypeDependencies,
     inference: &mut TypeInferenceContext,
 ) {
     match operand.and_then(|operand| variables.get(&operand).copied()) {
@@ -248,7 +248,7 @@ fn infer_tuple<C>(
     expression_id: BoundExpressionId,
     operands: &[BoundExpressionId],
     variables: &BTreeMap<BoundExpressionId, InferenceTypeId>,
-    types: &CanonicalTypes,
+    types: &ExpressionTypeDependencies,
     inference: &mut TypeInferenceContext,
 ) -> Result<(), CheckerInfrastructureError>
 where
@@ -279,7 +279,7 @@ fn infer_array<C>(
     expression_id: BoundExpressionId,
     operands: &[BoundExpressionId],
     variables: &BTreeMap<BoundExpressionId, InferenceTypeId>,
-    types: &CanonicalTypes,
+    types: &ExpressionTypeDependencies,
     inference: &mut TypeInferenceContext,
 ) -> Result<(), CheckerInfrastructureError>
 where
@@ -348,7 +348,7 @@ enum AggregateElements {
 fn add_recovered_aggregate(
     expression: BoundExpressionId,
     variables: &BTreeMap<BoundExpressionId, InferenceTypeId>,
-    types: &CanonicalTypes,
+    types: &ExpressionTypeDependencies,
     inference: &mut TypeInferenceContext,
 ) {
     let Some(variable) = variables.get(&expression).copied() else {
