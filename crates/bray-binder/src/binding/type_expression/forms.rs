@@ -13,6 +13,7 @@ impl TypeExpressionBinder<'_> {
         syntax: &TypeExpressionSyntax,
     ) -> BinderFactResult<TypeId> {
         let target = self.bind_only_nested_type(syntax)?;
+
         let storage = match syntax.type_form_argument_lists().next() {
             Some(arguments) => {
                 let mut arguments = arguments.type_form_arguments();
