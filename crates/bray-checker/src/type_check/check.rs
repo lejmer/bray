@@ -974,6 +974,79 @@ mod tests {
     }
 
     #[test]
+    fn bare_break_contributes_unit_to_its_loop_result() {
+        let key = callable_key();
+        let origin = BoundNodeOrigin::source(key.source());
+        let mut tree = BoundTreeBuilder::new(BoundUnitId::new(59));
+        let unit_expression = push_expression(
+            &mut tree,
+            BoundExpression::Structured(BoundStructuredExpression::new(
+                origin,
+                BoundStructuredExpressionKind::Unit,
+                [],
+                [],
+                [],
+                None,
+                false,
+            )),
+        );
+        let transfer = push_expression(
+            &mut tree,
+            BoundExpression::ControlTransfer(BoundControlTransferExpression::new(
+                origin,
+                BoundControlTransferKind::Break,
+                None,
+                Some(origin.source_anchor().syntax()),
+                None,
+                false,
+            )),
+        );
+        let body = push_block(&mut tree, origin, [BoundBlockItem::Expression(transfer)]);
+        let loop_expression = push_expression(
+            &mut tree,
+            BoundExpression::Structured(BoundStructuredExpression::new(
+                origin,
+                BoundStructuredExpressionKind::Loop,
+                [],
+                [body],
+                [],
+                None,
+                false,
+            )),
+        );
+        let root_block = push_block(
+            &mut tree,
+            origin,
+            [
+                BoundBlockItem::Expression(unit_expression),
+                BoundBlockItem::Expression(loop_expression),
+            ],
+        );
+        let root = push_callable(&mut tree, origin, root_block);
+        let unit = callable_unit(&key, tree.finish(), root);
+
+        let result = completed_check(&unit, &ExpressionTypeInput::new());
+
+        assert!(result.diagnostics().is_empty());
+
+        let Some(unit_type) = result
+            .value()
+            .expression(unit_expression)
+            .map(|result| result.ty())
+        else {
+            panic!("unit expression must have a type");
+        };
+
+        assert_eq!(
+            result
+                .value()
+                .expression(loop_expression)
+                .map(|result| result.ty()),
+            Some(unit_type)
+        );
+    }
+
+    #[test]
     fn foreign_type_inputs_fail_without_publishing_partial_results() {
         let (unit, _) = expression_unit(BoundUnitId::new(45), |tree, origin| {
             vec![push_expression(tree, literal(origin, None))]
