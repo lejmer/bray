@@ -1,27 +1,24 @@
-use bray_binder::{
-    BinderFactError, BinderFactResult, CallableTypeQualifiers, SymbolFactProvider,
-    TypeExpressionBinder, TypeParameterBinding,
-};
-use bray_compiler_known::CatalogGenericParameterKind;
+use bray_binder::{BinderFactError, BinderFactResult, SymbolFactProvider};
 use bray_diagnostics::DiagnosticResult;
 use bray_symbols::{
     AnySymbolId, CallableContractTypeFact, CallableParameterSymbolId, CallableSignatureFact,
-    CallableSymbolId, GenericTypeParameterSymbolId, ImplementationCoherenceFact,
+    CallableSymbolId, ConstantDeclaredTypeFact, ImplementationCoherenceFact,
     ImplementationCoherenceKey, ImplementationSubject, ImplementationSubjectFact,
     ImplementationSymbolId, ImplementedTraitApplicationFact, InherentTypeMemberValueFact,
-    ReceiverParameterSymbolId, SelfTypeContext, StructFieldTypeFact, SymbolFactContract,
-    SymbolFactRequest, SymbolFactResult, SymbolGraph, SymbolName, TraitTypeFulfillmentValueFact,
-    UnionPayloadFieldTypeFact,
+    ReceiverParameterSymbolId, StructFieldTypeFact, SymbolFactContract, SymbolFactRequest,
+    SymbolFactResult, SymbolGraph, TraitConstantFulfillmentDeclaredTypeFact,
+    TraitConstantMemberDeclaredTypeFact, TraitTypeFulfillmentValueFact, UnionPayloadFieldTypeFact,
 };
 use bray_syntax::{
-    CallableContractDeclarationSyntax, FunctionDeclarationSyntax,
-    ImplementationTypeMemberBindingSyntax, NamedTraitImplementationDeclarationSyntax,
-    StructFieldDeclarationSyntax, TraitCallableMemberDeclarationSyntax,
-    TypeCallableMemberDeclarationSyntax, UnionPayloadFieldSyntax,
+    CallableContractDeclarationSyntax, ConstantDeclarationSyntax, ImplementationSubjectSyntax,
+    ImplementationTypeMemberBindingSyntax, StructFieldDeclarationSyntax, TraitApplicationSyntax,
+    TraitConstantMemberDeclarationSyntax, TypeExpressionSyntax, UnionPayloadFieldSyntax,
 };
 
 use super::super::context::CompilationBinderFacts;
 use super::cache::CompilationSymbolFacts;
+use super::environment::type_binder;
+use super::surface::{declaration_callable_surface, declaration_child, declaration_syntax};
 use crate::fact::SymbolFactCache;
 
 pub(super) trait CompilationSymbolFactBinding<C>
@@ -51,85 +48,97 @@ impl CompilationSymbolFactBinding<CallableSignatureFact> for CompilationSymbolFa
     }
 }
 
-impl CompilationSymbolFactBinding<CallableContractTypeFact> for CompilationSymbolFacts {
-    fn cache(&self) -> &SymbolFactCache<CallableContractTypeFact> {
-        &self.callable_contract_types
-    }
+macro_rules! impl_declared_type_fact {
+    ($contract:ty, $cache:ident, $syntax:ty) => {
+        impl CompilationSymbolFactBinding<$contract> for CompilationSymbolFacts {
+            fn cache(&self) -> &SymbolFactCache<$contract> {
+                &self.$cache
+            }
 
-    fn bind(
-        &self,
-        context: &CompilationBinderFacts<'_>,
-        request: SymbolFactRequest<CallableContractTypeFact>,
-    ) -> BinderFactResult<SymbolFactResult<CallableContractTypeFact>> {
-        let symbol = AnySymbolId::from(request.owner());
-        let syntax =
-            declaration_syntax::<CallableContractDeclarationSyntax>(context.symbols, symbol)?;
-
-        type_binder(context, symbol)?.bind_type_expression(&syntax.type_expression())
-    }
+            fn bind(
+                &self,
+                context: &CompilationBinderFacts<'_>,
+                request: SymbolFactRequest<$contract>,
+            ) -> BinderFactResult<SymbolFactResult<$contract>> {
+                bind_declaration_type::<$syntax>(context, request.symbol(), |syntax| {
+                    syntax.type_expression()
+                })
+            }
+        }
+    };
 }
 
-impl CompilationSymbolFactBinding<StructFieldTypeFact> for CompilationSymbolFacts {
-    fn cache(&self) -> &SymbolFactCache<StructFieldTypeFact> {
-        &self.struct_field_types
-    }
+impl_declared_type_fact!(
+    ConstantDeclaredTypeFact,
+    constant_declared_types,
+    ConstantDeclarationSyntax
+);
 
-    fn bind(
-        &self,
-        context: &CompilationBinderFacts<'_>,
-        request: SymbolFactRequest<StructFieldTypeFact>,
-    ) -> BinderFactResult<SymbolFactResult<StructFieldTypeFact>> {
-        let symbol = AnySymbolId::from(request.owner());
-        let syntax = declaration_syntax::<StructFieldDeclarationSyntax>(context.symbols, symbol)?;
+impl_declared_type_fact!(
+    TraitConstantMemberDeclaredTypeFact,
+    trait_constant_member_declared_types,
+    TraitConstantMemberDeclarationSyntax
+);
 
-        type_binder(context, symbol)?.bind_type_expression(&syntax.type_expression())
-    }
+impl_declared_type_fact!(
+    TraitConstantFulfillmentDeclaredTypeFact,
+    trait_constant_fulfillment_declared_types,
+    ConstantDeclarationSyntax
+);
+
+impl_declared_type_fact!(
+    CallableContractTypeFact,
+    callable_contract_types,
+    CallableContractDeclarationSyntax
+);
+
+impl_declared_type_fact!(
+    StructFieldTypeFact,
+    struct_field_types,
+    StructFieldDeclarationSyntax
+);
+
+impl_declared_type_fact!(
+    UnionPayloadFieldTypeFact,
+    union_payload_field_types,
+    UnionPayloadFieldSyntax
+);
+
+fn bind_declaration_type<T>(
+    context: &CompilationBinderFacts<'_>,
+    symbol: AnySymbolId,
+    type_expression: impl FnOnce(T) -> TypeExpressionSyntax,
+) -> BinderFactResult<DiagnosticResult<bray_symbols::TypeId>>
+where
+    T: bray_syntax::SyntaxCast,
+{
+    let syntax = declaration_syntax::<T>(context, symbol)?;
+    let type_expression = type_expression(syntax);
+
+    type_binder(context, symbol)?.bind_type_expression(&type_expression)
 }
 
-impl CompilationSymbolFactBinding<UnionPayloadFieldTypeFact> for CompilationSymbolFacts {
-    fn cache(&self) -> &SymbolFactCache<UnionPayloadFieldTypeFact> {
-        &self.union_payload_field_types
-    }
+macro_rules! impl_type_member_value_fact {
+    ($contract:ty, $cache:ident) => {
+        impl CompilationSymbolFactBinding<$contract> for CompilationSymbolFacts {
+            fn cache(&self) -> &SymbolFactCache<$contract> {
+                &self.$cache
+            }
 
-    fn bind(
-        &self,
-        context: &CompilationBinderFacts<'_>,
-        request: SymbolFactRequest<UnionPayloadFieldTypeFact>,
-    ) -> BinderFactResult<SymbolFactResult<UnionPayloadFieldTypeFact>> {
-        let symbol = AnySymbolId::from(request.owner());
-        let syntax = declaration_syntax::<UnionPayloadFieldSyntax>(context.symbols, symbol)?;
-
-        type_binder(context, symbol)?.bind_type_expression(&syntax.type_expression())
-    }
+            fn bind(
+                &self,
+                context: &CompilationBinderFacts<'_>,
+                request: SymbolFactRequest<$contract>,
+            ) -> BinderFactResult<SymbolFactResult<$contract>> {
+                bind_type_member_value::<$contract>(context, request.symbol())
+            }
+        }
+    };
 }
 
-impl CompilationSymbolFactBinding<InherentTypeMemberValueFact> for CompilationSymbolFacts {
-    fn cache(&self) -> &SymbolFactCache<InherentTypeMemberValueFact> {
-        &self.inherent_type_member_values
-    }
+impl_type_member_value_fact!(InherentTypeMemberValueFact, inherent_type_member_values);
 
-    fn bind(
-        &self,
-        context: &CompilationBinderFacts<'_>,
-        request: SymbolFactRequest<InherentTypeMemberValueFact>,
-    ) -> BinderFactResult<SymbolFactResult<InherentTypeMemberValueFact>> {
-        bind_type_member_value::<InherentTypeMemberValueFact>(context, request.symbol())
-    }
-}
-
-impl CompilationSymbolFactBinding<TraitTypeFulfillmentValueFact> for CompilationSymbolFacts {
-    fn cache(&self) -> &SymbolFactCache<TraitTypeFulfillmentValueFact> {
-        &self.trait_type_fulfillment_values
-    }
-
-    fn bind(
-        &self,
-        context: &CompilationBinderFacts<'_>,
-        request: SymbolFactRequest<TraitTypeFulfillmentValueFact>,
-    ) -> BinderFactResult<SymbolFactResult<TraitTypeFulfillmentValueFact>> {
-        bind_type_member_value::<TraitTypeFulfillmentValueFact>(context, request.symbol())
-    }
-}
+impl_type_member_value_fact!(TraitTypeFulfillmentValueFact, trait_type_fulfillment_values);
 
 fn bind_type_member_value<C>(
     context: &CompilationBinderFacts<'_>,
@@ -138,8 +147,7 @@ fn bind_type_member_value<C>(
 where
     C: SymbolFactContract<Value = bray_symbols::TypeId>,
 {
-    let syntax =
-        declaration_syntax::<ImplementationTypeMemberBindingSyntax>(context.symbols, symbol)?;
+    let syntax = declaration_syntax::<ImplementationTypeMemberBindingSyntax>(context, symbol)?;
 
     type_binder(context, symbol)?.bind_type_expression(&syntax.type_expression())
 }
@@ -155,12 +163,8 @@ impl CompilationSymbolFactBinding<ImplementationSubjectFact> for CompilationSymb
         request: SymbolFactRequest<ImplementationSubjectFact>,
     ) -> BinderFactResult<SymbolFactResult<ImplementationSubjectFact>> {
         let symbol = request.symbol();
-        let syntax = declaration_syntax::<NamedTraitImplementationDeclarationSyntax>(
-            context.symbols,
-            symbol,
-        )?;
-        let result = type_binder(context, symbol)?
-            .bind_implementation_subject(&syntax.implementation_subject())?;
+        let syntax = declaration_child::<ImplementationSubjectSyntax>(context, symbol)?;
+        let result = type_binder(context, symbol)?.bind_implementation_subject(&syntax)?;
 
         Ok(result.map(ImplementationSubject::new))
     }
@@ -178,18 +182,17 @@ impl CompilationSymbolFactBinding<ImplementedTraitApplicationFact> for Compilati
     ) -> BinderFactResult<SymbolFactResult<ImplementedTraitApplicationFact>> {
         let symbol = request.symbol();
 
-        if matches!(request.owner(), ImplementationSymbolId::Inherent(_)) {
-            compiler_known_surface(context.symbols, symbol)?;
+        if let ImplementationSymbolId::Inherent(id) = request.owner() {
+            context
+                .symbols
+                .inherent_implementation(id)
+                .ok_or(BinderFactError::DependencyUnavailable)?;
 
             return Ok(DiagnosticResult::without_diagnostics(None));
         }
 
-        let syntax = declaration_syntax::<NamedTraitImplementationDeclarationSyntax>(
-            context.symbols,
-            symbol,
-        )?;
-        let result =
-            type_binder(context, symbol)?.bind_trait_application(&syntax.trait_application())?;
+        let syntax = declaration_child::<TraitApplicationSyntax>(context, symbol)?;
+        let result = type_binder(context, symbol)?.bind_trait_application(&syntax)?;
 
         Ok(result.map(Some))
     }
@@ -225,112 +228,16 @@ fn bind_callable_signature(
     callable: CallableSymbolId,
 ) -> BinderFactResult<SymbolFactResult<CallableSignatureFact>> {
     let symbol = callable.into_any();
-    let surface = compiler_known_surface(context.symbols, symbol)?;
-
-    let fragment = surface
-        .syntax_fragment()
-        .map_err(|_| BinderFactError::DependencyUnavailable)?;
-
     let (parameters, receiver) = callable_relationships(context.symbols, callable)?;
-
-    let (parameter_list, result, qualifiers) = match callable {
-        CallableSymbolId::Function(_) => {
-            let syntax = fragment
-                .cast::<FunctionDeclarationSyntax>()
-                .ok_or(BinderFactError::DependencyUnavailable)?;
-
-            let modifiers = syntax.function_modifiers();
-            let qualifiers = callable_qualifiers(CallableModifierPresence {
-                is_constant: modifiers.const_token().is_some(),
-                is_async: modifiers.async_token().is_some(),
-                is_trusted: modifiers.trusted_token().is_some(),
-            });
-
-            (
-                syntax.parameter_list(),
-                syntax
-                    .callable_result_clause()
-                    .map(|clause| clause.type_expression()),
-                qualifiers,
-            )
-        }
-        CallableSymbolId::TypeMember(_) => {
-            let syntax = fragment
-                .cast::<TypeCallableMemberDeclarationSyntax>()
-                .ok_or(BinderFactError::DependencyUnavailable)?;
-
-            let modifiers = syntax.type_callable_member_modifiers();
-            let qualifiers = callable_qualifiers(CallableModifierPresence {
-                is_constant: modifiers.const_token().is_some(),
-                is_async: modifiers.async_token().is_some(),
-                is_trusted: modifiers.trusted_token().is_some(),
-            });
-
-            (
-                syntax.parameter_list(),
-                syntax
-                    .callable_result_clause()
-                    .map(|clause| clause.type_expression()),
-                qualifiers,
-            )
-        }
-        CallableSymbolId::TraitMember(_) => {
-            let syntax = fragment
-                .cast::<TraitCallableMemberDeclarationSyntax>()
-                .ok_or(BinderFactError::DependencyUnavailable)?;
-
-            let modifiers = syntax.trait_callable_member_modifiers();
-            let qualifiers = callable_qualifiers(CallableModifierPresence {
-                is_constant: modifiers.const_token().is_some(),
-                is_async: modifiers.async_token().is_some(),
-                is_trusted: modifiers.trusted_token().is_some(),
-            });
-
-            (
-                syntax.parameter_list(),
-                syntax
-                    .callable_result_clause()
-                    .map(|clause| clause.type_expression()),
-                qualifiers,
-            )
-        }
-        _ => return Err(BinderFactError::DependencyUnavailable),
-    };
+    let surface = declaration_callable_surface(context, symbol)?;
 
     type_binder(context, symbol)?.bind_callable_signature(
         callable,
         parameters,
         receiver,
-        &parameter_list,
-        result.as_ref(),
-        qualifiers,
-    )
-}
-
-#[derive(Clone, Copy)]
-struct CallableModifierPresence {
-    is_constant: bool,
-    is_async: bool,
-    is_trusted: bool,
-}
-
-fn callable_qualifiers(modifiers: CallableModifierPresence) -> CallableTypeQualifiers {
-    CallableTypeQualifiers::new(
-        if modifiers.is_constant {
-            bray_symbols::CallableConstness::Constant
-        } else {
-            bray_symbols::CallableConstness::Runtime
-        },
-        if modifiers.is_async {
-            bray_symbols::CallableExecution::Asynchronous
-        } else {
-            bray_symbols::CallableExecution::Synchronous
-        },
-        if modifiers.is_trusted {
-            bray_symbols::CallableTrust::Trusted
-        } else {
-            bray_symbols::CallableTrust::Safe
-        },
+        &surface.parameters,
+        surface.result.as_ref(),
+        surface.qualifiers,
     )
 }
 
@@ -351,155 +258,819 @@ fn callable_relationships(
         CallableSymbolId::TraitMember(id) => symbols
             .trait_callable_member(id)
             .map(|symbol| (symbol.parameters(), symbol.receiver())),
-        _ => None,
+        CallableSymbolId::TraitFulfillment(id) => symbols
+            .trait_callable_fulfillment(id)
+            .map(|symbol| (symbol.parameters(), symbol.receiver())),
+        CallableSymbolId::Constructor(id) => symbols
+            .constructor(id)
+            .map(|symbol| (symbol.parameters(), symbol.receiver())),
+        CallableSymbolId::Finalizer(id) => symbols
+            .finalizer(id)
+            .map(|symbol| (symbol.parameters(), symbol.receiver())),
+        CallableSymbolId::Destructor(id) => symbols
+            .destructor(id)
+            .map(|symbol| (symbol.parameters(), symbol.receiver())),
+        CallableSymbolId::ScopeEnter(id) => symbols
+            .scope_enter(id)
+            .map(|symbol| (symbol.parameters(), symbol.receiver())),
+        CallableSymbolId::ScopeExit(id) => symbols
+            .scope_exit(id)
+            .map(|symbol| (symbol.parameters(), symbol.receiver())),
+        CallableSymbolId::TraitFinalizer(id) => symbols
+            .trait_finalizer_requirement(id)
+            .map(|symbol| (symbol.parameters(), symbol.receiver())),
+        CallableSymbolId::TraitDestructor(id) => symbols
+            .trait_destructor_requirement(id)
+            .map(|symbol| (symbol.parameters(), symbol.receiver())),
+        CallableSymbolId::TraitScopeEnter(id) => symbols
+            .trait_scope_enter_requirement(id)
+            .map(|symbol| (symbol.parameters(), symbol.receiver())),
+        CallableSymbolId::TraitScopeExit(id) => symbols
+            .trait_scope_exit_requirement(id)
+            .map(|symbol| (symbol.parameters(), symbol.receiver())),
+        CallableSymbolId::TraitScopeEnterFulfillment(id) => symbols
+            .trait_scope_enter_fulfillment(id)
+            .map(|symbol| (symbol.parameters(), symbol.receiver())),
+        CallableSymbolId::TraitScopeExitFulfillment(id) => symbols
+            .trait_scope_exit_fulfillment(id)
+            .map(|symbol| (symbol.parameters(), symbol.receiver())),
     }
     .ok_or(BinderFactError::DependencyUnavailable)
 }
 
-fn type_binder<'facts>(
-    context: &'facts CompilationBinderFacts<'facts>,
-    symbol: AnySymbolId,
-) -> BinderFactResult<TypeExpressionBinder<'facts>> {
-    let parameters = type_parameter_bindings(context.symbols, symbol)?;
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
 
-    let module = context
-        .symbols
-        .containing_module(symbol)
-        .map(|module| module.id());
+    use bray_binder::{BinderFactError, SymbolFactProvider};
+    use bray_diagnostics::DiagnosticKind;
+    use bray_symbols::{
+        CallableAbi, CallableContractTypeFact, CallableExecution, CallableSignatureFact,
+        CallableSymbolId, ConstantDeclaredTypeFact, GenericArgument, ImplementationSubjectFact,
+        ImplementationSymbolId, ImplementedTraitApplicationFact, InherentTypeMemberValueFact,
+        ReceiverMode, SymbolFactRequest, SymbolOrigin, TraitConstantFulfillmentDeclaredTypeFact,
+        TraitConstantMemberDeclaredTypeFact, TraitTypeFulfillmentValueFact, TypeData,
+        UnionPayloadFieldTypeFact,
+    };
 
-    let self_type = self_type_context(context.symbols, symbol);
+    use super::CompilationBinderFacts;
+    use crate::compilation::binder::symbol::test_support::{
+        published_fact, symbol_graph, type_data,
+    };
+    use crate::fact::CancellationToken;
+    use crate::test_support::compilation;
 
-    Ok(TypeExpressionBinder::new(
-        context.symbols,
-        context.semantic_values,
-        module,
-        parameters,
-        self_type,
-        context.cancellation,
-    ))
-}
+    const SOURCE_FACTS: &str = r#"module app;
 
-fn type_parameter_bindings(
-    symbols: &SymbolGraph,
-    symbol: AnySymbolId,
-) -> BinderFactResult<Vec<TypeParameterBinding>> {
-    let mut ancestry = Vec::new();
-    let mut current = Some(symbol);
+const enabled: bool = true;
 
-    while let Some(owner) = current {
-        ancestry.push(owner);
-        current = symbols.containing_symbol(owner);
-    }
+callable Transform =
+    @abi(system) func(value: bool) -> bool;
 
-    let mut bindings = Vec::new();
-
-    for owner in ancestry.into_iter().rev() {
-        let Some(parameters) = generic_type_parameters(symbols, owner) else {
-            continue;
-        };
-
-        let Some(fact) = symbols
-            .compiler_known_provider()
-            .declaration_fact_for_symbol(owner)
-        else {
-            continue;
-        };
-
-        let signature = fact.surface().signature();
-
-        for (ordinal, parameter) in signature.generic_parameters().iter().enumerate() {
-            if parameter.kind() != CatalogGenericParameterKind::Type {
-                continue;
-            }
-
-            let ordinal =
-                u32::try_from(ordinal).map_err(|_| BinderFactError::DependencyUnavailable)?;
-
-            let Some(symbol) = parameters.iter().copied().find(|candidate| {
-                symbols
-                    .generic_type_parameter(*candidate)
-                    .is_some_and(|record| record.ordinal() == ordinal)
-            }) else {
-                return Err(BinderFactError::DependencyUnavailable);
-            };
-
-            let Some(name) = SymbolName::try_new(parameter.name()) else {
-                return Err(BinderFactError::DependencyUnavailable);
-            };
-
-            bindings.push(TypeParameterBinding::new(name, symbol));
-        }
-    }
-
-    Ok(bindings)
-}
-
-fn generic_type_parameters(
-    symbols: &SymbolGraph,
-    owner: AnySymbolId,
-) -> Option<&[GenericTypeParameterSymbolId]> {
-    match owner {
-        AnySymbolId::Struct(id) => symbols
-            .structure(id)
-            .map(|symbol| symbol.generic_type_parameters()),
-        AnySymbolId::Union(id) => symbols
-            .union(id)
-            .map(|symbol| symbol.generic_type_parameters()),
-        AnySymbolId::Trait(id) => symbols
-            .trait_symbol(id)
-            .map(|symbol| symbol.generic_type_parameters()),
-        AnySymbolId::CallableContract(id) => symbols
-            .callable_contract(id)
-            .map(|symbol| symbol.generic_type_parameters()),
-        AnySymbolId::Function(id) => symbols
-            .function(id)
-            .map(|symbol| symbol.generic_type_parameters()),
-        AnySymbolId::TraitCallableMember(id) => symbols
-            .trait_callable_member(id)
-            .map(|symbol| symbol.generic_type_parameters()),
-        AnySymbolId::NamedTraitImplementation(id) => symbols
-            .named_trait_implementation(id)
-            .map(|symbol| symbol.generic_type_parameters()),
-        _ => None,
-    }
-}
-
-fn self_type_context(symbols: &SymbolGraph, symbol: AnySymbolId) -> Option<SelfTypeContext> {
-    let mut current = symbols.containing_symbol(symbol);
-
-    while let Some(owner) = current {
-        if let Some(context) = SelfTypeContext::try_new(owner) {
-            return Some(context);
-        }
-
-        current = symbols.containing_symbol(owner);
-    }
-
-    None
-}
-
-pub(super) fn compiler_known_surface(
-    symbols: &SymbolGraph,
-    symbol: AnySymbolId,
-) -> BinderFactResult<&'static bray_compiler_known::CatalogDeclarationSurfaceSyntax> {
-    symbols
-        .compiler_known_provider()
-        .declaration_fact_for_symbol(symbol)
-        .map(|fact| fact.surface())
-        .ok_or(BinderFactError::DependencyUnavailable)
-}
-
-fn declaration_syntax<T>(symbols: &SymbolGraph, symbol: AnySymbolId) -> BinderFactResult<T>
-where
-    T: bray_syntax::SyntaxCast,
+struct Fixed<const count: usize>
 {
-    let surface = compiler_known_surface(symbols, symbol)?;
+}
 
-    let fragment = surface
-        .syntax_fragment()
-        .map_err(|_| BinderFactError::DependencyUnavailable)?;
+struct Holder
+{
+    value: bool;
+    default_box: box bool;
+    explicit_box: box[Heap] bool;
+    grouped: (bool);
+    tuple: (bool,);
+    slice: [bool];
+    array: [bool; 4];
+    trait_view: view Provides;
+    fixed: Fixed<4>;
 
-    fragment
-        .cast::<T>()
-        .ok_or(BinderFactError::DependencyUnavailable)
+    construct(value: bool) -> Self
+    {
+    }
+
+    async finalize()
+    {
+    }
+
+    destruct()
+    {
+    }
+
+    consume mut enter() -> bool
+    {
+        return true;
+    }
+
+    exit(pos lease: bool)
+    {
+    }
+}
+
+union Choice
+{
+    Value(value: bool);
+}
+
+trait Provides
+{
+    const enabled: bool;
+    type Item;
+    func get() -> bool;
+    async finalize();
+    destruct();
+    consume enter() -> bool;
+    exit(pos lease: bool);
+}
+
+impl Holder(Provides)
+{
+    const enabled: bool = true;
+    type Item = bool;
+
+    func get() -> bool
+    {
+        return true;
+    }
+
+    consume enter() -> bool
+    {
+        return true;
+    }
+
+    exit(pos lease: bool)
+    {
+    }
+}
+
+impl Holder
+{
+    type Local = bool;
+}
+
+@abi(c)
+func identity<T>(value: T) -> T
+{
+    return value;
+}
+"#;
+
+    #[test]
+    fn source_declaration_type_and_signature_facts_bind_and_publish_once() {
+        let compilation = compilation(SOURCE_FACTS);
+        let symbols = symbol_graph(&compilation);
+        let cancellation = CancellationToken::new();
+        let facts = binder_facts(&compilation, &cancellation);
+
+        let function = source_id(
+            symbols.functions(),
+            |symbol| symbol.origin(),
+            |symbol| symbol.id(),
+        );
+
+        let signature_request =
+            SymbolFactRequest::<CallableSignatureFact>::new(CallableSymbolId::from(function));
+
+        let first_signature = published_fact(&facts, signature_request);
+        let second_signature = published_fact(&facts, signature_request);
+
+        assert!(Arc::ptr_eq(&first_signature, &second_signature));
+        assert!(first_signature.diagnostics().is_empty());
+
+        let [parameter] = first_signature.value().parameters() else {
+            panic!("generic source function must retain one parameter");
+        };
+
+        assert!(matches!(
+            type_data(&compilation, parameter.ty()).as_ref(),
+            TypeData::TypeParameter(_)
+        ));
+
+        assert_eq!(parameter.ty(), first_signature.value().result());
+
+        assert!(matches!(
+            type_data(&compilation, first_signature.value().callable_type()).as_ref(),
+            TypeData::Callable(callable) if callable.abi() == CallableAbi::C
+        ));
+
+        let callable_contract = source_id(
+            symbols.callable_contracts(),
+            |symbol| symbol.origin(),
+            |symbol| symbol.id(),
+        );
+
+        let callable_contract_type = published_fact(
+            &facts,
+            SymbolFactRequest::<CallableContractTypeFact>::new(callable_contract),
+        );
+
+        assert!(matches!(
+            type_data(&compilation, *callable_contract_type.value()).as_ref(),
+            TypeData::Callable(callable) if callable.abi() == CallableAbi::System
+        ));
+
+        let constant = source_id(
+            symbols.constants(),
+            |symbol| symbol.origin(),
+            |symbol| symbol.id(),
+        );
+
+        let constant_type = published_fact(
+            &facts,
+            SymbolFactRequest::<ConstantDeclaredTypeFact>::new(constant),
+        );
+
+        assert!(matches!(
+            type_data(&compilation, *constant_type.value()).as_ref(),
+            TypeData::Named { .. }
+        ));
+
+        let field = source_id(
+            symbols.struct_fields(),
+            |symbol| symbol.origin(),
+            |symbol| symbol.id(),
+        );
+
+        let field_type = published_fact(
+            &facts,
+            SymbolFactRequest::<bray_symbols::StructFieldTypeFact>::new(field),
+        );
+
+        assert!(matches!(
+            type_data(&compilation, *field_type.value()).as_ref(),
+            TypeData::Named { .. }
+        ));
+
+        let payload = source_id(
+            symbols.union_payload_fields(),
+            |symbol| symbol.origin(),
+            |symbol| symbol.id(),
+        );
+
+        let payload_type = published_fact(
+            &facts,
+            SymbolFactRequest::<UnionPayloadFieldTypeFact>::new(payload),
+        );
+
+        assert!(matches!(
+            type_data(&compilation, *payload_type.value()).as_ref(),
+            TypeData::Named { .. }
+        ));
+    }
+
+    #[test]
+    fn source_member_and_implementation_facts_use_their_declared_surfaces() {
+        let compilation = compilation(SOURCE_FACTS);
+
+        assert!(
+            compilation.syntax_tree_result().diagnostics().is_empty(),
+            "test source must parse without recovery: {:?}",
+            compilation.syntax_tree_result().diagnostics()
+        );
+
+        let symbols = symbol_graph(&compilation);
+        let cancellation = CancellationToken::new();
+        let facts = binder_facts(&compilation, &cancellation);
+
+        let member = source_id(
+            symbols.trait_constant_members(),
+            |symbol| symbol.origin(),
+            |symbol| symbol.id(),
+        );
+
+        let member_type = published_fact(
+            &facts,
+            SymbolFactRequest::<TraitConstantMemberDeclaredTypeFact>::new(member),
+        );
+
+        assert!(member_type.diagnostics().is_empty());
+
+        let fulfillment = source_id(
+            symbols.trait_constant_fulfillments(),
+            |symbol| symbol.origin(),
+            |symbol| symbol.id(),
+        );
+
+        let fulfillment_type = published_fact(
+            &facts,
+            SymbolFactRequest::<TraitConstantFulfillmentDeclaredTypeFact>::new(fulfillment),
+        );
+
+        assert_eq!(member_type.value(), fulfillment_type.value());
+
+        let type_fulfillment = source_id(
+            symbols.trait_type_fulfillments(),
+            |symbol| symbol.origin(),
+            |symbol| symbol.id(),
+        );
+
+        let type_value = published_fact(
+            &facts,
+            SymbolFactRequest::<TraitTypeFulfillmentValueFact>::new(type_fulfillment),
+        );
+
+        assert_eq!(member_type.value(), type_value.value());
+
+        let inherent_type_member = source_id(
+            symbols.inherent_type_members(),
+            |symbol| symbol.origin(),
+            |symbol| symbol.id(),
+        );
+
+        let inherent_type_value = published_fact(
+            &facts,
+            SymbolFactRequest::<InherentTypeMemberValueFact>::new(inherent_type_member),
+        );
+
+        assert_eq!(member_type.value(), inherent_type_value.value());
+
+        let inherent_implementation = source_id(
+            symbols.inherent_implementations(),
+            |symbol| symbol.origin(),
+            |symbol| ImplementationSymbolId::from(symbol.id()),
+        );
+
+        let inherent_subject = published_fact(
+            &facts,
+            SymbolFactRequest::<ImplementationSubjectFact>::new(inherent_implementation),
+        );
+
+        let inherent_trait = published_fact(
+            &facts,
+            SymbolFactRequest::<ImplementedTraitApplicationFact>::new(inherent_implementation),
+        );
+
+        let inherent_subject_type = type_data(&compilation, inherent_subject.value().ty());
+
+        assert!(
+            matches!(inherent_subject_type.as_ref(), TypeData::Named { .. }),
+            "unexpected inherent implementation subject: {inherent_subject_type:?}, diagnostics: {:?}",
+            inherent_subject.diagnostics()
+        );
+
+        assert_eq!(*inherent_trait.value(), None);
+
+        let implementation = source_id(
+            symbols.unnamed_trait_implementations(),
+            |symbol| symbol.origin(),
+            |symbol| ImplementationSymbolId::from(symbol.id()),
+        );
+
+        let subject = published_fact(
+            &facts,
+            SymbolFactRequest::<ImplementationSubjectFact>::new(implementation),
+        );
+
+        let implemented_trait = published_fact(
+            &facts,
+            SymbolFactRequest::<ImplementedTraitApplicationFact>::new(implementation),
+        );
+
+        let subject_type = type_data(&compilation, subject.value().ty());
+
+        assert!(
+            matches!(subject_type.as_ref(), TypeData::Named { .. }),
+            "unexpected implementation subject: {subject_type:?}, diagnostics: {:?}",
+            subject.diagnostics()
+        );
+
+        assert!(implemented_trait.value().is_some());
+
+        let callable_fulfillment = source_id(
+            symbols.trait_callable_fulfillments(),
+            |symbol| symbol.origin(),
+            |symbol| symbol.id(),
+        );
+
+        let signature = published_fact(
+            &facts,
+            SymbolFactRequest::<CallableSignatureFact>::new(CallableSymbolId::from(
+                callable_fulfillment,
+            )),
+        );
+
+        assert!(signature.diagnostics().is_empty());
+        assert!(signature.value().receiver().is_some());
+    }
+
+    #[test]
+    fn source_lifecycle_signatures_share_callable_surface_binding() {
+        let compilation = compilation(SOURCE_FACTS);
+        let symbols = symbol_graph(&compilation);
+        let cancellation = CancellationToken::new();
+        let facts = binder_facts(&compilation, &cancellation);
+
+        let constructor = source_id(
+            symbols.constructors(),
+            |symbol| symbol.origin(),
+            |symbol| symbol.id(),
+        );
+
+        let constructor_signature = published_fact(
+            &facts,
+            SymbolFactRequest::<CallableSignatureFact>::new(CallableSymbolId::from(constructor)),
+        );
+
+        assert_eq!(constructor_signature.value().parameters().len(), 1);
+        assert!(constructor_signature.value().receiver().is_none());
+        assert!(matches!(
+            type_data(&compilation, constructor_signature.value().result()).as_ref(),
+            TypeData::ContextualSelf(_)
+        ));
+
+        let finalizer = source_id(
+            symbols.finalizers(),
+            |symbol| symbol.origin(),
+            |symbol| symbol.id(),
+        );
+
+        let finalizer_signature = published_fact(
+            &facts,
+            SymbolFactRequest::<CallableSignatureFact>::new(CallableSymbolId::from(finalizer)),
+        );
+
+        assert!(matches!(
+            type_data(&compilation, finalizer_signature.value().callable_type()).as_ref(),
+            TypeData::Callable(callable)
+                if callable.execution() == CallableExecution::Asynchronous
+        ));
+
+        assert_eq!(
+            finalizer_signature
+                .value()
+                .receiver()
+                .map(|receiver| receiver.mode()),
+            Some(ReceiverMode::Mutable)
+        );
+
+        let destructor = source_id(
+            symbols.destructors(),
+            |symbol| symbol.origin(),
+            |symbol| symbol.id(),
+        );
+
+        let destructor_signature = published_fact(
+            &facts,
+            SymbolFactRequest::<CallableSignatureFact>::new(CallableSymbolId::from(destructor)),
+        );
+
+        assert_eq!(
+            destructor_signature
+                .value()
+                .receiver()
+                .map(|receiver| receiver.mode()),
+            Some(ReceiverMode::ConsumingMutable)
+        );
+
+        let scope_enter = source_id(
+            symbols.scope_enters(),
+            |symbol| symbol.origin(),
+            |symbol| symbol.id(),
+        );
+
+        let scope_enter_signature = published_fact(
+            &facts,
+            SymbolFactRequest::<CallableSignatureFact>::new(CallableSymbolId::from(scope_enter)),
+        );
+
+        assert_eq!(
+            scope_enter_signature
+                .value()
+                .receiver()
+                .map(|receiver| receiver.mode()),
+            Some(ReceiverMode::ConsumingMutable)
+        );
+
+        let scope_exit = source_id(
+            symbols.scope_exits(),
+            |symbol| symbol.origin(),
+            |symbol| symbol.id(),
+        );
+
+        let scope_exit_signature = published_fact(
+            &facts,
+            SymbolFactRequest::<CallableSignatureFact>::new(CallableSymbolId::from(scope_exit)),
+        );
+
+        assert!(scope_exit_signature.value().receiver().is_none());
+
+        let trait_finalizer = source_id(
+            symbols.trait_finalizer_requirements(),
+            |symbol| symbol.origin(),
+            |symbol| symbol.id(),
+        );
+
+        let trait_finalizer_signature = published_fact(
+            &facts,
+            SymbolFactRequest::<CallableSignatureFact>::new(CallableSymbolId::from(
+                trait_finalizer,
+            )),
+        );
+
+        assert_eq!(
+            trait_finalizer_signature
+                .value()
+                .receiver()
+                .map(|receiver| receiver.mode()),
+            Some(ReceiverMode::Mutable)
+        );
+
+        let trait_destructor = source_id(
+            symbols.trait_destructor_requirements(),
+            |symbol| symbol.origin(),
+            |symbol| symbol.id(),
+        );
+
+        let trait_destructor_signature = published_fact(
+            &facts,
+            SymbolFactRequest::<CallableSignatureFact>::new(CallableSymbolId::from(
+                trait_destructor,
+            )),
+        );
+
+        assert_eq!(
+            trait_destructor_signature
+                .value()
+                .receiver()
+                .map(|receiver| receiver.mode()),
+            Some(ReceiverMode::ConsumingMutable)
+        );
+
+        let trait_scope_enter = source_id(
+            symbols.trait_scope_enter_requirements(),
+            |symbol| symbol.origin(),
+            |symbol| symbol.id(),
+        );
+
+        let trait_scope_enter_signature = published_fact(
+            &facts,
+            SymbolFactRequest::<CallableSignatureFact>::new(CallableSymbolId::from(
+                trait_scope_enter,
+            )),
+        );
+
+        assert_eq!(
+            trait_scope_enter_signature
+                .value()
+                .receiver()
+                .map(|receiver| receiver.mode()),
+            Some(ReceiverMode::Consuming)
+        );
+
+        let trait_scope_exit = source_id(
+            symbols.trait_scope_exit_requirements(),
+            |symbol| symbol.origin(),
+            |symbol| symbol.id(),
+        );
+
+        let trait_scope_exit_signature = published_fact(
+            &facts,
+            SymbolFactRequest::<CallableSignatureFact>::new(CallableSymbolId::from(
+                trait_scope_exit,
+            )),
+        );
+
+        assert!(trait_scope_exit_signature.value().receiver().is_none());
+
+        let trait_scope_enter_fulfillment = source_id(
+            symbols.trait_scope_enter_fulfillments(),
+            |symbol| symbol.origin(),
+            |symbol| symbol.id(),
+        );
+
+        let trait_scope_enter_fulfillment_signature = published_fact(
+            &facts,
+            SymbolFactRequest::<CallableSignatureFact>::new(CallableSymbolId::from(
+                trait_scope_enter_fulfillment,
+            )),
+        );
+
+        assert_eq!(
+            trait_scope_enter_fulfillment_signature
+                .value()
+                .receiver()
+                .map(|receiver| receiver.mode()),
+            Some(ReceiverMode::Consuming)
+        );
+
+        let trait_scope_exit_fulfillment = source_id(
+            symbols.trait_scope_exit_fulfillments(),
+            |symbol| symbol.origin(),
+            |symbol| symbol.id(),
+        );
+
+        let trait_scope_exit_fulfillment_signature = published_fact(
+            &facts,
+            SymbolFactRequest::<CallableSignatureFact>::new(CallableSymbolId::from(
+                trait_scope_exit_fulfillment,
+            )),
+        );
+
+        assert!(
+            trait_scope_exit_fulfillment_signature
+                .value()
+                .receiver()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn source_type_forms_retain_structural_type_facts() {
+        let compilation = compilation(SOURCE_FACTS);
+        let symbols = symbol_graph(&compilation);
+        let cancellation = CancellationToken::new();
+        let facts = binder_facts(&compilation, &cancellation);
+        let fields = symbols
+            .struct_fields()
+            .iter()
+            .filter(|symbol| symbol.origin() == SymbolOrigin::Source)
+            .collect::<Vec<_>>();
+
+        let [
+            value,
+            default_box,
+            explicit_box,
+            grouped,
+            tuple,
+            slice,
+            array,
+            trait_view,
+            fixed,
+        ] = fields.as_slice()
+        else {
+            panic!("test source must contain all structural type-form fields: {fields:?}");
+        };
+
+        let field_type = |field: &bray_symbols::StructFieldSymbol| {
+            *published_fact(
+                &facts,
+                SymbolFactRequest::<bray_symbols::StructFieldTypeFact>::new(field.id()),
+            )
+            .value()
+        };
+
+        let value = field_type(value);
+        let default_box = field_type(default_box);
+        let explicit_box = field_type(explicit_box);
+        let grouped = field_type(grouped);
+        let tuple = field_type(tuple);
+        let slice = field_type(slice);
+        let array = field_type(array);
+        let trait_view = field_type(trait_view);
+        let fixed = field_type(fixed);
+
+        assert_eq!(default_box, explicit_box);
+        assert_eq!(grouped, value);
+
+        assert!(matches!(
+            type_data(&compilation, default_box).as_ref(),
+            TypeData::OwnedIndirection { storage, target }
+                if *target == value
+                    && matches!(type_data(&compilation, *storage).as_ref(), TypeData::Named { .. })
+        ));
+
+        assert!(matches!(
+            type_data(&compilation, tuple).as_ref(),
+            TypeData::Tuple(elements) if elements.as_ref() == [value]
+        ));
+
+        assert!(matches!(
+            type_data(&compilation, slice).as_ref(),
+            TypeData::Slice(element) if *element == value
+        ));
+
+        assert!(matches!(
+            type_data(&compilation, array).as_ref(),
+            TypeData::Array { element, .. } if *element == value
+        ));
+
+        assert!(matches!(
+            type_data(&compilation, trait_view).as_ref(),
+            TypeData::TraitView(_)
+        ));
+
+        let fixed = type_data(&compilation, fixed);
+
+        let TypeData::Named { substitution, .. } = fixed.as_ref() else {
+            panic!("constant generic application must remain a named type");
+        };
+
+        let store = compilation
+            .semantic_value_store()
+            .unwrap_or_else(|error| panic!("semantic values must be available: {error:?}"));
+        let substitution = store
+            .generic_substitution_data(*substitution)
+            .unwrap_or_else(|error| panic!("generic substitution must resolve: {error:?}"));
+
+        assert!(matches!(
+            substitution.bindings(),
+            [binding] if matches!(binding.argument(), GenericArgument::Constant(_))
+        ));
+    }
+
+    #[test]
+    fn recovered_source_types_publish_error_type_facts() {
+        let compilation = compilation(
+            r#"module app;
+
+struct Broken
+{
+    value: ;
+}
+"#,
+        );
+
+        let symbols = symbol_graph(&compilation);
+        let cancellation = CancellationToken::new();
+        let facts = binder_facts(&compilation, &cancellation);
+        let field = source_id(
+            symbols.struct_fields(),
+            |symbol| symbol.origin(),
+            |symbol| symbol.id(),
+        );
+
+        let field_type = published_fact(
+            &facts,
+            SymbolFactRequest::<bray_symbols::StructFieldTypeFact>::new(field),
+        );
+
+        assert!(matches!(
+            type_data(&compilation, *field_type.value()).as_ref(),
+            TypeData::Error
+        ));
+    }
+
+    #[test]
+    fn source_fact_diagnostics_and_cancellation_remain_fact_owned() {
+        let invalid_compilation = compilation(
+            r#"module app;
+
+func invalid(value: MissingType)
+{
+}
+"#,
+        );
+
+        let symbols = symbol_graph(&invalid_compilation);
+        let function = source_id(
+            symbols.functions(),
+            |symbol| symbol.origin(),
+            |symbol| symbol.id(),
+        );
+
+        let cancellation = CancellationToken::new();
+        let facts = binder_facts(&invalid_compilation, &cancellation);
+        let request =
+            SymbolFactRequest::<CallableSignatureFact>::new(CallableSymbolId::from(function));
+
+        let signature = published_fact(&facts, request);
+        let diagnostic_kinds = signature
+            .diagnostics()
+            .iter()
+            .map(|diagnostic| diagnostic.kind())
+            .collect::<Vec<_>>();
+
+        assert_eq!(diagnostic_kinds, [DiagnosticKind::BindingUnresolvedName]);
+
+        let cancelled_compilation = compilation(SOURCE_FACTS);
+        let cancelled_symbols = symbol_graph(&cancelled_compilation);
+        let cancelled_function = source_id(
+            cancelled_symbols.functions(),
+            |symbol| symbol.origin(),
+            |symbol| symbol.id(),
+        );
+
+        let cancellation = CancellationToken::new();
+        cancellation.cancel();
+
+        let facts = binder_facts(&cancelled_compilation, &cancellation);
+        let request = SymbolFactRequest::<CallableSignatureFact>::new(CallableSymbolId::from(
+            cancelled_function,
+        ));
+
+        assert_eq!(facts.symbol_fact(request), Err(BinderFactError::Cancelled));
+    }
+
+    fn source_id<T, I: Copy>(
+        symbols: &[T],
+        origin: impl Fn(&T) -> SymbolOrigin,
+        id: impl Fn(&T) -> I,
+    ) -> I {
+        let Some(symbol) = symbols
+            .iter()
+            .find(|symbol| origin(symbol) == SymbolOrigin::Source)
+        else {
+            panic!("test source must contain the expected declaration");
+        };
+
+        id(symbol)
+    }
+
+    fn binder_facts<'compilation>(
+        compilation: &'compilation crate::Compilation,
+        cancellation: &'compilation CancellationToken,
+    ) -> CompilationBinderFacts<'compilation> {
+        match compilation.binder_facts(cancellation) {
+            Ok(facts) => facts,
+            Err(error) => panic!("source binder facts must be available: {error:?}"),
+        }
+    }
 }

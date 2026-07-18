@@ -1576,7 +1576,7 @@ destructor-member-declaration =
     [ callable-result-clause ] callable-contract-clauses callable-body-block-expression ;
 
 scope-enter-member-declaration =
-    async-capable-lifecycle-member-modifiers "enter" empty-parameter-list
+    scope-enter-member-modifiers "enter" empty-parameter-list
     callable-result-clause callable-contract-clauses callable-body-block-expression ;
 
 scope-exit-member-declaration =
@@ -1589,6 +1589,15 @@ async-capable-lifecycle-member-modifiers =
 async-capable-lifecycle-member-modifier =
       "async"
     | "trusted" ;
+
+scope-enter-member-modifiers =
+    { scope-enter-member-modifier } ;
+
+scope-enter-member-modifier =
+      "async"
+    | "trusted"
+    | "consume"
+    | "mut" ;
 
 sync-lifecycle-member-modifiers =
     { sync-lifecycle-member-modifier } ;
@@ -1612,6 +1621,16 @@ Scope enter declarations require a result clause because the result type names t
 `with` body.
 
 Scope exit declarations take exactly one scoped-capability parameter.
+
+Constructors have no receiver and constructor bodies have no `self` binding.
+
+Finalizers have an implicit mutable receiver. Destructors have an implicit consuming mutable receiver.
+
+Scope enter declarations use the ordinary receiver modes. No receiver modifier selects a shared receiver, `mut` selects a mutable
+receiver, `consume` selects a consuming receiver, and `consume mut` selects a consuming receiver with mutable local authority.
+
+Scope exit declarations have no receiver. They operate on their scoped-capability parameter and can reach the original value only
+through access carried by that capability.
 
 Each lifecycle member is a definition and has a callable body block.
 
@@ -1745,7 +1764,7 @@ trait-destructor-requirement-declaration =
     [ callable-result-clause ] callable-contract-clauses ";" ;
 
 trait-scope-enter-requirement-declaration =
-    async-capable-lifecycle-member-modifiers "enter" empty-parameter-list
+    scope-enter-member-modifiers "enter" empty-parameter-list
     callable-result-clause callable-contract-clauses ";" ;
 
 trait-scope-exit-requirement-declaration =

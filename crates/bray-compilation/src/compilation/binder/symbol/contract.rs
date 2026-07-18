@@ -16,7 +16,8 @@ use bray_syntax::{
 };
 
 use super::cache::CompilationSymbolFacts;
-use super::compute::{CompilationSymbolFactBinding, compiler_known_surface};
+use super::compute::CompilationSymbolFactBinding;
+use super::surface::compiler_known_surface;
 use crate::compilation::binder::CompilationBinderFacts;
 use crate::fact::SymbolFactCache;
 

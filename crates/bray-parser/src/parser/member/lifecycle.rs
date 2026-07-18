@@ -4,9 +4,10 @@ use bray_syntax::{
     DestructorMemberDeclarationSyntaxBuilder, FinalizerMemberDeclarationSyntax,
     FinalizerMemberDeclarationSyntaxBuilder, ImplementationBodySyntaxBuilder, ParameterListSyntax,
     ScopeEnterMemberDeclarationSyntax, ScopeEnterMemberDeclarationSyntaxBuilder,
-    ScopeExitMemberDeclarationSyntax, ScopeExitMemberDeclarationSyntaxBuilder,
-    StructBodySyntaxBuilder, SyncLifecycleMemberModifiersSyntax, SyntaxKind, SyntaxToken,
-    TraitBodySyntaxBuilder, TraitDestructorRequirementDeclarationSyntax,
+    ScopeEnterMemberModifiersSyntax, ScopeExitMemberDeclarationSyntax,
+    ScopeExitMemberDeclarationSyntaxBuilder, StructBodySyntaxBuilder,
+    SyncLifecycleMemberModifiersSyntax, SyntaxKind, SyntaxToken, TraitBodySyntaxBuilder,
+    TraitDestructorRequirementDeclarationSyntax,
     TraitDestructorRequirementDeclarationSyntaxBuilder, TraitFinalizerRequirementDeclarationSyntax,
     TraitFinalizerRequirementDeclarationSyntaxBuilder, TraitScopeEnterRequirementDeclarationSyntax,
     TraitScopeEnterRequirementDeclarationSyntaxBuilder, TraitScopeExitRequirementDeclarationSyntax,
@@ -27,10 +28,17 @@ const ASYNC_CAPABLE_LIFECYCLE_MEMBER_START_KINDS: [SyntaxKind; 3] = [
 const SYNC_LIFECYCLE_MEMBER_START_KINDS: [SyntaxKind; 2] =
     [SyntaxKind::TrustedKeyword, SyntaxKind::DestructKeyword];
 
-const SCOPE_LIFECYCLE_MEMBER_START_KINDS: [SyntaxKind; 4] = [
+const SCOPE_ENTER_MEMBER_START_KINDS: [SyntaxKind; 5] = [
     SyntaxKind::AsyncKeyword,
     SyntaxKind::TrustedKeyword,
+    SyntaxKind::ConsumeKeyword,
+    SyntaxKind::MutKeyword,
     SyntaxKind::EnterKeyword,
+];
+
+const SCOPE_EXIT_MEMBER_START_KINDS: [SyntaxKind; 3] = [
+    SyntaxKind::AsyncKeyword,
+    SyntaxKind::TrustedKeyword,
     SyntaxKind::ExitKeyword,
 ];
 
@@ -152,9 +160,7 @@ impl Parser {
         let start = self.peek().full_range().start();
         let mut builder = ScopeEnterMemberDeclarationSyntax::builder(self.syntax_source(), start);
 
-        builder.push_async_capable_lifecycle_member_modifiers(
-            self.parse_async_capable_lifecycle_member_modifiers(),
-        );
+        builder.push_scope_enter_member_modifiers(self.parse_scope_enter_member_modifiers());
 
         builder.push_enter_keyword(self.expect(SyntaxKind::EnterKeyword));
         self.parse_lifecycle_body_tail(&mut builder, LifecycleResultPolicy::Required);
@@ -214,9 +220,7 @@ impl Parser {
         let mut builder =
             TraitScopeEnterRequirementDeclarationSyntax::builder(self.syntax_source(), start);
 
-        builder.push_async_capable_lifecycle_member_modifiers(
-            self.parse_async_capable_lifecycle_member_modifiers(),
-        );
+        builder.push_scope_enter_member_modifiers(self.parse_scope_enter_member_modifiers());
 
         builder.push_enter_keyword(self.expect(SyntaxKind::EnterKeyword));
         self.parse_lifecycle_requirement_tail(&mut builder, LifecycleResultPolicy::Required);
@@ -266,6 +270,31 @@ impl Parser {
 
         while self.at_sync_lifecycle_member_modifier() {
             builder.push_trusted_token(self.expect(SyntaxKind::TrustedKeyword));
+        }
+
+        builder.build()
+    }
+
+    fn parse_scope_enter_member_modifiers(&mut self) -> ScopeEnterMemberModifiersSyntax {
+        let start = self.peek().full_range().start();
+        let mut builder = ScopeEnterMemberModifiersSyntax::builder(self.syntax_source(), start);
+
+        while self.at_scope_enter_member_modifier() {
+            match self.peek().kind() {
+                SyntaxKind::AsyncKeyword => {
+                    builder.push_async_token(self.expect(SyntaxKind::AsyncKeyword));
+                }
+                SyntaxKind::TrustedKeyword => {
+                    builder.push_trusted_token(self.expect(SyntaxKind::TrustedKeyword));
+                }
+                SyntaxKind::ConsumeKeyword => {
+                    builder.push_consume_token(self.expect(SyntaxKind::ConsumeKeyword));
+                }
+                SyntaxKind::MutKeyword => {
+                    builder.push_mut_token(self.expect(SyntaxKind::MutKeyword));
+                }
+                _ => break,
+            }
         }
 
         builder.build()
@@ -365,11 +394,11 @@ impl Parser {
     }
 
     fn should_parse_scope_enter_member_declaration(&mut self) -> bool {
-        self.at_scope_lifecycle_start(SyntaxKind::EnterKeyword)
+        self.at_scope_enter_start()
     }
 
     fn should_parse_scope_exit_member_declaration(&mut self) -> bool {
-        self.at_scope_lifecycle_start(SyntaxKind::ExitKeyword)
+        self.at_scope_exit_start()
     }
 
     fn should_parse_trait_finalizer_requirement_declaration(&mut self) -> bool {
@@ -381,11 +410,11 @@ impl Parser {
     }
 
     fn should_parse_trait_scope_enter_requirement_declaration(&mut self) -> bool {
-        self.at_scope_lifecycle_start(SyntaxKind::EnterKeyword)
+        self.at_scope_enter_start()
     }
 
     fn should_parse_trait_scope_exit_requirement_declaration(&mut self) -> bool {
-        self.at_scope_lifecycle_start(SyntaxKind::ExitKeyword)
+        self.at_scope_exit_start()
     }
 
     fn at_async_capable_lifecycle_start(&mut self, keyword: SyntaxKind) -> bool {
@@ -412,15 +441,27 @@ impl Parser {
         })
     }
 
-    fn at_scope_lifecycle_start(&mut self, keyword: SyntaxKind) -> bool {
-        if !self.at(keyword) && !self.at_any(&SCOPE_LIFECYCLE_MEMBER_START_KINDS) {
+    fn at_scope_enter_start(&mut self) -> bool {
+        if !self.at_any(&SCOPE_ENTER_MEMBER_START_KINDS) {
+            return false;
+        }
+
+        self.scan_ahead(|scan| {
+            scan.consume_scope_enter_member_modifiers_for_scan();
+
+            scan.at(SyntaxKind::EnterKeyword)
+        })
+    }
+
+    fn at_scope_exit_start(&mut self) -> bool {
+        if !self.at_any(&SCOPE_EXIT_MEMBER_START_KINDS) {
             return false;
         }
 
         self.scan_ahead(|scan| {
             scan.consume_async_capable_lifecycle_member_modifiers_for_scan();
 
-            scan.at(keyword)
+            scan.at(SyntaxKind::ExitKeyword)
         })
     }
 
@@ -432,6 +473,12 @@ impl Parser {
         self.at(SyntaxKind::TrustedKeyword)
     }
 
+    fn at_scope_enter_member_modifier(&mut self) -> bool {
+        self.at_async_capable_lifecycle_member_modifier()
+            || self.at(SyntaxKind::ConsumeKeyword)
+            || self.at(SyntaxKind::MutKeyword)
+    }
+
     fn consume_async_capable_lifecycle_member_modifiers_for_scan(&mut self) {
         while self.at_async_capable_lifecycle_member_modifier() {
             self.consume();
@@ -440,6 +487,12 @@ impl Parser {
 
     fn consume_sync_lifecycle_member_modifiers_for_scan(&mut self) {
         while self.at_sync_lifecycle_member_modifier() {
+            self.consume();
+        }
+    }
+
+    fn consume_scope_enter_member_modifiers_for_scan(&mut self) {
+        while self.at_scope_enter_member_modifier() {
             self.consume();
         }
     }
@@ -660,6 +713,44 @@ mod tests {
         assert_eq!(body.scope_enter_member_declarations().count(), 1);
         assert_eq!(body.scope_exit_member_declarations().count(), 1);
 
+        assert!(result.diagnostics().is_empty());
+    }
+
+    #[test]
+    fn parser_retains_scope_enter_receiver_modifiers() {
+        let source = r#"module main;
+
+struct Resource
+{
+    consume mut enter() -> Guard
+    {
+    }
+}
+"#;
+
+        let sources = source_store([source]);
+        let result = parse_compilation_unit(&sources);
+        let source_unit = &result.syntax_tree().root().source_units()[0];
+        let declarations = source_unit.struct_declarations().collect::<Vec<_>>();
+
+        let [declaration] = declarations.as_slice() else {
+            panic!("expected one struct declaration: {declarations:?}");
+        };
+
+        let declarations = declaration
+            .struct_body()
+            .scope_enter_member_declarations()
+            .collect::<Vec<_>>();
+
+        let [declaration] = declarations.as_slice() else {
+            panic!("expected one scope-enter declaration: {declarations:?}");
+        };
+
+        let modifiers = declaration.scope_enter_member_modifiers();
+
+        assert_eq!(source_unit.full_text(), source);
+        assert!(modifiers.consume_token().is_some());
+        assert!(modifiers.mut_token().is_some());
         assert!(result.diagnostics().is_empty());
     }
 

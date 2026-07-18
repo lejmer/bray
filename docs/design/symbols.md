@@ -509,6 +509,10 @@ diagnostics.
 The implicit method receiver is represented by a receiver parameter symbol because it has a type, receiver mode, capability rules,
 and ownership behavior. It is not part of the written ordinary parameter list.
 
+Receiver signature facts use the shared, mutable, consuming, and consuming-mutable modes. Constructors and scope exits have no
+receiver. Finalizers use mutable receivers, destructors use consuming-mutable receivers, and scope enter declarations use the mode
+selected by their receiver modifiers.
+
 Inferred implementation parameters are generic parameter symbols with synthesized origin and syntax-correlated inference sources.
 
 ### Runtime Default Provider Symbols

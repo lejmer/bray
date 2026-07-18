@@ -1,5 +1,6 @@
 use bray_symbols::{
-    CallableConstness, CallableExecution, CallableTrust, GenericTypeParameterSymbolId, SymbolName,
+    CallableAbi, CallableConstness, CallableExecution, CallableTrust, GenericTypeParameterSymbolId,
+    ReceiverMode, SymbolName,
 };
 
 /// One lexical generic type parameter visible while binding a declaration surface.
@@ -32,6 +33,8 @@ pub struct CallableTypeQualifiers {
     pub(super) constness: CallableConstness,
     pub(super) execution: CallableExecution,
     pub(super) trust: CallableTrust,
+    pub(super) abi: CallableAbi,
+    pub(super) receiver_mode: Option<ReceiverMode>,
 }
 
 impl CallableTypeQualifiers {
@@ -40,11 +43,15 @@ impl CallableTypeQualifiers {
         constness: CallableConstness,
         execution: CallableExecution,
         trust: CallableTrust,
+        abi: CallableAbi,
+        receiver_mode: Option<ReceiverMode>,
     ) -> Self {
         Self {
             constness,
             execution,
             trust,
+            abi,
+            receiver_mode,
         }
     }
 
@@ -54,6 +61,8 @@ impl CallableTypeQualifiers {
             CallableConstness::Runtime,
             CallableExecution::Synchronous,
             CallableTrust::Safe,
+            CallableAbi::Bray,
+            None,
         )
     }
 }

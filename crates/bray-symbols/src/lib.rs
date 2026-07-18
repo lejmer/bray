@@ -60,7 +60,7 @@ pub use fact::{
     ImplementationSelectionFact, ImplementationSelectionKey, ImplementationSubject,
     ImplementationSubjectFact, ImplementedTraitApplicationFact, InherentTypeMemberValueFact,
     NeverCancelSymbolCompletion, PredicateDefinition, PredicateDefinitionFact,
-    PredicateDefinitionState, PredicateSemanticSummary, ReceiverParameterSignature,
+    PredicateDefinitionState, PredicateSemanticSummary, ReceiverMode, ReceiverParameterSignature,
     RuntimeDefaultBehavior, RuntimeDefaultCapabilityRequirement, RuntimeDefaultEffectRequirement,
     RuntimeDefaultGenericArguments, RuntimeDefaultGenericContext, RuntimeDefaultOwnership,
     RuntimeDefaultProviderInput, RuntimeDefaultTemplateReference, RuntimeDefaultTrustedObligation,

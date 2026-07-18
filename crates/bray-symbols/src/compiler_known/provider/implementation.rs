@@ -29,6 +29,8 @@ use crate::{
     SymbolId, SymbolKey, SymbolKind, SymbolOrigin, SymbolProvider, SymbolRootKey,
 };
 
+const HEAP_STORAGE_POLICY_KEY: &str = "Heap";
+
 /// The symbol identity materialized for one compiler-known scope descriptor.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum CompilerKnownScopeSymbolId {
@@ -267,6 +269,13 @@ impl CompilerKnownSymbolProvider {
         key: &CompilerKnownDeclarationKey,
     ) -> Option<I> {
         I::try_from_any(*self.declaration_symbols.get(key)?)
+    }
+
+    /// Returns the compiler-known default heap storage-policy type.
+    pub fn heap_storage_policy(&self) -> Option<crate::StructSymbolId> {
+        let key = CompilerKnownDeclarationKey::try_new(HEAP_STORAGE_POLICY_KEY)?;
+
+        self.declaration_symbol(&key)
     }
 
     pub(in crate::compiler_known) fn untyped_declaration_symbol(

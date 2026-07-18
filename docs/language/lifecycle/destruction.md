@@ -8,6 +8,9 @@ A destructor returns `unit`.
 
 Destructor bodies have a compiler-introduced `self` binding for the whole value being destroyed.
 
+That binding is an implicit consuming mutable receiver. The consuming mode represents the end of ownership, while mutable local
+authority permits representational teardown before remaining initialized parts are destroyed.
+
 The destructor has exclusive destruction authority over `self` for the duration of the destructor.
 
 A destructor can observe and mutate represented parts when its declaration contract permits those operations.

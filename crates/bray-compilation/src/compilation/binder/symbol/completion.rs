@@ -2,12 +2,13 @@ use bray_binder::SymbolFactProvider;
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{
     AnySymbolId, CallableContractSymbolId, CallableContractTypeFact, CallableContractsFact,
-    CallableSignatureFact, CallableSymbolId, ExactSymbolId, GenericConstraintsFact, GenericOwnerId,
-    ImplementationCoherenceFact, ImplementationSubjectFact, ImplementationSymbolId,
-    ImplementedTraitApplicationFact, InherentTypeMemberValueFact, StructFieldSymbolId,
-    StructFieldTypeFact, SymbolCompletionLevel, SymbolFactCompletionRequest, SymbolFactContract,
-    SymbolFactForcer, SymbolFactKind, SymbolFactRequest, TraitTypeFulfillmentValueFact,
-    UnionPayloadFieldSymbolId, UnionPayloadFieldTypeFact,
+    CallableSignatureFact, CallableSymbolId, ConstantDeclaredTypeFact, ExactSymbolId,
+    GenericConstraintsFact, GenericOwnerId, ImplementationCoherenceFact, ImplementationSubjectFact,
+    ImplementationSymbolId, ImplementedTraitApplicationFact, InherentTypeMemberValueFact,
+    StructFieldSymbolId, StructFieldTypeFact, SymbolCompletionLevel, SymbolFactCompletionRequest,
+    SymbolFactContract, SymbolFactForcer, SymbolFactKind, SymbolFactRequest,
+    TraitConstantFulfillmentDeclaredTypeFact, TraitConstantMemberDeclaredTypeFact,
+    TraitTypeFulfillmentValueFact, UnionPayloadFieldSymbolId, UnionPayloadFieldTypeFact,
 };
 
 use super::super::context::CompilationBinderFacts;
@@ -48,6 +49,9 @@ impl SymbolFactForcer for CompilationBinderFacts<'_> {
                 CallableContractTypeFact,
                 CallableContractSymbolId,
             >(self, request.symbol()),
+            SymbolFactKind::ConstantDeclaredType => {
+                force_constant_declared_type(self, request.symbol())
+            }
             SymbolFactKind::StructFieldType => {
                 force_exact::<StructFieldTypeFact, StructFieldSymbolId>(self, request.symbol())
             }
@@ -74,14 +78,29 @@ impl SymbolFactForcer for CompilationBinderFacts<'_> {
                 UnionPayloadFieldTypeFact,
                 UnionPayloadFieldSymbolId,
             >(self, request.symbol()),
-            SymbolFactKind::ConstantDeclaredType
-            | SymbolFactKind::ConstantDefinition
+            SymbolFactKind::ConstantDefinition
             | SymbolFactKind::CallableParameterDefault
             | SymbolFactKind::StructFieldDefault
             | SymbolFactKind::UnionPayloadFieldDefault
             | SymbolFactKind::PredicateDefinition
             | SymbolFactKind::OverloadArms => Err(FactQueryError::InfrastructureFailure),
         }
+    }
+}
+
+fn force_constant_declared_type(
+    facts: &CompilationBinderFacts<'_>,
+    symbol: AnySymbolId,
+) -> Result<DiagnosticBag, FactQueryError> {
+    match symbol {
+        AnySymbolId::Constant(owner) => force_typed::<ConstantDeclaredTypeFact>(facts, owner),
+        AnySymbolId::TraitConstantMember(owner) => {
+            force_typed::<TraitConstantMemberDeclaredTypeFact>(facts, owner)
+        }
+        AnySymbolId::TraitConstantFulfillment(owner) => {
+            force_typed::<TraitConstantFulfillmentDeclaredTypeFact>(facts, owner)
+        }
+        _ => Err(FactQueryError::InfrastructureFailure),
     }
 }
 
@@ -157,7 +176,6 @@ where
 mod tests {
     use std::sync::Arc;
 
-    use bray_binder::SymbolFactProvider;
     use bray_compiler_known::CompilerKnownDeclarationKey;
     use bray_symbols::{
         CallableContractSymbolId, CallableContractTypeFact, CallableContractsFact,
@@ -170,7 +188,10 @@ mod tests {
         UnionPayloadFieldSymbolId, UnionPayloadFieldTypeFact,
     };
 
-    use super::{CancellationToken, Compilation, SymbolCompletionLevel};
+    use super::{CancellationToken, SymbolCompletionLevel};
+    use crate::compilation::binder::symbol::test_support::{
+        published_fact, symbol_graph, type_data,
+    };
     use crate::test_support::compilation;
 
     #[test]
@@ -259,7 +280,7 @@ mod tests {
         );
 
         assert!(matches!(
-            type_data(&compilation, *unary_type.value()),
+            type_data(&compilation, *unary_type.value()).as_ref(),
             TypeData::Callable(_)
         ));
 
@@ -270,7 +291,7 @@ mod tests {
         );
 
         assert!(matches!(
-            type_data(&compilation, *element_type.value()),
+            type_data(&compilation, *element_type.value()).as_ref(),
             TypeData::TypeParameter(_)
         ));
 
@@ -283,7 +304,7 @@ mod tests {
         );
 
         assert!(matches!(
-            type_data(&compilation, *completed_value_type.value()),
+            type_data(&compilation, *completed_value_type.value()).as_ref(),
             TypeData::TypeParameter(_)
         ));
 
@@ -297,9 +318,9 @@ mod tests {
         assert!(start_signature.value().receiver().is_some());
 
         assert!(matches!(
-            type_data(&compilation, start_signature.value().result()),
+            type_data(&compilation, start_signature.value().result()).as_ref(),
             TypeData::Named { definition, .. }
-                if definition == declaration::<StructSymbolId>(symbols, "Task").into()
+                if *definition == declaration::<StructSymbolId>(symbols, "Task").into()
         ));
 
         let join = declaration::<TypeCallableMemberSymbolId>(symbols, "TaskJoin");
@@ -309,7 +330,7 @@ mod tests {
         );
 
         assert!(matches!(
-            type_data(&compilation, join_signature.value().callable_type()),
+            type_data(&compilation, join_signature.value().callable_type()).as_ref(),
             TypeData::Callable(callable)
                 if callable.execution() == CallableExecution::Asynchronous
         ));
@@ -333,9 +354,9 @@ mod tests {
         );
 
         assert!(matches!(
-            type_data(&compilation, *item_type.value()),
+            type_data(&compilation, *item_type.value()).as_ref(),
             TypeData::Named { definition, .. }
-                if definition == declaration::<StructSymbolId>(symbols, "Bool").into()
+                if *definition == declaration::<StructSymbolId>(symbols, "Bool").into()
         ));
 
         let load = declaration::<TraitCallableMemberSymbolId>(symbols, "StorageLoad");
@@ -350,32 +371,11 @@ mod tests {
         };
 
         assert_eq!(
-            type_data(&compilation, receiver.ty()),
-            TypeData::ContextualSelf(SelfTypeContext::Trait(declaration::<TraitSymbolId>(
+            type_data(&compilation, receiver.ty()).as_ref(),
+            &TypeData::ContextualSelf(SelfTypeContext::Trait(declaration::<TraitSymbolId>(
                 symbols, "Storage"
             )))
         );
-    }
-
-    fn published_fact<C>(
-        facts: &super::CompilationBinderFacts<'_>,
-        request: SymbolFactRequest<C>,
-    ) -> Arc<bray_symbols::SymbolFactResult<C>>
-    where
-        C: bray_symbols::SymbolFactContract,
-        for<'facts> super::CompilationBinderFacts<'facts>: SymbolFactProvider<C>,
-    {
-        match facts.symbol_fact(request) {
-            Ok(result) => result,
-            Err(error) => panic!("compiler-known symbol fact must bind: {error:?}"),
-        }
-    }
-
-    fn symbol_graph(compilation: &Compilation) -> &bray_symbols::SymbolGraph {
-        match compilation.symbol_graph() {
-            Ok(symbols) => symbols,
-            Err(error) => panic!("compiler-known symbol graph must build: {error:?}"),
-        }
     }
 
     fn declaration<I>(symbols: &bray_symbols::SymbolGraph, key: &str) -> I
@@ -392,18 +392,6 @@ mod tests {
         {
             Some(symbol) => symbol,
             None => panic!("compiler-known declaration must have the requested symbol kind"),
-        }
-    }
-
-    fn type_data(compilation: &Compilation, ty: bray_symbols::TypeId) -> TypeData {
-        let values = match compilation.semantic_value_store() {
-            Ok(values) => values,
-            Err(error) => panic!("semantic value store must be available: {error:?}"),
-        };
-
-        match values.type_data(ty) {
-            Ok(data) => data.as_ref().clone(),
-            Err(error) => panic!("semantic type must be interned: {error:?}"),
         }
     }
 }

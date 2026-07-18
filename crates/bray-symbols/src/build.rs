@@ -292,13 +292,10 @@ pub(crate) fn receiver_owner(symbol: AnySymbolId, is_static: bool) -> Option<Cal
         AnySymbolId::Finalizer(id) => Some(id.into()),
         AnySymbolId::Destructor(id) => Some(id.into()),
         AnySymbolId::ScopeEnter(id) => Some(id.into()),
-        AnySymbolId::ScopeExit(id) => Some(id.into()),
         AnySymbolId::TraitFinalizerRequirement(id) => Some(id.into()),
         AnySymbolId::TraitDestructorRequirement(id) => Some(id.into()),
         AnySymbolId::TraitScopeEnterRequirement(id) => Some(id.into()),
-        AnySymbolId::TraitScopeExitRequirement(id) => Some(id.into()),
         AnySymbolId::TraitScopeEnterFulfillment(id) => Some(id.into()),
-        AnySymbolId::TraitScopeExitFulfillment(id) => Some(id.into()),
         _ => None,
     }
 }

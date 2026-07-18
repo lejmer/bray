@@ -10,6 +10,9 @@ A value with finalization obligations must satisfy those obligations before owne
 
 Finalizer bodies have a compiler-introduced `self` binding for the whole value being finalized.
 
+That binding is an implicit mutable receiver. Finalization does not consume the receiver because a successful or failed finalizer
+leaves the value fully initialized and owned until its lifecycle obligation is resolved.
+
 The finalizer has exclusive lifecycle authority over `self` for the duration of the finalizer.
 
 A finalizer can observe and mutate represented parts when its declaration contract permits those operations.

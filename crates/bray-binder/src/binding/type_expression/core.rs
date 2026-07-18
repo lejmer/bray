@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use bray_base::Cancellation;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
-    BorrowKind, CallableAbi, CallableConstness, CallableDependencyContracts, CallableExecution,
+    BorrowKind, CallableConstness, CallableDependencyContracts, CallableExecution,
     CallableParameterData, CallableParameterMode, CallableParameterName,
     CallableParameterSignature, CallableParameterSymbolId, CallablePosition, CallableSignature,
     CallableSymbolId, CallableTrust, CallableTypeData, DependencyContractTemplateData,
@@ -138,6 +138,7 @@ impl<'facts> TypeExpressionBinder<'facts> {
         if parameters.len() != parameter_symbols.len()
             || !parameters_match_owner
             || !receiver_matches_owner
+            || receiver.is_some() != qualifiers.receiver_mode.is_some()
         {
             return Err(BinderFactError::DependencyUnavailable);
         }
@@ -157,14 +158,14 @@ impl<'facts> TypeExpressionBinder<'facts> {
             None => self.intern_type(TypeData::tuple([]))?,
         };
 
-        let receiver = match (receiver, self.self_type) {
-            (Some(parameter), Some(context)) => {
+        let receiver = match (receiver, qualifiers.receiver_mode, self.self_type) {
+            (Some(parameter), Some(mode), Some(context)) => {
                 let ty = self.intern_type(TypeData::ContextualSelf(context))?;
 
-                Some(ReceiverParameterSignature::new(parameter, ty))
+                Some(ReceiverParameterSignature::new(parameter, ty, mode))
             }
-            (None, _) => None,
-            (Some(_), None) => return Err(BinderFactError::DependencyUnavailable),
+            (None, None, _) => None,
+            _ => return Err(BinderFactError::DependencyUnavailable),
         };
 
         let dependency_contract = self.empty_dependency_contract()?;
@@ -174,7 +175,7 @@ impl<'facts> TypeExpressionBinder<'facts> {
             result,
             qualifiers.constness,
             qualifiers.trust,
-            CallableAbi::Bray,
+            qualifiers.abi,
             CallableDependencyContracts::for_execution(
                 qualifiers.execution,
                 dependency_contract,
@@ -190,11 +191,23 @@ impl<'facts> TypeExpressionBinder<'facts> {
         ))
     }
 
-    fn bind_type(&mut self, syntax: &TypeExpressionSyntax) -> BinderFactResult<TypeId> {
+    pub(super) fn bind_type(&mut self, syntax: &TypeExpressionSyntax) -> BinderFactResult<TypeId> {
         self.check_cancellation()?;
+
+        if syntax.is_recovered() {
+            return self.error_type();
+        }
 
         if syntax.func_keyword().is_some() {
             return self.bind_callable_type(syntax);
+        }
+
+        if syntax.box_keyword().is_some() {
+            return self.bind_box_type(syntax);
+        }
+
+        if syntax.view_keyword().is_some() {
+            return self.bind_view_type(syntax);
         }
 
         if syntax.self_keyword().is_some() {
@@ -212,6 +225,11 @@ impl<'facts> TypeExpressionBinder<'facts> {
             return self.bind_unary_type(syntax, TypeData::Nullable);
         }
 
+        if syntax.dot_token().is_some() {
+            // TODO(BRA-202): Select the associated type through the checker request context.
+            return self.error_type();
+        }
+
         if syntax.generic_argument_lists().next().is_some() {
             return self.bind_generic_named_type(syntax);
         }
@@ -221,11 +239,15 @@ impl<'facts> TypeExpressionBinder<'facts> {
         }
 
         if syntax.open_paren_token().is_some() {
-            return self.bind_tuple_type(syntax);
+            return self.bind_grouped_or_tuple_type(syntax);
         }
 
-        if syntax.open_bracket_token().is_some() && syntax.semicolon_token().is_none() {
-            return self.bind_unary_type(syntax, TypeData::Slice);
+        if syntax.open_bracket_token().is_some() {
+            return if syntax.semicolon_token().is_some() {
+                self.bind_array_type(syntax)
+            } else {
+                self.bind_unary_type(syntax, TypeData::Slice)
+            };
         }
 
         Err(BinderFactError::DependencyUnavailable)
@@ -252,7 +274,10 @@ impl<'facts> TypeExpressionBinder<'facts> {
         self.intern_type(make(target))
     }
 
-    fn bind_only_nested_type(&mut self, syntax: &TypeExpressionSyntax) -> BinderFactResult<TypeId> {
+    pub(super) fn bind_only_nested_type(
+        &mut self,
+        syntax: &TypeExpressionSyntax,
+    ) -> BinderFactResult<TypeId> {
         let mut nested = syntax.type_expressions();
 
         let Some(target) = nested.next() else {
@@ -264,15 +289,6 @@ impl<'facts> TypeExpressionBinder<'facts> {
         }
 
         self.bind_type(&target)
-    }
-
-    fn bind_tuple_type(&mut self, syntax: &TypeExpressionSyntax) -> BinderFactResult<TypeId> {
-        let elements = syntax
-            .type_expressions()
-            .map(|element| self.bind_type(&element))
-            .collect::<Result<Vec<_>, _>>()?;
-
-        self.intern_type(TypeData::tuple(elements))
     }
 
     fn bind_path_type(&mut self, path: &PathSyntax) -> BinderFactResult<TypeId> {
@@ -333,7 +349,7 @@ impl<'facts> TypeExpressionBinder<'facts> {
         self.bind_named_type(definition, arguments)
     }
 
-    fn bind_named_type(
+    pub(super) fn bind_named_type(
         &mut self,
         definition: NamedTypeSymbolId,
         arguments: Option<&GenericArgumentListSyntax>,
@@ -370,11 +386,16 @@ impl<'facts> TypeExpressionBinder<'facts> {
         arguments
             .generic_arguments()
             .map(|argument| {
-                let Some(ty) = argument.type_expressions().next() else {
-                    return Err(BinderFactError::DependencyUnavailable);
-                };
+                if let Some(ty) = argument.type_expressions().next() {
+                    return self.bind_type(&ty).map(GenericArgument::Type);
+                }
 
-                self.bind_type(&ty).map(GenericArgument::Type)
+                if argument.expressions().next().is_some() {
+                    // TODO(BRA-202): Request the constant checker and retain its checked open term.
+                    return self.bind_recovery_generic_argument();
+                }
+
+                Err(BinderFactError::DependencyUnavailable)
             })
             .collect()
     }
@@ -421,6 +442,8 @@ impl<'facts> TypeExpressionBinder<'facts> {
             CallableTrust::Safe
         };
 
+        let directives = syntax.callable_directives().next();
+        let abi = self.bind_optional_callable_abi(directives.as_ref())?;
         let dependency_contract = self.empty_dependency_contract()?;
 
         let callable = CallableTypeData::new(
@@ -428,7 +451,7 @@ impl<'facts> TypeExpressionBinder<'facts> {
             result,
             constness,
             trust,
-            CallableAbi::Bray,
+            abi,
             CallableDependencyContracts::for_execution(
                 execution,
                 dependency_contract,
@@ -479,7 +502,7 @@ impl<'facts> TypeExpressionBinder<'facts> {
             .map_err(|_| BinderFactError::DependencyUnavailable)
     }
 
-    fn error_type(&self) -> BinderFactResult<TypeId> {
+    pub(super) fn error_type(&self) -> BinderFactResult<TypeId> {
         self.intern_type(TypeData::Error)
     }
 
