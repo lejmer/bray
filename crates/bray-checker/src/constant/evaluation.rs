@@ -157,11 +157,25 @@ where
             .map_err(EvaluationFailure::Infrastructure)?
             .ok_or_else(|| EvaluationFailure::invalid_expression(expression))?;
 
-        let kind = parse_literal(literal.kind(), spelling, representation).map_err(|error| {
+        let kind = parse_literal(
+            literal.kind(),
+            spelling,
+            representation,
+            self.input.target_integer_width_bits(),
+        )
+        .map_err(|error| {
             let kind = match error {
                 LiteralValueError::Invalid => DiagnosticKind::CheckingInvalidConstantExpression,
                 LiteralValueError::NotRepresentable => {
                     DiagnosticKind::CheckingConstantLiteralNotRepresentable
+                }
+                LiteralValueError::SizeLimitExceeded => {
+                    DiagnosticKind::CheckingConstantLiteralSizeLimitExceeded
+                }
+                LiteralValueError::TargetIntegerWidthRequired => {
+                    return EvaluationFailure::Infrastructure(
+                        CheckerInfrastructureError::InvalidConstantEvaluationInput,
+                    );
                 }
             };
 

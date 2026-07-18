@@ -1,3 +1,5 @@
+use std::num::NonZeroU16;
+
 use rustc_apfloat::Float;
 use rustc_apfloat::ieee::{Double, Half, Quad, Single};
 
@@ -9,15 +11,20 @@ use bray_symbols::{ConstantValueKind, IntegerConstant, IntegerSign, RealConstant
 pub(super) enum LiteralValueError {
     Invalid,
     NotRepresentable,
+    SizeLimitExceeded,
+    TargetIntegerWidthRequired,
 }
+
+const MAX_INTEGER_LITERAL_BYTES: usize = 4 * 1024;
 
 pub(super) fn parse_literal(
     kind: BoundLiteralKind,
     text: &str,
     representation: RepresentationRole,
+    target_integer_width_bits: Option<NonZeroU16>,
 ) -> Result<ConstantValueKind, LiteralValueError> {
     match kind {
-        BoundLiteralKind::Integer => parse_integer(text, representation),
+        BoundLiteralKind::Integer => parse_integer(text, representation, target_integer_width_bits),
         BoundLiteralKind::Real => parse_real(text, representation).map(ConstantValueKind::Real),
         BoundLiteralKind::Imaginary => parse_imaginary(text, representation),
         BoundLiteralKind::Boolean => parse_boolean(text),
@@ -29,7 +36,12 @@ pub(super) fn parse_literal(
 fn parse_integer(
     text: &str,
     representation: RepresentationRole,
+    target_integer_width_bits: Option<NonZeroU16>,
 ) -> Result<ConstantValueKind, LiteralValueError> {
+    if text.len() > MAX_INTEGER_LITERAL_BYTES {
+        return Err(LiteralValueError::SizeLimitExceeded);
+    }
+
     let Some(integer_representation) = representation.integer_representation() else {
         return Err(LiteralValueError::Invalid);
     };
@@ -37,7 +49,11 @@ fn parse_integer(
     let (radix, digits) = integer_digits(text)?;
     let magnitude = parse_unsigned_magnitude(digits, radix)?;
 
-    if !integer_literal_fits(&magnitude, integer_representation) {
+    if !integer_literal_fits(
+        &magnitude,
+        integer_representation,
+        target_integer_width_bits,
+    )? {
         return Err(LiteralValueError::NotRepresentable);
     }
 
@@ -99,16 +115,33 @@ fn multiply_add_magnitude(magnitude: &mut Vec<u8>, multiplier: u8, addend: u8) {
     }
 }
 
-fn integer_literal_fits(magnitude: &[u8], representation: IntegerRepresentation) -> bool {
+fn integer_literal_fits(
+    magnitude: &[u8],
+    representation: IntegerRepresentation,
+    target_integer_width_bits: Option<NonZeroU16>,
+) -> Result<bool, LiteralValueError> {
     let significant_bits = magnitude.first().map_or(0, |first| {
         magnitude.len() * 8 - first.leading_zeros() as usize
     });
 
-    match representation {
+    let fits = match representation {
         IntegerRepresentation::Signed(width) => significant_bits < usize::from(width),
         IntegerRepresentation::Unsigned(width) => significant_bits <= usize::from(width),
-        IntegerRepresentation::TargetSigned | IntegerRepresentation::TargetUnsigned => true,
-    }
+        IntegerRepresentation::TargetSigned => {
+            let width =
+                target_integer_width_bits.ok_or(LiteralValueError::TargetIntegerWidthRequired)?;
+
+            significant_bits < usize::from(width.get())
+        }
+        IntegerRepresentation::TargetUnsigned => {
+            let width =
+                target_integer_width_bits.ok_or(LiteralValueError::TargetIntegerWidthRequired)?;
+
+            significant_bits <= usize::from(width.get())
+        }
+    };
+
+    Ok(fits)
 }
 
 fn parse_real(
@@ -287,11 +320,13 @@ fn decode_unicode_escape(
 
 #[cfg(test)]
 mod tests {
+    use std::num::NonZeroU16;
+
     use bray_bound_tree::BoundLiteralKind;
     use bray_compiler_known::RepresentationRole;
     use bray_symbols::{ConstantValueKind, IntegerSign, RealConstantBits};
 
-    use super::{LiteralValueError, parse_literal};
+    use super::{LiteralValueError, MAX_INTEGER_LITERAL_BYTES, parse_literal};
 
     #[test]
     fn source_literals_are_canonicalized_for_their_selected_types() {
@@ -299,13 +334,20 @@ mod tests {
             BoundLiteralKind::Integer,
             "0X00_ff",
             RepresentationRole::ScalarU16,
+            None,
         );
         let string = parse_literal(
             BoundLiteralKind::String,
             r#""a\n\u{62}""#,
             RepresentationRole::String,
+            None,
         );
-        let real = parse_literal(BoundLiteralKind::Real, "1.5", RepresentationRole::ScalarR32);
+        let real = parse_literal(
+            BoundLiteralKind::Real,
+            "1.5",
+            RepresentationRole::ScalarR32,
+            None,
+        );
 
         let Ok(ConstantValueKind::Integer(integer)) = integer else {
             panic!("integer literal must parse");
@@ -319,6 +361,7 @@ mod tests {
                 BoundLiteralKind::String,
                 r#""\'""#,
                 RepresentationRole::String,
+                None,
             ),
             Err(LiteralValueError::Invalid)
         );
@@ -337,16 +380,79 @@ mod tests {
                 BoundLiteralKind::Integer,
                 "128",
                 RepresentationRole::ScalarI8,
+                None,
             ),
             Err(LiteralValueError::NotRepresentable)
         );
         assert_eq!(
             parse_literal(
                 BoundLiteralKind::Integer,
+                "1",
+                RepresentationRole::ScalarUsize,
+                None,
+            ),
+            Err(LiteralValueError::TargetIntegerWidthRequired)
+        );
+        assert_eq!(
+            parse_literal(
+                BoundLiteralKind::Integer,
                 "256",
                 RepresentationRole::ScalarU8,
+                None,
             ),
             Err(LiteralValueError::NotRepresentable)
+        );
+    }
+
+    #[test]
+    fn target_sized_and_oversized_integer_literals_are_bounded() {
+        let width32 = NonZeroU16::new(32);
+        let width64 = NonZeroU16::new(64);
+
+        assert_eq!(
+            parse_literal(
+                BoundLiteralKind::Integer,
+                "4294967296",
+                RepresentationRole::ScalarUsize,
+                width32,
+            ),
+            Err(LiteralValueError::NotRepresentable)
+        );
+        assert!(
+            parse_literal(
+                BoundLiteralKind::Integer,
+                "4294967296",
+                RepresentationRole::ScalarUsize,
+                width64,
+            )
+            .is_ok()
+        );
+        assert_eq!(
+            parse_literal(
+                BoundLiteralKind::Integer,
+                "2147483648",
+                RepresentationRole::ScalarIsize,
+                width32,
+            ),
+            Err(LiteralValueError::NotRepresentable)
+        );
+        assert!(
+            parse_literal(
+                BoundLiteralKind::Integer,
+                "2147483648",
+                RepresentationRole::ScalarIsize,
+                width64,
+            )
+            .is_ok()
+        );
+        assert_eq!(
+            parse_literal(
+                BoundLiteralKind::Integer,
+                &"1".repeat(MAX_INTEGER_LITERAL_BYTES + 1),
+                RepresentationRole::ScalarI128,
+                None,
+            ),
+            Err(LiteralValueError::SizeLimitExceeded)
         );
     }
 }

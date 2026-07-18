@@ -70,13 +70,13 @@ where
             continue;
         };
 
-        if inference.evidence(result).is_some() {
-            continue;
-        }
-
-        let expected = inference.try_unique_matching_expectation(result, |ty| {
-            complex_component_type(request, ty).map(|component| component.is_some())
-        })?;
+        let evidence = inference.evidence(result);
+        let expected = match evidence {
+            Some(evidence) => Some(evidence),
+            None => inference.try_unique_matching_expectation(result, |ty| {
+                complex_component_type(request, ty).map(|component| component.is_some())
+            })?,
+        };
 
         let Some(expected) = expected else {
             continue;
@@ -86,7 +86,10 @@ where
             continue;
         };
 
-        inference.add_evidence(result, expected, expression);
+        if evidence.is_none() {
+            inference.add_evidence(result, expected, expression);
+        }
+
         inference.add_evidence(real, component, expression);
         inference.add_evidence(imaginary, component, expression);
     }
@@ -269,7 +272,9 @@ mod tests {
         TestCheckerContext, callable_entry, completed_expression_check, expression_unit,
         literal_expression, push_expression, tuple_type,
     };
-    use crate::{ExpressionTypeExpectation, ExpressionTypeInput, UnitCheckRequest};
+    use crate::{
+        ExpressionTypeEvidence, ExpressionTypeExpectation, ExpressionTypeInput, UnitCheckRequest,
+    };
 
     #[test]
     fn fixed_literal_categories_have_their_language_defined_types() {
@@ -368,6 +373,21 @@ mod tests {
                 &[component, component, complex],
             );
         }
+
+        let (unit, expressions) = complex_literal_unit(BoundUnitId::new(80));
+        let complex = representation(&unit, RepresentationRole::ScalarC64);
+        let component = representation(&unit, RepresentationRole::ScalarR32);
+        let input = ExpressionTypeInput::new()
+            .with_evidence([ExpressionTypeEvidence::new(expressions[2], complex)]);
+
+        let result = completed_expression_check(&unit, &input);
+
+        assert!(result.diagnostics().is_empty());
+        assert_expression_types(
+            result.value(),
+            &expressions,
+            &[component, component, complex],
+        );
     }
 
     #[test]
