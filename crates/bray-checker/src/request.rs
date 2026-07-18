@@ -1,8 +1,7 @@
 use std::sync::Arc;
 
 use bray_bound_tree::{
-    AnyBoundNodeId, BoundBlockId, BoundCallableBodyId, BoundExpressionId, BoundUnitKind,
-    BoundUnitRoot, BoundUnitView,
+    BoundBlockId, BoundCallableBodyId, BoundExpressionId, BoundUnit, BoundUnitRoot, BoundUnitView,
 };
 use bray_symbols::{
     AvailableCompilerKnownSymbols, SemanticValueStore, SymbolFactContract, SymbolFactRequest,
@@ -50,17 +49,12 @@ pub enum UnitCheckRoot {
 /// Rejects an inconsistent whole-unit checker request before analysis begins.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum UnitCheckRequestError {
-    /// The root belongs to another bound unit.
-    ForeignRoot,
-    /// The root category does not match the independently checked unit category.
-    RootKindMismatch,
     /// The entry context does not identify the exact bound unit being checked.
     EntryContextMismatch,
 }
 
 impl UnitCheckRoot {
-    /// Selects the checker root represented by a canonical bound-unit root.
-    pub const fn from_bound_root(root: BoundUnitRoot) -> Self {
+    const fn from_bound_root(root: BoundUnitRoot) -> Self {
         match root {
             BoundUnitRoot::CallableBody(body) | BoundUnitRoot::AnonymousCallable { body, .. } => {
                 Self::CallableBody(body)
@@ -69,63 +63,30 @@ impl UnitCheckRoot {
             BoundUnitRoot::ExpressionSequence(block) => Self::ExpressionSequence(block),
         }
     }
-
-    pub(crate) const fn accepts(self, kind: BoundUnitKind) -> bool {
-        matches!(
-            (self, kind),
-            (
-                Self::CallableBody(_),
-                BoundUnitKind::CallableBody | BoundUnitKind::AnonymousCallable
-            ) | (
-                Self::Expression(_),
-                BoundUnitKind::RuntimeDefault
-                    | BoundUnitKind::ConstantTemplate
-                    | BoundUnitKind::PredicateDefinition
-            ) | (
-                Self::ExpressionSequence(_),
-                BoundUnitKind::Constraint | BoundUnitKind::ContractClause
-            )
-        )
-    }
-
-    pub(crate) const fn node(self) -> AnyBoundNodeId {
-        match self {
-            Self::CallableBody(root) => AnyBoundNodeId::CallableBody(root),
-            Self::Expression(root) => AnyBoundNodeId::Expression(root),
-            Self::ExpressionSequence(root) => AnyBoundNodeId::Block(root),
-        }
-    }
 }
 
 impl<'view, C> UnitCheckRequest<'view, C>
 where
     C: CheckerRequestContext + ?Sized,
 {
-    /// Creates a checker request over committed read-only bound structure.
+    /// Creates a checker request over one complete canonical bound unit.
     ///
-    /// Returns an error when the root belongs to another unit or its category
-    /// does not match the independently checked unit.
+    /// Returns an error when the entry context does not describe that unit.
     pub fn new(
-        view: BoundUnitView<'view>,
-        root: UnitCheckRoot,
+        unit: &'view BoundUnit,
         entry: &'view UnitCheckEntryContext,
         context: &'view C,
     ) -> Result<Self, UnitCheckRequestError> {
-        if root.node().unit() != view.unit() {
-            return Err(UnitCheckRequestError::ForeignRoot);
-        }
-
-        if !root.accepts(view.kind()) {
-            return Err(UnitCheckRequestError::RootKindMismatch);
-        }
-
-        if entry.kind() != view.kind() || entry.key() != view.key() {
+        if entry.kind() != unit.key().kind()
+            || entry.key() != unit.key()
+            || !context.entry_context_matches(unit, entry)
+        {
             return Err(UnitCheckRequestError::EntryContextMismatch);
         }
 
         Ok(Self {
-            view,
-            root,
+            view: unit.view(),
+            root: UnitCheckRoot::from_bound_root(unit.root()),
             entry,
             context,
         })

@@ -29,6 +29,9 @@ impl Compilation {
                 Err(FactQueryError::InfrastructureFailure) => {
                     panic!("semantic diagnostic infrastructure failed")
                 }
+                Err(FactQueryError::CheckerInfrastructure(error)) => {
+                    panic!("semantic checker infrastructure failed: {error:?}")
+                }
             },
         )
     }
@@ -351,7 +354,9 @@ fn unit_order_key(
 
 #[cfg(test)]
 mod tests {
+    use bray_binder::unit_check_entry_context;
     use bray_bound_tree::{BoundUnitKind, BoundUnitRoot};
+    use bray_checker::UnitCheckEntryContext;
     use bray_diagnostics::DiagnosticKind;
 
     use crate::WorkerBudget;
@@ -498,6 +503,56 @@ mod tests {
         };
 
         assert_eq!(sequence.items().len(), 2);
+    }
+
+    #[test]
+    fn postcondition_result_reaches_the_checker_entry_context() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "func check() -> i32 ensures(result == 1)\n",
+            "{\n",
+            "    return 1;\n",
+            "}\n",
+        ));
+
+        let keys = match compilation.declared_unit_keys() {
+            Ok(keys) => keys,
+            Err(error) => panic!("contract-clause key must be discoverable: {error:?}"),
+        };
+
+        let Some(key) = keys
+            .into_iter()
+            .find(|key| key.kind() == BoundUnitKind::ContractClause)
+        else {
+            panic!("test source must produce a contract-clause key");
+        };
+
+        let bound = match compilation.bound_unit(key) {
+            Ok(bound) => bound,
+            Err(error) => panic!("contract clause must bind: {error:?}"),
+        };
+
+        assert!(bound.diagnostics().is_empty());
+
+        let symbols = match compilation.symbol_graph() {
+            Ok(symbols) => symbols,
+            Err(error) => panic!("symbol graph must be available: {error:?}"),
+        };
+
+        let entry = match unit_check_entry_context(symbols, bound.value()) {
+            Ok(entry) => entry,
+            Err(error) => panic!("checker entry context must be available: {error:?}"),
+        };
+
+        let UnitCheckEntryContext::ContractClause(entry) = entry else {
+            panic!("contract clause must produce a contract-clause checker entry");
+        };
+
+        let [result] = bound.value().local_symbols().postcondition_results() else {
+            panic!("value-producing postcondition must declare one result symbol");
+        };
+
+        assert_eq!(entry.result(), Some(result.id()));
     }
 
     #[test]

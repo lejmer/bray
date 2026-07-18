@@ -2,16 +2,18 @@ use bray_bound_tree::{BoundSourceAnchor, BoundUnitId, BoundUnitKey};
 use bray_declarations::SyntaxAnchor;
 use bray_diagnostics::DiagnosticResult;
 use bray_symbols::{
-    AnySymbolId, DependencyContractTemplateData, LocalSymbolRegionId, MemberLookupResult,
-    PredicateSemanticSummary,
+    AnySymbolId, CallableContractClauseKind, CallableSignatureFact, DependencyContractTemplateData,
+    LocalSymbolRegionId, MemberLookupResult, PredicateSemanticSummary,
 };
 use bray_syntax::{ExpressionSyntax, SyntaxNodeView, UsesClauseSyntax, syntax_node_view};
 
 use crate::binder::{Binder, BindingContext};
-use crate::binding::{BindingError, ExpressionBinder};
+use crate::binding::{
+    BindingError, ExpressionBinder, callable_normal_completion_has_value, push_contract_scope,
+};
 use crate::lookup::{NameAccess, PathBindingContext};
 use crate::unit::BoundUnitLocalBuilder;
-use crate::{BinderFactContext, BinderFactError, BinderFactResult};
+use crate::{BinderFactContext, BinderFactError, BinderFactResult, SymbolFactProvider};
 
 /// The declaration-surface role of one predicate-bearing clause.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -19,7 +21,7 @@ pub enum PredicateClauseBindingContext {
     /// A declaration's static generic constraint.
     GenericConstraint,
     /// A callable precondition, postcondition, or static contract clause.
-    CallableContract,
+    CallableContract(CallableContractClauseKind),
 }
 
 /// Binds one generated declaration-surface predicate clause through the ordinary expression binder.
@@ -32,13 +34,36 @@ pub fn bind_predicate_clause<C>(
 ) -> BinderFactResult<DiagnosticResult<Box<[PredicateSemanticSummary]>>>
 where
     C: BinderFactContext + ?Sized,
+    C::SymbolFacts: SymbolFactProvider<CallableSignatureFact>,
 {
+    let has_result = match context {
+        PredicateClauseBindingContext::CallableContract(CallableContractClauseKind::Ensures) => {
+            callable_normal_completion_has_value(facts, owner)?
+        }
+        PredicateClauseBindingContext::GenericConstraint
+        | PredicateClauseBindingContext::CallableContract(
+            CallableContractClauseKind::Requires | CallableContractClauseKind::Static,
+        ) => false,
+    };
+
+    let syntax_anchor = SyntaxAnchor::from_node(&clause);
+
     bind_surface(
         facts,
         owner,
         clause,
         binding_context(context),
-        |binder, path| {
+        move |binder, path| {
+            let path = match context {
+                PredicateClauseBindingContext::GenericConstraint => path,
+                PredicateClauseBindingContext::CallableContract(_) => {
+                    let scope =
+                        push_contract_scope(binder, path.scope(), syntax_anchor, has_result)?;
+
+                    path.with_scope(scope)
+                }
+            };
+
             let error_type = facts
                 .semantic_values()
                 .intern_type(bray_symbols::TypeData::Error)
@@ -170,7 +195,7 @@ where
 const fn binding_context(context: PredicateClauseBindingContext) -> BindingContext {
     match context {
         PredicateClauseBindingContext::GenericConstraint => BindingContext::PredicateExpression,
-        PredicateClauseBindingContext::CallableContract => BindingContext::ContractClause,
+        PredicateClauseBindingContext::CallableContract(_) => BindingContext::ContractClause,
     }
 }
 

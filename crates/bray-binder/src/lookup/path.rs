@@ -77,6 +77,10 @@ impl PathBindingContext {
     pub(crate) const fn module_owner(self) -> ModuleOwnerId {
         self.module_owner
     }
+
+    pub(crate) const fn with_scope(self, scope: bray_symbols::LocalScopeId) -> Self {
+        Self { scope, ..self }
+    }
 }
 
 struct PathLookup {

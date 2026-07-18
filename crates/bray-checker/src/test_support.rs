@@ -2,8 +2,8 @@ use std::sync::OnceLock;
 
 use bray_bound_tree::{
     BoundBlock, BoundBlockItem, BoundCallableBody, BoundCallableBodyId, BoundErrorExpression,
-    BoundExpression, BoundNodeOrigin, BoundSourceAnchor, BoundTree, BoundTreeBuilder, BoundUnitId,
-    BoundUnitKey,
+    BoundExpression, BoundNodeOrigin, BoundSourceAnchor, BoundTree, BoundTreeBuilder, BoundUnit,
+    BoundUnitId, BoundUnitKey, BoundUnitRoot,
 };
 use bray_declarations::{DeclarationId, discover_source_unit_declarations};
 use bray_parser::parse_source_unit;
@@ -12,8 +12,9 @@ use bray_source::{
     TextSizeOverflow,
 };
 use bray_symbols::{
-    AnySymbolId, FunctionSymbolId, ModulePathKey, PackageIdentity, SemanticValueStore, SymbolId,
-    SymbolKey, SymbolKind, SymbolRootKey, TypeData, TypeId,
+    AnySymbolId, FunctionSymbolId, LocalScopeBoundary, LocalSymbolRegionId, LocalSymbolRegionKey,
+    LocalSymbolRegionRole, LocalSymbolSnapshotBuilder, ModulePathKey, PackageIdentity,
+    SemanticValueStore, SymbolId, SymbolKey, SymbolKind, SymbolRootKey, TypeData, TypeId,
 };
 
 pub(crate) use bray_symbols::testing::available_compiler_known_symbols;
@@ -40,6 +41,10 @@ impl bray_base::Cancellation for TestCheckerContext {
 }
 
 impl CheckerRequestContext for TestCheckerContext {
+    fn entry_context_matches(&self, unit: &BoundUnit, entry: &UnitCheckEntryContext) -> bool {
+        callable_entry(unit.key()) == *entry
+    }
+
     fn semantic_values(&self) -> &SemanticValueStore {
         semantic_values()
     }
@@ -134,6 +139,50 @@ pub(crate) fn recovered_tree(
     };
 
     (builder.finish(), root)
+}
+
+pub(crate) fn callable_unit(
+    key: &BoundUnitKey,
+    tree: BoundTree,
+    root: BoundCallableBodyId,
+) -> BoundUnit {
+    let region = LocalSymbolRegionId::new(tree.unit().raw());
+
+    let Some(region_key) = LocalSymbolRegionKey::try_new(
+        key.declared_owner().clone(),
+        LocalSymbolRegionRole::CallableBody,
+        [key.source().syntax()],
+        None,
+    ) else {
+        panic!("callable test keys must form local symbol regions");
+    };
+
+    let mut symbols = LocalSymbolSnapshotBuilder::new(region, region_key);
+
+    if let Err(error) = symbols.push_scope(
+        None,
+        LocalScopeBoundary::Root,
+        key.source().syntax(),
+        key.source().syntax().full_range().start(),
+    ) {
+        panic!("callable test root scope must validate: {error:?}");
+    }
+
+    let symbols = match symbols.finish() {
+        Ok(symbols) => symbols,
+        Err(error) => panic!("callable test symbols must validate: {error:?}"),
+    };
+
+    match BoundUnit::try_new(
+        key.clone(),
+        tree,
+        symbols,
+        [],
+        BoundUnitRoot::CallableBody(root),
+    ) {
+        Ok(unit) => unit,
+        Err(error) => panic!("callable test unit must validate: {error:?}"),
+    }
 }
 
 pub(crate) fn normally_completing_recovered_tree(

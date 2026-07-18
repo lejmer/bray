@@ -27,27 +27,31 @@ impl<C> ControlFlowChecker<C> for DefaultControlFlowChecker where C: CheckerRequ
 
 #[cfg(test)]
 mod tests {
-    use bray_bound_tree::{BoundUnitId, ControlCompletionKind};
+    use bray_bound_tree::{
+        BoundCallableBody, BoundNodeOrigin, BoundTreeBuilder, BoundUnitId, ControlCompletionKind,
+    };
+    use bray_symbols::{AnySymbolId, FunctionSymbolId, SymbolId};
 
     use super::{ControlFlowChecker, DefaultControlFlowChecker};
     use crate::test_support::{
         TestCheckerContext, available_compiler_known_symbols, callable_entry, callable_key,
-        normally_completing_recovered_tree, recovered_tree,
+        callable_unit, normally_completing_recovered_tree, recovered_tree,
     };
-    use crate::{CheckerOutcome, UnitCheckEntryContext, UnitCheckRequest, UnitCheckRoot};
+    use crate::{
+        CheckerOutcome, DeclaredUnitCheckEntry, UnitCheckEntryContext, UnitCheckRequest,
+        UnitCheckRoot,
+    };
 
     #[test]
     fn default_checking_recovers_from_an_error_body_without_panicking() {
         let key = callable_key();
         let unit = BoundUnitId::new(4);
         let (tree, root) = recovered_tree(unit, &key);
-        let view = tree.view(&key);
+        let unit = callable_unit(&key, tree, root);
         let entry = callable_entry(&key);
         let context = TestCheckerContext::new(false);
 
-        let Ok(request) =
-            UnitCheckRequest::new(view, UnitCheckRoot::CallableBody(root), &entry, &context)
-        else {
+        let Ok(request) = UnitCheckRequest::new(&unit, &entry, &context) else {
             panic!("matching test roots must produce checker requests");
         };
 
@@ -62,7 +66,7 @@ mod tests {
             panic!("recovered graph construction must complete");
         };
 
-        assert_eq!(result.value().unit(), unit);
+        assert_eq!(result.value().unit(), unit.unit());
         assert!(
             result
                 .value()
@@ -78,13 +82,11 @@ mod tests {
         let key = callable_key();
         let unit = BoundUnitId::new(5);
         let (tree, root) = recovered_tree(unit, &key);
-        let view = tree.view(&key);
+        let unit = callable_unit(&key, tree, root);
         let entry = callable_entry(&key);
         let context = TestCheckerContext::new(true);
 
-        let Ok(request) =
-            UnitCheckRequest::new(view, UnitCheckRoot::CallableBody(root), &entry, &context)
-        else {
+        let Ok(request) = UnitCheckRequest::new(&unit, &entry, &context) else {
             panic!("matching test roots must produce checker requests");
         };
 
@@ -98,13 +100,11 @@ mod tests {
         let key = callable_key();
         let unit = BoundUnitId::new(8);
         let (tree, root) = normally_completing_recovered_tree(unit, &key);
-        let view = tree.view(&key);
+        let unit = callable_unit(&key, tree, root);
         let entry = callable_entry(&key);
         let context = TestCheckerContext::new(false);
 
-        let Ok(request) =
-            UnitCheckRequest::new(view, UnitCheckRoot::CallableBody(root), &entry, &context)
-        else {
+        let Ok(request) = UnitCheckRequest::new(&unit, &entry, &context) else {
             panic!("matching test roots must produce checker requests");
         };
 
@@ -119,32 +119,37 @@ mod tests {
     }
 
     #[test]
-    fn requests_reject_roots_from_another_bound_unit() {
+    fn requests_use_only_the_canonical_bound_unit_root() {
         let key = callable_key();
-        let (tree, _) = recovered_tree(BoundUnitId::new(6), &key);
-        let (_, foreign_root) = recovered_tree(BoundUnitId::new(7), &key);
-        let view = tree.view(&key);
+        let mut tree = BoundTreeBuilder::new(BoundUnitId::new(6));
+        let origin = BoundNodeOrigin::source(key.source());
+
+        let Ok(root) = tree.push_callable_body(BoundCallableBody::error(origin, None)) else {
+            panic!("canonical callable root must fit");
+        };
+
+        let Ok(non_root) = tree.push_callable_body(BoundCallableBody::error(origin, None)) else {
+            panic!("same-unit non-root callable must fit");
+        };
+
+        let unit = callable_unit(&key, tree.finish(), root);
         let entry = callable_entry(&key);
         let context = TestCheckerContext::new(false);
 
-        let request = UnitCheckRequest::new(
-            view,
-            UnitCheckRoot::CallableBody(foreign_root),
-            &entry,
-            &context,
-        );
+        let request = match UnitCheckRequest::new(&unit, &entry, &context) {
+            Ok(request) => request,
+            Err(error) => panic!("canonical checker request must validate: {error:?}"),
+        };
 
-        assert!(matches!(
-            request,
-            Err(crate::UnitCheckRequestError::ForeignRoot)
-        ));
+        assert_eq!(request.root(), UnitCheckRoot::CallableBody(root));
+        assert_ne!(request.root(), UnitCheckRoot::CallableBody(non_root));
     }
 
     #[test]
     fn requests_reject_entry_contexts_for_another_unit_category() {
         let key = callable_key();
         let (tree, root) = recovered_tree(BoundUnitId::new(9), &key);
-        let view = tree.view(&key);
+        let unit = callable_unit(&key, tree, root);
 
         let UnitCheckEntryContext::CallableBody(declaration) = callable_entry(&key) else {
             panic!("callable test entries must retain their category");
@@ -154,11 +159,30 @@ mod tests {
 
         let context = TestCheckerContext::new(false);
 
-        let request =
-            UnitCheckRequest::new(view, UnitCheckRoot::CallableBody(root), &entry, &context);
+        let request = UnitCheckRequest::new(&unit, &entry, &context);
 
         assert!(matches!(
             request,
+            Err(crate::UnitCheckRequestError::EntryContextMismatch)
+        ));
+    }
+
+    #[test]
+    fn requests_reject_forged_entry_payloads() {
+        let key = callable_key();
+        let (tree, root) = recovered_tree(BoundUnitId::new(10), &key);
+        let unit = callable_unit(&key, tree, root);
+        let context = TestCheckerContext::new(false);
+
+        let forged = AnySymbolId::from(FunctionSymbolId::from_symbol_id(SymbolId::new(1)));
+        let entry = UnitCheckEntryContext::CallableBody(DeclaredUnitCheckEntry::new(
+            key.clone(),
+            forged,
+            forged,
+        ));
+
+        assert!(matches!(
+            UnitCheckRequest::new(&unit, &entry, &context),
             Err(crate::UnitCheckRequestError::EntryContextMismatch)
         ));
     }

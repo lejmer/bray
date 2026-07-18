@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use bray_binder::{BinderFactContext, BinderFactError, SymbolFactProvider};
-use bray_bound_tree::{BoundSourceAnchor, BoundUnitKey};
+use bray_bound_tree::{BoundSourceAnchor, BoundUnit, BoundUnitKey};
 use bray_checker::{
     CheckerFactError, CheckerFactResult, CheckerInfrastructureError, CheckerRequestContext,
     CheckerSemanticFactProvider, CheckerSource,
@@ -60,6 +60,15 @@ impl<'compilation> CompilationCheckerContext<'compilation> {
 }
 
 impl CheckerRequestContext for CompilationCheckerContext<'_> {
+    fn entry_context_matches(
+        &self,
+        unit: &BoundUnit,
+        entry: &bray_checker::UnitCheckEntryContext,
+    ) -> bool {
+        bray_binder::unit_check_entry_context(self.symbols(), unit)
+            .is_ok_and(|expected| expected == *entry)
+    }
+
     fn semantic_values(&self) -> &SemanticValueStore {
         self.facts.semantic_values()
     }
@@ -131,9 +140,7 @@ impl Compilation {
 mod tests {
     use bray_binder::unit_check_entry_context;
     use bray_bound_tree::BoundSourceAnchor;
-    use bray_checker::{
-        CheckerInfrastructureError, CheckerRequestContext, UnitCheckRequest, UnitCheckRoot,
-    };
+    use bray_checker::{CheckerInfrastructureError, CheckerRequestContext, UnitCheckRequest};
     use bray_source::SourceVersion;
     use bray_symbols::{CallableSignatureFact, CallableSymbolId, SymbolFactRequest, SymbolOrigin};
 
@@ -211,12 +218,7 @@ mod tests {
             Err(error) => panic!("checker entry context must be available: {error:?}"),
         };
 
-        let request = match UnitCheckRequest::new(
-            bound.value().view(),
-            UnitCheckRoot::from_bound_root(bound.value().root()),
-            &entry,
-            &context,
-        ) {
+        let request = match UnitCheckRequest::new(bound.value(), &entry, &context) {
             Ok(request) => request,
             Err(error) => panic!("checker request must be valid: {error:?}"),
         };

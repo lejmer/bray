@@ -1,12 +1,14 @@
 use std::sync::Arc;
 
 use bray_base::Cancellation;
-use bray_bound_tree::BoundSourceAnchor;
+use bray_bound_tree::{BoundSourceAnchor, BoundUnit};
 use bray_source::{SourceId, SourceSpan, SourceVersion};
 use bray_symbols::{
     AnySymbolId, AvailableCompilerKnownSymbols, SemanticValueStore, SymbolFactContract,
     SymbolFactKind, SymbolFactRequest, SymbolFactResult,
 };
+
+use crate::UnitCheckEntryContext;
 
 /// A checker infrastructure failure that is neither a source diagnostic nor cancellation.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -77,6 +79,9 @@ impl<'source> CheckerSource<'source> {
 
 /// Narrow immutable services shared by checker requests.
 pub trait CheckerRequestContext: Sync {
+    /// Returns whether an entry context exactly describes the supplied bound unit.
+    fn entry_context_matches(&self, unit: &BoundUnit, entry: &UnitCheckEntryContext) -> bool;
+
     /// Returns the canonical semantic values used by bound structure and facts.
     fn semantic_values(&self) -> &SemanticValueStore;
 

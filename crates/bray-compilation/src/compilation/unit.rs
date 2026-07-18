@@ -8,7 +8,7 @@ use bray_binder::{
 use bray_bound_tree::{BoundUnit, BoundUnitKey, BoundUnitKind, CheckedControlFlowFacts};
 use bray_checker::{
     CheckerOutcome, ControlFlowChecker, DefaultControlFlowChecker, UnitCheckEntryContext,
-    UnitCheckRequest, UnitCheckRoot,
+    UnitCheckRequest,
 };
 use bray_diagnostics::DiagnosticResult;
 
@@ -115,16 +115,14 @@ fn check_control_flow(
     ),
     FactQueryError,
 > {
-    let root = UnitCheckRoot::from_bound_root(bound.root());
-
-    let request = UnitCheckRequest::new(bound.view(), root, entry, context)
+    let request = UnitCheckRequest::new(bound, entry, context)
         .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
     let result = match DefaultControlFlowChecker.check_control_flow(request) {
         CheckerOutcome::Complete(result) => result.map(|result| result.into_facts()),
         CheckerOutcome::Cancelled => return Err(FactQueryError::Cancelled),
-        CheckerOutcome::InfrastructureFailure(_) => {
-            return Err(FactQueryError::InfrastructureFailure);
+        CheckerOutcome::InfrastructureFailure(error) => {
+            return Err(FactQueryError::CheckerInfrastructure(error));
         }
     };
 

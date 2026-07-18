@@ -75,7 +75,7 @@ impl<T> CheckerOutcome<T> {
         Self::Complete(DiagnosticResult::without_diagnostics(value))
     }
 
-    /// Returns the completed result, or `None` after cancellation.
+    /// Returns the completed result, or `None` when checking did not complete.
     pub const fn result(&self) -> Option<&DiagnosticResult<T>> {
         match self {
             Self::Complete(result) => Some(result),
@@ -83,7 +83,7 @@ impl<T> CheckerOutcome<T> {
         }
     }
 
-    /// Consumes the outcome into a completed result, or `None` after cancellation.
+    /// Consumes the outcome into a completed result, or `None` when checking did not complete.
     pub fn into_result(self) -> Option<DiagnosticResult<T>> {
         match self {
             Self::Complete(result) => Some(result),

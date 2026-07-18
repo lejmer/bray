@@ -334,6 +334,19 @@ impl LocalSymbolSnapshotBuilder {
         Ok(id)
     }
 
+    /// Returns the contextual postcondition result attached to one scope.
+    pub fn postcondition_result(
+        &self,
+        scope: LocalScopeId,
+    ) -> Result<Option<PostconditionResultSymbolId>, LocalSymbolBuildError> {
+        let scope = self
+            .scopes
+            .get(self.checked_scope_index(scope)?)
+            .ok_or(LocalSymbolBuildError::UnknownScope)?;
+
+        Ok(scope.postcondition_result)
+    }
+
     /// Inserts a named local symbol into one scope's ordinary-name index.
     pub fn insert_local_name(
         &mut self,
@@ -471,9 +484,14 @@ impl LocalSymbolSnapshotBuilder {
                         .ok_or(LocalSymbolBuildError::UnknownLocalSymbol)?,
                 )
                 .map(AnonymousCallableParameterSymbol::is_recovered),
-            AnyLocalSymbolId::AnonymousCallable(_) | AnyLocalSymbolId::PostconditionResult(_) => {
-                None
-            }
+            AnyLocalSymbolId::PostconditionResult(id) => self
+                .postcondition_results
+                .get(
+                    id.to_index()
+                        .ok_or(LocalSymbolBuildError::UnknownLocalSymbol)?,
+                )
+                .map(PostconditionResultSymbol::is_recovered),
+            AnyLocalSymbolId::AnonymousCallable(_) => None,
         }
         .ok_or(LocalSymbolBuildError::UnknownLocalSymbol)
     }
@@ -872,6 +890,12 @@ mod tests {
             builder.push_postcondition_result(contract_scope, syntax, None, false),
             Err(LocalSymbolBuildError::DuplicatePostconditionResult)
         );
+
+        assert_eq!(
+            builder.postcondition_result(contract_scope),
+            Ok(Some(result))
+        );
+        assert_eq!(builder.local_symbol_is_recovered(result.into()), Ok(false));
 
         let snapshot = finish(builder);
 

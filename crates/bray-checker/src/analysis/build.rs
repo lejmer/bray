@@ -480,6 +480,7 @@ mod tests {
     };
 
     use super::{ControlFlowGraphBuildOutcome, build_control_flow_graph};
+    use crate::UnitCheckRequest;
     use crate::analysis::model::ControlFlowGraph;
     use crate::analysis::model::{
         AnalysisEdgeKind, AnalysisExitKind, AnalysisOperationKind, AnalysisScopeExitPhase,
@@ -487,22 +488,19 @@ mod tests {
     };
     use crate::test_support::{
         TestCheckerContext, available_compiler_known_symbols, callable_entry, callable_key,
-        error_type, recovered_tree, semantic_values,
+        callable_unit, error_type, recovered_tree, semantic_values,
     };
-    use crate::{UnitCheckRequest, UnitCheckRoot};
 
     #[test]
     fn recovered_nodes_produce_typed_recovery_operations_edges_and_exits() {
         let key = callable_key();
         let unit = BoundUnitId::new(6);
         let (tree, root) = recovered_tree(unit, &key);
-        let view = tree.view(&key);
+        let unit = callable_unit(&key, tree, root);
         let entry = callable_entry(&key);
         let context = TestCheckerContext::new(false);
 
-        let Ok(request) =
-            UnitCheckRequest::new(view, UnitCheckRoot::CallableBody(root), &entry, &context)
-        else {
+        let Ok(request) = UnitCheckRequest::new(&unit, &entry, &context) else {
             panic!("matching test roots must produce checker requests");
         };
 
@@ -989,13 +987,11 @@ mod tests {
         key: &BoundUnitKey,
         root: bray_bound_tree::BoundCallableBodyId,
     ) -> ControlFlowGraph {
-        let view = tree.view(key);
+        let unit = callable_unit(key, tree.clone(), root);
         let entry = callable_entry(key);
         let context = TestCheckerContext::new(false);
 
-        let Ok(request) =
-            UnitCheckRequest::new(view, UnitCheckRoot::CallableBody(root), &entry, &context)
-        else {
+        let Ok(request) = UnitCheckRequest::new(&unit, &entry, &context) else {
             panic!("matching test roots must produce checker requests");
         };
 

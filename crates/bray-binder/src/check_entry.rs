@@ -62,8 +62,8 @@ pub fn unit_check_entry_context(
             let result = unit
                 .local_symbols()
                 .scopes()
-                .first()
-                .and_then(bray_symbols::LocalScope::postcondition_result);
+                .iter()
+                .find_map(bray_symbols::LocalScope::postcondition_result);
 
             Ok(UnitCheckEntryContext::ContractClause(
                 ContractClauseCheckEntry::new(declared_entry(symbols, unit)?, result),
