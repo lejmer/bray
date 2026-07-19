@@ -1,3 +1,9 @@
+//! Selection of one applicable semantic target from binder-enumerated candidates.
+//!
+//! Candidate sets include callable overload arms, members, operators, indexing contracts,
+//! construction targets, conversions, and implementation witnesses. Selection either retains the
+//! exact chosen target or classifies why no unique candidate could be chosen.
+
 mod call;
 mod check;
 mod model;
