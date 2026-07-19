@@ -1,5 +1,6 @@
 mod construction;
 mod conversion;
+mod role;
 mod select;
 mod validation;
 

@@ -58,6 +58,11 @@ pub enum CompilerKnownSymbolBuildError {
         /// The declaration selected by the role binding.
         declaration: CompilerKnownDeclarationId,
     },
+    /// An operation role declaration materialized with an incompatible symbol category.
+    InvalidOperationRoleSymbol {
+        /// The declaration selected by the operation role.
+        declaration: CompilerKnownDeclarationId,
+    },
     /// Compiler-known declaration ownership contains a cycle.
     DeclarationOwnerCycle {
         /// A declaration reached again while resolving its owner chain.
@@ -120,6 +125,10 @@ impl std::fmt::Display for CompilerKnownSymbolBuildError {
             Self::MissingRoleDeclarationSymbol { declaration } => write!(
                 formatter,
                 "compiler-known role refers to declaration {declaration:?} without a symbol"
+            ),
+            Self::InvalidOperationRoleSymbol { declaration } => write!(
+                formatter,
+                "compiler-known operation role refers to incompatible declaration {declaration:?}"
             ),
             Self::DeclarationOwnerCycle { declaration } => write!(
                 formatter,

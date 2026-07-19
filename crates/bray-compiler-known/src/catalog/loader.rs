@@ -121,6 +121,17 @@ fn build_descriptors(
     let role_registry = CompilerKnownCatalogRoleRegistry::from_descriptors(
         &compiler_known_declarations,
         &compiler_known_values,
+        validated
+            .compiler_known_declarations
+            .iter()
+            .enumerate()
+            .filter_map(|(index, declaration)| {
+                Some((
+                    declaration.operation_role?,
+                    CompilerKnownDeclarationId::try_from_index(index)?,
+                    declaration.kind,
+                ))
+            }),
     );
 
     record_construction_mismatch(
@@ -507,7 +518,7 @@ mod tests {
         };
 
         assert_eq!(catalog.compiler_known_scopes().len(), 2);
-        assert_eq!(catalog.compiler_known_declarations().len(), 51);
+        assert_eq!(catalog.compiler_known_declarations().len(), 109);
         assert_eq!(catalog.compiler_known_values().len(), 3);
         assert_eq!(catalog.recognized_standard_library_scopes().len(), 1);
         assert_eq!(catalog.recognized_standard_library_declarations().len(), 1);
@@ -881,6 +892,11 @@ mod tests {
                 "    surface { struct Duplicate {} }\n",
                 "  }\n",
                 "  declaration Duplicate { surface { struct Duplicate {} } }\n",
+                "  declaration DuplicateOperation {\n",
+                "    operation Conversion;\n",
+                "    operation Equality;\n",
+                "    surface { trait DuplicateOperation<Target> {} }\n",
+                "  }\n",
                 "  declaration Missing { representation UnknownRole; }\n",
                 "}\n",
             ),
@@ -897,6 +913,13 @@ mod tests {
             kind,
             CatalogDiagnosticKind::DuplicateField {
                 field: CatalogField::Availability
+            }
+        )));
+
+        assert!(contains_kind(&diagnostics, |kind| matches!(
+            kind,
+            CatalogDiagnosticKind::DuplicateField {
+                field: CatalogField::Operation
             }
         )));
 
@@ -932,6 +955,10 @@ mod tests {
                 "  declaration UnknownHook {\n",
                 "    implementation MissingHook;\n",
                 "    surface { func unknown_hook(); }\n",
+                "  }\n",
+                "  declaration UnknownOperation {\n",
+                "    operation MissingOperation;\n",
+                "    surface { trait UnknownOperation {} }\n",
                 "  }\n",
                 "  declaration BadHook {\n",
                 "    implementation RawPointerRead;\n",
@@ -974,6 +1001,14 @@ mod tests {
 
         assert!(contains_kind(&diagnostics, |kind| matches!(
             kind,
+            CatalogDiagnosticKind::UnknownMetadata {
+                metadata: CatalogMetadataKind::Operation,
+                ..
+            }
+        )));
+
+        assert!(contains_kind(&diagnostics, |kind| matches!(
+            kind,
             CatalogDiagnosticKind::IncompatibleImplementationHook {
                 hook: ImplementationHook::RawPointerRead,
                 declaration: CatalogDeclarationKind::Struct
@@ -984,6 +1019,112 @@ mod tests {
             kind,
             CatalogDiagnosticKind::DuplicateRepresentationRole {
                 role: RepresentationRole::ScalarBool
+            }
+        )));
+    }
+
+    #[test]
+    fn builder_rejects_malformed_operation_contracts() {
+        let inventory = inventory(
+            CatalogKind::CompilerKnown,
+            concat!(
+                "catalog compiler_known;\n",
+                "scope Ambient at ambient {\n",
+                "  declaration WrongKind {\n",
+                "    operation BinaryMultiply;\n",
+                "    surface { struct WrongKind {} }\n",
+                "  }\n",
+                "  declaration Incomplete {\n",
+                "    operation Conversion;\n",
+                "    surface { trait Incomplete<Target> {} }\n",
+                "  }\n",
+                "  declaration Comparison {\n",
+                "    operation Comparison;\n",
+                "    surface { trait Comparison<Rhs> {} }\n",
+                "  }\n",
+                "  declaration ComparisonCall {\n",
+                "    owner Comparison;\n",
+                "    operation Comparison;\n",
+                "    surface { func compare(pos rhs: &Rhs) -> bool; }\n",
+                "  }\n",
+                "  declaration Add {\n",
+                "    operation BinaryAdd;\n",
+                "    surface { trait Add<Rhs> {} }\n",
+                "  }\n",
+                "  declaration AddOutput {\n",
+                "    owner Add;\n",
+                "    operation BinaryAdd;\n",
+                "    surface { type Output; }\n",
+                "  }\n",
+                "  declaration AddCall {\n",
+                "    owner Add;\n",
+                "    operation BinaryAdd;\n",
+                "    surface { func add(pos rhs: &Rhs) -> Output; }\n",
+                "  }\n",
+                "  declaration DuplicateAddCall {\n",
+                "    owner Add;\n",
+                "    operation BinaryAdd;\n",
+                "    surface { func add_again(pos rhs: &Rhs) -> Output; }\n",
+                "  }\n",
+                "  declaration Divide {\n",
+                "    operation BinaryDivide;\n",
+                "    surface { trait Divide<Rhs> {} }\n",
+                "  }\n",
+                "  declaration Other { surface { trait Other {} } }\n",
+                "  declaration DivideOutput {\n",
+                "    owner Other;\n",
+                "    operation BinaryDivide;\n",
+                "    surface { type Output; }\n",
+                "  }\n",
+                "  declaration DivideCall {\n",
+                "    owner Divide;\n",
+                "    operation BinaryDivide;\n",
+                "    surface { func divide(pos rhs: &Rhs) -> Output; }\n",
+                "  }\n",
+                "}\n",
+            ),
+        );
+
+        let mut validator = BrayFragmentValidator;
+
+        let diagnostics = match build_catalog(inventory, &mut validator) {
+            Ok(_) => panic!("malformed operation contracts must be rejected"),
+            Err(diagnostics) => diagnostics,
+        };
+
+        assert!(contains_kind(&diagnostics, |kind| matches!(
+            kind,
+            CatalogDiagnosticKind::IncompatibleOperationRole {
+                role: crate::CompilerKnownOperationRole::BinaryMultiply,
+                declaration: CatalogDeclarationKind::Struct
+            }
+        )));
+
+        assert!(contains_kind(&diagnostics, |kind| matches!(
+            kind,
+            CatalogDiagnosticKind::IncompleteOperationContract {
+                role: crate::CompilerKnownOperationRole::Conversion
+            }
+        )));
+
+        assert!(contains_kind(&diagnostics, |kind| matches!(
+            kind,
+            CatalogDiagnosticKind::IncompleteOperationContract {
+                role: crate::CompilerKnownOperationRole::Comparison
+            }
+        )));
+
+        assert!(contains_kind(&diagnostics, |kind| matches!(
+            kind,
+            CatalogDiagnosticKind::DuplicateOperationComponent {
+                role: crate::CompilerKnownOperationRole::BinaryAdd
+            }
+        )));
+
+        assert!(contains_kind(&diagnostics, |kind| matches!(
+            kind,
+            CatalogDiagnosticKind::InvalidOperationComponentOwner {
+                role: crate::CompilerKnownOperationRole::BinaryDivide
             }
         )));
     }
@@ -1039,6 +1180,7 @@ mod tests {
                 "  declaration Item {\n",
                 "    identity name Item;\n",
                 "    representation ScalarBool;\n",
+                "    operation Conversion;\n",
                 "    surface { struct Item {} }\n",
                 "  }\n",
                 "  value True { spelling true; type { bool } representation BooleanTrue; }\n",
@@ -1066,6 +1208,11 @@ mod tests {
         assert!(contains_kind(&diagnostics, |kind| matches!(
             kind,
             CatalogDiagnosticKind::RecognizedRepresentation
+        )));
+
+        assert!(contains_kind(&diagnostics, |kind| matches!(
+            kind,
+            CatalogDiagnosticKind::RecognizedOperationRole
         )));
     }
 

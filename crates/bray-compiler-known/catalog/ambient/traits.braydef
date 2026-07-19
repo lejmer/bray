@@ -2,6 +2,8 @@ catalog compiler_known;
 
 scope Ambient at ambient {
     declaration Storage {
+        operation BoxConstruction;
+
         surface { trait Storage<T> {} }
     }
 

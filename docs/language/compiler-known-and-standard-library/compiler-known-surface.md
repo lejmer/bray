@@ -15,8 +15,10 @@ The compiler-known surface includes:
 - compiler-known type-form support traits such as `Storage<T>`,
 - compiler-known iteration traits such as `Iterable` and `Iterator`,
 - compiler-known conversion traits such as `ConvertTo<Target>` and `CheckedConvertTo<Target>`,
+- compiler-known indexing traits `ElementIndex<Selector>` and `SliceIndex<Bound>`,
 - the compiler-known `Copyable` contract used by static constraints,
 - compiler-known operator traits such as `Add<Rhs>`, `Equatable<Rhs>`, `Comparable<Rhs>`, and the other operator traits defined by the type rules,
+- the compiler-known `Ordering` result used by relational comparison,
 - compiler-known literals and special values such as `true`, `false`, `unit`, and `none`.
 
 `Heap` is an ambient compiler-known struct declaration with the canonical compiler-known declaration key `Heap`. Default-storage

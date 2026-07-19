@@ -50,7 +50,8 @@ pub use key::{
 pub use loader::{CatalogBuildResult, CatalogFragmentValidator, build_catalog};
 pub use role::{
     CompilerKnownCatalogRoleRegistry, CompilerKnownImplementationBinding,
-    CompilerKnownRepresentationBinding, CompilerKnownRepresentationTarget,
+    CompilerKnownOperationBinding, CompilerKnownRepresentationBinding,
+    CompilerKnownRepresentationTarget,
 };
 #[cfg(any(test, feature = "generation"))]
 pub use source::generator_input_inventory;

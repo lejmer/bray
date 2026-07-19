@@ -11,11 +11,12 @@ use super::super::{
 use super::CatalogFragmentValidator;
 use super::field::{declaration_fields, value_fields};
 use super::identity::{recognized_identity, validate_recognized_identity_uniqueness};
-use super::metadata::{availability, implementation, representation};
+use super::metadata::{availability, implementation, operation, representation};
 use super::model::{
     RawDeclaration, RawScope, RawValue, ValidatedCatalog, ValidatedDeclaration, ValidatedScope,
     ValidatedValue,
 };
+use super::operation::validate_operation_contracts;
 use super::owner::resolve_declarations;
 
 pub(crate) fn validate_catalog(
@@ -66,6 +67,7 @@ pub(crate) fn validate_catalog(
 
     validate_values(&values, inventory, validator, diagnostics);
     validate_representation_uniqueness(compiler_declarations, &values, diagnostics);
+    validate_operation_contracts(compiler_declarations, diagnostics);
 
     if !diagnostics.is_empty() {
         return None;
@@ -182,6 +184,26 @@ fn collect_entries(
                     ));
                 }
 
+                let operation_role = operation(
+                    fields.operation.map(|value| (&value.value, value.anchor)),
+                    diagnostics,
+                );
+
+                let operation_role = if catalog_kind == CatalogKind::RecognizedStandardLibrary
+                    && operation_role.is_some()
+                {
+                    diagnostics.push(CatalogDiagnostic::new(
+                        fields
+                            .operation
+                            .map_or(declaration.key.anchor, |value| value.anchor),
+                        CatalogDiagnosticKind::RecognizedOperationRole,
+                    ));
+
+                    None
+                } else {
+                    operation_role
+                };
+
                 let recognized_identity = match (catalog_kind, fields.identity) {
                     (CatalogKind::RecognizedStandardLibrary, Some(identity)) => {
                         Some(recognized_identity(&identity.value))
@@ -229,6 +251,7 @@ fn collect_entries(
                             .map(|value| (&value.value, value.anchor)),
                         diagnostics,
                     ),
+                    operation_role,
                     availability_rule: availability(
                         fields
                             .availability
@@ -467,6 +490,7 @@ fn finalize_declarations(declarations: &[RawDeclaration]) -> Option<Vec<Validate
                 surface: declaration.surface,
                 representation_role: declaration.representation_role,
                 implementation_hook: declaration.implementation_hook,
+                operation_role: declaration.operation_role,
                 availability_rule: declaration.availability_rule,
                 anchor: declaration.anchor,
             })

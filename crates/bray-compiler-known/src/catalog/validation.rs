@@ -3,6 +3,7 @@ mod fragment;
 mod identity;
 mod metadata;
 mod model;
+mod operation;
 mod owner;
 mod structure;
 

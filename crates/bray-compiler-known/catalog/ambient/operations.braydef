@@ -1,0 +1,386 @@
+catalog compiler_known;
+
+scope Ambient at ambient {
+    declaration Add {
+        operation BinaryAdd;
+
+        surface { trait Add<Rhs> {} }
+    }
+
+    declaration AddOutput {
+        owner Add;
+        operation BinaryAdd;
+
+        surface { type Output; }
+    }
+
+    declaration AddCall {
+        owner Add;
+        operation BinaryAdd;
+
+        surface { func add(pos rhs: &Rhs) -> Output; }
+    }
+
+    declaration Subtract {
+        operation BinarySubtract;
+
+        surface { trait Subtract<Rhs> {} }
+    }
+
+    declaration SubtractOutput {
+        owner Subtract;
+        operation BinarySubtract;
+
+        surface { type Output; }
+    }
+
+    declaration SubtractCall {
+        owner Subtract;
+        operation BinarySubtract;
+
+        surface { func subtract(pos rhs: &Rhs) -> Output; }
+    }
+
+    declaration Multiply {
+        operation BinaryMultiply;
+
+        surface { trait Multiply<Rhs> {} }
+    }
+
+    declaration MultiplyOutput {
+        owner Multiply;
+        operation BinaryMultiply;
+
+        surface { type Output; }
+    }
+
+    declaration MultiplyCall {
+        owner Multiply;
+        operation BinaryMultiply;
+
+        surface { func multiply(pos rhs: &Rhs) -> Output; }
+    }
+
+    declaration Divide {
+        operation BinaryDivide;
+
+        surface { trait Divide<Rhs> {} }
+    }
+
+    declaration DivideOutput {
+        owner Divide;
+        operation BinaryDivide;
+
+        surface { type Output; }
+    }
+
+    declaration DivideCall {
+        owner Divide;
+        operation BinaryDivide;
+
+        surface { func divide(pos rhs: &Rhs) -> Output; }
+    }
+
+    declaration Remainder {
+        operation BinaryRemainder;
+
+        surface { trait Remainder<Rhs> {} }
+    }
+
+    declaration RemainderOutput {
+        owner Remainder;
+        operation BinaryRemainder;
+
+        surface { type Output; }
+    }
+
+    declaration RemainderCall {
+        owner Remainder;
+        operation BinaryRemainder;
+
+        surface { func remainder(pos rhs: &Rhs) -> Output; }
+    }
+
+    declaration Exponentiate {
+        operation BinaryExponentiate;
+
+        surface { trait Exponentiate<Rhs> {} }
+    }
+
+    declaration ExponentiateOutput {
+        owner Exponentiate;
+        operation BinaryExponentiate;
+
+        surface { type Output; }
+    }
+
+    declaration ExponentiateCall {
+        owner Exponentiate;
+        operation BinaryExponentiate;
+
+        surface { func exponentiate(pos rhs: &Rhs) -> Output; }
+    }
+
+    declaration MatrixMultiply {
+        operation BinaryMatrixMultiply;
+
+        surface { trait MatrixMultiply<Rhs> {} }
+    }
+
+    declaration MatrixMultiplyOutput {
+        owner MatrixMultiply;
+        operation BinaryMatrixMultiply;
+
+        surface { type Output; }
+    }
+
+    declaration MatrixMultiplyCall {
+        owner MatrixMultiply;
+        operation BinaryMatrixMultiply;
+
+        surface { func matrix_multiply(pos rhs: &Rhs) -> Output; }
+    }
+
+    declaration BitAnd {
+        operation BinaryBitAnd;
+
+        surface { trait BitAnd<Rhs> {} }
+    }
+
+    declaration BitAndOutput {
+        owner BitAnd;
+        operation BinaryBitAnd;
+
+        surface { type Output; }
+    }
+
+    declaration BitAndCall {
+        owner BitAnd;
+        operation BinaryBitAnd;
+
+        surface { func bit_and(pos rhs: &Rhs) -> Output; }
+    }
+
+    declaration BitOr {
+        operation BinaryBitOr;
+
+        surface { trait BitOr<Rhs> {} }
+    }
+
+    declaration BitOrOutput {
+        owner BitOr;
+        operation BinaryBitOr;
+
+        surface { type Output; }
+    }
+
+    declaration BitOrCall {
+        owner BitOr;
+        operation BinaryBitOr;
+
+        surface { func bit_or(pos rhs: &Rhs) -> Output; }
+    }
+
+    declaration BitXor {
+        operation BinaryBitXor;
+
+        surface { trait BitXor<Rhs> {} }
+    }
+
+    declaration BitXorOutput {
+        owner BitXor;
+        operation BinaryBitXor;
+
+        surface { type Output; }
+    }
+
+    declaration BitXorCall {
+        owner BitXor;
+        operation BinaryBitXor;
+
+        surface { func bit_xor(pos rhs: &Rhs) -> Output; }
+    }
+
+    declaration ShiftLeft {
+        operation BinaryShiftLeft;
+
+        surface { trait ShiftLeft<Rhs> {} }
+    }
+
+    declaration ShiftLeftOutput {
+        owner ShiftLeft;
+        operation BinaryShiftLeft;
+
+        surface { type Output; }
+    }
+
+    declaration ShiftLeftCall {
+        owner ShiftLeft;
+        operation BinaryShiftLeft;
+
+        surface { func shift_left(pos rhs: &Rhs) -> Output; }
+    }
+
+    declaration ShiftRight {
+        operation BinaryShiftRight;
+
+        surface { trait ShiftRight<Rhs> {} }
+    }
+
+    declaration ShiftRightOutput {
+        owner ShiftRight;
+        operation BinaryShiftRight;
+
+        surface { type Output; }
+    }
+
+    declaration ShiftRightCall {
+        owner ShiftRight;
+        operation BinaryShiftRight;
+
+        surface { func shift_right(pos rhs: &Rhs) -> Output; }
+    }
+
+    declaration Negate {
+        operation UnaryNegate;
+
+        surface { trait Negate {} }
+    }
+
+    declaration NegateOutput {
+        owner Negate;
+        operation UnaryNegate;
+
+        surface { type Output; }
+    }
+
+    declaration NegateCall {
+        owner Negate;
+        operation UnaryNegate;
+
+        surface { func negate() -> Output; }
+    }
+
+    declaration BitNot {
+        operation UnaryBitNot;
+
+        surface { trait BitNot {} }
+    }
+
+    declaration BitNotOutput {
+        owner BitNot;
+        operation UnaryBitNot;
+
+        surface { type Output; }
+    }
+
+    declaration BitNotCall {
+        owner BitNot;
+        operation UnaryBitNot;
+
+        surface { func bit_not() -> Output; }
+    }
+
+    declaration Equatable {
+        operation Equality;
+
+        surface { trait Equatable<Rhs> {} }
+    }
+
+    declaration EquatableCall {
+        owner Equatable;
+        operation Equality;
+
+        surface { func equals(pos rhs: &Rhs) -> bool; }
+    }
+
+    declaration Ordering {
+        operation Comparison;
+
+        surface { union Ordering {} }
+    }
+
+    declaration OrderingLess {
+        owner Ordering;
+
+        surface { Less; }
+    }
+
+    declaration OrderingEqual {
+        owner Ordering;
+
+        surface { Equal; }
+    }
+
+    declaration OrderingGreater {
+        owner Ordering;
+
+        surface { Greater; }
+    }
+
+    declaration Comparable {
+        operation Comparison;
+
+        surface { trait Comparable<Rhs> {} }
+    }
+
+    declaration ComparableCall {
+        owner Comparable;
+        operation Comparison;
+
+        surface { func compare(pos rhs: &Rhs) -> Ordering; }
+    }
+
+    declaration ConvertTo {
+        operation Conversion;
+
+        surface { trait ConvertTo<Target> {} }
+    }
+
+    declaration ConvertToCall {
+        owner ConvertTo;
+        operation Conversion;
+
+        surface { consume func convert() -> Target; }
+    }
+
+    declaration ElementIndex {
+        operation ElementIndex;
+
+        surface { trait ElementIndex<Selector> {} }
+    }
+
+    declaration ElementIndexOutput {
+        owner ElementIndex;
+        operation ElementIndex;
+
+        surface { type Output; }
+    }
+
+    declaration ElementIndexCall {
+        owner ElementIndex;
+        operation ElementIndex;
+
+        surface { func index(pos selector: &Selector) -> Output; }
+    }
+
+    declaration SliceIndex {
+        operation SliceIndex;
+
+        surface { trait SliceIndex<Bound> {} }
+    }
+
+    declaration SliceIndexOutput {
+        owner SliceIndex;
+        operation SliceIndex;
+
+        surface { type Output; }
+    }
+
+    declaration SliceIndexCall {
+        owner SliceIndex;
+        operation SliceIndex;
+
+        surface { func slice(pos start: Bound?, pos end: Bound?) -> Output; }
+    }
+}

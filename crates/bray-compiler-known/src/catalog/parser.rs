@@ -34,6 +34,7 @@ const ORDINAL_WORD: &str = "ordinal";
 const AVAILABILITY_WORD: &str = "availability";
 const REPRESENTATION_WORD: &str = "representation";
 const IMPLEMENTATION_WORD: &str = "implementation";
+const OPERATION_WORD: &str = "operation";
 const SURFACE_WORD: &str = "surface";
 const SPELLING_WORD: &str = "spelling";
 const TYPE_WORD: &str = "type";
@@ -245,6 +246,9 @@ impl CatalogParser {
             IMPLEMENTATION_WORD => self
                 .parse_identifier_field(IMPLEMENTATION_WORD)
                 .map(ParsedDeclarationField::Implementation),
+            OPERATION_WORD => self
+                .parse_identifier_field(OPERATION_WORD)
+                .map(ParsedDeclarationField::Operation),
             SURFACE_WORD => {
                 self.expect_word(SURFACE_WORD)?;
                 let anchor = self.parse_braced_fragment()?;
@@ -648,6 +652,7 @@ mod tests {
             "    owner RawPointer;\n",
             "    availability RawMemory;\n",
             "    implementation RawPointerRead;\n",
+            "    operation Conversion;\n",
             "    surface { trusted func read() -> u8; }\n",
             "  }\n",
             "  value True {\n",
@@ -687,10 +692,17 @@ mod tests {
             _ => None,
         });
 
+        let operation = declaration.fields.iter().find_map(|field| match field {
+            ParsedDeclarationField::Operation(operation) => Some(operation.value.as_ref()),
+            _ => None,
+        });
+
         assert_eq!(
             surface_text(text, surface),
             Some(" trusted func read() -> u8; ")
         );
+
+        assert_eq!(operation, Some("Conversion"));
 
         let ParsedEntry::Value(value) = &parsed.scopes[0].entries[1] else {
             panic!("second entry should be a value");

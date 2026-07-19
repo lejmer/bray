@@ -10,7 +10,7 @@ pub(super) fn render_catalog(catalog: &CompilerKnownCatalog, digest: &str) -> St
          use std::borrow::Cow;\n\n\
          use bray_source::{TextRange, TextSize};\n\
          use bray_syntax::SyntaxKind;\n\n\
-         use crate::{AvailabilityRule, ImplementationHook, RepresentationRole};\n\n\
+         use crate::{AvailabilityRule, CompilerKnownOperationRole, ImplementationHook, RepresentationRole};\n\n\
          use super::super::*;\n\n",
     );
 
@@ -34,6 +34,7 @@ pub(super) fn render_catalog(catalog: &CompilerKnownCatalog, digest: &str) -> St
              role_registry: CompilerKnownCatalogRoleRegistry {\n\
                  representations: Cow::Borrowed(COMPILER_KNOWN_REPRESENTATION_ROLES),\n\
                  implementations: Cow::Borrowed(COMPILER_KNOWN_IMPLEMENTATION_ROLES),\n\
+                 operations: Cow::Borrowed(COMPILER_KNOWN_OPERATION_ROLES),\n\
              },\n\
              recognized_scopes: Cow::Borrowed(RECOGNIZED_SCOPES),\n\
              recognized_declarations: Cow::Borrowed(RECOGNIZED_DECLARATIONS),\n\
@@ -79,6 +80,22 @@ fn render_roles(output: &mut String, catalog: &CompilerKnownCatalog) {
             "    CompilerKnownImplementationBinding {{ hook: ImplementationHook::{:?}, declaration: CompilerKnownDeclarationId::new({}) }},\n",
             binding.hook(),
             binding.declaration().raw(),
+        ));
+    }
+
+    output.push_str("];\n\n");
+
+    output
+        .push_str("static COMPILER_KNOWN_OPERATION_ROLES: &[CompilerKnownOperationBinding] = &[\n");
+
+    for binding in catalog.role_registry().operations() {
+        output.push_str(&format!(
+            "    CompilerKnownOperationBinding {{ role: CompilerKnownOperationRole::{:?}, trait_definition: CompilerKnownDeclarationId::new({}), result_type_member: {}, fixed_result_type: {}, callable: {} }},\n",
+            binding.role(),
+            binding.trait_definition().raw(),
+            render_optional_id(binding.result_type_member(), "CompilerKnownDeclarationId"),
+            render_optional_id(binding.fixed_result_type(), "CompilerKnownDeclarationId"),
+            render_optional_id(binding.callable(), "CompilerKnownDeclarationId"),
         ));
     }
 
@@ -284,6 +301,16 @@ where
         .map(|id| format!("{type_name}::new({})", Into::<u32>::into(*id)))
         .collect::<Vec<_>>()
         .join(", ")
+}
+
+fn render_optional_id<T>(id: Option<T>, type_name: &str) -> String
+where
+    T: Copy + Into<u32>,
+{
+    id.map_or_else(
+        || "None".to_owned(),
+        |id| format!("Some({type_name}::new({}))", Into::<u32>::into(id)),
+    )
 }
 
 fn render_declaration_surface(surface: CatalogDeclarationSurface) -> String {
