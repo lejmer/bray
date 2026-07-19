@@ -3,12 +3,12 @@ use std::sync::Arc;
 
 use bray_compiler_known::{
     AvailabilityRule, CompilerKnownCatalog, CompilerKnownDeclarationId,
-    CompilerKnownDeclarationKey, CompilerKnownDeclarationOwner, CompilerKnownValueId,
-    ImplementationHook, RepresentationRole,
+    CompilerKnownDeclarationKey, CompilerKnownDeclarationOwner, CompilerKnownOperationRole,
+    CompilerKnownValueId, ImplementationHook, RepresentationRole,
 };
 
-use super::CompilerKnownSymbolProvider;
 use super::role::RepresentationTarget;
+use super::{CompilerKnownOperationContract, CompilerKnownSymbolProvider};
 use crate::availability::resolve_owned_availability;
 use crate::{AnySymbolId, ExactSymbolId};
 
@@ -183,6 +183,19 @@ impl AvailableCompilerKnownSymbols {
         self.provider.role_registry().symbol_implementation(symbol)
     }
 
+    /// Resolves one expression operation contract when every declaration is target-available.
+    pub fn operation_contract(
+        &self,
+        role: CompilerKnownOperationRole,
+    ) -> Option<CompilerKnownOperationContract> {
+        let contract = self.provider.role_registry().operation_contract(role)?;
+
+        contract
+            .symbols()
+            .all(|symbol| self.contains(symbol))
+            .then_some(contract)
+    }
+
     pub(super) fn representation_target(
         &self,
         role: RepresentationRole,
@@ -250,7 +263,8 @@ mod tests {
     use std::sync::Arc;
 
     use bray_compiler_known::{
-        AvailabilityRule, COMPILER_KNOWN_CATALOG, ImplementationHook, RepresentationRole,
+        AvailabilityRule, COMPILER_KNOWN_CATALOG, CompilerKnownOperationRole, ImplementationHook,
+        RepresentationRole,
     };
 
     use super::resolve_availability;
@@ -362,6 +376,20 @@ mod tests {
             unavailable_copy.and_then(|symbol| view.symbol_implementation(symbol)),
             None
         );
+    }
+
+    #[test]
+    fn target_views_publish_only_complete_operation_contracts() {
+        let provider = Arc::new(build_provider());
+        let view = Arc::clone(&provider).available_symbols(|rule| rule == AvailabilityRule::Always);
+
+        for role in CompilerKnownOperationRole::ALL {
+            let Some(contract) = view.operation_contract(*role) else {
+                panic!("{role:?} must be available for the portable target");
+            };
+
+            assert!(contract.symbols().all(|symbol| view.contains(symbol)));
+        }
     }
 
     #[test]

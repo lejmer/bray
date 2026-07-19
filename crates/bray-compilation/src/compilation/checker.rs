@@ -4,8 +4,7 @@ use bray_binder::{BinderFactContext, BinderFactError, SymbolFactProvider};
 use bray_bound_tree::{BoundSourceAnchor, BoundUnit, BoundUnitKey};
 use bray_checker::{
     CheckerFactError, CheckerFactResult, CheckerInfrastructureError, CheckerRequestContext,
-    CheckerSemanticFactProvider, CheckerSource, CompilerKnownOperationContract,
-    CompilerKnownOperationRole,
+    CheckerSemanticFactProvider, CheckerSource,
 };
 use bray_source::{SourceSnapshot, SourceSpan};
 use bray_symbols::{
@@ -76,14 +75,6 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
 
     fn available_compiler_known_symbols(&self) -> &AvailableCompilerKnownSymbols {
         self.available_compiler_known_symbols
-    }
-
-    fn compiler_known_operation_contract(
-        &self,
-        _role: CompilerKnownOperationRole,
-    ) -> Option<CompilerKnownOperationContract> {
-        // TODO(compiler-known): Resolve operation contracts from generated compiler-known roles.
-        None
     }
 
     fn source(

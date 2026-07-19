@@ -2,16 +2,17 @@ use bray_bound_tree::{
     BoundExpression, BoundStructuredExpressionKind, ConstructionTarget, ConversionTarget,
     ExpressionTypeResult, IndexTarget, OperatorTarget, SelectedConversion, SelectedOperation,
 };
+use bray_compiler_known::CompilerKnownOperationRole;
 use bray_symbols::{
     CallableInstanceData, CallableSignature, ImplementationSelection, ImplementationSelectionKey,
     ReceiverMode, TypeId,
 };
 
+use crate::representation::named_type;
 use crate::{CheckerInfrastructureError, CheckerRequestContext, UnitCheckRequest};
 
-use super::super::{
-    CompilerKnownOperationEvidence, CompilerKnownOperationRole, ImplementationSelectionEvidence,
-};
+use super::super::{CompilerKnownOperationEvidence, ImplementationSelectionEvidence};
+use super::role::operation_role;
 
 pub(super) fn validate_operation_instances<C>(
     request: UnitCheckRequest<'_, C>,
@@ -191,7 +192,7 @@ enum RequiredTraitOperation<'types> {
         callable: CallableInstanceData,
         receiver: TypeId,
         parameter_types: &'types [ExpressionTypeResult],
-        result: TypeId,
+        callable_result: RequiredCallableResult,
         receiver_mode: ReceiverMode,
     },
     Conversion {
@@ -201,6 +202,12 @@ enum RequiredTraitOperation<'types> {
         source: TypeId,
         target: TypeId,
     },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RequiredCallableResult {
+    Expression(TypeId),
+    FixedContractType,
 }
 
 impl RequiredTraitOperation<'_> {
@@ -240,10 +247,13 @@ fn collect_compiler_known_operations<'types>(
                 return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
             };
 
-            let role = match expression {
-                BoundExpression::Unary(_) => CompilerKnownOperationRole::UnaryOperator(*operator),
-                BoundExpression::Binary(_) => CompilerKnownOperationRole::BinaryOperator(*operator),
-                _ => return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput),
+            let role = operation_role(expression, *operator)
+                .ok_or(CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+
+            let callable_result = if role == CompilerKnownOperationRole::Comparison {
+                RequiredCallableResult::FixedContractType
+            } else {
+                RequiredCallableResult::Expression(*result_type)
             };
 
             required.push(RequiredTraitOperation::Callable {
@@ -252,7 +262,7 @@ fn collect_compiler_known_operations<'types>(
                 callable: *callable,
                 receiver: receiver.ty(),
                 parameter_types,
-                result: *result_type,
+                callable_result,
                 receiver_mode: ReceiverMode::Shared,
             });
         }
@@ -290,7 +300,7 @@ fn collect_compiler_known_operations<'types>(
                 callable: *callable,
                 receiver: receiver.ty(),
                 parameter_types,
-                result: *result_type,
+                callable_result: RequiredCallableResult::Expression(*result_type),
                 receiver_mode: ReceiverMode::Shared,
             });
         }
@@ -320,7 +330,7 @@ fn collect_conversion_operations<'types>(
                 requirement,
                 ..
             } => required.push(RequiredTraitOperation::Conversion {
-                role: CompilerKnownOperationRole::Conversion,
+                role: CompilerKnownOperationRole::PlainConversion,
                 requirement: *requirement,
                 callable: *callable,
                 source: conversion.source_type(),
@@ -351,7 +361,10 @@ where
         return Ok(false);
     }
 
-    let Some(contract) = request.compiler_known_operation_contract(required.role()) else {
+    let Some(contract) = request
+        .available_compiler_known_symbols()
+        .operation_contract(required.role())
+    else {
         return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
     };
 
@@ -363,13 +376,7 @@ where
     let callable_symbol = evidence.callable().definition().symbol();
 
     if application.definition() != contract.trait_definition()
-        || callable_symbol != contract.callable().into()
-        || !request
-            .available_compiler_known_symbols()
-            .contains(contract.trait_definition().into())
-        || !request
-            .available_compiler_known_symbols()
-            .contains(callable_symbol)
+        || Some(callable_symbol) != contract.callable().map(Into::into)
     {
         return Ok(false);
     }
@@ -378,16 +385,29 @@ where
         RequiredTraitOperation::Callable {
             receiver,
             parameter_types,
-            result,
+            callable_result,
             receiver_mode,
             ..
-        } => signature_matches(
-            evidence.signature(),
-            receiver,
-            parameter_types,
-            result,
-            receiver_mode,
-        ),
+        } => {
+            let callable_result = match callable_result {
+                RequiredCallableResult::Expression(result) => result,
+                RequiredCallableResult::FixedContractType => {
+                    let Some(definition) = contract.fixed_callable_result_type() else {
+                        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+                    };
+
+                    named_type(request, definition)?
+                }
+            };
+
+            signature_matches(
+                evidence.signature(),
+                receiver,
+                parameter_types,
+                callable_result,
+                receiver_mode,
+            )
+        }
         RequiredTraitOperation::Conversion { source, target, .. } => signature_matches(
             evidence.signature(),
             source,
@@ -422,6 +442,7 @@ mod tests {
         BoundUnit, BoundUnitId, ConversionTarget, ExpressionTypeResult, ExpressionTypeStatus,
         SelectedConversion, SelectedOperation,
     };
+    use bray_compiler_known::CompilerKnownOperationRole;
     use bray_symbols::{
         CallableSignature, ImplementationSelection, ImplementationSelectionKey, ReceiverMode,
         ReceiverParameterSignature, ReceiverParameterSymbolId, SymbolId,
@@ -434,8 +455,7 @@ mod tests {
         tuple_type,
     };
     use crate::{
-        CompilerKnownOperationContract, CompilerKnownOperationEvidence, CompilerKnownOperationRole,
-        ImplementationSelectionEvidence, UnitCheckRequest,
+        CompilerKnownOperationEvidence, ImplementationSelectionEvidence, UnitCheckRequest,
     };
 
     use super::{compiler_known_operations_match, implementation_selections_match};
@@ -443,7 +463,7 @@ mod tests {
     #[test]
     fn nested_trait_conversions_require_the_exact_contract_and_witness() {
         let fixture = trait_conversion_fixture(BoundUnitId::new(87));
-        let context = TestCheckerContext::new(false).with_operation_contract(fixture.role_contract);
+        let context = TestCheckerContext::new(false);
         let entry = callable_entry(fixture.unit.key());
 
         let request = match UnitCheckRequest::new(&fixture.unit, &entry, &context) {
@@ -503,7 +523,7 @@ mod tests {
         );
 
         let wrong_contract = CompilerKnownOperationEvidence::new(
-            CompilerKnownOperationRole::Conversion,
+            CompilerKnownOperationRole::PlainConversion,
             fixture.requirement,
             fixture.contract.callable(),
             wrong_signature,
@@ -523,30 +543,23 @@ mod tests {
             Ok(false)
         );
 
-        let wrong_role_contract = CompilerKnownOperationContract::new(
-            CompilerKnownOperationRole::Conversion,
-            TraitSymbolId::from_symbol_id(SymbolId::new(99)),
-            fixture.role_contract.callable(),
+        let wrong_role = CompilerKnownOperationEvidence::new(
+            CompilerKnownOperationRole::Equality,
+            fixture.requirement,
+            fixture.contract.callable(),
+            fixture.contract.signature().clone(),
         );
-
-        let wrong_context =
-            TestCheckerContext::new(false).with_operation_contract(wrong_role_contract);
-
-        let wrong_request = match UnitCheckRequest::new(&fixture.unit, &entry, &wrong_context) {
-            Ok(request) => request,
-            Err(error) => panic!("trait conversion request must validate: {error:?}"),
-        };
 
         assert_eq!(
             compiler_known_operations_match(
-                wrong_request,
+                request,
                 &fixture.operation,
                 source_expression,
                 &[ExpressionTypeResult::new(
                     fixture.source,
                     ExpressionTypeStatus::Valid
                 )],
-                std::slice::from_ref(&fixture.contract)
+                &[wrong_role]
             ),
             Ok(false)
         );
@@ -557,7 +570,6 @@ mod tests {
         operation: SelectedOperation,
         implementation: ImplementationSelectionEvidence,
         contract: CompilerKnownOperationEvidence,
-        role_contract: CompilerKnownOperationContract,
         source_expression: bray_bound_tree::BoundExpressionId,
         requirement: ImplementationSelectionKey,
         other_witness: bray_symbols::ImplementationInstanceId,
@@ -573,10 +585,10 @@ mod tests {
         let source = tuple_type([source_element]);
         let target = tuple_type([target_element]);
 
-        let trait_definition = compiler_known_symbol::<TraitSymbolId>("Storage");
+        let trait_definition = compiler_known_symbol::<TraitSymbolId>("ConvertTo");
 
         let callable_definition =
-            compiler_known_symbol::<TraitCallableMemberSymbolId>("StorageLoad");
+            compiler_known_symbol::<TraitCallableMemberSymbolId>("ConvertToCall");
 
         let requirement = bray_symbols::testing::implementation_requirement(
             semantic_values(),
@@ -619,16 +631,10 @@ mod tests {
         );
 
         let contract = CompilerKnownOperationEvidence::new(
-            CompilerKnownOperationRole::Conversion,
+            CompilerKnownOperationRole::PlainConversion,
             requirement,
             callable,
             signature,
-        );
-
-        let role_contract = CompilerKnownOperationContract::new(
-            CompilerKnownOperationRole::Conversion,
-            trait_definition,
-            callable_definition,
         );
 
         let implementation = ImplementationSelectionEvidence::new(
@@ -648,7 +654,6 @@ mod tests {
             operation,
             implementation,
             contract,
-            role_contract,
             source_expression: expressions[0],
             requirement,
             other_witness,

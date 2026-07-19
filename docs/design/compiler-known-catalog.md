@@ -354,6 +354,7 @@ declaration-field =
     | availability-field
     | representation-field
     | implementation-field
+    | operation-field
     | surface-field ;
 
 value-entry =
@@ -385,6 +386,9 @@ representation-field =
 
 implementation-field =
     "implementation" identifier ";" ;
+
+operation-field =
+    "operation" identifier ";" ;
 
 spelling-field =
     "spelling" token-spelling ";" ;
@@ -546,11 +550,15 @@ Catalog validation rejects:
 
 The generated catalog must publish immutable typed role indexes. Representation roles must resolve to a closed target that
 distinguishes ordinary declaration IDs from special-value IDs. Implementation hooks must resolve to declaration IDs in canonical
-descriptor order. These indexes must not use declaration names, catalog key strings, function pointers, or consumer-owned behavior.
+descriptor order. Expression operation roles must resolve to validated contracts of exact category-specific declaration IDs. These
+indexes must not use declaration names, catalog key strings, function pointers, or consumer-owned behavior.
 
 `bray-symbols` must translate catalog declaration targets into compilation-local exact symbol IDs while retaining special values as
 typed catalog value IDs. Its role registry must support both role-to-identity and identity-to-role queries so bound semantic
 representations can classify an already resolved symbol without repeating catalog-key lookup.
+
+Expression operation contracts require only role-to-contract lookup because the role identifies a coordinated declaration group
+rather than a property of each component in isolation.
 
 Target-available symbol views must filter role queries through the same declaration and value availability decisions used by
 ordinary compiler-known lookup. They must not mutate or rebuild the process-wide catalog registry.
@@ -569,6 +577,30 @@ target facts. `Always` is the default when the field is absent.
 
 The global catalog retains every declaration. A target-specific catalog view filters or marks entries through a lazy compilation
 fact. Target selection must not mutate the process-wide catalog.
+
+### Expression Operation Roles
+
+Expression operation roles identify the exact compiler-known declarations used by operator, conversion, indexing, and type-form
+construction semantics. Semantic consumers request a closed typed role. They must not recognize a trait or member by catalog key,
+source name, path spelling, or declaration order.
+
+One role can identify a declaration contract containing:
+
+- exactly one trait declaration,
+- one directly owned associated result type when the operation selects an output type,
+- one named fixed callable result type when the language contract fixes the callable result,
+- one directly owned callable when the operation invokes a trait member.
+
+The catalog assigns the same operation role to every declaration in that contract. Structural validation derives each component
+from its exact declaration kind, rejects duplicates and unrelated declaration kinds, and requires member components to be owned
+directly by the role's trait. The closed role definition determines which components are required. For example, value-producing
+operators and custom indexing require a trait, associated result, and callable, comparison requires a trait, the compiler-known
+`Ordering` callable result, and a callable, the `PlainConversion` role requires the `ConvertTo` trait and callable, and box
+construction requires only the `Storage` trait.
+
+Validated role contracts are published in stable role order. Symbol construction translates each catalog declaration ID into its
+exact category-specific symbol ID. A target-available view publishes a contract only when every component is available for that
+target. This translation and filtering remain immutable and do not create a second role registry in checker or binder code.
 
 ### Structural Type Forms
 
@@ -594,6 +626,7 @@ CompilerKnownCatalog
   recognized_standard_library_scopes
   recognized_standard_library_declarations
   indexes
+  operation_contracts
   internal_sources
 
 CompilerKnownScopeDescriptor
@@ -856,6 +889,7 @@ Tests should cover:
 - duplicate and unknown stable keys,
 - duplicate, missing, and unknown fields,
 - unknown representation, implementation, and availability roles,
+- unknown and structurally invalid expression operation roles,
 - invalid owner kinds and ownership cycles,
 - malformed embedded Bray fragments,
 - rejection of recovered embedded syntax,
@@ -868,6 +902,7 @@ Tests should cover:
 - compiler-known symbols exposing the same typed APIs as equivalent source symbols,
 - recognized standard-library entries never becoming ambient symbols,
 - complete implementation-hook registry coverage,
+- complete deterministic expression-operation contract coverage,
 - full semantic force-completion through `cargo xtask compiler-known check`.
 
 Tests should compare stable keys and typed relationships rather than relying on incidental source ordinals.
@@ -885,7 +920,7 @@ Implementation should proceed in dependency order:
 5. Add deterministic `xtask` generation, checked-in Rust tables, stale-output enforcement, and static process-wide publication.
 6. Add the compiler-known symbol provider and compilation-local stable-key-to-symbol-ID map.
 7. Add lazy target-availability views.
-8. Add checker and lowering registries for typed representation and implementation roles.
+8. Add checker and lowering registries for typed representation, implementation, and expression-operation roles.
 9. Add recognized standard-library descriptors and imported-identity matching.
 10. Add `cargo xtask compiler-known check` and force-completion coverage.
 

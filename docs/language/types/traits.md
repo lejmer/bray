@@ -798,6 +798,9 @@ trait ConvertTo<Target>
 
 `convert` is the member called by a plain conversion expression when no built-in recursive conversion rule applies.
 
+The compiler-known `PlainConversion` operation role identifies this exact trait and callable declaration. A different trait or
+callable named `ConvertTo` or `convert` does not participate in plain conversion.
+
 A `ConvertTo<Target>` implementation must be total and value-preserving according to the conversion contract.
 
 Fallible conversion support uses `CheckedConvertTo<Target>`:
@@ -893,6 +896,9 @@ A type enables an operator by satisfying the corresponding compiler-known trait 
 
 Source code does not declare new operator symbols, new operator precedence, or mappings from arbitrary functions to operator tokens.
 
+Each operator form has a closed compiler-known role identifying its exact trait, callable, and associated `Output` declaration when
+the protocol has one. Operator selection does not recognize these declarations by their names or spellings.
+
 The overloadable operators are:
 
 | Operator form | Trait application     | Member            | Result            |
@@ -969,6 +975,17 @@ Relational comparison uses `Comparable<Rhs>`:
 trait Comparable<Rhs>
 {
     func compare(pos rhs: &Rhs) -> Ordering;
+}
+```
+
+`Ordering` is the compiler-known comparison result:
+
+```bray
+union Ordering
+{
+    Less;
+    Equal;
+    Greater;
 }
 ```
 

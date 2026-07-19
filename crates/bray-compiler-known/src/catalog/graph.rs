@@ -297,7 +297,11 @@ mod tests {
             ),
         ];
 
-        let role_registry = CompilerKnownCatalogRoleRegistry::from_descriptors(&declarations, &[]);
+        let role_registry = CompilerKnownCatalogRoleRegistry::from_descriptors(
+            &declarations,
+            &[],
+            std::iter::empty(),
+        );
 
         CompilerKnownCatalog {
             compiler_known_scopes: Cow::Owned(vec![scope_descriptor()]),
