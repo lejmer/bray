@@ -13,7 +13,7 @@ use bray_source::{SourceIdentity, SourceInput, SourceStore, SourceVersion};
 use bray_symbols::{
     ConstantDeclaredTypeFact, ConstantSymbolId, ConstantValueData, ConstantValueId,
     ConstantValueKind, PackageIdentity, SemanticValueStore, SymbolFactRequest, SymbolGraph,
-    TypeData, TypeId,
+    TypeData, TypeExpressionTemplate, TypeId,
 };
 use bray_syntax::SyntaxTree;
 
@@ -24,14 +24,14 @@ use super::{
 
 pub(crate) struct TestSymbolFacts {
     symbol: ConstantSymbolId,
-    pub(super) result: Arc<DiagnosticResult<TypeId>>,
+    pub(super) result: Arc<DiagnosticResult<TypeExpressionTemplate>>,
 }
 
 impl SymbolFactProvider<ConstantDeclaredTypeFact> for TestSymbolFacts {
     fn symbol_fact(
         &self,
         request: SymbolFactRequest<ConstantDeclaredTypeFact>,
-    ) -> BinderFactResult<Arc<DiagnosticResult<TypeId>>> {
+    ) -> BinderFactResult<Arc<DiagnosticResult<TypeExpressionTemplate>>> {
         if request.owner() != self.symbol {
             return Err(BinderFactError::DependencyUnavailable);
         }
@@ -196,7 +196,9 @@ impl TestFixture {
             Err(error) => panic!("test target value should intern: {error:?}"),
         };
 
-        let symbol_result = Arc::new(DiagnosticResult::without_diagnostics(declared_type));
+        let symbol_result = Arc::new(DiagnosticResult::without_diagnostics(
+            TypeExpressionTemplate::Resolved(declared_type),
+        ));
         let target_result = Arc::new(DiagnosticResult::without_diagnostics(target_value));
 
         Self {

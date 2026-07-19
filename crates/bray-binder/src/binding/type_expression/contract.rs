@@ -1,7 +1,32 @@
 use bray_symbols::{
-    CallableAbi, CallableConstness, CallableExecution, CallableTrust, GenericTypeParameterSymbolId,
-    ReceiverMode, SymbolName,
+    AnySymbolId, CallableAbi, CallableConstness, CallableExecution, CallableTrust,
+    GenericTypeParameterSymbolId, ModuleSymbolId, ReceiverMode, SelfTypeContext, SymbolName,
 };
+
+/// The lexical semantic scope used while binding a declaration's type expressions.
+pub struct TypeExpressionScope {
+    pub(super) owner: AnySymbolId,
+    pub(super) module: Option<ModuleSymbolId>,
+    pub(super) type_parameters: Vec<TypeParameterBinding>,
+    pub(super) self_type: Option<SelfTypeContext>,
+}
+
+impl TypeExpressionScope {
+    /// Creates an exact lexical type-expression scope.
+    pub fn new(
+        owner: AnySymbolId,
+        module: Option<ModuleSymbolId>,
+        type_parameters: impl IntoIterator<Item = TypeParameterBinding>,
+        self_type: Option<SelfTypeContext>,
+    ) -> Self {
+        Self {
+            owner,
+            module,
+            type_parameters: type_parameters.into_iter().collect(),
+            self_type,
+        }
+    }
+}
 
 /// One lexical generic type parameter visible while binding a declaration surface.
 #[derive(Clone, Debug, Eq, PartialEq)]

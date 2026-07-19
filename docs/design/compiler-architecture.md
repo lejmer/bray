@@ -172,6 +172,11 @@ A lazy fact must be complete within the boundary promised by its API. An express
 expression-type fact for its key. A selected-call accessor returns the complete immutable call-selection fact for its key. Neither
 accessor implies that unrelated storage, effect, contract, or lowering facts were evaluated.
 
+A declaration-surface type accessor can promise a complete source type-expression template rather than a checked `TypeId`. Such a
+template preserves embedded constant-expression occurrences and their expected-type sources without demanding expression typing,
+selection, target validation, or constant evaluation. A separate checked type or signature accessor resolves only the occurrences
+required by that request through the cooperating semantic fixed point.
+
 Binding publishes one canonical immutable `BoundUnit`. Each semantic analysis publishes only its typed side facts keyed to that
 unit. The compiler must not copy the bound tree into stage-specific wrapper families as analyses complete. A consumer that needs a
 set of facts requests that exact set through typed accessors. There is no universal whole-unit completion query.

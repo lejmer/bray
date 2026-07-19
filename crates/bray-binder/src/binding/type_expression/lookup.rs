@@ -1,10 +1,11 @@
 use bray_diagnostics::DiagnosticNameKind;
 use bray_symbols::{
-    AnySymbolId, GenericConstParameterSymbolId, GenericOwnerId, GenericParameterSymbolId,
-    GenericSubstitutionData, GenericTypeParameterSymbolId, MemberLookupResult, NamedTypeSymbolId,
-    TraitApplicationData, TraitApplicationId, TraitSymbolId,
+    AnySymbolId, GenericArgumentTemplate, GenericConstParameterSymbolId, GenericOwnerId,
+    GenericParameterSymbolId, GenericSubstitutionData, GenericTypeParameterSymbolId,
+    MemberLookupResult, NamedTypeSymbolId, TraitApplicationData, TraitApplicationId,
+    TraitApplicationTemplate, TraitSymbolId, TraitTypeMemberSymbolId,
 };
-use bray_syntax::{PathSyntax, SourceSyntaxNode, TraitApplicationSyntax};
+use bray_syntax::{PathSyntax, SourceSyntaxNode, TraitApplicationSyntax, TypeExpressionSyntax};
 
 use super::core::{TypeExpressionBinder, token_text};
 use crate::lookup::{
@@ -17,7 +18,7 @@ impl TypeExpressionBinder<'_> {
     pub(super) fn bind_trait(
         &mut self,
         syntax: &TraitApplicationSyntax,
-    ) -> BinderFactResult<TraitApplicationId> {
+    ) -> BinderFactResult<TraitApplicationTemplate> {
         let definition = self.bind_trait_path(&syntax.path());
 
         let MemberLookupResult::Found(definition) = definition else {
@@ -26,24 +27,47 @@ impl TypeExpressionBinder<'_> {
 
         let parameters = self.trait_parameters(definition)?;
 
-        let arguments =
-            self.bind_generic_arguments(syntax.generic_argument_lists().next().as_ref())?;
+        let arguments = self
+            .bind_generic_arguments(syntax.generic_argument_lists().next().as_ref(), &parameters)?;
 
-        let Some(owner) = GenericOwnerId::try_new(definition.into()) else {
+        Ok(TraitApplicationTemplate::new(definition, arguments))
+    }
+
+    /// Produces a canonical trait application when every argument is already resolved.
+    pub fn resolve_trait_application_template(
+        &self,
+        template: &TraitApplicationTemplate,
+    ) -> BinderFactResult<Option<TraitApplicationId>> {
+        let arguments = template
+            .arguments()
+            .iter()
+            .map(GenericArgumentTemplate::resolved_argument)
+            .collect::<Option<Vec<_>>>();
+
+        let Some(arguments) = arguments else {
+            return Ok(None);
+        };
+
+        let parameters = self.trait_parameters(template.definition())?;
+        let Some(owner) = GenericOwnerId::try_new(template.definition().into()) else {
             return Err(BinderFactError::DependencyUnavailable);
         };
 
         let substitution = GenericSubstitutionData::try_new(owner, parameters, arguments)
             .map_err(|_| BinderFactError::DependencyUnavailable)?;
-
         let substitution = self
             .semantic_values
             .intern_generic_substitution(substitution)
             .map_err(|_| BinderFactError::DependencyUnavailable)?;
+        let application = self
+            .semantic_values
+            .intern_trait_application(TraitApplicationData::new(
+                template.definition(),
+                substitution,
+            ))
+            .map_err(|_| BinderFactError::DependencyUnavailable)?;
 
-        self.semantic_values
-            .intern_trait_application(TraitApplicationData::new(definition, substitution))
-            .map_err(|_| BinderFactError::DependencyUnavailable)
+        Ok(Some(application))
     }
 
     pub(super) fn bind_type_path(
@@ -57,7 +81,7 @@ impl TypeExpressionBinder<'_> {
         lookup
     }
 
-    fn bind_trait_path(
+    pub(super) fn bind_trait_path(
         &mut self,
         path: &PathSyntax,
     ) -> MemberLookupResult<TraitSymbolId, ResolvedName> {
@@ -67,6 +91,39 @@ impl TypeExpressionBinder<'_> {
         });
 
         self.report_lookup(path, DiagnosticNameKind::Trait, &lookup);
+
+        lookup
+    }
+
+    pub(super) fn bind_trait_type_member(
+        &mut self,
+        definition: TraitSymbolId,
+        syntax: &TypeExpressionSyntax,
+    ) -> MemberLookupResult<TraitTypeMemberSymbolId, ResolvedName> {
+        let Some(token) = syntax.identifier_token() else {
+            return MemberLookupResult::Malformed(Box::new([]));
+        };
+
+        let Some(text) = token_text(syntax.source(), &token) else {
+            return MemberLookupResult::Malformed(Box::new([]));
+        };
+
+        let lookup = lookup_surface_name(
+            self.symbols,
+            definition.into(),
+            text,
+            crate::lookup::NameAccess::Internal,
+        )
+        .classify(|name| match name {
+            ResolvedName::Surface(AnySymbolId::TraitTypeMember(member)) => Some(member),
+            ResolvedName::Local(_) | ResolvedName::Surface(_) => None,
+        });
+
+        let reference = NameReference::new(text, syntax.source().source_id(), token.range());
+
+        if let Some(diagnostic) = lookup_diagnostic(&reference, DiagnosticNameKind::Type, &lookup) {
+            self.diagnostics.add(diagnostic);
+        }
 
         lookup
     }

@@ -3,6 +3,7 @@ use bray_symbols::{
     BorrowKind, CallableAbi, CallableConstness, CallableExecution, CallableParameterMode,
     CallablePosition, CallableTrust, ConstantBinaryOperation, ConstantUnaryOperation,
     CurrentRunCancellation, LifecycleObligationKind, SymbolKind, SynthesizedSymbolRole,
+    TargetSizedIntegerType,
 };
 
 use super::{
@@ -169,6 +170,11 @@ wire_tags!(ConstantUnaryOperation {
     2 => ConstantUnaryOperation::Negate,
     3 => ConstantUnaryOperation::LogicalNot,
     4 => ConstantUnaryOperation::BitwiseNot,
+});
+
+wire_tags!(TargetSizedIntegerType {
+    1 => TargetSizedIntegerType::Isize,
+    2 => TargetSizedIntegerType::Usize,
 });
 
 wire_tags!(ConstantBinaryOperation {

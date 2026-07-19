@@ -3,12 +3,13 @@ use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{
     AnySymbolId, CallableContractSymbolId, CallableContractTypeFact, CallableContractsFact,
     CallableSignatureFact, CallableSymbolId, ConstantDeclaredTypeFact, ExactSymbolId,
-    GenericConstraintsFact, GenericOwnerId, ImplementationCoherenceFact, ImplementationSubjectFact,
-    ImplementationSymbolId, ImplementedTraitApplicationFact, InherentTypeMemberValueFact,
-    StructFieldSymbolId, StructFieldTypeFact, SymbolCompletionLevel, SymbolFactCompletionRequest,
-    SymbolFactContract, SymbolFactForcer, SymbolFactKind, SymbolFactRequest,
-    TraitConstantFulfillmentDeclaredTypeFact, TraitConstantMemberDeclaredTypeFact,
-    TraitTypeFulfillmentValueFact, UnionPayloadFieldSymbolId, UnionPayloadFieldTypeFact,
+    GenericConstParameterDeclaredTypeFact, GenericConstraintsFact, GenericOwnerId,
+    ImplementationCoherenceFact, ImplementationSubjectFact, ImplementationSymbolId,
+    ImplementedTraitApplicationFact, InherentTypeMemberValueFact, StructFieldSymbolId,
+    StructFieldTypeFact, SymbolCompletionLevel, SymbolFactCompletionRequest, SymbolFactContract,
+    SymbolFactForcer, SymbolFactKind, SymbolFactRequest, TraitConstantFulfillmentDeclaredTypeFact,
+    TraitConstantMemberDeclaredTypeFact, TraitTypeFulfillmentValueFact, UnionPayloadFieldSymbolId,
+    UnionPayloadFieldTypeFact,
 };
 
 use super::super::context::CompilationBinderFacts;
@@ -99,6 +100,9 @@ fn force_constant_declared_type(
         }
         AnySymbolId::TraitConstantFulfillment(owner) => {
             force_typed::<TraitConstantFulfillmentDeclaredTypeFact>(facts, owner)
+        }
+        AnySymbolId::GenericConstParameter(owner) => {
+            force_typed::<GenericConstParameterDeclaredTypeFact>(facts, owner)
         }
         _ => Err(FactQueryError::InfrastructureFailure),
     }
@@ -280,7 +284,7 @@ mod tests {
         );
 
         assert!(matches!(
-            type_data(&compilation, *unary_type.value()).as_ref(),
+            type_data(&compilation, unary_type.value()).as_ref(),
             TypeData::Callable(_)
         ));
 
@@ -291,7 +295,7 @@ mod tests {
         );
 
         assert!(matches!(
-            type_data(&compilation, *element_type.value()).as_ref(),
+            type_data(&compilation, element_type.value()).as_ref(),
             TypeData::TypeParameter(_)
         ));
 
@@ -304,7 +308,7 @@ mod tests {
         );
 
         assert!(matches!(
-            type_data(&compilation, *completed_value_type.value()).as_ref(),
+            type_data(&compilation, completed_value_type.value()).as_ref(),
             TypeData::TypeParameter(_)
         ));
 
@@ -354,7 +358,7 @@ mod tests {
         );
 
         assert!(matches!(
-            type_data(&compilation, *item_type.value()).as_ref(),
+            type_data(&compilation, item_type.value()).as_ref(),
             TypeData::Named { definition, .. }
                 if *definition == declaration::<StructSymbolId>(symbols, "Bool").into()
         ));

@@ -13,7 +13,7 @@ pub use application::{
 pub use constant::{
     AnyConstantDefinitionId, ConstantBinaryOperation, ConstantProjection, ConstantProjectionKind,
     ConstantTermData, ConstantUnaryOperation, ConstantValueData, ConstantValueKind,
-    IntegerConstant, IntegerSign, RealConstantBits,
+    IntegerConstant, IntegerSign, RealConstantBits, TargetSizedIntegerType,
 };
 pub use dependency::{
     DependencyContractTemplateData, DependencyGuard, DependencyProjection, DependencyRequirement,

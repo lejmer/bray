@@ -68,7 +68,7 @@ impl InterfaceSemanticFacts {
         }
 
         for term in &*self.constant_terms {
-            self.validate_constant_term(term, symbol_count, dependency_count)?;
+            self.validate_constant_term(term, symbol_count, dependency_count, limits)?;
         }
 
         for contract in &*self.dependency_contracts {
@@ -112,9 +112,11 @@ impl InterfaceSemanticFacts {
                 validate_symbol(context, symbol_count, dependency_count)?;
             }
             InterfaceType::AssociatedTypeProjection {
+                subject,
                 application,
                 member,
             } => {
+                validate_index(subject.to_index(), self.types.len())?;
                 validate_index(application.to_index(), self.trait_applications.len())?;
                 validate_symbol(member, symbol_count, dependency_count)?;
             }
@@ -226,10 +228,17 @@ impl InterfaceSemanticFacts {
         term: &InterfaceConstantTerm,
         symbol_count: usize,
         dependency_count: usize,
+        limits: InterfaceValidationLimits,
     ) -> Result<(), InterfaceValidationError> {
         match term {
             InterfaceConstantTerm::Value(id) => {
                 validate_index(id.to_index(), self.constant_values.len())?;
+            }
+            InterfaceConstantTerm::IntegerLiteral { value, .. } => {
+                limits.check(
+                    InterfaceLimit::BlobLength,
+                    saturating_u64(value.magnitude().len()),
+                )?;
             }
             InterfaceConstantTerm::Parameter(symbol)
             | InterfaceConstantTerm::TargetFact(symbol) => {
@@ -468,7 +477,7 @@ fn direct_type_children(ty: &InterfaceType) -> Vec<InterfaceTypeId> {
         InterfaceType::Named { .. }
         | InterfaceType::TypeParameter(_)
         | InterfaceType::ContextualSelf(_)
-        | InterfaceType::AssociatedTypeProjection { .. }
         | InterfaceType::TraitView(_) => Vec::new(),
+        InterfaceType::AssociatedTypeProjection { subject, .. } => vec![*subject],
     }
 }

@@ -67,14 +67,20 @@ impl InternState {
                 Some(TypeData::ContextualSelf(context))
             }
             InterfaceType::AssociatedTypeProjection {
+                subject,
                 application,
                 member,
             } => {
+                let Some(subject) = self.type_id(*subject) else {
+                    return Ok(None);
+                };
+
                 let Some(application) = self.trait_application_id(*application) else {
                     return Ok(None);
                 };
 
                 Some(TypeData::AssociatedTypeProjection {
+                    subject,
                     application,
                     member: resolve_exact::<TraitTypeMemberSymbolId>(symbols, member)?,
                 })

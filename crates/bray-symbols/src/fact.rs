@@ -6,6 +6,7 @@ mod execution;
 mod implementation;
 mod predicate;
 mod signature;
+mod type_expression;
 
 pub use completion::{
     NeverCancelSymbolCompletion, SymbolCompletionLevel, SymbolCompletionPlan,
@@ -18,15 +19,15 @@ pub use constant::{
 pub use contract::{
     CallableContractTypeFact, CallableContractsFact, CallableParameterDefaultFact,
     CallableSignatureFact, ConstantDeclaredTypeFact, ConstantDefinitionFact,
-    ConstantInstanceValueFact, GenericConstraintsFact, ImplementationCoherenceFact,
-    ImplementationSelectionFact, ImplementationSubjectFact, ImplementedTraitApplicationFact,
-    InherentTypeMemberValueFact, PredicateDefinitionFact, SemanticFactContract, SemanticFactResult,
-    StructFieldDefaultFact, StructFieldTypeFact, SymbolFactContract, SymbolFactRequest,
-    SymbolFactResult, TraitConstantFulfillmentDeclaredTypeFact,
-    TraitConstantFulfillmentDefinitionFact, TraitConstantMemberDeclaredTypeFact,
-    TraitConstantMemberDefinitionFact, TraitPredicateFulfillmentDefinitionFact,
-    TraitPredicateMemberDefinitionFact, TraitTypeFulfillmentValueFact,
-    UnionPayloadFieldDefaultFact, UnionPayloadFieldTypeFact,
+    ConstantInstanceValueFact, GenericConstParameterDeclaredTypeFact, GenericConstraintsFact,
+    ImplementationCoherenceFact, ImplementationSelectionFact, ImplementationSubjectFact,
+    ImplementedTraitApplicationFact, InherentTypeMemberValueFact, PredicateDefinitionFact,
+    SemanticFactContract, SemanticFactResult, StructFieldDefaultFact, StructFieldTypeFact,
+    SymbolFactContract, SymbolFactRequest, SymbolFactResult,
+    TraitConstantFulfillmentDeclaredTypeFact, TraitConstantFulfillmentDefinitionFact,
+    TraitConstantMemberDeclaredTypeFact, TraitConstantMemberDefinitionFact,
+    TraitPredicateFulfillmentDefinitionFact, TraitPredicateMemberDefinitionFact,
+    TraitTypeFulfillmentValueFact, UnionPayloadFieldDefaultFact, UnionPayloadFieldTypeFact,
 };
 pub use default::{
     CallableParameterDefaultSurface, CallableParameterDefaultValue,
@@ -45,7 +46,7 @@ pub use execution::{
 pub use implementation::{
     ImplementationAmbiguity, ImplementationAmbiguityError, ImplementationCandidate,
     ImplementationCoherenceKey, ImplementationSelection, ImplementationSelectionKey,
-    ImplementationSubject,
+    ImplementationSubject, ImplementationSubjectTemplate,
 };
 pub use predicate::{
     CallableContractClause, CallableContractClauseKind, CallableContractSet, CheckedConstraint,
@@ -53,5 +54,11 @@ pub use predicate::{
     PredicateSemanticSummary, TrustedCapabilityRequirement,
 };
 pub use signature::{
-    CallableParameterSignature, CallableSignature, ReceiverMode, ReceiverParameterSignature,
+    CallableParameterSignature, CallableSignature, CallableSignatureTemplate, ReceiverMode,
+    ReceiverParameterSignature,
+};
+pub use type_expression::{
+    CallableParameterTypeTemplate, CallableTypeTemplate, ConstantExpressionExpectedType,
+    ConstantExpressionOccurrence, ConstantExpressionOccurrenceKey, GenericArgumentTemplate,
+    TraitApplicationTemplate, TypeExpressionTemplate,
 };

@@ -3,11 +3,11 @@ use std::sync::Arc;
 use bray_binder::{BinderFactError, BinderFactResult, SymbolFactProvider};
 use bray_symbols::{
     CallableContractTypeFact, CallableContractsFact, CallableSignatureFact,
-    ConstantDeclaredTypeFact, GenericConstraintsFact, ImplementationCoherenceFact,
-    ImplementationSubjectFact, ImplementedTraitApplicationFact, InherentTypeMemberValueFact,
-    StructFieldTypeFact, SymbolFactContract, SymbolFactRequest, SymbolFactResult,
-    TraitConstantFulfillmentDeclaredTypeFact, TraitConstantMemberDeclaredTypeFact,
-    TraitTypeFulfillmentValueFact, UnionPayloadFieldTypeFact,
+    ConstantDeclaredTypeFact, GenericConstParameterDeclaredTypeFact, GenericConstraintsFact,
+    ImplementationCoherenceFact, ImplementationSubjectFact, ImplementedTraitApplicationFact,
+    InherentTypeMemberValueFact, StructFieldTypeFact, SymbolFactContract, SymbolFactRequest,
+    SymbolFactResult, TraitConstantFulfillmentDeclaredTypeFact,
+    TraitConstantMemberDeclaredTypeFact, TraitTypeFulfillmentValueFact, UnionPayloadFieldTypeFact,
 };
 
 use super::super::context::CompilationBinderFacts;
@@ -20,6 +20,8 @@ pub(in crate::compilation) struct CompilationSymbolFacts {
     pub(super) callable_contracts: SymbolFactCache<CallableContractsFact>,
     pub(super) callable_contract_types: SymbolFactCache<CallableContractTypeFact>,
     pub(super) constant_declared_types: SymbolFactCache<ConstantDeclaredTypeFact>,
+    pub(super) generic_const_parameter_declared_types:
+        SymbolFactCache<GenericConstParameterDeclaredTypeFact>,
     pub(super) trait_constant_member_declared_types:
         SymbolFactCache<TraitConstantMemberDeclaredTypeFact>,
     pub(super) trait_constant_fulfillment_declared_types:
@@ -41,6 +43,7 @@ impl CompilationSymbolFacts {
             callable_contracts: SymbolFactCache::new(),
             callable_contract_types: SymbolFactCache::new(),
             constant_declared_types: SymbolFactCache::new(),
+            generic_const_parameter_declared_types: SymbolFactCache::new(),
             trait_constant_member_declared_types: SymbolFactCache::new(),
             trait_constant_fulfillment_declared_types: SymbolFactCache::new(),
             struct_field_types: SymbolFactCache::new(),

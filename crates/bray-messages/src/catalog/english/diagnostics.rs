@@ -59,6 +59,13 @@ const CHECKING_INCOMPATIBLE_CANDIDATE: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text(" candidate is incompatible with the supplied expressions"),
 ];
 
+const BINDING_INVALID_CALLABLE_ABI: &[MessageTemplatePart] =
+    &[MessageTemplatePart::Text("invalid callable ABI directive")];
+
+const BINDING_DUPLICATE_CALLABLE_ABI: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "callable ABI directive is repeated",
+)];
+
 const EMISSION_MISSING_CONTRIBUTION: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("missing required "),
     MessageTemplatePart::Arg(DiagnosticArgName::ArtifactKind),
@@ -234,6 +241,10 @@ const CHECKING_CANNOT_INFER_EXPRESSION_TYPE: &[MessageTemplatePart] =
 
 const CHECKING_INVALID_CONSTANT_EXPRESSION: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
     "expression is not valid in compile-time constant context",
+)];
+
+const CHECKING_ARRAY_LENGTH_NOT_POSITIVE: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "array length must be greater than zero",
 )];
 
 const CHECKING_CONSTANT_LITERAL_NOT_REPRESENTABLE: &[MessageTemplatePart] =
@@ -499,6 +510,9 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         DiagnosticKind::CheckingInvalidConstantExpression => {
             MessageTemplate::new(CHECKING_INVALID_CONSTANT_EXPRESSION)
         }
+        DiagnosticKind::CheckingArrayLengthNotPositive => {
+            MessageTemplate::new(CHECKING_ARRAY_LENGTH_NOT_POSITIVE)
+        }
         DiagnosticKind::CheckingConstantLiteralNotRepresentable => {
             MessageTemplate::new(CHECKING_CONSTANT_LITERAL_NOT_REPRESENTABLE)
         }
@@ -525,6 +539,12 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         }
         DiagnosticKind::CheckingIncompatibleCandidate => {
             MessageTemplate::new(CHECKING_INCOMPATIBLE_CANDIDATE)
+        }
+        DiagnosticKind::BindingInvalidCallableAbi => {
+            MessageTemplate::new(BINDING_INVALID_CALLABLE_ABI)
+        }
+        DiagnosticKind::BindingDuplicateCallableAbi => {
+            MessageTemplate::new(BINDING_DUPLICATE_CALLABLE_ABI)
         }
         DiagnosticKind::EmissionMissingContribution => {
             MessageTemplate::new(EMISSION_MISSING_CONTRIBUTION)

@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use bray_base::shared_slice;
 
-use crate::{CallableParameterSymbolId, ReceiverParameterSymbolId, TypeId};
+use crate::{CallableParameterSymbolId, ReceiverParameterSymbolId, TypeExpressionTemplate, TypeId};
 
 /// The ownership and mutation authority carried by an implicit receiver.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -85,6 +85,52 @@ pub struct CallableSignature {
     receiver: Option<ReceiverParameterSignature>,
     parameters: Arc<[CallableParameterSignature]>,
     result: TypeId,
+}
+
+/// The immutable declaration signature template of one callable symbol.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct CallableSignatureTemplate {
+    callable_type: TypeExpressionTemplate,
+    receiver: Option<ReceiverParameterSignature>,
+    parameters: Arc<[CallableParameterSymbolId]>,
+    result: TypeExpressionTemplate,
+}
+
+impl CallableSignatureTemplate {
+    /// Creates a callable signature template in declaration order.
+    pub fn new(
+        callable_type: TypeExpressionTemplate,
+        receiver: Option<ReceiverParameterSignature>,
+        parameters: impl IntoIterator<Item = CallableParameterSymbolId>,
+        result: TypeExpressionTemplate,
+    ) -> Self {
+        Self {
+            callable_type,
+            receiver,
+            parameters: shared_slice(parameters),
+            result,
+        }
+    }
+
+    /// Returns the complete callable type template.
+    pub const fn callable_type(&self) -> &TypeExpressionTemplate {
+        &self.callable_type
+    }
+
+    /// Returns the implicit receiver when this callable has one.
+    pub const fn receiver(&self) -> Option<ReceiverParameterSignature> {
+        self.receiver
+    }
+
+    /// Returns ordinary parameters in declaration order.
+    pub fn parameters(&self) -> &[CallableParameterSymbolId] {
+        &self.parameters
+    }
+
+    /// Returns the declared result type template.
+    pub const fn result(&self) -> &TypeExpressionTemplate {
+        &self.result
+    }
 }
 
 impl CallableSignature {

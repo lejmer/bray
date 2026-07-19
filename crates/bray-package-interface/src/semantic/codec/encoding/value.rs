@@ -10,7 +10,7 @@ use crate::semantic::model::{
 use crate::tag::WireTag;
 use crate::wire::WireEncoder;
 use crate::{InterfaceSectionTag, InterfaceSemanticFacts};
-use bray_symbols::{BorrowKind, IntegerSign, RealConstantBits};
+use bray_symbols::{BorrowKind, IntegerConstant, IntegerSign, RealConstantBits};
 
 pub(super) fn encode_types(facts: &InterfaceSemanticFacts) -> EncodedSemanticSection {
     let mut encoder = WireEncoder::new();
@@ -90,10 +90,12 @@ pub(super) fn encode_type(encoder: &mut WireEncoder, ty: &InterfaceType) {
             write_symbol_reference(encoder, context);
         }
         InterfaceType::AssociatedTypeProjection {
+            subject,
             application,
             member,
         } => {
             encoder.write_u32(3);
+            encoder.write_u32(subject.raw());
             encoder.write_u32(application.raw());
             write_symbol_reference(encoder, member);
         }
@@ -188,14 +190,7 @@ pub(super) fn encode_constant_value(encoder: &mut WireEncoder, kind: &InterfaceC
         InterfaceConstantValueKind::Character(value) => write_tagged_id(encoder, 2, *value as u32),
         InterfaceConstantValueKind::Integer(value) => {
             encoder.write_u32(3);
-            encoder.write_u32(match value.sign() {
-                IntegerSign::NonNegative => 1,
-                IntegerSign::Negative => 2,
-            });
-
-            write_count(encoder, value.magnitude().len());
-
-            encoder.write_bytes(value.magnitude());
+            encode_integer(encoder, value);
         }
         InterfaceConstantValueKind::Real(value) => {
             encoder.write_u32(4);
@@ -240,6 +235,11 @@ pub(super) fn encode_constant_value(encoder: &mut WireEncoder, kind: &InterfaceC
 pub(super) fn encode_constant_term(encoder: &mut WireEncoder, term: &InterfaceConstantTerm) {
     match term {
         InterfaceConstantTerm::Value(id) => write_tagged_id(encoder, 1, id.raw()),
+        InterfaceConstantTerm::IntegerLiteral { ty, value } => {
+            encoder.write_u32(9);
+            encoder.write_u32((*ty).to_wire());
+            encode_integer(encoder, value);
+        }
         InterfaceConstantTerm::Parameter(parameter) => {
             encoder.write_u32(2);
             write_symbol_reference(encoder, parameter);
@@ -295,6 +295,16 @@ pub(super) fn encode_constant_term(encoder: &mut WireEncoder, term: &InterfaceCo
             encode_constant_projection(encoder, kind);
         }
     }
+}
+
+fn encode_integer(encoder: &mut WireEncoder, value: &IntegerConstant) {
+    encoder.write_u32(match value.sign() {
+        IntegerSign::NonNegative => 1,
+        IntegerSign::Negative => 2,
+    });
+
+    write_count(encoder, value.magnitude().len());
+    encoder.write_bytes(value.magnitude());
 }
 
 pub(super) fn encode_constant_projection(

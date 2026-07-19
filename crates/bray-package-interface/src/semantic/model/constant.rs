@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use bray_symbols::{
     ConstantBinaryOperation, ConstantUnaryOperation, IntegerConstant, RealConstantBits,
-    SymbolOrdinal,
+    SymbolOrdinal, TargetSizedIntegerType,
 };
 
 use super::{
@@ -71,6 +71,13 @@ pub enum InterfaceConstantValueKind {
 pub enum InterfaceConstantTerm {
     /// A closed constant value.
     Value(InterfaceConstantValueId),
+    /// A typed integer literal awaiting selected-target representability checking.
+    IntegerLiteral {
+        /// The literal's established target-sized integer type.
+        ty: TargetSizedIntegerType,
+        /// The normalized source value.
+        value: IntegerConstant,
+    },
     /// A generic constant parameter.
     Parameter(InterfaceSymbolReference),
     /// A compiler-known target fact.
