@@ -10,6 +10,8 @@ mod key;
 #[cfg(any(test, feature = "generation"))]
 mod loader;
 #[cfg(any(test, feature = "generation"))]
+mod operation;
+#[cfg(any(test, feature = "generation"))]
 mod parser;
 mod role;
 mod source;

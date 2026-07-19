@@ -1,5 +1,7 @@
 use crate::CompilerKnownOperationRole;
-use crate::operation::{CompilerKnownOperationComponentError, CompilerKnownOperationComponents};
+use crate::catalog::operation::{
+    CompilerKnownOperationComponentError, CompilerKnownOperationComponents,
+};
 
 use super::super::{CatalogDiagnostic, CatalogDiagnosticKind};
 use super::model::{RawDeclaration, ValidatedDeclarationOwner};

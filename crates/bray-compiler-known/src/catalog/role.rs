@@ -2,9 +2,10 @@ use std::borrow::Cow;
 #[cfg(any(test, feature = "generation"))]
 use std::collections::BTreeMap;
 
-#[cfg(any(test, feature = "generation"))]
-use crate::operation::CompilerKnownOperationComponents;
 use crate::{CompilerKnownOperationRole, ImplementationHook, RepresentationRole};
+
+#[cfg(any(test, feature = "generation"))]
+use super::operation::CompilerKnownOperationComponents;
 
 #[cfg(any(test, feature = "generation"))]
 use super::{CompilerKnownDeclarationDescriptor, CompilerKnownValueDescriptor};
