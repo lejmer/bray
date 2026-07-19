@@ -209,6 +209,11 @@ mod tests {
             DiagnosticKind::CheckingCannotInferExpressionType,
             SeverityKind::Error,
         );
+        let array_length = Diagnostic::new(
+            DiagnosticId::new(2),
+            DiagnosticKind::CheckingArrayLengthNotPositive,
+            SeverityKind::Error,
+        );
 
         let array_length = Diagnostic::new(
             DiagnosticId::new(2),
@@ -242,6 +247,10 @@ mod tests {
             "array length must be greater than zero"
         );
 
+        assert_eq!(
+            renderer.render(&array_length).message(),
+            "array length must be greater than zero"
+        );
         assert_eq!(
             renderer.render(&ambiguous).message(),
             "operator selection is ambiguous"

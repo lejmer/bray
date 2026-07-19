@@ -1364,6 +1364,16 @@ func invalid()
             "true",
         );
 
+        assert_eq!(
+            symbolic_argument.expected_type(),
+            literal_argument.expected_type()
+        );
+
+        assert_eq!(
+            symbolic_argument.expected_type(),
+            compound_argument.expected_type()
+        );
+
         assert!(matches!(
             argument.expected_type(),
             ConstantExpressionExpectedType::GenericParameter(_)
@@ -1387,6 +1397,215 @@ func invalid()
             TypeData::Callable(callable) if callable.abi() == CallableAbi::Bray
         ));
 
+        assert_eq!(
+            signature
+                .diagnostics()
+                .iter()
+                .map(|diagnostic| diagnostic.kind())
+                .collect::<Vec<_>>(),
+            [
+                DiagnosticKind::BindingInvalidCallableAbi,
+                DiagnosticKind::BindingDuplicateCallableAbi,
+            ]
+        );
+    }
+
+    #[test]
+    fn source_associated_type_projection_retains_subject_trait_and_member_identity() {
+        let compilation = compilation(
+            r#"module app;
+
+trait Provides
+{
+    type Item;
+}
+
+struct Subject
+{
+}
+
+struct Uses
+{
+    projected: Subject(Provides).Item;
+}
+
+impl Subject(Provides)
+{
+    type Item = bool;
+}
+"#,
+        );
+
+        let symbols = symbol_graph(&compilation);
+        let cancellation = CancellationToken::new();
+        let facts = binder_facts(&compilation, &cancellation);
+        let field = source_id(
+            symbols.struct_fields(),
+            |symbol| symbol.origin(),
+            |symbol| symbol.id(),
+        );
+
+        let result = published_fact(
+            &facts,
+            SymbolFactRequest::<bray_symbols::StructFieldTypeFact>::new(field),
+        );
+
+        assert!(result.diagnostics().is_empty());
+
+        let projection = type_data(&compilation, result.value());
+        let TypeData::AssociatedTypeProjection {
+            subject,
+            application,
+            member,
+        } = projection.as_ref()
+        else {
+            panic!("qualified associated type must retain projection identity");
+        };
+
+        assert!(matches!(
+            type_data(&compilation, *subject).as_ref(),
+            TypeData::Named { .. }
+        ));
+        assert!(
+            compilation
+                .semantic_value_store()
+                .unwrap_or_else(|error| panic!("semantic values must be available: {error:?}"))
+                .trait_application_data(*application)
+                .is_ok()
+        );
+        assert_eq!(
+            symbols.trait_type_member(*member).map(|value| value.id()),
+            Some(*member)
+        );
+    }
+
+    #[test]
+    fn array_length_validity_is_deferred_without_losing_source_identity() {
+        let compilation = compilation(
+            r#"module app;
+
+struct Broken<const flag: bool>
+{
+    zero: [bool; 0];
+    non_integer: [bool; flag];
+}
+"#,
+        );
+
+        let symbols = symbol_graph(&compilation);
+        let cancellation = CancellationToken::new();
+        let facts = binder_facts(&compilation, &cancellation);
+        let fields = symbols
+            .struct_fields()
+            .iter()
+            .filter(|symbol| symbol.origin() == SymbolOrigin::Source)
+            .collect::<Vec<_>>();
+
+        let [zero, non_integer] = fields.as_slice() else {
+            panic!("test source must contain two source fields: {fields:?}");
+        };
+
+        let zero_field = zero.id();
+        let non_integer_field = non_integer.id();
+
+        let zero = published_fact(
+            &facts,
+            SymbolFactRequest::<bray_symbols::StructFieldTypeFact>::new(zero_field),
+        );
+        let non_integer = published_fact(
+            &facts,
+            SymbolFactRequest::<bray_symbols::StructFieldTypeFact>::new(non_integer_field),
+        );
+
+        assert!(zero.diagnostics().is_empty());
+        assert!(non_integer.diagnostics().is_empty());
+
+        let zero_length = array_length(zero.value());
+        let non_integer_length = array_length(non_integer.value());
+
+        assert_constant_occurrence(
+            &compilation,
+            zero_length,
+            zero_field.into(),
+            SyntaxKind::Expression,
+            "0",
+        );
+        assert_constant_occurrence(
+            &compilation,
+            non_integer_length,
+            non_integer_field.into(),
+            SyntaxKind::Expression,
+            "flag",
+        );
+        assert_eq!(
+            zero_length.expected_type(),
+            non_integer_length.expected_type()
+        );
+    }
+
+    #[test]
+    fn constant_argument_validity_is_deferred_while_abi_diagnostics_remain_owned() {
+        let compilation = compilation(
+            r#"module app;
+
+struct Fixed<const count: usize>
+{
+}
+
+struct Broken
+{
+    value: Fixed<true>;
+}
+
+@abi(unknown)
+@abi(c)
+func invalid()
+{
+}
+"#,
+        );
+
+        let symbols = symbol_graph(&compilation);
+        let cancellation = CancellationToken::new();
+        let facts = binder_facts(&compilation, &cancellation);
+        let field = source_id(
+            symbols.struct_fields(),
+            |symbol| symbol.origin(),
+            |symbol| symbol.id(),
+        );
+        let field_type = published_fact(
+            &facts,
+            SymbolFactRequest::<bray_symbols::StructFieldTypeFact>::new(field),
+        );
+        let argument = constant_argument(field_type.value());
+
+        assert_constant_occurrence(
+            &compilation,
+            argument,
+            field.into(),
+            SyntaxKind::Expression,
+            "true",
+        );
+        assert!(matches!(
+            argument.expected_type(),
+            ConstantExpressionExpectedType::GenericParameter(_)
+        ));
+        assert!(field_type.diagnostics().is_empty());
+
+        let function = source_id(
+            symbols.functions(),
+            |symbol| symbol.origin(),
+            |symbol| symbol.id(),
+        );
+        let signature = published_fact(
+            &facts,
+            SymbolFactRequest::<CallableSignatureFact>::new(CallableSymbolId::from(function)),
+        );
+
+        assert!(matches!(
+            type_data(&compilation, signature.value().callable_type()).as_ref(),
+            TypeData::Callable(callable) if callable.abi() == CallableAbi::Bray
+        ));
         assert_eq!(
             signature
                 .diagnostics()
