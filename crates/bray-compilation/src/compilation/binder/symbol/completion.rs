@@ -284,7 +284,7 @@ mod tests {
         );
 
         assert!(matches!(
-            type_data(&compilation, *unary_type.value()).as_ref(),
+            type_data(&compilation, unary_type.value()).as_ref(),
             TypeData::Callable(_)
         ));
 
@@ -295,7 +295,7 @@ mod tests {
         );
 
         assert!(matches!(
-            type_data(&compilation, *element_type.value()).as_ref(),
+            type_data(&compilation, element_type.value()).as_ref(),
             TypeData::TypeParameter(_)
         ));
 
@@ -308,7 +308,7 @@ mod tests {
         );
 
         assert!(matches!(
-            type_data(&compilation, *completed_value_type.value()).as_ref(),
+            type_data(&compilation, completed_value_type.value()).as_ref(),
             TypeData::TypeParameter(_)
         ));
 
@@ -358,7 +358,7 @@ mod tests {
         );
 
         assert!(matches!(
-            type_data(&compilation, *item_type.value()).as_ref(),
+            type_data(&compilation, item_type.value()).as_ref(),
             TypeData::Named { definition, .. }
                 if *definition == declaration::<StructSymbolId>(symbols, "Bool").into()
         ));

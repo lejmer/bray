@@ -50,9 +50,13 @@ where
         .symbol_facts()
         .symbol_fact(SymbolFactRequest::<CallableSignatureFact>::new(owner))?;
 
+    let Some(result_type) = signature.value().result().resolved_type() else {
+        return Ok(true);
+    };
+
     let result = facts
         .semantic_values()
-        .type_data(signature.value().result())
+        .type_data(result_type)
         .map_err(|_| BinderFactError::DependencyUnavailable)?;
 
     let roles = facts.symbols().compiler_known_provider().role_registry();

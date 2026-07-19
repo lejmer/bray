@@ -3,8 +3,8 @@ use bray_diagnostics::DiagnosticResult;
 use bray_symbols::{
     AnySymbolId, CallableContractTypeFact, CallableParameterSymbolId, CallableSignatureFact,
     CallableSymbolId, ConstantDeclaredTypeFact, GenericConstParameterDeclaredTypeFact,
-    ImplementationCoherenceFact, ImplementationCoherenceKey, ImplementationSubject,
-    ImplementationSubjectFact, ImplementationSymbolId, ImplementedTraitApplicationFact,
+    ImplementationCoherenceFact, ImplementationCoherenceKey, ImplementationSubjectFact,
+    ImplementationSubjectTemplate, ImplementationSymbolId, ImplementedTraitApplicationFact,
     InherentTypeMemberValueFact, ReceiverParameterSymbolId, StructFieldTypeFact,
     SymbolFactContract, SymbolFactRequest, SymbolFactResult, SymbolGraph,
     TraitConstantFulfillmentDeclaredTypeFact, TraitConstantMemberDeclaredTypeFact,
@@ -130,7 +130,7 @@ fn bind_declaration_type<T>(
     context: &CompilationBinderFacts<'_>,
     symbol: AnySymbolId,
     type_expression: impl FnOnce(T) -> TypeExpressionSyntax,
-) -> BinderFactResult<DiagnosticResult<bray_symbols::TypeId>>
+) -> BinderFactResult<DiagnosticResult<bray_symbols::TypeExpressionTemplate>>
 where
     T: bray_syntax::SyntaxCast,
 {
@@ -167,7 +167,7 @@ fn bind_type_member_value<C>(
     symbol: AnySymbolId,
 ) -> BinderFactResult<SymbolFactResult<C>>
 where
-    C: SymbolFactContract<Value = bray_symbols::TypeId>,
+    C: SymbolFactContract<Value = bray_symbols::TypeExpressionTemplate>,
 {
     let syntax = declaration_syntax::<ImplementationTypeMemberBindingSyntax>(context, symbol)?;
 
@@ -188,7 +188,7 @@ impl CompilationSymbolFactBinding<ImplementationSubjectFact> for CompilationSymb
         let syntax = declaration_child::<ImplementationSubjectSyntax>(context, symbol)?;
         let result = type_binder(context, symbol)?.bind_implementation_subject(&syntax)?;
 
-        Ok(result.map(ImplementationSubject::new))
+        Ok(result.map(ImplementationSubjectTemplate::new))
     }
 }
 
@@ -239,8 +239,21 @@ impl CompilationSymbolFactBinding<ImplementationCoherenceFact> for CompilationSy
             ImplementedTraitApplicationFact,
         >::new(owner))?;
 
+        let subject = subject
+            .value()
+            .ty()
+            .resolved_type()
+            .ok_or(BinderFactError::DependencyUnavailable)?;
+        let trait_application = match trait_application.value() {
+            Some(application) => type_binder(context, owner.into_any())?
+                .resolve_trait_application_template(application)?
+                .ok_or(BinderFactError::DependencyUnavailable)?
+                .into(),
+            None => None,
+        };
+
         Ok(DiagnosticResult::without_diagnostics(
-            ImplementationCoherenceKey::new(subject.value().ty(), *trait_application.value()),
+            ImplementationCoherenceKey::new(subject, trait_application),
         ))
     }
 }
@@ -327,19 +340,20 @@ mod tests {
     use bray_binder::{BinderFactError, SymbolFactProvider};
     use bray_diagnostics::DiagnosticKind;
     use bray_symbols::{
-        CallableAbi, CallableContractTypeFact, CallableExecution, CallableSignatureFact,
-        CallableSymbolId, ConstantDeclaredTypeFact, ConstantTermData, ConstantValueKind,
-        GenericArgument, GenericConstParameterDeclaredTypeFact, ImplementationSubjectFact,
-        ImplementationSymbolId, ImplementedTraitApplicationFact, InherentTypeMemberValueFact,
-        NamedTypeSymbolId, ReceiverMode, StructSymbolId, SymbolFactRequest, SymbolOrigin,
-        TargetSizedIntegerType, TraitConstantFulfillmentDeclaredTypeFact,
-        TraitConstantMemberDeclaredTypeFact, TraitTypeFulfillmentValueFact, TypeData,
-        UnionPayloadFieldTypeFact,
+        AnySymbolId, CallableAbi, CallableContractTypeFact, CallableExecution,
+        CallableSignatureFact, CallableSymbolId, ConstantDeclaredTypeFact,
+        ConstantExpressionExpectedType, ConstantExpressionOccurrence, GenericArgumentTemplate,
+        GenericConstParameterDeclaredTypeFact, ImplementationSubjectFact, ImplementationSymbolId,
+        ImplementedTraitApplicationFact, InherentTypeMemberValueFact, NamedTypeSymbolId,
+        ReceiverMode, StructSymbolId, SymbolFactRequest, SymbolOrigin,
+        TraitConstantFulfillmentDeclaredTypeFact, TraitConstantMemberDeclaredTypeFact,
+        TraitTypeFulfillmentValueFact, TypeData, TypeExpressionTemplate, UnionPayloadFieldTypeFact,
     };
+    use bray_syntax::SyntaxKind;
 
     use super::CompilationBinderFacts;
     use crate::compilation::binder::symbol::test_support::{
-        constant_term_data, constant_value_data, published_fact, symbol_graph, type_data,
+        published_fact, resolved_type, symbol_graph, type_data,
     };
     use crate::fact::CancellationToken;
     use crate::test_support::compilation;
@@ -463,15 +477,29 @@ func identity<T>(value: T) -> T
             panic!("generic source function must retain one parameter");
         };
 
+        let callable_type = type_data(&compilation, first_signature.value().callable_type());
+        let TypeData::Callable(callable) = callable_type.as_ref() else {
+            panic!("source function must retain its callable type");
+        };
+        let [callable_parameter] = callable.parameters() else {
+            panic!("generic source function must retain one callable parameter type");
+        };
+
         assert!(matches!(
-            type_data(&compilation, parameter.ty()).as_ref(),
+            type_data(&compilation, callable_parameter.ty()).as_ref(),
             TypeData::TypeParameter(_)
         ));
 
-        assert_eq!(parameter.ty(), first_signature.value().result());
+        assert_eq!(callable_parameter.ty(), callable.result());
+
+        let Some(function_symbol) = symbols.function(function) else {
+            panic!("source function must remain in the symbol graph");
+        };
+
+        assert_eq!(*parameter, function_symbol.parameters()[0]);
 
         assert!(matches!(
-            type_data(&compilation, first_signature.value().callable_type()).as_ref(),
+            callable_type.as_ref(),
             TypeData::Callable(callable) if callable.abi() == CallableAbi::C
         ));
 
@@ -487,7 +515,7 @@ func identity<T>(value: T) -> T
         );
 
         assert!(matches!(
-            type_data(&compilation, *callable_contract_type.value()).as_ref(),
+            type_data(&compilation, callable_contract_type.value()).as_ref(),
             TypeData::Callable(callable) if callable.abi() == CallableAbi::System
         ));
 
@@ -503,7 +531,7 @@ func identity<T>(value: T) -> T
         );
 
         assert!(matches!(
-            type_data(&compilation, *constant_type.value()).as_ref(),
+            type_data(&compilation, constant_type.value()).as_ref(),
             TypeData::Named { .. }
         ));
 
@@ -519,7 +547,7 @@ func identity<T>(value: T) -> T
         );
 
         assert!(matches!(
-            type_data(&compilation, *field_type.value()).as_ref(),
+            type_data(&compilation, field_type.value()).as_ref(),
             TypeData::Named { .. }
         ));
 
@@ -535,7 +563,7 @@ func identity<T>(value: T) -> T
         );
 
         assert!(matches!(
-            type_data(&compilation, *payload_type.value()).as_ref(),
+            type_data(&compilation, payload_type.value()).as_ref(),
             TypeData::Named { .. }
         ));
     }
@@ -924,11 +952,12 @@ func identity<T>(value: T) -> T
         };
 
         let field_type = |field: &bray_symbols::StructFieldSymbol| {
-            *published_fact(
+            published_fact(
                 &facts,
                 SymbolFactRequest::<bray_symbols::StructFieldTypeFact>::new(field.id()),
             )
             .value()
+            .clone()
         };
 
         let value = field_type(value);
@@ -944,54 +973,52 @@ func identity<T>(value: T) -> T
         assert_eq!(default_box, explicit_box);
         assert_eq!(grouped, value);
 
+        let value = resolved_type(&value);
+
         assert!(matches!(
-            type_data(&compilation, default_box).as_ref(),
+            type_data(&compilation, &default_box).as_ref(),
             TypeData::OwnedIndirection { storage, target }
                 if *target == value
                     && matches!(type_data(&compilation, *storage).as_ref(), TypeData::Named { .. })
         ));
 
         assert!(matches!(
-            type_data(&compilation, tuple).as_ref(),
+            type_data(&compilation, &tuple).as_ref(),
             TypeData::Tuple(elements) if elements.as_ref() == [value]
         ));
 
         assert!(matches!(
-            type_data(&compilation, slice).as_ref(),
+            type_data(&compilation, &slice).as_ref(),
             TypeData::Slice(element) if *element == value
         ));
 
+        let TypeExpressionTemplate::Array { element, length } = array else {
+            panic!("array type must retain its source length occurrence");
+        };
+
+        assert_eq!(resolved_type(&element), value);
         assert!(matches!(
-            type_data(&compilation, array).as_ref(),
-            TypeData::Array { element, .. } if *element == value
+            length.expected_type(),
+            ConstantExpressionExpectedType::Resolved(_)
         ));
 
         assert!(matches!(
-            type_data(&compilation, trait_view).as_ref(),
+            type_data(&compilation, &trait_view).as_ref(),
             TypeData::TraitView(_)
         ));
 
-        let fixed = type_data(&compilation, fixed);
-
-        let TypeData::Named { substitution, .. } = fixed.as_ref() else {
-            panic!("constant generic application must remain a named type");
+        let TypeExpressionTemplate::Named { arguments, .. } = fixed else {
+            panic!("constant generic application must remain a named type template");
         };
 
-        let store = compilation
-            .semantic_value_store()
-            .unwrap_or_else(|error| panic!("semantic values must be available: {error:?}"));
-        let substitution = store
-            .generic_substitution_data(*substitution)
-            .unwrap_or_else(|error| panic!("generic substitution must resolve: {error:?}"));
-
         assert!(matches!(
-            substitution.bindings(),
-            [binding] if matches!(binding.argument(), GenericArgument::Constant(_))
+            arguments.as_ref(),
+            [GenericArgumentTemplate::Constant(_)]
         ));
     }
 
     #[test]
-    fn source_constant_type_forms_publish_symbolic_and_target_sensitive_terms() {
+    fn source_constant_type_forms_preserve_stable_expression_occurrences() {
         let compilation = compilation(
             r#"module app;
 
@@ -1004,6 +1031,7 @@ struct Values<const count: usize>
     symbolic_array: [bool; count];
     symbolic_application: Fixed<count>;
     target_sensitive_application: Fixed<4>;
+    compound_application: Fixed<count + 1>;
     direct_array: [bool; 4];
 }
 "#,
@@ -1022,68 +1050,86 @@ struct Values<const count: usize>
             symbolic_array,
             symbolic_application,
             target_sensitive_application,
+            compound_application,
             direct_array,
         ] = fields.as_slice()
         else {
-            panic!("test source must contain four source fields: {fields:?}");
+            panic!("test source must contain five source fields: {fields:?}");
         };
 
         let field_type = |field: &bray_symbols::StructFieldSymbol| {
-            *published_fact(
+            published_fact(
                 &facts,
                 SymbolFactRequest::<bray_symbols::StructFieldTypeFact>::new(field.id()),
             )
             .value()
+            .clone()
         };
 
-        let symbolic_array = type_data(&compilation, field_type(symbolic_array));
-        let TypeData::Array {
-            length: symbolic_length,
-            ..
-        } = symbolic_array.as_ref()
-        else {
-            panic!("symbolic array must retain its array type");
-        };
+        let symbolic_length = array_length(&field_type(symbolic_array));
+        let symbolic_argument = constant_argument(&field_type(symbolic_application));
+        let literal_argument = constant_argument(&field_type(target_sensitive_application));
+        let compound_argument = constant_argument(&field_type(compound_application));
+        let direct_length = array_length(&field_type(direct_array));
 
+        assert_constant_occurrence(
+            &compilation,
+            symbolic_length,
+            symbolic_array.id().into(),
+            SyntaxKind::Expression,
+            "count",
+        );
+        assert_constant_occurrence(
+            &compilation,
+            symbolic_argument,
+            symbolic_application.id().into(),
+            SyntaxKind::TypeExpression,
+            "count",
+        );
+        assert_constant_occurrence(
+            &compilation,
+            literal_argument,
+            target_sensitive_application.id().into(),
+            SyntaxKind::Expression,
+            "4",
+        );
+        assert_constant_occurrence(
+            &compilation,
+            compound_argument,
+            compound_application.id().into(),
+            SyntaxKind::Expression,
+            "count + 1",
+        );
+        assert_constant_occurrence(
+            &compilation,
+            direct_length,
+            direct_array.id().into(),
+            SyntaxKind::Expression,
+            "4",
+        );
+
+        assert_eq!(
+            symbolic_argument.expected_type(),
+            literal_argument.expected_type()
+        );
+        assert_eq!(
+            symbolic_argument.expected_type(),
+            compound_argument.expected_type()
+        );
         assert!(matches!(
-            constant_term_data(&compilation, *symbolic_length).as_ref(),
-            ConstantTermData::Parameter(_)
+            symbolic_argument.expected_type(),
+            ConstantExpressionExpectedType::GenericParameter(_)
         ));
 
-        let symbolic_argument = constant_argument(&compilation, field_type(symbolic_application));
-
         assert!(matches!(
-            constant_term_data(&compilation, symbolic_argument).as_ref(),
-            ConstantTermData::Parameter(_)
+            symbolic_length.expected_type(),
+            ConstantExpressionExpectedType::Resolved(_)
         ));
-
-        let target_sensitive_argument =
-            constant_argument(&compilation, field_type(target_sensitive_application));
-
-        assert!(matches!(
-            constant_term_data(&compilation, target_sensitive_argument).as_ref(),
-            ConstantTermData::IntegerLiteral {
-                ty: TargetSizedIntegerType::Usize,
-                value,
-            } if value.magnitude() == [4]
-        ));
-
-        let direct_array = type_data(&compilation, field_type(direct_array));
-        let TypeData::Array {
-            length: direct_length,
-            ..
-        } = direct_array.as_ref()
-        else {
-            panic!("direct array must retain its array type");
-        };
-
-        assert!(matches!(
-            constant_term_data(&compilation, *direct_length).as_ref(),
-            ConstantTermData::IntegerLiteral {
-                ty: TargetSizedIntegerType::Usize,
-                value,
-            } if value.magnitude() == [4]
-        ));
+        assert_eq!(
+            symbolic_length.expected_type(),
+            direct_length.expected_type()
+        );
+        assert_ne!(symbolic_length.key(), direct_length.key());
 
         let parameter = source_id(
             symbols.generic_const_parameters(),
@@ -1107,7 +1153,7 @@ struct Values<const count: usize>
             .unwrap_or_else(|| panic!("compiler-known usize must be available"));
 
         assert!(matches!(
-            type_data(&compilation, *declared_type.value()).as_ref(),
+            type_data(&compilation, declared_type.value()).as_ref(),
             TypeData::Named {
                 definition: NamedTypeSymbolId::Struct(definition),
                 ..
@@ -1157,7 +1203,7 @@ impl Subject(Provides)
 
         assert!(result.diagnostics().is_empty());
 
-        let projection = type_data(&compilation, *result.value());
+        let projection = type_data(&compilation, result.value());
         let TypeData::AssociatedTypeProjection {
             subject,
             application,
@@ -1185,7 +1231,7 @@ impl Subject(Provides)
     }
 
     #[test]
-    fn array_lengths_require_positive_usize_terms() {
+    fn array_length_validity_is_deferred_without_losing_source_identity() {
         let compilation = compilation(
             r#"module app;
 
@@ -1210,50 +1256,46 @@ struct Broken<const flag: bool>
             panic!("test source must contain two source fields: {fields:?}");
         };
 
+        let zero_field = zero.id();
+        let non_integer_field = non_integer.id();
+
         let zero = published_fact(
             &facts,
-            SymbolFactRequest::<bray_symbols::StructFieldTypeFact>::new(zero.id()),
+            SymbolFactRequest::<bray_symbols::StructFieldTypeFact>::new(zero_field),
         );
         let non_integer = published_fact(
             &facts,
-            SymbolFactRequest::<bray_symbols::StructFieldTypeFact>::new(non_integer.id()),
+            SymbolFactRequest::<bray_symbols::StructFieldTypeFact>::new(non_integer_field),
         );
 
+        assert!(zero.diagnostics().is_empty());
+        assert!(non_integer.diagnostics().is_empty());
+
+        let zero_length = array_length(zero.value());
+        let non_integer_length = array_length(non_integer.value());
+
+        assert_constant_occurrence(
+            &compilation,
+            zero_length,
+            zero_field.into(),
+            SyntaxKind::Expression,
+            "0",
+        );
+        assert_constant_occurrence(
+            &compilation,
+            non_integer_length,
+            non_integer_field.into(),
+            SyntaxKind::Expression,
+            "flag",
+        );
         assert_eq!(
-            zero.diagnostics()
-                .iter()
-                .map(|diagnostic| diagnostic.kind())
-                .collect::<Vec<_>>(),
-            [DiagnosticKind::CheckingArrayLengthNotPositive]
+            zero_length.expected_type(),
+            non_integer_length.expected_type()
         );
-        assert_eq!(
-            non_integer
-                .diagnostics()
-                .iter()
-                .map(|diagnostic| diagnostic.kind())
-                .collect::<Vec<_>>(),
-            [DiagnosticKind::CheckingInvalidConstantExpression]
-        );
-
-        for result in [&zero, &non_integer] {
-            let ty = type_data(&compilation, *result.value());
-            let TypeData::Array { length, .. } = ty.as_ref() else {
-                panic!("invalid array length must retain an array type");
-            };
-
-            assert!(matches!(
-                constant_term_data(&compilation, *length).as_ref(),
-                ConstantTermData::Value(value)
-                    if matches!(
-                        constant_value_data(&compilation, *value).kind(),
-                        ConstantValueKind::Error
-                    )
-            ));
-        }
     }
 
     #[test]
-    fn malformed_constant_and_abi_surfaces_recover_with_owned_diagnostics() {
+    fn constant_argument_validity_is_deferred_while_abi_diagnostics_remain_owned() {
         let compilation = compilation(
             r#"module app;
 
@@ -1286,24 +1328,20 @@ func invalid()
             &facts,
             SymbolFactRequest::<bray_symbols::StructFieldTypeFact>::new(field),
         );
-        let argument = constant_argument(&compilation, *field_type.value());
+        let argument = constant_argument(field_type.value());
 
-        assert!(matches!(
-            constant_term_data(&compilation, argument).as_ref(),
-            ConstantTermData::Value(value)
-                if matches!(
-                    constant_value_data(&compilation, *value).kind(),
-                    ConstantValueKind::Error
-                )
-        ));
-        assert_eq!(
-            field_type
-                .diagnostics()
-                .iter()
-                .map(|diagnostic| diagnostic.kind())
-                .collect::<Vec<_>>(),
-            [DiagnosticKind::CheckingInvalidConstantExpression]
+        assert_constant_occurrence(
+            &compilation,
+            argument,
+            field.into(),
+            SyntaxKind::Expression,
+            "true",
         );
+        assert!(matches!(
+            argument.expected_type(),
+            ConstantExpressionExpectedType::GenericParameter(_)
+        ));
+        assert!(field_type.diagnostics().is_empty());
 
         let function = source_id(
             symbols.functions(),
@@ -1359,7 +1397,7 @@ struct Broken
         );
 
         assert!(matches!(
-            type_data(&compilation, *field_type.value()).as_ref(),
+            type_data(&compilation, field_type.value()).as_ref(),
             TypeData::Error
         ));
     }
@@ -1430,31 +1468,45 @@ func invalid(value: MissingType)
         id(symbol)
     }
 
-    fn constant_argument(
+    fn array_length(template: &TypeExpressionTemplate) -> ConstantExpressionOccurrence {
+        let TypeExpressionTemplate::Array { length, .. } = template else {
+            panic!("array type must retain its source length occurrence");
+        };
+
+        *length
+    }
+
+    fn constant_argument(template: &TypeExpressionTemplate) -> ConstantExpressionOccurrence {
+        let TypeExpressionTemplate::Named { arguments, .. } = template else {
+            panic!("generic constant application must retain a named type template");
+        };
+
+        let [GenericArgumentTemplate::Constant(occurrence)] = arguments.as_ref() else {
+            panic!("test generic application must retain one constant occurrence");
+        };
+
+        *occurrence
+    }
+
+    fn assert_constant_occurrence(
         compilation: &crate::Compilation,
-        ty: bray_symbols::TypeId,
-    ) -> bray_symbols::ConstantTermId {
-        let ty = type_data(compilation, ty);
-        let TypeData::Named { substitution, .. } = ty.as_ref() else {
-            panic!("generic constant application must retain a named type");
+        occurrence: ConstantExpressionOccurrence,
+        owner: AnySymbolId,
+        syntax_kind: SyntaxKind,
+        expected_text: &str,
+    ) {
+        let key = occurrence.key();
+        let syntax = key.syntax();
+        let Some(source) = compilation.source(syntax.source_id()) else {
+            panic!("constant expression source must remain loaded");
+        };
+        let Some(actual_text) = source.text_slice(syntax.full_range()) else {
+            panic!("constant expression range must remain valid");
         };
 
-        let store = compilation
-            .semantic_value_store()
-            .unwrap_or_else(|error| panic!("semantic values must be available: {error:?}"));
-        let substitution = store
-            .generic_substitution_data(*substitution)
-            .unwrap_or_else(|error| panic!("generic substitution must resolve: {error:?}"));
-
-        let [binding] = substitution.bindings() else {
-            panic!("test generic application must retain one binding");
-        };
-
-        let GenericArgument::Constant(term) = binding.argument() else {
-            panic!("test generic application must retain a constant argument");
-        };
-
-        term
+        assert_eq!(key.owner(), owner);
+        assert_eq!(syntax.syntax_kind(), syntax_kind);
+        assert_eq!(actual_text, expected_text);
     }
 
     fn binder_facts<'compilation>(

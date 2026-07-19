@@ -8,7 +8,7 @@ use crate::{AnySymbolId, GenericOwnerId, SymbolKind};
 pub enum SymbolCompletionLevel {
     /// Only the deterministic symbol identity skeleton is required.
     Identity,
-    /// Every applicable fact needed to describe and use the declaration surface is required.
+    /// Every applicable fact needed to describe the declaration surface is required.
     DeclarationSurface,
 }
 
@@ -32,7 +32,7 @@ pub enum SymbolFactKind {
     CallableSignature,
     /// Checked callable contracts, effects, and capabilities.
     CallableContracts,
-    /// The checked callable type named by a callable-contract declaration.
+    /// The callable type template named by a callable-contract declaration.
     CallableContractType,
     /// The declared type of a constant.
     ConstantDeclaredType,
@@ -40,13 +40,13 @@ pub enum SymbolFactKind {
     ConstantDefinition,
     /// A checked callable parameter default.
     CallableParameterDefault,
-    /// A checked struct field type.
+    /// A struct field type template.
     StructFieldType,
-    /// The checked type value supplied by an implementation member.
+    /// The type-value template supplied by an implementation member.
     TypeMemberValue,
     /// A checked struct field default.
     StructFieldDefault,
-    /// A checked union payload field type.
+    /// A union payload field type template.
     UnionPayloadFieldType,
     /// A checked union payload field default.
     UnionPayloadFieldDefault,
@@ -54,9 +54,9 @@ pub enum SymbolFactKind {
     PredicateDefinition,
     /// A union variant's payload surface.
     UnionVariantPayload,
-    /// An implementation's checked subject.
+    /// An implementation's subject type template.
     ImplementationSubject,
-    /// The checked trait application implemented by an implementation.
+    /// The trait-application template implemented by an implementation.
     ImplementedTraitApplication,
     /// Stable implementation coherence keys.
     ImplementationCoherence,
@@ -94,7 +94,9 @@ impl SymbolFactKind {
     pub const fn is_required_for(self, level: SymbolCompletionLevel) -> bool {
         match level {
             SymbolCompletionLevel::Identity => false,
-            SymbolCompletionLevel::DeclarationSurface => true,
+            SymbolCompletionLevel::DeclarationSurface => {
+                !matches!(self, Self::ImplementationCoherence)
+            }
         }
     }
 

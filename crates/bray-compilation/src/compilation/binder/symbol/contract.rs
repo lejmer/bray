@@ -142,14 +142,19 @@ fn bind_callable_contracts(
         .map_err(|_| BinderFactError::DependencyUnavailable)?;
 
     let signature = context.symbol_fact(SymbolFactRequest::<CallableSignatureFact>::new(owner))?;
-    let execution = match context
-        .semantic_values
-        .type_data(signature.value().callable_type())
-    {
-        Ok(data) => match &*data {
-            TypeData::Callable(callable) => callable.execution(),
-            _ => return Err(BinderFactError::DependencyUnavailable),
-        },
+    let execution = match signature.value().callable_type() {
+        bray_symbols::TypeExpressionTemplate::Callable(callable) => callable.execution(),
+        bray_symbols::TypeExpressionTemplate::Resolved(ty) => {
+            let data = context
+                .semantic_values
+                .type_data(*ty)
+                .map_err(|_| BinderFactError::DependencyUnavailable)?;
+
+            match &*data {
+                TypeData::Callable(callable) => callable.execution(),
+                _ => return Err(BinderFactError::DependencyUnavailable),
+            }
+        }
         _ => return Err(BinderFactError::DependencyUnavailable),
     };
 

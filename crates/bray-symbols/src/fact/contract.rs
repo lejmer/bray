@@ -8,15 +8,15 @@ use crate::{
     InherentTypeMemberSymbolId, PredicateSymbolId, StructFieldSymbolId,
     TraitConstantFulfillmentSymbolId, TraitConstantMemberSymbolId,
     TraitPredicateFulfillmentSymbolId, TraitPredicateMemberSymbolId, TraitTypeFulfillmentSymbolId,
-    TypeId, UnionPayloadFieldSymbolId,
+    UnionPayloadFieldSymbolId,
 };
 
 use super::{
-    CallableContractSet, CallableSignature, CheckedCallableParameterDefault,
+    CallableContractSet, CallableSignatureTemplate, CheckedCallableParameterDefault,
     CheckedStructFieldDefault, CheckedUnionPayloadDefault, ConstantDefinitionState,
     ConstantInstanceKey, GenericConstraintSet, ImplementationCoherenceKey, ImplementationSelection,
-    ImplementationSelectionKey, ImplementationSubject, PredicateDefinition,
-    PredicateDefinitionState, SymbolFactKind,
+    ImplementationSelectionKey, ImplementationSubjectTemplate, PredicateDefinition,
+    PredicateDefinitionState, SymbolFactKind, TraitApplicationTemplate, TypeExpressionTemplate,
 };
 
 mod sealed {
@@ -128,10 +128,10 @@ define_symbol_fact_contract! {
         kind: GenericConstraints,
         erase: |owner: GenericOwnerId| owner.symbol(),
     }
-    /// The checked declaration signature of one callable.
+    /// The declaration signature template of one callable.
     CallableSignatureFact {
         owner: CallableSymbolId,
-        value: CallableSignature,
+        value: CallableSignatureTemplate,
         kind: CallableSignature,
         erase: |owner: CallableSymbolId| owner.into_any(),
     }
@@ -142,38 +142,38 @@ define_symbol_fact_contract! {
         kind: CallableContracts,
         erase: |owner: CallableSymbolId| owner.into_any(),
     }
-    /// The checked callable type named by one callable-contract declaration.
+    /// The callable type template named by one callable-contract declaration.
     CallableContractTypeFact {
         owner: CallableContractSymbolId,
-        value: TypeId,
+        value: TypeExpressionTemplate,
         kind: CallableContractType,
         erase: |owner: CallableContractSymbolId| owner.into(),
     }
     /// The declared type of one compile-time constant definition.
     ConstantDeclaredTypeFact {
         owner: ConstantSymbolId,
-        value: TypeId,
+        value: TypeExpressionTemplate,
         kind: ConstantDeclaredType,
         erase: |owner: ConstantSymbolId| owner.into(),
     }
     /// The declared type of one generic constant parameter.
     GenericConstParameterDeclaredTypeFact {
         owner: GenericConstParameterSymbolId,
-        value: TypeId,
+        value: TypeExpressionTemplate,
         kind: ConstantDeclaredType,
         erase: |owner: GenericConstParameterSymbolId| owner.into(),
     }
     /// The declared type of one trait constant member.
     TraitConstantMemberDeclaredTypeFact {
         owner: TraitConstantMemberSymbolId,
-        value: TypeId,
+        value: TypeExpressionTemplate,
         kind: ConstantDeclaredType,
         erase: |owner: TraitConstantMemberSymbolId| owner.into(),
     }
     /// The declared type of one trait constant fulfillment.
     TraitConstantFulfillmentDeclaredTypeFact {
         owner: TraitConstantFulfillmentSymbolId,
-        value: TypeId,
+        value: TypeExpressionTemplate,
         kind: ConstantDeclaredType,
         erase: |owner: TraitConstantFulfillmentSymbolId| owner.into(),
     }
@@ -205,24 +205,24 @@ define_symbol_fact_contract! {
         kind: CallableParameterDefault,
         erase: |owner: CallableParameterSymbolId| owner.into(),
     }
-    /// The checked declared type of one struct field.
+    /// The declared type template of one struct field.
     StructFieldTypeFact {
         owner: StructFieldSymbolId,
-        value: TypeId,
+        value: TypeExpressionTemplate,
         kind: StructFieldType,
         erase: |owner: StructFieldSymbolId| owner.into(),
     }
-    /// The checked type value supplied by one inherent implementation member.
+    /// The type-value template supplied by one inherent implementation member.
     InherentTypeMemberValueFact {
         owner: InherentTypeMemberSymbolId,
-        value: TypeId,
+        value: TypeExpressionTemplate,
         kind: TypeMemberValue,
         erase: |owner: InherentTypeMemberSymbolId| owner.into(),
     }
-    /// The checked type value supplied by one trait implementation fulfillment.
+    /// The type-value template supplied by one trait implementation fulfillment.
     TraitTypeFulfillmentValueFact {
         owner: TraitTypeFulfillmentSymbolId,
-        value: TypeId,
+        value: TypeExpressionTemplate,
         kind: TypeMemberValue,
         erase: |owner: TraitTypeFulfillmentSymbolId| owner.into(),
     }
@@ -233,10 +233,10 @@ define_symbol_fact_contract! {
         kind: StructFieldDefault,
         erase: |owner: StructFieldSymbolId| owner.into(),
     }
-    /// The checked declared type of one union payload field.
+    /// The declared type template of one union payload field.
     UnionPayloadFieldTypeFact {
         owner: UnionPayloadFieldSymbolId,
-        value: TypeId,
+        value: TypeExpressionTemplate,
         kind: UnionPayloadFieldType,
         erase: |owner: UnionPayloadFieldSymbolId| owner.into(),
     }
@@ -268,17 +268,17 @@ define_symbol_fact_contract! {
         kind: PredicateDefinition,
         erase: |owner: TraitPredicateFulfillmentSymbolId| owner.into(),
     }
-    /// The checked subject type of one implementation declaration.
+    /// The subject type template of one implementation declaration.
     ImplementationSubjectFact {
         owner: ImplementationSymbolId,
-        value: ImplementationSubject,
+        value: ImplementationSubjectTemplate,
         kind: ImplementationSubject,
         erase: |owner: ImplementationSymbolId| owner.into_any(),
     }
-    /// The optional checked trait application implemented by one implementation.
+    /// The optional trait-application template implemented by one implementation.
     ImplementedTraitApplicationFact {
         owner: ImplementationSymbolId,
-        value: Option<crate::TraitApplicationId>,
+        value: Option<TraitApplicationTemplate>,
         kind: ImplementedTraitApplication,
         erase: |owner: ImplementationSymbolId| owner.into_any(),
     }

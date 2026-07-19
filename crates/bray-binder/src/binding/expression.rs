@@ -12,4 +12,3 @@ mod selection;
 mod support;
 
 pub(crate) use core::ExpressionBinder;
-pub(in crate::binding) use literal::literal_kind;

@@ -1,11 +1,11 @@
 use bray_binder::{
-    BinderFactError, BinderFactResult, ConstParameterBinding, TypeExpressionBinder,
-    TypeExpressionScope, TypeParameterBinding,
+    BinderFactError, BinderFactResult, TypeExpressionBinder, TypeExpressionScope,
+    TypeParameterBinding,
 };
 use bray_compiler_known::CatalogGenericParameterKind;
 use bray_symbols::{
-    AnySymbolId, GenericConstParameterSymbolId, GenericTypeParameterSymbolId, SelfTypeContext,
-    SymbolGraph, SymbolName, SymbolOrigin,
+    AnySymbolId, GenericTypeParameterSymbolId, SelfTypeContext, SymbolGraph, SymbolName,
+    SymbolOrigin,
 };
 
 use super::super::context::CompilationBinderFacts;
@@ -15,7 +15,6 @@ pub(super) fn type_binder<'facts>(
     symbol: AnySymbolId,
 ) -> BinderFactResult<TypeExpressionBinder<'facts>> {
     let type_parameters = type_parameter_bindings(context, symbol)?;
-    let const_parameters = const_parameter_bindings(context, symbol)?;
 
     let module = context
         .symbols
@@ -24,13 +23,12 @@ pub(super) fn type_binder<'facts>(
 
     let self_type = self_type_context(context.symbols, symbol);
 
-    let scope = TypeExpressionScope::new(module, type_parameters, const_parameters, self_type);
+    let scope = TypeExpressionScope::new(symbol, module, type_parameters, self_type);
 
     Ok(TypeExpressionBinder::new(
         context.symbols,
         context.semantic_values,
         scope,
-        context,
         context.cancellation,
     ))
 }
@@ -50,27 +48,6 @@ fn type_parameter_bindings(
             let name = type_parameter_name(context, owner, *parameter)?;
 
             bindings.push(TypeParameterBinding::new(name, *parameter));
-        }
-    }
-
-    Ok(bindings)
-}
-
-fn const_parameter_bindings(
-    context: &CompilationBinderFacts<'_>,
-    symbol: AnySymbolId,
-) -> BinderFactResult<Vec<ConstParameterBinding>> {
-    let mut bindings = Vec::new();
-
-    for owner in symbol_ancestry(context.symbols, symbol).into_iter().rev() {
-        let Some(parameters) = generic_const_parameters(context.symbols, owner) else {
-            continue;
-        };
-
-        for parameter in parameters {
-            let name = const_parameter_name(context, owner, *parameter)?;
-
-            bindings.push(ConstParameterBinding::new(name, *parameter));
         }
     }
 
@@ -106,26 +83,6 @@ fn type_parameter_name(
         record.declaration(),
         record.ordinal(),
         CatalogGenericParameterKind::Type,
-    )
-}
-
-fn const_parameter_name(
-    context: &CompilationBinderFacts<'_>,
-    owner: AnySymbolId,
-    parameter: GenericConstParameterSymbolId,
-) -> BinderFactResult<SymbolName> {
-    let record = context
-        .symbols
-        .generic_const_parameter(parameter)
-        .ok_or(BinderFactError::DependencyUnavailable)?;
-
-    parameter_name(
-        context,
-        owner,
-        record.origin(),
-        record.declaration(),
-        record.ordinal(),
-        CatalogGenericParameterKind::Const,
     )
 }
 
@@ -256,12 +213,6 @@ define_generic_parameter_accessor!(
     generic_type_parameters,
     GenericTypeParameterSymbolId,
     generic_type_parameters
-);
-
-define_generic_parameter_accessor!(
-    generic_const_parameters,
-    GenericConstParameterSymbolId,
-    generic_const_parameters
 );
 
 fn self_type_context(symbols: &SymbolGraph, symbol: AnySymbolId) -> Option<SelfTypeContext> {

@@ -49,8 +49,8 @@ mod tests {
 
     use bray_diagnostics::DiagnosticResult;
     use bray_symbols::{
-        CallableSignature, CallableSignatureFact, CallableSymbolId, FunctionSymbolId,
-        SemanticValueStore, SymbolFactRequest, SymbolId, TypeData,
+        CallableSignatureFact, CallableSignatureTemplate, CallableSymbolId, FunctionSymbolId,
+        SemanticValueStore, SymbolFactRequest, SymbolId, TypeData, TypeExpressionTemplate,
     };
 
     use super::SymbolFactCache;
@@ -87,7 +87,7 @@ mod tests {
         assert_eq!(computations.load(Ordering::SeqCst), 1);
     }
 
-    fn signature() -> CallableSignature {
+    fn signature() -> CallableSignatureTemplate {
         let Ok(store) = SemanticValueStore::try_new() else {
             panic!("semantic store should build");
         };
@@ -96,6 +96,11 @@ mod tests {
             panic!("error type should intern");
         };
 
-        CallableSignature::new(ty, None, [], ty)
+        CallableSignatureTemplate::new(
+            TypeExpressionTemplate::Resolved(ty),
+            None,
+            [],
+            TypeExpressionTemplate::Resolved(ty),
+        )
     }
 }

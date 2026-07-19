@@ -8,8 +8,8 @@ use bray_symbols::{
     ReceiverMode, TypeId,
 };
 
-use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
 use crate::representation::named_type;
+use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
 
 use super::super::{CompilerKnownOperationEvidence, ImplementationSelectionEvidence};
 use super::role::operation_role;
@@ -454,9 +454,7 @@ mod tests {
         integer_literal_expression, push_expression, semantic_values, trait_callable_instance,
         tuple_type,
     };
-    use crate::{
-        CheckerUnitView, CompilerKnownOperationEvidence, ImplementationSelectionEvidence,
-    };
+    use crate::{CheckerUnitView, CompilerKnownOperationEvidence, ImplementationSelectionEvidence};
 
     use super::{compiler_known_operations_match, implementation_selections_match};
 

@@ -192,6 +192,7 @@ moving all typed symbol IDs into another lower identity crate without currently 
 Other responsibilities remain separate:
 
 - `bray-binder` resolves type syntax, constant references, and generic arguments,
+- `bray-symbols` owns source type-expression templates used by declaration-surface facts,
 - `bray-bound-tree` owns checked constant-expression templates and source-shaped HIR,
 - `bray-checker` owns inference variables, unification, type relations, constraint proofs, and constant evaluation,
 - `bray-compilation` owns semantic-store instances, query caches, target-specific evaluation, cancellation, and publication,
@@ -389,10 +390,19 @@ A target-sized integer literal remains an `IntegerLiteral` term until selected-t
 retains whether its established type is `isize` or `usize` and its normalized arbitrary-width value. It must not use the compiler
 host width or become a closed `ConstantValueId` before target validation succeeds.
 
-A constant expression embedded in a type form is supplied through an independently demandable checked-constant-term fact. The type
-binder provides the expected type and lexical generic context, then requests that fact. It must not classify expression syntax into
-operations or manufacture a checked term before expression typing and semantic selection have completed. The enclosing type fact is
-published only after the requested constant term is available.
+A constant expression embedded in a declaration type is first retained in a target-independent source type-expression template. The
+template records the exact declaration owner, syntax anchor, and source of the expected type. The owner identifies the lexical
+generic context. The expected type is either an already canonical `TypeId` or the exact generic const parameter whose declared type
+must be requested later.
+
+Declaration-surface binding publishes this template without classifying the expression into operations, requesting expression
+typing or selection, or manufacturing a `ConstantTermId`. The cooperating type and selection fixed point resolves only the embedded
+occurrences demanded by its query. Successful checking produces canonical open terms and resolves the containing template into a
+canonical type, trait application, implementation subject, or callable signature. Constant validity and evaluation then consume
+those checked results without rerunning syntax binding.
+
+The occurrence key is source stable and target independent. It must not include a target profile, inferred type, selected candidate,
+or lazily assigned semantic value ID. Those values belong to the later checked fact keyed by the occurrence and its demand context.
 
 ### Generic Substitutions
 
@@ -478,10 +488,18 @@ Conceptually:
 
 ```rust
 impl CallableParameterSymbolView<'_> {
+    pub fn declared_type_template(
+        &self,
+    ) -> Arc<DiagnosticResult<TypeExpressionTemplate>>;
+
     pub fn declared_type(&self) -> Arc<DiagnosticResult<TypeId>>;
 }
 
 impl ImplementationSymbolView<'_> {
+    pub fn subject_template(
+        &self,
+    ) -> Arc<DiagnosticResult<ImplementationSubjectTemplate>>;
+
     pub fn subject(&self) -> Arc<DiagnosticResult<ImplementationSubject>>;
     pub fn implemented_trait(
         &self,
@@ -1705,8 +1723,8 @@ structured diagnostics, never memory unsafety or user-triggered panics.
 
 Implementation should proceed in dependency order:
 
-1. Define canonical type, constant, open-term, substitution, dependency-contract-template, and semantic-store contracts in
-   `bray-symbols`.
+1. Define canonical type, constant, open-term, source type-expression template, substitution,
+   dependency-contract-template, and semantic-store contracts in `bray-symbols`.
 2. Define the injected binder fact context and binding-dependent symbol-fact provider contracts.
 3. Define bound unit kinds, typed IDs, stable keys, origins, and checked arena-access behavior.
 4. Define storage identities, storage accesses, borrow capabilities, and portable and bound dependency-contract identities.

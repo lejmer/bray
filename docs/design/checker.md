@@ -323,6 +323,15 @@ operand types, contribute a selected result type or an additional expected type,
 rounds do not publish diagnostics. Cannot-infer and incompatibility diagnostics are finalized only after the cooperating domains
 reach a stable state.
 
+The same fixed point resolves source type-expression templates when their embedded constant expressions depend on expression
+typing, callable selection, implementation selection, or a target-sized representation. Each occurrence is keyed by its declaration
+owner and exact syntax anchor. Its expected type comes from either an already canonical type or the declared type fact of the exact
+generic const parameter. Resolving one occurrence must not force unrelated declaration types, bodies, or constant instances.
+
+Successful occurrence checking publishes a canonical open `ConstantTermId`. Resolving a containing template then constructs the
+canonical type, trait application, implementation subject, or callable signature. No partially resolved template or intermediate
+fixed-point state is published.
+
 Expected types are directional constraints. They propagate into language-defined child contexts such as tuple and array elements,
 but an expected type alone does not establish an expression's actual type or select an overload, member, operator, conversion, or
 other operation. A completed inference variable must have independent type evidence or resolve to the canonical error type with an
@@ -432,6 +441,10 @@ The constant domain owns:
 - admissible constant control flow and termination,
 - target-fact dependencies,
 - canonical constant value and term production.
+
+Source type-expression templates are inputs to this domain, not checked constant terms. The domain validates their embedded
+occurrences through ordinary expression typing and selection before producing open terms. A declaration-surface binder must not
+duplicate those rules or reject grammar-valid expressions merely because their semantic support is not available yet.
 
 Checking validity and evaluating a closed constant are separate typed operations. A definition template can be valid before every
 concrete generic or target-dependent instance is evaluated.

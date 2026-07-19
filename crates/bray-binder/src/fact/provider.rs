@@ -40,7 +40,8 @@ mod tests {
 
     use bray_diagnostics::DiagnosticResult;
     use bray_symbols::{
-        ConstantDeclaredTypeFact, ConstantSymbolId, SymbolFactRequest, SymbolId, TypeId,
+        ConstantDeclaredTypeFact, ConstantSymbolId, SymbolFactRequest, SymbolId,
+        TypeExpressionTemplate,
     };
 
     use super::{BindingSymbolFactProvider, SymbolFactProvider};
@@ -54,7 +55,7 @@ mod tests {
             &self,
             context: &TestContext<'_>,
             request: SymbolFactRequest<ConstantDeclaredTypeFact>,
-        ) -> BinderFactResult<DiagnosticResult<TypeId>> {
+        ) -> BinderFactResult<DiagnosticResult<TypeExpressionTemplate>> {
             if context.is_cancelled() {
                 return Err(BinderFactError::Cancelled);
             }
@@ -64,7 +65,7 @@ mod tests {
             };
 
             Ok(DiagnosticResult::without_diagnostics(
-                *context.symbol_facts().result.value(),
+                context.symbol_facts().result.value().clone(),
             ))
         }
     }
@@ -136,7 +137,9 @@ mod tests {
 
         assert_eq!(
             first,
-            Ok(DiagnosticResult::without_diagnostics(fixture.declared_type))
+            Ok(DiagnosticResult::without_diagnostics(
+                TypeExpressionTemplate::Resolved(fixture.declared_type)
+            ))
         );
 
         let unknown = SymbolFactRequest::<ConstantDeclaredTypeFact>::new(

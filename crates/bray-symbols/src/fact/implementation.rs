@@ -2,7 +2,27 @@ use std::{collections::BTreeMap, collections::btree_map::Entry, sync::Arc};
 
 use bray_base::shared_slice;
 
-use crate::{ImplementationInstanceId, SymbolKey, TraitApplicationId, TypeId};
+use crate::{
+    ImplementationInstanceId, SymbolKey, TraitApplicationId, TypeExpressionTemplate, TypeId,
+};
+
+/// The source type template named by one implementation declaration.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct ImplementationSubjectTemplate {
+    ty: TypeExpressionTemplate,
+}
+
+impl ImplementationSubjectTemplate {
+    /// Creates an implementation subject template.
+    pub const fn new(ty: TypeExpressionTemplate) -> Self {
+        Self { ty }
+    }
+
+    /// Returns the implemented type template.
+    pub const fn ty(&self) -> &TypeExpressionTemplate {
+        &self.ty
+    }
+}
 
 /// The checked subject type implemented by one implementation declaration.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]

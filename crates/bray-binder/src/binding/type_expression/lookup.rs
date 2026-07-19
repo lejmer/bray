@@ -1,8 +1,9 @@
 use bray_diagnostics::DiagnosticNameKind;
 use bray_symbols::{
-    AnySymbolId, GenericConstParameterSymbolId, GenericOwnerId, GenericParameterSymbolId,
-    GenericSubstitutionData, GenericTypeParameterSymbolId, MemberLookupResult, NamedTypeSymbolId,
-    TraitApplicationData, TraitApplicationId, TraitSymbolId, TraitTypeMemberSymbolId,
+    AnySymbolId, GenericArgumentTemplate, GenericConstParameterSymbolId, GenericOwnerId,
+    GenericParameterSymbolId, GenericSubstitutionData, GenericTypeParameterSymbolId,
+    MemberLookupResult, NamedTypeSymbolId, TraitApplicationData, TraitApplicationId,
+    TraitApplicationTemplate, TraitSymbolId, TraitTypeMemberSymbolId,
 };
 use bray_syntax::{PathSyntax, SourceSyntaxNode, TraitApplicationSyntax, TypeExpressionSyntax};
 
@@ -17,7 +18,7 @@ impl TypeExpressionBinder<'_> {
     pub(super) fn bind_trait(
         &mut self,
         syntax: &TraitApplicationSyntax,
-    ) -> BinderFactResult<TraitApplicationId> {
+    ) -> BinderFactResult<TraitApplicationTemplate> {
         let definition = self.bind_trait_path(&syntax.path());
 
         let MemberLookupResult::Found(definition) = definition else {
@@ -29,21 +30,44 @@ impl TypeExpressionBinder<'_> {
         let arguments = self
             .bind_generic_arguments(syntax.generic_argument_lists().next().as_ref(), &parameters)?;
 
-        let Some(owner) = GenericOwnerId::try_new(definition.into()) else {
+        Ok(TraitApplicationTemplate::new(definition, arguments))
+    }
+
+    /// Produces a canonical trait application when every argument is already resolved.
+    pub fn resolve_trait_application_template(
+        &self,
+        template: &TraitApplicationTemplate,
+    ) -> BinderFactResult<Option<TraitApplicationId>> {
+        let arguments = template
+            .arguments()
+            .iter()
+            .map(GenericArgumentTemplate::resolved_argument)
+            .collect::<Option<Vec<_>>>();
+
+        let Some(arguments) = arguments else {
+            return Ok(None);
+        };
+
+        let parameters = self.trait_parameters(template.definition())?;
+        let Some(owner) = GenericOwnerId::try_new(template.definition().into()) else {
             return Err(BinderFactError::DependencyUnavailable);
         };
 
         let substitution = GenericSubstitutionData::try_new(owner, parameters, arguments)
             .map_err(|_| BinderFactError::DependencyUnavailable)?;
-
         let substitution = self
             .semantic_values
             .intern_generic_substitution(substitution)
             .map_err(|_| BinderFactError::DependencyUnavailable)?;
+        let application = self
+            .semantic_values
+            .intern_trait_application(TraitApplicationData::new(
+                template.definition(),
+                substitution,
+            ))
+            .map_err(|_| BinderFactError::DependencyUnavailable)?;
 
-        self.semantic_values
-            .intern_trait_application(TraitApplicationData::new(definition, substitution))
-            .map_err(|_| BinderFactError::DependencyUnavailable)
+        Ok(Some(application))
     }
 
     pub(super) fn bind_type_path(

@@ -587,6 +587,7 @@ Imported package interfaces reconstruct the same public symbol categories and re
 The following concepts require precise semantic models but are not declaration symbols:
 
 - a constructed generic type,
+- a source type-expression template awaiting embedded constant checking,
 - a structural type form,
 - a trait application,
 - a substituted generic callable instance,
@@ -618,10 +619,10 @@ These concepts should use separate typed identities where interning or cross-ref
 A constructed entity references its original definition symbol and ordered arguments. It does not reuse the definition's symbol ID
 as though construction had not occurred.
 
-`bray-symbols` owns canonical semantic types, constant values, open constant terms, substitutions, portable dependency-contract
-templates, and their interner APIs because they directly compose from typed symbol IDs and are returned by symbol facts. They remain
-separate semantic categories and do not become symbols merely because the symbol crate owns their dependency-safe representation.
-The full contract is defined in `docs/design/binder.md`.
+`bray-symbols` owns source type-expression templates, canonical semantic types, constant values, open constant terms,
+substitutions, portable dependency-contract templates, and their interner APIs because they directly compose from typed symbol IDs
+and are returned by symbol facts. They remain separate semantic categories and do not become symbols merely because the symbol crate
+owns their dependency-safe representation. The full contract is defined in `docs/design/binder.md`.
 
 ---
 
