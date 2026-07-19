@@ -2,7 +2,8 @@ use std::sync::Arc;
 
 use bray_binder::SymbolFactProvider;
 use bray_symbols::{
-    SymbolFactContract, SymbolFactRequest, SymbolFactResult, SymbolGraph, TypeData,
+    ConstantTermData, ConstantTermId, ConstantValueData, ConstantValueId, SymbolFactContract,
+    SymbolFactRequest, SymbolFactResult, SymbolGraph, TypeData,
 };
 
 use super::super::context::CompilationBinderFacts;
@@ -30,13 +31,41 @@ pub(super) fn symbol_graph(compilation: &Compilation) -> &SymbolGraph {
 }
 
 pub(super) fn type_data(compilation: &Compilation, ty: bray_symbols::TypeId) -> Arc<TypeData> {
-    let values = match compilation.semantic_value_store() {
-        Ok(values) => values,
-        Err(error) => panic!("semantic value store must be available: {error:?}"),
-    };
+    let values = semantic_values(compilation);
 
     match values.type_data(ty) {
         Ok(data) => data,
         Err(error) => panic!("semantic type must be interned: {error:?}"),
+    }
+}
+
+pub(super) fn constant_term_data(
+    compilation: &Compilation,
+    term: ConstantTermId,
+) -> Arc<ConstantTermData> {
+    let values = semantic_values(compilation);
+
+    match values.constant_term_data(term) {
+        Ok(data) => data,
+        Err(error) => panic!("semantic constant term must be interned: {error:?}"),
+    }
+}
+
+pub(super) fn constant_value_data(
+    compilation: &Compilation,
+    value: ConstantValueId,
+) -> Arc<ConstantValueData> {
+    let values = semantic_values(compilation);
+
+    match values.constant_value_data(value) {
+        Ok(data) => data,
+        Err(error) => panic!("semantic constant value must be interned: {error:?}"),
+    }
+}
+
+fn semantic_values(compilation: &Compilation) -> &bray_symbols::SemanticValueStore {
+    match compilation.semantic_value_store() {
+        Ok(values) => values,
+        Err(error) => panic!("semantic value store must be available: {error:?}"),
     }
 }

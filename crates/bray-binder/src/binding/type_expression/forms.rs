@@ -1,13 +1,54 @@
-use bray_symbols::{
-    ConstantTermData, ConstantTermId, ConstantValueData, ConstantValueKind, GenericArgument,
-    TypeData, TypeId,
-};
+use bray_symbols::{MemberLookupResult, TypeData, TypeId};
 use bray_syntax::TypeExpressionSyntax;
 
 use super::core::TypeExpressionBinder;
 use crate::{BinderFactError, BinderFactResult};
 
 impl TypeExpressionBinder<'_> {
+    pub(super) fn bind_associated_type_projection(
+        &mut self,
+        syntax: &TypeExpressionSyntax,
+    ) -> BinderFactResult<TypeId> {
+        let mut subjects = syntax.type_expressions();
+
+        let Some(subject) = subjects.next() else {
+            return self.error_type();
+        };
+
+        if subjects.next().is_some() {
+            return self.error_type();
+        }
+
+        let mut applications = syntax.trait_applications();
+
+        let Some(application) = applications.next() else {
+            return self.error_type();
+        };
+
+        if applications.next().is_some() {
+            return self.error_type();
+        }
+
+        let subject = self.bind_type(&subject)?;
+        let application = self.bind_trait(&application)?;
+        let application_data = self
+            .semantic_values
+            .trait_application_data(application)
+            .map_err(|_| BinderFactError::DependencyUnavailable)?;
+        let definition = application_data.definition();
+        let member = self.bind_trait_type_member(definition, syntax);
+
+        let MemberLookupResult::Found(member) = member else {
+            return self.error_type();
+        };
+
+        self.intern_type(TypeData::AssociatedTypeProjection {
+            subject,
+            application,
+            member,
+        })
+    }
+
     pub(super) fn bind_box_type(
         &mut self,
         syntax: &TypeExpressionSyntax,
@@ -101,7 +142,7 @@ impl TypeExpressionBinder<'_> {
 
         let mut lengths = syntax.expressions();
 
-        let Some(_length) = lengths.next() else {
+        let Some(length) = lengths.next() else {
             return self.error_type();
         };
 
@@ -109,14 +150,9 @@ impl TypeExpressionBinder<'_> {
             return self.error_type();
         }
 
-        // TODO(BRA-202): Request the constant checker and retain its checked open term.
-        let length = self.recovery_constant_term()?;
+        let length = self.bind_array_length(&length)?;
 
         self.intern_type(TypeData::Array { element, length })
-    }
-
-    pub(super) fn bind_recovery_generic_argument(&self) -> BinderFactResult<GenericArgument> {
-        self.recovery_constant_term().map(GenericArgument::Constant)
     }
 
     fn bind_heap_storage_type(&mut self) -> BinderFactResult<TypeId> {
@@ -127,18 +163,5 @@ impl TypeExpressionBinder<'_> {
             .ok_or(BinderFactError::DependencyUnavailable)?;
 
         self.bind_named_type(definition.into(), None)
-    }
-
-    fn recovery_constant_term(&self) -> BinderFactResult<ConstantTermId> {
-        let error_type = self.error_type()?;
-
-        let value = self
-            .semantic_values
-            .intern_constant_value(ConstantValueData::new(error_type, ConstantValueKind::Error))
-            .map_err(|_| BinderFactError::DependencyUnavailable)?;
-
-        self.semantic_values
-            .intern_constant_term(ConstantTermData::Value(value))
-            .map_err(|_| BinderFactError::DependencyUnavailable)
     }
 }

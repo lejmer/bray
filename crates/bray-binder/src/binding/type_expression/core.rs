@@ -8,18 +8,19 @@ use bray_symbols::{
     CallableParameterData, CallableParameterMode, CallableParameterName,
     CallableParameterSignature, CallableParameterSymbolId, CallablePosition, CallableSignature,
     CallableSymbolId, CallableTrust, CallableTypeData, DependencyContractTemplateData,
-    GenericArgument, GenericOwnerId, GenericSubstitutionData, GenericTypeParameterSymbolId,
-    MemberLookupResult, ModuleSymbolId, NamedTypeSymbolId, ReceiverParameterSignature,
-    ReceiverParameterSymbolId, SelfTypeContext, SemanticValueStore, StructSymbolId, SymbolGraph,
-    SymbolName, TraitApplicationId, TypeData, TypeId,
+    GenericArgument, GenericConstParameterDeclaredTypeFact, GenericConstParameterSymbolId,
+    GenericOwnerId, GenericParameterSymbolId, GenericSubstitutionData,
+    GenericTypeParameterSymbolId, MemberLookupResult, ModuleSymbolId, NamedTypeSymbolId,
+    ReceiverParameterSignature, ReceiverParameterSymbolId, SelfTypeContext, SemanticValueStore,
+    StructSymbolId, SymbolGraph, SymbolName, TraitApplicationId, TypeData, TypeId,
 };
 use bray_syntax::{
     GenericArgumentListSyntax, ImplementationSubjectSyntax, ParameterListSyntax, ParameterSyntax,
     PathSyntax, SourceSyntaxNode, SyntaxToken, TraitApplicationSyntax, TypeExpressionSyntax,
 };
 
-use super::contract::{CallableTypeQualifiers, TypeParameterBinding};
-use crate::{BinderFactError, BinderFactResult};
+use super::contract::{CallableTypeQualifiers, TypeExpressionScope};
+use crate::{BinderFactError, BinderFactResult, SymbolFactProvider};
 
 /// Binds ordinary type-expression and trait-application syntax into canonical semantic values.
 pub struct TypeExpressionBinder<'facts> {
@@ -27,6 +28,9 @@ pub struct TypeExpressionBinder<'facts> {
     pub(super) semantic_values: &'facts SemanticValueStore,
     pub(super) module: Option<ModuleSymbolId>,
     pub(super) type_parameters: BTreeMap<SymbolName, GenericTypeParameterSymbolId>,
+    pub(super) const_parameters: BTreeMap<SymbolName, GenericConstParameterSymbolId>,
+    pub(super) const_parameter_types:
+        &'facts dyn SymbolFactProvider<GenericConstParameterDeclaredTypeFact>,
     pub(super) self_type: Option<SelfTypeContext>,
     pub(super) cancellation: &'facts dyn Cancellation,
     pub(super) diagnostics: DiagnosticBag,
@@ -37,12 +41,19 @@ impl<'facts> TypeExpressionBinder<'facts> {
     pub fn new(
         symbols: &'facts SymbolGraph,
         semantic_values: &'facts SemanticValueStore,
-        module: Option<ModuleSymbolId>,
-        type_parameters: impl IntoIterator<Item = TypeParameterBinding>,
-        self_type: Option<SelfTypeContext>,
+        scope: TypeExpressionScope,
+        const_parameter_types: &'facts dyn SymbolFactProvider<
+            GenericConstParameterDeclaredTypeFact,
+        >,
         cancellation: &'facts dyn Cancellation,
     ) -> Self {
-        let type_parameters = type_parameters
+        let type_parameters = scope
+            .type_parameters
+            .into_iter()
+            .map(|binding| (binding.name, binding.symbol))
+            .collect();
+        let const_parameters = scope
+            .const_parameters
             .into_iter()
             .map(|binding| (binding.name, binding.symbol))
             .collect();
@@ -50,9 +61,11 @@ impl<'facts> TypeExpressionBinder<'facts> {
         Self {
             symbols,
             semantic_values,
-            module,
+            module: scope.module,
             type_parameters,
-            self_type,
+            const_parameters,
+            const_parameter_types,
+            self_type: scope.self_type,
             cancellation,
             diagnostics: DiagnosticBag::new(),
         }
@@ -119,9 +132,13 @@ impl<'facts> TypeExpressionBinder<'facts> {
         receiver: Option<ReceiverParameterSymbolId>,
         parameter_list: &ParameterListSyntax,
         result_type: Option<&TypeExpressionSyntax>,
-        qualifiers: CallableTypeQualifiers,
+        qualifiers: DiagnosticResult<CallableTypeQualifiers>,
     ) -> BinderFactResult<DiagnosticResult<CallableSignature>> {
         self.check_cancellation()?;
+
+        let (qualifiers, diagnostics) = qualifiers.into_parts();
+
+        self.diagnostics.add_range(diagnostics);
 
         let parameters = parameter_list.parameters().collect::<Vec<_>>();
         let parameters_match_owner = parameter_symbols.iter().all(|parameter| {
@@ -231,8 +248,7 @@ impl<'facts> TypeExpressionBinder<'facts> {
         }
 
         if syntax.dot_token().is_some() {
-            // TODO(BRA-202): Select the associated type through the checker request context.
-            return self.error_type();
+            return self.bind_associated_type_projection(syntax);
         }
 
         if syntax.generic_argument_lists().next().is_some() {
@@ -360,7 +376,7 @@ impl<'facts> TypeExpressionBinder<'facts> {
         arguments: Option<&GenericArgumentListSyntax>,
     ) -> BinderFactResult<TypeId> {
         let parameters = self.named_type_parameters(definition)?;
-        let arguments = self.bind_generic_arguments(arguments)?;
+        let arguments = self.bind_generic_arguments(arguments, &parameters)?;
 
         let Some(owner) = GenericOwnerId::try_new(definition.into_any()) else {
             return Err(BinderFactError::DependencyUnavailable);
@@ -380,7 +396,10 @@ impl<'facts> TypeExpressionBinder<'facts> {
         })
     }
 
-    fn bind_compiler_known_type(&mut self, role: RepresentationRole) -> BinderFactResult<TypeId> {
+    pub(super) fn bind_compiler_known_type(
+        &mut self,
+        role: RepresentationRole,
+    ) -> BinderFactResult<TypeId> {
         let definition = self
             .symbols
             .compiler_known_provider()
@@ -394,24 +413,35 @@ impl<'facts> TypeExpressionBinder<'facts> {
     pub(super) fn bind_generic_arguments(
         &mut self,
         arguments: Option<&GenericArgumentListSyntax>,
+        parameters: &[GenericParameterSymbolId],
     ) -> BinderFactResult<Vec<GenericArgument>> {
         let Some(arguments) = arguments else {
-            return Ok(Vec::new());
+            return if parameters.is_empty() {
+                Ok(Vec::new())
+            } else {
+                Err(BinderFactError::DependencyUnavailable)
+            };
         };
 
+        let arguments = arguments.generic_arguments().collect::<Vec<_>>();
+
+        if arguments.len() != parameters.len() {
+            return Err(BinderFactError::DependencyUnavailable);
+        }
+
         arguments
-            .generic_arguments()
-            .map(|argument| {
-                if let Some(ty) = argument.type_expressions().next() {
-                    return self.bind_type(&ty).map(GenericArgument::Type);
-                }
-
-                if argument.expressions().next().is_some() {
-                    // TODO(BRA-202): Request the constant checker and retain its checked open term.
-                    return self.bind_recovery_generic_argument();
-                }
-
-                Err(BinderFactError::DependencyUnavailable)
+            .iter()
+            .zip(parameters.iter().copied())
+            .map(|(argument, parameter)| match parameter {
+                GenericParameterSymbolId::Type(_) => argument
+                    .type_expressions()
+                    .next()
+                    .ok_or(BinderFactError::DependencyUnavailable)
+                    .and_then(|ty| self.bind_type(&ty))
+                    .map(GenericArgument::Type),
+                GenericParameterSymbolId::Const(parameter) => self
+                    .bind_generic_constant_argument(argument, parameter)
+                    .map(GenericArgument::Constant),
             })
             .collect()
     }
@@ -459,7 +489,7 @@ impl<'facts> TypeExpressionBinder<'facts> {
         };
 
         let directives = syntax.callable_directives().next();
-        let abi = self.bind_optional_callable_abi(directives.as_ref())?;
+        let abi = self.bind_optional_callable_abi(directives.as_ref());
         let dependency_contract = self.empty_dependency_contract()?;
 
         let callable = CallableTypeData::new(
@@ -522,7 +552,7 @@ impl<'facts> TypeExpressionBinder<'facts> {
         self.intern_type(TypeData::Error)
     }
 
-    fn check_cancellation(&self) -> BinderFactResult<()> {
+    pub(super) fn check_cancellation(&self) -> BinderFactResult<()> {
         if self.cancellation.is_cancelled() {
             return Err(BinderFactError::Cancelled);
         }

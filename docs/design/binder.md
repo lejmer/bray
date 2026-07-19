@@ -240,6 +240,7 @@ pub enum TypeData {
     TypeParameter(GenericTypeParameterSymbolId),
     ContextualSelf(SelfTypeContext),
     AssociatedTypeProjection {
+        subject: TypeId,
         application: TraitApplicationId,
         member: TraitTypeMemberSymbolId,
     },
@@ -343,6 +344,10 @@ Conceptually, durable term variants include:
 ```rust
 pub enum ConstantTermData {
     Value(ConstantValueId),
+    IntegerLiteral {
+        ty: TypeId,
+        value: IntegerConstant,
+    },
     Parameter(GenericConstParameterSymbolId),
     TargetFact(TargetFactId),
     Unary {
@@ -379,6 +384,10 @@ predicate, contract, and runtime-default templates remain in `bray-bound-tree`.
 Closed subterms are evaluated and interned as `Value`. Open terms preserve evaluation order and selected operations. Interning does
 not perform arbitrary algebraic rewriting. For example, `N + 1` and `1 + N` normally have different open term identities even if a
 particular checking context can prove them equal.
+
+A target-sized integer literal remains an `IntegerLiteral` term until selected-target facts establish representability. The term
+retains the established integer type and normalized arbitrary-width value. It must not use the compiler host width or become a
+closed `ConstantValueId` before target validation succeeds.
 
 ### Generic Substitutions
 

@@ -71,6 +71,13 @@ pub enum InterfaceConstantValueKind {
 pub enum InterfaceConstantTerm {
     /// A closed constant value.
     Value(InterfaceConstantValueId),
+    /// A typed integer literal awaiting selected-target representability checking.
+    IntegerLiteral {
+        /// The literal's established integer type.
+        ty: InterfaceTypeId,
+        /// The normalized source value.
+        value: IntegerConstant,
+    },
     /// A generic constant parameter.
     Parameter(InterfaceSymbolReference),
     /// A compiler-known target fact.

@@ -99,6 +99,10 @@ pub enum DiagnosticKind {
     BindingNameAlreadyDefined,
     /// Alternatives do not introduce one coherent set of pattern bindings.
     BindingIncoherentAlternativePattern,
+    /// A callable ABI directive does not name a supported ABI.
+    BindingInvalidCallableAbi,
+    /// A callable surface contains more than one ABI directive.
+    BindingDuplicateCallableAbi,
     /// An expression's established type is incompatible with its expected type.
     CheckingIncompatibleExpressionType,
     /// Available constraints cannot establish an expression's canonical type.
@@ -194,6 +198,8 @@ impl DiagnosticKind {
             Self::BindingMalformedName => 6005,
             Self::BindingNameAlreadyDefined => 6006,
             Self::BindingIncoherentAlternativePattern => 6007,
+            Self::BindingInvalidCallableAbi => 6008,
+            Self::BindingDuplicateCallableAbi => 6009,
             Self::CheckingIncompatibleExpressionType => 7001,
             Self::CheckingCannotInferExpressionType => 7002,
             Self::CheckingInvalidConstantExpression => 7003,
@@ -272,6 +278,8 @@ impl DiagnosticKind {
             Self::BindingMalformedName => "binding_malformed_name",
             Self::BindingNameAlreadyDefined => "binding_name_already_defined",
             Self::BindingIncoherentAlternativePattern => "binding_incoherent_alternative_pattern",
+            Self::BindingInvalidCallableAbi => "binding_invalid_callable_abi",
+            Self::BindingDuplicateCallableAbi => "binding_duplicate_callable_abi",
             Self::CheckingIncompatibleExpressionType => "checking_incompatible_expression_type",
             Self::CheckingCannotInferExpressionType => "checking_cannot_infer_expression_type",
             Self::CheckingInvalidConstantExpression => "checking_invalid_constant_expression",
@@ -355,7 +363,7 @@ mod tests {
         }
     }
 
-    fn all_diagnostic_kinds() -> [DiagnosticKind; 68] {
+    fn all_diagnostic_kinds() -> [DiagnosticKind; 70] {
         [
             DiagnosticKind::SourceFileReadFailed,
             DiagnosticKind::SourceInvalidUtf8,
@@ -404,6 +412,8 @@ mod tests {
             DiagnosticKind::BindingMalformedName,
             DiagnosticKind::BindingNameAlreadyDefined,
             DiagnosticKind::BindingIncoherentAlternativePattern,
+            DiagnosticKind::BindingInvalidCallableAbi,
+            DiagnosticKind::BindingDuplicateCallableAbi,
             DiagnosticKind::CheckingIncompatibleExpressionType,
             DiagnosticKind::CheckingCannotInferExpressionType,
             DiagnosticKind::CheckingInvalidConstantExpression,

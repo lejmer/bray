@@ -59,6 +59,13 @@ const CHECKING_INCOMPATIBLE_CANDIDATE: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text(" candidate is incompatible with the supplied expressions"),
 ];
 
+const BINDING_INVALID_CALLABLE_ABI: &[MessageTemplatePart] =
+    &[MessageTemplatePart::Text("invalid callable ABI directive")];
+
+const BINDING_DUPLICATE_CALLABLE_ABI: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "callable ABI directive is repeated",
+)];
+
 const EMISSION_MISSING_CONTRIBUTION: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("missing required "),
     MessageTemplatePart::Arg(DiagnosticArgName::ArtifactKind),
@@ -525,6 +532,12 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         }
         DiagnosticKind::CheckingIncompatibleCandidate => {
             MessageTemplate::new(CHECKING_INCOMPATIBLE_CANDIDATE)
+        }
+        DiagnosticKind::BindingInvalidCallableAbi => {
+            MessageTemplate::new(BINDING_INVALID_CALLABLE_ABI)
+        }
+        DiagnosticKind::BindingDuplicateCallableAbi => {
+            MessageTemplate::new(BINDING_DUPLICATE_CALLABLE_ABI)
         }
         DiagnosticKind::EmissionMissingContribution => {
             MessageTemplate::new(EMISSION_MISSING_CONTRIBUTION)

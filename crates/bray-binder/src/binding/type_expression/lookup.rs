@@ -2,9 +2,9 @@ use bray_diagnostics::DiagnosticNameKind;
 use bray_symbols::{
     AnySymbolId, GenericConstParameterSymbolId, GenericOwnerId, GenericParameterSymbolId,
     GenericSubstitutionData, GenericTypeParameterSymbolId, MemberLookupResult, NamedTypeSymbolId,
-    TraitApplicationData, TraitApplicationId, TraitSymbolId,
+    TraitApplicationData, TraitApplicationId, TraitSymbolId, TraitTypeMemberSymbolId,
 };
-use bray_syntax::{PathSyntax, SourceSyntaxNode, TraitApplicationSyntax};
+use bray_syntax::{PathSyntax, SourceSyntaxNode, TraitApplicationSyntax, TypeExpressionSyntax};
 
 use super::core::{TypeExpressionBinder, token_text};
 use crate::lookup::{
@@ -26,8 +26,8 @@ impl TypeExpressionBinder<'_> {
 
         let parameters = self.trait_parameters(definition)?;
 
-        let arguments =
-            self.bind_generic_arguments(syntax.generic_argument_lists().next().as_ref())?;
+        let arguments = self
+            .bind_generic_arguments(syntax.generic_argument_lists().next().as_ref(), &parameters)?;
 
         let Some(owner) = GenericOwnerId::try_new(definition.into()) else {
             return Err(BinderFactError::DependencyUnavailable);
@@ -57,7 +57,7 @@ impl TypeExpressionBinder<'_> {
         lookup
     }
 
-    fn bind_trait_path(
+    pub(super) fn bind_trait_path(
         &mut self,
         path: &PathSyntax,
     ) -> MemberLookupResult<TraitSymbolId, ResolvedName> {
@@ -67,6 +67,39 @@ impl TypeExpressionBinder<'_> {
         });
 
         self.report_lookup(path, DiagnosticNameKind::Trait, &lookup);
+
+        lookup
+    }
+
+    pub(super) fn bind_trait_type_member(
+        &mut self,
+        definition: TraitSymbolId,
+        syntax: &TypeExpressionSyntax,
+    ) -> MemberLookupResult<TraitTypeMemberSymbolId, ResolvedName> {
+        let Some(token) = syntax.identifier_token() else {
+            return MemberLookupResult::Malformed(Box::new([]));
+        };
+
+        let Some(text) = token_text(syntax.source(), &token) else {
+            return MemberLookupResult::Malformed(Box::new([]));
+        };
+
+        let lookup = lookup_surface_name(
+            self.symbols,
+            definition.into(),
+            text,
+            crate::lookup::NameAccess::Internal,
+        )
+        .classify(|name| match name {
+            ResolvedName::Surface(AnySymbolId::TraitTypeMember(member)) => Some(member),
+            ResolvedName::Local(_) | ResolvedName::Surface(_) => None,
+        });
+
+        let reference = NameReference::new(text, syntax.source().source_id(), token.range());
+
+        if let Some(diagnostic) = lookup_diagnostic(&reference, DiagnosticNameKind::Type, &lookup) {
+            self.diagnostics.add(diagnostic);
+        }
 
         lookup
     }

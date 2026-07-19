@@ -53,6 +53,8 @@ pub enum InterfaceType {
     ContextualSelf(InterfaceSymbolReference),
     /// An associated type projection.
     AssociatedTypeProjection {
+        /// Type whose implementation supplies the member.
+        subject: InterfaceTypeId,
         /// Applied trait supplying the member.
         application: InterfaceTraitApplicationId,
         /// Projected type member.

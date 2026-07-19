@@ -22,8 +22,15 @@ pub(super) fn validate_type_data(
         TypeData::Named { substitution, .. } => {
             tables.substitutions.get(store, *substitution)?;
         }
-        TypeData::AssociatedTypeProjection { application, .. }
-        | TypeData::TraitView(application) => {
+        TypeData::AssociatedTypeProjection {
+            subject,
+            application,
+            ..
+        } => {
+            tables.types.get(store, *subject)?;
+            tables.trait_applications.get(store, *application)?;
+        }
+        TypeData::TraitView(application) => {
             tables.trait_applications.get(store, *application)?;
         }
         TypeData::Tuple(elements) => validate_types(tables, store, elements)?,
@@ -97,6 +104,9 @@ pub(super) fn validate_constant_term_data(
     match data {
         ConstantTermData::Value(value) => {
             tables.constant_values.get(store, *value)?;
+        }
+        ConstantTermData::IntegerLiteral { ty, .. } => {
+            tables.types.get(store, *ty)?;
         }
         ConstantTermData::Parameter(_) | ConstantTermData::TargetFact(_) => {}
         ConstantTermData::Unary { operand, .. } => {

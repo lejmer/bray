@@ -1,4 +1,5 @@
 use bray_binder::{BinderFactError, BinderFactResult, CallableTypeQualifiers, bind_callable_abi};
+use bray_diagnostics::DiagnosticResult;
 use bray_symbols::{
     AnySymbolId, CallableAbi, CallableConstness, CallableExecution, CallableTrust, ReceiverMode,
     SymbolGraph,
@@ -14,7 +15,7 @@ use super::super::context::CompilationBinderFacts;
 pub(super) struct CallableSurface {
     pub(super) parameters: ParameterListSyntax,
     pub(super) result: Option<TypeExpressionSyntax>,
-    pub(super) qualifiers: CallableTypeQualifiers,
+    pub(super) qualifiers: DiagnosticResult<CallableTypeQualifiers>,
 }
 
 pub(super) fn declaration_callable_surface(
@@ -59,12 +60,12 @@ fn callable_surface(
     });
 
     let parameters = parameters.ok_or(BinderFactError::DependencyUnavailable)?;
-    let abi = bind_callable_abi(abi_directives)?;
+    let abi = bind_callable_abi(abi_directives);
 
     Ok(CallableSurface {
         parameters,
         result,
-        qualifiers: callable_qualifiers(symbol, modifiers, abi),
+        qualifiers: abi.map(|abi| callable_qualifiers(symbol, modifiers, abi)),
     })
 }
 

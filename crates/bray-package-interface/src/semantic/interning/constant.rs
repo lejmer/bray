@@ -123,6 +123,14 @@ impl InternState {
             InterfaceConstantTerm::Value(id) => {
                 self.constant_value_id(*id).map(ConstantTermData::Value)
             }
+            InterfaceConstantTerm::IntegerLiteral { ty, value } => {
+                self.type_id(*ty)
+                    .map(|ty| ConstantTermData::IntegerLiteral {
+                        ty,
+                        // The interface snapshot remains immutable while the semantic store owns its key.
+                        value: value.clone(),
+                    })
+            }
             InterfaceConstantTerm::Parameter(parameter) => Some(ConstantTermData::Parameter(
                 resolve_exact(symbols, parameter)?,
             )),

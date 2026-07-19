@@ -334,6 +334,8 @@ pub enum TypeData {
     ContextualSelf(SelfTypeContext),
     /// A trait type member whose selected value remains context-dependent.
     AssociatedTypeProjection {
+        /// The type whose implementation supplies the member.
+        subject: TypeId,
         /// The exact applied trait.
         application: TraitApplicationId,
         /// The projected type-valued member.

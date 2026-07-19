@@ -3,12 +3,13 @@ use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{
     AnySymbolId, CallableContractSymbolId, CallableContractTypeFact, CallableContractsFact,
     CallableSignatureFact, CallableSymbolId, ConstantDeclaredTypeFact, ExactSymbolId,
-    GenericConstraintsFact, GenericOwnerId, ImplementationCoherenceFact, ImplementationSubjectFact,
-    ImplementationSymbolId, ImplementedTraitApplicationFact, InherentTypeMemberValueFact,
-    StructFieldSymbolId, StructFieldTypeFact, SymbolCompletionLevel, SymbolFactCompletionRequest,
-    SymbolFactContract, SymbolFactForcer, SymbolFactKind, SymbolFactRequest,
-    TraitConstantFulfillmentDeclaredTypeFact, TraitConstantMemberDeclaredTypeFact,
-    TraitTypeFulfillmentValueFact, UnionPayloadFieldSymbolId, UnionPayloadFieldTypeFact,
+    GenericConstParameterDeclaredTypeFact, GenericConstraintsFact, GenericOwnerId,
+    ImplementationCoherenceFact, ImplementationSubjectFact, ImplementationSymbolId,
+    ImplementedTraitApplicationFact, InherentTypeMemberValueFact, StructFieldSymbolId,
+    StructFieldTypeFact, SymbolCompletionLevel, SymbolFactCompletionRequest, SymbolFactContract,
+    SymbolFactForcer, SymbolFactKind, SymbolFactRequest, TraitConstantFulfillmentDeclaredTypeFact,
+    TraitConstantMemberDeclaredTypeFact, TraitTypeFulfillmentValueFact, UnionPayloadFieldSymbolId,
+    UnionPayloadFieldTypeFact,
 };
 
 use super::super::context::CompilationBinderFacts;
@@ -99,6 +100,9 @@ fn force_constant_declared_type(
         }
         AnySymbolId::TraitConstantFulfillment(owner) => {
             force_typed::<TraitConstantFulfillmentDeclaredTypeFact>(facts, owner)
+        }
+        AnySymbolId::GenericConstParameter(owner) => {
+            force_typed::<GenericConstParameterDeclaredTypeFact>(facts, owner)
         }
         _ => Err(FactQueryError::InfrastructureFailure),
     }

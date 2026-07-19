@@ -128,6 +128,7 @@ pub(super) fn decode_type(
             reader, context,
         )?)),
         3 => Ok(InterfaceType::AssociatedTypeProjection {
+            subject: InterfaceTypeId::new(read_u32(reader)?),
             application: InterfaceTraitApplicationId::new(read_u32(reader)?),
             member: read_symbol_reference(reader, context)?,
         }),
@@ -246,24 +247,7 @@ pub(super) fn decode_constant_value(
         2 => char::from_u32(read_u32(reader)?)
             .map(InterfaceConstantValueKind::Character)
             .ok_or(InterfaceValidationError::Malformed),
-        3 => {
-            let sign = match read_u32(reader)? {
-                1 => IntegerSign::NonNegative,
-                2 => IntegerSign::Negative,
-                _ => return Err(InterfaceValidationError::Malformed),
-            };
-
-            let length = read_count(reader, limits, InterfaceLimit::BlobLength)?;
-            let magnitude = reader.read_bytes(length).map_err(map_wire_error)?;
-
-            let integer = IntegerConstant::new(sign, magnitude.iter().copied());
-
-            if integer.sign() != sign || integer.magnitude() != magnitude {
-                return Err(InterfaceValidationError::Malformed);
-            }
-
-            Ok(InterfaceConstantValueKind::Integer(integer))
-        }
+        3 => decode_integer(reader, limits).map(InterfaceConstantValueKind::Integer),
         4 => Ok(InterfaceConstantValueKind::Real(decode_real(reader)?)),
         5 => Ok(InterfaceConstantValueKind::Complex {
             real: decode_real(reader)?,
@@ -337,8 +321,33 @@ pub(super) fn decode_constant_term(
             subject: InterfaceConstantTermId::new(read_u32(reader)?),
             kind: decode_constant_projection(reader, context)?,
         }),
+        9 => Ok(InterfaceConstantTerm::IntegerLiteral {
+            ty: InterfaceTypeId::new(read_u32(reader)?),
+            value: decode_integer(reader, context.limits())?,
+        }),
         _ => Err(InterfaceValidationError::Malformed),
     }
+}
+
+fn decode_integer(
+    reader: &mut WireReader<'_>,
+    limits: InterfaceValidationLimits,
+) -> Result<IntegerConstant, InterfaceValidationError> {
+    let sign = match read_u32(reader)? {
+        1 => IntegerSign::NonNegative,
+        2 => IntegerSign::Negative,
+        _ => return Err(InterfaceValidationError::Malformed),
+    };
+
+    let length = read_count(reader, limits, InterfaceLimit::BlobLength)?;
+    let magnitude = reader.read_bytes(length).map_err(map_wire_error)?;
+    let integer = IntegerConstant::new(sign, magnitude.iter().copied());
+
+    if integer.sign() != sign || integer.magnitude() != magnitude {
+        return Err(InterfaceValidationError::Malformed);
+    }
+
+    Ok(integer)
 }
 
 pub(super) fn decode_constant_projection(
@@ -367,10 +376,11 @@ pub(super) fn decode_constant_projection(
 mod tests {
     use bray_symbols::{
         AnySymbolId, CallableAbi, CallableConstness, CallableExecution, CallableParameterMode,
-        CallablePosition, CallableTrust, ConstantSymbolId, ExternalSymbolKey, FunctionSymbolId,
-        InherentImplementationSymbolId, ModuleSymbolId, NamedTypeSymbolId, PackageIdentity,
-        PackageSymbolId, SelfTypeContext, SemanticValueStore, StructSymbolId, SymbolId, SymbolKind,
-        SymbolName, SymbolOrdinal, TraitSymbolId, TypeData,
+        CallablePosition, CallableTrust, ConstantSymbolId, ConstantTermData, ExternalSymbolKey,
+        FunctionSymbolId, InherentImplementationSymbolId, IntegerConstant, IntegerSign,
+        ModuleSymbolId, NamedTypeSymbolId, PackageIdentity, PackageSymbolId, SelfTypeContext,
+        SemanticValueStore, StructSymbolId, SymbolId, SymbolKind, SymbolName, SymbolOrdinal,
+        TraitSymbolId, TypeData,
     };
 
     use super::super::decode_semantic_facts;
@@ -500,6 +510,51 @@ mod tests {
                 .deferred_execution()
                 .is_some()
         );
+    }
+
+    #[test]
+    fn target_sensitive_integer_terms_round_trip_without_becoming_closed_values() {
+        let surface = interface_surface(package_identity(), [], []);
+        let facts = InterfaceSemanticFacts::new().with_values(
+            [],
+            [InterfaceType::Tuple([].into())],
+            [],
+            [InterfaceConstantTerm::IntegerLiteral {
+                ty: InterfaceTypeId::new(0),
+                value: IntegerConstant::new(IntegerSign::NonNegative, [4]),
+            }],
+        );
+        let limits = InterfaceValidationLimits::default();
+        let sections = encode_semantic_facts(&facts, &surface, limits)
+            .unwrap_or_else(|error| panic!("semantic encoding failed: {error:?}"));
+        let views = sections
+            .iter()
+            .map(|section| {
+                ValidatedInterfaceSection::for_test(
+                    section.tag(),
+                    section.record_count(),
+                    section.payload(),
+                )
+            })
+            .collect::<Vec<_>>();
+        let decoded = decode_semantic_facts(&views, &surface, limits)
+            .unwrap_or_else(|error| panic!("semantic decoding failed: {error:?}"));
+
+        assert_eq!(decoded, facts);
+
+        let store = SemanticValueStore::try_new()
+            .unwrap_or_else(|error| panic!("semantic store creation failed: {error:?}"));
+        let imported = decoded
+            .intern(&store, &resolver(&surface))
+            .unwrap_or_else(|error| panic!("semantic interning failed: {error:?}"));
+        let term = store
+            .constant_term_data(imported.constant_terms()[0])
+            .unwrap_or_else(|error| panic!("constant term must be interned: {error:?}"));
+
+        assert!(matches!(
+            term.as_ref(),
+            ConstantTermData::IntegerLiteral { value, .. } if value.magnitude() == [4]
+        ));
     }
 
     #[test]

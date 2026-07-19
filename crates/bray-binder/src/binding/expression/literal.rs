@@ -38,7 +38,7 @@ impl ExpressionBinder {
     }
 }
 
-fn literal_kind(kind: SyntaxKind) -> Option<BoundLiteralKind> {
+pub(in crate::binding) fn literal_kind(kind: SyntaxKind) -> Option<BoundLiteralKind> {
     Some(match kind {
         SyntaxKind::DecimalIntegerLiteralToken
         | SyntaxKind::BinaryIntegerLiteralToken

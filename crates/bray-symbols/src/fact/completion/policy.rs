@@ -114,7 +114,8 @@ impl SymbolFactKind {
             }
             Self::CallableSignature | Self::CallableContracts => supports_callable_facts(kind),
             Self::CallableContractType => matches!(kind, SymbolKind::CallableContract),
-            Self::ConstantDeclaredType | Self::ConstantDefinition => supports_constant_facts(kind),
+            Self::ConstantDeclaredType => supports_declared_constant_type(kind),
+            Self::ConstantDefinition => supports_constant_facts(kind),
             Self::CallableParameterDefault => matches!(kind, SymbolKind::CallableParameter),
             Self::StructFieldType | Self::StructFieldDefault => {
                 matches!(kind, SymbolKind::StructField)
@@ -175,6 +176,10 @@ const fn supports_constant_facts(kind: SymbolKind) -> bool {
             | SymbolKind::TraitConstantMember
             | SymbolKind::TraitConstantFulfillment
     )
+}
+
+const fn supports_declared_constant_type(kind: SymbolKind) -> bool {
+    matches!(kind, SymbolKind::GenericConstParameter) || supports_constant_facts(kind)
 }
 
 const fn supports_predicate_facts(kind: SymbolKind) -> bool {

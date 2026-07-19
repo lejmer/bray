@@ -311,6 +311,13 @@ impl ConstantProjection {
 pub enum ConstantTermData {
     /// A fully evaluated closed value.
     Value(ConstantValueId),
+    /// A typed integer literal awaiting selected-target representability checking.
+    IntegerLiteral {
+        /// The literal's established integer type.
+        ty: TypeId,
+        /// The normalized source value.
+        value: IntegerConstant,
+    },
     /// A generic constant parameter.
     Parameter(GenericConstParameterSymbolId),
     /// A compiler-known target fact represented by its exact constant declaration.

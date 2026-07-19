@@ -10,7 +10,7 @@ use bray_symbols::{
 };
 
 use crate::constant::limits::EvaluationBudget;
-use crate::constant::literal::{LiteralValueError, parse_literal};
+use crate::constant::literal::{ConstantLiteralError, parse_literal};
 use crate::diagnostic::{diagnostic_id, expression_span};
 use crate::representation::type_representation;
 use crate::{
@@ -169,14 +169,14 @@ where
         )
         .map_err(|error| {
             let kind = match error {
-                LiteralValueError::Invalid => DiagnosticKind::CheckingInvalidConstantExpression,
-                LiteralValueError::NotRepresentable => {
+                ConstantLiteralError::Invalid => DiagnosticKind::CheckingInvalidConstantExpression,
+                ConstantLiteralError::NotRepresentable => {
                     DiagnosticKind::CheckingConstantLiteralNotRepresentable
                 }
-                LiteralValueError::SizeLimitExceeded => {
+                ConstantLiteralError::SizeLimitExceeded => {
                     DiagnosticKind::CheckingConstantLiteralSizeLimitExceeded
                 }
-                LiteralValueError::TargetIntegerWidthRequired => {
+                ConstantLiteralError::TargetIntegerWidthRequired => {
                     return EvaluationFailure::Infrastructure(
                         CheckerInfrastructureError::InvalidConstantEvaluationInput,
                     );

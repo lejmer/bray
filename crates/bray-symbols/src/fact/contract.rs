@@ -4,10 +4,11 @@ use bray_diagnostics::DiagnosticResult;
 
 use crate::{
     AnySymbolId, CallableContractSymbolId, CallableParameterSymbolId, CallableSymbolId,
-    ConstantSymbolId, GenericOwnerId, ImplementationSymbolId, InherentTypeMemberSymbolId,
-    PredicateSymbolId, StructFieldSymbolId, TraitConstantFulfillmentSymbolId,
-    TraitConstantMemberSymbolId, TraitPredicateFulfillmentSymbolId, TraitPredicateMemberSymbolId,
-    TraitTypeFulfillmentSymbolId, TypeId, UnionPayloadFieldSymbolId,
+    ConstantSymbolId, GenericConstParameterSymbolId, GenericOwnerId, ImplementationSymbolId,
+    InherentTypeMemberSymbolId, PredicateSymbolId, StructFieldSymbolId,
+    TraitConstantFulfillmentSymbolId, TraitConstantMemberSymbolId,
+    TraitPredicateFulfillmentSymbolId, TraitPredicateMemberSymbolId, TraitTypeFulfillmentSymbolId,
+    TypeId, UnionPayloadFieldSymbolId,
 };
 
 use super::{
@@ -154,6 +155,13 @@ define_symbol_fact_contract! {
         value: TypeId,
         kind: ConstantDeclaredType,
         erase: |owner: ConstantSymbolId| owner.into(),
+    }
+    /// The declared type of one generic constant parameter.
+    GenericConstParameterDeclaredTypeFact {
+        owner: GenericConstParameterSymbolId,
+        value: TypeId,
+        kind: ConstantDeclaredType,
+        erase: |owner: GenericConstParameterSymbolId| owner.into(),
     }
     /// The declared type of one trait constant member.
     TraitConstantMemberDeclaredTypeFact {

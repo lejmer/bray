@@ -7,22 +7,28 @@ use bray_bound_tree::BoundLiteralKind;
 use bray_compiler_known::{IntegerRepresentation, RepresentationRole};
 use bray_symbols::{ConstantValueKind, IntegerConstant, IntegerSign, RealConstantBits};
 
+/// Why a source literal cannot become a constant value of its selected representation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) enum LiteralValueError {
+pub enum ConstantLiteralError {
+    /// The literal category or spelling does not match the selected representation.
     Invalid,
+    /// The normalized value is outside the selected representation's range.
     NotRepresentable,
+    /// The source literal exceeds the deterministic literal-size ceiling.
     SizeLimitExceeded,
+    /// Representability depends on a selected target width that is not available.
     TargetIntegerWidthRequired,
 }
 
 const MAX_INTEGER_LITERAL_BYTES: usize = 4 * 1024;
 
-pub(super) fn parse_literal(
+/// Checks and normalizes one source literal for an exact selected representation.
+pub fn check_constant_literal(
     kind: BoundLiteralKind,
     text: &str,
     representation: RepresentationRole,
     target_integer_width_bits: Option<NonZeroU16>,
-) -> Result<ConstantValueKind, LiteralValueError> {
+) -> Result<ConstantValueKind, ConstantLiteralError> {
     match kind {
         BoundLiteralKind::Integer => parse_integer(text, representation, target_integer_width_bits),
         BoundLiteralKind::Real => parse_real(text, representation).map(ConstantValueKind::Real),
@@ -33,17 +39,38 @@ pub(super) fn parse_literal(
     }
 }
 
+pub(super) fn parse_literal(
+    kind: BoundLiteralKind,
+    text: &str,
+    representation: RepresentationRole,
+    target_integer_width_bits: Option<NonZeroU16>,
+) -> Result<ConstantValueKind, ConstantLiteralError> {
+    check_constant_literal(kind, text, representation, target_integer_width_bits)
+}
+
+/// Normalizes an integer literal without assuming a target-selected integer width.
+pub fn normalize_integer_literal(text: &str) -> Result<IntegerConstant, ConstantLiteralError> {
+    if text.len() > MAX_INTEGER_LITERAL_BYTES {
+        return Err(ConstantLiteralError::SizeLimitExceeded);
+    }
+
+    let (radix, digits) = integer_digits(text)?;
+    let magnitude = parse_unsigned_magnitude(digits, radix)?;
+
+    Ok(IntegerConstant::new(IntegerSign::NonNegative, magnitude))
+}
+
 fn parse_integer(
     text: &str,
     representation: RepresentationRole,
     target_integer_width_bits: Option<NonZeroU16>,
-) -> Result<ConstantValueKind, LiteralValueError> {
+) -> Result<ConstantValueKind, ConstantLiteralError> {
     if text.len() > MAX_INTEGER_LITERAL_BYTES {
-        return Err(LiteralValueError::SizeLimitExceeded);
+        return Err(ConstantLiteralError::SizeLimitExceeded);
     }
 
     let Some(integer_representation) = representation.integer_representation() else {
-        return Err(LiteralValueError::Invalid);
+        return Err(ConstantLiteralError::Invalid);
     };
 
     let (radix, digits) = integer_digits(text)?;
@@ -54,7 +81,7 @@ fn parse_integer(
         integer_representation,
         target_integer_width_bits,
     )? {
-        return Err(LiteralValueError::NotRepresentable);
+        return Err(ConstantLiteralError::NotRepresentable);
     }
 
     Ok(ConstantValueKind::Integer(IntegerConstant::new(
@@ -63,7 +90,7 @@ fn parse_integer(
     )))
 }
 
-fn integer_digits(text: &str) -> Result<(u8, &str), LiteralValueError> {
+fn integer_digits(text: &str) -> Result<(u8, &str), ConstantLiteralError> {
     if let Some(digits) = text.strip_prefix("0b").or_else(|| text.strip_prefix("0B")) {
         Ok((2, digits))
     } else if let Some(digits) = text.strip_prefix("0x").or_else(|| text.strip_prefix("0X")) {
@@ -73,7 +100,7 @@ fn integer_digits(text: &str) -> Result<(u8, &str), LiteralValueError> {
     }
 }
 
-fn parse_unsigned_magnitude(text: &str, radix: u8) -> Result<Vec<u8>, LiteralValueError> {
+fn parse_unsigned_magnitude(text: &str, radix: u8) -> Result<Vec<u8>, ConstantLiteralError> {
     let mut magnitude = Vec::new();
     let mut saw_digit = false;
 
@@ -83,10 +110,10 @@ fn parse_unsigned_magnitude(text: &str, radix: u8) -> Result<Vec<u8>, LiteralVal
         }
 
         let Some(digit) = character.to_digit(u32::from(radix)) else {
-            return Err(LiteralValueError::Invalid);
+            return Err(ConstantLiteralError::Invalid);
         };
 
-        let digit = u8::try_from(digit).map_err(|_| LiteralValueError::Invalid)?;
+        let digit = u8::try_from(digit).map_err(|_| ConstantLiteralError::Invalid)?;
 
         saw_digit = true;
 
@@ -94,7 +121,7 @@ fn parse_unsigned_magnitude(text: &str, radix: u8) -> Result<Vec<u8>, LiteralVal
     }
 
     if !saw_digit {
-        return Err(LiteralValueError::Invalid);
+        return Err(ConstantLiteralError::Invalid);
     }
 
     Ok(magnitude)
@@ -121,7 +148,7 @@ fn integer_literal_fits(
     magnitude: &[u8],
     representation: IntegerRepresentation,
     target_integer_width_bits: Option<NonZeroU16>,
-) -> Result<bool, LiteralValueError> {
+) -> Result<bool, ConstantLiteralError> {
     let significant_bits = magnitude.first().map_or(0, |first| {
         magnitude.len() * 8 - first.leading_zeros() as usize
     });
@@ -130,14 +157,14 @@ fn integer_literal_fits(
         IntegerRepresentation::Signed(width) => significant_bits < usize::from(width),
         IntegerRepresentation::Unsigned(width) => significant_bits <= usize::from(width),
         IntegerRepresentation::TargetSigned => {
-            let width =
-                target_integer_width_bits.ok_or(LiteralValueError::TargetIntegerWidthRequired)?;
+            let width = target_integer_width_bits
+                .ok_or(ConstantLiteralError::TargetIntegerWidthRequired)?;
 
             significant_bits < usize::from(width.get())
         }
         IntegerRepresentation::TargetUnsigned => {
-            let width =
-                target_integer_width_bits.ok_or(LiteralValueError::TargetIntegerWidthRequired)?;
+            let width = target_integer_width_bits
+                .ok_or(ConstantLiteralError::TargetIntegerWidthRequired)?;
 
             significant_bits <= usize::from(width.get())
         }
@@ -149,7 +176,7 @@ fn integer_literal_fits(
 fn parse_real(
     text: &str,
     representation: RepresentationRole,
-) -> Result<RealConstantBits, LiteralValueError> {
+) -> Result<RealConstantBits, ConstantLiteralError> {
     let text = text.replace('_', "");
 
     match representation {
@@ -164,28 +191,30 @@ fn parse_real(
         }
         RepresentationRole::ScalarR128 => parse_float::<Quad>(&text)
             .map(|value| RealConstantBits::Binary128(value.to_bits().to_be_bytes())),
-        _ => Err(LiteralValueError::Invalid),
+        _ => Err(ConstantLiteralError::Invalid),
     }
 }
 
-fn parse_float_bits<F, B>(text: &str) -> Result<B, LiteralValueError>
+fn parse_float_bits<F, B>(text: &str) -> Result<B, ConstantLiteralError>
 where
     F: Float,
     B: TryFrom<u128>,
 {
     let value = parse_float::<F>(text)?;
 
-    B::try_from(value.to_bits()).map_err(|_| LiteralValueError::Invalid)
+    B::try_from(value.to_bits()).map_err(|_| ConstantLiteralError::Invalid)
 }
 
-fn parse_float<F>(text: &str) -> Result<F, LiteralValueError>
+fn parse_float<F>(text: &str) -> Result<F, ConstantLiteralError>
 where
     F: Float,
 {
-    let value = text.parse::<F>().map_err(|_| LiteralValueError::Invalid)?;
+    let value = text
+        .parse::<F>()
+        .map_err(|_| ConstantLiteralError::Invalid)?;
 
     if !value.is_finite() {
-        return Err(LiteralValueError::NotRepresentable);
+        return Err(ConstantLiteralError::NotRepresentable);
     }
 
     Ok(value)
@@ -194,9 +223,9 @@ where
 fn parse_imaginary(
     text: &str,
     representation: RepresentationRole,
-) -> Result<ConstantValueKind, LiteralValueError> {
+) -> Result<ConstantValueKind, ConstantLiteralError> {
     let Some(text) = text.strip_suffix('i') else {
-        return Err(LiteralValueError::Invalid);
+        return Err(ConstantLiteralError::Invalid);
     };
 
     if representation.numeric_kind() == Some(bray_compiler_known::NumericRepresentationKind::Real) {
@@ -204,7 +233,7 @@ fn parse_imaginary(
     }
 
     let Some(component) = representation.complex_component() else {
-        return Err(LiteralValueError::Invalid);
+        return Err(ConstantLiteralError::Invalid);
     };
 
     let imaginary = parse_real(text, component)?;
@@ -222,20 +251,20 @@ fn zero_like(value: RealConstantBits) -> RealConstantBits {
     }
 }
 
-fn parse_boolean(text: &str) -> Result<ConstantValueKind, LiteralValueError> {
+fn parse_boolean(text: &str) -> Result<ConstantValueKind, ConstantLiteralError> {
     match text {
         "true" => Ok(ConstantValueKind::Boolean(true)),
         "false" => Ok(ConstantValueKind::Boolean(false)),
-        _ => Err(LiteralValueError::Invalid),
+        _ => Err(ConstantLiteralError::Invalid),
     }
 }
 
-fn parse_character(text: &str) -> Result<ConstantValueKind, LiteralValueError> {
+fn parse_character(text: &str) -> Result<ConstantValueKind, ConstantLiteralError> {
     let Some(content) = text
         .strip_prefix('\'')
         .and_then(|text| text.strip_suffix('\''))
     else {
-        return Err(LiteralValueError::Invalid);
+        return Err(ConstantLiteralError::Invalid);
     };
 
     let decoded = decode_quoted_content(content, BoundLiteralKind::Character)?;
@@ -243,22 +272,22 @@ fn parse_character(text: &str) -> Result<ConstantValueKind, LiteralValueError> {
     let mut characters = decoded.chars();
 
     let Some(character) = characters.next() else {
-        return Err(LiteralValueError::Invalid);
+        return Err(ConstantLiteralError::Invalid);
     };
 
     if characters.next().is_some() {
-        return Err(LiteralValueError::Invalid);
+        return Err(ConstantLiteralError::Invalid);
     }
 
     Ok(ConstantValueKind::Character(character))
 }
 
-fn parse_string(text: &str) -> Result<ConstantValueKind, LiteralValueError> {
+fn parse_string(text: &str) -> Result<ConstantValueKind, ConstantLiteralError> {
     let Some(content) = text
         .strip_prefix('"')
         .and_then(|text| text.strip_suffix('"'))
     else {
-        return Err(LiteralValueError::Invalid);
+        return Err(ConstantLiteralError::Invalid);
     };
 
     decode_quoted_content(content, BoundLiteralKind::String).map(ConstantValueKind::string)
@@ -267,7 +296,7 @@ fn parse_string(text: &str) -> Result<ConstantValueKind, LiteralValueError> {
 fn decode_quoted_content(
     content: &str,
     kind: BoundLiteralKind,
-) -> Result<String, LiteralValueError> {
+) -> Result<String, ConstantLiteralError> {
     let mut decoded = String::new();
     let mut characters = content.chars();
 
@@ -278,7 +307,7 @@ fn decode_quoted_content(
         }
 
         let Some(escaped) = characters.next() else {
-            return Err(LiteralValueError::Invalid);
+            return Err(ConstantLiteralError::Invalid);
         };
 
         match escaped {
@@ -290,7 +319,7 @@ fn decode_quoted_content(
             't' => decoded.push('\t'),
             '0' => decoded.push('\0'),
             'u' => decoded.push(decode_unicode_escape(&mut characters)?),
-            _ => return Err(LiteralValueError::Invalid),
+            _ => return Err(ConstantLiteralError::Invalid),
         }
     }
 
@@ -299,9 +328,9 @@ fn decode_quoted_content(
 
 fn decode_unicode_escape(
     characters: &mut impl Iterator<Item = char>,
-) -> Result<char, LiteralValueError> {
+) -> Result<char, ConstantLiteralError> {
     if characters.next() != Some('{') {
-        return Err(LiteralValueError::Invalid);
+        return Err(ConstantLiteralError::Invalid);
     }
 
     let mut value = 0_u32;
@@ -309,7 +338,7 @@ fn decode_unicode_escape(
 
     loop {
         let Some(character) = characters.next() else {
-            return Err(LiteralValueError::Invalid);
+            return Err(ConstantLiteralError::Invalid);
         };
 
         if character == '}' {
@@ -317,11 +346,11 @@ fn decode_unicode_escape(
         }
 
         if digits == 6 {
-            return Err(LiteralValueError::Invalid);
+            return Err(ConstantLiteralError::Invalid);
         }
 
         let Some(digit) = character.to_digit(16) else {
-            return Err(LiteralValueError::Invalid);
+            return Err(ConstantLiteralError::Invalid);
         };
 
         value = value * 16 + digit;
@@ -330,10 +359,10 @@ fn decode_unicode_escape(
     }
 
     if digits == 0 {
-        return Err(LiteralValueError::Invalid);
+        return Err(ConstantLiteralError::Invalid);
     }
 
-    char::from_u32(value).ok_or(LiteralValueError::Invalid)
+    char::from_u32(value).ok_or(ConstantLiteralError::Invalid)
 }
 
 #[cfg(test)]
@@ -344,7 +373,7 @@ mod tests {
     use bray_compiler_known::RepresentationRole;
     use bray_symbols::{ConstantValueKind, IntegerSign, RealConstantBits};
 
-    use super::{LiteralValueError, MAX_INTEGER_LITERAL_BYTES, parse_literal};
+    use super::{ConstantLiteralError, MAX_INTEGER_LITERAL_BYTES, parse_literal};
 
     #[test]
     fn source_literals_are_canonicalized_for_their_selected_types() {
@@ -384,7 +413,7 @@ mod tests {
                 RepresentationRole::String,
                 None,
             ),
-            Err(LiteralValueError::Invalid)
+            Err(ConstantLiteralError::Invalid)
         );
 
         assert_eq!(
@@ -404,7 +433,7 @@ mod tests {
                 RepresentationRole::ScalarI8,
                 None,
             ),
-            Err(LiteralValueError::NotRepresentable)
+            Err(ConstantLiteralError::NotRepresentable)
         );
 
         assert_eq!(
@@ -414,7 +443,7 @@ mod tests {
                 RepresentationRole::ScalarUsize,
                 None,
             ),
-            Err(LiteralValueError::TargetIntegerWidthRequired)
+            Err(ConstantLiteralError::TargetIntegerWidthRequired)
         );
 
         assert_eq!(
@@ -424,7 +453,7 @@ mod tests {
                 RepresentationRole::ScalarU8,
                 None,
             ),
-            Err(LiteralValueError::NotRepresentable)
+            Err(ConstantLiteralError::NotRepresentable)
         );
     }
 
@@ -440,7 +469,7 @@ mod tests {
                 RepresentationRole::ScalarUsize,
                 width32,
             ),
-            Err(LiteralValueError::NotRepresentable)
+            Err(ConstantLiteralError::NotRepresentable)
         );
 
         assert!(
@@ -460,7 +489,7 @@ mod tests {
                 RepresentationRole::ScalarIsize,
                 width32,
             ),
-            Err(LiteralValueError::NotRepresentable)
+            Err(ConstantLiteralError::NotRepresentable)
         );
 
         assert!(
@@ -480,7 +509,7 @@ mod tests {
                 RepresentationRole::ScalarI128,
                 None,
             ),
-            Err(LiteralValueError::SizeLimitExceeded)
+            Err(ConstantLiteralError::SizeLimitExceeded)
         );
     }
 }
