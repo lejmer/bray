@@ -53,15 +53,9 @@ fn validate_conversion_instances<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let mut pending = vec![conversion];
-
-    while let Some(conversion) = pending.pop() {
-        match conversion.target() {
-            ConversionTarget::Trait { callable, .. } => {
-                validate_trait_callable_instance(request, *callable)?;
-            }
-            ConversionTarget::Composite(children) => pending.extend(children.iter()),
-            ConversionTarget::Identity | ConversionTarget::BuiltInScalar => {}
+    for conversion in conversion.walk() {
+        if let ConversionTarget::Trait { callable, .. } = conversion.target() {
+            validate_trait_callable_instance(request, *callable)?;
         }
     }
 
@@ -311,23 +305,20 @@ fn collect_conversion_operations<'types>(
     conversion: &SelectedConversion,
     required: &mut Vec<RequiredTraitOperation<'types>>,
 ) {
-    let mut pending = vec![conversion];
-
-    while let Some(conversion) = pending.pop() {
-        match conversion.target() {
-            ConversionTarget::Trait {
-                callable,
-                requirement,
-                ..
-            } => required.push(RequiredTraitOperation::Conversion {
+    for conversion in conversion.walk() {
+        if let ConversionTarget::Trait {
+            callable,
+            requirement,
+            ..
+        } = conversion.target()
+        {
+            required.push(RequiredTraitOperation::Conversion {
                 role: CompilerKnownOperationRole::Conversion,
                 requirement: *requirement,
                 callable: *callable,
                 source: conversion.source_type(),
                 target: conversion.target_type(),
-            }),
-            ConversionTarget::Composite(children) => pending.extend(children.iter()),
-            ConversionTarget::Identity | ConversionTarget::BuiltInScalar => {}
+            });
         }
     }
 }
@@ -602,7 +593,7 @@ mod tests {
         let operation = SelectedOperation::Conversion(SelectedConversion::new(
             source,
             target,
-            ConversionTarget::Composite([child].into()),
+            ConversionTarget::Tuple([child].into()),
         ));
 
         let receiver = ReceiverParameterSymbolId::from_symbol_id(SymbolId::new(40));

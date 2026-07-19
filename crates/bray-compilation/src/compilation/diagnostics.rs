@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use bray_bound_tree::{
     BoundSourceAnchor, BoundUnit, BoundUnitKey, BoundUnitKind, CheckedControlFlowFacts,
+    CheckedExpressionTypes, CheckedLiteralValues, CheckedSemanticSelections,
 };
 use bray_declarations::{DeclarationKind, DeclarationRecord, SyntaxAnchor};
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
@@ -73,9 +74,17 @@ impl Compilation {
                 pending.insert(unit_order_key(nested.clone()));
             }
 
+            let expression_types = self.checked_expression_types(key.clone())?;
+            let semantic_selections = self.checked_semantic_selections(key.clone())?;
+            let literal_values = self.checked_literal_values(key.clone())?;
             let control_flow = self.checked_control_flow(key)?;
 
             facts.push(SemanticDiagnosticFact::Bound(bound));
+            facts.push(SemanticDiagnosticFact::ExpressionTypes(expression_types));
+            facts.push(SemanticDiagnosticFact::SemanticSelections(
+                semantic_selections,
+            ));
+            facts.push(SemanticDiagnosticFact::LiteralValues(literal_values));
             facts.push(SemanticDiagnosticFact::ControlFlow(control_flow));
         }
 
@@ -215,6 +224,9 @@ impl Compilation {
 
 enum SemanticDiagnosticFact {
     Bound(Arc<DiagnosticResult<BoundUnit>>),
+    ExpressionTypes(Arc<DiagnosticResult<CheckedExpressionTypes>>),
+    SemanticSelections(Arc<DiagnosticResult<CheckedSemanticSelections>>),
+    LiteralValues(Arc<DiagnosticResult<CheckedLiteralValues>>),
     ControlFlow(Arc<DiagnosticResult<CheckedControlFlowFacts>>),
 }
 
@@ -222,6 +234,9 @@ impl SemanticDiagnosticFact {
     fn diagnostics(&self) -> &DiagnosticBag {
         match self {
             Self::Bound(result) => result.diagnostics(),
+            Self::ExpressionTypes(result) => result.diagnostics(),
+            Self::SemanticSelections(result) => result.diagnostics(),
+            Self::LiteralValues(result) => result.diagnostics(),
             Self::ControlFlow(result) => result.diagnostics(),
         }
     }
@@ -463,7 +478,10 @@ mod tests {
 
         assert_eq!(
             diagnostic_kinds(compilation.check_diagnostics()),
-            [DiagnosticKind::BindingNameAlreadyDefined]
+            [
+                DiagnosticKind::CheckingCannotInferExpressionType,
+                DiagnosticKind::BindingNameAlreadyDefined,
+            ]
         );
     }
 

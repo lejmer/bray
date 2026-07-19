@@ -610,6 +610,11 @@ mod tests {
                 SelectedConstructionInput::Explicit {
                     expression: fixture.value,
                     input: ConstructionInputId::StructField(second),
+                    conversion: SelectedConversion::new(
+                        fixture.value_type,
+                        fixture.value_type,
+                        ConversionTarget::Identity,
+                    ),
                 },
                 SelectedConstructionInput::Default {
                     input: ConstructionInputId::StructField(first),

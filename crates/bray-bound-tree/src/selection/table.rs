@@ -60,6 +60,8 @@ pub enum SemanticSelectionTableBuildError {
     OperandTypeMismatch(BoundExpressionId),
     /// An implementation requirement disagrees with its bound subject type.
     SubjectTypeMismatch(BoundExpressionId),
+    /// A retained conversion plan is structurally invalid or has the wrong source type.
+    InvalidConversion(BoundExpressionId),
 }
 
 /// Complete immutable semantic selections for one checked bound unit.
@@ -150,6 +152,7 @@ fn validate_entry(
     }
 
     validate_operation_subject(types, expression_id, expression, entry.selection())?;
+    validate_selection_conversions(types, expression_id, entry.selection())?;
 
     let selected_type = selection_result_type(entry.selection());
 
@@ -163,6 +166,78 @@ fn validate_entry(
         if !expression_type.is_recovered() && expression_type.ty() != selected_type {
             return Err(SemanticSelectionTableBuildError::ResultTypeMismatch(
                 expression_id,
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_selection_conversions(
+    types: &CheckedExpressionTypes,
+    selection_expression: BoundExpressionId,
+    selection: &SemanticSelection,
+) -> Result<(), SemanticSelectionTableBuildError> {
+    let mut conversions = Vec::new();
+
+    match selection {
+        SemanticSelection::Call(call) => {
+            if let Some(receiver) = call.receiver() {
+                conversions.push((receiver.expression(), receiver.conversion()));
+            }
+
+            conversions.extend(
+                call.arguments()
+                    .iter()
+                    .filter_map(|argument| match argument {
+                        SelectedArgument::Explicit {
+                            expression,
+                            conversion,
+                            ..
+                        } => Some((*expression, conversion)),
+                        SelectedArgument::Default { .. } => None,
+                    }),
+            );
+        }
+        SemanticSelection::Operation(SelectedOperation::Construction(construction)) => {
+            conversions.extend(
+                construction
+                    .inputs()
+                    .iter()
+                    .filter_map(|input| match input {
+                        SelectedConstructionInput::Explicit {
+                            expression,
+                            conversion,
+                            ..
+                        } => Some((*expression, conversion)),
+                        SelectedConstructionInput::Default { .. } => None,
+                    }),
+            );
+        }
+        SemanticSelection::Operation(SelectedOperation::Conversion(conversion)) => {
+            if !conversion.is_structurally_valid() {
+                return Err(SemanticSelectionTableBuildError::InvalidConversion(
+                    selection_expression,
+                ));
+            }
+
+            return Ok(());
+        }
+        SemanticSelection::Operation(_) => return Ok(()),
+    }
+
+    for (expression, conversion) in conversions {
+        let Some(actual) = types.expression(expression) else {
+            return Err(SemanticSelectionTableBuildError::InvalidExpression(
+                expression,
+            ));
+        };
+
+        if !conversion.is_structurally_valid()
+            || (!actual.is_recovered() && actual.ty() != conversion.source_type())
+        {
+            return Err(SemanticSelectionTableBuildError::InvalidConversion(
+                selection_expression,
             ));
         }
     }

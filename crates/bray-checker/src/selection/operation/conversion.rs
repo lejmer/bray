@@ -1,4 +1,6 @@
-use bray_bound_tree::{ConversionTarget, SelectedConversion, SelectedOperation};
+use bray_bound_tree::{
+    ConversionTarget, ScalarConversionKind, SelectedConversion, SelectedOperation,
+};
 use bray_compiler_known::RepresentationRole;
 use bray_symbols::{GenericArgument, TypeData, TypeId};
 
@@ -12,24 +14,26 @@ pub(super) fn validate_conversion<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let mut pending = vec![conversion];
-
-    while let Some(conversion) = pending.pop() {
+    for conversion in conversion.walk() {
         let source = conversion.source_type();
         let target = conversion.target_type();
 
         let is_valid = match conversion.target() {
             ConversionTarget::Identity => source == target,
-            ConversionTarget::BuiltInScalar => scalar_conversion_is_valid(request, source, target)?,
-            ConversionTarget::Composite(children) => {
-                let is_valid =
-                    composite_conversion_shape_is_valid(request, source, target, children)?;
-
-                if is_valid {
-                    pending.extend(children.iter());
-                }
-
-                is_valid
+            ConversionTarget::BuiltInScalar(kind) => {
+                scalar_conversion_kind(request, source, target)?.as_ref() == Some(kind)
+            }
+            ConversionTarget::Tuple(children) => {
+                tuple_conversion_is_valid(request, source, target, children)?
+            }
+            ConversionTarget::Array(child) => {
+                array_conversion_is_valid(request, source, target, child)?
+            }
+            ConversionTarget::Nullable(child) => {
+                nullable_conversion_is_valid(request, source, target, child)?
+            }
+            ConversionTarget::TupleToComplex { real, imaginary } => {
+                tuple_to_complex_is_valid(request, source, target, real, imaginary)?
             }
             ConversionTarget::Trait { requirement, .. } => {
                 source != target
@@ -46,28 +50,63 @@ where
     Ok(true)
 }
 
-fn scalar_conversion_is_valid<C>(
+fn scalar_conversion_kind<C>(
     request: UnitCheckRequest<'_, C>,
     source: TypeId,
     target: TypeId,
-) -> Result<bool, CheckerInfrastructureError>
+) -> Result<Option<ScalarConversionKind>, CheckerInfrastructureError>
 where
     C: CheckerRequestContext + ?Sized,
 {
     let Some(source) = type_representation(request, source)? else {
-        return Ok(false);
+        return Ok(None);
     };
 
     let Some(target) = type_representation(request, target)? else {
-        return Ok(false);
+        return Ok(None);
     };
 
-    Ok(scalar_shape(source).is_some_and(|source| {
-        scalar_shape(target).is_some_and(|target| source.can_represent(target))
-    }))
+    let kind = match (scalar_shape(source), scalar_shape(target)) {
+        (Some(ScalarShape::Signed(source)), Some(ScalarShape::Signed(target)))
+            if source < target =>
+        {
+            Some(ScalarConversionKind::SignedIntegerWidening)
+        }
+        (Some(ScalarShape::Unsigned(source)), Some(ScalarShape::Unsigned(target)))
+            if source < target =>
+        {
+            Some(ScalarConversionKind::UnsignedIntegerWidening)
+        }
+        (Some(ScalarShape::Unsigned(source)), Some(ScalarShape::Signed(target)))
+            if source < target =>
+        {
+            Some(ScalarConversionKind::UnsignedToSigned)
+        }
+        (Some(ScalarShape::Signed(source)), Some(ScalarShape::Real(mantissa)))
+            if source - 1 <= mantissa =>
+        {
+            Some(ScalarConversionKind::IntegerToReal)
+        }
+        (Some(ScalarShape::Unsigned(source)), Some(ScalarShape::Real(mantissa)))
+            if source <= mantissa =>
+        {
+            Some(ScalarConversionKind::IntegerToReal)
+        }
+        (Some(ScalarShape::Real(source)), Some(ScalarShape::Real(target))) if source < target => {
+            Some(ScalarConversionKind::RealWidening)
+        }
+        (Some(ScalarShape::Complex(source)), Some(ScalarShape::Complex(target)))
+            if source < target =>
+        {
+            Some(ScalarConversionKind::ComplexWidening)
+        }
+        _ => None,
+    };
+
+    Ok(kind)
 }
 
-fn composite_conversion_shape_is_valid<C>(
+fn tuple_conversion_is_valid<C>(
     request: UnitCheckRequest<'_, C>,
     source: TypeId,
     target: TypeId,
@@ -86,50 +125,118 @@ where
         .type_data(target)
         .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
 
-    let expected = match (source_data.as_ref(), target_data.as_ref()) {
+    let (source, target) = match (source_data.as_ref(), target_data.as_ref()) {
         (TypeData::Tuple(source), TypeData::Tuple(target)) if source.len() == target.len() => {
-            source
-                .iter()
-                .copied()
-                .zip(target.iter().copied())
-                .collect::<Vec<_>>()
-        }
-        (
-            TypeData::Array {
-                element: source_element,
-                length: source_length,
-            },
-            TypeData::Array {
-                element: target_element,
-                length: target_length,
-            },
-        ) if source_length == target_length => vec![(*source_element, *target_element)],
-        (TypeData::Nullable(source), TypeData::Nullable(target)) => vec![(*source, *target)],
-        (TypeData::Tuple(elements), _) if elements.len() == 2 => {
-            let Some(component) = complex_component_type(request, target)? else {
-                return Ok(false);
-            };
-
-            elements
-                .iter()
-                .copied()
-                .map(|element| (element, component))
-                .collect()
+            (source.as_ref(), target.as_ref())
         }
         _ => return Ok(false),
     };
 
-    if expected.len() != children.len() {
+    if source.len() != children.len() {
         return Ok(false);
     }
 
-    for ((source, target), child) in expected.into_iter().zip(children) {
-        if child.source_type() != source || child.target_type() != target {
+    for ((source, target), child) in source.iter().zip(target.iter()).zip(children) {
+        if child.source_type() != *source || child.target_type() != *target {
             return Ok(false);
         }
     }
 
     Ok(true)
+}
+
+fn array_conversion_is_valid<C>(
+    request: UnitCheckRequest<'_, C>,
+    source: TypeId,
+    target: TypeId,
+    child: &SelectedConversion,
+) -> Result<bool, CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let source = type_data(request, source)?;
+    let target = type_data(request, target)?;
+
+    let (
+        TypeData::Array {
+            element: source_element,
+            length: source_length,
+        },
+        TypeData::Array {
+            element: target_element,
+            length: target_length,
+        },
+    ) = (source.as_ref(), target.as_ref())
+    else {
+        return Ok(false);
+    };
+
+    Ok(source_length == target_length
+        && child.source_type() == *source_element
+        && child.target_type() == *target_element)
+}
+
+fn nullable_conversion_is_valid<C>(
+    request: UnitCheckRequest<'_, C>,
+    source: TypeId,
+    target: TypeId,
+    child: &SelectedConversion,
+) -> Result<bool, CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let source = type_data(request, source)?;
+    let target = type_data(request, target)?;
+
+    let (TypeData::Nullable(source), TypeData::Nullable(target)) =
+        (source.as_ref(), target.as_ref())
+    else {
+        return Ok(false);
+    };
+
+    Ok(child.source_type() == *source && child.target_type() == *target)
+}
+
+fn tuple_to_complex_is_valid<C>(
+    request: UnitCheckRequest<'_, C>,
+    source: TypeId,
+    target: TypeId,
+    real: &SelectedConversion,
+    imaginary: &SelectedConversion,
+) -> Result<bool, CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let source_data = type_data(request, source)?;
+    let TypeData::Tuple(elements) = source_data.as_ref() else {
+        return Ok(false);
+    };
+
+    let [source_real, source_imaginary] = elements.as_ref() else {
+        return Ok(false);
+    };
+
+    let Some(component) = complex_component_type(request, target)? else {
+        return Ok(false);
+    };
+
+    Ok(real.source_type() == *source_real
+        && real.target_type() == component
+        && imaginary.source_type() == *source_imaginary
+        && imaginary.target_type() == component)
+}
+
+fn type_data<C>(
+    request: UnitCheckRequest<'_, C>,
+    ty: TypeId,
+) -> Result<std::sync::Arc<TypeData>, CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    request
+        .semantic_values()
+        .type_data(ty)
+        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)
 }
 
 fn complex_component_type<C>(
@@ -188,23 +295,6 @@ enum ScalarShape {
     TargetUnsigned,
 }
 
-impl ScalarShape {
-    const fn can_represent(self, target: Self) -> bool {
-        match (self, target) {
-            (Self::Signed(source), Self::Signed(target)) => source <= target,
-            (Self::Unsigned(source), Self::Unsigned(target)) => source <= target,
-            (Self::Unsigned(source), Self::Signed(target)) => source < target,
-            (Self::Signed(source), Self::Real(mantissa)) => source - 1 <= mantissa,
-            (Self::Unsigned(source), Self::Real(mantissa)) => source <= mantissa,
-            (Self::Real(source), Self::Real(target)) => source <= target,
-            (Self::Complex(source), Self::Complex(target)) => source <= target,
-            (Self::TargetSigned, Self::TargetSigned)
-            | (Self::TargetUnsigned, Self::TargetUnsigned) => true,
-            _ => false,
-        }
-    }
-}
-
 const fn scalar_shape(role: RepresentationRole) -> Option<ScalarShape> {
     match role {
         RepresentationRole::ScalarI8 => Some(ScalarShape::Signed(8)),
@@ -239,8 +329,11 @@ pub(super) const fn is_builtin_conversion(operation: &SelectedOperation) -> bool
     matches!(
         conversion.target(),
         ConversionTarget::Identity
-            | ConversionTarget::BuiltInScalar
-            | ConversionTarget::Composite(_)
+            | ConversionTarget::BuiltInScalar(_)
+            | ConversionTarget::Tuple(_)
+            | ConversionTarget::Array(_)
+            | ConversionTarget::Nullable(_)
+            | ConversionTarget::TupleToComplex { .. }
     )
 }
 
@@ -267,7 +360,7 @@ mod tests {
         let conversion = SelectedConversion::new(
             source,
             target,
-            ConversionTarget::Composite([child.clone()].into()),
+            ConversionTarget::Tuple([child.clone()].into()),
         );
 
         let unit = test_unit(BoundUnitId::new(85), source);
@@ -277,7 +370,7 @@ mod tests {
 
         assert_eq!(
             conversion.target(),
-            &ConversionTarget::Composite([child].into())
+            &ConversionTarget::Tuple([child].into())
         );
     }
 
@@ -288,7 +381,7 @@ mod tests {
         let target = tuple_type([element]);
 
         let conversion =
-            SelectedConversion::new(source, target, ConversionTarget::Composite([].into()));
+            SelectedConversion::new(source, target, ConversionTarget::Tuple([].into()));
 
         let unit = test_unit(BoundUnitId::new(86), source);
         let context = TestCheckerContext::new(false);

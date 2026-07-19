@@ -23,8 +23,35 @@ pub(super) fn parse_literal(
     representation: RepresentationRole,
     target_integer_width_bits: Option<NonZeroU16>,
 ) -> Result<ConstantValueKind, LiteralValueError> {
+    parse_literal_with_target_policy(
+        kind,
+        text,
+        representation,
+        TargetIntegerWidthPolicy::Validate(target_integer_width_bits),
+    )
+}
+
+pub(super) fn parse_literal_without_target_width(
+    kind: BoundLiteralKind,
+    text: &str,
+    representation: RepresentationRole,
+) -> Result<ConstantValueKind, LiteralValueError> {
+    parse_literal_with_target_policy(
+        kind,
+        text,
+        representation,
+        TargetIntegerWidthPolicy::Deferred,
+    )
+}
+
+fn parse_literal_with_target_policy(
+    kind: BoundLiteralKind,
+    text: &str,
+    representation: RepresentationRole,
+    target_integer_width: TargetIntegerWidthPolicy,
+) -> Result<ConstantValueKind, LiteralValueError> {
     match kind {
-        BoundLiteralKind::Integer => parse_integer(text, representation, target_integer_width_bits),
+        BoundLiteralKind::Integer => parse_integer(text, representation, target_integer_width),
         BoundLiteralKind::Real => parse_real(text, representation).map(ConstantValueKind::Real),
         BoundLiteralKind::Imaginary => parse_imaginary(text, representation),
         BoundLiteralKind::Boolean => parse_boolean(text),
@@ -36,7 +63,7 @@ pub(super) fn parse_literal(
 fn parse_integer(
     text: &str,
     representation: RepresentationRole,
-    target_integer_width_bits: Option<NonZeroU16>,
+    target_integer_width: TargetIntegerWidthPolicy,
 ) -> Result<ConstantValueKind, LiteralValueError> {
     if text.len() > MAX_INTEGER_LITERAL_BYTES {
         return Err(LiteralValueError::SizeLimitExceeded);
@@ -49,11 +76,7 @@ fn parse_integer(
     let (radix, digits) = integer_digits(text)?;
     let magnitude = parse_unsigned_magnitude(digits, radix)?;
 
-    if !integer_literal_fits(
-        &magnitude,
-        integer_representation,
-        target_integer_width_bits,
-    )? {
+    if !integer_literal_fits(&magnitude, integer_representation, target_integer_width)? {
         return Err(LiteralValueError::NotRepresentable);
     }
 
@@ -120,7 +143,7 @@ fn multiply_add_magnitude(magnitude: &mut Vec<u8>, multiplier: u8, addend: u8) {
 fn integer_literal_fits(
     magnitude: &[u8],
     representation: IntegerRepresentation,
-    target_integer_width_bits: Option<NonZeroU16>,
+    target_integer_width: TargetIntegerWidthPolicy,
 ) -> Result<bool, LiteralValueError> {
     let significant_bits = magnitude.first().map_or(0, |first| {
         magnitude.len() * 8 - first.leading_zeros() as usize
@@ -130,20 +153,38 @@ fn integer_literal_fits(
         IntegerRepresentation::Signed(width) => significant_bits < usize::from(width),
         IntegerRepresentation::Unsigned(width) => significant_bits <= usize::from(width),
         IntegerRepresentation::TargetSigned => {
-            let width =
-                target_integer_width_bits.ok_or(LiteralValueError::TargetIntegerWidthRequired)?;
+            let Some(width) = target_integer_width.width()? else {
+                return Ok(true);
+            };
 
             significant_bits < usize::from(width.get())
         }
         IntegerRepresentation::TargetUnsigned => {
-            let width =
-                target_integer_width_bits.ok_or(LiteralValueError::TargetIntegerWidthRequired)?;
+            let Some(width) = target_integer_width.width()? else {
+                return Ok(true);
+            };
 
             significant_bits <= usize::from(width.get())
         }
     };
 
     Ok(fits)
+}
+
+#[derive(Clone, Copy)]
+enum TargetIntegerWidthPolicy {
+    Validate(Option<NonZeroU16>),
+    Deferred,
+}
+
+impl TargetIntegerWidthPolicy {
+    const fn width(self) -> Result<Option<NonZeroU16>, LiteralValueError> {
+        match self {
+            Self::Validate(Some(width)) => Ok(Some(width)),
+            Self::Validate(None) => Err(LiteralValueError::TargetIntegerWidthRequired),
+            Self::Deferred => Ok(None),
+        }
+    }
 }
 
 fn parse_real(
@@ -344,7 +385,10 @@ mod tests {
     use bray_compiler_known::RepresentationRole;
     use bray_symbols::{ConstantValueKind, IntegerSign, RealConstantBits};
 
-    use super::{LiteralValueError, MAX_INTEGER_LITERAL_BYTES, parse_literal};
+    use super::{
+        LiteralValueError, MAX_INTEGER_LITERAL_BYTES, parse_literal,
+        parse_literal_without_target_width,
+    };
 
     #[test]
     fn source_literals_are_canonicalized_for_their_selected_types() {
@@ -452,6 +496,15 @@ mod tests {
             )
             .is_ok()
         );
+
+        assert!(matches!(
+            parse_literal_without_target_width(
+                BoundLiteralKind::Integer,
+                "4294967296",
+                RepresentationRole::ScalarUsize,
+            ),
+            Ok(ConstantValueKind::Integer(_))
+        ));
 
         assert_eq!(
             parse_literal(

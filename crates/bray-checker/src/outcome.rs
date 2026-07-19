@@ -75,6 +75,15 @@ impl<T> CheckerOutcome<T> {
         Self::Complete(DiagnosticResult::without_diagnostics(value))
     }
 
+    /// Transforms a completed value while preserving diagnostics and non-completion states.
+    pub fn map<U>(self, map: impl FnOnce(T) -> U) -> CheckerOutcome<U> {
+        match self {
+            Self::Complete(result) => CheckerOutcome::Complete(result.map(map)),
+            Self::Cancelled => CheckerOutcome::Cancelled,
+            Self::InfrastructureFailure(error) => CheckerOutcome::InfrastructureFailure(error),
+        }
+    }
+
     /// Returns the completed result, or `None` when checking did not complete.
     pub const fn result(&self) -> Option<&DiagnosticResult<T>> {
         match self {
@@ -151,6 +160,29 @@ mod tests {
 
         assert_eq!(completed.value(), &result);
         assert_eq!(completed.diagnostics().diagnostics(), &[diagnostic]);
+    }
+
+    #[test]
+    fn mapping_changes_only_completed_values() {
+        let diagnostic = Diagnostic::new(
+            DiagnosticId::new(4),
+            DiagnosticKind::DeclarationDuplicateName,
+            SeverityKind::Error,
+        );
+        let complete = CheckerOutcome::complete(3_u32, DiagnosticBag::single(diagnostic.clone()))
+            .map(|value| value + 1);
+        let cancelled = CheckerOutcome::<u32>::Cancelled.map(|value| value + 1);
+        let error = CheckerInfrastructureError::SemanticValueUnavailable;
+        let failed = CheckerOutcome::<u32>::InfrastructureFailure(error).map(|value| value + 1);
+
+        let CheckerOutcome::Complete(complete) = complete else {
+            panic!("completed outcomes must remain complete after mapping");
+        };
+
+        assert_eq!(complete.value(), &4);
+        assert_eq!(complete.diagnostics().diagnostics(), &[diagnostic]);
+        assert_eq!(cancelled, CheckerOutcome::Cancelled);
+        assert_eq!(failed, CheckerOutcome::InfrastructureFailure(error));
     }
 
     #[test]

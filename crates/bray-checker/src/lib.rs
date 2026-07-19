@@ -19,6 +19,7 @@ mod test_support;
 
 pub use constant::{
     ConstantEvaluationInput, ConstantEvaluationLimits, ConstantReferenceResolution,
+    LiteralAdaptationInput,
 };
 pub use context::{
     CheckerFactError, CheckerFactResult, CheckerInfrastructureError, CheckerRequestContext,
@@ -35,10 +36,11 @@ pub use selection::{
     CompilerKnownOperationContract, CompilerKnownOperationEvidence, CompilerKnownOperationRole,
     ConstructionInputSurface, ImplementationSelectionEvidence, OperationCandidate,
     OperationCandidateState, OperationSelectionRequest, ReceiverCapability, ReceiverSelection,
-    SelectionCandidateKey, SelectionFailure,
+    SelectionCandidateKey, SelectionFailure, SemanticSelectionInput,
 };
 pub use service::{
     ConstantEvaluator, ControlFlowChecker, DefaultConstantEvaluator, DefaultControlFlowChecker,
-    DefaultExpressionTypeChecker, DefaultSemanticSelector, ExpressionTypeChecker, SemanticSelector,
+    DefaultExpressionTypeChecker, DefaultLiteralAdapter, DefaultSemanticSelector,
+    ExpressionTypeChecker, LiteralAdapter, SemanticSelector,
 };
 pub use type_check::{ExpressionTypeEvidence, ExpressionTypeExpectation, ExpressionTypeInput};

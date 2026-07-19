@@ -48,7 +48,8 @@ mod unit;
 
 pub use binder::BinderDependency;
 pub use binding::{
-    CallableTypeQualifiers, TypeExpressionBinder, TypeParameterBinding, bind_callable_abi,
+    BoundExpressionCheckInput, CallableTypeQualifiers, TypeExpressionBinder, TypeParameterBinding,
+    bind_callable_abi, bind_expression_check_input,
 };
 pub use bray_checker::CheckerOutcome as BindingOutcome;
 pub use check_entry::{UnitCheckEntryContextError, unit_check_entry_context};

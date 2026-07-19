@@ -1,8 +1,11 @@
 use std::fmt;
 use std::sync::Arc;
 
-use bray_binder::BinderDependency;
-use bray_bound_tree::{BoundUnit, BoundUnitKey, CheckedControlFlowFacts};
+use bray_binder::{BinderDependency, BoundExpressionCheckInput};
+use bray_bound_tree::{
+    BoundUnit, BoundUnitKey, CheckedControlFlowFacts, CheckedExpressionTypes, CheckedLiteralValues,
+    CheckedSemanticSelections,
+};
 use bray_declarations::{
     DeclarationChunkResult, DeclarationTable, DeclarationTableResult,
     discover_source_unit_declarations, merge_declaration_chunks,
@@ -75,6 +78,10 @@ pub(super) struct CompilationState {
     pub(super) target_facts: CompilationTargetFacts,
     pub(super) symbol_facts: CompilationSymbolFacts,
     pub(super) bound_units: UnitFactCache<BoundUnit>,
+    pub(super) expression_check_inputs: UnitFactCache<BoundExpressionCheckInput>,
+    pub(super) checked_expression_types: UnitFactCache<CheckedExpressionTypes>,
+    pub(super) checked_semantic_selections: UnitFactCache<CheckedSemanticSelections>,
+    pub(super) checked_literal_values: UnitFactCache<CheckedLiteralValues>,
     pub(super) checked_control_flow: UnitFactCache<CheckedControlFlowFacts>,
     pub(super) check_diagnostics: FactCell<DiagnosticBag>,
     pub(super) package_interface_export_bundle: FactCell<
@@ -161,6 +168,10 @@ impl Compilation {
                 target_facts: CompilationTargetFacts,
                 symbol_facts: CompilationSymbolFacts::new(),
                 bound_units: UnitFactCache::new(),
+                expression_check_inputs: UnitFactCache::new(),
+                checked_expression_types: UnitFactCache::new(),
+                checked_semantic_selections: UnitFactCache::new(),
+                checked_literal_values: UnitFactCache::new(),
                 checked_control_flow: UnitFactCache::new(),
                 check_diagnostics: FactCell::new(),
                 package_interface_export_bundle: FactCell::new(),

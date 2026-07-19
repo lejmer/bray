@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 use bray_bound_tree::{
     BoundExpression, BoundExpressionId, BoundStructuredExpressionKind, CheckedExpressionTypes,
-    ConstructionTarget, SelectedConstructionInput,
+    ConstructionTarget, ConversionTarget, SelectedConstructionInput, SelectedConversion,
 };
 use bray_symbols::CallablePosition;
 
@@ -86,6 +86,11 @@ where
         values.push(SelectedConstructionInput::Explicit {
             expression: input.expression,
             input: surfaces[surface_index].input(),
+            conversion: SelectedConversion::new(
+                actual.ty(),
+                surfaces[surface_index].ty(),
+                ConversionTarget::Identity,
+            ),
         });
     }
 

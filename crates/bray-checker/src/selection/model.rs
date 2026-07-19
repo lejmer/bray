@@ -1,4 +1,5 @@
 mod call;
+mod input;
 mod operation;
 mod result;
 
@@ -7,6 +8,7 @@ pub use call::{
     CallableCandidate, CallableCandidateState, CallableSelectionRequest,
     ImplementationSelectionEvidence, ReceiverCapability, ReceiverSelection,
 };
+pub use input::SemanticSelectionInput;
 pub(in crate::selection) use operation::OperationCandidatePlan;
 pub use operation::{
     CompilerKnownOperationContract, CompilerKnownOperationEvidence, CompilerKnownOperationRole,

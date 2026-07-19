@@ -1,14 +1,20 @@
 use std::sync::Arc;
 
 use bray_binder::{
-    BinderDependency, BoundUnitBindingError, BoundUnitComputation, bind_anonymous_callable,
-    bind_callable_body, bind_constant_template, bind_constraint, bind_contract_clause,
-    bind_predicate_definition, bind_runtime_default, unit_check_entry_context,
+    BinderDependency, BinderFactError, BoundExpressionCheckInput, BoundUnitBindingError,
+    BoundUnitComputation, bind_anonymous_callable, bind_callable_body, bind_constant_template,
+    bind_constraint, bind_contract_clause, bind_expression_check_input, bind_predicate_definition,
+    bind_runtime_default, unit_check_entry_context,
 };
-use bray_bound_tree::{BoundUnit, BoundUnitKey, BoundUnitKind, CheckedControlFlowFacts};
+use bray_bound_tree::{
+    BoundUnit, BoundUnitKey, BoundUnitKind, CheckedControlFlowFacts, CheckedExpressionTypes,
+    CheckedLiteralValues, CheckedSemanticSelections,
+};
 use bray_checker::{
     CheckerInfrastructureError, CheckerOutcome, ControlFlowChecker, DefaultControlFlowChecker,
-    UnitCheckEntryContext, UnitCheckRequest,
+    DefaultExpressionTypeChecker, DefaultLiteralAdapter, DefaultSemanticSelector,
+    ExpressionTypeChecker, ExpressionTypeInput, LiteralAdaptationInput, LiteralAdapter,
+    SemanticSelectionInput, SemanticSelector, UnitCheckEntryContext, UnitCheckRequest,
 };
 use bray_diagnostics::DiagnosticResult;
 use bray_symbols::SymbolGraph;
@@ -18,6 +24,7 @@ use super::binder::CompilationBinderFacts;
 use super::checker::CompilationCheckerContext;
 use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError, PublishedUnitFact};
 
+// Bound-unit keys are Arc-backed identities. Fact queries clone only their shared handles.
 impl Compilation {
     /// Returns one bound semantic unit and its diagnostics.
     pub fn bound_unit(
@@ -36,6 +43,39 @@ impl Compilation {
     ) -> Result<Arc<DiagnosticResult<CheckedControlFlowFacts>>, FactQueryError> {
         let published =
             self.checked_control_flow_with_cancellation(key, &self.state.cancellation)?;
+
+        Ok(Arc::clone(published.result()))
+    }
+
+    /// Returns canonical expression types and diagnostics for one bound semantic unit.
+    pub fn checked_expression_types(
+        &self,
+        key: BoundUnitKey,
+    ) -> Result<Arc<DiagnosticResult<CheckedExpressionTypes>>, FactQueryError> {
+        let published =
+            self.checked_expression_types_with_cancellation(key, &self.state.cancellation)?;
+
+        Ok(Arc::clone(published.result()))
+    }
+
+    /// Returns exact semantic selections and diagnostics for one bound semantic unit.
+    pub fn checked_semantic_selections(
+        &self,
+        key: BoundUnitKey,
+    ) -> Result<Arc<DiagnosticResult<CheckedSemanticSelections>>, FactQueryError> {
+        let published =
+            self.checked_semantic_selections_with_cancellation(key, &self.state.cancellation)?;
+
+        Ok(Arc::clone(published.result()))
+    }
+
+    /// Returns canonical source-literal values and diagnostics for one bound semantic unit.
+    pub fn checked_literal_values(
+        &self,
+        key: BoundUnitKey,
+    ) -> Result<Arc<DiagnosticResult<CheckedLiteralValues>>, FactQueryError> {
+        let published =
+            self.checked_literal_values_with_cancellation(key, &self.state.cancellation)?;
 
         Ok(Arc::clone(published.result()))
     }
@@ -86,6 +126,120 @@ impl Compilation {
             },
         )
     }
+
+    fn checked_expression_types_with_cancellation(
+        &self,
+        key: BoundUnitKey,
+        cancellation: &CancellationToken,
+    ) -> Result<Arc<PublishedUnitFact<CheckedExpressionTypes>>, FactQueryError> {
+        self.unit_fact(
+            &self.state.checked_expression_types,
+            CompilationFactKey::CheckedExpressionTypes(key.clone()),
+            key.clone(),
+            cancellation,
+            |cancellation| {
+                let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
+
+                for nested in bound.result().value().nested_units() {
+                    self.checked_expression_types_with_cancellation(nested.clone(), cancellation)?;
+                }
+
+                let input =
+                    self.expression_check_input_with_cancellation(key.clone(), cancellation)?;
+                let context = self.checker_context_for(&key, cancellation)?;
+                let entry = checker_entry_context(context.symbols(), bound.result().value())?;
+
+                check_expression_types(
+                    bound.result().value(),
+                    &entry,
+                    &context,
+                    input.result().value().types(),
+                )
+            },
+        )
+    }
+
+    fn expression_check_input_with_cancellation(
+        &self,
+        key: BoundUnitKey,
+        cancellation: &CancellationToken,
+    ) -> Result<Arc<PublishedUnitFact<BoundExpressionCheckInput>>, FactQueryError> {
+        self.unit_fact(
+            &self.state.expression_check_inputs,
+            CompilationFactKey::ExpressionCheckInput(key.clone()),
+            key.clone(),
+            cancellation,
+            |cancellation| {
+                let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
+                let binder_facts = self.binder_facts_for(&key, cancellation)?;
+                let input = bind_expression_check_input(
+                    &binder_facts,
+                    bound.result().value(),
+                    self.available_compiler_known_symbols(),
+                )
+                .map_err(map_binder_fact_error)?;
+
+                Ok((DiagnosticResult::without_diagnostics(input), Box::new([])))
+            },
+        )
+    }
+
+    fn checked_semantic_selections_with_cancellation(
+        &self,
+        key: BoundUnitKey,
+        cancellation: &CancellationToken,
+    ) -> Result<Arc<PublishedUnitFact<CheckedSemanticSelections>>, FactQueryError> {
+        self.unit_fact(
+            &self.state.checked_semantic_selections,
+            CompilationFactKey::CheckedSemanticSelections(key.clone()),
+            key.clone(),
+            cancellation,
+            |cancellation| {
+                let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
+                let types =
+                    self.checked_expression_types_with_cancellation(key.clone(), cancellation)?;
+                let input =
+                    self.expression_check_input_with_cancellation(key.clone(), cancellation)?;
+                let context = self.checker_context_for(&key, cancellation)?;
+                let entry = checker_entry_context(context.symbols(), bound.result().value())?;
+
+                check_semantic_selections(
+                    bound.result().value(),
+                    &entry,
+                    &context,
+                    types.result().value(),
+                    input.result().value().selections(),
+                )
+            },
+        )
+    }
+
+    fn checked_literal_values_with_cancellation(
+        &self,
+        key: BoundUnitKey,
+        cancellation: &CancellationToken,
+    ) -> Result<Arc<PublishedUnitFact<CheckedLiteralValues>>, FactQueryError> {
+        self.unit_fact(
+            &self.state.checked_literal_values,
+            CompilationFactKey::CheckedLiteralValues(key.clone()),
+            key.clone(),
+            cancellation,
+            |cancellation| {
+                let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
+                let types =
+                    self.checked_expression_types_with_cancellation(key.clone(), cancellation)?;
+                let context = self.checker_context_for(&key, cancellation)?;
+                let entry = checker_entry_context(context.symbols(), bound.result().value())?;
+
+                adapt_literal_values(
+                    bound.result().value(),
+                    &entry,
+                    &context,
+                    types.result().value(),
+                )
+            },
+        )
+    }
 }
 
 fn bind_unit(
@@ -122,19 +276,85 @@ fn check_control_flow(
     ),
     FactQueryError,
 > {
-    let request = UnitCheckRequest::new(bound, entry, context).map_err(|error| {
+    let request = checker_request(bound, entry, context)?;
+    let outcome = DefaultControlFlowChecker
+        .check_control_flow(request)
+        .map(|result| result.into_facts());
+
+    checker_outcome(outcome)
+}
+
+fn check_expression_types(
+    bound: &BoundUnit,
+    entry: &UnitCheckEntryContext,
+    context: &CompilationCheckerContext<'_>,
+    input: &ExpressionTypeInput,
+) -> Result<
+    (
+        DiagnosticResult<CheckedExpressionTypes>,
+        Box<[BinderDependency]>,
+    ),
+    FactQueryError,
+> {
+    let request = checker_request(bound, entry, context)?;
+    checker_outcome(DefaultExpressionTypeChecker.check_expression_types(request, input))
+}
+
+fn adapt_literal_values(
+    bound: &BoundUnit,
+    entry: &UnitCheckEntryContext,
+    context: &CompilationCheckerContext<'_>,
+    types: &CheckedExpressionTypes,
+) -> Result<
+    (
+        DiagnosticResult<CheckedLiteralValues>,
+        Box<[BinderDependency]>,
+    ),
+    FactQueryError,
+> {
+    let request = checker_request(bound, entry, context)?;
+    let input = LiteralAdaptationInput::new(types);
+
+    checker_outcome(DefaultLiteralAdapter.adapt_literals(request, input))
+}
+
+fn check_semantic_selections(
+    bound: &BoundUnit,
+    entry: &UnitCheckEntryContext,
+    context: &CompilationCheckerContext<'_>,
+    types: &CheckedExpressionTypes,
+    input: SemanticSelectionInput,
+) -> Result<
+    (
+        DiagnosticResult<CheckedSemanticSelections>,
+        Box<[BinderDependency]>,
+    ),
+    FactQueryError,
+> {
+    let request = checker_request(bound, entry, context)?;
+    checker_outcome(DefaultSemanticSelector.check_semantic_selections(request, types, input))
+}
+
+fn checker_request<'unit>(
+    bound: &'unit BoundUnit,
+    entry: &'unit UnitCheckEntryContext,
+    context: &'unit CompilationCheckerContext<'unit>,
+) -> Result<UnitCheckRequest<'unit, CompilationCheckerContext<'unit>>, FactQueryError> {
+    UnitCheckRequest::new(bound, entry, context).map_err(|error| {
         FactQueryError::CheckerInfrastructure(CheckerInfrastructureError::InvalidUnitRequest(error))
-    })?;
+    })
+}
 
-    let result = match DefaultControlFlowChecker.check_control_flow(request) {
-        CheckerOutcome::Complete(result) => result.map(|result| result.into_facts()),
-        CheckerOutcome::Cancelled => return Err(FactQueryError::Cancelled),
+fn checker_outcome<T>(
+    outcome: CheckerOutcome<T>,
+) -> Result<(DiagnosticResult<T>, Box<[BinderDependency]>), FactQueryError> {
+    match outcome {
+        CheckerOutcome::Complete(result) => Ok((result, Box::new([]))),
+        CheckerOutcome::Cancelled => Err(FactQueryError::Cancelled),
         CheckerOutcome::InfrastructureFailure(error) => {
-            return Err(FactQueryError::CheckerInfrastructure(error));
+            Err(FactQueryError::CheckerInfrastructure(error))
         }
-    };
-
-    Ok((result, Box::new([])))
+    }
 }
 
 const fn map_binding_error(error: BoundUnitBindingError) -> FactQueryError {
@@ -151,12 +371,21 @@ const fn map_binding_error(error: BoundUnitBindingError) -> FactQueryError {
     }
 }
 
+const fn map_binder_fact_error(error: BinderFactError) -> FactQueryError {
+    match error {
+        BinderFactError::Cancelled => FactQueryError::Cancelled,
+        BinderFactError::DependencyUnavailable => FactQueryError::InfrastructureFailure,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
 
     use bray_binder::{UnitCheckEntryContextError, unit_check_entry_context};
+    use bray_bound_tree::{BoundExpression, SelectedArgument, SemanticSelection};
     use bray_checker::{CheckerInfrastructureError, UnitCheckEntryContext, UnitCheckRequestError};
+    use bray_symbols::{CallableAbi, ConstantValueKind};
 
     use super::{Compilation, check_control_flow, checker_entry_context};
     use crate::fact::{CancellationToken, FactCellTestEvent, FactQueryError};
@@ -215,6 +444,130 @@ mod tests {
                 .skip(1)
                 .all(|fact| Arc::ptr_eq(&checked[0], fact))
         );
+    }
+
+    #[test]
+    fn direct_calls_publish_exact_selected_invocation_facts() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "func recurse(pos value: i32 = 1)\n",
+            "{\n",
+            "    recurse(2);\n",
+            "    recurse();\n",
+            "}\n",
+        ));
+        let key = source_callable_body_key(&compilation);
+        let types = match compilation.checked_expression_types(key.clone()) {
+            Ok(types) => types,
+            Err(error) => panic!("direct call typing must complete: {error:?}"),
+        };
+        let selections = match compilation.checked_semantic_selections(key) {
+            Ok(selections) => selections,
+            Err(error) => panic!("direct call selection must complete: {error:?}"),
+        };
+
+        let [explicit, defaulted] = selections.value().entries() else {
+            panic!("both direct calls must publish selections");
+        };
+        let SemanticSelection::Call(explicit) = explicit.selection() else {
+            panic!("the first selected expression must be a call");
+        };
+        let SemanticSelection::Call(defaulted) = defaulted.selection() else {
+            panic!("the second selected expression must be a call");
+        };
+
+        let [
+            SelectedArgument::Explicit {
+                expression,
+                parameter,
+                conversion,
+            },
+        ] = explicit.arguments()
+        else {
+            panic!("the explicit argument must map to its declared parameter");
+        };
+        let [
+            SelectedArgument::Default {
+                parameter: default_parameter,
+                provider,
+            },
+        ] = defaulted.arguments()
+        else {
+            panic!("the omitted argument must retain its default provider");
+        };
+
+        assert_eq!(explicit.abi(), CallableAbi::Bray);
+        assert_eq!(defaulted.abi(), CallableAbi::Bray);
+        assert_eq!(explicit.target(), defaulted.target());
+        assert!(explicit.target().declaration().is_some());
+        assert_eq!(parameter, default_parameter);
+
+        let symbols = match compilation.symbol_graph() {
+            Ok(symbols) => symbols,
+            Err(error) => panic!("callable symbols must be available: {error:?}"),
+        };
+        let declared_provider = symbols
+            .callable_parameter(*default_parameter)
+            .and_then(|parameter| parameter.default_provider());
+
+        assert_eq!(declared_provider, Some(*provider));
+        assert_eq!(conversion.source_type(), conversion.target_type());
+        assert_eq!(
+            types
+                .value()
+                .expression(*expression)
+                .map(|result| result.ty()),
+            Some(conversion.source_type())
+        );
+        assert!(explicit.receiver().is_none());
+        assert!(defaulted.receiver().is_none());
+        assert!(types.diagnostics().is_empty());
+        assert!(selections.diagnostics().is_empty());
+    }
+
+    #[test]
+    fn source_literals_publish_values_adapted_to_final_expression_types() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "func main()\n",
+            "{\n",
+            "    let fixed: i32 = 42;\n",
+            "    let target_sized: usize = 42;\n",
+            "}\n",
+        ));
+        let key = source_callable_body_key(&compilation);
+        let bound = match compilation.bound_unit(key.clone()) {
+            Ok(bound) => bound,
+            Err(error) => panic!("literal body must bind: {error:?}"),
+        };
+        let values = match compilation.checked_literal_values(key) {
+            Ok(values) => values,
+            Err(error) => panic!("literal adaptation must complete: {error:?}"),
+        };
+
+        let [fixed, target_sized] = values.value().entries() else {
+            panic!("both source literals must publish canonical values");
+        };
+
+        for entry in [fixed, target_sized] {
+            assert!(matches!(
+                bound.value().view().expression(entry.expression()),
+                Some(BoundExpression::Literal(_))
+            ));
+        }
+
+        let semantic_values = match compilation.semantic_value_store() {
+            Ok(values) => values,
+            Err(error) => panic!("semantic values must be available: {error:?}"),
+        };
+        for entry in [fixed, target_sized] {
+            let value = match semantic_values.constant_value_data(entry.value()) {
+                Ok(value) => value,
+                Err(error) => panic!("adapted value must be interned: {error:?}"),
+            };
+
+            assert!(matches!(value.kind(), ConstantValueKind::Integer(_)));
+        }
     }
 
     #[test]

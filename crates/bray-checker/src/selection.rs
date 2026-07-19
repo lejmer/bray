@@ -9,6 +9,7 @@ mod check;
 mod model;
 mod operation;
 mod order;
+mod publication;
 
 pub(crate) use check::{select_callable, select_operation};
 pub use model::{
@@ -16,6 +17,7 @@ pub use model::{
     CompilerKnownOperationContract, CompilerKnownOperationEvidence, CompilerKnownOperationRole,
     ConstructionInputSurface, ImplementationSelectionEvidence, OperationCandidate,
     OperationCandidateState, OperationSelectionRequest, ReceiverCapability, ReceiverSelection,
-    SelectionCandidateKey, SelectionFailure,
+    SelectionCandidateKey, SelectionFailure, SemanticSelectionInput,
 };
 pub(in crate::selection) use model::{CallableCandidateParts, OperationCandidatePlan};
+pub(crate) use publication::check_semantic_selections;

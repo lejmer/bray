@@ -6,6 +6,7 @@ mod bound_unit;
 mod control;
 mod dependency;
 mod identity;
+mod literal;
 mod node;
 mod origin;
 mod selection;
@@ -27,6 +28,9 @@ pub use dependency::{
     BoundDependencyRequirement, BoundDependencyRequirementKind, BoundDependencySubject,
     DependencyContractInstantiationContext, DependencyContractInstantiationError,
     GuardedBoundDependencyRequirement, LifecycleObligationId, ScopedCapabilityId,
+};
+pub use literal::{
+    CheckedLiteralValueEntry, CheckedLiteralValueTableBuildError, CheckedLiteralValues,
 };
 pub use node::{
     AnyBoundNodeId, BoundAnonymousCallableExpression, BoundArgument, BoundAssignmentExpression,
@@ -52,9 +56,10 @@ pub use origin::{
 pub use selection::{
     CheckedSemanticSelections, ConstructionDefaultProvider, ConstructionInputId,
     ConstructionTarget, ConversionTarget, IndexTarget, MemberTarget, OperatorTarget,
-    SelectedArgument, SelectedCall, SelectedConstruction, SelectedConstructionInput,
-    SelectedConversion, SelectedImplementationWitness, SelectedOperation, SelectionKind,
-    SemanticSelection, SemanticSelectionEntry, SemanticSelectionTableBuildError,
+    ScalarConversionKind, SelectedArgument, SelectedCall, SelectedConstruction,
+    SelectedConstructionInput, SelectedConversion, SelectedImplementationWitness,
+    SelectedOperation, SelectedReceiver, SelectionKind, SemanticSelection, SemanticSelectionEntry,
+    SemanticSelectionTableBuildError,
 };
 pub use storage::{
     BorrowCapability, BorrowCapabilityId, StorageAccess, StorageAccessId, StorageAccessRoot,

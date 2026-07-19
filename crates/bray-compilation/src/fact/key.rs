@@ -79,8 +79,16 @@ pub enum CompilationFactKey {
     BoundUnitIdentities,
     /// One canonical immutable bound unit selected by its exact stable key.
     BoundUnit(BoundUnitKey),
+    /// Type evidence and semantic candidates for one bound unit.
+    ExpressionCheckInput(BoundUnitKey),
     /// Diagnostics for the current whole-compilation check boundary.
     CheckDiagnostics,
+    /// Canonical expression types for one bound unit.
+    CheckedExpressionTypes(BoundUnitKey),
+    /// Canonical source-literal values for one bound unit.
+    CheckedLiteralValues(BoundUnitKey),
+    /// Exact semantic selections for one bound unit.
+    CheckedSemanticSelections(BoundUnitKey),
     /// Durable control-flow facts for one bound unit.
     CheckedControlFlow(BoundUnitKey),
     /// Declaration discovery for one source unit.
@@ -116,7 +124,12 @@ pub enum CompilationFactKey {
 impl CompilationFactKey {
     pub(crate) const fn bound_unit_key(&self) -> Option<&BoundUnitKey> {
         match self {
-            Self::BoundUnit(key) | Self::CheckedControlFlow(key) => Some(key),
+            Self::BoundUnit(key)
+            | Self::ExpressionCheckInput(key)
+            | Self::CheckedExpressionTypes(key)
+            | Self::CheckedLiteralValues(key)
+            | Self::CheckedSemanticSelections(key)
+            | Self::CheckedControlFlow(key) => Some(key),
             Self::AvailableCompilerKnownSymbols
             | Self::CompilerKnownSymbols
             | Self::BoundUnitIdentities

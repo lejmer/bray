@@ -10,7 +10,7 @@ use bray_symbols::{
 
 use crate::{
     BoundExpression, BoundExpressionId, BoundOperator, BoundStructuredExpressionKind,
-    SelectedImplementationWitness,
+    ConversionTarget, SelectedConversion, SelectedImplementationWitness,
 };
 
 /// The semantic operation category retained by a checked selection.
@@ -187,7 +187,7 @@ pub enum ConstructionDefaultProvider {
 }
 
 /// One supplied or defaulted construction value in evaluation order.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SelectedConstructionInput {
     /// A source initializer mapped to its exact declaration input.
     Explicit {
@@ -195,6 +195,8 @@ pub enum SelectedConstructionInput {
         expression: BoundExpressionId,
         /// The exact initialized field or parameter.
         input: ConstructionInputId,
+        /// The checked conversion into the declaration input type.
+        conversion: SelectedConversion,
     },
     /// An omitted declaration input supplied by its runtime default.
     Default {
@@ -240,60 +242,6 @@ impl SelectedConstruction {
     /// Returns supplied inputs in source order followed by defaults in declaration order.
     pub fn inputs(&self) -> &[SelectedConstructionInput] {
         &self.inputs
-    }
-}
-
-/// The exact rule used by one level of an explicit conversion.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum ConversionTarget {
-    /// Source and target are the same semantic type.
-    Identity,
-    /// A compiler-defined total value-preserving scalar conversion.
-    BuiltInScalar,
-    /// A compiler-defined structural conversion with exact nested conversion plans.
-    Composite(Arc<[SelectedConversion]>),
-    /// A selected `ConvertTo<Target>` member and implementation witness.
-    Trait {
-        /// The exact substituted conversion member.
-        callable: CallableInstanceData,
-        /// The exact conversion trait requirement.
-        requirement: ImplementationSelectionKey,
-        /// The exact implementation witness.
-        witness: bray_symbols::ImplementationInstanceId,
-    },
-}
-
-/// One exact source-to-target conversion plan.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct SelectedConversion {
-    source_type: TypeId,
-    target_type: TypeId,
-    target: ConversionTarget,
-}
-
-impl SelectedConversion {
-    /// Creates one explicit conversion plan.
-    pub const fn new(source_type: TypeId, target_type: TypeId, target: ConversionTarget) -> Self {
-        Self {
-            source_type,
-            target_type,
-            target,
-        }
-    }
-
-    /// Returns the converted source type.
-    pub const fn source_type(&self) -> TypeId {
-        self.source_type
-    }
-
-    /// Returns the explicit target type.
-    pub const fn target_type(&self) -> TypeId {
-        self.target_type
-    }
-
-    /// Returns the exact selected conversion rule.
-    pub const fn target(&self) -> &ConversionTarget {
-        &self.target
     }
 }
 
@@ -421,17 +369,20 @@ impl SelectedOperation {
 
 fn conversion_witnesses(conversion: &SelectedConversion) -> Vec<SelectedImplementationWitness> {
     let mut witnesses = Vec::new();
-    let mut pending = vec![conversion];
 
-    while let Some(conversion) = pending.pop() {
+    for conversion in conversion.walk() {
         match conversion.target() {
             ConversionTarget::Trait {
                 requirement,
                 witness,
                 ..
             } => witnesses.push(SelectedImplementationWitness::new(*requirement, *witness)),
-            ConversionTarget::Composite(children) => pending.extend(children.iter()),
-            ConversionTarget::Identity | ConversionTarget::BuiltInScalar => {}
+            ConversionTarget::Identity
+            | ConversionTarget::BuiltInScalar(_)
+            | ConversionTarget::Tuple(_)
+            | ConversionTarget::Array(_)
+            | ConversionTarget::Nullable(_)
+            | ConversionTarget::TupleToComplex { .. } => {}
         }
     }
 

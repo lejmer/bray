@@ -15,6 +15,7 @@ mod test_support;
 pub(crate) use contract::{callable_normal_completion_has_value, push_contract_scope};
 pub(crate) use error::{BindingError, BindingResult};
 pub(crate) use expression::ExpressionBinder;
+pub use expression::{BoundExpressionCheckInput, bind_expression_check_input};
 pub use type_expression::{
     CallableTypeQualifiers, TypeExpressionBinder, TypeParameterBinding, bind_callable_abi,
 };

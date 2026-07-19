@@ -1,13 +1,16 @@
 use crate::analysis::check_control_flow;
-use crate::constant::evaluate_constant;
-use crate::selection::{select_callable, select_operation};
+use crate::constant::{adapt_literals, evaluate_constant};
+use crate::selection::{check_semantic_selections, select_callable, select_operation};
 use crate::type_check::check_expression_types;
 use crate::{
     CallableSelectionRequest, CandidateSelection, CheckerOutcome, CheckerRequestContext,
-    ConstantEvaluationInput, ControlFlowCheckResult, ExpressionTypeInput,
-    OperationSelectionRequest, UnitCheckRequest,
+    ConstantEvaluationInput, ControlFlowCheckResult, ExpressionTypeInput, LiteralAdaptationInput,
+    OperationSelectionRequest, SemanticSelectionInput, UnitCheckRequest,
 };
-use bray_bound_tree::{CheckedExpressionTypes, SelectedCall, SelectedOperation};
+use bray_bound_tree::{
+    CheckedExpressionTypes, CheckedLiteralValues, CheckedSemanticSelections, SelectedCall,
+    SelectedOperation,
+};
 use bray_symbols::ConstantValueId;
 
 /// The standard Bray control-flow checker implementation.
@@ -21,6 +24,10 @@ pub struct DefaultExpressionTypeChecker;
 /// The standard Bray constant evaluator implementation.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DefaultConstantEvaluator;
+
+/// The standard Bray source-literal adapter.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct DefaultLiteralAdapter;
 
 /// The standard Bray semantic candidate and operation selector.
 #[derive(Clone, Copy, Debug, Default)]
@@ -96,6 +103,16 @@ where
     ) -> CheckerOutcome<CandidateSelection<SelectedOperation>> {
         select_operation(request, types, input)
     }
+
+    /// Selects all supplied semantic choices for one unit.
+    fn check_semantic_selections(
+        &self,
+        request: UnitCheckRequest<'_, C>,
+        types: &CheckedExpressionTypes,
+        input: SemanticSelectionInput,
+    ) -> CheckerOutcome<CheckedSemanticSelections> {
+        check_semantic_selections(request, types, input)
+    }
 }
 
 impl<C> SemanticSelector<C> for DefaultSemanticSelector where C: CheckerRequestContext + ?Sized {}
@@ -116,6 +133,23 @@ where
 }
 
 impl<C> ConstantEvaluator<C> for DefaultConstantEvaluator where C: CheckerRequestContext + ?Sized {}
+
+/// Adapts source literals to their checked expression types.
+pub trait LiteralAdapter<C>: Sync
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    /// Returns one checked value for every source literal occurrence.
+    fn adapt_literals(
+        &self,
+        request: UnitCheckRequest<'_, C>,
+        input: LiteralAdaptationInput<'_>,
+    ) -> CheckerOutcome<CheckedLiteralValues> {
+        adapt_literals(request, input)
+    }
+}
+
+impl<C> LiteralAdapter<C> for DefaultLiteralAdapter where C: CheckerRequestContext + ?Sized {}
 
 #[cfg(test)]
 mod tests {

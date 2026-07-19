@@ -57,6 +57,8 @@ pub enum CheckerInfrastructureError {
     InvalidSemanticSelectionInput,
     /// Constant-evaluation inputs do not describe the requested bound unit.
     InvalidConstantEvaluationInput,
+    /// Literal-adaptation inputs do not describe the requested bound unit.
+    InvalidLiteralAdaptationInput,
     /// A committed bound relationship names a node absent from the requested unit.
     InvalidBoundNode {
         /// The missing bound node identity.

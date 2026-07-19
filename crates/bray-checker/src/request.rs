@@ -18,6 +18,7 @@ pub struct UnitCheckRequest<'view, C>
 where
     C: CheckerRequestContext + ?Sized,
 {
+    unit: &'view BoundUnit,
     view: BoundUnitView<'view>,
     root: UnitCheckRoot,
     entry: &'view UnitCheckEntryContext,
@@ -85,11 +86,17 @@ where
         }
 
         Ok(Self {
+            unit,
             view: unit.view(),
             root: UnitCheckRoot::from_bound_root(unit.root()),
             entry,
             context,
         })
+    }
+
+    /// Returns the complete canonical bound unit being checked.
+    pub const fn unit(self) -> &'view BoundUnit {
+        self.unit
     }
 
     /// Returns the read-only bound unit view to analyze.
