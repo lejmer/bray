@@ -14,12 +14,12 @@ use crate::constant::literal::{LiteralValueError, parse_literal};
 use crate::diagnostic::{diagnostic_id, expression_span};
 use crate::representation::type_representation;
 use crate::{
-    CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext, ConstantEvaluationInput,
-    ConstantReferenceResolution, UnitCheckRequest, UnitCheckRoot,
+    CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext, CheckerUnitRoot,
+    CheckerUnitView, ConstantEvaluationInput, ConstantReferenceResolution,
 };
 
 pub(crate) fn evaluate_constant<C>(
-    request: UnitCheckRequest<'_, C>,
+    request: CheckerUnitView<'_, C>,
     input: &ConstantEvaluationInput<'_>,
 ) -> CheckerOutcome<ConstantValueId>
 where
@@ -29,7 +29,7 @@ where
         return CheckerOutcome::Cancelled;
     }
 
-    let UnitCheckRoot::Expression(root) = request.root() else {
+    let CheckerUnitRoot::Expression(root) = request.root() else {
         return CheckerOutcome::InfrastructureFailure(
             CheckerInfrastructureError::InvalidConstantEvaluationInput,
         );
@@ -81,7 +81,7 @@ struct Evaluator<'view, 'input, 'types, C>
 where
     C: CheckerRequestContext + ?Sized,
 {
-    request: UnitCheckRequest<'view, C>,
+    request: CheckerUnitView<'view, C>,
     input: &'input ConstantEvaluationInput<'types>,
     budget: EvaluationBudget,
     diagnostics: DiagnosticBag,
@@ -92,7 +92,7 @@ where
     C: CheckerRequestContext + ?Sized,
 {
     fn new(
-        request: UnitCheckRequest<'view, C>,
+        request: CheckerUnitView<'view, C>,
         input: &'input ConstantEvaluationInput<'types>,
     ) -> Self {
         Self {
@@ -498,11 +498,10 @@ mod tests {
     use crate::representation::representation_type;
     use crate::test_support::{TestCheckerContext, push_expression, semantic_values, tuple_type};
     use crate::{
-        CheckerInfrastructureError, CheckerOutcome, ConstantEvaluationInput,
+        CheckerInfrastructureError, CheckerOutcome, CheckerUnitView, ConstantEvaluationInput,
         ConstantEvaluationLimits, ConstantEvaluator, ConstantReferenceResolution,
-        DeclaredUnitCheckEntry, DefaultConstantEvaluator, DefaultExpressionTypeChecker,
-        ExpressionTypeChecker, ExpressionTypeExpectation, ExpressionTypeInput,
-        UnitCheckEntryContext, UnitCheckRequest,
+        DeclaredUnitContext, DefaultConstantEvaluator, DefaultExpressionTypeChecker,
+        ExpressionTypeChecker, ExpressionTypeExpectation, ExpressionTypeInput, SemanticUnitContext,
     };
 
     #[test]
@@ -702,9 +701,9 @@ mod tests {
 
         let entry = checker_entry(&unit);
 
-        let request = match UnitCheckRequest::new(&unit, &entry, &cancelled) {
+        let request = match CheckerUnitView::new(&unit, &entry, &cancelled) {
             Ok(request) => request,
-            Err(error) => panic!("constant checker request must be valid: {error:?}"),
+            Err(error) => panic!("constant checker unit view must be valid: {error:?}"),
         };
 
         let outcome = DefaultConstantEvaluator.evaluate_constant(request, &input);
@@ -771,9 +770,9 @@ mod tests {
 
         let entry = checker_entry(&unit);
 
-        let request = match UnitCheckRequest::new(&unit, &entry, &context) {
+        let request = match CheckerUnitView::new(&unit, &entry, &context) {
             Ok(request) => request,
-            Err(error) => panic!("constant checker request must be valid: {error:?}"),
+            Err(error) => panic!("constant checker unit view must be valid: {error:?}"),
         };
 
         let outcome = DefaultConstantEvaluator.evaluate_constant(request, &input);
@@ -824,9 +823,9 @@ mod tests {
 
         let entry = checker_entry(unit);
 
-        let request = match UnitCheckRequest::new(unit, &entry, context) {
+        let request = match CheckerUnitView::new(unit, &entry, context) {
             Ok(request) => request,
-            Err(error) => panic!("constant checker request must be valid: {error:?}"),
+            Err(error) => panic!("constant checker unit view must be valid: {error:?}"),
         };
 
         let outcome = DefaultConstantEvaluator.evaluate_constant(request, &input);
@@ -1022,9 +1021,9 @@ mod tests {
 
         let entry = checker_entry(unit);
 
-        let request = match UnitCheckRequest::new(unit, &entry, context) {
+        let request = match CheckerUnitView::new(unit, &entry, context) {
             Ok(request) => request,
-            Err(error) => panic!("constant checker request must be valid: {error:?}"),
+            Err(error) => panic!("constant checker unit view must be valid: {error:?}"),
         };
 
         let outcome = DefaultConstantEvaluator.evaluate_constant(request, &input);
@@ -1057,9 +1056,9 @@ mod tests {
 
         let entry = checker_entry(unit);
 
-        let request = match UnitCheckRequest::new(unit, &entry, context) {
+        let request = match CheckerUnitView::new(unit, &entry, context) {
             Ok(request) => request,
-            Err(error) => panic!("constant checker request must be valid: {error:?}"),
+            Err(error) => panic!("constant checker unit view must be valid: {error:?}"),
         };
 
         let outcome = DefaultExpressionTypeChecker.check_expression_types(request, &input);
@@ -1073,10 +1072,10 @@ mod tests {
         result.into_parts().0
     }
 
-    fn checker_entry(unit: &BoundUnit) -> UnitCheckEntryContext {
+    fn checker_entry(unit: &BoundUnit) -> SemanticUnitContext {
         let owner = AnySymbolId::from(ConstantSymbolId::from_symbol_id(SymbolId::new(0)));
 
-        UnitCheckEntryContext::ConstantTemplate(DeclaredUnitCheckEntry::new(
+        SemanticUnitContext::ConstantTemplate(DeclaredUnitContext::new(
             unit.key().clone(),
             owner,
             owner,
@@ -1090,9 +1089,9 @@ mod tests {
     ) -> TypeId {
         let entry = checker_entry(unit);
 
-        let request = match UnitCheckRequest::new(unit, &entry, context) {
+        let request = match CheckerUnitView::new(unit, &entry, context) {
             Ok(request) => request,
-            Err(error) => panic!("constant checker request must be valid: {error:?}"),
+            Err(error) => panic!("constant checker unit view must be valid: {error:?}"),
         };
 
         match representation_type(request, role) {

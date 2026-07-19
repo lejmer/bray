@@ -2,10 +2,10 @@ use bray_bound_tree::BoundExpressionId;
 use bray_diagnostics::DiagnosticId;
 use bray_source::SourceSpan;
 
-use crate::{CheckerInfrastructureError, CheckerRequestContext, UnitCheckRequest};
+use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
 
 pub(crate) fn expression_span<C>(
-    request: UnitCheckRequest<'_, C>,
+    request: CheckerUnitView<'_, C>,
     expression: BoundExpressionId,
 ) -> Result<SourceSpan, CheckerInfrastructureError>
 where

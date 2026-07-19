@@ -27,9 +27,9 @@ pub(crate) use bray_symbols::testing::available_compiler_known_symbols;
 
 use crate::{
     CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext, CheckerSource,
-    CompilerKnownOperationContract, CompilerKnownOperationRole, DeclaredUnitCheckEntry,
-    DefaultExpressionTypeChecker, ExpressionTypeChecker, ExpressionTypeInput,
-    UnitCheckEntryContext, UnitCheckRequest,
+    CheckerUnitView, CompilerKnownOperationContract, CompilerKnownOperationRole,
+    DeclaredUnitContext, DefaultExpressionTypeChecker, ExpressionTypeChecker, ExpressionTypeInput,
+    SemanticUnitContext,
 };
 
 pub(crate) struct TestCheckerContext {
@@ -91,10 +91,10 @@ impl bray_base::Cancellation for TestCheckerContext {
 }
 
 impl CheckerRequestContext for TestCheckerContext {
-    fn entry_context_matches(&self, unit: &BoundUnit, entry: &UnitCheckEntryContext) -> bool {
-        match entry {
-            UnitCheckEntryContext::CallableBody(_) => callable_entry(unit.key()) == *entry,
-            UnitCheckEntryContext::ConstantTemplate(declaration) => {
+    fn semantic_context_matches(&self, unit: &BoundUnit, context: &SemanticUnitContext) -> bool {
+        match context {
+            SemanticUnitContext::CallableBody(_) => callable_entry(unit.key()) == *context,
+            SemanticUnitContext::ConstantTemplate(declaration) => {
                 declaration.key() == unit.key()
                     && declaration.owner() == declaration.declaration()
                     && declaration.owner().kind() == SymbolKind::Constant
@@ -137,11 +137,11 @@ impl CheckerRequestContext for TestCheckerContext {
     }
 }
 
-pub(crate) fn callable_entry(key: &BoundUnitKey) -> UnitCheckEntryContext {
+pub(crate) fn callable_entry(key: &BoundUnitKey) -> SemanticUnitContext {
     let owner = AnySymbolId::from(FunctionSymbolId::from_symbol_id(SymbolId::new(0)));
 
-    // Bound-unit keys are Arc-backed immutable identities shared by test requests.
-    UnitCheckEntryContext::CallableBody(DeclaredUnitCheckEntry::new(key.clone(), owner, owner))
+    // The context and bound unit share the same immutable key identity.
+    SemanticUnitContext::CallableBody(DeclaredUnitContext::new(key.clone(), owner, owner))
 }
 
 pub(crate) fn semantic_values() -> &'static SemanticValueStore {
@@ -323,8 +323,8 @@ pub(crate) fn completed_expression_check(
 
     let context = TestCheckerContext::new(false);
 
-    let Ok(request) = UnitCheckRequest::new(unit, &entry, &context) else {
-        panic!("test checker request must be valid");
+    let Ok(request) = CheckerUnitView::new(unit, &entry, &context) else {
+        panic!("test checker unit view must be valid");
     };
 
     let outcome = DefaultExpressionTypeChecker.check_expression_types(request, input);

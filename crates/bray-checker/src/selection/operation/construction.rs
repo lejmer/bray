@@ -6,7 +6,7 @@ use bray_bound_tree::{
 };
 use bray_symbols::CallablePosition;
 
-use crate::{CheckerInfrastructureError, CheckerRequestContext, UnitCheckRequest};
+use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
 
 use super::super::ConstructionInputSurface;
 
@@ -22,7 +22,7 @@ struct SourceConstructionInput<'name> {
 }
 
 pub(super) fn map_construction_inputs<C>(
-    request: UnitCheckRequest<'_, C>,
+    request: CheckerUnitView<'_, C>,
     types: &CheckedExpressionTypes,
     expression: BoundExpressionId,
     target: ConstructionTarget,
@@ -108,7 +108,7 @@ where
 }
 
 fn construction_inputs<C>(
-    request: UnitCheckRequest<'_, C>,
+    request: CheckerUnitView<'_, C>,
     expression: BoundExpressionId,
 ) -> Result<Vec<SourceConstructionInput<'_>>, CheckerInfrastructureError>
 where

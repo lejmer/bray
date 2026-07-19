@@ -10,7 +10,7 @@ use bray_symbols::{
     ImplementationSelection, ReceiverMode, SymbolKey, TypeData,
 };
 
-use crate::{CheckerInfrastructureError, CheckerRequestContext, UnitCheckRequest};
+use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
 
 use super::{
     CallableCandidate, CallableCandidateParts, CallableCandidateState, CallableSelectionRequest,
@@ -24,7 +24,7 @@ enum CallableSelectionMode {
 }
 
 pub(super) fn select<C>(
-    request: UnitCheckRequest<'_, C>,
+    request: CheckerUnitView<'_, C>,
     types: &CheckedExpressionTypes,
     input: CallableSelectionRequest,
 ) -> Result<Option<CandidateSelection<SelectedCall>>, CheckerInfrastructureError>
@@ -109,7 +109,7 @@ enum CandidateCheck {
 }
 
 fn check_candidate<C>(
-    request: UnitCheckRequest<'_, C>,
+    request: CheckerUnitView<'_, C>,
     types: &CheckedExpressionTypes,
     mode: CallableSelectionMode,
     receiver: Option<super::ReceiverSelection>,
@@ -212,7 +212,7 @@ fn callable_surface_is_consistent(
 }
 
 fn selected_witnesses<C>(
-    request: UnitCheckRequest<'_, C>,
+    request: CheckerUnitView<'_, C>,
     resolution: &bray_bound_tree::BoundResolvedCall,
     evidence: &[ImplementationSelectionEvidence],
 ) -> Result<Option<Vec<SelectedImplementationWitness>>, CheckerInfrastructureError>
@@ -264,7 +264,7 @@ where
 }
 
 fn callable_type<C>(
-    request: UnitCheckRequest<'_, C>,
+    request: CheckerUnitView<'_, C>,
     signature: &CallableSignature,
 ) -> Result<std::sync::Arc<TypeData>, CheckerInfrastructureError>
 where
@@ -448,7 +448,7 @@ fn expression_type(
 }
 
 fn validate_unit<C>(
-    request: UnitCheckRequest<'_, C>,
+    request: CheckerUnitView<'_, C>,
     types: &CheckedExpressionTypes,
     input: &CallableSelectionRequest,
 ) -> Result<CallableSelectionMode, CheckerInfrastructureError>
@@ -557,8 +557,8 @@ mod tests {
     };
     use crate::{
         CallableCandidate, CallableCandidateState, CallableSelectionRequest, CandidateSelection,
-        DefaultSemanticSelector, ReceiverCapability, ReceiverSelection, SelectionFailure,
-        SemanticSelector, UnitCheckRequest,
+        CheckerUnitView, DefaultSemanticSelector, ReceiverCapability, ReceiverSelection,
+        SelectionFailure, SemanticSelector,
     };
 
     #[test]
@@ -663,7 +663,7 @@ mod tests {
         let context = TestCheckerContext::new(false);
         let entry = callable_entry(fixture.unit.key());
 
-        let request = match UnitCheckRequest::new(&fixture.unit, &entry, &context) {
+        let request = match CheckerUnitView::new(&fixture.unit, &entry, &context) {
             Ok(request) => request,
             Err(error) => panic!("method selection request must validate: {error:?}"),
         };
@@ -1050,7 +1050,7 @@ mod tests {
     ) -> crate::CheckerOutcome<CandidateSelection<SelectedCall>> {
         let entry = callable_entry(unit.key());
 
-        let request = match UnitCheckRequest::new(unit, &entry, context) {
+        let request = match CheckerUnitView::new(unit, &entry, context) {
             Ok(request) => request,
             Err(error) => panic!("call selection request must be valid: {error:?}"),
         };

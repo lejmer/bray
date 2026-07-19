@@ -4,7 +4,7 @@ use bray_bound_tree::{BoundExpression, BoundExpressionId, BoundLiteralKind, Boun
 use bray_compiler_known::{NumericRepresentationKind, RepresentationRole};
 use bray_symbols::TypeId;
 
-use crate::{CheckerInfrastructureError, CheckerRequestContext, UnitCheckRequest};
+use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
 
 use crate::representation::{representation_type, type_representation};
 
@@ -12,7 +12,7 @@ use super::dependencies::{ExpressionTypeDependencies, numeric_kind};
 use super::inference::{InferenceTypeId, TypeInferenceContext};
 
 pub(super) fn adapt_contextual_literals<C>(
-    request: UnitCheckRequest<'_, C>,
+    request: CheckerUnitView<'_, C>,
     expressions: &[BoundExpressionId],
     variables: &BTreeMap<BoundExpressionId, InferenceTypeId>,
     inference: &mut TypeInferenceContext,
@@ -52,7 +52,7 @@ where
 }
 
 fn adapt_contextual_complex_literals<C>(
-    request: UnitCheckRequest<'_, C>,
+    request: CheckerUnitView<'_, C>,
     expressions: &[BoundExpressionId],
     variables: &BTreeMap<BoundExpressionId, InferenceTypeId>,
     inference: &mut TypeInferenceContext,
@@ -98,7 +98,7 @@ where
 }
 
 pub(super) fn apply_literal_defaults<C>(
-    request: UnitCheckRequest<'_, C>,
+    request: CheckerUnitView<'_, C>,
     expressions: &[BoundExpressionId],
     variables: &BTreeMap<BoundExpressionId, InferenceTypeId>,
     types: &ExpressionTypeDependencies,
@@ -141,7 +141,7 @@ where
 }
 
 fn apply_complex_literal_defaults<C>(
-    request: UnitCheckRequest<'_, C>,
+    request: CheckerUnitView<'_, C>,
     expressions: &[BoundExpressionId],
     variables: &BTreeMap<BoundExpressionId, InferenceTypeId>,
     types: &ExpressionTypeDependencies,
@@ -173,7 +173,7 @@ where
 }
 
 fn complex_literal<C>(
-    request: UnitCheckRequest<'_, C>,
+    request: CheckerUnitView<'_, C>,
     expression: BoundExpressionId,
     variables: &BTreeMap<BoundExpressionId, InferenceTypeId>,
 ) -> Option<(InferenceTypeId, InferenceTypeId, InferenceTypeId)>
@@ -217,7 +217,7 @@ where
 }
 
 fn complex_component_type<C>(
-    request: UnitCheckRequest<'_, C>,
+    request: CheckerUnitView<'_, C>,
     ty: TypeId,
 ) -> Result<Option<TypeId>, CheckerInfrastructureError>
 where
@@ -233,7 +233,7 @@ where
 }
 
 fn numeric_literal<C>(
-    request: UnitCheckRequest<'_, C>,
+    request: CheckerUnitView<'_, C>,
     expression: BoundExpressionId,
     variables: &BTreeMap<BoundExpressionId, InferenceTypeId>,
 ) -> Option<(BoundLiteralKind, NumericRepresentationKind, InferenceTypeId)>
@@ -273,7 +273,7 @@ mod tests {
         literal_expression, push_expression, tuple_type,
     };
     use crate::{
-        ExpressionTypeEvidence, ExpressionTypeExpectation, ExpressionTypeInput, UnitCheckRequest,
+        CheckerUnitView, ExpressionTypeEvidence, ExpressionTypeExpectation, ExpressionTypeInput,
     };
 
     #[test]
@@ -411,7 +411,7 @@ mod tests {
         let (unit, expressions) = literal_unit(BoundUnitId::new(79), [BoundLiteralKind::Integer]);
         let entry = callable_entry(unit.key());
         let context = TestCheckerContext::new(false);
-        let Ok(request) = UnitCheckRequest::new(&unit, &entry, &context) else {
+        let Ok(request) = CheckerUnitView::new(&unit, &entry, &context) else {
             panic!("literal test request must be valid");
         };
         let Ok(SessionProgress::Complete(mut session)) = ExpressionTypeSession::begin(request)
@@ -605,7 +605,7 @@ mod tests {
     fn representation(unit: &BoundUnit, role: RepresentationRole) -> TypeId {
         let entry = callable_entry(unit.key());
         let context = TestCheckerContext::new(false);
-        let Ok(request) = UnitCheckRequest::new(unit, &entry, &context) else {
+        let Ok(request) = CheckerUnitView::new(unit, &entry, &context) else {
             panic!("literal test request must be valid");
         };
 

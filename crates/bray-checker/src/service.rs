@@ -4,8 +4,8 @@ use crate::selection::{select_callable, select_operation};
 use crate::type_check::check_expression_types;
 use crate::{
     CallableSelectionRequest, CandidateSelection, CheckerOutcome, CheckerRequestContext,
-    ConstantEvaluationInput, ControlFlowCheckResult, ExpressionTypeInput,
-    OperationSelectionRequest, UnitCheckRequest,
+    CheckerUnitView, ConstantEvaluationInput, ControlFlowCheckResult, ExpressionTypeInput,
+    OperationSelectionRequest,
 };
 use bray_bound_tree::{CheckedExpressionTypes, SelectedCall, SelectedOperation};
 use bray_symbols::ConstantValueId;
@@ -38,7 +38,7 @@ where
     /// Checks one committed bound unit's control flow.
     fn check_control_flow(
         &self,
-        request: UnitCheckRequest<'_, C>,
+        request: CheckerUnitView<'_, C>,
     ) -> CheckerOutcome<ControlFlowCheckResult> {
         check_control_flow(request)
     }
@@ -57,7 +57,7 @@ where
     /// Resolves a canonical type or recovery type for every expression occurrence.
     fn check_expression_types(
         &self,
-        request: UnitCheckRequest<'_, C>,
+        request: CheckerUnitView<'_, C>,
         input: &ExpressionTypeInput,
     ) -> CheckerOutcome<CheckedExpressionTypes> {
         check_expression_types(request, input)
@@ -80,7 +80,7 @@ where
     /// Selects one callable and publishes its ABI and normalized argument/default mapping.
     fn select_callable(
         &self,
-        request: UnitCheckRequest<'_, C>,
+        request: CheckerUnitView<'_, C>,
         types: &CheckedExpressionTypes,
         input: CallableSelectionRequest,
     ) -> CheckerOutcome<CandidateSelection<SelectedCall>> {
@@ -90,7 +90,7 @@ where
     /// Selects one member, operator, index, construction, conversion, or witness operation.
     fn select_operation(
         &self,
-        request: UnitCheckRequest<'_, C>,
+        request: CheckerUnitView<'_, C>,
         types: &CheckedExpressionTypes,
         input: OperationSelectionRequest,
     ) -> CheckerOutcome<CandidateSelection<SelectedOperation>> {
@@ -108,7 +108,7 @@ where
     /// Evaluates and interns the request's constant-expression root.
     fn evaluate_constant(
         &self,
-        request: UnitCheckRequest<'_, C>,
+        request: CheckerUnitView<'_, C>,
         input: &ConstantEvaluationInput<'_>,
     ) -> CheckerOutcome<ConstantValueId> {
         evaluate_constant(request, input)
@@ -130,8 +130,7 @@ mod tests {
         callable_unit, normally_completing_recovered_tree, recovered_tree,
     };
     use crate::{
-        CheckerOutcome, DeclaredUnitCheckEntry, UnitCheckEntryContext, UnitCheckRequest,
-        UnitCheckRoot,
+        CheckerOutcome, CheckerUnitRoot, CheckerUnitView, DeclaredUnitContext, SemanticUnitContext,
     };
 
     #[test]
@@ -146,8 +145,8 @@ mod tests {
 
         let context = TestCheckerContext::new(false);
 
-        let Ok(request) = UnitCheckRequest::new(&unit, &entry, &context) else {
-            panic!("matching test roots must produce checker requests");
+        let Ok(request) = CheckerUnitView::new(&unit, &entry, &context) else {
+            panic!("matching test roots must produce checker unit views");
         };
 
         assert!(std::ptr::eq(
@@ -186,8 +185,8 @@ mod tests {
 
         let context = TestCheckerContext::new(true);
 
-        let Ok(request) = UnitCheckRequest::new(&unit, &entry, &context) else {
-            panic!("matching test roots must produce checker requests");
+        let Ok(request) = CheckerUnitView::new(&unit, &entry, &context) else {
+            panic!("matching test roots must produce checker unit views");
         };
 
         let outcome = DefaultControlFlowChecker.check_control_flow(request);
@@ -207,8 +206,8 @@ mod tests {
 
         let context = TestCheckerContext::new(false);
 
-        let Ok(request) = UnitCheckRequest::new(&unit, &entry, &context) else {
-            panic!("matching test roots must produce checker requests");
+        let Ok(request) = CheckerUnitView::new(&unit, &entry, &context) else {
+            panic!("matching test roots must produce checker unit views");
         };
 
         let outcome = DefaultControlFlowChecker.check_control_flow(request);
@@ -222,7 +221,7 @@ mod tests {
     }
 
     #[test]
-    fn requests_use_only_the_canonical_bound_unit_root() {
+    fn unit_views_use_only_the_canonical_bound_unit_root() {
         let key = callable_key();
         let mut tree = BoundTreeBuilder::new(BoundUnitId::new(6));
         let origin = BoundNodeOrigin::source(key.source());
@@ -240,39 +239,39 @@ mod tests {
 
         let context = TestCheckerContext::new(false);
 
-        let request = match UnitCheckRequest::new(&unit, &entry, &context) {
+        let request = match CheckerUnitView::new(&unit, &entry, &context) {
             Ok(request) => request,
-            Err(error) => panic!("canonical checker request must validate: {error:?}"),
+            Err(error) => panic!("canonical checker unit view must validate: {error:?}"),
         };
 
-        assert_eq!(request.root(), UnitCheckRoot::CallableBody(root));
-        assert_ne!(request.root(), UnitCheckRoot::CallableBody(non_root));
+        assert_eq!(request.root(), CheckerUnitRoot::CallableBody(root));
+        assert_ne!(request.root(), CheckerUnitRoot::CallableBody(non_root));
     }
 
     #[test]
-    fn requests_reject_entry_contexts_for_another_unit_category() {
+    fn unit_views_reject_semantic_contexts_for_another_unit_category() {
         let key = callable_key();
 
         let (tree, root) = recovered_tree(BoundUnitId::new(9), &key);
 
         let unit = callable_unit(&key, tree, root);
 
-        let UnitCheckEntryContext::CallableBody(declaration) = callable_entry(&key) else {
+        let SemanticUnitContext::CallableBody(declaration) = callable_entry(&key) else {
             panic!("callable test entries must retain their category");
         };
 
-        let entry = UnitCheckEntryContext::RuntimeDefault(declaration);
+        let entry = SemanticUnitContext::RuntimeDefault(declaration);
         let context = TestCheckerContext::new(false);
-        let request = UnitCheckRequest::new(&unit, &entry, &context);
+        let request = CheckerUnitView::new(&unit, &entry, &context);
 
         assert!(matches!(
             request,
-            Err(crate::UnitCheckRequestError::EntryContextMismatch)
+            Err(crate::CheckerUnitViewError::SemanticContextMismatch)
         ));
     }
 
     #[test]
-    fn requests_reject_forged_entry_payloads() {
+    fn unit_views_reject_forged_semantic_contexts() {
         let key = callable_key();
 
         let (tree, root) = recovered_tree(BoundUnitId::new(10), &key);
@@ -282,15 +281,15 @@ mod tests {
         let context = TestCheckerContext::new(false);
         let forged = AnySymbolId::from(FunctionSymbolId::from_symbol_id(SymbolId::new(1)));
 
-        let entry = UnitCheckEntryContext::CallableBody(DeclaredUnitCheckEntry::new(
+        let entry = SemanticUnitContext::CallableBody(DeclaredUnitContext::new(
             key.clone(),
             forged,
             forged,
         ));
 
         assert!(matches!(
-            UnitCheckRequest::new(&unit, &entry, &context),
-            Err(crate::UnitCheckRequestError::EntryContextMismatch)
+            CheckerUnitView::new(&unit, &entry, &context),
+            Err(crate::CheckerUnitViewError::SemanticContextMismatch)
         ));
     }
 }

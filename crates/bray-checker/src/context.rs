@@ -9,8 +9,10 @@ use bray_symbols::{
     SymbolFactKind, SymbolFactRequest, SymbolFactResult,
 };
 
-use crate::{CompilerKnownOperationContract, CompilerKnownOperationRole};
-use crate::{UnitCheckEntryContext, UnitCheckRequestError};
+use crate::{
+    CheckerUnitViewError, CompilerKnownOperationContract, CompilerKnownOperationRole,
+    SemanticUnitContext,
+};
 
 /// A checker infrastructure failure that is neither a source diagnostic nor cancellation.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -64,8 +66,8 @@ pub enum CheckerInfrastructureError {
     },
     /// One unit contains more expression variables than the checker can identify compactly.
     ExpressionTypeCapacityExceeded,
-    /// A whole-unit checker request did not match its canonical bound unit.
-    InvalidUnitRequest(UnitCheckRequestError),
+    /// A checker unit view did not match its canonical bound unit.
+    InvalidUnitView(CheckerUnitViewError),
 }
 
 /// A failure while requesting a checker dependency.
@@ -120,10 +122,10 @@ impl<'source> CheckerSource<'source> {
     }
 }
 
-/// Narrow immutable services shared by checker requests.
+/// Narrow immutable services shared by checker unit views.
 pub trait CheckerRequestContext: Sync {
-    /// Returns whether an entry context exactly describes the supplied bound unit.
-    fn entry_context_matches(&self, unit: &BoundUnit, entry: &UnitCheckEntryContext) -> bool;
+    /// Returns whether semantic context exactly describes the supplied bound unit.
+    fn semantic_context_matches(&self, unit: &BoundUnit, context: &SemanticUnitContext) -> bool;
 
     /// Returns the canonical semantic values used by bound structure and facts.
     fn semantic_values(&self) -> &SemanticValueStore;

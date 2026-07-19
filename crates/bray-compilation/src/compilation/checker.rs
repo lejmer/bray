@@ -61,13 +61,13 @@ impl<'compilation> CompilationCheckerContext<'compilation> {
 }
 
 impl CheckerRequestContext for CompilationCheckerContext<'_> {
-    fn entry_context_matches(
+    fn semantic_context_matches(
         &self,
         unit: &BoundUnit,
-        entry: &bray_checker::UnitCheckEntryContext,
+        context: &bray_checker::SemanticUnitContext,
     ) -> bool {
-        bray_binder::unit_check_entry_context(self.symbols(), unit)
-            .is_ok_and(|expected| expected == *entry)
+        bray_binder::semantic_unit_context(self.symbols(), unit)
+            .is_ok_and(|expected| expected == *context)
     }
 
     fn semantic_values(&self) -> &SemanticValueStore {
@@ -147,9 +147,9 @@ impl Compilation {
 
 #[cfg(test)]
 mod tests {
-    use bray_binder::unit_check_entry_context;
+    use bray_binder::semantic_unit_context;
     use bray_bound_tree::BoundSourceAnchor;
-    use bray_checker::{CheckerInfrastructureError, CheckerRequestContext, UnitCheckRequest};
+    use bray_checker::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
     use bray_source::SourceVersion;
     use bray_symbols::{CallableSignatureFact, CallableSymbolId, SymbolFactRequest, SymbolOrigin};
 
@@ -222,14 +222,14 @@ mod tests {
             Err(error) => panic!("bound unit must be available: {error:?}"),
         };
 
-        let entry = match unit_check_entry_context(context.symbols(), bound.value()) {
+        let entry = match semantic_unit_context(context.symbols(), bound.value()) {
             Ok(entry) => entry,
-            Err(error) => panic!("checker entry context must be available: {error:?}"),
+            Err(error) => panic!("semantic unit context must be available: {error:?}"),
         };
 
-        let request = match UnitCheckRequest::new(bound.value(), &entry, &context) {
+        let request = match CheckerUnitView::new(bound.value(), &entry, &context) {
             Ok(request) => request,
-            Err(error) => panic!("checker request must be valid: {error:?}"),
+            Err(error) => panic!("checker unit view must be valid: {error:?}"),
         };
 
         let graph = match compilation.symbol_graph() {

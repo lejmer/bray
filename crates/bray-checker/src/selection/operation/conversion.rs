@@ -3,10 +3,10 @@ use bray_compiler_known::RepresentationRole;
 use bray_symbols::{GenericArgument, TypeData, TypeId};
 
 use crate::representation::type_representation;
-use crate::{CheckerInfrastructureError, CheckerRequestContext, UnitCheckRequest};
+use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
 
 pub(super) fn validate_conversion<C>(
-    request: UnitCheckRequest<'_, C>,
+    request: CheckerUnitView<'_, C>,
     conversion: &SelectedConversion,
 ) -> Result<bool, CheckerInfrastructureError>
 where
@@ -47,7 +47,7 @@ where
 }
 
 fn scalar_conversion_is_valid<C>(
-    request: UnitCheckRequest<'_, C>,
+    request: CheckerUnitView<'_, C>,
     source: TypeId,
     target: TypeId,
 ) -> Result<bool, CheckerInfrastructureError>
@@ -68,7 +68,7 @@ where
 }
 
 fn composite_conversion_shape_is_valid<C>(
-    request: UnitCheckRequest<'_, C>,
+    request: CheckerUnitView<'_, C>,
     source: TypeId,
     target: TypeId,
     children: &[SelectedConversion],
@@ -133,7 +133,7 @@ where
 }
 
 fn complex_component_type<C>(
-    request: UnitCheckRequest<'_, C>,
+    request: CheckerUnitView<'_, C>,
     target: TypeId,
 ) -> Result<Option<TypeId>, CheckerInfrastructureError>
 where
@@ -155,7 +155,7 @@ where
 }
 
 fn trait_application_targets<C>(
-    request: UnitCheckRequest<'_, C>,
+    request: CheckerUnitView<'_, C>,
     application: bray_symbols::TraitApplicationId,
     target: TypeId,
 ) -> Result<bool, CheckerInfrastructureError>
@@ -248,7 +248,7 @@ pub(super) const fn is_builtin_conversion(operation: &SelectedOperation) -> bool
 mod tests {
     use bray_bound_tree::{BoundUnitId, ConversionTarget, SelectedConversion};
 
-    use crate::UnitCheckRequest;
+    use crate::CheckerUnitView;
     use crate::test_support::{
         TestCheckerContext, callable_entry, expression_unit, integer_literal_expression,
         push_expression, tuple_type,
@@ -312,7 +312,7 @@ mod tests {
     ) -> Result<bool, crate::CheckerInfrastructureError> {
         let entry = callable_entry(unit.key());
 
-        match UnitCheckRequest::new(unit, &entry, context) {
+        match CheckerUnitView::new(unit, &entry, context) {
             Ok(request) => validate_conversion(request, conversion),
             Err(error) => panic!("conversion test request must validate: {error:?}"),
         }

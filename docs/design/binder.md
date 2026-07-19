@@ -1,7 +1,7 @@
 # Binder and bound tree design
 
-This document defines the goal-state architecture for name binding, semantic-analysis orchestration, checked semantic units, and the
-immutable bound representation.
+This document defines the goal-state architecture for name binding, semantic-analysis cooperation, bound semantic units, and the
+immutable bound representation and side facts.
 
 The language documents define Bray semantics.
 
@@ -25,7 +25,7 @@ binder or making lowering reinterpret source.
 The binder and bound representation should:
 
 - resolve every semantic reference to a typed identity,
-- publish complete immutable results for clearly defined semantic units,
+- publish complete immutable results for clearly defined bound-unit and semantic-fact contracts,
 - preserve enough source correlation for precise diagnostics and tooling,
 - orchestrate checker services without owning their semantic rules,
 - represent erroneous source explicitly and continue without panics,
@@ -44,16 +44,17 @@ The binder does not:
 - discover declarations already owned by `bray-declarations`,
 - construct the compilation-wide symbol identity skeleton,
 - define type, ownership, borrowing, effect, capability, contract, or target policy,
-- lower a completed source-shaped bound HIR view into backend-independent MIR,
+- lower a source-shaped bound HIR and its consumer-required semantic facts into backend-independent MIR,
 - execute constant expressions or runtime defaults except through the owning evaluator service,
 - own compiler command workflows or eagerly bind the whole program,
-- expose mutable bound nodes or partially checked public results.
+- expose mutable bound nodes or facts that claim guarantees beyond their own contracts.
 
-The bound tree is not syntax with renamed node kinds. It contains resolved semantic references and checked facts that syntax alone
-cannot represent.
+The bound tree is not syntax with renamed node kinds. It contains resolved semantic references and binding decisions that syntax
+alone cannot represent.
 
-The checked bound tree is Bray's source-shaped high-level intermediate representation. It is not the backend-independent `bray-ir`
-MIR. It remains closely correlated with source and diagnostics until lowering makes implicit execution behavior explicit.
+The bound tree is Bray's source-shaped high-level intermediate representation. A consumer observes it together with the exact
+immutable semantic side facts it requests. It is not the backend-independent `bray-ir` MIR and remains closely correlated with
+source and diagnostics until lowering makes implicit execution behavior explicit.
 
 ---
 
@@ -287,7 +288,7 @@ pub struct InferenceTypeId(u32);
 ```
 
 Inference variables, unification parents, candidate sets, deferred constraints, and solver obligations remain in a checker-owned
-inference context. They must not be interned as `TypeId`, stored on published checked bound nodes, serialized into package interfaces,
+inference context. They must not be interned as `TypeId`, stored on published bound nodes, serialized into package interfaces,
 or exposed by completed symbol facts.
 
 Before publication, every inference variable is resolved to a canonical `TypeId` or the canonical error type with diagnostics owned
@@ -608,10 +609,10 @@ representation of the unit.
 checker-internal control-flow graph. Type, overload, implementation, ownership, borrow, contract, effect, and capability analyses
 follow the same side-fact model.
 
-The compilation query graph expresses completion guarantees. `checked_control_flow(key)` depends on `bound_unit(key)` and guarantees
-that its returned `CheckedControlFlowFacts` belong to that bound unit. A later whole-unit completion query depends on every required
-domain fact. The compiler must not encode query history by introducing `ControlFlowChecked*`, `BorrowChecked*`, or similar bound-tree
-wrapper families.
+The compilation fact graph expresses each typed accessor's guarantees. `checked_control_flow(key)` depends on `bound_unit(key)` and
+guarantees that its returned `CheckedControlFlowFacts` belong to that bound unit. Other semantic accessors declare their own exact
+prerequisites. The compiler must not encode evaluation history by introducing `ControlFlowChecked*`, `BorrowChecked*`, or similar
+bound-tree wrapper families.
 
 ### Lazy Entry Points
 
@@ -620,14 +621,19 @@ phase-execution method.
 
 The workspace-internal cross-crate boundary uses category-specific `bind_*` functions to produce task-local pending units. A pending
 unit exposes its canonical direct nested-unit keys, but it cannot be published. Finishing it freezes the one immutable `BoundUnit`.
-`Compilation` requests nested control-flow facts before publishing the parent's control-flow fact. Cancellation or a nested query
-failure discards the pending analysis result. Binder diagnostics remain owned by the bound-unit fact and checker diagnostics remain
-owned by the checker fact that produced them.
+One unit's semantic fact does not request the same fact for nested units unless that dependency is part of the fact's semantic
+contract. Broad consumers such as package diagnostics traverse reachable nested-unit keys explicitly through typed fact accessors.
+Binder diagnostics remain owned by the bound-unit fact and checker diagnostics remain owned by the checker fact that produced them.
 
 Public compilation queries do not accept a caller-supplied `BinderFactContext`. `Compilation` owns the package identity, syntax,
 declarations, symbol graph, semantic value store, target provider, symbol-fact provider, cancellation token, and exact cache universe.
 It constructs a private `Binder` with the injected fact context and rejects unit keys whose owners do not belong to that symbol
 graph.
+
+The typed bound-unit and semantic-fact accessors are the public demand model. `CheckerUnitView` is validated borrowed input to a
+focused checker service, not a query object or evidence that other domains completed. Dependency recording, scheduling, waiting,
+and cache publication remain private to compilation fact evaluation. The binder and checker must not introduce generic fact
+wrappers, dynamic query registries, duplicate query identities, or unit-progress wrappers above the typed facts.
 
 Body presence is cheap identity-level information and does not force body binding:
 
@@ -655,8 +661,8 @@ impl FunctionSymbolView<'_> {
 fact. Methods, constructors, lifecycle members, defaulted trait callables, and other body-bearing categories expose their exact
 counterparts rather than requiring callers to erase them to one callable kind.
 
-The conceptual signature omits the query layer's outer cancellation transport. Cancellation must not be represented as `None` or as
-an error-aware checked body.
+The conceptual signature omits the fact evaluator's outer cancellation transport. Cancellation must not be represented as `None`
+or as an error-aware bound body.
 
 Anonymous callable views resolve through their owning local snapshot and exact `BoundUnitKey`. Declaration-owned expression facts
 remain available through their owner-specific symbol APIs. The shared query implementation can use closed internal unit-key
@@ -1193,18 +1199,18 @@ Focused checker APIs should accept typed semantic inputs and return typed outcom
 - merging branch types and states,
 - validating effects, capabilities, and trusted obligations,
 - validating constant or predicate context,
-- finalizing whole-unit control-flow, initialization, and lifecycle facts.
+- computing unit-scoped control-flow, initialization, and lifecycle facts.
 
 Checker services must not append user diagnostics to a process-global bag, mutate published symbols, or publish bound nodes
 independently of the binder's unit transaction.
 
-Local checker services can use private analysis representations over task-local bound data. Whole-unit flow services use the shared
-checker-internal control-flow graph defined below. Both return results for the binder to store before publication and neither
-publishes checker-owned intermediate state as bound or lowering data.
+Local checker services can use private analysis representations over task-local bound data. Unit-scoped flow services use the
+shared checker-internal control-flow graph defined below. Neither publishes checker-owned intermediate state as bound or lowering
+data.
 
-When a checker needs whole-unit structure, it receives a read-only bound unit view whose type is owned by `bray-bound-tree`.
-It must not depend on binder-private builders. The binder freezes task-local structural nodes into that view, receives typed checker
-facts and side tables, and then finalizes the published tree without cloning the complete unit.
+When a checker needs unit-scoped structure, it receives a validated read-only view over the committed `BoundUnit`. It must not
+depend on binder-private builders. Each checker operation returns its own typed fact and diagnostics without cloning, enriching, or
+republishing the bound unit.
 
 Binding and checking can be mutually dependent at a fine grain. For example, overload selection can require argument types while
 argument binding can use parameter expectations. Such cooperation uses explicit typed candidate and expected-context APIs, not phase
@@ -1216,7 +1222,7 @@ ownership shortcuts or mutable partially published nodes.
 
 ### Shared Control-Flow Graph
 
-`bray-checker` owns one checker-internal control-flow graph for each semantic unit that requires whole-unit flow analysis. The
+`bray-checker` owns one checker-internal control-flow graph for each semantic unit that requires unit-scoped flow analysis. The
 graph is built from the committed read-only bound unit view after binding has fixed source-semantic evaluation order. It is
 immutable after construction and is shared by the focused analyses for that unit.
 
@@ -1347,7 +1353,7 @@ Whole-unit analysis follows this boundary:
 6. Compilation publishes each durable typed fact atomically and records its dependency on the canonical bound unit.
 
 Abandoned speculative candidates never contribute nodes or edges to the final graph. Candidate-local checks can use focused temporary
-state, but the shared whole-unit graph is constructed only from committed binding state.
+state, but the shared unit-scoped graph is constructed only from committed binding state.
 
 Each nested anonymous callable or independently checked declaration-owned expression or expression sequence has its own semantic
 unit and therefore its own graph when flow analysis is required. A graph never crosses semantic-unit ownership boundaries.

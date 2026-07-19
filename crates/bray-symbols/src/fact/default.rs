@@ -196,15 +196,15 @@ impl RuntimeDefaultBehavior {
     }
 }
 
-/// Identifies the checked template that supplies one runtime default.
+/// Identifies the semantic template that supplies one runtime default.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum RuntimeDefaultTemplateReference {
-    /// A source-backed checked unit selected by its declaration-owned expression anchor.
+    /// A source-backed template selected by its declaration-owned expression anchor.
     ///
-    /// The source-independent template is a separate checked-template contract. Consumers must
-    /// request the already checked unit and must not rebind this syntax independently.
+    /// Consumers request the runtime-default facts for this anchor and must not rebind the syntax
+    /// independently.
     Source(SyntaxAnchor),
-    /// A stable checked-template record in a loaded compiled package interface.
+    /// A stable template record in a loaded compiled package interface.
     Interface {
         /// The loaded package interface.
         interface: ImportedInterfaceId,

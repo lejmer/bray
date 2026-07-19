@@ -6,13 +6,13 @@ mod analysis;
 mod constant;
 mod context;
 mod diagnostic;
-mod entry;
 mod outcome;
 mod representation;
-mod request;
 mod selection;
+mod semantic_context;
 mod service;
 mod type_check;
+mod unit;
 
 #[cfg(test)]
 mod test_support;
@@ -24,12 +24,7 @@ pub use context::{
     CheckerFactError, CheckerFactResult, CheckerInfrastructureError, CheckerRequestContext,
     CheckerSemanticFactProvider, CheckerSource,
 };
-pub use entry::{
-    AnonymousCallableCheckEntry, ContractClauseCheckEntry, DeclaredUnitCheckEntry,
-    UnitCheckEntryContext,
-};
 pub use outcome::{CheckerOutcome, ControlFlowCheckResult};
-pub use request::{UnitCheckRequest, UnitCheckRequestError, UnitCheckRoot};
 pub use selection::{
     CallableCandidate, CallableCandidateState, CallableSelectionRequest, CandidateSelection,
     CompilerKnownOperationContract, CompilerKnownOperationEvidence, CompilerKnownOperationRole,
@@ -37,8 +32,12 @@ pub use selection::{
     OperationCandidateState, OperationSelectionRequest, ReceiverCapability, ReceiverSelection,
     SelectionCandidateKey, SelectionFailure,
 };
+pub use semantic_context::{
+    AnonymousCallableContext, ContractClauseContext, DeclaredUnitContext, SemanticUnitContext,
+};
 pub use service::{
     ConstantEvaluator, ControlFlowChecker, DefaultConstantEvaluator, DefaultControlFlowChecker,
     DefaultExpressionTypeChecker, DefaultSemanticSelector, ExpressionTypeChecker, SemanticSelector,
 };
 pub use type_check::{ExpressionTypeEvidence, ExpressionTypeExpectation, ExpressionTypeInput};
+pub use unit::{CheckerUnitRoot, CheckerUnitView, CheckerUnitViewError};

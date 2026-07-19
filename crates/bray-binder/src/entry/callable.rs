@@ -191,7 +191,7 @@ mod tests {
         };
 
         let entry =
-            match crate::unit_check_entry_context(facts.symbols(), computation.result().value()) {
+            match crate::semantic_unit_context(facts.symbols(), computation.result().value()) {
                 Ok(entry) => entry,
                 Err(error) => {
                     panic!("source callable body must establish checker entry: {error:?}")

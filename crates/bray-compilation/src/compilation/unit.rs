@@ -3,12 +3,12 @@ use std::sync::Arc;
 use bray_binder::{
     BinderDependency, BoundUnitBindingError, BoundUnitComputation, bind_anonymous_callable,
     bind_callable_body, bind_constant_template, bind_constraint, bind_contract_clause,
-    bind_predicate_definition, bind_runtime_default, unit_check_entry_context,
+    bind_predicate_definition, bind_runtime_default, semantic_unit_context,
 };
 use bray_bound_tree::{BoundUnit, BoundUnitKey, BoundUnitKind, CheckedControlFlowFacts};
 use bray_checker::{
-    CheckerInfrastructureError, CheckerOutcome, ControlFlowChecker, DefaultControlFlowChecker,
-    UnitCheckEntryContext, UnitCheckRequest,
+    CheckerInfrastructureError, CheckerOutcome, CheckerUnitView, ControlFlowChecker,
+    DefaultControlFlowChecker, SemanticUnitContext,
 };
 use bray_diagnostics::DiagnosticResult;
 use bray_symbols::SymbolGraph;
@@ -75,14 +75,11 @@ impl Compilation {
             |cancellation| {
                 let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
 
-                for nested in bound.result().value().nested_units() {
-                    self.checked_control_flow_with_cancellation(nested.clone(), cancellation)?;
-                }
-
                 let context = self.checker_context_for(&key, cancellation)?;
-                let entry = checker_entry_context(context.symbols(), bound.result().value())?;
+                let semantic_context =
+                    semantic_unit_context_for(context.symbols(), bound.result().value())?;
 
-                check_control_flow(bound.result().value(), &entry, &context)
+                check_control_flow(bound.result().value(), &semantic_context, &context)
             },
         )
     }
@@ -104,16 +101,16 @@ fn bind_unit(
     }
 }
 
-fn checker_entry_context(
+fn semantic_unit_context_for(
     symbols: &SymbolGraph,
     bound: &BoundUnit,
-) -> Result<UnitCheckEntryContext, FactQueryError> {
-    unit_check_entry_context(symbols, bound).map_err(FactQueryError::CheckerEntryContext)
+) -> Result<SemanticUnitContext, FactQueryError> {
+    semantic_unit_context(symbols, bound).map_err(FactQueryError::SemanticUnitContext)
 }
 
 fn check_control_flow(
     bound: &BoundUnit,
-    entry: &UnitCheckEntryContext,
+    semantic_context: &SemanticUnitContext,
     context: &CompilationCheckerContext<'_>,
 ) -> Result<
     (
@@ -122,11 +119,11 @@ fn check_control_flow(
     ),
     FactQueryError,
 > {
-    let request = UnitCheckRequest::new(bound, entry, context).map_err(|error| {
-        FactQueryError::CheckerInfrastructure(CheckerInfrastructureError::InvalidUnitRequest(error))
+    let unit = CheckerUnitView::new(bound, semantic_context, context).map_err(|error| {
+        FactQueryError::CheckerInfrastructure(CheckerInfrastructureError::InvalidUnitView(error))
     })?;
 
-    let result = match DefaultControlFlowChecker.check_control_flow(request) {
+    let result = match DefaultControlFlowChecker.check_control_flow(unit) {
         CheckerOutcome::Complete(result) => result.map(|result| result.into_facts()),
         CheckerOutcome::Cancelled => return Err(FactQueryError::Cancelled),
         CheckerOutcome::InfrastructureFailure(error) => {
@@ -155,10 +152,10 @@ const fn map_binding_error(error: BoundUnitBindingError) -> FactQueryError {
 mod tests {
     use std::sync::Arc;
 
-    use bray_binder::{UnitCheckEntryContextError, unit_check_entry_context};
-    use bray_checker::{CheckerInfrastructureError, UnitCheckEntryContext, UnitCheckRequestError};
+    use bray_binder::{SemanticUnitContextError, semantic_unit_context};
+    use bray_checker::{CheckerInfrastructureError, CheckerUnitViewError, SemanticUnitContext};
 
-    use super::{Compilation, check_control_flow, checker_entry_context};
+    use super::{Compilation, check_control_flow, semantic_unit_context_for};
     use crate::fact::{CancellationToken, FactCellTestEvent, FactQueryError};
     use crate::test_support::{FactTestGate, compilation, source_callable_body_key};
 
@@ -312,7 +309,44 @@ mod tests {
     }
 
     #[test]
-    fn invalid_checker_requests_preserve_their_typed_infrastructure_error() {
+    fn control_flow_requests_do_not_force_nested_unit_control_flow() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "func main()\n",
+            "{\n",
+            "    let callable = lambda()\n",
+            "    {\n",
+            "    };\n",
+            "}\n",
+        ));
+        let key = source_callable_body_key(&compilation);
+
+        let bound = match compilation.bound_unit(key.clone()) {
+            Ok(bound) => bound,
+            Err(error) => panic!("callable body must bind: {error:?}"),
+        };
+
+        let [nested] = bound.value().nested_units() else {
+            panic!("test callable must contain one nested semantic unit");
+        };
+
+        assert_eq!(
+            compilation.state.checked_control_flow.is_published(nested),
+            Ok(false)
+        );
+
+        if let Err(error) = compilation.checked_control_flow(key) {
+            panic!("parent control-flow facts must be available: {error:?}");
+        }
+
+        assert_eq!(
+            compilation.state.checked_control_flow.is_published(nested),
+            Ok(false)
+        );
+    }
+
+    #[test]
+    fn invalid_checker_unit_views_preserve_their_typed_infrastructure_error() {
         let compilation = callable_compilation();
         let key = source_callable_body_key(&compilation);
 
@@ -326,30 +360,30 @@ mod tests {
             Err(error) => panic!("checker context must be available: {error:?}"),
         };
 
-        let canonical = match unit_check_entry_context(context.symbols(), bound.value()) {
+        let canonical = match semantic_unit_context(context.symbols(), bound.value()) {
             Ok(entry) => entry,
-            Err(error) => panic!("checker entry context must be available: {error:?}"),
+            Err(error) => panic!("semantic unit context must be available: {error:?}"),
         };
 
-        let UnitCheckEntryContext::CallableBody(declaration) = canonical else {
+        let SemanticUnitContext::CallableBody(declaration) = canonical else {
             panic!("callable body must produce a callable-body checker entry");
         };
 
-        let invalid = UnitCheckEntryContext::Constraint(declaration);
+        let invalid = SemanticUnitContext::Constraint(declaration);
         let result = check_control_flow(bound.value(), &invalid, &context);
 
         assert!(matches!(
             result,
             Err(FactQueryError::CheckerInfrastructure(
-                CheckerInfrastructureError::InvalidUnitRequest(
-                    UnitCheckRequestError::EntryContextMismatch
+                CheckerInfrastructureError::InvalidUnitView(
+                    CheckerUnitViewError::SemanticContextMismatch
                 )
             ))
         ));
     }
 
     #[test]
-    fn invalid_checker_entry_contexts_preserve_their_typed_cause() {
+    fn invalid_semantic_unit_contexts_preserve_their_typed_cause() {
         let primary = callable_compilation();
         let key = source_callable_body_key(&primary);
 
@@ -372,9 +406,9 @@ func other()
         };
 
         assert!(matches!(
-            checker_entry_context(symbols, bound.value()),
-            Err(FactQueryError::CheckerEntryContext(
-                UnitCheckEntryContextError::MissingOwner
+            semantic_unit_context_for(symbols, bound.value()),
+            Err(FactQueryError::SemanticUnitContext(
+                SemanticUnitContextError::MissingOwner
             ))
         ));
     }

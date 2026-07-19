@@ -6,7 +6,7 @@ use bray_bound_tree::{
 };
 use bray_symbols::{TypeData, TypeId};
 
-use crate::{CheckerInfrastructureError, CheckerRequestContext, UnitCheckRequest};
+use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
 
 use super::ExpressionTypeExpectation;
 use super::dependencies::ExpressionTypeDependencies;
@@ -57,7 +57,7 @@ pub(super) fn add_intrinsic_constraints(
 }
 
 pub(super) fn add_relationship_constraints<C>(
-    request: UnitCheckRequest<'_, C>,
+    request: CheckerUnitView<'_, C>,
     expressions: &[BoundExpressionId],
     variables: &BTreeMap<BoundExpressionId, InferenceTypeId>,
     block_variables: &BTreeMap<BoundBlockId, InferenceTypeId>,
@@ -198,7 +198,7 @@ pub(super) fn add_operand_expectation(
 }
 
 pub(super) fn block_expectations<C>(
-    request: UnitCheckRequest<'_, C>,
+    request: CheckerUnitView<'_, C>,
     blocks: &[BoundBlockId],
 ) -> Option<Vec<ExpressionTypeExpectation>>
 where
@@ -250,7 +250,7 @@ fn push_expected_initializer(
 }
 
 pub(super) fn add_expectations<C>(
-    request: UnitCheckRequest<'_, C>,
+    request: CheckerUnitView<'_, C>,
     expectations: impl IntoIterator<Item = ExpressionTypeExpectation>,
     variables: &BTreeMap<BoundExpressionId, InferenceTypeId>,
     inference: &mut TypeInferenceContext,

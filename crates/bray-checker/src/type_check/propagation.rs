@@ -9,14 +9,14 @@ use bray_symbols::{
     TypeId,
 };
 
-use crate::{CheckerInfrastructureError, CheckerRequestContext, UnitCheckRequest};
+use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
 
 use super::constraints::add_operand_expectation;
 use super::dependencies::ExpressionTypeDependencies;
 use super::inference::{InferenceTypeId, TypeInferenceContext};
 
 pub(super) fn propagate_dynamic_constraints<C>(
-    request: UnitCheckRequest<'_, C>,
+    request: CheckerUnitView<'_, C>,
     expressions: &[BoundExpressionId],
     variables: &BTreeMap<BoundExpressionId, InferenceTypeId>,
     block_variables: &BTreeMap<BoundBlockId, InferenceTypeId>,
@@ -98,7 +98,7 @@ where
 }
 
 fn propagate_blocks<C>(
-    request: UnitCheckRequest<'_, C>,
+    request: CheckerUnitView<'_, C>,
     block_variables: &BTreeMap<BoundBlockId, InferenceTypeId>,
     block_owners: &BTreeMap<BoundBlockId, BoundExpressionId>,
     variables: &BTreeMap<BoundExpressionId, InferenceTypeId>,
@@ -244,7 +244,7 @@ fn propagate_assignment(
 }
 
 fn infer_tuple<C>(
-    request: UnitCheckRequest<'_, C>,
+    request: CheckerUnitView<'_, C>,
     expression_id: BoundExpressionId,
     operands: &[BoundExpressionId],
     variables: &BTreeMap<BoundExpressionId, InferenceTypeId>,
@@ -275,7 +275,7 @@ where
 }
 
 fn infer_array<C>(
-    request: UnitCheckRequest<'_, C>,
+    request: CheckerUnitView<'_, C>,
     expression_id: BoundExpressionId,
     operands: &[BoundExpressionId],
     variables: &BTreeMap<BoundExpressionId, InferenceTypeId>,
@@ -385,7 +385,7 @@ fn add_aggregate_evidence(
 }
 
 fn array_length<C>(
-    request: UnitCheckRequest<'_, C>,
+    request: CheckerUnitView<'_, C>,
     length: usize,
     usize_type: TypeId,
 ) -> Result<bray_symbols::ConstantTermId, CheckerInfrastructureError>

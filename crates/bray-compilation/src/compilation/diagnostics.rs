@@ -29,8 +29,8 @@ impl Compilation {
                 Err(FactQueryError::InfrastructureFailure) => {
                     panic!("semantic diagnostic infrastructure failed")
                 }
-                Err(FactQueryError::CheckerEntryContext(error)) => {
-                    panic!("semantic checker entry context failed: {error:?}")
+                Err(FactQueryError::SemanticUnitContext(error)) => {
+                    panic!("semantic semantic unit context failed: {error:?}")
                 }
                 Err(FactQueryError::CheckerInfrastructure(error)) => {
                     panic!("semantic checker infrastructure failed: {error:?}")
@@ -357,9 +357,9 @@ fn unit_order_key(
 
 #[cfg(test)]
 mod tests {
-    use bray_binder::unit_check_entry_context;
+    use bray_binder::semantic_unit_context;
     use bray_bound_tree::{BoundUnitKind, BoundUnitRoot};
-    use bray_checker::UnitCheckEntryContext;
+    use bray_checker::SemanticUnitContext;
     use bray_diagnostics::DiagnosticKind;
     use bray_symbols::CallableContractClauseKind;
 
@@ -510,7 +510,7 @@ mod tests {
     }
 
     #[test]
-    fn postcondition_result_reaches_the_checker_entry_context() {
+    fn postcondition_result_reaches_the_semantic_unit_context() {
         let compilation = compilation(concat!(
             "module app;\n",
             "func check() -> i32 ensures(result == 1)\n",
@@ -543,12 +543,12 @@ mod tests {
             Err(error) => panic!("symbol graph must be available: {error:?}"),
         };
 
-        let entry = match unit_check_entry_context(symbols, bound.value()) {
+        let entry = match semantic_unit_context(symbols, bound.value()) {
             Ok(entry) => entry,
-            Err(error) => panic!("checker entry context must be available: {error:?}"),
+            Err(error) => panic!("semantic unit context must be available: {error:?}"),
         };
 
-        let UnitCheckEntryContext::ContractClause(entry) = entry else {
+        let SemanticUnitContext::ContractClause(entry) = entry else {
             panic!("contract clause must produce a contract-clause checker entry");
         };
 
@@ -604,12 +604,12 @@ mod tests {
 
             assert!(bound.diagnostics().is_empty());
 
-            let entry = match unit_check_entry_context(symbols, bound.value()) {
+            let entry = match semantic_unit_context(symbols, bound.value()) {
                 Ok(entry) => entry,
-                Err(error) => panic!("checker entry context must be available: {error:?}"),
+                Err(error) => panic!("semantic unit context must be available: {error:?}"),
             };
 
-            let UnitCheckEntryContext::ContractClause(entry) = entry else {
+            let SemanticUnitContext::ContractClause(entry) = entry else {
                 panic!("contract clause must produce a contract-clause checker entry");
             };
 

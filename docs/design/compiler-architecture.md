@@ -107,13 +107,13 @@ No phase should rely on a later phase to repair invalid data.
 The main durable representations are:
 
 - a lossless syntax tree,
-- a completed source-shaped bound high-level IR view,
+- a canonical source-shaped bound high-level IR with independently published semantic facts,
 - a backend-independent mid-level IR.
 
-The checked program state is the source-shaped bound HIR after the binder has completed semantic analysis and all required semantic
-facts have been populated.
+No universal checked-program object records which analyses have run. Each consumer observes the source-shaped bound HIR through a
+validated view containing only the immutable semantic facts required by that consumer.
 
-Lowering receives that state through a validated borrowing view over one canonical bound unit and its required typed side facts.
+Lowering receives one such view over a canonical bound unit and its required typed side facts.
 It publishes one execution-shaped MIR owned by `bray-ir`, not another durable family of lowered bound nodes.
 
 ---
@@ -168,17 +168,22 @@ Compiler facts should generally be lazy across stable compiler boundaries:
 - MIR units,
 - backend codegen units.
 
-A lazy fact must be complete within the boundary promised by its API. If an API returns a checked callable body, the whole callable
-body is checked and the published result contains the required expression types, selected overloads, selected trait
-implementations, move states, borrow states, contract facts, capability facts, and diagnostics for that body.
+A lazy fact must be complete within the boundary promised by its API. An expression-type accessor returns the complete immutable
+expression-type fact for its key. A selected-call accessor returns the complete immutable call-selection fact for its key. Neither
+accessor implies that unrelated storage, effect, contract, or lowering facts were evaluated.
 
-Binding publishes one canonical immutable `BoundUnit`. Each semantic analysis publishes only its typed side facts keyed to that unit.
-The compiler must not copy the bound tree into stage-specific wrapper families as analyses complete. Query dependencies establish
-which analyses have completed, while a whole-unit completion query depends on every required domain fact.
+Binding publishes one canonical immutable `BoundUnit`. Each semantic analysis publishes only its typed side facts keyed to that
+unit. The compiler must not copy the bound tree into stage-specific wrapper families as analyses complete. A consumer that needs a
+set of facts requests that exact set through typed accessors. There is no universal whole-unit completion query.
+
+Typed fact keys and accessors are the public compiler model. The same keys identify cached evaluation internally. Dependency
+recording, single-flight evaluation, scheduling, waiting, cancellation, and invalidation are private mechanics behind those
+accessors. The compiler must not mirror facts with public query objects, generic fact wrappers, dynamic registries, duplicate query
+identities, or progress-wrapper representation families.
 
 Smaller operations should use smaller APIs with smaller contracts. For example, a language-server hover implementation can ask for
 a declaration surface or a type signature. A completion implementation can ask for the local facts needed at a source position.
-These are separate contracts, not partial executions of a larger checked-body API.
+These are separate contracts, not partial executions of a broader diagnostic or lowering request.
 
 Compiler commands and language-server entry points request the result they need:
 
@@ -206,7 +211,7 @@ Compiler work should be split at stable semantic boundaries:
 - predicate bodies,
 - implementation bodies,
 - generic instantiations,
-- checked bound units,
+- bound units and independently keyed semantic facts,
 - MIR units,
 - backend codegen units.
 
@@ -224,7 +229,7 @@ Declaration discovery can run independently for syntax trees whose module contex
 Binding and checking can run independently for declarations and bodies once their required symbols, imported surfaces, target
 facts, and contract dependencies are available.
 
-MIR construction can run independently for checked bound units whose semantic facts are complete. Code generation can run
+MIR construction can run independently for bound units whose exact lowering facts are available. Code generation can run
 independently for validated `bray-ir` units once their immutable emission-plan artifact requests are available.
 
 Parallel execution must be deterministic:
@@ -428,24 +433,26 @@ kind-specific APIs. Ambient compiler-known visibility is a lookup relationship a
 packages.
 
 Local symbols use region-scoped typed IDs and immutable local symbol snapshots rather than consuming compilation-wide declaration
-symbol IDs. A checked body or declaration-owned expression publishes its bound representation, local snapshot, and diagnostics as
-one immutable fact. This keeps lazy and parallel body checking from mutating the global symbol graph.
+symbol IDs. A body or declaration-owned expression publishes its bound representation, local snapshot, and binding diagnostics as
+one immutable bound-unit fact. Checker services publish separate immutable typed facts. This keeps lazy and parallel semantic work
+from mutating the global symbol graph.
 
 Force completion requests all declaration-surface facts for a symbol and its semantically contained children in deterministic order.
 It does not bind or check executable bodies, which remain separate lazy bound-body facts.
 
 Declaration-owned expressions such as runtime defaults, constant definition templates, predicate definitions, generic constraints,
-and contract clauses are declaration-surface facts. Their full checked representations are binder-owned, requested through
-compilation queries, and summarized through typed symbol APIs. Runtime-default providers are synthesized semantic symbols and are
-lowered only when reachable. The exact fact contracts and provider APIs are defined in `docs/design/symbols.md`.
+and contract clauses are declaration-surface facts. Their bound units and semantic side facts are requested independently and
+summarized through typed symbol APIs. Runtime-default providers are synthesized semantic symbols and are lowered only when
+reachable. The exact fact contracts and provider APIs are defined in `docs/design/symbols.md`.
 
 ### Binding
 
 Binding resolves names, paths, member references, local bindings, declarations, and reference targets.
 
-Binding consumes syntax plus symbol tables and orchestrates semantic analysis to produce a checked bound HIR.
+Binding consumes syntax plus symbol tables and produces the canonical bound HIR while using focused checker services for decisions
+required during binding.
 
-The checked bound tree is the compiler's source-shaped high-level intermediate representation.
+The bound tree is the compiler's source-shaped high-level intermediate representation.
 
 The binder owns bound-tree construction. Compilation-owned semantic queries call focused checker services after the canonical bound
 unit and their other declared inputs are available.
@@ -500,7 +507,7 @@ Checker services own:
 - target-availability checking.
 
 Semantic facts such as expression types, selected overloads, selected trait implementations, move states, borrow states,
-conversion choices, contract facts, and capability facts belong to the checked bound HIR.
+conversion choices, contract facts, and capability facts belong to typed side facts associated with the bound HIR.
 
 The bound HIR uses Bray's storage terminology rather than a separate compiler-theory "place" model. Unit-local storage identities
 represent exact or symbolic storage origins. Storage-access identities represent evaluated access-path occurrences and retain ordered
@@ -514,7 +521,7 @@ Initialization, movement, active borrows, alias relationships, and other facts t
 analysis state. The checker publishes the immutable storage, access, borrow, dependency-contract, and operation facts promised by
 its typed query contract, not its complete transfer state or work lists.
 
-Each semantic unit that requires whole-unit flow analysis has one immutable checker-internal control-flow graph constructed from
+Each semantic unit that requires unit-scoped flow analysis has one immutable checker-internal control-flow graph constructed from
 its committed read-only bound unit view. Reachability, storage flow, ownership, borrowing, lifecycle, refinement, liveness, and
 dependency-contract propagation share that graph while retaining focused typed analysis states. Mutually dependent storage,
 ownership, movement, borrowing, mutation-authority, and lifecycle facts use one composite storage-flow domain rather than circular
@@ -528,10 +535,11 @@ Independent semantic units can build and analyze their control-flow graphs in pa
 in parallel when their explicit input facts are available and doing so is profitable. Deterministic fixed points, diagnostics, and
 published facts must not depend on worker scheduling.
 
-The checked program state is the bound HIR with all required semantic facts completed.
+There is no single checked-program or checked-unit representation. A diagnostic, tooling, lowering, or emission request observes
+the canonical bound HIR together with the exact immutable semantic facts required by that consumer.
 
-Checker services should make the bound HIR complete enough that lowering can consume it without re-checking source
-semantics.
+Checker services should publish facts precise enough that lowering can consume its declared inputs without re-checking source
+semantics. Lowering does not use the existence of unrelated cached facts as evidence that its requirements are satisfied.
 
 Checker services should not lower control flow merely to make checking convenient unless that lowered form is an explicit
 checker-local representation.
@@ -560,8 +568,7 @@ Lowering makes implicit behavior explicit:
 
 Lowering should not make new semantic decisions.
 
-If lowering discovers that it needs a semantic fact that the checked bound HIR did not provide, the checker service
-contract is incomplete.
+If lowering discovers that it needs a semantic fact absent from `LoweringInput`, the lowering-input contract is incomplete.
 
 Async lowering consumes hidden frame identities, suspension liveness, invocation and deferred execution contracts, state-indexed
 affinity facts, postcondition templates, and two-phase scope cleanup plans with distinct descriptor visitors. It emits typed MIR
@@ -698,7 +705,7 @@ Source-shaped bound nodes must belong to `bray-bound-tree`.
 
 Resolved references on bound nodes belong to binding.
 
-Semantic facts on source-shaped checked bound nodes belong to semantic checker services.
+Semantic facts associated with source-shaped bound nodes belong to semantic checker services.
 
 Backend-independent MIR nodes belong to `bray-ir`. Lowering produces them and code generation consumes them.
 
@@ -832,12 +839,15 @@ A query can be evaluated lazily when its fact is requested.
 Queries should feel like ordinary typed compiler APIs. A caller asks for the fact it needs and the query implementation obtains its
 own dependencies internally.
 
+"Query" names this private evaluation behavior. It does not require a public query object, a `Query<T>` wrapper, a second identity
+beside the fact key, or a dynamic registry. Public APIs expose typed facts directly.
+
 A task is schedulable compiler work with explicit dependencies.
 
 Queries and tasks should use immutable inputs and publish immutable outputs.
 
-Query contracts must be complete within their promised boundary. Do not model a partially checked callable body, type body, or
-implementation body as though it were a fully checked result.
+Fact contracts must be complete within their promised boundary. Do not model one fact as evidence that unrelated semantic facts
+were evaluated.
 
 Do not turn ordinary helper functions into queries merely because they are reusable.
 
@@ -953,8 +963,8 @@ If a feature can be added by changing only parser code and codegen, that is a wa
 
 Core language rules belong in the relevant model and checker contracts, not in backend-specific code.
 
-Backend support should be selected after the feature is represented in the checked bound HIR and backend-independent `bray-ir`
-MIR.
+Backend support should be selected after the feature is represented in the bound HIR, its required semantic facts, and the
+backend-independent MIR owned by `bray-ir`.
 
 A new backend implements the coarse codegen-unit contract. It must not require LLVM types in backend-neutral crates, reinterpret
 source semantics, or extend Bray MIR with backend-owned values.

@@ -400,8 +400,8 @@ impl Compilation {
             Err(FactQueryError::InfrastructureFailure) => {
                 panic!("compilation fact infrastructure failed")
             }
-            Err(FactQueryError::CheckerEntryContext(error)) => {
-                panic!("semantic checker entry context failed: {error:?}")
+            Err(FactQueryError::SemanticUnitContext(error)) => {
+                panic!("semantic semantic unit context failed: {error:?}")
             }
             Err(FactQueryError::CheckerInfrastructure(error)) => {
                 panic!("semantic checker infrastructure failed: {error:?}")

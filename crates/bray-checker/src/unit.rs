@@ -10,21 +10,21 @@ use bray_symbols::{
 
 use crate::{
     CheckerFactResult, CheckerInfrastructureError, CheckerRequestContext,
-    CheckerSemanticFactProvider, CheckerSource, UnitCheckEntryContext,
+    CheckerSemanticFactProvider, CheckerSource, SemanticUnitContext,
 };
 
-/// Typed inputs for whole-unit semantic checking.
-pub struct UnitCheckRequest<'view, C>
+/// A validated read-only view of one bound unit for focused checker services.
+pub struct CheckerUnitView<'view, C>
 where
     C: CheckerRequestContext + ?Sized,
 {
     view: BoundUnitView<'view>,
-    root: UnitCheckRoot,
-    entry: &'view UnitCheckEntryContext,
+    root: CheckerUnitRoot,
+    semantic_context: &'view SemanticUnitContext,
     context: &'view C,
 }
 
-impl<C> Clone for UnitCheckRequest<'_, C>
+impl<C> Clone for CheckerUnitView<'_, C>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -33,11 +33,11 @@ where
     }
 }
 
-impl<C> Copy for UnitCheckRequest<'_, C> where C: CheckerRequestContext + ?Sized {}
+impl<C> Copy for CheckerUnitView<'_, C> where C: CheckerRequestContext + ?Sized {}
 
-/// The exact root category of one independently checked semantic unit.
+/// The exact root category exposed by a checker unit view.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub enum UnitCheckRoot {
+pub enum CheckerUnitRoot {
     /// A declared or anonymous callable body.
     CallableBody(BoundCallableBodyId),
     /// A declaration-owned expression.
@@ -46,14 +46,14 @@ pub enum UnitCheckRoot {
     ExpressionSequence(BoundBlockId),
 }
 
-/// Rejects an inconsistent whole-unit checker request before analysis begins.
+/// An inconsistency that prevents construction of a checker unit view.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub enum UnitCheckRequestError {
-    /// The entry context does not identify the exact bound unit being checked.
-    EntryContextMismatch,
+pub enum CheckerUnitViewError {
+    /// The semantic context does not identify the supplied bound unit.
+    SemanticContextMismatch,
 }
 
-impl UnitCheckRoot {
+impl CheckerUnitRoot {
     const fn from_bound_root(root: BoundUnitRoot) -> Self {
         match root {
             BoundUnitRoot::CallableBody(body) | BoundUnitRoot::AnonymousCallable { body, .. } => {
@@ -65,29 +65,29 @@ impl UnitCheckRoot {
     }
 }
 
-impl<'view, C> UnitCheckRequest<'view, C>
+impl<'view, C> CheckerUnitView<'view, C>
 where
     C: CheckerRequestContext + ?Sized,
 {
-    /// Creates a checker request over one complete canonical bound unit.
+    /// Creates a read-only checker view over one canonical bound unit.
     ///
-    /// Returns an error when the entry context does not describe that unit.
+    /// Returns an error when the semantic context does not describe that unit.
     pub fn new(
         unit: &'view BoundUnit,
-        entry: &'view UnitCheckEntryContext,
+        semantic_context: &'view SemanticUnitContext,
         context: &'view C,
-    ) -> Result<Self, UnitCheckRequestError> {
-        if entry.kind() != unit.key().kind()
-            || entry.key() != unit.key()
-            || !context.entry_context_matches(unit, entry)
+    ) -> Result<Self, CheckerUnitViewError> {
+        if semantic_context.kind() != unit.key().kind()
+            || semantic_context.key() != unit.key()
+            || !context.semantic_context_matches(unit, semantic_context)
         {
-            return Err(UnitCheckRequestError::EntryContextMismatch);
+            return Err(CheckerUnitViewError::SemanticContextMismatch);
         }
 
         Ok(Self {
             view: unit.view(),
-            root: UnitCheckRoot::from_bound_root(unit.root()),
-            entry,
+            root: CheckerUnitRoot::from_bound_root(unit.root()),
+            semantic_context,
             context,
         })
     }
@@ -98,13 +98,13 @@ where
     }
 
     /// Returns the exact bound root to analyze.
-    pub const fn root(self) -> UnitCheckRoot {
+    pub const fn root(self) -> CheckerUnitRoot {
         self.root
     }
 
     /// Returns the category-specific semantic inputs active at unit entry.
-    pub const fn entry(self) -> &'view UnitCheckEntryContext {
-        self.entry
+    pub const fn semantic_context(self) -> &'view SemanticUnitContext {
+        self.semantic_context
     }
 
     /// Returns the canonical semantic values referenced by the bound unit.
@@ -153,14 +153,14 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{UnitCheckRequest, UnitCheckRoot};
+    use super::{CheckerUnitRoot, CheckerUnitView};
     use crate::test_support::TestCheckerContext;
 
     #[test]
-    fn requests_are_send_and_sync() {
+    fn views_are_send_and_sync() {
         fn assert_send_sync<T: Send + Sync>() {}
 
-        assert_send_sync::<UnitCheckRequest<'static, TestCheckerContext>>();
-        assert_send_sync::<UnitCheckRoot>();
+        assert_send_sync::<CheckerUnitView<'static, TestCheckerContext>>();
+        assert_send_sync::<CheckerUnitRoot>();
     }
 }

@@ -4,16 +4,16 @@ use bray_symbols::{
     CallableContractClauseKind, PostconditionResultSymbolId, SymbolKey,
 };
 
-/// Declaration-owned inputs that select the semantic context of one checked unit.
+/// Declaration-owned inputs active in one bound semantic unit.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct DeclaredUnitCheckEntry {
+pub struct DeclaredUnitContext {
     key: BoundUnitKey,
     owner: AnySymbolId,
     declaration: AnySymbolId,
 }
 
-impl DeclaredUnitCheckEntry {
-    /// Creates an entry context for one declaration-owned bound unit.
+impl DeclaredUnitContext {
+    /// Creates semantic context for one declaration-owned bound unit.
     pub fn new(key: BoundUnitKey, owner: AnySymbolId, declaration: AnySymbolId) -> Self {
         Self {
             key,
@@ -42,7 +42,7 @@ impl DeclaredUnitCheckEntry {
         self.declaration
     }
 
-    /// Returns the source construct that establishes the entry context.
+    /// Returns the source construct that establishes this semantic context.
     pub fn source(&self) -> BoundSourceAnchor {
         self.key.source()
     }
@@ -50,14 +50,14 @@ impl DeclaredUnitCheckEntry {
 
 /// Inputs that establish one nested anonymous callable boundary.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct AnonymousCallableCheckEntry {
+pub struct AnonymousCallableContext {
     key: BoundUnitKey,
     callable: AnonymousCallableSymbolId,
     parameters: Box<[AnonymousCallableParameterSymbolId]>,
 }
 
-impl AnonymousCallableCheckEntry {
-    /// Creates an anonymous-callable entry context with parameters in declaration order.
+impl AnonymousCallableContext {
+    /// Creates anonymous-callable context with parameters in declaration order.
     pub fn new(
         key: BoundUnitKey,
         callable: AnonymousCallableSymbolId,
@@ -88,16 +88,16 @@ impl AnonymousCallableCheckEntry {
 
 /// Inputs that establish one callable contract-clause context.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ContractClauseCheckEntry {
-    declaration: DeclaredUnitCheckEntry,
+pub struct ContractClauseContext {
+    declaration: DeclaredUnitContext,
     kind: CallableContractClauseKind,
     result: Option<PostconditionResultSymbolId>,
 }
 
-impl ContractClauseCheckEntry {
-    /// Creates a contract-clause entry context.
+impl ContractClauseContext {
+    /// Creates callable contract-clause context.
     pub fn new(
-        declaration: DeclaredUnitCheckEntry,
+        declaration: DeclaredUnitContext,
         kind: CallableContractClauseKind,
         result: Option<PostconditionResultSymbolId>,
     ) -> Self {
@@ -109,7 +109,7 @@ impl ContractClauseCheckEntry {
     }
 
     /// Returns the declaration-owned entry data.
-    pub const fn declaration(&self) -> &DeclaredUnitCheckEntry {
+    pub const fn declaration(&self) -> &DeclaredUnitContext {
         &self.declaration
     }
 
@@ -126,24 +126,24 @@ impl ContractClauseCheckEntry {
 
 /// The category-specific semantic context active at one bound-unit entry.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum UnitCheckEntryContext {
+pub enum SemanticUnitContext {
     /// A declared callable or lifecycle body.
-    CallableBody(DeclaredUnitCheckEntry),
+    CallableBody(DeclaredUnitContext),
     /// An anonymous callable nested in another semantic unit.
-    AnonymousCallable(AnonymousCallableCheckEntry),
+    AnonymousCallable(AnonymousCallableContext),
     /// A parameter, field, or payload runtime default.
-    RuntimeDefault(DeclaredUnitCheckEntry),
+    RuntimeDefault(DeclaredUnitContext),
     /// A constant definition template.
-    ConstantTemplate(DeclaredUnitCheckEntry),
+    ConstantTemplate(DeclaredUnitContext),
     /// A predicate definition.
-    PredicateDefinition(DeclaredUnitCheckEntry),
+    PredicateDefinition(DeclaredUnitContext),
     /// A declaration constraint expression.
-    Constraint(DeclaredUnitCheckEntry),
+    Constraint(DeclaredUnitContext),
     /// A callable contract clause.
-    ContractClause(ContractClauseCheckEntry),
+    ContractClause(ContractClauseContext),
 }
 
-impl UnitCheckEntryContext {
+impl SemanticUnitContext {
     /// Returns the semantic unit category selected by this context.
     pub fn kind(&self) -> BoundUnitKind {
         self.key().kind()
