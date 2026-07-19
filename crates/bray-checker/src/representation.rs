@@ -49,7 +49,7 @@ where
 }
 
 pub(crate) fn named_type<C>(
-    request: UnitCheckRequest<'_, C>,
+    request: CheckerUnitView<'_, C>,
     definition: NamedTypeSymbolId,
 ) -> Result<TypeId, CheckerInfrastructureError>
 where

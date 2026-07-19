@@ -455,8 +455,7 @@ mod tests {
         tuple_type,
     };
     use crate::{
-        CheckerUnitView, CompilerKnownOperationEvidence, CompilerKnownOperationRole,
-        ImplementationSelectionEvidence,
+        CheckerUnitView, CompilerKnownOperationEvidence, ImplementationSelectionEvidence,
     };
 
     use super::{compiler_known_operations_match, implementation_selections_match};
@@ -550,14 +549,6 @@ mod tests {
             fixture.contract.callable(),
             fixture.contract.signature().clone(),
         );
-
-        let wrong_context =
-            TestCheckerContext::new(false).with_operation_contract(wrong_role_contract);
-
-        let wrong_request = match CheckerUnitView::new(&fixture.unit, &entry, &wrong_context) {
-            Ok(request) => request,
-            Err(error) => panic!("trait conversion request must validate: {error:?}"),
-        };
 
         assert_eq!(
             compiler_known_operations_match(

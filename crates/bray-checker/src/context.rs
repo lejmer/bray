@@ -9,11 +9,7 @@ use bray_symbols::{
     SymbolFactKind, SymbolFactRequest, SymbolFactResult,
 };
 
-use crate::{
-    CheckerUnitViewError, CompilerKnownOperationContract, CompilerKnownOperationRole,
-    SemanticUnitContext,
-};
-use crate::{UnitCheckEntryContext, UnitCheckRequestError};
+use crate::{CheckerUnitViewError, SemanticUnitContext};
 
 /// A checker infrastructure failure that is neither a source diagnostic nor cancellation.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
