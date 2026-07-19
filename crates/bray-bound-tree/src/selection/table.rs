@@ -397,6 +397,7 @@ mod tests {
     #[test]
     fn semantic_selection_tables_reject_wrong_categories_and_result_types() {
         let fixture = member_fixture(BoundUnitId::new(72));
+
         let wrong_category = SemanticSelectionEntry::new(
             fixture.member,
             SemanticSelection::Operation(SelectedOperation::Operator {
@@ -470,10 +471,12 @@ mod tests {
 
     fn member_fixture(unit: BoundUnitId) -> MemberFixture {
         let values = semantic_values();
+
         let value_type = match values.intern_type(TypeData::tuple([])) {
             Ok(ty) => ty,
             Err(error) => panic!("test value type must be valid: {error:?}"),
         };
+
         let other_type = match values.intern_type(TypeData::tuple([value_type])) {
             Ok(ty) => ty,
             Err(error) => panic!("test alternate type must be valid: {error:?}"),
@@ -484,6 +487,7 @@ mod tests {
                 tree,
                 BoundExpression::Error(BoundErrorExpression::new(origin, value_type)),
             );
+
             let member = push_expression(
                 tree,
                 BoundExpression::MemberAccess(BoundMemberAccessExpression::new(
@@ -499,6 +503,7 @@ mod tests {
         });
 
         let result = ExpressionTypeResult::new(value_type, ExpressionTypeStatus::Valid);
+
         let types = CheckedExpressionTypes::new(
             unit.unit(),
             unit.key().kind(),

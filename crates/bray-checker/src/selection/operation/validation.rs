@@ -152,6 +152,7 @@ where
     let mut required = Vec::new();
 
     collect_trait_operations(operation, actual_types, &mut required)?;
+
     required.sort_unstable_by_key(|operation| operation.requirement());
     required.dedup();
 
@@ -388,6 +389,7 @@ mod tests {
         let fixture = trait_conversion_fixture(BoundUnitId::new(87));
         let context = TestCheckerContext::new(false);
         let entry = callable_entry(fixture.unit.key());
+
         let request = match UnitCheckRequest::new(&fixture.unit, &entry, &context) {
             Ok(request) => request,
             Err(error) => panic!("trait conversion request must validate: {error:?}"),
@@ -401,6 +403,7 @@ mod tests {
             ),
             Ok(true)
         );
+
         assert_eq!(
             trait_operations_match(
                 request,
@@ -436,6 +439,7 @@ mod tests {
             [],
             fixture.target_element,
         );
+
         let wrong_contract = TraitOperationEvidence::new(
             fixture.requirement,
             fixture.contract.trait_definition(),
