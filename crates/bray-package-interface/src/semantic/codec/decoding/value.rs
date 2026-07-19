@@ -498,6 +498,7 @@ mod tests {
             Ok(callable) => callable,
             Err(error) => panic!("callable type must be interned: {error:?}"),
         };
+
         let TypeData::Callable(callable) = callable.as_ref() else {
             panic!("third imported type must be callable");
         };
@@ -515,6 +516,7 @@ mod tests {
     #[test]
     fn target_sized_integer_terms_reject_invalid_types_and_round_trip() {
         let surface = interface_surface(package_identity(), [], []);
+
         let facts = InterfaceSemanticFacts::new().with_values(
             [],
             [],

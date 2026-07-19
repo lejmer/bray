@@ -203,11 +203,13 @@ mod tests {
         .with_arg(bray_diagnostics::DiagnosticArg::actual_type(
             bray_diagnostics::DiagnosticType::Tuple(2),
         ));
+
         let unresolved = Diagnostic::new(
             DiagnosticId::new(1),
             DiagnosticKind::CheckingCannotInferExpressionType,
             SeverityKind::Error,
         );
+
         let array_length = Diagnostic::new(
             DiagnosticId::new(2),
             DiagnosticKind::CheckingArrayLengthNotPositive,
@@ -229,10 +231,17 @@ mod tests {
             renderer.render(&incompatible).message(),
             "expected bool, but found tuple type with 2 elements"
         );
+
         assert_eq!(
             renderer.render(&unresolved).message(),
             "cannot infer expression type"
         );
+
+        assert_eq!(
+            renderer.render(&array_length).message(),
+            "array length must be greater than zero"
+        );
+
         assert_eq!(
             renderer.render(&array_length).message(),
             "array length must be greater than zero"

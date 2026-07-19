@@ -244,6 +244,7 @@ impl CompilationSymbolFactBinding<ImplementationCoherenceFact> for CompilationSy
             .ty()
             .resolved_type()
             .ok_or(BinderFactError::DependencyUnavailable)?;
+
         let trait_application = match trait_application.value() {
             Some(application) => type_binder(context, owner.into_any())?
                 .resolve_trait_application_template(application)?
@@ -478,9 +479,11 @@ func identity<T>(value: T) -> T
         };
 
         let callable_type = type_data(&compilation, first_signature.value().callable_type());
+
         let TypeData::Callable(callable) = callable_type.as_ref() else {
             panic!("source function must retain its callable type");
         };
+
         let [callable_parameter] = callable.parameters() else {
             panic!("generic source function must retain one callable parameter type");
         };
@@ -723,6 +726,7 @@ func identity<T>(value: T) -> T
 
         assert_eq!(constructor_signature.value().parameters().len(), 1);
         assert!(constructor_signature.value().receiver().is_none());
+
         assert!(matches!(
             type_data(&compilation, constructor_signature.value().result()).as_ref(),
             TypeData::ContextualSelf(_)
@@ -930,6 +934,7 @@ func identity<T>(value: T) -> T
         let symbols = symbol_graph(&compilation);
         let cancellation = CancellationToken::new();
         let facts = binder_facts(&compilation, &cancellation);
+
         let fields = symbols
             .struct_fields()
             .iter()
@@ -997,6 +1002,7 @@ func identity<T>(value: T) -> T
         };
 
         assert_eq!(resolved_type(&element), value);
+
         assert!(matches!(
             length.expected_type(),
             ConstantExpressionExpectedType::Resolved(_)
@@ -1040,6 +1046,7 @@ struct Values<const count: usize>
         let symbols = symbol_graph(&compilation);
         let cancellation = CancellationToken::new();
         let facts = binder_facts(&compilation, &cancellation);
+
         let fields = symbols
             .struct_fields()
             .iter()
@@ -1079,6 +1086,7 @@ struct Values<const count: usize>
             SyntaxKind::Expression,
             "count",
         );
+
         assert_constant_occurrence(
             &compilation,
             symbolic_argument,
@@ -1086,6 +1094,7 @@ struct Values<const count: usize>
             SyntaxKind::TypeExpression,
             "count",
         );
+
         assert_constant_occurrence(
             &compilation,
             literal_argument,
@@ -1093,6 +1102,7 @@ struct Values<const count: usize>
             SyntaxKind::Expression,
             "4",
         );
+
         assert_constant_occurrence(
             &compilation,
             compound_argument,
@@ -1100,6 +1110,7 @@ struct Values<const count: usize>
             SyntaxKind::Expression,
             "count + 1",
         );
+
         assert_constant_occurrence(
             &compilation,
             direct_length,
@@ -1112,10 +1123,12 @@ struct Values<const count: usize>
             symbolic_argument.expected_type(),
             literal_argument.expected_type()
         );
+
         assert_eq!(
             symbolic_argument.expected_type(),
             compound_argument.expected_type()
         );
+
         assert!(matches!(
             symbolic_argument.expected_type(),
             ConstantExpressionExpectedType::GenericParameter(_)
@@ -1125,10 +1138,12 @@ struct Values<const count: usize>
             symbolic_length.expected_type(),
             ConstantExpressionExpectedType::Resolved(_)
         ));
+
         assert_eq!(
             symbolic_length.expected_type(),
             direct_length.expected_type()
         );
+
         assert_ne!(symbolic_length.key(), direct_length.key());
 
         let parameter = source_id(
@@ -1190,6 +1205,7 @@ impl Subject(Provides)
         let symbols = symbol_graph(&compilation);
         let cancellation = CancellationToken::new();
         let facts = binder_facts(&compilation, &cancellation);
+
         let field = source_id(
             symbols.struct_fields(),
             |symbol| symbol.origin(),
@@ -1204,6 +1220,7 @@ impl Subject(Provides)
         assert!(result.diagnostics().is_empty());
 
         let projection = type_data(&compilation, result.value());
+
         let TypeData::AssociatedTypeProjection {
             subject,
             application,
@@ -1217,6 +1234,7 @@ impl Subject(Provides)
             type_data(&compilation, *subject).as_ref(),
             TypeData::Named { .. }
         ));
+
         assert!(
             compilation
                 .semantic_value_store()
@@ -1224,6 +1242,7 @@ impl Subject(Provides)
                 .trait_application_data(*application)
                 .is_ok()
         );
+
         assert_eq!(
             symbols.trait_type_member(*member).map(|value| value.id()),
             Some(*member)
@@ -1246,6 +1265,7 @@ struct Broken<const flag: bool>
         let symbols = symbol_graph(&compilation);
         let cancellation = CancellationToken::new();
         let facts = binder_facts(&compilation, &cancellation);
+
         let fields = symbols
             .struct_fields()
             .iter()
@@ -1263,6 +1283,7 @@ struct Broken<const flag: bool>
             &facts,
             SymbolFactRequest::<bray_symbols::StructFieldTypeFact>::new(zero_field),
         );
+
         let non_integer = published_fact(
             &facts,
             SymbolFactRequest::<bray_symbols::StructFieldTypeFact>::new(non_integer_field),
@@ -1281,6 +1302,7 @@ struct Broken<const flag: bool>
             SyntaxKind::Expression,
             "0",
         );
+
         assert_constant_occurrence(
             &compilation,
             non_integer_length,
@@ -1288,6 +1310,7 @@ struct Broken<const flag: bool>
             SyntaxKind::Expression,
             "flag",
         );
+
         assert_eq!(
             zero_length.expected_type(),
             non_integer_length.expected_type()
@@ -1319,15 +1342,18 @@ func invalid()
         let symbols = symbol_graph(&compilation);
         let cancellation = CancellationToken::new();
         let facts = binder_facts(&compilation, &cancellation);
+
         let field = source_id(
             symbols.struct_fields(),
             |symbol| symbol.origin(),
             |symbol| symbol.id(),
         );
+
         let field_type = published_fact(
             &facts,
             SymbolFactRequest::<bray_symbols::StructFieldTypeFact>::new(field),
         );
+
         let argument = constant_argument(field_type.value());
 
         assert_constant_occurrence(
@@ -1337,10 +1363,12 @@ func invalid()
             SyntaxKind::Expression,
             "true",
         );
+
         assert!(matches!(
             argument.expected_type(),
             ConstantExpressionExpectedType::GenericParameter(_)
         ));
+
         assert!(field_type.diagnostics().is_empty());
 
         let function = source_id(
@@ -1348,6 +1376,7 @@ func invalid()
             |symbol| symbol.origin(),
             |symbol| symbol.id(),
         );
+
         let signature = published_fact(
             &facts,
             SymbolFactRequest::<CallableSignatureFact>::new(CallableSymbolId::from(function)),
@@ -1357,6 +1386,7 @@ func invalid()
             type_data(&compilation, signature.value().callable_type()).as_ref(),
             TypeData::Callable(callable) if callable.abi() == CallableAbi::Bray
         ));
+
         assert_eq!(
             signature
                 .diagnostics()
@@ -1385,6 +1415,7 @@ struct Broken
         let symbols = symbol_graph(&compilation);
         let cancellation = CancellationToken::new();
         let facts = binder_facts(&compilation, &cancellation);
+
         let field = source_id(
             symbols.struct_fields(),
             |symbol| symbol.origin(),
@@ -1414,6 +1445,7 @@ func invalid(value: MissingType)
         );
 
         let symbols = symbol_graph(&invalid_compilation);
+
         let function = source_id(
             symbols.functions(),
             |symbol| symbol.origin(),
@@ -1422,10 +1454,12 @@ func invalid(value: MissingType)
 
         let cancellation = CancellationToken::new();
         let facts = binder_facts(&invalid_compilation, &cancellation);
+
         let request =
             SymbolFactRequest::<CallableSignatureFact>::new(CallableSymbolId::from(function));
 
         let signature = published_fact(&facts, request);
+
         let diagnostic_kinds = signature
             .diagnostics()
             .iter()
@@ -1436,6 +1470,7 @@ func invalid(value: MissingType)
 
         let cancelled_compilation = compilation(SOURCE_FACTS);
         let cancelled_symbols = symbol_graph(&cancelled_compilation);
+
         let cancelled_function = source_id(
             cancelled_symbols.functions(),
             |symbol| symbol.origin(),
@@ -1443,9 +1478,11 @@ func invalid(value: MissingType)
         );
 
         let cancellation = CancellationToken::new();
+
         cancellation.cancel();
 
         let facts = binder_facts(&cancelled_compilation, &cancellation);
+
         let request = SymbolFactRequest::<CallableSignatureFact>::new(CallableSymbolId::from(
             cancelled_function,
         ));
@@ -1497,9 +1534,11 @@ func invalid(value: MissingType)
     ) {
         let key = occurrence.key();
         let syntax = key.syntax();
+
         let Some(source) = compilation.source(syntax.source_id()) else {
             panic!("constant expression source must remain loaded");
         };
+
         let Some(actual_text) = source.text_slice(syntax.full_range()) else {
             panic!("constant expression range must remain valid");
         };
