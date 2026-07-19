@@ -30,7 +30,7 @@ impl Compilation {
                     panic!("semantic diagnostic infrastructure failed")
                 }
                 Err(FactQueryError::SemanticUnitContext(error)) => {
-                    panic!("semantic semantic unit context failed: {error:?}")
+                    panic!("semantic unit context failed: {error:?}")
                 }
                 Err(FactQueryError::CheckerInfrastructure(error)) => {
                     panic!("semantic checker infrastructure failed: {error:?}")

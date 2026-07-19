@@ -1343,14 +1343,14 @@ compiler invariant failure, not a user diagnostic.
 
 ### Construction And Publication
 
-Whole-unit analysis follows this boundary:
+Unit-scoped semantic fact evaluation follows this boundary:
 
-1. Binding commits all syntax and semantic decisions needed to establish source evaluation order.
-2. `bray-bound-tree` provides a read-only bound unit view over the task-local unit without cloning its arenas.
-3. `bray-checker` builds one immutable control-flow graph from that view.
-4. Focused domains run over the shared control-flow graph according to their explicit fact dependencies.
-5. The checker returns typed results, side tables, and structured diagnostic bags.
-6. Compilation publishes each durable typed fact atomically and records its dependency on the canonical bound unit.
+1. Binding publishes the canonical `BoundUnit` after committing the decisions needed to establish source evaluation order.
+2. A focused checker domain receives a validated `CheckerUnitView` over that committed unit without cloning its arenas.
+3. A flow domain builds or consumes the shared immutable control-flow graph only when its fact contract requires that graph.
+4. The requested domain evaluates after its exact typed prerequisite facts are available.
+5. The checker returns only that domain's typed result and structured diagnostic bag.
+6. Compilation publishes the durable fact atomically and records its exact dependencies.
 
 Abandoned speculative candidates never contribute nodes or edges to the final graph. Candidate-local checks can use focused temporary
 state, but the shared unit-scoped graph is constructed only from committed binding state.
