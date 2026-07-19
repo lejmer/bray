@@ -33,6 +33,7 @@ The always-available compiler-known type entries are:
 - `RunResult<T>`,
 - `PanicReport`,
 - `ConversionError`,
+- `Ordering`,
 - `Future<T>`,
 - `Task<T>`,
 - structural tuple type forms,
@@ -87,6 +88,8 @@ The compiler-known traits and contracts include:
 - `Iterator`,
 - `ConvertTo<Target>`,
 - `CheckedConvertTo<Target>`,
+- `ElementIndex<Selector>`,
+- `SliceIndex<Bound>`,
 - `Copyable`,
 - overloadable operator traits defined by the type rules.
 

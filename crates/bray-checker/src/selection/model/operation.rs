@@ -2,13 +2,11 @@ use std::sync::Arc;
 
 use bray_base::shared_slice;
 use bray_bound_tree::{
-    BoundExpressionId, BoundOperator, ConstructionDefaultProvider, ConstructionInputId,
-    ConstructionTarget, SelectedOperation, SelectionKind,
+    BoundExpressionId, ConstructionDefaultProvider, ConstructionInputId, ConstructionTarget,
+    SelectedOperation, SelectionKind,
 };
-use bray_symbols::{
-    CallableInstanceData, CallableSignature, ImplementationSelectionKey,
-    TraitCallableMemberSymbolId, TraitSymbolId,
-};
+use bray_compiler_known::CompilerKnownOperationRole;
+use bray_symbols::{CallableInstanceData, CallableSignature, ImplementationSelectionKey};
 use bray_symbols::{CallablePosition, SymbolKey, SymbolName, TypeId};
 
 use super::{ImplementationSelectionEvidence, SelectionCandidateKey};
@@ -35,59 +33,6 @@ pub struct ConstructionInputSurface {
     ty: TypeId,
     default: Option<ConstructionDefaultProvider>,
     ordinal: u32,
-}
-
-/// A language-defined compiler-known operation contract.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum CompilerKnownOperationRole {
-    /// A prefix operator trait and callable member.
-    UnaryOperator(BoundOperator),
-    /// An infix operator trait and callable member.
-    BinaryOperator(BoundOperator),
-    /// Custom element indexing.
-    ElementIndex,
-    /// Custom slice indexing.
-    SliceIndex,
-    /// Plain user-defined `ConvertTo<Target>` conversion.
-    Conversion,
-}
-
-/// Exact compiler-known declarations assigned to one operation role.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub struct CompilerKnownOperationContract {
-    role: CompilerKnownOperationRole,
-    trait_definition: TraitSymbolId,
-    callable: TraitCallableMemberSymbolId,
-}
-
-impl CompilerKnownOperationContract {
-    /// Creates one typed operation-role binding supplied by compiler-known infrastructure.
-    pub const fn new(
-        role: CompilerKnownOperationRole,
-        trait_definition: TraitSymbolId,
-        callable: TraitCallableMemberSymbolId,
-    ) -> Self {
-        Self {
-            role,
-            trait_definition,
-            callable,
-        }
-    }
-
-    /// Returns the language-defined operation role.
-    pub const fn role(self) -> CompilerKnownOperationRole {
-        self.role
-    }
-
-    /// Returns the exact compiler-known trait declaration.
-    pub const fn trait_definition(self) -> TraitSymbolId {
-        self.trait_definition
-    }
-
-    /// Returns the exact compiler-known callable member declaration.
-    pub const fn callable(self) -> TraitCallableMemberSymbolId {
-        self.callable
-    }
 }
 
 /// Compiler-known callable contract evidence for one trait-backed operation.

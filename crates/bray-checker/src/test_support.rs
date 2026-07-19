@@ -1,4 +1,3 @@
-use std::collections::BTreeMap;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -27,9 +26,8 @@ pub(crate) use bray_symbols::testing::available_compiler_known_symbols;
 
 use crate::{
     CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext, CheckerSource,
-    CheckerUnitView, CompilerKnownOperationContract, CompilerKnownOperationRole,
-    DeclaredUnitContext, DefaultExpressionTypeChecker, ExpressionTypeChecker, ExpressionTypeInput,
-    SemanticUnitContext,
+    CheckerUnitView, DeclaredUnitContext, DefaultExpressionTypeChecker, ExpressionTypeChecker,
+    ExpressionTypeInput, SemanticUnitContext,
 };
 
 pub(crate) struct TestCheckerContext {
@@ -37,7 +35,6 @@ pub(crate) struct TestCheckerContext {
     cancel_after: Option<usize>,
     observations: AtomicUsize,
     source: Option<SourceSnapshot>,
-    operation_contracts: BTreeMap<CompilerKnownOperationRole, CompilerKnownOperationContract>,
 }
 
 impl TestCheckerContext {
@@ -47,7 +44,6 @@ impl TestCheckerContext {
             cancel_after: None,
             observations: AtomicUsize::new(0),
             source: None,
-            operation_contracts: BTreeMap::new(),
         }
     }
 
@@ -57,7 +53,6 @@ impl TestCheckerContext {
             cancel_after: Some(observations),
             observations: AtomicUsize::new(0),
             source: None,
-            operation_contracts: BTreeMap::new(),
         }
     }
 
@@ -67,17 +62,7 @@ impl TestCheckerContext {
             cancel_after: None,
             observations: AtomicUsize::new(0),
             source: Some(source),
-            operation_contracts: BTreeMap::new(),
         }
-    }
-
-    pub(crate) fn with_operation_contract(
-        mut self,
-        contract: CompilerKnownOperationContract,
-    ) -> Self {
-        self.operation_contracts.insert(contract.role(), contract);
-
-        self
     }
 }
 
@@ -109,13 +94,6 @@ impl CheckerRequestContext for TestCheckerContext {
 
     fn available_compiler_known_symbols(&self) -> &bray_symbols::AvailableCompilerKnownSymbols {
         available_compiler_known_symbols()
-    }
-
-    fn compiler_known_operation_contract(
-        &self,
-        role: CompilerKnownOperationRole,
-    ) -> Option<CompilerKnownOperationContract> {
-        self.operation_contracts.get(&role).copied()
     }
 
     fn source(

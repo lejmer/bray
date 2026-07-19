@@ -85,6 +85,19 @@ impl TypeExpressionBinder<'_> {
             return MemberLookupResult::Found(ResolvedName::Surface(parameter.into()));
         }
 
+        if let Some(context) = self.self_type {
+            let contextual = lookup_surface_name(
+                self.symbols,
+                context.symbol(),
+                first,
+                crate::lookup::NameAccess::Internal,
+            );
+
+            if contextual != MemberLookupResult::NotFound {
+                return contextual;
+            }
+        }
+
         let ambient = lookup_surface_name(
             self.symbols,
             self.symbols.compiler_known_environment().id().into(),

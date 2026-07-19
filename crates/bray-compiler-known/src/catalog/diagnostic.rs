@@ -4,7 +4,7 @@ use bray_diagnostics::DiagnosticKind;
 use bray_syntax::SyntaxKind;
 
 use super::{CatalogDeclarationKind, CatalogKind, CatalogSourceAnchor};
-use crate::{ImplementationHook, RepresentationRole};
+use crate::{CompilerKnownOperationRole, ImplementationHook, RepresentationRole};
 
 /// Catalog entry category used by structural diagnostics.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -28,6 +28,8 @@ pub enum CatalogField {
     Representation,
     /// A compiler implementation hook.
     Implementation,
+    /// A compiler-known expression operation role.
+    Operation,
     /// An embedded Bray declaration surface.
     Surface,
     /// A language-known token spelling.
@@ -45,6 +47,8 @@ pub enum CatalogMetadataKind {
     Representation,
     /// Compiler implementation metadata.
     Implementation,
+    /// Expression operation contract metadata.
+    Operation,
 }
 
 /// Stable-key namespace used by duplicate and relationship diagnostics.
@@ -196,6 +200,19 @@ pub enum CatalogDiagnosticKind {
         hook: ImplementationHook,
         declaration: CatalogDeclarationKind,
     },
+    /// An operation role was assigned to an incompatible declaration category.
+    IncompatibleOperationRole {
+        role: CompilerKnownOperationRole,
+        declaration: CatalogDeclarationKind,
+    },
+    /// One operation role has more than one declaration for the same component.
+    DuplicateOperationComponent { role: CompilerKnownOperationRole },
+    /// One operation role is missing a required declaration component.
+    IncompleteOperationContract { role: CompilerKnownOperationRole },
+    /// A callable or result member assigned to an operation is not owned by its trait.
+    InvalidOperationComponentOwner { role: CompilerKnownOperationRole },
+    /// A recognized catalog entry attempted to define a compiler-known operation role.
+    RecognizedOperationRole,
     /// A recognized catalog entry attempted to define protected representation.
     RecognizedRepresentation,
     /// A descriptor identity domain exceeded compact ID storage.

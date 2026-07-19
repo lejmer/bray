@@ -1,6 +1,7 @@
 ambient/fundamentals.braydef
 ambient/execution.braydef
 ambient/implementations.braydef
+ambient/operations.braydef
 ambient/traits.braydef
 ambient/target-scalars.braydef
 core/memory.braydef

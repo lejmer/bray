@@ -35,9 +35,9 @@ pub mod testing;
 
 pub use compiler_known::{
     AvailableCompilerKnownSymbols, CompilerKnownCatalogAudit, CompilerKnownCatalogAuditError,
-    CompilerKnownCatalogAuditReport, CompilerKnownDeclarationFact, CompilerKnownScopeSymbolId,
-    CompilerKnownSymbolBuildError, CompilerKnownSymbolFactKey, CompilerKnownSymbolProvider,
-    CompilerKnownSymbolRoleRegistry, CompilerKnownTargetProfile,
+    CompilerKnownCatalogAuditReport, CompilerKnownDeclarationFact, CompilerKnownOperationContract,
+    CompilerKnownScopeSymbolId, CompilerKnownSymbolBuildError, CompilerKnownSymbolFactKey,
+    CompilerKnownSymbolProvider, CompilerKnownSymbolRoleRegistry, CompilerKnownTargetProfile,
 };
 pub use error::SymbolGraphBuildError;
 pub use graph::{SymbolGraph, SymbolGraphRoots};

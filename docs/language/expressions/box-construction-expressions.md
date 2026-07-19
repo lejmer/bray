@@ -30,6 +30,10 @@ box[S] T
 
 For sized `T`, the storage policy type must satisfy `Storage<T>`.
 
+`Storage` is the exact compiler-known trait assigned to owned-indirection construction. A trait with the same name does not define
+`box(...)` behavior. The compiler recognizes the type-form construction contract itself, while storage-policy implementation
+selection remains ordinary trait implementation selection.
+
 For `box[S] view TraitApplication`, the storage policy type must satisfy `Storage<U>` for the sized concrete source type `U` used to form the view.
 
 For `box[S] [T]`, the storage policy type must provide contiguous owned storage behavior for element type `T` and a runtime element

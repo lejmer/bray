@@ -117,14 +117,6 @@ where
         self.context.available_compiler_known_symbols()
     }
 
-    /// Resolves the exact compiler-known declarations assigned to an operation role.
-    pub fn compiler_known_operation_contract(
-        self,
-        role: crate::CompilerKnownOperationRole,
-    ) -> Option<crate::CompilerKnownOperationContract> {
-        self.context.compiler_known_operation_contract(role)
-    }
-
     /// Resolves a bound source anchor without exposing its source snapshot.
     pub fn source(
         self,

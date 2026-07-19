@@ -45,7 +45,16 @@ where
         return Err(CheckerInfrastructureError::CompilerKnownRepresentationUnavailable { role });
     };
 
-    let definition = NamedTypeSymbolId::Struct(definition);
+    named_type(request, NamedTypeSymbolId::Struct(definition))
+}
+
+pub(crate) fn named_type<C>(
+    request: UnitCheckRequest<'_, C>,
+    definition: NamedTypeSymbolId,
+) -> Result<TypeId, CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
     let Some(owner) = GenericOwnerId::try_new(definition.into_any()) else {
         return Err(CheckerInfrastructureError::SemanticValueUnavailable);
     };

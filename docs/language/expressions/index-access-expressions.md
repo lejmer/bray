@@ -165,6 +165,36 @@ A custom indexing contract defines:
 - the facts established by successful access,
 - the panic condition for failed asserted access.
 
+Custom element indexing uses the compiler-known `ElementIndex<Selector>` contract:
+
+```bray
+trait ElementIndex<Selector>
+{
+    type Output;
+
+    func index(pos selector: &Selector) -> Output;
+}
+```
+
+Custom slice indexing uses the compiler-known `SliceIndex<Bound>` contract:
+
+```bray
+trait SliceIndex<Bound>
+{
+    type Output;
+
+    func slice(pos start: Bound?, pos end: Bound?) -> Output;
+}
+```
+
+The compiler recognizes these exact trait, associated `Output`, and callable declarations by language-defined identity. Declarations
+with matching names do not become indexing protocols.
+
+For element indexing, the selector expression supplies `Selector`. For slice indexing, present boundaries supply `Bound` and an
+omitted boundary supplies `none`. The `Output` member determines the reached type. The callable surface participates in contract
+and implementation selection, but custom `[]` remains an access-path projection rather than an ordinary call. The subject's access
+path and capabilities determine whether the reached output can be observed, borrowed, moved, or assigned through.
+
 Indexing contract selection is based on the indexed subject type, selector shape, and selector expression types.
 
 The result type of the index access expression does not select the indexing contract.

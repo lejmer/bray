@@ -9,8 +9,7 @@ pub use call::{
 };
 pub(in crate::selection) use operation::OperationCandidatePlan;
 pub use operation::{
-    CompilerKnownOperationContract, CompilerKnownOperationEvidence, CompilerKnownOperationRole,
-    ConstructionInputSurface, OperationCandidate, OperationCandidateState,
-    OperationSelectionRequest,
+    CompilerKnownOperationEvidence, ConstructionInputSurface, OperationCandidate,
+    OperationCandidateState, OperationSelectionRequest,
 };
 pub use result::{CandidateSelection, SelectionCandidateKey, SelectionFailure};

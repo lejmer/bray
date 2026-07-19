@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::{AvailabilityRule, ImplementationHook, RepresentationRole};
+use crate::{AvailabilityRule, CompilerKnownOperationRole, ImplementationHook, RepresentationRole};
 
 use super::super::{
     CatalogDiagnostic, CatalogDiagnosticKind, CatalogMetadataKind, CatalogSourceAnchor,
@@ -65,6 +65,28 @@ pub(super) fn implementation(
                 anchor,
                 CatalogDiagnosticKind::UnknownMetadata {
                     metadata: CatalogMetadataKind::Implementation,
+                    spelling: Arc::clone(spelling),
+                },
+            ));
+
+            None
+        }
+    }
+}
+
+pub(super) fn operation(
+    spelling: Option<(&Arc<str>, CatalogSourceAnchor)>,
+    diagnostics: &mut Vec<CatalogDiagnostic>,
+) -> Option<CompilerKnownOperationRole> {
+    let (spelling, anchor) = spelling?;
+
+    match CompilerKnownOperationRole::from_catalog_spelling(spelling) {
+        Some(role) => Some(role),
+        None => {
+            diagnostics.push(CatalogDiagnostic::new(
+                anchor,
+                CatalogDiagnosticKind::UnknownMetadata {
+                    metadata: CatalogMetadataKind::Operation,
                     spelling: Arc::clone(spelling),
                 },
             ));
