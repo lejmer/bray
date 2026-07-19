@@ -66,6 +66,15 @@ impl GreenNode {
         start: TextSize,
         kind: SyntaxKind,
     ) -> Option<SyntaxToken> {
+        self.first_child_token_matching(start, |token_kind| token_kind == kind)
+    }
+
+    /// Returns the first direct child token accepted by `predicate`.
+    pub(crate) fn first_child_token_matching(
+        &self,
+        start: TextSize,
+        predicate: impl Fn(SyntaxKind) -> bool,
+    ) -> Option<SyntaxToken> {
         let mut offset = start;
 
         for child in self.children() {
@@ -77,7 +86,7 @@ impl GreenNode {
                 continue;
             };
 
-            if token.kind() == kind {
+            if predicate(token.kind()) {
                 return Some(token.syntax_token(child_start));
             }
         }

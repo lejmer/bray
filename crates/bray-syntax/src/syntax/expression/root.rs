@@ -114,8 +114,8 @@ define_source_syntax_node! {
 impl ExpressionSyntax {
     /// Returns the operator token when this expression is operator-shaped.
     pub fn operator_token(&self) -> Option<SyntaxToken> {
-        self.tokens()
-            .find(|token| is_expression_operator(token.kind()))
+        self.node
+            .first_child_token_matching(self.start, is_expression_operator)
     }
 
     /// Returns the primary-expression child when this is a primary expression.
@@ -216,5 +216,40 @@ mod tests {
         );
 
         assert_eq!(children.len(), 2);
+    }
+
+    #[test]
+    fn expression_operators_do_not_descend_into_operand_expressions() {
+        let snapshot = test_snapshot("nested-expression-operator-test", "!left && right");
+        let mut operand = ExpressionSyntax::builder(snapshot.clone(), TextSize::new(0));
+
+        operand.push_operator_token(token(SyntaxKind::BangToken, 0, 1));
+
+        let mut left = PrimaryExpressionSyntax::builder(snapshot.clone(), TextSize::new(1));
+
+        left.push_token(keyword(SyntaxKind::IdentifierToken, 1, 5, true));
+        operand.push_primary_expression(left.build());
+
+        let mut right = PrimaryExpressionSyntax::builder(snapshot.clone(), TextSize::new(9));
+
+        right.push_token(token(SyntaxKind::IdentifierToken, 9, 14));
+
+        let mut right_expression = ExpressionSyntax::builder(snapshot.clone(), TextSize::new(9));
+
+        right_expression.push_primary_expression(right.build());
+
+        let mut expression = ExpressionSyntax::builder(snapshot, TextSize::new(0));
+
+        expression.push_expression(operand.build());
+        expression.push_operator_token(keyword(SyntaxKind::AmpersandAmpersandToken, 6, 8, true));
+        expression.push_expression(right_expression.build());
+
+        assert_eq!(
+            expression
+                .build()
+                .operator_token()
+                .map(|token| token.kind()),
+            Some(SyntaxKind::AmpersandAmpersandToken)
+        );
     }
 }

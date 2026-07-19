@@ -116,6 +116,7 @@ where
         request.unit(),
         types,
         request.semantic_values(),
+        input.target_integer_width_bits(),
         entries,
     ) {
         Ok(values) => values,

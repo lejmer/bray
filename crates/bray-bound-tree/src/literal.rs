@@ -1,3 +1,4 @@
+use std::num::NonZeroU16;
 use std::sync::Arc;
 
 use bray_symbols::{ConstantValueId, SemanticValueStore};
@@ -36,6 +37,7 @@ impl CheckedLiteralValueEntry {
 pub struct CheckedLiteralValues {
     unit: BoundUnitId,
     kind: BoundUnitKind,
+    target_integer_width_bits: Option<NonZeroU16>,
     entries: Arc<[CheckedLiteralValueEntry]>,
 }
 
@@ -45,6 +47,7 @@ impl CheckedLiteralValues {
         unit: &BoundUnit,
         types: &CheckedExpressionTypes,
         values: &SemanticValueStore,
+        target_integer_width_bits: Option<NonZeroU16>,
         entries: impl IntoIterator<Item = CheckedLiteralValueEntry>,
     ) -> Result<Self, CheckedLiteralValueTableBuildError> {
         if types.unit() != unit.unit() || types.kind() != unit.key().kind() {
@@ -85,6 +88,7 @@ impl CheckedLiteralValues {
         Ok(Self {
             unit: unit.unit(),
             kind: unit.key().kind(),
+            target_integer_width_bits,
             entries: entries.into(),
         })
     }
@@ -97,6 +101,13 @@ impl CheckedLiteralValues {
     /// Returns the semantic category of the checked bound unit.
     pub const fn kind(&self) -> BoundUnitKind {
         self.kind
+    }
+
+    /// Returns the target width used to validate machine-sized integer literals.
+    ///
+    /// `None` identifies a portable checking fact that cannot be supplied to lowering.
+    pub const fn target_integer_width_bits(&self) -> Option<NonZeroU16> {
+        self.target_integer_width_bits
     }
 
     /// Returns entries in canonical expression-ID order.
@@ -212,6 +223,7 @@ mod tests {
             &unit,
             &types,
             &values,
+            None,
             [
                 CheckedLiteralValueEntry::new(expressions[1], second),
                 CheckedLiteralValueEntry::new(expressions[0], first),
@@ -229,6 +241,7 @@ mod tests {
                 &unit,
                 &types,
                 &values,
+                None,
                 [CheckedLiteralValueEntry::new(expressions[0], first)],
             ),
             Err(CheckedLiteralValueTableBuildError::MissingLiteralValue(
@@ -243,6 +256,7 @@ mod tests {
                 &unit,
                 &types,
                 &values,
+                None,
                 [CheckedLiteralValueEntry::new(expressions[0], mismatched)],
             ),
             Err(CheckedLiteralValueTableBuildError::ValueTypeMismatch(

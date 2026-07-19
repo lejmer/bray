@@ -450,7 +450,7 @@ mod tests {
     fn direct_calls_publish_exact_selected_invocation_facts() {
         let compilation = compilation(concat!(
             "module app;\n",
-            "func recurse(pos value: i32 = 1)\n",
+            "func recurse(pos value: i64 = 1)\n",
             "{\n",
             "    recurse(2);\n",
             "    recurse();\n",

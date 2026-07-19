@@ -47,6 +47,7 @@ where
     C::SymbolFacts: SymbolFactProvider<CallableSignatureFact>,
 {
     let mut evidence = Vec::new();
+    let mut expectations = Vec::new();
     let mut calls = Vec::new();
     let mut failure = None;
 
@@ -95,7 +96,6 @@ where
                         expression_id,
                         None,
                         None,
-                        // Selection input must own arguments after this borrowed unit walk ends.
                         call.arguments().iter().cloned(),
                         [candidate],
                     ));
@@ -121,8 +121,17 @@ where
         return Err(BinderFactError::DependencyUnavailable);
     }
 
+    for call in &calls {
+        expectations.extend(
+            call.contextual_type_expectations(facts.semantic_values())
+                .map_err(|_| BinderFactError::DependencyUnavailable)?,
+        );
+    }
+
     Ok(BoundExpressionCheckInput {
-        types: ExpressionTypeInput::new().with_evidence(evidence),
+        types: ExpressionTypeInput::new()
+            .with_evidence(evidence)
+            .with_expectations(expectations),
         selections: SemanticSelectionInput::new().with_calls(calls),
     })
 }

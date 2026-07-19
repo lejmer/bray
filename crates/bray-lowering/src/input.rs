@@ -75,6 +75,7 @@ impl<'unit> LoweringInput<'unit> {
             facts.literal_values.kind(),
             LoweringFactKind::LiteralValues,
         )?;
+        validate_literal_target(facts.literal_values, &target)?;
         validate_semantic_completeness(unit, facts.expression_types, facts.semantic_selections)?;
 
         if matches!(unit_kind, MirUnitKind::ExecutableHost(_)) {
@@ -172,8 +173,33 @@ pub enum LoweringInputError {
     },
     /// A successfully typed expression lacks the exact semantic choice required by lowering.
     MissingSemanticSelection(BoundExpressionId),
+    /// Literal adaptation did not use a concrete machine-sized integer width.
+    PortableLiteralValues,
+    /// Literal adaptation used a machine-sized integer width from another target.
+    LiteralTargetWidthMismatch {
+        /// The width required by the lowering target.
+        expected: std::num::NonZeroU16,
+        /// The width used while adapting source literals.
+        actual: std::num::NonZeroU16,
+    },
     /// A compiler-generated executable host was supplied through a source-unit lowering input.
     ExecutableHostRequiresSyntheticInput,
+}
+
+fn validate_literal_target(
+    literals: &CheckedLiteralValues,
+    target: &MirTargetFacts,
+) -> Result<(), LoweringInputError> {
+    let expected = target.machine().pointer_width_bits();
+    let Some(actual) = literals.target_integer_width_bits() else {
+        return Err(LoweringInputError::PortableLiteralValues);
+    };
+
+    if actual != expected {
+        return Err(LoweringInputError::LiteralTargetWidthMismatch { expected, actual });
+    }
+
+    Ok(())
 }
 
 fn validate_semantic_completeness(
@@ -261,6 +287,8 @@ fn validate_fact_owner(
 
 #[cfg(test)]
 mod tests {
+    use std::num::NonZeroU16;
+
     use bray_bound_tree::{
         BoundConversionExpression, BoundExpression, BoundStructuredExpression,
         BoundStructuredExpressionKind, BoundUnit, BoundUnitId, BoundUnitRoot,
@@ -391,6 +419,56 @@ mod tests {
     }
 
     #[test]
+    fn input_rejects_portable_literal_values() {
+        let unit = test_bound_unit(7);
+        let control_flow = CheckedControlFlowFacts::new(
+            unit.unit(),
+            unit.key().kind(),
+            ControlCompletion::default(),
+        );
+        let facts = empty_expression_facts_with_width(&unit, None);
+
+        assert_input_error(
+            LoweringInput::try_new(
+                &unit,
+                lowering_facts(&control_flow, &facts),
+                available_compiler_known_symbols(),
+                bray_ir::MirUnitKind::Synchronous,
+                test_mir_target(),
+            ),
+            LoweringInputError::PortableLiteralValues,
+        );
+    }
+
+    #[test]
+    fn input_rejects_literal_values_adapted_for_another_target_width() {
+        let unit = test_bound_unit(8);
+        let control_flow = CheckedControlFlowFacts::new(
+            unit.unit(),
+            unit.key().kind(),
+            ControlCompletion::default(),
+        );
+        let expected = test_mir_target().machine().pointer_width_bits();
+        let actual = if expected.get() == 32 {
+            NonZeroU16::new(64).unwrap_or(NonZeroU16::MIN)
+        } else {
+            NonZeroU16::new(32).unwrap_or(NonZeroU16::MIN)
+        };
+        let facts = empty_expression_facts_with_width(&unit, Some(actual));
+
+        assert_input_error(
+            LoweringInput::try_new(
+                &unit,
+                lowering_facts(&control_flow, &facts),
+                available_compiler_known_symbols(),
+                bray_ir::MirUnitKind::Synchronous,
+                test_mir_target(),
+            ),
+            LoweringInputError::LiteralTargetWidthMismatch { expected, actual },
+        );
+    }
+
+    #[test]
     fn input_rejects_valid_expressions_without_required_semantic_selections() {
         let unit = test_expression_unit(6, |tree, origin| {
             let unit_expression = match tree.push_expression(BoundExpression::Structured(
@@ -447,7 +525,13 @@ mod tests {
             Ok(selections) => selections,
             Err(error) => panic!("empty selections must be structurally valid: {error:?}"),
         };
-        let literals = match CheckedLiteralValues::try_new(&unit, &types, &values, []) {
+        let literals = match CheckedLiteralValues::try_new(
+            &unit,
+            &types,
+            &values,
+            Some(test_mir_target().machine().pointer_width_bits()),
+            [],
+        ) {
             Ok(literals) => literals,
             Err(error) => panic!("literal-free values must validate: {error:?}"),
         };
@@ -507,6 +591,16 @@ mod tests {
     }
 
     fn empty_expression_facts(unit: &BoundUnit) -> ExpressionFacts {
+        empty_expression_facts_with_width(
+            unit,
+            Some(test_mir_target().machine().pointer_width_bits()),
+        )
+    }
+
+    fn empty_expression_facts_with_width(
+        unit: &BoundUnit,
+        target_integer_width_bits: Option<NonZeroU16>,
+    ) -> ExpressionFacts {
         let types = CheckedExpressionTypes::new(unit.unit(), unit.key().kind(), []);
 
         let selections = match CheckedSemanticSelections::try_new(unit, &types, []) {
@@ -519,7 +613,13 @@ mod tests {
             Err(error) => panic!("semantic value store must be available: {error:?}"),
         };
 
-        let literals = match CheckedLiteralValues::try_new(unit, &types, &values, []) {
+        let literals = match CheckedLiteralValues::try_new(
+            unit,
+            &types,
+            &values,
+            target_integer_width_bits,
+            [],
+        ) {
             Ok(literals) => literals,
             Err(error) => panic!("empty literal facts must validate: {error:?}"),
         };

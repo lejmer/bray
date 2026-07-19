@@ -4,8 +4,10 @@ use bray_base::shared_slice;
 use bray_bound_tree::{BoundArgument, BoundExpressionId, BoundResolvedCall, MemberTarget};
 use bray_symbols::{
     CallableParameterDefaultProviderSymbolId, CallableParameterSymbolId, CallableSignature,
-    ImplementationSelection, ImplementationSelectionKey, SymbolKey,
+    ImplementationSelection, ImplementationSelectionKey, SemanticValueStore, SymbolKey, TypeData,
 };
+
+use crate::{CheckerInfrastructureError, ExpressionTypeExpectation};
 
 /// Receiver authority relevant to method candidate applicability.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -245,4 +247,112 @@ impl CallableSelectionRequest {
     pub fn arguments(&self) -> &[BoundArgument] {
         &self.arguments
     }
+
+    /// Returns candidate-agreed expected types for explicit arguments.
+    ///
+    /// An argument receives context only when every participating candidate maps it to the same
+    /// parameter type. Candidate result types never contribute expected context.
+    pub fn contextual_type_expectations(
+        &self,
+        values: &SemanticValueStore,
+    ) -> Result<Vec<ExpressionTypeExpectation>, CheckerInfrastructureError> {
+        let participating = self
+            .candidates
+            .iter()
+            .filter(|candidate| candidate.state == CallableCandidateState::Available)
+            .collect::<Vec<_>>();
+
+        let Some(first) = participating.first() else {
+            return Ok(Vec::new());
+        };
+
+        let mut agreed = candidate_argument_types(values, &self.arguments, first)?;
+
+        for candidate in participating.into_iter().skip(1) {
+            let current = candidate_argument_types(values, &self.arguments, candidate)?;
+
+            for (agreed, current) in agreed.iter_mut().zip(current) {
+                if *agreed != current {
+                    *agreed = None;
+                }
+            }
+        }
+
+        Ok(self
+            .arguments
+            .iter()
+            .zip(agreed)
+            .filter_map(|(argument, ty)| {
+                ty.map(|ty| ExpressionTypeExpectation::new(argument.expression(), ty))
+            })
+            .collect())
+    }
+}
+
+fn candidate_argument_types(
+    values: &SemanticValueStore,
+    arguments: &[BoundArgument],
+    candidate: &CallableCandidate,
+) -> Result<Vec<Option<bray_symbols::TypeId>>, CheckerInfrastructureError> {
+    let callable = values
+        .type_data(candidate.signature.callable_type())
+        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+
+    let TypeData::Callable(callable) = callable.as_ref() else {
+        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+    };
+
+    let Some(indices) = map_explicit_argument_indices(arguments, callable.parameters()) else {
+        return Ok(vec![None; arguments.len()]);
+    };
+
+    Ok(indices
+        .into_iter()
+        .map(|index| {
+            callable
+                .parameters()
+                .get(index)
+                .map(|parameter| parameter.ty())
+        })
+        .collect())
+}
+
+pub(in crate::selection) fn map_explicit_argument_indices(
+    arguments: &[BoundArgument],
+    parameters: &[bray_symbols::CallableParameterData],
+) -> Option<Vec<usize>> {
+    let mut supplied = vec![false; parameters.len()];
+    let mut indices = Vec::with_capacity(arguments.len());
+    let mut positional_index = 0;
+    let mut saw_named = false;
+
+    for argument in arguments {
+        let parameter_index = match argument.name() {
+            Some(name) => {
+                saw_named = true;
+
+                parameters
+                    .iter()
+                    .position(|parameter| parameter.name().as_str() == name.as_str())
+            }
+            None if saw_named => return None,
+            None => {
+                let index = positional_index;
+                positional_index += 1;
+
+                parameters.get(index).and_then(|parameter| {
+                    (parameter.position() == bray_symbols::CallablePosition::PositionalOrNamed)
+                        .then_some(index)
+                })
+            }
+        }?;
+
+        if std::mem::replace(supplied.get_mut(parameter_index)?, true) {
+            return None;
+        }
+
+        indices.push(parameter_index);
+    }
+
+    Some(indices)
 }

@@ -3,11 +3,12 @@ use std::collections::BTreeSet;
 use bray_bound_tree::{CheckedExpressionTypes, SelectedArgument, SelectedCall};
 use bray_symbols::{
     CallableParameterDefaultProviderSymbolId, CallableParameterSignature,
-    CallableParameterSymbolId, CallablePosition, CallableTypeData, SymbolKey, TypeData,
+    CallableParameterSymbolId, CallableTypeData, SymbolKey, TypeData,
 };
 
 use crate::{CheckerInfrastructureError, CheckerRequestContext, UnitCheckRequest};
 
+use super::super::model::map_explicit_argument_indices;
 use super::super::{
     CallableCandidate, CallableCandidateParts, CallableCandidateState, CallableSelectionRequest,
     CandidateSelection, SelectionFailure,
@@ -231,42 +232,15 @@ fn map_arguments(
     )],
 ) -> Result<Option<MappedArguments>, CheckerInfrastructureError> {
     let parameters = callable.parameters();
+    let Some(argument_indices) = map_explicit_argument_indices(arguments, parameters) else {
+        return Ok(None);
+    };
+
     let mut supplied = vec![None; parameters.len()];
     let mut values = Vec::with_capacity(parameters.len());
-
-    let mut positional_index = 0;
-
-    let mut saw_named = false;
     let mut recovered = false;
 
-    for argument in arguments {
-        let parameter_index = match argument.name() {
-            Some(name) => {
-                saw_named = true;
-
-                parameters
-                    .iter()
-                    .position(|parameter| parameter.name().as_str() == name.as_str())
-            }
-            None if saw_named => return Ok(None),
-            None => {
-                let index = positional_index;
-                positional_index += 1;
-
-                parameters.get(index).and_then(|parameter| {
-                    (parameter.position() == CallablePosition::PositionalOrNamed).then_some(index)
-                })
-            }
-        };
-
-        let Some(parameter_index) = parameter_index else {
-            return Ok(None);
-        };
-
-        if supplied[parameter_index].is_some() {
-            return Ok(None);
-        }
-
+    for (argument, parameter_index) in arguments.iter().zip(argument_indices) {
         let actual = expression_type(types, argument.expression())?;
 
         recovered |= argument.is_recovered() || actual.is_recovered();
