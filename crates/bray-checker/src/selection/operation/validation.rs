@@ -476,14 +476,18 @@ mod tests {
     fn trait_conversion_fixture(unit: BoundUnitId) -> TraitConversionFixture {
         let source_element = tuple_type([]);
         let target_element = tuple_type([source_element]);
+
         let source = tuple_type([source_element]);
         let target = tuple_type([target_element]);
 
         let trait_definition = compiler_known_symbol::<TraitSymbolId>("Storage");
+
         let callable_definition =
             compiler_known_symbol::<TraitCallableMemberSymbolId>("StorageLoad");
+
         let requirement =
             implementation_requirement(trait_definition, source_element, target_element);
+
         let callable = callable_instance(callable_definition);
         let witness = implementation_instance(30);
         let other_witness = implementation_instance(31);
@@ -497,6 +501,7 @@ mod tests {
                 witness,
             },
         );
+
         let operation = SelectedOperation::Conversion(SelectedConversion::new(
             source,
             target,
@@ -504,6 +509,7 @@ mod tests {
         ));
 
         let receiver = ReceiverParameterSymbolId::from_symbol_id(SymbolId::new(40));
+
         let signature = CallableSignature::new(
             source_element,
             Some(ReceiverParameterSignature::new(
@@ -514,8 +520,10 @@ mod tests {
             [],
             target_element,
         );
+
         let contract =
             TraitOperationEvidence::new(requirement, trait_definition, callable, signature);
+
         let implementation = ImplementationSelectionEvidence::new(
             requirement,
             ImplementationSelection::Selected(witness),
@@ -545,6 +553,7 @@ mod tests {
         let Some(key) = CompilerKnownDeclarationKey::try_new(key) else {
             panic!("compiler-known test key must be valid");
         };
+
         let Some(symbol) =
             crate::test_support::available_compiler_known_symbols().declaration_symbol::<I>(&key)
         else {
@@ -561,6 +570,7 @@ mod tests {
     ) -> ImplementationSelectionKey {
         let parameter = GenericTypeParameterSymbolId::from_symbol_id(SymbolId::new(50));
         let owner = generic_owner(trait_definition.into());
+
         let substitution = match GenericSubstitutionData::try_new(
             owner,
             [GenericParameterSymbolId::Type(parameter)],
@@ -569,11 +579,14 @@ mod tests {
             Ok(substitution) => substitution,
             Err(error) => panic!("trait substitution must validate: {error:?}"),
         };
+
         let substitution = match semantic_values().intern_generic_substitution(substitution) {
             Ok(substitution) => substitution,
             Err(error) => panic!("trait substitution must be interned: {error:?}"),
         };
+
         let application = TraitApplicationData::new(trait_definition, substitution);
+
         let application = match semantic_values().intern_trait_application(application) {
             Ok(application) => application,
             Err(error) => panic!("trait application must be interned: {error:?}"),
@@ -584,6 +597,7 @@ mod tests {
 
     fn callable_instance(definition: TraitCallableMemberSymbolId) -> CallableInstanceData {
         let substitution = empty_substitution(definition.into());
+
         let Some(definition) = CallableDefinitionId::try_new(definition.into()) else {
             panic!("trait callable member must be callable");
         };
@@ -604,6 +618,7 @@ mod tests {
 
     fn empty_substitution(owner: bray_symbols::AnySymbolId) -> bray_symbols::GenericSubstitutionId {
         let owner = generic_owner(owner);
+
         let substitution = match GenericSubstitutionData::try_new(owner, [], []) {
             Ok(substitution) => substitution,
             Err(error) => panic!("empty substitution must validate: {error:?}"),
