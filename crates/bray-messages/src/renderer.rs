@@ -209,11 +209,6 @@ mod tests {
             DiagnosticKind::CheckingCannotInferExpressionType,
             SeverityKind::Error,
         );
-        let array_length = Diagnostic::new(
-            DiagnosticId::new(2),
-            DiagnosticKind::CheckingArrayLengthNotPositive,
-            SeverityKind::Error,
-        );
 
         let array_length = Diagnostic::new(
             DiagnosticId::new(2),
