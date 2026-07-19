@@ -107,6 +107,7 @@ impl<'source> CheckerSource<'source> {
         }
 
         let base = self.span.range().start().bytes();
+
         let relative = TextRange::new(
             TextSize::new(range.start().bytes() - base),
             TextSize::new(range.end().bytes() - base),
@@ -178,10 +179,12 @@ mod tests {
             source.text_for_range(TextRange::new(TextSize::new(5), TextSize::new(8))),
             Some("éb")
         );
+
         assert_eq!(
             source.text_for_range(TextRange::new(TextSize::new(3), TextSize::new(5))),
             None
         );
+
         assert_eq!(
             source.text_for_range(TextRange::new(TextSize::new(6), TextSize::new(8))),
             None

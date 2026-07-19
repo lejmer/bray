@@ -278,14 +278,17 @@ mod tests {
             view.declaration_symbol::<FunctionSymbolId>(&declaration_key("MemoryCopy")),
             None
         );
+
         assert_eq!(
             view.declaration_symbol::<StructSymbolId>(&declaration_key("TargetReal128")),
             None
         );
+
         assert_eq!(
             view.declaration_symbol::<StructSymbolId>(&declaration_key("TargetComplex32")),
             None
         );
+
         assert_eq!(
             view.declaration_symbol::<StructSymbolId>(&declaration_key("TargetComplex256")),
             None
@@ -298,6 +301,7 @@ mod tests {
 
         let first =
             Arc::clone(&provider).available_symbols(|rule| rule == AvailabilityRule::Always);
+
         let second =
             Arc::clone(&provider).available_symbols(|rule| rule == AvailabilityRule::Always);
 

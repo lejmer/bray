@@ -59,6 +59,7 @@ impl<'types> ConstantEvaluationInput<'types> {
     /// Uses explicit deterministic resource limits for this evaluation.
     pub const fn with_limits(mut self, limits: ConstantEvaluationLimits) -> Self {
         self.limits = limits;
+
         self
     }
 

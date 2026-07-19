@@ -130,7 +130,6 @@ pub(crate) fn semantic_values() -> &'static SemanticValueStore {
 
 pub(crate) fn callable_key() -> BoundUnitKey {
     let snapshot = source_snapshot();
-
     let parsed = parse_source_unit(snapshot);
 
     assert!(parsed.diagnostics().is_empty());
@@ -232,7 +231,9 @@ pub(crate) fn expression_unit(
 ) -> (BoundUnit, Vec<BoundExpressionId>) {
     let key = callable_key();
     let origin = BoundNodeOrigin::source(key.source());
+
     let mut tree = BoundTreeBuilder::new(unit);
+
     let expressions = build(&mut tree, origin);
     let items = expressions.iter().copied().map(BoundBlockItem::Expression);
 
@@ -248,7 +249,9 @@ pub(crate) fn completed_expression_check(
     input: &ExpressionTypeInput,
 ) -> bray_diagnostics::DiagnosticResult<bray_bound_tree::CheckedExpressionTypes> {
     let entry = callable_entry(unit.key());
+
     let context = TestCheckerContext::new(false);
+
     let Ok(request) = UnitCheckRequest::new(unit, &entry, &context) else {
         panic!("test checker request must be valid");
     };
@@ -377,13 +380,16 @@ pub(crate) fn error_type() -> TypeId {
 pub(crate) fn distinct_source_origins() -> [BoundNodeOrigin; 2] {
     let parsed = parse_source_unit(source_snapshot());
     let source_unit = parsed.source_unit();
+
     let Some(module) = source_unit.source_unit_module_declaration() else {
         panic!("test source must contain its module declaration");
     };
+
     let source = BoundSourceAnchor::new(
         SyntaxAnchor::from_node(source_unit),
         source_snapshot().version(),
     );
+
     let module = BoundSourceAnchor::new(
         SyntaxAnchor::from_node(&module),
         source_snapshot().version(),

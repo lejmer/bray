@@ -89,6 +89,7 @@ fn parse_unsigned_magnitude(text: &str, radix: u8) -> Result<Vec<u8>, LiteralVal
         let digit = u8::try_from(digit).map_err(|_| LiteralValueError::Invalid)?;
 
         saw_digit = true;
+
         multiply_add_magnitude(&mut magnitude, radix, digit);
     }
 
@@ -104,6 +105,7 @@ fn multiply_add_magnitude(magnitude: &mut Vec<u8>, multiplier: u8, addend: u8) {
 
     for byte in magnitude.iter_mut().rev() {
         let value = u16::from(*byte) * u16::from(multiplier) + carry;
+
         let [high, low] = value.to_be_bytes();
 
         *byte = low;
@@ -237,7 +239,9 @@ fn parse_character(text: &str) -> Result<ConstantValueKind, LiteralValueError> {
     };
 
     let decoded = decode_quoted_content(content, BoundLiteralKind::Character)?;
+
     let mut characters = decoded.chars();
+
     let Some(character) = characters.next() else {
         return Err(LiteralValueError::Invalid);
     };
@@ -321,6 +325,7 @@ fn decode_unicode_escape(
         };
 
         value = value * 16 + digit;
+
         digits += 1;
     }
 
@@ -349,12 +354,14 @@ mod tests {
             RepresentationRole::ScalarU16,
             None,
         );
+
         let string = parse_literal(
             BoundLiteralKind::String,
             r#""a\n\u{62}""#,
             RepresentationRole::String,
             None,
         );
+
         let real = parse_literal(
             BoundLiteralKind::Real,
             "1.5",
@@ -369,6 +376,7 @@ mod tests {
         assert_eq!(integer.sign(), IntegerSign::NonNegative);
         assert_eq!(integer.magnitude(), &[0xff]);
         assert_eq!(string, Ok(ConstantValueKind::string("a\nb")));
+
         assert_eq!(
             parse_literal(
                 BoundLiteralKind::String,
@@ -378,6 +386,7 @@ mod tests {
             ),
             Err(LiteralValueError::Invalid)
         );
+
         assert_eq!(
             real,
             Ok(ConstantValueKind::Real(RealConstantBits::Binary32(
@@ -397,6 +406,7 @@ mod tests {
             ),
             Err(LiteralValueError::NotRepresentable)
         );
+
         assert_eq!(
             parse_literal(
                 BoundLiteralKind::Integer,
@@ -406,6 +416,7 @@ mod tests {
             ),
             Err(LiteralValueError::TargetIntegerWidthRequired)
         );
+
         assert_eq!(
             parse_literal(
                 BoundLiteralKind::Integer,
@@ -431,6 +442,7 @@ mod tests {
             ),
             Err(LiteralValueError::NotRepresentable)
         );
+
         assert!(
             parse_literal(
                 BoundLiteralKind::Integer,
@@ -440,6 +452,7 @@ mod tests {
             )
             .is_ok()
         );
+
         assert_eq!(
             parse_literal(
                 BoundLiteralKind::Integer,
@@ -449,6 +462,7 @@ mod tests {
             ),
             Err(LiteralValueError::NotRepresentable)
         );
+
         assert!(
             parse_literal(
                 BoundLiteralKind::Integer,
@@ -458,6 +472,7 @@ mod tests {
             )
             .is_ok()
         );
+
         assert_eq!(
             parse_literal(
                 BoundLiteralKind::Integer,

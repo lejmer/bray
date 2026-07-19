@@ -598,6 +598,7 @@ mod tests {
             graph.roots().packages()[0].symbol_id().raw(),
             source_symbol_start
         );
+
         assert_eq!(
             graph.modules().len(),
             graph.compiler_known_provider().modules().len() + 1

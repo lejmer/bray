@@ -466,6 +466,7 @@ fn allocate_declarations(
         };
 
         let raw_id = allocator.next()?;
+
         let Some(symbol) = declaration_symbol_id(raw_id, kind) else {
             return Err(CompilerKnownSymbolBuildError::InvalidDeclarationSurface {
                 declaration: descriptor.id(),
@@ -695,6 +696,7 @@ mod tests {
         );
 
         assert_eq!(provider.scope_symbol(&scope_key("Missing")), None);
+
         assert_eq!(
             provider.scope_symbols().len(),
             COMPILER_KNOWN_CATALOG.compiler_known_scopes().len()
