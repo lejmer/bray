@@ -376,6 +376,7 @@ impl SelectedOperation {
 
         witnesses.sort_unstable();
         witnesses.dedup();
+
         witnesses
     }
 }

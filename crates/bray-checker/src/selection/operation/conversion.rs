@@ -245,7 +245,9 @@ mod tests {
         let element = tuple_type([]);
         let source = tuple_type([element]);
         let target = tuple_type([element]);
+
         let child = SelectedConversion::new(element, element, ConversionTarget::Identity);
+
         let conversion = SelectedConversion::new(
             source,
             target,
@@ -254,7 +256,9 @@ mod tests {
 
         let unit = test_unit(BoundUnitId::new(85), source);
         let context = TestCheckerContext::new(false);
+
         assert_eq!(validate(&unit, &context, &conversion), Ok(true));
+
         assert_eq!(
             conversion.target(),
             &ConversionTarget::Composite([child].into())
@@ -266,11 +270,13 @@ mod tests {
         let element = tuple_type([]);
         let source = tuple_type([element]);
         let target = tuple_type([element]);
+
         let conversion =
             SelectedConversion::new(source, target, ConversionTarget::Composite([].into()));
 
         let unit = test_unit(BoundUnitId::new(86), source);
         let context = TestCheckerContext::new(false);
+
         assert_eq!(validate(&unit, &context, &conversion), Ok(false));
     }
 

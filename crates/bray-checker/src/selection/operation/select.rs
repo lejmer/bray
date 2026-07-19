@@ -48,6 +48,7 @@ where
     }
 
     let mut applicable = Vec::new();
+
     let mut has_inaccessible = false;
     let mut has_incompatible = false;
     let mut has_recovered = false;
@@ -473,7 +474,6 @@ mod tests {
         let result = select(&fixture, [candidate]);
 
         assert_eq!(result.value(), &CandidateSelection::Selected(operation));
-
         assert!(result.diagnostics().is_empty());
     }
 
@@ -662,6 +662,7 @@ mod tests {
         });
 
         let result = ExpressionTypeResult::new(value_type, ExpressionTypeStatus::Valid);
+
         let types = CheckedExpressionTypes::new(
             unit.unit(),
             unit.key().kind(),
@@ -708,6 +709,7 @@ mod tests {
         });
 
         let result = ExpressionTypeResult::new(value_type, ExpressionTypeStatus::Valid);
+
         let types = CheckedExpressionTypes::new(
             unit.unit(),
             unit.key().kind(),
@@ -752,6 +754,7 @@ mod tests {
         });
 
         let result = ExpressionTypeResult::new(value_type, ExpressionTypeStatus::Valid);
+
         let types = CheckedExpressionTypes::new(
             unit.unit(),
             unit.key().kind(),

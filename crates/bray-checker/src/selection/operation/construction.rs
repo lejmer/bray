@@ -82,6 +82,7 @@ where
         }
 
         supplied[surface_index] = true;
+
         values.push(SelectedConstructionInput::Explicit {
             expression: input.expression,
             input: surfaces[surface_index].input(),
