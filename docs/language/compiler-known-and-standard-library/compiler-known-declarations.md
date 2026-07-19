@@ -34,8 +34,9 @@ It does not imply that user code can replace, redeclare, or emulate that declara
 Some compiler-known declarations have protected representation.
 
 Compiler-known expression operation contracts have closed language-defined identities. These contracts identify the exact trait,
-associated or fixed result type, and callable declarations used by overloadable operators, plain conversion, custom indexing, and
-compiler-recognized type-form construction. A source declaration with the same name or surface does not acquire that role.
+associated result type, fixed callable result type, and callable declarations used by overloadable operators, plain conversion,
+custom indexing, and compiler-recognized type-form construction. A source declaration with the same name or surface does not
+acquire that role.
 
 Operation selection uses these identities only when every declaration in the contract is available for the selected target. It
 does not infer compiler-known behavior from names, paths, spellings, or declaration order.

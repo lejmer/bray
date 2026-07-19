@@ -652,7 +652,7 @@ mod tests {
             "    owner RawPointer;\n",
             "    availability RawMemory;\n",
             "    implementation RawPointerRead;\n",
-            "    operation Conversion;\n",
+            "    operation PlainConversion;\n",
             "    surface { trusted func read() -> u8; }\n",
             "  }\n",
             "  value True {\n",
@@ -702,7 +702,7 @@ mod tests {
             Some(" trusted func read() -> u8; ")
         );
 
-        assert_eq!(operation, Some("Conversion"));
+        assert_eq!(operation, Some("PlainConversion"));
 
         let ParsedEntry::Value(value) = &parsed.scopes[0].entries[1] else {
             panic!("second entry should be a value");

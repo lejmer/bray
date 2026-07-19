@@ -332,14 +332,14 @@ scope Ambient at ambient {
     }
 
     declaration ConvertTo {
-        operation Conversion;
+        operation PlainConversion;
 
         surface { trait ConvertTo<Target> {} }
     }
 
     declaration ConvertToCall {
         owner ConvertTo;
-        operation Conversion;
+        operation PlainConversion;
 
         surface { consume func convert() -> Target; }
     }

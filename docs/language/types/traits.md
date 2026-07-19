@@ -798,8 +798,8 @@ trait ConvertTo<Target>
 
 `convert` is the member called by a plain conversion expression when no built-in recursive conversion rule applies.
 
-The compiler-known conversion role identifies this exact trait and callable declaration. A different trait or callable named
-`ConvertTo` or `convert` does not participate in plain conversion.
+The compiler-known `PlainConversion` operation role identifies this exact trait and callable declaration. A different trait or
+callable named `ConvertTo` or `convert` does not participate in plain conversion.
 
 A `ConvertTo<Target>` implementation must be total and value-preserving according to the conversion contract.
 

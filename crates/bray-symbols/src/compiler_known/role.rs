@@ -24,7 +24,7 @@ pub struct CompilerKnownOperationContract {
     role: CompilerKnownOperationRole,
     trait_definition: TraitSymbolId,
     result_type_member: Option<TraitTypeMemberSymbolId>,
-    fixed_result_type: Option<NamedTypeSymbolId>,
+    fixed_callable_result_type: Option<NamedTypeSymbolId>,
     callable: Option<TraitCallableMemberSymbolId>,
 }
 
@@ -44,9 +44,9 @@ impl CompilerKnownOperationContract {
         self.result_type_member
     }
 
-    /// Returns the exact named result type used by this operation, when required.
-    pub const fn fixed_result_type(self) -> Option<NamedTypeSymbolId> {
-        self.fixed_result_type
+    /// Returns the exact named result type required from the selected callable, when fixed.
+    pub const fn fixed_callable_result_type(self) -> Option<NamedTypeSymbolId> {
+        self.fixed_callable_result_type
     }
 
     /// Returns the trait callable selected by this operation, when it has one.
@@ -57,7 +57,10 @@ impl CompilerKnownOperationContract {
     pub(super) fn symbols(self) -> impl Iterator<Item = AnySymbolId> {
         std::iter::once(self.trait_definition.into())
             .chain(self.result_type_member.map(Into::into))
-            .chain(self.fixed_result_type.map(NamedTypeSymbolId::into_any))
+            .chain(
+                self.fixed_callable_result_type
+                    .map(NamedTypeSymbolId::into_any),
+            )
             .chain(self.callable.map(Into::into))
     }
 }
@@ -129,8 +132,8 @@ impl CompilerKnownSymbolRoleRegistry {
                 })
                 .transpose()?;
 
-            let fixed_result_type = binding
-                .fixed_result_type()
+            let fixed_callable_result_type = binding
+                .fixed_callable_result_type()
                 .map(|declaration| {
                     let symbol = untyped_role_symbol(declaration_symbols, declaration)?;
 
@@ -153,7 +156,7 @@ impl CompilerKnownSymbolRoleRegistry {
                     role: binding.role(),
                     trait_definition,
                     result_type_member,
-                    fixed_result_type,
+                    fixed_callable_result_type,
                     callable,
                 },
             );
@@ -374,7 +377,7 @@ mod tests {
         };
 
         assert_eq!(box_construction.result_type_member(), None);
-        assert_eq!(box_construction.fixed_result_type(), None);
+        assert_eq!(box_construction.fixed_callable_result_type(), None);
         assert_eq!(box_construction.callable(), None);
 
         let Some(comparison) = roles.operation_contract(CompilerKnownOperationRole::Comparison)
@@ -383,7 +386,7 @@ mod tests {
         };
 
         assert_eq!(
-            comparison.fixed_result_type(),
+            comparison.fixed_callable_result_type(),
             provider
                 .declaration_symbol::<UnionSymbolId>(&declaration_key("Ordering"))
                 .map(NamedTypeSymbolId::Union)

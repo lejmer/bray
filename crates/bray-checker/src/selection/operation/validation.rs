@@ -330,7 +330,7 @@ fn collect_conversion_operations<'types>(
                 requirement,
                 ..
             } => required.push(RequiredTraitOperation::Conversion {
-                role: CompilerKnownOperationRole::Conversion,
+                role: CompilerKnownOperationRole::PlainConversion,
                 requirement: *requirement,
                 callable: *callable,
                 source: conversion.source_type(),
@@ -392,7 +392,7 @@ where
             let callable_result = match callable_result {
                 RequiredCallableResult::Expression(result) => result,
                 RequiredCallableResult::FixedContractType => {
-                    let Some(definition) = contract.fixed_result_type() else {
+                    let Some(definition) = contract.fixed_callable_result_type() else {
                         return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
                     };
 
@@ -523,7 +523,7 @@ mod tests {
         );
 
         let wrong_contract = CompilerKnownOperationEvidence::new(
-            CompilerKnownOperationRole::Conversion,
+            CompilerKnownOperationRole::PlainConversion,
             fixture.requirement,
             fixture.contract.callable(),
             wrong_signature,
@@ -631,7 +631,7 @@ mod tests {
         );
 
         let contract = CompilerKnownOperationEvidence::new(
-            CompilerKnownOperationRole::Conversion,
+            CompilerKnownOperationRole::PlainConversion,
             requirement,
             callable,
             signature,

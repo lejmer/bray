@@ -2,6 +2,8 @@ use std::borrow::Cow;
 #[cfg(any(test, feature = "generation"))]
 use std::collections::BTreeMap;
 
+#[cfg(any(test, feature = "generation"))]
+use crate::operation::CompilerKnownOperationComponents;
 use crate::{CompilerKnownOperationRole, ImplementationHook, RepresentationRole};
 
 #[cfg(any(test, feature = "generation"))]
@@ -49,7 +51,7 @@ pub struct CompilerKnownOperationBinding {
     pub(super) role: CompilerKnownOperationRole,
     pub(super) trait_definition: CompilerKnownDeclarationId,
     pub(super) result_type_member: Option<CompilerKnownDeclarationId>,
-    pub(super) fixed_result_type: Option<CompilerKnownDeclarationId>,
+    pub(super) fixed_callable_result_type: Option<CompilerKnownDeclarationId>,
     pub(super) callable: Option<CompilerKnownDeclarationId>,
 }
 
@@ -69,9 +71,9 @@ impl CompilerKnownOperationBinding {
         self.result_type_member
     }
 
-    /// Returns the exact named result type used by this operation, when required.
-    pub const fn fixed_result_type(self) -> Option<CompilerKnownDeclarationId> {
-        self.fixed_result_type
+    /// Returns the exact named result type required from the selected callable, when fixed.
+    pub const fn fixed_callable_result_type(self) -> Option<CompilerKnownDeclarationId> {
+        self.fixed_callable_result_type
     }
 
     /// Returns the trait callable selected by this operation, when it has one.
@@ -150,35 +152,31 @@ impl CompilerKnownCatalogRoleRegistry {
         for (role, declaration, kind) in operation_declarations {
             let components = operation_components
                 .entry(role)
-                .or_insert((None, None, None, None));
+                .or_insert_with(CompilerKnownOperationComponents::new);
 
-            match kind {
-                super::CatalogDeclarationKind::Trait => components.0 = Some(declaration),
-                super::CatalogDeclarationKind::TraitTypeMember => {
-                    components.1 = Some(declaration);
-                }
-                super::CatalogDeclarationKind::Struct | super::CatalogDeclarationKind::Union => {
-                    components.2 = Some(declaration);
-                }
-                super::CatalogDeclarationKind::TraitCallableMember => {
-                    components.3 = Some(declaration);
-                }
-                _ => {}
-            }
+            let insert_result = components.insert(role, kind, declaration);
+
+            debug_assert!(
+                insert_result.is_ok(),
+                "operation role registry input must already be validated"
+            );
         }
 
         let operations = CompilerKnownOperationRole::ALL
             .iter()
             .filter_map(|role| {
-                let (trait_definition, result_type_member, fixed_result_type, callable) =
-                    operation_components.get(role)?;
+                let components = operation_components.get(role)?;
+
+                if !components.is_complete(*role) {
+                    return None;
+                }
 
                 Some(CompilerKnownOperationBinding {
                     role: *role,
-                    trait_definition: (*trait_definition)?,
-                    result_type_member: *result_type_member,
-                    fixed_result_type: *fixed_result_type,
-                    callable: *callable,
+                    trait_definition: components.trait_definition()?,
+                    result_type_member: components.associated_result_type(),
+                    fixed_callable_result_type: components.fixed_callable_result_type(),
+                    callable: components.callable(),
                 })
             })
             .collect::<Vec<_>>();
@@ -390,7 +388,7 @@ mod tests {
                 Some("ComparableCall"),
             ),
             (
-                CompilerKnownOperationRole::Conversion,
+                CompilerKnownOperationRole::PlainConversion,
                 "ConvertTo",
                 None,
                 Some("ConvertToCall"),
@@ -433,12 +431,12 @@ mod tests {
                 result_key
             );
 
-            let fixed_result_key =
+            let fixed_callable_result_key =
                 (role == CompilerKnownOperationRole::Comparison).then_some("Ordering");
 
             assert_eq!(
-                contract.fixed_result_type().map(declaration_key),
-                fixed_result_key
+                contract.fixed_callable_result_type().map(declaration_key),
+                fixed_callable_result_key
             );
 
             assert_eq!(contract.callable().map(declaration_key), callable_key);

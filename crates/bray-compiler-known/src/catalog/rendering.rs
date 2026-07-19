@@ -90,11 +90,14 @@ fn render_roles(output: &mut String, catalog: &CompilerKnownCatalog) {
 
     for binding in catalog.role_registry().operations() {
         output.push_str(&format!(
-            "    CompilerKnownOperationBinding {{ role: CompilerKnownOperationRole::{:?}, trait_definition: CompilerKnownDeclarationId::new({}), result_type_member: {}, fixed_result_type: {}, callable: {} }},\n",
+            "    CompilerKnownOperationBinding {{ role: CompilerKnownOperationRole::{:?}, trait_definition: CompilerKnownDeclarationId::new({}), result_type_member: {}, fixed_callable_result_type: {}, callable: {} }},\n",
             binding.role(),
             binding.trait_definition().raw(),
             render_optional_id(binding.result_type_member(), "CompilerKnownDeclarationId"),
-            render_optional_id(binding.fixed_result_type(), "CompilerKnownDeclarationId"),
+            render_optional_id(
+                binding.fixed_callable_result_type(),
+                "CompilerKnownDeclarationId",
+            ),
             render_optional_id(binding.callable(), "CompilerKnownDeclarationId"),
         ));
     }

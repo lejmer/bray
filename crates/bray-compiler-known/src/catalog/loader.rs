@@ -893,7 +893,7 @@ mod tests {
                 "  }\n",
                 "  declaration Duplicate { surface { struct Duplicate {} } }\n",
                 "  declaration DuplicateOperation {\n",
-                "    operation Conversion;\n",
+                "    operation PlainConversion;\n",
                 "    operation Equality;\n",
                 "    surface { trait DuplicateOperation<Target> {} }\n",
                 "  }\n",
@@ -1035,7 +1035,7 @@ mod tests {
                 "    surface { struct WrongKind {} }\n",
                 "  }\n",
                 "  declaration Incomplete {\n",
-                "    operation Conversion;\n",
+                "    operation PlainConversion;\n",
                 "    surface { trait Incomplete<Target> {} }\n",
                 "  }\n",
                 "  declaration Comparison {\n",
@@ -1103,7 +1103,7 @@ mod tests {
         assert!(contains_kind(&diagnostics, |kind| matches!(
             kind,
             CatalogDiagnosticKind::IncompleteOperationContract {
-                role: crate::CompilerKnownOperationRole::Conversion
+                role: crate::CompilerKnownOperationRole::PlainConversion
             }
         )));
 
@@ -1180,7 +1180,7 @@ mod tests {
                 "  declaration Item {\n",
                 "    identity name Item;\n",
                 "    representation ScalarBool;\n",
-                "    operation Conversion;\n",
+                "    operation PlainConversion;\n",
                 "    surface { struct Item {} }\n",
                 "  }\n",
                 "  value True { spelling true; type { bool } representation BooleanTrue; }\n",

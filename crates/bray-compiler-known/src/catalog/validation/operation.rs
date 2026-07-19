@@ -1,5 +1,5 @@
-use crate::operation::CompilerKnownOperationContractShape;
-use crate::{CompilerKnownOperationRole, catalog::CatalogDeclarationKind};
+use crate::CompilerKnownOperationRole;
+use crate::operation::{CompilerKnownOperationComponentError, CompilerKnownOperationComponents};
 
 use super::super::{CatalogDiagnostic, CatalogDiagnosticKind};
 use super::model::{RawDeclaration, ValidatedDeclarationOwner};
@@ -19,24 +19,16 @@ pub(super) fn validate_operation_contracts(
             continue;
         };
 
-        let mut trait_definition = None;
-        let mut result_type_member = None;
-        let mut fixed_result_type = None;
-        let mut callable = None;
-        let contract_shape = role.contract_shape();
+        let mut collected = CompilerKnownOperationComponents::new();
 
         for (index, declaration) in components {
-            let slot = match declaration.kind {
-                Some(CatalogDeclarationKind::Trait) => &mut trait_definition,
-                Some(CatalogDeclarationKind::TraitTypeMember) => &mut result_type_member,
-                Some(CatalogDeclarationKind::Struct | CatalogDeclarationKind::Union)
-                    if contract_shape
-                        == CompilerKnownOperationContractShape::FixedResultCallable =>
-                {
-                    &mut fixed_result_type
-                }
-                Some(CatalogDeclarationKind::TraitCallableMember) => &mut callable,
-                Some(kind) => {
+            let Some(kind) = declaration.kind else {
+                continue;
+            };
+
+            match collected.insert(role, kind, index) {
+                Ok(()) => {}
+                Err(CompilerKnownOperationComponentError::Incompatible) => {
                     diagnostics.push(CatalogDiagnostic::new(
                         declaration.anchor,
                         CatalogDiagnosticKind::IncompatibleOperationRole {
@@ -44,48 +36,17 @@ pub(super) fn validate_operation_contracts(
                             declaration: kind,
                         },
                     ));
-
-                    continue;
                 }
-                None => continue,
-            };
-
-            if slot.replace(index).is_some() {
-                diagnostics.push(CatalogDiagnostic::new(
-                    declaration.anchor,
-                    CatalogDiagnosticKind::DuplicateOperationComponent { role },
-                ));
+                Err(CompilerKnownOperationComponentError::Duplicate) => {
+                    diagnostics.push(CatalogDiagnostic::new(
+                        declaration.anchor,
+                        CatalogDiagnosticKind::DuplicateOperationComponent { role },
+                    ));
+                }
             }
         }
 
-        let complete = match contract_shape {
-            CompilerKnownOperationContractShape::Trait => {
-                trait_definition.is_some()
-                    && result_type_member.is_none()
-                    && fixed_result_type.is_none()
-                    && callable.is_none()
-            }
-            CompilerKnownOperationContractShape::Callable => {
-                trait_definition.is_some()
-                    && result_type_member.is_none()
-                    && fixed_result_type.is_none()
-                    && callable.is_some()
-            }
-            CompilerKnownOperationContractShape::FixedResultCallable => {
-                trait_definition.is_some()
-                    && result_type_member.is_none()
-                    && fixed_result_type.is_some()
-                    && callable.is_some()
-            }
-            CompilerKnownOperationContractShape::AssociatedResultCallable => {
-                trait_definition.is_some()
-                    && result_type_member.is_some()
-                    && fixed_result_type.is_none()
-                    && callable.is_some()
-            }
-        };
-
-        if !complete {
+        if !collected.is_complete(role) {
             diagnostics.push(CatalogDiagnostic::new(
                 first.anchor,
                 CatalogDiagnosticKind::IncompleteOperationContract { role },
@@ -94,11 +55,14 @@ pub(super) fn validate_operation_contracts(
             continue;
         }
 
-        let Some(trait_definition) = trait_definition else {
+        let Some(trait_definition) = collected.trait_definition() else {
             continue;
         };
 
-        for member in [result_type_member, callable].into_iter().flatten() {
+        for member in [collected.associated_result_type(), collected.callable()]
+            .into_iter()
+            .flatten()
+        {
             if declarations[member].owner
                 != Some(ValidatedDeclarationOwner::Declaration(trait_definition))
             {

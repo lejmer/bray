@@ -588,15 +588,15 @@ One role can identify a declaration contract containing:
 
 - exactly one trait declaration,
 - one directly owned associated result type when the operation selects an output type,
-- one named fixed result type when the language contract fixes the callable result,
+- one named fixed callable result type when the language contract fixes the callable result,
 - one directly owned callable when the operation invokes a trait member.
 
 The catalog assigns the same operation role to every declaration in that contract. Structural validation derives each component
 from its exact declaration kind, rejects duplicates and unrelated declaration kinds, and requires member components to be owned
 directly by the role's trait. The closed role definition determines which components are required. For example, value-producing
 operators and custom indexing require a trait, associated result, and callable, comparison requires a trait, the compiler-known
-`Ordering` result, and a callable, plain conversion requires the trait and callable, and box construction requires only the
-`Storage` trait.
+`Ordering` callable result, and a callable, the `PlainConversion` role requires the `ConvertTo` trait and callable, and box
+construction requires only the `Storage` trait.
 
 Validated role contracts are published in stable role order. Symbol construction translates each catalog declaration ID into its
 exact category-specific symbol ID. A target-available view publishes a contract only when every component is available for that
