@@ -16,7 +16,8 @@ use bray_source::{
 use bray_symbols::{
     AnySymbolId, FunctionSymbolId, LocalScopeBoundary, LocalSymbolRegionId, LocalSymbolRegionKey,
     LocalSymbolRegionRole, LocalSymbolSnapshotBuilder, ModulePathKey, PackageIdentity,
-    SemanticValueStore, SymbolId, SymbolKey, SymbolKind, SymbolRootKey, TypeData, TypeId,
+    SemanticValueStore, SymbolId, SymbolKey, SymbolKind, SymbolName, SymbolRootKey, TypeData,
+    TypeId,
 };
 
 pub(crate) use bray_symbols::testing::available_compiler_known_symbols;
@@ -312,6 +313,29 @@ pub(crate) fn tuple_type(elements: impl IntoIterator<Item = TypeId>) -> TypeId {
         Ok(ty) => ty,
         Err(error) => panic!("test tuple type must be valid: {error:?}"),
     }
+}
+
+pub(crate) fn symbol_name(name: &str) -> SymbolName {
+    let Some(name) = SymbolName::try_new(name) else {
+        panic!("test symbol name must be valid");
+    };
+
+    name
+}
+
+pub(crate) fn declaration_key(kind: SymbolKind, declaration: u32) -> SymbolKey {
+    let Some(package) = PackageIdentity::try_new("example.package") else {
+        panic!("test package identity must be valid");
+    };
+
+    let owner = SymbolKey::package(package);
+
+    let Some(key) = SymbolKey::source_declaration(owner, kind, DeclarationId::new(declaration))
+    else {
+        panic!("test declaration key must support the requested kind");
+    };
+
+    key
 }
 
 pub(crate) fn type_data(ty: TypeId) -> TypeData {

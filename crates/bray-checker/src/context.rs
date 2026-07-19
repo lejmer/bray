@@ -52,6 +52,8 @@ pub enum CheckerInfrastructureError {
         /// The invalid expression identity.
         expression: BoundExpressionId,
     },
+    /// Semantic-selection inputs do not describe the requested bound unit or operation category.
+    InvalidSemanticSelectionInput,
     /// Constant-evaluation inputs do not describe the requested bound unit.
     InvalidConstantEvaluationInput,
     /// A committed bound relationship names a node absent from the requested unit.

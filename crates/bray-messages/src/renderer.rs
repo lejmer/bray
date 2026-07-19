@@ -140,7 +140,8 @@ mod tests {
         DiagnosticArtifactDigestAlgorithm, DiagnosticArtifactKind, DiagnosticBag, DiagnosticId,
         DiagnosticIoErrorKind, DiagnosticKind, DiagnosticLabel, DiagnosticLabelKind,
         DiagnosticLabelStyle, DiagnosticModuleTrust, DiagnosticNameKind, DiagnosticNote,
-        DiagnosticNoteKind, DiagnosticOutputSink, DiagnosticVisibility, SeverityKind,
+        DiagnosticNoteKind, DiagnosticOutputSink, DiagnosticSelectionKind, DiagnosticVisibility,
+        SeverityKind,
     };
     use bray_source::{SourceId, SourceSpan, TextRange, TextSize};
     use bray_syntax::SyntaxKind;
@@ -190,7 +191,7 @@ mod tests {
     }
 
     #[test]
-    fn renderer_localizes_expression_type_diagnostics() {
+    fn renderer_localizes_checker_diagnostics() {
         let incompatible = Diagnostic::new(
             DiagnosticId::new(0),
             DiagnosticKind::CheckingIncompatibleExpressionType,
@@ -207,6 +208,16 @@ mod tests {
             DiagnosticKind::CheckingCannotInferExpressionType,
             SeverityKind::Error,
         );
+
+        let ambiguous = Diagnostic::new(
+            DiagnosticId::new(2),
+            DiagnosticKind::CheckingAmbiguousCandidate,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::selection_kind(
+            DiagnosticSelectionKind::Operator,
+        ));
+
         let renderer = DiagnosticRenderer::english();
 
         assert_eq!(
@@ -216,6 +227,10 @@ mod tests {
         assert_eq!(
             renderer.render(&unresolved).message(),
             "cannot infer expression type"
+        );
+        assert_eq!(
+            renderer.render(&ambiguous).message(),
+            "operator selection is ambiguous"
         );
     }
 

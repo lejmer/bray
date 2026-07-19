@@ -367,6 +367,17 @@ The selection domain owns:
 Candidate enumeration comes from typed symbol lookup and implementation indexes. The checker evaluates candidates in canonical
 order. It must not rank candidates when the language says that exactly one applicable arm is required.
 
+The binder must supply source-associated candidate records with stable semantic keys, target availability, effective accessibility,
+static-constraint state, and the declared operand or parameter surface. The checker must consume those records together with
+canonical expression types. It must publish category-specific selections for exact callable targets and ABIs, normalized explicit
+and defaulted argument mappings, members, operators, indexing contracts, construction behavior, conversions, and implementation
+witnesses. Selections for a bound unit must form one immutable expression-keyed side table. The table supplements the canonical
+bound tree and does not create another semantic tree.
+
+Selection failures are typed as unavailable, ambiguous, inaccessible, incompatible, or recovered. An inaccessible candidate is
+reported only when it would otherwise be applicable. Ambiguities retain candidate keys in canonical order. Structured diagnostics
+identify the selection category without embedding rendered language text in checker code.
+
 Callable overload applicability uses explicit argument mapping, parameter type compatibility, receiver type and receiver mode for
 methods, explicit generic substitution, static generic constraints, and target availability. It does not use expected result type,
 argument ownership availability, borrow availability, mutation authority, dependency contracts, effects, capabilities, trusted
@@ -426,10 +437,10 @@ representation before language defaults are applied. Integer literals default to
 literals default to `c128`. Complex literal components use the real representation associated with the selected complex type.
 Defaulting is a finalization step and must not run while callers may still add expected-type evidence.
 
-Closed evaluation receives the complete checked expression types and the results of every referenced constant dependency. The
-compilation fact layer owns dependency scheduling, caching, and cycle detection. It supplies either the referenced
-`ConstantValueId` or a cycle result for each constant-reference occurrence. The checker owns the source-correlated diagnostic and
-error-value recovery for a reported cycle.
+Closed evaluation receives the complete checked expression types, exact semantic selections, and the results of every referenced
+constant dependency. The compilation fact layer owns dependency scheduling, caching, and cycle detection. It supplies either the
+referenced `ConstantValueId` or a cycle result for each constant-reference occurrence. The checker owns the source-correlated
+diagnostic and error-value recovery for a reported cycle.
 
 The evaluator reads literal spellings through their exact token ranges, excluding trivia, and converts them directly into the
 selected language representation. Integer values use arbitrary-width canonical magnitude storage. Floating-point and complex

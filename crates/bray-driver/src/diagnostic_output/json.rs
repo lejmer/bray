@@ -206,6 +206,7 @@ enum DiagnosticArgValueJson {
     WorkerCount(u64),
     Revision(u64),
     Type(DiagnosticTypeJson),
+    SelectionKind(&'static str),
 }
 
 impl DiagnosticArgValueJson {
@@ -254,6 +255,7 @@ impl DiagnosticArgValueJson {
             DiagnosticArgValue::WorkerCount(worker_count) => Self::WorkerCount(*worker_count),
             DiagnosticArgValue::Revision(revision) => Self::Revision(*revision),
             DiagnosticArgValue::Type(ty) => Self::Type(DiagnosticTypeJson::from_type(*ty)),
+            DiagnosticArgValue::SelectionKind(kind) => Self::SelectionKind((*kind).as_str()),
         }
     }
 }
@@ -400,8 +402,8 @@ mod tests {
         Diagnostic, DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticArtifactDigest,
         DiagnosticArtifactDigestAlgorithm, DiagnosticBag, DiagnosticId, DiagnosticInterfaceLimit,
         DiagnosticInterfaceSection, DiagnosticKind, DiagnosticModuleTrust, DiagnosticNameKind,
-        DiagnosticNote, DiagnosticNoteKind, DiagnosticOutputSink, DiagnosticVisibility,
-        SeverityKind,
+        DiagnosticNote, DiagnosticNoteKind, DiagnosticOutputSink, DiagnosticSelectionKind,
+        DiagnosticVisibility, SeverityKind,
     };
     use bray_source::{SourceSpan, TextRange, TextSize};
     use bray_syntax::SyntaxKind;
@@ -491,8 +493,8 @@ mod tests {
     }
 
     #[test]
-    fn json_output_preserves_typed_expression_type_arguments() {
-        let diagnostic = Diagnostic::new(
+    fn json_output_preserves_typed_checker_arguments() {
+        let type_diagnostic = Diagnostic::new(
             DiagnosticId::new(0),
             DiagnosticKind::CheckingIncompatibleExpressionType,
             SeverityKind::Error,
@@ -503,9 +505,23 @@ mod tests {
         .with_arg(DiagnosticArg::actual_type(
             bray_diagnostics::DiagnosticType::Array,
         ));
+
+        let selection_diagnostic = Diagnostic::new(
+            DiagnosticId::new(1),
+            DiagnosticKind::CheckingAmbiguousCandidate,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::selection_kind(
+            DiagnosticSelectionKind::Operator,
+        ));
+
         let mut output = Vec::new();
 
-        match write_json_diagnostics(&DiagnosticBag::single(diagnostic), None, &mut output) {
+        match write_json_diagnostics(
+            &DiagnosticBag::from(vec![type_diagnostic, selection_diagnostic]),
+            None,
+            &mut output,
+        ) {
             Ok(()) => {}
             Err(error) => panic!("JSON diagnostics should write: {error:?}"),
         }
@@ -521,6 +537,12 @@ mod tests {
         assert_eq!(arguments[0]["value"]["value"]["kind"], "boolean");
         assert_eq!(arguments[1]["name"], "actual_type");
         assert_eq!(arguments[1]["value"]["value"]["kind"], "array");
+
+        let selection = &output["diagnostics"][1]["args"][0];
+
+        assert_eq!(selection["name"], "selection_kind");
+        assert_eq!(selection["value"]["kind"], "selection_kind");
+        assert_eq!(selection["value"]["value"], "operator");
     }
 
     #[test]
