@@ -237,7 +237,7 @@ pub(super) fn encode_constant_term(encoder: &mut WireEncoder, term: &InterfaceCo
         InterfaceConstantTerm::Value(id) => write_tagged_id(encoder, 1, id.raw()),
         InterfaceConstantTerm::IntegerLiteral { ty, value } => {
             encoder.write_u32(9);
-            encoder.write_u32(ty.raw());
+            encoder.write_u32((*ty).to_wire());
             encode_integer(encoder, value);
         }
         InterfaceConstantTerm::Parameter(parameter) => {

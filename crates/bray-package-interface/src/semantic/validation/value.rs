@@ -234,8 +234,7 @@ impl InterfaceSemanticFacts {
             InterfaceConstantTerm::Value(id) => {
                 validate_index(id.to_index(), self.constant_values.len())?;
             }
-            InterfaceConstantTerm::IntegerLiteral { ty, value } => {
-                validate_index(ty.to_index(), self.types.len())?;
+            InterfaceConstantTerm::IntegerLiteral { value, .. } => {
                 limits.check(
                     InterfaceLimit::BlobLength,
                     saturating_u64(value.magnitude().len()),

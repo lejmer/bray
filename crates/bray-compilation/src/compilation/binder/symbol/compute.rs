@@ -331,7 +331,8 @@ mod tests {
         CallableSymbolId, ConstantDeclaredTypeFact, ConstantTermData, ConstantValueKind,
         GenericArgument, GenericConstParameterDeclaredTypeFact, ImplementationSubjectFact,
         ImplementationSymbolId, ImplementedTraitApplicationFact, InherentTypeMemberValueFact,
-        ReceiverMode, SymbolFactRequest, SymbolOrigin, TraitConstantFulfillmentDeclaredTypeFact,
+        NamedTypeSymbolId, ReceiverMode, StructSymbolId, SymbolFactRequest, SymbolOrigin,
+        TargetSizedIntegerType, TraitConstantFulfillmentDeclaredTypeFact,
         TraitConstantMemberDeclaredTypeFact, TraitTypeFulfillmentValueFact, TypeData,
         UnionPayloadFieldTypeFact,
     };
@@ -990,7 +991,7 @@ func identity<T>(value: T) -> T
     }
 
     #[test]
-    fn source_constant_type_forms_publish_closed_open_and_target_sensitive_terms() {
+    fn source_constant_type_forms_publish_symbolic_and_target_sensitive_terms() {
         let compilation = compilation(
             r#"module app;
 
@@ -1003,7 +1004,7 @@ struct Values<const count: usize>
     symbolic_array: [bool; count];
     symbolic_application: Fixed<count>;
     target_sensitive_application: Fixed<4>;
-    closed_array: [bool; 4];
+    direct_array: [bool; 4];
 }
 "#,
         );
@@ -1021,7 +1022,7 @@ struct Values<const count: usize>
             symbolic_array,
             symbolic_application,
             target_sensitive_application,
-            closed_array,
+            direct_array,
         ] = fields.as_slice()
         else {
             panic!("test source must contain four source fields: {fields:?}");
@@ -1061,26 +1062,27 @@ struct Values<const count: usize>
 
         assert!(matches!(
             constant_term_data(&compilation, target_sensitive_argument).as_ref(),
-            ConstantTermData::IntegerLiteral { value, .. } if value.magnitude() == [4]
+            ConstantTermData::IntegerLiteral {
+                ty: TargetSizedIntegerType::Usize,
+                value,
+            } if value.magnitude() == [4]
         ));
 
-        let closed_array = type_data(&compilation, field_type(closed_array));
+        let direct_array = type_data(&compilation, field_type(direct_array));
         let TypeData::Array {
-            length: closed_length,
+            length: direct_length,
             ..
-        } = closed_array.as_ref()
+        } = direct_array.as_ref()
         else {
-            panic!("closed array must retain its array type");
-        };
-
-        let closed_length = constant_term_data(&compilation, *closed_length);
-        let ConstantTermData::Value(value) = closed_length.as_ref() else {
-            panic!("fixed-width array length must close to a constant value");
+            panic!("direct array must retain its array type");
         };
 
         assert!(matches!(
-            constant_value_data(&compilation, *value).kind(),
-            ConstantValueKind::Integer(value) if value.magnitude() == [4]
+            constant_term_data(&compilation, *direct_length).as_ref(),
+            ConstantTermData::IntegerLiteral {
+                ty: TargetSizedIntegerType::Usize,
+                value,
+            } if value.magnitude() == [4]
         ));
 
         let parameter = source_id(
@@ -1095,9 +1097,21 @@ struct Values<const count: usize>
         );
 
         assert!(declared_type.diagnostics().is_empty());
+
+        let usize_symbol = symbols
+            .compiler_known_provider()
+            .role_registry()
+            .representation_symbol::<StructSymbolId>(
+                bray_compiler_known::RepresentationRole::ScalarUsize,
+            )
+            .unwrap_or_else(|| panic!("compiler-known usize must be available"));
+
         assert!(matches!(
             type_data(&compilation, *declared_type.value()).as_ref(),
-            TypeData::Named { .. }
+            TypeData::Named {
+                definition: NamedTypeSymbolId::Struct(definition),
+                ..
+            } if *definition == usize_symbol
         ));
     }
 
@@ -1168,6 +1182,74 @@ impl Subject(Provides)
             symbols.trait_type_member(*member).map(|value| value.id()),
             Some(*member)
         );
+    }
+
+    #[test]
+    fn array_lengths_require_positive_usize_terms() {
+        let compilation = compilation(
+            r#"module app;
+
+struct Broken<const flag: bool>
+{
+    zero: [bool; 0];
+    non_integer: [bool; flag];
+}
+"#,
+        );
+
+        let symbols = symbol_graph(&compilation);
+        let cancellation = CancellationToken::new();
+        let facts = binder_facts(&compilation, &cancellation);
+        let fields = symbols
+            .struct_fields()
+            .iter()
+            .filter(|symbol| symbol.origin() == SymbolOrigin::Source)
+            .collect::<Vec<_>>();
+
+        let [zero, non_integer] = fields.as_slice() else {
+            panic!("test source must contain two source fields: {fields:?}");
+        };
+
+        let zero = published_fact(
+            &facts,
+            SymbolFactRequest::<bray_symbols::StructFieldTypeFact>::new(zero.id()),
+        );
+        let non_integer = published_fact(
+            &facts,
+            SymbolFactRequest::<bray_symbols::StructFieldTypeFact>::new(non_integer.id()),
+        );
+
+        assert_eq!(
+            zero.diagnostics()
+                .iter()
+                .map(|diagnostic| diagnostic.kind())
+                .collect::<Vec<_>>(),
+            [DiagnosticKind::CheckingArrayLengthNotPositive]
+        );
+        assert_eq!(
+            non_integer
+                .diagnostics()
+                .iter()
+                .map(|diagnostic| diagnostic.kind())
+                .collect::<Vec<_>>(),
+            [DiagnosticKind::CheckingInvalidConstantExpression]
+        );
+
+        for result in [&zero, &non_integer] {
+            let ty = type_data(&compilation, *result.value());
+            let TypeData::Array { length, .. } = ty.as_ref() else {
+                panic!("invalid array length must retain an array type");
+            };
+
+            assert!(matches!(
+                constant_term_data(&compilation, *length).as_ref(),
+                ConstantTermData::Value(value)
+                    if matches!(
+                        constant_value_data(&compilation, *value).kind(),
+                        ConstantValueKind::Error
+                    )
+            ));
+        }
     }
 
     #[test]

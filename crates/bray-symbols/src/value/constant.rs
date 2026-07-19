@@ -62,6 +62,15 @@ pub enum IntegerSign {
     Negative,
 }
 
+/// A language-defined integer type whose width comes from the selected target.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum TargetSizedIntegerType {
+    /// The signed machine-sized integer type.
+    Isize,
+    /// The unsigned machine-sized integer type.
+    Usize,
+}
+
 /// A host-independent arbitrary-width normalized integer constant.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct IntegerConstant {
@@ -97,6 +106,16 @@ impl IntegerConstant {
     /// Returns the canonical big-endian unsigned magnitude without leading zero bytes.
     pub fn magnitude(&self) -> &[u8] {
         &self.magnitude
+    }
+
+    /// Returns whether this integer is zero.
+    pub fn is_zero(&self) -> bool {
+        self.magnitude.is_empty()
+    }
+
+    /// Returns whether this integer is greater than zero.
+    pub fn is_positive(&self) -> bool {
+        self.sign == IntegerSign::NonNegative && !self.is_zero()
     }
 }
 
@@ -313,8 +332,8 @@ pub enum ConstantTermData {
     Value(ConstantValueId),
     /// A typed integer literal awaiting selected-target representability checking.
     IntegerLiteral {
-        /// The literal's established integer type.
-        ty: TypeId,
+        /// The literal's established target-sized integer type.
+        ty: TargetSizedIntegerType,
         /// The normalized source value.
         value: IntegerConstant,
     },
@@ -382,7 +401,7 @@ mod tests {
         let positive = IntegerConstant::new(IntegerSign::NonNegative, [0, 0, 5]);
 
         assert_eq!(zero.sign(), IntegerSign::NonNegative);
-        assert!(zero.magnitude().is_empty());
+        assert!(zero.is_zero());
 
         assert_eq!(positive.magnitude(), &[5]);
     }

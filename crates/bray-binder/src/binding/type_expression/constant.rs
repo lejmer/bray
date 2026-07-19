@@ -1,10 +1,12 @@
-use bray_checker::{ConstantLiteralError, check_constant_literal, normalize_integer_literal};
+use bray_checker::{
+    ConstantLiteralError, check_array_length, check_constant_literal, normalize_integer_literal,
+};
 use bray_compiler_known::IntegerRepresentation;
 use bray_diagnostics::DiagnosticKind;
 use bray_symbols::{
     ConstantTermData, ConstantTermId, ConstantValueData, ConstantValueKind,
     GenericConstParameterDeclaredTypeFact, GenericConstParameterSymbolId, NamedTypeSymbolId,
-    SymbolFactRequest, TypeData, TypeId,
+    SymbolFactRequest, TargetSizedIntegerType, TypeData, TypeId,
 };
 use bray_syntax::{
     ExpressionSyntax, GenericArgumentSyntax, SourceSyntaxNode, TypeExpressionSyntax,
@@ -20,21 +22,16 @@ impl TypeExpressionBinder<'_> {
         &mut self,
         expression: &ExpressionSyntax,
     ) -> BinderFactResult<ConstantTermId> {
-        if expression.is_recovered() {
-            let expected =
-                self.bind_compiler_known_type(bray_compiler_known::RepresentationRole::ScalarI32)?;
+        let expected =
+            self.bind_compiler_known_type(bray_compiler_known::RepresentationRole::ScalarUsize)?;
 
+        if expression.is_recovered() {
             return self.error_constant_term(expected);
         }
 
-        let expected = match self.constant_parameter_reference(expression) {
-            Some(reference) => reference?.1,
-            None => {
-                self.bind_compiler_known_type(bray_compiler_known::RepresentationRole::ScalarI32)?
-            }
-        };
+        let length = self.bind_constant_expression(expression, expected)?;
 
-        self.bind_constant_expression(expression, expected)
+        self.validate_array_length(expression, expected, length)
     }
 
     pub(super) fn bind_generic_constant_argument(
@@ -98,31 +95,6 @@ impl TypeExpressionBinder<'_> {
         }
 
         self.invalid_constant_expression(expression, expected)
-    }
-
-    fn constant_parameter_reference(
-        &mut self,
-        expression: &ExpressionSyntax,
-    ) -> Option<BinderFactResult<(GenericConstParameterSymbolId, TypeId)>> {
-        let primary = expression.primary_expression()?;
-        let access = primary.access_expression()?;
-        let token = access.identifier_token()?;
-
-        if access.access_expressions().next().is_some()
-            || access.member_access_operations().next().is_some()
-            || access.element_index_operations().next().is_some()
-        {
-            return None;
-        }
-
-        let name = token_text(expression.source(), &token)?;
-
-        let parameter = self.const_parameters.get(name).copied()?;
-
-        Some(
-            self.constant_parameter_type(parameter)
-                .map(|ty| (parameter, ty)),
-        )
     }
 
     fn bind_constant_type_argument(
@@ -222,6 +194,15 @@ impl TypeExpressionBinder<'_> {
             representation.integer_representation(),
             Some(IntegerRepresentation::TargetSigned | IntegerRepresentation::TargetUnsigned)
         ) {
+            let ty = match representation {
+                bray_compiler_known::RepresentationRole::ScalarIsize => {
+                    TargetSizedIntegerType::Isize
+                }
+                bray_compiler_known::RepresentationRole::ScalarUsize => {
+                    TargetSizedIntegerType::Usize
+                }
+                _ => return self.invalid_constant_literal(literal, expected),
+            };
             let value = match normalize_integer_literal(text) {
                 Ok(value) => value,
                 Err(error) => {
@@ -231,10 +212,7 @@ impl TypeExpressionBinder<'_> {
                 }
             };
 
-            return self.intern_constant_term(ConstantTermData::IntegerLiteral {
-                ty: expected,
-                value,
-            });
+            return self.intern_constant_term(ConstantTermData::IntegerLiteral { ty, value });
         }
 
         let value = check_constant_literal(kind, text, representation, None);
@@ -327,6 +305,41 @@ impl TypeExpressionBinder<'_> {
 
     fn report_invalid_constant(&mut self, syntax: &impl SourceSyntaxNode) {
         self.report_diagnostic(syntax, DiagnosticKind::CheckingInvalidConstantExpression);
+    }
+
+    fn validate_array_length(
+        &mut self,
+        syntax: &ExpressionSyntax,
+        expected: TypeId,
+        length: ConstantTermId,
+    ) -> BinderFactResult<ConstantTermId> {
+        let term = self
+            .semantic_values
+            .constant_term_data(length)
+            .map_err(|_| BinderFactError::DependencyUnavailable)?;
+
+        let invalid = match term.as_ref() {
+            ConstantTermData::IntegerLiteral { value, .. } => check_array_length(value).is_err(),
+            ConstantTermData::Value(value) => {
+                let value = self
+                    .semantic_values
+                    .constant_value_data(*value)
+                    .map_err(|_| BinderFactError::DependencyUnavailable)?;
+
+                matches!(
+                    value.kind(),
+                    ConstantValueKind::Integer(value) if check_array_length(value).is_err()
+                )
+            }
+            _ => false,
+        };
+
+        if !invalid {
+            return Ok(length);
+        }
+
+        self.report_diagnostic(syntax, DiagnosticKind::CheckingArrayLengthNotPositive);
+        self.error_constant_term(expected)
     }
 
     fn report_diagnostic(&mut self, syntax: &impl SourceSyntaxNode, kind: DiagnosticKind) {

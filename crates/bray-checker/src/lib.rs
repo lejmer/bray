@@ -18,8 +18,9 @@ mod unit;
 mod test_support;
 
 pub use constant::{
-    ConstantEvaluationInput, ConstantEvaluationLimits, ConstantLiteralError,
-    ConstantReferenceResolution, check_constant_literal, normalize_integer_literal,
+    ArrayLengthError, ConstantEvaluationInput, ConstantEvaluationLimits, ConstantLiteralError,
+    ConstantReferenceResolution, check_array_length, check_constant_literal,
+    normalize_integer_literal,
 };
 pub use context::{
     CheckerFactError, CheckerFactResult, CheckerInfrastructureError, CheckerRequestContext,

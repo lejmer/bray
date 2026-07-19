@@ -345,7 +345,7 @@ Conceptually, durable term variants include:
 pub enum ConstantTermData {
     Value(ConstantValueId),
     IntegerLiteral {
-        ty: TypeId,
+        ty: TargetSizedIntegerType,
         value: IntegerConstant,
     },
     Parameter(GenericConstParameterSymbolId),
@@ -386,8 +386,13 @@ not perform arbitrary algebraic rewriting. For example, `N + 1` and `1 + N` norm
 particular checking context can prove them equal.
 
 A target-sized integer literal remains an `IntegerLiteral` term until selected-target facts establish representability. The term
-retains the established integer type and normalized arbitrary-width value. It must not use the compiler host width or become a
-closed `ConstantValueId` before target validation succeeds.
+retains whether its established type is `isize` or `usize` and its normalized arbitrary-width value. It must not use the compiler
+host width or become a closed `ConstantValueId` before target validation succeeds.
+
+A constant expression embedded in a type form is supplied through an independently demandable checked-constant-term fact. The type
+binder provides the expected type and lexical generic context, then requests that fact. It must not classify expression syntax into
+operations or manufacture a checked term before expression typing and semantic selection have completed. The enclosing type fact is
+published only after the requested constant term is available.
 
 ### Generic Substitutions
 

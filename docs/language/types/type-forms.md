@@ -634,9 +634,14 @@ The fixed-size array type form is:
 
 `N` is the array length.
 
+`N` is a compile-time constant expression of type `usize`.
+
 `N` is part of the type.
 
 `N` must be greater than zero.
+
+When `N` remains symbolic, the greater-than-zero requirement is checked for each concrete instantiation before the array type is
+used as a materializable type.
 
 A fixed-size array contains exactly `N` elements of type `T`.
 

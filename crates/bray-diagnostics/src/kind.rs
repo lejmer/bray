@@ -109,6 +109,8 @@ pub enum DiagnosticKind {
     CheckingCannotInferExpressionType,
     /// An expression is not permitted in compile-time constant context.
     CheckingInvalidConstantExpression,
+    /// A fixed array length is not greater than zero.
+    CheckingArrayLengthNotPositive,
     /// A literal value cannot be represented by its selected type.
     CheckingConstantLiteralNotRepresentable,
     /// Constant evaluation exhausted its deterministic operation budget.
@@ -203,6 +205,7 @@ impl DiagnosticKind {
             Self::CheckingIncompatibleExpressionType => 7001,
             Self::CheckingCannotInferExpressionType => 7002,
             Self::CheckingInvalidConstantExpression => 7003,
+            Self::CheckingArrayLengthNotPositive => 7013,
             Self::CheckingConstantLiteralNotRepresentable => 7004,
             Self::CheckingConstantEvaluationStepLimitExceeded => 7005,
             Self::CheckingConstantAggregateLimitExceeded => 7006,
@@ -283,6 +286,7 @@ impl DiagnosticKind {
             Self::CheckingIncompatibleExpressionType => "checking_incompatible_expression_type",
             Self::CheckingCannotInferExpressionType => "checking_cannot_infer_expression_type",
             Self::CheckingInvalidConstantExpression => "checking_invalid_constant_expression",
+            Self::CheckingArrayLengthNotPositive => "checking_array_length_not_positive",
             Self::CheckingConstantLiteralNotRepresentable => {
                 "checking_constant_literal_not_representable"
             }
@@ -363,7 +367,7 @@ mod tests {
         }
     }
 
-    fn all_diagnostic_kinds() -> [DiagnosticKind; 70] {
+    fn all_diagnostic_kinds() -> [DiagnosticKind; 71] {
         [
             DiagnosticKind::SourceFileReadFailed,
             DiagnosticKind::SourceInvalidUtf8,
@@ -417,6 +421,7 @@ mod tests {
             DiagnosticKind::CheckingIncompatibleExpressionType,
             DiagnosticKind::CheckingCannotInferExpressionType,
             DiagnosticKind::CheckingInvalidConstantExpression,
+            DiagnosticKind::CheckingArrayLengthNotPositive,
             DiagnosticKind::CheckingConstantLiteralNotRepresentable,
             DiagnosticKind::CheckingConstantEvaluationStepLimitExceeded,
             DiagnosticKind::CheckingConstantAggregateLimitExceeded,

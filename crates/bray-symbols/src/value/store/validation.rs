@@ -105,9 +105,7 @@ pub(super) fn validate_constant_term_data(
         ConstantTermData::Value(value) => {
             tables.constant_values.get(store, *value)?;
         }
-        ConstantTermData::IntegerLiteral { ty, .. } => {
-            tables.types.get(store, *ty)?;
-        }
+        ConstantTermData::IntegerLiteral { .. } => {}
         ConstantTermData::Parameter(_) | ConstantTermData::TargetFact(_) => {}
         ConstantTermData::Unary { operand, .. } => {
             tables.constant_terms.get(store, *operand)?;

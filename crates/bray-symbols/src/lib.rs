@@ -158,5 +158,6 @@ pub use value::{
     GuardedDependencyRequirement, ImplementationInstanceData, ImplementationInstanceId,
     IntegerConstant, IntegerSign, LifecycleObligationKind, RealConstantBits, SelfTypeContext,
     SemanticValueKind, SemanticValueStore, SemanticValueStoreCreateError, SemanticValueStoreError,
-    SemanticValueStoreId, TraitApplicationData, TraitApplicationId, TypeData, TypeId,
+    SemanticValueStoreId, TargetSizedIntegerType, TraitApplicationData, TraitApplicationId,
+    TypeData, TypeId,
 };

@@ -322,7 +322,7 @@ pub(super) fn decode_constant_term(
             kind: decode_constant_projection(reader, context)?,
         }),
         9 => Ok(InterfaceConstantTerm::IntegerLiteral {
-            ty: InterfaceTypeId::new(read_u32(reader)?),
+            ty: decode_tag(read_u32(reader)?)?,
             value: decode_integer(reader, context.limits())?,
         }),
         _ => Err(InterfaceValidationError::Malformed),
@@ -380,7 +380,7 @@ mod tests {
         FunctionSymbolId, InherentImplementationSymbolId, IntegerConstant, IntegerSign,
         ModuleSymbolId, NamedTypeSymbolId, PackageIdentity, PackageSymbolId, SelfTypeContext,
         SemanticValueStore, StructSymbolId, SymbolId, SymbolKind, SymbolName, SymbolOrdinal,
-        TraitSymbolId, TypeData,
+        TargetSizedIntegerType, TraitSymbolId, TypeData,
     };
 
     use super::super::decode_semantic_facts;
@@ -513,20 +513,23 @@ mod tests {
     }
 
     #[test]
-    fn target_sensitive_integer_terms_round_trip_without_becoming_closed_values() {
+    fn target_sized_integer_terms_reject_invalid_types_and_round_trip() {
         let surface = interface_surface(package_identity(), [], []);
         let facts = InterfaceSemanticFacts::new().with_values(
             [],
-            [InterfaceType::Tuple([].into())],
+            [],
             [],
             [InterfaceConstantTerm::IntegerLiteral {
-                ty: InterfaceTypeId::new(0),
+                ty: TargetSizedIntegerType::Usize,
                 value: IntegerConstant::new(IntegerSign::NonNegative, [4]),
             }],
         );
+
         let limits = InterfaceValidationLimits::default();
+
         let sections = encode_semantic_facts(&facts, &surface, limits)
             .unwrap_or_else(|error| panic!("semantic encoding failed: {error:?}"));
+
         let views = sections
             .iter()
             .map(|section| {
@@ -537,23 +540,54 @@ mod tests {
                 )
             })
             .collect::<Vec<_>>();
+
         let decoded = decode_semantic_facts(&views, &surface, limits)
             .unwrap_or_else(|error| panic!("semantic decoding failed: {error:?}"));
 
         assert_eq!(decoded, facts);
 
+        let mut malformed = sections
+            .iter()
+            .map(|section| {
+                (
+                    section.tag(),
+                    section.record_count(),
+                    section.payload().to_vec(),
+                )
+            })
+            .collect::<Vec<_>>();
+
+        let Some((_, _, constants)) = malformed
+            .iter_mut()
+            .find(|(tag, _, _)| *tag == crate::InterfaceSectionTag::Constants)
+        else {
+            panic!("constant section must be encoded");
+        };
+
+        constants[12..16].copy_from_slice(&3_u32.to_le_bytes());
+
+        assert_eq!(
+            decode_owned(&malformed, &surface, limits),
+            Err(InterfaceValidationError::Malformed)
+        );
+
         let store = SemanticValueStore::try_new()
             .unwrap_or_else(|error| panic!("semantic store creation failed: {error:?}"));
+
         let imported = decoded
             .intern(&store, &resolver(&surface))
             .unwrap_or_else(|error| panic!("semantic interning failed: {error:?}"));
+
         let term = store
             .constant_term_data(imported.constant_terms()[0])
             .unwrap_or_else(|error| panic!("constant term must be interned: {error:?}"));
 
         assert!(matches!(
             term.as_ref(),
-            ConstantTermData::IntegerLiteral { value, .. } if value.magnitude() == [4]
+            ConstantTermData::IntegerLiteral {
+                ty: TargetSizedIntegerType::Usize,
+                value,
+            } if value.magnitude() == [4]
         ));
     }
 

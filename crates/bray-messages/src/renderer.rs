@@ -208,9 +208,14 @@ mod tests {
             DiagnosticKind::CheckingCannotInferExpressionType,
             SeverityKind::Error,
         );
+        let array_length = Diagnostic::new(
+            DiagnosticId::new(2),
+            DiagnosticKind::CheckingArrayLengthNotPositive,
+            SeverityKind::Error,
+        );
 
         let ambiguous = Diagnostic::new(
-            DiagnosticId::new(2),
+            DiagnosticId::new(3),
             DiagnosticKind::CheckingAmbiguousCandidate,
             SeverityKind::Error,
         )
@@ -227,6 +232,10 @@ mod tests {
         assert_eq!(
             renderer.render(&unresolved).message(),
             "cannot infer expression type"
+        );
+        assert_eq!(
+            renderer.render(&array_length).message(),
+            "array length must be greater than zero"
         );
         assert_eq!(
             renderer.render(&ambiguous).message(),
