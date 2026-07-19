@@ -13,6 +13,8 @@ mod storage;
 mod template;
 #[cfg(test)]
 mod test_support;
+#[cfg(any(test, feature = "test-support"))]
+pub mod testing;
 mod tree;
 mod typing;
 mod unit;

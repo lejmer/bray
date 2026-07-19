@@ -5,6 +5,9 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
+[features]
+test-support = []
+
 [dependencies]
 bray-base = { path = "../bray-base" }
 bray-declarations = { path = "../bray-declarations" }

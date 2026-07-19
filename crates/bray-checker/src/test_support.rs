@@ -1,6 +1,7 @@
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+pub(crate) use bray_bound_tree::testing::push_expression;
 use bray_bound_tree::{
     BoundBlock, BoundBlockItem, BoundCallableBody, BoundCallableBodyId, BoundErrorExpression,
     BoundExpression, BoundExpressionId, BoundLiteralExpression, BoundLiteralKind,
@@ -296,16 +297,6 @@ pub(crate) fn unselected_name_expression(origin: BoundNodeOrigin) -> BoundExpres
         None,
         false,
     ))
-}
-
-pub(crate) fn push_expression(
-    tree: &mut BoundTreeBuilder,
-    expression: BoundExpression,
-) -> BoundExpressionId {
-    match tree.push_expression(expression) {
-        Ok(expression) => expression,
-        Err(error) => panic!("test expression must be valid: {error:?}"),
-    }
 }
 
 pub(crate) fn tuple_type(elements: impl IntoIterator<Item = TypeId>) -> TypeId {

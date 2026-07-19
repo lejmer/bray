@@ -19,6 +19,8 @@ use crate::{
     BoundUnitId, BoundUnitKey, BoundUnitRoot,
 };
 
+pub(crate) use crate::testing::push_expression;
+
 pub(crate) fn error_expression() -> BoundExpression {
     BoundExpression::Error(BoundErrorExpression::new(
         BoundNodeOrigin::source(source_anchor()),
@@ -162,16 +164,6 @@ pub(crate) fn expression_unit(
     };
 
     (unit, expressions)
-}
-
-pub(crate) fn push_expression(
-    tree: &mut BoundTreeBuilder,
-    expression: BoundExpression,
-) -> BoundExpressionId {
-    match tree.push_expression(expression) {
-        Ok(expression) => expression,
-        Err(error) => panic!("test expression must be valid: {error:?}"),
-    }
 }
 
 fn module_anchor(chunk: &bray_declarations::DeclarationChunk) -> SyntaxAnchor {
