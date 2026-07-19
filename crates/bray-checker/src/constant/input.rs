@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::num::NonZeroU16;
 
-use bray_bound_tree::{BoundExpressionId, CheckedExpressionTypes};
+use bray_bound_tree::{BoundExpressionId, CheckedExpressionTypes, CheckedSemanticSelections};
 use bray_symbols::ConstantValueId;
 
 use super::ConstantEvaluationLimits;
@@ -16,20 +16,24 @@ pub enum ConstantReferenceResolution {
 }
 
 /// Checked semantic inputs for one closed constant-expression evaluation.
-pub struct ConstantEvaluationInput<'types> {
-    // TODO(checker): Add selected operation and call facts when BRA-205 publishes them.
-    expression_types: &'types CheckedExpressionTypes,
+pub struct ConstantEvaluationInput<'facts> {
+    expression_types: &'facts CheckedExpressionTypes,
+    semantic_selections: &'facts CheckedSemanticSelections,
     references: BTreeMap<BoundExpressionId, ConstantReferenceResolution>,
     references_are_consistent: bool,
     target_integer_width_bits: Option<NonZeroU16>,
     limits: ConstantEvaluationLimits,
 }
 
-impl<'types> ConstantEvaluationInput<'types> {
+impl<'facts> ConstantEvaluationInput<'facts> {
     /// Creates an evaluation input with the standard deterministic limits.
-    pub fn new(expression_types: &'types CheckedExpressionTypes) -> Self {
+    pub fn new(
+        expression_types: &'facts CheckedExpressionTypes,
+        semantic_selections: &'facts CheckedSemanticSelections,
+    ) -> Self {
         Self {
             expression_types,
+            semantic_selections,
             references: BTreeMap::new(),
             references_are_consistent: true,
             target_integer_width_bits: None,
@@ -73,6 +77,11 @@ impl<'types> ConstantEvaluationInput<'types> {
     /// Returns the complete checked expression types used by evaluation.
     pub const fn expression_types(&self) -> &CheckedExpressionTypes {
         self.expression_types
+    }
+
+    /// Returns the complete checked operations used by evaluation.
+    pub const fn semantic_selections(&self) -> &CheckedSemanticSelections {
+        self.semantic_selections
     }
 
     /// Returns the caller-resolved dependency for one constant reference occurrence.

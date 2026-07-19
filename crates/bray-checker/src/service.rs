@@ -1,11 +1,13 @@
 use crate::analysis::check_control_flow;
 use crate::constant::evaluate_constant;
+use crate::selection::{select_callable, select_operation};
 use crate::type_check::check_expression_types;
 use crate::{
-    CheckerOutcome, CheckerRequestContext, ConstantEvaluationInput, ControlFlowCheckResult,
-    ExpressionTypeInput, UnitCheckRequest,
+    CallableSelectionRequest, CandidateSelection, CheckerOutcome, CheckerRequestContext,
+    ConstantEvaluationInput, ControlFlowCheckResult, ExpressionTypeInput,
+    OperationSelectionRequest, UnitCheckRequest,
 };
-use bray_bound_tree::CheckedExpressionTypes;
+use bray_bound_tree::{CheckedExpressionTypes, SelectedCall, SelectedOperation};
 use bray_symbols::ConstantValueId;
 
 /// The standard Bray control-flow checker implementation.
@@ -19,6 +21,10 @@ pub struct DefaultExpressionTypeChecker;
 /// The standard Bray constant evaluator implementation.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DefaultConstantEvaluator;
+
+/// The standard Bray semantic candidate and operation selector.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct DefaultSemanticSelector;
 
 /// Control-flow checking over one committed bound semantic unit.
 ///
@@ -62,6 +68,37 @@ impl<C> ExpressionTypeChecker<C> for DefaultExpressionTypeChecker where
     C: CheckerRequestContext + ?Sized
 {
 }
+
+/// Exact semantic candidate selection over checked expression types.
+///
+/// Candidate enumeration and source association remain binder responsibilities. Selection uses
+/// only language-defined applicability inputs and never ranks candidates by result context.
+pub trait SemanticSelector<C>: Sync
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    /// Selects one callable and publishes its ABI and normalized argument/default mapping.
+    fn select_callable(
+        &self,
+        request: UnitCheckRequest<'_, C>,
+        types: &CheckedExpressionTypes,
+        input: CallableSelectionRequest,
+    ) -> CheckerOutcome<CandidateSelection<SelectedCall>> {
+        select_callable(request, types, input)
+    }
+
+    /// Selects one member, operator, index, construction, conversion, or witness operation.
+    fn select_operation(
+        &self,
+        request: UnitCheckRequest<'_, C>,
+        types: &CheckedExpressionTypes,
+        input: OperationSelectionRequest,
+    ) -> CheckerOutcome<CandidateSelection<SelectedOperation>> {
+        select_operation(request, types, input)
+    }
+}
+
+impl<C> SemanticSelector<C> for DefaultSemanticSelector where C: CheckerRequestContext + ?Sized {}
 
 /// Closed constant-expression evaluation over one checked bound semantic unit.
 pub trait ConstantEvaluator<C>: Sync

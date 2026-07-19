@@ -37,6 +37,8 @@ where
 
     if input.expression_types().unit() != request.view().unit()
         || input.expression_types().kind() != request.view().kind()
+        || input.semantic_selections().unit() != request.view().unit()
+        || input.semantic_selections().kind() != request.view().kind()
         || !input.references_are_consistent()
     {
         return CheckerOutcome::InfrastructureFailure(
@@ -119,14 +121,14 @@ where
         match bound {
             BoundExpression::Literal(literal) => self.evaluate_literal(expression, *literal, ty),
             BoundExpression::Name(_) => self.evaluate_reference(expression, ty),
-            // TODO(checker): Consume BRA-205 selection facts for non-literal binary operations.
+            // TODO(checker): Evaluate selected constant operators when constant callable execution is implemented.
             BoundExpression::Binary(binary) => {
                 self.evaluate_complex_literal(expression, binary, ty)
             }
             BoundExpression::Structured(structured) => {
                 self.evaluate_structured(expression, structured.kind(), structured.operands(), ty)
             }
-            // TODO(checker): Evaluate selection-dependent constant forms after BRA-205.
+            // TODO(checker): Evaluate the remaining selected constant forms when their constant semantics are implemented.
             _ => Err(EvaluationFailure::invalid_expression(expression)),
         }
     }
@@ -245,7 +247,7 @@ where
             BoundStructuredExpressionKind::RepeatedArray => {
                 self.evaluate_repeated_array(expression, operands, ty)
             }
-            // TODO(checker): Evaluate selected construction, projection, and control forms after BRA-205.
+            // TODO(checker): Evaluate selected construction, projection, and control forms when their constant semantics are implemented.
             _ => Err(EvaluationFailure::invalid_expression(expression)),
         }
     }
@@ -510,11 +512,15 @@ mod tests {
             "module example;\nconst value: u16 = 0x00_ff;\n",
             BoundLiteralKind::Integer,
         );
+
         let expected = representation(&unit, &context, RepresentationRole::ScalarU16);
+
         let (types, result) = evaluate(&unit, root, &context, expected, None);
+
         let value = constant_value(*result.value());
 
         assert!(!types.is_recovered());
+
         assert!(
             result.diagnostics().is_empty(),
             "{:?}",
@@ -532,11 +538,13 @@ mod tests {
     #[test]
     fn complex_literals_publish_selected_component_bits() {
         let source = "module example;\nconst value: c64 = 1.5 + 2.0i;\n";
+
         let (unit, root, context) =
             expression_unit(BoundUnitId::new(91), source, |tree, origins, _| {
                 let [real, imaginary] = origins else {
                     panic!("complex source must contain two literals");
                 };
+
                 let real = push_expression(
                     tree,
                     BoundExpression::Literal(BoundLiteralExpression::new(
@@ -547,6 +555,7 @@ mod tests {
                         false,
                     )),
                 );
+
                 let imaginary = push_expression(
                     tree,
                     BoundExpression::Literal(BoundLiteralExpression::new(
@@ -569,8 +578,11 @@ mod tests {
                     )),
                 )
             });
+
         let expected = representation(&unit, &context, RepresentationRole::ScalarC64);
+
         let (_, result) = evaluate(&unit, root, &context, expected, None);
+
         let value = constant_value(*result.value());
 
         assert!(
@@ -590,6 +602,7 @@ mod tests {
     #[test]
     fn aggregate_evaluation_is_bounded_and_recovers_with_a_typed_error_value() {
         let source = "module example;\nconst value: (u16, u16) = (1, 2);\n";
+
         let (unit, root, context) =
             expression_unit(BoundUnitId::new(92), source, |tree, origins, _| {
                 let elements = origins
@@ -621,10 +634,14 @@ mod tests {
                     )),
                 )
             });
+
         let element = representation(&unit, &context, RepresentationRole::ScalarU16);
         let expected = tuple_type([element, element]);
+
         let limits = ConstantEvaluationLimits::new(16, 1, 64);
+
         let (_, result) = evaluate(&unit, root, &context, expected, Some(limits));
+
         let value = constant_value(*result.value());
 
         assert_eq!(
@@ -645,7 +662,9 @@ mod tests {
             "module example;\nconst value: u16 = 255;\n",
             BoundLiteralKind::Integer,
         );
+
         let expected = representation(&unit, &context, RepresentationRole::ScalarU16);
+
         let cases = [
             (
                 ConstantEvaluationLimits::new(0, 16, 16),
@@ -673,15 +692,21 @@ mod tests {
             "module example;\nconst value: u16 = 1;\n",
             BoundLiteralKind::Integer,
         );
+
         let expected = representation(&unit, &context, RepresentationRole::ScalarU16);
         let types = checked_types(&unit, root, &context, expected);
-        let input = ConstantEvaluationInput::new(&types);
+        let selections = empty_selections(&unit, &types);
+
+        let input = ConstantEvaluationInput::new(&types, &selections);
         let cancelled = TestCheckerContext::new(true);
+
         let entry = checker_entry(&unit);
+
         let request = match UnitCheckRequest::new(&unit, &entry, &cancelled) {
             Ok(request) => request,
             Err(error) => panic!("constant checker request must be valid: {error:?}"),
         };
+
         let outcome = DefaultConstantEvaluator.evaluate_constant(request, &input);
 
         assert!(matches!(outcome, CheckerOutcome::Cancelled));
@@ -694,9 +719,13 @@ mod tests {
             "module example;\nconst value: u16 = 1;\n",
             BoundLiteralKind::Integer,
         );
+
         let expected = representation(&seed, &seed_context, RepresentationRole::ScalarU16);
+
         let (_, seed_result) = evaluate(&seed, seed_root, &seed_context, expected, None);
+
         let referenced_value = *seed_result.value();
+
         let (unit, root, context) = reference_unit(BoundUnitId::new(96), expected);
 
         let result = evaluate_reference(
@@ -706,6 +735,7 @@ mod tests {
             expected,
             ConstantReferenceResolution::Cycle,
         );
+
         let value = constant_value(*result.value());
 
         assert_eq!(
@@ -715,9 +745,11 @@ mod tests {
                 .count(),
             1
         );
+
         assert_eq!(value.kind(), &ConstantValueKind::Error);
 
         let (unit, root, context) = reference_unit(BoundUnitId::new(97), expected);
+
         let result = evaluate_reference(
             &unit,
             root,
@@ -730,15 +762,20 @@ mod tests {
         assert_eq!(*result.value(), referenced_value);
 
         let types = checked_types(&unit, root, &context, expected);
-        let input = ConstantEvaluationInput::new(&types).with_references([
+        let selections = empty_selections(&unit, &types);
+
+        let input = ConstantEvaluationInput::new(&types, &selections).with_references([
             (root, ConstantReferenceResolution::Cycle),
             (root, ConstantReferenceResolution::Value(referenced_value)),
         ]);
+
         let entry = checker_entry(&unit);
+
         let request = match UnitCheckRequest::new(&unit, &entry, &context) {
             Ok(request) => request,
             Err(error) => panic!("constant checker request must be valid: {error:?}"),
         };
+
         let outcome = DefaultConstantEvaluator.evaluate_constant(request, &input);
 
         assert_eq!(
@@ -780,13 +817,20 @@ mod tests {
         resolution: ConstantReferenceResolution,
     ) -> bray_diagnostics::DiagnosticResult<bray_symbols::ConstantValueId> {
         let types = checked_types(unit, root, context, expected);
-        let input = ConstantEvaluationInput::new(&types).with_references([(root, resolution)]);
+        let selections = empty_selections(unit, &types);
+
+        let input =
+            ConstantEvaluationInput::new(&types, &selections).with_references([(root, resolution)]);
+
         let entry = checker_entry(unit);
+
         let request = match UnitCheckRequest::new(unit, &entry, context) {
             Ok(request) => request,
             Err(error) => panic!("constant checker request must be valid: {error:?}"),
         };
+
         let outcome = DefaultConstantEvaluator.evaluate_constant(request, &input);
+
         let Some(result) = outcome.into_result() else {
             panic!("constant-reference evaluation must complete");
         };
@@ -831,6 +875,7 @@ mod tests {
 
         let literals =
             bray_testing::syntax_descendants::<LiteralExpressionSyntax>(parsed.source_unit());
+
         let origins = literals
             .iter()
             .map(|literal| {
@@ -848,10 +893,15 @@ mod tests {
                 }
             })
             .collect::<Vec<_>>();
+
         let key = constant_key(&source, parsed.source_unit());
+
         let mut tree = BoundTreeBuilder::new(unit);
+
         let root = build(&mut tree, &origins, BoundNodeOrigin::source(key.source()));
+
         let local_symbols = local_symbols(unit, &key);
+
         let unit = BoundUnit::try_new(
             key,
             tree.finish(),
@@ -859,6 +909,7 @@ mod tests {
             [],
             BoundUnitRoot::Expression(root),
         );
+
         let Ok(unit) = unit else {
             panic!("constant test unit must be valid");
         };
@@ -892,21 +943,26 @@ mod tests {
         let [part] = declarations.chunk().module_parts() else {
             panic!("test source must contain one module part");
         };
+
         let source_anchor =
             bray_bound_tree::BoundSourceAnchor::new(part.syntax_anchor(), source.version());
+
         let Some(package) = PackageIdentity::try_new("example.package") else {
             panic!("test package identity must be non-empty");
         };
+
         let Some(path) = ModulePathKey::try_new(["example"]) else {
             panic!("test module path must be non-empty");
         };
 
         let module = SymbolKey::module(SymbolRootKey::Package(package), path);
+
         let Some(owner) =
             SymbolKey::source_declaration(module, SymbolKind::Constant, DeclarationId::new(0))
         else {
             panic!("constant symbols must be source-declared");
         };
+
         let Some(key) = BoundUnitKey::constant_template(owner, source_anchor) else {
             panic!("constants must support constant-template units");
         };
@@ -916,15 +972,18 @@ mod tests {
 
     fn local_symbols(unit: BoundUnitId, key: &BoundUnitKey) -> bray_symbols::LocalSymbolSnapshot {
         let region = LocalSymbolRegionId::new(unit.raw());
+
         let region_key = LocalSymbolRegionKey::try_new(
             key.declared_owner().clone(),
             LocalSymbolRegionRole::DeclarationFact(SymbolFactKind::ConstantDefinition),
             [key.source().syntax()],
             None,
         );
+
         let Some(region_key) = region_key else {
             panic!("constant test key must form a local symbol region");
         };
+
         let mut symbols = LocalSymbolSnapshotBuilder::new(region, region_key);
 
         if let Err(error) = symbols.push_scope(
@@ -953,23 +1012,38 @@ mod tests {
         bray_diagnostics::DiagnosticResult<bray_symbols::ConstantValueId>,
     ) {
         let types = checked_types(unit, root, context, expected);
-        let mut input = ConstantEvaluationInput::new(&types);
+        let selections = empty_selections(unit, &types);
+
+        let mut input = ConstantEvaluationInput::new(&types, &selections);
 
         if let Some(limits) = limits {
             input = input.with_limits(limits);
         }
 
         let entry = checker_entry(unit);
+
         let request = match UnitCheckRequest::new(unit, &entry, context) {
             Ok(request) => request,
             Err(error) => panic!("constant checker request must be valid: {error:?}"),
         };
+
         let outcome = DefaultConstantEvaluator.evaluate_constant(request, &input);
+
         let Some(result) = outcome.into_result() else {
             panic!("constant evaluation must complete");
         };
 
         (types, result)
+    }
+
+    fn empty_selections(
+        unit: &BoundUnit,
+        types: &bray_bound_tree::CheckedExpressionTypes,
+    ) -> bray_bound_tree::CheckedSemanticSelections {
+        match bray_bound_tree::CheckedSemanticSelections::try_new(unit, types, []) {
+            Ok(selections) => selections,
+            Err(error) => panic!("empty semantic selections must be valid: {error:?}"),
+        }
     }
 
     fn checked_types(
@@ -980,12 +1054,16 @@ mod tests {
     ) -> bray_bound_tree::CheckedExpressionTypes {
         let input = ExpressionTypeInput::new()
             .with_expectations([ExpressionTypeExpectation::new(root, expected)]);
+
         let entry = checker_entry(unit);
+
         let request = match UnitCheckRequest::new(unit, &entry, context) {
             Ok(request) => request,
             Err(error) => panic!("constant checker request must be valid: {error:?}"),
         };
+
         let outcome = DefaultExpressionTypeChecker.check_expression_types(request, &input);
+
         let Some(result) = outcome.into_result() else {
             panic!("constant expression typing must complete");
         };
@@ -1011,6 +1089,7 @@ mod tests {
         role: RepresentationRole,
     ) -> TypeId {
         let entry = checker_entry(unit);
+
         let request = match UnitCheckRequest::new(unit, &entry, context) {
             Ok(request) => request,
             Err(error) => panic!("constant checker request must be valid: {error:?}"),

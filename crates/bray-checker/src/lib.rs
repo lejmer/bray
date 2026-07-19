@@ -10,6 +10,7 @@ mod entry;
 mod outcome;
 mod representation;
 mod request;
+mod selection;
 mod service;
 mod type_check;
 
@@ -29,8 +30,15 @@ pub use entry::{
 };
 pub use outcome::{CheckerOutcome, ControlFlowCheckResult};
 pub use request::{UnitCheckRequest, UnitCheckRequestError, UnitCheckRoot};
+pub use selection::{
+    CallableCandidate, CallableCandidateState, CallableSelectionRequest, CandidateSelection,
+    CompilerKnownOperationContract, CompilerKnownOperationEvidence, CompilerKnownOperationRole,
+    ConstructionInputSurface, ImplementationSelectionEvidence, OperationCandidate,
+    OperationCandidateState, OperationSelectionRequest, ReceiverCapability, ReceiverSelection,
+    SelectionCandidateKey, SelectionFailure,
+};
 pub use service::{
     ConstantEvaluator, ControlFlowChecker, DefaultConstantEvaluator, DefaultControlFlowChecker,
-    DefaultExpressionTypeChecker, ExpressionTypeChecker,
+    DefaultExpressionTypeChecker, DefaultSemanticSelector, ExpressionTypeChecker, SemanticSelector,
 };
 pub use type_check::{ExpressionTypeEvidence, ExpressionTypeExpectation, ExpressionTypeInput};

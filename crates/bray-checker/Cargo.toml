@@ -16,6 +16,7 @@ bray-symbols = { path = "../bray-symbols" }
 rustc_apfloat = "0.2.3"
 
 [dev-dependencies]
+bray-bound-tree = { path = "../bray-bound-tree", features = ["test-support"] }
 bray-parser = { path = "../bray-parser" }
 bray-symbols = { path = "../bray-symbols", features = ["test-support"] }
 bray-syntax = { path = "../bray-syntax" }

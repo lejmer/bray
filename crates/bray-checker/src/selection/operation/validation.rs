@@ -1,0 +1,660 @@
+use bray_bound_tree::{
+    BoundExpression, BoundStructuredExpressionKind, ConstructionTarget, ConversionTarget,
+    ExpressionTypeResult, IndexTarget, OperatorTarget, SelectedConversion, SelectedOperation,
+};
+use bray_symbols::{
+    CallableInstanceData, CallableSignature, ImplementationSelection, ImplementationSelectionKey,
+    ReceiverMode, TypeId,
+};
+
+use crate::{CheckerInfrastructureError, CheckerRequestContext, UnitCheckRequest};
+
+use super::super::{
+    CompilerKnownOperationEvidence, CompilerKnownOperationRole, ImplementationSelectionEvidence,
+};
+
+pub(super) fn validate_operation_instances<C>(
+    request: UnitCheckRequest<'_, C>,
+    operation: &SelectedOperation,
+) -> Result<(), CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    match operation {
+        SelectedOperation::Operator {
+            target: OperatorTarget::Trait { callable, .. },
+            ..
+        }
+        | SelectedOperation::Index {
+            target: IndexTarget::Custom { callable, .. },
+            ..
+        } => validate_trait_callable_instance(request, *callable)?,
+        SelectedOperation::Construction(construction) => {
+            if let ConstructionTarget::TypeForm(callable) = construction.target() {
+                validate_callable_instance(request, callable)?;
+            }
+        }
+        SelectedOperation::Conversion(conversion) => {
+            validate_conversion_instances(request, conversion)?;
+        }
+        SelectedOperation::Member(_)
+        | SelectedOperation::Operator { .. }
+        | SelectedOperation::Index { .. }
+        | SelectedOperation::Implementation(_) => {}
+    }
+
+    Ok(())
+}
+
+fn validate_conversion_instances<C>(
+    request: UnitCheckRequest<'_, C>,
+    conversion: &SelectedConversion,
+) -> Result<(), CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let mut pending = vec![conversion];
+
+    while let Some(conversion) = pending.pop() {
+        match conversion.target() {
+            ConversionTarget::Trait { callable, .. } => {
+                validate_trait_callable_instance(request, *callable)?;
+            }
+            ConversionTarget::Composite(children) => pending.extend(children.iter()),
+            ConversionTarget::Identity | ConversionTarget::BuiltInScalar => {}
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_callable_instance<C>(
+    request: UnitCheckRequest<'_, C>,
+    callable: bray_symbols::CallableInstanceData,
+) -> Result<(), CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    request
+        .semantic_values()
+        .intern_callable_instance(callable)
+        .map_err(|_| CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+
+    Ok(())
+}
+
+fn validate_trait_callable_instance<C>(
+    request: UnitCheckRequest<'_, C>,
+    callable: bray_symbols::CallableInstanceData,
+) -> Result<(), CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    if callable.definition().symbol().kind() != bray_symbols::SymbolKind::TraitCallableMember {
+        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+    }
+
+    validate_callable_instance(request, callable)
+}
+
+pub(super) fn implementation_selections_match<C>(
+    request: UnitCheckRequest<'_, C>,
+    operation: &SelectedOperation,
+    evidence: &[ImplementationSelectionEvidence],
+) -> Result<bool, CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let mut evidence = evidence.iter().collect::<Vec<_>>();
+
+    evidence.sort_unstable_by_key(|item| item.requirement());
+
+    if evidence
+        .windows(2)
+        .any(|pair| pair[0].requirement() == pair[1].requirement())
+    {
+        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+    }
+
+    let mut required = operation.witnesses();
+
+    required.sort_unstable();
+
+    if required.len() != evidence.len() {
+        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+    }
+
+    for (required, evidence) in required.iter().zip(evidence) {
+        if required.requirement() != evidence.requirement() {
+            return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+        }
+
+        if evidence.selection() != &ImplementationSelection::Selected(required.witness()) {
+            return Ok(false);
+        }
+
+        request
+            .semantic_values()
+            .implementation_instance_data(required.witness())
+            .map_err(|_| CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+    }
+
+    Ok(true)
+}
+
+pub(super) fn compiler_known_operations_match<C>(
+    request: UnitCheckRequest<'_, C>,
+    operation: &SelectedOperation,
+    expression: &BoundExpression,
+    actual_types: &[ExpressionTypeResult],
+    evidence: &[CompilerKnownOperationEvidence],
+) -> Result<bool, CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let mut required = Vec::new();
+
+    collect_compiler_known_operations(operation, expression, actual_types, &mut required)?;
+
+    required.sort_unstable_by_key(|operation| operation.requirement());
+    required.dedup();
+
+    let mut evidence = evidence.iter().collect::<Vec<_>>();
+
+    evidence.sort_unstable_by_key(|item| item.requirement());
+
+    if evidence
+        .windows(2)
+        .any(|pair| pair[0].requirement() == pair[1].requirement())
+    {
+        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+    }
+
+    if required.len() != evidence.len() {
+        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+    }
+
+    for (required, evidence) in required.into_iter().zip(evidence) {
+        if !trait_operation_matches(request, required, evidence)? {
+            return Ok(false);
+        }
+    }
+
+    Ok(true)
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RequiredTraitOperation<'types> {
+    Callable {
+        role: CompilerKnownOperationRole,
+        requirement: ImplementationSelectionKey,
+        callable: CallableInstanceData,
+        receiver: TypeId,
+        parameter_types: &'types [ExpressionTypeResult],
+        result: TypeId,
+        receiver_mode: ReceiverMode,
+    },
+    Conversion {
+        role: CompilerKnownOperationRole,
+        requirement: ImplementationSelectionKey,
+        callable: CallableInstanceData,
+        source: TypeId,
+        target: TypeId,
+    },
+}
+
+impl RequiredTraitOperation<'_> {
+    const fn role(self) -> CompilerKnownOperationRole {
+        match self {
+            Self::Callable { role, .. } | Self::Conversion { role, .. } => role,
+        }
+    }
+
+    const fn requirement(self) -> ImplementationSelectionKey {
+        match self {
+            Self::Callable { requirement, .. } | Self::Conversion { requirement, .. } => {
+                requirement
+            }
+        }
+    }
+}
+
+fn collect_compiler_known_operations<'types>(
+    operation: &SelectedOperation,
+    expression: &BoundExpression,
+    actual_types: &'types [ExpressionTypeResult],
+    required: &mut Vec<RequiredTraitOperation<'types>>,
+) -> Result<(), CheckerInfrastructureError> {
+    match operation {
+        SelectedOperation::Operator {
+            target:
+                OperatorTarget::Trait {
+                    operator,
+                    callable,
+                    requirement,
+                    ..
+                },
+            result_type,
+        } => {
+            let Some((receiver, parameter_types)) = actual_types.split_first() else {
+                return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+            };
+
+            let role = match expression {
+                BoundExpression::Unary(_) => CompilerKnownOperationRole::UnaryOperator(*operator),
+                BoundExpression::Binary(_) => CompilerKnownOperationRole::BinaryOperator(*operator),
+                _ => return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput),
+            };
+
+            required.push(RequiredTraitOperation::Callable {
+                role,
+                requirement: *requirement,
+                callable: *callable,
+                receiver: receiver.ty(),
+                parameter_types,
+                result: *result_type,
+                receiver_mode: ReceiverMode::Shared,
+            });
+        }
+        SelectedOperation::Index {
+            target:
+                IndexTarget::Custom {
+                    callable,
+                    requirement,
+                    ..
+                },
+            result_type,
+        } => {
+            let Some((receiver, parameter_types)) = actual_types.split_first() else {
+                return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+            };
+
+            let role = match expression {
+                BoundExpression::Structured(source) => match source.kind() {
+                    BoundStructuredExpressionKind::ElementIndex => {
+                        CompilerKnownOperationRole::ElementIndex
+                    }
+                    BoundStructuredExpressionKind::SliceIndex => {
+                        CompilerKnownOperationRole::SliceIndex
+                    }
+                    _ => {
+                        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+                    }
+                },
+                _ => return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput),
+            };
+
+            required.push(RequiredTraitOperation::Callable {
+                role,
+                requirement: *requirement,
+                callable: *callable,
+                receiver: receiver.ty(),
+                parameter_types,
+                result: *result_type,
+                receiver_mode: ReceiverMode::Shared,
+            });
+        }
+        SelectedOperation::Conversion(conversion) => {
+            collect_conversion_operations(conversion, required);
+        }
+        SelectedOperation::Member(_)
+        | SelectedOperation::Operator { .. }
+        | SelectedOperation::Index { .. }
+        | SelectedOperation::Construction(_)
+        | SelectedOperation::Implementation(_) => {}
+    }
+
+    Ok(())
+}
+
+fn collect_conversion_operations<'types>(
+    conversion: &SelectedConversion,
+    required: &mut Vec<RequiredTraitOperation<'types>>,
+) {
+    let mut pending = vec![conversion];
+
+    while let Some(conversion) = pending.pop() {
+        match conversion.target() {
+            ConversionTarget::Trait {
+                callable,
+                requirement,
+                ..
+            } => required.push(RequiredTraitOperation::Conversion {
+                role: CompilerKnownOperationRole::Conversion,
+                requirement: *requirement,
+                callable: *callable,
+                source: conversion.source_type(),
+                target: conversion.target_type(),
+            }),
+            ConversionTarget::Composite(children) => pending.extend(children.iter()),
+            ConversionTarget::Identity | ConversionTarget::BuiltInScalar => {}
+        }
+    }
+}
+
+fn trait_operation_matches<C>(
+    request: UnitCheckRequest<'_, C>,
+    required: RequiredTraitOperation<'_>,
+    evidence: &CompilerKnownOperationEvidence,
+) -> Result<bool, CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    if evidence.role() != required.role()
+        || evidence.requirement() != required.requirement()
+        || evidence.callable()
+            != match required {
+                RequiredTraitOperation::Callable { callable, .. }
+                | RequiredTraitOperation::Conversion { callable, .. } => callable,
+            }
+    {
+        return Ok(false);
+    }
+
+    let Some(contract) = request.compiler_known_operation_contract(required.role()) else {
+        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+    };
+
+    let application = request
+        .semantic_values()
+        .trait_application_data(required.requirement().trait_application())
+        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+
+    let callable_symbol = evidence.callable().definition().symbol();
+
+    if application.definition() != contract.trait_definition()
+        || callable_symbol != contract.callable().into()
+        || !request
+            .available_compiler_known_symbols()
+            .contains(contract.trait_definition().into())
+        || !request
+            .available_compiler_known_symbols()
+            .contains(callable_symbol)
+    {
+        return Ok(false);
+    }
+
+    Ok(match required {
+        RequiredTraitOperation::Callable {
+            receiver,
+            parameter_types,
+            result,
+            receiver_mode,
+            ..
+        } => signature_matches(
+            evidence.signature(),
+            receiver,
+            parameter_types,
+            result,
+            receiver_mode,
+        ),
+        RequiredTraitOperation::Conversion { source, target, .. } => signature_matches(
+            evidence.signature(),
+            source,
+            &[],
+            target,
+            ReceiverMode::Consuming,
+        ),
+    })
+}
+
+fn signature_matches(
+    signature: &CallableSignature,
+    receiver_type: TypeId,
+    parameter_types: &[ExpressionTypeResult],
+    result: TypeId,
+    receiver_mode: ReceiverMode,
+) -> bool {
+    signature
+        .receiver()
+        .is_some_and(|receiver| receiver.ty() == receiver_type && receiver.mode() == receiver_mode)
+        && signature.result() == result
+        && signature
+            .parameters()
+            .iter()
+            .map(|parameter| parameter.ty())
+            .eq(parameter_types.iter().map(|result| result.ty()))
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_bound_tree::{
+        BoundUnit, BoundUnitId, ConversionTarget, ExpressionTypeResult, ExpressionTypeStatus,
+        SelectedConversion, SelectedOperation,
+    };
+    use bray_symbols::{
+        CallableSignature, ImplementationSelection, ImplementationSelectionKey, ReceiverMode,
+        ReceiverParameterSignature, ReceiverParameterSymbolId, SymbolId,
+        TraitCallableMemberSymbolId, TraitSymbolId,
+    };
+
+    use crate::test_support::{
+        TestCheckerContext, callable_entry, compiler_known_symbol, expression_unit,
+        integer_literal_expression, push_expression, semantic_values, trait_callable_instance,
+        tuple_type,
+    };
+    use crate::{
+        CompilerKnownOperationContract, CompilerKnownOperationEvidence, CompilerKnownOperationRole,
+        ImplementationSelectionEvidence, UnitCheckRequest,
+    };
+
+    use super::{compiler_known_operations_match, implementation_selections_match};
+
+    #[test]
+    fn nested_trait_conversions_require_the_exact_contract_and_witness() {
+        let fixture = trait_conversion_fixture(BoundUnitId::new(87));
+        let context = TestCheckerContext::new(false).with_operation_contract(fixture.role_contract);
+        let entry = callable_entry(fixture.unit.key());
+
+        let request = match UnitCheckRequest::new(&fixture.unit, &entry, &context) {
+            Ok(request) => request,
+            Err(error) => panic!("trait conversion request must validate: {error:?}"),
+        };
+
+        let Some(source_expression) = fixture.unit.view().expression(fixture.source_expression)
+        else {
+            panic!("test source expression must be committed");
+        };
+
+        assert_eq!(
+            implementation_selections_match(
+                request,
+                &fixture.operation,
+                std::slice::from_ref(&fixture.implementation)
+            ),
+            Ok(true)
+        );
+
+        assert_eq!(
+            compiler_known_operations_match(
+                request,
+                &fixture.operation,
+                source_expression,
+                &[ExpressionTypeResult::new(
+                    fixture.source,
+                    ExpressionTypeStatus::Valid
+                )],
+                std::slice::from_ref(&fixture.contract)
+            ),
+            Ok(true)
+        );
+
+        let wrong_witness = ImplementationSelectionEvidence::new(
+            fixture.requirement,
+            ImplementationSelection::Selected(fixture.other_witness),
+        );
+
+        assert_eq!(
+            implementation_selections_match(request, &fixture.operation, &[wrong_witness]),
+            Ok(false)
+        );
+
+        let wrong_signature = CallableSignature::new(
+            fixture.source_element,
+            fixture.contract.signature().receiver().map(|receiver| {
+                ReceiverParameterSignature::new(
+                    receiver.parameter(),
+                    receiver.ty(),
+                    ReceiverMode::Shared,
+                )
+            }),
+            [],
+            fixture.target_element,
+        );
+
+        let wrong_contract = CompilerKnownOperationEvidence::new(
+            CompilerKnownOperationRole::Conversion,
+            fixture.requirement,
+            fixture.contract.callable(),
+            wrong_signature,
+        );
+
+        assert_eq!(
+            compiler_known_operations_match(
+                request,
+                &fixture.operation,
+                source_expression,
+                &[ExpressionTypeResult::new(
+                    fixture.source,
+                    ExpressionTypeStatus::Valid
+                )],
+                &[wrong_contract]
+            ),
+            Ok(false)
+        );
+
+        let wrong_role_contract = CompilerKnownOperationContract::new(
+            CompilerKnownOperationRole::Conversion,
+            TraitSymbolId::from_symbol_id(SymbolId::new(99)),
+            fixture.role_contract.callable(),
+        );
+
+        let wrong_context =
+            TestCheckerContext::new(false).with_operation_contract(wrong_role_contract);
+
+        let wrong_request = match UnitCheckRequest::new(&fixture.unit, &entry, &wrong_context) {
+            Ok(request) => request,
+            Err(error) => panic!("trait conversion request must validate: {error:?}"),
+        };
+
+        assert_eq!(
+            compiler_known_operations_match(
+                wrong_request,
+                &fixture.operation,
+                source_expression,
+                &[ExpressionTypeResult::new(
+                    fixture.source,
+                    ExpressionTypeStatus::Valid
+                )],
+                std::slice::from_ref(&fixture.contract)
+            ),
+            Ok(false)
+        );
+    }
+
+    struct TraitConversionFixture {
+        unit: BoundUnit,
+        operation: SelectedOperation,
+        implementation: ImplementationSelectionEvidence,
+        contract: CompilerKnownOperationEvidence,
+        role_contract: CompilerKnownOperationContract,
+        source_expression: bray_bound_tree::BoundExpressionId,
+        requirement: ImplementationSelectionKey,
+        other_witness: bray_symbols::ImplementationInstanceId,
+        source: bray_symbols::TypeId,
+        source_element: bray_symbols::TypeId,
+        target_element: bray_symbols::TypeId,
+    }
+
+    fn trait_conversion_fixture(unit: BoundUnitId) -> TraitConversionFixture {
+        let source_element = tuple_type([]);
+        let target_element = tuple_type([source_element]);
+
+        let source = tuple_type([source_element]);
+        let target = tuple_type([target_element]);
+
+        let trait_definition = compiler_known_symbol::<TraitSymbolId>("Storage");
+
+        let callable_definition =
+            compiler_known_symbol::<TraitCallableMemberSymbolId>("StorageLoad");
+
+        let requirement = bray_symbols::testing::implementation_requirement(
+            semantic_values(),
+            trait_definition,
+            source_element,
+            target_element,
+        );
+
+        let callable = trait_callable_instance(callable_definition);
+        let witness = bray_symbols::testing::implementation_instance(semantic_values(), 30);
+        let other_witness = bray_symbols::testing::implementation_instance(semantic_values(), 31);
+
+        let child = SelectedConversion::new(
+            source_element,
+            target_element,
+            ConversionTarget::Trait {
+                callable,
+                requirement,
+                witness,
+            },
+        );
+
+        let operation = SelectedOperation::Conversion(SelectedConversion::new(
+            source,
+            target,
+            ConversionTarget::Composite([child].into()),
+        ));
+
+        let receiver = ReceiverParameterSymbolId::from_symbol_id(SymbolId::new(40));
+
+        let signature = CallableSignature::new(
+            source_element,
+            Some(ReceiverParameterSignature::new(
+                receiver,
+                source_element,
+                ReceiverMode::Consuming,
+            )),
+            [],
+            target_element,
+        );
+
+        let contract = CompilerKnownOperationEvidence::new(
+            CompilerKnownOperationRole::Conversion,
+            requirement,
+            callable,
+            signature,
+        );
+
+        let role_contract = CompilerKnownOperationContract::new(
+            CompilerKnownOperationRole::Conversion,
+            trait_definition,
+            callable_definition,
+        );
+
+        let implementation = ImplementationSelectionEvidence::new(
+            requirement,
+            ImplementationSelection::Selected(witness),
+        );
+
+        let (unit, expressions) = expression_unit(unit, |tree, origin| {
+            let expression =
+                push_expression(tree, integer_literal_expression(origin, Some(source)));
+
+            vec![expression]
+        });
+
+        TraitConversionFixture {
+            unit,
+            operation,
+            implementation,
+            contract,
+            role_contract,
+            source_expression: expressions[0],
+            requirement,
+            other_witness,
+            source,
+            source_element,
+            target_element,
+        }
+    }
+}

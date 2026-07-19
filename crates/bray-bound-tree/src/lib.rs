@@ -8,10 +8,13 @@ mod dependency;
 mod identity;
 mod node;
 mod origin;
+mod selection;
 mod storage;
 mod template;
 #[cfg(test)]
 mod test_support;
+#[cfg(any(test, feature = "test-support"))]
+pub mod testing;
 mod tree;
 mod typing;
 mod unit;
@@ -45,6 +48,13 @@ pub use node::{
 };
 pub use origin::{
     BoundNodeOrdinal, BoundNodeOrigin, BoundSynthesisRole, SynthesizedBoundNodeOrigin,
+};
+pub use selection::{
+    CheckedSemanticSelections, ConstructionDefaultProvider, ConstructionInputId,
+    ConstructionTarget, ConversionTarget, IndexTarget, MemberTarget, OperatorTarget,
+    SelectedArgument, SelectedCall, SelectedConstruction, SelectedConstructionInput,
+    SelectedConversion, SelectedImplementationWitness, SelectedOperation, SelectionKind,
+    SemanticSelection, SemanticSelectionEntry, SemanticSelectionTableBuildError,
 };
 pub use storage::{
     BorrowCapability, BorrowCapabilityId, StorageAccess, StorageAccessId, StorageAccessRoot,

@@ -129,15 +129,15 @@ impl ContractClauseCheckEntry {
 pub enum UnitCheckEntryContext {
     /// A declared callable or lifecycle body.
     CallableBody(DeclaredUnitCheckEntry),
-    /// A nested anonymous callable body.
+    /// An anonymous callable nested in another semantic unit.
     AnonymousCallable(AnonymousCallableCheckEntry),
-    /// A declaration-owned runtime default.
+    /// A parameter, field, or payload runtime default.
     RuntimeDefault(DeclaredUnitCheckEntry),
-    /// A symbolic constant definition template.
+    /// A constant definition template.
     ConstantTemplate(DeclaredUnitCheckEntry),
-    /// A reusable predicate definition.
+    /// A predicate definition.
     PredicateDefinition(DeclaredUnitCheckEntry),
-    /// A declaration generic constraint.
+    /// A declaration constraint expression.
     Constraint(DeclaredUnitCheckEntry),
     /// A callable contract clause.
     ContractClause(ContractClauseCheckEntry),
@@ -145,16 +145,8 @@ pub enum UnitCheckEntryContext {
 
 impl UnitCheckEntryContext {
     /// Returns the semantic unit category selected by this context.
-    pub const fn kind(&self) -> BoundUnitKind {
-        match self {
-            Self::CallableBody(_) => BoundUnitKind::CallableBody,
-            Self::AnonymousCallable(_) => BoundUnitKind::AnonymousCallable,
-            Self::RuntimeDefault(_) => BoundUnitKind::RuntimeDefault,
-            Self::ConstantTemplate(_) => BoundUnitKind::ConstantTemplate,
-            Self::PredicateDefinition(_) => BoundUnitKind::PredicateDefinition,
-            Self::Constraint(_) => BoundUnitKind::Constraint,
-            Self::ContractClause(_) => BoundUnitKind::ContractClause,
-        }
+    pub fn kind(&self) -> BoundUnitKind {
+        self.key().kind()
     }
 
     /// Returns the exact bound-unit key selected by this context.

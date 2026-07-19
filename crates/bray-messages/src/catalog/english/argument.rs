@@ -47,6 +47,23 @@ pub(crate) fn format_value(value: &DiagnosticArgValue) -> String {
         DiagnosticArgValue::WorkerCount(worker_count) => worker_count.to_string(),
         DiagnosticArgValue::Revision(revision) => revision.to_string(),
         DiagnosticArgValue::Type(ty) => format_english_type(*ty),
+        DiagnosticArgValue::SelectionKind(kind) => format_english_selection_kind(*kind).to_owned(),
+    }
+}
+
+const fn format_english_selection_kind(
+    kind: bray_diagnostics::DiagnosticSelectionKind,
+) -> &'static str {
+    use bray_diagnostics::DiagnosticSelectionKind;
+
+    match kind {
+        DiagnosticSelectionKind::Callable => "callable",
+        DiagnosticSelectionKind::Member => "member",
+        DiagnosticSelectionKind::Operator => "operator",
+        DiagnosticSelectionKind::Index => "index operation",
+        DiagnosticSelectionKind::Construction => "construction operation",
+        DiagnosticSelectionKind::Conversion => "conversion",
+        DiagnosticSelectionKind::Implementation => "implementation",
     }
 }
 

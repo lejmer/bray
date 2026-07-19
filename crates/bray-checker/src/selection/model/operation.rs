@@ -1,0 +1,391 @@
+use std::sync::Arc;
+
+use bray_base::shared_slice;
+use bray_bound_tree::{
+    BoundExpressionId, BoundOperator, ConstructionDefaultProvider, ConstructionInputId,
+    ConstructionTarget, SelectedOperation, SelectionKind,
+};
+use bray_symbols::{
+    CallableInstanceData, CallableSignature, ImplementationSelectionKey,
+    TraitCallableMemberSymbolId, TraitSymbolId,
+};
+use bray_symbols::{CallablePosition, SymbolKey, SymbolName, TypeId};
+
+use super::{ImplementationSelectionEvidence, SelectionCandidateKey};
+
+/// Whether a binder-enumerated candidate can participate before type compatibility is checked.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum OperationCandidateState {
+    /// The candidate is visible, target-available, and statically permitted.
+    Available,
+    /// The candidate exists but is not visible from the requesting context.
+    Inaccessible,
+    /// The candidate is excluded by target availability or static constraints.
+    Unavailable,
+    /// The candidate surface contains prior semantic recovery.
+    Recovered,
+}
+
+/// One declaration input participating in construction mapping.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ConstructionInputSurface {
+    input: ConstructionInputId,
+    name: SymbolName,
+    position: CallablePosition,
+    ty: TypeId,
+    default: Option<ConstructionDefaultProvider>,
+    ordinal: u32,
+}
+
+/// A language-defined compiler-known operation contract.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum CompilerKnownOperationRole {
+    /// A prefix operator trait and callable member.
+    UnaryOperator(BoundOperator),
+    /// An infix operator trait and callable member.
+    BinaryOperator(BoundOperator),
+    /// Custom element indexing.
+    ElementIndex,
+    /// Custom slice indexing.
+    SliceIndex,
+    /// Plain user-defined `ConvertTo<Target>` conversion.
+    Conversion,
+}
+
+/// Exact compiler-known declarations assigned to one operation role.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct CompilerKnownOperationContract {
+    role: CompilerKnownOperationRole,
+    trait_definition: TraitSymbolId,
+    callable: TraitCallableMemberSymbolId,
+}
+
+impl CompilerKnownOperationContract {
+    /// Creates one typed operation-role binding supplied by compiler-known infrastructure.
+    pub const fn new(
+        role: CompilerKnownOperationRole,
+        trait_definition: TraitSymbolId,
+        callable: TraitCallableMemberSymbolId,
+    ) -> Self {
+        Self {
+            role,
+            trait_definition,
+            callable,
+        }
+    }
+
+    /// Returns the language-defined operation role.
+    pub const fn role(self) -> CompilerKnownOperationRole {
+        self.role
+    }
+
+    /// Returns the exact compiler-known trait declaration.
+    pub const fn trait_definition(self) -> TraitSymbolId {
+        self.trait_definition
+    }
+
+    /// Returns the exact compiler-known callable member declaration.
+    pub const fn callable(self) -> TraitCallableMemberSymbolId {
+        self.callable
+    }
+}
+
+/// Compiler-known callable contract evidence for one trait-backed operation.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CompilerKnownOperationEvidence {
+    role: CompilerKnownOperationRole,
+    requirement: ImplementationSelectionKey,
+    callable: CallableInstanceData,
+    signature: CallableSignature,
+}
+
+impl CompilerKnownOperationEvidence {
+    /// Creates evidence tying one requirement to an exact compiler-known callable contract.
+    pub const fn new(
+        role: CompilerKnownOperationRole,
+        requirement: ImplementationSelectionKey,
+        callable: CallableInstanceData,
+        signature: CallableSignature,
+    ) -> Self {
+        Self {
+            role,
+            requirement,
+            callable,
+            signature,
+        }
+    }
+
+    /// Returns the language-defined compiler-known operation role.
+    pub const fn role(&self) -> CompilerKnownOperationRole {
+        self.role
+    }
+
+    /// Returns the implementation requirement described by this contract.
+    pub const fn requirement(&self) -> ImplementationSelectionKey {
+        self.requirement
+    }
+
+    /// Returns the exact substituted compiler-known callable member.
+    pub const fn callable(&self) -> CallableInstanceData {
+        self.callable
+    }
+
+    /// Returns the callable member's checked signature.
+    pub const fn signature(&self) -> &CallableSignature {
+        &self.signature
+    }
+}
+
+impl ConstructionInputSurface {
+    /// Creates one declaration-ordered construction input.
+    pub const fn new(
+        input: ConstructionInputId,
+        name: SymbolName,
+        position: CallablePosition,
+        ty: TypeId,
+        default: Option<ConstructionDefaultProvider>,
+        ordinal: u32,
+    ) -> Self {
+        Self {
+            input,
+            name,
+            position,
+            ty,
+            default,
+            ordinal,
+        }
+    }
+
+    /// Returns the exact field or parameter identity.
+    pub const fn input(&self) -> ConstructionInputId {
+        self.input
+    }
+
+    /// Returns the source-visible construction input name.
+    pub const fn name(&self) -> &SymbolName {
+        &self.name
+    }
+
+    /// Returns whether this input permits positional construction syntax.
+    pub const fn position(&self) -> CallablePosition {
+        self.position
+    }
+
+    /// Returns the exact checked input type.
+    pub const fn ty(&self) -> TypeId {
+        self.ty
+    }
+
+    /// Returns the declaration-owned default provider when omission is permitted.
+    pub const fn default(&self) -> Option<ConstructionDefaultProvider> {
+        self.default
+    }
+
+    /// Returns the input's declaration-order ordinal.
+    pub const fn ordinal(&self) -> u32 {
+        self.ordinal
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::selection) enum OperationCandidatePlan {
+    Exact {
+        operation: SelectedOperation,
+        operand_types: Arc<[TypeId]>,
+    },
+    Construction {
+        target: ConstructionTarget,
+        result_type: TypeId,
+        inputs: Arc<[ConstructionInputSurface]>,
+    },
+}
+
+/// One binder-enumerated operation candidate in deterministic semantic-key order.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct OperationCandidate {
+    key: SelectionCandidateKey,
+    plan: OperationCandidatePlan,
+    implementation_selections: Arc<[ImplementationSelectionEvidence]>,
+    compiler_known_operations: Arc<[CompilerKnownOperationEvidence]>,
+    state: OperationCandidateState,
+}
+
+impl OperationCandidate {
+    /// Creates one declaration-backed non-construction operation candidate.
+    pub fn symbol(
+        key: SymbolKey,
+        operation: SelectedOperation,
+        operand_types: impl IntoIterator<Item = TypeId>,
+        state: OperationCandidateState,
+    ) -> Self {
+        Self::exact(key.into(), operation, operand_types, state)
+    }
+
+    /// Creates one compiler-defined non-construction operation candidate.
+    pub fn built_in(
+        operation: SelectedOperation,
+        operand_types: impl IntoIterator<Item = TypeId>,
+        state: OperationCandidateState,
+    ) -> Self {
+        Self::exact(
+            SelectionCandidateKey::BuiltIn,
+            operation,
+            operand_types,
+            state,
+        )
+    }
+
+    /// Creates one declaration-backed construction candidate.
+    pub fn symbol_construction(
+        key: SymbolKey,
+        target: ConstructionTarget,
+        result_type: TypeId,
+        inputs: impl IntoIterator<Item = ConstructionInputSurface>,
+        state: OperationCandidateState,
+    ) -> Self {
+        Self::construction(key.into(), target, result_type, inputs, state)
+    }
+
+    /// Creates one compiler-defined construction candidate.
+    pub fn built_in_construction(
+        target: ConstructionTarget,
+        result_type: TypeId,
+        inputs: impl IntoIterator<Item = ConstructionInputSurface>,
+        state: OperationCandidateState,
+    ) -> Self {
+        Self::construction(
+            SelectionCandidateKey::BuiltIn,
+            target,
+            result_type,
+            inputs,
+            state,
+        )
+    }
+
+    fn exact(
+        key: SelectionCandidateKey,
+        operation: SelectedOperation,
+        operand_types: impl IntoIterator<Item = TypeId>,
+        state: OperationCandidateState,
+    ) -> Self {
+        Self {
+            key,
+            plan: OperationCandidatePlan::Exact {
+                operation,
+                operand_types: shared_slice(operand_types),
+            },
+            implementation_selections: Arc::new([]),
+            compiler_known_operations: Arc::new([]),
+            state,
+        }
+    }
+
+    fn construction(
+        key: SelectionCandidateKey,
+        target: ConstructionTarget,
+        result_type: TypeId,
+        inputs: impl IntoIterator<Item = ConstructionInputSurface>,
+        state: OperationCandidateState,
+    ) -> Self {
+        Self {
+            key,
+            plan: OperationCandidatePlan::Construction {
+                target,
+                result_type,
+                inputs: shared_slice(inputs),
+            },
+            implementation_selections: Arc::new([]),
+            compiler_known_operations: Arc::new([]),
+            state,
+        }
+    }
+
+    /// Supplies typed implementation-selection facts used by this operation.
+    pub fn with_implementation_selections(
+        mut self,
+        selections: impl IntoIterator<Item = ImplementationSelectionEvidence>,
+    ) -> Self {
+        self.implementation_selections = shared_slice(selections);
+
+        self
+    }
+
+    /// Supplies exact compiler-known contracts used by trait-backed operations.
+    pub fn with_compiler_known_operations(
+        mut self,
+        operations: impl IntoIterator<Item = CompilerKnownOperationEvidence>,
+    ) -> Self {
+        self.compiler_known_operations = shared_slice(operations);
+
+        self
+    }
+
+    /// Returns the stable semantic key used for deterministic ordering.
+    pub const fn key(&self) -> &SelectionCandidateKey {
+        &self.key
+    }
+
+    /// Returns this candidate's non-type participation state.
+    pub const fn state(&self) -> OperationCandidateState {
+        self.state
+    }
+
+    pub(in crate::selection) fn into_parts(
+        self,
+    ) -> (
+        SelectionCandidateKey,
+        OperationCandidatePlan,
+        Arc<[ImplementationSelectionEvidence]>,
+        Arc<[CompilerKnownOperationEvidence]>,
+        OperationCandidateState,
+    ) {
+        (
+            self.key,
+            self.plan,
+            self.implementation_selections,
+            self.compiler_known_operations,
+            self.state,
+        )
+    }
+}
+
+/// Inputs for selecting one non-call semantic operation.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct OperationSelectionRequest {
+    pub(in crate::selection) expression: BoundExpressionId,
+    pub(in crate::selection) kind: SelectionKind,
+    pub(in crate::selection) operands: Arc<[BoundExpressionId]>,
+    pub(in crate::selection) candidates: Vec<OperationCandidate>,
+}
+
+impl OperationSelectionRequest {
+    /// Creates a selection request from binder-associated operands and candidates.
+    pub fn new(
+        expression: BoundExpressionId,
+        kind: SelectionKind,
+        operands: impl IntoIterator<Item = BoundExpressionId>,
+        candidates: impl IntoIterator<Item = OperationCandidate>,
+    ) -> Self {
+        Self {
+            expression,
+            kind,
+            operands: shared_slice(operands),
+            candidates: candidates.into_iter().collect(),
+        }
+    }
+
+    /// Returns the expression occurrence that owns this selection.
+    pub const fn expression(&self) -> BoundExpressionId {
+        self.expression
+    }
+
+    /// Returns the requested semantic category.
+    pub const fn kind(&self) -> SelectionKind {
+        self.kind
+    }
+
+    /// Returns operand occurrences in semantic evaluation order.
+    pub fn operands(&self) -> &[BoundExpressionId] {
+        &self.operands
+    }
+}

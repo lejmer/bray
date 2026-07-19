@@ -37,6 +37,28 @@ const REQUEST_INVALID_WORKER_BUDGET: &[MessageTemplatePart] = &[MessageTemplateP
     "worker budget must be greater than zero",
 )];
 
+const CHECKING_NO_APPLICABLE_CANDIDATE: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("no applicable "),
+    MessageTemplatePart::Arg(DiagnosticArgName::SelectionKind),
+    MessageTemplatePart::Text(" candidate"),
+];
+
+const CHECKING_AMBIGUOUS_CANDIDATE: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Arg(DiagnosticArgName::SelectionKind),
+    MessageTemplatePart::Text(" selection is ambiguous"),
+];
+
+const CHECKING_INACCESSIBLE_CANDIDATE: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("matching "),
+    MessageTemplatePart::Arg(DiagnosticArgName::SelectionKind),
+    MessageTemplatePart::Text(" candidate is inaccessible"),
+];
+
+const CHECKING_INCOMPATIBLE_CANDIDATE: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Arg(DiagnosticArgName::SelectionKind),
+    MessageTemplatePart::Text(" candidate is incompatible with the supplied expressions"),
+];
+
 const EMISSION_MISSING_CONTRIBUTION: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("missing required "),
     MessageTemplatePart::Arg(DiagnosticArgName::ArtifactKind),
@@ -491,6 +513,18 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         }
         DiagnosticKind::CheckingCyclicConstantDefinition => {
             MessageTemplate::new(CHECKING_CYCLIC_CONSTANT_DEFINITION)
+        }
+        DiagnosticKind::CheckingNoApplicableCandidate => {
+            MessageTemplate::new(CHECKING_NO_APPLICABLE_CANDIDATE)
+        }
+        DiagnosticKind::CheckingAmbiguousCandidate => {
+            MessageTemplate::new(CHECKING_AMBIGUOUS_CANDIDATE)
+        }
+        DiagnosticKind::CheckingInaccessibleCandidate => {
+            MessageTemplate::new(CHECKING_INACCESSIBLE_CANDIDATE)
+        }
+        DiagnosticKind::CheckingIncompatibleCandidate => {
+            MessageTemplate::new(CHECKING_INCOMPATIBLE_CANDIDATE)
         }
         DiagnosticKind::EmissionMissingContribution => {
             MessageTemplate::new(EMISSION_MISSING_CONTRIBUTION)

@@ -7,7 +7,7 @@ use bray_symbols::TypeId;
 use crate::{BoundBlockId, BoundExpressionId, BoundNodeOrigin, BoundPatternId, BoundUnitKey};
 
 /// A source operator classified independently from parser token representation.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum BoundOperator {
     /// Simple assignment.
     Assign,

@@ -57,6 +57,14 @@ impl DiagnosticArg {
         Self::new(DiagnosticArgName::ActualType, DiagnosticArgValue::Type(ty))
     }
 
+    /// Creates a semantic-selection category argument.
+    pub const fn selection_kind(kind: DiagnosticSelectionKind) -> Self {
+        Self::new(
+            DiagnosticArgName::SelectionKind,
+            DiagnosticArgValue::SelectionKind(kind),
+        )
+    }
+
     /// Creates an artifact-kind argument.
     pub const fn artifact_kind(kind: DiagnosticArtifactKind) -> Self {
         Self::new(
@@ -358,6 +366,8 @@ pub enum DiagnosticArgName {
     SourceName,
     /// Number of source inputs involved in the diagnostic.
     SourceCount,
+    /// Semantic operation category being selected.
+    SelectionKind,
     /// Stable source input category.
     SourceInputKind,
     /// Byte offset inside a source input.
@@ -412,6 +422,7 @@ impl DiagnosticArgName {
             Self::ExpectedType => "expected_type",
             Self::SourceName => "source_name",
             Self::SourceCount => "source_count",
+            Self::SelectionKind => "selection_kind",
             Self::SourceInputKind => "source_input_kind",
             Self::TextOffset => "text_offset",
             Self::TokenText => "token_text",
@@ -487,6 +498,42 @@ pub enum DiagnosticArgValue {
     Revision(u64),
     /// Locale-neutral semantic type shape.
     Type(DiagnosticType),
+    /// Semantic operation category being selected.
+    SelectionKind(DiagnosticSelectionKind),
+}
+
+/// Locale-neutral semantic operation categories used by selection diagnostics.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum DiagnosticSelectionKind {
+    /// A callable or overload arm.
+    Callable,
+    /// A receiver-associated member.
+    Member,
+    /// A unary or binary operator implementation.
+    Operator,
+    /// An element or slice indexing contract.
+    Index,
+    /// A struct, variant, or type-form construction operation.
+    Construction,
+    /// An explicit conversion operation.
+    Conversion,
+    /// A trait implementation witness.
+    Implementation,
+}
+
+impl DiagnosticSelectionKind {
+    /// Returns the stable machine key for this semantic operation category.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Callable => "callable",
+            Self::Member => "member",
+            Self::Operator => "operator",
+            Self::Index => "index",
+            Self::Construction => "construction",
+            Self::Conversion => "conversion",
+            Self::Implementation => "implementation",
+        }
+    }
 }
 
 /// Locale-neutral semantic type categories used by structured diagnostics.

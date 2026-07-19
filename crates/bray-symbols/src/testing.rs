@@ -5,8 +5,12 @@ use std::sync::{Arc, OnceLock};
 use bray_declarations::DeclarationId;
 
 use crate::{
-    AvailableCompilerKnownSymbols, CompilerKnownSymbolProvider, ModulePathKey, PackageIdentity,
-    SymbolKey, SymbolKind, SymbolRootKey,
+    AnySymbolId, AvailableCompilerKnownSymbols, CompilerKnownSymbolProvider, GenericArgument,
+    GenericOwnerId, GenericParameterSymbolId, GenericSubstitutionData,
+    GenericTypeParameterSymbolId, ImplementationInstanceData, ImplementationInstanceId,
+    ImplementationSelectionKey, ModulePathKey, NamedTraitImplementationSymbolId, PackageIdentity,
+    SemanticValueStore, SymbolId, SymbolKey, SymbolKind, SymbolRootKey, TraitApplicationData,
+    TraitSymbolId, TypeId,
 };
 
 /// Returns a process-wide compiler-known symbol view with every target role available.
@@ -42,4 +46,80 @@ pub fn source_function_key() -> SymbolKey {
     };
 
     function
+}
+
+/// Creates and interns one implementation-selection requirement for tests.
+pub fn implementation_requirement(
+    values: &SemanticValueStore,
+    trait_definition: TraitSymbolId,
+    subject: TypeId,
+    argument: TypeId,
+) -> ImplementationSelectionKey {
+    let parameter = GenericTypeParameterSymbolId::from_symbol_id(SymbolId::new(50));
+    let owner = generic_owner(trait_definition.into());
+
+    let substitution = match GenericSubstitutionData::try_new(
+        owner,
+        [GenericParameterSymbolId::Type(parameter)],
+        [GenericArgument::Type(argument)],
+    ) {
+        Ok(substitution) => substitution,
+        Err(error) => panic!("trait substitution must validate: {error:?}"),
+    };
+
+    let substitution = match values.intern_generic_substitution(substitution) {
+        Ok(substitution) => substitution,
+        Err(error) => panic!("trait substitution must be interned: {error:?}"),
+    };
+
+    let application = TraitApplicationData::new(trait_definition, substitution);
+
+    let application = match values.intern_trait_application(application) {
+        Ok(application) => application,
+        Err(error) => panic!("trait application must be interned: {error:?}"),
+    };
+
+    ImplementationSelectionKey::new(subject, application)
+}
+
+/// Creates and interns one implementation witness for tests.
+pub fn implementation_instance(
+    values: &SemanticValueStore,
+    symbol: u32,
+) -> ImplementationInstanceId {
+    let definition = NamedTraitImplementationSymbolId::from_symbol_id(SymbolId::new(symbol));
+
+    let substitution = empty_substitution(values, definition.into());
+
+    let instance = ImplementationInstanceData::new(definition.into(), substitution);
+
+    match values.intern_implementation_instance(instance) {
+        Ok(instance) => instance,
+        Err(error) => panic!("implementation instance must be interned: {error:?}"),
+    }
+}
+
+fn empty_substitution(
+    values: &SemanticValueStore,
+    owner: AnySymbolId,
+) -> crate::GenericSubstitutionId {
+    let owner = generic_owner(owner);
+
+    let substitution = match GenericSubstitutionData::try_new(owner, [], []) {
+        Ok(substitution) => substitution,
+        Err(error) => panic!("empty substitution must validate: {error:?}"),
+    };
+
+    match values.intern_generic_substitution(substitution) {
+        Ok(substitution) => substitution,
+        Err(error) => panic!("empty substitution must be interned: {error:?}"),
+    }
+}
+
+fn generic_owner(owner: AnySymbolId) -> GenericOwnerId {
+    let Some(owner) = GenericOwnerId::try_new(owner) else {
+        panic!("test symbol must support generic substitution");
+    };
+
+    owner
 }
