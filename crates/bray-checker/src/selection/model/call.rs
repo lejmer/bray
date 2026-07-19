@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
 use bray_base::shared_slice;
-use bray_bound_tree::{BoundArgument, BoundCallableTarget, BoundExpressionId, BoundResolvedCall};
+use bray_bound_tree::{BoundArgument, BoundExpressionId, BoundResolvedCall};
 use bray_symbols::{
-    CallableAbi, CallableParameterDefaultProviderSymbolId, CallableParameterSymbolId,
-    CallableSignature, SymbolKey,
+    CallableParameterDefaultProviderSymbolId, CallableParameterSymbolId, CallableSignature,
+    ImplementationSelection, ImplementationSelectionKey, SymbolKey,
 };
 
 /// Receiver authority relevant to method candidate applicability.
@@ -69,6 +69,36 @@ pub enum CallableCandidateState {
     Recovered,
 }
 
+/// One typed implementation-selection fact supplied with a candidate.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ImplementationSelectionEvidence {
+    requirement: ImplementationSelectionKey,
+    selection: ImplementationSelection,
+}
+
+impl ImplementationSelectionEvidence {
+    /// Creates evidence for one exact implementation requirement.
+    pub const fn new(
+        requirement: ImplementationSelectionKey,
+        selection: ImplementationSelection,
+    ) -> Self {
+        Self {
+            requirement,
+            selection,
+        }
+    }
+
+    /// Returns the exact implementation requirement.
+    pub const fn requirement(&self) -> ImplementationSelectionKey {
+        self.requirement
+    }
+
+    /// Returns the typed implementation-selection result.
+    pub const fn selection(&self) -> &ImplementationSelection {
+        &self.selection
+    }
+}
+
 /// One callable target considered by exact argument and receiver applicability checking.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CallableCandidate {
@@ -81,6 +111,7 @@ pub struct CallableCandidate {
             CallableParameterDefaultProviderSymbolId,
         )],
     >,
+    implementation_selections: Arc<[ImplementationSelectionEvidence]>,
     state: CallableCandidateState,
 }
 
@@ -94,6 +125,7 @@ pub(in crate::selection) struct CallableCandidateParts {
             CallableParameterDefaultProviderSymbolId,
         )],
     >,
+    pub implementation_selections: Arc<[ImplementationSelectionEvidence]>,
 }
 
 impl CallableCandidate {
@@ -119,8 +151,19 @@ impl CallableCandidate {
             resolution,
             signature,
             defaults: defaults.into(),
+            implementation_selections: Arc::new([]),
             state,
         }
+    }
+
+    /// Supplies typed implementation-selection facts used by the callable target.
+    pub fn with_implementation_selections(
+        mut self,
+        selections: impl IntoIterator<Item = ImplementationSelectionEvidence>,
+    ) -> Self {
+        self.implementation_selections = shared_slice(selections);
+
+        self
     }
 
     /// Returns the stable semantic key used for deterministic ordering.
@@ -159,68 +202,8 @@ impl CallableCandidate {
             resolution: self.resolution,
             signature: self.signature,
             defaults: self.defaults,
+            implementation_selections: self.implementation_selections,
         }
-    }
-}
-
-/// One explicit or defaulted value in call evaluation order.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum SelectedArgument {
-    /// A source argument mapped to its exact parameter.
-    Explicit {
-        /// The argument expression occurrence.
-        expression: BoundExpressionId,
-        /// The exact selected parameter.
-        parameter: CallableParameterSymbolId,
-    },
-    /// An omitted parameter supplied by its declaration-owned default provider.
-    Default {
-        /// The exact omitted parameter.
-        parameter: CallableParameterSymbolId,
-        /// The declaration-owned default provider evaluated by the call.
-        provider: CallableParameterDefaultProviderSymbolId,
-    },
-}
-
-/// One exact callable, ABI, implementation-witness set, and normalized argument mapping.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct SelectedCall {
-    resolution: BoundResolvedCall,
-    abi: CallableAbi,
-    arguments: Arc<[SelectedArgument]>,
-}
-
-impl SelectedCall {
-    pub(in crate::selection) fn new(
-        resolution: BoundResolvedCall,
-        abi: CallableAbi,
-        arguments: impl IntoIterator<Item = SelectedArgument>,
-    ) -> Self {
-        Self {
-            resolution,
-            abi,
-            arguments: shared_slice(arguments),
-        }
-    }
-
-    /// Returns the exact selected callable target and result behavior.
-    pub const fn resolution(&self) -> &BoundResolvedCall {
-        &self.resolution
-    }
-
-    /// Returns the callable ABI participating in the selected call contract.
-    pub const fn abi(&self) -> CallableAbi {
-        self.abi
-    }
-
-    /// Returns explicit arguments in source order followed by defaults in parameter order.
-    pub fn arguments(&self) -> &[SelectedArgument] {
-        &self.arguments
-    }
-
-    /// Returns the exact declared, anonymous, or indirect call target.
-    pub const fn target(&self) -> BoundCallableTarget {
-        self.resolution.target()
     }
 }
 

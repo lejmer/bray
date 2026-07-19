@@ -3,18 +3,12 @@ mod check;
 mod model;
 mod operation;
 mod order;
-mod table;
 
 pub(crate) use check::{select_callable, select_operation};
-pub(in crate::selection) use model::CallableCandidateParts;
 pub use model::{
     CallableCandidate, CallableCandidateState, CallableSelectionMode, CallableSelectionRequest,
-    CandidateSelection, ConstructionTarget, ConversionTarget, IndexTarget, MemberTarget,
-    OperationCandidate, OperationCandidateState, OperationSelectionRequest, OperatorTarget,
-    ReceiverCapability, ReceiverSelection, SelectedArgument, SelectedCall, SelectedOperation,
-    SelectionCandidateKey, SelectionFailure, SelectionKind,
+    CandidateSelection, ConstructionInputSurface, ImplementationSelectionEvidence,
+    OperationCandidate, OperationCandidateState, OperationSelectionRequest, ReceiverCapability,
+    ReceiverSelection, SelectionCandidateKey, SelectionFailure, TraitOperationEvidence,
 };
-pub use table::{
-    CheckedSemanticSelections, SemanticSelection, SemanticSelectionEntry,
-    SemanticSelectionTableBuildError,
-};
+pub(in crate::selection) use model::{CallableCandidateParts, OperationCandidatePlan};

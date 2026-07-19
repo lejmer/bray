@@ -368,11 +368,20 @@ Candidate enumeration comes from typed symbol lookup and implementation indexes.
 order. It must not rank candidates when the language says that exactly one applicable arm is required.
 
 The binder must supply source-associated candidate records with stable semantic keys, target availability, effective accessibility,
-static-constraint state, and the declared operand or parameter surface. The checker must consume those records together with
-canonical expression types. It must publish category-specific selections for exact callable targets and ABIs, normalized explicit
-and defaulted argument mappings, members, operators, indexing contracts, construction behavior, conversions, and implementation
-witnesses. Selections for a bound unit must form one immutable expression-keyed side table. The table supplements the canonical
-bound tree and does not create another semantic tree.
+static-constraint state, and the declared operand or parameter surface. Trait-backed operator, index, and conversion candidates must
+also carry typed evidence for the exact compiler-known trait application, callable member, checked signature, and implementation
+selection used by the candidate. The checker must consume those records together with canonical expression types.
+
+The checker must produce category-specific selections for exact callable targets and ABIs, normalized explicit and defaulted
+argument mappings, members, operators, indexing contracts, construction behavior, conversions, and implementation witnesses. The
+durable selected values and the immutable expression-keyed selection table must belong to `bray-bound-tree`. Checker-owned request,
+candidate, failure, and algorithm types must remain in `bray-checker`. The table supplements the canonical bound tree and does not
+create another semantic tree.
+
+Construction selections must retain explicit field, payload, or parameter mappings in source order followed by omitted runtime
+defaults in declaration order. Composite conversions must retain the exact recursively selected conversion for every converted
+component, including participating `ConvertTo<Target>` implementations. Publication must validate every entry against the owning
+bound unit, source expression category, selected result type, and source-order operand mapping.
 
 Selection failures are typed as unavailable, ambiguous, inaccessible, incompatible, or recovered. An inaccessible candidate is
 reported only when it would otherwise be applicable. Ambiguities retain candidate keys in canonical order. Structured diagnostics
@@ -382,6 +391,10 @@ Callable overload applicability uses explicit argument mapping, parameter type c
 methods, explicit generic substitution, static generic constraints, and target availability. It does not use expected result type,
 argument ownership availability, borrow availability, mutation authority, dependency contracts, effects, capabilities, trusted
 obligations, `requires(...)` facts, or postconditions.
+
+Operator and indexing applicability likewise must not use a previously inferred expression result type to choose a candidate. A
+uniquely selected callable or operation contributes its result type to the cooperating type and selection fixed point. Result-type
+agreement is validated only when publishing the final checked facts.
 
 After exactly one arm is selected, ordinary call checking validates every ownership, borrowing, mutation, dependency, effect,
 capability, trust, and contract requirement. Failure rejects that selected call. It does not make resolution fall back to another

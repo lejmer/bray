@@ -4,15 +4,20 @@ use bray_source::{
     TextSizeOverflow,
 };
 use bray_symbols::{
-    ModulePathKey, PackageIdentity, SemanticValueStore, SymbolKey, SymbolKind, SymbolRootKey,
-    SynthesizedSymbolKey, TypeData,
+    LocalScopeBoundary, LocalSymbolRegionId, LocalSymbolRegionKey, LocalSymbolRegionRole,
+    LocalSymbolSnapshotBuilder, ModulePathKey, PackageIdentity, SemanticValueStore, SymbolKey,
+    SymbolKind, SymbolRootKey, SynthesizedSymbolKey, TypeData,
 };
 use bray_syntax::{
     ModuleDirectivesSyntax, ModuleModifiersSyntax, PathSyntax, SourceUnitModuleDeclarationSyntax,
     SourceUnitSyntax, SyntaxKind, SyntaxToken, SyntaxTrivia,
 };
 
-use crate::{BoundErrorExpression, BoundExpression, BoundNodeOrigin, BoundSourceAnchor};
+use crate::{
+    BoundBlock, BoundBlockItem, BoundCallableBody, BoundErrorExpression, BoundExpression,
+    BoundExpressionId, BoundNodeOrigin, BoundSourceAnchor, BoundTreeBuilder, BoundUnit,
+    BoundUnitId, BoundUnitKey, BoundUnitRoot,
+};
 
 pub(crate) fn error_expression() -> BoundExpression {
     BoundExpression::Error(BoundErrorExpression::new(
@@ -89,6 +94,84 @@ pub(crate) fn runtime_default_key(declaration: u32) -> SymbolKey {
     let provider = SynthesizedSymbolKey::callable_parameter_default_provider(parameter);
 
     SymbolKey::synthesized(provider)
+}
+
+pub(crate) fn expression_unit(
+    unit: BoundUnitId,
+    build: impl FnOnce(&mut BoundTreeBuilder, BoundNodeOrigin) -> Vec<BoundExpressionId>,
+) -> (BoundUnit, Vec<BoundExpressionId>) {
+    let owner = symbol_key(SymbolKind::Function, 0);
+
+    let Some(key) = BoundUnitKey::callable_body(owner.clone(), source_anchor()) else {
+        panic!("function must support a callable body");
+    };
+
+    let origin = BoundNodeOrigin::source(key.source());
+
+    let mut tree = BoundTreeBuilder::new(unit);
+
+    let expressions = build(&mut tree, origin);
+    let items = expressions.iter().copied().map(BoundBlockItem::Expression);
+
+    let block = match tree.push_block(BoundBlock::new(origin, items, false)) {
+        Ok(block) => block,
+        Err(error) => panic!("test block must be valid: {error:?}"),
+    };
+
+    let root = match tree.push_callable_body(BoundCallableBody::block(origin, block)) {
+        Ok(root) => root,
+        Err(error) => panic!("test callable body must be valid: {error:?}"),
+    };
+
+    let region = LocalSymbolRegionId::new(unit.raw());
+
+    let Some(region_key) = LocalSymbolRegionKey::try_new(
+        owner,
+        LocalSymbolRegionRole::CallableBody,
+        [key.source().syntax()],
+        None,
+    ) else {
+        panic!("callable test key must form a local symbol region");
+    };
+
+    let mut symbols = LocalSymbolSnapshotBuilder::new(region, region_key);
+
+    if let Err(error) = symbols.push_scope(
+        None,
+        LocalScopeBoundary::Root,
+        key.source().syntax(),
+        key.source().syntax().full_range().start(),
+    ) {
+        panic!("test root scope must validate: {error:?}");
+    }
+
+    let symbols = match symbols.finish() {
+        Ok(symbols) => symbols,
+        Err(error) => panic!("test symbols must validate: {error:?}"),
+    };
+
+    let unit = match BoundUnit::try_new(
+        key,
+        tree.finish(),
+        symbols,
+        [],
+        BoundUnitRoot::CallableBody(root),
+    ) {
+        Ok(unit) => unit,
+        Err(error) => panic!("test bound unit must validate: {error:?}"),
+    };
+
+    (unit, expressions)
+}
+
+pub(crate) fn push_expression(
+    tree: &mut BoundTreeBuilder,
+    expression: BoundExpression,
+) -> BoundExpressionId {
+    match tree.push_expression(expression) {
+        Ok(expression) => expression,
+        Err(error) => panic!("test expression must be valid: {error:?}"),
+    }
 }
 
 fn module_anchor(chunk: &bray_declarations::DeclarationChunk) -> SyntaxAnchor {

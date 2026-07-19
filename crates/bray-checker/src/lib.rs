@@ -32,11 +32,9 @@ pub use outcome::{CheckerOutcome, ControlFlowCheckResult};
 pub use request::{UnitCheckRequest, UnitCheckRequestError, UnitCheckRoot};
 pub use selection::{
     CallableCandidate, CallableCandidateState, CallableSelectionMode, CallableSelectionRequest,
-    CandidateSelection, CheckedSemanticSelections, ConstructionTarget, ConversionTarget,
-    IndexTarget, MemberTarget, OperationCandidate, OperationCandidateState,
-    OperationSelectionRequest, OperatorTarget, ReceiverCapability, ReceiverSelection,
-    SelectedArgument, SelectedCall, SelectedOperation, SelectionCandidateKey, SelectionFailure,
-    SelectionKind, SemanticSelection, SemanticSelectionEntry, SemanticSelectionTableBuildError,
+    CandidateSelection, ConstructionInputSurface, ImplementationSelectionEvidence,
+    OperationCandidate, OperationCandidateState, OperationSelectionRequest, ReceiverCapability,
+    ReceiverSelection, SelectionCandidateKey, SelectionFailure, TraitOperationEvidence,
 };
 pub use service::{
     ConstantEvaluator, ControlFlowChecker, DefaultConstantEvaluator, DefaultControlFlowChecker,

@@ -8,6 +8,7 @@ mod dependency;
 mod identity;
 mod node;
 mod origin;
+mod selection;
 mod storage;
 mod template;
 #[cfg(test)]
@@ -45,6 +46,13 @@ pub use node::{
 };
 pub use origin::{
     BoundNodeOrdinal, BoundNodeOrigin, BoundSynthesisRole, SynthesizedBoundNodeOrigin,
+};
+pub use selection::{
+    CheckedSemanticSelections, ConstructionDefaultProvider, ConstructionInputId,
+    ConstructionTarget, ConversionTarget, IndexTarget, MemberTarget, OperatorTarget,
+    SelectedArgument, SelectedCall, SelectedConstruction, SelectedConstructionInput,
+    SelectedConversion, SelectedImplementationWitness, SelectedOperation, SelectionKind,
+    SemanticSelection, SemanticSelectionEntry, SemanticSelectionTableBuildError,
 };
 pub use storage::{
     BorrowCapability, BorrowCapabilityId, StorageAccess, StorageAccessId, StorageAccessRoot,

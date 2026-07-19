@@ -5,10 +5,11 @@ mod result;
 pub(in crate::selection) use call::CallableCandidateParts;
 pub use call::{
     CallableCandidate, CallableCandidateState, CallableSelectionMode, CallableSelectionRequest,
-    ReceiverCapability, ReceiverSelection, SelectedArgument, SelectedCall,
+    ImplementationSelectionEvidence, ReceiverCapability, ReceiverSelection,
 };
+pub(in crate::selection) use operation::OperationCandidatePlan;
 pub use operation::{
-    ConstructionTarget, ConversionTarget, IndexTarget, MemberTarget, OperationCandidate,
-    OperationCandidateState, OperationSelectionRequest, OperatorTarget, SelectedOperation,
+    ConstructionInputSurface, OperationCandidate, OperationCandidateState,
+    OperationSelectionRequest, TraitOperationEvidence,
 };
-pub use result::{CandidateSelection, SelectionCandidateKey, SelectionFailure, SelectionKind};
+pub use result::{CandidateSelection, SelectionCandidateKey, SelectionFailure};

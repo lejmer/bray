@@ -1,4 +1,4 @@
-use bray_bound_tree::CheckedExpressionTypes;
+use bray_bound_tree::{CheckedExpressionTypes, SelectedCall, SelectedOperation, SelectionKind};
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticKind, DiagnosticSelectionKind, SeverityKind,
 };
@@ -7,8 +7,7 @@ use crate::diagnostic::{diagnostic_id, expression_span};
 use crate::{CheckerOutcome, CheckerRequestContext, UnitCheckRequest};
 
 use super::{
-    CallableSelectionRequest, CandidateSelection, OperationSelectionRequest, SelectedCall,
-    SelectedOperation, SelectionFailure, SelectionKind,
+    CallableSelectionRequest, CandidateSelection, OperationSelectionRequest, SelectionFailure,
 };
 
 pub(crate) fn select_callable<C>(
@@ -59,12 +58,14 @@ where
         return CheckerOutcome::without_diagnostics(selection);
     };
 
-    let diagnostic_kind = match failure {
-        SelectionFailure::Unavailable => DiagnosticKind::CheckingNoApplicableCandidate,
-        SelectionFailure::Ambiguous(_) => DiagnosticKind::CheckingAmbiguousCandidate,
-        SelectionFailure::Inaccessible => DiagnosticKind::CheckingInaccessibleCandidate,
-        SelectionFailure::Incompatible => DiagnosticKind::CheckingIncompatibleCandidate,
-        SelectionFailure::Recovered => DiagnosticKind::CheckingRecoveredSelection,
+    let Some(diagnostic_kind) = (match failure {
+        SelectionFailure::Unavailable => Some(DiagnosticKind::CheckingNoApplicableCandidate),
+        SelectionFailure::Ambiguous(_) => Some(DiagnosticKind::CheckingAmbiguousCandidate),
+        SelectionFailure::Inaccessible => Some(DiagnosticKind::CheckingInaccessibleCandidate),
+        SelectionFailure::Incompatible => Some(DiagnosticKind::CheckingIncompatibleCandidate),
+        SelectionFailure::Recovered => None,
+    }) else {
+        return CheckerOutcome::without_diagnostics(selection);
     };
 
     let span = match expression_span(request, expression) {

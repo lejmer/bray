@@ -3,17 +3,18 @@ use std::collections::BTreeSet;
 use bray_bound_tree::{CheckedExpressionTypes, ExpressionTypeResult};
 use bray_symbols::{
     CallableParameterDefaultProviderSymbolId, CallableParameterSignature,
-    CallableParameterSymbolId, CallablePosition, CallableSignature, CallableTypeData, ReceiverMode,
-    SymbolKey, TypeData,
+    CallableParameterSymbolId, CallablePosition, CallableSignature, CallableTypeData,
+    ImplementationSelection, ReceiverMode, SymbolKey, TypeData,
 };
 
 use crate::{CheckerInfrastructureError, CheckerRequestContext, UnitCheckRequest};
 
 use super::{
     CallableCandidate, CallableCandidateParts, CallableCandidateState, CallableSelectionMode,
-    CallableSelectionRequest, CandidateSelection, ReceiverCapability, SelectedArgument,
-    SelectedCall, SelectionFailure,
+    CallableSelectionRequest, CandidateSelection, ImplementationSelectionEvidence,
+    ReceiverCapability, SelectionFailure,
 };
+use bray_bound_tree::{SelectedArgument, SelectedCall, SelectedImplementationWitness};
 
 pub(super) fn select<C>(
     request: UnitCheckRequest<'_, C>,
@@ -30,20 +31,12 @@ where
     validate_unit(request, types, &input)?;
 
     let CallableSelectionRequest {
-        expression,
+        expression: _,
         mode,
         receiver,
         arguments,
         mut candidates,
     } = input;
-
-    let expression_type = expression_type(types, expression)?;
-
-    if expression_type.is_recovered() {
-        return Ok(Some(CandidateSelection::Failed(
-            SelectionFailure::Recovered,
-        )));
-    }
 
     if !super::order::canonicalize_by_key(&mut candidates, CallableCandidate::key) {
         return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
@@ -70,15 +63,7 @@ where
             }
         }
 
-        match check_candidate(
-            request,
-            types,
-            mode,
-            receiver,
-            &arguments,
-            expression_type.ty(),
-            candidate,
-        )? {
+        match check_candidate(request, types, mode, receiver, &arguments, candidate)? {
             CandidateCheck::Applicable { .. } if state == CallableCandidateState::Inaccessible => {
                 has_inaccessible = true;
             }
@@ -95,14 +80,14 @@ where
                 applicable.into_iter().map(|(key, _)| key.into()).collect(),
             ),
         ))),
+        _ if has_inaccessible => Ok(Some(CandidateSelection::Failed(
+            SelectionFailure::Inaccessible,
+        ))),
         _ if has_recovered => Ok(Some(CandidateSelection::Failed(
             SelectionFailure::Recovered,
         ))),
         _ if has_incompatible => Ok(Some(CandidateSelection::Failed(
             SelectionFailure::Incompatible,
-        ))),
-        _ if has_inaccessible => Ok(Some(CandidateSelection::Failed(
-            SelectionFailure::Inaccessible,
         ))),
         _ => Ok(Some(CandidateSelection::Failed(
             SelectionFailure::Unavailable,
@@ -122,7 +107,6 @@ fn check_candidate<C>(
     mode: CallableSelectionMode,
     receiver: Option<super::ReceiverSelection>,
     arguments: &[bray_bound_tree::BoundArgument],
-    result_type: bray_symbols::TypeId,
     candidate: CallableCandidate,
 ) -> Result<CandidateCheck, CheckerInfrastructureError>
 where
@@ -133,6 +117,7 @@ where
         resolution,
         signature,
         defaults,
+        implementation_selections,
     } = candidate.into_parts();
 
     let callable_type = callable_type(request, &signature)?;
@@ -140,14 +125,15 @@ where
         return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
     };
 
-    if !callable_surface_is_consistent(
-        &resolution,
-        &signature,
-        callable_type,
-        &defaults,
-        result_type,
-    ) {
+    if !callable_surface_is_consistent(&resolution, &signature, callable_type, &defaults) {
         return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+    }
+
+    if let bray_bound_tree::BoundCallableTarget::Declaration(callable) = resolution.target() {
+        request
+            .semantic_values()
+            .intern_callable_instance(callable)
+            .map_err(|_| CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
     }
 
     match receiver_is_compatible(types, receiver, signature.receiver())? {
@@ -172,9 +158,14 @@ where
         return Ok(CandidateCheck::Recovered);
     }
 
+    let Some(witnesses) = selected_witnesses(request, &resolution, &implementation_selections)?
+    else {
+        return Ok(CandidateCheck::Incompatible);
+    };
+
     Ok(CandidateCheck::Applicable {
         key,
-        call: SelectedCall::new(resolution, callable_type.abi(), arguments.values),
+        call: SelectedCall::new(resolution, callable_type.abi(), arguments.values, witnesses),
     })
 }
 
@@ -186,7 +177,6 @@ fn callable_surface_is_consistent(
         CallableParameterSymbolId,
         CallableParameterDefaultProviderSymbolId,
     )],
-    result_type: bray_symbols::TypeId,
 ) -> bool {
     if callable.parameters().len() != signature.parameters().len()
         || callable.result() != signature.result()
@@ -206,13 +196,64 @@ fn callable_surface_is_consistent(
         return false;
     }
 
-    resolution.result().ty() == result_type
-        && match resolution.result() {
-            bray_bound_tree::BoundCallResult::Immediate(result) => result == signature.result(),
-            bray_bound_tree::BoundCallResult::LazyFuture(future) => {
-                future.completion_type() == signature.result()
-            }
+    match resolution.result() {
+        bray_bound_tree::BoundCallResult::Immediate(result) => result == signature.result(),
+        bray_bound_tree::BoundCallResult::LazyFuture(future) => {
+            future.completion_type() == signature.result()
         }
+    }
+}
+
+fn selected_witnesses<C>(
+    request: UnitCheckRequest<'_, C>,
+    resolution: &bray_bound_tree::BoundResolvedCall,
+    evidence: &[ImplementationSelectionEvidence],
+) -> Result<Option<Vec<SelectedImplementationWitness>>, CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let mut evidence = evidence.iter().collect::<Vec<_>>();
+
+    evidence.sort_unstable_by_key(|item| item.requirement());
+
+    if evidence
+        .windows(2)
+        .any(|pair| pair[0].requirement() == pair[1].requirement())
+    {
+        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+    }
+
+    let mut selected = Vec::with_capacity(evidence.len());
+
+    for evidence in evidence {
+        let ImplementationSelection::Selected(witness) = evidence.selection() else {
+            return Ok(None);
+        };
+
+        request
+            .semantic_values()
+            .implementation_instance_data(*witness)
+            .map_err(|_| CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+
+        selected.push(SelectedImplementationWitness::new(
+            evidence.requirement(),
+            *witness,
+        ));
+    }
+
+    let mut witness_ids = selected
+        .iter()
+        .map(|selection| selection.witness())
+        .collect::<Vec<_>>();
+
+    witness_ids.sort_unstable();
+    witness_ids.dedup();
+
+    if witness_ids != resolution.implementation_witnesses() {
+        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+    }
+
+    Ok(Some(selected))
 }
 
 fn callable_type<C>(
@@ -426,7 +467,8 @@ mod tests {
     use bray_bound_tree::{
         BoundArgument, BoundCallExpression, BoundCallResult, BoundCallableTarget, BoundExpression,
         BoundExpressionId, BoundResolvedCall, BoundUnit, BoundUnitId, CheckedExpressionTypes,
-        ExpressionTypeEntry, ExpressionTypeResult, ExpressionTypeStatus,
+        ExpressionTypeEntry, ExpressionTypeResult, ExpressionTypeStatus, SelectedArgument,
+        SelectedCall,
     };
     use bray_symbols::{
         CallableAbi, CallableConstness, CallableDependencyContracts, CallableParameterData,
@@ -442,8 +484,8 @@ mod tests {
     };
     use crate::{
         CallableCandidate, CallableCandidateState, CallableSelectionMode, CallableSelectionRequest,
-        CandidateSelection, DefaultSemanticSelector, SelectedArgument, SelectionFailure,
-        SemanticSelector, UnitCheckRequest,
+        CandidateSelection, DefaultSemanticSelector, SelectionFailure, SemanticSelector,
+        UnitCheckRequest,
     };
 
     #[test]
@@ -490,6 +532,36 @@ mod tests {
         assert!(matches!(
             result.value(),
             CandidateSelection::Failed(SelectionFailure::Incompatible)
+        ));
+    }
+
+    #[test]
+    fn overload_selection_does_not_use_candidate_result_types() {
+        let fixture = call_fixture(BoundUnitId::new(77), true);
+        let other_result = tuple_type([fixture.value_type]);
+
+        let first = callable_candidate_with_types(
+            1,
+            fixture.value_type,
+            fixture.value_type,
+            true,
+            CallableCandidateState::Available,
+        );
+
+        let second = callable_candidate_with_types(
+            2,
+            fixture.value_type,
+            other_result,
+            true,
+            CallableCandidateState::Available,
+        );
+
+        let input = named_request(&fixture, CallableSelectionMode::Direct, [first, second]);
+        let result = select(&fixture.unit, &fixture.types, input);
+
+        assert!(matches!(
+            result.value(),
+            CandidateSelection::Failed(SelectionFailure::Ambiguous(_))
         ));
     }
 
@@ -590,6 +662,8 @@ mod tests {
             result.value(),
             CandidateSelection::Failed(SelectionFailure::Recovered)
         ));
+
+        assert!(result.diagnostics().is_empty());
     }
 
     #[test]
@@ -783,7 +857,7 @@ mod tests {
         unit: &BoundUnit,
         types: &CheckedExpressionTypes,
         input: CallableSelectionRequest,
-    ) -> bray_diagnostics::DiagnosticResult<CandidateSelection<crate::SelectedCall>> {
+    ) -> bray_diagnostics::DiagnosticResult<CandidateSelection<SelectedCall>> {
         let context = TestCheckerContext::new(false);
 
         match select_outcome(unit, types, input, &context) {
@@ -797,7 +871,7 @@ mod tests {
         types: &CheckedExpressionTypes,
         input: CallableSelectionRequest,
         context: &'unit TestCheckerContext,
-    ) -> crate::CheckerOutcome<CandidateSelection<crate::SelectedCall>> {
+    ) -> crate::CheckerOutcome<CandidateSelection<SelectedCall>> {
         let entry = callable_entry(unit.key());
 
         let request = match UnitCheckRequest::new(unit, &entry, context) {

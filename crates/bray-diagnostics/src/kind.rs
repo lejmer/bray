@@ -123,8 +123,6 @@ pub enum DiagnosticKind {
     CheckingInaccessibleCandidate,
     /// Candidate parameter or operand types do not accept the supplied expressions.
     CheckingIncompatibleCandidate,
-    /// Semantic selection could not complete because an input is recovered.
-    CheckingRecoveredSelection,
     /// A required planned artifact contribution was not supplied.
     EmissionMissingContribution,
     /// An artifact contribution does not satisfy the immutable emission plan.
@@ -208,7 +206,6 @@ impl DiagnosticKind {
             Self::CheckingAmbiguousCandidate => 7010,
             Self::CheckingInaccessibleCandidate => 7011,
             Self::CheckingIncompatibleCandidate => 7012,
-            Self::CheckingRecoveredSelection => 7013,
             Self::EmissionMissingContribution => 9001,
             Self::EmissionInvalidContribution => 9002,
             Self::EmissionArtifactReadFailed => 9003,
@@ -295,7 +292,6 @@ impl DiagnosticKind {
             Self::CheckingAmbiguousCandidate => "checking_ambiguous_candidate",
             Self::CheckingInaccessibleCandidate => "checking_inaccessible_candidate",
             Self::CheckingIncompatibleCandidate => "checking_incompatible_candidate",
-            Self::CheckingRecoveredSelection => "checking_recovered_selection",
             Self::EmissionMissingContribution => "emission_missing_contribution",
             Self::EmissionInvalidContribution => "emission_invalid_contribution",
             Self::EmissionArtifactReadFailed => "emission_artifact_read_failed",
@@ -359,7 +355,7 @@ mod tests {
         }
     }
 
-    fn all_diagnostic_kinds() -> [DiagnosticKind; 69] {
+    fn all_diagnostic_kinds() -> [DiagnosticKind; 68] {
         [
             DiagnosticKind::SourceFileReadFailed,
             DiagnosticKind::SourceInvalidUtf8,
@@ -420,7 +416,6 @@ mod tests {
             DiagnosticKind::CheckingAmbiguousCandidate,
             DiagnosticKind::CheckingInaccessibleCandidate,
             DiagnosticKind::CheckingIncompatibleCandidate,
-            DiagnosticKind::CheckingRecoveredSelection,
             DiagnosticKind::EmissionMissingContribution,
             DiagnosticKind::EmissionInvalidContribution,
             DiagnosticKind::EmissionArtifactReadFailed,

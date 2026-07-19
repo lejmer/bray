@@ -5,9 +5,9 @@ use crate::type_check::check_expression_types;
 use crate::{
     CallableSelectionRequest, CandidateSelection, CheckerOutcome, CheckerRequestContext,
     ConstantEvaluationInput, ControlFlowCheckResult, ExpressionTypeInput,
-    OperationSelectionRequest, SelectedCall, SelectedOperation, UnitCheckRequest,
+    OperationSelectionRequest, UnitCheckRequest,
 };
-use bray_bound_tree::CheckedExpressionTypes;
+use bray_bound_tree::{CheckedExpressionTypes, SelectedCall, SelectedOperation};
 use bray_symbols::ConstantValueId;
 
 /// The standard Bray control-flow checker implementation.

@@ -59,12 +59,6 @@ const CHECKING_INCOMPATIBLE_CANDIDATE: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text(" candidate is incompatible with the supplied expressions"),
 ];
 
-const CHECKING_RECOVERED_SELECTION: &[MessageTemplatePart] = &[
-    MessageTemplatePart::Text("cannot select "),
-    MessageTemplatePart::Arg(DiagnosticArgName::SelectionKind),
-    MessageTemplatePart::Text(" because an input contains errors"),
-];
-
 const EMISSION_MISSING_CONTRIBUTION: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("missing required "),
     MessageTemplatePart::Arg(DiagnosticArgName::ArtifactKind),
@@ -531,9 +525,6 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         }
         DiagnosticKind::CheckingIncompatibleCandidate => {
             MessageTemplate::new(CHECKING_INCOMPATIBLE_CANDIDATE)
-        }
-        DiagnosticKind::CheckingRecoveredSelection => {
-            MessageTemplate::new(CHECKING_RECOVERED_SELECTION)
         }
         DiagnosticKind::EmissionMissingContribution => {
             MessageTemplate::new(EMISSION_MISSING_CONTRIBUTION)

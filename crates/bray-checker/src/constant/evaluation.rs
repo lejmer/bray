@@ -695,7 +695,7 @@ mod tests {
 
         let expected = representation(&unit, &context, RepresentationRole::ScalarU16);
         let types = checked_types(&unit, root, &context, expected);
-        let selections = empty_selections(&unit);
+        let selections = empty_selections(&unit, &types);
 
         let input = ConstantEvaluationInput::new(&types, &selections);
         let cancelled = TestCheckerContext::new(true);
@@ -762,7 +762,7 @@ mod tests {
         assert_eq!(*result.value(), referenced_value);
 
         let types = checked_types(&unit, root, &context, expected);
-        let selections = empty_selections(&unit);
+        let selections = empty_selections(&unit, &types);
 
         let input = ConstantEvaluationInput::new(&types, &selections).with_references([
             (root, ConstantReferenceResolution::Cycle),
@@ -817,7 +817,7 @@ mod tests {
         resolution: ConstantReferenceResolution,
     ) -> bray_diagnostics::DiagnosticResult<bray_symbols::ConstantValueId> {
         let types = checked_types(unit, root, context, expected);
-        let selections = empty_selections(unit);
+        let selections = empty_selections(unit, &types);
 
         let input =
             ConstantEvaluationInput::new(&types, &selections).with_references([(root, resolution)]);
@@ -1012,7 +1012,7 @@ mod tests {
         bray_diagnostics::DiagnosticResult<bray_symbols::ConstantValueId>,
     ) {
         let types = checked_types(unit, root, context, expected);
-        let selections = empty_selections(unit);
+        let selections = empty_selections(unit, &types);
 
         let mut input = ConstantEvaluationInput::new(&types, &selections);
 
@@ -1036,8 +1036,11 @@ mod tests {
         (types, result)
     }
 
-    fn empty_selections(unit: &BoundUnit) -> crate::CheckedSemanticSelections {
-        match crate::CheckedSemanticSelections::try_new(unit.unit(), unit.key().kind(), []) {
+    fn empty_selections(
+        unit: &BoundUnit,
+        types: &bray_bound_tree::CheckedExpressionTypes,
+    ) -> bray_bound_tree::CheckedSemanticSelections {
+        match bray_bound_tree::CheckedSemanticSelections::try_new(unit, types, []) {
             Ok(selections) => selections,
             Err(error) => panic!("empty semantic selections must be valid: {error:?}"),
         }

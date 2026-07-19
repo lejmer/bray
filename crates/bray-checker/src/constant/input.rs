@@ -1,12 +1,10 @@
 use std::collections::BTreeMap;
 use std::num::NonZeroU16;
 
-use bray_bound_tree::{BoundExpressionId, CheckedExpressionTypes};
+use bray_bound_tree::{BoundExpressionId, CheckedExpressionTypes, CheckedSemanticSelections};
 use bray_symbols::ConstantValueId;
 
 use super::ConstantEvaluationLimits;
-use crate::CheckedSemanticSelections;
-
 /// The caller-resolved result of one constant reference dependency.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum ConstantReferenceResolution {

@@ -2,25 +2,6 @@ use std::sync::Arc;
 
 use bray_symbols::SymbolKey;
 
-/// The semantic operation category used by one selection request.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum SelectionKind {
-    /// An ordinary callable, method, or overload arm.
-    Callable,
-    /// A receiver-associated member.
-    Member,
-    /// A unary or binary operator implementation.
-    Operator,
-    /// An element or slice indexing contract.
-    Index,
-    /// A struct, variant, or type-form construction operation.
-    Construction,
-    /// An explicit conversion operation.
-    Conversion,
-    /// A trait implementation witness.
-    Implementation,
-}
-
 /// Stable identity of one candidate participating in deterministic selection.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum SelectionCandidateKey {
