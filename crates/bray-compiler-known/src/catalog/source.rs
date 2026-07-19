@@ -176,20 +176,20 @@ const SOURCES: [CatalogSource; 7] = [
     CatalogSource::new(
         CatalogSourceId::new(4),
         CatalogKind::CompilerKnown,
+        "catalog/ambient/target-scalars.braydef",
+        include_str!("../../catalog/ambient/target-scalars.braydef"),
+    ),
+    CatalogSource::new(
+        CatalogSourceId::new(5),
+        CatalogKind::CompilerKnown,
         "catalog/core/memory.braydef",
         include_str!("../../catalog/core/memory.braydef"),
     ),
     CatalogSource::new(
-        CatalogSourceId::new(5),
+        CatalogSourceId::new(6),
         CatalogKind::RecognizedStandardLibrary,
         "catalog/recognized/standard-library.braydef",
         include_str!("../../catalog/recognized/standard-library.braydef"),
-    ),
-    CatalogSource::new(
-        CatalogSourceId::new(6),
-        CatalogKind::CompilerKnown,
-        "catalog/std/target-facts.braydef",
-        include_str!("../../catalog/std/target-facts.braydef"),
     ),
 ];
 
@@ -231,15 +231,21 @@ mod tests {
             manifest_paths
         );
 
-        assert_eq!(sources[0].kind(), CatalogKind::CompilerKnown);
-        assert_eq!(sources[5].kind(), CatalogKind::RecognizedStandardLibrary);
+        for source in sources {
+            let catalog_header = match source.kind() {
+                CatalogKind::CompilerKnown => "catalog compiler_known;",
+                CatalogKind::RecognizedStandardLibrary => "catalog recognized_standard_library;",
+            };
 
-        assert!(sources[0].text().starts_with("catalog compiler_known;"));
+            assert!(source.text().starts_with(catalog_header));
+        }
 
-        assert!(
-            sources[5]
-                .text()
-                .starts_with("catalog recognized_standard_library;")
+        assert_eq!(
+            sources
+                .iter()
+                .filter(|source| source.kind() == CatalogKind::RecognizedStandardLibrary)
+                .count(),
+            1
         );
 
         for (index, source) in sources.iter().enumerate() {

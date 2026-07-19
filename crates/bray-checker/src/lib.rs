@@ -3,9 +3,12 @@
 #![forbid(unsafe_code)]
 
 mod analysis;
+mod constant;
 mod context;
+mod diagnostic;
 mod entry;
 mod outcome;
+mod representation;
 mod request;
 mod service;
 mod type_check;
@@ -13,6 +16,9 @@ mod type_check;
 #[cfg(test)]
 mod test_support;
 
+pub use constant::{
+    ConstantEvaluationInput, ConstantEvaluationLimits, ConstantReferenceResolution,
+};
 pub use context::{
     CheckerFactError, CheckerFactResult, CheckerInfrastructureError, CheckerRequestContext,
     CheckerSemanticFactProvider, CheckerSource,
@@ -24,7 +30,7 @@ pub use entry::{
 pub use outcome::{CheckerOutcome, ControlFlowCheckResult};
 pub use request::{UnitCheckRequest, UnitCheckRequestError, UnitCheckRoot};
 pub use service::{
-    ControlFlowChecker, DefaultControlFlowChecker, DefaultExpressionTypeChecker,
-    ExpressionTypeChecker,
+    ConstantEvaluator, ControlFlowChecker, DefaultConstantEvaluator, DefaultControlFlowChecker,
+    DefaultExpressionTypeChecker, ExpressionTypeChecker,
 };
 pub use type_check::{ExpressionTypeEvidence, ExpressionTypeExpectation, ExpressionTypeInput};

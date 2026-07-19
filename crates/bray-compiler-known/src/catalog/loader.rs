@@ -506,8 +506,8 @@ mod tests {
             Err(diagnostics) => panic!("representative catalog should build: {diagnostics:#?}"),
         };
 
-        assert_eq!(catalog.compiler_known_scopes().len(), 3);
-        assert_eq!(catalog.compiler_known_declarations().len(), 37);
+        assert_eq!(catalog.compiler_known_scopes().len(), 2);
+        assert_eq!(catalog.compiler_known_declarations().len(), 51);
         assert_eq!(catalog.compiler_known_values().len(), 3);
         assert_eq!(catalog.recognized_standard_library_scopes().len(), 1);
         assert_eq!(catalog.recognized_standard_library_declarations().len(), 1);
@@ -520,7 +520,6 @@ mod tests {
         let implementation = declaration(&catalog, "BoolStorageImplementation");
         let implementation_item = declaration(&catalog, "BoolStorageItem");
         let memory_copy = declaration(&catalog, "MemoryCopy");
-        let target_real = declaration(&catalog, "TargetReal16");
         let future = declaration(&catalog, "Future");
         let future_start = declaration(&catalog, "FutureStart");
         let task = declaration(&catalog, "Task");
@@ -558,12 +557,36 @@ mod tests {
         );
 
         assert_eq!(memory_copy.availability_rule(), AvailabilityRule::RawMemory);
-        assert_eq!(target_real.availability_rule(), AvailabilityRule::Real16);
 
-        assert_eq!(
-            target_real.representation_role(),
-            Some(RepresentationRole::ScalarR16)
-        );
+        let target_scalars = [
+            (
+                "TargetReal16",
+                AvailabilityRule::Real16,
+                RepresentationRole::ScalarR16,
+            ),
+            (
+                "TargetReal128",
+                AvailabilityRule::Real128,
+                RepresentationRole::ScalarR128,
+            ),
+            (
+                "TargetComplex32",
+                AvailabilityRule::Complex32,
+                RepresentationRole::ScalarC32,
+            ),
+            (
+                "TargetComplex256",
+                AvailabilityRule::Complex256,
+                RepresentationRole::ScalarC256,
+            ),
+        ];
+
+        for (key, availability, representation) in target_scalars {
+            let target_scalar = declaration(&catalog, key);
+
+            assert_eq!(target_scalar.availability_rule(), availability);
+            assert_eq!(target_scalar.representation_role(), Some(representation));
+        }
 
         assert_eq!(
             future.representation_role(),

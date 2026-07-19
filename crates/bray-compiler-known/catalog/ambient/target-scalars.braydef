@@ -1,0 +1,31 @@
+catalog compiler_known;
+
+scope Ambient at ambient {
+    declaration TargetReal16 {
+        availability Real16;
+        representation ScalarR16;
+
+        surface { struct r16 {} }
+    }
+
+    declaration TargetReal128 {
+        availability Real128;
+        representation ScalarR128;
+
+        surface { struct r128 {} }
+    }
+
+    declaration TargetComplex32 {
+        availability Complex32;
+        representation ScalarC32;
+
+        surface { struct c32 {} }
+    }
+
+    declaration TargetComplex256 {
+        availability Complex256;
+        representation ScalarC256;
+
+        surface { struct c256 {} }
+    }
+}

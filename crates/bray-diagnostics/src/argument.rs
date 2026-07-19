@@ -496,14 +496,54 @@ pub enum DiagnosticType {
     Error,
     /// The Boolean scalar type.
     Boolean,
+    /// The character scalar type.
+    Character,
+    /// The 8-bit signed integer type.
+    I8,
+    /// The 16-bit signed integer type.
+    I16,
+    /// The 32-bit signed integer type.
+    I32,
+    /// The 64-bit signed integer type.
+    I64,
+    /// The 128-bit signed integer type.
+    I128,
+    /// The 8-bit unsigned integer type.
+    U8,
+    /// The 16-bit unsigned integer type.
+    U16,
+    /// The 32-bit unsigned integer type.
+    U32,
+    /// The 64-bit unsigned integer type.
+    U64,
+    /// The 128-bit unsigned integer type.
+    U128,
+    /// The machine-sized signed integer type.
+    Isize,
+    /// The machine-sized unsigned integer type.
+    Usize,
     /// The unit type.
     Unit,
     /// The uninhabited type.
     Never,
     /// The string type.
     String,
-    /// The machine-sized unsigned integer type.
-    Usize,
+    /// The 16-bit real type.
+    R16,
+    /// The 32-bit real type.
+    R32,
+    /// The 64-bit real type.
+    R64,
+    /// The 128-bit real type.
+    R128,
+    /// The 32-bit complex type.
+    C32,
+    /// The 64-bit complex type.
+    C64,
+    /// The 128-bit complex type.
+    C128,
+    /// The 256-bit complex type.
+    C256,
     /// Another named type.
     Named,
     /// A generic type parameter.

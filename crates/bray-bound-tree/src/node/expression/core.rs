@@ -7,7 +7,7 @@ use super::{
     BoundBinaryExpression, BoundCallExpression, BoundControlTransferExpression,
     BoundConversionExpression, BoundErrorCallExpression, BoundErrorConversionExpression,
     BoundForExpression, BoundGeneratorExpression, BoundLeadingDotVariantExpression,
-    BoundMatchExpression, BoundMemberAccessExpression, BoundNameExpression,
+    BoundLiteralExpression, BoundMatchExpression, BoundMemberAccessExpression, BoundNameExpression,
     BoundStructConstructionExpression, BoundStructuredExpression,
     BoundTraitQualifiedMemberExpression, BoundUnaryExpression, BoundUnresolvedReferenceExpression,
 };
@@ -17,6 +17,8 @@ use super::{
 pub enum BoundExpression {
     /// A source-shaped block used as an expression.
     Block(BoundBlockExpression),
+    /// A source literal with an exact literal category.
+    Literal(BoundLiteralExpression),
     /// A resolved value name.
     Name(BoundNameExpression),
     /// A source reference retained after lookup recovery.
@@ -66,6 +68,7 @@ impl BoundExpression {
     pub const fn origin(&self) -> BoundNodeOrigin {
         match self {
             Self::Block(expression) => expression.origin(),
+            Self::Literal(expression) => expression.origin(),
             Self::Name(expression) => expression.origin(),
             Self::UnresolvedReference(expression) => expression.origin(),
             Self::Unary(expression) => expression.origin(),
@@ -94,6 +97,7 @@ impl BoundExpression {
     pub const fn ty(&self) -> Option<TypeId> {
         match self {
             Self::Block(expression) => expression.ty(),
+            Self::Literal(expression) => expression.ty(),
             Self::Name(expression) => expression.ty(),
             Self::UnresolvedReference(expression) => Some(expression.ty()),
             Self::Unary(expression) => expression.ty(),
@@ -122,6 +126,7 @@ impl BoundExpression {
     pub const fn is_recovered(&self) -> bool {
         match self {
             Self::Block(expression) => expression.is_recovered(),
+            Self::Literal(expression) => expression.is_recovered(),
             Self::Name(expression) => expression.is_recovered(),
             Self::UnresolvedReference(_) => true,
             Self::Unary(expression) => expression.is_recovered(),
@@ -166,6 +171,7 @@ impl BoundExpression {
             Self::Match(expression) => expression.operands(),
             Self::Generator(expression) => expression.operands(),
             Self::Block(_)
+            | Self::Literal(_)
             | Self::Name(_)
             | Self::UnresolvedReference(_)
             | Self::LeadingDotVariant(_)

@@ -13,16 +13,94 @@ scope Ambient at ambient {
         surface { struct char {} }
     }
 
+    declaration I8 {
+        representation ScalarI8;
+
+        surface { struct i8 {} }
+    }
+
+    declaration I16 {
+        representation ScalarI16;
+
+        surface { struct i16 {} }
+    }
+
     declaration I32 {
         representation ScalarI32;
 
         surface { struct i32 {} }
     }
 
+    declaration I64 {
+        representation ScalarI64;
+
+        surface { struct i64 {} }
+    }
+
+    declaration I128 {
+        representation ScalarI128;
+
+        surface { struct i128 {} }
+    }
+
+    declaration U8 {
+        representation ScalarU8;
+
+        surface { struct u8 {} }
+    }
+
+    declaration U16 {
+        representation ScalarU16;
+
+        surface { struct u16 {} }
+    }
+
+    declaration U32 {
+        representation ScalarU32;
+
+        surface { struct u32 {} }
+    }
+
+    declaration U64 {
+        representation ScalarU64;
+
+        surface { struct u64 {} }
+    }
+
+    declaration U128 {
+        representation ScalarU128;
+
+        surface { struct u128 {} }
+    }
+
+    declaration Isize {
+        representation ScalarIsize;
+
+        surface { struct isize {} }
+    }
+
+    declaration Usize {
+        representation ScalarUsize;
+
+        surface { struct usize {} }
+    }
+
+    declaration R32 {
+        representation ScalarR32;
+
+        surface { struct r32 {} }
+    }
+
     declaration R64 {
         representation ScalarR64;
 
         surface { struct r64 {} }
+    }
+
+    declaration C64 {
+        representation ScalarC64;
+
+        surface { struct c64 {} }
     }
 
     declaration C128 {
@@ -41,18 +119,6 @@ scope Ambient at ambient {
         representation Never;
 
         surface { struct never {} }
-    }
-
-    declaration U8 {
-        representation ScalarU8;
-
-        surface { struct u8 {} }
-    }
-
-    declaration Usize {
-        representation ScalarUsize;
-
-        surface { struct usize {} }
     }
 
     declaration String {

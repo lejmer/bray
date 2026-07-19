@@ -182,6 +182,37 @@ impl TypeInferenceContext {
         self.nodes.get(index)?.evidence
     }
 
+    pub(super) fn try_unique_matching_expectation<E>(
+        &mut self,
+        id: InferenceTypeId,
+        mut is_match: impl FnMut(TypeId) -> Result<bool, E>,
+    ) -> Result<Option<TypeId>, E> {
+        let root = self.find(id);
+        let Some(index) = root.to_index() else {
+            return Ok(None);
+        };
+
+        let Some(node) = self.nodes.get(index) else {
+            return Ok(None);
+        };
+
+        let mut selected = None;
+
+        for expectation in &node.expectations {
+            if !is_match(expectation.ty)? {
+                continue;
+            }
+
+            match selected {
+                Some(current) if current != expectation.ty => return Ok(None),
+                Some(_) => {}
+                None => selected = Some(expectation.ty),
+            }
+        }
+
+        Ok(selected)
+    }
+
     pub(super) fn result(&mut self, id: InferenceTypeId) -> Option<ExpressionTypeResult> {
         let root = self.find(id);
         let index = root.to_index()?;

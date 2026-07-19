@@ -1,7 +1,8 @@
 use std::collections::BTreeMap;
 
 use bray_bound_tree::{
-    BoundBlockId, BoundBlockItem, BoundExpression, BoundExpressionId, BoundStructuredExpressionKind,
+    BoundBlockId, BoundBlockItem, BoundExpression, BoundExpressionId, BoundLiteralKind,
+    BoundStructuredExpressionKind,
 };
 use bray_symbols::{TypeData, TypeId};
 
@@ -22,6 +23,18 @@ pub(super) fn add_intrinsic_constraints(
         BoundExpression::Assignment(_) => {
             inference.add_evidence(variable, types.unit, expression_id);
         }
+        BoundExpression::Literal(literal) => match literal.kind() {
+            BoundLiteralKind::Boolean => {
+                inference.add_evidence(variable, types.boolean, expression_id);
+            }
+            BoundLiteralKind::Character => {
+                inference.add_evidence(variable, types.character, expression_id);
+            }
+            BoundLiteralKind::String => {
+                inference.add_evidence(variable, types.string, expression_id);
+            }
+            BoundLiteralKind::Integer | BoundLiteralKind::Real | BoundLiteralKind::Imaginary => {}
+        },
         BoundExpression::Conversion(conversion) => {
             if let Some(target) = conversion.target_type() {
                 inference.add_evidence(variable, target, expression_id);

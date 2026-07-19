@@ -13,6 +13,7 @@ use super::constraints::{
 };
 use super::dependencies::ExpressionTypeDependencies;
 use super::inference::{InferenceTypeId, TypeConflict, TypeInferenceContext};
+use super::literal::{adapt_contextual_literals, apply_literal_defaults};
 use super::propagation::propagate_dynamic_constraints;
 use super::{ExpressionTypeEvidence, ExpressionTypeExpectation, ExpressionTypeInput};
 
@@ -195,7 +196,7 @@ where
                 return Ok(SessionProgress::Cancelled);
             }
 
-            match propagate_dynamic_constraints(
+            let Some(propagated) = propagate_dynamic_constraints(
                 self.request,
                 &self.expressions,
                 &self.variables,
@@ -203,11 +204,39 @@ where
                 &self.block_owners,
                 &self.types,
                 &mut self.inference,
-            )? {
-                Some(true) => {}
-                Some(false) => return Ok(SessionProgress::Complete(())),
-                None => return Ok(SessionProgress::Cancelled),
+            )?
+            else {
+                return Ok(SessionProgress::Cancelled);
+            };
+
+            let Some(adapted) = adapt_contextual_literals(
+                self.request,
+                &self.expressions,
+                &self.variables,
+                &mut self.inference,
+            )?
+            else {
+                return Ok(SessionProgress::Cancelled);
+            };
+
+            if propagated || adapted {
+                continue;
             }
+
+            return Ok(SessionProgress::Complete(()));
+        }
+    }
+
+    pub(crate) fn apply_literal_defaults(&mut self) -> SessionProgress<()> {
+        match apply_literal_defaults(
+            self.request,
+            &self.expressions,
+            &self.variables,
+            &self.types,
+            &mut self.inference,
+        ) {
+            Some(_) => SessionProgress::Complete(()),
+            None => SessionProgress::Cancelled,
         }
     }
 

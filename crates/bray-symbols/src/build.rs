@@ -598,7 +598,11 @@ mod tests {
             graph.roots().packages()[0].symbol_id().raw(),
             source_symbol_start
         );
-        assert_eq!(graph.modules().len(), 3);
+
+        assert_eq!(
+            graph.modules().len(),
+            graph.compiler_known_provider().modules().len() + 1
+        );
 
         let package = &graph.packages()[0];
         let module = source_module(&graph);

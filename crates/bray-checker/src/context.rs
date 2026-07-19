@@ -3,7 +3,7 @@ use std::sync::Arc;
 use bray_base::Cancellation;
 use bray_bound_tree::{AnyBoundNodeId, BoundExpressionId, BoundSourceAnchor, BoundUnit};
 use bray_compiler_known::RepresentationRole;
-use bray_source::{SourceId, SourceSpan, SourceVersion};
+use bray_source::{SourceId, SourceSpan, SourceVersion, TextRange, TextSize};
 use bray_symbols::{
     AnySymbolId, AvailableCompilerKnownSymbols, SemanticValueStore, SymbolFactContract,
     SymbolFactKind, SymbolFactRequest, SymbolFactResult,
@@ -52,6 +52,8 @@ pub enum CheckerInfrastructureError {
         /// The invalid expression identity.
         expression: BoundExpressionId,
     },
+    /// Constant-evaluation inputs do not describe the requested bound unit.
+    InvalidConstantEvaluationInput,
     /// A committed bound relationship names a node absent from the requested unit.
     InvalidBoundNode {
         /// The missing bound node identity.
@@ -97,6 +99,22 @@ impl<'source> CheckerSource<'source> {
     pub const fn text(self) -> &'source str {
         self.text
     }
+
+    /// Returns text for an exact subrange of this resolved source view.
+    pub fn text_for_range(self, range: TextRange) -> Option<&'source str> {
+        if !self.span.range().contains_range(range) {
+            return None;
+        }
+
+        let base = self.span.range().start().bytes();
+
+        let relative = TextRange::new(
+            TextSize::new(range.start().bytes() - base),
+            TextSize::new(range.end().bytes() - base),
+        );
+
+        relative.slice_str(self.text)
+    }
 }
 
 /// Narrow immutable services shared by checker requests.
@@ -134,9 +152,10 @@ where
 
 #[cfg(test)]
 mod tests {
+    use bray_source::{SourceId, SourceSpan, TextRange, TextSize};
     use bray_symbols::CallableSignatureFact;
 
-    use super::{CheckerRequestContext, CheckerSemanticFactProvider};
+    use super::{CheckerRequestContext, CheckerSemanticFactProvider, CheckerSource};
 
     #[test]
     fn request_context_contracts_are_shareable() {
@@ -144,5 +163,31 @@ mod tests {
 
         assert_sync::<dyn CheckerRequestContext>();
         assert_sync::<dyn CheckerSemanticFactProvider<CallableSignatureFact>>();
+    }
+
+    #[test]
+    fn checker_sources_resolve_only_valid_contained_subranges() {
+        let source = CheckerSource::new(
+            SourceSpan::new(
+                SourceId::new(0),
+                TextRange::new(TextSize::new(4), TextSize::new(9)),
+            ),
+            "aébc",
+        );
+
+        assert_eq!(
+            source.text_for_range(TextRange::new(TextSize::new(5), TextSize::new(8))),
+            Some("éb")
+        );
+
+        assert_eq!(
+            source.text_for_range(TextRange::new(TextSize::new(3), TextSize::new(5))),
+            None
+        );
+
+        assert_eq!(
+            source.text_for_range(TextRange::new(TextSize::new(6), TextSize::new(8))),
+            None
+        );
     }
 }

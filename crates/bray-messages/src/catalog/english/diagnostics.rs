@@ -210,6 +210,34 @@ const CHECKING_INCOMPATIBLE_EXPRESSION_TYPE: &[MessageTemplatePart] = &[
 const CHECKING_CANNOT_INFER_EXPRESSION_TYPE: &[MessageTemplatePart] =
     &[MessageTemplatePart::Text("cannot infer expression type")];
 
+const CHECKING_INVALID_CONSTANT_EXPRESSION: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "expression is not valid in compile-time constant context",
+)];
+
+const CHECKING_CONSTANT_LITERAL_NOT_REPRESENTABLE: &[MessageTemplatePart] =
+    &[MessageTemplatePart::Text(
+        "literal value cannot be represented by its selected type",
+    )];
+
+const CHECKING_CONSTANT_EVALUATION_STEP_LIMIT_EXCEEDED: &[MessageTemplatePart] =
+    &[MessageTemplatePart::Text(
+        "constant evaluation exceeded its operation limit",
+    )];
+
+const CHECKING_CONSTANT_AGGREGATE_LIMIT_EXCEEDED: &[MessageTemplatePart] =
+    &[MessageTemplatePart::Text(
+        "constant evaluation exceeded its aggregate element limit",
+    )];
+
+const CHECKING_CONSTANT_LITERAL_SIZE_LIMIT_EXCEEDED: &[MessageTemplatePart] =
+    &[MessageTemplatePart::Text(
+        "constant evaluation exceeded its literal size limit",
+    )];
+
+const CHECKING_CYCLIC_CONSTANT_DEFINITION: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "constant definition depends on itself through a cycle",
+)];
+
 const BINDING_AMBIGUOUS_NAME: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("name "),
     MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
@@ -445,6 +473,24 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         }
         DiagnosticKind::CheckingCannotInferExpressionType => {
             MessageTemplate::new(CHECKING_CANNOT_INFER_EXPRESSION_TYPE)
+        }
+        DiagnosticKind::CheckingInvalidConstantExpression => {
+            MessageTemplate::new(CHECKING_INVALID_CONSTANT_EXPRESSION)
+        }
+        DiagnosticKind::CheckingConstantLiteralNotRepresentable => {
+            MessageTemplate::new(CHECKING_CONSTANT_LITERAL_NOT_REPRESENTABLE)
+        }
+        DiagnosticKind::CheckingConstantEvaluationStepLimitExceeded => {
+            MessageTemplate::new(CHECKING_CONSTANT_EVALUATION_STEP_LIMIT_EXCEEDED)
+        }
+        DiagnosticKind::CheckingConstantAggregateLimitExceeded => {
+            MessageTemplate::new(CHECKING_CONSTANT_AGGREGATE_LIMIT_EXCEEDED)
+        }
+        DiagnosticKind::CheckingConstantLiteralSizeLimitExceeded => {
+            MessageTemplate::new(CHECKING_CONSTANT_LITERAL_SIZE_LIMIT_EXCEEDED)
+        }
+        DiagnosticKind::CheckingCyclicConstantDefinition => {
+            MessageTemplate::new(CHECKING_CYCLIC_CONSTANT_DEFINITION)
         }
         DiagnosticKind::EmissionMissingContribution => {
             MessageTemplate::new(EMISSION_MISSING_CONTRIBUTION)

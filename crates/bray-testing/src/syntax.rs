@@ -1,5 +1,56 @@
 use bray_source::{SourceSnapshot, TextSize};
-use bray_syntax::{SyntaxKind, SyntaxToken};
+use bray_syntax::{
+    SyntaxCast, SyntaxKind, SyntaxToken, SyntaxWalkControl, SyntaxWalkEvent, SyntaxWalkRoot,
+    walk_syntax_node,
+};
+
+/// Returns the first source-ordered descendant of the requested typed syntax category.
+pub fn first_syntax_descendant<T>(root: &impl SyntaxWalkRoot) -> Option<T>
+where
+    T: SyntaxCast,
+{
+    let mut result = None;
+
+    walk_syntax_node(root, |event| {
+        let SyntaxWalkEvent::EnterNode(node) = event else {
+            return SyntaxWalkControl::Continue;
+        };
+
+        if node.kind() != T::KIND {
+            return SyntaxWalkControl::Continue;
+        }
+
+        result = node.cast();
+
+        SyntaxWalkControl::Stop
+    });
+
+    result
+}
+
+/// Returns all source-ordered descendants of the requested typed syntax category.
+pub fn syntax_descendants<T>(root: &impl SyntaxWalkRoot) -> Vec<T>
+where
+    T: SyntaxCast,
+{
+    let mut result = Vec::new();
+
+    walk_syntax_node(root, |event| {
+        let SyntaxWalkEvent::EnterNode(node) = event else {
+            return SyntaxWalkControl::Continue;
+        };
+
+        if node.kind() == T::KIND
+            && let Some(node) = node.cast()
+        {
+            result.push(node);
+        }
+
+        SyntaxWalkControl::Continue
+    });
+
+    result
+}
 
 /// Asserts that a token stream contains exactly one final EOF token.
 pub fn assert_single_final_eof(tokens: &[SyntaxToken], source_text: &str) {

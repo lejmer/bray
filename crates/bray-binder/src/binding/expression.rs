@@ -5,6 +5,7 @@ mod core;
 mod entry;
 mod flow;
 mod generator;
+mod literal;
 mod postfix;
 mod primary;
 mod selection;

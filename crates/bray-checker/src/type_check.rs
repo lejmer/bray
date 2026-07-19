@@ -3,6 +3,7 @@ mod constraints;
 mod dependencies;
 mod inference;
 mod input;
+mod literal;
 mod propagation;
 mod session;
 

@@ -740,13 +740,20 @@ mod tests {
 
         assert_eq!(
             first.provider().declaration_symbols().len(),
-            first.declarations().len() + 2
+            first.declarations().len() + 5
         );
 
-        assert_eq!(
-            first.declaration_symbol::<StructSymbolId>(&declaration_key("TargetReal16")),
-            None
-        );
+        for key in [
+            "TargetReal16",
+            "TargetReal128",
+            "TargetComplex32",
+            "TargetComplex256",
+        ] {
+            assert_eq!(
+                first.declaration_symbol::<StructSymbolId>(&declaration_key(key)),
+                None
+            );
+        }
 
         assert_eq!(
             first.declaration_symbol::<FunctionSymbolId>(&declaration_key("MemoryCopy")),

@@ -52,7 +52,7 @@ impl ExpressionTypeExpectation {
     }
 }
 
-/// Additional typed inputs supplied by focused literal and selection rules.
+/// Additional typed inputs supplied by cooperating checking rules.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ExpressionTypeInput {
     evidence: Arc<[ExpressionTypeEvidence]>,

@@ -1,10 +1,12 @@
 use crate::analysis::check_control_flow;
+use crate::constant::evaluate_constant;
 use crate::type_check::check_expression_types;
 use crate::{
-    CheckerOutcome, CheckerRequestContext, ControlFlowCheckResult, ExpressionTypeInput,
-    UnitCheckRequest,
+    CheckerOutcome, CheckerRequestContext, ConstantEvaluationInput, ControlFlowCheckResult,
+    ExpressionTypeInput, UnitCheckRequest,
 };
 use bray_bound_tree::CheckedExpressionTypes;
+use bray_symbols::ConstantValueId;
 
 /// The standard Bray control-flow checker implementation.
 #[derive(Clone, Copy, Debug, Default)]
@@ -13,6 +15,10 @@ pub struct DefaultControlFlowChecker;
 /// The standard Bray expression-type checker implementation.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DefaultExpressionTypeChecker;
+
+/// The standard Bray constant evaluator implementation.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct DefaultConstantEvaluator;
 
 /// Control-flow checking over one committed bound semantic unit.
 ///
@@ -36,7 +42,7 @@ impl<C> ControlFlowChecker<C> for DefaultControlFlowChecker where C: CheckerRequ
 
 /// Expression type inference and compatibility checking over one bound semantic unit.
 ///
-/// Type evidence can come from focused literal or selection rules. Expected types constrain
+/// Type evidence can come from cooperating checking rules. Expected types constrain
 /// compatibility but never select an overload or operation.
 pub trait ExpressionTypeChecker<C>: Sync
 where
@@ -56,6 +62,23 @@ impl<C> ExpressionTypeChecker<C> for DefaultExpressionTypeChecker where
     C: CheckerRequestContext + ?Sized
 {
 }
+
+/// Closed constant-expression evaluation over one checked bound semantic unit.
+pub trait ConstantEvaluator<C>: Sync
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    /// Evaluates and interns the request's constant-expression root.
+    fn evaluate_constant(
+        &self,
+        request: UnitCheckRequest<'_, C>,
+        input: &ConstantEvaluationInput<'_>,
+    ) -> CheckerOutcome<ConstantValueId> {
+        evaluate_constant(request, input)
+    }
+}
+
+impl<C> ConstantEvaluator<C> for DefaultConstantEvaluator where C: CheckerRequestContext + ?Sized {}
 
 #[cfg(test)]
 mod tests {

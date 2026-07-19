@@ -39,7 +39,6 @@ pub(super) fn classify_operator(kind: SyntaxKind) -> Option<BoundOperator> {
 
 pub(super) fn structured_kind(kind: SyntaxKind) -> Option<BoundStructuredExpressionKind> {
     Some(match kind {
-        SyntaxKind::LiteralExpression => BoundStructuredExpressionKind::Literal,
         SyntaxKind::UnitExpression => BoundStructuredExpressionKind::Unit,
         SyntaxKind::AbsenceExpression => BoundStructuredExpressionKind::Absence,
         SyntaxKind::TupleExpression => BoundStructuredExpressionKind::Tuple,

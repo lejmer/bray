@@ -266,7 +266,7 @@ mod tests {
             matches!(rule, AvailabilityRule::Always | AvailabilityRule::Real16)
         });
 
-        assert_eq!(view.declarations().len(), complete_count - 1);
+        assert_eq!(view.declarations().len(), complete_count - 4);
         assert_eq!(provider.declaration_symbols().len(), complete_count);
 
         assert!(
@@ -278,6 +278,21 @@ mod tests {
             view.declaration_symbol::<FunctionSymbolId>(&declaration_key("MemoryCopy")),
             None
         );
+
+        assert_eq!(
+            view.declaration_symbol::<StructSymbolId>(&declaration_key("TargetReal128")),
+            None
+        );
+
+        assert_eq!(
+            view.declaration_symbol::<StructSymbolId>(&declaration_key("TargetComplex32")),
+            None
+        );
+
+        assert_eq!(
+            view.declaration_symbol::<StructSymbolId>(&declaration_key("TargetComplex256")),
+            None
+        );
     }
 
     #[test]
@@ -286,6 +301,7 @@ mod tests {
 
         let first =
             Arc::clone(&provider).available_symbols(|rule| rule == AvailabilityRule::Always);
+
         let second =
             Arc::clone(&provider).available_symbols(|rule| rule == AvailabilityRule::Always);
 

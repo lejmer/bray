@@ -418,8 +418,8 @@ where
 mod tests {
     use crate::fact::test_support::TestFixture;
     use bray_bound_tree::{
-        BoundControlTransferKind, BoundExpression, BoundOperator, BoundStructuredExpressionKind,
-        BoundWalkControl, BoundWalkEvent, walk_bound_tree,
+        BoundControlTransferKind, BoundExpression, BoundLiteralKind, BoundOperator,
+        BoundStructuredExpressionKind, BoundWalkControl, BoundWalkEvent, walk_bound_tree,
     };
 
     #[test]
@@ -494,6 +494,7 @@ mod tests {
         let mut saw_named_member = false;
         let mut saw_array = false;
         let mut saw_repeated_array = false;
+        let mut saw_integer_literal = false;
         let mut saw_conditional = false;
         let mut saw_for_pattern = false;
         let mut saw_match_pattern = false;
@@ -556,6 +557,11 @@ mod tests {
                 {
                     saw_repeated_array = true;
                 }
+                BoundExpression::Literal(expression)
+                    if expression.kind() == BoundLiteralKind::Integer =>
+                {
+                    saw_integer_literal = true;
+                }
                 BoundExpression::Structured(expression)
                     if expression.kind() == BoundStructuredExpressionKind::Conditional =>
                 {
@@ -600,6 +606,7 @@ mod tests {
         assert!(saw_named_member);
         assert!(saw_array);
         assert!(saw_repeated_array);
+        assert!(saw_integer_literal);
         assert!(saw_conditional);
         assert!(saw_for_pattern);
         assert!(saw_match_pattern);
