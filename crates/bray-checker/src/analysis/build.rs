@@ -4,7 +4,7 @@ use bray_bound_tree::{
 };
 use bray_declarations::SyntaxAnchor;
 
-use crate::{CheckerRequestContext, UnitCheckRequest, UnitCheckRoot};
+use crate::{CheckerRequestContext, CheckerUnitRoot, CheckerUnitView};
 
 use super::assembly::ControlFlowGraphAssembler;
 use super::id::AnalysisBlockId;
@@ -16,7 +16,7 @@ pub(crate) enum ControlFlowGraphBuildOutcome {
 }
 
 pub(crate) fn build_control_flow_graph<C>(
-    request: UnitCheckRequest<'_, C>,
+    request: CheckerUnitView<'_, C>,
 ) -> ControlFlowGraphBuildOutcome
 where
     C: CheckerRequestContext + ?Sized,
@@ -26,9 +26,9 @@ where
     let entry = builder.push_block();
 
     let completion = match request.root() {
-        UnitCheckRoot::CallableBody(root) => builder.build_callable_body(root, entry),
-        UnitCheckRoot::Expression(root) => builder.build_expression(root, entry),
-        UnitCheckRoot::ExpressionSequence(root) => builder.build_block(root, entry),
+        CheckerUnitRoot::CallableBody(root) => builder.build_callable_body(root, entry),
+        CheckerUnitRoot::Expression(root) => builder.build_expression(root, entry),
+        CheckerUnitRoot::ExpressionSequence(root) => builder.build_block(root, entry),
     };
 
     let Some(completion) = completion else {
@@ -46,7 +46,7 @@ pub(super) struct ControlFlowGraphBuilder<'view, C>
 where
     C: CheckerRequestContext + ?Sized,
 {
-    request: UnitCheckRequest<'view, C>,
+    request: CheckerUnitView<'view, C>,
     view: BoundUnitView<'view>,
     storage: ControlFlowGraphAssembler,
     pub(super) loops: Vec<LoopContext>,
@@ -72,7 +72,7 @@ impl<'view, C> ControlFlowGraphBuilder<'view, C>
 where
     C: CheckerRequestContext + ?Sized,
 {
-    fn new(request: UnitCheckRequest<'view, C>) -> Self {
+    fn new(request: CheckerUnitView<'view, C>) -> Self {
         Self {
             request,
             view: request.view(),
@@ -444,7 +444,7 @@ where
         self.scopes.len()
     }
 
-    pub(super) const fn request(&self) -> UnitCheckRequest<'_, C> {
+    pub(super) const fn request(&self) -> CheckerUnitView<'_, C> {
         self.request
     }
 
@@ -481,7 +481,7 @@ mod tests {
     };
 
     use super::{ControlFlowGraphBuildOutcome, build_control_flow_graph};
-    use crate::UnitCheckRequest;
+    use crate::CheckerUnitView;
     use crate::analysis::model::ControlFlowGraph;
     use crate::analysis::model::{
         AnalysisEdgeKind, AnalysisExitKind, AnalysisOperationKind, AnalysisScopeExitPhase,
@@ -504,8 +504,8 @@ mod tests {
         let entry = callable_entry(&key);
         let context = TestCheckerContext::new(false);
 
-        let Ok(request) = UnitCheckRequest::new(&unit, &entry, &context) else {
-            panic!("matching test roots must produce checker requests");
+        let Ok(request) = CheckerUnitView::new(&unit, &entry, &context) else {
+            panic!("matching test roots must produce checker unit views");
         };
 
         let ControlFlowGraphBuildOutcome::Complete(graph) = build_control_flow_graph(request)
@@ -1005,8 +1005,8 @@ mod tests {
         let entry = callable_entry(key);
         let context = TestCheckerContext::new(false);
 
-        let Ok(request) = UnitCheckRequest::new(&unit, &entry, &context) else {
-            panic!("matching test roots must produce checker requests");
+        let Ok(request) = CheckerUnitView::new(&unit, &entry, &context) else {
+            panic!("matching test roots must produce checker unit views");
         };
 
         let ControlFlowGraphBuildOutcome::Complete(graph) = build_control_flow_graph(request)

@@ -23,11 +23,12 @@ The checker architecture should:
 
 - implement each language rule in one focused domain,
 - expose typed service contracts rather than untyped rule names or generic fact maps,
-- support local checks during binding and whole-unit checks over committed bound structure,
+- support point-local rule checks and independently demandable unit-scoped facts over committed
+  bound structure,
 - make dependencies between checker domains explicit and acyclic,
 - use one control-flow graph for every flow-sensitive domain in a semantic unit,
 - combine mutually dependent storage rules into one coherent flow domain,
-- retain only durable semantic facts in the checked bound representation,
+- retain only durable semantic facts after checking,
 - produce structured source-correlated diagnostics without user-facing English in checker logic,
 - recover conservatively from malformed bound input without panics or nontermination,
 - support deterministic cancellation, parallelism, and future incremental reuse,
@@ -58,7 +59,7 @@ The checker does not:
 A rule check validates one typed semantic operation whose relevant inputs are already available. Examples include checking a
 conversion, selecting an implementation witness, checking pattern compatibility, or validating a call contract.
 
-Rule checks can run while the binder constructs a candidate. They do not require a whole-unit control-flow graph unless their
+Rule checks can run while the binder constructs a candidate. They do not require a unit-scoped control-flow graph unless their
 contract explicitly says otherwise.
 
 "Local" describes the service input, not necessarily when it runs. A flow domain can invoke a point-local contract, conversion, or
@@ -99,17 +100,17 @@ not collapse into the same state.
 `bray-checker` owns semantic rule algorithms, its checker-private control-flow graph and analysis state, transfer functions,
 convergence engines, and the construction of structured checker diagnostics.
 
-`bray-bound-tree` owns the source-shaped checked HIR, durable node facts, unit-local storage and access identities, borrow
-capabilities, instantiated dependency contracts, and immutable checked-unit result types.
+`bray-bound-tree` owns the source-shaped bound HIR, durable node and side-fact types, unit-local storage and access identities,
+borrow capabilities, and instantiated dependency contracts.
 
 `bray-symbols` owns canonical semantic types, constant values and terms, generic substitutions, implementation selections,
 declaration contract summaries, portable dependency-contract templates, and symbol-facing lazy fact contracts.
 
-`bray-binder` owns when checks run, which expected context applies, candidate transactions, placement of results on task-local
-bound builders, deterministic diagnostic merging, and atomic publication of a complete checked unit.
+`bray-binder` owns expected contexts, candidate transactions, point-local checker cooperation during binding, deterministic
+diagnostic ownership, and atomic publication of the canonical bound unit.
 
-`bray-compilation` owns lazy query keys, caches, dependency scheduling, cancellation sources, cross-unit parallelism, and immutable
-fact publication.
+`bray-compilation` owns typed lazy fact accessors, caches, private dependency evaluation, cancellation sources, cross-unit
+parallelism, and immutable fact publication.
 
 A checker service receives typed immutable inputs. It must not reach into binder builders, compilation caches, syntax internals, or
 global mutable state.
@@ -117,7 +118,7 @@ global mutable state.
 ### Method Naming
 
 Functions and methods whose responsibility is enforcing a semantic rule use the `check_*` prefix. Examples include
-`check_conversion`, `check_pattern`, `check_call_contract`, and `check_unit`.
+`check_conversion`, `check_pattern`, `check_call_contract`, and `check_control_flow`.
 
 Operations that compute a value without deciding semantic validity use a name for that computation, such as `evaluate_constant`,
 `select_implementation`, `merge_states`, or `infer_dependency_contract`. A helper should not use `check_*` merely because a caller
@@ -133,10 +134,11 @@ discoverable.
 Focused checker APIs use exact typed request and result records. A request contains only the semantic inputs needed by that rule,
 plus narrow read-only fact access and cancellation when the operation can request facts or perform substantial work.
 
-Whole-unit requests pair the committed bound-unit view and exact root with a closed category-specific entry context selected by the
-binder. The entry context identifies the declaration or local callable boundary that supplies parameters, generic context,
-requirements, and category-specific contextual bindings. A request whose root, unit key, unit category, and entry context do not
-agree is an infrastructure failure and cannot enter semantic analysis.
+Unit-scoped domains receive a validated `CheckerUnitView` that pairs the committed bound-unit view and exact root with a closed
+`SemanticUnitContext`. The semantic context identifies the declaration or local callable boundary that supplies parameters,
+generic context, requirements, and category-specific contextual bindings. A view whose root, unit key, unit category, and semantic
+context do not agree is an infrastructure failure and cannot enter semantic analysis. The view is shared immutable input for
+focused services. It is not a request to run every checker domain.
 
 The shared request context resolves source text and spans only through `BoundSourceAnchor`. It can return the anchored text and exact
 span but cannot expose a source snapshot, syntax tree, token stream, or arbitrary syntax traversal to checker rules. Symbol facts are
@@ -167,62 +169,46 @@ target-available compiler-known symbol view. Checker rules must classify resolve
 names or catalog keys. The view supplies available identity and role association only. Checker-owned semantic rules remain in
 focused checker services.
 
-`UnitChecker` is the whole-unit orchestration facade used by the binder. It does not imply one universal checker algorithm. Its
-implementation builds the shared control-flow graph, runs the required domains in dependency order, and returns a category-specific
-checked-unit result.
+### Typed Fact Accessors
 
-`UnitCheckResult` is a closed category-specific transfer shape rather than a record of unrelated optional fields.
-Conceptually:
+The public semantic model is the set of typed lazy fact accessors exposed by `Compilation` and symbol views. A caller requests the
+fact it needs by its existing typed key and receives that fact's canonical immutable value and diagnostics. Examples include
+expression types, selected calls, selected operations, control-completion facts, storage-access facts, effect summaries, and
+constant values.
 
-```rust
-pub enum UnitCheckResult {
-    CallableBody(BodyCheckResult),
-    AnonymousCallable(AnonymousCallableCheckResult),
-    RuntimeDefault(RuntimeDefaultCheckResult),
-    ConstantTemplate(ConstantCheckResult),
-    PredicateDefinition(PredicateCheckResult),
-    Constraint(ConstraintCheckResult),
-    ContractClause(ContractClauseCheckResult),
-}
-```
+The fact key is also the identity used for caching and dependency evaluation. The compiler must not mirror each fact with a public
+query object, generic fact wrapper, dynamic registry entry, duplicate query identity, or stage-progress representation. Dependency
+recording, single-flight evaluation, scheduling, waiting, and cancellation are private mechanics behind the typed accessors. They
+do not create another semantic layer above the facts.
 
-Each variant retains the exact `BoundUnitId`. A result for one unit or unit category cannot be applied to another.
-The transfer wrapper belongs to `bray-checker`. Durable semantic values carried by its payloads belong to their lower representation
-owners.
+Each fact declares only the prerequisites needed to establish its own contract. Computing one fact can request another through its
+typed accessor, but no ordinary fact request implies a closed checker schedule or completion of unrelated domains. A control-flow
+fact for an enclosing callable does not require control-flow facts for nested callable units. A selected-call fact does not require
+borrow or effect analysis merely because those facts may later be needed by lowering.
 
-### Unit Check Schedules
+The semantic unit category selects contextual inputs, not a list of analyses:
 
-Every independently published `BoundUnitKind` uses the shared control-flow graph. A simple expression produces a trivial graph. The
-uniform boundary prevents declaration-owned units from bypassing ordinary control, storage, ownership, lifecycle, effect, and
-recovery rules merely because their current syntax is small.
+| Bound unit kind       | Semantic context                                                                                                      |
+|-----------------------|-----------------------------------------------------------------------------------------------------------------------|
+| `CallableBody`        | Receiver, parameters, generic constraints, callable requirements, declared capabilities, and lifecycle context        |
+| `AnonymousCallable`   | Anonymous parameters, generic and expected callable context, and the capture-free local boundary                      |
+| `RuntimeDefault`      | Permitted receiver, earlier parameters, generic values, selected implementations, and declaration context             |
+| `ConstantTemplate`    | Declared expected type, symbolic generic and trait context, and selected target facts                                 |
+| `PredicateDefinition` | Predicate parameters, symbolic generic context, and declared trusted relation context                                 |
+| `Constraint`          | Generic parameters and facts available before the constraint being defined                                            |
+| `ContractClause`      | Callable parameters and clause-specific facts, with `result` present only for a value-producing `ensures(...)` clause |
 
-The checker derives a closed typed schedule from the unit kind and exact bound-unit key. Callers do not assemble domain lists or
-toggle analyses with booleans.
+Runtime-default facts record requirements without imposing them on calls or constructions that supply an explicit value. Constant
+templates are validated symbolically. Only a closed constant instance is evaluated, keyed by its exact substitution, selected
+implementations, and target profile.
 
-| Bound unit kind       | Entry context                                                                                                         | Required checks and domains                                                                                                              | Required completion                                                                                                   |
-|-----------------------|-----------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------|
-| `CallableBody`        | Receiver, parameters, generic constraints, callable requirements, declared capabilities, and lifecycle context        | Target availability, type and selection checks, control-flow graph, every whole-unit flow domain, then callable-body finalization        | Every reachable exit is valid and the body summary fits the declaration surface                                       |
-| `AnonymousCallable`   | Anonymous parameters, generic and expected callable context, and the capture-free local boundary                      | The callable-body schedule plus anonymous-callable signature and boundary checks                                                         | Every reachable exit is valid and the inferred callable summary fits its checked callable type                        |
-| `RuntimeDefault`      | Permitted receiver, earlier parameters, generic values, selected implementations, and declaration context             | Target availability, type and selection checks, control-flow graph, every whole-unit flow domain, then runtime-default finalization      | Normal completion produces the required value and its complete provider requirements are summarized                   |
-| `ConstantTemplate`    | Declared expected type, symbolic generic and trait context, and selected target facts                                 | Target availability, type and selection checks, control-flow graph, every whole-unit flow domain, then constant-template finalization    | Every reachable normal result is constant-valid, control terminates, and closed instances can be evaluated separately |
-| `PredicateDefinition` | Predicate parameters, symbolic generic context, and declared trusted relation context                                 | Target availability, type and selection checks, control-flow graph, every whole-unit flow domain, then predicate-definition finalization | Normal completion produces `bool` and a reusable semantic predicate summary                                           |
-| `Constraint`          | Generic parameters and facts available before the constraint being defined                                            | The predicate-definition schedule with static-constraint restrictions                                                                    | Normal completion produces a total, deterministic, effect-free `bool` constraint summary                              |
-| `ContractClause`      | Callable parameters and clause-specific facts, with `result` present only for a value-producing `ensures(...)` clause | The predicate-definition schedule with clause-specific fact, trust, and visibility rules                                                 | Normal completion produces a total contract fact valid for its exact clause category                                  |
+For contract-clause semantic contexts, `requires(...)` does not assume itself. `ensures(...)` can reference the declared normal
+result, but body checking must prove the ensured fact independently on every reachable normal completion. Trusted facts retain
+their provenance in every category.
 
-"Every whole-unit flow domain" means reachability, refinement, liveness, composite storage flow, dependency-contract propagation,
-and effect, capability, contract, and trust validation. Category finalization consumes those results and cannot rerun a private
-replacement analysis.
-
-In the schedule table, target availability means the preselection layer. Every selected target-dependent type or operation completes
-the post-selection target-validity layer before control-flow graph construction.
-
-Runtime-default results record requirements without imposing them on calls or constructions that supply an explicit value.
-Constant templates are validated symbolically. Only a closed constant instance is evaluated, keyed by its exact substitution,
-selected implementations, and target profile.
-
-For contract-clause entry contexts, `requires(...)` does not assume itself. `ensures(...)` can reference the declared normal result,
-but body checking must prove the ensured fact independently on every reachable normal completion. Trusted facts retain their
-provenance in every category.
+Package diagnostics is an intentionally broad consumer. It requests every applicable diagnostic-owning fact reachable from the
+package and merges their diagnostics deterministically. Lowering is a different projection: it requests and validates the exact
+typed facts named by `LoweringInput`. Neither projection is a universal checked-unit value or evidence that unrelated facts ran.
 
 ### Outcomes And Cancellation
 
@@ -230,7 +216,7 @@ Every substantial checker operation observes the caller-provided cancellation so
 diagnostics and no partial results.
 
 Cancellation is not a semantic result and must not be represented as an error type, recovery node, unknown proof, or user
-diagnostic. Binder and compilation orchestration discard all task-local checker state after cancellation.
+diagnostic. The compilation fact evaluation discards all task-local checker state after cancellation.
 
 Failures to resolve a bound source anchor, obtain a required semantic fact, or satisfy a checker request invariant are typed
 infrastructure failures. They are distinct from cancellation and from source diagnostics, and they publish neither a recovered
@@ -472,8 +458,9 @@ publishes neither a value nor diagnostics.
 The evaluator operates on checked semantic operations, not syntax. It cannot call non-const behavior, read runtime storage, allocate
 runtime storage, perform I/O, start tasks, await, use runtime dynamic dispatch, or execute another forbidden operation indirectly.
 
-Evaluating a call to a const callable requests that callable's complete checked-body fact as a cross-unit dependency. It does not
-invoke binding or a later domain of the constant instance currently being evaluated.
+Evaluating a call to a const callable requests the callable facts required by constant evaluation, including its bound body,
+expression types, selected operations, constant-validity facts, and referenced constant values. It does not request unrelated
+storage or tooling facts and does not invoke binding or another checker service directly.
 
 Evaluation failure returns an error-aware constant fact with structured diagnostics. Deterministic resource exhaustion is a
 compile-time rejection. Cancellation remains a non-semantic `CheckerOutcome::Cancelled`.
@@ -555,11 +542,11 @@ These rules follow `docs/language/targets-layout-abi-and-raw-memory.md` and
 
 ---
 
-## Whole-Unit Flow Domains
+## Unit-Scoped Flow Domains
 
 ### Reachability And Control Completion
 
-Reachability is the first whole-unit flow domain.
+Reachability publishes the control facts consumed by flow domains that need a reachable-operation mask.
 
 Its state distinguishes reachable, unreachable, and conservative recovery control. Its forward merge is deterministic reachability
 union. It recognizes normal continuation, `never`, return, break, continue, yield, propagation, panic, cancellation, suspension,
@@ -749,7 +736,7 @@ for a callable returning `RunResult<R>`. It verifies that the panicked edge tran
 enters current-run cancellation, and both edges execute every intervening lifecycle and structured-cleanup obligation. An enclosing
 catch captures only the panicked edge.
 
-The cancelled edge contributes `may_cancel_current_run` to the checked body-effect summary, as do run checkpoints and
+The cancelled edge contributes `may_cancel_current_run` to the body-effect summary, as do run checkpoints and
 cancellation-aware operations. This is panic-like implicit abnormal-control metadata rather than a source callable modifier or an
 overload/assignment discriminator. Constant, predicate, and other effect-free contexts reject it. Exported checked declaration
 metadata preserves it for diagnostics, lowering, and inspection.
@@ -799,7 +786,8 @@ operations. A cancelled fixed point publishes nothing.
 
 ## Durable Publication
 
-Checker output is a task-local transfer value until the binder applies it to the exact bound unit builder.
+Checker output remains task-local until the compilation validates its unit identity and publishes it through the matching typed
+fact accessor. Publication freezes that fact and its diagnostics without mutating or wrapping the canonical bound unit.
 
 Durable checked data can include:
 
@@ -824,19 +812,19 @@ Checker output does not include:
 - temporary alias or overlap caches,
 - checker-owned diagnostic suppression state.
 
-The binder validates unit identity and category, applies every required fact, merges diagnostics, and publishes the checked unit
-atomically. A missing required fact is a construction error, not an invitation for lowering to re-run checker logic.
+Each published fact validates the unit identity and category required by its contract. A missing prerequisite prevents that fact
+from being published and is not an invitation for a consumer to rerun checker logic. Package diagnostics merges diagnostics from
+the diagnostic-owning facts it requests. Lowering validates its exact typed input facts before constructing MIR.
 
 ---
 
 ## Parallelism And Determinism
 
-Independent semantic units can be checked in parallel through compilation queries.
+Independent semantic facts can be evaluated in parallel when their declared prerequisites are available.
 
-Within one unit, independent domains can run in parallel only after all declared input results are complete. Reachability runs
-before the flow domains that consume its mask. Refinement and liveness can run in parallel where their inputs are independent.
-Composite storage flow waits for both. Dependency-contract propagation waits for storage results. Effect, capability, and
-obligation validation waits for the dependency results it consumes.
+Within one unit, domains whose prerequisite facts are satisfied can run in parallel. Reachability precedes only domains that
+consume its mask. Refinement and liveness can run concurrently where neither depends on the other. Storage, dependency, effect,
+capability, and obligation facts declare their actual inputs rather than inheriting a universal schedule.
 
 Small units should remain serial when parallel coordination costs more than the work.
 

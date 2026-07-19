@@ -4,14 +4,14 @@ use bray_diagnostics::{
 };
 
 use crate::diagnostic::{diagnostic_id, expression_span};
-use crate::{CheckerOutcome, CheckerRequestContext, UnitCheckRequest};
+use crate::{CheckerOutcome, CheckerRequestContext, CheckerUnitView};
 
 use super::{
     CallableSelectionRequest, CandidateSelection, OperationSelectionRequest, SelectionFailure,
 };
 
 pub(crate) fn select_callable<C>(
-    request: UnitCheckRequest<'_, C>,
+    request: CheckerUnitView<'_, C>,
     types: &CheckedExpressionTypes,
     input: CallableSelectionRequest,
 ) -> CheckerOutcome<CandidateSelection<SelectedCall>>
@@ -28,7 +28,7 @@ where
 }
 
 pub(crate) fn select_operation<C>(
-    request: UnitCheckRequest<'_, C>,
+    request: CheckerUnitView<'_, C>,
     types: &CheckedExpressionTypes,
     input: OperationSelectionRequest,
 ) -> CheckerOutcome<CandidateSelection<SelectedOperation>>
@@ -46,7 +46,7 @@ where
 }
 
 fn complete<C, T>(
-    request: UnitCheckRequest<'_, C>,
+    request: CheckerUnitView<'_, C>,
     expression: bray_bound_tree::BoundExpressionId,
     kind: SelectionKind,
     selection: CandidateSelection<T>,

@@ -2,7 +2,7 @@ use bray_compiler_known::{NumericRepresentationKind, RepresentationRole};
 use bray_symbols::{TypeData, TypeId};
 
 use crate::representation::{representation_type, type_representation};
-use crate::{CheckerInfrastructureError, CheckerRequestContext, UnitCheckRequest};
+use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
 
 pub(super) struct ExpressionTypeDependencies {
     pub(super) error: TypeId,
@@ -19,7 +19,7 @@ pub(super) struct ExpressionTypeDependencies {
 
 impl ExpressionTypeDependencies {
     pub(super) fn new<C>(
-        request: UnitCheckRequest<'_, C>,
+        request: CheckerUnitView<'_, C>,
     ) -> Result<Self, CheckerInfrastructureError>
     where
         C: CheckerRequestContext + ?Sized,
@@ -54,7 +54,7 @@ impl ExpressionTypeDependencies {
 }
 
 pub(super) fn numeric_kind<C>(
-    request: UnitCheckRequest<'_, C>,
+    request: CheckerUnitView<'_, C>,
     ty: TypeId,
 ) -> Result<Option<NumericRepresentationKind>, CheckerInfrastructureError>
 where

@@ -34,16 +34,16 @@ documents.
     - Deterministic encoding, bounded decoding, validation, and semantic access for compiled package interfaces.
 
 - `bray-binder`
-    - Name resolution, semantic reference binding, local symbol construction, and checked bound-unit construction.
+    - Name resolution, semantic reference binding, local symbol construction, and immutable bound-unit construction.
 
 - `bray-bound-tree`
-    - The checked, source-correlated high-level intermediate representation produced by binding and semantic analysis.
+    - The source-correlated high-level intermediate representation and durable typed semantic side-fact representations.
 
 - `bray-checker`
-    - Focused type, ownership, control-flow, effect, and related semantic checker services used during binding.
+    - Focused type, ownership, control-flow, effect, and related semantic checker services.
 
 - `bray-lowering`
-    - Transformation of checked bound units into explicit backend-independent mid-level IR.
+    - Transformation of bound units and their required semantic facts into explicit backend-independent mid-level IR.
 
 - `bray-ir`
     - Backend-independent mid-level IR, its validation, construction, and traversal APIs.

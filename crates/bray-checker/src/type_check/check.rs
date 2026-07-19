@@ -6,7 +6,7 @@ use bray_diagnostics::{
 use bray_symbols::{NamedTypeSymbolId, StructSymbolId, TypeData, TypeId};
 
 use crate::diagnostic::{diagnostic_id, expression_span};
-use crate::{CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext, UnitCheckRequest};
+use crate::{CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext, CheckerUnitView};
 
 use super::ExpressionTypeInput;
 use super::session::{ExpressionTypeSession, SessionProgress};
@@ -19,7 +19,7 @@ struct DiagnosticConflict {
 }
 
 pub(crate) fn check_expression_types<C>(
-    request: UnitCheckRequest<'_, C>,
+    request: CheckerUnitView<'_, C>,
     input: &ExpressionTypeInput,
 ) -> CheckerOutcome<CheckedExpressionTypes>
 where
@@ -127,7 +127,7 @@ where
 }
 
 fn diagnostic_type<C>(
-    request: UnitCheckRequest<'_, C>,
+    request: CheckerUnitView<'_, C>,
     ty: TypeId,
 ) -> Result<DiagnosticType, CheckerInfrastructureError>
 where
@@ -162,7 +162,7 @@ where
 }
 
 fn diagnostic_named_type<C>(
-    request: UnitCheckRequest<'_, C>,
+    request: CheckerUnitView<'_, C>,
     definition: NamedTypeSymbolId,
 ) -> DiagnosticType
 where
@@ -231,9 +231,9 @@ mod tests {
         tuple_type, type_data, unselected_name_expression as unselected_name,
     };
     use crate::{
-        CheckerInfrastructureError, CheckerOutcome, DefaultExpressionTypeChecker,
+        CheckerInfrastructureError, CheckerOutcome, CheckerUnitView, DefaultExpressionTypeChecker,
         ExpressionTypeChecker, ExpressionTypeEvidence, ExpressionTypeExpectation,
-        ExpressionTypeInput, UnitCheckRequest,
+        ExpressionTypeInput,
     };
 
     #[test]
@@ -316,8 +316,8 @@ mod tests {
         });
         let entry = callable_entry(unit.key());
         let context = crate::test_support::TestCheckerContext::new(false);
-        let Ok(request) = UnitCheckRequest::new(&unit, &entry, &context) else {
-            panic!("test checker request must be valid");
+        let Ok(request) = CheckerUnitView::new(&unit, &entry, &context) else {
+            panic!("test checker unit view must be valid");
         };
         let Ok(SessionProgress::Complete(mut session)) = ExpressionTypeSession::begin(request)
         else {
@@ -1070,8 +1070,8 @@ mod tests {
         let key = unit.key();
         let entry = callable_entry(key);
         let context = crate::test_support::TestCheckerContext::new(false);
-        let Ok(request) = UnitCheckRequest::new(&unit, &entry, &context) else {
-            panic!("test checker request must be valid");
+        let Ok(request) = CheckerUnitView::new(&unit, &entry, &context) else {
+            panic!("test checker unit view must be valid");
         };
 
         let outcome = DefaultExpressionTypeChecker.check_expression_types(request, &input);
@@ -1092,8 +1092,8 @@ mod tests {
         });
         let entry = callable_entry(unit.key());
         let context = crate::test_support::TestCheckerContext::new(true);
-        let Ok(request) = UnitCheckRequest::new(&unit, &entry, &context) else {
-            panic!("test checker request must be valid");
+        let Ok(request) = CheckerUnitView::new(&unit, &entry, &context) else {
+            panic!("test checker unit view must be valid");
         };
 
         let outcome = DefaultExpressionTypeChecker
@@ -1112,8 +1112,8 @@ mod tests {
         });
         let entry = callable_entry(unit.key());
         let context = crate::test_support::TestCheckerContext::cancelling_after(8);
-        let Ok(request) = UnitCheckRequest::new(&unit, &entry, &context) else {
-            panic!("test checker request must be valid");
+        let Ok(request) = CheckerUnitView::new(&unit, &entry, &context) else {
+            panic!("test checker unit view must be valid");
         };
 
         let outcome = DefaultExpressionTypeChecker

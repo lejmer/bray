@@ -2,10 +2,10 @@
 
 #![forbid(unsafe_code)]
 
-mod check_entry;
 mod entry;
 mod fact;
 mod publication;
+mod semantic_context;
 mod surface;
 
 // TODO(binder): Narrow and remove this expectation as candidate binding becomes production-used.
@@ -51,7 +51,6 @@ pub use binding::{
     CallableTypeQualifiers, TypeExpressionBinder, TypeParameterBinding, bind_callable_abi,
 };
 pub use bray_checker::CheckerOutcome as BindingOutcome;
-pub use check_entry::{UnitCheckEntryContextError, unit_check_entry_context};
 pub use entry::{
     BoundUnitBindingError, PendingBoundAnonymousCallable, PendingBoundCallableBody,
     PendingBoundConstantTemplate, PendingBoundConstraint, PendingBoundContractClause,
@@ -64,6 +63,7 @@ pub use fact::{
     SymbolFactProvider, TargetFactProvider, TargetFactResult,
 };
 pub use result::BoundUnitComputation;
+pub use semantic_context::{SemanticUnitContextError, semantic_unit_context};
 pub use surface::{
     PredicateClauseBindingContext, bind_predicate_clause, bind_trusted_capability_clause,
 };

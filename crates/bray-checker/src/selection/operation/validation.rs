@@ -8,14 +8,14 @@ use bray_symbols::{
     ReceiverMode, TypeId,
 };
 
+use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
 use crate::representation::named_type;
-use crate::{CheckerInfrastructureError, CheckerRequestContext, UnitCheckRequest};
 
 use super::super::{CompilerKnownOperationEvidence, ImplementationSelectionEvidence};
 use super::role::operation_role;
 
 pub(super) fn validate_operation_instances<C>(
-    request: UnitCheckRequest<'_, C>,
+    request: CheckerUnitView<'_, C>,
     operation: &SelectedOperation,
 ) -> Result<(), CheckerInfrastructureError>
 where
@@ -48,7 +48,7 @@ where
 }
 
 fn validate_conversion_instances<C>(
-    request: UnitCheckRequest<'_, C>,
+    request: CheckerUnitView<'_, C>,
     conversion: &SelectedConversion,
 ) -> Result<(), CheckerInfrastructureError>
 where
@@ -70,8 +70,8 @@ where
 }
 
 fn validate_callable_instance<C>(
-    request: UnitCheckRequest<'_, C>,
-    callable: bray_symbols::CallableInstanceData,
+    request: CheckerUnitView<'_, C>,
+    callable: CallableInstanceData,
 ) -> Result<(), CheckerInfrastructureError>
 where
     C: CheckerRequestContext + ?Sized,
@@ -85,8 +85,8 @@ where
 }
 
 fn validate_trait_callable_instance<C>(
-    request: UnitCheckRequest<'_, C>,
-    callable: bray_symbols::CallableInstanceData,
+    request: CheckerUnitView<'_, C>,
+    callable: CallableInstanceData,
 ) -> Result<(), CheckerInfrastructureError>
 where
     C: CheckerRequestContext + ?Sized,
@@ -99,7 +99,7 @@ where
 }
 
 pub(super) fn implementation_selections_match<C>(
-    request: UnitCheckRequest<'_, C>,
+    request: CheckerUnitView<'_, C>,
     operation: &SelectedOperation,
     evidence: &[ImplementationSelectionEvidence],
 ) -> Result<bool, CheckerInfrastructureError>
@@ -144,7 +144,7 @@ where
 }
 
 pub(super) fn compiler_known_operations_match<C>(
-    request: UnitCheckRequest<'_, C>,
+    request: CheckerUnitView<'_, C>,
     operation: &SelectedOperation,
     expression: &BoundExpression,
     actual_types: &[ExpressionTypeResult],
@@ -343,7 +343,7 @@ fn collect_conversion_operations<'types>(
 }
 
 fn trait_operation_matches<C>(
-    request: UnitCheckRequest<'_, C>,
+    request: CheckerUnitView<'_, C>,
     required: RequiredTraitOperation<'_>,
     evidence: &CompilerKnownOperationEvidence,
 ) -> Result<bool, CheckerInfrastructureError>
@@ -455,7 +455,7 @@ mod tests {
         tuple_type,
     };
     use crate::{
-        CompilerKnownOperationEvidence, ImplementationSelectionEvidence, UnitCheckRequest,
+        CheckerUnitView, CompilerKnownOperationEvidence, ImplementationSelectionEvidence,
     };
 
     use super::{compiler_known_operations_match, implementation_selections_match};
@@ -466,7 +466,7 @@ mod tests {
         let context = TestCheckerContext::new(false);
         let entry = callable_entry(fixture.unit.key());
 
-        let request = match UnitCheckRequest::new(&fixture.unit, &entry, &context) {
+        let request = match CheckerUnitView::new(&fixture.unit, &entry, &context) {
             Ok(request) => request,
             Err(error) => panic!("trait conversion request must validate: {error:?}"),
         };

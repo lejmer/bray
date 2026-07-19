@@ -4,10 +4,10 @@ use bray_symbols::{
     NamedTypeSymbolId, StructSymbolId, TypeData, TypeId,
 };
 
-use crate::{CheckerInfrastructureError, CheckerRequestContext, UnitCheckRequest};
+use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
 
 pub(crate) fn type_representation<C>(
-    request: UnitCheckRequest<'_, C>,
+    request: CheckerUnitView<'_, C>,
     ty: TypeId,
 ) -> Result<Option<RepresentationRole>, CheckerInfrastructureError>
 where
@@ -32,7 +32,7 @@ where
 }
 
 pub(crate) fn representation_type<C>(
-    request: UnitCheckRequest<'_, C>,
+    request: CheckerUnitView<'_, C>,
     role: RepresentationRole,
 ) -> Result<TypeId, CheckerInfrastructureError>
 where
@@ -49,7 +49,7 @@ where
 }
 
 pub(crate) fn named_type<C>(
-    request: UnitCheckRequest<'_, C>,
+    request: CheckerUnitView<'_, C>,
     definition: NamedTypeSymbolId,
 ) -> Result<TypeId, CheckerInfrastructureError>
 where

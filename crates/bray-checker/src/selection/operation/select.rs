@@ -3,7 +3,7 @@ use bray_bound_tree::{
     ExpressionTypeResult, SelectedConstruction, SelectedOperation, SelectionKind,
 };
 
-use crate::{CheckerInfrastructureError, CheckerRequestContext, UnitCheckRequest};
+use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
 
 use super::super::{
     CandidateSelection, ImplementationSelectionEvidence, OperationCandidate,
@@ -14,7 +14,7 @@ use super::conversion::{is_builtin_conversion, validate_conversion};
 use super::validation::{implementation_selections_match, validate_operation_instances};
 
 pub(in crate::selection) fn select<C>(
-    request: UnitCheckRequest<'_, C>,
+    request: CheckerUnitView<'_, C>,
     types: &CheckedExpressionTypes,
     input: OperationSelectionRequest,
 ) -> Result<Option<CandidateSelection<SelectedOperation>>, CheckerInfrastructureError>
@@ -129,7 +129,7 @@ struct CandidateContext<'facts, 'request, C>
 where
     C: CheckerRequestContext + ?Sized,
 {
-    request: UnitCheckRequest<'request, C>,
+    request: CheckerUnitView<'request, C>,
     types: &'facts CheckedExpressionTypes,
     expression: BoundExpressionId,
     kind: SelectionKind,
@@ -229,7 +229,7 @@ where
 }
 
 fn validate_request<C>(
-    request: UnitCheckRequest<'_, C>,
+    request: CheckerUnitView<'_, C>,
     types: &CheckedExpressionTypes,
     input: &OperationSelectionRequest,
 ) -> Result<(), CheckerInfrastructureError>
@@ -248,7 +248,7 @@ where
 }
 
 fn expression_matches_request<C>(
-    request: UnitCheckRequest<'_, C>,
+    request: CheckerUnitView<'_, C>,
     input: &OperationSelectionRequest,
 ) -> bool
 where
@@ -324,7 +324,7 @@ fn source_operands(
 }
 
 fn union_variant_reference<C>(
-    request: UnitCheckRequest<'_, C>,
+    request: CheckerUnitView<'_, C>,
     expression: BoundExpressionId,
 ) -> bool
 where
@@ -357,7 +357,7 @@ fn expression_types(
 }
 
 fn operation_is_valid<C>(
-    request: UnitCheckRequest<'_, C>,
+    request: CheckerUnitView<'_, C>,
     types: &CheckedExpressionTypes,
     expression: BoundExpressionId,
     operation: &SelectedOperation,
@@ -423,10 +423,9 @@ mod tests {
         tuple_type,
     };
     use crate::{
-        CandidateSelection, ConstructionInputSurface, DefaultSemanticSelector,
+        CandidateSelection, CheckerUnitView, ConstructionInputSurface, DefaultSemanticSelector,
         ImplementationSelectionEvidence, OperationCandidate, OperationCandidateState,
         OperationSelectionRequest, SelectionCandidateKey, SelectionFailure, SemanticSelector,
-        UnitCheckRequest,
     };
 
     #[test]
@@ -1078,7 +1077,7 @@ mod tests {
     ) -> crate::CheckerOutcome<CandidateSelection<SelectedOperation>> {
         let entry = callable_entry(unit.key());
 
-        let request = match UnitCheckRequest::new(unit, &entry, context) {
+        let request = match CheckerUnitView::new(unit, &entry, context) {
             Ok(request) => request,
             Err(error) => panic!("operation selection request must be valid: {error:?}"),
         };

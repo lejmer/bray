@@ -6,7 +6,7 @@ use bray_bound_tree::{
 };
 use bray_symbols::TypeId;
 
-use crate::{CheckerInfrastructureError, CheckerRequestContext, UnitCheckRequest};
+use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
 
 use super::constraints::{
     add_expectations, add_intrinsic_constraints, add_relationship_constraints, block_expectations,
@@ -33,7 +33,7 @@ pub(crate) struct ExpressionTypeSession<'view, C>
 where
     C: CheckerRequestContext + ?Sized,
 {
-    request: UnitCheckRequest<'view, C>,
+    request: CheckerUnitView<'view, C>,
     expressions: Vec<BoundExpressionId>,
     variables: BTreeMap<BoundExpressionId, InferenceTypeId>,
     block_variables: BTreeMap<BoundBlockId, InferenceTypeId>,
@@ -47,7 +47,7 @@ where
     C: CheckerRequestContext + ?Sized,
 {
     pub(crate) fn begin(
-        request: UnitCheckRequest<'view, C>,
+        request: CheckerUnitView<'view, C>,
     ) -> Result<SessionProgress<Self>, CheckerInfrastructureError> {
         if request.is_cancelled() {
             return Ok(SessionProgress::Cancelled);
@@ -327,15 +327,15 @@ struct CollectedNodes {
 }
 
 fn collect_nodes<C>(
-    request: UnitCheckRequest<'_, C>,
+    request: CheckerUnitView<'_, C>,
 ) -> Result<Option<CollectedNodes>, CheckerInfrastructureError>
 where
     C: CheckerRequestContext + ?Sized,
 {
     let root = match request.root() {
-        crate::UnitCheckRoot::CallableBody(body) => AnyBoundNodeId::from(body),
-        crate::UnitCheckRoot::Expression(expression) => AnyBoundNodeId::from(expression),
-        crate::UnitCheckRoot::ExpressionSequence(block) => AnyBoundNodeId::from(block),
+        crate::CheckerUnitRoot::CallableBody(body) => AnyBoundNodeId::from(body),
+        crate::CheckerUnitRoot::Expression(expression) => AnyBoundNodeId::from(expression),
+        crate::CheckerUnitRoot::ExpressionSequence(block) => AnyBoundNodeId::from(block),
     };
 
     let mut expressions = BTreeSet::new();
@@ -375,7 +375,7 @@ where
 }
 
 fn initialize_expression_variables<C>(
-    request: UnitCheckRequest<'_, C>,
+    request: CheckerUnitView<'_, C>,
     expressions: &[BoundExpressionId],
     types: &ExpressionTypeDependencies,
     variables: &mut BTreeMap<BoundExpressionId, InferenceTypeId>,
@@ -415,7 +415,7 @@ where
 }
 
 fn initialize_block_variables<C>(
-    request: UnitCheckRequest<'_, C>,
+    request: CheckerUnitView<'_, C>,
     blocks: &[BoundBlockId],
     variables: &mut BTreeMap<BoundBlockId, InferenceTypeId>,
     inference: &mut TypeInferenceContext,
@@ -445,7 +445,7 @@ where
 }
 
 fn collect_block_owners<C>(
-    request: UnitCheckRequest<'_, C>,
+    request: CheckerUnitView<'_, C>,
     expressions: &[BoundExpressionId],
 ) -> Result<BTreeMap<BoundBlockId, BoundExpressionId>, CheckerInfrastructureError>
 where
@@ -471,7 +471,7 @@ where
 }
 
 fn validate_input<C>(
-    request: UnitCheckRequest<'_, C>,
+    request: CheckerUnitView<'_, C>,
     input: &ExpressionTypeInput,
 ) -> Result<(), CheckerInfrastructureError>
 where
@@ -496,7 +496,7 @@ where
 }
 
 fn validate_input_pair<C>(
-    request: UnitCheckRequest<'_, C>,
+    request: CheckerUnitView<'_, C>,
     expression: BoundExpressionId,
     ty: TypeId,
 ) -> Result<(), CheckerInfrastructureError>

@@ -1,11 +1,11 @@
-use crate::{CheckerOutcome, CheckerRequestContext, ControlFlowCheckResult, UnitCheckRequest};
+use crate::{CheckerOutcome, CheckerRequestContext, CheckerUnitView, ControlFlowCheckResult};
 
 use super::build::{ControlFlowGraphBuildOutcome, build_control_flow_graph};
 use super::reachability::analyze_reachability;
 use super::refinement::analyze_refinements;
 
 pub(crate) fn check_control_flow<C>(
-    request: UnitCheckRequest<'_, C>,
+    request: CheckerUnitView<'_, C>,
 ) -> CheckerOutcome<ControlFlowCheckResult>
 where
     C: CheckerRequestContext + ?Sized,
