@@ -12,19 +12,38 @@ pub(super) fn validate_conversion<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let source = conversion.source_type();
-    let target = conversion.target_type();
+    let mut pending = vec![conversion];
 
-    match conversion.target() {
-        ConversionTarget::Identity => Ok(source == target),
-        ConversionTarget::BuiltInScalar => scalar_conversion_is_valid(request, source, target),
-        ConversionTarget::Composite(children) => {
-            composite_conversion_is_valid(request, source, target, children)
+    while let Some(conversion) = pending.pop() {
+        let source = conversion.source_type();
+        let target = conversion.target_type();
+
+        let is_valid = match conversion.target() {
+            ConversionTarget::Identity => source == target,
+            ConversionTarget::BuiltInScalar => scalar_conversion_is_valid(request, source, target)?,
+            ConversionTarget::Composite(children) => {
+                let is_valid =
+                    composite_conversion_shape_is_valid(request, source, target, children)?;
+
+                if is_valid {
+                    pending.extend(children.iter());
+                }
+
+                is_valid
+            }
+            ConversionTarget::Trait { requirement, .. } => {
+                source != target
+                    && requirement.subject() == source
+                    && trait_application_targets(request, requirement.trait_application(), target)?
+            }
+        };
+
+        if !is_valid {
+            return Ok(false);
         }
-        ConversionTarget::Trait { requirement, .. } => Ok(source != target
-            && requirement.subject() == source
-            && trait_application_targets(request, requirement.trait_application(), target)?),
     }
+
+    Ok(true)
 }
 
 fn scalar_conversion_is_valid<C>(
@@ -48,7 +67,7 @@ where
     }))
 }
 
-fn composite_conversion_is_valid<C>(
+fn composite_conversion_shape_is_valid<C>(
     request: UnitCheckRequest<'_, C>,
     source: TypeId,
     target: TypeId,
@@ -105,10 +124,7 @@ where
     }
 
     for ((source, target), child) in expected.into_iter().zip(children) {
-        if child.source_type() != source
-            || child.target_type() != target
-            || !validate_conversion(request, child)?
-        {
+        if child.source_type() != source || child.target_type() != target {
             return Ok(false);
         }
     }

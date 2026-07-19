@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use crate::{
     BoundExpression, BoundExpressionId, BoundStructuredExpressionKind, BoundUnit,
-    CheckedExpressionTypes, ConstructionTarget, IndexTarget, SelectedArgument, SelectedCall,
+    CheckedExpressionTypes, ConstructionTarget, SelectedArgument, SelectedCall,
     SelectedConstructionInput, SelectedOperation,
 };
 
@@ -56,6 +56,10 @@ pub enum SemanticSelectionTableBuildError {
     SelectionKindMismatch(BoundExpressionId),
     /// A selected value result disagrees with the final checked expression type.
     ResultTypeMismatch(BoundExpressionId),
+    /// A selected conversion source disagrees with its bound operand type.
+    OperandTypeMismatch(BoundExpressionId),
+    /// An implementation requirement disagrees with its bound subject type.
+    SubjectTypeMismatch(BoundExpressionId),
 }
 
 /// Complete immutable semantic selections for one checked bound unit.
@@ -145,6 +149,8 @@ fn validate_entry(
         ));
     }
 
+    validate_operation_subject(types, expression_id, expression, entry.selection())?;
+
     let selected_type = selection_result_type(entry.selection());
 
     if let Some(selected_type) = selected_type {
@@ -172,46 +178,66 @@ fn selection_matches_expression(
         (SemanticSelection::Call(call), BoundExpression::Call(source)) => {
             call_matches_expression(call, source)
         }
-        (
-            SemanticSelection::Operation(SelectedOperation::Member(_)),
-            BoundExpression::MemberAccess(_) | BoundExpression::TraitQualifiedMember(_),
-        ) => true,
-        (
-            SemanticSelection::Operation(SelectedOperation::Operator { target, .. }),
-            BoundExpression::Unary(source),
-        ) => target.operator() == source.operator(),
-        (
-            SemanticSelection::Operation(SelectedOperation::Operator { target, .. }),
-            BoundExpression::Binary(source),
-        ) => target.operator() == source.operator(),
-        (
-            SemanticSelection::Operation(SelectedOperation::Index { target, .. }),
-            BoundExpression::Structured(source),
-        ) => index_target_matches(*target, source.kind()),
-        (SemanticSelection::Operation(SelectedOperation::Construction(construction)), source) => {
-            construction_matches(construction, source)
+        (SemanticSelection::Operation(operation), expression)
+            if operation.matches_expression(expression) =>
+        {
+            match operation {
+                SelectedOperation::Construction(construction) => {
+                    construction_matches(construction, expression)
+                }
+                _ => true,
+            }
         }
-        (
-            SemanticSelection::Operation(SelectedOperation::Conversion(conversion)),
-            BoundExpression::Conversion(source),
-        ) => source.target_type() == Some(conversion.target_type()),
-        (SemanticSelection::Operation(SelectedOperation::Implementation(_)), _) => true,
         _ => false,
     }
 }
 
-const fn index_target_matches(target: IndexTarget, source: BoundStructuredExpressionKind) -> bool {
-    match source {
-        BoundStructuredExpressionKind::ElementIndex => matches!(
-            target,
-            IndexTarget::ArrayElement | IndexTarget::SliceElement | IndexTarget::Custom { .. }
+fn validate_operation_subject(
+    types: &CheckedExpressionTypes,
+    expression_id: BoundExpressionId,
+    expression: &BoundExpression,
+    selection: &SemanticSelection,
+) -> Result<(), SemanticSelectionTableBuildError> {
+    match (selection, expression) {
+        (
+            SemanticSelection::Operation(SelectedOperation::Conversion(conversion)),
+            BoundExpression::Conversion(source),
+        ) => validate_subject_type(
+            types,
+            source.operand(),
+            conversion.source_type(),
+            expression_id,
+            SemanticSelectionTableBuildError::OperandTypeMismatch,
         ),
-        BoundStructuredExpressionKind::SliceIndex => matches!(
-            target,
-            IndexTarget::ArraySlice | IndexTarget::Slice | IndexTarget::Custom { .. }
-        ),
-        _ => false,
+        (SemanticSelection::Operation(SelectedOperation::Implementation(witness)), _) => {
+            validate_subject_type(
+                types,
+                expression_id,
+                witness.requirement().subject(),
+                expression_id,
+                SemanticSelectionTableBuildError::SubjectTypeMismatch,
+            )
+        }
+        _ => Ok(()),
     }
+}
+
+fn validate_subject_type(
+    types: &CheckedExpressionTypes,
+    subject: BoundExpressionId,
+    expected: bray_symbols::TypeId,
+    selection: BoundExpressionId,
+    mismatch: fn(BoundExpressionId) -> SemanticSelectionTableBuildError,
+) -> Result<(), SemanticSelectionTableBuildError> {
+    let Some(actual) = types.expression(subject) else {
+        return Err(SemanticSelectionTableBuildError::InvalidExpression(subject));
+    };
+
+    if !actual.is_recovered() && actual.ty() != expected {
+        return Err(mismatch(selection));
+    }
+
+    Ok(())
 }
 
 fn construction_matches(
@@ -343,18 +369,21 @@ fn selection_result_type(selection: &SemanticSelection) -> Option<bray_symbols::
 
 #[cfg(test)]
 mod tests {
-    use bray_symbols::{FunctionSymbolId, SymbolId, TypeData};
+    use bray_symbols::testing::{implementation_instance, implementation_requirement};
+    use bray_symbols::{FunctionSymbolId, SymbolId, TraitSymbolId, TypeData};
 
     use super::{
         CheckedSemanticSelections, SemanticSelection, SemanticSelectionEntry,
         SemanticSelectionTableBuildError,
     };
     use crate::test_support::{expression_unit, push_expression, semantic_values};
+    use crate::testing::checked_expression_types;
     use crate::{
-        BoundErrorExpression, BoundExpression, BoundExpressionId, BoundMemberAccessExpression,
-        BoundMemberSelector, BoundOperator, BoundUnit, BoundUnitId, CheckedExpressionTypes,
-        ExpressionTypeEntry, ExpressionTypeResult, ExpressionTypeStatus, MemberTarget,
-        OperatorTarget, SelectedOperation,
+        BoundConversionExpression, BoundErrorExpression, BoundExpression, BoundExpressionId,
+        BoundMemberAccessExpression, BoundMemberSelector, BoundOperator, BoundUnit, BoundUnitId,
+        CheckedExpressionTypes, ConversionTarget, ExpressionTypeEntry, ExpressionTypeResult,
+        ExpressionTypeStatus, MemberTarget, OperatorTarget, SelectedConversion,
+        SelectedImplementationWitness, SelectedOperation,
     };
 
     #[test]
@@ -446,6 +475,104 @@ mod tests {
         );
     }
 
+    #[test]
+    fn semantic_selection_tables_reject_conversion_operand_type_mismatches() {
+        let values = semantic_values();
+        let source_type = intern_type(&values, TypeData::tuple([]));
+        let target_type = intern_type(&values, TypeData::tuple([source_type]));
+
+        let (unit, expressions) = expression_unit(BoundUnitId::new(74), |tree, origin| {
+            let operand = push_expression(
+                tree,
+                BoundExpression::Error(BoundErrorExpression::new(origin, source_type)),
+            );
+
+            let conversion = push_expression(
+                tree,
+                BoundExpression::Conversion(BoundConversionExpression::new(
+                    origin,
+                    operand,
+                    origin.source_anchor().syntax(),
+                    Some(target_type),
+                    Some(target_type),
+                    false,
+                )),
+            );
+
+            vec![operand, conversion]
+        });
+
+        let types = CheckedExpressionTypes::new(
+            unit.unit(),
+            unit.key().kind(),
+            [
+                ExpressionTypeEntry::new(
+                    expressions[0],
+                    ExpressionTypeResult::new(source_type, ExpressionTypeStatus::Valid),
+                ),
+                ExpressionTypeEntry::new(
+                    expressions[1],
+                    ExpressionTypeResult::new(target_type, ExpressionTypeStatus::Valid),
+                ),
+            ],
+        );
+
+        let selection = SelectedOperation::Conversion(SelectedConversion::new(
+            target_type,
+            target_type,
+            ConversionTarget::Identity,
+        ));
+
+        let entry =
+            SemanticSelectionEntry::new(expressions[1], SemanticSelection::Operation(selection));
+
+        assert_eq!(
+            CheckedSemanticSelections::try_new(&unit, &types, [entry]),
+            Err(SemanticSelectionTableBuildError::OperandTypeMismatch(
+                expressions[1]
+            ))
+        );
+    }
+
+    #[test]
+    fn semantic_selection_tables_reject_implementation_subject_type_mismatches() {
+        let values = semantic_values();
+        let subject_type = intern_type(&values, TypeData::tuple([]));
+        let other_type = intern_type(&values, TypeData::tuple([subject_type]));
+        let trait_definition = TraitSymbolId::from_symbol_id(SymbolId::new(20));
+
+        let requirement =
+            implementation_requirement(&values, trait_definition, other_type, subject_type);
+
+        let witness = implementation_instance(&values, 21);
+
+        let (unit, expressions) = expression_unit(BoundUnitId::new(75), |tree, origin| {
+            let expression = push_expression(
+                tree,
+                BoundExpression::Error(BoundErrorExpression::new(origin, subject_type)),
+            );
+
+            vec![expression]
+        });
+
+        let result = ExpressionTypeResult::new(subject_type, ExpressionTypeStatus::Valid);
+        let types = checked_expression_types(&unit, expressions.iter().copied(), result);
+
+        let entry = SemanticSelectionEntry::new(
+            expressions[0],
+            SemanticSelection::Operation(SelectedOperation::Implementation(
+                SelectedImplementationWitness::new(requirement, witness),
+            )),
+        );
+
+        assert_eq!(
+            CheckedSemanticSelections::try_new(&unit, &types, [entry]),
+            Err(SemanticSelectionTableBuildError::SubjectTypeMismatch(
+                expressions[0]
+            ))
+        );
+    }
+
     struct MemberFixture {
         unit: BoundUnit,
         types: CheckedExpressionTypes,
@@ -503,15 +630,7 @@ mod tests {
         });
 
         let result = ExpressionTypeResult::new(value_type, ExpressionTypeStatus::Valid);
-
-        let types = CheckedExpressionTypes::new(
-            unit.unit(),
-            unit.key().kind(),
-            expressions
-                .iter()
-                .copied()
-                .map(|expression| ExpressionTypeEntry::new(expression, result)),
-        );
+        let types = checked_expression_types(&unit, expressions.iter().copied(), result);
 
         MemberFixture {
             member: expressions[1],
@@ -528,5 +647,15 @@ mod tests {
         };
 
         name
+    }
+
+    fn intern_type(
+        values: &bray_symbols::SemanticValueStore,
+        data: TypeData,
+    ) -> bray_symbols::TypeId {
+        match values.intern_type(data) {
+            Ok(ty) => ty,
+            Err(error) => panic!("test type must be valid: {error:?}"),
+        }
     }
 }

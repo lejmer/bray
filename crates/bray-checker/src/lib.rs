@@ -31,10 +31,11 @@ pub use entry::{
 pub use outcome::{CheckerOutcome, ControlFlowCheckResult};
 pub use request::{UnitCheckRequest, UnitCheckRequestError, UnitCheckRoot};
 pub use selection::{
-    CallableCandidate, CallableCandidateState, CallableSelectionMode, CallableSelectionRequest,
-    CandidateSelection, ConstructionInputSurface, ImplementationSelectionEvidence,
-    OperationCandidate, OperationCandidateState, OperationSelectionRequest, ReceiverCapability,
-    ReceiverSelection, SelectionCandidateKey, SelectionFailure, TraitOperationEvidence,
+    CallableCandidate, CallableCandidateState, CallableSelectionRequest, CandidateSelection,
+    CompilerKnownOperationContract, CompilerKnownOperationEvidence, CompilerKnownOperationRole,
+    ConstructionInputSurface, ImplementationSelectionEvidence, OperationCandidate,
+    OperationCandidateState, OperationSelectionRequest, ReceiverCapability, ReceiverSelection,
+    SelectionCandidateKey, SelectionFailure,
 };
 pub use service::{
     ConstantEvaluator, ControlFlowChecker, DefaultConstantEvaluator, DefaultControlFlowChecker,

@@ -372,6 +372,11 @@ static-constraint state, and the declared operand or parameter surface. Trait-ba
 also carry typed evidence for the exact compiler-known trait application, callable member, checked signature, and implementation
 selection used by the candidate. The checker must consume those records together with canonical expression types.
 
+The checker request context must resolve each closed compiler-known operation role, including exact operator and indexing forms, to
+the trait and callable declarations assigned by the compiler-known catalog. Candidate evidence cannot assign its own operation role.
+The checker must reject evidence whose trait application, callable instance, signature, or source operation disagrees with that
+trusted role binding.
+
 The checker must produce category-specific selections for exact callable targets and ABIs, normalized explicit and defaulted
 argument mappings, members, operators, indexing contracts, construction behavior, conversions, and implementation witnesses. The
 durable selected values and the immutable expression-keyed selection table must belong to `bray-bound-tree`. Checker-owned request,

@@ -1,7 +1,8 @@
+use std::collections::BTreeMap;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-pub(crate) use bray_bound_tree::testing::push_expression;
+pub(crate) use bray_bound_tree::testing::{checked_expression_types, push_expression};
 use bray_bound_tree::{
     BoundBlock, BoundBlockItem, BoundCallableBody, BoundCallableBodyId, BoundErrorExpression,
     BoundExpression, BoundExpressionId, BoundLiteralExpression, BoundLiteralKind,
@@ -15,18 +16,20 @@ use bray_source::{
     TextSizeOverflow,
 };
 use bray_symbols::{
-    AnySymbolId, FunctionSymbolId, LocalScopeBoundary, LocalSymbolRegionId, LocalSymbolRegionKey,
-    LocalSymbolRegionRole, LocalSymbolSnapshotBuilder, ModulePathKey, PackageIdentity,
-    SemanticValueStore, SymbolId, SymbolKey, SymbolKind, SymbolName, SymbolRootKey, TypeData,
-    TypeId,
+    AnySymbolId, CallableDefinitionId, CallableInstanceData, ExactSymbolId, FunctionSymbolId,
+    GenericOwnerId, GenericSubstitutionData, LocalScopeBoundary, LocalSymbolRegionId,
+    LocalSymbolRegionKey, LocalSymbolRegionRole, LocalSymbolSnapshotBuilder, ModulePathKey,
+    PackageIdentity, SemanticValueStore, SymbolId, SymbolKey, SymbolKind, SymbolName,
+    SymbolRootKey, TraitCallableMemberSymbolId, TypeData, TypeId,
 };
 
 pub(crate) use bray_symbols::testing::available_compiler_known_symbols;
 
 use crate::{
     CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext, CheckerSource,
-    DeclaredUnitCheckEntry, DefaultExpressionTypeChecker, ExpressionTypeChecker,
-    ExpressionTypeInput, UnitCheckEntryContext, UnitCheckRequest,
+    CompilerKnownOperationContract, CompilerKnownOperationRole, DeclaredUnitCheckEntry,
+    DefaultExpressionTypeChecker, ExpressionTypeChecker, ExpressionTypeInput,
+    UnitCheckEntryContext, UnitCheckRequest,
 };
 
 pub(crate) struct TestCheckerContext {
@@ -34,6 +37,7 @@ pub(crate) struct TestCheckerContext {
     cancel_after: Option<usize>,
     observations: AtomicUsize,
     source: Option<SourceSnapshot>,
+    operation_contracts: BTreeMap<CompilerKnownOperationRole, CompilerKnownOperationContract>,
 }
 
 impl TestCheckerContext {
@@ -43,6 +47,7 @@ impl TestCheckerContext {
             cancel_after: None,
             observations: AtomicUsize::new(0),
             source: None,
+            operation_contracts: BTreeMap::new(),
         }
     }
 
@@ -52,6 +57,7 @@ impl TestCheckerContext {
             cancel_after: Some(observations),
             observations: AtomicUsize::new(0),
             source: None,
+            operation_contracts: BTreeMap::new(),
         }
     }
 
@@ -61,7 +67,17 @@ impl TestCheckerContext {
             cancel_after: None,
             observations: AtomicUsize::new(0),
             source: Some(source),
+            operation_contracts: BTreeMap::new(),
         }
+    }
+
+    pub(crate) fn with_operation_contract(
+        mut self,
+        contract: CompilerKnownOperationContract,
+    ) -> Self {
+        self.operation_contracts.insert(contract.role(), contract);
+
+        self
     }
 }
 
@@ -93,6 +109,13 @@ impl CheckerRequestContext for TestCheckerContext {
 
     fn available_compiler_known_symbols(&self) -> &bray_symbols::AvailableCompilerKnownSymbols {
         available_compiler_known_symbols()
+    }
+
+    fn compiler_known_operation_contract(
+        &self,
+        role: CompilerKnownOperationRole,
+    ) -> Option<CompilerKnownOperationContract> {
+        self.operation_contracts.get(&role).copied()
     }
 
     fn source(
@@ -128,6 +151,52 @@ pub(crate) fn semantic_values() -> &'static SemanticValueStore {
         Ok(values) => values,
         Err(error) => panic!("test semantic value store must be available: {error:?}"),
     })
+}
+
+pub(crate) fn compiler_known_symbol<I: ExactSymbolId>(key: &str) -> I {
+    let Some(key) = bray_compiler_known::CompilerKnownDeclarationKey::try_new(key) else {
+        panic!("compiler-known test key must be valid");
+    };
+
+    let Some(symbol) = available_compiler_known_symbols().declaration_symbol::<I>(&key) else {
+        panic!("compiler-known test symbol must be available");
+    };
+
+    symbol
+}
+
+pub(crate) fn trait_callable_instance(
+    definition: TraitCallableMemberSymbolId,
+) -> CallableInstanceData {
+    let substitution = empty_substitution(definition.into());
+
+    let Some(definition) = CallableDefinitionId::try_new(definition.into()) else {
+        panic!("trait callable member must be callable");
+    };
+
+    CallableInstanceData::new(definition, substitution)
+}
+
+fn empty_substitution(owner: AnySymbolId) -> bray_symbols::GenericSubstitutionId {
+    let owner = generic_owner(owner);
+
+    let substitution = match GenericSubstitutionData::try_new(owner, [], []) {
+        Ok(substitution) => substitution,
+        Err(error) => panic!("empty substitution must validate: {error:?}"),
+    };
+
+    match semantic_values().intern_generic_substitution(substitution) {
+        Ok(substitution) => substitution,
+        Err(error) => panic!("empty substitution must be interned: {error:?}"),
+    }
+}
+
+fn generic_owner(owner: AnySymbolId) -> GenericOwnerId {
+    let Some(owner) = GenericOwnerId::try_new(owner) else {
+        panic!("test symbol must support generic substitution");
+    };
+
+    owner
 }
 
 pub(crate) fn callable_key() -> BoundUnitKey {

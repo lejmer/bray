@@ -1,6 +1,9 @@
 use std::collections::BTreeSet;
 
-use bray_bound_tree::{CheckedExpressionTypes, ExpressionTypeResult};
+use bray_bound_tree::{
+    CheckedExpressionTypes, ExpressionTypeResult, SelectedArgument, SelectedCall,
+    SelectedImplementationWitness,
+};
 use bray_symbols::{
     CallableParameterDefaultProviderSymbolId, CallableParameterSignature,
     CallableParameterSymbolId, CallablePosition, CallableSignature, CallableTypeData,
@@ -10,11 +13,15 @@ use bray_symbols::{
 use crate::{CheckerInfrastructureError, CheckerRequestContext, UnitCheckRequest};
 
 use super::{
-    CallableCandidate, CallableCandidateParts, CallableCandidateState, CallableSelectionMode,
-    CallableSelectionRequest, CandidateSelection, ImplementationSelectionEvidence,
-    ReceiverCapability, SelectionFailure,
+    CallableCandidate, CallableCandidateParts, CallableCandidateState, CallableSelectionRequest,
+    CandidateSelection, ImplementationSelectionEvidence, ReceiverCapability, SelectionFailure,
 };
-use bray_bound_tree::{SelectedArgument, SelectedCall, SelectedImplementationWitness};
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum CallableSelectionMode {
+    Direct,
+    Overload,
+}
 
 pub(super) fn select<C>(
     request: UnitCheckRequest<'_, C>,
@@ -28,11 +35,11 @@ where
         return Ok(None);
     }
 
-    validate_unit(request, types, &input)?;
+    let mode = validate_unit(request, types, &input)?;
 
     let CallableSelectionRequest {
         expression: _,
-        mode,
+        callee_member: _,
         receiver,
         arguments,
         mut candidates,
@@ -444,18 +451,84 @@ fn validate_unit<C>(
     request: UnitCheckRequest<'_, C>,
     types: &CheckedExpressionTypes,
     input: &CallableSelectionRequest,
-) -> Result<(), CheckerInfrastructureError>
+) -> Result<CallableSelectionMode, CheckerInfrastructureError>
 where
     C: CheckerRequestContext + ?Sized,
 {
-    if types.unit() != request.view().unit()
-        || types.kind() != request.view().kind()
-        || !matches!(
-            request.view().expression(input.expression()),
-            Some(bray_bound_tree::BoundExpression::Call(call))
-                if call.arguments() == input.arguments()
-        )
-    {
+    if types.unit() != request.view().unit() || types.kind() != request.view().kind() {
+        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+    }
+
+    let Some(bray_bound_tree::BoundExpression::Call(call)) =
+        request.view().expression(input.expression())
+    else {
+        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+    };
+
+    if call.arguments() != input.arguments() {
+        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+    }
+
+    let Some(callee) = request.view().expression(call.callee()) else {
+        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+    };
+
+    callable_selection_mode(callee, input)
+}
+
+fn callable_selection_mode(
+    callee: &bray_bound_tree::BoundExpression,
+    input: &CallableSelectionRequest,
+) -> Result<CallableSelectionMode, CheckerInfrastructureError> {
+    let is_overload = match callee {
+        bray_bound_tree::BoundExpression::MemberAccess(member) => {
+            member_selection_is_overload(input, member.receiver())?
+        }
+        bray_bound_tree::BoundExpression::TraitQualifiedMember(member) => {
+            member_selection_is_overload(input, member.receiver())?
+        }
+        bray_bound_tree::BoundExpression::Name(name) => {
+            validate_non_member_request(input)?;
+
+            matches!(
+                name.target(),
+                bray_bound_tree::BoundReferenceTarget::Surface(symbol)
+                    if symbol.kind() == bray_symbols::SymbolKind::CallableOverload
+            )
+        }
+        _ => {
+            validate_non_member_request(input)?;
+
+            false
+        }
+    };
+
+    Ok(if is_overload {
+        CallableSelectionMode::Overload
+    } else {
+        CallableSelectionMode::Direct
+    })
+}
+
+fn member_selection_is_overload(
+    input: &CallableSelectionRequest,
+    receiver: bray_bound_tree::BoundExpressionId,
+) -> Result<bool, CheckerInfrastructureError> {
+    let Some(member) = input.callee_member() else {
+        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+    };
+
+    if input.receiver().map(super::ReceiverSelection::expression) != Some(receiver) {
+        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+    }
+
+    Ok(member.member().kind() == bray_symbols::SymbolKind::CallableOverload)
+}
+
+fn validate_non_member_request(
+    input: &CallableSelectionRequest,
+) -> Result<(), CheckerInfrastructureError> {
+    if input.callee_member().is_some() || input.receiver().is_some() {
         return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
     }
 
@@ -466,9 +539,9 @@ where
 mod tests {
     use bray_bound_tree::{
         BoundArgument, BoundCallExpression, BoundCallResult, BoundCallableTarget, BoundExpression,
-        BoundExpressionId, BoundResolvedCall, BoundUnit, BoundUnitId, CheckedExpressionTypes,
-        ExpressionTypeEntry, ExpressionTypeResult, ExpressionTypeStatus, SelectedArgument,
-        SelectedCall,
+        BoundExpressionId, BoundMemberAccessExpression, BoundMemberSelector, BoundResolvedCall,
+        BoundUnit, BoundUnitId, CheckedExpressionTypes, ExpressionTypeResult, ExpressionTypeStatus,
+        MemberTarget, SelectedArgument, SelectedCall,
     };
     use bray_symbols::{
         CallableAbi, CallableConstness, CallableDependencyContracts, CallableParameterData,
@@ -479,13 +552,13 @@ mod tests {
     };
 
     use crate::test_support::{
-        TestCheckerContext, callable_entry, declaration_key, expression_unit, push_expression,
-        semantic_values, symbol_name, tuple_type, unselected_name_expression,
+        TestCheckerContext, callable_entry, checked_expression_types, declaration_key,
+        expression_unit, push_expression, semantic_values, symbol_name, tuple_type,
     };
     use crate::{
-        CallableCandidate, CallableCandidateState, CallableSelectionMode, CallableSelectionRequest,
-        CandidateSelection, DefaultSemanticSelector, SelectionFailure, SemanticSelector,
-        UnitCheckRequest,
+        CallableCandidate, CallableCandidateState, CallableSelectionRequest, CandidateSelection,
+        DefaultSemanticSelector, ReceiverCapability, ReceiverSelection, SelectionFailure,
+        SemanticSelector, UnitCheckRequest,
     };
 
     #[test]
@@ -493,8 +566,7 @@ mod tests {
         let fixture = call_fixture(BoundUnitId::new(70), true);
         let candidate = callable_candidate(1, fixture.value_type, true);
 
-        let input = named_request(&fixture, CallableSelectionMode::Direct, [candidate]);
-
+        let input = named_request(&fixture, [candidate]);
         let result = select(&fixture.unit, &fixture.types, input);
 
         assert!(result.diagnostics().is_empty());
@@ -522,11 +594,10 @@ mod tests {
 
     #[test]
     fn overload_selection_does_not_use_omitted_parameter_defaults() {
-        let fixture = call_fixture(BoundUnitId::new(71), true);
+        let fixture = overload_call_fixture(BoundUnitId::new(71), true);
         let candidate = callable_candidate(1, fixture.value_type, true);
 
-        let input = named_request(&fixture, CallableSelectionMode::Overload, [candidate]);
-
+        let input = named_request(&fixture, [candidate]);
         let result = select(&fixture.unit, &fixture.types, input);
 
         assert!(matches!(
@@ -556,7 +627,7 @@ mod tests {
             CallableCandidateState::Available,
         );
 
-        let input = named_request(&fixture, CallableSelectionMode::Direct, [first, second]);
+        let input = named_request(&fixture, [first, second]);
         let result = select(&fixture.unit, &fixture.types, input);
 
         assert!(matches!(
@@ -572,7 +643,7 @@ mod tests {
 
         let input = CallableSelectionRequest::new(
             fixture.call,
-            CallableSelectionMode::Direct,
+            None,
             None,
             [BoundArgument::new(fixture.argument, None, false)],
             [candidate],
@@ -587,6 +658,36 @@ mod tests {
     }
 
     #[test]
+    fn method_requests_require_the_bound_callee_receiver() {
+        let fixture = method_call_fixture(BoundUnitId::new(78));
+        let context = TestCheckerContext::new(false);
+        let entry = callable_entry(fixture.unit.key());
+
+        let request = match UnitCheckRequest::new(&fixture.unit, &entry, &context) {
+            Ok(request) => request,
+            Err(error) => panic!("method selection request must validate: {error:?}"),
+        };
+
+        let member = bray_symbols::FunctionSymbolId::from_symbol_id(SymbolId::new(4));
+
+        let input = CallableSelectionRequest::new(
+            fixture.call,
+            Some(MemberTarget::new(member.into(), fixture.value_type, [])),
+            Some(ReceiverSelection::new(
+                fixture.unrelated_receiver,
+                ReceiverCapability::Shared,
+            )),
+            [],
+            [],
+        );
+
+        assert_eq!(
+            super::select(request, &fixture.types, input),
+            Err(crate::CheckerInfrastructureError::InvalidSemanticSelectionInput)
+        );
+    }
+
+    #[test]
     fn inaccessible_candidates_are_reported_only_when_otherwise_applicable() {
         let fixture = call_fixture(BoundUnitId::new(73), true);
 
@@ -597,8 +698,7 @@ mod tests {
             CallableCandidateState::Inaccessible,
         );
 
-        let input = named_request(&fixture, CallableSelectionMode::Direct, [applicable]);
-
+        let input = named_request(&fixture, [applicable]);
         let result = select(&fixture.unit, &fixture.types, input);
 
         assert!(matches!(
@@ -616,8 +716,7 @@ mod tests {
             CallableCandidateState::Inaccessible,
         );
 
-        let input = named_request(&fixture, CallableSelectionMode::Direct, [incompatible]);
-
+        let input = named_request(&fixture, [incompatible]);
         let result = select(&fixture.unit, &fixture.types, input);
 
         assert!(matches!(
@@ -629,6 +728,7 @@ mod tests {
     #[test]
     fn unavailable_candidates_do_not_participate() {
         let fixture = call_fixture(BoundUnitId::new(74), true);
+
         let candidate = callable_candidate_with_state(
             1,
             fixture.value_type,
@@ -636,7 +736,7 @@ mod tests {
             CallableCandidateState::Unavailable,
         );
 
-        let input = named_request(&fixture, CallableSelectionMode::Direct, [candidate]);
+        let input = named_request(&fixture, [candidate]);
         let result = select(&fixture.unit, &fixture.types, input);
 
         assert!(matches!(
@@ -648,6 +748,7 @@ mod tests {
     #[test]
     fn recovered_candidates_preserve_recovery() {
         let fixture = call_fixture(BoundUnitId::new(75), true);
+
         let candidate = callable_candidate_with_state(
             1,
             fixture.value_type,
@@ -655,7 +756,7 @@ mod tests {
             CallableCandidateState::Recovered,
         );
 
-        let input = named_request(&fixture, CallableSelectionMode::Direct, [candidate]);
+        let input = named_request(&fixture, [candidate]);
         let result = select(&fixture.unit, &fixture.types, input);
 
         assert!(matches!(
@@ -670,7 +771,7 @@ mod tests {
     fn cancellation_publishes_no_selection_or_diagnostics() {
         let fixture = call_fixture(BoundUnitId::new(76), true);
         let candidate = callable_candidate(1, fixture.value_type, true);
-        let input = named_request(&fixture, CallableSelectionMode::Direct, [candidate]);
+        let input = named_request(&fixture, [candidate]);
         let context = TestCheckerContext::new(true);
 
         let outcome = select_outcome(&fixture.unit, &fixture.types, input, &context);
@@ -686,14 +787,21 @@ mod tests {
         value_type: TypeId,
     }
 
+    struct MethodCallFixture {
+        unit: BoundUnit,
+        types: CheckedExpressionTypes,
+        call: BoundExpressionId,
+        unrelated_receiver: BoundExpressionId,
+        value_type: TypeId,
+    }
+
     fn named_request(
         fixture: &CallFixture,
-        mode: CallableSelectionMode,
         candidates: impl IntoIterator<Item = CallableCandidate>,
     ) -> CallableSelectionRequest {
         CallableSelectionRequest::new(
             fixture.call,
-            mode,
+            None,
             None,
             [BoundArgument::new(
                 fixture.argument,
@@ -705,10 +813,22 @@ mod tests {
     }
 
     fn call_fixture(unit: BoundUnitId, named_argument: bool) -> CallFixture {
+        call_fixture_with_kind(unit, named_argument, SymbolKind::Function)
+    }
+
+    fn overload_call_fixture(unit: BoundUnitId, named_argument: bool) -> CallFixture {
+        call_fixture_with_kind(unit, named_argument, SymbolKind::CallableOverload)
+    }
+
+    fn call_fixture_with_kind(
+        unit: BoundUnitId,
+        named_argument: bool,
+        callee_kind: SymbolKind,
+    ) -> CallFixture {
         let value_type = tuple_type([]);
 
         let (unit, expressions) = expression_unit(unit, |tree, origin| {
-            let callee = push_expression(tree, unselected_name_expression(origin));
+            let callee = push_expression(tree, callable_name_expression(origin, callee_kind));
 
             let argument = push_expression(
                 tree,
@@ -730,15 +850,7 @@ mod tests {
         });
 
         let result = ExpressionTypeResult::new(value_type, ExpressionTypeStatus::Valid);
-
-        let types = CheckedExpressionTypes::new(
-            unit.unit(),
-            unit.key().kind(),
-            expressions
-                .iter()
-                .copied()
-                .map(|expression| ExpressionTypeEntry::new(expression, result)),
-        );
+        let types = checked_expression_types(&unit, expressions.iter().copied(), result);
 
         CallFixture {
             call: expressions[2],
@@ -747,6 +859,70 @@ mod tests {
             types,
             value_type,
         }
+    }
+
+    fn method_call_fixture(unit: BoundUnitId) -> MethodCallFixture {
+        let value_type = tuple_type([]);
+
+        let (unit, expressions) = expression_unit(unit, |tree, origin| {
+            let receiver = push_expression(
+                tree,
+                crate::test_support::integer_literal_expression(origin, Some(value_type)),
+            );
+
+            let unrelated_receiver = push_expression(
+                tree,
+                crate::test_support::integer_literal_expression(origin, Some(value_type)),
+            );
+
+            let callee = push_expression(
+                tree,
+                BoundExpression::MemberAccess(BoundMemberAccessExpression::new(
+                    origin,
+                    receiver,
+                    Some(BoundMemberSelector::Name(symbol_name("method"))),
+                    None,
+                    false,
+                )),
+            );
+
+            let call = push_expression(
+                tree,
+                BoundExpression::Call(BoundCallExpression::pending(origin, callee, [])),
+            );
+
+            vec![receiver, unrelated_receiver, callee, call]
+        });
+
+        let result = ExpressionTypeResult::new(value_type, ExpressionTypeStatus::Valid);
+        let types = checked_expression_types(&unit, expressions.iter().copied(), result);
+
+        MethodCallFixture {
+            call: expressions[3],
+            unrelated_receiver: expressions[1],
+            unit,
+            types,
+            value_type,
+        }
+    }
+
+    fn callable_name_expression(
+        origin: bray_bound_tree::BoundNodeOrigin,
+        kind: SymbolKind,
+    ) -> BoundExpression {
+        let target = match kind {
+            SymbolKind::CallableOverload => {
+                bray_symbols::CallableOverloadSymbolId::from_symbol_id(SymbolId::new(0)).into()
+            }
+            _ => bray_symbols::FunctionSymbolId::from_symbol_id(SymbolId::new(0)).into(),
+        };
+
+        BoundExpression::Name(bray_bound_tree::BoundNameExpression::new(
+            origin,
+            bray_bound_tree::BoundReferenceTarget::Surface(target),
+            None,
+            false,
+        ))
     }
 
     fn callable_candidate(

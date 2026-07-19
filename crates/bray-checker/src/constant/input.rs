@@ -5,6 +5,7 @@ use bray_bound_tree::{BoundExpressionId, CheckedExpressionTypes, CheckedSemantic
 use bray_symbols::ConstantValueId;
 
 use super::ConstantEvaluationLimits;
+
 /// The caller-resolved result of one constant reference dependency.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum ConstantReferenceResolution {

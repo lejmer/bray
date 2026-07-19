@@ -8,7 +8,10 @@ use bray_symbols::{
     UnionPayloadFieldSymbolId, UnionVariantSymbolId,
 };
 
-use crate::{BoundExpressionId, BoundOperator, SelectedImplementationWitness};
+use crate::{
+    BoundExpression, BoundExpressionId, BoundOperator, BoundStructuredExpressionKind,
+    SelectedImplementationWitness,
+};
 
 /// The semantic operation category retained by a checked selection.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -347,6 +350,41 @@ impl SelectedOperation {
         }
     }
 
+    /// Returns whether this operation can describe the supplied bound expression category.
+    pub fn matches_expression(&self, expression: &BoundExpression) -> bool {
+        match (self, expression) {
+            (Self::Member(_), BoundExpression::MemberAccess(_))
+            | (Self::Member(_), BoundExpression::TraitQualifiedMember(_)) => true,
+            (Self::Operator { target, .. }, BoundExpression::Unary(source)) => {
+                target.operator() == source.operator()
+            }
+            (Self::Operator { target, .. }, BoundExpression::Binary(source)) => {
+                target.operator() == source.operator()
+            }
+            (Self::Index { target, .. }, BoundExpression::Structured(source)) => {
+                index_target_matches(*target, source.kind())
+            }
+            (Self::Construction(construction), BoundExpression::StructConstruction(_)) => {
+                matches!(construction.target(), ConstructionTarget::Struct(_))
+            }
+            (Self::Construction(construction), BoundExpression::Structured(source)) => {
+                matches!(construction.target(), ConstructionTarget::TypeForm(_))
+                    && source.kind() == BoundStructuredExpressionKind::TypeFormConstruction
+            }
+            (
+                Self::Construction(construction),
+                BoundExpression::LeadingDotVariant(_)
+                | BoundExpression::MemberAccess(_)
+                | BoundExpression::Call(_),
+            ) => matches!(construction.target(), ConstructionTarget::UnionVariant(_)),
+            (Self::Conversion(conversion), BoundExpression::Conversion(source)) => {
+                source.target_type() == Some(conversion.target_type())
+            }
+            (Self::Implementation(_), _) => true,
+            _ => false,
+        }
+    }
+
     /// Returns every exact implementation requirement and witness used by this operation.
     pub fn witnesses(&self) -> Vec<SelectedImplementationWitness> {
         let mut witnesses = match self {
@@ -382,15 +420,34 @@ impl SelectedOperation {
 }
 
 fn conversion_witnesses(conversion: &SelectedConversion) -> Vec<SelectedImplementationWitness> {
-    match conversion.target() {
-        ConversionTarget::Trait {
-            requirement,
-            witness,
-            ..
-        } => vec![SelectedImplementationWitness::new(*requirement, *witness)],
-        ConversionTarget::Composite(children) => {
-            children.iter().flat_map(conversion_witnesses).collect()
+    let mut witnesses = Vec::new();
+    let mut pending = vec![conversion];
+
+    while let Some(conversion) = pending.pop() {
+        match conversion.target() {
+            ConversionTarget::Trait {
+                requirement,
+                witness,
+                ..
+            } => witnesses.push(SelectedImplementationWitness::new(*requirement, *witness)),
+            ConversionTarget::Composite(children) => pending.extend(children.iter()),
+            ConversionTarget::Identity | ConversionTarget::BuiltInScalar => {}
         }
-        ConversionTarget::Identity | ConversionTarget::BuiltInScalar => Vec::new(),
+    }
+
+    witnesses
+}
+
+const fn index_target_matches(target: IndexTarget, source: BoundStructuredExpressionKind) -> bool {
+    match source {
+        BoundStructuredExpressionKind::ElementIndex => matches!(
+            target,
+            IndexTarget::ArrayElement | IndexTarget::SliceElement | IndexTarget::Custom { .. }
+        ),
+        BoundStructuredExpressionKind::SliceIndex => matches!(
+            target,
+            IndexTarget::ArraySlice | IndexTarget::Slice | IndexTarget::Custom { .. }
+        ),
+        _ => false,
     }
 }

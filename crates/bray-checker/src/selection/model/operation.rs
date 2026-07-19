@@ -2,11 +2,12 @@ use std::sync::Arc;
 
 use bray_base::shared_slice;
 use bray_bound_tree::{
-    BoundExpressionId, ConstructionDefaultProvider, ConstructionInputId, ConstructionTarget,
-    SelectedOperation, SelectionKind,
+    BoundExpressionId, BoundOperator, ConstructionDefaultProvider, ConstructionInputId,
+    ConstructionTarget, SelectedOperation, SelectionKind,
 };
 use bray_symbols::{
-    CallableInstanceData, CallableSignature, ImplementationSelectionKey, TraitSymbolId,
+    CallableInstanceData, CallableSignature, ImplementationSelectionKey,
+    TraitCallableMemberSymbolId, TraitSymbolId,
 };
 use bray_symbols::{CallablePosition, SymbolKey, SymbolName, TypeId};
 
@@ -36,39 +37,92 @@ pub struct ConstructionInputSurface {
     ordinal: u32,
 }
 
+/// A language-defined compiler-known operation contract.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum CompilerKnownOperationRole {
+    /// A prefix operator trait and callable member.
+    UnaryOperator(BoundOperator),
+    /// An infix operator trait and callable member.
+    BinaryOperator(BoundOperator),
+    /// Custom element indexing.
+    ElementIndex,
+    /// Custom slice indexing.
+    SliceIndex,
+    /// Plain user-defined `ConvertTo<Target>` conversion.
+    Conversion,
+}
+
+/// Exact compiler-known declarations assigned to one operation role.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct CompilerKnownOperationContract {
+    role: CompilerKnownOperationRole,
+    trait_definition: TraitSymbolId,
+    callable: TraitCallableMemberSymbolId,
+}
+
+impl CompilerKnownOperationContract {
+    /// Creates one typed operation-role binding supplied by compiler-known infrastructure.
+    pub const fn new(
+        role: CompilerKnownOperationRole,
+        trait_definition: TraitSymbolId,
+        callable: TraitCallableMemberSymbolId,
+    ) -> Self {
+        Self {
+            role,
+            trait_definition,
+            callable,
+        }
+    }
+
+    /// Returns the language-defined operation role.
+    pub const fn role(self) -> CompilerKnownOperationRole {
+        self.role
+    }
+
+    /// Returns the exact compiler-known trait declaration.
+    pub const fn trait_definition(self) -> TraitSymbolId {
+        self.trait_definition
+    }
+
+    /// Returns the exact compiler-known callable member declaration.
+    pub const fn callable(self) -> TraitCallableMemberSymbolId {
+        self.callable
+    }
+}
+
 /// Compiler-known callable contract evidence for one trait-backed operation.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct TraitOperationEvidence {
+pub struct CompilerKnownOperationEvidence {
+    role: CompilerKnownOperationRole,
     requirement: ImplementationSelectionKey,
-    trait_definition: TraitSymbolId,
     callable: CallableInstanceData,
     signature: CallableSignature,
 }
 
-impl TraitOperationEvidence {
+impl CompilerKnownOperationEvidence {
     /// Creates evidence tying one requirement to an exact compiler-known callable contract.
     pub const fn new(
+        role: CompilerKnownOperationRole,
         requirement: ImplementationSelectionKey,
-        trait_definition: TraitSymbolId,
         callable: CallableInstanceData,
         signature: CallableSignature,
     ) -> Self {
         Self {
+            role,
             requirement,
-            trait_definition,
             callable,
             signature,
         }
     }
 
+    /// Returns the language-defined compiler-known operation role.
+    pub const fn role(&self) -> CompilerKnownOperationRole {
+        self.role
+    }
+
     /// Returns the implementation requirement described by this contract.
     pub const fn requirement(&self) -> ImplementationSelectionKey {
         self.requirement
-    }
-
-    /// Returns the exact compiler-known trait definition.
-    pub const fn trait_definition(&self) -> TraitSymbolId {
-        self.trait_definition
     }
 
     /// Returns the exact substituted compiler-known callable member.
@@ -152,7 +206,7 @@ pub struct OperationCandidate {
     key: SelectionCandidateKey,
     plan: OperationCandidatePlan,
     implementation_selections: Arc<[ImplementationSelectionEvidence]>,
-    trait_operations: Arc<[TraitOperationEvidence]>,
+    compiler_known_operations: Arc<[CompilerKnownOperationEvidence]>,
     state: OperationCandidateState,
 }
 
@@ -221,7 +275,7 @@ impl OperationCandidate {
                 operand_types: shared_slice(operand_types),
             },
             implementation_selections: Arc::new([]),
-            trait_operations: Arc::new([]),
+            compiler_known_operations: Arc::new([]),
             state,
         }
     }
@@ -241,7 +295,7 @@ impl OperationCandidate {
                 inputs: shared_slice(inputs),
             },
             implementation_selections: Arc::new([]),
-            trait_operations: Arc::new([]),
+            compiler_known_operations: Arc::new([]),
             state,
         }
     }
@@ -257,11 +311,11 @@ impl OperationCandidate {
     }
 
     /// Supplies exact compiler-known contracts used by trait-backed operations.
-    pub fn with_trait_operations(
+    pub fn with_compiler_known_operations(
         mut self,
-        operations: impl IntoIterator<Item = TraitOperationEvidence>,
+        operations: impl IntoIterator<Item = CompilerKnownOperationEvidence>,
     ) -> Self {
-        self.trait_operations = shared_slice(operations);
+        self.compiler_known_operations = shared_slice(operations);
 
         self
     }
@@ -282,14 +336,14 @@ impl OperationCandidate {
         SelectionCandidateKey,
         OperationCandidatePlan,
         Arc<[ImplementationSelectionEvidence]>,
-        Arc<[TraitOperationEvidence]>,
+        Arc<[CompilerKnownOperationEvidence]>,
         OperationCandidateState,
     ) {
         (
             self.key,
             self.plan,
             self.implementation_selections,
-            self.trait_operations,
+            self.compiler_known_operations,
             self.state,
         )
     }

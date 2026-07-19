@@ -15,6 +15,7 @@ bray-source = { path = "../bray-source" }
 bray-symbols = { path = "../bray-symbols" }
 
 [dev-dependencies]
+bray-symbols = { path = "../bray-symbols", features = ["test-support"] }
 bray-syntax = { path = "../bray-syntax" }
 
 [lints]

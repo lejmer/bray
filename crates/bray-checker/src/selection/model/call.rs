@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use bray_base::shared_slice;
-use bray_bound_tree::{BoundArgument, BoundExpressionId, BoundResolvedCall};
+use bray_bound_tree::{BoundArgument, BoundExpressionId, BoundResolvedCall, MemberTarget};
 use bray_symbols::{
     CallableParameterDefaultProviderSymbolId, CallableParameterSymbolId, CallableSignature,
     ImplementationSelection, ImplementationSelectionKey, SymbolKey,
@@ -45,15 +45,6 @@ impl ReceiverSelection {
     pub const fn capability(self) -> ReceiverCapability {
         self.capability
     }
-}
-
-/// Whether a call selects one direct target or one explicit overload arm.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum CallableSelectionMode {
-    /// A direct call can fill omitted defaulted parameters after target selection.
-    Direct,
-    /// An overload arm is applicable only when every parameter is supplied explicitly.
-    Overload,
 }
 
 /// Non-type participation state for one callable candidate.
@@ -211,7 +202,7 @@ impl CallableCandidate {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CallableSelectionRequest {
     pub(in crate::selection) expression: BoundExpressionId,
-    pub(in crate::selection) mode: CallableSelectionMode,
+    pub(in crate::selection) callee_member: Option<MemberTarget>,
     pub(in crate::selection) receiver: Option<ReceiverSelection>,
     pub(in crate::selection) arguments: Arc<[BoundArgument]>,
     pub(in crate::selection) candidates: Vec<CallableCandidate>,
@@ -221,14 +212,14 @@ impl CallableSelectionRequest {
     /// Creates a callable selection request from binder-enumerated candidates.
     pub fn new(
         expression: BoundExpressionId,
-        mode: CallableSelectionMode,
+        callee_member: Option<MemberTarget>,
         receiver: Option<ReceiverSelection>,
         arguments: impl IntoIterator<Item = BoundArgument>,
         candidates: impl IntoIterator<Item = CallableCandidate>,
     ) -> Self {
         Self {
             expression,
-            mode,
+            callee_member,
             receiver,
             arguments: shared_slice(arguments),
             candidates: candidates.into_iter().collect(),
@@ -240,9 +231,9 @@ impl CallableSelectionRequest {
         self.expression
     }
 
-    /// Returns whether the request selects a direct target or an overload arm.
-    pub const fn mode(&self) -> CallableSelectionMode {
-        self.mode
+    /// Returns the exact selected member when the callee is a member access.
+    pub const fn callee_member(&self) -> Option<&MemberTarget> {
+        self.callee_member.as_ref()
     }
 
     /// Returns the method receiver when the call has one.

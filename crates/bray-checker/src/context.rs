@@ -9,6 +9,7 @@ use bray_symbols::{
     SymbolFactKind, SymbolFactRequest, SymbolFactResult,
 };
 
+use crate::{CompilerKnownOperationContract, CompilerKnownOperationRole};
 use crate::{UnitCheckEntryContext, UnitCheckRequestError};
 
 /// A checker infrastructure failure that is neither a source diagnostic nor cancellation.
@@ -129,6 +130,12 @@ pub trait CheckerRequestContext: Sync {
 
     /// Returns compiler-known symbols available for the current target.
     fn available_compiler_known_symbols(&self) -> &AvailableCompilerKnownSymbols;
+
+    /// Resolves the exact compiler-known declarations assigned to an operation role.
+    fn compiler_known_operation_contract(
+        &self,
+        role: CompilerKnownOperationRole,
+    ) -> Option<CompilerKnownOperationContract>;
 
     /// Resolves a bound source anchor without exposing its source snapshot.
     fn source(
