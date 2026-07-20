@@ -83,6 +83,8 @@ impl<T> FactCell<T> {
     ) -> Result<&T, FactQueryError> {
         let mut compute = Some(compute);
 
+        runtime.request(&key)?;
+
         loop {
             cancellation.check()?;
 
@@ -113,7 +115,7 @@ impl<T> FactCell<T> {
                     #[cfg(test)]
                     self.observe(FactCellTestEvent::Computing)?;
 
-                    let _evaluation = runtime.begin(key.clone())?;
+                    let evaluation = runtime.begin(key.clone())?;
 
                     cancellation.check()?;
 
@@ -128,6 +130,7 @@ impl<T> FactCell<T> {
 
                     cancellation.check()?;
 
+                    evaluation.complete()?;
                     self.publish(value, thread, key)?;
 
                     publication.disarm();
@@ -446,6 +449,84 @@ mod tests {
         assert_eq!(first, Ok(&1));
         assert_eq!(mismatched, Err(FactQueryError::InfrastructureFailure));
         assert_eq!(cell.get(), Some(&1));
+    }
+
+    #[test]
+    fn successful_facts_record_sorted_unique_direct_dependencies() {
+        let runtime = FactRuntime::default();
+        let cancellation = CancellationToken::new();
+
+        let parent = FactCell::new();
+        let syntax = FactCell::new();
+        let declarations = FactCell::new();
+
+        let parent_key = CompilationFactKey::CheckDiagnostics;
+        let syntax_key = CompilationFactKey::SyntaxTree;
+        let declaration_key = CompilationFactKey::DeclarationTable;
+
+        let primed =
+            syntax.get_or_compute(&runtime, syntax_key.clone(), &cancellation, || Ok(1_u32));
+
+        assert_eq!(primed, Ok(&1));
+
+        let result = parent.get_or_compute(&runtime, parent_key.clone(), &cancellation, || {
+            syntax.get_or_compute(&runtime, syntax_key.clone(), &cancellation, || Ok(2_u32))?;
+            declarations.get_or_compute(
+                &runtime,
+                declaration_key.clone(),
+                &cancellation,
+                || Ok(3_u32),
+            )?;
+            syntax.get_or_compute(&runtime, syntax_key.clone(), &cancellation, || Ok(4_u32))?;
+
+            Ok(5_u32)
+        });
+
+        assert_eq!(result, Ok(&5));
+        assert_eq!(
+            runtime.dependencies(&parent_key),
+            Ok(vec![declaration_key, syntax_key].into_boxed_slice())
+        );
+    }
+
+    #[test]
+    fn abandoned_fact_dependencies_are_discarded_before_retry() {
+        let runtime = FactRuntime::default();
+        let cancellation = CancellationToken::new();
+
+        let parent = FactCell::new();
+        let abandoned_dependency = FactCell::new();
+        let committed_dependency = FactCell::new();
+
+        let parent_key = CompilationFactKey::CheckDiagnostics;
+        let abandoned_key = CompilationFactKey::SyntaxTree;
+        let committed_key = CompilationFactKey::DeclarationTable;
+
+        let abandoned = parent.get_or_compute(&runtime, parent_key.clone(), &cancellation, || {
+            abandoned_dependency
+                .get_or_compute(&runtime, abandoned_key, &cancellation, || Ok(1_u32))?;
+
+            Err(FactQueryError::InfrastructureFailure)
+        });
+
+        assert_eq!(abandoned, Err(FactQueryError::InfrastructureFailure));
+
+        let retried = parent.get_or_compute(&runtime, parent_key.clone(), &cancellation, || {
+            committed_dependency.get_or_compute(
+                &runtime,
+                committed_key.clone(),
+                &cancellation,
+                || Ok(2_u32),
+            )?;
+
+            Ok(3_u32)
+        });
+
+        assert_eq!(retried, Ok(&3));
+        assert_eq!(
+            runtime.dependencies(&parent_key),
+            Ok(vec![committed_key].into_boxed_slice())
+        );
     }
 
     #[test]

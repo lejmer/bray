@@ -17,8 +17,8 @@ pub use compiler_known::{
     CompilerKnownCatalogCheckError, CompilerKnownCatalogCheckReport, check_compiler_known_catalog,
 };
 pub use fact::{
-    CancellationToken, CompilationFactKey, FactCycle, FactQueryError, ImportedSemanticFactKey,
-    SymbolCompletionError, SymbolFactKey, force_complete_symbol,
+    CancellationToken, FactCycle, FactQueryError, ImportedSemanticFactKey, SymbolCompletionError,
+    force_complete_symbol,
 };
 pub use request::{
     CompilationOptions, CompilationRequest, DependencyInterfaceInput, PackageInterfaceExportRequest,

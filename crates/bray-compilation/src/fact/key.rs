@@ -54,23 +54,23 @@ impl SymbolFactKey {
         Self { symbol, kind }
     }
 
-    /// Returns the symbol that owns the fact.
-    pub const fn symbol(self) -> AnySymbolId {
+    #[cfg(test)]
+    pub(crate) const fn symbol(self) -> AnySymbolId {
         self.symbol
     }
 
-    /// Returns the exact category of fact requested from the symbol.
-    pub const fn kind(self) -> SymbolFactKind {
+    #[cfg(test)]
+    pub(crate) const fn kind(self) -> SymbolFactKind {
         self.kind
     }
 }
 
-/// A type-erased compilation-fact identity used for dependency coordination.
+/// A compilation-fact identity used only for private dependency coordination.
 ///
 /// The key preserves enough semantic identity to detect dependency cycles and coordinate
 /// concurrent requests.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum CompilationFactKey {
+pub(crate) enum CompilationFactKey {
     /// The target-filtered compiler-known declaration symbol view.
     AvailableCompilerKnownSymbols,
     /// The complete canonical compiler-known symbol and fact provider.

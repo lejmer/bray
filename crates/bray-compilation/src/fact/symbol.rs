@@ -3,7 +3,9 @@ use std::sync::Arc;
 
 use bray_symbols::{SymbolFactContract, SymbolFactRequest, SymbolFactResult};
 
-use super::{CancellationToken, CompilationFactKey, FactCellMap, FactQueryError, FactRuntime};
+use super::{
+    CancellationToken, CompilationFactKey, FactCellMap, FactQueryError, FactRuntime, SymbolFactKey,
+};
 
 pub(crate) struct SymbolFactCache<C>
 where
@@ -31,8 +33,7 @@ where
         request: SymbolFactRequest<C>,
         compute: impl FnOnce() -> Result<SymbolFactResult<C>, FactQueryError>,
     ) -> Result<Arc<SymbolFactResult<C>>, FactQueryError> {
-        let key =
-            CompilationFactKey::from(crate::SymbolFactKey::new(request.symbol(), request.kind()));
+        let key = CompilationFactKey::from(SymbolFactKey::new(request.symbol(), request.kind()));
 
         let cell = self.cells.cell(request.owner())?;
         let published =
