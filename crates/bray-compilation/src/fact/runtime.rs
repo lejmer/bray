@@ -17,8 +17,14 @@ pub(crate) struct FactRuntime {
 #[derive(Debug, Default)]
 struct RuntimeState {
     owners: HashMap<CompilationFactKey, FactTaskIdentity>,
-    waiting: HashMap<FactTaskIdentity, BTreeSet<CompilationFactKey>>,
+    waiting: HashMap<FactTaskIdentity, BTreeMap<WaitEdge, usize>>,
     dependencies: BTreeMap<CompilationFactKey, BTreeSet<CompilationFactKey>>,
+}
+
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+struct WaitEdge {
+    fact: CompilationFactKey,
+    owner: FactTaskIdentity,
 }
 
 impl FactRuntime {
@@ -70,21 +76,21 @@ impl FactRuntime {
 
     pub(crate) fn same_thread_cycle(
         &self,
-        key: CompilationFactKey,
+        key: &CompilationFactKey,
     ) -> Result<FactCycle, FactQueryError> {
-        current_cycle(self.identity(), &key)
+        current_cycle(self.identity(), key)
     }
 
     pub(crate) fn wait_for(
         &self,
-        key: CompilationFactKey,
+        key: &CompilationFactKey,
         observed_owner: FactTaskIdentity,
     ) -> Result<Option<WaitingGuard<'_>>, FactQueryError> {
         let requester = self.current_task_context().ok();
 
         let mut state = self.state()?;
 
-        let Some(owner) = state.owners.get(&key).copied() else {
+        let Some(owner) = state.owners.get(key).copied() else {
             return Ok(None);
         };
 
@@ -92,32 +98,50 @@ impl FactRuntime {
             return Ok(None);
         }
 
+        // The guard owns the exact observed edge after the caller releases its cache lock.
+        let edge = WaitEdge {
+            fact: key.clone(),
+            owner,
+        };
+
         let Some(requester) = requester else {
             return Ok(Some(WaitingGuard {
                 runtime: self,
                 task: None,
-                key,
+                edge,
             }));
         };
 
         let requester_identity = requester.identity();
 
-        // The wait edge remains registered after the caller's key moves into its guard.
-        state
-            .waiting
-            .entry(requester_identity)
-            .or_default()
-            .insert(key.clone());
+        // The registry and guard retain independent edge keys while the wait is active.
+        let waiting = state.waiting.entry(requester_identity).or_default();
+        let count = waiting.entry(edge.clone()).or_default();
+
+        *count = count
+            .checked_add(1)
+            .ok_or(FactQueryError::InfrastructureFailure)?;
 
         // Cycle reporting owns its root key after the runtime lock is released.
-        if let Some(cycle) = cross_task_cycle(
+        let cycle = cross_task_cycle(
             &state,
             requester_identity,
             requester.key().clone(),
             owner,
-            &key,
-        )? {
-            remove_wait(&mut state, requester_identity, &key);
+            key,
+        );
+
+        let cycle = match cycle {
+            Ok(cycle) => cycle,
+            Err(error) => {
+                remove_wait(&mut state, requester_identity, &edge);
+
+                return Err(error);
+            }
+        };
+
+        if let Some(cycle) = cycle {
+            remove_wait(&mut state, requester_identity, &edge);
 
             return Err(FactQueryError::Cycle(cycle));
         }
@@ -125,7 +149,7 @@ impl FactRuntime {
         Ok(Some(WaitingGuard {
             runtime: self,
             task: Some(requester_identity),
-            key,
+            edge,
         }))
     }
 
@@ -169,12 +193,12 @@ impl FactRuntime {
         remove_evaluation(&mut state, context.identity(), key);
     }
 
-    fn finish_waiting(&self, task: FactTaskIdentity, key: &CompilationFactKey) {
+    fn finish_waiting(&self, task: FactTaskIdentity, edge: &WaitEdge) {
         let Ok(mut state) = self.state.lock() else {
             return;
         };
 
-        remove_wait(&mut state, task, key);
+        remove_wait(&mut state, task, edge);
     }
 
     #[cfg(test)]
@@ -214,17 +238,19 @@ fn cross_task_cycle(
             continue;
         };
 
-        for waited_key in waited_keys {
-            let Some(next_owner) = state.owners.get(waited_key).copied() else {
+        for edge in waited_keys.keys() {
+            if state.owners.get(&edge.fact).copied() != Some(edge.owner) {
                 continue;
-            };
+            }
+
+            let next_owner = edge.owner;
 
             if !visited.insert(next_owner) {
                 continue;
             }
 
             // Predecessors retain graph edges while the breadth-first search continues.
-            predecessors.insert(next_owner, (current, waited_key.clone()));
+            predecessors.insert(next_owner, (current, edge.fact.clone()));
 
             if next_owner == requester {
                 let mut path = Vec::new();
@@ -260,10 +286,23 @@ fn remove_evaluation(state: &mut RuntimeState, task: FactTaskIdentity, key: &Com
     state.waiting.remove(&task);
 }
 
-fn remove_wait(state: &mut RuntimeState, task: FactTaskIdentity, key: &CompilationFactKey) {
+fn remove_wait(state: &mut RuntimeState, task: FactTaskIdentity, edge: &WaitEdge) {
     let remove_task = match state.waiting.get_mut(&task) {
         Some(waiting) => {
-            waiting.remove(key);
+            let remove_edge = match waiting.get_mut(edge) {
+                Some(count) if *count > 1 => {
+                    *count -= 1;
+
+                    false
+                }
+                Some(_) => true,
+                None => false,
+            };
+
+            if remove_edge {
+                waiting.remove(edge);
+            }
+
             waiting.is_empty()
         }
         None => false,
@@ -341,13 +380,13 @@ impl Drop for EvaluationCommit<'_> {
 pub(crate) struct WaitingGuard<'a> {
     runtime: &'a FactRuntime,
     task: Option<FactTaskIdentity>,
-    key: CompilationFactKey,
+    edge: WaitEdge,
 }
 
 impl Drop for WaitingGuard<'_> {
     fn drop(&mut self) {
         if let Some(task) = self.task {
-            self.runtime.finish_waiting(task, &self.key);
+            self.runtime.finish_waiting(task, &self.edge);
         }
     }
 }

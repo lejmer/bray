@@ -115,7 +115,7 @@ impl FactTaskContext {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct RuntimeIdentity(pub(crate) usize);
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub(crate) struct FactTaskIdentity(pub(crate) u64);
 
 pub(crate) fn record_request(
