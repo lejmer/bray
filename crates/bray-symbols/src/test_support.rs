@@ -11,17 +11,21 @@ pub(crate) fn declaration_table(source_texts: &[&str]) -> DeclarationTable {
 
 pub(crate) fn declarations_and_syntax(source_texts: &[&str]) -> (DeclarationTable, SyntaxTree) {
     let sources = test_source_store(source_texts);
+
     let parsed = (0u32..)
         .take(source_texts.len())
         .map(|index| bray_parser::parse_source_unit(test_source_at(&sources, index)))
         .collect::<Vec<_>>();
+
     let chunks = parsed
         .iter()
         .map(|result| discover_source_unit_declarations(result.source_unit()))
         .collect::<Vec<_>>();
 
     let result = merge_declaration_chunks(chunks.iter());
+
     let (table, _diagnostics) = result.into_parts();
+
     let syntax =
         SyntaxTree::compilation_unit(parsed.iter().map(|result| result.source_unit().clone()));
 

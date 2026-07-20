@@ -204,6 +204,7 @@ impl<'graph> HeaderLookup<'graph> {
 
         let compiler_known = self.graph.compiler_known_provider();
         let ambient = compiler_known.environment().id().into();
+
         let compiler_known =
             match compiler_known.lookup_member_with_access(ambient, name, |_, _| true) {
                 MemberLookupResult::Found(candidate) => HeaderNameResolution::Unique(candidate),
@@ -219,6 +220,7 @@ impl<'graph> HeaderLookup<'graph> {
 
     fn generic_parameter_kinds(&self, owner: AnySymbolId) -> Vec<ParameterKind> {
         let source_children = self.graph.relationship_children(owner);
+
         let children = if source_children.is_empty() {
             self.graph
                 .compiler_known_provider()
@@ -452,9 +454,11 @@ mod tests {
         )]);
 
         let implementation = source_unnamed_trait_implementation(&graph);
+
         let [type_parameter] = implementation.generic_type_parameters() else {
             panic!("implementation should infer one type parameter");
         };
+
         let [const_parameter] = implementation.generic_const_parameters() else {
             panic!("implementation should infer one constant parameter");
         };
@@ -462,6 +466,7 @@ mod tests {
         let Some(type_parameter) = graph.generic_type_parameter(*type_parameter) else {
             panic!("inferred type parameter ID should resolve");
         };
+
         let Some(const_parameter) = graph.generic_const_parameter(*const_parameter) else {
             panic!("inferred constant parameter ID should resolve");
         };
@@ -470,10 +475,12 @@ mod tests {
             type_parameter.inferred_name().map(|name| name.as_str()),
             Some("T")
         );
+
         assert_eq!(
             const_parameter.inferred_name().map(|name| name.as_str()),
             Some("count")
         );
+
         assert_eq!(type_parameter.origin(), SymbolOrigin::Synthesized);
         assert_eq!(const_parameter.origin(), SymbolOrigin::Synthesized);
         assert_eq!(type_parameter.ordinal(), 0);
@@ -484,6 +491,7 @@ mod tests {
         let SymbolKeyData::Synthesized(type_key) = type_parameter.key().data() else {
             panic!("inferred type parameter should use a synthesized key");
         };
+
         let SymbolKeyData::Synthesized(const_key) = const_parameter.key().data() else {
             panic!("inferred constant parameter should use a synthesized key");
         };
@@ -492,11 +500,14 @@ mod tests {
             type_key.role(),
             SynthesizedSymbolRole::InferredImplementationTypeParameter
         );
+
         assert_eq!(type_key.ordinal(), Some(SymbolOrdinal::new(0)));
+
         assert_eq!(
             const_key.role(),
             SynthesizedSymbolRole::InferredImplementationConstParameter
         );
+
         assert_eq!(const_key.ordinal(), Some(SymbolOrdinal::new(1)));
     }
 
@@ -562,6 +573,7 @@ mod tests {
             "{\n",
             "}\n",
         ));
+
         let expected = graph(&[source.as_ref()]);
         let mut workers = Vec::new();
 

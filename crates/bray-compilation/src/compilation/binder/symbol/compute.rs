@@ -582,14 +582,17 @@ func identity<T>(value: T) -> T
             "{\n",
             "}\n",
         ));
+
         let symbols = symbol_graph(&compilation);
         let cancellation = CancellationToken::new();
         let facts = binder_facts(&compilation, &cancellation);
+
         let implementation = source_id(
             symbols.inherent_implementations(),
             |symbol| symbol.origin(),
             |symbol| symbol.id(),
         );
+
         let Some(implementation_symbol) = symbols.inherent_implementation(implementation) else {
             panic!("implementation ID should resolve");
         };
@@ -615,6 +618,7 @@ func identity<T>(value: T) -> T
             Ok(values) => values,
             Err(error) => panic!("semantic value store should be available: {error:?}"),
         };
+
         let substitution = match values.generic_substitution_data(*substitution) {
             Ok(substitution) => substitution,
             Err(error) => panic!("subject substitution should resolve: {error:?}"),
@@ -632,6 +636,7 @@ func identity<T>(value: T) -> T
             type_data(&compilation, argument).as_ref(),
             &TypeData::TypeParameter(*parameter)
         );
+
         assert!(subject.diagnostics().is_empty());
     }
 

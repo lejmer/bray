@@ -1007,9 +1007,11 @@ mod tests {
     #[test]
     fn foreign_unit_keys_cannot_publish_into_a_compilation_cache() {
         let compilation = checked_body_compilation();
+
         let Some(foreign_package) = PackageIdentity::try_new("foreign.package") else {
             panic!("foreign test package identity must be valid");
         };
+
         let foreign_symbols = match SymbolGraph::build_source(
             foreign_package,
             compilation.declaration_table(),
@@ -1018,6 +1020,7 @@ mod tests {
             Ok(symbols) => symbols,
             Err(error) => panic!("foreign test symbol graph must build: {error:?}"),
         };
+
         let foreign_key = source_callable_body_key_from_symbols(&compilation, &foreign_symbols);
 
         let foreign = compilation.checked_control_flow(foreign_key.clone());
