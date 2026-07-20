@@ -58,6 +58,7 @@ impl DeclaredValueTypeBinding<'_> {
         let result = self
             .context
             .symbol_fact(SymbolFactRequest::<CallableSignatureFact>::new(callable))?;
+
         let signature = result.value();
 
         if let Some(receiver) = signature.receiver() {
@@ -114,6 +115,7 @@ impl DeclaredValueTypeBinding<'_> {
             None => {
                 let result =
                     type_binder(self.context, self.owner)?.bind_omitted_callable_result()?;
+
                 let (template, diagnostics) = result.into_parts();
 
                 self.diagnostics.add_range(diagnostics);
@@ -141,6 +143,7 @@ impl DeclaredValueTypeBinding<'_> {
         let value = surface_value(declaration);
 
         self.add_evidence(value, template);
+
         self.add_constraint(
             DeclaredValueTypeConstraintKind::Initializer,
             DeclaredValueTypeTerm::Expression(expression),
@@ -160,6 +163,7 @@ impl DeclaredValueTypeBinding<'_> {
         let value = surface_value(self.owner);
 
         self.add_evidence(value, template);
+
         self.add_constraint(
             DeclaredValueTypeConstraintKind::Initializer,
             DeclaredValueTypeTerm::Expression(initializer),

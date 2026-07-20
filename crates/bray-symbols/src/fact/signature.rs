@@ -360,6 +360,7 @@ mod tests {
         };
 
         let parameter = CallableParameterSymbolId::from_symbol_id(SymbolId::new(2));
+
         let signature = CallableSignatureTemplate::new(
             TypeExpressionTemplate::Resolved(callable),
             None,
@@ -406,6 +407,7 @@ mod tests {
         let second = CallableParameterSymbolId::from_symbol_id(SymbolId::new(3));
         let first_type = TypeExpressionTemplate::Resolved(ty);
         let second_type = TypeExpressionTemplate::Slice(Arc::new(first_type.clone()));
+
         let callable = CallableTypeTemplate::new(
             [
                 CallableParameterTypeTemplate::new(

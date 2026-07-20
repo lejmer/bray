@@ -173,6 +173,7 @@ impl<'facts> DeclaredValueTypeBinding<'facts> {
                             let value = local_value(symbol.into());
 
                             self.add_evidence(value, template);
+
                             self.add_constraint(
                                 DeclaredValueTypeConstraintKind::Initializer,
                                 initializer,

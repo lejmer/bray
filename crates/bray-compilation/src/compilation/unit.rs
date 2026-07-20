@@ -109,6 +109,7 @@ impl Compilation {
             |cancellation| {
                 let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
                 let facts = self.binder_facts_for(&key, cancellation)?;
+
                 let result = bind_declared_value_type_templates(&facts, bound.result().value())
                     .map_err(map_binder_fact_error)?;
 
@@ -219,6 +220,7 @@ mod tests {
             "    copy\n",
             "}\n",
         ));
+
         let key = source_callable_body_key(&compilation);
 
         assert_eq!(
@@ -228,6 +230,7 @@ mod tests {
                 .is_published(&key),
             Ok(false)
         );
+
         assert_eq!(
             compilation.state.checked_control_flow.is_published(&key),
             Ok(false)
@@ -242,8 +245,10 @@ mod tests {
             facts.value(),
             SymbolKind::GenericConstParameter
         ));
+
         assert!(has_value_kind(facts.value(), SymbolKind::CallableParameter));
         assert!(has_value_kind(facts.value(), SymbolKind::LocalConstant));
+
         assert!(
             facts
                 .value()
@@ -251,22 +256,27 @@ mod tests {
                 .iter()
                 .any(|entry| matches!(entry.term(), DeclaredValueTypeTerm::Pattern(_)))
         );
+
         assert!(matches!(
             facts.value().callable_result(),
             Some(TypeExpressionTemplate::Array { .. })
         ));
+
         assert!(has_constraint_kind(
             facts.value(),
             DeclaredValueTypeConstraintKind::Initializer
         ));
+
         assert!(has_constraint_kind(
             facts.value(),
             DeclaredValueTypeConstraintKind::PatternBinding
         ));
+
         assert!(has_constraint_kind(
             facts.value(),
             DeclaredValueTypeConstraintKind::DefinitionUse
         ));
+
         assert_eq!(
             compilation.state.checked_control_flow.is_published(&key),
             Ok(false)
@@ -288,6 +298,7 @@ mod tests {
             Ok(bound) => bound,
             Err(error) => panic!("bound callable must remain available: {error:?}"),
         };
+
         let [nested] = bound.value().nested_units() else {
             panic!("test callable must retain one anonymous callable");
         };
@@ -303,14 +314,17 @@ mod tests {
             nested_facts.value(),
             SymbolKind::AnonymousCallableParameter
         ));
+
         assert!(has_value_kind(
             nested_facts.value(),
             SymbolKind::GenericConstParameter
         ));
+
         assert!(matches!(
             nested_facts.value().callable_result(),
             Some(TypeExpressionTemplate::Array { .. })
         ));
+
         assert_eq!(
             compilation.state.checked_control_flow.is_published(&nested),
             Ok(false)
@@ -335,6 +349,7 @@ mod tests {
             "    return value;\n",
             "}\n",
         ));
+
         let keys = match compilation.declared_unit_keys_for_test() {
             Ok(keys) => keys,
             Err(error) => panic!("declared unit keys must be available: {error:?}"),
@@ -342,12 +357,14 @@ mod tests {
 
         let constant = facts_for_kind(&compilation, &keys, BoundUnitKind::ConstantTemplate);
         assert!(has_value_kind(constant.value(), SymbolKind::Constant));
+
         assert!(has_constraint_kind(
             constant.value(),
             DeclaredValueTypeConstraintKind::Initializer
         ));
 
         let predicate = facts_for_kind(&compilation, &keys, BoundUnitKind::PredicateDefinition);
+
         assert!(has_value_kind(
             predicate.value(),
             SymbolKind::PredicateParameter
@@ -359,13 +376,16 @@ mod tests {
             .filter_map(|key| compilation.declared_value_type_templates(key.clone()).ok())
             .find(|facts| has_value_kind(facts.value(), SymbolKind::ReceiverParameter))
             .unwrap_or_else(|| panic!("type callable body must publish receiver evidence"));
+
         assert!(receiver.value().callable_result().is_some());
 
         let contract = facts_for_kind(&compilation, &keys, BoundUnitKind::ContractClause);
+
         assert!(has_value_kind(
             contract.value(),
             SymbolKind::PostconditionResult
         ));
+
         assert!(has_value_kind(
             contract.value(),
             SymbolKind::CallableParameter
@@ -404,6 +424,7 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert_eq!(templates.len(), 2);
+
         assert!(
             templates
                 .iter()
@@ -427,18 +448,21 @@ mod tests {
             "    local\n",
             "}\n",
         ));
+
         let key = source_callable_body_key(&compilation);
 
         let first = match compilation.declared_value_type_templates(key.clone()) {
             Ok(facts) => facts,
             Err(error) => panic!("recovered declared value types must publish: {error:?}"),
         };
+
         let second = match compilation.declared_value_type_templates(key) {
             Ok(facts) => facts,
             Err(error) => panic!("repeated recovered request must publish: {error:?}"),
         };
 
         assert!(Arc::ptr_eq(&first, &second));
+
         assert!(
             first
                 .value()
@@ -492,6 +516,7 @@ mod tests {
             Ok(bound) => bound,
             Err(error) => panic!("first bound-unit request must complete: {error:?}"),
         };
+
         let second_bound = match compilation.bound_unit(key.clone()) {
             Ok(bound) => bound,
             Err(error) => panic!("repeated bound-unit request must complete: {error:?}"),

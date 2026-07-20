@@ -174,6 +174,7 @@ mod tests {
         let pattern = DeclaredValueTypeTerm::Pattern(BoundPatternId::from_slot(unit, 0));
         let template = TypeExpressionTemplate::Resolved(error_type());
         let evidence = DeclaredValueTypeEvidence::new(pattern, template.clone());
+
         let constraint = DeclaredValueTypeConstraint::new(
             DeclaredValueTypeConstraintKind::Initializer,
             expression,
