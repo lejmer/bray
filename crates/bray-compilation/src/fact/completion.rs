@@ -222,10 +222,8 @@ mod tests {
     };
 
     use super::{SymbolCompletionError, force_complete_symbol};
-    use crate::{
-        CancellationToken, Compilation, CompilationFactKey, FactCycle, FactQueryError,
-        SymbolFactKey, WorkerBudget,
-    };
+    use crate::fact::{CompilationFactKey, SymbolFactKey};
+    use crate::{CancellationToken, Compilation, FactCycle, FactQueryError, WorkerBudget};
 
     #[test]
     fn serial_and_parallel_completion_merge_diagnostics_in_plan_order() {

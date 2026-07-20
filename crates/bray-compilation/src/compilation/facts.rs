@@ -264,13 +264,18 @@ impl Compilation {
 
     /// Returns the declaration-discovery result for one source unit.
     pub fn declaration_chunk(&self, source_id: SourceId) -> Option<&DeclarationChunkResult> {
-        let syntax = self.source_unit_syntax(source_id)?;
         let cache = self.state.declaration_chunks.get(source_id.to_index()?)?;
 
         Some(self.fact(
             CompilationFactKey::DeclarationChunk(source_id),
             cache,
-            || discover_source_unit_declarations(syntax.source_unit()),
+            || {
+                let Some(syntax) = self.source_unit_syntax(source_id) else {
+                    panic!("declaration chunk cache should match source syntax cache");
+                };
+
+                discover_source_unit_declarations(syntax.source_unit())
+            },
         ))
     }
 
@@ -482,7 +487,7 @@ mod tests {
     use bray_syntax::SourceSyntaxNode;
 
     use crate::TargetAvailabilityFacts;
-    use crate::fact::FactQueryError;
+    use crate::fact::{CompilationFactKey, FactQueryError};
     use crate::request::{CompilationOptions, CompilationRequest};
     use crate::test_support::{
         diagnostic_kinds, package_identity, source_callable_body_key,
@@ -869,6 +874,15 @@ mod tests {
         assert!(second_declaration_cache.get().is_none());
 
         assert!(compilation.state.declaration_table_result.get().is_none());
+        assert_eq!(
+            compilation
+                .state
+                .fact_runtime
+                .dependencies(&CompilationFactKey::DeclarationChunk(SourceId::new(0))),
+            Ok(Some(
+                vec![CompilationFactKey::SourceUnitSyntax(SourceId::new(0))].into_boxed_slice()
+            ))
+        );
 
         let second = match compilation.declaration_chunk(SourceId::new(0)) {
             Some(result) => result,
@@ -897,6 +911,20 @@ mod tests {
         );
 
         assert!(compilation.state.check_diagnostics.get().is_none());
+        assert_eq!(
+            compilation
+                .state
+                .fact_runtime
+                .dependencies(&CompilationFactKey::DeclarationTable),
+            Ok(Some(
+                vec![
+                    CompilationFactKey::DeclarationChunk(SourceId::new(0)),
+                    CompilationFactKey::DeclarationChunk(SourceId::new(1)),
+                ]
+                .into_boxed_slice()
+            ))
+        );
+
         assert!(std::ptr::eq(first.table(), compilation.declaration_table()));
 
         assert!(std::ptr::eq(

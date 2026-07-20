@@ -45,14 +45,13 @@ impl Compilation {
         key: BoundUnitKey,
         cancellation: &CancellationToken,
     ) -> Result<Arc<PublishedUnitFact<BoundUnit>>, FactQueryError> {
-        let facts = self.binder_facts_for(&key, cancellation)?;
-
         self.unit_fact(
             &self.state.bound_units,
             CompilationFactKey::BoundUnit(key.clone()),
             key.clone(),
             cancellation,
-            |_| {
+            |cancellation| {
+                let facts = self.binder_facts_for(&key, cancellation)?;
                 let unit = self.bound_unit_id(&key)?;
 
                 bind_unit(&facts, unit, key)

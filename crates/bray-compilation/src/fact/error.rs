@@ -16,8 +16,7 @@ impl FactCycle {
         }
     }
 
-    /// Returns the dependency path, including the repeated closing fact.
-    pub fn facts(&self) -> &[CompilationFactKey] {
+    pub(crate) fn facts(&self) -> &[CompilationFactKey] {
         &self.facts
     }
 }

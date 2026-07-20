@@ -5,7 +5,10 @@ use std::time::Duration;
 #[cfg(test)]
 use std::{fmt, sync::Arc};
 
-use super::{CancellationToken, CompilationFactKey, FactQueryError, FactRuntime};
+use super::{
+    CancellationToken, CompilationFactKey, EvaluationCommit, FactQueryError, FactRuntime,
+    FactTaskIdentity,
+};
 
 const CANCELLATION_POLL_INTERVAL: Duration = Duration::from_millis(10);
 
@@ -53,6 +56,7 @@ enum FactCellState {
     Vacant,
     Computing {
         owner: ThreadId,
+        task: FactTaskIdentity,
         key: CompilationFactKey,
     },
     Ready(CompilationFactKey),
@@ -83,6 +87,8 @@ impl<T> FactCell<T> {
     ) -> Result<&T, FactQueryError> {
         let mut compute = Some(compute);
 
+        runtime.request(&key)?;
+
         loop {
             cancellation.check()?;
 
@@ -101,19 +107,24 @@ impl<T> FactCell<T> {
                 }
                 FactCellState::Vacant => {
                     let thread = thread::current().id();
+
+                    // The task, cell state, and rollback guard independently retain this key.
+                    let context = runtime.task(key.clone())?;
+                    let task = context.identity();
+
                     *state = FactCellState::Computing {
                         owner: thread,
+                        task,
                         key: key.clone(),
                     };
 
                     drop(state);
 
-                    let mut publication = PublicationGuard::new(self, thread, key.clone());
+                    let mut publication = PublicationGuard::new(self, thread, task, key.clone());
+                    let evaluation = runtime.begin(context)?;
 
                     #[cfg(test)]
                     self.observe(FactCellTestEvent::Computing)?;
-
-                    let _evaluation = runtime.begin(key.clone())?;
 
                     cancellation.check()?;
 
@@ -121,14 +132,16 @@ impl<T> FactCell<T> {
                         .take()
                         .ok_or(FactQueryError::InfrastructureFailure)?;
 
-                    let value = compute()?;
+                    let value = evaluation.run(compute)?;
 
                     #[cfg(test)]
                     self.observe(FactCellTestEvent::Computed)?;
 
                     cancellation.check()?;
 
-                    self.publish(value, thread, key)?;
+                    let commit = evaluation.prepare()?;
+
+                    self.publish(value, thread, task, key, commit)?;
 
                     publication.disarm();
 
@@ -136,32 +149,56 @@ impl<T> FactCell<T> {
                 }
                 FactCellState::Computing {
                     owner,
+                    task,
                     key: computing_key,
                 } => {
                     if computing_key != &key {
                         return Err(FactQueryError::InfrastructureFailure);
                     }
 
+                    let owner = *owner;
+                    let task = *task;
                     let thread = thread::current().id();
 
-                    if *owner == thread {
-                        return Err(FactQueryError::Cycle(
-                            runtime.same_thread_cycle(key.clone())?,
-                        ));
+                    if owner == thread {
+                        return Err(FactQueryError::Cycle(runtime.same_thread_cycle(&key)?));
                     }
 
-                    let waiting = runtime.wait_for(key.clone(), *owner)?;
+                    drop(state);
+
+                    let Some(waiting) = runtime.wait_for(&key, task)? else {
+                        continue;
+                    };
 
                     #[cfg(test)]
                     self.observe(FactCellTestEvent::Waiting)?;
 
-                    let waited = self
-                        .changed
-                        .wait_timeout(state, CANCELLATION_POLL_INTERVAL)
+                    let state = self
+                        .state
+                        .lock()
                         .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
+                    let same_evaluation = matches!(
+                        &*state,
+                        FactCellState::Computing {
+                            task: current_task,
+                            key: current_key,
+                            ..
+                        } if *current_task == task && current_key == &key
+                    );
+
+                    if same_evaluation {
+                        let waited = self
+                            .changed
+                            .wait_timeout(state, CANCELLATION_POLL_INTERVAL)
+                            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+                        drop(waited);
+                    } else {
+                        drop(state);
+                    }
+
                     drop(waiting);
-                    drop(waited);
                 }
             }
         }
@@ -171,12 +208,10 @@ impl<T> FactCell<T> {
         &self,
         value: T,
         thread: ThreadId,
+        task: FactTaskIdentity,
         key: CompilationFactKey,
+        commit: EvaluationCommit<'_>,
     ) -> Result<(), FactQueryError> {
-        self.value
-            .set(value)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
-
         let mut state = self
             .state
             .lock()
@@ -186,11 +221,18 @@ impl<T> FactCell<T> {
             &*state,
             FactCellState::Computing {
                 owner,
+                task: active_task,
                 key: active_key,
-            } if *owner == thread && active_key == &key
+            } if *owner == thread && *active_task == task && active_key == &key
         ) {
             return Err(FactQueryError::InfrastructureFailure);
         }
+
+        self.value
+            .set(value)
+            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+        commit.commit();
 
         *state = FactCellState::Ready(key);
 
@@ -235,7 +277,7 @@ impl<T> FactCell<T> {
         Ok(())
     }
 
-    fn abandon(&self, thread: ThreadId, key: CompilationFactKey) {
+    fn abandon(&self, thread: ThreadId, task: FactTaskIdentity, key: &CompilationFactKey) {
         let Ok(mut state) = self.state.lock() else {
             return;
         };
@@ -244,14 +286,16 @@ impl<T> FactCell<T> {
             &*state,
             FactCellState::Computing {
                 owner,
+                task: active_task,
                 key: active_key,
-            } if *owner == thread && active_key == &key
+            } if *owner == thread && *active_task == task && active_key == key
         ) {
             return;
         }
 
         *state = if self.value.get().is_some() {
-            FactCellState::Ready(key)
+            // Recovery must retain the initialized value's cache identity after the guard drops.
+            FactCellState::Ready(key.clone())
         } else {
             FactCellState::Vacant
         };
@@ -269,15 +313,22 @@ impl<T> Default for FactCell<T> {
 struct PublicationGuard<'a, T> {
     cell: &'a FactCell<T>,
     thread: ThreadId,
+    task: FactTaskIdentity,
     key: CompilationFactKey,
     active: bool,
 }
 
 impl<'a, T> PublicationGuard<'a, T> {
-    fn new(cell: &'a FactCell<T>, thread: ThreadId, key: CompilationFactKey) -> Self {
+    fn new(
+        cell: &'a FactCell<T>,
+        thread: ThreadId,
+        task: FactTaskIdentity,
+        key: CompilationFactKey,
+    ) -> Self {
         Self {
             cell,
             thread,
+            task,
             key,
             active: true,
         }
@@ -291,7 +342,7 @@ impl<'a, T> PublicationGuard<'a, T> {
 impl<T> Drop for PublicationGuard<'_, T> {
     fn drop(&mut self) {
         if self.active {
-            self.cell.abandon(self.thread, self.key.clone());
+            self.cell.abandon(self.thread, self.task, &self.key);
         }
     }
 }
@@ -309,7 +360,8 @@ mod tests {
         Diagnostic, DiagnosticBag, DiagnosticId, DiagnosticKind, DiagnosticResult, SeverityKind,
     };
 
-    use super::FactCell;
+    use super::{FactCell, FactCellState, FactCellTestEvent, FactCellTestObserver};
+    use crate::fact::task::FactTaskContext;
     use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError, FactRuntime};
 
     #[test]
@@ -446,6 +498,426 @@ mod tests {
         assert_eq!(first, Ok(&1));
         assert_eq!(mismatched, Err(FactQueryError::InfrastructureFailure));
         assert_eq!(cell.get(), Some(&1));
+    }
+
+    #[test]
+    fn successful_facts_record_sorted_unique_direct_dependencies() {
+        let runtime = FactRuntime::default();
+        let cancellation = CancellationToken::new();
+
+        let parent = FactCell::new();
+        let syntax = FactCell::new();
+        let declarations = FactCell::new();
+
+        let parent_key = CompilationFactKey::CheckDiagnostics;
+        let syntax_key = CompilationFactKey::SyntaxTree;
+        let declaration_key = CompilationFactKey::DeclarationTable;
+
+        let primed =
+            syntax.get_or_compute(&runtime, syntax_key.clone(), &cancellation, || Ok(1_u32));
+
+        assert_eq!(primed, Ok(&1));
+
+        let result = parent.get_or_compute(&runtime, parent_key.clone(), &cancellation, || {
+            syntax.get_or_compute(&runtime, syntax_key.clone(), &cancellation, || Ok(2_u32))?;
+            declarations.get_or_compute(
+                &runtime,
+                declaration_key.clone(),
+                &cancellation,
+                || Ok(3_u32),
+            )?;
+            syntax.get_or_compute(&runtime, syntax_key.clone(), &cancellation, || Ok(4_u32))?;
+
+            Ok(5_u32)
+        });
+
+        assert_eq!(result, Ok(&5));
+        assert_eq!(
+            runtime.dependencies(&parent_key),
+            Ok(Some(vec![declaration_key, syntax_key].into_boxed_slice()))
+        );
+    }
+
+    #[test]
+    fn propagated_task_context_records_worker_dependencies() {
+        let runtime = FactRuntime::default();
+        let cancellation = CancellationToken::new();
+
+        let parent = FactCell::new();
+        let child = FactCell::new();
+
+        let parent_key = CompilationFactKey::CheckDiagnostics;
+        let child_key = CompilationFactKey::DeclarationTable;
+
+        let result = parent.get_or_compute(&runtime, parent_key.clone(), &cancellation, || {
+            let context = runtime.current_task_context()?;
+
+            let child_value = std::thread::scope(|scope| {
+                join(scope.spawn(|| {
+                    context.run(|| {
+                        child
+                            .get_or_compute(&runtime, child_key.clone(), &cancellation, || {
+                                Ok(2_u32)
+                            })
+                            .copied()
+                    })
+                }))
+            })?;
+
+            Ok(child_value + 1)
+        });
+
+        assert_eq!(result, Ok(&3));
+        assert_eq!(
+            runtime.dependencies(&parent_key),
+            Ok(Some(vec![child_key].into_boxed_slice()))
+        );
+    }
+
+    #[test]
+    fn propagated_task_context_reports_worker_cycles_without_waiting() {
+        let runtime = FactRuntime::default();
+        let cancellation = CancellationToken::new();
+
+        let parent = FactCell::new();
+        let parent_key = CompilationFactKey::CheckDiagnostics;
+
+        let result = parent.get_or_compute(&runtime, parent_key.clone(), &cancellation, || {
+            let context = runtime.current_task_context()?;
+
+            std::thread::scope(|scope| {
+                join(scope.spawn(|| {
+                    context.run(|| {
+                        parent
+                            .get_or_compute(&runtime, parent_key.clone(), &cancellation, || {
+                                Ok(2_u32)
+                            })
+                            .copied()
+                    })
+                }))
+            })
+        });
+
+        let Err(FactQueryError::Cycle(cycle)) = result else {
+            panic!("propagated task cycle should be reported");
+        };
+
+        assert_eq!(cycle.facts(), &[parent_key.clone(), parent_key]);
+    }
+
+    #[test]
+    fn propagated_task_context_reports_indirect_worker_wait_cycles() {
+        let runtime = FactRuntime::default();
+        let cancellation = CancellationToken::new();
+
+        let parent = FactCell::new();
+        let child = FactCell::new();
+
+        let parent_key = CompilationFactKey::CheckDiagnostics;
+        let child_key = CompilationFactKey::DeclarationTable;
+
+        let start_child_dependency = Barrier::new(2);
+        let (parent_waiting_sender, parent_waiting_receiver) = mpsc::sync_channel(1);
+
+        let observer = FactCellTestObserver::new(move |event| {
+            if event == FactCellTestEvent::Waiting {
+                let _ = parent_waiting_sender.try_send(());
+            }
+        });
+
+        assert_eq!(parent.set_test_observer(observer), Ok(()));
+
+        let (parent_result, child_result) = std::thread::scope(|scope| {
+            let child_handle = scope.spawn(|| {
+                child
+                    .get_or_compute(&runtime, child_key.clone(), &cancellation, || {
+                        start_child_dependency.wait();
+
+                        parent.get_or_compute(
+                            &runtime,
+                            parent_key.clone(),
+                            &cancellation,
+                            || Ok(3_u32),
+                        )?;
+
+                        Ok(4_u32)
+                    })
+                    .copied()
+            });
+
+            let parent_result =
+                parent.get_or_compute(&runtime, parent_key.clone(), &cancellation, || {
+                    let context = runtime.current_task_context()?;
+
+                    start_child_dependency.wait();
+
+                    if parent_waiting_receiver
+                        .recv_timeout(Duration::from_secs(1))
+                        .is_err()
+                    {
+                        cancellation.cancel();
+
+                        return Err(FactQueryError::InfrastructureFailure);
+                    }
+
+                    let (result_sender, result_receiver) = mpsc::sync_channel(1);
+
+                    let worker_result = std::thread::scope(|worker_scope| {
+                        worker_scope.spawn(|| {
+                            let result = context.run(|| {
+                                child
+                                    .get_or_compute(
+                                        &runtime,
+                                        child_key.clone(),
+                                        &cancellation,
+                                        || Ok(5_u32),
+                                    )
+                                    .copied()
+                            });
+
+                            let _ = result_sender.send(result);
+                        });
+
+                        match result_receiver.recv_timeout(Duration::from_secs(1)) {
+                            Ok(result) => result,
+                            Err(_) => {
+                                cancellation.cancel();
+
+                                Err(FactQueryError::InfrastructureFailure)
+                            }
+                        }
+                    })?;
+
+                    Ok(worker_result + 1)
+                });
+
+            let child_result = join(child_handle);
+
+            (parent_result, child_result)
+        });
+
+        let Err(FactQueryError::Cycle(cycle)) = parent_result else {
+            panic!("indirect propagated task cycle should be reported");
+        };
+
+        assert_eq!(cycle.facts(), &[parent_key.clone(), child_key, parent_key]);
+        assert_eq!(child_result, Ok(4));
+    }
+
+    #[test]
+    fn duplicate_propagated_waits_preserve_the_edge_until_the_last_guard_drops() {
+        let runtime = FactRuntime::default();
+
+        let parent_key = CompilationFactKey::CheckDiagnostics;
+        let child_key = CompilationFactKey::DeclarationTable;
+
+        let parent_context = task_context(&runtime, parent_key.clone());
+        let parent_identity = parent_context.identity();
+
+        let parent_evaluation = match runtime.begin(parent_context.clone()) {
+            Ok(evaluation) => evaluation,
+            Err(error) => panic!("parent evaluation should begin: {error:?}"),
+        };
+
+        let child_context = task_context(&runtime, child_key.clone());
+        let child_identity = child_context.identity();
+
+        let child_evaluation = match runtime.begin(child_context.clone()) {
+            Ok(evaluation) => evaluation,
+            Err(error) => panic!("child evaluation should begin: {error:?}"),
+        };
+
+        let (registered_sender, registered_receiver) = mpsc::sync_channel(1);
+
+        let (release_sender, release_receiver) = mpsc::sync_channel(1);
+
+        let cycle = std::thread::scope(|scope| {
+            let first_runtime = &runtime;
+            let first_context = parent_context.clone();
+            let first_child_key = child_key.clone();
+
+            let first = scope.spawn(move || {
+                first_context.run(|| {
+                    let Some(waiting) = first_runtime.wait_for(&first_child_key, child_identity)?
+                    else {
+                        return Err(FactQueryError::InfrastructureFailure);
+                    };
+
+                    if registered_sender.send(()).is_err() {
+                        return Err(FactQueryError::InfrastructureFailure);
+                    }
+
+                    if release_receiver.recv().is_err() {
+                        return Err(FactQueryError::InfrastructureFailure);
+                    }
+
+                    drop(waiting);
+
+                    Ok(())
+                })
+            });
+
+            if registered_receiver.recv().is_err() {
+                panic!("first propagated wait should be registered");
+            }
+
+            let second_runtime = &runtime;
+            let second_context = parent_context.clone();
+            let second_child_key = child_key.clone();
+
+            let second = scope.spawn(move || {
+                second_context.run(|| {
+                    let Some(waiting) =
+                        second_runtime.wait_for(&second_child_key, child_identity)?
+                    else {
+                        return Err(FactQueryError::InfrastructureFailure);
+                    };
+
+                    drop(waiting);
+
+                    Ok(())
+                })
+            });
+
+            assert_eq!(join(second), Ok(()));
+
+            let cycle =
+                child_context.run(|| match runtime.wait_for(&parent_key, parent_identity) {
+                    Err(FactQueryError::Cycle(cycle)) => Ok(cycle),
+                    Ok(_) | Err(_) => Err(FactQueryError::InfrastructureFailure),
+                });
+
+            if release_sender.send(()).is_err() {
+                panic!("first propagated wait should be released");
+            }
+
+            assert_eq!(join(first), Ok(()));
+
+            cycle
+        });
+
+        let cycle = match cycle {
+            Ok(cycle) => cycle,
+            Err(error) => panic!("reverse wait should report the preserved edge: {error:?}"),
+        };
+
+        assert_eq!(
+            cycle.facts(),
+            &[parent_key, child_key, CompilationFactKey::CheckDiagnostics]
+        );
+
+        drop(parent_evaluation);
+        drop(child_evaluation);
+    }
+
+    #[test]
+    fn stale_owner_observations_retry_after_evaluation_handoff() {
+        let runtime = FactRuntime::default();
+        let key = CompilationFactKey::DeclarationTable;
+
+        let first_context = task_context(&runtime, key.clone());
+        let observed_owner = first_context.identity();
+        let first = match runtime.begin(first_context) {
+            Ok(evaluation) => evaluation,
+            Err(error) => panic!("first evaluation should begin: {error:?}"),
+        };
+
+        drop(first);
+
+        let second_context = task_context(&runtime, key.clone());
+        let second = match runtime.begin(second_context) {
+            Ok(evaluation) => evaluation,
+            Err(error) => panic!("second evaluation should begin: {error:?}"),
+        };
+
+        assert!(
+            runtime
+                .wait_for(&key, observed_owner)
+                .is_ok_and(|waiting| waiting.is_none())
+        );
+
+        drop(second);
+    }
+
+    #[test]
+    fn abandoned_fact_dependencies_are_discarded_before_retry() {
+        let runtime = FactRuntime::default();
+        let cancellation = CancellationToken::new();
+
+        let parent = FactCell::new();
+        let abandoned_dependency = FactCell::new();
+        let committed_dependency = FactCell::new();
+
+        let parent_key = CompilationFactKey::CheckDiagnostics;
+        let abandoned_key = CompilationFactKey::SyntaxTree;
+        let committed_key = CompilationFactKey::DeclarationTable;
+
+        let abandoned = parent.get_or_compute(&runtime, parent_key.clone(), &cancellation, || {
+            abandoned_dependency
+                .get_or_compute(&runtime, abandoned_key, &cancellation, || Ok(1_u32))?;
+
+            Err(FactQueryError::InfrastructureFailure)
+        });
+
+        assert_eq!(abandoned, Err(FactQueryError::InfrastructureFailure));
+
+        let retried = parent.get_or_compute(&runtime, parent_key.clone(), &cancellation, || {
+            committed_dependency.get_or_compute(
+                &runtime,
+                committed_key.clone(),
+                &cancellation,
+                || Ok(2_u32),
+            )?;
+
+            Ok(3_u32)
+        });
+
+        assert_eq!(retried, Ok(&3));
+        assert_eq!(
+            runtime.dependencies(&parent_key),
+            Ok(Some(vec![committed_key].into_boxed_slice()))
+        );
+    }
+
+    #[test]
+    fn failed_cache_publication_discards_dependencies() {
+        let runtime = FactRuntime::default();
+        let cancellation = CancellationToken::new();
+
+        let parent = Arc::new(FactCell::new());
+        let child = FactCell::new();
+
+        let parent_key = CompilationFactKey::CheckDiagnostics;
+        let child_key = CompilationFactKey::DeclarationTable;
+
+        let weak_parent = Arc::downgrade(&parent);
+        let observer = FactCellTestObserver::new(move |event| {
+            if event != FactCellTestEvent::Computed {
+                return;
+            }
+
+            let Some(parent) = weak_parent.upgrade() else {
+                return;
+            };
+
+            let mut state = match parent.state.lock() {
+                Ok(state) => state,
+                Err(_) => panic!("test fact state should remain available"),
+            };
+
+            *state = FactCellState::Vacant;
+        });
+
+        assert_eq!(parent.set_test_observer(observer), Ok(()));
+
+        let result = parent.get_or_compute(&runtime, parent_key.clone(), &cancellation, || {
+            child.get_or_compute(&runtime, child_key, &cancellation, || Ok(1_u32))?;
+
+            Ok(2_u32)
+        });
+
+        assert_eq!(result, Err(FactQueryError::InfrastructureFailure));
+        assert_eq!(runtime.dependencies(&parent_key), Ok(None));
     }
 
     #[test]
@@ -667,9 +1139,16 @@ mod tests {
         assert_send_sync::<Arc<FactCell<u32>>>();
     }
 
-    fn join(
-        handle: std::thread::ScopedJoinHandle<'_, Result<u32, FactQueryError>>,
-    ) -> Result<u32, FactQueryError> {
+    fn task_context(runtime: &FactRuntime, key: CompilationFactKey) -> FactTaskContext {
+        match runtime.task(key) {
+            Ok(context) => context,
+            Err(error) => panic!("fact task should be allocated: {error:?}"),
+        }
+    }
+
+    fn join<T>(
+        handle: std::thread::ScopedJoinHandle<'_, Result<T, FactQueryError>>,
+    ) -> Result<T, FactQueryError> {
         match handle.join() {
             Ok(result) => result,
             Err(_) => panic!("fact request thread should not panic"),

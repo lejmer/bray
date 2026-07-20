@@ -98,7 +98,11 @@ where
                 &self.compilation.state.fact_runtime,
                 self.cancellation,
                 request,
-                || facts.bind(self, request).map_err(fact_error),
+                || {
+                    let context = self.compilation.binder_facts(self.cancellation)?;
+
+                    facts.bind(&context, request).map_err(fact_error)
+                },
             )
             .map_err(binder_error)
     }
