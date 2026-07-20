@@ -1,7 +1,9 @@
 use std::sync::Arc;
 
 use bray_base::shared_slice;
-use bray_bound_tree::{BoundArgument, BoundExpressionId, BoundResolvedCall, MemberTarget};
+use bray_bound_tree::{
+    BoundArgument, BoundExpressionId, BoundGenericArgument, BoundResolvedCall, MemberTarget,
+};
 use bray_symbols::{
     CallableParameterDefaultProviderSymbolId, CallableParameterSymbolId, CallableSignature,
     ImplementationSelection, ImplementationSelectionKey, SymbolKey,
@@ -204,6 +206,7 @@ pub struct CallableSelectionRequest {
     pub(in crate::selection) expression: BoundExpressionId,
     pub(in crate::selection) callee_member: Option<MemberTarget>,
     pub(in crate::selection) receiver: Option<ReceiverSelection>,
+    pub(in crate::selection) generic_arguments: Arc<[BoundGenericArgument]>,
     pub(in crate::selection) arguments: Arc<[BoundArgument]>,
     pub(in crate::selection) candidates: Vec<CallableCandidate>,
 }
@@ -214,6 +217,7 @@ impl CallableSelectionRequest {
         expression: BoundExpressionId,
         callee_member: Option<MemberTarget>,
         receiver: Option<ReceiverSelection>,
+        generic_arguments: impl IntoIterator<Item = BoundGenericArgument>,
         arguments: impl IntoIterator<Item = BoundArgument>,
         candidates: impl IntoIterator<Item = CallableCandidate>,
     ) -> Self {
@@ -221,6 +225,7 @@ impl CallableSelectionRequest {
             expression,
             callee_member,
             receiver,
+            generic_arguments: shared_slice(generic_arguments),
             arguments: shared_slice(arguments),
             candidates: candidates.into_iter().collect(),
         }
@@ -239,6 +244,11 @@ impl CallableSelectionRequest {
     /// Returns the method receiver when the call has one.
     pub const fn receiver(&self) -> Option<ReceiverSelection> {
         self.receiver
+    }
+
+    /// Returns explicit generic arguments in source order.
+    pub fn generic_arguments(&self) -> &[BoundGenericArgument] {
+        &self.generic_arguments
     }
 
     /// Returns explicit source arguments in evaluation order.

@@ -392,6 +392,10 @@ methods, explicit generic substitution, static generic constraints, and target a
 argument ownership availability, borrow availability, mutation authority, dependency contracts, effects, capabilities, trusted
 obligations, `requires(...)` facts, or postconditions.
 
+Each callable candidate carries the complete substitution produced by binding the source-ordered explicit generic inputs against
+that candidate's type and const parameters. Selection validates that substitution and its static constraints as candidate facts.
+Generic inputs remain separate from evaluated call arguments and never become expression operands.
+
 Operator and indexing applicability likewise must not use a previously inferred expression result type to choose a candidate. A
 uniquely selected callable or operation contributes its result type to the cooperating type and selection fixed point. Result-type
 agreement is validated only when publishing the final checked facts.

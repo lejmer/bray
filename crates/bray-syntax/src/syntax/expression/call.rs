@@ -1,5 +1,5 @@
 use crate::node::define_source_syntax_node;
-use crate::{ExpressionSyntax, SyntaxKind, SyntaxToken};
+use crate::{ExpressionSyntax, GenericArgumentListSyntax, SyntaxKind, SyntaxToken};
 
 define_source_syntax_node! {
     /// Call postfix operation.
@@ -24,11 +24,21 @@ define_source_syntax_node! {
                 kind: SyntaxKind::ArgumentList;
             }
         ],
+        repeated_children: [
+            {
+                /// Returns the explicit generic argument list when one is present.
+                generic_argument_lists;
+                /// Appends an explicit generic argument list.
+                push_generic_argument_list;
+                ty: GenericArgumentListSyntax;
+                kind: SyntaxKind::GenericArgumentList;
+            }
+        ],
     }
 }
 
 define_source_syntax_node! {
-    /// Runtime argument entry.
+    /// Call argument entry.
     pub struct ArgumentSyntax {
         builder: ArgumentSyntaxBuilder,
         kind: SyntaxKind::Argument,
@@ -71,7 +81,7 @@ define_source_syntax_node! {
 }
 
 define_source_syntax_node! {
-    /// Runtime argument list including delimiters.
+    /// Call argument list including delimiters.
     pub struct ArgumentListSyntax {
         builder: ArgumentListSyntaxBuilder,
         kind: SyntaxKind::ArgumentList,

@@ -1,12 +1,36 @@
 use std::sync::Arc;
 
 use bray_base::{shared_slice, sorted_unique_shared_slice};
+use bray_declarations::SyntaxAnchor;
 use bray_symbols::{
     AnonymousCallableSymbolId, CallableDefinitionId, CallableInstanceData,
     ImplementationInstanceId, SymbolName, TypeId,
 };
 
 use crate::{BoundExpressionId, BoundNodeOrigin};
+
+/// One explicit source generic argument awaiting candidate-specific binding.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct BoundGenericArgument {
+    syntax: SyntaxAnchor,
+}
+
+impl BoundGenericArgument {
+    /// Creates a generic argument from its exact source syntax.
+    pub const fn new(syntax: SyntaxAnchor) -> Self {
+        Self { syntax }
+    }
+
+    /// Returns the exact generic-argument syntax anchor.
+    pub const fn syntax(self) -> SyntaxAnchor {
+        self.syntax
+    }
+
+    /// Returns whether parser recovery contributed to this argument.
+    pub const fn is_recovered(self) -> bool {
+        self.syntax.is_recovered()
+    }
+}
 
 /// One source-ordered input to overload selection.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -188,6 +212,7 @@ impl BoundCallResolution {
 pub struct BoundCallExpression {
     origin: BoundNodeOrigin,
     callee: BoundExpressionId,
+    generic_arguments: Arc<[BoundGenericArgument]>,
     arguments: Arc<[BoundArgument]>,
     operands: Arc<[BoundExpressionId]>,
     resolution: BoundCallResolution,
@@ -198,21 +223,30 @@ impl BoundCallExpression {
     pub fn pending(
         origin: BoundNodeOrigin,
         callee: BoundExpressionId,
+        generic_arguments: impl IntoIterator<Item = BoundGenericArgument>,
         arguments: impl IntoIterator<Item = BoundArgument>,
     ) -> Self {
-        Self::new(origin, callee, arguments, BoundCallResolution::Pending)
+        Self::new(
+            origin,
+            callee,
+            generic_arguments,
+            arguments,
+            BoundCallResolution::Pending,
+        )
     }
 
     /// Creates a checked call with its exact semantic selection.
     pub fn resolved(
         origin: BoundNodeOrigin,
         callee: BoundExpressionId,
+        generic_arguments: impl IntoIterator<Item = BoundGenericArgument>,
         arguments: impl IntoIterator<Item = BoundArgument>,
         resolution: BoundResolvedCall,
     ) -> Self {
         Self::new(
             origin,
             callee,
+            generic_arguments,
             arguments,
             BoundCallResolution::Resolved(resolution),
         )
@@ -221,9 +255,11 @@ impl BoundCallExpression {
     fn new(
         origin: BoundNodeOrigin,
         callee: BoundExpressionId,
+        generic_arguments: impl IntoIterator<Item = BoundGenericArgument>,
         arguments: impl IntoIterator<Item = BoundArgument>,
         resolution: BoundCallResolution,
     ) -> Self {
+        let generic_arguments = shared_slice(generic_arguments);
         let arguments = shared_slice(arguments);
         let operands = shared_slice(
             std::iter::once(callee).chain(arguments.iter().map(BoundArgument::expression)),
@@ -232,6 +268,7 @@ impl BoundCallExpression {
         Self {
             origin,
             callee,
+            generic_arguments,
             arguments,
             operands,
             resolution,
@@ -246,6 +283,11 @@ impl BoundCallExpression {
     /// Returns the callable expression supplied to overload selection.
     pub const fn callee(&self) -> BoundExpressionId {
         self.callee
+    }
+
+    /// Returns explicit generic arguments in source order.
+    pub fn generic_arguments(&self) -> &[BoundGenericArgument] {
+        &self.generic_arguments
     }
 
     /// Returns arguments in source evaluation order.
@@ -283,7 +325,7 @@ mod tests {
 
     use super::{
         BoundCallExpression, BoundCallResult, BoundCallableTarget, BoundFutureConstruction,
-        BoundResolvedCall,
+        BoundGenericArgument, BoundResolvedCall,
     };
     use crate::{BoundExpressionId, BoundUnitId};
 
@@ -309,9 +351,12 @@ mod tests {
 
         let unit = BoundUnitId::new(3);
         let callee = BoundExpressionId::from_slot(unit, 0);
+        let generic_argument =
+            BoundGenericArgument::new(crate::test_support::source_anchor().syntax());
         let expression = BoundCallExpression::resolved(
             crate::BoundNodeOrigin::source(crate::test_support::source_anchor()),
             callee,
+            [generic_argument],
             [],
             resolved,
         );
@@ -329,6 +374,8 @@ mod tests {
             Some(definition.into())
         );
         assert_eq!(expression.ty(), Some(future_type));
+        assert_eq!(expression.generic_arguments(), [generic_argument]);
+        assert_eq!(expression.operands(), [callee]);
 
         let BoundCallResult::LazyFuture(construction) = resolved.result() else {
             panic!("async callable invocation must construct a lazy future");

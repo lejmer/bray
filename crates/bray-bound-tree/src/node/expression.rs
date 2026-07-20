@@ -12,7 +12,7 @@ mod selection;
 
 pub use call::{
     BoundArgument, BoundCallExpression, BoundCallResolution, BoundCallResult, BoundCallableTarget,
-    BoundFutureConstruction, BoundResolvedCall,
+    BoundFutureConstruction, BoundGenericArgument, BoundResolvedCall,
 };
 pub use category::{
     BoundAnonymousCallableExpression, BoundAssignmentExpression, BoundBinaryExpression,

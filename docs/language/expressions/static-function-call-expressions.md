@@ -5,6 +5,7 @@ A **static function call expression** calls a type-level function associated wit
 ```bray
 Point.origin()
 Buffer.from_bytes(bytes)
+Buffer.with_capacity<u8, 16>()
 math.sin(angle)
 ```
 
@@ -20,6 +21,8 @@ static func origin() -> Point
 ```
 
 A static function call expression has a callee path and an argument list.
+
+An explicit generic argument list appears after the callee path and before the call argument list.
 
 The callee path must resolve to a static callable declaration or callable value.
 

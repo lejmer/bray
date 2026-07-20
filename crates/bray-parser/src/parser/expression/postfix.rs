@@ -33,6 +33,9 @@ impl Parser {
                     self.parse_trait_qualified_member_postfix(expression)
                 }
                 SyntaxKind::OpenParenToken => self.parse_call_postfix(expression),
+                SyntaxKind::LessToken if self.should_parse_explicit_generic_call() => {
+                    self.parse_call_postfix(expression)
+                }
                 SyntaxKind::QuestionToken => self.parse_nullable_propagation_postfix(expression),
                 SyntaxKind::AsKeyword => self.parse_conversion_postfix(expression, at_boundary),
                 _ => break,
@@ -185,6 +188,10 @@ impl Parser {
         let start = self.peek().full_range().start();
         let mut builder = CallOperationSyntax::builder(self.syntax_source(), start);
 
+        if self.at(SyntaxKind::LessToken) {
+            builder.push_generic_argument_list(self.parse_generic_argument_list());
+        }
+
         builder.push_argument_list(self.parse_argument_list());
 
         builder.build()
@@ -260,11 +267,12 @@ impl Parser {
 
 #[cfg(test)]
 mod tests {
+    use bray_diagnostics::DiagnosticKind;
     use bray_syntax::{ExpressionSyntax, SyntaxKind, SyntaxText};
     use bray_testing::test_source_store as source_store;
 
     use crate::parser::state::Parser;
-    use crate::test_support::source;
+    use crate::test_support::{diagnostic_kinds, source};
 
     #[test]
     fn parser_parses_typed_access_call_index_slice_and_conversion_postfixes() {
@@ -305,6 +313,87 @@ mod tests {
         assert_eq!(expression.full_text(), "target(Display).format");
         assert_eq!(count_trait_qualified_member_operations(&expression), 1);
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn parser_parses_explicit_generic_call_arguments() {
+        let sources = source_store(["target.method<Result, 4>(value);"]);
+        let snapshot = source(&sources, 0);
+
+        let mut parser = Parser::new(snapshot);
+        let mut boundary = |parser: &mut Parser| parser.at(SyntaxKind::SemicolonToken);
+
+        let expression = parser.parse_expression_until(&mut boundary);
+        let diagnostics = parser.finish();
+
+        let Some(call) = expression.call_operations().next() else {
+            panic!("generic application must produce a call operation");
+        };
+
+        let generic_lists = call.generic_argument_lists().collect::<Vec<_>>();
+        let [generic_list] = generic_lists.as_slice() else {
+            panic!("call must retain exactly one generic argument list: {generic_lists:?}");
+        };
+
+        let generic_arguments = generic_list.generic_arguments().collect::<Vec<_>>();
+        let [type_argument, constant_argument] = generic_arguments.as_slice() else {
+            panic!("call must retain both generic arguments: {generic_arguments:?}");
+        };
+
+        assert_eq!(expression.full_text(), "target.method<Result, 4>(value)");
+        assert_eq!(type_argument.type_expressions().count(), 1);
+        assert_eq!(constant_argument.expressions().count(), 1);
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn parser_does_not_treat_comparison_as_a_generic_call() {
+        let sources = source_store(["left < right;"]);
+        let snapshot = source(&sources, 0);
+
+        let mut parser = Parser::new(snapshot);
+        let mut boundary = |parser: &mut Parser| parser.at(SyntaxKind::SemicolonToken);
+
+        let expression = parser.parse_expression_until(&mut boundary);
+        let diagnostics = parser.finish();
+
+        assert_eq!(expression.full_text(), "left < right");
+        assert_eq!(count_call_operations(&expression), 0);
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn parser_recovers_missing_generic_call_argument_separators() {
+        let sources = source_store(["target<Result 4>(value);"]);
+        let snapshot = source(&sources, 0);
+
+        let mut parser = Parser::new(snapshot);
+        let mut boundary = |parser: &mut Parser| parser.at(SyntaxKind::SemicolonToken);
+
+        let expression = parser.parse_expression_until(&mut boundary);
+        let diagnostics = parser.finish();
+
+        let Some(call) = expression.call_operations().next() else {
+            panic!("recovered generic application must remain a call operation");
+        };
+
+        let Some(generic_list) = call.generic_argument_lists().next() else {
+            panic!("recovered call must retain its generic argument list");
+        };
+
+        let separators = generic_list.separator_tokens().collect::<Vec<_>>();
+        let [separator] = separators.as_slice() else {
+            panic!("recovered list must retain one separator: {separators:?}");
+        };
+
+        assert_eq!(expression.full_text(), "target<Result 4>(value)");
+        assert_eq!(generic_list.generic_arguments().count(), 2);
+        assert!(separator.is_missing());
+
+        assert_eq!(
+            diagnostic_kinds(&diagnostics),
+            [DiagnosticKind::SyntaxExpectedToken]
+        );
     }
 
     fn count_call_operations(expression: &ExpressionSyntax) -> usize {
