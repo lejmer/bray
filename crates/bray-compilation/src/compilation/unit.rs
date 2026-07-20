@@ -373,6 +373,51 @@ mod tests {
     }
 
     #[test]
+    fn runtime_defaults_publish_their_exact_parameter_type_template() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "func defaults(first: i32 = 1, second: [i32; 1] = first)\n",
+            "{\n",
+            "}\n",
+        ));
+
+        let keys = match compilation.declared_unit_keys_for_test() {
+            Ok(keys) => keys,
+            Err(error) => panic!("declared unit keys must be available: {error:?}"),
+        };
+
+        let templates = keys
+            .iter()
+            .filter(|key| key.kind() == BoundUnitKind::RuntimeDefault)
+            .map(|key| {
+                let facts = match compilation.declared_value_type_templates(key.clone()) {
+                    Ok(facts) => facts,
+                    Err(error) => panic!("runtime default types must publish: {error:?}"),
+                };
+
+                let [evidence] = facts.value().evidence() else {
+                    panic!("runtime default must publish one declared type");
+                };
+
+                evidence.template().clone()
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(templates.len(), 2);
+        assert!(
+            templates
+                .iter()
+                .any(|template| matches!(template, TypeExpressionTemplate::Resolved(_)))
+        );
+
+        assert!(
+            templates
+                .iter()
+                .any(|template| matches!(template, TypeExpressionTemplate::Array { .. }))
+        );
+    }
+
+    #[test]
     fn recovered_declared_value_type_syntax_is_deterministic_and_panic_free() {
         let compilation = compilation(concat!(
             "module app;\n",

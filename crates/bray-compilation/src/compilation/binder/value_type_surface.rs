@@ -126,7 +126,7 @@ impl DeclaredValueTypeBinding<'_> {
         let declaration = self
             .context
             .symbols()
-            .containing_symbol(self.owner)
+            .runtime_default_subject(self.owner)
             .ok_or(BinderFactError::DependencyUnavailable)?;
 
         let template = self.declared_surface_value_type(declaration)?;
@@ -236,10 +236,14 @@ impl DeclaredValueTypeBinding<'_> {
 
                 let signature = self.callable_signature(record.owner().into_any())?;
 
-                callable_parameter_templates(self.context, signature.value())?
-                    .into_iter()
-                    .find_map(|(candidate, ty)| (candidate == parameter).then_some(ty))
-                    .ok_or(BinderFactError::DependencyUnavailable)
+                signature
+                    .value()
+                    .parameter_type_template(
+                        parameter,
+                        record.ordinal(),
+                        self.context.semantic_values(),
+                    )
+                    .map_err(|_| BinderFactError::DependencyUnavailable)
             }
             AnySymbolId::StructField(field) => self
                 .context

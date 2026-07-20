@@ -26,6 +26,7 @@ mod provider;
 mod recognized;
 mod record;
 mod relationship;
+mod runtime_default;
 mod surface_kind;
 #[cfg(test)]
 mod test_support;

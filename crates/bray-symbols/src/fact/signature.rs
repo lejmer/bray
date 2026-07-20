@@ -108,6 +108,8 @@ pub enum CallableSignatureTemplateError {
     InvalidCallableType,
     /// The callable type and declaration parameter identities have different lengths.
     ParameterCountMismatch,
+    /// The requested ordinal does not identify the exact declaration parameter.
+    ParameterIdentityMismatch,
 }
 
 impl CallableSignatureTemplate {
@@ -181,6 +183,55 @@ impl CallableSignatureTemplate {
 
         Ok(types)
     }
+
+    /// Returns one parameter's type template by exact declaration identity and ordinal.
+    pub fn parameter_type_template(
+        &self,
+        parameter: CallableParameterSymbolId,
+        ordinal: u32,
+        semantic_values: &SemanticValueStore,
+    ) -> Result<TypeExpressionTemplate, CallableSignatureTemplateError> {
+        let ordinal = usize::try_from(ordinal)
+            .map_err(|_| CallableSignatureTemplateError::ParameterIdentityMismatch)?;
+
+        if self.parameters().get(ordinal).copied() != Some(parameter) {
+            return Err(CallableSignatureTemplateError::ParameterIdentityMismatch);
+        }
+
+        match self.callable_type() {
+            TypeExpressionTemplate::Callable(callable) => {
+                if callable.parameters().len() != self.parameters().len() {
+                    return Err(CallableSignatureTemplateError::ParameterCountMismatch);
+                }
+
+                callable
+                    .parameters()
+                    .get(ordinal)
+                    .map(|parameter| parameter.ty().clone())
+                    .ok_or(CallableSignatureTemplateError::ParameterIdentityMismatch)
+            }
+            TypeExpressionTemplate::Resolved(ty) => {
+                let data = semantic_values
+                    .type_data(*ty)
+                    .map_err(CallableSignatureTemplateError::SemanticValue)?;
+
+                let TypeData::Callable(callable) = data.as_ref() else {
+                    return Err(CallableSignatureTemplateError::InvalidCallableType);
+                };
+
+                if callable.parameters().len() != self.parameters().len() {
+                    return Err(CallableSignatureTemplateError::ParameterCountMismatch);
+                }
+
+                callable
+                    .parameters()
+                    .get(ordinal)
+                    .map(|parameter| TypeExpressionTemplate::Resolved(parameter.ty()))
+                    .ok_or(CallableSignatureTemplateError::ParameterIdentityMismatch)
+            }
+            _ => Err(CallableSignatureTemplateError::InvalidCallableType),
+        }
+    }
 }
 
 impl CallableSignature {
@@ -222,12 +273,15 @@ impl CallableSignature {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use crate::{
         CallableAbi, CallableConstness, CallableDependencyContracts, CallableParameterData,
         CallableParameterMode, CallableParameterName, CallableParameterSignature,
-        CallableParameterSymbolId, CallablePosition, CallableSignature, CallableSignatureTemplate,
-        CallableTrust, CallableTypeData, DependencyContractTemplateData, SemanticValueStore,
-        SymbolId, TypeData, TypeExpressionTemplate,
+        CallableParameterSymbolId, CallableParameterTypeTemplate, CallablePosition,
+        CallableSignature, CallableSignatureTemplate, CallableSignatureTemplateError,
+        CallableTrust, CallableTypeData, CallableTypeTemplate, DependencyContractTemplateData,
+        SemanticValueStore, SymbolId, TypeData, TypeExpressionTemplate,
     };
 
     #[test]
@@ -314,6 +368,79 @@ mod tests {
         assert_eq!(
             signature.parameter_type_templates(&store),
             Ok(vec![TypeExpressionTemplate::Resolved(ty)])
+        );
+
+        assert_eq!(
+            signature.parameter_type_template(parameter, 0, &store),
+            Ok(TypeExpressionTemplate::Resolved(ty))
+        );
+    }
+
+    #[test]
+    fn callable_signature_templates_expose_one_exact_unresolved_parameter_type() {
+        let Ok(store) = SemanticValueStore::try_new() else {
+            panic!("semantic value store identity must be available");
+        };
+
+        let Ok(ty) = store.intern_type(TypeData::Error) else {
+            panic!("error type must be valid");
+        };
+
+        let Ok(dependency) =
+            store.intern_dependency_contract_template(DependencyContractTemplateData::new([]))
+        else {
+            panic!("empty dependency contract must be valid");
+        };
+
+        let Some(first_name) = CallableParameterName::try_new("first") else {
+            panic!("test parameter name must be valid");
+        };
+
+        let Some(second_name) = CallableParameterName::try_new("second") else {
+            panic!("test parameter name must be valid");
+        };
+
+        let first = CallableParameterSymbolId::from_symbol_id(SymbolId::new(2));
+        let second = CallableParameterSymbolId::from_symbol_id(SymbolId::new(3));
+        let first_type = TypeExpressionTemplate::Resolved(ty);
+        let second_type = TypeExpressionTemplate::Slice(Arc::new(first_type.clone()));
+        let callable = CallableTypeTemplate::new(
+            [
+                CallableParameterTypeTemplate::new(
+                    first_name,
+                    CallablePosition::NamedOnly,
+                    CallableParameterMode::Immutable,
+                    first_type,
+                ),
+                CallableParameterTypeTemplate::new(
+                    second_name,
+                    CallablePosition::NamedOnly,
+                    CallableParameterMode::Immutable,
+                    second_type.clone(),
+                ),
+            ],
+            TypeExpressionTemplate::Resolved(ty),
+            CallableConstness::Runtime,
+            CallableTrust::Safe,
+            CallableAbi::Bray,
+            CallableDependencyContracts::synchronous(dependency),
+        );
+
+        let signature = CallableSignatureTemplate::new(
+            TypeExpressionTemplate::Callable(callable),
+            None,
+            [first, second],
+            TypeExpressionTemplate::Resolved(ty),
+        );
+
+        assert_eq!(
+            signature.parameter_type_template(second, 1, &store),
+            Ok(second_type)
+        );
+
+        assert_eq!(
+            signature.parameter_type_template(first, 1, &store),
+            Err(CallableSignatureTemplateError::ParameterIdentityMismatch)
         );
     }
 }
