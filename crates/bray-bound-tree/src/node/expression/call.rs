@@ -261,6 +261,7 @@ impl BoundCallExpression {
     ) -> Self {
         let generic_arguments = shared_slice(generic_arguments);
         let arguments = shared_slice(arguments);
+
         let operands = shared_slice(
             std::iter::once(callee).chain(arguments.iter().map(BoundArgument::expression)),
         );
@@ -341,6 +342,7 @@ mod tests {
 
         let definition = FunctionSymbolId::from_symbol_id(SymbolId::new(7));
         let callable = callable_instance(&values, definition);
+
         let target = BoundCallableTarget::Declaration(callable);
 
         let resolved = BoundResolvedCall::new(
@@ -351,8 +353,10 @@ mod tests {
 
         let unit = BoundUnitId::new(3);
         let callee = BoundExpressionId::from_slot(unit, 0);
+
         let generic_argument =
             BoundGenericArgument::new(crate::test_support::source_anchor().syntax());
+
         let expression = BoundCallExpression::resolved(
             crate::BoundNodeOrigin::source(crate::test_support::source_anchor()),
             callee,
@@ -366,6 +370,7 @@ mod tests {
         };
 
         assert_eq!(resolved.target().declaration(), Some(callable.definition()));
+
         assert_eq!(
             resolved
                 .target()
@@ -373,6 +378,7 @@ mod tests {
                 .map(|target| target.symbol()),
             Some(definition.into())
         );
+
         assert_eq!(expression.ty(), Some(future_type));
         assert_eq!(expression.generic_arguments(), [generic_argument]);
         assert_eq!(expression.operands(), [callee]);

@@ -713,6 +713,7 @@ mod tests {
     fn explicit_generic_argument_arity_matches_the_selected_substitution() {
         let fixture = call_fixture(BoundUnitId::new(79), false);
         let generic_argument = BoundGenericArgument::new(fixture.unit.key().source().syntax());
+
         let target =
             BoundCallableTarget::Declaration(generic_callable_instance(5, fixture.value_type));
 
