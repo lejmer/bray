@@ -588,7 +588,11 @@ mod tests {
             Err(error) => panic!("test compilation should load: {error:?}"),
         };
 
-        match SymbolGraph::build_source(package, compilation.declaration_table()) {
+        match SymbolGraph::build_source(
+            package,
+            compilation.declaration_table(),
+            compilation.syntax_tree(),
+        ) {
             Ok(graph) => graph,
             Err(error) => panic!("test symbol graph should build: {error:?}"),
         }

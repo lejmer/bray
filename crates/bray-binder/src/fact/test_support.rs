@@ -163,7 +163,7 @@ impl TestFixture {
             None => panic!("test package identity should be valid"),
         };
 
-        let symbols = match SymbolGraph::build_source(package, &declarations) {
+        let symbols = match SymbolGraph::build_source(package, &declarations, &syntax) {
             Ok(symbols) => symbols,
             Err(error) => panic!("test symbol graph should build: {error:?}"),
         };

@@ -1269,7 +1269,9 @@ mod tests {
             None => panic!("test package identity must be valid"),
         };
 
-        let graph = match SymbolGraph::build_source(package, merged.table()) {
+        let syntax = bray_syntax::SyntaxTree::compilation_unit([parsed.source_unit().clone()]);
+
+        let graph = match SymbolGraph::build_source(package, merged.table(), &syntax) {
             Ok(graph) => graph,
             Err(error) => panic!("test symbol graph must build: {error:?}"),
         };

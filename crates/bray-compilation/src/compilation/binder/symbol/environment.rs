@@ -76,6 +76,11 @@ fn type_parameter_name(
         .generic_type_parameter(parameter)
         .ok_or(BinderFactError::DependencyUnavailable)?;
 
+    if let Some(name) = record.inferred_name() {
+        // Binder environments retain their own cheaply shared semantic name handle.
+        return Ok(name.clone());
+    }
+
     parameter_name(
         context,
         owner,

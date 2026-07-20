@@ -240,6 +240,9 @@ For crate layout, crate ownership, and workspace structure, see the crate respon
 - Do not compress unrelated statements together just to minimize vertical space.
 - Do not add blank lines inside argument lists, parameter lists, struct literals, enum variants, match cases, or chains of near-identical statements.
 - Use one blank line as a separator. Do not add multiple consecutive blank lines for decoration.
+- Separate multiline expressions (like multiline `let` expressions or `assert*` macros) with blank lines.
+- In blocks, always put a blank line above any comment unless the comment is the absolute first thing in that block.
+- Tuple `let` expressions (`let (a, b) = ...`) should be separated with blank lines.
 
 ## Documentation
 

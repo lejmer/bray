@@ -330,6 +330,7 @@ dependencies = [
  "bray-diagnostics",
  "bray-parser",
  "bray-source",
+ "bray-syntax",
  "bray-testing",
 ]
 

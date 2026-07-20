@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use bray_declarations::{DeclarationId, SyntaxAnchor};
+use bray_syntax::SyntaxTree;
 
 use crate::collection::TypedSymbolRecords;
 use crate::record::{
@@ -91,24 +92,36 @@ macro_rules! define_symbol_graph {
 
         impl SymbolGraph {
             /// Constructs the deterministic identity skeleton for one source package.
+            ///
+            /// `declarations` and `syntax` must describe the same immutable source snapshot.
             pub fn build_source(
                 package_identity: PackageIdentity,
                 declarations: &bray_declarations::DeclarationTable,
+                syntax: &SyntaxTree,
             ) -> Result<Self, SymbolGraphBuildError> {
                 let compiler_known = Arc::new(CompilerKnownSymbolProvider::build()?);
 
-                Self::build_source_with_provider(package_identity, declarations, compiler_known)
+                Self::build_source_with_provider(
+                    package_identity,
+                    declarations,
+                    syntax,
+                    compiler_known,
+                )
             }
 
             /// Constructs one source symbol graph from a canonical compiler-known provider.
+            ///
+            /// `declarations` and `syntax` must describe the same immutable source snapshot.
             pub fn build_source_with_provider(
                 package_identity: PackageIdentity,
                 declarations: &bray_declarations::DeclarationTable,
+                syntax: &SyntaxTree,
                 compiler_known: Arc<CompilerKnownSymbolProvider>,
             ) -> Result<Self, SymbolGraphBuildError> {
                 crate::build::build_source_symbol_graph(
                     package_identity,
                     declarations,
+                    syntax,
                     compiler_known,
                 )
             }
@@ -505,6 +518,62 @@ macro_rules! define_symbol_graph {
                 Ok(())
             }
 
+            pub(crate) fn push_inferred_parameter(
+                &mut self,
+                id: crate::GenericParameterSymbolId,
+                identity: DeclarationSymbolIdentity,
+            ) -> Result<(), SymbolKind> {
+                let erased = match id {
+                    crate::GenericParameterSymbolId::Type(id) => AnySymbolId::from(id),
+                    crate::GenericParameterSymbolId::Const(id) => AnySymbolId::from(id),
+                };
+
+                self.relationship_index
+                    .add_symbol(erased, identity.containing_symbol());
+
+                match id {
+                    crate::GenericParameterSymbolId::Type(id) => {
+                        let Some(record) = crate::GenericTypeParameterSymbol::new(
+                            id,
+                            identity,
+                            &self.relationship_index,
+                        ) else {
+                            return Err(erased.kind());
+                        };
+
+                        self.generic_type_parameters.push(record);
+                    }
+                    crate::GenericParameterSymbolId::Const(id) => {
+                        let Some(record) = crate::GenericConstParameterSymbol::new(
+                            id,
+                            identity,
+                            &self.relationship_index,
+                        ) else {
+                            return Err(erased.kind());
+                        };
+
+                        self.generic_const_parameters.push(record);
+                    }
+                }
+
+                Ok(())
+            }
+
+            pub(crate) fn source_member_entries(
+                &self,
+                owner: AnySymbolId,
+            ) -> &[MemberEntry<AnySymbolId>] {
+                self.member_entries.get(&owner).map_or(&[], Vec::as_slice)
+            }
+
+            pub(crate) fn relationship_children(&self, owner: AnySymbolId) -> &[AnySymbolId] {
+                self.relationship_index.children(owner)
+            }
+
+            pub(crate) fn compiler_known_provider(&self) -> &CompilerKnownSymbolProvider {
+                self.compiler_known.as_ref()
+            }
+
             pub(crate) fn add_member(
                 &mut self,
                 owner: AnySymbolId,
@@ -817,7 +886,9 @@ mod tests {
             panic!("test package identity must be valid");
         };
 
-        let graph = match SymbolGraph::build_source(package, &table) {
+        let syntax = bray_syntax::SyntaxTree::compilation_unit([]);
+
+        let graph = match SymbolGraph::build_source(package, &table, &syntax) {
             Ok(graph) => graph,
             Err(error) => panic!("test symbol graph must build: {error:?}"),
         };

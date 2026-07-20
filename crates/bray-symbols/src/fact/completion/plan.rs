@@ -395,7 +395,9 @@ mod tests {
             panic!("test package identity should be valid");
         };
 
-        match SymbolGraph::build_source(package, &table) {
+        let syntax = bray_syntax::SyntaxTree::compilation_unit([]);
+
+        match SymbolGraph::build_source(package, &table, &syntax) {
             Ok(graph) => graph,
             Err(error) => panic!("test symbol graph should build: {error:?}"),
         }

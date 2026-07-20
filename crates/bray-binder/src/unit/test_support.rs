@@ -7,6 +7,7 @@ use bray_symbols::{
     LocalBindingSymbolId, LocalScopeBoundary, LocalScopeId, LocalSymbolRegionId, PackageIdentity,
     SymbolGraph, SymbolName, SymbolOrdinal, SymbolOrigin,
 };
+use bray_syntax::SyntaxTree;
 use bray_testing::{test_source_at, test_source_store};
 
 use super::builder::BoundUnitLocalBuilder;
@@ -36,17 +37,19 @@ pub(crate) fn fixture() -> Fixture {
 
     let parsed = bray_parser::parse_source_unit(test_source_at(&sources, 0));
     let chunk = discover_source_unit_declarations(parsed.source_unit());
+    let syntax = SyntaxTree::compilation_unit([parsed.source_unit().clone()]);
     let merged = merge_declaration_chunks([&chunk]);
 
     let foreign_parsed = bray_parser::parse_source_unit(test_source_at(&sources, 1));
     let foreign_chunk = discover_source_unit_declarations(foreign_parsed.source_unit());
+    let foreign_syntax = SyntaxTree::compilation_unit([foreign_parsed.source_unit().clone()]);
     let foreign_merged = merge_declaration_chunks([&foreign_chunk]);
 
     let Some(package) = PackageIdentity::try_new("test.package") else {
         panic!("test package identity must be valid");
     };
 
-    let graph = match SymbolGraph::build_source(package, merged.table()) {
+    let graph = match SymbolGraph::build_source(package, merged.table(), &syntax) {
         Ok(graph) => graph,
         Err(error) => panic!("test symbol graph must build: {error:?}"),
     };
@@ -81,10 +84,11 @@ pub(crate) fn fixture() -> Fixture {
         panic!("foreign test package identity must be valid");
     };
 
-    let foreign_graph = match SymbolGraph::build_source(foreign_package, foreign_merged.table()) {
-        Ok(graph) => graph,
-        Err(error) => panic!("foreign test symbol graph must build: {error:?}"),
-    };
+    let foreign_graph =
+        match SymbolGraph::build_source(foreign_package, foreign_merged.table(), &foreign_syntax) {
+            Ok(graph) => graph,
+            Err(error) => panic!("foreign test symbol graph must build: {error:?}"),
+        };
 
     let foreign_functions = foreign_graph
         .functions()

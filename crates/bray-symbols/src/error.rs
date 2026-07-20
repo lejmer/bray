@@ -55,6 +55,11 @@ pub enum SymbolGraphBuildError {
         /// The declaration expected to own it semantically.
         containing_declaration: DeclarationId,
     },
+    /// An implementation declaration did not retain its constructed source symbol.
+    MissingSourceSymbol {
+        /// The declaration without a semantic identity.
+        declaration: DeclarationId,
+    },
     /// A declaration category could not be represented as a source symbol in its context.
     InvalidSourceSymbolKind {
         /// The affected declaration.
@@ -121,6 +126,10 @@ impl std::fmt::Display for SymbolGraphBuildError {
                 formatter,
                 "declaration {declaration:?} has containing declaration {containing_declaration:?} without a symbol"
             ),
+            Self::MissingSourceSymbol { declaration } => write!(
+                formatter,
+                "declaration {declaration:?} did not produce its required source symbol"
+            ),
             Self::InvalidSourceSymbolKind {
                 declaration,
                 declaration_kind,
@@ -148,6 +157,7 @@ impl std::error::Error for SymbolGraphBuildError {
             | Self::MissingModulePart { .. }
             | Self::MissingContainingDeclaration { .. }
             | Self::MissingContainingSymbol { .. }
+            | Self::MissingSourceSymbol { .. }
             | Self::InvalidSourceSymbolKind { .. }
             | Self::MissingRecoveredModuleAnchor { .. } => None,
         }
