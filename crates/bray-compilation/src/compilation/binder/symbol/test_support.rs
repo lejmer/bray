@@ -2,12 +2,38 @@ use std::sync::Arc;
 
 use bray_binder::SymbolFactProvider;
 use bray_symbols::{
-    SymbolFactContract, SymbolFactRequest, SymbolFactResult, SymbolGraph, TypeData,
+    SymbolFactContract, SymbolFactRequest, SymbolFactResult, SymbolGraph, SymbolOrigin, TypeData,
     TypeExpressionTemplate, TypeId,
 };
 
 use super::super::context::CompilationBinderFacts;
 use crate::compilation::Compilation;
+use crate::fact::CancellationToken;
+
+pub(super) fn source_id<T, I: Copy>(
+    symbols: &[T],
+    origin: impl Fn(&T) -> SymbolOrigin,
+    id: impl Fn(&T) -> I,
+) -> I {
+    let Some(symbol) = symbols
+        .iter()
+        .find(|symbol| origin(symbol) == SymbolOrigin::Source)
+    else {
+        panic!("test source must contain the expected declaration");
+    };
+
+    id(symbol)
+}
+
+pub(super) fn binder_facts<'compilation>(
+    compilation: &'compilation Compilation,
+    cancellation: &'compilation CancellationToken,
+) -> CompilationBinderFacts<'compilation> {
+    match compilation.binder_facts(cancellation) {
+        Ok(facts) => facts,
+        Err(error) => panic!("source binder facts must be available: {error:?}"),
+    }
+}
 
 pub(super) fn published_fact<C>(
     facts: &CompilationBinderFacts<'_>,

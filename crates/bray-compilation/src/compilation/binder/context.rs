@@ -4,7 +4,10 @@ use bray_binder::{
     BinderFactContext, BinderFactError, BinderFactResult, TargetFactProvider, TargetFactResult,
 };
 use bray_declarations::DeclarationTable;
-use bray_symbols::{ConstantSymbolId, SemanticValueStore, SymbolGraph};
+use bray_symbols::{
+    AnySymbolId, ConstantSymbolId, ImportedSymbolFactAddress, ImportedSymbolSkeleton,
+    SemanticValueStore, SymbolGraph,
+};
 use bray_syntax::SyntaxTree;
 
 use super::super::Compilation;
@@ -34,6 +37,31 @@ impl<'compilation> CompilationBinderFacts<'compilation> {
 
     pub(in crate::compilation) const fn compilation(&self) -> &'compilation Compilation {
         self.compilation
+    }
+
+    pub(super) fn imported_symbols(&self) -> BinderFactResult<Option<&ImportedSymbolSkeleton>> {
+        let result = self
+            .compilation
+            .imported_symbol_skeleton_result_with_cancellation(self.cancellation)
+            .map_err(|error| match error {
+                FactQueryError::Cancelled => BinderFactError::Cancelled,
+                _ => BinderFactError::DependencyUnavailable,
+            })?;
+
+        Ok(result.value().as_deref())
+    }
+
+    pub(super) fn imported_fact_address(
+        &self,
+        symbol: AnySymbolId,
+    ) -> BinderFactResult<Option<ImportedSymbolFactAddress>> {
+        if self.symbols.symbol_key(symbol).is_some() {
+            return Ok(None);
+        }
+
+        Ok(self
+            .imported_symbols()?
+            .and_then(|symbols| symbols.imported_fact_address(symbol)))
     }
 }
 

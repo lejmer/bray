@@ -423,7 +423,7 @@ mod tests {
         let constant = AnySymbolId::from(graph.constants()[0].id());
 
         let failing = |request: SymbolFactCompletionRequest| {
-            if request.kind() == SymbolFactKind::ConstantDefinition {
+            if request.kind() == SymbolFactKind::GenericDeclarationTemplate {
                 let key =
                     CompilationFactKey::from(SymbolFactKey::new(request.symbol(), request.kind()));
 
@@ -447,12 +447,12 @@ mod tests {
             Err(SymbolCompletionError::Fact {
                 request,
                 error: FactQueryError::Cycle(_),
-            }) if request.kind() == SymbolFactKind::ConstantDefinition
+            }) if request.kind() == SymbolFactKind::GenericDeclarationTemplate
         ));
 
         let recovering =
             |request: SymbolFactCompletionRequest| -> Result<DiagnosticBag, FactQueryError> {
-                if request.kind() == SymbolFactKind::ConstantDefinition {
+                if request.kind() == SymbolFactKind::GenericDeclarationTemplate {
                     return Ok(DiagnosticBag::single(Diagnostic::new(
                         DiagnosticId::new(7),
                         DiagnosticKind::DeclarationDuplicateName,

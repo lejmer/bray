@@ -242,6 +242,32 @@ pub struct ImportedSymbolFactKey<I: ExactSymbolId> {
     marker: PhantomData<fn() -> I>,
 }
 
+/// The compiled-interface address backing one imported symbol.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct ImportedSymbolFactAddress {
+    interface: ImportedInterfaceId,
+    symbol: InterfaceSymbolId,
+}
+
+impl ImportedSymbolFactAddress {
+    /// Returns the loaded interface containing the symbol.
+    pub const fn interface(self) -> ImportedInterfaceId {
+        self.interface
+    }
+
+    /// Returns the symbol's interface-local identity.
+    pub const fn symbol(self) -> InterfaceSymbolId {
+        self.symbol
+    }
+
+    pub(crate) const fn from_validated(
+        interface: ImportedInterfaceId,
+        symbol: InterfaceSymbolId,
+    ) -> Self {
+        Self { interface, symbol }
+    }
+}
+
 impl<I: ExactSymbolId> ImportedSymbolFactKey<I> {
     /// Returns the loaded interface containing the symbol.
     pub const fn interface(self) -> ImportedInterfaceId {
@@ -267,6 +293,12 @@ impl<I: ExactSymbolId> ImportedSymbolFactKey<I> {
             symbol,
             marker: PhantomData,
         }
+    }
+}
+
+impl<I: ExactSymbolId> From<ImportedSymbolFactKey<I>> for ImportedSymbolFactAddress {
+    fn from(key: ImportedSymbolFactKey<I>) -> Self {
+        Self::from_validated(key.interface(), key.symbol())
     }
 }
 
@@ -664,6 +696,7 @@ mod tests {
         fn assert_send_sync<T: Send + Sync>() {}
 
         assert_send_sync::<ImportedPackageIdentitySurface>();
+        assert_send_sync::<super::ImportedSymbolFactAddress>();
         assert_send_sync::<super::ImportedSymbolFactKey<FunctionSymbolId>>();
     }
 }

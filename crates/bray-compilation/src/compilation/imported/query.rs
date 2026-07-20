@@ -53,7 +53,7 @@ impl super::super::Compilation {
         self.imported_semantic_fact_result_with_cancellation(key, &self.state.cancellation)
     }
 
-    fn imported_symbol_skeleton_result_with_cancellation(
+    pub(in crate::compilation) fn imported_symbol_skeleton_result_with_cancellation(
         &self,
         cancellation: &CancellationToken,
     ) -> Result<&DiagnosticResult<Option<Arc<ImportedSymbolSkeleton>>>, FactQueryError> {
@@ -87,7 +87,7 @@ impl super::super::Compilation {
         .map(Some)
     }
 
-    fn imported_semantic_fact_result_with_cancellation(
+    pub(in crate::compilation) fn imported_semantic_fact_result_with_cancellation(
         &self,
         key: ImportedSemanticFactKey,
         cancellation: &CancellationToken,

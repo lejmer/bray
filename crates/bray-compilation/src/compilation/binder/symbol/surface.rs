@@ -181,6 +181,12 @@ pub(super) fn compiler_known_surface(
         .ok_or(BinderFactError::DependencyUnavailable)
 }
 
+pub(super) fn symbol_ordinal(index: usize) -> BinderFactResult<bray_symbols::SymbolOrdinal> {
+    let ordinal = u32::try_from(index).map_err(|_| BinderFactError::DependencyUnavailable)?;
+
+    Ok(bray_symbols::SymbolOrdinal::new(ordinal))
+}
+
 pub(super) fn declaration_syntax<T>(
     context: &CompilationBinderFacts<'_>,
     symbol: AnySymbolId,
@@ -218,7 +224,7 @@ where
     })
 }
 
-fn with_declaration_root<R>(
+pub(super) fn with_declaration_root<R>(
     context: &CompilationBinderFacts<'_>,
     symbol: AnySymbolId,
     consume: impl FnOnce(SyntaxNodeView<'_>) -> BinderFactResult<R>,

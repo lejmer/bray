@@ -352,9 +352,8 @@ mod tests {
     };
     use bray_syntax::SyntaxKind;
 
-    use super::CompilationBinderFacts;
     use crate::compilation::binder::symbol::test_support::{
-        published_fact, resolved_type, symbol_graph, type_data,
+        binder_facts, published_fact, resolved_type, source_id, symbol_graph, type_data,
     };
     use crate::fact::CancellationToken;
     use crate::test_support::compilation;
@@ -1559,21 +1558,6 @@ func invalid(value: MissingType)
         assert_eq!(facts.symbol_fact(request), Err(BinderFactError::Cancelled));
     }
 
-    fn source_id<T, I: Copy>(
-        symbols: &[T],
-        origin: impl Fn(&T) -> SymbolOrigin,
-        id: impl Fn(&T) -> I,
-    ) -> I {
-        let Some(symbol) = symbols
-            .iter()
-            .find(|symbol| origin(symbol) == SymbolOrigin::Source)
-        else {
-            panic!("test source must contain the expected declaration");
-        };
-
-        id(symbol)
-    }
-
     fn array_length(template: &TypeExpressionTemplate) -> ConstantExpressionOccurrence {
         let TypeExpressionTemplate::Array { length, .. } = template else {
             panic!("array type must retain its source length occurrence");
@@ -1615,15 +1599,5 @@ func invalid(value: MissingType)
         assert_eq!(key.owner(), owner);
         assert_eq!(syntax.syntax_kind(), syntax_kind);
         assert_eq!(actual_text, expected_text);
-    }
-
-    fn binder_facts<'compilation>(
-        compilation: &'compilation crate::Compilation,
-        cancellation: &'compilation CancellationToken,
-    ) -> CompilationBinderFacts<'compilation> {
-        match compilation.binder_facts(cancellation) {
-            Ok(facts) => facts,
-            Err(error) => panic!("source binder facts must be available: {error:?}"),
-        }
     }
 }

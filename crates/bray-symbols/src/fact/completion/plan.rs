@@ -139,15 +139,22 @@ fn completion_fact_is_applicable(
     }
 
     match (kind, symbol) {
-        (SymbolFactKind::CallableParameterDefault, AnySymbolId::CallableParameter(id)) => {
-            graph.callable_parameter(id).is_some_and(|parameter| {
-                parameter.default_presence() != RuntimeDefaultPresence::Absent
-            })
-        }
-        (SymbolFactKind::StructFieldDefault, AnySymbolId::StructField(id)) => graph
+        (
+            SymbolFactKind::CallableParameterDefault | SymbolFactKind::UnevaluatedDefaultTemplate,
+            AnySymbolId::CallableParameter(id),
+        ) => graph.callable_parameter(id).is_some_and(|parameter| {
+            parameter.default_presence() != RuntimeDefaultPresence::Absent
+        }),
+        (
+            SymbolFactKind::StructFieldDefault | SymbolFactKind::UnevaluatedDefaultTemplate,
+            AnySymbolId::StructField(id),
+        ) => graph
             .struct_field(id)
             .is_some_and(|field| field.default_presence() != RuntimeDefaultPresence::Absent),
-        (SymbolFactKind::UnionPayloadFieldDefault, AnySymbolId::UnionPayloadField(id)) => graph
+        (
+            SymbolFactKind::UnionPayloadFieldDefault | SymbolFactKind::UnevaluatedDefaultTemplate,
+            AnySymbolId::UnionPayloadField(id),
+        ) => graph
             .union_payload_field(id)
             .is_some_and(|field| field.default_presence() != RuntimeDefaultPresence::Absent),
         (SymbolFactKind::PredicateDefinition, AnySymbolId::Predicate(id)) => graph
@@ -227,9 +234,9 @@ mod tests {
             [
                 SymbolFactKind::Directives,
                 SymbolFactKind::GenericParameters,
-                SymbolFactKind::GenericConstraints,
+                SymbolFactKind::GenericDeclarationTemplate,
                 SymbolFactKind::CallableSignature,
-                SymbolFactKind::CallableContracts,
+                SymbolFactKind::CallableContractTemplate,
             ]
         );
 
@@ -239,7 +246,7 @@ mod tests {
         let default_requests = plan
             .requests()
             .iter()
-            .filter(|request| request.kind() == SymbolFactKind::CallableParameterDefault)
+            .filter(|request| request.kind() == SymbolFactKind::UnevaluatedDefaultTemplate)
             .collect::<Vec<_>>();
 
         assert_eq!(default_requests.len(), 1);
@@ -280,7 +287,7 @@ mod tests {
         assert!(
             plan.requests()
                 .iter()
-                .any(|request| request.kind() == SymbolFactKind::CallableParameterDefault)
+                .any(|request| request.kind() == SymbolFactKind::UnevaluatedDefaultTemplate)
         );
     }
 
@@ -295,12 +302,7 @@ mod tests {
         let default_requests = plan
             .requests()
             .iter()
-            .filter(|request| {
-                matches!(
-                    request.kind(),
-                    SymbolFactKind::StructFieldDefault | SymbolFactKind::UnionPayloadFieldDefault
-                )
-            })
+            .filter(|request| request.kind() == SymbolFactKind::UnevaluatedDefaultTemplate)
             .collect::<Vec<_>>();
 
         assert_eq!(default_requests.len(), 2);
