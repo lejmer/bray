@@ -432,6 +432,7 @@ mod tests {
     fn candidate_sets_preserve_uncommitted_evidence_in_canonical_order() {
         let fixture = CandidateFixture::new();
         let coherence = fixture.coherence();
+
         let later_constraint = GenericConstraintTemplate::Resolved(CheckedConstraint::new(
             SymbolOrdinal::new(2),
             fixture.predicate,
@@ -479,6 +480,7 @@ mod tests {
         };
 
         assert_eq!(coherence.key(), fixture.lookup);
+
         assert_eq!(
             coherence.participants(),
             &[
@@ -492,31 +494,38 @@ mod tests {
                 ),
             ]
         );
+
         assert_eq!(candidates.candidates().len(), 2);
         assert_eq!(candidates.candidates()[0], second);
         assert_eq!(candidates.candidates()[1].key(), &implementation_key(2));
+
         assert_eq!(
             candidates.candidates()[1].implementation(),
             fixture.first_definition.into()
         );
+
         assert_eq!(
             candidates.candidates()[1].substitution(),
             fixture.first_substitution
         );
+
         assert_eq!(
             candidates.candidates()[1].constraints(),
             &[earlier_constraint, later_constraint]
         );
+
         assert_eq!(
             candidates.candidates()[1].target_dependencies(),
             &[first_target, second_target]
         );
+
         assert_eq!(candidates.candidates()[1].coherence(), &coherence);
     }
 
     #[test]
     fn candidate_constraints_are_ordered_and_exact_duplicates_are_removed() {
         let fixture = CandidateFixture::new();
+
         let later = GenericConstraintTemplate::Resolved(CheckedConstraint::new(
             SymbolOrdinal::new(2),
             fixture.predicate,
@@ -544,6 +553,7 @@ mod tests {
     #[test]
     fn candidate_constraints_reject_conflicting_entries_at_one_ordinal() {
         let fixture = CandidateFixture::new();
+
         let first = GenericConstraintTemplate::Resolved(CheckedConstraint::new(
             SymbolOrdinal::new(1),
             fixture.predicate,
@@ -575,6 +585,7 @@ mod tests {
             ImplementationCoherenceEvidence::try_new(fixture.lookup, []),
             Err(ImplementationCoherenceEvidenceError::NoImplementations)
         );
+
         assert_eq!(
             ImplementationCoherenceEvidence::try_new(
                 fixture.lookup,
@@ -615,6 +626,7 @@ mod tests {
         );
 
         let coherence = fixture.coherence();
+
         let conflicting_target = TargetFactDependency::new(
             constant_key(30),
             ConstantSymbolId::from_symbol_id(SymbolId::new(31)),
@@ -643,6 +655,7 @@ mod tests {
                 fixture.first_definition.into(),
             )],
         );
+
         let expanded = coherence_for(
             fixture.lookup,
             [
@@ -656,6 +669,7 @@ mod tests {
                 ),
             ],
         );
+
         let first_candidate = candidate(&fixture, first_only);
         let conflicting_candidate = candidate(&fixture, expanded);
 
@@ -674,6 +688,7 @@ mod tests {
                 fixture.first_definition.into(),
             )],
         );
+
         let mismatched_candidate = candidate(&fixture, other_evidence);
 
         assert_eq!(
