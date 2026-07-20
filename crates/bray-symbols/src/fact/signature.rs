@@ -2,7 +2,10 @@ use std::sync::Arc;
 
 use bray_base::shared_slice;
 
-use crate::{CallableParameterSymbolId, ReceiverParameterSymbolId, TypeExpressionTemplate, TypeId};
+use crate::{
+    CallableParameterSymbolId, ReceiverParameterSymbolId, SemanticValueStore,
+    SemanticValueStoreError, TypeData, TypeExpressionTemplate, TypeId,
+};
 
 /// The ownership and mutation authority carried by an implicit receiver.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -96,6 +99,19 @@ pub struct CallableSignatureTemplate {
     result: TypeExpressionTemplate,
 }
 
+/// A canonical callable signature template could not expose its parameter type templates.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CallableSignatureTemplateError {
+    /// The semantic value store rejected the callable type identity.
+    SemanticValue(SemanticValueStoreError),
+    /// The signature's canonical type is not callable.
+    InvalidCallableType,
+    /// The callable type and declaration parameter identities have different lengths.
+    ParameterCountMismatch,
+    /// The requested ordinal does not identify the exact declaration parameter.
+    ParameterIdentityMismatch,
+}
+
 impl CallableSignatureTemplate {
     /// Creates a callable signature template in declaration order.
     pub fn new(
@@ -130,6 +146,93 @@ impl CallableSignatureTemplate {
     /// Returns the declared result type template.
     pub const fn result(&self) -> &TypeExpressionTemplate {
         &self.result
+    }
+
+    /// Returns parameter type templates in declaration parameter order.
+    pub fn parameter_type_templates(
+        &self,
+        semantic_values: &SemanticValueStore,
+    ) -> Result<Vec<TypeExpressionTemplate>, CallableSignatureTemplateError> {
+        // Callers own the returned templates; recursive template storage remains Arc-shared.
+        let types = match self.callable_type() {
+            TypeExpressionTemplate::Callable(callable) => callable
+                .parameters()
+                .iter()
+                .map(|parameter| parameter.ty().clone())
+                .collect::<Vec<_>>(),
+            TypeExpressionTemplate::Resolved(ty) => {
+                let data = semantic_values
+                    .type_data(*ty)
+                    .map_err(CallableSignatureTemplateError::SemanticValue)?;
+
+                let TypeData::Callable(callable) = data.as_ref() else {
+                    return Err(CallableSignatureTemplateError::InvalidCallableType);
+                };
+
+                callable
+                    .parameters()
+                    .iter()
+                    .map(|parameter| TypeExpressionTemplate::Resolved(parameter.ty()))
+                    .collect()
+            }
+            _ => return Err(CallableSignatureTemplateError::InvalidCallableType),
+        };
+
+        if types.len() != self.parameters().len() {
+            return Err(CallableSignatureTemplateError::ParameterCountMismatch);
+        }
+
+        Ok(types)
+    }
+
+    /// Returns one parameter's type template by exact declaration identity and ordinal.
+    pub fn parameter_type_template(
+        &self,
+        parameter: CallableParameterSymbolId,
+        ordinal: u32,
+        semantic_values: &SemanticValueStore,
+    ) -> Result<TypeExpressionTemplate, CallableSignatureTemplateError> {
+        let ordinal = usize::try_from(ordinal)
+            .map_err(|_| CallableSignatureTemplateError::ParameterIdentityMismatch)?;
+
+        if self.parameters().get(ordinal).copied() != Some(parameter) {
+            return Err(CallableSignatureTemplateError::ParameterIdentityMismatch);
+        }
+
+        // The caller needs an independent template; recursive template storage remains Arc-shared.
+        match self.callable_type() {
+            TypeExpressionTemplate::Callable(callable) => {
+                if callable.parameters().len() != self.parameters().len() {
+                    return Err(CallableSignatureTemplateError::ParameterCountMismatch);
+                }
+
+                callable
+                    .parameters()
+                    .get(ordinal)
+                    .map(|parameter| parameter.ty().clone())
+                    .ok_or(CallableSignatureTemplateError::ParameterIdentityMismatch)
+            }
+            TypeExpressionTemplate::Resolved(ty) => {
+                let data = semantic_values
+                    .type_data(*ty)
+                    .map_err(CallableSignatureTemplateError::SemanticValue)?;
+
+                let TypeData::Callable(callable) = data.as_ref() else {
+                    return Err(CallableSignatureTemplateError::InvalidCallableType);
+                };
+
+                if callable.parameters().len() != self.parameters().len() {
+                    return Err(CallableSignatureTemplateError::ParameterCountMismatch);
+                }
+
+                callable
+                    .parameters()
+                    .get(ordinal)
+                    .map(|parameter| TypeExpressionTemplate::Resolved(parameter.ty()))
+                    .ok_or(CallableSignatureTemplateError::ParameterIdentityMismatch)
+            }
+            _ => Err(CallableSignatureTemplateError::InvalidCallableType),
+        }
     }
 }
 
@@ -172,9 +275,15 @@ impl CallableSignature {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use crate::{
-        CallableParameterSignature, CallableParameterSymbolId, CallableSignature,
-        SemanticValueStore, SymbolId, TypeData,
+        CallableAbi, CallableConstness, CallableDependencyContracts, CallableParameterData,
+        CallableParameterMode, CallableParameterName, CallableParameterSignature,
+        CallableParameterSymbolId, CallableParameterTypeTemplate, CallablePosition,
+        CallableSignature, CallableSignatureTemplate, CallableSignatureTemplateError,
+        CallableTrust, CallableTypeData, CallableTypeTemplate, DependencyContractTemplateData,
+        SemanticValueStore, SymbolId, TypeData, TypeExpressionTemplate,
     };
 
     #[test]
@@ -210,5 +319,132 @@ mod tests {
 
         assert_eq!(signature.callable_type(), ty);
         assert_eq!(signature.result(), ty);
+    }
+
+    #[test]
+    fn callable_signature_templates_expose_canonical_parameter_types() {
+        let Ok(store) = SemanticValueStore::try_new() else {
+            panic!("semantic value store identity must be available");
+        };
+
+        let Ok(ty) = store.intern_type(TypeData::Error) else {
+            panic!("error type must be valid");
+        };
+
+        let Ok(dependency) =
+            store.intern_dependency_contract_template(DependencyContractTemplateData::new([]))
+        else {
+            panic!("empty dependency contract must be valid");
+        };
+
+        let Some(name) = CallableParameterName::try_new("value") else {
+            panic!("test parameter name must be valid");
+        };
+
+        let callable = CallableTypeData::new(
+            [CallableParameterData::new(
+                name,
+                CallablePosition::NamedOnly,
+                CallableParameterMode::Immutable,
+                ty,
+            )],
+            ty,
+            CallableConstness::Runtime,
+            CallableTrust::Safe,
+            CallableAbi::Bray,
+            CallableDependencyContracts::synchronous(dependency),
+        );
+
+        let Ok(callable) = store.intern_type(TypeData::Callable(callable)) else {
+            panic!("callable type must be valid");
+        };
+
+        let parameter = CallableParameterSymbolId::from_symbol_id(SymbolId::new(2));
+
+        let signature = CallableSignatureTemplate::new(
+            TypeExpressionTemplate::Resolved(callable),
+            None,
+            [parameter],
+            TypeExpressionTemplate::Resolved(ty),
+        );
+
+        assert_eq!(
+            signature.parameter_type_templates(&store),
+            Ok(vec![TypeExpressionTemplate::Resolved(ty)])
+        );
+
+        assert_eq!(
+            signature.parameter_type_template(parameter, 0, &store),
+            Ok(TypeExpressionTemplate::Resolved(ty))
+        );
+    }
+
+    #[test]
+    fn callable_signature_templates_expose_one_exact_unresolved_parameter_type() {
+        let Ok(store) = SemanticValueStore::try_new() else {
+            panic!("semantic value store identity must be available");
+        };
+
+        let Ok(ty) = store.intern_type(TypeData::Error) else {
+            panic!("error type must be valid");
+        };
+
+        let Ok(dependency) =
+            store.intern_dependency_contract_template(DependencyContractTemplateData::new([]))
+        else {
+            panic!("empty dependency contract must be valid");
+        };
+
+        let Some(first_name) = CallableParameterName::try_new("first") else {
+            panic!("test parameter name must be valid");
+        };
+
+        let Some(second_name) = CallableParameterName::try_new("second") else {
+            panic!("test parameter name must be valid");
+        };
+
+        let first = CallableParameterSymbolId::from_symbol_id(SymbolId::new(2));
+        let second = CallableParameterSymbolId::from_symbol_id(SymbolId::new(3));
+        let first_type = TypeExpressionTemplate::Resolved(ty);
+        let second_type = TypeExpressionTemplate::Slice(Arc::new(first_type.clone()));
+
+        let callable = CallableTypeTemplate::new(
+            [
+                CallableParameterTypeTemplate::new(
+                    first_name,
+                    CallablePosition::NamedOnly,
+                    CallableParameterMode::Immutable,
+                    first_type,
+                ),
+                CallableParameterTypeTemplate::new(
+                    second_name,
+                    CallablePosition::NamedOnly,
+                    CallableParameterMode::Immutable,
+                    second_type.clone(),
+                ),
+            ],
+            TypeExpressionTemplate::Resolved(ty),
+            CallableConstness::Runtime,
+            CallableTrust::Safe,
+            CallableAbi::Bray,
+            CallableDependencyContracts::synchronous(dependency),
+        );
+
+        let signature = CallableSignatureTemplate::new(
+            TypeExpressionTemplate::Callable(callable),
+            None,
+            [first, second],
+            TypeExpressionTemplate::Resolved(ty),
+        );
+
+        assert_eq!(
+            signature.parameter_type_template(second, 1, &store),
+            Ok(second_type)
+        );
+
+        assert_eq!(
+            signature.parameter_type_template(first, 1, &store),
+            Err(CallableSignatureTemplateError::ParameterIdentityMismatch)
+        );
     }
 }

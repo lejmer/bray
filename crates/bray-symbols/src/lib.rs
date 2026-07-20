@@ -26,6 +26,7 @@ mod provider;
 mod recognized;
 mod record;
 mod relationship;
+mod runtime_default;
 mod surface_kind;
 #[cfg(test)]
 mod test_support;
@@ -44,6 +45,7 @@ pub use error::SymbolGraphBuildError;
 pub use graph::{SymbolGraph, SymbolGraphRoots};
 
 pub use external::{ExternalDeclarationIdentity, ExternalSymbolKey, ExternalSymbolKeyData};
+pub use fact::CallableSignatureTemplateError;
 pub use fact::{
     CallableCapabilityRequirement, CallableContractClause, CallableContractClauseKind,
     CallableContractExpressionTemplate, CallableContractSet, CallableContractTemplate,

@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use bray_bound_tree::{
     BoundSourceAnchor, BoundUnit, BoundUnitKey, BoundUnitKind, CheckedControlFlowFacts,
+    DeclaredValueTypeTemplates,
 };
 use bray_declarations::{DeclarationKind, DeclarationRecord, SyntaxAnchor};
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
@@ -73,9 +74,11 @@ impl Compilation {
                 pending.insert(unit_order_key(nested.clone()));
             }
 
+            let declared_types = self.declared_value_type_templates(key.clone())?;
             let control_flow = self.checked_control_flow(key)?;
 
             facts.push(SemanticDiagnosticFact::Bound(bound));
+            facts.push(SemanticDiagnosticFact::DeclaredTypes(declared_types));
             facts.push(SemanticDiagnosticFact::ControlFlow(control_flow));
         }
 
@@ -116,6 +119,13 @@ impl Compilation {
         }
 
         Ok(keys)
+    }
+
+    #[cfg(test)]
+    pub(in crate::compilation) fn declared_unit_keys_for_test(
+        &self,
+    ) -> Result<Vec<BoundUnitKey>, FactQueryError> {
+        self.declared_unit_keys()
     }
 
     fn push_primary_unit_key(
@@ -215,6 +225,7 @@ impl Compilation {
 
 enum SemanticDiagnosticFact {
     Bound(Arc<DiagnosticResult<BoundUnit>>),
+    DeclaredTypes(Arc<DiagnosticResult<DeclaredValueTypeTemplates>>),
     ControlFlow(Arc<DiagnosticResult<CheckedControlFlowFacts>>),
 }
 
@@ -222,6 +233,7 @@ impl SemanticDiagnosticFact {
     fn diagnostics(&self) -> &DiagnosticBag {
         match self {
             Self::Bound(result) => result.diagnostics(),
+            Self::DeclaredTypes(result) => result.diagnostics(),
             Self::ControlFlow(result) => result.diagnostics(),
         }
     }
