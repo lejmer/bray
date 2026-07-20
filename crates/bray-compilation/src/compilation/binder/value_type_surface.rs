@@ -26,7 +26,10 @@ impl DeclaredValueTypeBinding<'_> {
                 GenericConstParameterDeclaredTypeFact,
             >::new(parameter))?;
 
-            self.add_evidence(surface_value(parameter.into()), result.value().clone());
+            self.add_evidence(
+                surface_value(parameter.into()),
+                owned_template(result.value()),
+            );
         }
 
         Ok(())
@@ -69,7 +72,7 @@ impl DeclaredValueTypeBinding<'_> {
         }
 
         if supplies_result_expectation {
-            self.callable_result = Some(signature.result().clone());
+            self.callable_result = Some(owned_template(signature.result()));
         }
 
         Ok(())
@@ -179,7 +182,7 @@ impl DeclaredValueTypeBinding<'_> {
         for parameter in result.value().parameters() {
             self.add_evidence(
                 surface_value(parameter.parameter().into()),
-                parameter.ty().clone(),
+                owned_template(parameter.ty()),
             );
         }
 
@@ -197,11 +200,8 @@ impl DeclaredValueTypeBinding<'_> {
             .find_map(bray_symbols::LocalScope::postcondition_result);
 
         if let Some(result) = result {
-            let callable_result = self
-                .callable_signature(self.owner)?
-                .value()
-                .result()
-                .clone();
+            let signature = self.callable_signature(self.owner)?;
+            let callable_result = owned_template(signature.value().result());
 
             self.add_evidence(local_value(result.into()), callable_result);
         }
@@ -248,11 +248,11 @@ impl DeclaredValueTypeBinding<'_> {
             AnySymbolId::StructField(field) => self
                 .context
                 .symbol_fact(SymbolFactRequest::<StructFieldTypeFact>::new(field))
-                .map(|result| result.value().clone()),
+                .map(|result| owned_template(result.value())),
             AnySymbolId::UnionPayloadField(field) => self
                 .context
                 .symbol_fact(SymbolFactRequest::<UnionPayloadFieldTypeFact>::new(field))
-                .map(|result| result.value().clone()),
+                .map(|result| owned_template(result.value())),
             _ => Err(BinderFactError::DependencyUnavailable),
         }
     }
@@ -266,13 +266,13 @@ impl DeclaredValueTypeBinding<'_> {
             AnySymbolId::TraitConstantMember(member) => self
                 .context
                 .symbol_fact(SymbolFactRequest::<TraitConstantMemberDeclaredTypeFact>::new(member))
-                .map(|result| result.value().clone()),
+                .map(|result| owned_template(result.value())),
             AnySymbolId::TraitConstantFulfillment(fulfillment) => self
                 .context
                 .symbol_fact(
                     SymbolFactRequest::<TraitConstantFulfillmentDeclaredTypeFact>::new(fulfillment),
                 )
-                .map(|result| result.value().clone()),
+                .map(|result| owned_template(result.value())),
             _ => Err(BinderFactError::DependencyUnavailable),
         }
     }
@@ -283,7 +283,7 @@ impl DeclaredValueTypeBinding<'_> {
     ) -> BinderFactResult<TypeExpressionTemplate> {
         self.context
             .symbol_fact(SymbolFactRequest::<ConstantDeclaredTypeFact>::new(constant))
-            .map(|result| result.value().clone())
+            .map(|result| owned_template(result.value()))
     }
 }
 
@@ -296,6 +296,11 @@ fn callable_parameter_templates(
         .map_err(|_| BinderFactError::DependencyUnavailable)?;
 
     Ok(signature.parameters().iter().copied().zip(types).collect())
+}
+
+fn owned_template(template: &TypeExpressionTemplate) -> TypeExpressionTemplate {
+    // Published facts own their templates independently; recursive storage remains Arc-shared.
+    template.clone()
 }
 
 const fn surface_value(symbol: AnySymbolId) -> DeclaredValueTypeTerm {
