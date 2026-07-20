@@ -343,10 +343,10 @@ mod tests {
     use bray_symbols::{
         AnySymbolId, CallableAbi, CallableContractTypeFact, CallableExecution,
         CallableSignatureFact, CallableSymbolId, ConstantDeclaredTypeFact,
-        ConstantExpressionExpectedType, ConstantExpressionOccurrence, GenericArgumentTemplate,
-        GenericConstParameterDeclaredTypeFact, ImplementationSubjectFact, ImplementationSymbolId,
-        ImplementedTraitApplicationFact, InherentTypeMemberValueFact, NamedTypeSymbolId,
-        ReceiverMode, StructSymbolId, SymbolFactRequest, SymbolOrigin,
+        ConstantExpressionExpectedType, ConstantExpressionOccurrence, GenericArgument,
+        GenericArgumentTemplate, GenericConstParameterDeclaredTypeFact, ImplementationSubjectFact,
+        ImplementationSymbolId, ImplementedTraitApplicationFact, InherentTypeMemberValueFact,
+        NamedTypeSymbolId, ReceiverMode, StructSymbolId, SymbolFactRequest, SymbolOrigin,
         TraitConstantFulfillmentDeclaredTypeFact, TraitConstantMemberDeclaredTypeFact,
         TraitTypeFulfillmentValueFact, TypeData, TypeExpressionTemplate, UnionPayloadFieldTypeFact,
     };
@@ -569,6 +569,70 @@ func identity<T>(value: T) -> T
             type_data(&compilation, payload_type.value()).as_ref(),
             TypeData::Named { .. }
         ));
+    }
+
+    #[test]
+    fn implementation_subjects_bind_inferred_type_parameter_ids() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "struct Buffer<T>\n",
+            "{\n",
+            "}\n",
+            "impl Buffer<T>\n",
+            "{\n",
+            "}\n",
+        ));
+        let symbols = symbol_graph(&compilation);
+        let cancellation = CancellationToken::new();
+        let facts = binder_facts(&compilation, &cancellation);
+        let implementation = source_id(
+            symbols.inherent_implementations(),
+            |symbol| symbol.origin(),
+            |symbol| symbol.id(),
+        );
+        let Some(implementation_symbol) = symbols.inherent_implementation(implementation) else {
+            panic!("implementation ID should resolve");
+        };
+
+        let [parameter] = implementation_symbol.generic_type_parameters() else {
+            panic!("implementation should publish one inferred type parameter");
+        };
+
+        let subject = published_fact(
+            &facts,
+            SymbolFactRequest::<ImplementationSubjectFact>::new(ImplementationSymbolId::from(
+                implementation,
+            )),
+        );
+
+        let subject_type = type_data(&compilation, subject.value().ty());
+
+        let TypeData::Named { substitution, .. } = subject_type.as_ref() else {
+            panic!("implementation subject should resolve its generic application");
+        };
+
+        let values = match compilation.semantic_value_store() {
+            Ok(values) => values,
+            Err(error) => panic!("semantic value store should be available: {error:?}"),
+        };
+        let substitution = match values.generic_substitution_data(*substitution) {
+            Ok(substitution) => substitution,
+            Err(error) => panic!("subject substitution should resolve: {error:?}"),
+        };
+
+        let [binding] = substitution.bindings() else {
+            panic!("implementation subject should bind one generic argument");
+        };
+
+        let GenericArgument::Type(argument) = binding.argument() else {
+            panic!("implementation subject argument should be a type");
+        };
+
+        assert_eq!(
+            type_data(&compilation, argument).as_ref(),
+            &TypeData::TypeParameter(*parameter)
+        );
+        assert!(subject.diagnostics().is_empty());
     }
 
     #[test]

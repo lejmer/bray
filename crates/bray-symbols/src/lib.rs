@@ -13,6 +13,7 @@ mod fact;
 mod graph;
 mod id;
 mod imported;
+mod inference;
 mod interface;
 mod key;
 mod kind;

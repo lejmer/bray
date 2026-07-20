@@ -5,6 +5,7 @@ use bray_declarations::{
     ContainerId, ContainerKind, DeclarationId, DeclarationKind, DeclarationRecord,
     DeclarationSurface, DeclarationTable,
 };
+use bray_syntax::SyntaxTree;
 
 use crate::allocator::SymbolIdAllocator;
 use crate::graph::{DefaultProviderRecord, SymbolGraphBuilder, SymbolGraphRoots};
@@ -26,6 +27,7 @@ use crate::{
 pub(crate) fn build_source_symbol_graph(
     package_identity: PackageIdentity,
     declarations: &DeclarationTable,
+    syntax: &SyntaxTree,
     compiler_known: Arc<CompilerKnownSymbolProvider>,
 ) -> Result<SymbolGraph, SymbolGraphBuildError> {
     let mut allocator = SymbolIdAllocator::starting_at(compiler_known.next_symbol_index());
@@ -46,11 +48,20 @@ pub(crate) fn build_source_symbol_graph(
         roots.modules,
     );
 
-    push_source_symbols(
+    let source_identities = push_source_symbols(
         &mut graph,
         declarations,
         &roots.module_owners,
         &container_declarations,
+        &mut allocator,
+    )?;
+
+    crate::inference::push_inferred_implementation_parameters(
+        &mut graph,
+        declarations,
+        syntax,
+        &roots.module_owners,
+        &source_identities,
         &mut allocator,
     )?;
 
@@ -155,7 +166,7 @@ fn push_source_symbols(
     module_owners: &BTreeMap<ContainerId, OwnerIdentity>,
     container_declarations: &BTreeMap<ContainerId, DeclarationId>,
     allocator: &mut SymbolIdAllocator,
-) -> Result<(), SymbolGraphBuildError> {
+) -> Result<BTreeMap<DeclarationId, OwnerIdentity>, SymbolGraphBuildError> {
     let mut source_identities = BTreeMap::new();
 
     for declaration in declarations.declarations() {
@@ -264,7 +275,7 @@ fn push_source_symbols(
         }
     }
 
-    Ok(())
+    Ok(source_identities)
 }
 
 fn source_member_entry(
@@ -355,9 +366,9 @@ fn default_provider_record(
 }
 
 #[derive(Clone)]
-struct OwnerIdentity {
-    id: AnySymbolId,
-    key: SymbolKey,
+pub(crate) struct OwnerIdentity {
+    pub(crate) id: AnySymbolId,
+    pub(crate) key: SymbolKey,
 }
 
 macro_rules! define_source_symbol_allocator {
@@ -1127,7 +1138,9 @@ mod tests {
     }
 
     fn build_graph(table: &DeclarationTable) -> SymbolGraph {
-        match SymbolGraph::build_source(package_identity(), table) {
+        let syntax = bray_syntax::SyntaxTree::compilation_unit([]);
+
+        match SymbolGraph::build_source(package_identity(), table, &syntax) {
             Ok(graph) => graph,
             Err(error) => panic!("test symbol graph should build: {error:?}"),
         }

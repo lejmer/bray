@@ -11,7 +11,7 @@ use crate::relationship::{
 };
 use crate::{
     AnySymbolId, ImportedInterfaceId, ImportedSymbolFactKey, InterfaceSymbolId, SymbolKey,
-    SymbolOrigin,
+    SymbolName, SymbolOrigin,
 };
 
 macro_rules! for_each_declaration_symbol {
@@ -70,6 +70,13 @@ pub(crate) enum DeclarationSymbolIdentity {
         containing_symbol: AnySymbolId,
         declaration: DeclarationId,
         syntax: SyntaxAnchor,
+    },
+    InferredImplementationParameter {
+        key: SymbolKey,
+        containing_symbol: AnySymbolId,
+        name: SymbolName,
+        inference_sources: Box<[SyntaxAnchor]>,
+        is_recovered: bool,
     },
     CompilerKnown {
         key: SymbolKey,
@@ -132,6 +139,24 @@ impl DeclarationSymbolIdentity {
         }
     }
 
+    pub(crate) fn inferred_implementation_parameter(
+        key: SymbolKey,
+        containing_symbol: AnySymbolId,
+        name: SymbolName,
+        inference_sources: impl IntoIterator<Item = SyntaxAnchor>,
+    ) -> Self {
+        let inference_sources = inference_sources.into_iter().collect::<Box<[_]>>();
+        let is_recovered = inference_sources.iter().any(|source| source.is_recovered());
+
+        Self::InferredImplementationParameter {
+            key,
+            containing_symbol,
+            name,
+            inference_sources,
+            is_recovered,
+        }
+    }
+
     pub(crate) const fn imported(
         key: SymbolKey,
         containing_symbol: AnySymbolId,
@@ -149,6 +174,9 @@ impl DeclarationSymbolIdentity {
             Self::Source {
                 containing_symbol, ..
             }
+            | Self::InferredImplementationParameter {
+                containing_symbol, ..
+            }
             | Self::CompilerKnown {
                 containing_symbol, ..
             }
@@ -161,13 +189,16 @@ impl DeclarationSymbolIdentity {
     pub(crate) const fn source_declaration(&self) -> Option<DeclarationId> {
         match self {
             Self::Source { declaration, .. } => Some(*declaration),
-            Self::CompilerKnown { .. } | Self::Imported { .. } => None,
+            Self::InferredImplementationParameter { .. }
+            | Self::CompilerKnown { .. }
+            | Self::Imported { .. } => None,
         }
     }
 
     const fn key(&self) -> &SymbolKey {
         match self {
             Self::Source { key, .. }
+            | Self::InferredImplementationParameter { key, .. }
             | Self::CompilerKnown { key, .. }
             | Self::Imported { key, .. } => key,
         }
@@ -176,6 +207,7 @@ impl DeclarationSymbolIdentity {
     const fn origin(&self) -> SymbolOrigin {
         match self {
             Self::Source { .. } => SymbolOrigin::Source,
+            Self::InferredImplementationParameter { .. } => SymbolOrigin::Synthesized,
             Self::CompilerKnown { origin, .. } => *origin,
             Self::Imported { .. } => SymbolOrigin::Imported,
         }
@@ -184,6 +216,9 @@ impl DeclarationSymbolIdentity {
     const fn syntax_anchor(&self) -> Option<SyntaxAnchor> {
         match self {
             Self::Source { syntax, .. } => Some(*syntax),
+            Self::InferredImplementationParameter {
+                inference_sources, ..
+            } => inference_sources.first().copied(),
             Self::CompilerKnown { .. } | Self::Imported { .. } => None,
         }
     }
@@ -191,7 +226,25 @@ impl DeclarationSymbolIdentity {
     fn imported_fact_key<I: crate::ExactSymbolId>(&self) -> Option<ImportedSymbolFactKey<I>> {
         match self {
             Self::Imported { backing, .. } => Some(backing.fact_key()),
-            Self::Source { .. } | Self::CompilerKnown { .. } => None,
+            Self::Source { .. }
+            | Self::InferredImplementationParameter { .. }
+            | Self::CompilerKnown { .. } => None,
+        }
+    }
+
+    const fn inferred_name(&self) -> Option<&SymbolName> {
+        match self {
+            Self::InferredImplementationParameter { name, .. } => Some(name),
+            Self::Source { .. } | Self::CompilerKnown { .. } | Self::Imported { .. } => None,
+        }
+    }
+
+    fn inference_sources(&self) -> &[SyntaxAnchor] {
+        match self {
+            Self::InferredImplementationParameter {
+                inference_sources, ..
+            } => inference_sources,
+            Self::Source { .. } | Self::CompilerKnown { .. } | Self::Imported { .. } => &[],
         }
     }
 }
@@ -261,7 +314,8 @@ macro_rules! define_declaration_symbol_records {
                     &self,
                 ) -> Option<CompilerKnownDeclarationId> {
                     match &self.identity {
-                        DeclarationSymbolIdentity::Source { .. } => None,
+                        DeclarationSymbolIdentity::Source { .. }
+                        | DeclarationSymbolIdentity::InferredImplementationParameter { .. } => None,
                         DeclarationSymbolIdentity::Imported { .. } => None,
                         DeclarationSymbolIdentity::CompilerKnown { declaration, .. } => {
                             Some(*declaration)
@@ -272,7 +326,8 @@ macro_rules! define_declaration_symbol_records {
                 /// Returns the generated declaration surface for compiler-known symbols.
                 pub const fn compiler_known_surface(&self) -> Option<CatalogDeclarationSurface> {
                     match &self.identity {
-                        DeclarationSymbolIdentity::Source { .. } => None,
+                        DeclarationSymbolIdentity::Source { .. }
+                        | DeclarationSymbolIdentity::InferredImplementationParameter { .. } => None,
                         DeclarationSymbolIdentity::Imported { .. } => None,
                         DeclarationSymbolIdentity::CompilerKnown { surface, .. } => Some(*surface),
                     }
@@ -287,6 +342,9 @@ macro_rules! define_declaration_symbol_records {
                 pub const fn is_recovered(&self) -> bool {
                     match &self.identity {
                         DeclarationSymbolIdentity::Source { syntax, .. } => syntax.is_recovered(),
+                        DeclarationSymbolIdentity::InferredImplementationParameter {
+                            is_recovered, ..
+                        } => *is_recovered,
                         DeclarationSymbolIdentity::CompilerKnown { .. }
                         | DeclarationSymbolIdentity::Imported { .. } => false,
                     }
@@ -634,6 +692,16 @@ impl UnionVariantSymbol {
 }
 
 impl GenericTypeParameterSymbol {
+    /// Returns the inferred name when this is an implementation parameter.
+    pub const fn inferred_name(&self) -> Option<&SymbolName> {
+        self.identity.inferred_name()
+    }
+
+    /// Returns syntax occurrences that inferred this implementation parameter.
+    pub fn inference_sources(&self) -> &[SyntaxAnchor] {
+        self.identity.inference_sources()
+    }
+
     /// Returns the declaration that owns this parameter.
     pub const fn owner(&self) -> crate::GenericOwnerId {
         self.relationships.owner
@@ -646,6 +714,16 @@ impl GenericTypeParameterSymbol {
 }
 
 impl GenericConstParameterSymbol {
+    /// Returns the inferred name when this is an implementation parameter.
+    pub const fn inferred_name(&self) -> Option<&SymbolName> {
+        self.identity.inferred_name()
+    }
+
+    /// Returns syntax occurrences that inferred this implementation parameter.
+    pub fn inference_sources(&self) -> &[SyntaxAnchor] {
+        self.identity.inference_sources()
+    }
+
     /// Returns the declaration that owns this parameter.
     pub const fn owner(&self) -> crate::GenericOwnerId {
         self.relationships.owner
