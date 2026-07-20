@@ -59,8 +59,8 @@ pub use predicate::{
     PredicateSemanticSummary, TrustedCapabilityRequirement,
 };
 pub use signature::{
-    CallableParameterSignature, CallableSignature, CallableSignatureTemplate, ReceiverMode,
-    ReceiverParameterSignature,
+    CallableParameterSignature, CallableSignature, CallableSignatureTemplate,
+    CallableSignatureTemplateError, ReceiverMode, ReceiverParameterSignature,
 };
 pub use template::{
     CallableContractExpressionTemplate, CallableContractTemplate, DeclarationCapabilityTemplate,

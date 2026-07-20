@@ -4,6 +4,7 @@
 
 mod bound_unit;
 mod control;
+mod declared_type;
 mod dependency;
 mod identity;
 mod node;
@@ -22,6 +23,10 @@ mod view;
 
 pub use bound_unit::{BoundUnit, BoundUnitBuildError, BoundUnitRoot};
 pub use control::{CheckedControlFlowFacts, ControlCompletion, ControlCompletionKind};
+pub use declared_type::{
+    DeclaredValueTypeConstraint, DeclaredValueTypeConstraintKind, DeclaredValueTypeEvidence,
+    DeclaredValueTypeTemplates, DeclaredValueTypeTerm,
+};
 pub use dependency::{
     BoundDependencyContract, BoundDependencyContractId, BoundDependencyGuard,
     BoundDependencyRequirement, BoundDependencyRequirementKind, BoundDependencySubject,

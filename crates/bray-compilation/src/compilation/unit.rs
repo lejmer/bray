@@ -1,11 +1,13 @@
 use std::sync::Arc;
 
 use bray_binder::{
-    BinderDependency, BoundUnitBindingError, BoundUnitComputation, bind_anonymous_callable,
-    bind_callable_body, bind_constant_template, bind_constraint, bind_contract_clause,
-    bind_predicate_definition, bind_runtime_default, semantic_unit_context,
+    BinderDependency, BinderFactError, BoundUnitBindingError, BoundUnitComputation,
+    bind_anonymous_callable, bind_callable_body, bind_constant_template, bind_constraint,
+    bind_contract_clause, bind_predicate_definition, bind_runtime_default, semantic_unit_context,
 };
-use bray_bound_tree::{BoundUnit, BoundUnitKey, BoundUnitKind, CheckedControlFlowFacts};
+use bray_bound_tree::{
+    BoundUnit, BoundUnitKey, BoundUnitKind, CheckedControlFlowFacts, DeclaredValueTypeTemplates,
+};
 use bray_checker::{
     CheckerInfrastructureError, CheckerOutcome, CheckerUnitView, ControlFlowChecker,
     DefaultControlFlowChecker, SemanticUnitContext,
@@ -14,7 +16,7 @@ use bray_diagnostics::DiagnosticResult;
 use bray_symbols::SymbolGraph;
 
 use super::Compilation;
-use super::binder::CompilationBinderFacts;
+use super::binder::{CompilationBinderFacts, bind_declared_value_type_templates};
 use super::checker::CompilationCheckerContext;
 use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError, PublishedUnitFact};
 
@@ -36,6 +38,17 @@ impl Compilation {
     ) -> Result<Arc<DiagnosticResult<CheckedControlFlowFacts>>, FactQueryError> {
         let published =
             self.checked_control_flow_with_cancellation(key, &self.state.cancellation)?;
+
+        Ok(Arc::clone(published.result()))
+    }
+
+    /// Returns source-declared value type templates and equality constraints for one bound unit.
+    pub fn declared_value_type_templates(
+        &self,
+        key: BoundUnitKey,
+    ) -> Result<Arc<DiagnosticResult<DeclaredValueTypeTemplates>>, FactQueryError> {
+        let published =
+            self.declared_value_type_templates_with_cancellation(key, &self.state.cancellation)?;
 
         Ok(Arc::clone(published.result()))
     }
@@ -79,6 +92,27 @@ impl Compilation {
                     semantic_unit_context_for(context.symbols(), bound.result().value())?;
 
                 check_control_flow(bound.result().value(), &semantic_context, &context)
+            },
+        )
+    }
+
+    fn declared_value_type_templates_with_cancellation(
+        &self,
+        key: BoundUnitKey,
+        cancellation: &CancellationToken,
+    ) -> Result<Arc<PublishedUnitFact<DeclaredValueTypeTemplates>>, FactQueryError> {
+        self.unit_fact(
+            &self.state.declared_value_type_templates,
+            CompilationFactKey::DeclaredValueTypeTemplates(key.clone()),
+            key.clone(),
+            cancellation,
+            |cancellation| {
+                let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
+                let facts = self.binder_facts_for(&key, cancellation)?;
+                let result = bind_declared_value_type_templates(&facts, bound.result().value())
+                    .map_err(map_binder_fact_error)?;
+
+                Ok((result, Box::new([])))
             },
         )
     }
@@ -147,16 +181,262 @@ const fn map_binding_error(error: BoundUnitBindingError) -> FactQueryError {
     }
 }
 
+const fn map_binder_fact_error(error: BinderFactError) -> FactQueryError {
+    match error {
+        BinderFactError::Cancelled => FactQueryError::Cancelled,
+        BinderFactError::DependencyUnavailable => FactQueryError::InfrastructureFailure,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
 
     use bray_binder::{SemanticUnitContextError, semantic_unit_context};
+    use bray_bound_tree::{
+        BoundReferenceTarget, BoundUnitKind, DeclaredValueTypeConstraintKind,
+        DeclaredValueTypeTemplates, DeclaredValueTypeTerm,
+    };
     use bray_checker::{CheckerInfrastructureError, CheckerUnitViewError, SemanticUnitContext};
+    use bray_symbols::{SymbolKind, TypeExpressionTemplate};
 
     use super::{Compilation, check_control_flow, semantic_unit_context_for};
     use crate::fact::{CancellationToken, FactCellTestEvent, FactQueryError};
     use crate::test_support::{FactTestGate, compilation, source_callable_body_key};
+
+    #[test]
+    fn declared_value_type_templates_publish_lazy_source_evidence_and_constraints() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "func identity<const count: usize>(value: [i32; count]) -> [i32; count]\n",
+            "{\n",
+            "    let local: [i32; count] = value;\n",
+            "    const copy: [i32; count] = local;\n",
+            "    let callable = lambda(item: [i32; count]) -> [i32; count]\n",
+            "    {\n",
+            "        item\n",
+            "    };\n",
+            "    copy\n",
+            "}\n",
+        ));
+        let key = source_callable_body_key(&compilation);
+
+        assert_eq!(
+            compilation
+                .state
+                .declared_value_type_templates
+                .is_published(&key),
+            Ok(false)
+        );
+        assert_eq!(
+            compilation.state.checked_control_flow.is_published(&key),
+            Ok(false)
+        );
+
+        let facts = match compilation.declared_value_type_templates(key.clone()) {
+            Ok(facts) => facts,
+            Err(error) => panic!("declared value types must publish: {error:?}"),
+        };
+
+        assert!(has_value_kind(
+            facts.value(),
+            SymbolKind::GenericConstParameter
+        ));
+        assert!(has_value_kind(facts.value(), SymbolKind::CallableParameter));
+        assert!(has_value_kind(facts.value(), SymbolKind::LocalConstant));
+        assert!(
+            facts
+                .value()
+                .evidence()
+                .iter()
+                .any(|entry| matches!(entry.term(), DeclaredValueTypeTerm::Pattern(_)))
+        );
+        assert!(matches!(
+            facts.value().callable_result(),
+            Some(TypeExpressionTemplate::Array { .. })
+        ));
+        assert!(has_constraint_kind(
+            facts.value(),
+            DeclaredValueTypeConstraintKind::Initializer
+        ));
+        assert!(has_constraint_kind(
+            facts.value(),
+            DeclaredValueTypeConstraintKind::PatternBinding
+        ));
+        assert!(has_constraint_kind(
+            facts.value(),
+            DeclaredValueTypeConstraintKind::DefinitionUse
+        ));
+        assert_eq!(
+            compilation.state.checked_control_flow.is_published(&key),
+            Ok(false)
+        );
+
+        let dependencies = match compilation
+            .state
+            .fact_runtime
+            .dependencies(&crate::fact::CompilationFactKey::DeclaredValueTypeTemplates(key.clone()))
+        {
+            Ok(Some(dependencies)) => dependencies,
+            Ok(None) => panic!("published declared value types must retain dependencies"),
+            Err(error) => panic!("declared value type dependencies must be readable: {error:?}"),
+        };
+
+        assert!(dependencies.contains(&crate::fact::CompilationFactKey::BoundUnit(key.clone())));
+
+        let bound = match compilation.bound_unit(key) {
+            Ok(bound) => bound,
+            Err(error) => panic!("bound callable must remain available: {error:?}"),
+        };
+        let [nested] = bound.value().nested_units() else {
+            panic!("test callable must retain one anonymous callable");
+        };
+
+        let nested = nested.clone();
+
+        let nested_facts = match compilation.declared_value_type_templates(nested.clone()) {
+            Ok(facts) => facts,
+            Err(error) => panic!("anonymous callable value types must publish: {error:?}"),
+        };
+
+        assert!(has_value_kind(
+            nested_facts.value(),
+            SymbolKind::AnonymousCallableParameter
+        ));
+        assert!(has_value_kind(
+            nested_facts.value(),
+            SymbolKind::GenericConstParameter
+        ));
+        assert!(matches!(
+            nested_facts.value().callable_result(),
+            Some(TypeExpressionTemplate::Array { .. })
+        ));
+        assert_eq!(
+            compilation.state.checked_control_flow.is_published(&nested),
+            Ok(false)
+        );
+    }
+
+    #[test]
+    fn declared_value_type_templates_cover_declaration_surface_categories() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "const size: i32 = 1;\n",
+            "predicate valid(value: i32) = true;\n",
+            "struct Holder\n",
+            "{\n",
+            "    func value() -> i32\n",
+            "    {\n",
+            "        return 1;\n",
+            "    }\n",
+            "}\n",
+            "func check(value: i32) -> i32 ensures(result == value)\n",
+            "{\n",
+            "    return value;\n",
+            "}\n",
+        ));
+        let keys = match compilation.declared_unit_keys_for_test() {
+            Ok(keys) => keys,
+            Err(error) => panic!("declared unit keys must be available: {error:?}"),
+        };
+
+        let constant = facts_for_kind(&compilation, &keys, BoundUnitKind::ConstantTemplate);
+        assert!(has_value_kind(constant.value(), SymbolKind::Constant));
+        assert!(has_constraint_kind(
+            constant.value(),
+            DeclaredValueTypeConstraintKind::Initializer
+        ));
+
+        let predicate = facts_for_kind(&compilation, &keys, BoundUnitKind::PredicateDefinition);
+        assert!(has_value_kind(
+            predicate.value(),
+            SymbolKind::PredicateParameter
+        ));
+
+        let receiver = keys
+            .iter()
+            .filter(|key| key.kind() == BoundUnitKind::CallableBody)
+            .filter_map(|key| compilation.declared_value_type_templates(key.clone()).ok())
+            .find(|facts| has_value_kind(facts.value(), SymbolKind::ReceiverParameter))
+            .unwrap_or_else(|| panic!("type callable body must publish receiver evidence"));
+        assert!(receiver.value().callable_result().is_some());
+
+        let contract = facts_for_kind(&compilation, &keys, BoundUnitKind::ContractClause);
+        assert!(has_value_kind(
+            contract.value(),
+            SymbolKind::PostconditionResult
+        ));
+        assert!(has_value_kind(
+            contract.value(),
+            SymbolKind::CallableParameter
+        ));
+    }
+
+    #[test]
+    fn recovered_declared_value_type_syntax_is_deterministic_and_panic_free() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "func broken(value: i32) -> i32\n",
+            "{\n",
+            "    let local: = value;\n",
+            "    local\n",
+            "}\n",
+        ));
+        let key = source_callable_body_key(&compilation);
+
+        let first = match compilation.declared_value_type_templates(key.clone()) {
+            Ok(facts) => facts,
+            Err(error) => panic!("recovered declared value types must publish: {error:?}"),
+        };
+        let second = match compilation.declared_value_type_templates(key) {
+            Ok(facts) => facts,
+            Err(error) => panic!("repeated recovered request must publish: {error:?}"),
+        };
+
+        assert!(Arc::ptr_eq(&first, &second));
+        assert!(
+            first
+                .value()
+                .evidence()
+                .iter()
+                .any(|entry| matches!(entry.term(), DeclaredValueTypeTerm::Pattern(_)))
+        );
+    }
+
+    fn facts_for_kind(
+        compilation: &Compilation,
+        keys: &[bray_bound_tree::BoundUnitKey],
+        kind: BoundUnitKind,
+    ) -> Arc<bray_diagnostics::DiagnosticResult<DeclaredValueTypeTemplates>> {
+        let key = keys
+            .iter()
+            .find(|key| key.kind() == kind)
+            .unwrap_or_else(|| panic!("test source must publish a {kind:?} unit"));
+
+        match compilation.declared_value_type_templates(key.clone()) {
+            Ok(facts) => facts,
+            Err(error) => panic!("{kind:?} declared value types must publish: {error:?}"),
+        }
+    }
+
+    fn has_constraint_kind(
+        facts: &DeclaredValueTypeTemplates,
+        kind: DeclaredValueTypeConstraintKind,
+    ) -> bool {
+        facts.constraints().iter().any(|entry| entry.kind() == kind)
+    }
+
+    fn has_value_kind(facts: &DeclaredValueTypeTemplates, kind: SymbolKind) -> bool {
+        facts.evidence().iter().any(|entry| match entry.term() {
+            DeclaredValueTypeTerm::Value(BoundReferenceTarget::Local(symbol)) => {
+                symbol.kind() == kind
+            }
+            DeclaredValueTypeTerm::Value(BoundReferenceTarget::Surface(symbol)) => {
+                symbol.kind() == kind
+            }
+            DeclaredValueTypeTerm::Expression(_) | DeclaredValueTypeTerm::Pattern(_) => false,
+        })
+    }
 
     #[test]
     fn repeated_and_concurrent_requests_share_production_semantic_facts() {
@@ -173,6 +453,37 @@ mod tests {
         };
 
         assert!(Arc::ptr_eq(&first_bound, &second_bound));
+
+        let declared_gate = FactTestGate::holding(FactCellTestEvent::Computing);
+
+        if let Err(error) = compilation
+            .state
+            .declared_value_type_templates
+            .set_test_observer(&key, declared_gate.observer())
+        {
+            panic!("declared value type fact must accept a test observer: {error:?}");
+        }
+
+        let declared = std::thread::scope(|scope| {
+            let owner_key = key.clone();
+            let owner = scope.spawn(|| compilation.declared_value_type_templates(owner_key));
+
+            declared_gate.wait_until_observed(FactCellTestEvent::Computing, 1);
+
+            let waiter_key = key.clone();
+            let waiter = scope.spawn(|| compilation.declared_value_type_templates(waiter_key));
+
+            declared_gate.wait_until_observed(FactCellTestEvent::Waiting, 1);
+            declared_gate.release();
+
+            [owner, waiter].map(|handle| match handle.join() {
+                Ok(Ok(facts)) => facts,
+                Ok(Err(error)) => panic!("concurrent declared value types failed: {error:?}"),
+                Err(_) => panic!("concurrent declared value type request panicked"),
+            })
+        });
+
+        assert!(Arc::ptr_eq(&declared[0], &declared[1]));
 
         let gate = FactTestGate::holding(FactCellTestEvent::Computing);
 

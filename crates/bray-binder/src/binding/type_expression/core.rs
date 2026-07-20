@@ -86,6 +86,19 @@ impl<'facts> TypeExpressionBinder<'facts> {
         Ok(DiagnosticResult::new(types, self.diagnostics))
     }
 
+    /// Binds the implicit unit result of a callable with no result clause.
+    pub fn bind_omitted_callable_result(
+        mut self,
+    ) -> BinderFactResult<DiagnosticResult<TypeExpressionTemplate>> {
+        self.check_cancellation()?;
+
+        let result = self.bind_compiler_known_type(RepresentationRole::Unit)?;
+
+        self.check_cancellation()?;
+
+        Ok(DiagnosticResult::new(result, self.diagnostics))
+    }
+
     /// Binds one trait application and publishes its diagnostics atomically with the value.
     pub fn bind_trait_application(
         mut self,

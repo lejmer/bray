@@ -83,6 +83,8 @@ pub(crate) enum CompilationFactKey {
     CheckDiagnostics,
     /// Durable control-flow facts for one bound unit.
     CheckedControlFlow(BoundUnitKey),
+    /// Source-declared value type templates and equality constraints for one bound unit.
+    DeclaredValueTypeTemplates(BoundUnitKey),
     /// Declaration discovery for one source unit.
     DeclarationChunk(SourceId),
     /// The deterministically merged declaration table.
@@ -116,7 +118,9 @@ pub(crate) enum CompilationFactKey {
 impl CompilationFactKey {
     pub(crate) const fn bound_unit_key(&self) -> Option<&BoundUnitKey> {
         match self {
-            Self::BoundUnit(key) | Self::CheckedControlFlow(key) => Some(key),
+            Self::BoundUnit(key)
+            | Self::CheckedControlFlow(key)
+            | Self::DeclaredValueTypeTemplates(key) => Some(key),
             Self::AvailableCompilerKnownSymbols
             | Self::CompilerKnownSymbols
             | Self::BoundUnitIdentities

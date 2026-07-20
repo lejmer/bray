@@ -11,7 +11,7 @@ use bray_symbols::{
 
 use super::super::context::CompilationBinderFacts;
 
-pub(super) fn type_binder<'facts>(
+pub(in crate::compilation) fn type_binder<'facts>(
     context: &'facts CompilationBinderFacts<'facts>,
     symbol: AnySymbolId,
 ) -> BinderFactResult<TypeExpressionBinder<'facts>> {
@@ -67,6 +67,19 @@ fn symbol_ancestry(symbols: &SymbolGraph, symbol: AnySymbolId) -> Vec<AnySymbolI
     }
 
     ancestry
+}
+
+pub(in crate::compilation) fn visible_generic_const_parameters(
+    symbols: &SymbolGraph,
+    symbol: AnySymbolId,
+) -> Vec<GenericConstParameterSymbolId> {
+    symbol_ancestry(symbols, symbol)
+        .into_iter()
+        .rev()
+        .filter_map(|owner| GenericParameterAccess::generic_const_parameters(symbols, owner))
+        .flatten()
+        .copied()
+        .collect()
 }
 
 fn type_parameter_name(
