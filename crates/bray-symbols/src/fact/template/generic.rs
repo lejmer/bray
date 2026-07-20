@@ -86,7 +86,7 @@ impl GenericDeclarationTemplate {
         &self.parameters
     }
 
-    /// Returns unevaluated constraint expressions in declaration order.
+    /// Returns constraint templates in declaration order.
     pub fn constraints(&self) -> &[GenericConstraintTemplate] {
         &self.constraints
     }

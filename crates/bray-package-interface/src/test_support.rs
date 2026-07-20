@@ -292,8 +292,7 @@ pub(crate) fn named_key(
     kind: SymbolKind,
     name: &str,
 ) -> ExternalSymbolKey {
-    let name =
-        SymbolName::try_new(name).unwrap_or_else(|| panic!("test symbol name must be valid"));
+    let name = symbol_name(name);
 
     ExternalSymbolKey::named(owner, kind, name)
         .unwrap_or_else(|| panic!("test symbol key must be valid"))

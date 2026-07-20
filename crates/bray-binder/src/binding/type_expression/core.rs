@@ -68,6 +68,24 @@ impl<'facts> TypeExpressionBinder<'facts> {
         Ok(DiagnosticResult::new(ty, self.diagnostics))
     }
 
+    /// Binds type expressions through one shared declaration lookup environment.
+    pub fn bind_type_expressions<'syntax>(
+        mut self,
+        syntax: impl IntoIterator<Item = &'syntax TypeExpressionSyntax>,
+    ) -> BinderFactResult<DiagnosticResult<Vec<TypeExpressionTemplate>>> {
+        self.check_cancellation()?;
+
+        let mut types = Vec::new();
+
+        for expression in syntax {
+            types.push(self.bind_type(expression)?);
+        }
+
+        self.check_cancellation()?;
+
+        Ok(DiagnosticResult::new(types, self.diagnostics))
+    }
+
     /// Binds one trait application and publishes its diagnostics atomically with the value.
     pub fn bind_trait_application(
         mut self,
