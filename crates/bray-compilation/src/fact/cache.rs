@@ -713,6 +713,7 @@ mod tests {
 
         let parent_context = task_context(&runtime, parent_key.clone());
         let parent_identity = parent_context.identity();
+
         let parent_evaluation = match runtime.begin(parent_context.clone()) {
             Ok(evaluation) => evaluation,
             Err(error) => panic!("parent evaluation should begin: {error:?}"),
@@ -720,12 +721,14 @@ mod tests {
 
         let child_context = task_context(&runtime, child_key.clone());
         let child_identity = child_context.identity();
+
         let child_evaluation = match runtime.begin(child_context.clone()) {
             Ok(evaluation) => evaluation,
             Err(error) => panic!("child evaluation should begin: {error:?}"),
         };
 
         let (registered_sender, registered_receiver) = mpsc::sync_channel(1);
+
         let (release_sender, release_receiver) = mpsc::sync_channel(1);
 
         let cycle = std::thread::scope(|scope| {
