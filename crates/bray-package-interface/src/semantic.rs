@@ -6,10 +6,10 @@ mod validation;
 pub(crate) use codec::encode_validated_semantic_facts;
 pub use codec::{EncodedSemanticSection, decode_semantic_facts, encode_semantic_facts};
 pub use interning::{
-    ImportedAbiDependency, ImportedCallableContractFact, ImportedCoherenceFact,
-    ImportedConstraintFact, ImportedDeclarationTemplateFact, ImportedImplementationFact,
-    ImportedSemanticFact, ImportedSemanticFacts, ImportedSourceProvenance,
-    ImportedTargetFactDependency, InterfaceSemanticInternError, InterfaceSymbolResolver,
+    ImportedAbiDependency, ImportedCallableContractFact, ImportedConstraintFact,
+    ImportedDeclarationTemplateFact, ImportedImplementationFact, ImportedSemanticFact,
+    ImportedSemanticFacts, ImportedSourceProvenance, InterfaceSemanticInternError,
+    InterfaceSymbolResolver,
 };
 pub use model::{
     InterfaceAbiDependency, InterfaceCallableContract, InterfaceCallableContractClause,

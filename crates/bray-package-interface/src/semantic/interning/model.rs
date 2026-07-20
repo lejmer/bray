@@ -5,8 +5,9 @@ use bray_bound_tree::{CheckedTemplate, CheckedTemplateKind};
 use bray_symbols::{
     AnySymbolId, CallableContractSet, CallableInstanceId, CallableSymbolId, CheckedConstraint,
     ConstantTermId, ConstantValueId, DependencyContractTemplateId, GenericOwnerId,
-    GenericSubstitutionId, ImplementationInstanceId, ImplementationSubject, ImplementationSymbolId,
-    SemanticValueStore, SemanticValueStoreError, TraitApplicationId, TypeId,
+    GenericSubstitutionId, ImplementationCoherenceEvidence, ImplementationInstanceId,
+    ImplementationSubject, ImplementationSymbolId, SemanticValueStore, SemanticValueStoreError,
+    TargetFactDependency, TraitApplicationId, TypeId,
 };
 
 use crate::{InterfaceSemanticFactKind, InterfaceSemanticFacts, InterfaceSymbolReference};
@@ -63,8 +64,8 @@ pub struct ImportedSemanticFacts {
     pub(super) constraints: Arc<[ImportedConstraintFact]>,
     pub(super) callable_contracts: Arc<[ImportedCallableContractFact]>,
     pub(super) implementations: Arc<[ImportedImplementationFact]>,
-    pub(super) coherence: Arc<[ImportedCoherenceFact]>,
-    pub(super) target_dependencies: Arc<[ImportedTargetFactDependency]>,
+    pub(super) coherence: Arc<[ImplementationCoherenceEvidence]>,
+    pub(super) target_dependencies: Arc<[TargetFactDependency]>,
     pub(super) abi_dependencies: Arc<[ImportedAbiDependency]>,
     pub(super) provenance: Arc<[ImportedSourceProvenance]>,
 }
@@ -90,7 +91,7 @@ pub enum ImportedSemanticFact {
     /// One public implementation surface.
     Implementation(ImportedImplementationFact),
     /// One required target fact value.
-    TargetFact(ImportedTargetFactDependency),
+    TargetFact(TargetFactDependency),
     /// One required callable ABI.
     Abi(ImportedAbiDependency),
 }
@@ -180,50 +181,6 @@ impl ImportedImplementationFact {
     }
 }
 
-/// Canonical implementation candidates for one imported coherence key.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct ImportedCoherenceFact {
-    pub(super) subject: TypeId,
-    pub(super) trait_application: TraitApplicationId,
-    pub(super) implementations: Arc<[ImplementationSymbolId]>,
-}
-
-impl ImportedCoherenceFact {
-    /// Returns the coherence subject type.
-    pub const fn subject(&self) -> TypeId {
-        self.subject
-    }
-
-    /// Returns the coherence trait application.
-    pub const fn trait_application(&self) -> TraitApplicationId {
-        self.trait_application
-    }
-
-    /// Returns canonical participating implementations.
-    pub fn implementations(&self) -> &[ImplementationSymbolId] {
-        &self.implementations
-    }
-}
-
-/// One exact target-fact requirement decoded into local semantic IDs.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct ImportedTargetFactDependency {
-    pub(super) fact: bray_symbols::ConstantSymbolId,
-    pub(super) value: ConstantValueId,
-}
-
-impl ImportedTargetFactDependency {
-    /// Returns the compiler-known target fact declaration.
-    pub const fn fact(self) -> bray_symbols::ConstantSymbolId {
-        self.fact
-    }
-
-    /// Returns the required canonical value.
-    pub const fn value(self) -> ConstantValueId {
-        self.value
-    }
-}
-
 /// One callable ABI dependency decoded into local symbol identity.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ImportedAbiDependency {
@@ -309,8 +266,8 @@ impl ImportedSemanticFacts {
             InterfaceSemanticFactKind::TargetFact => self
                 .target_dependencies
                 .iter()
-                .copied()
                 .filter(|fact| AnySymbolId::from(fact.fact()) == owner)
+                .cloned()
                 .map(ImportedSemanticFact::TargetFact)
                 .collect(),
             InterfaceSemanticFactKind::Abi => self
@@ -384,12 +341,12 @@ impl ImportedSemanticFacts {
     }
 
     /// Returns imported coherence facts in canonical order.
-    pub fn coherence(&self) -> &[ImportedCoherenceFact] {
+    pub fn coherence(&self) -> &[ImplementationCoherenceEvidence] {
         &self.coherence
     }
 
     /// Returns imported target-fact dependencies in canonical order.
-    pub fn target_dependencies(&self) -> &[ImportedTargetFactDependency] {
+    pub fn target_dependencies(&self) -> &[TargetFactDependency] {
         &self.target_dependencies
     }
 
