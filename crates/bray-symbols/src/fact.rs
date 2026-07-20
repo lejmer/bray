@@ -53,10 +53,10 @@ pub use execution::{
 pub use implementation::{
     ImplementationAmbiguity, ImplementationAmbiguityError, ImplementationCandidate,
     ImplementationCandidateError, ImplementationCandidateSet, ImplementationCandidateSetError,
-    ImplementationCandidateSetKey, ImplementationCoherenceEvidence,
-    ImplementationCoherenceEvidenceError, ImplementationCoherenceKey,
-    ImplementationCoherenceParticipant, ImplementationSelection, ImplementationSelectionCandidate,
-    ImplementationSelectionKey, ImplementationSubject, ImplementationSubjectTemplate,
+    ImplementationCoherenceEvidence, ImplementationCoherenceEvidenceError,
+    ImplementationCoherenceKey, ImplementationCoherenceParticipant, ImplementationRequirementKey,
+    ImplementationSelection, ImplementationSelectionCandidate, ImplementationSubject,
+    ImplementationSubjectTemplate,
 };
 pub use predicate::{
     CallableContractClause, CallableContractClauseKind, CallableContractSet, CheckedConstraint,

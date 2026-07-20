@@ -3,36 +3,9 @@ use std::{collections::BTreeMap, collections::btree_map::Entry, sync::Arc};
 use bray_base::shared_slice;
 
 use crate::{
-    GenericConstraintTemplate, GenericSubstitutionId, ImplementationSymbolId, SymbolKey,
-    TargetFactDependency, TraitApplicationId, TypeId,
+    GenericConstraintTemplate, GenericSubstitutionId, ImplementationRequirementKey,
+    ImplementationSymbolId, SymbolKey, TargetFactDependency,
 };
-
-/// The exact subject and trait application used to request implementation candidates.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct ImplementationCandidateSetKey {
-    subject: TypeId,
-    trait_application: TraitApplicationId,
-}
-
-impl ImplementationCandidateSetKey {
-    /// Creates an exact implementation-candidate lookup key.
-    pub const fn new(subject: TypeId, trait_application: TraitApplicationId) -> Self {
-        Self {
-            subject,
-            trait_application,
-        }
-    }
-
-    /// Returns the exact semantic subject type.
-    pub const fn subject(self) -> TypeId {
-        self.subject
-    }
-
-    /// Returns the exact applied trait requirement.
-    pub const fn trait_application(self) -> TraitApplicationId {
-        self.trait_application
-    }
-}
 
 /// Reports malformed evidence for one exact implementation coherence key.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -75,7 +48,7 @@ impl ImplementationCoherenceParticipant {
 /// The participating implementation declarations retained for one exact coherence key.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ImplementationCoherenceEvidence {
-    key: ImplementationCandidateSetKey,
+    key: ImplementationRequirementKey,
     participants: Arc<[ImplementationCoherenceParticipant]>,
 }
 
@@ -85,7 +58,7 @@ impl ImplementationCoherenceEvidence {
     /// Returns an error when no implementation participates or one stable key names conflicting
     /// implementation declarations.
     pub fn try_new(
-        key: ImplementationCandidateSetKey,
+        key: ImplementationRequirementKey,
         participants: impl IntoIterator<Item = ImplementationCoherenceParticipant>,
     ) -> Result<Self, ImplementationCoherenceEvidenceError> {
         let mut canonical = BTreeMap::new();
@@ -117,7 +90,7 @@ impl ImplementationCoherenceEvidence {
     }
 
     /// Returns the exact coherence key supported by this evidence.
-    pub const fn key(&self) -> ImplementationCandidateSetKey {
+    pub const fn key(&self) -> ImplementationRequirementKey {
         self.key
     }
 
@@ -132,6 +105,8 @@ impl ImplementationCoherenceEvidence {
 pub enum ImplementationCandidateError {
     /// The candidate declaration is absent from its coherence evidence.
     MissingCoherenceParticipant,
+    /// One declaration-order position names conflicting generic constraint templates.
+    ConflictingConstraintOrdinal,
     /// One stable target-fact key names conflicting dependencies.
     ConflictingTargetFactKey,
 }
@@ -150,8 +125,8 @@ pub struct ImplementationCandidate {
 impl ImplementationCandidate {
     /// Creates one candidate without evaluating its constraints or target availability.
     ///
-    /// Returns an error when the candidate is absent from its coherence evidence or one stable
-    /// target-fact key names conflicting dependencies.
+    /// Returns an error when the candidate is absent from its coherence evidence, one ordinal names
+    /// conflicting constraints, or one stable target-fact key names conflicting dependencies.
     pub fn try_new(
         key: SymbolKey,
         implementation: ImplementationSymbolId,
@@ -168,6 +143,20 @@ impl ImplementationCandidate {
 
         if participant.is_none_or(|participant| participant.implementation != implementation) {
             return Err(ImplementationCandidateError::MissingCoherenceParticipant);
+        }
+
+        let mut canonical_constraints = BTreeMap::new();
+
+        for constraint in constraints {
+            match canonical_constraints.entry(constraint.ordinal()) {
+                Entry::Vacant(entry) => {
+                    entry.insert(constraint);
+                }
+                Entry::Occupied(entry) if *entry.get() == constraint => {}
+                Entry::Occupied(_) => {
+                    return Err(ImplementationCandidateError::ConflictingConstraintOrdinal);
+                }
+            }
         }
 
         let mut ordered_target_dependencies: Vec<_> = target_dependencies.into_iter().collect();
@@ -195,7 +184,7 @@ impl ImplementationCandidate {
             key,
             implementation,
             substitution,
-            constraints: shared_slice(constraints),
+            constraints: shared_slice(canonical_constraints.into_values()),
             target_dependencies: canonical_target_dependencies.into(),
             coherence,
         })
@@ -253,7 +242,7 @@ impl ImplementationCandidateSet {
     /// Returns an error when candidate evidence belongs to another lookup key or one stable
     /// implementation key names conflicting candidates.
     pub fn try_new(
-        key: ImplementationCandidateSetKey,
+        key: ImplementationRequirementKey,
         candidates: impl IntoIterator<Item = ImplementationCandidate>,
     ) -> Result<Self, ImplementationCandidateSetError> {
         let mut ordered: Vec<_> = candidates.into_iter().collect();
@@ -297,23 +286,23 @@ mod tests {
 
     use crate::{
         AnySymbolId, CheckedConstraint, ConstantSymbolId, ConstantValueData, ConstantValueId,
-        ConstantValueKind, DependencyContractTemplateData, GenericConstraintTemplate,
-        GenericOwnerId, GenericSubstitutionData, GenericSubstitutionId,
-        NamedTraitImplementationSymbolId, PackageIdentity, PredicateSemanticSummary,
-        SemanticValueStore, SymbolId, SymbolKey, SymbolKind, SymbolOrdinal, TargetFactDependency,
-        TraitApplicationData, TraitSymbolId, TypeData,
+        ConstantValueKind, DependencyContractTemplateData, DependencyRequirement,
+        DependencyRequirementKind, DependencySubject, DependencySubjectRoot,
+        GenericConstraintTemplate, GenericOwnerId, GenericSubstitutionData, GenericSubstitutionId,
+        ImplementationRequirementKey, NamedTraitImplementationSymbolId, PackageIdentity,
+        PredicateSemanticSummary, SemanticValueStore, SymbolId, SymbolKey, SymbolKind,
+        SymbolOrdinal, TargetFactDependency, TraitApplicationData, TraitSymbolId, TypeData,
     };
 
     use super::{
         ImplementationCandidate, ImplementationCandidateError, ImplementationCandidateSet,
-        ImplementationCandidateSetError, ImplementationCandidateSetKey,
-        ImplementationCoherenceEvidence, ImplementationCoherenceEvidenceError,
-        ImplementationCoherenceParticipant,
+        ImplementationCandidateSetError, ImplementationCoherenceEvidence,
+        ImplementationCoherenceEvidenceError, ImplementationCoherenceParticipant,
     };
 
     struct CandidateFixture {
-        lookup: ImplementationCandidateSetKey,
-        other_lookup: ImplementationCandidateSetKey,
+        lookup: ImplementationRequirementKey,
+        other_lookup: ImplementationRequirementKey,
         first_definition: NamedTraitImplementationSymbolId,
         second_definition: NamedTraitImplementationSymbolId,
         first_substitution: GenericSubstitutionId,
@@ -321,6 +310,7 @@ mod tests {
         first_value: ConstantValueId,
         second_value: ConstantValueId,
         predicate: PredicateSemanticSummary,
+        other_predicate: PredicateSemanticSummary,
     }
 
     impl CandidateFixture {
@@ -349,8 +339,10 @@ mod tests {
 
             let first_definition =
                 NamedTraitImplementationSymbolId::from_symbol_id(SymbolId::new(20));
+
             let second_definition =
                 NamedTraitImplementationSymbolId::from_symbol_id(SymbolId::new(21));
+
             let first_substitution = empty_substitution(&store, first_definition.into());
             let second_substitution = empty_substitution(&store, second_definition.into());
 
@@ -358,6 +350,19 @@ mod tests {
                 store.intern_dependency_contract_template(DependencyContractTemplateData::new([]))
             else {
                 panic!("empty dependency contract must be internable");
+            };
+
+            let dependency = DependencyRequirement::direct(
+                DependencySubject::root(DependencySubjectRoot::Result),
+                DependencyRequirementKind::StorageAlive,
+            );
+
+            let Ok(other_dependencies) =
+                store.intern_dependency_contract_template(DependencyContractTemplateData::new([
+                    dependency,
+                ]))
+            else {
+                panic!("non-empty dependency contract must be internable");
             };
 
             let Ok(first_value) = store.intern_constant_value(ConstantValueData::new(
@@ -375,8 +380,8 @@ mod tests {
             };
 
             Self {
-                lookup: ImplementationCandidateSetKey::new(subject, trait_application),
-                other_lookup: ImplementationCandidateSetKey::new(other_subject, trait_application),
+                lookup: ImplementationRequirementKey::new(subject, trait_application),
+                other_lookup: ImplementationRequirementKey::new(other_subject, trait_application),
                 first_definition,
                 second_definition,
                 first_substitution,
@@ -384,6 +389,7 @@ mod tests {
                 first_value,
                 second_value,
                 predicate: PredicateSemanticSummary::new(dependencies),
+                other_predicate: PredicateSemanticSummary::new(other_dependencies),
             }
         }
 
@@ -416,7 +422,6 @@ mod tests {
     fn candidate_contracts_are_send_and_sync() {
         fn assert_send_sync<T: Send + Sync>() {}
 
-        assert_send_sync::<ImplementationCandidateSetKey>();
         assert_send_sync::<ImplementationCoherenceEvidence>();
         assert_send_sync::<ImplementationCoherenceParticipant>();
         assert_send_sync::<ImplementationCandidate>();
@@ -431,10 +436,12 @@ mod tests {
             SymbolOrdinal::new(2),
             fixture.predicate,
         ));
+
         let earlier_constraint = GenericConstraintTemplate::Resolved(CheckedConstraint::new(
             SymbolOrdinal::new(1),
             fixture.predicate,
         ));
+
         let first_target = target_dependency(30, fixture.first_value);
         let second_target = target_dependency(31, fixture.second_value);
 
@@ -498,13 +505,66 @@ mod tests {
         );
         assert_eq!(
             candidates.candidates()[1].constraints(),
-            &[later_constraint, earlier_constraint]
+            &[earlier_constraint, later_constraint]
         );
         assert_eq!(
             candidates.candidates()[1].target_dependencies(),
             &[first_target, second_target]
         );
         assert_eq!(candidates.candidates()[1].coherence(), &coherence);
+    }
+
+    #[test]
+    fn candidate_constraints_are_ordered_and_exact_duplicates_are_removed() {
+        let fixture = CandidateFixture::new();
+        let later = GenericConstraintTemplate::Resolved(CheckedConstraint::new(
+            SymbolOrdinal::new(2),
+            fixture.predicate,
+        ));
+
+        let earlier = GenericConstraintTemplate::Resolved(CheckedConstraint::new(
+            SymbolOrdinal::new(1),
+            fixture.predicate,
+        ));
+
+        let Ok(candidate) = ImplementationCandidate::try_new(
+            implementation_key(2),
+            fixture.first_definition.into(),
+            fixture.first_substitution,
+            [later, earlier, earlier],
+            [],
+            fixture.coherence(),
+        ) else {
+            panic!("candidate constraints must canonicalize");
+        };
+
+        assert_eq!(candidate.constraints(), &[earlier, later]);
+    }
+
+    #[test]
+    fn candidate_constraints_reject_conflicting_entries_at_one_ordinal() {
+        let fixture = CandidateFixture::new();
+        let first = GenericConstraintTemplate::Resolved(CheckedConstraint::new(
+            SymbolOrdinal::new(1),
+            fixture.predicate,
+        ));
+
+        let conflicting = GenericConstraintTemplate::Resolved(CheckedConstraint::new(
+            SymbolOrdinal::new(1),
+            fixture.other_predicate,
+        ));
+
+        assert_eq!(
+            ImplementationCandidate::try_new(
+                implementation_key(2),
+                fixture.first_definition.into(),
+                fixture.first_substitution,
+                [first, conflicting],
+                [],
+                fixture.coherence(),
+            ),
+            Err(ImplementationCandidateError::ConflictingConstraintOrdinal)
+        );
     }
 
     #[test]
@@ -641,7 +701,7 @@ mod tests {
     }
 
     fn coherence_for<const N: usize>(
-        lookup: ImplementationCandidateSetKey,
+        lookup: ImplementationRequirementKey,
         participants: [ImplementationCoherenceParticipant; N],
     ) -> ImplementationCoherenceEvidence {
         let Ok(evidence) = ImplementationCoherenceEvidence::try_new(lookup, participants) else {

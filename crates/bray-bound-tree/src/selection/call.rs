@@ -3,7 +3,7 @@ use std::sync::Arc;
 use bray_base::{shared_slice, sorted_unique_shared_slice};
 use bray_symbols::{
     CallableAbi, CallableParameterDefaultProviderSymbolId, CallableParameterSymbolId,
-    ImplementationInstanceId, ImplementationSelectionKey,
+    ImplementationInstanceId, ImplementationRequirementKey,
 };
 
 use crate::{BoundCallableTarget, BoundExpressionId, BoundResolvedCall};
@@ -11,14 +11,14 @@ use crate::{BoundCallableTarget, BoundExpressionId, BoundResolvedCall};
 /// One exact implementation requirement and its selected witness.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct SelectedImplementationWitness {
-    requirement: ImplementationSelectionKey,
+    requirement: ImplementationRequirementKey,
     witness: ImplementationInstanceId,
 }
 
 impl SelectedImplementationWitness {
     /// Creates an exact requirement-to-witness association.
     pub const fn new(
-        requirement: ImplementationSelectionKey,
+        requirement: ImplementationRequirementKey,
         witness: ImplementationInstanceId,
     ) -> Self {
         Self {
@@ -28,7 +28,7 @@ impl SelectedImplementationWitness {
     }
 
     /// Returns the implementation requirement being satisfied.
-    pub const fn requirement(self) -> ImplementationSelectionKey {
+    pub const fn requirement(self) -> ImplementationRequirementKey {
         self.requirement
     }
 

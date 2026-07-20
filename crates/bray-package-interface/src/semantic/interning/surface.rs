@@ -3,9 +3,9 @@ use bray_symbols::{
     CallableEffectRequirement, CallableExecutionRequirement, CallableInstanceId,
     CallablePhaseBehavior, CallableSymbolId, CheckedConstraint, ConstantTermId, ConstantValueId,
     DependencyContractTemplateId, GenericOwnerId, GenericSubstitutionId,
-    ImplementationCandidateSetKey, ImplementationCoherenceEvidence,
-    ImplementationCoherenceParticipant, ImplementationInstanceId, ImplementationSubject,
-    ImplementationSymbolId, PredicateSemanticSummary, TargetFactDependency, TraitApplicationId,
+    ImplementationCoherenceEvidence, ImplementationCoherenceParticipant, ImplementationInstanceId,
+    ImplementationRequirementKey, ImplementationSubject, ImplementationSymbolId,
+    PredicateSemanticSummary, TargetFactDependency, TraitApplicationId,
     TrustedCapabilityRequirement, TypeId,
 };
 
@@ -269,7 +269,7 @@ impl InternState {
                     .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)?;
 
                 ImplementationCoherenceEvidence::try_new(
-                    ImplementationCandidateSetKey::new(subject, trait_application),
+                    ImplementationRequirementKey::new(subject, trait_application),
                     implementations,
                 )
                 .map_err(|_| InterfaceSemanticInternError::UnresolvedValueGraph)

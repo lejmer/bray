@@ -4,7 +4,7 @@ use bray_bound_tree::{
 };
 use bray_compiler_known::CompilerKnownOperationRole;
 use bray_symbols::{
-    CallableInstanceData, CallableSignature, ImplementationSelection, ImplementationSelectionKey,
+    CallableInstanceData, CallableSignature, ImplementationRequirementKey, ImplementationSelection,
     ReceiverMode, TypeId,
 };
 
@@ -188,7 +188,7 @@ where
 enum RequiredTraitOperation<'types> {
     Callable {
         role: CompilerKnownOperationRole,
-        requirement: ImplementationSelectionKey,
+        requirement: ImplementationRequirementKey,
         callable: CallableInstanceData,
         receiver: TypeId,
         parameter_types: &'types [ExpressionTypeResult],
@@ -197,7 +197,7 @@ enum RequiredTraitOperation<'types> {
     },
     Conversion {
         role: CompilerKnownOperationRole,
-        requirement: ImplementationSelectionKey,
+        requirement: ImplementationRequirementKey,
         callable: CallableInstanceData,
         source: TypeId,
         target: TypeId,
@@ -217,7 +217,7 @@ impl RequiredTraitOperation<'_> {
         }
     }
 
-    const fn requirement(self) -> ImplementationSelectionKey {
+    const fn requirement(self) -> ImplementationRequirementKey {
         match self {
             Self::Callable { requirement, .. } | Self::Conversion { requirement, .. } => {
                 requirement
@@ -444,7 +444,7 @@ mod tests {
     };
     use bray_compiler_known::CompilerKnownOperationRole;
     use bray_symbols::{
-        CallableSignature, ImplementationSelection, ImplementationSelectionKey, ReceiverMode,
+        CallableSignature, ImplementationRequirementKey, ImplementationSelection, ReceiverMode,
         ReceiverParameterSignature, ReceiverParameterSymbolId, SymbolId,
         TraitCallableMemberSymbolId, TraitSymbolId,
     };
@@ -569,7 +569,7 @@ mod tests {
         implementation: ImplementationSelectionEvidence,
         contract: CompilerKnownOperationEvidence,
         source_expression: bray_bound_tree::BoundExpressionId,
-        requirement: ImplementationSelectionKey,
+        requirement: ImplementationRequirementKey,
         other_witness: bray_symbols::ImplementationInstanceId,
         source: bray_symbols::TypeId,
         source_element: bray_symbols::TypeId,

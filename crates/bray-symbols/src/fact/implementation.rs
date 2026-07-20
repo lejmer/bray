@@ -1,16 +1,17 @@
 mod candidate;
+mod requirement;
 mod selection;
 mod subject;
 
 pub use candidate::{
     ImplementationCandidate, ImplementationCandidateError, ImplementationCandidateSet,
-    ImplementationCandidateSetError, ImplementationCandidateSetKey,
-    ImplementationCoherenceEvidence, ImplementationCoherenceEvidenceError,
-    ImplementationCoherenceParticipant,
+    ImplementationCandidateSetError, ImplementationCoherenceEvidence,
+    ImplementationCoherenceEvidenceError, ImplementationCoherenceParticipant,
 };
+pub use requirement::ImplementationRequirementKey;
 pub use selection::{
     ImplementationAmbiguity, ImplementationAmbiguityError, ImplementationSelection,
-    ImplementationSelectionCandidate, ImplementationSelectionKey,
+    ImplementationSelectionCandidate,
 };
 pub use subject::{
     ImplementationCoherenceKey, ImplementationSubject, ImplementationSubjectTemplate,

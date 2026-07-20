@@ -15,11 +15,11 @@ use super::{
     CallableContractSet, CallableContractTemplate, CallableSignatureTemplate,
     CheckedCallableParameterDefault, CheckedStructFieldDefault, CheckedUnionPayloadDefault,
     ConstantDefinitionState, ConstantInstanceKey, GenericConstraintSet, GenericDeclarationTemplate,
-    ImplementationCandidateSet, ImplementationCandidateSetKey, ImplementationCoherenceKey,
-    ImplementationHeadTemplate, ImplementationSelection, ImplementationSelectionKey,
-    ImplementationSubjectTemplate, OverloadSignatureTemplate, PredicateDefinition,
-    PredicateDefinitionState, PredicateSignatureTemplate, SymbolFactKind, TraitApplicationTemplate,
-    TypeExpressionTemplate, UnevaluatedDefaultTemplate,
+    ImplementationCandidateSet, ImplementationCoherenceKey, ImplementationHeadTemplate,
+    ImplementationRequirementKey, ImplementationSelection, ImplementationSubjectTemplate,
+    OverloadSignatureTemplate, PredicateDefinition, PredicateDefinitionState,
+    PredicateSignatureTemplate, SymbolFactKind, TraitApplicationTemplate, TypeExpressionTemplate,
+    UnevaluatedDefaultTemplate,
 };
 
 mod sealed {
@@ -385,12 +385,12 @@ macro_rules! define_semantic_fact_contract {
 define_semantic_fact_contract! {
     /// Finds uncommitted implementation candidates for an exact subject and trait application.
     ImplementationCandidateSetFact {
-        key: ImplementationCandidateSetKey,
+        key: ImplementationRequirementKey,
         value: ImplementationCandidateSet,
     }
     /// Selects one implementation witness for an exact subject and trait application.
     ImplementationSelectionFact {
-        key: ImplementationSelectionKey,
+        key: ImplementationRequirementKey,
         value: ImplementationSelection,
     }
     /// Evaluates one concrete constant definition instance.
@@ -404,9 +404,9 @@ define_semantic_fact_contract! {
 mod tests {
     use crate::{
         CallableSignatureFact, ConstantDefinitionFact, ConstantSymbolId, FunctionSymbolId,
-        ImplementationCandidateSetFact, ImplementationCandidateSetKey, ImplementationSelectionFact,
-        ImplementationSelectionKey, SemanticFactContract, SymbolFactKind, SymbolFactRequest,
-        SymbolId, TraitConstantMemberDefinitionFact, TraitConstantMemberSymbolId,
+        ImplementationCandidateSetFact, ImplementationRequirementKey, ImplementationSelectionFact,
+        SemanticFactContract, SymbolFactKind, SymbolFactRequest, SymbolId,
+        TraitConstantMemberDefinitionFact, TraitConstantMemberSymbolId,
     };
 
     #[test]
@@ -450,7 +450,7 @@ mod tests {
         fn assert_candidate_contract<C>()
         where
             C: SemanticFactContract<
-                    Key = ImplementationCandidateSetKey,
+                    Key = ImplementationRequirementKey,
                     Value = crate::ImplementationCandidateSet,
                 >,
         {
@@ -459,7 +459,7 @@ mod tests {
         fn assert_selection_contract<C>()
         where
             C: SemanticFactContract<
-                    Key = ImplementationSelectionKey,
+                    Key = ImplementationRequirementKey,
                     Value = crate::ImplementationSelection,
                 >,
         {

@@ -6,7 +6,7 @@ use bray_bound_tree::{
 };
 use bray_symbols::{
     CallableParameterDefaultProviderSymbolId, CallableParameterSymbolId, CallableSignature,
-    ImplementationSelection, ImplementationSelectionKey, SymbolKey,
+    ImplementationRequirementKey, ImplementationSelection, SymbolKey,
 };
 
 /// Receiver authority relevant to method candidate applicability.
@@ -65,14 +65,14 @@ pub enum CallableCandidateState {
 /// One typed implementation-selection fact supplied with a candidate.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ImplementationSelectionEvidence {
-    requirement: ImplementationSelectionKey,
+    requirement: ImplementationRequirementKey,
     selection: ImplementationSelection,
 }
 
 impl ImplementationSelectionEvidence {
     /// Creates evidence for one exact implementation requirement.
     pub const fn new(
-        requirement: ImplementationSelectionKey,
+        requirement: ImplementationRequirementKey,
         selection: ImplementationSelection,
     ) -> Self {
         Self {
@@ -82,7 +82,7 @@ impl ImplementationSelectionEvidence {
     }
 
     /// Returns the exact implementation requirement.
-    pub const fn requirement(&self) -> ImplementationSelectionKey {
+    pub const fn requirement(&self) -> ImplementationRequirementKey {
         self.requirement
     }
 

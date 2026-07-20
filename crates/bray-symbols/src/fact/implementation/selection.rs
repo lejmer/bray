@@ -2,34 +2,7 @@ use std::{collections::BTreeMap, collections::btree_map::Entry, sync::Arc};
 
 use bray_base::shared_slice;
 
-use crate::{ImplementationInstanceId, SymbolKey, TraitApplicationId, TypeId};
-
-/// The semantic inputs that select an implementation witness.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct ImplementationSelectionKey {
-    subject: TypeId,
-    trait_application: TraitApplicationId,
-}
-
-impl ImplementationSelectionKey {
-    /// Creates an implementation-selection key.
-    pub const fn new(subject: TypeId, trait_application: TraitApplicationId) -> Self {
-        Self {
-            subject,
-            trait_application,
-        }
-    }
-
-    /// Returns the exact semantic subject type.
-    pub const fn subject(self) -> TypeId {
-        self.subject
-    }
-
-    /// Returns the exact applied trait requirement.
-    pub const fn trait_application(self) -> TraitApplicationId {
-        self.trait_application
-    }
-}
+use crate::{ImplementationInstanceId, SymbolKey};
 
 /// The deterministic result of selecting an implementation witness.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -147,14 +120,13 @@ mod tests {
 
     use super::{
         ImplementationAmbiguity, ImplementationAmbiguityError, ImplementationSelection,
-        ImplementationSelectionCandidate, ImplementationSelectionKey,
+        ImplementationSelectionCandidate,
     };
 
     #[test]
     fn implementation_selection_contracts_are_send_and_sync() {
         fn assert_send_sync<T: Send + Sync>() {}
 
-        assert_send_sync::<ImplementationSelectionKey>();
         assert_send_sync::<ImplementationSelection>();
         assert_send_sync::<ImplementationAmbiguity>();
         assert_send_sync::<ImplementationSelectionCandidate>();

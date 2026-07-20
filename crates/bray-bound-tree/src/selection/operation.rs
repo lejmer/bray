@@ -3,7 +3,7 @@ use std::sync::Arc;
 use bray_base::{shared_slice, sorted_unique_shared_slice};
 use bray_symbols::{
     AnySymbolId, CallableInstanceData, CallableParameterDefaultProviderSymbolId,
-    CallableParameterSymbolId, ImplementationSelectionKey, StructFieldDefaultProviderSymbolId,
+    CallableParameterSymbolId, ImplementationRequirementKey, StructFieldDefaultProviderSymbolId,
     StructFieldSymbolId, StructSymbolId, TypeId, UnionPayloadDefaultProviderSymbolId,
     UnionPayloadFieldSymbolId, UnionVariantSymbolId,
 };
@@ -82,7 +82,7 @@ pub enum OperatorTarget {
         /// The exact substituted callable member.
         callable: CallableInstanceData,
         /// The exact trait requirement selected for the operands.
-        requirement: ImplementationSelectionKey,
+        requirement: ImplementationRequirementKey,
         /// The exact implementation witness.
         witness: bray_symbols::ImplementationInstanceId,
     },
@@ -113,7 +113,7 @@ pub enum IndexTarget {
         /// The exact substituted indexing member.
         callable: CallableInstanceData,
         /// The exact trait requirement selected for the subject and selectors.
-        requirement: ImplementationSelectionKey,
+        requirement: ImplementationRequirementKey,
         /// The exact implementation witness.
         witness: bray_symbols::ImplementationInstanceId,
     },
@@ -257,7 +257,7 @@ pub enum ConversionTarget {
         /// The exact substituted conversion member.
         callable: CallableInstanceData,
         /// The exact conversion trait requirement.
-        requirement: ImplementationSelectionKey,
+        requirement: ImplementationRequirementKey,
         /// The exact implementation witness.
         witness: bray_symbols::ImplementationInstanceId,
     },
