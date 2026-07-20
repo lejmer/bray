@@ -6,6 +6,7 @@ mod execution;
 mod implementation;
 mod predicate;
 mod signature;
+mod target;
 mod template;
 mod type_expression;
 
@@ -22,17 +23,18 @@ pub use contract::{
     CallableOverloadTemplateFact, CallableParameterDefaultFact,
     CallableParameterDefaultTemplateFact, CallableSignatureFact, ConstantDeclaredTypeFact,
     ConstantDefinitionFact, ConstantInstanceValueFact, GenericConstParameterDeclaredTypeFact,
-    GenericConstraintsFact, GenericDeclarationTemplateFact, ImplementationCoherenceFact,
-    ImplementationHeadTemplateFact, ImplementationOverloadTemplateFact,
-    ImplementationSelectionFact, ImplementationSubjectFact, ImplementedTraitApplicationFact,
-    InherentTypeMemberValueFact, PredicateDefinitionFact, PredicateSignatureTemplateFact,
-    SemanticFactContract, SemanticFactResult, StructFieldDefaultFact,
-    StructFieldDefaultTemplateFact, StructFieldTypeFact, SymbolFactContract, SymbolFactRequest,
-    SymbolFactResult, TraitConstantFulfillmentDeclaredTypeFact,
-    TraitConstantFulfillmentDefinitionFact, TraitConstantMemberDeclaredTypeFact,
-    TraitConstantMemberDefinitionFact, TraitPredicateFulfillmentDefinitionFact,
-    TraitPredicateMemberDefinitionFact, TraitTypeFulfillmentValueFact,
-    UnionPayloadFieldDefaultFact, UnionPayloadFieldDefaultTemplateFact, UnionPayloadFieldTypeFact,
+    GenericConstraintsFact, GenericDeclarationTemplateFact, ImplementationCandidateSetFact,
+    ImplementationCoherenceFact, ImplementationHeadTemplateFact,
+    ImplementationOverloadTemplateFact, ImplementationSelectionFact, ImplementationSubjectFact,
+    ImplementedTraitApplicationFact, InherentTypeMemberValueFact, PredicateDefinitionFact,
+    PredicateSignatureTemplateFact, SemanticFactContract, SemanticFactResult,
+    StructFieldDefaultFact, StructFieldDefaultTemplateFact, StructFieldTypeFact,
+    SymbolFactContract, SymbolFactRequest, SymbolFactResult,
+    TraitConstantFulfillmentDeclaredTypeFact, TraitConstantFulfillmentDefinitionFact,
+    TraitConstantMemberDeclaredTypeFact, TraitConstantMemberDefinitionFact,
+    TraitPredicateFulfillmentDefinitionFact, TraitPredicateMemberDefinitionFact,
+    TraitTypeFulfillmentValueFact, UnionPayloadFieldDefaultFact,
+    UnionPayloadFieldDefaultTemplateFact, UnionPayloadFieldTypeFact,
 };
 pub use default::{
     CallableParameterDefaultSurface, CallableParameterDefaultValue,
@@ -50,8 +52,11 @@ pub use execution::{
 };
 pub use implementation::{
     ImplementationAmbiguity, ImplementationAmbiguityError, ImplementationCandidate,
-    ImplementationCoherenceKey, ImplementationSelection, ImplementationSelectionKey,
-    ImplementationSubject, ImplementationSubjectTemplate,
+    ImplementationCandidateError, ImplementationCandidateSet, ImplementationCandidateSetError,
+    ImplementationCoherenceEvidence, ImplementationCoherenceEvidenceError,
+    ImplementationCoherenceKey, ImplementationCoherenceParticipant, ImplementationRequirementKey,
+    ImplementationSelection, ImplementationSelectionCandidate, ImplementationSubject,
+    ImplementationSubjectTemplate,
 };
 pub use predicate::{
     CallableContractClause, CallableContractClauseKind, CallableContractSet, CheckedConstraint,
@@ -62,6 +67,7 @@ pub use signature::{
     CallableParameterSignature, CallableSignature, CallableSignatureTemplate,
     CallableSignatureTemplateError, ReceiverMode, ReceiverParameterSignature,
 };
+pub use target::TargetFactDependency;
 pub use template::{
     CallableContractExpressionTemplate, CallableContractTemplate, DeclarationCapabilityTemplate,
     DeclarationExpressionTemplate, DeclarationPredicateClauseKind, GenericConstraintTemplate,

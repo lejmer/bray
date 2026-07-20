@@ -8,7 +8,7 @@ use crate::{
     AnySymbolId, AvailableCompilerKnownSymbols, CompilerKnownSymbolProvider, GenericArgument,
     GenericOwnerId, GenericParameterSymbolId, GenericSubstitutionData,
     GenericTypeParameterSymbolId, ImplementationInstanceData, ImplementationInstanceId,
-    ImplementationSelectionKey, ModulePathKey, NamedTraitImplementationSymbolId, PackageIdentity,
+    ImplementationRequirementKey, ModulePathKey, NamedTraitImplementationSymbolId, PackageIdentity,
     SemanticValueStore, SymbolId, SymbolKey, SymbolKind, SymbolRootKey, TraitApplicationData,
     TraitSymbolId, TypeId,
 };
@@ -54,7 +54,7 @@ pub fn implementation_requirement(
     trait_definition: TraitSymbolId,
     subject: TypeId,
     argument: TypeId,
-) -> ImplementationSelectionKey {
+) -> ImplementationRequirementKey {
     let parameter = GenericTypeParameterSymbolId::from_symbol_id(SymbolId::new(50));
     let owner = generic_owner(trait_definition.into());
 
@@ -79,7 +79,7 @@ pub fn implementation_requirement(
         Err(error) => panic!("trait application must be interned: {error:?}"),
     };
 
-    ImplementationSelectionKey::new(subject, application)
+    ImplementationRequirementKey::new(subject, application)
 }
 
 /// Creates and interns one implementation witness for tests.

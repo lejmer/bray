@@ -9,10 +9,10 @@ mod template;
 mod ty;
 
 pub use model::{
-    ImportedAbiDependency, ImportedCallableContractFact, ImportedCoherenceFact,
-    ImportedConstraintFact, ImportedDeclarationTemplateFact, ImportedImplementationFact,
-    ImportedSemanticFact, ImportedSemanticFacts, ImportedSourceProvenance,
-    ImportedTargetFactDependency, InterfaceSemanticInternError, InterfaceSymbolResolver,
+    ImportedAbiDependency, ImportedCallableContractFact, ImportedConstraintFact,
+    ImportedDeclarationTemplateFact, ImportedImplementationFact, ImportedSemanticFact,
+    ImportedSemanticFacts, ImportedSourceProvenance, InterfaceSemanticInternError,
+    InterfaceSymbolResolver,
 };
 
 use state::InternState;

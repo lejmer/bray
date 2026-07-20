@@ -40,9 +40,8 @@ pub use limits::{InterfaceLimit, InterfaceValidationLimits, InterfaceValidationP
 pub use section::{InterfaceSectionTag, ValidatedInterfaceSection};
 pub use semantic::{
     EncodedSemanticSection, ImportedAbiDependency, ImportedCallableContractFact,
-    ImportedCoherenceFact, ImportedConstraintFact, ImportedDeclarationTemplateFact,
-    ImportedImplementationFact, ImportedSemanticFact, ImportedSemanticFacts,
-    ImportedSourceProvenance, ImportedTargetFactDependency, InterfaceAbiDependency,
+    ImportedConstraintFact, ImportedDeclarationTemplateFact, ImportedImplementationFact,
+    ImportedSemanticFact, ImportedSemanticFacts, ImportedSourceProvenance, InterfaceAbiDependency,
     InterfaceCallableContract, InterfaceCallableContractClause, InterfaceCallableInstance,
     InterfaceCallableInstanceId, InterfaceCallableParameter, InterfaceCallablePhaseBehavior,
     InterfaceCheckedTemplate, InterfaceCheckedTemplateBehavior, InterfaceCheckedTemplateExecution,

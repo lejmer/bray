@@ -6,7 +6,7 @@ use bray_bound_tree::{
     SelectedOperation, SelectionKind,
 };
 use bray_compiler_known::CompilerKnownOperationRole;
-use bray_symbols::{CallableInstanceData, CallableSignature, ImplementationSelectionKey};
+use bray_symbols::{CallableInstanceData, CallableSignature, ImplementationRequirementKey};
 use bray_symbols::{CallablePosition, SymbolKey, SymbolName, TypeId};
 
 use super::{ImplementationSelectionEvidence, SelectionCandidateKey};
@@ -39,7 +39,7 @@ pub struct ConstructionInputSurface {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CompilerKnownOperationEvidence {
     role: CompilerKnownOperationRole,
-    requirement: ImplementationSelectionKey,
+    requirement: ImplementationRequirementKey,
     callable: CallableInstanceData,
     signature: CallableSignature,
 }
@@ -48,7 +48,7 @@ impl CompilerKnownOperationEvidence {
     /// Creates evidence tying one requirement to an exact compiler-known callable contract.
     pub const fn new(
         role: CompilerKnownOperationRole,
-        requirement: ImplementationSelectionKey,
+        requirement: ImplementationRequirementKey,
         callable: CallableInstanceData,
         signature: CallableSignature,
     ) -> Self {
@@ -66,7 +66,7 @@ impl CompilerKnownOperationEvidence {
     }
 
     /// Returns the implementation requirement described by this contract.
-    pub const fn requirement(&self) -> ImplementationSelectionKey {
+    pub const fn requirement(&self) -> ImplementationRequirementKey {
         self.requirement
     }
 
