@@ -879,7 +879,9 @@ mod tests {
                 .state
                 .fact_runtime
                 .dependencies(&CompilationFactKey::DeclarationChunk(SourceId::new(0))),
-            Ok(vec![CompilationFactKey::SourceUnitSyntax(SourceId::new(0))].into_boxed_slice())
+            Ok(Some(
+                vec![CompilationFactKey::SourceUnitSyntax(SourceId::new(0))].into_boxed_slice()
+            ))
         );
 
         let second = match compilation.declaration_chunk(SourceId::new(0)) {
@@ -914,11 +916,13 @@ mod tests {
                 .state
                 .fact_runtime
                 .dependencies(&CompilationFactKey::DeclarationTable),
-            Ok(vec![
-                CompilationFactKey::DeclarationChunk(SourceId::new(0)),
-                CompilationFactKey::DeclarationChunk(SourceId::new(1)),
-            ]
-            .into_boxed_slice())
+            Ok(Some(
+                vec![
+                    CompilationFactKey::DeclarationChunk(SourceId::new(0)),
+                    CompilationFactKey::DeclarationChunk(SourceId::new(1)),
+                ]
+                .into_boxed_slice()
+            ))
         );
 
         assert!(std::ptr::eq(first.table(), compilation.declaration_table()));

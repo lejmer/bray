@@ -5,7 +5,7 @@ use std::time::Duration;
 #[cfg(test)]
 use std::{fmt, sync::Arc};
 
-use super::{CancellationToken, CompilationFactKey, FactQueryError, FactRuntime};
+use super::{CancellationToken, CompilationFactKey, EvaluationCommit, FactQueryError, FactRuntime};
 
 const CANCELLATION_POLL_INTERVAL: Duration = Duration::from_millis(10);
 
@@ -123,15 +123,16 @@ impl<T> FactCell<T> {
                         .take()
                         .ok_or(FactQueryError::InfrastructureFailure)?;
 
-                    let value = compute()?;
+                    let value = evaluation.run(compute)?;
 
                     #[cfg(test)]
                     self.observe(FactCellTestEvent::Computed)?;
 
                     cancellation.check()?;
 
-                    evaluation.complete()?;
-                    self.publish(value, thread, key)?;
+                    let commit = evaluation.prepare()?;
+
+                    self.publish(value, thread, key, commit)?;
 
                     publication.disarm();
 
@@ -145,26 +146,47 @@ impl<T> FactCell<T> {
                         return Err(FactQueryError::InfrastructureFailure);
                     }
 
+                    let owner = *owner;
                     let thread = thread::current().id();
 
-                    if *owner == thread {
+                    if owner == thread {
                         return Err(FactQueryError::Cycle(
                             runtime.same_thread_cycle(key.clone())?,
                         ));
                     }
 
-                    let waiting = runtime.wait_for(key.clone(), *owner)?;
+                    drop(state);
+
+                    let waiting = runtime.wait_for(key.clone(), owner)?;
 
                     #[cfg(test)]
                     self.observe(FactCellTestEvent::Waiting)?;
 
-                    let waited = self
-                        .changed
-                        .wait_timeout(state, CANCELLATION_POLL_INTERVAL)
+                    let state = self
+                        .state
+                        .lock()
                         .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
+                    let same_evaluation = matches!(
+                        &*state,
+                        FactCellState::Computing {
+                            owner: current_owner,
+                            key: current_key,
+                        } if *current_owner == owner && current_key == &key
+                    );
+
+                    if same_evaluation {
+                        let waited = self
+                            .changed
+                            .wait_timeout(state, CANCELLATION_POLL_INTERVAL)
+                            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+                        drop(waited);
+                    } else {
+                        drop(state);
+                    }
+
                     drop(waiting);
-                    drop(waited);
                 }
             }
         }
@@ -175,11 +197,8 @@ impl<T> FactCell<T> {
         value: T,
         thread: ThreadId,
         key: CompilationFactKey,
+        commit: EvaluationCommit<'_>,
     ) -> Result<(), FactQueryError> {
-        self.value
-            .set(value)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
-
         let mut state = self
             .state
             .lock()
@@ -194,6 +213,12 @@ impl<T> FactCell<T> {
         ) {
             return Err(FactQueryError::InfrastructureFailure);
         }
+
+        self.value
+            .set(value)
+            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+        commit.commit();
 
         *state = FactCellState::Ready(key);
 
@@ -312,7 +337,7 @@ mod tests {
         Diagnostic, DiagnosticBag, DiagnosticId, DiagnosticKind, DiagnosticResult, SeverityKind,
     };
 
-    use super::FactCell;
+    use super::{FactCell, FactCellState, FactCellTestEvent, FactCellTestObserver};
     use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError, FactRuntime};
 
     #[test]
@@ -485,8 +510,75 @@ mod tests {
         assert_eq!(result, Ok(&5));
         assert_eq!(
             runtime.dependencies(&parent_key),
-            Ok(vec![declaration_key, syntax_key].into_boxed_slice())
+            Ok(Some(vec![declaration_key, syntax_key].into_boxed_slice()))
         );
+    }
+
+    #[test]
+    fn propagated_task_context_records_worker_dependencies() {
+        let runtime = FactRuntime::default();
+        let cancellation = CancellationToken::new();
+
+        let parent = FactCell::new();
+        let child = FactCell::new();
+
+        let parent_key = CompilationFactKey::CheckDiagnostics;
+        let child_key = CompilationFactKey::DeclarationTable;
+
+        let result = parent.get_or_compute(&runtime, parent_key.clone(), &cancellation, || {
+            let context = runtime.current_task_context()?;
+
+            let child_value = std::thread::scope(|scope| {
+                join(scope.spawn(|| {
+                    context.run(|| {
+                        child
+                            .get_or_compute(&runtime, child_key.clone(), &cancellation, || {
+                                Ok(2_u32)
+                            })
+                            .copied()
+                    })
+                }))
+            })?;
+
+            Ok(child_value + 1)
+        });
+
+        assert_eq!(result, Ok(&3));
+        assert_eq!(
+            runtime.dependencies(&parent_key),
+            Ok(Some(vec![child_key].into_boxed_slice()))
+        );
+    }
+
+    #[test]
+    fn propagated_task_context_reports_worker_cycles_without_waiting() {
+        let runtime = FactRuntime::default();
+        let cancellation = CancellationToken::new();
+
+        let parent = FactCell::new();
+        let parent_key = CompilationFactKey::CheckDiagnostics;
+
+        let result = parent.get_or_compute(&runtime, parent_key.clone(), &cancellation, || {
+            let context = runtime.current_task_context()?;
+
+            std::thread::scope(|scope| {
+                join(scope.spawn(|| {
+                    context.run(|| {
+                        parent
+                            .get_or_compute(&runtime, parent_key.clone(), &cancellation, || {
+                                Ok(2_u32)
+                            })
+                            .copied()
+                    })
+                }))
+            })
+        });
+
+        let Err(FactQueryError::Cycle(cycle)) = result else {
+            panic!("propagated task cycle should be reported");
+        };
+
+        assert_eq!(cycle.facts(), &[parent_key.clone(), parent_key]);
     }
 
     #[test]
@@ -525,8 +617,49 @@ mod tests {
         assert_eq!(retried, Ok(&3));
         assert_eq!(
             runtime.dependencies(&parent_key),
-            Ok(vec![committed_key].into_boxed_slice())
+            Ok(Some(vec![committed_key].into_boxed_slice()))
         );
+    }
+
+    #[test]
+    fn failed_cache_publication_discards_dependencies() {
+        let runtime = FactRuntime::default();
+        let cancellation = CancellationToken::new();
+
+        let parent = Arc::new(FactCell::new());
+        let child = FactCell::new();
+
+        let parent_key = CompilationFactKey::CheckDiagnostics;
+        let child_key = CompilationFactKey::DeclarationTable;
+
+        let weak_parent = Arc::downgrade(&parent);
+        let observer = FactCellTestObserver::new(move |event| {
+            if event != FactCellTestEvent::Computed {
+                return;
+            }
+
+            let Some(parent) = weak_parent.upgrade() else {
+                return;
+            };
+
+            let mut state = match parent.state.lock() {
+                Ok(state) => state,
+                Err(_) => panic!("test fact state should remain available"),
+            };
+
+            *state = FactCellState::Vacant;
+        });
+
+        assert_eq!(parent.set_test_observer(observer), Ok(()));
+
+        let result = parent.get_or_compute(&runtime, parent_key.clone(), &cancellation, || {
+            child.get_or_compute(&runtime, child_key, &cancellation, || Ok(1_u32))?;
+
+            Ok(2_u32)
+        });
+
+        assert_eq!(result, Err(FactQueryError::InfrastructureFailure));
+        assert_eq!(runtime.dependencies(&parent_key), Ok(None));
     }
 
     #[test]

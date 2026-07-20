@@ -1,12 +1,12 @@
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, hash_map::Entry};
-use std::sync::{Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread::{self, ThreadId};
 
 use super::{CompilationFactKey, FactCycle, FactQueryError};
 
 thread_local! {
-    static LOCAL_EVALUATIONS: RefCell<Vec<LocalEvaluation>> = const { RefCell::new(Vec::new()) };
+    static LOCAL_EVALUATIONS: RefCell<Vec<FactTaskContext>> = const { RefCell::new(Vec::new()) };
 }
 
 #[derive(Debug, Default)]
@@ -22,18 +22,94 @@ struct RuntimeState {
     dependencies: BTreeMap<CompilationFactKey, BTreeSet<CompilationFactKey>>,
 }
 
+#[derive(Clone, Debug)]
+pub(crate) struct FactTaskContext {
+    data: Arc<FactTaskData>,
+}
+
 #[derive(Debug)]
-struct LocalEvaluation {
+struct FactTaskData {
     runtime: RuntimeIdentity,
+    key: CompilationFactKey,
+    state: Mutex<FactTaskState>,
+}
+
+#[derive(Debug)]
+struct FactTaskState {
+    accepting_dependencies: bool,
     dependencies: BTreeSet<CompilationFactKey>,
 }
 
-impl LocalEvaluation {
-    fn new(runtime: RuntimeIdentity) -> Self {
+impl FactTaskContext {
+    fn new(runtime: RuntimeIdentity, key: CompilationFactKey) -> Self {
         Self {
-            runtime,
-            dependencies: BTreeSet::new(),
+            data: Arc::new(FactTaskData {
+                runtime,
+                key,
+                state: Mutex::new(FactTaskState {
+                    accepting_dependencies: true,
+                    dependencies: BTreeSet::new(),
+                }),
+            }),
         }
+    }
+
+    fn record(&self, key: &CompilationFactKey) -> Result<(), FactQueryError> {
+        let mut state = self
+            .data
+            .state
+            .lock()
+            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+        if !state.accepting_dependencies {
+            return Err(FactQueryError::InfrastructureFailure);
+        }
+
+        // The dependency graph must own its keys after the accessor returns.
+        state.dependencies.insert(key.clone());
+
+        Ok(())
+    }
+
+    fn finish(&self) -> Result<BTreeSet<CompilationFactKey>, FactQueryError> {
+        let mut state = self
+            .data
+            .state
+            .lock()
+            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+        if !state.accepting_dependencies {
+            return Err(FactQueryError::InfrastructureFailure);
+        }
+
+        state.accepting_dependencies = false;
+
+        Ok(std::mem::take(&mut state.dependencies))
+    }
+
+    fn discard(&self) {
+        let Ok(mut state) = self.data.state.lock() else {
+            return;
+        };
+
+        state.accepting_dependencies = false;
+        state.dependencies.clear();
+    }
+
+    pub(crate) fn run<T>(
+        &self,
+        operation: impl FnOnce() -> Result<T, FactQueryError>,
+    ) -> Result<T, FactQueryError> {
+        local_evaluations(|active| {
+            // Worker-local stacks share the task state while retaining independent stack storage.
+            active.push(self.clone());
+
+            Ok(())
+        })?;
+
+        let _guard = LocalTaskGuard { context: self };
+
+        operation()
     }
 }
 
@@ -42,19 +118,47 @@ struct RuntimeIdentity(usize);
 
 impl FactRuntime {
     pub(crate) fn request(&self, key: &CompilationFactKey) -> Result<(), FactQueryError> {
-        self.local_evaluations(|active| {
-            let Some(evaluation) = active.last_mut() else {
+        local_evaluations(|active| {
+            let Some(context) = active.last() else {
                 return Ok(());
             };
 
-            if evaluation.runtime != self.identity() {
+            if context.data.runtime != self.identity() {
                 return Ok(());
             }
 
-            // The dependency graph must own its keys after the accessor returns.
-            evaluation.dependencies.insert(key.clone());
+            if let Some(start) = active.iter().position(|context| {
+                context.data.runtime == self.identity() && &context.data.key == key
+            }) {
+                // Cycle reporting owns its path after the task-local stack is released.
+                let mut facts = active[start..]
+                    .iter()
+                    .map(|context| context.data.key.clone())
+                    .collect::<Vec<_>>();
 
-            Ok(())
+                facts.push(key.clone());
+
+                return Err(FactQueryError::Cycle(FactCycle::new(facts)));
+            }
+
+            context.record(key)
+        })
+    }
+
+    // TODO(compilation): Remove this allow when BRA-228 propagates contexts in the scheduler.
+    #[allow(dead_code)]
+    pub(crate) fn current_task_context(&self) -> Result<FactTaskContext, FactQueryError> {
+        local_evaluations(|active| {
+            let Some(context) = active.last() else {
+                return Err(FactQueryError::InfrastructureFailure);
+            };
+
+            if context.data.runtime != self.identity() {
+                return Err(FactQueryError::InfrastructureFailure);
+            }
+
+            // Scoped workers share dependency state without sharing their local context stacks.
+            Ok(context.clone())
         })
     }
 
@@ -75,24 +179,13 @@ impl FactRuntime {
 
         state.active.entry(thread).or_default().push(key.clone());
 
-        if let Err(error) = self.push_local_evaluation() {
-            state.owners.remove(&key);
-
-            if let Some(active) = state.active.get_mut(&thread) {
-                active.pop();
-
-                if active.is_empty() {
-                    state.active.remove(&thread);
-                }
-            }
-
-            return Err(error);
-        }
+        let context = FactTaskContext::new(self.identity(), key.clone());
 
         Ok(EvaluationGuard {
             runtime: self,
             thread,
             key,
+            context,
             active: true,
         })
     }
@@ -166,58 +259,12 @@ impl FactRuntime {
         RuntimeIdentity(std::ptr::from_ref(self).addr())
     }
 
-    fn local_evaluations<T>(
-        &self,
-        operation: impl FnOnce(&mut Vec<LocalEvaluation>) -> Result<T, FactQueryError>,
-    ) -> Result<T, FactQueryError> {
-        LOCAL_EVALUATIONS
-            .try_with(|active| {
-                let mut active = active
-                    .try_borrow_mut()
-                    .map_err(|_| FactQueryError::InfrastructureFailure)?;
-
-                operation(&mut active)
-            })
-            .map_err(|_| FactQueryError::InfrastructureFailure)?
-    }
-
-    fn push_local_evaluation(&self) -> Result<(), FactQueryError> {
-        self.local_evaluations(|active| {
-            active.push(LocalEvaluation::new(self.identity()));
-
-            Ok(())
-        })
-    }
-
-    fn take_local_dependencies(&self) -> Result<BTreeSet<CompilationFactKey>, FactQueryError> {
-        self.local_evaluations(|active| {
-            if active.last().map(|evaluation| evaluation.runtime) != Some(self.identity()) {
-                return Err(FactQueryError::InfrastructureFailure);
-            }
-
-            let Some(evaluation) = active.pop() else {
-                return Err(FactQueryError::InfrastructureFailure);
-            };
-
-            Ok(evaluation.dependencies)
-        })
-    }
-
-    fn discard_local_evaluation(&self) {
-        let _ = self.local_evaluations(|active| {
-            if active.last().map(|evaluation| evaluation.runtime) == Some(self.identity()) {
-                active.pop();
-            }
-
-            Ok(())
-        });
-    }
-
-    fn complete_evaluation(
-        &self,
+    fn prepare_evaluation<'runtime>(
+        &'runtime self,
         thread: ThreadId,
         key: &CompilationFactKey,
-    ) -> Result<(), FactQueryError> {
+        context: &FactTaskContext,
+    ) -> Result<EvaluationCommit<'runtime>, FactQueryError> {
         let mut state = self.state()?;
 
         if state.owners.get(key) != Some(&thread) {
@@ -233,49 +280,23 @@ impl FactRuntime {
             return Err(FactQueryError::InfrastructureFailure);
         }
 
-        let dependencies = self.take_local_dependencies()?;
+        let dependencies = context.finish()?;
 
-        active.pop();
-
-        let remove_stack = active.is_empty();
-
-        state.owners.remove(key);
-
-        // The committed graph remains available after this evaluation record is removed.
-        state.dependencies.insert(key.clone(), dependencies);
-
-        if remove_stack {
-            state.active.remove(&thread);
-        }
-
-        Ok(())
+        // The commit owns the key while coordinating runtime and cache publication locks.
+        Ok(EvaluationCommit {
+            state,
+            thread,
+            key: Some(key.clone()),
+            dependencies,
+        })
     }
 
-    fn finish_evaluation(&self, thread: ThreadId, key: &CompilationFactKey) {
-        self.discard_local_evaluation();
-
+    fn abandon_evaluation(&self, thread: ThreadId, key: &CompilationFactKey) {
         let Ok(mut state) = self.state.lock() else {
             return;
         };
 
-        if state.owners.get(key) == Some(&thread) {
-            state.owners.remove(key);
-        }
-
-        let remove_stack = match state.active.get_mut(&thread) {
-            Some(active) => {
-                if active.last() == Some(key) {
-                    active.pop();
-                }
-
-                active.is_empty()
-            }
-            None => false,
-        };
-
-        if remove_stack {
-            state.active.remove(&thread);
-        }
+        remove_evaluation(&mut state, thread, key);
     }
 
     fn finish_waiting(&self, thread: ThreadId, key: &CompilationFactKey) {
@@ -292,16 +313,13 @@ impl FactRuntime {
     pub(crate) fn dependencies(
         &self,
         key: &CompilationFactKey,
-    ) -> Result<Box<[CompilationFactKey]>, FactQueryError> {
+    ) -> Result<Option<Box<[CompilationFactKey]>>, FactQueryError> {
         let state = self.state()?;
 
         Ok(state
             .dependencies
             .get(key)
-            .into_iter()
-            .flatten()
-            .cloned()
-            .collect())
+            .map(|dependencies| dependencies.iter().cloned().collect::<Box<[_]>>()))
     }
 }
 
@@ -344,27 +362,124 @@ fn cross_thread_cycle(
     Ok(Some(FactCycle::new(facts)))
 }
 
+fn local_evaluations<T>(
+    operation: impl FnOnce(&mut Vec<FactTaskContext>) -> Result<T, FactQueryError>,
+) -> Result<T, FactQueryError> {
+    LOCAL_EVALUATIONS
+        .try_with(|active| {
+            let mut active = active
+                .try_borrow_mut()
+                .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+            operation(&mut active)
+        })
+        .map_err(|_| FactQueryError::InfrastructureFailure)?
+}
+
+fn remove_evaluation(state: &mut RuntimeState, thread: ThreadId, key: &CompilationFactKey) {
+    if state.owners.get(key) == Some(&thread) {
+        state.owners.remove(key);
+    }
+
+    let remove_stack = match state.active.get_mut(&thread) {
+        Some(active) => {
+            if active.last() == Some(key) {
+                active.pop();
+            }
+
+            active.is_empty()
+        }
+        None => false,
+    };
+
+    if remove_stack {
+        state.active.remove(&thread);
+    }
+}
+
+struct LocalTaskGuard<'a> {
+    context: &'a FactTaskContext,
+}
+
+impl Drop for LocalTaskGuard<'_> {
+    fn drop(&mut self) {
+        let _ = local_evaluations(|active| {
+            if active
+                .last()
+                .is_some_and(|context| Arc::ptr_eq(&context.data, &self.context.data))
+            {
+                active.pop();
+            }
+
+            Ok(())
+        });
+    }
+}
+
 pub(crate) struct EvaluationGuard<'a> {
     runtime: &'a FactRuntime,
     thread: ThreadId,
     key: CompilationFactKey,
+    context: FactTaskContext,
     active: bool,
 }
 
-impl EvaluationGuard<'_> {
-    pub(crate) fn complete(mut self) -> Result<(), FactQueryError> {
-        self.runtime.complete_evaluation(self.thread, &self.key)?;
+impl<'a> EvaluationGuard<'a> {
+    pub(crate) fn run<T>(
+        &self,
+        operation: impl FnOnce() -> Result<T, FactQueryError>,
+    ) -> Result<T, FactQueryError> {
+        self.context.run(operation)
+    }
+
+    pub(crate) fn prepare(mut self) -> Result<EvaluationCommit<'a>, FactQueryError> {
+        let commit = self
+            .runtime
+            .prepare_evaluation(self.thread, &self.key, &self.context)?;
+
         self.active = false;
 
-        Ok(())
+        Ok(commit)
     }
 }
 
 impl Drop for EvaluationGuard<'_> {
     fn drop(&mut self) {
         if self.active {
-            self.runtime.finish_evaluation(self.thread, &self.key);
+            self.context.discard();
+            self.runtime.abandon_evaluation(self.thread, &self.key);
         }
+    }
+}
+
+pub(crate) struct EvaluationCommit<'a> {
+    state: MutexGuard<'a, RuntimeState>,
+    thread: ThreadId,
+    key: Option<CompilationFactKey>,
+    dependencies: BTreeSet<CompilationFactKey>,
+}
+
+impl EvaluationCommit<'_> {
+    pub(crate) fn commit(mut self) {
+        let Some(key) = self.key.take() else {
+            return;
+        };
+
+        remove_evaluation(&mut self.state, self.thread, &key);
+
+        self.state
+            .dependencies
+            .insert(key, std::mem::take(&mut self.dependencies));
+    }
+}
+
+impl Drop for EvaluationCommit<'_> {
+    fn drop(&mut self) {
+        let Some(key) = self.key.take() else {
+            return;
+        };
+
+        remove_evaluation(&mut self.state, self.thread, &key);
     }
 }
 
