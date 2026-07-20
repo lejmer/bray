@@ -359,15 +359,15 @@ The selection domain owns:
 - generic constraint satisfaction,
 - ambiguity, wrong-category, inaccessible, and unavailable-candidate outcomes.
 
-Candidate enumeration comes from typed symbol lookup and implementation indexes. Exact implementation lookup publishes an immutable
-candidate-set fact keyed by the checked subject type and trait application. Candidate records are origin-neutral and retain stable
-implementation identity, inferred substitution, generic constraint templates, target-fact dependencies, and coherence evidence
-without asserting applicability. The checker evaluates candidates in canonical order. It must not rank candidates when the language
-says that exactly one applicable arm is required.
+Candidate enumeration must come from typed symbol lookup and implementation indexes. Exact implementation lookup must expose an
+immutable candidate-set fact keyed by the checked subject type and trait application. Candidate records must be origin-neutral and
+must retain stable implementation identity, inferred substitution, generic constraint templates, target-fact dependencies, and
+coherence evidence without asserting applicability. The checker must evaluate candidates in canonical order. It must not rank
+candidates when the language says that exactly one applicable arm is required.
 
 The checker must evaluate the retained generic constraints, target availability, and coherence requirements before requesting an
-`ImplementationSelectionFact`. Candidate lookup cannot publish a selected implementation witness. A selection fact is the checked
-commitment reached after all applicability predicates that can affect candidate participation are stable.
+`ImplementationSelectionFact`. Candidate lookup must not publish a selected implementation witness. A selection fact must represent
+the checked commitment reached after all applicability predicates that can affect candidate participation are stable.
 
 The binder must supply source-associated callable candidate records with stable semantic keys, target availability, effective
 accessibility, static-constraint state, and the declared operand or parameter surface. Trait-backed operator, index, and conversion

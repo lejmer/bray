@@ -849,15 +849,15 @@ The implementation-coherence fact publishes a typed key containing the checked s
 application. It must force those prerequisite facts and must not report success after merely requesting them. Candidate aggregation
 and conflict diagnostics consume this key through checker-owned coherence queries.
 
-An implementation candidate-set fact is keyed by one exact checked subject type and trait application. Its immutable candidates are
-origin-neutral across source, imported, and compiler-known declarations and are ordered by stable semantic implementation key. Each
-candidate retains its implementation identity, inferred generic substitution, declaration-ordered generic constraint templates,
-canonical target-fact dependencies, and coherence evidence.
+An implementation candidate-set fact must be keyed by one exact checked subject type and trait application. Its immutable candidates
+must be origin-neutral across source, imported, and compiler-known declarations and must be ordered by stable semantic implementation
+key. Each candidate must retain its implementation identity, inferred generic substitution, declaration-ordered generic constraint
+templates, canonical target-fact dependencies, and coherence evidence.
 
-A candidate set records declarations that must be checked for applicability. It does not prove generic constraints, target
-availability, or coherence, and it does not manufacture a selected implementation instance. `ImplementationSelectionFact` is a
-separate checked commitment requested only after the checker has evaluated the retained evidence and reached the required semantic
-fixed point.
+A candidate set must record declarations that require applicability checking. It must not prove generic constraints, target
+availability, or coherence, and it must not manufacture a selected implementation instance. `ImplementationSelectionFact` must
+represent a separate checked commitment and may only be requested after the checker has evaluated the retained evidence and reached
+the required semantic fixed point.
 
 An inherent implementation has no implemented trait application.
 
