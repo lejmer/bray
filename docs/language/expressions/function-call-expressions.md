@@ -19,6 +19,13 @@ add(1, 2)
 
 A function call expression has a callee and an argument list.
 
+An explicit generic argument list appears after the callee and before the call argument list.
+
+```bray
+identity<i32>(10)
+element_count<u8, 4>(&bytes)
+```
+
 The callee must resolve to a callable declaration or callable value.
 
 The argument list supplies argument expressions to callable parameters by name or by permitted position.

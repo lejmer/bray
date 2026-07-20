@@ -1089,6 +1089,7 @@ mod tests {
                 origin,
                 callee,
                 [],
+                [],
                 BoundResolvedCall::new(BoundCallableTarget::Declaration(callable), [], result),
             )),
         )

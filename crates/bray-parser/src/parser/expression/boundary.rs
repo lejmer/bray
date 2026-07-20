@@ -11,6 +11,18 @@ use super::grammar::{
 use super::operator::at_infix_operator;
 
 impl Parser {
+    pub(in crate::parser::expression) fn should_parse_explicit_generic_call(&mut self) -> bool {
+        if !self.at(SyntaxKind::LessToken) {
+            return false;
+        }
+
+        self.scan_ahead(|scan| {
+            scan.parse_generic_argument_list();
+
+            scan.at(SyntaxKind::OpenParenToken)
+        })
+    }
+
     pub(in crate::parser::expression) fn should_parse_slice_index_operation(&mut self) -> bool {
         self.scan_ahead(Parser::scan_bracket_has_top_level_dot_dot)
     }

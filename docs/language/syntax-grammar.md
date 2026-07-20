@@ -356,7 +356,7 @@ postfix-operation =
     | trait-qualified-member-operation ;
 
 call-operation =
-    argument-list ;
+    [ generic-argument-list ] argument-list ;
 
 slice-index-operation =
     "[" slice-selector "]" ;

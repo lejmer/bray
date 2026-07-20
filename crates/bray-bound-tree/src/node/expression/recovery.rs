@@ -6,7 +6,7 @@ use bray_symbols::TypeId;
 
 use crate::{BoundExpressionId, BoundNodeOrigin};
 
-use super::{BoundArgument, BoundReferenceTarget};
+use super::{BoundArgument, BoundGenericArgument, BoundReferenceTarget};
 
 /// The exact lookup failure retained by an unresolved reference.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -74,6 +74,7 @@ impl BoundUnresolvedReferenceExpression {
 pub struct BoundErrorCallExpression {
     origin: BoundNodeOrigin,
     callee: BoundExpressionId,
+    generic_arguments: Arc<[BoundGenericArgument]>,
     arguments: Arc<[BoundArgument]>,
     operands: Arc<[BoundExpressionId]>,
     ty: TypeId,
@@ -84,9 +85,11 @@ impl BoundErrorCallExpression {
     pub fn new(
         origin: BoundNodeOrigin,
         callee: BoundExpressionId,
+        generic_arguments: impl IntoIterator<Item = BoundGenericArgument>,
         arguments: impl IntoIterator<Item = BoundArgument>,
         ty: TypeId,
     ) -> Self {
+        let generic_arguments = shared_slice(generic_arguments);
         let arguments = shared_slice(arguments);
 
         let operands = shared_slice(
@@ -96,6 +99,7 @@ impl BoundErrorCallExpression {
         Self {
             origin,
             callee,
+            generic_arguments,
             arguments,
             operands,
             ty,
@@ -110,6 +114,11 @@ impl BoundErrorCallExpression {
     /// Returns the recovered callee expression.
     pub const fn callee(&self) -> BoundExpressionId {
         self.callee
+    }
+
+    /// Returns source-ordered generic arguments retained through recovery.
+    pub fn generic_arguments(&self) -> &[BoundGenericArgument] {
+        &self.generic_arguments
     }
 
     /// Returns source-ordered recovered arguments.

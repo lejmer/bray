@@ -6,11 +6,14 @@ A **method call expression** calls an instance-level function through a receiver
 buffer.length()
 buffer.clear()
 point.distance_to(other)
+value.convert<Target>()
 ```
 
 The expression before the method name is the receiver expression.
 
 The receiver is supplied implicitly by the method call syntax.
+
+An explicit generic argument list appears after the method name and before the call argument list.
 
 Method parameters other than the receiver follow the [argument binding](arguments.md) rules.
 

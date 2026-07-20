@@ -808,7 +808,7 @@ It must not grow into one public bound node structure containing unrelated optio
 Variant-specific records retain their meaningful relationships. For example:
 
 - a bound name expression stores its exact resolved reference,
-- a bound call stores the selected callable target, argument mapping, conversions, and used default providers,
+- a bound call stores its callee, source-ordered explicit generic inputs, call arguments, and selected callable facts,
 - a bound async call additionally stores completion type, produced `Future<T>` type, hidden frame identity, invocation contract,
   deferred execution contract, and normal-completion postcondition template,
 - a bound member access stores the selected member and receiver facts,
@@ -816,6 +816,10 @@ Variant-specific records retain their meaningful relationships. For example:
 - a bound pattern stores exact introduced bindings, projections, and pattern-checking facts,
 - a bound control-flow expression stores its source-shaped branches and checked result merge,
 - a bound error expression stores error type and recovery information without pretending resolution succeeded.
+
+Explicit generic inputs retain exact syntax anchors until candidate production can interpret each input against the corresponding
+type or const parameter. They are not expression operands and do not participate in call argument evaluation order. Candidate
+production resolves them into a complete generic substitution for each candidate without inferring omitted generic arguments.
 
 ### Source Correlation
 

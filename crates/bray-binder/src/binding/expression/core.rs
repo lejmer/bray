@@ -430,7 +430,7 @@ mod tests {
             "func main()\n",
             "{\n",
             "    size + size;\n",
-            "    size(value = size);\n",
+            "    size<i32, 2>(value = size);\n",
             "    size.field;\n",
             "    size as i32;\n",
             "    [size, size];\n",
@@ -526,6 +526,7 @@ mod tests {
                 }
                 BoundExpression::Call(expression)
                     if expression.arguments().len() == 1
+                        && expression.generic_arguments().len() == 2
                         && expression.arguments()[0]
                             .name()
                             .is_some_and(|name| name.as_str() == "value") =>
@@ -683,7 +684,7 @@ mod tests {
             "const size: i32 = 1;\n",
             "func main()\n",
             "{\n",
-            "    missing(value = );\n",
+            "    missing<i32 2>(value = );\n",
             "    missing as ;\n",
             "}",
         ));
@@ -725,6 +726,7 @@ mod tests {
             panic!("malformed call must retain call recovery");
         };
 
+        assert_eq!(call.generic_arguments().len(), 2);
         assert_eq!(call.arguments().len(), 1);
 
         assert_eq!(

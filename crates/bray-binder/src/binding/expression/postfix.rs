@@ -1,6 +1,6 @@
 use bray_bound_tree::{
     BoundArgument, BoundCallExpression, BoundConversionExpression, BoundErrorCallExpression,
-    BoundErrorConversionExpression, BoundExpression, BoundExpressionId,
+    BoundErrorConversionExpression, BoundExpression, BoundExpressionId, BoundGenericArgument,
     BoundStructuredExpressionKind,
 };
 use bray_declarations::SyntaxAnchor;
@@ -120,9 +120,22 @@ impl ExpressionBinder {
     where
         C: BinderFactContext + ?Sized,
     {
+        let mut generic_arguments = Vec::new();
+
+        for arguments in syntax.generic_argument_lists() {
+            generic_arguments.extend(
+                arguments
+                    .generic_arguments()
+                    .map(|argument| BoundGenericArgument::new(SyntaxAnchor::from_node(&argument))),
+            );
+        }
+
         let arguments = self.bind_arguments(binder, scope, &syntax.argument_list())?;
 
         let recovered = syntax.is_recovered()
+            || generic_arguments
+                .iter()
+                .any(|argument| argument.is_recovered())
             || arguments.iter().any(BoundArgument::is_recovered)
             || binder.expression_is_recovered(callee);
 
@@ -130,6 +143,7 @@ impl ExpressionBinder {
             BoundExpression::ErrorCall(BoundErrorCallExpression::new(
                 binder.source_origin(syntax),
                 callee,
+                generic_arguments,
                 arguments,
                 self.error_type,
             ))
@@ -137,6 +151,7 @@ impl ExpressionBinder {
             BoundExpression::Call(BoundCallExpression::pending(
                 binder.source_origin(syntax),
                 callee,
+                generic_arguments,
                 arguments,
             ))
         };

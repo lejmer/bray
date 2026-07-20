@@ -1,8 +1,8 @@
 use std::collections::BTreeSet;
 
 use bray_bound_tree::{
-    CheckedExpressionTypes, ExpressionTypeResult, SelectedArgument, SelectedCall,
-    SelectedImplementationWitness,
+    BoundArgument, BoundCallableTarget, BoundGenericArgument, CheckedExpressionTypes,
+    ExpressionTypeResult, SelectedArgument, SelectedCall, SelectedImplementationWitness,
 };
 use bray_symbols::{
     CallableParameterDefaultProviderSymbolId, CallableParameterSignature,
@@ -41,6 +41,7 @@ where
         expression: _,
         callee_member: _,
         receiver,
+        generic_arguments,
         arguments,
         mut candidates,
     } = input;
@@ -70,7 +71,15 @@ where
             }
         }
 
-        match check_candidate(request, types, mode, receiver, &arguments, candidate)? {
+        match check_candidate(
+            request,
+            types,
+            mode,
+            receiver,
+            &generic_arguments,
+            &arguments,
+            candidate,
+        )? {
             CandidateCheck::Applicable { .. } if state == CallableCandidateState::Inaccessible => {
                 has_inaccessible = true;
             }
@@ -113,7 +122,8 @@ fn check_candidate<C>(
     types: &CheckedExpressionTypes,
     mode: CallableSelectionMode,
     receiver: Option<super::ReceiverSelection>,
-    arguments: &[bray_bound_tree::BoundArgument],
+    generic_arguments: &[BoundGenericArgument],
+    arguments: &[BoundArgument],
     candidate: CallableCandidate,
 ) -> Result<CandidateCheck, CheckerInfrastructureError>
 where
@@ -141,6 +151,12 @@ where
             .semantic_values()
             .intern_callable_instance(callable)
             .map_err(|_| CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+    }
+
+    match generic_arguments_are_compatible(request, generic_arguments, resolution.target())? {
+        Compatibility::No => return Ok(CandidateCheck::Incompatible),
+        Compatibility::Recovered => return Ok(CandidateCheck::Recovered),
+        Compatibility::Yes => {}
     }
 
     match receiver_is_compatible(types, receiver, signature.receiver())? {
@@ -173,6 +189,35 @@ where
     Ok(CandidateCheck::Applicable {
         key,
         call: SelectedCall::new(resolution, callable_type.abi(), arguments.values, witnesses),
+    })
+}
+
+fn generic_arguments_are_compatible<C>(
+    request: CheckerUnitView<'_, C>,
+    arguments: &[BoundGenericArgument],
+    target: BoundCallableTarget,
+) -> Result<Compatibility, CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    if arguments.iter().any(|argument| argument.is_recovered()) {
+        return Ok(Compatibility::Recovered);
+    }
+
+    let expected_count = match target {
+        BoundCallableTarget::Declaration(callable) => request
+            .semantic_values()
+            .generic_substitution_data(callable.substitution())
+            .map_err(|_| CheckerInfrastructureError::InvalidSemanticSelectionInput)?
+            .bindings()
+            .len(),
+        BoundCallableTarget::Anonymous(_) | BoundCallableTarget::Indirect(_) => 0,
+    };
+
+    Ok(if arguments.len() == expected_count {
+        Compatibility::Yes
+    } else {
+        Compatibility::No
     })
 }
 
@@ -337,7 +382,7 @@ struct MappedArguments {
 fn map_arguments(
     types: &CheckedExpressionTypes,
     mode: CallableSelectionMode,
-    arguments: &[bray_bound_tree::BoundArgument],
+    arguments: &[BoundArgument],
     callable: &CallableTypeData,
     signatures: &[CallableParameterSignature],
     defaults: &[(
@@ -469,6 +514,10 @@ where
         return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
     }
 
+    if call.generic_arguments() != input.generic_arguments() {
+        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+    }
+
     let Some(callee) = request.view().expression(call.callee()) else {
         return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
     };
@@ -539,16 +588,18 @@ fn validate_non_member_request(
 mod tests {
     use bray_bound_tree::{
         BoundArgument, BoundCallExpression, BoundCallResult, BoundCallableTarget, BoundExpression,
-        BoundExpressionId, BoundMemberAccessExpression, BoundMemberSelector, BoundResolvedCall,
-        BoundUnit, BoundUnitId, CheckedExpressionTypes, ExpressionTypeResult, ExpressionTypeStatus,
-        MemberTarget, SelectedArgument, SelectedCall,
+        BoundExpressionId, BoundGenericArgument, BoundMemberAccessExpression, BoundMemberSelector,
+        BoundResolvedCall, BoundUnit, BoundUnitId, CheckedExpressionTypes, ExpressionTypeResult,
+        ExpressionTypeStatus, MemberTarget, SelectedArgument, SelectedCall,
     };
     use bray_symbols::{
-        CallableAbi, CallableConstness, CallableDependencyContracts, CallableParameterData,
-        CallableParameterDefaultProviderSymbolId, CallableParameterMode, CallableParameterName,
-        CallableParameterSignature, CallableParameterSymbolId, CallablePosition, CallableSignature,
-        CallableTrust, CallableTypeData, DependencyContractTemplateData, SymbolId, SymbolKind,
-        TypeData, TypeId,
+        CallableAbi, CallableConstness, CallableDefinitionId, CallableDependencyContracts,
+        CallableInstanceData, CallableParameterData, CallableParameterDefaultProviderSymbolId,
+        CallableParameterMode, CallableParameterName, CallableParameterSignature,
+        CallableParameterSymbolId, CallablePosition, CallableSignature, CallableTrust,
+        CallableTypeData, DependencyContractTemplateData, FunctionSymbolId, GenericArgument,
+        GenericOwnerId, GenericParameterSymbolId, GenericSubstitutionData,
+        GenericTypeParameterSymbolId, SymbolId, SymbolKind, TypeData, TypeId,
     };
 
     use crate::test_support::{
@@ -645,6 +696,7 @@ mod tests {
             fixture.call,
             None,
             None,
+            [],
             [BoundArgument::new(fixture.argument, None, false)],
             [candidate],
         );
@@ -654,6 +706,33 @@ mod tests {
         assert!(matches!(
             result.value(),
             CandidateSelection::Failed(SelectionFailure::Incompatible)
+        ));
+    }
+
+    #[test]
+    fn explicit_generic_argument_arity_matches_the_selected_substitution() {
+        let fixture = call_fixture(BoundUnitId::new(79), false);
+        let generic_argument = BoundGenericArgument::new(fixture.unit.key().source().syntax());
+
+        let target =
+            BoundCallableTarget::Declaration(generic_callable_instance(5, fixture.value_type));
+
+        let context = TestCheckerContext::new(false);
+        let entry = callable_entry(fixture.unit.key());
+
+        let request = match CheckerUnitView::new(&fixture.unit, &entry, &context) {
+            Ok(request) => request,
+            Err(error) => panic!("generic call selection request must validate: {error:?}"),
+        };
+
+        assert!(matches!(
+            super::generic_arguments_are_compatible(request, &[generic_argument], target),
+            Ok(super::Compatibility::Yes)
+        ));
+
+        assert!(matches!(
+            super::generic_arguments_are_compatible(request, &[], target),
+            Ok(super::Compatibility::No)
         ));
     }
 
@@ -677,6 +756,7 @@ mod tests {
                 fixture.unrelated_receiver,
                 ReceiverCapability::Shared,
             )),
+            [],
             [],
             [],
         );
@@ -803,6 +883,7 @@ mod tests {
             fixture.call,
             None,
             None,
+            [],
             [BoundArgument::new(
                 fixture.argument,
                 Some(symbol_name("second")),
@@ -842,6 +923,7 @@ mod tests {
                 BoundExpression::Call(BoundCallExpression::pending(
                     origin,
                     callee,
+                    [],
                     [BoundArgument::new(argument, name, false)],
                 )),
             );
@@ -888,7 +970,7 @@ mod tests {
 
             let call = push_expression(
                 tree,
-                BoundExpression::Call(BoundCallExpression::pending(origin, callee, [])),
+                BoundExpression::Call(BoundCallExpression::pending(origin, callee, [], [])),
             );
 
             vec![receiver, unrelated_receiver, callee, call]
@@ -1060,6 +1142,38 @@ mod tests {
 
     fn parameter(index: u32) -> CallableParameterSymbolId {
         CallableParameterSymbolId::from_symbol_id(SymbolId::new(index))
+    }
+
+    fn generic_callable_instance(declaration: u32, argument: TypeId) -> CallableInstanceData {
+        let function = FunctionSymbolId::from_symbol_id(SymbolId::new(declaration));
+
+        let Some(owner) = GenericOwnerId::try_new(function.into()) else {
+            panic!("function must support generic substitutions");
+        };
+
+        let parameter = GenericTypeParameterSymbolId::from_symbol_id(SymbolId::new(100));
+
+        let substitution = GenericSubstitutionData::try_new(
+            owner,
+            [GenericParameterSymbolId::from(parameter)],
+            [GenericArgument::Type(argument)],
+        );
+
+        let substitution = match substitution {
+            Ok(substitution) => substitution,
+            Err(error) => panic!("generic callable substitution must validate: {error:?}"),
+        };
+
+        let substitution = match semantic_values().intern_generic_substitution(substitution) {
+            Ok(substitution) => substitution,
+            Err(error) => panic!("generic callable substitution must be interned: {error:?}"),
+        };
+
+        let Some(definition) = CallableDefinitionId::try_new(function.into()) else {
+            panic!("function must be a callable definition");
+        };
+
+        CallableInstanceData::new(definition, substitution)
     }
 
     fn default_provider(index: u32) -> CallableParameterDefaultProviderSymbolId {
