@@ -12,11 +12,13 @@ use crate::{
 };
 
 use super::{
-    CallableContractSet, CallableSignatureTemplate, CheckedCallableParameterDefault,
-    CheckedStructFieldDefault, CheckedUnionPayloadDefault, ConstantDefinitionState,
-    ConstantInstanceKey, GenericConstraintSet, ImplementationCoherenceKey, ImplementationSelection,
-    ImplementationSelectionKey, ImplementationSubjectTemplate, PredicateDefinition,
-    PredicateDefinitionState, SymbolFactKind, TraitApplicationTemplate, TypeExpressionTemplate,
+    CallableContractSet, CallableContractTemplate, CallableSignatureTemplate,
+    CheckedCallableParameterDefault, CheckedStructFieldDefault, CheckedUnionPayloadDefault,
+    ConstantDefinitionState, ConstantInstanceKey, GenericConstraintSet, GenericDeclarationTemplate,
+    ImplementationCoherenceKey, ImplementationHeadTemplate, ImplementationSelection,
+    ImplementationSelectionKey, ImplementationSubjectTemplate, OverloadSignatureTemplate,
+    PredicateDefinition, PredicateDefinitionState, PredicateSignatureTemplate, SymbolFactKind,
+    TraitApplicationTemplate, TypeExpressionTemplate, UnevaluatedDefaultTemplate,
 };
 
 mod sealed {
@@ -121,6 +123,13 @@ macro_rules! define_symbol_fact_contract {
 }
 
 define_symbol_fact_contract! {
+    /// Generic parameter identities and unevaluated constraints for one declaration.
+    GenericDeclarationTemplateFact {
+        owner: GenericOwnerId,
+        value: GenericDeclarationTemplate,
+        kind: GenericDeclarationTemplate,
+        erase: |owner: GenericOwnerId| owner.symbol(),
+    }
     /// Checked generic constraints for one generic declaration owner.
     GenericConstraintsFact {
         owner: GenericOwnerId,
@@ -141,6 +150,20 @@ define_symbol_fact_contract! {
         value: CallableContractSet,
         kind: CallableContracts,
         erase: |owner: CallableSymbolId| owner.into_any(),
+    }
+    /// Unevaluated contract clauses for one callable.
+    CallableContractTemplateFact {
+        owner: CallableSymbolId,
+        value: CallableContractTemplate,
+        kind: CallableContractTemplate,
+        erase: |owner: CallableSymbolId| owner.into_any(),
+    }
+    /// The declaration signature template of one predicate.
+    PredicateSignatureTemplateFact {
+        owner: crate::PredicateDefinitionSymbolId,
+        value: PredicateSignatureTemplate,
+        kind: PredicateSignatureTemplate,
+        erase: |owner: crate::PredicateDefinitionSymbolId| owner.into_any(),
     }
     /// The callable type template named by one callable-contract declaration.
     CallableContractTypeFact {
@@ -205,6 +228,13 @@ define_symbol_fact_contract! {
         kind: CallableParameterDefault,
         erase: |owner: CallableParameterSymbolId| owner.into(),
     }
+    /// The unevaluated default expression of one callable parameter.
+    CallableParameterDefaultTemplateFact {
+        owner: CallableParameterSymbolId,
+        value: UnevaluatedDefaultTemplate,
+        kind: UnevaluatedDefaultTemplate,
+        erase: |owner: CallableParameterSymbolId| owner.into(),
+    }
     /// The declared type template of one struct field.
     StructFieldTypeFact {
         owner: StructFieldSymbolId,
@@ -233,6 +263,13 @@ define_symbol_fact_contract! {
         kind: StructFieldDefault,
         erase: |owner: StructFieldSymbolId| owner.into(),
     }
+    /// The unevaluated default expression of one struct field.
+    StructFieldDefaultTemplateFact {
+        owner: StructFieldSymbolId,
+        value: UnevaluatedDefaultTemplate,
+        kind: UnevaluatedDefaultTemplate,
+        erase: |owner: StructFieldSymbolId| owner.into(),
+    }
     /// The declared type template of one union payload field.
     UnionPayloadFieldTypeFact {
         owner: UnionPayloadFieldSymbolId,
@@ -245,6 +282,13 @@ define_symbol_fact_contract! {
         owner: UnionPayloadFieldSymbolId,
         value: CheckedUnionPayloadDefault,
         kind: UnionPayloadFieldDefault,
+        erase: |owner: UnionPayloadFieldSymbolId| owner.into(),
+    }
+    /// The unevaluated default expression of one union payload field.
+    UnionPayloadFieldDefaultTemplateFact {
+        owner: UnionPayloadFieldSymbolId,
+        value: UnevaluatedDefaultTemplate,
+        kind: UnevaluatedDefaultTemplate,
         erase: |owner: UnionPayloadFieldSymbolId| owner.into(),
     }
     /// The checked semantic definition of one predicate declaration.
@@ -281,6 +325,27 @@ define_symbol_fact_contract! {
         value: Option<TraitApplicationTemplate>,
         kind: ImplementedTraitApplication,
         erase: |owner: ImplementationSymbolId| owner.into_any(),
+    }
+    /// The complete unevaluated header of one implementation declaration.
+    ImplementationHeadTemplateFact {
+        owner: ImplementationSymbolId,
+        value: ImplementationHeadTemplate,
+        kind: ImplementationHeadTemplate,
+        erase: |owner: ImplementationSymbolId| owner.into_any(),
+    }
+    /// The ordered arm template of one callable overload declaration.
+    CallableOverloadTemplateFact {
+        owner: crate::CallableOverloadSymbolId,
+        value: OverloadSignatureTemplate,
+        kind: OverloadSignatureTemplate,
+        erase: |owner: crate::CallableOverloadSymbolId| owner.into(),
+    }
+    /// The ordered arm template of one implementation overload declaration.
+    ImplementationOverloadTemplateFact {
+        owner: crate::ImplementationOverloadSymbolId,
+        value: OverloadSignatureTemplate,
+        kind: OverloadSignatureTemplate,
+        erase: |owner: crate::ImplementationOverloadSymbolId| owner.into(),
     }
     /// The checked coherence key of one implementation declaration.
     ImplementationCoherenceFact {

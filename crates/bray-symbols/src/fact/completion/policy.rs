@@ -26,12 +26,18 @@ pub enum SymbolFactKind {
     Directives,
     /// Ordered generic parameters and their lookup indexes.
     GenericParameters,
+    /// Generic parameter identities and unevaluated constraint expressions.
+    GenericDeclarationTemplate,
     /// Checked generic constraints.
     GenericConstraints,
     /// The callable signature excluding executable body checking.
     CallableSignature,
     /// Checked callable contracts, effects, and capabilities.
     CallableContracts,
+    /// Unevaluated callable contract expressions and capability paths.
+    CallableContractTemplate,
+    /// A predicate declaration signature template.
+    PredicateSignatureTemplate,
     /// The callable type template named by a callable-contract declaration.
     CallableContractType,
     /// The declared type of a constant.
@@ -40,6 +46,8 @@ pub enum SymbolFactKind {
     ConstantDefinition,
     /// A checked callable parameter default.
     CallableParameterDefault,
+    /// An unevaluated declaration default expression.
+    UnevaluatedDefaultTemplate,
     /// A struct field type template.
     StructFieldType,
     /// The type-value template supplied by an implementation member.
@@ -58,24 +66,32 @@ pub enum SymbolFactKind {
     ImplementationSubject,
     /// The trait-application template implemented by an implementation.
     ImplementedTraitApplication,
+    /// A complete implementation header template.
+    ImplementationHeadTemplate,
     /// Stable implementation coherence keys.
     ImplementationCoherence,
     /// The resolved arms of an overload family.
     OverloadArms,
+    /// Source or resolved overload arms in declaration order.
+    OverloadSignatureTemplate,
 }
 
-pub(super) const SYMBOL_FACT_KINDS: [SymbolFactKind; 22] = [
+pub(super) const SYMBOL_FACT_KINDS: [SymbolFactKind; 28] = [
     SymbolFactKind::Members,
     SymbolFactKind::Imports,
     SymbolFactKind::Directives,
     SymbolFactKind::GenericParameters,
+    SymbolFactKind::GenericDeclarationTemplate,
     SymbolFactKind::GenericConstraints,
     SymbolFactKind::CallableSignature,
     SymbolFactKind::CallableContracts,
+    SymbolFactKind::CallableContractTemplate,
+    SymbolFactKind::PredicateSignatureTemplate,
     SymbolFactKind::CallableContractType,
     SymbolFactKind::ConstantDeclaredType,
     SymbolFactKind::ConstantDefinition,
     SymbolFactKind::CallableParameterDefault,
+    SymbolFactKind::UnevaluatedDefaultTemplate,
     SymbolFactKind::StructFieldType,
     SymbolFactKind::TypeMemberValue,
     SymbolFactKind::StructFieldDefault,
@@ -85,8 +101,10 @@ pub(super) const SYMBOL_FACT_KINDS: [SymbolFactKind; 22] = [
     SymbolFactKind::UnionVariantPayload,
     SymbolFactKind::ImplementationSubject,
     SymbolFactKind::ImplementedTraitApplication,
+    SymbolFactKind::ImplementationHeadTemplate,
     SymbolFactKind::ImplementationCoherence,
     SymbolFactKind::OverloadArms,
+    SymbolFactKind::OverloadSignatureTemplate,
 ];
 
 impl SymbolFactKind {
@@ -94,9 +112,18 @@ impl SymbolFactKind {
     pub const fn is_required_for(self, level: SymbolCompletionLevel) -> bool {
         match level {
             SymbolCompletionLevel::Identity => false,
-            SymbolCompletionLevel::DeclarationSurface => {
-                !matches!(self, Self::ImplementationCoherence)
-            }
+            SymbolCompletionLevel::DeclarationSurface => !matches!(
+                self,
+                Self::GenericConstraints
+                    | Self::CallableContracts
+                    | Self::ConstantDefinition
+                    | Self::CallableParameterDefault
+                    | Self::StructFieldDefault
+                    | Self::UnionPayloadFieldDefault
+                    | Self::PredicateDefinition
+                    | Self::ImplementationCoherence
+                    | Self::OverloadArms
+            ),
         }
     }
 
@@ -111,14 +138,23 @@ impl SymbolFactKind {
             Self::Members => supports_members(kind),
             Self::Imports => matches!(kind, SymbolKind::Module),
             Self::Directives => supports_directives(kind),
-            Self::GenericParameters | Self::GenericConstraints => {
-                GenericOwnerId::try_new(symbol).is_some()
+            Self::GenericParameters
+            | Self::GenericDeclarationTemplate
+            | Self::GenericConstraints => GenericOwnerId::try_new(symbol).is_some(),
+            Self::CallableSignature | Self::CallableContracts | Self::CallableContractTemplate => {
+                supports_callable_facts(kind)
             }
-            Self::CallableSignature | Self::CallableContracts => supports_callable_facts(kind),
+            Self::PredicateSignatureTemplate => supports_predicate_facts(kind),
             Self::CallableContractType => matches!(kind, SymbolKind::CallableContract),
             Self::ConstantDeclaredType => supports_declared_constant_type(kind),
             Self::ConstantDefinition => supports_constant_facts(kind),
             Self::CallableParameterDefault => matches!(kind, SymbolKind::CallableParameter),
+            Self::UnevaluatedDefaultTemplate => matches!(
+                kind,
+                SymbolKind::CallableParameter
+                    | SymbolKind::StructField
+                    | SymbolKind::UnionPayloadField
+            ),
             Self::StructFieldType | Self::StructFieldDefault => {
                 matches!(kind, SymbolKind::StructField)
             }
@@ -133,8 +169,9 @@ impl SymbolFactKind {
             Self::UnionVariantPayload => matches!(kind, SymbolKind::UnionVariant),
             Self::ImplementationSubject
             | Self::ImplementedTraitApplication
+            | Self::ImplementationHeadTemplate
             | Self::ImplementationCoherence => supports_implementation_facts(kind),
-            Self::OverloadArms => matches!(
+            Self::OverloadArms | Self::OverloadSignatureTemplate => matches!(
                 kind,
                 SymbolKind::CallableOverload | SymbolKind::ImplementationOverload
             ),

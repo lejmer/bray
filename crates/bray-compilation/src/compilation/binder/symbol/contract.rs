@@ -8,7 +8,7 @@ use bray_symbols::{
     CallableContractsFact, CallableExecution, CallablePhaseBehavior, CallableSignatureFact,
     CallableSymbolId, CheckedConstraint, CurrentRunCancellation, DependencyContractTemplateData,
     DependencyContractTemplateId, GenericConstraintSet, GenericConstraintsFact, SymbolFactRequest,
-    SymbolFactResult, SymbolGraph, SymbolOrdinal, TrustedCapabilityRequirement, TypeData,
+    SymbolFactResult, SymbolGraph, TrustedCapabilityRequirement, TypeData,
 };
 use bray_syntax::{
     EnsuresClauseSyntax, RequiresClauseSyntax, SyntaxKind, SyntaxNodeView, SyntaxWalkControl,
@@ -17,7 +17,7 @@ use bray_syntax::{
 
 use super::cache::CompilationSymbolFacts;
 use super::compute::CompilationSymbolFactBinding;
-use super::surface::compiler_known_surface;
+use super::surface::{compiler_known_surface, symbol_ordinal};
 use crate::compilation::binder::CompilationBinderFacts;
 use crate::fact::SymbolFactCache;
 
@@ -279,12 +279,6 @@ fn direct_contract_clauses(root: SyntaxNodeView<'_>) -> Vec<ContractClauseSyntax
     });
 
     clauses
-}
-
-fn symbol_ordinal(index: usize) -> BinderFactResult<SymbolOrdinal> {
-    let ordinal = u32::try_from(index).map_err(|_| BinderFactError::DependencyUnavailable)?;
-
-    Ok(SymbolOrdinal::new(ordinal))
 }
 
 fn publish_catalog_result<T>(

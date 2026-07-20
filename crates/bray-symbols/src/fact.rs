@@ -6,6 +6,7 @@ mod execution;
 mod implementation;
 mod predicate;
 mod signature;
+mod template;
 mod type_expression;
 
 pub use completion::{
@@ -17,17 +18,21 @@ pub use constant::{
     ConstantDefinition, ConstantDefinitionState, ConstantInstanceKey, ErrorConstantDefinition,
 };
 pub use contract::{
-    CallableContractTypeFact, CallableContractsFact, CallableParameterDefaultFact,
-    CallableSignatureFact, ConstantDeclaredTypeFact, ConstantDefinitionFact,
-    ConstantInstanceValueFact, GenericConstParameterDeclaredTypeFact, GenericConstraintsFact,
-    ImplementationCoherenceFact, ImplementationSelectionFact, ImplementationSubjectFact,
-    ImplementedTraitApplicationFact, InherentTypeMemberValueFact, PredicateDefinitionFact,
-    SemanticFactContract, SemanticFactResult, StructFieldDefaultFact, StructFieldTypeFact,
-    SymbolFactContract, SymbolFactRequest, SymbolFactResult,
-    TraitConstantFulfillmentDeclaredTypeFact, TraitConstantFulfillmentDefinitionFact,
-    TraitConstantMemberDeclaredTypeFact, TraitConstantMemberDefinitionFact,
-    TraitPredicateFulfillmentDefinitionFact, TraitPredicateMemberDefinitionFact,
-    TraitTypeFulfillmentValueFact, UnionPayloadFieldDefaultFact, UnionPayloadFieldTypeFact,
+    CallableContractTemplateFact, CallableContractTypeFact, CallableContractsFact,
+    CallableOverloadTemplateFact, CallableParameterDefaultFact,
+    CallableParameterDefaultTemplateFact, CallableSignatureFact, ConstantDeclaredTypeFact,
+    ConstantDefinitionFact, ConstantInstanceValueFact, GenericConstParameterDeclaredTypeFact,
+    GenericConstraintsFact, GenericDeclarationTemplateFact, ImplementationCoherenceFact,
+    ImplementationHeadTemplateFact, ImplementationOverloadTemplateFact,
+    ImplementationSelectionFact, ImplementationSubjectFact, ImplementedTraitApplicationFact,
+    InherentTypeMemberValueFact, PredicateDefinitionFact, PredicateSignatureTemplateFact,
+    SemanticFactContract, SemanticFactResult, StructFieldDefaultFact,
+    StructFieldDefaultTemplateFact, StructFieldTypeFact, SymbolFactContract, SymbolFactRequest,
+    SymbolFactResult, TraitConstantFulfillmentDeclaredTypeFact,
+    TraitConstantFulfillmentDefinitionFact, TraitConstantMemberDeclaredTypeFact,
+    TraitConstantMemberDefinitionFact, TraitPredicateFulfillmentDefinitionFact,
+    TraitPredicateMemberDefinitionFact, TraitTypeFulfillmentValueFact,
+    UnionPayloadFieldDefaultFact, UnionPayloadFieldDefaultTemplateFact, UnionPayloadFieldTypeFact,
 };
 pub use default::{
     CallableParameterDefaultSurface, CallableParameterDefaultValue,
@@ -56,6 +61,13 @@ pub use predicate::{
 pub use signature::{
     CallableParameterSignature, CallableSignature, CallableSignatureTemplate, ReceiverMode,
     ReceiverParameterSignature,
+};
+pub use template::{
+    CallableContractExpressionTemplate, CallableContractTemplate, DeclarationCapabilityTemplate,
+    DeclarationExpressionTemplate, DeclarationPredicateClauseKind, GenericConstraintTemplate,
+    GenericDeclarationTemplate, ImplementationHeadTemplate, OverloadArmTemplate,
+    OverloadSignatureTemplate, PredicateParameterTemplate, PredicateSignatureTemplate,
+    SourceCallableContractTemplate, UnevaluatedDefaultTemplate,
 };
 pub use type_expression::{
     CallableParameterTypeTemplate, CallableTypeTemplate, ConstantExpressionExpectedType,

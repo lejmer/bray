@@ -75,6 +75,20 @@ macro_rules! define_imported_symbol_skeleton {
                 self.external_index.get(key).copied()
             }
 
+            /// Returns the compiled-interface address backing one imported declaration symbol.
+            pub fn imported_fact_address(
+                &self,
+                symbol: AnySymbolId,
+            ) -> Option<crate::ImportedSymbolFactAddress> {
+                match symbol {
+                    $(AnySymbolId::$variant(id) => self
+                        .$singular(id)?
+                        .imported_fact_key()
+                        .map(crate::ImportedSymbolFactAddress::from),)+
+                    _ => None,
+                }
+            }
+
             /// Resolves an exported ordinary name from an imported package or module.
             pub fn lookup(&self, owner: AnySymbolId, name: &str) -> MemberLookupResult<AnySymbolId> {
                 let Some(name) = SymbolName::try_new(name) else {

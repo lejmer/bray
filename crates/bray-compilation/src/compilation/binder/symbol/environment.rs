@@ -4,7 +4,8 @@ use bray_binder::{
 };
 use bray_compiler_known::CatalogGenericParameterKind;
 use bray_symbols::{
-    AnySymbolId, GenericTypeParameterSymbolId, SelfTypeContext, SymbolGraph, SymbolName,
+    AnySymbolId, GenericConstParameterSymbolId, GenericParameterSymbolId,
+    GenericTypeParameterSymbolId, ImportedSymbolSkeleton, SelfTypeContext, SymbolGraph, SymbolName,
     SymbolOrigin,
 };
 
@@ -40,7 +41,9 @@ fn type_parameter_bindings(
     let mut bindings = Vec::new();
 
     for owner in symbol_ancestry(context.symbols, symbol).into_iter().rev() {
-        let Some(parameters) = generic_type_parameters(context.symbols, owner) else {
+        let Some(parameters) =
+            GenericParameterAccess::generic_type_parameters(context.symbols, owner)
+        else {
             continue;
         };
 
@@ -137,88 +140,159 @@ fn parameter_name(
     }
 }
 
-macro_rules! define_generic_parameter_accessor {
-    ($name:ident, $parameter:ty, $accessor:ident) => {
-        fn $name(symbols: &SymbolGraph, owner: AnySymbolId) -> Option<&[$parameter]> {
-            match owner {
-                AnySymbolId::Struct(id) => symbols.structure(id).map(|symbol| symbol.$accessor()),
-                AnySymbolId::Union(id) => symbols.union(id).map(|symbol| symbol.$accessor()),
-                AnySymbolId::Trait(id) => symbols.trait_symbol(id).map(|symbol| symbol.$accessor()),
-                AnySymbolId::CallableContract(id) => symbols
-                    .callable_contract(id)
-                    .map(|symbol| symbol.$accessor()),
-                AnySymbolId::Function(id) => symbols.function(id).map(|symbol| symbol.$accessor()),
-                AnySymbolId::Predicate(id) => {
-                    symbols.predicate(id).map(|symbol| symbol.$accessor())
+pub(super) trait GenericParameterAccess {
+    fn generic_type_parameters(
+        &self,
+        owner: AnySymbolId,
+    ) -> Option<&[GenericTypeParameterSymbolId]>;
+
+    fn generic_const_parameters(
+        &self,
+        owner: AnySymbolId,
+    ) -> Option<&[GenericConstParameterSymbolId]>;
+
+    fn generic_parameter_ordinal(&self, parameter: GenericParameterSymbolId) -> Option<u32>;
+}
+
+macro_rules! generic_parameters {
+    ($symbols:expr, $owner:expr, $accessor:ident) => {
+        match $owner {
+            AnySymbolId::Struct(id) => $symbols.structure(id).map(|symbol| symbol.$accessor()),
+            AnySymbolId::Union(id) => $symbols.union(id).map(|symbol| symbol.$accessor()),
+            AnySymbolId::Trait(id) => $symbols.trait_symbol(id).map(|symbol| symbol.$accessor()),
+            AnySymbolId::CallableContract(id) => $symbols
+                .callable_contract(id)
+                .map(|symbol| symbol.$accessor()),
+            AnySymbolId::Function(id) => $symbols.function(id).map(|symbol| symbol.$accessor()),
+            AnySymbolId::Predicate(id) => $symbols.predicate(id).map(|symbol| symbol.$accessor()),
+            AnySymbolId::TypeCallableMember(id) => $symbols
+                .type_callable_member(id)
+                .map(|symbol| symbol.$accessor()),
+            AnySymbolId::TraitCallableMember(id) => $symbols
+                .trait_callable_member(id)
+                .map(|symbol| symbol.$accessor()),
+            AnySymbolId::TraitCallableFulfillment(id) => $symbols
+                .trait_callable_fulfillment(id)
+                .map(|symbol| symbol.$accessor()),
+            AnySymbolId::TraitPredicateMember(id) => $symbols
+                .trait_predicate_member(id)
+                .map(|symbol| symbol.$accessor()),
+            AnySymbolId::TraitPredicateFulfillment(id) => $symbols
+                .trait_predicate_fulfillment(id)
+                .map(|symbol| symbol.$accessor()),
+            AnySymbolId::Constructor(id) => {
+                $symbols.constructor(id).map(|symbol| symbol.$accessor())
+            }
+            AnySymbolId::Finalizer(id) => $symbols.finalizer(id).map(|symbol| symbol.$accessor()),
+            AnySymbolId::Destructor(id) => $symbols.destructor(id).map(|symbol| symbol.$accessor()),
+            AnySymbolId::ScopeEnter(id) => {
+                $symbols.scope_enter(id).map(|symbol| symbol.$accessor())
+            }
+            AnySymbolId::ScopeExit(id) => $symbols.scope_exit(id).map(|symbol| symbol.$accessor()),
+            AnySymbolId::TraitFinalizerRequirement(id) => $symbols
+                .trait_finalizer_requirement(id)
+                .map(|symbol| symbol.$accessor()),
+            AnySymbolId::TraitDestructorRequirement(id) => $symbols
+                .trait_destructor_requirement(id)
+                .map(|symbol| symbol.$accessor()),
+            AnySymbolId::TraitScopeEnterRequirement(id) => $symbols
+                .trait_scope_enter_requirement(id)
+                .map(|symbol| symbol.$accessor()),
+            AnySymbolId::TraitScopeExitRequirement(id) => $symbols
+                .trait_scope_exit_requirement(id)
+                .map(|symbol| symbol.$accessor()),
+            AnySymbolId::TraitScopeEnterFulfillment(id) => $symbols
+                .trait_scope_enter_fulfillment(id)
+                .map(|symbol| symbol.$accessor()),
+            AnySymbolId::TraitScopeExitFulfillment(id) => $symbols
+                .trait_scope_exit_fulfillment(id)
+                .map(|symbol| symbol.$accessor()),
+            AnySymbolId::InherentImplementation(id) => $symbols
+                .inherent_implementation(id)
+                .map(|symbol| symbol.$accessor()),
+            AnySymbolId::UnnamedTraitImplementation(id) => $symbols
+                .unnamed_trait_implementation(id)
+                .map(|symbol| symbol.$accessor()),
+            AnySymbolId::NamedTraitImplementation(id) => $symbols
+                .named_trait_implementation(id)
+                .map(|symbol| symbol.$accessor()),
+            _ => None,
+        }
+    };
+}
+
+macro_rules! impl_generic_parameter_access {
+    ($provider:ty) => {
+        impl GenericParameterAccess for $provider {
+            fn generic_type_parameters(
+                &self,
+                owner: AnySymbolId,
+            ) -> Option<&[GenericTypeParameterSymbolId]> {
+                generic_parameters!(self, owner, generic_type_parameters)
+            }
+
+            fn generic_const_parameters(
+                &self,
+                owner: AnySymbolId,
+            ) -> Option<&[GenericConstParameterSymbolId]> {
+                generic_parameters!(self, owner, generic_const_parameters)
+            }
+
+            fn generic_parameter_ordinal(
+                &self,
+                parameter: GenericParameterSymbolId,
+            ) -> Option<u32> {
+                match parameter {
+                    GenericParameterSymbolId::Type(parameter) => self
+                        .generic_type_parameter(parameter)
+                        .map(|record| record.ordinal()),
+                    GenericParameterSymbolId::Const(parameter) => self
+                        .generic_const_parameter(parameter)
+                        .map(|record| record.ordinal()),
                 }
-                AnySymbolId::TypeCallableMember(id) => symbols
-                    .type_callable_member(id)
-                    .map(|symbol| symbol.$accessor()),
-                AnySymbolId::TraitCallableMember(id) => symbols
-                    .trait_callable_member(id)
-                    .map(|symbol| symbol.$accessor()),
-                AnySymbolId::TraitCallableFulfillment(id) => symbols
-                    .trait_callable_fulfillment(id)
-                    .map(|symbol| symbol.$accessor()),
-                AnySymbolId::TraitPredicateMember(id) => symbols
-                    .trait_predicate_member(id)
-                    .map(|symbol| symbol.$accessor()),
-                AnySymbolId::TraitPredicateFulfillment(id) => symbols
-                    .trait_predicate_fulfillment(id)
-                    .map(|symbol| symbol.$accessor()),
-                AnySymbolId::Constructor(id) => {
-                    symbols.constructor(id).map(|symbol| symbol.$accessor())
-                }
-                AnySymbolId::Finalizer(id) => {
-                    symbols.finalizer(id).map(|symbol| symbol.$accessor())
-                }
-                AnySymbolId::Destructor(id) => {
-                    symbols.destructor(id).map(|symbol| symbol.$accessor())
-                }
-                AnySymbolId::ScopeEnter(id) => {
-                    symbols.scope_enter(id).map(|symbol| symbol.$accessor())
-                }
-                AnySymbolId::ScopeExit(id) => {
-                    symbols.scope_exit(id).map(|symbol| symbol.$accessor())
-                }
-                AnySymbolId::TraitFinalizerRequirement(id) => symbols
-                    .trait_finalizer_requirement(id)
-                    .map(|symbol| symbol.$accessor()),
-                AnySymbolId::TraitDestructorRequirement(id) => symbols
-                    .trait_destructor_requirement(id)
-                    .map(|symbol| symbol.$accessor()),
-                AnySymbolId::TraitScopeEnterRequirement(id) => symbols
-                    .trait_scope_enter_requirement(id)
-                    .map(|symbol| symbol.$accessor()),
-                AnySymbolId::TraitScopeExitRequirement(id) => symbols
-                    .trait_scope_exit_requirement(id)
-                    .map(|symbol| symbol.$accessor()),
-                AnySymbolId::TraitScopeEnterFulfillment(id) => symbols
-                    .trait_scope_enter_fulfillment(id)
-                    .map(|symbol| symbol.$accessor()),
-                AnySymbolId::TraitScopeExitFulfillment(id) => symbols
-                    .trait_scope_exit_fulfillment(id)
-                    .map(|symbol| symbol.$accessor()),
-                AnySymbolId::InherentImplementation(id) => symbols
-                    .inherent_implementation(id)
-                    .map(|symbol| symbol.$accessor()),
-                AnySymbolId::UnnamedTraitImplementation(id) => symbols
-                    .unnamed_trait_implementation(id)
-                    .map(|symbol| symbol.$accessor()),
-                AnySymbolId::NamedTraitImplementation(id) => symbols
-                    .named_trait_implementation(id)
-                    .map(|symbol| symbol.$accessor()),
-                _ => None,
             }
         }
     };
 }
 
-define_generic_parameter_accessor!(
-    generic_type_parameters,
-    GenericTypeParameterSymbolId,
-    generic_type_parameters
-);
+impl_generic_parameter_access!(SymbolGraph);
+impl_generic_parameter_access!(ImportedSymbolSkeleton);
+
+pub(super) fn generic_parameter_ids(
+    symbols: &impl GenericParameterAccess,
+    owner: AnySymbolId,
+) -> BinderFactResult<Vec<GenericParameterSymbolId>> {
+    let mut parameters = Vec::new();
+
+    if let Some(type_parameters) = symbols.generic_type_parameters(owner) {
+        parameters.extend(
+            type_parameters
+                .iter()
+                .copied()
+                .map(GenericParameterSymbolId::Type),
+        );
+    }
+
+    if let Some(const_parameters) = symbols.generic_const_parameters(owner) {
+        parameters.extend(
+            const_parameters
+                .iter()
+                .copied()
+                .map(GenericParameterSymbolId::Const),
+        );
+    }
+
+    parameters.sort_by_key(|parameter| symbols.generic_parameter_ordinal(*parameter));
+
+    if parameters
+        .iter()
+        .any(|parameter| symbols.generic_parameter_ordinal(*parameter).is_none())
+    {
+        return Err(BinderFactError::DependencyUnavailable);
+    }
+
+    Ok(parameters)
+}
 
 fn self_type_context(symbols: &SymbolGraph, symbol: AnySymbolId) -> Option<SelfTypeContext> {
     let mut current = symbols.containing_symbol(symbol);

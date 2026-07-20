@@ -7,15 +7,15 @@ use bray_symbols::{
 };
 
 use crate::{
-    ExportRelationshipInput, ExportSymbolInput, InterfaceCheckedTemplate,
-    InterfaceCheckedTemplateBehavior, InterfaceCheckedTemplateId, InterfaceCheckedTemplateInput,
-    InterfaceCheckedTemplateInputKind, InterfaceCheckedTemplateNode,
-    InterfaceCheckedTemplateOperation, InterfaceDeclarationTemplate, InterfaceDependencyContract,
-    InterfaceLanguageRevision, InterfaceProductIdentity, InterfaceProductKind,
-    InterfaceSemanticFacts, InterfaceSupportEntity, InterfaceSymbolReference, InterfaceType,
-    InterfaceTypeId, PackageInterfaceExportBundle, PackageInterfaceIdentity,
-    PackageInterfaceSurface, SymbolRelationshipKind, build_package_interface_surface,
-    encode_package_interface,
+    ExportLookupInput, ExportRelationshipInput, ExportSymbolInput, ExportSymbolReferenceInput,
+    ExportedLookupKind, InterfaceCheckedTemplate, InterfaceCheckedTemplateBehavior,
+    InterfaceCheckedTemplateId, InterfaceCheckedTemplateInput, InterfaceCheckedTemplateInputKind,
+    InterfaceCheckedTemplateNode, InterfaceCheckedTemplateOperation, InterfaceDeclarationTemplate,
+    InterfaceDependencyContract, InterfaceLanguageRevision, InterfacePredicateSummary,
+    InterfaceProductIdentity, InterfaceProductKind, InterfaceSemanticFacts, InterfaceSupportEntity,
+    InterfaceSymbolReference, InterfaceType, InterfaceTypeId, PackageInterfaceExportBundle,
+    PackageInterfaceIdentity, PackageInterfaceSurface, SymbolRelationshipKind,
+    build_package_interface_surface, encode_package_interface,
 };
 
 /// One valid encoded interface used by cross-crate compilation tests.
@@ -86,7 +86,7 @@ fn package_interface_export_bundle_for(
 ) -> PackageInterfaceExportBundle {
     let module = module_key(package.clone(), "templates");
 
-    let function = named_key(module, SymbolKind::Function, "run");
+    let function = named_key(module.clone(), SymbolKind::Function, "run");
 
     let generic_type = ExternalSymbolKey::ordinal(
         function.clone(),
@@ -99,7 +99,22 @@ fn package_interface_export_bundle_for(
         package.clone(),
         product.clone(),
         [function.clone(), generic_type],
+        [
+            ExportLookupInput::new(
+                ExternalSymbolKey::package(package.clone()),
+                symbol_name("templates"),
+                ExportedLookupKind::Direct,
+                ExportSymbolReferenceInput::Local(module.clone()),
+            ),
+            ExportLookupInput::new(
+                module,
+                symbol_name("run"),
+                ExportedLookupKind::Direct,
+                ExportSymbolReferenceInput::Local(function.clone()),
+            ),
+        ],
     );
+
     let template_owner = surface
         .symbol_by_external_key(&function)
         .unwrap_or_else(|| panic!("test template owner must be present"));
@@ -114,6 +129,7 @@ fn identity_surface(
     package: PackageIdentity,
     product: InterfaceProductIdentity,
     symbols: impl IntoIterator<Item = ExternalSymbolKey>,
+    exports: impl IntoIterator<Item = ExportLookupInput>,
 ) -> PackageInterfaceSurface {
     let mut keys = BTreeSet::new();
 
@@ -155,7 +171,7 @@ fn identity_surface(
     )
     .unwrap_or_else(|| panic!("test package interface identity must be valid"));
 
-    build_package_interface_surface(identity, [], records, relationships, [])
+    build_package_interface_surface(identity, [], records, relationships, exports)
         .unwrap_or_else(|error| panic!("test interface surface must be valid: {error:?}"))
 }
 
@@ -163,6 +179,8 @@ fn template_facts(
     surface: &PackageInterfaceSurface,
     owner: InterfaceSymbolId,
 ) -> InterfaceSemanticFacts {
+    let owner = InterfaceSymbolReference::Local(owner);
+
     let generic_type = surface
         .symbols()
         .symbols()
@@ -199,6 +217,18 @@ fn template_facts(
         behavior,
     );
 
+    let predicate = InterfacePredicateSummary::new(crate::InterfaceDependencyContractId::new(0));
+
+    let invocation_behavior = crate::InterfaceCallablePhaseBehavior::new(
+        [],
+        [],
+        [],
+        [],
+        [],
+        crate::InterfaceDependencyContractId::new(0),
+        bray_symbols::CurrentRunCancellation::NotEntered,
+    );
+
     InterfaceSemanticFacts::new()
         .with_values(
             [InterfaceDependencyContract::new([])],
@@ -206,10 +236,27 @@ fn template_facts(
             [],
             [],
         )
+        .with_contracts(
+            [crate::InterfaceConstraint::new(
+                owner.clone(),
+                SymbolOrdinal::new(0),
+                predicate,
+            )],
+            [crate::InterfaceCallableContract::new(
+                owner.clone(),
+                [crate::InterfaceCallableContractClause::new(
+                    SymbolOrdinal::new(0),
+                    bray_symbols::CallableContractClauseKind::Requires,
+                    predicate,
+                )],
+                invocation_behavior,
+                None,
+            )],
+        )
         .with_templates(
             [template],
             [InterfaceDeclarationTemplate::new(
-                InterfaceSymbolReference::Local(owner),
+                owner,
                 CheckedTemplateKind::CallableContract,
                 SymbolOrdinal::new(0),
                 InterfaceSupportEntityId::new(0),
@@ -245,11 +292,14 @@ pub(crate) fn named_key(
     kind: SymbolKind,
     name: &str,
 ) -> ExternalSymbolKey {
-    let name =
-        SymbolName::try_new(name).unwrap_or_else(|| panic!("test symbol name must be valid"));
+    let name = symbol_name(name);
 
     ExternalSymbolKey::named(owner, kind, name)
         .unwrap_or_else(|| panic!("test symbol key must be valid"))
+}
+
+fn symbol_name(value: &str) -> SymbolName {
+    SymbolName::try_new(value).unwrap_or_else(|| panic!("test symbol name must be valid"))
 }
 
 fn package(value: &str) -> PackageIdentity {
