@@ -141,6 +141,7 @@ mod tests {
 
         assert_eq!(expression.operand(), operand);
         assert_eq!(expression.ty(), Some(completion_type));
+
         assert_eq!(
             expression.resolution(),
             BoundAwaitResolution::Composition(BoundFutureComposition::new(

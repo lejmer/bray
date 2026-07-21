@@ -260,6 +260,7 @@ mod tests {
                 .state(graph.entry())
                 .is_some_and(|state| state.is_clean())
         );
+
         assert!(
             backward
                 .state(graph.entry())

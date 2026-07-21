@@ -202,6 +202,7 @@ mod tests {
             computation.result().value().unit(),
             bray_bound_tree::BoundUnitId::new(40)
         );
+
         assert_eq!(entry.kind(), bray_bound_tree::BoundUnitKind::CallableBody);
         assert_eq!(entry.key(), computation.result().value().key());
     }

@@ -308,22 +308,27 @@ mod tests {
             index.line_column(TextSize::new(0)),
             Some(LineColumn::new(1, 1))
         );
+
         assert_eq!(
             index.line_column(TextSize::new(1)),
             Some(LineColumn::new(1, 2))
         );
+
         assert_eq!(
             index.line_column(TextSize::new(3)),
             Some(LineColumn::new(1, 3))
         );
+
         assert_eq!(
             index.line_column(TextSize::new(4)),
             Some(LineColumn::new(2, 1))
         );
+
         assert_eq!(
             index.line_column(TextSize::new(8)),
             Some(LineColumn::new(2, 2))
         );
+
         assert_eq!(
             index.line_column(TextSize::new(9)),
             Some(LineColumn::new(2, 3))
@@ -338,22 +343,27 @@ mod tests {
             index.lsp_position(TextSize::new(0)),
             Some(LspPosition::new(0, 0))
         );
+
         assert_eq!(
             index.lsp_position(TextSize::new(1)),
             Some(LspPosition::new(0, 1))
         );
+
         assert_eq!(
             index.lsp_position(TextSize::new(3)),
             Some(LspPosition::new(0, 2))
         );
+
         assert_eq!(
             index.lsp_position(TextSize::new(4)),
             Some(LspPosition::new(1, 0))
         );
+
         assert_eq!(
             index.lsp_position(TextSize::new(8)),
             Some(LspPosition::new(1, 2))
         );
+
         assert_eq!(
             index.lsp_position(TextSize::new(9)),
             Some(LspPosition::new(1, 3))
@@ -368,23 +378,29 @@ mod tests {
             index.offset_for_lsp_position(LspPosition::new(0, 0)),
             Some(TextSize::new(0))
         );
+
         assert_eq!(
             index.offset_for_lsp_position(LspPosition::new(0, 1)),
             Some(TextSize::new(1))
         );
+
         assert_eq!(index.offset_for_lsp_position(LspPosition::new(0, 2)), None);
+
         assert_eq!(
             index.offset_for_lsp_position(LspPosition::new(0, 3)),
             Some(TextSize::new(5))
         );
+
         assert_eq!(
             index.offset_for_lsp_position(LspPosition::new(0, 4)),
             Some(TextSize::new(6))
         );
+
         assert_eq!(
             index.offset_for_lsp_position(LspPosition::new(1, 0)),
             Some(TextSize::new(7))
         );
+
         assert_eq!(
             index.offset_for_lsp_position(LspPosition::new(1, 1)),
             Some(TextSize::new(9))
@@ -399,10 +415,12 @@ mod tests {
             index.text_range_for_lsp_range(LspPosition::new(0, 1), LspPosition::new(0, 3)),
             Some(TextRange::new(TextSize::new(1), TextSize::new(5)))
         );
+
         assert_eq!(
             index.text_range_for_lsp_range(LspPosition::new(0, 2), LspPosition::new(0, 3)),
             None
         );
+
         assert_eq!(
             index.text_range_for_lsp_range(LspPosition::new(1, 0), LspPosition::new(0, 0)),
             None
@@ -427,6 +445,7 @@ mod tests {
             index.line_column(TextSize::new(2)),
             Some(LineColumn::new(2, 1))
         );
+
         assert_eq!(
             index.lsp_position(TextSize::new(2)),
             Some(LspPosition::new(1, 0))
@@ -443,10 +462,12 @@ mod tests {
             index.line_column(TextSize::new(1)),
             Some(LineColumn::new(1, 2))
         );
+
         assert_eq!(
             index.line_column(TextSize::new(3)),
             Some(LineColumn::new(2, 1))
         );
+
         assert_eq!(
             index.lsp_position(TextSize::new(3)),
             Some(LspPosition::new(1, 0))

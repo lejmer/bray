@@ -608,6 +608,7 @@ mod tests {
             collection,
             Err(MemberCollectionBuildError::DuplicateMember(duplicate))
         );
+
         assert_eq!(
             lookup_index,
             Err(MemberCollectionBuildError::DuplicateMember(duplicate))

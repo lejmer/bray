@@ -294,13 +294,16 @@ mod tests {
         };
 
         assert_eq!(recognized.declarations().len(), 1);
+
         assert_eq!(
             recognized.descriptor(function.into()),
             Some(RecognizedStandardLibraryDeclarationId::new(0))
         );
+
         assert_eq!(function.kind(), SymbolKind::Function);
         assert_eq!(symbol.origin(), SymbolOrigin::Imported);
         assert_eq!(recognized.imported(), imported.as_ref());
+
         assert_eq!(
             recognized.declaration_symbol::<StructSymbolId>(&recognized_key("StandardConvert")),
             None

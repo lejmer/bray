@@ -579,6 +579,7 @@ overload choose_any = {fast}
 
         assert_eq!(generic.value().parameters().len(), 2);
         assert_eq!(generic.value().constraints().len(), 1);
+
         assert_eq!(
             expression_text(&compilation, generic.value().constraints()[0].expression()),
             "count > 0"

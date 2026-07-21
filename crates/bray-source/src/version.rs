@@ -59,6 +59,7 @@ mod tests {
             SourceVersion::new(42).checked_next(),
             Some(SourceVersion::new(43))
         );
+
         assert_eq!(SourceVersion::new(u64::MAX).checked_next(), None);
     }
 }

@@ -287,10 +287,12 @@ mod tests {
             SourceInputKind::VirtualText.origin_kind(),
             SourceOriginKind::Virtual
         );
+
         assert_eq!(
             SourceInputKind::GeneratedText.origin_kind(),
             SourceOriginKind::Generated
         );
+
         assert_eq!(
             SourceInputKind::LspOpenDocument.origin_kind(),
             SourceOriginKind::LspDocument

@@ -146,6 +146,7 @@ mod tests {
         let view = tree.view(&key);
 
         assert!(view.expression(expression).is_some());
+
         assert!(
             view.node_is_recovered(expression.into())
                 .is_some_and(|value| value)

@@ -486,6 +486,7 @@ mod tests {
                 .collect::<Vec<_>>(),
             [LinkInputId::new(2), LinkInputId::new(1)]
         );
+
         assert_eq!(
             plan.exported_symbols()
                 .iter()

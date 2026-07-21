@@ -51,6 +51,7 @@ fn source_unit_parser_preserves_lexer_output_and_reconstructs_sources() {
         assert_single_final_eof(&source_unit_tokens, snapshot.text());
 
         assert_eq!(source_unit.full_text(), snapshot.text());
+
         assert_eq!(
             source_unit_result.source_unit().full_text(),
             snapshot.text()

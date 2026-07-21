@@ -103,6 +103,7 @@ mod tests {
             policy.line_break_kind('\n', None),
             Some(SourceLineBreakKind::LineFeed)
         );
+
         assert_eq!(
             policy.line_break_kind('\r', Some('\n')),
             Some(SourceLineBreakKind::CarriageReturnLineFeed)

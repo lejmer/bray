@@ -136,6 +136,7 @@ mod tests {
         let diagnostic = unexpected_eof(&snapshot, SyntaxKind::CloseBraceToken, &eof);
 
         assert_eq!(diagnostic.kind(), DiagnosticKind::SyntaxUnexpectedEof);
+
         assert_eq!(
             diagnostic.primary_span(),
             Some(bray_source::SourceSpan::empty(

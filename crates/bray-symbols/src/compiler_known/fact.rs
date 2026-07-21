@@ -82,10 +82,12 @@ mod tests {
         };
 
         assert_eq!(fact.descriptor().key(), &key);
+
         assert_eq!(
             fact.descriptor().implementation_hook(),
             Some(ImplementationHook::MemoryCopy)
         );
+
         assert_eq!(fact.surface().kind(), fact.descriptor().kind());
         assert!(!fact.surface().elements().is_empty());
     }

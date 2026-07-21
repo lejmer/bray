@@ -3,7 +3,7 @@ mod error;
 mod provider;
 mod target;
 
-pub use context::BinderFactContext;
+pub use context::{BinderFactContext, ImportedPathRoot};
 pub use error::{BinderFactError, BinderFactResult};
 pub use provider::{BindingSymbolFactProvider, SymbolFactProvider};
 pub use target::{TargetFactProvider, TargetFactResult};

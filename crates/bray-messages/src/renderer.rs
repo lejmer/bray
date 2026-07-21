@@ -246,6 +246,7 @@ mod tests {
             renderer.render(&array_length).message(),
             "array length must be greater than zero"
         );
+
         assert_eq!(
             renderer.render(&ambiguous).message(),
             "operator selection is ambiguous"
@@ -351,6 +352,7 @@ mod tests {
         };
 
         assert_eq!(note.rendered_kind(), RenderedDiagnosticNoteKind::Note);
+
         assert_eq!(
             note.message(),
             "while loading package 'example.dependency' product 'library' from dependency.brayi"

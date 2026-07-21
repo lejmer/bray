@@ -105,7 +105,7 @@ where
             let mut capabilities = Vec::new();
 
             for capability in clause.paths() {
-                match binder.bind_surface_path(path, &capability) {
+                match binder.bind_surface_path(path, &capability)? {
                     MemberLookupResult::Found(symbol) => capabilities.push(symbol),
                     MemberLookupResult::NotFound
                     | MemberLookupResult::WrongKind(_)
@@ -202,7 +202,8 @@ const fn binding_context(context: PredicateClauseBindingContext) -> BindingConte
 const fn binding_error(error: BindingError) -> BinderFactError {
     match error {
         BindingError::Cancelled => BinderFactError::Cancelled,
-        BindingError::Construction(_)
+        BindingError::DependencyUnavailable
+        | BindingError::Construction(_)
         | BindingError::IdentityCapacityExceeded
         | BindingError::RollbackFailed
         | BindingError::CandidateContextMismatch

@@ -1,14 +1,24 @@
-use crate::unit::BoundUnitConstructionError;
+use crate::{BinderFactError, unit::BoundUnitConstructionError};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum BindingError {
     Cancelled,
+    DependencyUnavailable,
     IdentityCapacityExceeded,
     RollbackFailed,
     CandidateContextMismatch,
     ControlTargetMismatch,
     UnsupportedSyntax,
     Construction(BoundUnitConstructionError),
+}
+
+impl From<BinderFactError> for BindingError {
+    fn from(error: BinderFactError) -> Self {
+        match error {
+            BinderFactError::Cancelled => Self::Cancelled,
+            BinderFactError::DependencyUnavailable => Self::DependencyUnavailable,
+        }
+    }
 }
 
 impl From<BoundUnitConstructionError> for BindingError {

@@ -385,10 +385,12 @@ mod tests {
 
         assert_eq!(eof.kind(), SyntaxKind::EndOfFileToken);
         assert_eq!(eof.range(), TextRange::empty(TextSize::new(4)));
+
         assert_eq!(
             trivia_texts(source.source().text(), eof.leading_trivia()),
             [" \t\r\n"]
         );
+
         assert_eq!(source.current_offset(), TextSize::new(4));
     }
 
@@ -437,6 +439,7 @@ mod tests {
 
         assert_eq!(token_text(source.source().text(), &dot), ".");
         assert_eq!(dot.kind(), SyntaxKind::DotToken);
+
         assert_eq!(
             token_text(source.source().text(), &cached_ordinary_next),
             "1"
@@ -619,6 +622,7 @@ mod tests {
         );
 
         assert_eq!(token_texts(&tokens), ["é", "aé", ""]);
+
         assert_eq!(
             tokens[1].range(),
             TextRange::new(TextSize::new(3), TextSize::new(6))
@@ -897,6 +901,7 @@ mod tests {
         let main_identifier = source.consume();
 
         assert_eq!(function_keyword.kind(), SyntaxKind::FuncKeyword);
+
         assert_eq!(
             token_text(source.source().text(), &function_keyword),
             "func"
@@ -943,6 +948,7 @@ mod tests {
             trivia_texts(source.source().text(), main_identifier.leading_trivia()),
             ["  "]
         );
+
         assert!(main_identifier.trailing_trivia().is_empty());
     }
 
@@ -954,10 +960,12 @@ mod tests {
         let eof = source.consume();
 
         assert_eq!(function_keyword.kind(), SyntaxKind::FuncKeyword);
+
         assert_eq!(
             trivia_texts(source.source().text(), function_keyword.trailing_trivia()),
             ["\n"]
         );
+
         assert_eq!(eof.kind(), SyntaxKind::EndOfFileToken);
         assert_eq!(eof.range(), TextRange::empty(TextSize::new(15)));
 
@@ -970,6 +978,7 @@ mod tests {
             trivia_texts(source.source().text(), eof.leading_trivia()),
             ["// final", "\r\n"]
         );
+
         assert!(eof.trailing_trivia().is_empty());
     }
 

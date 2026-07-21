@@ -418,6 +418,7 @@ mod tests {
             SourceOrigin::file_uri_from_path(Path::new("src/main.bray")),
             Err(SourceUriError::RelativeFilePath)
         );
+
         assert_eq!(
             SourceOrigin::file("src/main.bray").document_uri(),
             Err(SourceUriError::RelativeFilePath)
@@ -433,6 +434,7 @@ mod tests {
         };
 
         assert_eq!(path, PathBuf::from("src/main bray.bray"));
+
         assert_eq!(
             SourceOrigin::lsp_document("file:src/main%20bray.bray").document_file_path(),
             Ok(Some(path))

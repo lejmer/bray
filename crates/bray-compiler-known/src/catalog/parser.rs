@@ -788,6 +788,7 @@ mod tests {
         let (parsed, diagnostics) = parse_catalog_source(source(text));
 
         assert_eq!(parsed, None);
+
         assert!(diagnostics.iter().any(|diagnostic| matches!(
             diagnostic.kind(),
             CatalogDiagnosticKind::InvalidDeclarationIdentityOrdinal { spelling }

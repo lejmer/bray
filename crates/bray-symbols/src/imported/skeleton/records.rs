@@ -80,7 +80,22 @@ macro_rules! define_record_vectors {
                             ModuleRelationships::new(module.id().into(), relationship_index);
                         module.with_relationships(relationships)
                     })
-                    .collect();
+                    .collect::<Vec<_>>();
+
+                // The immutable path index owns keys independently of module records so lookup
+                // remains logarithmic without retaining references into movable construction data.
+                let mut module_paths = BTreeMap::<_, BTreeMap<_, _>>::new();
+
+                for module in &modules {
+                    let ModuleOwnerId::Package(package) = module.owner() else {
+                        continue;
+                    };
+
+                    module_paths
+                        .entry(package)
+                        .or_default()
+                        .insert(module.path().clone(), module.id());
+                }
 
                 ImportedSymbolSkeleton {
                     packages: TypedSymbolRecords::new(self.packages, PackageSymbol::id),
@@ -103,6 +118,7 @@ macro_rules! define_record_vectors {
                     ),
                     external_index,
                     lookups,
+                    module_paths,
                     $($plural: TypedSymbolRecords::new(self.$plural, crate::$record::id),)+
                 }
             }

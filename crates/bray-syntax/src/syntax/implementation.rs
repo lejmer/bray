@@ -433,10 +433,12 @@ mod tests {
         let declaration = builder.build();
 
         assert_eq!(declaration.full_text(), "impl Point {}");
+
         assert_eq!(
             declaration.implementation_subject().path().full_text(),
             "Point "
         );
+
         assert_eq!(declaration.implementation_body().full_text(), "{}");
     }
 

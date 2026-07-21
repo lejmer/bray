@@ -506,7 +506,9 @@ mod tests {
             events.first().map(String::as_str),
             Some("enter identifier_list")
         );
+
         assert!(events.contains(&"enter identifier_list_item".to_owned()));
+
         assert_eq!(
             events.last().map(String::as_str),
             Some("exit identifier_list")

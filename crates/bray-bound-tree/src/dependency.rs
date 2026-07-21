@@ -417,6 +417,7 @@ mod tests {
             guarded.guard(),
             BoundDependencyGuard::NullablePresent(access)
         );
+
         assert_eq!(guarded.requirements(), &[nested]);
     }
 

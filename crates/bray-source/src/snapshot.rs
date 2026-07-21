@@ -216,10 +216,12 @@ mod tests {
             snapshot.text_slice(TextRange::new(TextSize::new(1), TextSize::new(3))),
             Some("é")
         );
+
         assert_eq!(
             snapshot.text_slice(TextRange::new(TextSize::new(2), TextSize::new(3))),
             None
         );
+
         assert_eq!(
             snapshot.byte_slice(TextRange::new(TextSize::new(2), TextSize::new(4))),
             Some(&snapshot.bytes()[2..4])

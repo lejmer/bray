@@ -1100,6 +1100,11 @@ contextual contract symbols use their exact scope rules.
 Qualified lookup proceeds through typed module, type, trait, implementation, or value-member APIs. The binder must not rebuild member
 sets by walking declaration syntax.
 
+Module-level path lookup must combine source, compiler-known, and imported identity providers without copying declarations into a
+second graph. An imported identity skeleton is requested only when the path's package prefix names a selected dependency. This
+lookup must not decode declaration-owned semantic facts. Cancellation and unavailable dependency facts propagate through the
+binding request instead of being reported as source name-resolution failures.
+
 ### Anonymous Callables
 
 An anonymous callable uses its deterministic lambda region and local snapshot from `docs/design/symbols.md`.

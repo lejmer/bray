@@ -465,6 +465,7 @@ mod tests {
                 SymbolRelationshipKind::GenericParameter
                     .supports(owner, SymbolKind::GenericTypeParameter)
             );
+
             assert!(
                 SymbolRelationshipKind::GenericParameter
                     .supports(owner, SymbolKind::GenericConstParameter)
@@ -485,6 +486,7 @@ mod tests {
                 SymbolRelationshipKind::CallableParameter
                     .supports(owner, SymbolKind::CallableParameter)
             );
+
             assert!(
                 SymbolRelationshipKind::CallableParameter
                     .supports(owner, SymbolKind::ReceiverParameter)

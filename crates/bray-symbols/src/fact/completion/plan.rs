@@ -324,6 +324,7 @@ mod tests {
         let plan = completion_plan(&graph, function);
 
         assert_eq!(plan.units().len(), 1);
+
         assert!(
             plan.requests()
                 .iter()

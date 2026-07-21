@@ -12,14 +12,14 @@ use bray_parser::{SyntaxTreeResult, parse_source_unit};
 use bray_source::{SourceIdentity, SourceInput, SourceStore, SourceVersion};
 use bray_symbols::{
     ConstantDeclaredTypeFact, ConstantSymbolId, ConstantValueData, ConstantValueId,
-    ConstantValueKind, PackageIdentity, SemanticValueStore, SymbolFactRequest, SymbolGraph,
-    TypeData, TypeExpressionTemplate, TypeId,
+    ConstantValueKind, ImportedSymbolSkeleton, PackageIdentity, SemanticValueStore,
+    SymbolFactRequest, SymbolGraph, TypeData, TypeExpressionTemplate, TypeId,
 };
 use bray_syntax::SyntaxTree;
 
 use super::{
-    BinderFactContext, BinderFactError, BinderFactResult, SymbolFactProvider, TargetFactProvider,
-    TargetFactResult,
+    BinderFactContext, BinderFactError, BinderFactResult, ImportedPathRoot, SymbolFactProvider,
+    TargetFactProvider, TargetFactResult,
 };
 
 pub(crate) struct TestSymbolFacts {
@@ -75,6 +75,7 @@ pub(crate) struct TestContext<'facts> {
     syntax: &'facts SyntaxTree,
     declarations: &'facts DeclarationTable,
     symbols: &'facts SymbolGraph,
+    imported_symbols: Option<&'facts ImportedSymbolSkeleton>,
     semantic_values: &'facts SemanticValueStore,
     target_facts: &'facts TestTargetFacts,
     symbol_facts: &'facts TestSymbolFacts,
@@ -96,6 +97,34 @@ impl BinderFactContext for TestContext<'_> {
 
     fn symbols(&self) -> &SymbolGraph {
         self.symbols
+    }
+
+    fn imported_path_root(
+        &self,
+        components: &[&str],
+    ) -> BinderFactResult<Option<ImportedPathRoot<'_>>> {
+        let Some(symbols) = self.imported_symbols else {
+            return Ok(None);
+        };
+
+        let selected = symbols
+            .packages()
+            .iter()
+            .filter_map(|package| {
+                let component_count = package.identity().as_str().split('.').count();
+
+                (component_count <= components.len()
+                    && package
+                        .identity()
+                        .as_str()
+                        .split('.')
+                        .eq(components[..component_count].iter().copied()))
+                .then_some((package, component_count))
+            })
+            .max_by_key(|(_, component_count)| *component_count);
+
+        Ok(selected
+            .and_then(|(package, _)| ImportedPathRoot::for_path(symbols, package.id(), components)))
     }
 
     fn semantic_values(&self) -> &SemanticValueStore {
@@ -228,10 +257,21 @@ impl TestFixture {
             syntax: &self.syntax,
             declarations: &self.declarations,
             symbols: &self.symbols,
+            imported_symbols: None,
             semantic_values: &self.semantic_values,
             target_facts: &self.target_facts,
             symbol_facts: &self.symbol_facts,
             cancellation: &self.cancellation,
+        }
+    }
+
+    pub(crate) fn context_with_imported<'fixture>(
+        &'fixture self,
+        imported_symbols: &'fixture ImportedSymbolSkeleton,
+    ) -> TestContext<'fixture> {
+        TestContext {
+            imported_symbols: Some(imported_symbols),
+            ..self.context()
         }
     }
 }

@@ -243,6 +243,7 @@ mod tests {
 
         for limit in categories {
             assert_eq!(limits.check(limit, 1), Ok(()));
+
             assert_eq!(
                 limits.check(limit, 2),
                 Err(InterfaceValidationError::ResourceLimitExceeded {

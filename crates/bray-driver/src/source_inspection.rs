@@ -258,10 +258,12 @@ mod tests {
         assert_eq!(output_json["sources"][0]["origin"]["virtual_name"], "main");
         assert_eq!(output_json["sources"][0]["byte_len"], 12);
         assert_eq!(output_json["sources"][0]["line_count"], 2);
+
         assert_eq!(
             output_json["sources"][0]["line_starts"],
             serde_json::json!([0, 12])
         );
+
         assert_eq!(output_json["sources"][0]["text"], "module main\n");
     }
 

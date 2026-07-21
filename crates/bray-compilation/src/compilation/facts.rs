@@ -735,6 +735,7 @@ mod tests {
         };
 
         assert!(std::ptr::eq(first, second));
+
         assert!(std::ptr::eq(
             first.provider(),
             graph.compiler_known_provider()
@@ -878,6 +879,7 @@ mod tests {
         assert!(second_declaration_cache.get().is_none());
 
         assert!(compilation.state.declaration_table_result.get().is_none());
+
         assert_eq!(
             compilation
                 .state
@@ -915,6 +917,7 @@ mod tests {
         );
 
         assert!(compilation.state.check_diagnostics.get().is_none());
+
         assert_eq!(
             compilation
                 .state

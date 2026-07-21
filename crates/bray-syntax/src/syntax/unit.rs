@@ -1144,10 +1144,12 @@ mod tests {
 
         assert_eq!(source_unit.full_text(), "func main() {}");
         assert_eq!(declaration.full_text(), "func main() {}");
+
         assert_eq!(
             declaration.identifier_token().kind(),
             SyntaxKind::IdentifierToken
         );
+
         assert_eq!(declaration.parameter_list().full_text(), "() ");
         assert!(declaration.callable_body_block_expression().is_some());
     }

@@ -360,6 +360,7 @@ mod tests {
         let decoded = decode(&sections, InterfaceValidationLimits::default());
 
         assert_eq!(decoded, Ok(surface.clone()));
+
         assert_eq!(
             decoded
                 .as_ref()

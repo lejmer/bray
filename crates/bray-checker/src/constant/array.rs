@@ -29,10 +29,12 @@ mod tests {
         let negative = IntegerConstant::new(IntegerSign::Negative, [1]);
 
         assert_eq!(check_array_length(&positive), Ok(()));
+
         assert_eq!(
             check_array_length(&zero),
             Err(ArrayLengthError::NotPositive)
         );
+
         assert_eq!(
             check_array_length(&negative),
             Err(ArrayLengthError::NotPositive)

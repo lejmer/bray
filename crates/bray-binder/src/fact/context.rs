@@ -1,9 +1,59 @@
 use bray_base::Cancellation;
 use bray_declarations::DeclarationTable;
-use bray_symbols::{SemanticValueStore, SymbolGraph};
+use bray_symbols::{ImportedSymbolSkeleton, PackageSymbolId, SemanticValueStore, SymbolGraph};
 use bray_syntax::SyntaxTree;
 
-use crate::TargetFactProvider;
+use crate::{BinderFactResult, TargetFactProvider};
+
+/// One selected imported package root for a qualified source path.
+#[derive(Clone, Copy, Debug)]
+pub struct ImportedPathRoot<'symbols> {
+    symbols: &'symbols ImportedSymbolSkeleton,
+    package: PackageSymbolId,
+    consumed_components: usize,
+}
+
+impl<'symbols> ImportedPathRoot<'symbols> {
+    /// Creates a root when the package identity is an exact prefix of the source path.
+    pub fn for_path(
+        symbols: &'symbols ImportedSymbolSkeleton,
+        package: PackageSymbolId,
+        components: &[&str],
+    ) -> Option<Self> {
+        let package_identity = symbols.package(package)?.identity();
+        let consumed_components = package_identity.as_str().split('.').count();
+
+        if consumed_components > components.len()
+            || !package_identity
+                .as_str()
+                .split('.')
+                .eq(components[..consumed_components].iter().copied())
+        {
+            return None;
+        }
+
+        Some(Self {
+            symbols,
+            package,
+            consumed_components,
+        })
+    }
+
+    /// Returns the imported identity provider for the selected package.
+    pub const fn symbols(self) -> &'symbols ImportedSymbolSkeleton {
+        self.symbols
+    }
+
+    /// Returns the exact imported package identity selected by the path prefix.
+    pub const fn package(self) -> PackageSymbolId {
+        self.package
+    }
+
+    /// Returns the number of source path components occupied by the package identity.
+    pub const fn consumed_components(self) -> usize {
+        self.consumed_components
+    }
+}
 
 /// Injected read-only facts available to one binding computation.
 pub trait BinderFactContext: Send + Sync {
@@ -22,6 +72,12 @@ pub trait BinderFactContext: Send + Sync {
 
     /// Returns the immutable compilation-wide symbol identity graph.
     fn symbols(&self) -> &SymbolGraph;
+
+    /// Resolves the longest selected dependency package prefix of a qualified source path.
+    fn imported_path_root(
+        &self,
+        components: &[&str],
+    ) -> BinderFactResult<Option<ImportedPathRoot<'_>>>;
 
     /// Returns the canonical semantic value store associated with the symbol graph.
     fn semantic_values(&self) -> &SemanticValueStore;

@@ -401,6 +401,7 @@ mod tests {
             host.role_bindings()[0].role(),
             RuntimeAbiRole::RootExecution
         );
+
         assert!(
             host.role_binding(RuntimeAbiRole::MainThreadLaneDrive)
                 .is_some()

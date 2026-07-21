@@ -914,10 +914,12 @@ mod tests {
             expected_digest.name(),
             DiagnosticArgName::ExpectedArtifactDigest
         );
+
         assert_eq!(
             expected_digest.value(),
             &DiagnosticArgValue::ArtifactDigest(digest)
         );
+
         assert_eq!(actual_length.name(), DiagnosticArgName::ActualByteCount);
         assert_eq!(actual_length.value(), &DiagnosticArgValue::ByteCount(4));
     }
@@ -965,10 +967,12 @@ mod tests {
 
         assert_eq!(kind.name(), DiagnosticArgName::ExpectedNameKind);
         assert_eq!(kind.name().as_str(), "expected_name_kind");
+
         assert_eq!(
             kind.value(),
             &DiagnosticArgValue::NameKind(DiagnosticNameKind::Type)
         );
+
         assert_eq!(
             DiagnosticNameKind::CallableOverload.as_str(),
             "callable_overload"

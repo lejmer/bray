@@ -249,6 +249,7 @@ mod tests {
             SymbolFactKind::CallableSignature
                 .is_required_for(SymbolCompletionLevel::DeclarationSurface)
         );
+
         assert!(
             !SymbolFactKind::CallableSignature.is_required_for(SymbolCompletionLevel::Identity)
         );

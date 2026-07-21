@@ -56,6 +56,7 @@ mod tests {
         let result = DiagnosticResult::new(7_u32, DiagnosticBag::single(diagnostic.clone()));
 
         assert_eq!(result.value(), &7);
+
         assert_eq!(
             result.diagnostics().diagnostics(),
             std::slice::from_ref(&diagnostic)
