@@ -5,6 +5,7 @@ use bray_declarations::{DeclarationId, SyntaxAnchor};
 use bray_syntax::SyntaxTree;
 
 use crate::collection::TypedSymbolRecords;
+use crate::provider::symbol_key_from_provider;
 use crate::record::{
     CallableParameterDefaultProviderSymbol, CompilerKnownEnvironmentSymbol,
     DeclarationSymbolIdentity, ModuleSymbol, PackageSymbol, ReceiverParameterSymbol,
@@ -229,21 +230,7 @@ macro_rules! define_symbol_graph {
                             self.compiler_known.as_ref(),
                             id,
                         ).map(CompilerKnownEnvironmentSymbol::key),
-                    AnySymbolId::Package(id) => self.package(id).map(PackageSymbol::key),
-                    AnySymbolId::Module(id) => self.module(id).map(ModuleSymbol::key),
-                    AnySymbolId::CallableParameterDefaultProvider(id) => self
-                        .callable_parameter_default_provider(id)
-                        .map(CallableParameterDefaultProviderSymbol::key),
-                    AnySymbolId::StructFieldDefaultProvider(id) => self
-                        .struct_field_default_provider(id)
-                        .map(StructFieldDefaultProviderSymbol::key),
-                    AnySymbolId::UnionPayloadDefaultProvider(id) => self
-                        .union_payload_default_provider(id)
-                        .map(UnionPayloadDefaultProviderSymbol::key),
-                    AnySymbolId::ReceiverParameter(id) => {
-                        self.receiver_parameter(id).map(ReceiverParameterSymbol::key)
-                    }
-                    $(AnySymbolId::$variant(id) => self.$singular(id).map(crate::$record::key),)+
+                    _ => symbol_key_from_provider(self, symbol),
                 }
             }
 

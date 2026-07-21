@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
 use crate::collection::TypedSymbolRecords;
+use crate::provider::symbol_key_from_provider;
 use crate::record::for_each_declaration_symbol;
 use crate::{
     AnySymbolId, CallableParameterDefaultProviderSymbol, CallableParameterDefaultProviderSymbolId,
@@ -105,24 +106,7 @@ macro_rules! define_imported_symbol_skeleton {
 
             /// Returns one imported symbol's stable compilation semantic key.
             pub fn symbol_key(&self, symbol: AnySymbolId) -> Option<&crate::SymbolKey> {
-                match symbol {
-                    AnySymbolId::Package(id) => self.package(id).map(PackageSymbol::key),
-                    AnySymbolId::Module(id) => self.module(id).map(ModuleSymbol::key),
-                    AnySymbolId::CallableParameterDefaultProvider(id) => self
-                        .callable_parameter_default_provider(id)
-                        .map(CallableParameterDefaultProviderSymbol::key),
-                    AnySymbolId::StructFieldDefaultProvider(id) => self
-                        .struct_field_default_provider(id)
-                        .map(StructFieldDefaultProviderSymbol::key),
-                    AnySymbolId::UnionPayloadDefaultProvider(id) => self
-                        .union_payload_default_provider(id)
-                        .map(UnionPayloadDefaultProviderSymbol::key),
-                    AnySymbolId::ReceiverParameter(id) => {
-                        self.receiver_parameter(id).map(ReceiverParameterSymbol::key)
-                    }
-                    $(AnySymbolId::$variant(id) => self.$singular(id).map(crate::$record::key),)+
-                    AnySymbolId::CompilerKnownEnvironment(_) => None,
-                }
+                symbol_key_from_provider(self, symbol)
             }
 
             /// Returns the compiled-interface address backing one imported declaration symbol.

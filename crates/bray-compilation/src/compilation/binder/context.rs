@@ -213,8 +213,10 @@ mod tests {
 
     use bray_binder::{BinderFactError, bind_expression_candidates};
     use bray_bound_tree::{
-        AnyBoundNodeId, BoundExpression, BoundExpressionId, BoundReferenceTarget, BoundUnit,
-        BoundUnitRoot, BoundWalkControl, BoundWalkEvent, DeclaredValueTypeTerm, SelectionKind,
+        AnyBoundNodeId, BoundBlock, BoundBlockItem, BoundCallExpression, BoundCallableBody,
+        BoundExpression, BoundExpressionId, BoundNameExpression, BoundNodeOrigin,
+        BoundReferenceTarget, BoundTreeBuilder, BoundUnit, BoundUnitRoot, BoundWalkControl,
+        BoundWalkEvent, DeclaredValueTypeTerm, SelectionKind, testing::push_expression,
         walk_bound_unit_view,
     };
     use bray_checker::{
@@ -226,7 +228,10 @@ mod tests {
         test_support::encoded_template_test_interface,
     };
     use bray_source::{SourceIdentity, SourceInput, SourceVersion};
-    use bray_symbols::{PackageIdentity, TypeExpressionTemplate, UnevaluatedDefaultTemplate};
+    use bray_symbols::{
+        AnySymbolId, MemberLookupResult, ModulePathKey, PackageIdentity, TypeExpressionTemplate,
+        UnevaluatedDefaultTemplate,
+    };
 
     use super::CompilationBinderFacts;
     use crate::{CancellationToken, Compilation, CompilationRequest, DependencyInterfaceInput};
@@ -506,6 +511,55 @@ mod tests {
         assert_eq!(&repeated, first_overload);
     }
 
+    #[test]
+    fn imported_callable_candidates_remain_explicit_until_signature_facts_are_portable() {
+        let fixture = encoded_template_test_interface();
+        let compilation = compilation_with_source(
+            concat!(
+                "module current.package;\n",
+                "\n",
+                "func main()\n",
+                "{\n",
+                "}\n",
+            ),
+            [valid_dependency(&fixture)],
+        );
+
+        let key = crate::test_support::source_callable_body_key(&compilation);
+
+        let bound = compilation
+            .bound_unit(key.clone())
+            .unwrap_or_else(|error| panic!("test callable must bind: {error:?}"));
+
+        let cancellation = CancellationToken::new();
+
+        let facts = compilation
+            .binder_facts_for(&key, &cancellation)
+            .unwrap_or_else(|error| panic!("binder facts must be available: {error:?}"));
+
+        let imported = imported_function(&facts, &fixture.package);
+
+        let (unit, expression) = imported_call_unit(bound.value(), imported);
+
+        let result = candidates(&facts, &unit, expression);
+
+        assert!(matches!(
+            result.value(),
+            ExpressionCandidateSet::Callable(CallableCandidateTemplates::Absent {
+                reason: CandidateAbsence::UnavailableDeclarationFacts,
+                ..
+            })
+        ));
+
+        assert!(
+            compilation
+                .state
+                .imported_semantic_graphs
+                .iter()
+                .all(|graph| graph.get().is_none())
+        );
+    }
+
     fn candidates(
         facts: &CompilationBinderFacts<'_>,
         unit: &BoundUnit,
@@ -557,6 +611,78 @@ mod tests {
         }
     }
 
+    fn imported_function(
+        facts: &CompilationBinderFacts<'_>,
+        package_identity: &PackageIdentity,
+    ) -> AnySymbolId {
+        let symbols = facts
+            .imported_symbols()
+            .unwrap_or_else(|error| panic!("imported symbols must load: {error:?}"))
+            .unwrap_or_else(|| panic!("test dependency must publish imported symbols"));
+
+        let package = symbols
+            .package_by_identity(package_identity)
+            .unwrap_or_else(|| panic!("test dependency package must be present"));
+
+        let path = ModulePathKey::try_new(["templates"])
+            .unwrap_or_else(|| panic!("test module path must be valid"));
+
+        let module = symbols
+            .module_by_path(package.id(), &path)
+            .unwrap_or_else(|| panic!("test dependency module must be present"));
+
+        match symbols.lookup(module.id().into(), "run") {
+            MemberLookupResult::Found(symbol) => symbol,
+            result => panic!("test imported callable must resolve: {result:?}"),
+        }
+    }
+
+    fn imported_call_unit(
+        template: &BoundUnit,
+        imported: AnySymbolId,
+    ) -> (BoundUnit, BoundExpressionId) {
+        let origin = BoundNodeOrigin::source(template.key().source());
+        let mut tree = BoundTreeBuilder::new(template.unit());
+
+        let callee = push_expression(
+            &mut tree,
+            BoundExpression::Name(BoundNameExpression::new(
+                origin,
+                BoundReferenceTarget::Surface(imported),
+                None,
+                false,
+            )),
+        );
+
+        let call = push_expression(
+            &mut tree,
+            BoundExpression::Call(BoundCallExpression::pending(origin, callee, [], [])),
+        );
+
+        let block = tree
+            .push_block(BoundBlock::new(
+                origin,
+                [BoundBlockItem::Expression(call)],
+                false,
+            ))
+            .unwrap_or_else(|error| panic!("test block must be valid: {error:?}"));
+
+        let body = tree
+            .push_callable_body(BoundCallableBody::block(origin, block))
+            .unwrap_or_else(|error| panic!("test callable body must be valid: {error:?}"));
+
+        let unit = BoundUnit::try_new(
+            template.key().clone(),
+            tree.finish(),
+            template.local_symbols().clone(),
+            template.nested_units().iter().cloned(),
+            BoundUnitRoot::CallableBody(body),
+        )
+        .unwrap_or_else(|error| panic!("test bound unit must be valid: {error:?}"));
+
+        (unit, call)
+    }
+
     fn valid_dependency(
         fixture: &bray_package_interface::test_support::EncodedTemplateTestInterface,
     ) -> DependencyInterfaceInput {
@@ -572,13 +698,20 @@ mod tests {
     fn compilation(
         dependencies: impl IntoIterator<Item = DependencyInterfaceInput>,
     ) -> Compilation {
+        compilation_with_source("module current.package;", dependencies)
+    }
+
+    fn compilation_with_source(
+        source: &str,
+        dependencies: impl IntoIterator<Item = DependencyInterfaceInput>,
+    ) -> Compilation {
         let request = CompilationRequest::new(
             package("current.package"),
             vec![SourceInput::virtual_text(
                 SourceIdentity::new(1),
                 "main.bray",
                 SourceVersion::new(1),
-                "module current.package;",
+                source,
             )],
         )
         .with_dependency_interfaces(dependencies);
