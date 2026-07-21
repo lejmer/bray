@@ -1,9 +1,9 @@
 use bray_base::Cancellation;
 use bray_declarations::DeclarationTable;
-use bray_symbols::{SemanticValueStore, SymbolGraph};
+use bray_symbols::{ImportedSymbolSkeleton, SemanticValueStore, SymbolGraph};
 use bray_syntax::SyntaxTree;
 
-use crate::TargetFactProvider;
+use crate::{BinderFactResult, TargetFactProvider};
 
 /// Injected read-only facts available to one binding computation.
 pub trait BinderFactContext: Send + Sync {
@@ -22,6 +22,14 @@ pub trait BinderFactContext: Send + Sync {
 
     /// Returns the immutable compilation-wide symbol identity graph.
     fn symbols(&self) -> &SymbolGraph;
+
+    /// Returns imported identities when the named package is a selected dependency.
+    fn imported_symbols_for_package(
+        &self,
+        _package: &str,
+    ) -> BinderFactResult<Option<&ImportedSymbolSkeleton>> {
+        Ok(None)
+    }
 
     /// Returns the canonical semantic value store associated with the symbol graph.
     fn semantic_values(&self) -> &SemanticValueStore;

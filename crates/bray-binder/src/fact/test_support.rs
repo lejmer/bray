@@ -12,8 +12,8 @@ use bray_parser::{SyntaxTreeResult, parse_source_unit};
 use bray_source::{SourceIdentity, SourceInput, SourceStore, SourceVersion};
 use bray_symbols::{
     ConstantDeclaredTypeFact, ConstantSymbolId, ConstantValueData, ConstantValueId,
-    ConstantValueKind, PackageIdentity, SemanticValueStore, SymbolFactRequest, SymbolGraph,
-    TypeData, TypeExpressionTemplate, TypeId,
+    ConstantValueKind, ImportedSymbolSkeleton, PackageIdentity, SemanticValueStore,
+    SymbolFactRequest, SymbolGraph, TypeData, TypeExpressionTemplate, TypeId,
 };
 use bray_syntax::SyntaxTree;
 
@@ -75,6 +75,7 @@ pub(crate) struct TestContext<'facts> {
     syntax: &'facts SyntaxTree,
     declarations: &'facts DeclarationTable,
     symbols: &'facts SymbolGraph,
+    imported_symbols: Option<&'facts ImportedSymbolSkeleton>,
     semantic_values: &'facts SemanticValueStore,
     target_facts: &'facts TestTargetFacts,
     symbol_facts: &'facts TestSymbolFacts,
@@ -96,6 +97,15 @@ impl BinderFactContext for TestContext<'_> {
 
     fn symbols(&self) -> &SymbolGraph {
         self.symbols
+    }
+
+    fn imported_symbols_for_package(
+        &self,
+        package: &str,
+    ) -> BinderFactResult<Option<&ImportedSymbolSkeleton>> {
+        Ok(self
+            .imported_symbols
+            .filter(|symbols| symbols.package_by_identity(package).is_some()))
     }
 
     fn semantic_values(&self) -> &SemanticValueStore {
@@ -228,10 +238,21 @@ impl TestFixture {
             syntax: &self.syntax,
             declarations: &self.declarations,
             symbols: &self.symbols,
+            imported_symbols: None,
             semantic_values: &self.semantic_values,
             target_facts: &self.target_facts,
             symbol_facts: &self.symbol_facts,
             cancellation: &self.cancellation,
+        }
+    }
+
+    pub(crate) fn context_with_imported<'fixture>(
+        &'fixture self,
+        imported_symbols: &'fixture ImportedSymbolSkeleton,
+    ) -> TestContext<'fixture> {
+        TestContext {
+            imported_symbols: Some(imported_symbols),
+            ..self.context()
         }
     }
 }

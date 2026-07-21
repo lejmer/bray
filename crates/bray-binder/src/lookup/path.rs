@@ -2,8 +2,9 @@ use bray_bound_tree::BoundPatternTarget;
 use bray_diagnostics::DiagnosticNameKind;
 use bray_source::SourceSnapshot;
 use bray_symbols::{
-    AnySymbolId, CallableOverloadSymbolId, MemberLookupIndex, MemberLookupResult, MemberVisibility,
-    ModuleOwnerId, ModulePathKey, ModuleSymbol, ModuleSymbolId, TraitSymbolId,
+    AnySymbolId, CallableOverloadSymbolId, ImportedSymbolSkeleton, MemberLookupIndex,
+    MemberLookupResult, MemberVisibility, ModuleOwnerId, ModulePathKey, ModuleSymbol,
+    ModuleSymbolId, SymbolGraph, TraitSymbolId,
 };
 use bray_syntax::{PathSyntax, SourceSyntaxNode, SyntaxToken};
 
@@ -16,12 +17,14 @@ use super::category::{
     classify_callable_overload, classify_member, classify_trait, classify_type, classify_value,
 };
 use super::diagnostic::{NameReference, malformed_lookup, report_lookup_result};
-use crate::{BinderFactContext, binder::Binder};
+use crate::{BinderFactContext, BinderFactResult, binder::Binder};
 
 /// Visibility policy for one source name reference.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum NameAccess {
+pub enum NameAccess {
+    /// Only publicly visible declarations can be resolved.
     Public,
+    /// Internal declarations can also be resolved.
     Internal,
 }
 
@@ -88,6 +91,57 @@ struct PathLookup {
     reference: Option<NameReference>,
 }
 
+pub(super) fn bind_module_path(
+    symbols: &SymbolGraph,
+    imported_symbols: Option<&ImportedSymbolSkeleton>,
+    module: ModuleSymbolId,
+    path: &PathSyntax,
+    access: NameAccess,
+) -> NameLookupResult<ResolvedName> {
+    let Some(module) = symbols.module(module) else {
+        return malformed_lookup();
+    };
+
+    let Some(references) = path_references(path) else {
+        return malformed_lookup();
+    };
+
+    let Some(first) = references.first() else {
+        return malformed_lookup();
+    };
+
+    let source_prefix = next_module_prefix(symbols, module.owner(), None, &references, access);
+    let compiler_known = symbols.compiler_known_environment();
+
+    let compiler_known_prefix = next_module_prefix(
+        symbols,
+        ModuleOwnerId::from(compiler_known.id()),
+        None,
+        &references,
+        access,
+    );
+
+    let ordinary = combine_name_lookups(
+        combine_name_lookups(
+            lookup_surface_name(symbols, module.id().into(), first.text(), access),
+            lookup_surface_name(symbols, compiler_known.id().into(), first.text(), access),
+        ),
+        lookup_imported_package(imported_symbols, first.text()),
+    );
+
+    let module_prefixes = [source_prefix, compiler_known_prefix].into_iter().flatten();
+    let (result, consumed) = combine_with_module_prefixes(ordinary, module_prefixes);
+    bind_remaining_path(
+        symbols,
+        imported_symbols,
+        access,
+        references,
+        result,
+        consumed,
+    )
+    .result
+}
+
 impl<C> Binder<'_, C>
 where
     C: BinderFactContext + ?Sized,
@@ -96,8 +150,8 @@ where
         &mut self,
         context: PathBindingContext,
         path: &PathSyntax,
-    ) -> NameLookupResult<BoundPatternTarget> {
-        let lookup = self.bind_path(context, path);
+    ) -> BinderFactResult<NameLookupResult<BoundPatternTarget>> {
+        let lookup = self.bind_path(context, path)?;
         let result = lookup.result.classify(|name| match name {
             ResolvedName::Surface(AnySymbolId::Constant(id)) => {
                 Some(BoundPatternTarget::Surface(id.into()))
@@ -118,15 +172,15 @@ where
             report_lookup_result(self, &reference, DiagnosticNameKind::Pattern, &result);
         }
 
-        result
+        Ok(result)
     }
 
     pub(crate) fn bind_assignment_pattern_path(
         &mut self,
         context: PathBindingContext,
         path: &PathSyntax,
-    ) -> NameLookupResult<BoundPatternTarget> {
-        let lookup = self.bind_path(context, path);
+    ) -> BinderFactResult<NameLookupResult<BoundPatternTarget>> {
+        let lookup = self.bind_path(context, path)?;
         let result = lookup.result.map(
             |name| match name {
                 ResolvedName::Local(id) => BoundPatternTarget::Local(id),
@@ -139,7 +193,7 @@ where
             report_lookup_result(self, &reference, DiagnosticNameKind::Value, &result);
         }
 
-        result
+        Ok(result)
     }
 
     pub(crate) fn bind_pattern_identifier(
@@ -209,8 +263,8 @@ where
         &mut self,
         context: PathBindingContext,
         path: &PathSyntax,
-    ) -> NameLookupResult<ModuleSymbolId> {
-        let lookup = self.bind_path(context, path);
+    ) -> BinderFactResult<NameLookupResult<ModuleSymbolId>> {
+        let lookup = self.bind_path(context, path)?;
 
         let result = lookup.result.classify(|name| match name {
             ResolvedName::Surface(AnySymbolId::Module(id)) => Some(id),
@@ -221,14 +275,14 @@ where
             report_lookup_result(self, &reference, DiagnosticNameKind::Module, &result);
         }
 
-        result
+        Ok(result)
     }
 
     pub(crate) fn bind_type_path(
         &mut self,
         context: PathBindingContext,
         path: &PathSyntax,
-    ) -> NameLookupResult<ResolvedTypeName> {
+    ) -> BinderFactResult<NameLookupResult<ResolvedTypeName>> {
         self.bind_classified_path(context, path, DiagnosticNameKind::Type, classify_type)
     }
 
@@ -236,7 +290,7 @@ where
         &mut self,
         context: PathBindingContext,
         path: &PathSyntax,
-    ) -> NameLookupResult<TraitSymbolId> {
+    ) -> BinderFactResult<NameLookupResult<TraitSymbolId>> {
         self.bind_classified_path(context, path, DiagnosticNameKind::Trait, classify_trait)
     }
 
@@ -244,7 +298,7 @@ where
         &mut self,
         context: PathBindingContext,
         path: &PathSyntax,
-    ) -> NameLookupResult<ResolvedValueName> {
+    ) -> BinderFactResult<NameLookupResult<ResolvedValueName>> {
         self.bind_classified_path(context, path, DiagnosticNameKind::Value, classify_value)
     }
 
@@ -252,7 +306,7 @@ where
         &mut self,
         context: PathBindingContext,
         path: &PathSyntax,
-    ) -> NameLookupResult<AnySymbolId> {
+    ) -> BinderFactResult<NameLookupResult<AnySymbolId>> {
         self.bind_classified_path(
             context,
             path,
@@ -292,7 +346,7 @@ where
         &mut self,
         context: PathBindingContext,
         path: &PathSyntax,
-    ) -> NameLookupResult<CallableOverloadSymbolId> {
+    ) -> BinderFactResult<NameLookupResult<CallableOverloadSymbolId>> {
         self.bind_classified_path(
             context,
             path,
@@ -345,31 +399,37 @@ where
         path: &PathSyntax,
         expected: DiagnosticNameKind,
         classify: fn(ResolvedName) -> Option<T>,
-    ) -> NameLookupResult<T> {
-        let lookup = self.bind_path(context, path);
+    ) -> BinderFactResult<NameLookupResult<T>> {
+        let lookup = self.bind_path(context, path)?;
         let result = lookup.result.classify(classify);
 
         if let Some(reference) = lookup.reference {
             report_lookup_result(self, &reference, expected, &result);
         }
 
-        result
+        Ok(result)
     }
 
-    fn bind_path(&self, context: PathBindingContext, path: &PathSyntax) -> PathLookup {
+    fn bind_path(
+        &self,
+        context: PathBindingContext,
+        path: &PathSyntax,
+    ) -> BinderFactResult<PathLookup> {
         let Some(references) = path_references(path) else {
-            return PathLookup {
+            return Ok(PathLookup {
                 result: malformed_lookup(),
                 reference: None,
-            };
+            });
         };
 
         let Some(first) = references.first() else {
-            return PathLookup {
+            return Ok(PathLookup {
                 result: malformed_lookup(),
                 reference: None,
-            };
+            });
         };
+
+        let imported_symbols = self.facts().imported_symbols_for_package(first.text())?;
 
         let source_prefix = next_module_prefix(
             self.facts().symbols(),
@@ -390,65 +450,102 @@ where
             context.access,
         );
 
-        let ordinary = lookup_unqualified_name(
-            self.unit(),
-            self.facts().symbols(),
-            context.scope,
-            context.module,
-            first.text(),
-            context.access,
+        let ordinary = combine_name_lookups(
+            lookup_unqualified_name(
+                self.unit(),
+                self.facts().symbols(),
+                context.scope,
+                context.module,
+                first.text(),
+                context.access,
+            ),
+            lookup_imported_package(imported_symbols, first.text()),
         );
 
         let module_prefixes = [source_prefix, compiler_known_prefix].into_iter().flatten();
         let (result, consumed) = combine_with_module_prefixes(ordinary, module_prefixes);
 
-        self.bind_remaining_path(context, references, result, consumed)
+        Ok(bind_remaining_path(
+            self.facts().symbols(),
+            imported_symbols,
+            context.access,
+            references,
+            result,
+            consumed,
+        ))
+    }
+}
+
+fn bind_remaining_path(
+    symbols: &SymbolGraph,
+    imported_symbols: Option<&ImportedSymbolSkeleton>,
+    access: NameAccess,
+    references: Vec<NameReference>,
+    mut result: NameLookupResult<ResolvedName>,
+    mut consumed: usize,
+) -> PathLookup {
+    while consumed < references.len() {
+        let owner = match &result {
+            MemberLookupResult::Found(ResolvedName::Surface(owner)) => *owner,
+            _ => return path_lookup(result, references, consumed.saturating_sub(1)),
+        };
+
+        let ordinary = lookup_surface_name_with_imports(
+            symbols,
+            imported_symbols,
+            owner,
+            references[consumed].text(),
+            access,
+        );
+
+        let module_prefix = match owner {
+            AnySymbolId::Module(module) => symbols.module(module).and_then(|module| {
+                next_module_prefix(
+                    symbols,
+                    module.owner(),
+                    Some(module.path()),
+                    &references[consumed..],
+                    access,
+                )
+            }),
+            _ => None,
+        };
+
+        let (next, length) = combine_with_module_prefixes(ordinary, module_prefix);
+
+        result = next;
+        consumed += length;
     }
 
-    fn bind_remaining_path(
-        &self,
-        context: PathBindingContext,
-        references: Vec<NameReference>,
-        mut result: NameLookupResult<ResolvedName>,
-        mut consumed: usize,
-    ) -> PathLookup {
-        while consumed < references.len() {
-            let owner = match &result {
-                MemberLookupResult::Found(ResolvedName::Surface(owner)) => *owner,
-                _ => return path_lookup(result, references, consumed.saturating_sub(1)),
-            };
+    path_lookup(result, references, consumed.saturating_sub(1))
+}
 
-            let ordinary = lookup_surface_name(
-                self.facts().symbols(),
-                owner,
-                references[consumed].text(),
-                context.access,
-            );
-
-            let module_prefix = match owner {
-                AnySymbolId::Module(module) => {
-                    self.facts().symbols().module(module).and_then(|module| {
-                        next_module_prefix(
-                            self.facts().symbols(),
-                            module.owner(),
-                            Some(module.path()),
-                            &references[consumed..],
-                            context.access,
-                        )
-                    })
-                }
-                _ => None,
-            };
-
-            let (next, length) = combine_with_module_prefixes(ordinary, module_prefix);
-
-            result = next;
-
-            consumed += length;
-        }
-
-        path_lookup(result, references, consumed.saturating_sub(1))
+fn lookup_surface_name_with_imports(
+    symbols: &SymbolGraph,
+    imported_symbols: Option<&ImportedSymbolSkeleton>,
+    owner: AnySymbolId,
+    name: &str,
+    access: NameAccess,
+) -> NameLookupResult<ResolvedName> {
+    if symbols.symbol_key(owner).is_some() {
+        return lookup_surface_name(symbols, owner, name, access);
     }
+
+    imported_symbols.map_or(MemberLookupResult::NotFound, |symbols| {
+        symbols
+            .lookup(owner, name)
+            .map(ResolvedName::Surface, ResolvedName::Surface)
+    })
+}
+
+fn lookup_imported_package(
+    imported_symbols: Option<&ImportedSymbolSkeleton>,
+    name: &str,
+) -> NameLookupResult<ResolvedName> {
+    imported_symbols
+        .and_then(|symbols| symbols.package_by_identity(name))
+        .map(|package| ResolvedName::Surface(package.id().into()))
+        .map_or(MemberLookupResult::NotFound, MemberLookupResult::Found)
 }
 
 type ModulePrefixLookup = (ModuleSymbolId, usize, NameLookupResult<ResolvedName>);
@@ -576,8 +673,7 @@ mod tests {
     use bray_source::{TextRange, TextSize};
     use bray_symbols::{
         AnyLocalSymbolId, AnySymbolId, LocalSymbolRegionId, MemberEntry, MemberLookupIndex,
-        MemberLookupResult, MemberValidity, MemberVisibility, ModuleOwnerId, SymbolName,
-        SymbolOrigin,
+        MemberLookupResult, MemberValidity, MemberVisibility, SymbolKind, SymbolName, SymbolOrigin,
     };
     use bray_syntax::{PathSyntax, SourceSyntaxNode, SyntaxKind, SyntaxToken};
     use bray_testing::{test_source_at, test_source_store};
@@ -587,6 +683,7 @@ mod tests {
     use crate::binder::{Binder, BindingContext};
     use crate::fact::test_support::TestFixture as FactFixture;
     use crate::lookup::category::{ResolvedName, ResolvedTypeName, ResolvedValueName};
+    use crate::lookup::test_support::{path, source_module, text_range};
     use crate::unit::test_support::{builder, fixture, push_binding};
 
     #[test]
@@ -622,30 +719,30 @@ mod tests {
 
         assert!(matches!(
             binder.bind_module_path(context, &path("app")),
-            MemberLookupResult::Found(id) if id == module
+            Ok(MemberLookupResult::Found(id)) if id == module
         ));
 
         assert!(matches!(
             binder.bind_type_path(context, &path("Point")),
-            MemberLookupResult::Found(ResolvedTypeName::Named(_))
+            Ok(MemberLookupResult::Found(ResolvedTypeName::Named(_)))
         ));
 
         assert!(matches!(
             binder.bind_trait_path(context, &path("Display")),
-            MemberLookupResult::Found(_)
+            Ok(MemberLookupResult::Found(_))
         ));
 
         assert!(matches!(
             binder.bind_value_path(context, &path("size")),
-            MemberLookupResult::Found(ResolvedValueName::Constant(_))
+            Ok(MemberLookupResult::Found(ResolvedValueName::Constant(_)))
         ));
 
         assert!(matches!(
             binder.bind_callable_overload_path(context, &path("choose")),
-            MemberLookupResult::Found(_)
+            Ok(MemberLookupResult::Found(_))
         ));
 
-        let MemberLookupResult::Found(ResolvedTypeName::Named(structure)) =
+        let Ok(MemberLookupResult::Found(ResolvedTypeName::Named(structure))) =
             binder.bind_type_path(context, &path("Point"))
         else {
             panic!("Point must bind as a named type");
@@ -715,6 +812,31 @@ mod tests {
     }
 
     #[test]
+    fn imported_packages_modules_and_named_implementations_use_typed_path_lookup() {
+        let imported = bray_symbols::testing::imported_lookup_fixture(
+            "dependency",
+            "api",
+            SymbolKind::NamedTraitImplementation,
+            "DisplayVec",
+        );
+
+        assert_imported_surface_path(&imported);
+    }
+
+    #[test]
+    fn imported_reexports_follow_the_exporting_module_lookup_edge() {
+        let imported = bray_symbols::testing::imported_reexport_lookup_fixture(
+            "dependency",
+            "implementations",
+            "api",
+            SymbolKind::NamedTraitImplementation,
+            "DisplayVec",
+        );
+
+        assert_imported_surface_path(&imported);
+    }
+
+    #[test]
     fn lexical_names_take_part_in_typed_value_lookup() {
         let fact_fixture = FactFixture::new();
         let facts = fact_fixture.context();
@@ -733,7 +855,9 @@ mod tests {
 
         assert_eq!(
             binder.bind_value_path(context, &path("value")),
-            MemberLookupResult::Found(ResolvedValueName::Local(AnyLocalSymbolId::from(local)))
+            Ok(MemberLookupResult::Found(ResolvedValueName::Local(
+                AnyLocalSymbolId::from(local)
+            )))
         );
 
         assert!(finish(binder).diagnostics().is_empty());
@@ -754,12 +878,12 @@ mod tests {
 
         assert!(matches!(
             binder.bind_type_path(context, &path("bool")),
-            MemberLookupResult::Found(ResolvedTypeName::Named(_))
+            Ok(MemberLookupResult::Found(ResolvedTypeName::Named(_)))
         ));
 
         assert!(matches!(
             binder.bind_type_path(context, &path("Unit")),
-            MemberLookupResult::NotFound
+            Ok(MemberLookupResult::NotFound)
         ));
 
         assert_eq!(
@@ -788,12 +912,12 @@ mod tests {
 
         assert!(matches!(
             binder.bind_module_path(context, &path("core.memory")),
-            MemberLookupResult::Found(_)
+            Ok(MemberLookupResult::Found(_))
         ));
 
         assert!(matches!(
             binder.bind_value_path(context, &path("core.memory.copy")),
-            MemberLookupResult::Found(ResolvedValueName::Function(_))
+            Ok(MemberLookupResult::Found(ResolvedValueName::Function(_)))
         ));
 
         assert!(finish(binder).diagnostics().is_empty());
@@ -834,7 +958,7 @@ mod tests {
 
         assert!(matches!(
             binder.bind_value_path(context, &path("broken")),
-            MemberLookupResult::Malformed(candidates)
+            Ok(MemberLookupResult::Malformed(candidates))
                 if candidates.as_ref() == [ResolvedName::Surface(recovered)]
         ));
 
@@ -870,7 +994,7 @@ mod tests {
 
         assert!(matches!(
             binder.bind_value_path(context, &path("value")),
-            MemberLookupResult::Malformed(candidates)
+            Ok(MemberLookupResult::Malformed(candidates))
                 if candidates.as_ref() == [ResolvedName::Local(local.into())]
         ));
 
@@ -912,27 +1036,27 @@ mod tests {
 
         assert_eq!(
             binder.bind_type_path(public, &path("Missing")),
-            MemberLookupResult::NotFound
+            Ok(MemberLookupResult::NotFound)
         );
 
         assert!(matches!(
             binder.bind_type_path(public, &path("size")),
-            MemberLookupResult::WrongKind(_)
+            Ok(MemberLookupResult::WrongKind(_))
         ));
 
         assert!(matches!(
             binder.bind_value_path(public, &path("secret")),
-            MemberLookupResult::Inaccessible(_)
+            Ok(MemberLookupResult::Inaccessible(_))
         ));
 
         assert!(matches!(
             binder.bind_value_path(public, &path("duplicate")),
-            MemberLookupResult::Ambiguous(_)
+            Ok(MemberLookupResult::Ambiguous(_))
         ));
 
         assert!(matches!(
             binder.bind_value_path(public, &path("broken")),
-            MemberLookupResult::Malformed(_)
+            Ok(MemberLookupResult::Malformed(_))
         ));
 
         let result = finish(binder);
@@ -994,7 +1118,7 @@ mod tests {
 
         assert!(matches!(
             internal_request.bind_module_path(public, &path("hidden")),
-            MemberLookupResult::Inaccessible(_)
+            Ok(MemberLookupResult::Inaccessible(_))
         ));
 
         let recovered_fixture =
@@ -1022,7 +1146,7 @@ mod tests {
 
         assert!(matches!(
             recovered_request.bind_module_path(internal, &path("broken")),
-            MemberLookupResult::Malformed(_)
+            Ok(MemberLookupResult::Malformed(_))
         ));
     }
 
@@ -1048,7 +1172,7 @@ mod tests {
 
         assert!(matches!(
             binder.bind_value_path(context, &path("app.Point")),
-            MemberLookupResult::Ambiguous(_)
+            Ok(MemberLookupResult::Ambiguous(_))
         ));
 
         assert_eq!(
@@ -1082,12 +1206,12 @@ mod tests {
 
         assert!(matches!(
             binder.bind_module_path(context, &path("foo.bar")),
-            MemberLookupResult::Ambiguous(_)
+            Ok(MemberLookupResult::Ambiguous(_))
         ));
 
         assert!(matches!(
             binder.bind_value_path(context, &path("foo.bar")),
-            MemberLookupResult::Ambiguous(_)
+            Ok(MemberLookupResult::Ambiguous(_))
         ));
     }
 
@@ -1112,7 +1236,7 @@ mod tests {
 
         assert_eq!(
             binder.bind_module_path(context, &path("foo.bar")),
-            MemberLookupResult::Found(module)
+            Ok(MemberLookupResult::Found(module))
         );
 
         assert!(finish(binder).diagnostics().is_empty());
@@ -1151,7 +1275,7 @@ mod tests {
 
         assert_eq!(
             binder.bind_module_path(context, &path("foo.bar")),
-            MemberLookupResult::Found(public_module.id())
+            Ok(MemberLookupResult::Found(public_module.id()))
         );
 
         assert!(finish(binder).diagnostics().is_empty());
@@ -1232,7 +1356,7 @@ mod tests {
 
         assert!(matches!(
             binder.bind_type_path(context, &missing.build()),
-            MemberLookupResult::Malformed(candidates) if candidates.is_empty()
+            Ok(MemberLookupResult::Malformed(candidates)) if candidates.is_empty()
         ));
 
         assert!(finish(binder).diagnostics().is_empty());
@@ -1262,58 +1386,10 @@ mod tests {
 
         assert!(matches!(
             binder.bind_type_path(context, &malformed),
-            MemberLookupResult::Malformed(candidates) if candidates.is_empty()
+            Ok(MemberLookupResult::Malformed(candidates)) if candidates.is_empty()
         ));
 
         assert!(finish(binder).diagnostics().is_empty());
-    }
-
-    fn source_module<C: BinderFactContext + ?Sized>(
-        facts: &C,
-    ) -> (bray_symbols::ModuleSymbolId, ModuleOwnerId) {
-        let Some(module) = facts
-            .symbols()
-            .modules()
-            .iter()
-            .find(|module| module.origin() == SymbolOrigin::Source)
-        else {
-            panic!("test graph must contain one source module");
-        };
-
-        (module.id(), module.owner())
-    }
-
-    fn path(text: &str) -> PathSyntax {
-        let sources = test_source_store([text]);
-        let snapshot = test_source_at(&sources, 0).clone();
-
-        let mut builder = PathSyntax::builder(snapshot);
-        let mut segment_start = 0;
-
-        for (index, byte) in text.bytes().enumerate() {
-            if byte != b'.' {
-                continue;
-            }
-
-            builder.push_identifier_token(SyntaxToken::new(
-                SyntaxKind::IdentifierToken,
-                text_range(segment_start, index),
-            ));
-
-            builder.push_dot_token(SyntaxToken::new(
-                SyntaxKind::DotToken,
-                text_range(index, index + 1),
-            ));
-
-            segment_start = index + 1;
-        }
-
-        builder.push_identifier_token(SyntaxToken::new(
-            SyntaxKind::IdentifierToken,
-            text_range(segment_start, text.len()),
-        ));
-
-        builder.build()
     }
 
     fn path_with_missing_middle() -> PathSyntax {
@@ -1344,12 +1420,25 @@ mod tests {
         builder.build()
     }
 
-    fn text_range(start: usize, end: usize) -> TextRange {
-        let (Ok(start), Ok(end)) = (u32::try_from(start), u32::try_from(end)) else {
-            panic!("test path offsets must fit in TextSize");
-        };
+    fn assert_imported_surface_path(imported: &bray_symbols::testing::ImportedLookupFixture) {
+        let fact_fixture = FactFixture::from_source("module app; const ready: bool = true;");
+        let facts = fact_fixture.context_with_imported(&imported.symbols);
 
-        TextRange::new(TextSize::new(start), TextSize::new(end))
+        let unit_fixture = fixture();
+        let unit = builder(&unit_fixture, LocalSymbolRegionId::new(45));
+        let root = unit.root_scope();
+
+        let (module, owner) = source_module(&facts);
+        let context = PathBindingContext::new(root, module, owner, NameAccess::Public);
+        let mut binder = Binder::new(&facts, BindingContext::Expression, unit);
+        let implementation_path = path("dependency.api.DisplayVec");
+
+        assert_eq!(
+            binder.bind_surface_path(context, &implementation_path),
+            Ok(MemberLookupResult::Found(imported.declaration))
+        );
+
+        assert!(finish(binder).diagnostics().is_empty());
     }
 
     fn finish<C: BinderFactContext + ?Sized>(binder: Binder<'_, C>) -> crate::binder::BinderOutput {

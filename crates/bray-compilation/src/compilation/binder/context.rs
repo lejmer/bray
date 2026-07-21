@@ -39,6 +39,23 @@ impl<'compilation> CompilationBinderFacts<'compilation> {
         self.compilation
     }
 
+    pub(super) fn imported_symbols_for_package(
+        &self,
+        package: &str,
+    ) -> BinderFactResult<Option<&ImportedSymbolSkeleton>> {
+        if !self
+            .compilation
+            .state
+            .dependency_interfaces
+            .iter()
+            .any(|dependency| dependency.package().as_str() == package)
+        {
+            return Ok(None);
+        }
+
+        self.imported_symbols()
+    }
+
     pub(super) fn imported_symbols(&self) -> BinderFactResult<Option<&ImportedSymbolSkeleton>> {
         let result = self
             .compilation
@@ -80,6 +97,13 @@ impl BinderFactContext for CompilationBinderFacts<'_> {
 
     fn symbols(&self) -> &SymbolGraph {
         self.symbols
+    }
+
+    fn imported_symbols_for_package(
+        &self,
+        package: &str,
+    ) -> BinderFactResult<Option<&ImportedSymbolSkeleton>> {
+        CompilationBinderFacts::imported_symbols_for_package(self, package)
     }
 
     fn semantic_values(&self) -> &SemanticValueStore {

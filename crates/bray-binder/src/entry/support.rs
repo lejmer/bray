@@ -93,7 +93,8 @@ pub(super) fn map_binding_error(error: BindingError) -> BoundUnitBindingError {
             | BoundUnitConstructionError::AnonymousCallableSourceMismatch { .. }
             | BoundUnitConstructionError::AnonymousCallableSourceVersionMismatch { .. },
         ) => BoundUnitBindingError::Construction,
-        BindingError::IdentityCapacityExceeded
+        BindingError::DependencyUnavailable
+        | BindingError::IdentityCapacityExceeded
         | BindingError::RollbackFailed
         | BindingError::CandidateContextMismatch
         | BindingError::ControlTargetMismatch

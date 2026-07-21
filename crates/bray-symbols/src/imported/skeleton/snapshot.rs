@@ -57,6 +57,17 @@ macro_rules! define_imported_symbol_skeleton {
                 self.packages.get(id)
             }
 
+            /// Returns the imported package with one exact package identity.
+            pub fn package_by_identity(&self, identity: &str) -> Option<&PackageSymbol> {
+                let index = self
+                    .packages
+                    .records()
+                    .binary_search_by(|package| package.identity().as_str().cmp(identity))
+                    .ok()?;
+
+                self.packages.records().get(index)
+            }
+
             /// Returns imported module records in stable external-key order.
             pub fn modules(&self) -> &[ModuleSymbol] {
                 self.modules.records()
@@ -282,6 +293,30 @@ mod tests {
             skeleton.lookup(package_id.into(), "run"),
             MemberLookupResult::NotFound
         );
+    }
+
+    #[test]
+    fn package_identity_lookup_is_independent_of_interface_order() {
+        let first = interface_fixture(3, "z.package", "first");
+        let second = interface_fixture(4, "a.package", "second");
+
+        let skeleton = build_skeleton([first.input, second.input]);
+
+        assert_eq!(
+            skeleton
+                .package_by_identity("a.package")
+                .map(|package| package.identity().as_str()),
+            Some("a.package")
+        );
+
+        assert_eq!(
+            skeleton
+                .package_by_identity("z.package")
+                .map(|package| package.identity().as_str()),
+            Some("z.package")
+        );
+
+        assert_eq!(skeleton.package_by_identity("missing.package"), None);
     }
 
     #[test]

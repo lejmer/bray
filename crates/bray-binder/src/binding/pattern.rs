@@ -347,14 +347,14 @@ where
                     self.bind_pattern_path(context, &path)
                 }
             },
-            (None, Some(token)) => self.bind_pattern_identifier(
+            (None, Some(token)) => Ok(self.bind_pattern_identifier(
                 context,
                 syntax.source(),
                 token,
                 mode == PatternBindingMode::Assignment,
-            ),
+            )),
             (None, None) => return Ok(None),
-        };
+        }?;
 
         Ok(match result {
             bray_symbols::MemberLookupResult::Found(target) => Some(target),
