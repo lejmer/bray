@@ -130,6 +130,29 @@ impl BinderFactContext for CompilationBinderFacts<'_> {
         self.symbols
     }
 
+    fn symbol_key(
+        &self,
+        symbol: AnySymbolId,
+    ) -> BinderFactResult<Option<&bray_symbols::SymbolKey>> {
+        if let Some(key) = self.symbols.symbol_key(symbol) {
+            return Ok(Some(key));
+        }
+
+        Ok(self
+            .imported_symbols()?
+            .and_then(|symbols| symbols.symbol_key(symbol)))
+    }
+
+    fn symbol_is_recovered(&self, symbol: AnySymbolId) -> BinderFactResult<Option<bool>> {
+        if let Some(is_recovered) = self.symbols.symbol_is_recovered(symbol) {
+            return Ok(Some(is_recovered));
+        }
+
+        Ok(self
+            .imported_symbols()?
+            .and_then(|symbols| symbols.symbol_is_recovered(symbol)))
+    }
+
     fn imported_path_root(
         &self,
         components: &[&str],
@@ -198,13 +221,23 @@ impl Compilation {
 mod tests {
     use std::sync::Arc;
 
-    use bray_binder::BinderFactError;
+    use bray_binder::{BinderFactError, bind_expression_candidates};
+    use bray_bound_tree::{
+        AnyBoundNodeId, BoundExpression, BoundExpressionId, BoundUnit, BoundUnitRoot,
+        BoundWalkControl, BoundWalkEvent, SelectionKind, walk_bound_unit_view,
+    };
+    use bray_checker::{
+        CallableCandidateTemplate, CallableCandidateTemplates, CandidateAbsence,
+        ExpressionCandidateSet,
+    };
     use bray_package_interface::{
         InterfaceLanguageRevision, InterfaceValidationPolicy,
         test_support::encoded_template_test_interface,
     };
     use bray_source::{SourceIdentity, SourceInput, SourceVersion};
-    use bray_symbols::PackageIdentity;
+    use bray_symbols::{
+        PackageIdentity, TypeData, TypeExpressionTemplate, UnevaluatedDefaultTemplate,
+    };
 
     use super::CompilationBinderFacts;
     use crate::{CancellationToken, Compilation, CompilationRequest, DependencyInterfaceInput};
@@ -311,6 +344,238 @@ mod tests {
             CompilationBinderFacts::imported_path_root(&facts, &["invalid", "package"]),
             Err(BinderFactError::DependencyUnavailable)
         ));
+    }
+
+    #[test]
+    fn production_candidate_enumeration_is_exact_deterministic_and_template_preserving() {
+        let compilation = crate::test_support::compilation(concat!(
+            "module app;\n",
+            "\n",
+            "func run()\n",
+            "{\n",
+            "    let callback: func(pos value: i32) -> i32 = alternate;\n",
+            "    fixed([0; 4]);\n",
+            "    choose(1);\n",
+            "    callback(2);\n",
+            "    missing();\n",
+            "    1 + 2;\n",
+            "}\n",
+            "\n",
+            "extern func fixed(value: [i32; 4] = [0; 4]) -> [i32; 4];\n",
+            "extern func alternate(value: i32) -> i32;\n",
+            "overload choose = {fixed, alternate}\n",
+        ));
+
+        assert!(
+            compilation.syntax_tree_result().diagnostics().is_empty(),
+            "test source must parse without recovery: {:?}",
+            compilation.syntax_tree_result().diagnostics()
+        );
+
+        let key = crate::test_support::source_callable_body_key(&compilation);
+
+        let bound = compilation
+            .bound_unit(key.clone())
+            .unwrap_or_else(|error| panic!("test callable must bind: {error:?}"));
+
+        let declared_types = compilation
+            .declared_value_type_templates(key.clone())
+            .unwrap_or_else(|error| panic!("declared value types must publish: {error:?}"));
+
+        let cancellation = CancellationToken::new();
+
+        let facts = compilation
+            .binder_facts_for(&key, &cancellation)
+            .unwrap_or_else(|error| panic!("binder facts must be available: {error:?}"));
+
+        let semantic_values = compilation
+            .semantic_value_store()
+            .unwrap_or_else(|error| panic!("semantic values must be available: {error:?}"));
+
+        let expressions = candidate_expressions(bound.value());
+
+        let results = expressions
+            .iter()
+            .copied()
+            .map(|expression| candidates(&facts, bound.value(), declared_types.value(), expression))
+            .collect::<Vec<_>>();
+
+        let direct = results.iter().find_map(|result| match result.value() {
+            ExpressionCandidateSet::Callable(CallableCandidateTemplates::Present {
+                candidates,
+                ..
+            }) if candidates.len() == 1
+                && matches!(candidates[0], CallableCandidateTemplate::Declaration(_)) =>
+            {
+                Some(candidates)
+            }
+            _ => None,
+        });
+
+        let Some(direct) = direct else {
+            panic!("direct call must produce one declaration candidate: {results:?}");
+        };
+
+        let [CallableCandidateTemplate::Declaration(direct)] = direct.as_ref() else {
+            panic!("direct call must produce one declared callable");
+        };
+
+        assert!(matches!(
+            direct.signature().callable_type(),
+            TypeExpressionTemplate::Callable(_)
+        ));
+
+        let [parameter] = direct.signature().parameters() else {
+            panic!("direct callable must retain one parameter identity");
+        };
+
+        let parameter_type = direct
+            .signature()
+            .parameter_type_template(*parameter, 0, semantic_values)
+            .unwrap_or_else(|error| panic!("parameter template must be available: {error:?}"));
+
+        assert!(matches!(
+            parameter_type,
+            TypeExpressionTemplate::Array { .. }
+        ));
+
+        assert!(matches!(
+            direct.defaults()[0].value(),
+            UnevaluatedDefaultTemplate::Present(_)
+        ));
+
+        let first_overload = results.iter().find(|result| {
+            matches!(
+                result.value(),
+                ExpressionCandidateSet::Callable(CallableCandidateTemplates::Present {
+                    candidates,
+                    ..
+                }) if candidates.len() == 2
+            )
+        });
+
+        let Some(first_overload) = first_overload else {
+            panic!("overload call must expand its exact arm templates: {results:?}");
+        };
+
+        let ExpressionCandidateSet::Callable(CallableCandidateTemplates::Present {
+            candidates: overload,
+            ..
+        }) = first_overload.value()
+        else {
+            unreachable!("overload result was classified above");
+        };
+
+        assert_eq!(overload.len(), 2);
+
+        assert!(
+            overload
+                .iter()
+                .all(|candidate| matches!(candidate, CallableCandidateTemplate::Declaration(_)))
+        );
+
+        let value = results.iter().find_map(|result| match result.value() {
+            ExpressionCandidateSet::Callable(CallableCandidateTemplates::Present {
+                candidates,
+                ..
+            }) if matches!(candidates.as_ref(), [CallableCandidateTemplate::Value(_)]) => {
+                Some(candidates)
+            }
+            _ => None,
+        });
+
+        let Some(value) = value else {
+            panic!("callable value must produce its declared type candidate: {results:?}");
+        };
+
+        let [CallableCandidateTemplate::Value(value)] = value.as_ref() else {
+            panic!("callable parameter must remain a value candidate");
+        };
+
+        assert!(match value.callable_type() {
+            TypeExpressionTemplate::Callable(_) => true,
+            TypeExpressionTemplate::Resolved(ty) => semantic_values
+                .type_data(*ty)
+                .is_ok_and(|data| matches!(data.as_ref(), TypeData::Callable(_))),
+            _ => false,
+        });
+
+        assert!(results.iter().any(|result| matches!(
+            result.value(),
+            ExpressionCandidateSet::Callable(CallableCandidateTemplates::Absent {
+                reason: CandidateAbsence::UnresolvedReference,
+                ..
+            })
+        )));
+
+        assert!(results.iter().any(|result| matches!(
+            result.value(),
+            ExpressionCandidateSet::Unsupported {
+                kind: SelectionKind::Operator,
+                ..
+            }
+        )));
+
+        let repeated = candidates(
+            &facts,
+            bound.value(),
+            declared_types.value(),
+            first_overload.value().expression(),
+        );
+
+        assert_eq!(&repeated, first_overload);
+    }
+
+    fn candidates(
+        facts: &CompilationBinderFacts<'_>,
+        unit: &BoundUnit,
+        declared_types: &bray_bound_tree::DeclaredValueTypeTemplates,
+        expression: BoundExpressionId,
+    ) -> bray_diagnostics::DiagnosticResult<ExpressionCandidateSet> {
+        let result = bind_expression_candidates(facts, unit, declared_types, expression)
+            .unwrap_or_else(|error| panic!("candidate enumeration must complete: {error:?}"));
+
+        assert!(result.diagnostics().is_empty());
+
+        result
+    }
+
+    fn candidate_expressions(unit: &BoundUnit) -> Vec<BoundExpressionId> {
+        let mut expressions = Vec::new();
+
+        let outcome = walk_bound_unit_view(unit.view(), unit_root(unit), |event| {
+            let BoundWalkEvent::Enter(AnyBoundNodeId::Expression(expression)) = event else {
+                return BoundWalkControl::Continue;
+            };
+
+            let Some(bound) = unit.view().expression(expression) else {
+                return BoundWalkControl::Stop;
+            };
+
+            if matches!(
+                bound,
+                BoundExpression::Call(_)
+                    | BoundExpression::ErrorCall(_)
+                    | BoundExpression::Binary(_)
+            ) {
+                expressions.push(expression);
+            }
+
+            BoundWalkControl::Continue
+        });
+
+        assert_eq!(outcome, bray_bound_tree::BoundWalkOutcome::Completed);
+
+        expressions
+    }
+
+    const fn unit_root(unit: &BoundUnit) -> AnyBoundNodeId {
+        match unit.root() {
+            BoundUnitRoot::CallableBody(body) => AnyBoundNodeId::CallableBody(body),
+            BoundUnitRoot::AnonymousCallable { body, .. } => AnyBoundNodeId::CallableBody(body),
+            BoundUnitRoot::Expression(expression) => AnyBoundNodeId::Expression(expression),
+            BoundUnitRoot::ExpressionSequence(block) => AnyBoundNodeId::Block(block),
+        }
     }
 
     fn valid_dependency(

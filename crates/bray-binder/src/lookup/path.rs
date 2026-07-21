@@ -91,7 +91,7 @@ struct PathLookup {
     reference: Option<NameReference>,
 }
 
-pub(super) fn bind_module_path<C>(
+pub(crate) fn bind_module_path<C>(
     facts: &C,
     module: ModuleSymbolId,
     path: &PathSyntax,
@@ -592,7 +592,7 @@ fn imported_path_prefix(
 }
 
 fn next_module_prefix(
-    symbols: &bray_symbols::SymbolGraph,
+    symbols: &SymbolGraph,
     owner: ModuleOwnerId,
     parent: Option<&ModulePathKey>,
     references: &[NameReference],
@@ -783,6 +783,7 @@ mod tests {
         ));
 
         let facts = fact_fixture.context();
+
         let unit_fixture = fixture();
         let unit = builder(&unit_fixture, LocalSymbolRegionId::new(30));
         let root = unit.root_scope();
@@ -915,6 +916,7 @@ mod tests {
     fn lexical_names_take_part_in_typed_value_lookup() {
         let fact_fixture = FactFixture::new();
         let facts = fact_fixture.context();
+
         let unit_fixture = fixture();
         let mut unit = builder(&unit_fixture, LocalSymbolRegionId::new(31));
         let root = unit.root_scope();
@@ -942,6 +944,7 @@ mod tests {
     fn source_modules_consult_the_ambient_compiler_known_surface() {
         let fact_fixture = FactFixture::new();
         let facts = fact_fixture.context();
+
         let unit_fixture = fixture();
         let unit = builder(&unit_fixture, LocalSymbolRegionId::new(35));
         let root = unit.root_scope();
@@ -976,6 +979,7 @@ mod tests {
     fn source_modules_resolve_compiler_known_module_paths() {
         let fact_fixture = FactFixture::new();
         let facts = fact_fixture.context();
+
         let unit_fixture = fixture();
         let unit = builder(&unit_fixture, LocalSymbolRegionId::new(45));
         let root = unit.root_scope();
@@ -1005,7 +1009,9 @@ mod tests {
             "const size: bool = true;\n",
             "func broken(",
         ));
+
         let facts = fact_fixture.context();
+
         let unit_fixture = fixture();
         let mut unit = builder(&unit_fixture, LocalSymbolRegionId::new(36));
         let root = unit.root_scope();
@@ -1054,6 +1060,7 @@ mod tests {
     fn recovered_lexical_names_remain_malformed_lookup_candidates() {
         let fact_fixture = FactFixture::new();
         let facts = fact_fixture.context();
+
         let unit_fixture = fixture();
         let mut unit = builder(&unit_fixture, LocalSymbolRegionId::new(34));
         let root = unit.root_scope();
@@ -1100,6 +1107,7 @@ mod tests {
         ));
 
         let facts = fact_fixture.context();
+
         let unit_fixture = fixture();
         let unit = builder(&unit_fixture, LocalSymbolRegionId::new(32));
         let root = unit.root_scope();
@@ -1172,6 +1180,7 @@ mod tests {
         ));
 
         let internal_facts = internal_fixture.context();
+
         let internal_unit_fixture = fixture();
         let internal_unit = builder(&internal_unit_fixture, LocalSymbolRegionId::new(37));
         let internal_root = internal_unit.root_scope();
@@ -1200,6 +1209,7 @@ mod tests {
             FactFixture::from_source(concat!("module broken\n", "const size: bool = true;",));
 
         let recovered_facts = recovered_fixture.context();
+
         let recovered_unit_fixture = fixture();
         let recovered_unit = builder(&recovered_unit_fixture, LocalSymbolRegionId::new(38));
         let recovered_root = recovered_unit.root_scope();
@@ -1236,6 +1246,7 @@ mod tests {
         ));
 
         let facts = fact_fixture.context();
+
         let unit_fixture = fixture();
         let unit = builder(&unit_fixture, LocalSymbolRegionId::new(39));
         let root = unit.root_scope();
@@ -1270,6 +1281,7 @@ mod tests {
         ));
 
         let facts = fact_fixture.context();
+
         let unit_fixture = fixture();
         let unit = builder(&unit_fixture, LocalSymbolRegionId::new(42));
         let root = unit.root_scope();
@@ -1300,6 +1312,7 @@ mod tests {
         ));
 
         let facts = fact_fixture.context();
+
         let unit_fixture = fixture();
         let unit = builder(&unit_fixture, LocalSymbolRegionId::new(43));
         let root = unit.root_scope();
@@ -1331,6 +1344,7 @@ mod tests {
         ));
 
         let facts = fact_fixture.context();
+
         let unit_fixture = fixture();
         let unit = builder(&unit_fixture, LocalSymbolRegionId::new(44));
         let root = unit.root_scope();
@@ -1368,6 +1382,7 @@ mod tests {
         ));
 
         let facts = fact_fixture.context();
+
         let unit_fixture = fixture();
         let unit = builder(&unit_fixture, LocalSymbolRegionId::new(40));
         let member_path = path("x");
@@ -1411,6 +1426,7 @@ mod tests {
     fn missing_path_syntax_recovers_without_repeating_parser_diagnostics() {
         let fact_fixture = FactFixture::new();
         let facts = fact_fixture.context();
+
         let unit_fixture = fixture();
         let unit = builder(&unit_fixture, LocalSymbolRegionId::new(33));
         let root = unit.root_scope();
@@ -1422,6 +1438,7 @@ mod tests {
 
         let sources = test_source_store([""]);
         let snapshot = test_source_at(&sources, 0).clone();
+
         let mut missing = PathSyntax::builder(snapshot);
 
         missing.push_identifier_token(SyntaxToken::missing(
@@ -1448,6 +1465,7 @@ mod tests {
         ));
 
         let facts = fact_fixture.context();
+
         let unit_fixture = fixture();
         let unit = builder(&unit_fixture, LocalSymbolRegionId::new(41));
         let root = unit.root_scope();
@@ -1504,8 +1522,10 @@ mod tests {
         let root = unit.root_scope();
 
         let (module, owner) = source_module(&facts);
+
         let context = PathBindingContext::new(root, module, owner, NameAccess::Public);
         let mut binder = Binder::new(&facts, BindingContext::Expression, unit);
+
         let implementation_path = path("dependency.api.DisplayVec");
 
         assert_eq!(

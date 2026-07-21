@@ -103,6 +103,50 @@ macro_rules! define_imported_symbol_skeleton {
                 self.external_index.get(key).copied()
             }
 
+            /// Returns one imported symbol's stable compilation semantic key.
+            pub fn symbol_key(&self, symbol: AnySymbolId) -> Option<&crate::SymbolKey> {
+                match symbol {
+                    AnySymbolId::Package(id) => self.package(id).map(PackageSymbol::key),
+                    AnySymbolId::Module(id) => self.module(id).map(ModuleSymbol::key),
+                    AnySymbolId::CallableParameterDefaultProvider(id) => self
+                        .callable_parameter_default_provider(id)
+                        .map(CallableParameterDefaultProviderSymbol::key),
+                    AnySymbolId::StructFieldDefaultProvider(id) => self
+                        .struct_field_default_provider(id)
+                        .map(StructFieldDefaultProviderSymbol::key),
+                    AnySymbolId::UnionPayloadDefaultProvider(id) => self
+                        .union_payload_default_provider(id)
+                        .map(UnionPayloadDefaultProviderSymbol::key),
+                    AnySymbolId::ReceiverParameter(id) => {
+                        self.receiver_parameter(id).map(ReceiverParameterSymbol::key)
+                    }
+                    $(AnySymbolId::$variant(id) => self.$singular(id).map(crate::$record::key),)+
+                    AnySymbolId::CompilerKnownEnvironment(_) => None,
+                }
+            }
+
+            /// Returns whether recovery contributed to one imported symbol's surface.
+            pub fn symbol_is_recovered(&self, symbol: AnySymbolId) -> Option<bool> {
+                match symbol {
+                    AnySymbolId::Package(id) => self.package(id).map(|_| false),
+                    AnySymbolId::Module(id) => self.module(id).map(ModuleSymbol::is_recovered),
+                    AnySymbolId::CallableParameterDefaultProvider(id) => self
+                        .callable_parameter_default_provider(id)
+                        .map(|_| false),
+                    AnySymbolId::StructFieldDefaultProvider(id) => self
+                        .struct_field_default_provider(id)
+                        .map(|_| false),
+                    AnySymbolId::UnionPayloadDefaultProvider(id) => self
+                        .union_payload_default_provider(id)
+                        .map(|_| false),
+                    AnySymbolId::ReceiverParameter(id) => {
+                        self.receiver_parameter(id).map(|_| false)
+                    }
+                    $(AnySymbolId::$variant(id) => self.$singular(id).map(crate::$record::is_recovered),)+
+                    AnySymbolId::CompilerKnownEnvironment(_) => None,
+                }
+            }
+
             /// Returns the compiled-interface address backing one imported declaration symbol.
             pub fn imported_fact_address(
                 &self,
@@ -295,6 +339,15 @@ mod tests {
         assert_eq!(function.containing_symbol(), module_id.into());
         assert_eq!(function.origin(), SymbolOrigin::Imported);
         assert_eq!(function.declaration(), None);
+
+        assert_eq!(
+            skeleton.symbol_key(function_id.into()),
+            Some(function.key())
+        );
+        assert_eq!(
+            skeleton.symbol_is_recovered(function_id.into()),
+            Some(false)
+        );
 
         assert_eq!(
             function.imported_fact_key().map(|key| key.interface()),

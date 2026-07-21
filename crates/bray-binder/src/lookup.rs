@@ -11,4 +11,4 @@ pub(crate) use category::{ResolvedName, ResolvedTypeName, classify_type};
 pub(crate) use diagnostic::{NameReference, lookup_diagnostic};
 pub use implementation::bind_named_trait_implementation_path;
 pub use path::NameAccess;
-pub(crate) use path::PathBindingContext;
+pub(crate) use path::{PathBindingContext, bind_module_path};

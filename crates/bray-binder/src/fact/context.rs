@@ -1,6 +1,9 @@
 use bray_base::Cancellation;
 use bray_declarations::DeclarationTable;
-use bray_symbols::{ImportedSymbolSkeleton, PackageSymbolId, SemanticValueStore, SymbolGraph};
+use bray_symbols::{
+    AnySymbolId, ImportedSymbolSkeleton, PackageSymbolId, SemanticValueStore, SymbolGraph,
+    SymbolKey,
+};
 use bray_syntax::SyntaxTree;
 
 use crate::{BinderFactResult, TargetFactProvider};
@@ -72,6 +75,16 @@ pub trait BinderFactContext: Send + Sync {
 
     /// Returns the immutable compilation-wide symbol identity graph.
     fn symbols(&self) -> &SymbolGraph;
+
+    /// Returns one exact symbol's stable semantic key across supported origins.
+    fn symbol_key(&self, symbol: AnySymbolId) -> BinderFactResult<Option<&SymbolKey>> {
+        Ok(self.symbols().symbol_key(symbol))
+    }
+
+    /// Returns whether recovery contributed to one exact symbol's surface.
+    fn symbol_is_recovered(&self, symbol: AnySymbolId) -> BinderFactResult<Option<bool>> {
+        Ok(self.symbols().symbol_is_recovered(symbol))
+    }
 
     /// Resolves the longest selected dependency package prefix of a qualified source path.
     fn imported_path_root(
