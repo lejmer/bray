@@ -55,6 +55,7 @@ pub(super) fn resolve_declaration_candidate(
         .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
 
     let instance = CallableInstanceData::new(template.definition(), substitution);
+
     let resolution = BoundResolvedCall::new(
         BoundCallableTarget::Declaration(instance),
         [],

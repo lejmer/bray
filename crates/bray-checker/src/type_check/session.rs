@@ -216,6 +216,10 @@ where
         self.inference.revision()
     }
 
+    pub(crate) fn expressions(&self) -> &[BoundExpressionId] {
+        &self.expressions
+    }
+
     pub(crate) fn propagate(&mut self) -> Result<SessionProgress<()>, CheckerInfrastructureError> {
         loop {
             if self.request.is_cancelled() {

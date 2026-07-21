@@ -108,19 +108,6 @@ pub struct CallableCandidate {
     state: CallableCandidateState,
 }
 
-pub(in crate::selection) struct CallableCandidateParts {
-    pub key: SymbolKey,
-    pub resolution: BoundResolvedCall,
-    pub signature: CallableSignature,
-    pub defaults: Arc<
-        [(
-            CallableParameterSymbolId,
-            CallableParameterDefaultProviderSymbolId,
-        )],
-    >,
-    pub implementation_selections: Arc<[ImplementationSelectionEvidence]>,
-}
-
 impl CallableCandidate {
     /// Creates a callable candidate and its available runtime defaults.
     pub fn new(
@@ -189,14 +176,10 @@ impl CallableCandidate {
         self.state
     }
 
-    pub(in crate::selection) fn into_parts(self) -> CallableCandidateParts {
-        CallableCandidateParts {
-            key: self.key,
-            resolution: self.resolution,
-            signature: self.signature,
-            defaults: self.defaults,
-            implementation_selections: self.implementation_selections,
-        }
+    pub(in crate::selection) fn implementation_selections(
+        &self,
+    ) -> &[ImplementationSelectionEvidence] {
+        &self.implementation_selections
     }
 }
 

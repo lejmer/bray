@@ -330,6 +330,7 @@ where
             symbol_fact_value::<_, CallableParameterDefaultTemplateFact>(context, *parameter)?;
 
         has_diagnostics |= default_diagnostics;
+
         let provider = context
             .symbols()
             .callable_parameter(*parameter)

@@ -394,8 +394,9 @@ mod tests {
 
     use bray_binder::{SemanticUnitContextError, semantic_unit_context};
     use bray_bound_tree::{
-        BoundReferenceTarget, BoundUnitKind, DeclaredValueTypeConstraintKind,
-        DeclaredValueTypeTemplates, DeclaredValueTypeTerm, SelectedArgument, SemanticSelection,
+        BoundExpressionId, BoundReferenceTarget, BoundUnitKind, CheckedExpressionTypes,
+        DeclaredValueTypeConstraintKind, DeclaredValueTypeTemplates, DeclaredValueTypeTerm,
+        SelectedArgument, SemanticSelection,
     };
     use bray_checker::{CheckerInfrastructureError, CheckerUnitViewError, SemanticUnitContext};
     use bray_compiler_known::RepresentationRole;
@@ -685,6 +686,7 @@ mod tests {
             "    return value;\n",
             "}\n",
         ));
+
         let key = source_callable_body_key(&compilation);
 
         assert_eq!(
@@ -759,29 +761,11 @@ mod tests {
         assert!(!call_type.is_recovered());
         assert_eq!(argument_type, call_type);
 
-        let values = match compilation.semantic_value_store() {
-            Ok(values) => values,
-            Err(error) => panic!("semantic values must be available: {error:?}"),
-        };
-
-        let data = match values.type_data(call_type.ty()) {
-            Ok(data) => data,
-            Err(error) => panic!("selected result type must be available: {error:?}"),
-        };
-
-        let TypeData::Named {
-            definition: NamedTypeSymbolId::Struct(definition),
-            ..
-        } = data.as_ref()
-        else {
-            panic!("selected result must be a named scalar type");
-        };
-
-        assert_eq!(
-            compilation
-                .available_compiler_known_symbols()
-                .symbol_representation(*definition),
-            Some(RepresentationRole::ScalarI64)
+        assert_expression_representation(
+            &compilation,
+            types.value(),
+            selection.expression(),
+            RepresentationRole::ScalarI64,
         );
 
         assert_eq!(
@@ -804,6 +788,95 @@ mod tests {
     }
 
     #[test]
+    fn overload_narrowing_provides_context_before_literal_defaults() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "func main()\n",
+            "{\n",
+            "    let result = choose(true, 1);\n",
+            "}\n",
+            "func choose_wide(pos key: bool, pos value: i64) -> i64\n",
+            "{\n",
+            "    return value;\n",
+            "}\n",
+            "func choose_default(pos key: i32, pos value: i32) -> i32\n",
+            "{\n",
+            "    return value;\n",
+            "}\n",
+            "overload choose = {choose_wide, choose_default}\n",
+        ));
+
+        let key = source_callable_body_key(&compilation);
+
+        let types = match compilation.checked_expression_types(key.clone()) {
+            Ok(types) => types,
+            Err(error) => panic!("expression types must publish: {error:?}"),
+        };
+
+        let selections = match compilation.checked_semantic_selections(key) {
+            Ok(selections) => selections,
+            Err(error) => panic!("semantic selections must publish: {error:?}"),
+        };
+
+        assert!(
+            types.diagnostics().is_empty(),
+            "overload typing must be diagnostic-free: {:?}",
+            types.diagnostics()
+        );
+
+        assert!(
+            selections.diagnostics().is_empty(),
+            "overload selection must be diagnostic-free: {:?}",
+            selections.diagnostics()
+        );
+
+        let [selection] = selections.value().entries() else {
+            panic!("overload call must publish one semantic selection");
+        };
+
+        let SemanticSelection::Call(call) = selection.selection() else {
+            panic!("overload call must publish a callable selection");
+        };
+
+        let [_, SelectedArgument::Explicit { expression, .. }] = call.arguments() else {
+            panic!("overload call must retain both explicit arguments");
+        };
+
+        assert_expression_representation(
+            &compilation,
+            types.value(),
+            *expression,
+            RepresentationRole::ScalarI64,
+        );
+    }
+
+    #[test]
+    fn unsupported_declared_type_components_defer_owned_diagnostics() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "func main(pos source: [i32; 4])\n",
+            "{\n",
+            "    let copy: [i32; 4] = source;\n",
+            "}\n",
+        ));
+
+        let key = source_callable_body_key(&compilation);
+
+        let types = match compilation.checked_expression_types(key) {
+            Ok(types) => types,
+            Err(error) => panic!("deferred expression types must publish: {error:?}"),
+        };
+
+        assert!(
+            types.diagnostics().is_empty(),
+            "unsupported declared types must not produce derived diagnostics: {:?}",
+            types.diagnostics()
+        );
+
+        assert!(types.value().is_recovered());
+    }
+
+    #[test]
     fn unsupported_generic_calls_defer_without_false_diagnostics() {
         // TODO(BRA-242): Replace this boundary test when generic call candidates are materialized.
         let compilation = compilation(concat!(
@@ -817,6 +890,7 @@ mod tests {
             "    return value;\n",
             "}\n",
         ));
+
         let key = source_callable_body_key(&compilation);
 
         let types = match compilation.checked_expression_types(key.clone()) {
@@ -854,6 +928,42 @@ mod tests {
             Ok(facts) => facts,
             Err(error) => panic!("{kind:?} declared value types must publish: {error:?}"),
         }
+    }
+
+    fn assert_expression_representation(
+        compilation: &Compilation,
+        types: &CheckedExpressionTypes,
+        expression: BoundExpressionId,
+        expected: RepresentationRole,
+    ) {
+        let Some(result) = types.expression(expression) else {
+            panic!("selected expression must have a final type");
+        };
+
+        let values = match compilation.semantic_value_store() {
+            Ok(values) => values,
+            Err(error) => panic!("semantic values must be available: {error:?}"),
+        };
+
+        let data = match values.type_data(result.ty()) {
+            Ok(data) => data,
+            Err(error) => panic!("selected expression type must be available: {error:?}"),
+        };
+
+        let TypeData::Named {
+            definition: NamedTypeSymbolId::Struct(definition),
+            ..
+        } = data.as_ref()
+        else {
+            panic!("selected expression must have a named scalar type");
+        };
+
+        assert_eq!(
+            compilation
+                .available_compiler_known_symbols()
+                .symbol_representation(*definition),
+            Some(expected)
+        );
     }
 
     fn has_constraint_kind(

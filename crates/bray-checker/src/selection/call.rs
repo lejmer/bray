@@ -13,8 +13,8 @@ use bray_symbols::{
 use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
 
 use super::{
-    CallableCandidate, CallableCandidateParts, CallableCandidateState, CallableSelectionRequest,
-    CandidateSelection, ImplementationSelectionEvidence, ReceiverCapability, SelectionFailure,
+    CallableCandidate, CallableCandidateState, CallableSelectionRequest, CandidateSelection,
+    ImplementationSelectionEvidence, ReceiverCapability, SelectionFailure,
 };
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -55,7 +55,7 @@ where
     let mut has_incompatible = false;
     let mut has_recovered = false;
 
-    for candidate in candidates {
+    for candidate in &candidates {
         if request.is_cancelled() {
             return Ok(None);
         }
@@ -111,6 +111,51 @@ where
     }
 }
 
+pub(crate) fn viable_candidate_indices<C>(
+    request: CheckerUnitView<'_, C>,
+    types: &CheckedExpressionTypes,
+    input: &CallableSelectionRequest,
+    candidates: &[CallableCandidate],
+) -> Result<Option<Vec<usize>>, CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    if request.is_cancelled() {
+        return Ok(None);
+    }
+
+    let mode = validate_unit(request, types, input)?;
+    let mut viable = Vec::new();
+
+    for (index, candidate) in candidates.iter().enumerate() {
+        if request.is_cancelled() {
+            return Ok(None);
+        }
+
+        if !matches!(
+            candidate.state(),
+            CallableCandidateState::Available | CallableCandidateState::Inaccessible
+        ) {
+            continue;
+        }
+
+        match check_candidate(
+            request,
+            types,
+            mode,
+            input.receiver,
+            &input.generic_arguments,
+            &input.arguments,
+            candidate,
+        )? {
+            CandidateCheck::Applicable { .. } | CandidateCheck::Recovered => viable.push(index),
+            CandidateCheck::Incompatible => {}
+        }
+    }
+
+    Ok(Some(viable))
+}
+
 enum CandidateCheck {
     Applicable { key: SymbolKey, call: SelectedCall },
     Incompatible,
@@ -124,42 +169,46 @@ fn check_candidate<C>(
     receiver: Option<super::ReceiverSelection>,
     generic_arguments: &[BoundGenericArgument],
     arguments: &[BoundArgument],
-    candidate: CallableCandidate,
+    candidate: &CallableCandidate,
 ) -> Result<CandidateCheck, CheckerInfrastructureError>
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let CallableCandidateParts {
-        key,
-        resolution,
-        signature,
-        defaults,
-        implementation_selections,
-    } = candidate.into_parts();
+    let callable_type = callable_type(request, candidate.signature())?;
 
-    let callable_type = callable_type(request, &signature)?;
     let TypeData::Callable(callable_type) = callable_type.as_ref() else {
         return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
     };
 
-    if !callable_surface_is_consistent(&resolution, &signature, callable_type, &defaults) {
+    if !callable_surface_is_consistent(
+        candidate.resolution(),
+        candidate.signature(),
+        callable_type,
+        candidate.defaults(),
+    ) {
         return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
     }
 
-    if let bray_bound_tree::BoundCallableTarget::Declaration(callable) = resolution.target() {
+    if let bray_bound_tree::BoundCallableTarget::Declaration(callable) =
+        candidate.resolution().target()
+    {
         request
             .semantic_values()
             .intern_callable_instance(callable)
             .map_err(|_| CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
     }
 
-    match generic_arguments_are_compatible(request, generic_arguments, resolution.target())? {
+    match generic_arguments_are_compatible(
+        request,
+        generic_arguments,
+        candidate.resolution().target(),
+    )? {
         Compatibility::No => return Ok(CandidateCheck::Incompatible),
         Compatibility::Recovered => return Ok(CandidateCheck::Recovered),
         Compatibility::Yes => {}
     }
 
-    match receiver_is_compatible(types, receiver, signature.receiver())? {
+    match receiver_is_compatible(types, receiver, candidate.signature().receiver())? {
         Compatibility::No => return Ok(CandidateCheck::Incompatible),
         Compatibility::Recovered => return Ok(CandidateCheck::Recovered),
         Compatibility::Yes => {}
@@ -170,8 +219,8 @@ where
         mode,
         arguments,
         callable_type,
-        signature.parameters(),
-        &defaults,
+        candidate.signature().parameters(),
+        candidate.defaults(),
     )?
     else {
         return Ok(CandidateCheck::Incompatible);
@@ -181,10 +230,18 @@ where
         return Ok(CandidateCheck::Recovered);
     }
 
-    let Some(witnesses) = selected_witnesses(request, &resolution, &implementation_selections)?
+    let Some(witnesses) = selected_witnesses(
+        request,
+        candidate.resolution(),
+        candidate.implementation_selections(),
+    )?
     else {
         return Ok(CandidateCheck::Incompatible);
     };
+
+    // The durable selection owns its key and resolution after the candidate probe ends.
+    let key = candidate.key().clone();
+    let resolution = candidate.resolution().clone();
 
     Ok(CandidateCheck::Applicable {
         key,
