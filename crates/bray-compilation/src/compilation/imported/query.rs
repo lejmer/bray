@@ -65,7 +65,7 @@ impl super::super::Compilation {
         )
     }
 
-    pub(in crate::compilation) fn imported_semantic_graph_result_with_cancellation(
+    fn imported_semantic_graph_result_with_cancellation(
         &self,
         interface: ImportedInterfaceId,
         cancellation: &CancellationToken,
@@ -93,7 +93,6 @@ impl super::super::Compilation {
         cancellation: &CancellationToken,
     ) -> Result<Arc<DiagnosticResult<Arc<[ImportedSemanticFact]>>>, FactQueryError> {
         let cell = self.state.imported_semantic_facts.cell(key)?;
-
         let result = cell.get_or_compute(
             &self.state.fact_runtime,
             CompilationFactKey::ImportedSemanticFact(key),
@@ -221,7 +220,6 @@ impl super::super::Compilation {
         }
 
         let graph = self.symbol_graph()?;
-
         let Some(first_symbol) = u32::try_from(graph.next_symbol_index())
             .ok()
             .map(SymbolId::new)
@@ -263,7 +261,6 @@ impl super::super::Compilation {
         };
 
         let skeleton = self.imported_symbol_skeleton_result_with_cancellation(cancellation)?;
-
         let Some(skeleton) = skeleton.value() else {
             return Ok(DiagnosticResult::without_diagnostics(None));
         };
@@ -296,7 +293,6 @@ impl super::super::Compilation {
 
         let resolver = ImportedInterfaceSymbolResolver::try_new(current, interfaces, skeleton)
             .map_err(|_| FactQueryError::InfrastructureFailure)?;
-
         let semantic_values = self.semantic_value_store()?;
 
         cancellation.check()?;
@@ -341,7 +337,6 @@ impl super::super::Compilation {
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
         let skeleton = self.imported_symbol_skeleton_result_with_cancellation(cancellation)?;
-
         let owner = skeleton
             .value()
             .as_ref()
@@ -501,11 +496,9 @@ mod tests {
         assert!(compilation.state.imported_symbol_skeleton.get().is_none());
 
         let interface = interface_id(&compilation, "example.alpha", "main");
-
         let first = compilation
             .dependency_interface_result(interface)
             .unwrap_or_else(|| panic!("selected dependency interface must have a result"));
-
         let second = compilation
             .dependency_interface_result(interface)
             .unwrap_or_else(|| panic!("selected dependency interface must have a result"));
@@ -581,7 +574,6 @@ mod tests {
     #[test]
     fn valid_dependencies_publish_cached_skeleton_and_exact_template_facts() {
         let fixture = encoded_template_test_interface();
-
         let dependency = DependencyInterfaceInput::new(
             fixture.package.clone(),
             fixture.product.clone(),
@@ -599,7 +591,6 @@ mod tests {
         let skeleton = compilation
             .imported_symbol_skeleton_result()
             .unwrap_or_else(|error| panic!("skeleton query must complete: {error:?}"));
-
         let skeleton = skeleton.value().as_ref().unwrap_or_else(|| {
             panic!(
                 "valid dependency must publish a symbol skeleton: {:?}",
@@ -614,11 +605,9 @@ mod tests {
             fixture.template_owner,
             InterfaceSemanticFactKind::DeclarationTemplate,
         );
-
         let first = compilation
             .imported_semantic_fact_result(key)
             .unwrap_or_else(|error| panic!("semantic fact query must complete: {error:?}"));
-
         let second = compilation
             .imported_semantic_fact_result(key)
             .unwrap_or_else(|error| panic!("semantic fact query must complete: {error:?}"));
@@ -629,7 +618,6 @@ mod tests {
         let [ImportedSemanticFact::DeclarationTemplate(template)] = first.value().as_ref() else {
             panic!("exact declaration-template query must publish one template");
         };
-
         let source_symbol_end = compilation
             .symbol_graph()
             .unwrap_or_else(|error| panic!("symbol graph query must complete: {error:?}"))
@@ -647,7 +635,6 @@ mod tests {
     #[test]
     fn cancelled_exact_fact_queries_do_not_publish_results() {
         let fixture = encoded_template_test_interface();
-
         let dependency = DependencyInterfaceInput::new(
             fixture.package.clone(),
             fixture.product.clone(),
@@ -667,7 +654,6 @@ mod tests {
             fixture.template_owner,
             InterfaceSemanticFactKind::DeclarationTemplate,
         );
-
         let cancellation = CancellationToken::new();
 
         cancellation.cancel();
@@ -689,9 +675,7 @@ mod tests {
             dependency("example.alpha", "main"),
             dependency("example.beta", "test"),
         ]);
-
         let diagnostics = compilation.imported_diagnostics();
-
         let paths = diagnostics
             .iter()
             .flat_map(|diagnostic| diagnostic.notes())

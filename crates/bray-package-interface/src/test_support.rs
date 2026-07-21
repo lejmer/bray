@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 use bray_bound_tree::{CheckedTemplateInputId, CheckedTemplateKind, CheckedTemplateNodeId};
 use bray_symbols::{
@@ -11,13 +11,11 @@ use crate::{
     ExportedLookupKind, InterfaceCheckedTemplate, InterfaceCheckedTemplateBehavior,
     InterfaceCheckedTemplateId, InterfaceCheckedTemplateInput, InterfaceCheckedTemplateInputKind,
     InterfaceCheckedTemplateNode, InterfaceCheckedTemplateOperation, InterfaceDeclarationTemplate,
-    InterfaceDependencyContract, InterfaceGenericSubstitution, InterfaceGenericSubstitutionId,
-    InterfaceImplementationRecord, InterfaceLanguageRevision, InterfacePredicateSummary,
+    InterfaceDependencyContract, InterfaceLanguageRevision, InterfacePredicateSummary,
     InterfaceProductIdentity, InterfaceProductKind, InterfaceSemanticFacts, InterfaceSupportEntity,
-    InterfaceSymbolReference, InterfaceTraitApplication, InterfaceTraitApplicationId,
-    InterfaceType, InterfaceTypeId, PackageInterfaceExportBundle, PackageInterfaceIdentity,
-    PackageInterfaceSurface, SymbolRelationshipKind, build_package_interface_surface,
-    encode_package_interface,
+    InterfaceSymbolReference, InterfaceType, InterfaceTypeId, PackageInterfaceExportBundle,
+    PackageInterfaceIdentity, PackageInterfaceSurface, SymbolRelationshipKind,
+    build_package_interface_surface, encode_package_interface,
 };
 
 /// One valid encoded interface used by cross-crate compilation tests.
@@ -30,139 +28,6 @@ pub struct EncodedTemplateTestInterface {
     pub template_owner: InterfaceSymbolId,
     /// Complete encoded artifact bytes.
     pub bytes: Vec<u8>,
-}
-
-/// One valid encoded interface containing a trait implementation surface.
-pub struct EncodedImplementationTestInterface {
-    /// Package identity recorded by the artifact.
-    pub package: PackageIdentity,
-    /// Product identity recorded by the artifact.
-    pub product: InterfaceProductIdentity,
-    /// Complete encoded artifact bytes.
-    pub bytes: Vec<u8>,
-}
-
-/// Builds one valid interface containing an exact trait implementation.
-pub fn encoded_implementation_test_interface() -> EncodedImplementationTestInterface {
-    let package = package("example.implementation");
-    let product = product("library");
-
-    let module = module_key(package.clone(), "implementation");
-
-    let structure = named_key(module.clone(), SymbolKind::Struct, "Subject");
-    let trait_definition = named_key(module.clone(), SymbolKind::Trait, "Capability");
-
-    let implementation = ExternalSymbolKey::ordinal(
-        module.clone(),
-        SymbolKind::UnnamedTraitImplementation,
-        SymbolOrdinal::new(0),
-    )
-    .unwrap_or_else(|| panic!("test implementation key must be valid"));
-
-    let surface = identity_surface(
-        package.clone(),
-        product.clone(),
-        [
-            structure.clone(),
-            trait_definition.clone(),
-            implementation.clone(),
-        ],
-        [
-            ExportLookupInput::new(
-                ExternalSymbolKey::package(package.clone()),
-                symbol_name("implementation"),
-                ExportedLookupKind::Direct,
-                ExportSymbolReferenceInput::Local(module),
-            ),
-            ExportLookupInput::new(
-                structure
-                    .owner()
-                    .cloned()
-                    .unwrap_or_else(|| panic!("structure must have a module owner")),
-                symbol_name("Subject"),
-                ExportedLookupKind::Direct,
-                ExportSymbolReferenceInput::Local(structure.clone()),
-            ),
-            ExportLookupInput::new(
-                trait_definition
-                    .owner()
-                    .cloned()
-                    .unwrap_or_else(|| panic!("trait must have a module owner")),
-                symbol_name("Capability"),
-                ExportedLookupKind::Direct,
-                ExportSymbolReferenceInput::Local(trait_definition.clone()),
-            ),
-        ],
-    );
-
-    let structure = local_reference(&surface, &structure);
-    let trait_definition = local_reference(&surface, &trait_definition);
-    let implementation = local_reference(&surface, &implementation);
-    let predicate = InterfacePredicateSummary::new(crate::InterfaceDependencyContractId::new(0));
-
-    let facts = InterfaceSemanticFacts::new()
-        .with_values(
-            [InterfaceDependencyContract::new([])],
-            [InterfaceType::Named {
-                definition: structure.clone(),
-                substitution: InterfaceGenericSubstitutionId::new(0),
-            }],
-            [],
-            [],
-        )
-        .with_contracts(
-            [
-                crate::InterfaceConstraint::new(
-                    structure.clone(),
-                    SymbolOrdinal::new(0),
-                    predicate,
-                ),
-                crate::InterfaceConstraint::new(
-                    trait_definition.clone(),
-                    SymbolOrdinal::new(0),
-                    predicate,
-                ),
-            ],
-            [],
-        )
-        .with_applications(
-            [
-                InterfaceGenericSubstitution::new(structure, []),
-                InterfaceGenericSubstitution::new(trait_definition.clone(), []),
-                InterfaceGenericSubstitution::new(implementation.clone(), []),
-            ],
-            [InterfaceTraitApplication::new(
-                trait_definition,
-                InterfaceGenericSubstitutionId::new(1),
-            )],
-            [],
-            [],
-        )
-        .with_implementations(
-            [InterfaceImplementationRecord::new(
-                implementation.clone(),
-                InterfaceTypeId::new(0),
-                Some(InterfaceTraitApplicationId::new(0)),
-            )],
-            [crate::InterfaceCoherenceRecord::new(
-                InterfaceTypeId::new(0),
-                InterfaceTraitApplicationId::new(0),
-                [implementation],
-            )],
-        );
-
-    let bundle =
-        PackageInterfaceExportBundle::try_new(surface, facts, InterfaceLanguageRevision::new(0))
-            .unwrap_or_else(|error| panic!("test implementation bundle must be valid: {error:?}"));
-
-    let encoded = encode_package_interface(&bundle)
-        .unwrap_or_else(|error| panic!("test implementation interface must encode: {error:?}"));
-
-    EncodedImplementationTestInterface {
-        package,
-        product,
-        bytes: encoded.bytes().to_vec(),
-    }
 }
 
 /// Builds one valid interface containing a declaration-owned checked template.
@@ -278,41 +143,23 @@ fn identity_surface(
         .iter()
         .map(|key| ExportSymbolInput::new(key.clone(), key.owner().cloned()));
 
-    let mut relationship_ordinals = BTreeMap::new();
-
     let relationships = keys.iter().filter_map(|key| {
         let owner = key.owner()?;
 
         let kind = match (owner.kind(), key.kind()) {
             (SymbolKind::Package, SymbolKind::Module) => SymbolRelationshipKind::PackageModule,
-            (
-                SymbolKind::Module,
-                SymbolKind::Function
-                | SymbolKind::Struct
-                | SymbolKind::Trait
-                | SymbolKind::UnnamedTraitImplementation,
-            ) => SymbolRelationshipKind::ModuleMember,
+            (SymbolKind::Module, SymbolKind::Function) => SymbolRelationshipKind::ModuleMember,
             (SymbolKind::Function, SymbolKind::GenericTypeParameter) => {
                 SymbolRelationshipKind::GenericParameter
             }
             pair => panic!("unsupported test symbol relationship: {pair:?}"),
         };
 
-        let next_ordinal = relationship_ordinals
-            .entry((kind, owner.clone()))
-            .or_insert(0_u32);
-
-        let ordinal = *next_ordinal;
-
-        *next_ordinal = next_ordinal
-            .checked_add(1)
-            .unwrap_or_else(|| panic!("test relationship ordinal must fit in u32"));
-
         Some(ExportRelationshipInput::new(
             kind,
             owner.clone(),
             key.clone(),
-            ordinal,
+            0,
         ))
     });
 
@@ -453,17 +300,6 @@ pub(crate) fn named_key(
 
 fn symbol_name(value: &str) -> SymbolName {
     SymbolName::try_new(value).unwrap_or_else(|| panic!("test symbol name must be valid"))
-}
-
-fn local_reference(
-    surface: &PackageInterfaceSurface,
-    key: &ExternalSymbolKey,
-) -> InterfaceSymbolReference {
-    let symbol = surface
-        .symbol_by_external_key(key)
-        .unwrap_or_else(|| panic!("test interface symbol must be present"));
-
-    InterfaceSymbolReference::Local(symbol)
 }
 
 fn package(value: &str) -> PackageIdentity {

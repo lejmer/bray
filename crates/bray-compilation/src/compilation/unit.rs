@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
 use bray_binder::{
-    BinderDependency, BinderFactError, BoundUnitBindingError, BoundUnitComputation,
-    bind_anonymous_callable, bind_callable_body, bind_constant_template, bind_constraint,
-    bind_contract_clause, bind_expression_candidates, bind_predicate_definition,
-    bind_runtime_default, semantic_unit_context,
+    BinderDependency, BoundUnitBindingError, BoundUnitComputation, bind_anonymous_callable,
+    bind_callable_body, bind_constant_template, bind_constraint, bind_contract_clause,
+    bind_expression_candidates, bind_predicate_definition, bind_runtime_default,
+    semantic_unit_context,
 };
 use bray_bound_tree::{
     AnyBoundNodeId, BoundUnit, BoundUnitKey, BoundUnitKind, BoundWalkControl, BoundWalkEvent,
@@ -315,7 +315,7 @@ fn expression_candidates(
     });
 
     if let Some(error) = failure {
-        return Err(map_binder_fact_error(error));
+        return Err(super::binder::binder_fact_error(error));
     }
 
     match outcome {

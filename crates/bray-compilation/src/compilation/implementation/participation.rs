@@ -2,12 +2,13 @@ use std::sync::Arc;
 
 use bray_diagnostics::DiagnosticResult;
 use bray_symbols::{
-    ImplementationCoherenceDomainKey, ImplementationParticipationEvidence,
-    ImplementationParticipationFact, ImplementationParticipationSet, ImplementationSymbolId,
-    ParticipatingImplementation, SemanticFactResult, SymbolOrigin,
+    AvailableCompilerKnownSymbols, ImplementationCoherenceDomainKey,
+    ImplementationParticipationEvidence, ImplementationParticipationFact,
+    ImplementationParticipationSet, ImplementationSymbolId, ParticipatingImplementation,
+    SemanticFactResult, SymbolOrigin,
 };
 
-use super::Compilation;
+use super::super::Compilation;
 use crate::fact::{CompilationFactKey, FactQueryError};
 
 impl Compilation {
@@ -15,6 +16,14 @@ impl Compilation {
     pub fn implementation_participation(
         &self,
         domain: ImplementationCoherenceDomainKey,
+    ) -> Result<Arc<SemanticFactResult<ImplementationParticipationFact>>, FactQueryError> {
+        self.implementation_participation_with_cancellation(domain, &self.state.cancellation)
+    }
+
+    pub(in crate::compilation) fn implementation_participation_with_cancellation(
+        &self,
+        domain: ImplementationCoherenceDomainKey,
+        cancellation: &crate::fact::CancellationToken,
     ) -> Result<Arc<SemanticFactResult<ImplementationParticipationFact>>, FactQueryError> {
         if domain.package() != self.package_identity() {
             return Err(FactQueryError::InfrastructureFailure);
@@ -28,15 +37,11 @@ impl Compilation {
 
         let fact_key = CompilationFactKey::ImplementationParticipation(domain.clone());
 
-        let result = cell.get_or_compute(
-            &self.state.fact_runtime,
-            fact_key,
-            &self.state.cancellation,
-            || {
-                self.compute_implementation_participation(domain)
+        let result =
+            cell.get_or_compute(&self.state.fact_runtime, fact_key, cancellation, || {
+                self.compute_implementation_participation(domain, cancellation)
                     .map(Arc::new)
-            },
-        )?;
+            })?;
 
         // The caller owns the immutable publication independently of the map cell.
         Ok(Arc::clone(result))
@@ -45,10 +50,12 @@ impl Compilation {
     fn compute_implementation_participation(
         &self,
         domain: ImplementationCoherenceDomainKey,
+        cancellation: &crate::fact::CancellationToken,
     ) -> Result<SemanticFactResult<ImplementationParticipationFact>, FactQueryError> {
-        self.state.cancellation.check()?;
+        cancellation.check()?;
 
         let symbols = self.symbol_graph()?;
+        let available_compiler_known = self.available_compiler_known_symbols();
         let mut participating = Vec::new();
 
         let implementations = symbols
@@ -75,9 +82,11 @@ impl Compilation {
             );
 
         for (key, implementation, origin) in implementations {
-            self.state.cancellation.check()?;
+            cancellation.check()?;
 
-            let Some(evidence) = participation_evidence(origin) else {
+            let Some(evidence) =
+                participation_evidence(origin, implementation, available_compiler_known)
+            else {
                 continue;
             };
 
@@ -98,12 +107,19 @@ impl Compilation {
     }
 }
 
-const fn participation_evidence(
+fn participation_evidence(
     origin: SymbolOrigin,
+    implementation: ImplementationSymbolId,
+    available_compiler_known: &AvailableCompilerKnownSymbols,
 ) -> Option<ImplementationParticipationEvidence> {
     match origin {
         SymbolOrigin::Source => Some(ImplementationParticipationEvidence::declared()),
-        SymbolOrigin::CompilerKnown => Some(ImplementationParticipationEvidence::compiler_known()),
+        SymbolOrigin::CompilerKnown
+            if available_compiler_known.contains(implementation.into_any()) =>
+        {
+            Some(ImplementationParticipationEvidence::compiler_known())
+        }
+        SymbolOrigin::CompilerKnown => None,
         SymbolOrigin::Imported | SymbolOrigin::CompilerProvided | SymbolOrigin::Synthesized => None,
     }
 }
@@ -117,7 +133,7 @@ mod tests {
         ImplementationSymbolId,
     };
 
-    use crate::fact::FactCellTestEvent;
+    use crate::fact::{CompilationFactKey, FactCellTestEvent};
     use crate::test_support::{
         FactTestGate, compilation, encoded_template_dependency, package_identity, source_input,
     };
@@ -256,21 +272,37 @@ impl First
     }
 
     #[test]
-    fn compiler_known_participants_are_not_source_declarations() {
+    fn compiler_known_participants_follow_the_selected_target() {
         let compilation = compilation("module app;");
+        let domain = domain();
 
         let result = compilation
-            .implementation_participation(domain())
+            .implementation_participation(domain.clone())
             .unwrap_or_else(|error| panic!("participation fact must publish: {error:?}"));
 
         assert!(!result.value().implementations().is_empty());
+
+        let available = compilation.available_compiler_known_symbols();
 
         for participant in result.value().implementations() {
             assert_eq!(
                 participant.evidence(),
                 &ImplementationParticipationEvidence::compiler_known()
             );
+
+            assert!(available.contains(participant.implementation().into_any()));
         }
+
+        let dependencies = compilation
+            .state
+            .fact_runtime
+            .dependencies(&CompilationFactKey::ImplementationParticipation(domain))
+            .unwrap_or_else(|error| {
+                panic!("participation dependencies must be readable: {error:?}")
+            })
+            .unwrap_or_else(|| panic!("participation fact must be published"));
+
+        assert!(dependencies.contains(&CompilationFactKey::SelectedTarget));
     }
 
     #[test]

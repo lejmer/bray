@@ -1,14 +1,12 @@
-use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use bray_binder::SymbolFactProvider;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
-    GenericConstraintTemplate, GenericParameterSymbolId, ImplementationCandidate,
-    ImplementationCandidateSet, ImplementationCoherenceEvidence, ImplementationCoherenceFact,
+    ImplementationCandidate, ImplementationCandidateSet, ImplementationCoherenceDomainKey,
+    ImplementationCoherenceEvidence, ImplementationCoherenceFact,
     ImplementationCoherenceParticipant, ImplementationHeadTemplateFact,
-    ImplementationRequirementKey, ImplementationSymbolId, ImportedInterfaceId,
-    ImportedSymbolSkeleton, SymbolFactRequest, SymbolGraph, SymbolKey,
+    ImplementationRequirementKey, SymbolFactRequest,
 };
 
 use super::index::{ImplementationHeader, ImplementationHeaderIndex};
@@ -61,15 +59,21 @@ impl super::super::Compilation {
         &self,
         cancellation: &CancellationToken,
     ) -> Result<DiagnosticResult<Arc<ImplementationHeaderIndex>>, FactQueryError> {
-        let symbols = self.symbol_graph()?;
         let values = self.semantic_value_store()?;
         let facts = self.binder_facts(cancellation)?;
 
-        let mut headers = Vec::new();
-        let mut diagnostics = DiagnosticBag::new();
+        // The coherence-domain key owns its package identity beyond this compilation borrow.
+        let domain = ImplementationCoherenceDomainKey::new(self.package_identity().clone());
 
-        for implementation in local_trait_implementations(self, symbols) {
+        let participation =
+            self.implementation_participation_with_cancellation(domain, cancellation)?;
+
+        let mut headers = Vec::new();
+
+        for participant in participation.value().implementations() {
             cancellation.check()?;
+
+            let implementation = participant.implementation();
 
             let head = facts
                 .symbol_fact(SymbolFactRequest::<ImplementationHeadTemplateFact>::new(
@@ -83,32 +87,38 @@ impl super::super::Compilation {
                 ))
                 .map_err(super::super::binder::binder_fact_error)?;
 
-            diagnostics = diagnostics
-                .merged(head.diagnostics())
-                .merged(coherence.diagnostics());
+            let diagnostics =
+                DiagnosticBag::merged_all([head.diagnostics(), coherence.diagnostics()]);
 
             let Some(trait_application) = coherence.value().trait_application() else {
                 continue;
             };
 
-            let key = symbols
-                .symbol_key(implementation.into_any())
-                .ok_or(FactQueryError::InfrastructureFailure)?;
+            // The index owns the immutable generic template beyond the borrowed fact result.
+            let generic = head.value().generic().clone();
 
-            // Header records retain their stable key independently of the symbol graph snapshot.
+            // Header records retain their stable key independently of participation evidence.
+            // TODO(compilation): Populate declaration target dependencies when target-gated
+            // contribution facts expose them.
             headers.push(ImplementationHeader::new(
-                key.clone(),
+                participant.key().clone(),
                 implementation,
                 coherence.value().subject(),
                 trait_application,
-                head.value().generic().parameters().iter().copied(),
-                head.value().generic().constraints().iter().copied(),
+                generic,
                 [],
+                diagnostics,
             ));
         }
 
-        collect_imported_headers(self, cancellation, &mut headers, &mut diagnostics)?;
+        let diagnostics = DiagnosticBag::merged_all(
+            headers
+                .iter()
+                .map(ImplementationHeader::diagnostics)
+                .chain([participation.diagnostics()]),
+        );
 
+        // TODO(BRA-240): Add explicitly participating imported headers through their narrow facts.
         let index = ImplementationHeaderIndex::try_new(headers, values)
             .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
@@ -131,6 +141,9 @@ impl super::super::Compilation {
             .value()
             .compatible_headers(key.subject(), trait_application.definition(), values)
             .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+        let diagnostics =
+            DiagnosticBag::merged_all(compatible.iter().map(|header| header.diagnostics()));
 
         let mut matched = Vec::new();
 
@@ -190,200 +203,8 @@ impl super::super::Compilation {
                 .map_err(|_| FactQueryError::InfrastructureFailure)?
         };
 
-        // The exact result retains diagnostics independently of the shared index fact.
-        let diagnostics = index.diagnostics().clone();
-
         Ok(DiagnosticResult::new(candidates, diagnostics))
     }
-}
-
-fn local_trait_implementations(
-    compilation: &super::super::Compilation,
-    symbols: &SymbolGraph,
-) -> BTreeSet<ImplementationSymbolId> {
-    let source = symbols
-        .unnamed_trait_implementations()
-        .iter()
-        .filter(|symbol| symbol.origin() == bray_symbols::SymbolOrigin::Source)
-        .map(|symbol| ImplementationSymbolId::from(symbol.id()))
-        .chain(
-            symbols
-                .named_trait_implementations()
-                .iter()
-                .filter(|symbol| symbol.origin() == bray_symbols::SymbolOrigin::Source)
-                .map(|symbol| ImplementationSymbolId::from(symbol.id())),
-        );
-
-    let compiler_known = compilation
-        .available_compiler_known_symbols()
-        .declarations()
-        .iter()
-        .copied()
-        .filter_map(ImplementationSymbolId::try_from_any)
-        .filter(|implementation| !matches!(implementation, ImplementationSymbolId::Inherent(_)));
-
-    source.chain(compiler_known).collect()
-}
-
-fn collect_imported_headers(
-    compilation: &super::super::Compilation,
-    cancellation: &CancellationToken,
-    headers: &mut Vec<ImplementationHeader>,
-    diagnostics: &mut DiagnosticBag,
-) -> Result<(), FactQueryError> {
-    let skeleton_result =
-        compilation.imported_symbol_skeleton_result_with_cancellation(cancellation)?;
-
-    *diagnostics = diagnostics.merged(skeleton_result.diagnostics());
-
-    let Some(skeleton) = skeleton_result.value() else {
-        return Ok(());
-    };
-
-    for index in 0..compilation.state.dependency_interfaces.len() {
-        cancellation.check()?;
-
-        let interface = ImportedInterfaceId::try_from_index(index)
-            .ok_or(FactQueryError::InfrastructureFailure)?;
-
-        let Some(result) = compilation
-            .imported_semantic_graph_result_with_cancellation(interface, cancellation)?
-        else {
-            return Err(FactQueryError::InfrastructureFailure);
-        };
-
-        *diagnostics = diagnostics.merged(result.diagnostics());
-
-        let Some(facts) = result.value() else {
-            continue;
-        };
-
-        for implementation in facts.implementations() {
-            let Some(trait_application) = implementation.trait_application() else {
-                continue;
-            };
-
-            let subject = implementation.subject().ty();
-            let implementation = implementation.implementation();
-
-            let key = imported_implementation_key(skeleton, implementation)
-                .ok_or(FactQueryError::InfrastructureFailure)?;
-
-            let parameters = imported_implementation_parameters(skeleton, implementation)
-                .ok_or(FactQueryError::InfrastructureFailure)?;
-
-            let owner = bray_symbols::GenericOwnerId::try_new(implementation.into_any())
-                .ok_or(FactQueryError::InfrastructureFailure)?;
-
-            let constraints = facts
-                .constraints()
-                .iter()
-                .copied()
-                .filter(|constraint| constraint.owner() == owner)
-                .map(|constraint| GenericConstraintTemplate::Resolved(constraint.constraint()));
-
-            // The indexed header owns its stable key independently of the imported skeleton.
-            let key = key.clone();
-
-            // TODO(BRA-235): Retain implementation-owned target dependencies once interface
-            // semantic records associate dependencies with their consuming declaration fact.
-            headers.push(ImplementationHeader::new(
-                key,
-                implementation,
-                subject,
-                trait_application,
-                parameters,
-                constraints,
-                [],
-            ));
-        }
-    }
-
-    Ok(())
-}
-
-fn imported_implementation_key(
-    symbols: &ImportedSymbolSkeleton,
-    implementation: ImplementationSymbolId,
-) -> Option<&SymbolKey> {
-    match implementation {
-        ImplementationSymbolId::Inherent(id) => symbols
-            .inherent_implementation(id)
-            .map(|symbol| symbol.key()),
-        ImplementationSymbolId::UnnamedTrait(id) => symbols
-            .unnamed_trait_implementation(id)
-            .map(|symbol| symbol.key()),
-        ImplementationSymbolId::NamedTrait(id) => symbols
-            .named_trait_implementation(id)
-            .map(|symbol| symbol.key()),
-    }
-}
-
-fn imported_implementation_parameters(
-    symbols: &ImportedSymbolSkeleton,
-    implementation: ImplementationSymbolId,
-) -> Option<Vec<GenericParameterSymbolId>> {
-    let (types, constants) = match implementation {
-        ImplementationSymbolId::Inherent(id) => {
-            let symbol = symbols.inherent_implementation(id)?;
-
-            (
-                symbol.generic_type_parameters(),
-                symbol.generic_const_parameters(),
-            )
-        }
-        ImplementationSymbolId::UnnamedTrait(id) => {
-            let symbol = symbols.unnamed_trait_implementation(id)?;
-
-            (
-                symbol.generic_type_parameters(),
-                symbol.generic_const_parameters(),
-            )
-        }
-        ImplementationSymbolId::NamedTrait(id) => {
-            let symbol = symbols.named_trait_implementation(id)?;
-
-            (
-                symbol.generic_type_parameters(),
-                symbol.generic_const_parameters(),
-            )
-        }
-    };
-
-    let parameters = types
-        .iter()
-        .copied()
-        .map(GenericParameterSymbolId::Type)
-        .chain(
-            constants
-                .iter()
-                .copied()
-                .map(GenericParameterSymbolId::Const),
-        )
-        .collect::<Vec<_>>();
-
-    let mut parameters = parameters
-        .into_iter()
-        .map(|parameter| {
-            let ordinal = match parameter {
-                GenericParameterSymbolId::Type(id) => symbols.generic_type_parameter(id)?.ordinal(),
-                GenericParameterSymbolId::Const(id) => {
-                    symbols.generic_const_parameter(id)?.ordinal()
-                }
-            };
-
-            Some((ordinal, parameter))
-        })
-        .collect::<Option<Vec<_>>>()?;
-
-    parameters.sort_by_key(|(ordinal, _)| *ordinal);
-
-    Some(
-        parameters
-            .into_iter()
-            .map(|(_, parameter)| parameter)
-            .collect(),
-    )
 }
 
 #[cfg(test)]
@@ -392,20 +213,19 @@ mod tests {
 
     use bray_binder::SymbolFactProvider;
     use bray_compiler_known::RepresentationRole;
-    use bray_package_interface::{
-        InterfaceLanguageRevision, InterfaceValidationPolicy,
-        test_support::encoded_implementation_test_interface,
-    };
-    use bray_source::{SourceIdentity, SourceInput, SourceVersion};
     use bray_symbols::{
         GenericArgument, GenericOwnerId, GenericParameterSymbolId, GenericSubstitutionData,
-        ImplementationCoherenceFact, ImplementationHeadTemplateFact, ImplementationRequirementKey,
-        ImplementationSymbolId, NamedTypeSymbolId, PackageIdentity, StructSymbolId,
-        SymbolFactRequest, SymbolOrigin, TraitApplicationData, TypeData,
+        ImplementationCoherenceDomainKey, ImplementationCoherenceFact,
+        ImplementationHeadTemplateFact, ImplementationRequirementKey, ImplementationSymbolId,
+        NamedTypeSymbolId, StructSymbolId, SymbolFactRequest, SymbolOrigin, TraitApplicationData,
+        TypeData,
     };
 
-    use crate::test_support::compilation;
-    use crate::{CancellationToken, Compilation, CompilationRequest, DependencyInterfaceInput};
+    use crate::fact::CompilationFactKey;
+    use crate::test_support::{
+        compilation, encoded_template_dependency, package_identity, source_input,
+    };
+    use crate::{CancellationToken, Compilation, CompilationRequest};
 
     const IMPLEMENTATIONS: &str = r#"module app;
 
@@ -417,7 +237,7 @@ struct Wrapper<T>
 {
 }
 
-impl Wrapper<T>(Converts<T>) with(true)
+impl WrapperConverts = Wrapper<T>(Converts<T>) with(true)
 {
 }
 "#;
@@ -574,69 +394,65 @@ impl Wrapper<T>(Converts<T>) with(true)
     }
 
     #[test]
-    fn imported_implementation_headers_participate_without_source_rebinding() {
-        let fixture = encoded_implementation_test_interface();
+    fn candidate_indexes_depend_on_participation_without_demanding_dependency_interfaces() {
+        let interface = bray_package_interface::test_support::encoded_template_test_interface();
 
-        let dependency = DependencyInterfaceInput::new(
-            fixture.package.clone(),
-            fixture.product.clone(),
-            "implementation.brayi",
-            Arc::<[u8]>::from(fixture.bytes),
-            InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
+        let request =
+            CompilationRequest::new(package_identity(), vec![source_input(IMPLEMENTATIONS, 0)])
+                .with_dependency_interfaces([encoded_template_dependency(&interface)]);
+
+        let compilation = Compilation::load(request)
+            .unwrap_or_else(|error| panic!("test compilation must load: {error:?}"));
+
+        let fixture = CandidateFixture::new(&compilation);
+        let domain = ImplementationCoherenceDomainKey::new(package_identity());
+
+        assert_eq!(
+            compilation
+                .state
+                .implementation_participation
+                .is_published(&domain),
+            Ok(false)
         );
 
-        let package = PackageIdentity::try_new("example.current")
-            .unwrap_or_else(|| panic!("test package identity must be valid"));
-
-        let source = SourceInput::virtual_text(
-            SourceIdentity::new(1),
-            "main.bray",
-            SourceVersion::new(0),
-            "module example.current;",
+        assert!(
+            compilation
+                .state
+                .loaded_dependency_interfaces
+                .iter()
+                .all(|interface| interface.get().is_none())
         );
-
-        let compilation = Compilation::load(
-            CompilationRequest::new(package, vec![source]).with_dependency_interfaces([dependency]),
-        )
-        .unwrap_or_else(|error| panic!("test compilation must load: {error:?}"));
-
-        let interface = compilation
-            .dependency_interface_id(&fixture.package, &fixture.product)
-            .unwrap_or_else(|| panic!("dependency interface must have a stable ID"));
-
-        let cancellation = CancellationToken::new();
-
-        let imported = compilation
-            .imported_semantic_graph_result_with_cancellation(interface, &cancellation)
-            .unwrap_or_else(|error| panic!("imported semantics must load: {error:?}"))
-            .unwrap_or_else(|| panic!("dependency interface must be present"));
-
-        let imported = imported
-            .value()
-            .as_ref()
-            .unwrap_or_else(|| panic!("fixture semantic graph must be valid"));
-
-        let [implementation] = imported.implementations() else {
-            panic!("fixture must expose one imported implementation");
-        };
-
-        let trait_application = implementation
-            .trait_application()
-            .unwrap_or_else(|| panic!("fixture implementation must implement a trait"));
-
-        let requirement =
-            ImplementationRequirementKey::new(implementation.subject().ty(), trait_application);
 
         let candidates = compilation
-            .implementation_candidate_set_result(requirement)
+            .implementation_candidate_set_result(fixture.requirement)
             .unwrap_or_else(|error| panic!("candidate query must complete: {error:?}"));
 
-        let [candidate] = candidates.value().candidates() else {
-            panic!("imported implementation must produce one candidate");
-        };
+        assert_eq!(candidates.value().candidates().len(), 1);
 
-        assert_eq!(candidate.implementation(), implementation.implementation());
-        assert!(candidate.constraints().is_empty());
+        assert_eq!(
+            compilation
+                .state
+                .implementation_participation
+                .is_published(&domain),
+            Ok(true)
+        );
+
+        assert!(
+            compilation
+                .state
+                .loaded_dependency_interfaces
+                .iter()
+                .all(|interface| interface.get().is_none())
+        );
+
+        let dependencies = compilation
+            .state
+            .fact_runtime
+            .dependencies(&CompilationFactKey::ImplementationHeaderIndex)
+            .unwrap_or_else(|error| panic!("index dependencies must be readable: {error:?}"))
+            .unwrap_or_else(|| panic!("implementation index must be published"));
+
+        assert!(dependencies.contains(&CompilationFactKey::ImplementationParticipation(domain)));
     }
 
     struct CandidateFixture {
@@ -677,15 +493,13 @@ impl Wrapper<T>(Converts<T>) with(true)
             };
 
             let implementations = symbols
-                .unnamed_trait_implementations()
+                .named_trait_implementations()
                 .iter()
                 .filter(|symbol| symbol.origin() == SymbolOrigin::Source)
                 .collect::<Vec<_>>();
 
             let [implementation] = implementations.as_slice() else {
-                panic!(
-                    "fixture must declare one unnamed trait implementation: {implementations:?}"
-                );
+                panic!("fixture must declare one named trait implementation: {implementations:?}");
             };
 
             let [implementation_parameter] = implementation.generic_type_parameters() else {
