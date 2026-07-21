@@ -1,9 +1,8 @@
 use bray_bound_tree::{
-    BoundExpression, BoundExpressionId, BoundStructuredExpressionKind, BoundUnit,
-    DeclaredValueTypeTemplates, SelectionKind,
+    BoundExpression, BoundExpressionId, BoundStructuredExpressionKind, BoundUnit, SelectionKind,
 };
 use bray_checker::ExpressionCandidateSet;
-use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
+use bray_diagnostics::DiagnosticResult;
 use bray_symbols::{
     CallableOverloadTemplateFact, CallableParameterDefaultTemplateFact, CallableSignatureFact,
     GenericDeclarationTemplateFact,
@@ -14,12 +13,11 @@ use crate::{BinderFactContext, BinderFactError, BinderFactResult, SymbolFactProv
 
 /// Enumerates candidate surfaces for one exact bound expression without selecting a target.
 ///
-/// The bound unit, declared-type templates, and expression must belong to the same semantic unit.
-/// Cancellation and unavailable or inconsistent inputs are returned as binder fact errors.
+/// The bound unit and expression must belong to the same semantic unit. Cancellation and
+/// unavailable or inconsistent inputs are returned as binder fact errors.
 pub fn bind_expression_candidates<C>(
     context: &C,
     unit: &BoundUnit,
-    declared_types: &DeclaredValueTypeTemplates,
     expression: BoundExpressionId,
 ) -> BinderFactResult<DiagnosticResult<ExpressionCandidateSet>>
 where
@@ -33,10 +31,7 @@ where
         return Err(BinderFactError::Cancelled);
     }
 
-    if unit.unit() != expression.unit()
-        || declared_types.unit() != unit.unit()
-        || declared_types.kind() != unit.key().kind()
-    {
+    if unit.unit() != expression.unit() {
         return Err(BinderFactError::DependencyUnavailable);
     }
 
@@ -44,25 +39,13 @@ where
         return Err(BinderFactError::DependencyUnavailable);
     };
 
-    let mut diagnostics = DiagnosticBag::new();
-
     let candidates = match bound {
-        BoundExpression::Call(call) => bind_call_candidates(
-            context,
-            unit,
-            declared_types,
-            expression,
-            call.callee(),
-            &mut diagnostics,
-        )?,
-        BoundExpression::ErrorCall(call) => bind_call_candidates(
-            context,
-            unit,
-            declared_types,
-            expression,
-            call.callee(),
-            &mut diagnostics,
-        )?,
+        BoundExpression::Call(call) => {
+            bind_call_candidates(context, unit, expression, call.callee())?
+        }
+        BoundExpression::ErrorCall(call) => {
+            bind_call_candidates(context, unit, expression, call.callee())?
+        }
         BoundExpression::MemberAccess(_) | BoundExpression::TraitQualifiedMember(_) => {
             unsupported(expression, SelectionKind::Member)
         }
@@ -92,7 +75,7 @@ where
         _ => ExpressionCandidateSet::NotApplicable(expression),
     };
 
-    Ok(DiagnosticResult::new(candidates, diagnostics))
+    Ok(DiagnosticResult::without_diagnostics(candidates))
 }
 
 const fn unsupported(expression: BoundExpressionId, kind: SelectionKind) -> ExpressionCandidateSet {

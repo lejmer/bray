@@ -4,7 +4,7 @@ use bray_base::shared_slice;
 use bray_bound_tree::{BoundExpressionId, DeclaredValueTypeTerm, SelectionKind};
 use bray_symbols::{
     CallableDefinitionId, CallableParameterSymbolId, CallableSignatureTemplate,
-    GenericDeclarationTemplate, SymbolKey, TypeExpressionTemplate, UnevaluatedDefaultTemplate,
+    GenericDeclarationTemplate, SymbolKey, UnevaluatedDefaultTemplate,
 };
 
 /// Why an exact semantic candidate request has no candidate surface.
@@ -12,12 +12,10 @@ use bray_symbols::{
 pub enum CandidateAbsence {
     /// Name binding did not produce a usable callee identity.
     UnresolvedReference,
-    /// The referenced value has no declared type template at this occurrence.
-    MissingValueType,
-    /// The referenced value's declared type is not callable.
-    NonCallableValue,
     /// Every declaration reached through an overload arm was unusable.
     EmptyOverload,
+    /// Required declaration facts are not available from the symbol's origin.
+    UnavailableDeclarationFacts,
 }
 
 /// Participation state known before type compatibility and target checks.
@@ -61,6 +59,11 @@ impl CallableParameterDefaultTemplate {
 /// One declared callable considered before substitution and applicability checking.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CallableDeclarationCandidateTemplate {
+    data: Arc<CallableDeclarationCandidateTemplateData>,
+}
+
+#[derive(Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+struct CallableDeclarationCandidateTemplateData {
     key: SymbolKey,
     definition: CallableDefinitionId,
     signature: CallableSignatureTemplate,
@@ -80,76 +83,64 @@ impl CallableDeclarationCandidateTemplate {
         state: CallableCandidateTemplateState,
     ) -> Self {
         Self {
-            key,
-            definition,
-            signature,
-            generic,
-            defaults: shared_slice(defaults),
-            state,
+            data: Arc::new(CallableDeclarationCandidateTemplateData {
+                key,
+                definition,
+                signature,
+                generic,
+                defaults: shared_slice(defaults),
+                state,
+            }),
         }
     }
 
     /// Returns the candidate's stable semantic key.
-    pub const fn key(&self) -> &SymbolKey {
-        &self.key
+    pub fn key(&self) -> &SymbolKey {
+        &self.data.key
     }
 
     /// Returns the exact callable declaration.
-    pub const fn definition(&self) -> CallableDefinitionId {
-        self.definition
+    pub fn definition(&self) -> CallableDefinitionId {
+        self.data.definition
     }
 
     /// Returns the complete unevaluated callable signature.
-    pub const fn signature(&self) -> &CallableSignatureTemplate {
-        &self.signature
+    pub fn signature(&self) -> &CallableSignatureTemplate {
+        &self.data.signature
     }
 
     /// Returns generic parameters and constraint templates.
-    pub const fn generic(&self) -> &GenericDeclarationTemplate {
-        &self.generic
+    pub fn generic(&self) -> &GenericDeclarationTemplate {
+        &self.data.generic
     }
 
     /// Returns parameter defaults in declaration order.
     pub fn defaults(&self) -> &[CallableParameterDefaultTemplate] {
-        &self.defaults
+        &self.data.defaults
     }
 
     /// Returns the participation state known before applicability checking.
-    pub const fn state(&self) -> CallableCandidateTemplateState {
-        self.state
+    pub fn state(&self) -> CallableCandidateTemplateState {
+        self.data.state
     }
 }
 
-/// One callable value considered through its declared type template.
+/// One value retained for callable classification by the type-selection fixed point.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CallableValueCandidateTemplate {
     value: DeclaredValueTypeTerm,
-    callable_type: TypeExpressionTemplate,
     state: CallableCandidateTemplateState,
 }
 
 impl CallableValueCandidateTemplate {
-    /// Creates a callable value candidate from exact declared type evidence.
-    pub const fn new(
-        value: DeclaredValueTypeTerm,
-        callable_type: TypeExpressionTemplate,
-        state: CallableCandidateTemplateState,
-    ) -> Self {
-        Self {
-            value,
-            callable_type,
-            state,
-        }
+    /// Creates a callable value candidate from one exact semantic value term.
+    pub const fn new(value: DeclaredValueTypeTerm, state: CallableCandidateTemplateState) -> Self {
+        Self { value, state }
     }
 
     /// Returns the exact referenced value.
     pub const fn value(&self) -> DeclaredValueTypeTerm {
         self.value
-    }
-
-    /// Returns the value's callable type template.
-    pub const fn callable_type(&self) -> &TypeExpressionTemplate {
-        &self.callable_type
     }
 
     /// Returns the participation state known before applicability checking.
@@ -163,7 +154,7 @@ impl CallableValueCandidateTemplate {
 pub enum CallableCandidateTemplate {
     /// A callable declaration with exact signature facts.
     Declaration(CallableDeclarationCandidateTemplate),
-    /// A callable value with exact declared type evidence.
+    /// A value retained for callable classification by the type-selection fixed point.
     Value(CallableValueCandidateTemplate),
 }
 
@@ -269,7 +260,7 @@ mod tests {
         BoundErrorExpression, BoundExpression, BoundExpressionId, BoundNodeOrigin,
         BoundReferenceTarget, BoundTreeBuilder, BoundUnitId, DeclaredValueTypeTerm, SelectionKind,
     };
-    use bray_symbols::{AnySymbolId, FunctionSymbolId, SymbolId, TypeExpressionTemplate};
+    use bray_symbols::{AnySymbolId, FunctionSymbolId, SymbolId};
 
     #[test]
     fn candidate_template_outcomes_are_send_and_sync() {
@@ -293,10 +284,12 @@ mod tests {
         };
 
         assert_eq!(candidates.expression(), expression);
+
         assert_eq!(
             candidates.candidates(),
             Some([second, value_candidate(2)].as_slice())
         );
+
         assert_eq!(candidates.absence(), None);
     }
 
@@ -306,11 +299,17 @@ mod tests {
 
         assert!(CallableCandidateTemplates::present(expression, []).is_none());
 
-        let absent =
-            CallableCandidateTemplates::absent(expression, CandidateAbsence::MissingValueType);
+        let absent = CallableCandidateTemplates::absent(
+            expression,
+            CandidateAbsence::UnavailableDeclarationFacts,
+        );
 
         assert_eq!(absent.candidates(), None);
-        assert_eq!(absent.absence(), Some(CandidateAbsence::MissingValueType));
+
+        assert_eq!(
+            absent.absence(),
+            Some(CandidateAbsence::UnavailableDeclarationFacts)
+        );
 
         let unsupported = ExpressionCandidateSet::Unsupported {
             expression,
@@ -327,7 +326,6 @@ mod tests {
 
         CallableCandidateTemplate::Value(CallableValueCandidateTemplate::new(
             DeclaredValueTypeTerm::Value(target),
-            TypeExpressionTemplate::Resolved(error_type()),
             CallableCandidateTemplateState::Visible,
         ))
     }

@@ -143,16 +143,6 @@ impl BinderFactContext for CompilationBinderFacts<'_> {
             .and_then(|symbols| symbols.symbol_key(symbol)))
     }
 
-    fn symbol_is_recovered(&self, symbol: AnySymbolId) -> BinderFactResult<Option<bool>> {
-        if let Some(is_recovered) = self.symbols.symbol_is_recovered(symbol) {
-            return Ok(Some(is_recovered));
-        }
-
-        Ok(self
-            .imported_symbols()?
-            .and_then(|symbols| symbols.symbol_is_recovered(symbol)))
-    }
-
     fn imported_path_root(
         &self,
         components: &[&str],
@@ -223,8 +213,9 @@ mod tests {
 
     use bray_binder::{BinderFactError, bind_expression_candidates};
     use bray_bound_tree::{
-        AnyBoundNodeId, BoundExpression, BoundExpressionId, BoundUnit, BoundUnitRoot,
-        BoundWalkControl, BoundWalkEvent, SelectionKind, walk_bound_unit_view,
+        AnyBoundNodeId, BoundExpression, BoundExpressionId, BoundReferenceTarget, BoundUnit,
+        BoundUnitRoot, BoundWalkControl, BoundWalkEvent, DeclaredValueTypeTerm, SelectionKind,
+        walk_bound_unit_view,
     };
     use bray_checker::{
         CallableCandidateTemplate, CallableCandidateTemplates, CandidateAbsence,
@@ -235,9 +226,7 @@ mod tests {
         test_support::encoded_template_test_interface,
     };
     use bray_source::{SourceIdentity, SourceInput, SourceVersion};
-    use bray_symbols::{
-        PackageIdentity, TypeData, TypeExpressionTemplate, UnevaluatedDefaultTemplate,
-    };
+    use bray_symbols::{PackageIdentity, TypeExpressionTemplate, UnevaluatedDefaultTemplate};
 
     use super::CompilationBinderFacts;
     use crate::{CancellationToken, Compilation, CompilationRequest, DependencyInterfaceInput};
@@ -354,9 +343,11 @@ mod tests {
             "func run()\n",
             "{\n",
             "    let callback: func(pos value: i32) -> i32 = alternate;\n",
+            "    let inferred = alternate;\n",
             "    fixed([0; 4]);\n",
             "    choose(1);\n",
             "    callback(2);\n",
+            "    inferred(3);\n",
             "    missing();\n",
             "    1 + 2;\n",
             "}\n",
@@ -378,10 +369,6 @@ mod tests {
             .bound_unit(key.clone())
             .unwrap_or_else(|error| panic!("test callable must bind: {error:?}"));
 
-        let declared_types = compilation
-            .declared_value_type_templates(key.clone())
-            .unwrap_or_else(|error| panic!("declared value types must publish: {error:?}"));
-
         let cancellation = CancellationToken::new();
 
         let facts = compilation
@@ -397,7 +384,7 @@ mod tests {
         let results = expressions
             .iter()
             .copied()
-            .map(|expression| candidates(&facts, bound.value(), declared_types.value(), expression))
+            .map(|expression| candidates(&facts, bound.value(), expression))
             .collect::<Vec<_>>();
 
         let direct = results.iter().find_map(|result| match result.value() {
@@ -474,31 +461,29 @@ mod tests {
                 .all(|candidate| matches!(candidate, CallableCandidateTemplate::Declaration(_)))
         );
 
-        let value = results.iter().find_map(|result| match result.value() {
-            ExpressionCandidateSet::Callable(CallableCandidateTemplates::Present {
-                candidates,
-                ..
-            }) if matches!(candidates.as_ref(), [CallableCandidateTemplate::Value(_)]) => {
-                Some(candidates)
-            }
-            _ => None,
-        });
+        let values = results
+            .iter()
+            .filter_map(|result| match result.value() {
+                ExpressionCandidateSet::Callable(CallableCandidateTemplates::Present {
+                    candidates,
+                    ..
+                }) if matches!(candidates.as_ref(), [CallableCandidateTemplate::Value(_)]) => {
+                    Some(candidates)
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
 
-        let Some(value) = value else {
-            panic!("callable value must produce its declared type candidate: {results:?}");
-        };
+        assert_eq!(values.len(), 2);
 
-        let [CallableCandidateTemplate::Value(value)] = value.as_ref() else {
-            panic!("callable parameter must remain a value candidate");
-        };
-
-        assert!(match value.callable_type() {
-            TypeExpressionTemplate::Callable(_) => true,
-            TypeExpressionTemplate::Resolved(ty) => semantic_values
-                .type_data(*ty)
-                .is_ok_and(|data| matches!(data.as_ref(), TypeData::Callable(_))),
-            _ => false,
-        });
+        assert!(values.iter().all(|candidates| matches!(
+            candidates.as_ref(),
+            [CallableCandidateTemplate::Value(value)]
+                if matches!(
+                    value.value(),
+                    DeclaredValueTypeTerm::Value(BoundReferenceTarget::Local(_))
+                )
+        )));
 
         assert!(results.iter().any(|result| matches!(
             result.value(),
@@ -516,12 +501,7 @@ mod tests {
             }
         )));
 
-        let repeated = candidates(
-            &facts,
-            bound.value(),
-            declared_types.value(),
-            first_overload.value().expression(),
-        );
+        let repeated = candidates(&facts, bound.value(), first_overload.value().expression());
 
         assert_eq!(&repeated, first_overload);
     }
@@ -529,10 +509,9 @@ mod tests {
     fn candidates(
         facts: &CompilationBinderFacts<'_>,
         unit: &BoundUnit,
-        declared_types: &bray_bound_tree::DeclaredValueTypeTemplates,
         expression: BoundExpressionId,
     ) -> bray_diagnostics::DiagnosticResult<ExpressionCandidateSet> {
-        let result = bind_expression_candidates(facts, unit, declared_types, expression)
+        let result = bind_expression_candidates(facts, unit, expression)
             .unwrap_or_else(|error| panic!("candidate enumeration must complete: {error:?}"));
 
         assert!(result.diagnostics().is_empty());
