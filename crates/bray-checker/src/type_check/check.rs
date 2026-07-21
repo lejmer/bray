@@ -29,34 +29,36 @@ pub(crate) fn check_expression_types<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let mut session = match ExpressionTypeSession::begin(request) {
+    let session = match prepare_expression_types(request, input) {
         Ok(SessionProgress::Complete(session)) => session,
         Ok(SessionProgress::Cancelled) => return CheckerOutcome::Cancelled,
         Err(error) => return CheckerOutcome::InfrastructureFailure(error),
     };
 
-    if let Err(error) = session.apply_input(input) {
-        return CheckerOutcome::InfrastructureFailure(error);
-    }
-
-    match session.propagate() {
-        Ok(SessionProgress::Complete(())) => {}
-        Ok(SessionProgress::Cancelled) => return CheckerOutcome::Cancelled,
-        Err(error) => return CheckerOutcome::InfrastructureFailure(error),
-    }
-
-    match session.apply_literal_defaults() {
-        SessionProgress::Complete(()) => {}
-        SessionProgress::Cancelled => return CheckerOutcome::Cancelled,
-    }
-
-    match session.propagate() {
-        Ok(SessionProgress::Complete(())) => {}
-        Ok(SessionProgress::Cancelled) => return CheckerOutcome::Cancelled,
-        Err(error) => return CheckerOutcome::InfrastructureFailure(error),
-    }
-
     finish_expression_types(request, session)
+}
+
+fn prepare_expression_types<'view, C>(
+    request: CheckerUnitView<'view, C>,
+    input: &ExpressionTypeInput,
+) -> Result<SessionProgress<ExpressionTypeSession<'view, C>>, CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let Some(mut session) = ExpressionTypeSession::begin(request)?.into_value() else {
+        return Ok(SessionProgress::Cancelled);
+    };
+
+    session.apply_input(input)?;
+
+    if session.propagate()?.is_cancelled()
+        || session.apply_literal_defaults().is_cancelled()
+        || session.propagate()?.is_cancelled()
+    {
+        return Ok(SessionProgress::Cancelled);
+    }
+
+    Ok(SessionProgress::Complete(session))
 }
 
 pub(crate) fn finish_expression_types<C>(

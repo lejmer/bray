@@ -23,6 +23,19 @@ pub(crate) enum SessionProgress<T> {
     Cancelled,
 }
 
+impl<T> SessionProgress<T> {
+    pub(crate) const fn is_cancelled(&self) -> bool {
+        matches!(self, Self::Cancelled)
+    }
+
+    pub(crate) fn into_value(self) -> Option<T> {
+        match self {
+            Self::Complete(value) => Some(value),
+            Self::Cancelled => None,
+        }
+    }
+}
+
 pub(super) struct FinishedExpressionTypes {
     pub(super) results: Vec<(BoundExpressionId, ExpressionTypeResult)>,
     pub(super) conflicts: Vec<TypeConflict>,

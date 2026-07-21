@@ -291,16 +291,14 @@ where
     loop {
         let revision = session.revision();
 
-        match session.propagate()? {
-            SessionProgress::Complete(()) => {}
-            SessionProgress::Cancelled => return Ok(SessionProgress::Cancelled),
+        if session.propagate()?.is_cancelled() {
+            return Ok(SessionProgress::Cancelled);
         }
 
         let types = session.preview();
 
-        match add_candidate_expectations(request, &types, &prepared.calls, session)? {
-            SessionProgress::Complete(()) => {}
-            SessionProgress::Cancelled => return Ok(SessionProgress::Cancelled),
+        if add_candidate_expectations(request, &types, &prepared.calls, session)?.is_cancelled() {
+            return Ok(SessionProgress::Cancelled);
         }
 
         if session.revision() != revision {
@@ -309,9 +307,8 @@ where
 
         let types = session.preview();
 
-        match apply_selected_call_evidence(request, &types, &prepared.calls, session)? {
-            SessionProgress::Complete(()) => {}
-            SessionProgress::Cancelled => return Ok(SessionProgress::Cancelled),
+        if apply_selected_call_evidence(request, &types, &prepared.calls, session)?.is_cancelled() {
+            return Ok(SessionProgress::Cancelled);
         }
 
         if session.revision() == revision {

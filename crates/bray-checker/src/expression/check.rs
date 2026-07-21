@@ -1,6 +1,6 @@
 use bray_bound_tree::{CheckedSemanticSelections, DeclaredValueTypeTemplates};
 
-use super::candidate::{converge, final_selections, prepare_calls};
+use super::candidate::{PreparedExpressions, converge, final_selections, prepare_calls};
 use super::declared::{PreparedDeclaredTypes, defer_return_operands, prepare_declared_types};
 use crate::type_check::{
     ExpressionTypeSession, SessionProgress, finish_expression_types_with_deferred,
@@ -29,10 +29,29 @@ where
         );
     }
 
-    let declared = match prepare_declared_types(request, declared_types) {
-        Ok(SessionProgress::Complete(declared)) => declared,
-        Ok(SessionProgress::Cancelled) => return CheckerOutcome::Cancelled,
-        Err(error) => return CheckerOutcome::InfrastructureFailure(error),
+    let (session, prepared) =
+        match prepare_expression_check(request, declared_types, candidate_sets) {
+            Ok(SessionProgress::Complete(prepared)) => prepared,
+            Ok(SessionProgress::Cancelled) => return CheckerOutcome::Cancelled,
+            Err(error) => return CheckerOutcome::InfrastructureFailure(error),
+        };
+
+    finish_expression_check(request, session, prepared)
+}
+
+fn prepare_expression_check<'view, C>(
+    request: CheckerUnitView<'view, C>,
+    declared_types: &DeclaredValueTypeTemplates,
+    candidate_sets: &[ExpressionCandidateSet],
+) -> Result<
+    SessionProgress<(ExpressionTypeSession<'view, C>, PreparedExpressions)>,
+    CheckerInfrastructureError,
+>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let Some(declared) = prepare_declared_types(request, declared_types)?.into_value() else {
+        return Ok(SessionProgress::Cancelled);
     };
 
     let PreparedDeclaredTypes {
@@ -41,44 +60,41 @@ where
         unsupported_callable_result,
     } = declared;
 
-    let mut prepared = match prepare_calls(request, candidate_sets) {
-        Ok(prepared) => prepared,
-        Err(error) => return CheckerOutcome::InfrastructureFailure(error),
-    };
+    let mut prepared = prepare_calls(request, candidate_sets)?;
 
     prepared.defer(deferred);
 
-    let mut session = match ExpressionTypeSession::begin(request) {
-        Ok(SessionProgress::Complete(session)) => session,
-        Ok(SessionProgress::Cancelled) => return CheckerOutcome::Cancelled,
-        Err(error) => return CheckerOutcome::InfrastructureFailure(error),
+    let Some(mut session) = ExpressionTypeSession::begin(request)?.into_value() else {
+        return Ok(SessionProgress::Cancelled);
     };
 
     if unsupported_callable_result {
         defer_return_operands(request, session.expressions(), prepared.deferred_mut());
     }
 
-    if let Err(error) = session.apply_input(&input) {
-        return CheckerOutcome::InfrastructureFailure(error);
+    session.apply_input(&input)?;
+
+    if converge(request, &prepared, &mut session)?.is_cancelled()
+        || session.apply_literal_defaults().is_cancelled()
+        || converge(request, &prepared, &mut session)?.is_cancelled()
+    {
+        return Ok(SessionProgress::Cancelled);
     }
 
-    match converge(request, &prepared, &mut session) {
-        Ok(SessionProgress::Complete(())) => {}
-        Ok(SessionProgress::Cancelled) => return CheckerOutcome::Cancelled,
-        Err(error) => return CheckerOutcome::InfrastructureFailure(error),
-    }
+    Ok(SessionProgress::Complete((session, prepared)))
+}
 
-    match session.apply_literal_defaults() {
-        SessionProgress::Complete(()) => {}
-        SessionProgress::Cancelled => return CheckerOutcome::Cancelled,
-    }
-
-    match converge(request, &prepared, &mut session) {
-        Ok(SessionProgress::Complete(())) => {}
-        Ok(SessionProgress::Cancelled) => return CheckerOutcome::Cancelled,
-        Err(error) => return CheckerOutcome::InfrastructureFailure(error),
-    }
-
+fn finish_expression_check<C>(
+    request: CheckerUnitView<'_, C>,
+    session: ExpressionTypeSession<'_, C>,
+    prepared: PreparedExpressions,
+) -> CheckerOutcome<(
+    bray_bound_tree::CheckedExpressionTypes,
+    CheckedSemanticSelections,
+)>
+where
+    C: CheckerRequestContext + ?Sized,
+{
     let type_result =
         match finish_expression_types_with_deferred(request, session, prepared.deferred()) {
             CheckerOutcome::Complete(result) => result,
