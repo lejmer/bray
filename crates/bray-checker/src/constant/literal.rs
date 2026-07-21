@@ -16,8 +16,6 @@ pub enum ConstantLiteralError {
     NotRepresentable,
     /// The source literal exceeds the deterministic literal-size ceiling.
     SizeLimitExceeded,
-    /// Representability depends on a selected target width that is not available.
-    TargetIntegerWidthRequired,
 }
 
 const MAX_INTEGER_LITERAL_BYTES: usize = 4 * 1024;
@@ -27,7 +25,7 @@ pub fn check_constant_literal(
     kind: BoundLiteralKind,
     text: &str,
     representation: RepresentationRole,
-    target_integer_width_bits: Option<NonZeroU16>,
+    target_integer_width_bits: NonZeroU16,
 ) -> Result<ConstantValueKind, ConstantLiteralError> {
     match kind {
         BoundLiteralKind::Integer => parse_integer(text, representation, target_integer_width_bits),
@@ -43,7 +41,7 @@ pub(super) fn parse_literal(
     kind: BoundLiteralKind,
     text: &str,
     representation: RepresentationRole,
-    target_integer_width_bits: Option<NonZeroU16>,
+    target_integer_width_bits: NonZeroU16,
 ) -> Result<ConstantValueKind, ConstantLiteralError> {
     check_constant_literal(kind, text, representation, target_integer_width_bits)
 }
@@ -63,7 +61,7 @@ pub fn normalize_integer_literal(text: &str) -> Result<IntegerConstant, Constant
 fn parse_integer(
     text: &str,
     representation: RepresentationRole,
-    target_integer_width_bits: Option<NonZeroU16>,
+    target_integer_width_bits: NonZeroU16,
 ) -> Result<ConstantValueKind, ConstantLiteralError> {
     if text.len() > MAX_INTEGER_LITERAL_BYTES {
         return Err(ConstantLiteralError::SizeLimitExceeded);
@@ -80,7 +78,7 @@ fn parse_integer(
         &magnitude,
         integer_representation,
         target_integer_width_bits,
-    )? {
+    ) {
         return Err(ConstantLiteralError::NotRepresentable);
     }
 
@@ -147,30 +145,22 @@ fn multiply_add_magnitude(magnitude: &mut Vec<u8>, multiplier: u8, addend: u8) {
 fn integer_literal_fits(
     magnitude: &[u8],
     representation: IntegerRepresentation,
-    target_integer_width_bits: Option<NonZeroU16>,
-) -> Result<bool, ConstantLiteralError> {
+    target_integer_width_bits: NonZeroU16,
+) -> bool {
     let significant_bits = magnitude.first().map_or(0, |first| {
         magnitude.len() * 8 - first.leading_zeros() as usize
     });
 
-    let fits = match representation {
+    match representation {
         IntegerRepresentation::Signed(width) => significant_bits < usize::from(width),
         IntegerRepresentation::Unsigned(width) => significant_bits <= usize::from(width),
         IntegerRepresentation::TargetSigned => {
-            let width = target_integer_width_bits
-                .ok_or(ConstantLiteralError::TargetIntegerWidthRequired)?;
-
-            significant_bits < usize::from(width.get())
+            significant_bits < usize::from(target_integer_width_bits.get())
         }
         IntegerRepresentation::TargetUnsigned => {
-            let width = target_integer_width_bits
-                .ok_or(ConstantLiteralError::TargetIntegerWidthRequired)?;
-
-            significant_bits <= usize::from(width.get())
+            significant_bits <= usize::from(target_integer_width_bits.get())
         }
-    };
-
-    Ok(fits)
+    }
 }
 
 fn parse_real(
@@ -377,25 +367,27 @@ mod tests {
 
     #[test]
     fn source_literals_are_canonicalized_for_their_selected_types() {
+        let target_width = target_width();
+
         let integer = parse_literal(
             BoundLiteralKind::Integer,
             "0X00_ff",
             RepresentationRole::ScalarU16,
-            None,
+            target_width,
         );
 
         let string = parse_literal(
             BoundLiteralKind::String,
             r#""a\n\u{62}""#,
             RepresentationRole::String,
-            None,
+            target_width,
         );
 
         let real = parse_literal(
             BoundLiteralKind::Real,
             "1.5",
             RepresentationRole::ScalarR32,
-            None,
+            target_width,
         );
 
         let Ok(ConstantValueKind::Integer(integer)) = integer else {
@@ -411,7 +403,7 @@ mod tests {
                 BoundLiteralKind::String,
                 r#""\'""#,
                 RepresentationRole::String,
-                None,
+                target_width,
             ),
             Err(ConstantLiteralError::Invalid)
         );
@@ -426,24 +418,16 @@ mod tests {
 
     #[test]
     fn fixed_width_integer_literals_reject_unrepresentable_values() {
+        let target_width = target_width();
+
         assert_eq!(
             parse_literal(
                 BoundLiteralKind::Integer,
                 "128",
                 RepresentationRole::ScalarI8,
-                None,
+                target_width,
             ),
             Err(ConstantLiteralError::NotRepresentable)
-        );
-
-        assert_eq!(
-            parse_literal(
-                BoundLiteralKind::Integer,
-                "1",
-                RepresentationRole::ScalarUsize,
-                None,
-            ),
-            Err(ConstantLiteralError::TargetIntegerWidthRequired)
         );
 
         assert_eq!(
@@ -451,7 +435,7 @@ mod tests {
                 BoundLiteralKind::Integer,
                 "256",
                 RepresentationRole::ScalarU8,
-                None,
+                target_width,
             ),
             Err(ConstantLiteralError::NotRepresentable)
         );
@@ -459,8 +443,8 @@ mod tests {
 
     #[test]
     fn target_sized_and_oversized_integer_literals_are_bounded() {
-        let width32 = NonZeroU16::new(32);
-        let width64 = NonZeroU16::new(64);
+        let width32 = NonZeroU16::new(32).unwrap_or(NonZeroU16::MIN);
+        let width64 = NonZeroU16::new(64).unwrap_or(NonZeroU16::MIN);
 
         assert_eq!(
             parse_literal(
@@ -507,9 +491,13 @@ mod tests {
                 BoundLiteralKind::Integer,
                 &"1".repeat(MAX_INTEGER_LITERAL_BYTES + 1),
                 RepresentationRole::ScalarI128,
-                None,
+                width64,
             ),
             Err(ConstantLiteralError::SizeLimitExceeded)
         );
+    }
+
+    fn target_width() -> NonZeroU16 {
+        NonZeroU16::new(64).unwrap_or(NonZeroU16::MIN)
     }
 }

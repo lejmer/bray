@@ -7,6 +7,7 @@ use bray_symbols::{
     AvailableCompilerKnownSymbols, SemanticValueStore, SymbolFactContract, SymbolFactRequest,
     SymbolFactResult,
 };
+use bray_target::TargetProfile;
 
 use crate::{
     CheckerFactResult, CheckerInfrastructureError, CheckerRequestContext,
@@ -122,6 +123,11 @@ where
     /// Returns target-available compiler-known identities and behavior roles.
     pub fn available_compiler_known_symbols(self) -> &'view AvailableCompilerKnownSymbols {
         self.context.available_compiler_known_symbols()
+    }
+
+    /// Returns the selected language-level target profile.
+    pub fn selected_target(self) -> &'view TargetProfile {
+        self.context.selected_target()
     }
 
     /// Resolves a bound source anchor without exposing its source snapshot.

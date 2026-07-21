@@ -23,5 +23,5 @@ pub use fact::{
 pub use request::{
     CompilationOptions, CompilationRequest, DependencyInterfaceInput, PackageInterfaceExportRequest,
 };
-pub use target::TargetAvailabilityFacts;
+pub use target::{SelectedTarget, SelectedTargetContext, TargetAvailabilityFacts};
 pub use worker::{WorkerBudget, WorkerBudgetError};

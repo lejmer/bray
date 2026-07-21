@@ -10,7 +10,7 @@ use bray_runtime_interface::{
     RuntimeAbiRole, RuntimeAbiVersion, RuntimeRoleBinding, RuntimeRoleImplementation,
 };
 use bray_symbols::PackageIdentity;
-use bray_target::test_support::test_target_machine;
+use bray_target::test_support::test_target_profile;
 use bray_target::{
     ObjectFormat, TargetArchitecture, TargetIdentity, TargetOutputDescription, TargetOutputKind,
     TargetOutputName,
@@ -108,9 +108,7 @@ pub(crate) fn target_output_description() -> TargetOutputDescription {
 pub(crate) fn target_output_description_from(
     names: impl IntoIterator<Item = TargetOutputName>,
 ) -> TargetOutputDescription {
-    let Ok(description) =
-        TargetOutputDescription::try_new(target_identity(), test_target_machine(), names)
-    else {
+    let Ok(description) = TargetOutputDescription::try_new(test_target_profile(), names) else {
         panic!("test target output description must be valid");
     };
 

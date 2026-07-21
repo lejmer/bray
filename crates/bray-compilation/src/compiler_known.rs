@@ -62,8 +62,10 @@ fn check_compiler_known_catalog_with(
         return Err(CompilerKnownCatalogCheckError::InvalidPackageIdentity);
     };
 
-    let options =
-        CompilationOptions::new(workers).with_target_availability(TargetAvailabilityFacts::all());
+    let target = crate::SelectedTarget::baseline()
+        .with_declaration_availability(TargetAvailabilityFacts::all());
+
+    let options = CompilationOptions::new(workers, target);
 
     // The private validation compilation has no source package because catalog symbols are its
     // only semantic roots.

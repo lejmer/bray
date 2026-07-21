@@ -1,4 +1,128 @@
+use std::num::{NonZeroU16, NonZeroU32};
+
 use bray_compiler_known::AvailabilityRule;
+use bray_runtime_interface::RuntimeAbiVersion;
+use bray_symbols::AvailableCompilerKnownSymbols;
+use bray_target::{
+    Endianness, ObjectFormat, TargetArchitecture, TargetIdentity, TargetMachineProperties,
+    TargetProfile,
+};
+
+/// The target profile and product ABI selected for one compilation.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct SelectedTarget {
+    profile: TargetProfile,
+    runtime_abi: RuntimeAbiVersion,
+    declaration_availability: TargetAvailabilityFacts,
+}
+
+impl SelectedTarget {
+    /// Creates a selected target from validated language, runtime, and declaration facts.
+    pub const fn new(
+        profile: TargetProfile,
+        runtime_abi: RuntimeAbiVersion,
+        declaration_availability: TargetAvailabilityFacts,
+    ) -> Self {
+        Self {
+            profile,
+            runtime_abi,
+            declaration_availability,
+        }
+    }
+
+    /// Creates the compiler's deterministic baseline target.
+    pub fn baseline() -> Self {
+        let Some(identity) = TargetIdentity::try_new("x86_64-unknown-linux-gnu") else {
+            panic!("the compiler baseline target identity must be valid");
+        };
+
+        let pointer_width = NonZeroU16::new(64).unwrap_or(NonZeroU16::MIN);
+        let pointer_alignment = NonZeroU32::new(8).unwrap_or(NonZeroU32::MIN);
+        let stack_alignment = NonZeroU32::new(16).unwrap_or(NonZeroU32::MIN);
+
+        let Some(machine) = TargetMachineProperties::try_new(
+            TargetArchitecture::X86_64,
+            ObjectFormat::Elf,
+            Endianness::Little,
+            pointer_width,
+            pointer_alignment,
+            stack_alignment,
+        ) else {
+            panic!("the compiler baseline target machine must be valid");
+        };
+
+        Self::new(
+            TargetProfile::new(identity, machine),
+            RuntimeAbiVersion::new(1, 0),
+            TargetAvailabilityFacts::portable(),
+        )
+    }
+
+    /// Returns the selected language-level target profile.
+    pub const fn profile(&self) -> &TargetProfile {
+        &self.profile
+    }
+
+    /// Returns the selected private runtime ABI version.
+    pub const fn runtime_abi(&self) -> RuntimeAbiVersion {
+        self.runtime_abi
+    }
+
+    /// Returns the compiler-known declaration capabilities of this target.
+    pub const fn declaration_availability(&self) -> TargetAvailabilityFacts {
+        self.declaration_availability
+    }
+
+    /// Returns a copy with the requested compiler-known declaration capabilities.
+    pub const fn with_declaration_availability(
+        mut self,
+        declaration_availability: TargetAvailabilityFacts,
+    ) -> Self {
+        self.declaration_availability = declaration_availability;
+
+        self
+    }
+
+    /// Returns the width used by target-sized integer literals and constants.
+    pub const fn integer_width_bits(&self) -> NonZeroU16 {
+        self.profile.machine().pointer_width_bits()
+    }
+}
+
+impl Default for SelectedTarget {
+    fn default() -> Self {
+        Self::baseline()
+    }
+}
+
+/// Target facts and compiler-known declarations available to one compilation.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SelectedTargetContext {
+    target: SelectedTarget,
+    available_compiler_known_symbols: AvailableCompilerKnownSymbols,
+}
+
+impl SelectedTargetContext {
+    pub(crate) const fn new(
+        target: SelectedTarget,
+        available_compiler_known_symbols: AvailableCompilerKnownSymbols,
+    ) -> Self {
+        Self {
+            target,
+            available_compiler_known_symbols,
+        }
+    }
+
+    /// Returns the selected target and product ABI facts.
+    pub const fn target(&self) -> &SelectedTarget {
+        &self.target
+    }
+
+    /// Returns the compiler-known declarations available for this target.
+    pub const fn available_compiler_known_symbols(&self) -> &AvailableCompilerKnownSymbols {
+        &self.available_compiler_known_symbols
+    }
+}
 
 /// Immutable target capability facts used to evaluate compiler-known availability.
 ///
@@ -92,8 +216,21 @@ impl Default for TargetAvailabilityFacts {
 #[cfg(test)]
 mod tests {
     use bray_compiler_known::AvailabilityRule;
+    use bray_runtime_interface::RuntimeAbiVersion;
 
-    use super::TargetAvailabilityFacts;
+    use super::{SelectedTarget, TargetAvailabilityFacts};
+
+    #[test]
+    fn baseline_target_is_explicit_and_host_independent() {
+        let target = SelectedTarget::baseline();
+
+        assert_eq!(
+            target.profile().identity().as_str(),
+            "x86_64-unknown-linux-gnu"
+        );
+        assert_eq!(target.integer_width_bits().get(), 64);
+        assert_eq!(target.runtime_abi(), RuntimeAbiVersion::new(1, 0));
+    }
 
     #[test]
     fn portable_and_complete_target_facts_have_explicit_closed_semantics() {

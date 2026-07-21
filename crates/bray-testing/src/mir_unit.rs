@@ -3,7 +3,6 @@ use bray_ir::{
     MirUnitKind,
 };
 use bray_symbols::{SemanticValueStore, TypeData, TypeId};
-use bray_target::TargetIdentity;
 
 use crate::test_bound_unit;
 
@@ -35,13 +34,8 @@ pub fn test_mir_unit(unit: u32) -> MirUnit {
 
 /// Returns deterministic target facts for MIR tests.
 pub fn test_mir_target() -> MirTargetFacts {
-    let Some(identity) = TargetIdentity::try_new("x86_64-linux") else {
-        panic!("test target identity must be valid");
-    };
-
     MirTargetFacts::new(
-        identity,
-        bray_target::test_support::test_target_machine(),
+        bray_target::test_support::test_target_profile(),
         bray_runtime_interface::RuntimeAbiVersion::new(1, 0),
     )
 }

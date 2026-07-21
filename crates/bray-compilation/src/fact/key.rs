@@ -71,8 +71,8 @@ impl SymbolFactKey {
 /// concurrent requests.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub(crate) enum CompilationFactKey {
-    /// The target-filtered compiler-known declaration symbol view.
-    AvailableCompilerKnownSymbols,
+    /// The selected target and its target-filtered compiler-known declaration view.
+    SelectedTarget,
     /// The complete canonical compiler-known symbol and fact provider.
     CompilerKnownSymbols,
     /// Deterministic compact identities for bound-unit source anchors.
@@ -130,7 +130,7 @@ impl CompilationFactKey {
             | Self::CheckedSemanticSelections(key)
             | Self::DeclaredValueTypeTemplates(key)
             | Self::ExpressionSemantics(key) => Some(key),
-            Self::AvailableCompilerKnownSymbols
+            Self::SelectedTarget
             | Self::CompilerKnownSymbols
             | Self::BoundUnitIdentities
             | Self::CheckDiagnostics

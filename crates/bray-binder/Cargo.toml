@@ -15,12 +15,14 @@ bray-diagnostics = { path = "../bray-diagnostics" }
 bray-source = { path = "../bray-source" }
 bray-symbols = { path = "../bray-symbols" }
 bray-syntax = { path = "../bray-syntax" }
+bray-target = { path = "../bray-target" }
 
 [dev-dependencies]
 bray-declarations = { path = "../bray-declarations" }
 bray-parser = { path = "../bray-parser" }
 bray-symbols = { path = "../bray-symbols", features = ["test-support"] }
 bray-testing = { path = "../bray-testing" }
+bray-target = { path = "../bray-target", features = ["test-support"] }
 
 [lints]
 workspace = true

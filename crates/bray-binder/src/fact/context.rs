@@ -5,8 +5,9 @@ use bray_symbols::{
     SymbolKey,
 };
 use bray_syntax::SyntaxTree;
+use bray_target::TargetProfile;
 
-use crate::{BinderFactResult, TargetFactProvider};
+use crate::BinderFactResult;
 
 /// One selected imported package root for a qualified source path.
 #[derive(Clone, Copy, Debug)]
@@ -60,8 +61,6 @@ impl<'symbols> ImportedPathRoot<'symbols> {
 
 /// Injected read-only facts available to one binding computation.
 pub trait BinderFactContext: Send + Sync {
-    /// The provider for target-profile-dependent constant facts.
-    type TargetFacts: TargetFactProvider + ?Sized;
     /// The origin-neutral provider for symbol-facing semantic facts.
     type SymbolFacts: Send + Sync + ?Sized;
     /// The compilation-owned cancellation observer.
@@ -95,8 +94,8 @@ pub trait BinderFactContext: Send + Sync {
     /// Returns the canonical semantic value store associated with the symbol graph.
     fn semantic_values(&self) -> &SemanticValueStore;
 
-    /// Returns the selected target's fact provider.
-    fn target_facts(&self) -> &Self::TargetFacts;
+    /// Returns the selected language-level target profile.
+    fn selected_target(&self) -> &TargetProfile;
 
     /// Returns the origin-neutral symbol-fact provider.
     fn symbol_facts(&self) -> &Self::SymbolFacts;
@@ -124,6 +123,10 @@ mod tests {
         assert_eq!(context.declarations().declarations().len(), 2);
         assert_eq!(context.symbols().constants().len(), 1);
         assert_eq!(context.semantic_values().id(), fixture.semantic_values.id());
+        assert_eq!(
+            context.selected_target().identity().as_str(),
+            "x86_64-unknown-linux-gnu"
+        );
         assert!(!context.is_cancelled());
     }
 

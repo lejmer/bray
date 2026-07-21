@@ -13,6 +13,7 @@ bray-declarations = { path = "../bray-declarations" }
 bray-diagnostics = { path = "../bray-diagnostics" }
 bray-source = { path = "../bray-source" }
 bray-symbols = { path = "../bray-symbols" }
+bray-target = { path = "../bray-target" }
 rustc_apfloat = "0.2.3"
 
 [dev-dependencies]
@@ -21,6 +22,7 @@ bray-parser = { path = "../bray-parser" }
 bray-symbols = { path = "../bray-symbols", features = ["test-support"] }
 bray-syntax = { path = "../bray-syntax" }
 bray-testing = { path = "../bray-testing" }
+bray-target = { path = "../bray-target", features = ["test-support"] }
 
 [lints]
 workspace = true

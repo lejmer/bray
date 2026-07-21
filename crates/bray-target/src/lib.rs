@@ -5,6 +5,7 @@
 mod identity;
 mod machine;
 mod output;
+mod profile;
 
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;
@@ -18,3 +19,4 @@ pub use output::{
     TargetOutputDescription, TargetOutputDescriptionBuildError, TargetOutputKind, TargetOutputName,
     TargetOutputNameBuildError,
 };
+pub use profile::TargetProfile;

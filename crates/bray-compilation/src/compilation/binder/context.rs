@@ -1,13 +1,7 @@
-use std::sync::Arc;
-
-use bray_binder::{
-    BinderFactContext, BinderFactError, BinderFactResult, ImportedPathRoot, TargetFactProvider,
-    TargetFactResult,
-};
+use bray_binder::{BinderFactContext, BinderFactError, BinderFactResult, ImportedPathRoot};
 use bray_declarations::DeclarationTable;
 use bray_symbols::{
-    AnySymbolId, ConstantSymbolId, ImportedSymbolFactAddress, ImportedSymbolSkeleton,
-    SemanticValueStore, SymbolGraph,
+    AnySymbolId, ImportedSymbolFactAddress, ImportedSymbolSkeleton, SemanticValueStore, SymbolGraph,
 };
 use bray_syntax::SyntaxTree;
 
@@ -114,7 +108,6 @@ impl<'compilation> CompilationBinderFacts<'compilation> {
 }
 
 impl BinderFactContext for CompilationBinderFacts<'_> {
-    type TargetFacts = CompilationTargetFacts;
     type SymbolFacts = Self;
     type Cancellation = CancellationToken;
 
@@ -154,8 +147,8 @@ impl BinderFactContext for CompilationBinderFacts<'_> {
         self.semantic_values
     }
 
-    fn target_facts(&self) -> &Self::TargetFacts {
-        &self.compilation.state.target_facts
+    fn selected_target(&self) -> &bray_target::TargetProfile {
+        self.compilation.selected_target().target().profile()
     }
 
     fn symbol_facts(&self) -> &Self::SymbolFacts {
@@ -164,15 +157,6 @@ impl BinderFactContext for CompilationBinderFacts<'_> {
 
     fn cancellation(&self) -> &Self::Cancellation {
         self.cancellation
-    }
-}
-
-#[derive(Debug)]
-pub(in crate::compilation) struct CompilationTargetFacts;
-
-impl TargetFactProvider for CompilationTargetFacts {
-    fn target_fact(&self, _fact: ConstantSymbolId) -> BinderFactResult<Arc<TargetFactResult>> {
-        Err(BinderFactError::DependencyUnavailable)
     }
 }
 

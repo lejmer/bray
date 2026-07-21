@@ -1,6 +1,18 @@
 use std::num::{NonZeroU16, NonZeroU32};
 
-use crate::{Endianness, ObjectFormat, TargetArchitecture, TargetMachineProperties};
+use crate::{
+    Endianness, ObjectFormat, TargetArchitecture, TargetIdentity, TargetMachineProperties,
+    TargetProfile,
+};
+
+/// Returns the canonical target profile used by compiler tests.
+pub fn test_target_profile() -> TargetProfile {
+    let Some(identity) = TargetIdentity::try_new("x86_64-unknown-linux-gnu") else {
+        panic!("test target identity must be valid");
+    };
+
+    TargetProfile::new(identity, test_target_machine())
+}
 
 /// Returns canonical x86-64 target-machine properties for compiler tests.
 pub fn test_target_machine() -> TargetMachineProperties {

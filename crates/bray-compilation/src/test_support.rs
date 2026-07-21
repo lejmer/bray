@@ -155,7 +155,7 @@ pub(crate) fn compilation_with_sources_and_worker_budget(
     let request = CompilationRequest::with_options(
         package_identity(),
         sources,
-        CompilationOptions::new(worker_budget),
+        CompilationOptions::new(worker_budget, crate::SelectedTarget::baseline()),
     );
 
     match Compilation::load(request) {

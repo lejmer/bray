@@ -165,7 +165,10 @@ where
             literal.kind(),
             spelling,
             representation,
-            self.input.target_integer_width_bits(),
+            self.request
+                .selected_target()
+                .machine()
+                .pointer_width_bits(),
         )
         .map_err(|error| {
             let kind = match error {
@@ -175,11 +178,6 @@ where
                 }
                 ConstantLiteralError::SizeLimitExceeded => {
                     DiagnosticKind::CheckingConstantLiteralSizeLimitExceeded
-                }
-                ConstantLiteralError::TargetIntegerWidthRequired => {
-                    return EvaluationFailure::Infrastructure(
-                        CheckerInfrastructureError::InvalidConstantEvaluationInput,
-                    );
                 }
             };
 
@@ -476,6 +474,8 @@ fn negate_real(value: RealConstantBits) -> RealConstantBits {
 
 #[cfg(test)]
 mod tests {
+    use std::num::{NonZeroU16, NonZeroU32};
+
     use bray_bound_tree::{
         BoundBinaryExpression, BoundExpression, BoundExpressionId, BoundLiteralExpression,
         BoundLiteralKind, BoundNameExpression, BoundNodeOrigin, BoundOperator,
@@ -494,6 +494,10 @@ mod tests {
         SymbolFactKind, SymbolId, SymbolKey, SymbolKind, SymbolRootKey, TypeId,
     };
     use bray_syntax::LiteralExpressionSyntax;
+    use bray_target::{
+        Endianness, ObjectFormat, TargetArchitecture, TargetIdentity, TargetMachineProperties,
+        TargetProfile,
+    };
 
     use crate::representation::representation_type;
     use crate::test_support::{TestCheckerContext, push_expression, semantic_values, tuple_type};
@@ -532,6 +536,28 @@ mod tests {
 
         assert_eq!(value.ty(), expected);
         assert_eq!(integer.magnitude(), &[0xff]);
+    }
+
+    #[test]
+    fn evaluation_uses_the_selected_target_integer_width() {
+        let (unit, root, context) = literal_unit(
+            BoundUnitId::new(101),
+            "module example;\nconst value: usize = 4294967296;\n",
+            BoundLiteralKind::Integer,
+        );
+
+        let context = context.with_selected_target(target_profile_32());
+        let expected = representation(&unit, &context, RepresentationRole::ScalarUsize);
+
+        let (_, result) = evaluate(&unit, root, &context, expected, None);
+
+        assert_eq!(
+            result
+                .diagnostics()
+                .by_kind(DiagnosticKind::CheckingConstantLiteralNotRepresentable)
+                .count(),
+            1
+        );
     }
 
     #[test]
@@ -1119,6 +1145,27 @@ mod tests {
 
     fn first_origin(origins: &[LiteralSource]) -> BoundNodeOrigin {
         first_literal(origins).origin
+    }
+
+    fn target_profile_32() -> TargetProfile {
+        let Some(identity) = TargetIdentity::try_new("i686-unknown-linux-gnu") else {
+            panic!("test target identity must be valid");
+        };
+
+        let pointer_width = NonZeroU16::new(32).unwrap_or(NonZeroU16::MIN);
+
+        let Some(machine) = TargetMachineProperties::try_new(
+            TargetArchitecture::X86,
+            ObjectFormat::Elf,
+            Endianness::Little,
+            pointer_width,
+            NonZeroU32::new(4).unwrap_or(NonZeroU32::MIN),
+            NonZeroU32::new(16).unwrap_or(NonZeroU32::MIN),
+        ) else {
+            panic!("test target machine must be valid");
+        };
+
+        TargetProfile::new(identity, machine)
     }
 
     #[derive(Clone, Copy)]

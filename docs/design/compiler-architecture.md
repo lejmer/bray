@@ -204,6 +204,23 @@ Diagnostics from lazily evaluated facts must be merged and ordered deterministic
 
 ---
 
+## Selected Target Facts
+
+One product compilation selects one immutable target context before requesting target-dependent semantic facts. The context owns
+the canonical `bray_target::TargetProfile`, the selected private runtime ABI version, and the capabilities used to derive the
+target-available compiler-known declaration view. It must not infer any of these values from the compiler host.
+
+The selected target is a typed compilation fact. Binder and checker requests borrow the same target profile instead of copying its
+identity, machine properties, or widths into phase-specific models. Target-sized literals and constants always use the profile's
+pointer width. Post-selection layout and ABI checks consume the same context after type and operation selection. Lowering and
+output contracts derive their target-facing inputs from those selected facts rather than rediscovering target properties.
+
+Target-independent facts do not depend on the selected-target fact. A target change invalidates declaration availability and the
+semantic, lowering, and output facts that requested target data while allowing source, syntax, declaration discovery, and other
+target-independent facts to remain reusable.
+
+---
+
 ## Parallel Execution Model
 
 Compiler work should be split at stable semantic boundaries:
