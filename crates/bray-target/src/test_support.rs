@@ -11,7 +11,19 @@ pub fn test_target_profile() -> TargetProfile {
         panic!("test target identity must be valid");
     };
 
-    TargetProfile::new(identity, test_target_machine())
+    match TargetProfile::try_new(identity, test_target_machine(), test_target_facts()) {
+        Ok(profile) => profile,
+        Err(error) => panic!("test target profile must be valid: {error:?}"),
+    }
+}
+
+/// Returns the canonical language-defined target facts used by compiler tests.
+pub fn test_target_facts() -> crate::TargetFacts {
+    let Some(facts) = crate::TargetFacts::try_portable("unknown", "linux", "gnu", "gnu") else {
+        panic!("test target facts must be valid");
+    };
+
+    facts
 }
 
 /// Returns canonical x86-64 target-machine properties for compiler tests.

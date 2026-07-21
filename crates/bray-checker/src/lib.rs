@@ -12,6 +12,7 @@ mod representation;
 mod selection;
 mod semantic_context;
 mod service;
+mod target;
 mod type_check;
 mod unit;
 
@@ -44,7 +45,9 @@ pub use semantic_context::{
 pub use service::{
     ConstantEvaluator, ControlFlowChecker, DefaultConstantEvaluator, DefaultControlFlowChecker,
     DefaultExpressionSemanticChecker, DefaultExpressionTypeChecker, DefaultSemanticSelector,
-    ExpressionSemanticChecker, ExpressionTypeChecker, SemanticSelector,
+    DefaultTargetValidityChecker, ExpressionSemanticChecker, ExpressionTypeChecker,
+    SemanticSelector, TargetValidityChecker,
 };
+pub use target::{TargetValidity, TargetValidityRequest, TargetValidityRequirement};
 pub use type_check::{ExpressionTypeEvidence, ExpressionTypeExpectation, ExpressionTypeInput};
 pub use unit::{CheckerUnitRoot, CheckerUnitView, CheckerUnitViewError};

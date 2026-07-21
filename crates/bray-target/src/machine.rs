@@ -23,6 +23,23 @@ pub enum TargetArchitecture {
     Wasm64,
 }
 
+impl TargetArchitecture {
+    /// Returns the language-defined architecture spelling.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::X86 => "x86",
+            Self::X86_64 => "x86_64",
+            Self::Arm => "arm",
+            Self::Aarch64 => "aarch64",
+            Self::Riscv32 => "riscv32",
+            Self::Riscv64 => "riscv64",
+            Self::PowerPc64 => "powerpc64",
+            Self::Wasm32 => "wasm32",
+            Self::Wasm64 => "wasm64",
+        }
+    }
+}
+
 /// Object format produced for one target platform.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum ObjectFormat {

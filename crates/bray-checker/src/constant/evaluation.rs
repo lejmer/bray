@@ -161,15 +161,12 @@ where
             .map_err(EvaluationFailure::Infrastructure)?
             .ok_or_else(|| EvaluationFailure::invalid_expression(expression))?;
 
-        let kind = parse_literal(
-            literal.kind(),
-            spelling,
-            representation,
+        let kind = parse_literal(literal.kind(), spelling, representation, || {
             self.request
                 .selected_target()
                 .machine()
-                .pointer_width_bits(),
-        )
+                .pointer_width_bits()
+        })
         .map_err(|error| {
             let kind = match error {
                 ConstantLiteralError::Invalid => DiagnosticKind::CheckingInvalidConstantExpression,
@@ -536,6 +533,7 @@ mod tests {
 
         assert_eq!(value.ty(), expected);
         assert_eq!(integer.magnitude(), &[0xff]);
+        assert_eq!(context.target_observations(), 0);
     }
 
     #[test]
@@ -558,6 +556,8 @@ mod tests {
                 .count(),
             1
         );
+
+        assert_eq!(context.target_observations(), 1);
     }
 
     #[test]
@@ -1165,7 +1165,17 @@ mod tests {
             panic!("test target machine must be valid");
         };
 
-        TargetProfile::new(identity, machine)
+        match TargetProfile::try_new(
+            identity,
+            machine,
+            match bray_target::TargetFacts::try_portable("unknown", "linux", "gnu", "gnu") {
+                Some(facts) => facts,
+                None => panic!("constant-evaluation test target facts must be valid"),
+            },
+        ) {
+            Ok(profile) => profile,
+            Err(error) => panic!("constant-evaluation test target must be valid: {error:?}"),
+        }
     }
 
     #[derive(Clone, Copy)]

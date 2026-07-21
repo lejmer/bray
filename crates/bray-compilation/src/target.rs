@@ -52,7 +52,19 @@ impl SelectedTarget {
         };
 
         Self::new(
-            TargetProfile::new(identity, machine),
+            match TargetProfile::try_new(
+                identity,
+                machine,
+                match bray_target::TargetFacts::try_portable("unknown", "linux", "gnu", "gnu") {
+                    Some(facts) => facts,
+                    None => panic!("the compiler baseline target facts must be valid"),
+                },
+            ) {
+                Ok(profile) => profile,
+                Err(error) => {
+                    panic!("the compiler baseline target profile must be valid: {error:?}")
+                }
+            },
             RuntimeAbiVersion::new(1, 0),
             TargetAvailabilityFacts::portable(),
         )
@@ -228,6 +240,7 @@ mod tests {
             target.profile().identity().as_str(),
             "x86_64-unknown-linux-gnu"
         );
+
         assert_eq!(target.integer_width_bits().get(), 64);
         assert_eq!(target.runtime_abi(), RuntimeAbiVersion::new(1, 0));
     }

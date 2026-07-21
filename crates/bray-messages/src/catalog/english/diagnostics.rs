@@ -59,6 +59,20 @@ const CHECKING_INCOMPATIBLE_CANDIDATE: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text(" candidate is incompatible with the supplied expressions"),
 ];
 
+const CHECKING_TARGET_REPRESENTATION_UNAVAILABLE: &[MessageTemplatePart] =
+    &[MessageTemplatePart::Text(
+        "selected scalar representation is unavailable for this target",
+    )];
+
+const CHECKING_TARGET_CALLABLE_ABI_UNAVAILABLE: &[MessageTemplatePart] =
+    &[MessageTemplatePart::Text(
+        "selected callable ABI is unavailable for this target",
+    )];
+
+const CHECKING_TARGET_ALIGNMENT_UNSUPPORTED: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "required alignment is unsupported by this target",
+)];
+
 const BINDING_INVALID_CALLABLE_ABI: &[MessageTemplatePart] =
     &[MessageTemplatePart::Text("invalid callable ABI directive")];
 
@@ -539,6 +553,15 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         }
         DiagnosticKind::CheckingIncompatibleCandidate => {
             MessageTemplate::new(CHECKING_INCOMPATIBLE_CANDIDATE)
+        }
+        DiagnosticKind::CheckingTargetRepresentationUnavailable => {
+            MessageTemplate::new(CHECKING_TARGET_REPRESENTATION_UNAVAILABLE)
+        }
+        DiagnosticKind::CheckingTargetCallableAbiUnavailable => {
+            MessageTemplate::new(CHECKING_TARGET_CALLABLE_ABI_UNAVAILABLE)
+        }
+        DiagnosticKind::CheckingTargetAlignmentUnsupported => {
+            MessageTemplate::new(CHECKING_TARGET_ALIGNMENT_UNSUPPORTED)
         }
         DiagnosticKind::BindingInvalidCallableAbi => {
             MessageTemplate::new(BINDING_INVALID_CALLABLE_ABI)

@@ -225,6 +225,12 @@ mod tests {
             DiagnosticSelectionKind::Operator,
         ));
 
+        let target_alignment = Diagnostic::new(
+            DiagnosticId::new(4),
+            DiagnosticKind::CheckingTargetAlignmentUnsupported,
+            SeverityKind::Error,
+        );
+
         let renderer = DiagnosticRenderer::english();
 
         assert_eq!(
@@ -243,13 +249,13 @@ mod tests {
         );
 
         assert_eq!(
-            renderer.render(&array_length).message(),
-            "array length must be greater than zero"
+            renderer.render(&ambiguous).message(),
+            "operator selection is ambiguous"
         );
 
         assert_eq!(
-            renderer.render(&ambiguous).message(),
-            "operator selection is ambiguous"
+            renderer.render(&target_alignment).message(),
+            "required alignment is unsupported by this target"
         );
     }
 

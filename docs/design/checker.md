@@ -546,6 +546,10 @@ checks take their width from that profile and do not accept an optional caller-s
 target-filtered compiler-known declaration view. Post-selection layout and ABI checks must consume these inputs rather than build a
 parallel target model.
 
+Post-selection target validity uses a typed request that pairs the selected representation, callable ABI, or alignment requirement
+with its exact source anchor. Its immutable result distinguishes valid and invalid requirements, and an invalid result owns a
+source-correlated structured diagnostic. The check does not reopen candidate selection or substitute a different operation.
+
 Product constraints and module-contribution gates use the same target rule service before ordinary body checking. Their earlier
 request point does not make target policy part of package loading or declaration discovery.
 

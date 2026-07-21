@@ -214,6 +214,7 @@ impl Compilation {
                     Err(error) => panic!("compiler-known symbol provider is invalid: {error:?}"),
                 };
 
+                // The published fact retains its target independently of request options.
                 let target = self.state.options.selected_target().clone();
                 let availability = target.declaration_availability();
                 let available = provider.available_symbols(|rule| availability.supports(rule));
@@ -1069,6 +1070,28 @@ mod tests {
     }
 
     #[test]
+    fn target_independent_control_flow_does_not_request_selected_target_facts() {
+        let compilation = checked_body_compilation();
+        let key = source_callable_body_key(&compilation);
+
+        let result = compilation.checked_control_flow(key.clone());
+
+        assert!(result.is_ok());
+
+        let dependencies = match compilation
+            .state
+            .fact_runtime
+            .dependencies(&CompilationFactKey::CheckedControlFlow(key))
+        {
+            Ok(Some(dependencies)) => dependencies,
+            Ok(None) => panic!("checked control flow must publish its dependencies"),
+            Err(error) => panic!("checked control-flow dependencies must be readable: {error:?}"),
+        };
+
+        assert!(!dependencies.contains(&CompilationFactKey::SelectedTarget));
+    }
+
+    #[test]
     fn declaration_owned_expression_queries_use_the_same_finalization_path() {
         let compilation = match Compilation::load_sources(
             package_identity(),
@@ -1268,6 +1291,7 @@ mod tests {
             Ok(symbols) => symbols,
             Err(error) => panic!("test symbol graph must build: {error:?}"),
         };
+
         let Some(constant) = symbols
             .constants()
             .iter()

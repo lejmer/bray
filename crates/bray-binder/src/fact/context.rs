@@ -127,6 +127,7 @@ mod tests {
             context.selected_target().identity().as_str(),
             "x86_64-unknown-linux-gnu"
         );
+
         assert!(!context.is_cancelled());
     }
 

@@ -2,11 +2,12 @@ use crate::analysis::check_control_flow;
 use crate::constant::evaluate_constant;
 use crate::expression::check_expression_semantics;
 use crate::selection::{select_callable, select_operation};
+use crate::target::check_target_validity;
 use crate::type_check::check_expression_types;
 use crate::{
     CallableSelectionRequest, CandidateSelection, CheckerOutcome, CheckerRequestContext,
     CheckerUnitView, ConstantEvaluationInput, ControlFlowCheckResult, ExpressionCandidateSet,
-    ExpressionTypeInput, OperationSelectionRequest,
+    ExpressionTypeInput, OperationSelectionRequest, TargetValidity, TargetValidityRequest,
 };
 use bray_bound_tree::{
     CheckedExpressionTypes, DeclaredValueTypeTemplates, SelectedCall, SelectedOperation,
@@ -32,6 +33,10 @@ pub struct DefaultConstantEvaluator;
 /// The standard Bray semantic candidate and operation selector.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DefaultSemanticSelector;
+
+/// The standard Bray post-selection target-validity checker.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct DefaultTargetValidityChecker;
 
 /// Control-flow checking over one committed bound semantic unit.
 ///
@@ -147,6 +152,28 @@ where
 }
 
 impl<C> ConstantEvaluator<C> for DefaultConstantEvaluator where C: CheckerRequestContext + ?Sized {}
+
+/// Target-dependent validation for an already selected representation, ABI, or alignment.
+///
+/// Validation reports target incompatibility without changing semantic selection.
+pub trait TargetValidityChecker<C>: Sync
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    /// Checks one selected target requirement at its source anchor.
+    fn check_target_validity(
+        &self,
+        context: &C,
+        request: TargetValidityRequest,
+    ) -> CheckerOutcome<TargetValidity> {
+        check_target_validity(context, request)
+    }
+}
+
+impl<C> TargetValidityChecker<C> for DefaultTargetValidityChecker where
+    C: CheckerRequestContext + ?Sized
+{
+}
 
 #[cfg(test)]
 mod tests {

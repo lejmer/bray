@@ -25,7 +25,7 @@ pub fn check_constant_literal(
     kind: BoundLiteralKind,
     text: &str,
     representation: RepresentationRole,
-    target_integer_width_bits: NonZeroU16,
+    target_integer_width_bits: impl FnOnce() -> NonZeroU16,
 ) -> Result<ConstantValueKind, ConstantLiteralError> {
     match kind {
         BoundLiteralKind::Integer => parse_integer(text, representation, target_integer_width_bits),
@@ -41,7 +41,7 @@ pub(super) fn parse_literal(
     kind: BoundLiteralKind,
     text: &str,
     representation: RepresentationRole,
-    target_integer_width_bits: NonZeroU16,
+    target_integer_width_bits: impl FnOnce() -> NonZeroU16,
 ) -> Result<ConstantValueKind, ConstantLiteralError> {
     check_constant_literal(kind, text, representation, target_integer_width_bits)
 }
@@ -61,7 +61,7 @@ pub fn normalize_integer_literal(text: &str) -> Result<IntegerConstant, Constant
 fn parse_integer(
     text: &str,
     representation: RepresentationRole,
-    target_integer_width_bits: NonZeroU16,
+    target_integer_width_bits: impl FnOnce() -> NonZeroU16,
 ) -> Result<ConstantValueKind, ConstantLiteralError> {
     if text.len() > MAX_INTEGER_LITERAL_BYTES {
         return Err(ConstantLiteralError::SizeLimitExceeded);
@@ -145,7 +145,7 @@ fn multiply_add_magnitude(magnitude: &mut Vec<u8>, multiplier: u8, addend: u8) {
 fn integer_literal_fits(
     magnitude: &[u8],
     representation: IntegerRepresentation,
-    target_integer_width_bits: NonZeroU16,
+    target_integer_width_bits: impl FnOnce() -> NonZeroU16,
 ) -> bool {
     let significant_bits = magnitude.first().map_or(0, |first| {
         magnitude.len() * 8 - first.leading_zeros() as usize
@@ -155,10 +155,10 @@ fn integer_literal_fits(
         IntegerRepresentation::Signed(width) => significant_bits < usize::from(width),
         IntegerRepresentation::Unsigned(width) => significant_bits <= usize::from(width),
         IntegerRepresentation::TargetSigned => {
-            significant_bits < usize::from(target_integer_width_bits.get())
+            significant_bits < usize::from(target_integer_width_bits().get())
         }
         IntegerRepresentation::TargetUnsigned => {
-            significant_bits <= usize::from(target_integer_width_bits.get())
+            significant_bits <= usize::from(target_integer_width_bits().get())
         }
     }
 }
@@ -357,6 +357,7 @@ fn decode_unicode_escape(
 
 #[cfg(test)]
 mod tests {
+    use std::cell::Cell;
     use std::num::NonZeroU16;
 
     use bray_bound_tree::BoundLiteralKind;
@@ -373,21 +374,21 @@ mod tests {
             BoundLiteralKind::Integer,
             "0X00_ff",
             RepresentationRole::ScalarU16,
-            target_width,
+            || target_width,
         );
 
         let string = parse_literal(
             BoundLiteralKind::String,
             r#""a\n\u{62}""#,
             RepresentationRole::String,
-            target_width,
+            || target_width,
         );
 
         let real = parse_literal(
             BoundLiteralKind::Real,
             "1.5",
             RepresentationRole::ScalarR32,
-            target_width,
+            || target_width,
         );
 
         let Ok(ConstantValueKind::Integer(integer)) = integer else {
@@ -403,7 +404,7 @@ mod tests {
                 BoundLiteralKind::String,
                 r#""\'""#,
                 RepresentationRole::String,
-                target_width,
+                || target_width,
             ),
             Err(ConstantLiteralError::Invalid)
         );
@@ -425,7 +426,7 @@ mod tests {
                 BoundLiteralKind::Integer,
                 "128",
                 RepresentationRole::ScalarI8,
-                target_width,
+                || target_width,
             ),
             Err(ConstantLiteralError::NotRepresentable)
         );
@@ -435,7 +436,7 @@ mod tests {
                 BoundLiteralKind::Integer,
                 "256",
                 RepresentationRole::ScalarU8,
-                target_width,
+                || target_width,
             ),
             Err(ConstantLiteralError::NotRepresentable)
         );
@@ -451,7 +452,7 @@ mod tests {
                 BoundLiteralKind::Integer,
                 "4294967296",
                 RepresentationRole::ScalarUsize,
-                width32,
+                || width32,
             ),
             Err(ConstantLiteralError::NotRepresentable)
         );
@@ -461,7 +462,7 @@ mod tests {
                 BoundLiteralKind::Integer,
                 "4294967296",
                 RepresentationRole::ScalarUsize,
-                width64,
+                || width64,
             )
             .is_ok()
         );
@@ -471,7 +472,7 @@ mod tests {
                 BoundLiteralKind::Integer,
                 "2147483648",
                 RepresentationRole::ScalarIsize,
-                width32,
+                || width32,
             ),
             Err(ConstantLiteralError::NotRepresentable)
         );
@@ -481,7 +482,7 @@ mod tests {
                 BoundLiteralKind::Integer,
                 "2147483648",
                 RepresentationRole::ScalarIsize,
-                width64,
+                || width64,
             )
             .is_ok()
         );
@@ -491,10 +492,44 @@ mod tests {
                 BoundLiteralKind::Integer,
                 &"1".repeat(MAX_INTEGER_LITERAL_BYTES + 1),
                 RepresentationRole::ScalarI128,
-                width64,
+                || width64,
             ),
             Err(ConstantLiteralError::SizeLimitExceeded)
         );
+    }
+
+    #[test]
+    fn only_target_sized_integer_literals_request_the_target_width() {
+        let observations = Cell::new(0);
+        let observe_width = || {
+            observations.set(observations.get() + 1);
+
+            target_width()
+        };
+
+        assert!(
+            parse_literal(
+                BoundLiteralKind::Integer,
+                "1",
+                RepresentationRole::ScalarU16,
+                observe_width,
+            )
+            .is_ok()
+        );
+
+        assert_eq!(observations.get(), 0);
+
+        assert!(
+            parse_literal(
+                BoundLiteralKind::Integer,
+                "1",
+                RepresentationRole::ScalarUsize,
+                observe_width,
+            )
+            .is_ok()
+        );
+
+        assert_eq!(observations.get(), 1);
     }
 
     fn target_width() -> NonZeroU16 {

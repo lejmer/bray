@@ -210,6 +210,10 @@ One product compilation selects one immutable target context before requesting t
 the canonical `bray_target::TargetProfile`, the selected private runtime ABI version, and the capabilities used to derive the
 target-available compiler-known declaration view. It must not infer any of these values from the compiler host.
 
+The target profile contains the complete typed language-defined fact surface. Pointer, endian, architecture, and target-name facts
+are derived from the profile's identity and machine properties so independently supplied values cannot contradict them. Profile
+construction rejects incomplete fact groups and cross-group alignment contradictions before source checking begins.
+
 The selected target is a typed compilation fact. Binder and checker requests borrow the same target profile instead of copying its
 identity, machine properties, or widths into phase-specific models. Target-sized literals and constants always use the profile's
 pointer width. Post-selection layout and ABI checks consume the same context after type and operation selection. Lowering and

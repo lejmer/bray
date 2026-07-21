@@ -35,6 +35,7 @@ pub(crate) struct TestCheckerContext {
     cancelled: bool,
     cancel_after: Option<usize>,
     observations: AtomicUsize,
+    target_observations: AtomicUsize,
     source: Option<SourceSnapshot>,
     target: Option<TargetProfile>,
 }
@@ -45,6 +46,7 @@ impl TestCheckerContext {
             cancelled,
             cancel_after: None,
             observations: AtomicUsize::new(0),
+            target_observations: AtomicUsize::new(0),
             source: None,
             target: None,
         }
@@ -55,6 +57,7 @@ impl TestCheckerContext {
             cancelled: false,
             cancel_after: Some(observations),
             observations: AtomicUsize::new(0),
+            target_observations: AtomicUsize::new(0),
             source: None,
             target: None,
         }
@@ -65,6 +68,7 @@ impl TestCheckerContext {
             cancelled: false,
             cancel_after: None,
             observations: AtomicUsize::new(0),
+            target_observations: AtomicUsize::new(0),
             source: Some(source),
             target: None,
         }
@@ -74,6 +78,10 @@ impl TestCheckerContext {
         self.target = Some(target);
 
         self
+    }
+
+    pub(crate) fn target_observations(&self) -> usize {
+        self.target_observations.load(Ordering::Relaxed)
     }
 }
 
@@ -108,6 +116,8 @@ impl CheckerRequestContext for TestCheckerContext {
     }
 
     fn selected_target(&self) -> &bray_target::TargetProfile {
+        self.target_observations.fetch_add(1, Ordering::Relaxed);
+
         self.target
             .as_ref()
             .unwrap_or_else(|| test_target_profile())

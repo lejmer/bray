@@ -19,15 +19,11 @@ use crate::fact::{CancellationToken, FactQueryError};
 
 pub(super) struct CompilationCheckerContext<'compilation> {
     facts: CompilationBinderFacts<'compilation>,
-    target: &'compilation crate::SelectedTargetContext,
 }
 
 impl<'compilation> CompilationCheckerContext<'compilation> {
-    fn new(
-        facts: CompilationBinderFacts<'compilation>,
-        target: &'compilation crate::SelectedTargetContext,
-    ) -> Self {
-        Self { facts, target }
+    fn new(facts: CompilationBinderFacts<'compilation>) -> Self {
+        Self { facts }
     }
 
     fn source_snapshot(
@@ -72,11 +68,18 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
     }
 
     fn available_compiler_known_symbols(&self) -> &AvailableCompilerKnownSymbols {
-        self.target.available_compiler_known_symbols()
+        self.facts
+            .compilation()
+            .selected_target()
+            .available_compiler_known_symbols()
     }
 
     fn selected_target(&self) -> &TargetProfile {
-        self.target.target().profile()
+        self.facts
+            .compilation()
+            .selected_target()
+            .target()
+            .profile()
     }
 
     fn source(
@@ -129,9 +132,8 @@ impl Compilation {
         cancellation: &'compilation CancellationToken,
     ) -> Result<CompilationCheckerContext<'compilation>, FactQueryError> {
         let facts = self.binder_facts_for(key, cancellation)?;
-        let target = self.selected_target();
 
-        Ok(CompilationCheckerContext::new(facts, target))
+        Ok(CompilationCheckerContext::new(facts))
     }
 }
 
