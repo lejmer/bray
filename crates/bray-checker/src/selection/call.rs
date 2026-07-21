@@ -5,7 +5,7 @@ use bray_bound_tree::{
     ExpressionTypeResult, SelectedArgument, SelectedCall, SelectedImplementationWitness,
 };
 use bray_symbols::{
-    CallableParameterDefaultProviderSymbolId, CallableParameterSignature,
+    CallableAbi, CallableParameterDefaultProviderSymbolId, CallableParameterSignature,
     CallableParameterSymbolId, CallablePosition, CallableSignature, CallableTypeData,
     ImplementationSelection, ReceiverMode, SymbolKey, TypeData,
 };
@@ -31,22 +31,28 @@ pub(super) fn select<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
+    select_candidates(request, types, &input, &input.candidates)
+}
+
+pub(super) fn select_candidates<C>(
+    request: CheckerUnitView<'_, C>,
+    types: &CheckedExpressionTypes,
+    input: &CallableSelectionRequest,
+    candidates: &[CallableCandidate],
+) -> Result<Option<CandidateSelection<SelectedCall>>, CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
     if request.is_cancelled() {
         return Ok(None);
     }
 
-    let mode = validate_unit(request, types, &input)?;
+    let mode = validate_unit(request, types, input)?;
 
-    let CallableSelectionRequest {
-        expression: _,
-        callee_member: _,
-        receiver,
-        generic_arguments,
-        arguments,
-        mut candidates,
-    } = input;
-
-    if !super::order::canonicalize_by_key(&mut candidates, CallableCandidate::key) {
+    if candidates
+        .windows(2)
+        .any(|pair| pair[0].key() >= pair[1].key())
+    {
         return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
     }
 
@@ -55,7 +61,15 @@ where
     let mut has_incompatible = false;
     let mut has_recovered = false;
 
-    for candidate in &candidates {
+    let candidate_input = CandidateInput {
+        types,
+        mode,
+        receiver: input.receiver,
+        generic_arguments: &input.generic_arguments,
+        arguments: &input.arguments,
+    };
+
+    for candidate in candidates {
         if request.is_cancelled() {
             return Ok(None);
         }
@@ -71,18 +85,23 @@ where
             }
         }
 
-        match check_candidate(
-            request,
-            types,
-            mode,
-            receiver,
-            &generic_arguments,
-            &arguments,
-            candidate,
-        )? {
-            CandidateCheck::Applicable { .. } if state == CallableCandidateState::Inaccessible => {
-                has_inaccessible = true;
+        if state == CallableCandidateState::Inaccessible {
+            match check_candidate_applicability(
+                request,
+                candidate_input,
+                candidate,
+                &mut |_| {},
+                &mut |_| {},
+            )? {
+                CandidateApplicability::Applicable { .. } => has_inaccessible = true,
+                CandidateApplicability::Incompatible => has_incompatible = true,
+                CandidateApplicability::Recovered => has_recovered = true,
             }
+
+            continue;
+        }
+
+        match check_candidate(request, candidate_input, candidate)? {
             CandidateCheck::Applicable { key, call } => applicable.push((key, call)),
             CandidateCheck::Incompatible => has_incompatible = true,
             CandidateCheck::Recovered => has_recovered = true,
@@ -127,6 +146,14 @@ where
     let mode = validate_unit(request, types, input)?;
     let mut viable = Vec::new();
 
+    let candidate_input = CandidateInput {
+        types,
+        mode,
+        receiver: input.receiver,
+        generic_arguments: &input.generic_arguments,
+        arguments: &input.arguments,
+    };
+
     for (index, candidate) in candidates.iter().enumerate() {
         if request.is_cancelled() {
             return Ok(None);
@@ -139,17 +166,17 @@ where
             continue;
         }
 
-        match check_candidate(
+        match check_candidate_applicability(
             request,
-            types,
-            mode,
-            input.receiver,
-            &input.generic_arguments,
-            &input.arguments,
+            candidate_input,
             candidate,
+            &mut |_| {},
+            &mut |_| {},
         )? {
-            CandidateCheck::Applicable { .. } | CandidateCheck::Recovered => viable.push(index),
-            CandidateCheck::Incompatible => {}
+            CandidateApplicability::Applicable { .. } | CandidateApplicability::Recovered => {
+                viable.push(index);
+            }
+            CandidateApplicability::Incompatible => {}
         }
     }
 
@@ -162,15 +189,61 @@ enum CandidateCheck {
     Recovered,
 }
 
-fn check_candidate<C>(
-    request: CheckerUnitView<'_, C>,
-    types: &CheckedExpressionTypes,
+#[derive(Clone, Copy)]
+struct CandidateInput<'input> {
+    types: &'input CheckedExpressionTypes,
     mode: CallableSelectionMode,
     receiver: Option<super::ReceiverSelection>,
-    generic_arguments: &[BoundGenericArgument],
-    arguments: &[BoundArgument],
+    generic_arguments: &'input [BoundGenericArgument],
+    arguments: &'input [BoundArgument],
+}
+
+fn check_candidate<C>(
+    request: CheckerUnitView<'_, C>,
+    input: CandidateInput<'_>,
     candidate: &CallableCandidate,
 ) -> Result<CandidateCheck, CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let mut selected_arguments = Vec::with_capacity(candidate.signature().parameters().len());
+    let mut witnesses = Vec::with_capacity(candidate.implementation_selections().len());
+
+    match check_candidate_applicability(
+        request,
+        input,
+        candidate,
+        &mut |argument| selected_arguments.push(argument),
+        &mut |witness| witnesses.push(witness),
+    )? {
+        CandidateApplicability::Applicable { abi } => {
+            // The durable selection owns its key and resolution after the candidate probe ends.
+            let key = candidate.key().clone();
+            let resolution = candidate.resolution().clone();
+
+            Ok(CandidateCheck::Applicable {
+                key,
+                call: SelectedCall::new(resolution, abi, selected_arguments, witnesses),
+            })
+        }
+        CandidateApplicability::Incompatible => Ok(CandidateCheck::Incompatible),
+        CandidateApplicability::Recovered => Ok(CandidateCheck::Recovered),
+    }
+}
+
+enum CandidateApplicability {
+    Applicable { abi: CallableAbi },
+    Incompatible,
+    Recovered,
+}
+
+fn check_candidate_applicability<C>(
+    request: CheckerUnitView<'_, C>,
+    input: CandidateInput<'_>,
+    candidate: &CallableCandidate,
+    on_argument: &mut impl FnMut(SelectedArgument),
+    on_witness: &mut impl FnMut(SelectedImplementationWitness),
+) -> Result<CandidateApplicability, CheckerInfrastructureError>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -200,52 +273,53 @@ where
 
     match generic_arguments_are_compatible(
         request,
-        generic_arguments,
+        input.generic_arguments,
         candidate.resolution().target(),
     )? {
-        Compatibility::No => return Ok(CandidateCheck::Incompatible),
-        Compatibility::Recovered => return Ok(CandidateCheck::Recovered),
+        Compatibility::No => return Ok(CandidateApplicability::Incompatible),
+        Compatibility::Recovered => return Ok(CandidateApplicability::Recovered),
         Compatibility::Yes => {}
     }
 
-    match receiver_is_compatible(types, receiver, candidate.signature().receiver())? {
-        Compatibility::No => return Ok(CandidateCheck::Incompatible),
-        Compatibility::Recovered => return Ok(CandidateCheck::Recovered),
+    match receiver_is_compatible(
+        input.types,
+        input.receiver,
+        candidate.signature().receiver(),
+    )? {
+        Compatibility::No => return Ok(CandidateApplicability::Incompatible),
+        Compatibility::Recovered => return Ok(CandidateApplicability::Recovered),
         Compatibility::Yes => {}
     }
 
-    let Some(arguments) = map_arguments(
-        types,
-        mode,
-        arguments,
+    let Some(recovered) = map_arguments(
+        input.types,
+        input.mode,
+        input.arguments,
         callable_type,
         candidate.signature().parameters(),
         candidate.defaults(),
+        on_argument,
     )?
     else {
-        return Ok(CandidateCheck::Incompatible);
+        return Ok(CandidateApplicability::Incompatible);
     };
 
-    if arguments.recovered {
-        return Ok(CandidateCheck::Recovered);
+    if recovered {
+        return Ok(CandidateApplicability::Recovered);
     }
 
-    let Some(witnesses) = selected_witnesses(
+    let Some(()) = visit_selected_witnesses(
         request,
         candidate.resolution(),
         candidate.implementation_selections(),
+        on_witness,
     )?
     else {
-        return Ok(CandidateCheck::Incompatible);
+        return Ok(CandidateApplicability::Incompatible);
     };
 
-    // The durable selection owns its key and resolution after the candidate probe ends.
-    let key = candidate.key().clone();
-    let resolution = candidate.resolution().clone();
-
-    Ok(CandidateCheck::Applicable {
-        key,
-        call: SelectedCall::new(resolution, callable_type.abi(), arguments.values, witnesses),
+    Ok(CandidateApplicability::Applicable {
+        abi: callable_type.abi(),
     })
 }
 
@@ -313,18 +387,15 @@ fn callable_surface_is_consistent(
     }
 }
 
-fn selected_witnesses<C>(
+fn visit_selected_witnesses<C>(
     request: CheckerUnitView<'_, C>,
     resolution: &bray_bound_tree::BoundResolvedCall,
     evidence: &[ImplementationSelectionEvidence],
-) -> Result<Option<Vec<SelectedImplementationWitness>>, CheckerInfrastructureError>
+    on_witness: &mut impl FnMut(SelectedImplementationWitness),
+) -> Result<Option<()>, CheckerInfrastructureError>
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let mut evidence = evidence.iter().collect::<Vec<_>>();
-
-    evidence.sort_unstable_by_key(|item| item.requirement());
-
     if evidence
         .windows(2)
         .any(|pair| pair[0].requirement() == pair[1].requirement())
@@ -332,10 +403,12 @@ where
         return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
     }
 
-    let mut selected = Vec::with_capacity(evidence.len());
+    if evidence.len() != resolution.implementation_witnesses().len() {
+        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+    }
 
-    for evidence in evidence {
-        let ImplementationSelection::Selected(witness) = evidence.selection() else {
+    for (index, selection) in evidence.iter().enumerate() {
+        let ImplementationSelection::Selected(witness) = selection.selection() else {
             return Ok(None);
         };
 
@@ -344,25 +417,24 @@ where
             .implementation_instance_data(*witness)
             .map_err(|_| CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
 
-        selected.push(SelectedImplementationWitness::new(
-            evidence.requirement(),
+        if resolution
+            .implementation_witnesses()
+            .binary_search(witness)
+            .is_err()
+            || evidence[..index].iter().any(|prior| {
+                matches!(prior.selection(), ImplementationSelection::Selected(prior) if *prior == *witness)
+            })
+        {
+            return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+        }
+
+        on_witness(SelectedImplementationWitness::new(
+            selection.requirement(),
             *witness,
         ));
     }
 
-    let mut witness_ids = selected
-        .iter()
-        .map(|selection| selection.witness())
-        .collect::<Vec<_>>();
-
-    witness_ids.sort_unstable();
-    witness_ids.dedup();
-
-    if witness_ids != resolution.implementation_witnesses() {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
-    }
-
-    Ok(Some(selected))
+    Ok(Some(()))
 }
 
 fn callable_type<C>(
@@ -431,11 +503,6 @@ const fn receiver_capability_supports(actual: ReceiverCapability, expected: Rece
     }
 }
 
-struct MappedArguments {
-    values: Vec<SelectedArgument>,
-    recovered: bool,
-}
-
 fn map_arguments(
     types: &CheckedExpressionTypes,
     mode: CallableSelectionMode,
@@ -446,11 +513,10 @@ fn map_arguments(
         CallableParameterSymbolId,
         CallableParameterDefaultProviderSymbolId,
     )],
-) -> Result<Option<MappedArguments>, CheckerInfrastructureError> {
+    on_argument: &mut impl FnMut(SelectedArgument),
+) -> Result<Option<bool>, CheckerInfrastructureError> {
     let parameters = callable.parameters();
     let mut supplied = vec![None; parameters.len()];
-    let mut values = Vec::with_capacity(parameters.len());
-
     let mut positional_index = 0;
 
     let mut saw_named = false;
@@ -493,7 +559,7 @@ fn map_arguments(
         }
 
         supplied[parameter_index] = Some(argument.expression());
-        values.push(SelectedArgument::Explicit {
+        on_argument(SelectedArgument::Explicit {
             expression: argument.expression(),
             parameter: signatures[parameter_index].parameter(),
         });
@@ -524,13 +590,13 @@ fn map_arguments(
             return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
         };
 
-        values.push(SelectedArgument::Default {
+        on_argument(SelectedArgument::Default {
             parameter: signature.parameter(),
             provider,
         });
     }
 
-    Ok(Some(MappedArguments { values, recovered }))
+    Ok(Some(recovered))
 }
 
 #[derive(Clone, Copy)]

@@ -579,7 +579,7 @@ mod tests {
     fn candidate_expressions(unit: &BoundUnit) -> Vec<BoundExpressionId> {
         let mut expressions = Vec::new();
 
-        let outcome = walk_bound_unit_view(unit.view(), unit_root(unit), |event| {
+        let outcome = walk_bound_unit_view(unit.view(), unit.root(), |event| {
             let BoundWalkEvent::Enter(AnyBoundNodeId::Expression(expression)) = event else {
                 return BoundWalkControl::Continue;
             };
@@ -603,15 +603,6 @@ mod tests {
         assert_eq!(outcome, bray_bound_tree::BoundWalkOutcome::Completed);
 
         expressions
-    }
-
-    const fn unit_root(unit: &BoundUnit) -> AnyBoundNodeId {
-        match unit.root() {
-            BoundUnitRoot::CallableBody(body) => AnyBoundNodeId::CallableBody(body),
-            BoundUnitRoot::AnonymousCallable { body, .. } => AnyBoundNodeId::CallableBody(body),
-            BoundUnitRoot::Expression(expression) => AnyBoundNodeId::Expression(expression),
-            BoundUnitRoot::ExpressionSequence(block) => AnyBoundNodeId::Block(block),
-        }
     }
 
     fn imported_function(

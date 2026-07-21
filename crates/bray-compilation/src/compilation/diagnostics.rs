@@ -479,6 +479,22 @@ mod tests {
     }
 
     #[test]
+    fn malformed_calls_to_known_functions_publish_diagnostics_without_panicking() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "func known(pos value: i32)\n",
+            "{\n",
+            "}\n",
+            "func main()\n",
+            "{\n",
+            "    known(value = );\n",
+            "}\n",
+        ));
+
+        assert!(!compilation.check_diagnostics().is_empty());
+    }
+
+    #[test]
     fn package_diagnostics_include_nested_unit_diagnostics() {
         let compilation = compilation(concat!(
             "module app;\n",

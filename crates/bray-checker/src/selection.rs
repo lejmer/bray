@@ -11,7 +11,7 @@ mod operation;
 mod order;
 
 pub(crate) use call::viable_candidate_indices;
-pub(crate) use check::{select_callable, select_operation};
+pub(crate) use check::{select_callable, select_callable_candidates, select_operation};
 pub(in crate::selection) use model::OperationCandidatePlan;
 pub use model::{
     CallableCandidate, CallableCandidateState, CallableCandidateTemplate,

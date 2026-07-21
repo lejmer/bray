@@ -41,7 +41,7 @@ impl PreparedExpressions {
 pub(super) fn prepare_calls<C>(
     request: CheckerUnitView<'_, C>,
     candidate_sets: &[ExpressionCandidateSet],
-) -> Result<PreparedExpressions, CheckerInfrastructureError>
+) -> Result<SessionProgress<PreparedExpressions>, CheckerInfrastructureError>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -49,12 +49,24 @@ where
     let mut deferred = BTreeSet::new();
 
     for candidate_set in candidate_sets {
-        if request
-            .view()
-            .expression(candidate_set.expression())
-            .is_none()
-        {
+        if request.is_cancelled() {
+            return Ok(SessionProgress::Cancelled);
+        }
+
+        let Some(expression) = request.view().expression(candidate_set.expression()) else {
             return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+        };
+
+        if matches!(candidate_set, ExpressionCandidateSet::Callable(_))
+            && matches!(expression, BoundExpression::ErrorCall(_))
+        {
+            if defer_callable_selection(request, candidate_set.expression(), &mut deferred)?
+                .is_cancelled()
+            {
+                return Ok(SessionProgress::Cancelled);
+            }
+
+            continue;
         }
 
         match candidate_set {
@@ -66,6 +78,10 @@ where
                 let mut defer_call = false;
 
                 for candidate in candidates.iter() {
+                    if request.is_cancelled() {
+                        return Ok(SessionProgress::Cancelled);
+                    }
+
                     match candidate {
                         CallableCandidateTemplate::Declaration(candidate) => {
                             match resolve_declaration_candidate(
@@ -86,11 +102,14 @@ where
                 }
 
                 if defer_call {
-                    defer_callable_selection(request, *expression, &mut deferred)?;
+                    if defer_callable_selection(request, *expression, &mut deferred)?.is_cancelled()
+                    {
+                        return Ok(SessionProgress::Cancelled);
+                    }
                 } else {
                     calls.push(PreparedCall {
                         expression: *expression,
-                        candidates: resolved,
+                        candidates: CallableSelectionRequest::canonical_candidates(resolved),
                     });
                 }
             }
@@ -105,7 +124,9 @@ where
                 expression,
                 ..
             }) => {
-                defer_callable_selection(request, *expression, &mut deferred)?;
+                if defer_callable_selection(request, *expression, &mut deferred)?.is_cancelled() {
+                    return Ok(SessionProgress::Cancelled);
+                }
             }
             ExpressionCandidateSet::Unsupported { expression, .. } => {
                 deferred.insert(*expression);
@@ -116,38 +137,46 @@ where
 
     calls.sort_unstable_by_key(|call| call.expression);
 
-    Ok(PreparedExpressions { calls, deferred })
+    Ok(SessionProgress::Complete(PreparedExpressions {
+        calls,
+        deferred,
+    }))
 }
 
 fn defer_callable_selection<C>(
     request: CheckerUnitView<'_, C>,
     expression: BoundExpressionId,
     deferred: &mut BTreeSet<BoundExpressionId>,
-) -> Result<(), CheckerInfrastructureError>
+) -> Result<SessionProgress<()>, CheckerInfrastructureError>
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let Some(BoundExpression::Call(call)) = request.view().expression(expression) else {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+    let callee = match request.view().expression(expression) {
+        Some(BoundExpression::Call(call)) => call.callee(),
+        Some(BoundExpression::ErrorCall(call)) => call.callee(),
+        _ => return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput),
     };
 
     deferred.insert(expression);
-    defer_expression_tree(request, call.callee(), deferred)?;
 
-    Ok(())
+    defer_expression_tree(request, callee, deferred)
 }
 
 fn defer_expression_tree<C>(
     request: CheckerUnitView<'_, C>,
     root: BoundExpressionId,
     deferred: &mut BTreeSet<BoundExpressionId>,
-) -> Result<(), CheckerInfrastructureError>
+) -> Result<SessionProgress<()>, CheckerInfrastructureError>
 where
     C: CheckerRequestContext + ?Sized,
 {
     let mut pending = vec![root];
 
     while let Some(expression) = pending.pop() {
+        if request.is_cancelled() {
+            return Ok(SessionProgress::Cancelled);
+        }
+
         if !deferred.insert(expression) {
             continue;
         }
@@ -159,7 +188,7 @@ where
         pending.extend(bound.child_expressions());
     }
 
-    Ok(())
+    Ok(SessionProgress::Complete(()))
 }
 
 fn add_candidate_expectations<C>(
@@ -305,8 +334,6 @@ where
             continue;
         }
 
-        let types = session.preview();
-
         if apply_selected_call_evidence(request, &types, &prepared.calls, session)?.is_cancelled() {
             return Ok(SessionProgress::Cancelled);
         }
@@ -412,7 +439,7 @@ where
             CheckerOutcome::Complete(result) => {
                 let (selection, selection_diagnostics) = result.into_parts();
 
-                diagnostics.add_range(selection_diagnostics.diagnostics().iter().cloned());
+                diagnostics.add_range(selection_diagnostics);
 
                 if let CandidateSelection::Selected(selection) = selection {
                     entries.push(SemanticSelectionEntry::new(
@@ -443,23 +470,59 @@ where
         );
     };
 
-    // Selection consumes and canonicalizes its working candidates while the fixed point retains
-    // the prepared set for subsequent rounds.
-    let candidates = prepared.candidates.clone();
-
     // The request owns source argument records independently of the immutable bound unit.
     let arguments = call.arguments().iter().cloned();
 
-    crate::selection::select_callable(
-        request,
-        types,
-        CallableSelectionRequest::new(
-            prepared.expression,
-            None,
-            None,
-            call.generic_arguments().iter().copied(),
-            arguments,
-            candidates,
-        ),
-    )
+    let input = CallableSelectionRequest::new(
+        prepared.expression,
+        None,
+        None,
+        call.generic_arguments().iter().copied(),
+        arguments,
+        [],
+    );
+
+    crate::selection::select_callable_candidates(request, types, &input, &prepared.candidates)
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_bound_tree::BoundUnitId;
+
+    use super::prepare_calls;
+    use crate::test_support::{
+        TestCheckerContext, callable_entry, expression_unit, integer_literal_expression,
+        push_expression,
+    };
+    use crate::{CheckerUnitView, ExpressionCandidateSet};
+
+    #[test]
+    fn candidate_preparation_observes_cancellation_between_expression_sets() {
+        let (unit, expressions) = expression_unit(BoundUnitId::new(93), |tree, origin| {
+            (0..32)
+                .map(|_| push_expression(tree, integer_literal_expression(origin, None)))
+                .collect()
+        });
+
+        let candidates = expressions
+            .iter()
+            .copied()
+            .map(ExpressionCandidateSet::NotApplicable)
+            .collect::<Vec<_>>();
+
+        let context = TestCheckerContext::cancelling_after(8);
+        let semantic_context = callable_entry(unit.key());
+
+        let request = match CheckerUnitView::new(&unit, &semantic_context, &context) {
+            Ok(request) => request,
+            Err(error) => panic!("test checker unit view must be valid: {error:?}"),
+        };
+
+        let result = prepare_calls(request, &candidates);
+
+        assert!(matches!(
+            result,
+            Ok(crate::type_check::SessionProgress::Cancelled)
+        ));
+    }
 }

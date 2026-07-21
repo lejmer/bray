@@ -91,6 +91,7 @@ where
             Ok(expected) => expected,
             Err(error) => return CheckerOutcome::InfrastructureFailure(error),
         };
+
         let mut actual = match diagnostic_type(request, conflict.actual) {
             Ok(actual) => actual,
             Err(error) => return CheckerOutcome::InfrastructureFailure(error),
@@ -286,9 +287,11 @@ mod tests {
     fn checking_publishes_one_canonical_result_for_every_expression() {
         let first_type = tuple_type([]);
         let second_type = tuple_type([first_type]);
+
         let (unit, expressions) = expression_unit(BoundUnitId::new(40), |tree, origin| {
             let first = push_expression(tree, literal(origin, None));
             let second = push_expression(tree, literal(origin, None));
+
             let tuple = push_expression(
                 tree,
                 BoundExpression::Structured(BoundStructuredExpression::new(
@@ -332,8 +335,10 @@ mod tests {
         let operand_type = tuple_type([]);
         let child_type = tuple_type([operand_type]);
         let parent_type = tuple_type([child_type]);
+
         let (unit, expressions) = expression_unit(BoundUnitId::new(50), |tree, origin| {
             let leaf = push_expression(tree, literal(origin, None));
+
             let child = push_expression(
                 tree,
                 BoundExpression::Structured(BoundStructuredExpression::new(
@@ -346,6 +351,7 @@ mod tests {
                     false,
                 )),
             );
+
             let parent = push_expression(
                 tree,
                 BoundExpression::Structured(BoundStructuredExpression::new(
@@ -361,11 +367,14 @@ mod tests {
 
             vec![leaf, child, parent]
         });
+
         let entry = callable_entry(unit.key());
         let context = crate::test_support::TestCheckerContext::new(false);
+
         let Ok(request) = CheckerUnitView::new(&unit, &entry, &context) else {
             panic!("test checker unit view must be valid");
         };
+
         let Ok(SessionProgress::Complete(mut session)) = ExpressionTypeSession::begin(request)
         else {
             panic!("expression type session must start");
@@ -423,6 +432,7 @@ mod tests {
         let origin = BoundNodeOrigin::source(key.source());
         let mut tree = BoundTreeBuilder::new(BoundUnitId::new(41));
         let initializer = push_expression(&mut tree, literal(origin, Some(actual)));
+
         let declaration = bray_bound_tree::BoundLocalConstant::new(
             origin,
             None,
@@ -430,11 +440,13 @@ mod tests {
             initializer,
             false,
         );
+
         let block = push_block(
             &mut tree,
             origin,
             [BoundBlockItem::LocalConstant(declaration)],
         );
+
         let root = push_callable(&mut tree, origin, block);
         let unit = callable_unit(&key, tree.finish(), root);
 
@@ -459,9 +471,11 @@ mod tests {
     #[test]
     fn nested_arrays_infer_compositional_element_types() {
         let element_type = tuple_type([]);
+
         let (unit, expressions) = expression_unit(BoundUnitId::new(51), |tree, origin| {
             let first = push_expression(tree, literal(origin, Some(element_type)));
             let second = push_expression(tree, literal(origin, Some(element_type)));
+
             let first_array = push_expression(
                 tree,
                 BoundExpression::Structured(BoundStructuredExpression::new(
@@ -474,6 +488,7 @@ mod tests {
                     false,
                 )),
             );
+
             let second_array = push_expression(
                 tree,
                 BoundExpression::Structured(BoundStructuredExpression::new(
@@ -486,6 +501,7 @@ mod tests {
                     false,
                 )),
             );
+
             let outer = push_expression(
                 tree,
                 BoundExpression::Structured(BoundStructuredExpression::new(
@@ -509,6 +525,7 @@ mod tests {
         let Some(first_array) = result.value().expression(expressions[2]) else {
             panic!("inner array must have a type");
         };
+
         let Some(outer) = result.value().expression(expressions[4]) else {
             panic!("outer array must have a type");
         };
@@ -533,6 +550,7 @@ mod tests {
         let origin = BoundNodeOrigin::source(key.source());
         let mut tree = BoundTreeBuilder::new(BoundUnitId::new(55));
         let source = push_expression(&mut tree, literal(origin, Some(iterable_type)));
+
         let condition = push_expression(
             &mut tree,
             BoundExpression::Structured(BoundStructuredExpression::new(
@@ -545,7 +563,9 @@ mod tests {
                 false,
             )),
         );
+
         let value = push_expression(&mut tree, literal(yield_origin, Some(result_type)));
+
         let yielded = push_expression(
             &mut tree,
             BoundExpression::ControlTransfer(BoundControlTransferExpression::new(
@@ -557,11 +577,13 @@ mod tests {
                 false,
             )),
         );
+
         let yield_block = push_block(
             &mut tree,
             yield_origin,
             [BoundBlockItem::Expression(yielded)],
         );
+
         let diverging = push_expression(
             &mut tree,
             BoundExpression::Structured(BoundStructuredExpression::new(
@@ -574,11 +596,13 @@ mod tests {
                 false,
             )),
         );
+
         let never_block = push_block(
             &mut tree,
             never_origin,
             [BoundBlockItem::Expression(diverging)],
         );
+
         let conditional = push_expression(
             &mut tree,
             BoundExpression::Structured(BoundStructuredExpression::new(
@@ -591,6 +615,7 @@ mod tests {
                 false,
             )),
         );
+
         let root_block = push_block(&mut tree, origin, [BoundBlockItem::Expression(conditional)]);
         let root = push_callable(&mut tree, origin, root_block);
         let unit = callable_unit(&key, tree.finish(), root);
@@ -616,6 +641,7 @@ mod tests {
         let mut tree = BoundTreeBuilder::new(BoundUnitId::new(58));
         let condition = push_expression(&mut tree, literal(origin, Some(condition_type)));
         let branch = push_block(&mut tree, origin, []);
+
         let conditional = push_expression(
             &mut tree,
             BoundExpression::Structured(BoundStructuredExpression::new(
@@ -628,6 +654,7 @@ mod tests {
                 false,
             )),
         );
+
         let root_block = push_block(&mut tree, origin, [BoundBlockItem::Expression(conditional)]);
         let root = push_callable(&mut tree, origin, root_block);
         let unit = callable_unit(&key, tree.finish(), root);
@@ -654,9 +681,11 @@ mod tests {
     fn expected_tuple_types_propagate_to_element_expressions() {
         let first_type = tuple_type([]);
         let second_type = tuple_type([first_type]);
+
         let (unit, expressions) = expression_unit(BoundUnitId::new(42), |tree, origin| {
             let first = push_expression(tree, literal(origin, None));
             let second = push_expression(tree, literal(origin, None));
+
             let tuple = push_expression(
                 tree,
                 BoundExpression::Structured(BoundStructuredExpression::new(
@@ -672,7 +701,9 @@ mod tests {
 
             vec![first, second, tuple]
         });
+
         let expected_tuple = tuple_type([first_type, first_type]);
+
         let input = ExpressionTypeInput::new()
             .with_evidence([
                 ExpressionTypeEvidence::new(expressions[0], first_type),
@@ -706,8 +737,10 @@ mod tests {
     fn recovered_elements_do_not_cascade_into_aggregate_mismatches() {
         let expected_element = tuple_type([]);
         let actual_element = tuple_type([expected_element]);
+
         let (unit, expressions) = expression_unit(BoundUnitId::new(54), |tree, origin| {
             let element = push_expression(tree, literal(origin, Some(actual_element)));
+
             let tuple = push_expression(
                 tree,
                 BoundExpression::Structured(BoundStructuredExpression::new(
@@ -723,6 +756,7 @@ mod tests {
 
             vec![element, tuple]
         });
+
         let input = ExpressionTypeInput::new().with_expectations([ExpressionTypeExpectation::new(
             expressions[1],
             tuple_type([expected_element]),
@@ -750,8 +784,10 @@ mod tests {
     fn evidence_order_cannot_change_type_results_or_diagnostics() {
         let first_type = tuple_type([]);
         let second_type = tuple_type([first_type]);
+
         let (unit, expressions) = expression_unit(BoundUnitId::new(48), |tree, origin| {
             let leaf = push_expression(tree, literal(origin, None));
+
             let aggregate = push_expression(
                 tree,
                 BoundExpression::Structured(BoundStructuredExpression::new(
@@ -767,6 +803,7 @@ mod tests {
 
             vec![leaf, aggregate]
         });
+
         let first = ExpressionTypeEvidence::new(expressions[0], first_type);
         let second = ExpressionTypeEvidence::new(expressions[0], second_type);
         let forward = ExpressionTypeInput::new().with_evidence([first, second]);
@@ -798,6 +835,7 @@ mod tests {
         let (unit, expressions) = expression_unit(BoundUnitId::new(43), |tree, origin| {
             let unresolved = push_expression(tree, unselected_name(origin));
             let supplied_error = push_expression(tree, literal(origin, None));
+
             let recovered = push_expression(
                 tree,
                 BoundExpression::Error(bray_bound_tree::BoundErrorExpression::new(
@@ -847,6 +885,7 @@ mod tests {
                     false,
                 )),
             );
+
             let transfer = push_expression(
                 tree,
                 BoundExpression::ControlTransfer(BoundControlTransferExpression::new(
@@ -866,6 +905,7 @@ mod tests {
             expressions[1],
             tuple_type([]),
         )]);
+
         let result = completed_check(&unit, &input);
 
         assert!(result.diagnostics().is_empty());
@@ -885,8 +925,10 @@ mod tests {
     #[test]
     fn boolean_folds_type_the_result_without_treating_the_source_as_bool() {
         let iterable_type = tuple_type([]);
+
         let (unit, expressions) = expression_unit(BoundUnitId::new(49), |tree, origin| {
             let source = push_expression(tree, literal(origin, Some(iterable_type)));
+
             let fold = push_expression(
                 tree,
                 BoundExpression::Structured(BoundStructuredExpression::new(
@@ -928,9 +970,11 @@ mod tests {
     fn assignment_targets_directionally_constrain_values() {
         let target_type = tuple_type([]);
         let actual_type = tuple_type([target_type]);
+
         let (unit, expressions) = expression_unit(BoundUnitId::new(52), |tree, origin| {
             let target = push_expression(tree, literal(origin, Some(target_type)));
             let value = push_expression(tree, literal(origin, Some(actual_type)));
+
             let assignment = push_expression(
                 tree,
                 BoundExpression::Assignment(BoundAssignmentExpression::new(
@@ -974,8 +1018,10 @@ mod tests {
     fn callable_result_types_directionally_constrain_return_operands() {
         let result_type = tuple_type([]);
         let actual_type = tuple_type([result_type]);
+
         let (unit, expressions) = expression_unit(BoundUnitId::new(56), |tree, origin| {
             let value = push_expression(tree, literal(origin, Some(actual_type)));
+
             let returned = push_expression(
                 tree,
                 BoundExpression::ControlTransfer(BoundControlTransferExpression::new(
@@ -990,6 +1036,7 @@ mod tests {
 
             vec![value, returned]
         });
+
         let input = ExpressionTypeInput::new().with_callable_result_type(result_type);
 
         let result = completed_check(&unit, &input);
@@ -1020,6 +1067,7 @@ mod tests {
     #[test]
     fn bare_return_uses_unit_for_callable_result_compatibility() {
         let result_type = tuple_type([tuple_type([])]);
+
         let (unit, expressions) = expression_unit(BoundUnitId::new(57), |tree, origin| {
             vec![push_expression(
                 tree,
@@ -1033,6 +1081,7 @@ mod tests {
                 )),
             )]
         });
+
         let input = ExpressionTypeInput::new().with_callable_result_type(result_type);
 
         let result = completed_check(&unit, &input);
@@ -1058,6 +1107,7 @@ mod tests {
         let key = callable_key();
         let origin = BoundNodeOrigin::source(key.source());
         let mut tree = BoundTreeBuilder::new(BoundUnitId::new(59));
+
         let unit_expression = push_expression(
             &mut tree,
             BoundExpression::Structured(BoundStructuredExpression::new(
@@ -1070,6 +1120,7 @@ mod tests {
                 false,
             )),
         );
+
         let transfer = push_expression(
             &mut tree,
             BoundExpression::ControlTransfer(BoundControlTransferExpression::new(
@@ -1081,7 +1132,9 @@ mod tests {
                 false,
             )),
         );
+
         let body = push_block(&mut tree, origin, [BoundBlockItem::Expression(transfer)]);
+
         let loop_expression = push_expression(
             &mut tree,
             BoundExpression::Structured(BoundStructuredExpression::new(
@@ -1094,6 +1147,7 @@ mod tests {
                 false,
             )),
         );
+
         let root_block = push_block(
             &mut tree,
             origin,
@@ -1102,6 +1156,7 @@ mod tests {
                 BoundBlockItem::Expression(loop_expression),
             ],
         );
+
         let root = push_callable(&mut tree, origin, root_block);
         let unit = callable_unit(&key, tree.finish(), root);
 
@@ -1131,14 +1186,18 @@ mod tests {
         let (unit, _) = expression_unit(BoundUnitId::new(45), |tree, origin| {
             vec![push_expression(tree, literal(origin, None))]
         });
+
         let (_, foreign) = expression_unit(BoundUnitId::new(46), |tree, origin| {
             vec![push_expression(tree, literal(origin, None))]
         });
+
         let input = ExpressionTypeInput::new()
             .with_evidence([ExpressionTypeEvidence::new(foreign[0], error_type())]);
+
         let key = unit.key();
         let entry = callable_entry(key);
         let context = crate::test_support::TestCheckerContext::new(false);
+
         let Ok(request) = CheckerUnitView::new(&unit, &entry, &context) else {
             panic!("test checker unit view must be valid");
         };
@@ -1160,8 +1219,10 @@ mod tests {
         let (unit, _) = expression_unit(BoundUnitId::new(47), |tree, origin| {
             vec![push_expression(tree, literal(origin, None))]
         });
+
         let entry = callable_entry(unit.key());
         let context = crate::test_support::TestCheckerContext::new(true);
+
         let Ok(request) = CheckerUnitView::new(&unit, &entry, &context) else {
             panic!("test checker unit view must be valid");
         };
@@ -1180,8 +1241,10 @@ mod tests {
                 .map(|_| push_expression(tree, literal(origin, None)))
                 .collect()
         });
+
         let entry = callable_entry(unit.key());
         let context = crate::test_support::TestCheckerContext::cancelling_after(8);
+
         let Ok(request) = CheckerUnitView::new(&unit, &entry, &context) else {
             panic!("test checker unit view must be valid");
         };

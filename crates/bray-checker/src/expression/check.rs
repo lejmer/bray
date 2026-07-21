@@ -60,7 +60,9 @@ where
         unsupported_callable_result,
     } = declared;
 
-    let mut prepared = prepare_calls(request, candidate_sets)?;
+    let Some(mut prepared) = prepare_calls(request, candidate_sets)?.into_value() else {
+        return Ok(SessionProgress::Cancelled);
+    };
 
     prepared.defer(deferred);
 

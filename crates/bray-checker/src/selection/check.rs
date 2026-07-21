@@ -7,7 +7,8 @@ use crate::diagnostic::{diagnostic_id, expression_span};
 use crate::{CheckerOutcome, CheckerRequestContext, CheckerUnitView};
 
 use super::{
-    CallableSelectionRequest, CandidateSelection, OperationSelectionRequest, SelectionFailure,
+    CallableCandidate, CallableSelectionRequest, CandidateSelection, OperationSelectionRequest,
+    SelectionFailure,
 };
 
 pub(crate) fn select_callable<C>(
@@ -20,7 +21,36 @@ where
 {
     let expression = input.expression();
 
-    match super::call::select(request, types, input) {
+    callable_outcome(
+        request,
+        expression,
+        super::call::select(request, types, input),
+    )
+}
+
+pub(crate) fn select_callable_candidates<C>(
+    request: CheckerUnitView<'_, C>,
+    types: &CheckedExpressionTypes,
+    input: &CallableSelectionRequest,
+    candidates: &[CallableCandidate],
+) -> CheckerOutcome<CandidateSelection<SelectedCall>>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let result = super::call::select_candidates(request, types, input, candidates);
+
+    callable_outcome(request, input.expression(), result)
+}
+
+fn callable_outcome<C>(
+    request: CheckerUnitView<'_, C>,
+    expression: bray_bound_tree::BoundExpressionId,
+    result: Result<Option<CandidateSelection<SelectedCall>>, crate::CheckerInfrastructureError>,
+) -> CheckerOutcome<CandidateSelection<SelectedCall>>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    match result {
         Ok(Some(selection)) => complete(request, expression, SelectionKind::Callable, selection),
         Ok(None) => CheckerOutcome::Cancelled,
         Err(error) => CheckerOutcome::InfrastructureFailure(error),

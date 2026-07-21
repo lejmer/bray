@@ -7,9 +7,9 @@ use bray_binder::{
     bind_runtime_default, semantic_unit_context,
 };
 use bray_bound_tree::{
-    AnyBoundNodeId, BoundUnit, BoundUnitKey, BoundUnitKind, BoundUnitRoot, BoundWalkControl,
-    BoundWalkEvent, BoundWalkOutcome, CheckedControlFlowFacts, CheckedExpressionTypes,
-    CheckedSemanticSelections, DeclaredValueTypeTemplates, walk_bound_unit_view,
+    AnyBoundNodeId, BoundUnit, BoundUnitKey, BoundUnitKind, BoundWalkControl, BoundWalkEvent,
+    BoundWalkOutcome, CheckedControlFlowFacts, CheckedExpressionTypes, CheckedSemanticSelections,
+    DeclaredValueTypeTemplates, walk_bound_unit_view,
 };
 use bray_checker::{
     CheckerInfrastructureError, CheckerOutcome, CheckerUnitView, ControlFlowChecker,
@@ -289,7 +289,7 @@ fn expression_candidates(
     let mut diagnostics = DiagnosticBag::new();
     let mut failure = None;
 
-    let outcome = walk_bound_unit_view(bound.view(), root_node(bound.root()), |event| {
+    let outcome = walk_bound_unit_view(bound.view(), bound.root(), |event| {
         let BoundWalkEvent::Enter(AnyBoundNodeId::Expression(expression)) = event else {
             return BoundWalkControl::Continue;
         };
@@ -302,7 +302,7 @@ fn expression_candidates(
                     candidates.push(candidate);
                 }
 
-                diagnostics.add_range(candidate_diagnostics.diagnostics().iter().cloned());
+                diagnostics.add_range(candidate_diagnostics);
             }
             Err(error) => {
                 failure = Some(error);
@@ -355,16 +355,6 @@ fn check_expression_semantics(
     };
 
     Ok((result, Box::new([])))
-}
-
-const fn root_node(root: BoundUnitRoot) -> AnyBoundNodeId {
-    match root {
-        BoundUnitRoot::CallableBody(body) | BoundUnitRoot::AnonymousCallable { body, .. } => {
-            AnyBoundNodeId::CallableBody(body)
-        }
-        BoundUnitRoot::Expression(expression) => AnyBoundNodeId::Expression(expression),
-        BoundUnitRoot::ExpressionSequence(block) => AnyBoundNodeId::Block(block),
-    }
 }
 
 const fn map_binding_error(error: BoundUnitBindingError) -> FactQueryError {

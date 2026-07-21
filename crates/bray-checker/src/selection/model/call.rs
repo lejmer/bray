@@ -141,7 +141,10 @@ impl CallableCandidate {
         mut self,
         selections: impl IntoIterator<Item = ImplementationSelectionEvidence>,
     ) -> Self {
-        self.implementation_selections = shared_slice(selections);
+        let mut selections = selections.into_iter().collect::<Vec<_>>();
+
+        selections.sort_unstable_by_key(ImplementationSelectionEvidence::requirement);
+        self.implementation_selections = selections.into();
 
         self
     }
@@ -204,14 +207,26 @@ impl CallableSelectionRequest {
         arguments: impl IntoIterator<Item = BoundArgument>,
         candidates: impl IntoIterator<Item = CallableCandidate>,
     ) -> Self {
+        let candidates = Self::canonical_candidates(candidates);
+
         Self {
             expression,
             callee_member,
             receiver,
             generic_arguments: shared_slice(generic_arguments),
             arguments: shared_slice(arguments),
-            candidates: candidates.into_iter().collect(),
+            candidates,
         }
+    }
+
+    pub(crate) fn canonical_candidates(
+        candidates: impl IntoIterator<Item = CallableCandidate>,
+    ) -> Vec<CallableCandidate> {
+        let mut candidates = candidates.into_iter().collect::<Vec<_>>();
+
+        super::super::order::sort_by_key(&mut candidates, CallableCandidate::key);
+
+        candidates
     }
 
     /// Returns the call expression occurrence that owns this selection.

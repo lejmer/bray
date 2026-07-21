@@ -1,7 +1,7 @@
 use bray_binder::{BinderFactContext, BinderFactError, BinderFactResult};
 use bray_bound_tree::{
     AnyBoundNodeId, BoundBlockItem, BoundExpression, BoundReferenceTarget, BoundUnit,
-    BoundUnitRoot, BoundWalkControl, BoundWalkEvent, BoundWalkOutcome, DeclaredValueTypeConstraint,
+    BoundWalkControl, BoundWalkEvent, BoundWalkOutcome, DeclaredValueTypeConstraint,
     DeclaredValueTypeConstraintKind, DeclaredValueTypeEvidence, DeclaredValueTypeTemplates,
     DeclaredValueTypeTerm, walk_bound_unit_view,
 };
@@ -58,7 +58,7 @@ impl<'facts> DeclaredValueTypeBinding<'facts> {
     }
 
     fn bind_bound_tree(&mut self) -> BinderFactResult<()> {
-        let root = root_node(self.unit.root());
+        let root = AnyBoundNodeId::from(self.unit.root());
 
         let mut cancelled = false;
         let mut failure = None;
@@ -261,16 +261,6 @@ impl<'facts> DeclaredValueTypeBinding<'facts> {
             ),
             self.diagnostics,
         )
-    }
-}
-
-const fn root_node(root: BoundUnitRoot) -> AnyBoundNodeId {
-    match root {
-        BoundUnitRoot::CallableBody(body) | BoundUnitRoot::AnonymousCallable { body, .. } => {
-            AnyBoundNodeId::CallableBody(body)
-        }
-        BoundUnitRoot::Expression(expression) => AnyBoundNodeId::Expression(expression),
-        BoundUnitRoot::ExpressionSequence(block) => AnyBoundNodeId::Block(block),
     }
 }
 
