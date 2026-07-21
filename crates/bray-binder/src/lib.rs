@@ -61,7 +61,7 @@ pub use entry::{
 };
 pub use fact::{
     BinderFactContext, BinderFactError, BinderFactResult, BindingSymbolFactProvider,
-    SymbolFactProvider, TargetFactProvider, TargetFactResult,
+    ImportedPathRoot, SymbolFactProvider, TargetFactProvider, TargetFactResult,
 };
 pub use lookup::{NameAccess, bind_named_trait_implementation_path};
 pub use result::BoundUnitComputation;

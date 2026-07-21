@@ -18,8 +18,8 @@ use bray_symbols::{
 use bray_syntax::SyntaxTree;
 
 use super::{
-    BinderFactContext, BinderFactError, BinderFactResult, SymbolFactProvider, TargetFactProvider,
-    TargetFactResult,
+    BinderFactContext, BinderFactError, BinderFactResult, ImportedPathRoot, SymbolFactProvider,
+    TargetFactProvider, TargetFactResult,
 };
 
 pub(crate) struct TestSymbolFacts {
@@ -99,13 +99,32 @@ impl BinderFactContext for TestContext<'_> {
         self.symbols
     }
 
-    fn imported_symbols_for_package(
+    fn imported_path_root(
         &self,
-        package: &str,
-    ) -> BinderFactResult<Option<&ImportedSymbolSkeleton>> {
-        Ok(self
-            .imported_symbols
-            .filter(|symbols| symbols.package_by_identity(package).is_some()))
+        components: &[&str],
+    ) -> BinderFactResult<Option<ImportedPathRoot<'_>>> {
+        let Some(symbols) = self.imported_symbols else {
+            return Ok(None);
+        };
+
+        let selected = symbols
+            .packages()
+            .iter()
+            .filter_map(|package| {
+                let component_count = package.identity().as_str().split('.').count();
+
+                (component_count <= components.len()
+                    && package
+                        .identity()
+                        .as_str()
+                        .split('.')
+                        .eq(components[..component_count].iter().copied()))
+                .then_some((package, component_count))
+            })
+            .max_by_key(|(_, component_count)| *component_count);
+
+        Ok(selected
+            .and_then(|(package, _)| ImportedPathRoot::for_path(symbols, package.id(), components)))
     }
 
     fn semantic_values(&self) -> &SemanticValueStore {

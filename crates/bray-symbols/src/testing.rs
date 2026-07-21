@@ -5,15 +5,12 @@ use std::sync::{Arc, OnceLock};
 use bray_declarations::DeclarationId;
 
 use crate::{
-    AnySymbolId, AvailableCompilerKnownSymbols, CompilerKnownSymbolProvider, ExternalSymbolKey,
-    GenericArgument, GenericOwnerId, GenericParameterSymbolId, GenericSubstitutionData,
+    AnySymbolId, AvailableCompilerKnownSymbols, CompilerKnownSymbolProvider, GenericArgument,
+    GenericOwnerId, GenericParameterSymbolId, GenericSubstitutionData,
     GenericTypeParameterSymbolId, ImplementationInstanceData, ImplementationInstanceId,
-    ImplementationRequirementKey, ImportedInterfaceId, ImportedLookupEdge,
-    ImportedPackageIdentitySurface, ImportedSymbolIdentityInput, ImportedSymbolRelationship,
-    ImportedSymbolSkeleton, ImportedSymbolSkeletonInput, InterfaceSymbolId, ModulePathKey,
+    ImplementationRequirementKey, ImportedSymbolSkeleton, ModulePathKey,
     NamedTraitImplementationSymbolId, PackageIdentity, SemanticValueStore, SymbolId, SymbolKey,
-    SymbolKind, SymbolName, SymbolRelationshipKind, SymbolRootKey, TraitApplicationData,
-    TraitSymbolId, TypeId,
+    SymbolKind, SymbolRootKey, TraitApplicationData, TraitSymbolId, TypeId,
 };
 
 /// Imported package, module, and declaration identities used by cross-crate lookup tests.
@@ -31,95 +28,58 @@ pub fn imported_lookup_fixture(
     declaration_kind: SymbolKind,
     declaration_name: &str,
 ) -> ImportedLookupFixture {
-    let package_identity = PackageIdentity::try_new(package_name)
-        .unwrap_or_else(|| panic!("test package identity must be valid"));
-
-    let package_key = ExternalSymbolKey::package(package_identity.clone());
-
-    let module_key = imported_module_key(&package_key, module_name);
-
-    let declaration_name = SymbolName::try_new(declaration_name)
-        .unwrap_or_else(|| panic!("test declaration name must be valid"));
-
-    let declaration_key = ExternalSymbolKey::named(
-        module_key.clone(),
+    imported_lookup_fixture_at_module(
+        package_name,
+        [module_name],
         declaration_kind,
-        declaration_name.clone(),
+        declaration_name,
     )
-    .unwrap_or_else(|| panic!("test declaration key must be valid"));
+}
 
-    let identities = ImportedPackageIdentitySurface::try_new(
-        package_identity,
-        [
-            ImportedSymbolIdentityInput::new(
-                InterfaceSymbolId::new(0),
-                package_key.clone(),
-                SymbolKind::Package,
-                None,
-            ),
-            ImportedSymbolIdentityInput::new(
-                InterfaceSymbolId::new(1),
-                module_key.clone(),
-                SymbolKind::Module,
-                Some(InterfaceSymbolId::new(0)),
-            ),
-            ImportedSymbolIdentityInput::new(
-                InterfaceSymbolId::new(2),
-                declaration_key.clone(),
-                declaration_kind,
-                Some(InterfaceSymbolId::new(1)),
-            ),
-        ],
+/// Builds one imported package with an exported logical module path and declaration.
+pub fn imported_lookup_fixture_at_module<I, S>(
+    package_name: &str,
+    module_path: I,
+    declaration_kind: SymbolKind,
+    declaration_name: &str,
+) -> ImportedLookupFixture
+where
+    I: IntoIterator<Item = S>,
+    S: Into<Arc<str>>,
+{
+    let module_path = module_path.into_iter().map(Into::into).collect::<Vec<_>>();
+
+    imported_lookup_fixture_from_paths(
+        package_name,
+        &module_path,
+        &module_path,
+        declaration_kind,
+        declaration_name,
+        crate::imported::test_support::ModuleRouteShape::Exact,
     )
-    .unwrap_or_else(|error| panic!("test imported identities must be valid: {error:?}"));
+}
 
-    let relationships = [
-        ImportedSymbolRelationship::new(
-            SymbolRelationshipKind::PackageModule,
-            InterfaceSymbolId::new(0),
-            InterfaceSymbolId::new(1),
-            0,
-        ),
-        ImportedSymbolRelationship::new(
-            SymbolRelationshipKind::ModuleMember,
-            InterfaceSymbolId::new(1),
-            InterfaceSymbolId::new(2),
-            0,
-        ),
-    ];
+/// Builds one imported declaration under a logical module path with declared prefixes.
+pub fn imported_lookup_fixture_with_declared_prefixes<I, S>(
+    package_name: &str,
+    module_path: I,
+    declaration_kind: SymbolKind,
+    declaration_name: &str,
+) -> ImportedLookupFixture
+where
+    I: IntoIterator<Item = S>,
+    S: Into<Arc<str>>,
+{
+    let module_path = module_path.into_iter().map(Into::into).collect::<Vec<_>>();
 
-    let lookups = [
-        ImportedLookupEdge::new(
-            InterfaceSymbolId::new(0),
-            SymbolName::try_new(module_name)
-                .unwrap_or_else(|| panic!("test module lookup name must be valid")),
-            module_key.clone(),
-        ),
-        ImportedLookupEdge::new(
-            InterfaceSymbolId::new(1),
-            declaration_name,
-            declaration_key.clone(),
-        ),
-    ];
-
-    let input = ImportedSymbolSkeletonInput::new(
-        ImportedInterfaceId::new(0),
-        identities,
-        relationships,
-        lookups,
-    );
-
-    let symbols = ImportedSymbolSkeleton::try_new(SymbolId::new(10_000), [input])
-        .unwrap_or_else(|error| panic!("test imported skeleton must build: {error:?}"));
-
-    let declaration = symbols
-        .symbol_by_external_key(&declaration_key)
-        .unwrap_or_else(|| panic!("test imported declaration must be present"));
-
-    ImportedLookupFixture {
-        symbols,
-        declaration,
-    }
+    imported_lookup_fixture_from_paths(
+        package_name,
+        &module_path,
+        &module_path,
+        declaration_kind,
+        declaration_name,
+        crate::imported::test_support::ModuleRouteShape::DeclaredPrefixes,
+    )
 }
 
 /// Builds one imported declaration re-exported through another module.
@@ -130,118 +90,48 @@ pub fn imported_reexport_lookup_fixture(
     declaration_kind: SymbolKind,
     declaration_name: &str,
 ) -> ImportedLookupFixture {
-    let package_identity = PackageIdentity::try_new(package_name)
-        .unwrap_or_else(|| panic!("test package identity must be valid"));
-
-    let package_key = ExternalSymbolKey::package(package_identity.clone());
-
-    let defining_module_key = imported_module_key(&package_key, defining_module_name);
-    let exporting_module_key = imported_module_key(&package_key, exporting_module_name);
-
-    let declaration_name = SymbolName::try_new(declaration_name)
-        .unwrap_or_else(|| panic!("test declaration name must be valid"));
-
-    let declaration_key = ExternalSymbolKey::named(
-        defining_module_key.clone(),
+    imported_lookup_fixture_from_paths(
+        package_name,
+        &[Arc::from(defining_module_name)],
+        &[Arc::from(exporting_module_name)],
         declaration_kind,
-        declaration_name.clone(),
+        declaration_name,
+        crate::imported::test_support::ModuleRouteShape::Exact,
     )
-    .unwrap_or_else(|| panic!("test declaration key must be valid"));
+}
 
-    let identities = ImportedPackageIdentitySurface::try_new(
-        package_identity,
-        [
-            ImportedSymbolIdentityInput::new(
-                InterfaceSymbolId::new(0),
-                package_key.clone(),
-                SymbolKind::Package,
-                None,
-            ),
-            ImportedSymbolIdentityInput::new(
-                InterfaceSymbolId::new(1),
-                defining_module_key,
-                SymbolKind::Module,
-                Some(InterfaceSymbolId::new(0)),
-            ),
-            ImportedSymbolIdentityInput::new(
-                InterfaceSymbolId::new(2),
-                exporting_module_key.clone(),
-                SymbolKind::Module,
-                Some(InterfaceSymbolId::new(0)),
-            ),
-            ImportedSymbolIdentityInput::new(
-                InterfaceSymbolId::new(3),
-                declaration_key.clone(),
-                declaration_kind,
-                Some(InterfaceSymbolId::new(1)),
-            ),
-        ],
-    )
-    .unwrap_or_else(|error| panic!("test imported identities must be valid: {error:?}"));
-
-    let relationships = [
-        ImportedSymbolRelationship::new(
-            SymbolRelationshipKind::PackageModule,
-            InterfaceSymbolId::new(0),
-            InterfaceSymbolId::new(1),
-            0,
-        ),
-        ImportedSymbolRelationship::new(
-            SymbolRelationshipKind::PackageModule,
-            InterfaceSymbolId::new(0),
-            InterfaceSymbolId::new(2),
-            1,
-        ),
-        ImportedSymbolRelationship::new(
-            SymbolRelationshipKind::ModuleMember,
-            InterfaceSymbolId::new(1),
-            InterfaceSymbolId::new(3),
-            0,
-        ),
-    ];
-
-    let exporting_module_name = SymbolName::try_new(exporting_module_name)
-        .unwrap_or_else(|| panic!("test exporting module name must be valid"));
-
-    let lookups = [
-        ImportedLookupEdge::new(
-            InterfaceSymbolId::new(0),
-            exporting_module_name,
-            exporting_module_key.clone(),
-        ),
-        ImportedLookupEdge::new(
-            InterfaceSymbolId::new(2),
+fn imported_lookup_fixture_from_paths(
+    package_name: &str,
+    defining_module_path: &[Arc<str>],
+    exporting_module_path: &[Arc<str>],
+    declaration_kind: SymbolKind,
+    declaration_name: &str,
+    route_shape: crate::imported::test_support::ModuleRouteShape,
+) -> ImportedLookupFixture {
+    let fixture = crate::imported::test_support::lookup_input_fixture_with_routes(
+        0,
+        crate::imported::test_support::LookupInputSpec {
+            package_name,
+            defining_module_path,
+            exporting_module_path,
+            declaration_kind,
             declaration_name,
-            declaration_key.clone(),
-        ),
-    ];
-
-    let input = ImportedSymbolSkeletonInput::new(
-        ImportedInterfaceId::new(0),
-        identities,
-        relationships,
-        lookups,
+            lookup_name: declaration_name,
+            route_shape,
+        },
     );
 
-    let symbols = ImportedSymbolSkeleton::try_new(SymbolId::new(10_000), [input])
+    let symbols = ImportedSymbolSkeleton::try_new(SymbolId::new(10_000), [fixture.input])
         .unwrap_or_else(|error| panic!("test imported skeleton must build: {error:?}"));
 
     let declaration = symbols
-        .symbol_by_external_key(&declaration_key)
+        .symbol_by_external_key(&fixture.declaration_key)
         .unwrap_or_else(|| panic!("test imported declaration must be present"));
 
     ImportedLookupFixture {
         symbols,
         declaration,
     }
-}
-
-fn imported_module_key(package: &ExternalSymbolKey, module_name: &str) -> ExternalSymbolKey {
-    let module_path = ModulePathKey::try_new([module_name])
-        .unwrap_or_else(|| panic!("test module path must be valid"));
-
-    ExternalSymbolKey::module(package.clone(), module_path)
-        .unwrap_or_else(|| panic!("test module key must be valid"))
 }
 
 /// Returns a process-wide compiler-known symbol view with every target role available.

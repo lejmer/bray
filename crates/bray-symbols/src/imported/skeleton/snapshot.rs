@@ -33,6 +33,8 @@ macro_rules! define_imported_symbol_skeleton {
             >,
             pub(crate) external_index: BTreeMap<ExternalSymbolKey, AnySymbolId>,
             pub(crate) lookups: BTreeMap<AnySymbolId, BTreeMap<SymbolName, AnySymbolId>>,
+            pub(crate) module_paths:
+                BTreeMap<PackageSymbolId, BTreeMap<crate::ModulePathKey, ModuleSymbolId>>,
             $(
                 pub(crate) $plural: TypedSymbolRecords<crate::$id, crate::$record>,
             )+
@@ -58,11 +60,14 @@ macro_rules! define_imported_symbol_skeleton {
             }
 
             /// Returns the imported package with one exact package identity.
-            pub fn package_by_identity(&self, identity: &str) -> Option<&PackageSymbol> {
+            pub fn package_by_identity(
+                &self,
+                identity: &crate::PackageIdentity,
+            ) -> Option<&PackageSymbol> {
                 let index = self
                     .packages
                     .records()
-                    .binary_search_by(|package| package.identity().as_str().cmp(identity))
+                    .binary_search_by(|package| package.identity().cmp(identity))
                     .ok()?;
 
                 self.packages.records().get(index)
@@ -76,6 +81,18 @@ macro_rules! define_imported_symbol_skeleton {
             /// Returns an imported module through checked exact-ID access.
             pub fn module(&self, id: ModuleSymbolId) -> Option<&ModuleSymbol> {
                 self.modules.get(id)
+            }
+
+            /// Returns one imported module by package-relative logical path.
+            pub fn module_by_path(
+                &self,
+                package: PackageSymbolId,
+                path: &crate::ModulePathKey,
+            ) -> Option<&ModuleSymbol> {
+                self.module_paths
+                    .get(&package)
+                    .and_then(|modules| modules.get(path))
+                    .and_then(|module| self.module(*module))
             }
 
             /// Resolves one exact stable external identity.
@@ -234,7 +251,7 @@ mod tests {
         MemberLookupResult, SymbolOrigin, SymbolProvider,
     };
 
-    use super::super::test_support::{build_skeleton, interface_fixture};
+    use super::super::test_support::{build_skeleton, interface_fixture, package_identity};
 
     #[test]
     fn containment_lookup_and_origin_neutral_provider_access_are_exact() {
@@ -301,22 +318,25 @@ mod tests {
         let second = interface_fixture(4, "a.package", "second");
 
         let skeleton = build_skeleton([first.input, second.input]);
+        let first_identity = package_identity("a.package");
+        let second_identity = package_identity("z.package");
+        let missing_identity = package_identity("missing.package");
 
         assert_eq!(
             skeleton
-                .package_by_identity("a.package")
+                .package_by_identity(&first_identity)
                 .map(|package| package.identity().as_str()),
             Some("a.package")
         );
 
         assert_eq!(
             skeleton
-                .package_by_identity("z.package")
+                .package_by_identity(&second_identity)
                 .map(|package| package.identity().as_str()),
             Some("z.package")
         );
 
-        assert_eq!(skeleton.package_by_identity("missing.package"), None);
+        assert_eq!(skeleton.package_by_identity(&missing_identity), None);
     }
 
     #[test]

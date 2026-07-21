@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
 use bray_binder::{
-    BinderFactContext, BinderFactError, BinderFactResult, TargetFactProvider, TargetFactResult,
+    BinderFactContext, BinderFactError, BinderFactResult, ImportedPathRoot, TargetFactProvider,
+    TargetFactResult,
 };
 use bray_declarations::DeclarationTable;
 use bray_symbols::{
@@ -39,21 +40,51 @@ impl<'compilation> CompilationBinderFacts<'compilation> {
         self.compilation
     }
 
-    pub(super) fn imported_symbols_for_package(
+    pub(super) fn imported_path_root(
         &self,
-        package: &str,
-    ) -> BinderFactResult<Option<&ImportedSymbolSkeleton>> {
-        if !self
-            .compilation
-            .state
-            .dependency_interfaces
-            .iter()
-            .any(|dependency| dependency.package().as_str() == package)
-        {
-            return Ok(None);
+        components: &[&str],
+    ) -> BinderFactResult<Option<ImportedPathRoot<'_>>> {
+        let mut package_prefix = String::new();
+        let mut selected = None;
+
+        for component in components {
+            if !package_prefix.is_empty() {
+                package_prefix.push('.');
+            }
+
+            package_prefix.push_str(component);
+
+            let dependency = self
+                .compilation
+                .state
+                .dependency_interfaces
+                .binary_search_by(|dependency| {
+                    dependency.package().as_str().cmp(package_prefix.as_str())
+                })
+                .ok();
+
+            if let Some(dependency) = dependency {
+                selected = Some(dependency);
+            }
         }
 
-        self.imported_symbols()
+        let Some(dependency) = selected else {
+            return Ok(None);
+        };
+
+        let identity = self.compilation.state.dependency_interfaces[dependency].package();
+
+        let symbols = self
+            .imported_symbols()?
+            .ok_or(BinderFactError::DependencyUnavailable)?;
+
+        let package = symbols
+            .package_by_identity(identity)
+            .ok_or(BinderFactError::DependencyUnavailable)?;
+
+        ImportedPathRoot::for_path(symbols, package.id(), components)
+            .map(Some)
+            .ok_or(BinderFactError::DependencyUnavailable)
     }
 
     pub(super) fn imported_symbols(&self) -> BinderFactResult<Option<&ImportedSymbolSkeleton>> {
@@ -99,11 +130,11 @@ impl BinderFactContext for CompilationBinderFacts<'_> {
         self.symbols
     }
 
-    fn imported_symbols_for_package(
+    fn imported_path_root(
         &self,
-        package: &str,
-    ) -> BinderFactResult<Option<&ImportedSymbolSkeleton>> {
-        CompilationBinderFacts::imported_symbols_for_package(self, package)
+        components: &[&str],
+    ) -> BinderFactResult<Option<ImportedPathRoot<'_>>> {
+        CompilationBinderFacts::imported_path_root(self, components)
     }
 
     fn semantic_values(&self) -> &SemanticValueStore {
@@ -160,5 +191,154 @@ impl Compilation {
             semantic_values,
             cancellation,
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use bray_binder::BinderFactError;
+    use bray_package_interface::{
+        InterfaceLanguageRevision, InterfaceValidationPolicy,
+        test_support::encoded_template_test_interface,
+    };
+    use bray_source::{SourceIdentity, SourceInput, SourceVersion};
+    use bray_symbols::PackageIdentity;
+
+    use super::CompilationBinderFacts;
+    use crate::{CancellationToken, Compilation, CompilationRequest, DependencyInterfaceInput};
+
+    #[test]
+    fn unrelated_paths_do_not_demand_dependency_interfaces() {
+        let fixture = encoded_template_test_interface();
+        let compilation = compilation([valid_dependency(&fixture)]);
+        let cancellation = CancellationToken::new();
+
+        let facts = compilation
+            .binder_facts(&cancellation)
+            .unwrap_or_else(|error| panic!("binder facts must be available: {error:?}"));
+
+        assert!(compilation.state.imported_symbol_skeleton.get().is_none());
+        assert!(matches!(
+            CompilationBinderFacts::imported_path_root(&facts, &["local", "value"]),
+            Ok(None)
+        ));
+        assert!(compilation.state.imported_symbol_skeleton.get().is_none());
+        assert!(
+            compilation
+                .state
+                .loaded_dependency_interfaces
+                .iter()
+                .all(|interface| interface.get().is_none())
+        );
+    }
+
+    #[test]
+    fn matching_paths_demand_only_the_imported_identity_skeleton() {
+        let fixture = encoded_template_test_interface();
+        let components = fixture.package.as_str().split('.').collect::<Vec<_>>();
+        let compilation = compilation([valid_dependency(&fixture)]);
+        let cancellation = CancellationToken::new();
+
+        let facts = compilation
+            .binder_facts(&cancellation)
+            .unwrap_or_else(|error| panic!("binder facts must be available: {error:?}"));
+
+        let root = CompilationBinderFacts::imported_path_root(&facts, &components)
+            .unwrap_or_else(|error| panic!("imported path root must be available: {error:?}"));
+
+        assert!(root.is_some());
+        assert!(compilation.state.imported_symbol_skeleton.get().is_some());
+        assert!(
+            compilation
+                .state
+                .imported_semantic_graphs
+                .iter()
+                .all(|graph| graph.get().is_none())
+        );
+        assert_eq!(
+            root.map(|root| root.consumed_components()),
+            Some(components.len())
+        );
+    }
+
+    #[test]
+    fn cancelled_imported_path_lookup_does_not_publish_a_skeleton() {
+        let fixture = encoded_template_test_interface();
+        let components = fixture.package.as_str().split('.').collect::<Vec<_>>();
+        let compilation = compilation([valid_dependency(&fixture)]);
+        let cancellation = CancellationToken::new();
+
+        let facts = compilation
+            .binder_facts(&cancellation)
+            .unwrap_or_else(|error| panic!("binder facts must be available: {error:?}"));
+
+        cancellation.cancel();
+
+        assert!(matches!(
+            CompilationBinderFacts::imported_path_root(&facts, &components),
+            Err(BinderFactError::Cancelled)
+        ));
+        assert!(compilation.state.imported_symbol_skeleton.get().is_none());
+    }
+
+    #[test]
+    fn selected_invalid_dependencies_are_unavailable_instead_of_absent() {
+        let dependency = DependencyInterfaceInput::new(
+            package("invalid.package"),
+            bray_package_interface::InterfaceProductIdentity::try_new("main")
+                .unwrap_or_else(|| panic!("test product identity must be valid")),
+            "invalid.brayi",
+            Arc::<[u8]>::from(vec![0; 112]),
+            InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
+        );
+
+        let compilation = compilation([dependency]);
+        let cancellation = CancellationToken::new();
+
+        let facts = compilation
+            .binder_facts(&cancellation)
+            .unwrap_or_else(|error| panic!("binder facts must be available: {error:?}"));
+
+        assert!(matches!(
+            CompilationBinderFacts::imported_path_root(&facts, &["invalid", "package"]),
+            Err(BinderFactError::DependencyUnavailable)
+        ));
+    }
+
+    fn valid_dependency(
+        fixture: &bray_package_interface::test_support::EncodedTemplateTestInterface,
+    ) -> DependencyInterfaceInput {
+        DependencyInterfaceInput::new(
+            fixture.package.clone(),
+            fixture.product.clone(),
+            "dependency.brayi",
+            Arc::<[u8]>::from(fixture.bytes.clone()),
+            InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
+        )
+    }
+
+    fn compilation(
+        dependencies: impl IntoIterator<Item = DependencyInterfaceInput>,
+    ) -> Compilation {
+        let request = CompilationRequest::new(
+            package("current.package"),
+            vec![SourceInput::virtual_text(
+                SourceIdentity::new(1),
+                "main.bray",
+                SourceVersion::new(1),
+                "module current.package;",
+            )],
+        )
+        .with_dependency_interfaces(dependencies);
+
+        Compilation::load(request)
+            .unwrap_or_else(|error| panic!("test compilation must load: {error:?}"))
+    }
+
+    fn package(value: &str) -> PackageIdentity {
+        PackageIdentity::try_new(value)
+            .unwrap_or_else(|| panic!("test package identity must be valid"))
     }
 }

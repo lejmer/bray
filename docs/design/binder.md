@@ -1101,7 +1101,7 @@ Qualified lookup proceeds through typed module, type, trait, implementation, or 
 sets by walking declaration syntax.
 
 Module-level path lookup must combine source, compiler-known, and imported identity providers without copying declarations into a
-second graph. An imported identity skeleton is requested only when the path's package component names a selected dependency. This
+second graph. An imported identity skeleton is requested only when the path's package prefix names a selected dependency. This
 lookup must not decode declaration-owned semantic facts. Cancellation and unavailable dependency facts propagate through the
 binding request instead of being reported as source name-resolution failures.
 

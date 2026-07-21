@@ -17,7 +17,7 @@ use super::category::{
     classify_callable_overload, classify_member, classify_trait, classify_type, classify_value,
 };
 use super::diagnostic::{NameReference, malformed_lookup, report_lookup_result};
-use crate::{BinderFactContext, BinderFactResult, binder::Binder};
+use crate::{BinderFactContext, BinderFactResult, ImportedPathRoot, binder::Binder};
 
 /// Visibility policy for one source name reference.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -91,55 +91,54 @@ struct PathLookup {
     reference: Option<NameReference>,
 }
 
-pub(super) fn bind_module_path(
-    symbols: &SymbolGraph,
-    imported_symbols: Option<&ImportedSymbolSkeleton>,
+pub(super) fn bind_module_path<C>(
+    facts: &C,
     module: ModuleSymbolId,
     path: &PathSyntax,
     access: NameAccess,
-) -> NameLookupResult<ResolvedName> {
-    let Some(module) = symbols.module(module) else {
-        return malformed_lookup();
+) -> BinderFactResult<NameLookupResult<ResolvedName>>
+where
+    C: BinderFactContext + ?Sized,
+{
+    let Some(module) = facts.symbols().module(module) else {
+        return Ok(malformed_lookup());
     };
 
     let Some(references) = path_references(path) else {
-        return malformed_lookup();
+        return Ok(malformed_lookup());
     };
 
     let Some(first) = references.first() else {
-        return malformed_lookup();
+        return Ok(malformed_lookup());
     };
 
-    let source_prefix = next_module_prefix(symbols, module.owner(), None, &references, access);
-    let compiler_known = symbols.compiler_known_environment();
+    let components = references
+        .iter()
+        .map(NameReference::text)
+        .collect::<Vec<_>>();
 
-    let compiler_known_prefix = next_module_prefix(
-        symbols,
-        ModuleOwnerId::from(compiler_known.id()),
-        None,
-        &references,
-        access,
-    );
+    let imported_root = facts.imported_path_root(&components)?;
+    let compiler_known = facts.symbols().compiler_known_environment();
 
     let ordinary = combine_name_lookups(
-        combine_name_lookups(
-            lookup_surface_name(symbols, module.id().into(), first.text(), access),
-            lookup_surface_name(symbols, compiler_known.id().into(), first.text(), access),
+        lookup_surface_name(facts.symbols(), module.id().into(), first.text(), access),
+        lookup_surface_name(
+            facts.symbols(),
+            compiler_known.id().into(),
+            first.text(),
+            access,
         ),
-        lookup_imported_package(imported_symbols, first.text()),
     );
 
-    let module_prefixes = [source_prefix, compiler_known_prefix].into_iter().flatten();
-    let (result, consumed) = combine_with_module_prefixes(ordinary, module_prefixes);
-    bind_remaining_path(
-        symbols,
-        imported_symbols,
+    Ok(bind_path_with_ordinary(
+        facts.symbols(),
+        imported_root,
+        module.owner(),
         access,
         references,
-        result,
-        consumed,
+        ordinary,
     )
-    .result
+    .result)
 }
 
 impl<C> Binder<'_, C>
@@ -429,51 +428,64 @@ where
             });
         };
 
-        let imported_symbols = self.facts().imported_symbols_for_package(first.text())?;
+        let components = references
+            .iter()
+            .map(NameReference::text)
+            .collect::<Vec<_>>();
 
-        let source_prefix = next_module_prefix(
+        let imported_root = self.facts().imported_path_root(&components)?;
+
+        let ordinary = lookup_unqualified_name(
+            self.unit(),
             self.facts().symbols(),
+            context.scope,
+            context.module,
+            first.text(),
+            context.access,
+        );
+
+        Ok(bind_path_with_ordinary(
+            self.facts().symbols(),
+            imported_root,
             context.module_owner,
-            None,
-            &references,
-            context.access,
-        );
-
-        let compiler_known_owner =
-            ModuleOwnerId::from(self.facts().symbols().compiler_known_environment().id());
-
-        let compiler_known_prefix = next_module_prefix(
-            self.facts().symbols(),
-            compiler_known_owner,
-            None,
-            &references,
-            context.access,
-        );
-
-        let ordinary = combine_name_lookups(
-            lookup_unqualified_name(
-                self.unit(),
-                self.facts().symbols(),
-                context.scope,
-                context.module,
-                first.text(),
-                context.access,
-            ),
-            lookup_imported_package(imported_symbols, first.text()),
-        );
-
-        let module_prefixes = [source_prefix, compiler_known_prefix].into_iter().flatten();
-        let (result, consumed) = combine_with_module_prefixes(ordinary, module_prefixes);
-
-        Ok(bind_remaining_path(
-            self.facts().symbols(),
-            imported_symbols,
             context.access,
             references,
-            result,
-            consumed,
+            ordinary,
         ))
     }
+}
+
+fn bind_path_with_ordinary(
+    symbols: &SymbolGraph,
+    imported_root: Option<ImportedPathRoot<'_>>,
+    module_owner: ModuleOwnerId,
+    access: NameAccess,
+    references: Vec<NameReference>,
+    ordinary: NameLookupResult<ResolvedName>,
+) -> PathLookup {
+    let source_prefix = next_module_prefix(symbols, module_owner, None, &references, access);
+    let compiler_known_owner = ModuleOwnerId::from(symbols.compiler_known_environment().id());
+
+    let compiler_known_prefix =
+        next_module_prefix(symbols, compiler_known_owner, None, &references, access);
+
+    let imported_prefix = imported_root.map(|root| imported_path_prefix(root, &references, access));
+
+    let prefixes = std::iter::once((ordinary, 1))
+        .chain(source_prefix.map(module_prefix_as_path_prefix))
+        .chain(compiler_known_prefix.map(module_prefix_as_path_prefix))
+        .chain(imported_prefix);
+
+    let (result, consumed) = combine_path_prefixes(prefixes);
+
+    bind_remaining_path(
+        symbols,
+        imported_root.map(ImportedPathRoot::symbols),
+        access,
+        references,
+        result,
+        consumed,
+    )
 }
 
 fn bind_remaining_path(
@@ -499,19 +511,41 @@ fn bind_remaining_path(
         );
 
         let module_prefix = match owner {
-            AnySymbolId::Module(module) => symbols.module(module).and_then(|module| {
-                next_module_prefix(
-                    symbols,
-                    module.owner(),
-                    Some(module.path()),
-                    &references[consumed..],
-                    access,
-                )
+            AnySymbolId::Module(module) => symbols
+                .module(module)
+                .and_then(|module| {
+                    next_module_prefix(
+                        symbols,
+                        module.owner(),
+                        Some(module.path()),
+                        &references[consumed..],
+                        access,
+                    )
+                })
+                .or_else(|| {
+                    imported_symbols
+                        .and_then(|symbols| symbols.module(module))
+                        .and_then(|module| match module.owner() {
+                            ModuleOwnerId::Package(package) => next_imported_module_prefix(
+                                imported_symbols?,
+                                package,
+                                Some(module.path()),
+                                &references[consumed..],
+                                access,
+                            ),
+                            ModuleOwnerId::CompilerKnownEnvironment(_) => None,
+                        })
+                }),
+            AnySymbolId::Package(package) => imported_symbols.and_then(|symbols| {
+                next_imported_module_prefix(symbols, package, None, &references[consumed..], access)
             }),
             _ => None,
         };
 
-        let (next, length) = combine_with_module_prefixes(ordinary, module_prefix);
+        let prefixes =
+            std::iter::once((ordinary, 1)).chain(module_prefix.map(module_prefix_as_path_prefix));
+
+        let (next, length) = combine_path_prefixes(prefixes);
 
         result = next;
         consumed += length;
@@ -538,17 +572,24 @@ fn lookup_surface_name_with_imports(
     })
 }
 
-fn lookup_imported_package(
-    imported_symbols: Option<&ImportedSymbolSkeleton>,
-    name: &str,
-) -> NameLookupResult<ResolvedName> {
-    imported_symbols
-        .and_then(|symbols| symbols.package_by_identity(name))
-        .map(|package| ResolvedName::Surface(package.id().into()))
-        .map_or(MemberLookupResult::NotFound, MemberLookupResult::Found)
-}
-
 type ModulePrefixLookup = (ModuleSymbolId, usize, NameLookupResult<ResolvedName>);
+type PathPrefixLookup = (NameLookupResult<ResolvedName>, usize);
+
+fn imported_path_prefix(
+    root: ImportedPathRoot<'_>,
+    references: &[NameReference],
+    access: NameAccess,
+) -> PathPrefixLookup {
+    let remaining = &references[root.consumed_components()..];
+
+    next_imported_module_prefix(root.symbols(), root.package(), None, remaining, access).map_or(
+        (
+            MemberLookupResult::Found(ResolvedName::Surface(root.package().into())),
+            root.consumed_components(),
+        ),
+        |(_, length, lookup)| (lookup, root.consumed_components() + length),
+    )
+}
 
 fn next_module_prefix(
     symbols: &bray_symbols::SymbolGraph,
@@ -592,24 +633,58 @@ fn next_module_prefix(
     malformed.or(inaccessible)
 }
 
-fn combine_with_module_prefixes(
-    ordinary: NameLookupResult<ResolvedName>,
-    module_prefixes: impl IntoIterator<Item = ModulePrefixLookup>,
+fn next_imported_module_prefix(
+    symbols: &ImportedSymbolSkeleton,
+    package: bray_symbols::PackageSymbolId,
+    parent: Option<&ModulePathKey>,
+    references: &[NameReference],
+    access: NameAccess,
+) -> Option<ModulePrefixLookup> {
+    for length in 1..=references.len() {
+        let parent_segments = parent.into_iter().flat_map(ModulePathKey::segments);
+        let child_segments = references[..length].iter().map(NameReference::text);
+        let path = ModulePathKey::try_new(parent_segments.chain(child_segments))?;
+
+        let Some(module) = symbols.module_by_path(package, &path) else {
+            continue;
+        };
+
+        let lookup = module_name_lookup(module, access);
+
+        return Some((module.id(), length, lookup));
+    }
+
+    None
+}
+
+fn module_prefix_as_path_prefix((_, length, lookup): ModulePrefixLookup) -> PathPrefixLookup {
+    (lookup, length)
+}
+
+fn combine_path_prefixes(
+    prefixes: impl IntoIterator<Item = PathPrefixLookup>,
 ) -> (NameLookupResult<ResolvedName>, usize) {
-    let mut result = ordinary;
+    let mut result = MemberLookupResult::NotFound;
     let mut selected = None;
 
-    for (module, length, module_lookup) in module_prefixes {
-        result = combine_name_lookups(result, module_lookup);
+    for (lookup, length) in prefixes {
+        let candidate = match &lookup {
+            MemberLookupResult::Found(candidate) => Some(*candidate),
+            MemberLookupResult::NotFound
+            | MemberLookupResult::WrongKind(_)
+            | MemberLookupResult::Ambiguous(_)
+            | MemberLookupResult::Inaccessible(_)
+            | MemberLookupResult::Malformed(_) => None,
+        };
 
-        selected = match &result {
-            MemberLookupResult::Found(ResolvedName::Surface(AnySymbolId::Module(id)))
-                if *id == module =>
-            {
-                Some((module, length))
+        result = combine_name_lookups(result, lookup);
+
+        selected = match (&result, candidate) {
+            (MemberLookupResult::Found(found), Some(candidate)) if *found == candidate => {
+                Some((candidate, length))
             }
-            MemberLookupResult::Found(ResolvedName::Surface(AnySymbolId::Module(id))) => {
-                selected.filter(|(selected, _)| selected == id)
+            (MemberLookupResult::Found(found), _) => {
+                selected.filter(|(selected, _)| selected == found)
             }
             _ => None,
         };
