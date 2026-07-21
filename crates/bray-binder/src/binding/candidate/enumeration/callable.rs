@@ -330,7 +330,14 @@ where
             symbol_fact_value::<_, CallableParameterDefaultTemplateFact>(context, *parameter)?;
 
         has_diagnostics |= default_diagnostics;
-        defaults.push(CallableParameterDefaultTemplate::new(*parameter, value));
+        let provider = context
+            .symbols()
+            .callable_parameter(*parameter)
+            .and_then(|parameter| parameter.default_provider());
+
+        defaults.push(CallableParameterDefaultTemplate::new(
+            *parameter, value, provider,
+        ));
     }
 
     let is_recovered = context.symbol_is_recovered(symbol)?.unwrap_or(true);

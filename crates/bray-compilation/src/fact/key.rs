@@ -83,8 +83,14 @@ pub(crate) enum CompilationFactKey {
     CheckDiagnostics,
     /// Durable control-flow facts for one bound unit.
     CheckedControlFlow(BoundUnitKey),
+    /// Final expression types for one bound unit.
+    CheckedExpressionTypes(BoundUnitKey),
+    /// Final semantic selections for one bound unit.
+    CheckedSemanticSelections(BoundUnitKey),
     /// Source-declared value type templates and equality constraints for one bound unit.
     DeclaredValueTypeTemplates(BoundUnitKey),
+    /// The private fixed-point computation shared by expression type and selection facts.
+    ExpressionSemantics(BoundUnitKey),
     /// Declaration discovery for one source unit.
     DeclarationChunk(SourceId),
     /// The deterministically merged declaration table.
@@ -120,7 +126,10 @@ impl CompilationFactKey {
         match self {
             Self::BoundUnit(key)
             | Self::CheckedControlFlow(key)
-            | Self::DeclaredValueTypeTemplates(key) => Some(key),
+            | Self::CheckedExpressionTypes(key)
+            | Self::CheckedSemanticSelections(key)
+            | Self::DeclaredValueTypeTemplates(key)
+            | Self::ExpressionSemantics(key) => Some(key),
             Self::AvailableCompilerKnownSymbols
             | Self::CompilerKnownSymbols
             | Self::BoundUnitIdentities

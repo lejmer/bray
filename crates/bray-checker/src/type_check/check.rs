@@ -1,4 +1,8 @@
-use bray_bound_tree::{BoundExpressionId, CheckedExpressionTypes, ExpressionTypeEntry};
+use std::collections::BTreeSet;
+
+use bray_bound_tree::{
+    BoundExpression, BoundExpressionId, CheckedExpressionTypes, ExpressionTypeEntry,
+};
 use bray_compiler_known::RepresentationRole;
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticKind, DiagnosticType, SeverityKind,
@@ -52,10 +56,35 @@ where
         Err(error) => return CheckerOutcome::InfrastructureFailure(error),
     }
 
+    finish_expression_types(request, session)
+}
+
+pub(crate) fn finish_expression_types<C>(
+    request: CheckerUnitView<'_, C>,
+    session: ExpressionTypeSession<'_, C>,
+) -> CheckerOutcome<CheckedExpressionTypes>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    finish_expression_types_with_deferred(request, session, &BTreeSet::new())
+}
+
+pub(crate) fn finish_expression_types_with_deferred<C>(
+    request: CheckerUnitView<'_, C>,
+    session: ExpressionTypeSession<'_, C>,
+    deferred: &BTreeSet<BoundExpressionId>,
+) -> CheckerOutcome<CheckedExpressionTypes>
+where
+    C: CheckerRequestContext + ?Sized,
+{
     let finished = session.finish();
     let mut conflicts = Vec::with_capacity(finished.conflicts.len());
 
     for conflict in finished.conflicts {
+        if deferred.contains(&conflict.expression) {
+            continue;
+        }
+
         let mut expected = match diagnostic_type(request, conflict.expected) {
             Ok(expected) => expected,
             Err(error) => return CheckerOutcome::InfrastructureFailure(error),
@@ -100,6 +129,21 @@ where
     }
 
     for expression in finished.unresolved {
+        let Some(bound) = request.view().expression(expression) else {
+            return CheckerOutcome::InfrastructureFailure(
+                CheckerInfrastructureError::InvalidExpressionTypeInput { expression },
+            );
+        };
+
+        if deferred.contains(&expression) {
+            continue;
+        }
+
+        if matches!(bound, BoundExpression::AnonymousCallable(_)) {
+            // TODO(BRA-242): Infer anonymous callable types from their nested semantic unit.
+            continue;
+        }
+
         let span = match expression_span(request, expression) {
             Ok(span) => span,
             Err(error) => return CheckerOutcome::InfrastructureFailure(error),

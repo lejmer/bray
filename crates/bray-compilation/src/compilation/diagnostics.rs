@@ -10,8 +10,8 @@ use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{AnySymbolId, SymbolGraph, SymbolKey};
 use bray_syntax::{SyntaxKind, SyntaxTree, SyntaxWalkControl, SyntaxWalkEvent, walk_syntax_tree};
 
-use super::Compilation;
-use crate::fact::{CompilationFactKey, FactQueryError};
+use super::facts::{CheckedExpressionSemantics, Compilation};
+use crate::fact::{CompilationFactKey, FactQueryError, PublishedUnitFact};
 
 impl Compilation {
     /// Returns diagnostics produced by binding and semantic analysis of this package.
@@ -75,10 +75,15 @@ impl Compilation {
             }
 
             let declared_types = self.declared_value_type_templates(key.clone())?;
+            let expression_semantics =
+                self.expression_semantics_with_cancellation(key.clone(), &self.state.cancellation)?;
             let control_flow = self.checked_control_flow(key)?;
 
             facts.push(SemanticDiagnosticFact::Bound(bound));
             facts.push(SemanticDiagnosticFact::DeclaredTypes(declared_types));
+            facts.push(SemanticDiagnosticFact::ExpressionSemantics(
+                expression_semantics,
+            ));
             facts.push(SemanticDiagnosticFact::ControlFlow(control_flow));
         }
 
@@ -226,6 +231,7 @@ impl Compilation {
 enum SemanticDiagnosticFact {
     Bound(Arc<DiagnosticResult<BoundUnit>>),
     DeclaredTypes(Arc<DiagnosticResult<DeclaredValueTypeTemplates>>),
+    ExpressionSemantics(Arc<PublishedUnitFact<CheckedExpressionSemantics>>),
     ControlFlow(Arc<DiagnosticResult<CheckedControlFlowFacts>>),
 }
 
@@ -234,6 +240,7 @@ impl SemanticDiagnosticFact {
         match self {
             Self::Bound(result) => result.diagnostics(),
             Self::DeclaredTypes(result) => result.diagnostics(),
+            Self::ExpressionSemantics(result) => result.result().diagnostics(),
             Self::ControlFlow(result) => result.diagnostics(),
         }
     }
@@ -444,6 +451,11 @@ mod tests {
             Ok(false)
         );
 
+        assert_eq!(
+            compilation.state.expression_semantics.is_published(key),
+            Ok(false)
+        );
+
         let first = compilation.check_diagnostics();
         let second = compilation.check_diagnostics();
 
@@ -452,6 +464,11 @@ mod tests {
 
         assert_eq!(
             compilation.state.checked_control_flow.is_published(key),
+            Ok(true)
+        );
+
+        assert_eq!(
+            compilation.state.expression_semantics.is_published(key),
             Ok(true)
         );
 

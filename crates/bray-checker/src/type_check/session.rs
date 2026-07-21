@@ -2,7 +2,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
     AnyBoundNodeId, BoundBlockId, BoundExpressionId, BoundWalkControl, BoundWalkEvent,
-    BoundWalkOutcome, ExpressionTypeResult, walk_bound_unit_view,
+    BoundWalkOutcome, CheckedExpressionTypes, ExpressionTypeEntry, ExpressionTypeResult,
+    ExpressionTypeStatus, walk_bound_unit_view,
 };
 use bray_symbols::TypeId;
 
@@ -17,7 +18,7 @@ use super::literal::{adapt_contextual_literals, apply_literal_defaults};
 use super::propagation::propagate_dynamic_constraints;
 use super::{ExpressionTypeEvidence, ExpressionTypeExpectation, ExpressionTypeInput};
 
-pub(super) enum SessionProgress<T> {
+pub(crate) enum SessionProgress<T> {
     Complete(T),
     Cancelled,
 }
@@ -188,6 +189,31 @@ where
         let variable = self.variables.get(&expression).copied()?;
 
         self.inference.result(variable)
+    }
+
+    pub(crate) fn preview(&mut self) -> CheckedExpressionTypes {
+        let entries = self.expressions.iter().map(|expression| {
+            let result = self
+                .variables
+                .get(expression)
+                .copied()
+                .and_then(|variable| self.inference.result(variable))
+                .unwrap_or_else(|| {
+                    ExpressionTypeResult::new(self.types.error, ExpressionTypeStatus::Recovered)
+                });
+
+            ExpressionTypeEntry::new(*expression, result)
+        });
+
+        CheckedExpressionTypes::new(
+            self.request.view().unit(),
+            self.request.view().kind(),
+            entries,
+        )
+    }
+
+    pub(crate) const fn revision(&self) -> u64 {
+        self.inference.revision()
     }
 
     pub(crate) fn propagate(&mut self) -> Result<SessionProgress<()>, CheckerInfrastructureError> {

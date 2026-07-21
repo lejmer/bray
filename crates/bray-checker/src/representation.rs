@@ -55,6 +55,13 @@ pub(crate) fn named_type<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
+    intern_named_type(request.semantic_values(), definition)
+}
+
+pub(crate) fn intern_named_type(
+    values: &bray_symbols::SemanticValueStore,
+    definition: NamedTypeSymbolId,
+) -> Result<TypeId, CheckerInfrastructureError> {
     let Some(owner) = GenericOwnerId::try_new(definition.into_any()) else {
         return Err(CheckerInfrastructureError::SemanticValueUnavailable);
     };
@@ -66,13 +73,11 @@ where
     )
     .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
 
-    let substitution = request
-        .semantic_values()
+    let substitution = values
         .intern_generic_substitution(substitution)
         .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
 
-    request
-        .semantic_values()
+    values
         .intern_type(TypeData::Named {
             definition,
             substitution,

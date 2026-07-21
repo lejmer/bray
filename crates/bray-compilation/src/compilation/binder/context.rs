@@ -436,6 +436,8 @@ mod tests {
             UnevaluatedDefaultTemplate::Present(_)
         ));
 
+        assert!(direct.defaults()[0].provider().is_some());
+
         let first_overload = results.iter().find(|result| {
             matches!(
                 result.value(),

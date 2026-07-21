@@ -6,6 +6,7 @@ mod analysis;
 mod constant;
 mod context;
 mod diagnostic;
+mod expression;
 mod outcome;
 mod representation;
 mod selection;
@@ -42,7 +43,8 @@ pub use semantic_context::{
 };
 pub use service::{
     ConstantEvaluator, ControlFlowChecker, DefaultConstantEvaluator, DefaultControlFlowChecker,
-    DefaultExpressionTypeChecker, DefaultSemanticSelector, ExpressionTypeChecker, SemanticSelector,
+    DefaultExpressionSemanticChecker, DefaultExpressionTypeChecker, DefaultSemanticSelector,
+    ExpressionSemanticChecker, ExpressionTypeChecker, SemanticSelector,
 };
 pub use type_check::{ExpressionTypeEvidence, ExpressionTypeExpectation, ExpressionTypeInput};
 pub use unit::{CheckerUnitRoot, CheckerUnitView, CheckerUnitViewError};
