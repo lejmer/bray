@@ -224,7 +224,7 @@ impl Compilation {
                 let facts = self.binder_facts_for(&key, cancellation)?;
 
                 let result = bind_declared_value_type_templates(&facts, bound.result().value())
-                    .map_err(map_binder_fact_error)?;
+                    .map_err(super::binder::binder_fact_error)?;
 
                 Ok((result, Box::new([])))
             },
@@ -368,13 +368,6 @@ const fn map_binding_error(error: BoundUnitBindingError) -> FactQueryError {
         | BoundUnitBindingError::Construction
         | BoundUnitBindingError::Binding
         | BoundUnitBindingError::Assembly => FactQueryError::InfrastructureFailure,
-    }
-}
-
-const fn map_binder_fact_error(error: BinderFactError) -> FactQueryError {
-    match error {
-        BinderFactError::Cancelled => FactQueryError::Cancelled,
-        BinderFactError::DependencyUnavailable => FactQueryError::InfrastructureFailure,
     }
 }
 

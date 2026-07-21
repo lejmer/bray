@@ -13,6 +13,7 @@ use bray_symbols::{
     TraitTypeFulfillmentValueFact, UnionPayloadFieldDefaultTemplateFact, UnionPayloadFieldTypeFact,
 };
 
+use super::super::binder_fact_error;
 use super::super::context::CompilationBinderFacts;
 use super::compute::CompilationSymbolFactBinding;
 use crate::fact::{FactQueryError, SymbolFactCache};
@@ -101,17 +102,10 @@ where
                 || {
                     let context = self.compilation.binder_facts(self.cancellation)?;
 
-                    facts.bind(&context, request).map_err(fact_error)
+                    facts.bind(&context, request).map_err(binder_fact_error)
                 },
             )
             .map_err(binder_error)
-    }
-}
-
-pub(super) const fn fact_error(error: BinderFactError) -> FactQueryError {
-    match error {
-        BinderFactError::Cancelled => FactQueryError::Cancelled,
-        BinderFactError::DependencyUnavailable => FactQueryError::InfrastructureFailure,
     }
 }
 

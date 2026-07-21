@@ -3,8 +3,8 @@ use bray_checker::TargetValidityRequest;
 use bray_package_interface::InterfaceSemanticFactKind;
 use bray_source::SourceId;
 use bray_symbols::{
-    AnySymbolId, ImplementationCoherenceDomainKey, ImportedInterfaceId, InterfaceSymbolId,
-    SymbolFactKind,
+    AnySymbolId, ImplementationCoherenceDomainKey, ImplementationRequirementKey,
+    ImportedInterfaceId, InterfaceSymbolId, SymbolFactKind,
 };
 
 /// The exact artifact-local address of one imported symbol-owned fact category.
@@ -105,6 +105,10 @@ pub(crate) enum CompilationFactKey {
     DependencyInterface(ImportedInterfaceId),
     /// Diagnostics owned by all selected compiled dependency interfaces.
     ImportedDiagnostics,
+    /// The immutable index over available implementation declaration headers.
+    ImplementationHeaderIndex,
+    /// Uncommitted implementation candidates for one exact requirement.
+    ImplementationCandidateSet(ImplementationRequirementKey),
     /// Decoded and remapped semantic facts for one compiled dependency interface.
     ImportedSemanticGraph(ImportedInterfaceId),
     /// One exact decoded and remapped imported symbol-owned fact category.
@@ -147,6 +151,8 @@ impl CompilationFactKey {
             | Self::DeclarationTable
             | Self::DependencyInterface(_)
             | Self::ImportedDiagnostics
+            | Self::ImplementationHeaderIndex
+            | Self::ImplementationCandidateSet(_)
             | Self::ImportedSemanticGraph(_)
             | Self::ImportedSemanticFact(_)
             | Self::ImplementationParticipation(_)
