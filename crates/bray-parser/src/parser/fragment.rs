@@ -285,6 +285,7 @@ mod tests {
             declaration.full_text(),
             "trusted func copy<T>(value: T) -> T;"
         );
+
         assert!(result.diagnostics().is_empty());
         assert!(!result.is_recovered());
     }
@@ -322,18 +323,22 @@ mod tests {
             struct_result.declaration(),
             Some(DeclarationFragmentSyntax::StructField(_))
         ));
+
         assert!(matches!(
             trait_result.declaration(),
             Some(DeclarationFragmentSyntax::TraitCallableMember(_))
         ));
+
         assert!(matches!(
             union_result.declaration(),
             Some(DeclarationFragmentSyntax::UnionVariant(_))
         ));
+
         assert!(matches!(
             union_variant_result.declaration(),
             Some(DeclarationFragmentSyntax::UnionPayloadField(_))
         ));
+
         assert!(matches!(
             implementation_result.declaration(),
             Some(DeclarationFragmentSyntax::ImplementationTypeMemberBinding(
@@ -359,10 +364,12 @@ mod tests {
             result.declaration(),
             Some(DeclarationFragmentSyntax::Function(_))
         ));
+
         assert_eq!(
             diagnostic_kinds(result.diagnostics()),
             [DiagnosticKind::SyntaxExpectedToken]
         );
+
         assert!(result.is_recovered());
     }
 
@@ -387,6 +394,7 @@ mod tests {
             extra.declaration(),
             Some(DeclarationFragmentSyntax::Struct(_))
         ));
+
         assert!(extra.is_recovered());
     }
 
@@ -404,6 +412,7 @@ mod tests {
             valid.type_expression().full_text(),
             "func(value: T) -> box T"
         );
+
         assert!(valid.diagnostics().is_empty());
         assert!(!valid.is_recovered());
 
@@ -411,6 +420,7 @@ mod tests {
             diagnostic_kinds(invalid.diagnostics()),
             [DiagnosticKind::LexicalInvalidCharacter]
         );
+
         assert!(invalid.is_recovered());
 
         assert!(extra.diagnostics().is_empty());

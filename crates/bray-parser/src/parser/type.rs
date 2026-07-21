@@ -425,6 +425,7 @@ mod tests {
         };
 
         assert_eq!(source_unit.full_text(), source);
+
         assert_eq!(
             declaration.full_text(),
             "union Maybe { @tag(1) Some(pos value: Int = fallback,); None; }"

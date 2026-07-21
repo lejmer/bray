@@ -266,6 +266,7 @@ mod tests {
             TextRange::with_len(TextSize::new(10), TextSize::new(5)),
             Some(TextRange::new(TextSize::new(10), TextSize::new(15)))
         );
+
         assert_eq!(TextRange::with_len(TextSize::MAX, TextSize::new(1)), None);
     }
 
@@ -295,6 +296,7 @@ mod tests {
             TextRange::new(TextSize::new(2), TextSize::new(3)).slice_str(text),
             None
         );
+
         assert_eq!(
             TextRange::new(TextSize::new(0), TextSize::new(99)).slice_str(text),
             None
@@ -309,6 +311,7 @@ mod tests {
             TextRange::new(TextSize::new(2), TextSize::new(4)).slice_bytes(bytes),
             Some(&bytes[2..4])
         );
+
         assert_eq!(
             TextRange::new(TextSize::new(0), TextSize::new(99)).slice_bytes(bytes),
             None

@@ -146,6 +146,7 @@ mod tests {
             declaration.type_expression().full_text(),
             "func(value: Int) -> Bool"
         );
+
         assert_eq!(declaration.skipped_syntax().count(), 0);
 
         assert!(result.diagnostics().is_empty());
@@ -225,6 +226,7 @@ mod tests {
             declaration.type_expression().full_text(),
             "func(value: Int)"
         );
+
         assert!(result.diagnostics().is_empty());
     }
 

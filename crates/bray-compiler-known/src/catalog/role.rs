@@ -427,6 +427,7 @@ mod tests {
             };
 
             assert_eq!(declaration_key(contract.trait_definition()), trait_key);
+
             assert_eq!(
                 contract.result_type_member().map(declaration_key),
                 result_key

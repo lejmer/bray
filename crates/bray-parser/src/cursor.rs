@@ -537,6 +537,7 @@ mod tests {
                 SyntaxKind::CloseBraceToken
             ]
         );
+
         assert_eq!(cursor.peek().kind(), SyntaxKind::CloseBraceToken);
 
         let diagnostics = cursor.finish();
@@ -563,6 +564,7 @@ mod tests {
                 SyntaxKind::CloseBraceToken
             ]
         );
+
         assert_eq!(cursor.peek().kind(), SyntaxKind::FuncKeyword);
 
         let diagnostics = cursor.finish();

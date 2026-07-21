@@ -438,6 +438,7 @@ mod tests {
         };
 
         assert_eq!(compilation.state.bound_units.is_published(key), Ok(false));
+
         assert_eq!(
             compilation.state.checked_control_flow.is_published(key),
             Ok(false)
@@ -448,6 +449,7 @@ mod tests {
 
         assert!(std::ptr::eq(first, second));
         assert_eq!(compilation.state.bound_units.is_published(key), Ok(true));
+
         assert_eq!(
             compilation.state.checked_control_flow.is_published(key),
             Ok(true)
@@ -662,6 +664,7 @@ mod tests {
                 .declared_unit_keys()
                 .is_ok_and(|keys| keys.is_empty())
         );
+
         assert!(compilation.check_diagnostics().is_empty());
     }
 
@@ -750,6 +753,7 @@ mod tests {
                 .skip(1)
                 .all(|result| std::ptr::eq(diagnostics[0], *result))
         );
+
         assert_eq!(
             diagnostic_kinds(diagnostics[0]),
             [DiagnosticKind::BindingUnresolvedName]
@@ -844,6 +848,7 @@ mod tests {
         });
 
         assert_eq!(serial.check_diagnostics(), parallel.check_diagnostics());
+
         assert_eq!(
             diagnostic_kinds(serial.check_diagnostics()),
             [

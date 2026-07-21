@@ -201,6 +201,7 @@ mod tests {
                 .find_descendant::<CallableBodyBlockExpressionSyntax>(&syntax)
                 .is_some()
         );
+
         assert!(
             second
                 .find_descendant::<CallableBodyBlockExpressionSyntax>(&syntax)

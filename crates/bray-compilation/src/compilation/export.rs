@@ -243,6 +243,7 @@ mod tests {
 
         assert!(std::ptr::eq(first, second));
         assert_eq!(first.surface().symbols().symbols().len(), 2);
+
         assert!(
             compilation
                 .state

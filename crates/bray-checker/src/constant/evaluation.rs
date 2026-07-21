@@ -589,6 +589,7 @@ mod tests {
             "{:?}",
             result.diagnostics()
         );
+
         assert_eq!(
             value.kind(),
             &ConstantValueKind::Complex {
@@ -650,6 +651,7 @@ mod tests {
                 .count(),
             1
         );
+
         assert_eq!(value.ty(), expected);
         assert_eq!(value.kind(), &ConstantValueKind::Error);
     }

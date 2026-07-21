@@ -738,6 +738,7 @@ mod tests {
                 crate::RecognizedStandardLibraryScopeId::new(0)
             )
         );
+
         assert_eq!(recognized.identity().name(), Some("length"));
     }
 

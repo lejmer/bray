@@ -65,6 +65,7 @@ macro_rules! test_token_list_syntax {
                     list.$separator_tokens_method().collect::<Vec<_>>(),
                     [separator]
                 );
+
                 assert_eq!(list.$items_method().collect::<Vec<_>>(), [first, second]);
             }
 

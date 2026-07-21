@@ -220,11 +220,14 @@ mod tests {
             .unwrap_or_else(|error| panic!("binder facts must be available: {error:?}"));
 
         assert!(compilation.state.imported_symbol_skeleton.get().is_none());
+
         assert!(matches!(
             CompilationBinderFacts::imported_path_root(&facts, &["local", "value"]),
             Ok(None)
         ));
+
         assert!(compilation.state.imported_symbol_skeleton.get().is_none());
+
         assert!(
             compilation
                 .state
@@ -250,6 +253,7 @@ mod tests {
 
         assert!(root.is_some());
         assert!(compilation.state.imported_symbol_skeleton.get().is_some());
+
         assert!(
             compilation
                 .state
@@ -257,6 +261,7 @@ mod tests {
                 .iter()
                 .all(|graph| graph.get().is_none())
         );
+
         assert_eq!(
             root.map(|root| root.consumed_components()),
             Some(components.len())
@@ -280,6 +285,7 @@ mod tests {
             CompilationBinderFacts::imported_path_root(&facts, &components),
             Err(BinderFactError::Cancelled)
         ));
+
         assert!(compilation.state.imported_symbol_skeleton.get().is_none());
     }
 

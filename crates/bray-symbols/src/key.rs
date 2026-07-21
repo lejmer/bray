@@ -567,6 +567,7 @@ mod tests {
         let receiver = SymbolKey::synthesized(receiver);
 
         assert_eq!(receiver.kind(), SymbolKind::ReceiverParameter);
+
         assert_eq!(
             receiver.source_declaration_id(),
             Some(DeclarationId::new(9))

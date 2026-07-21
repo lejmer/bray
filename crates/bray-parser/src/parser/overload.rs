@@ -248,6 +248,7 @@ mod tests {
         };
 
         assert_eq!(source_unit.full_text(), source);
+
         assert_eq!(
             declaration.full_text(),
             "public overload draw = {fast,slow,}"
@@ -262,10 +263,12 @@ mod tests {
         );
 
         assert_eq!(declaration.overload_arm_list().overload_arms().count(), 2);
+
         assert_eq!(
             declaration.overload_arm_list().separator_tokens().count(),
             2
         );
+
         assert!(result.diagnostics().is_empty());
     }
 
@@ -287,6 +290,7 @@ mod tests {
         let subject = declaration.implementation_overload_subject();
 
         assert_eq!(source_unit.full_text(), source);
+
         assert_eq!(
             declaration.full_text(),
             "overload (&mut Point)(Shape) = {point_shape}"

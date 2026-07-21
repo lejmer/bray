@@ -212,6 +212,7 @@ mod tests {
         };
 
         assert_eq!(description.names(), &[object.clone(), executable.clone()]);
+
         assert_eq!(
             description
                 .name(TargetOutputKind::RelocatableObject)

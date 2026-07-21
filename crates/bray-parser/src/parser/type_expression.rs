@@ -556,6 +556,7 @@ mod tests {
             expression.full_text(),
             "func() requires(valid) uses(core.io)"
         );
+
         assert_eq!(expression.requires_clauses().count(), 1);
         assert_eq!(expression.uses_clauses().count(), 1);
         assert_eq!(expression.skipped_syntax().count(), 0);

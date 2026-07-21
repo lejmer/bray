@@ -329,10 +329,12 @@ mod tests {
         let reverse = build_skeleton([second.input, first.input]);
 
         assert_eq!(forward, reverse);
+
         assert_eq!(
             forward.symbol_by_external_key(&first.package_key),
             reverse.symbol_by_external_key(&first.package_key)
         );
+
         assert_eq!(
             forward.symbol_by_external_key(&second.function_key),
             reverse.symbol_by_external_key(&second.function_key)

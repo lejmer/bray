@@ -492,6 +492,7 @@ mod tests {
                 .get()
                 .is_none()
         );
+
         assert!(compilation.state.imported_symbol_skeleton.get().is_none());
 
         let interface = interface_id(&compilation, "example.alpha", "main");
@@ -504,6 +505,7 @@ mod tests {
 
         assert!(std::ptr::eq(first, second));
         assert!(first.value().is_none());
+
         assert_eq!(
             diagnostic_kinds(first.diagnostics()),
             [DiagnosticKind::InterfaceInvalidMagic]
@@ -514,10 +516,12 @@ mod tests {
             .unwrap_or_else(|error| panic!("skeleton query must complete: {error:?}"));
 
         assert!(skeleton.value().is_none());
+
         assert_eq!(
             diagnostic_kinds(compilation.imported_diagnostics()),
             [DiagnosticKind::InterfaceInvalidMagic]
         );
+
         assert!(
             diagnostic_kinds(compilation.check_diagnostics())
                 .contains(&DiagnosticKind::InterfaceInvalidMagic)
@@ -539,6 +543,7 @@ mod tests {
             interface_id(&forward, "example.alpha", "main"),
             interface_id(&reversed, "example.alpha", "main")
         );
+
         assert_eq!(
             interface_id(&forward, "example.beta", "test"),
             interface_id(&reversed, "example.beta", "test")
@@ -620,6 +625,7 @@ mod tests {
 
         assert!(template.owner().symbol_id().to_index() >= Some(source_symbol_end));
         assert_eq!(template.kind(), CheckedTemplateKind::CallableContract);
+
         assert_eq!(
             template.template().kind(),
             CheckedTemplateKind::CallableContract
@@ -656,6 +662,7 @@ mod tests {
             compilation.imported_semantic_fact_result_with_cancellation(key, &cancellation),
             Err(FactQueryError::Cancelled)
         );
+
         assert_eq!(
             compilation.state.imported_semantic_facts.is_published(&key),
             Ok(false)
@@ -681,6 +688,7 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert_eq!(diagnostics.len(), 2);
+
         assert_eq!(
             paths,
             [

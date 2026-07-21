@@ -713,6 +713,7 @@ mod tests {
             parse_expression_until_semicolon_for_test("async { return value; };");
 
         assert!(expression.is_recovered());
+
         assert_eq!(
             diagnostic_kinds(&diagnostics),
             [DiagnosticKind::SyntaxExpectedExpression]

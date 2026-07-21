@@ -279,6 +279,7 @@ mod tests {
             error,
             SourceLoadError::InvalidUtf8(SourceUtf8Error::new(1, Some(1)))
         );
+
         assert_eq!(loader.loaded_count(), 0);
 
         let snapshot = load_virtual(

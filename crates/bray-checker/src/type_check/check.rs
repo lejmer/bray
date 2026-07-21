@@ -274,6 +274,7 @@ mod tests {
         };
 
         assert_eq!(tuple.status(), ExpressionTypeStatus::Valid);
+
         assert_eq!(
             type_data(tuple.ty()),
             TypeData::tuple([first_type, second_type])
@@ -327,30 +328,36 @@ mod tests {
         session
             .add_evidence(expressions[0], operand_type)
             .unwrap_or_else(|error| panic!("leaf evidence must be valid: {error:?}"));
+
         assert!(matches!(
             session.propagate(),
             Ok(SessionProgress::Complete(()))
         ));
+
         assert_eq!(
             session
                 .expression_type(expressions[0])
                 .map(|result| result.ty()),
             Some(operand_type)
         );
+
         assert_eq!(session.expression_type(expressions[1]), None);
 
         session
             .add_evidence(expressions[1], child_type)
             .unwrap_or_else(|error| panic!("child selection must be valid: {error:?}"));
+
         assert!(matches!(
             session.propagate(),
             Ok(SessionProgress::Complete(()))
         ));
+
         assert_eq!(session.expression_type(expressions[2]), None);
 
         session
             .add_evidence(expressions[2], parent_type)
             .unwrap_or_else(|error| panic!("parent selection must be valid: {error:?}"));
+
         assert!(matches!(
             session.propagate(),
             Ok(SessionProgress::Complete(()))
@@ -388,6 +395,7 @@ mod tests {
         let result = completed_check(&unit, &ExpressionTypeInput::new());
 
         assert_eq!(result.diagnostics().len(), 1);
+
         assert_eq!(
             result.diagnostics().diagnostics()[0].kind(),
             DiagnosticKind::CheckingIncompatibleExpressionType
@@ -463,6 +471,7 @@ mod tests {
             type_data(first_array.ty()),
             TypeData::Array { element, .. } if element == element_type
         ));
+
         assert!(matches!(
             type_data(outer.ty()),
             TypeData::Array { element, .. } if element == first_array.ty()
@@ -543,6 +552,7 @@ mod tests {
         let result = completed_check(&unit, &ExpressionTypeInput::new());
 
         assert!(result.diagnostics().is_empty());
+
         assert_eq!(
             result
                 .value()
@@ -585,6 +595,7 @@ mod tests {
                 .count(),
             1
         );
+
         assert!(
             result
                 .value()
@@ -635,6 +646,7 @@ mod tests {
                 .count(),
             1
         );
+
         assert_eq!(
             result
                 .value()
@@ -679,6 +691,7 @@ mod tests {
                 .count(),
             1
         );
+
         assert!(
             result
                 .value()
@@ -717,12 +730,14 @@ mod tests {
         let reverse = completed_check(&unit, &reverse);
 
         assert_eq!(forward, reverse);
+
         assert!(expressions.iter().all(|expression| {
             forward
                 .value()
                 .expression(*expression)
                 .is_some_and(|result| result.ty() == error_type() && result.is_recovered())
         }));
+
         assert_eq!(
             forward
                 .diagnostics()
@@ -808,6 +823,7 @@ mod tests {
         let result = completed_check(&unit, &input);
 
         assert!(result.diagnostics().is_empty());
+
         assert_ne!(
             result
                 .value()
@@ -844,6 +860,7 @@ mod tests {
         let result = completed_check(&unit, &ExpressionTypeInput::new());
 
         assert!(result.diagnostics().is_empty());
+
         assert_eq!(
             result
                 .value()
@@ -851,6 +868,7 @@ mod tests {
                 .map(|result| result.ty()),
             Some(iterable_type)
         );
+
         assert_ne!(
             result
                 .value()
@@ -890,12 +908,14 @@ mod tests {
                 .count(),
             1
         );
+
         assert!(
             result
                 .value()
                 .expression(expressions[1])
                 .is_some_and(|value| value.is_recovered())
         );
+
         assert!(
             result
                 .value()
@@ -935,12 +955,14 @@ mod tests {
                 .count(),
             1
         );
+
         assert!(
             result
                 .value()
                 .expression(expressions[0])
                 .is_some_and(|value| value.is_recovered())
         );
+
         assert!(
             result
                 .value()
@@ -976,6 +998,7 @@ mod tests {
                 .count(),
             1
         );
+
         assert!(
             result
                 .value()
@@ -1082,6 +1105,7 @@ mod tests {
                 expression: foreign[0],
             })
         );
+
         assert_eq!(outcome.result(), None);
     }
 

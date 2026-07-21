@@ -1276,6 +1276,7 @@ mod tests {
             SyntaxKind::DirectiveArgumentList.as_str(),
             "directive_argument_list"
         );
+
         assert_eq!(SyntaxKind::DirectiveArgument.as_str(), "directive_argument");
 
         assert_eq!(SyntaxKind::ModuleModifiers.as_str(), "module_modifiers");
@@ -1566,6 +1567,7 @@ mod tests {
             SyntaxKind::CallableDirectives.as_str(),
             "callable_directives"
         );
+
         assert_eq!(SyntaxKind::CallableModifiers.as_str(), "callable_modifiers");
         assert_eq!(SyntaxKind::ParameterList.as_str(), "parameter_list");
         assert_eq!(SyntaxKind::Parameter.as_str(), "parameter");
@@ -1722,6 +1724,7 @@ mod tests {
         assert_eq!(SyntaxKind::ReturnExpression.as_str(), "return_expression");
         assert_eq!(SyntaxKind::PanicExpression.as_str(), "panic_expression");
         assert_eq!(SyntaxKind::BreakExpression.as_str(), "break_expression");
+
         assert_eq!(
             SyntaxKind::ContinueExpression.as_str(),
             "continue_expression"

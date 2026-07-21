@@ -661,6 +661,7 @@ mod tests {
         });
 
         assert!(matches!(checked, Err(FactQueryError::Cancelled)));
+
         assert_eq!(
             compilation.state.checked_control_flow.is_published(&key),
             Ok(false)

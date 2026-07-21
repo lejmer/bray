@@ -532,6 +532,7 @@ mod tests {
         });
 
         assert_eq!(result, Ok(&5));
+
         assert_eq!(
             runtime.dependencies(&parent_key),
             Ok(Some(vec![declaration_key, syntax_key].into_boxed_slice()))
@@ -568,6 +569,7 @@ mod tests {
         });
 
         assert_eq!(result, Ok(&3));
+
         assert_eq!(
             runtime.dependencies(&parent_key),
             Ok(Some(vec![child_key].into_boxed_slice()))
@@ -873,6 +875,7 @@ mod tests {
         });
 
         assert_eq!(retried, Ok(&3));
+
         assert_eq!(
             runtime.dependencies(&parent_key),
             Ok(Some(vec![committed_key].into_boxed_slice()))
@@ -968,6 +971,7 @@ mod tests {
         let results = [first_result, second_result];
 
         assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
+
         assert_eq!(
             results
                 .iter()

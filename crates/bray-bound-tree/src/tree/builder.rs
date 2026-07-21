@@ -353,10 +353,12 @@ mod tests {
         let tree = builder.finish();
 
         assert!(tree.expression(expression).is_some());
+
         assert_eq!(
             tree.expression(BoundExpressionId::from_slot(BoundUnitId::new(6), 0)),
             None
         );
+
         assert_eq!(tree.expression(BoundExpressionId::from_slot(unit, 1)), None);
     }
 

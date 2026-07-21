@@ -208,10 +208,12 @@ mod tests {
         };
 
         assert_eq!(fragment.source().text(), "bool");
+
         assert_eq!(
             fragment.source().origin().kind(),
             SourceOriginKind::Generated
         );
+
         assert_eq!(ty.full_text(), "bool");
         assert_eq!(ty.source(), fragment.source());
     }

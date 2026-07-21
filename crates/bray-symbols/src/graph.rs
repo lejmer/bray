@@ -937,6 +937,7 @@ mod tests {
             graph.symbol_key(AnySymbolId::from(function.id())),
             Some(function.key())
         );
+
         assert_eq!(
             graph.symbol_for_key(function.key()),
             Some(function.id().into())
@@ -946,12 +947,14 @@ mod tests {
             graph.containing_symbol(source_module.id().into()),
             Some(source_module.owner().into_any())
         );
+
         assert_eq!(
             graph.containing_symbol(compiler_known_module.id().into()),
             Some(compiler_known_module.owner().into_any())
         );
 
         assert_eq!(provider, provider_id.into());
+
         assert_eq!(
             graph.symbol_key(provider),
             graph

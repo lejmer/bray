@@ -501,6 +501,7 @@ mod tests {
                 .count(),
             2
         );
+
         assert_expression_types(result.value(), &expressions, &[default]);
     }
 
@@ -537,6 +538,7 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert_eq!(diagnostics.len(), 3);
+
         assert_eq!(
             diagnostics[0].args(),
             &[
@@ -544,6 +546,7 @@ mod tests {
                 DiagnosticArg::actual_type(DiagnosticType::I32),
             ]
         );
+
         assert_eq!(
             diagnostics[1].args(),
             &[
@@ -551,6 +554,7 @@ mod tests {
                 DiagnosticArg::actual_type(DiagnosticType::R64),
             ]
         );
+
         assert_eq!(
             diagnostics[2].args(),
             &[
@@ -558,6 +562,7 @@ mod tests {
                 DiagnosticArg::actual_type(DiagnosticType::C128),
             ]
         );
+
         assert_expression_types(result.value(), &expressions, &defaults);
     }
 

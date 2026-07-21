@@ -333,11 +333,14 @@ mod tests {
 
         assert_eq!(signature.generic_parameters().len(), 2);
         assert_eq!(signature.generic_parameters()[0].name(), "T");
+
         assert_eq!(
             signature.generic_parameters()[0].kind(),
             CatalogGenericParameterKind::Type
         );
+
         assert_eq!(signature.generic_parameters()[1].name(), "N");
+
         assert_eq!(
             signature.generic_parameters()[1].kind(),
             CatalogGenericParameterKind::Const

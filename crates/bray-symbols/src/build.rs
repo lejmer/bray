@@ -808,6 +808,7 @@ mod tests {
         assert_eq!(module.functions(), [function.id()]);
         assert_eq!(module.structures().len(), 1);
         assert_eq!(module.unions().len(), 1);
+
         assert_eq!(
             module.callable_overloads(),
             [graph.callable_overloads()[0].id()]
@@ -838,7 +839,9 @@ mod tests {
             first_parameter.owner(),
             CallableSymbolId::from(function.id())
         );
+
         assert_eq!(first_parameter.ordinal(), 0);
+
         assert_eq!(
             first_parameter.default_presence(),
             RuntimeDefaultPresence::Present
@@ -898,6 +901,7 @@ mod tests {
             receiver.owner(),
             CallableSymbolId::from(instance_member.id())
         );
+
         assert_eq!(receiver.origin(), SymbolOrigin::Synthesized);
         assert_eq!(static_member.receiver(), None);
 
@@ -942,6 +946,7 @@ mod tests {
             parameter.default_presence(),
             RuntimeDefaultPresence::Recovered
         );
+
         assert!(parameter.default_provider().is_some());
         assert_eq!(graph.callable_parameter_default_providers().len(), 1);
     }
@@ -976,6 +981,7 @@ mod tests {
             graph.symbol_for_declaration(first_declaration),
             Some(AnySymbolId::from(first.id()))
         );
+
         assert_eq!(
             graph.symbol_for_declaration(second_declaration),
             Some(AnySymbolId::from(second.id()))
@@ -1001,10 +1007,12 @@ mod tests {
 
         assert!(structure.is_recovered());
         assert_eq!(structure.containing_symbol(), module.id().into());
+
         assert_eq!(
             graph.containing_symbol(structure.id().into()),
             Some(module.id().into())
         );
+
         assert_eq!(graph.containing_module(structure.id().into()), Some(module));
 
         let Some(structure_declaration) = structure.declaration() else {
@@ -1021,6 +1029,7 @@ mod tests {
         };
 
         assert_eq!(syntax.full_range(), declaration.full_range());
+
         assert!(
             graph
                 .symbol_for_declaration(structure_declaration)
@@ -1038,10 +1047,12 @@ mod tests {
         assert!(module.is_recovered());
         assert!(module.path().is_recovered());
         assert_eq!(module.path().segments().len(), 0);
+
         assert_eq!(
             module.path().recovery_anchor(),
             module.declarations().first().copied()
         );
+
         assert_eq!(
             source_function(&graph).containing_symbol(),
             module.id().into()
