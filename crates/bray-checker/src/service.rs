@@ -1,13 +1,16 @@
 use crate::analysis::check_control_flow;
 use crate::constant::evaluate_constant;
+use crate::expression::check_expression_semantics;
 use crate::selection::{select_callable, select_operation};
 use crate::type_check::check_expression_types;
 use crate::{
     CallableSelectionRequest, CandidateSelection, CheckerOutcome, CheckerRequestContext,
-    CheckerUnitView, ConstantEvaluationInput, ControlFlowCheckResult, ExpressionTypeInput,
-    OperationSelectionRequest,
+    CheckerUnitView, ConstantEvaluationInput, ControlFlowCheckResult, ExpressionCandidateSet,
+    ExpressionTypeInput, OperationSelectionRequest,
 };
-use bray_bound_tree::{CheckedExpressionTypes, SelectedCall, SelectedOperation};
+use bray_bound_tree::{
+    CheckedExpressionTypes, DeclaredValueTypeTemplates, SelectedCall, SelectedOperation,
+};
 use bray_symbols::ConstantValueId;
 
 /// The standard Bray control-flow checker implementation.
@@ -17,6 +20,10 @@ pub struct DefaultControlFlowChecker;
 /// The standard Bray expression-type checker implementation.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DefaultExpressionTypeChecker;
+
+/// The standard cooperating expression type and semantic-selection checker.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct DefaultExpressionSemanticChecker;
 
 /// The standard Bray constant evaluator implementation.
 #[derive(Clone, Copy, Debug, Default)]
@@ -65,6 +72,30 @@ where
 }
 
 impl<C> ExpressionTypeChecker<C> for DefaultExpressionTypeChecker where
+    C: CheckerRequestContext + ?Sized
+{
+}
+
+/// Cooperating expression typing and semantic selection over one bound semantic unit.
+pub trait ExpressionSemanticChecker<C>: Sync
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    /// Computes final expression types and exact semantic selections together.
+    fn check_expression_semantics(
+        &self,
+        request: CheckerUnitView<'_, C>,
+        declared_types: &DeclaredValueTypeTemplates,
+        candidate_sets: &[ExpressionCandidateSet],
+    ) -> CheckerOutcome<(
+        CheckedExpressionTypes,
+        bray_bound_tree::CheckedSemanticSelections,
+    )> {
+        check_expression_semantics(request, declared_types, candidate_sets)
+    }
+}
+
+impl<C> ExpressionSemanticChecker<C> for DefaultExpressionSemanticChecker where
     C: CheckerRequestContext + ?Sized
 {
 }

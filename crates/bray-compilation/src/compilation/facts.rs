@@ -3,7 +3,8 @@ use std::sync::Arc;
 
 use bray_binder::BinderDependency;
 use bray_bound_tree::{
-    BoundUnit, BoundUnitKey, CheckedControlFlowFacts, DeclaredValueTypeTemplates,
+    BoundUnit, BoundUnitKey, CheckedControlFlowFacts, CheckedExpressionTypes,
+    CheckedSemanticSelections, DeclaredValueTypeTemplates,
 };
 use bray_declarations::{
     DeclarationChunkResult, DeclarationTable, DeclarationTableResult,
@@ -36,6 +37,8 @@ use super::load::{
     CompilationLoadError, SourceInputDiagnosticContext, missing_source_input_diagnostic,
     next_diagnostic_id, source_load_diagnostic,
 };
+
+pub(super) type CheckedExpressionSemantics = (CheckedExpressionTypes, CheckedSemanticSelections);
 
 /// Durable immutable compilation context and demand-driven fact entrypoint.
 #[derive(Clone)]
@@ -79,6 +82,9 @@ pub(super) struct CompilationState {
     pub(super) bound_units: UnitFactCache<BoundUnit>,
     pub(super) declared_value_type_templates: UnitFactCache<DeclaredValueTypeTemplates>,
     pub(super) checked_control_flow: UnitFactCache<CheckedControlFlowFacts>,
+    pub(super) expression_semantics: UnitFactCache<CheckedExpressionSemantics>,
+    pub(super) checked_expression_types: UnitFactCache<CheckedExpressionTypes>,
+    pub(super) checked_semantic_selections: UnitFactCache<CheckedSemanticSelections>,
     pub(super) check_diagnostics: FactCell<DiagnosticBag>,
     pub(super) package_interface_export_bundle: FactCell<
         Result<Arc<PackageInterfaceExportBundle>, super::export::PackageInterfaceExportError>,
@@ -166,6 +172,9 @@ impl Compilation {
                 bound_units: UnitFactCache::new(),
                 declared_value_type_templates: UnitFactCache::new(),
                 checked_control_flow: UnitFactCache::new(),
+                expression_semantics: UnitFactCache::new(),
+                checked_expression_types: UnitFactCache::new(),
+                checked_semantic_selections: UnitFactCache::new(),
                 check_diagnostics: FactCell::new(),
                 package_interface_export_bundle: FactCell::new(),
             }),

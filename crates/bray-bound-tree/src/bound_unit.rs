@@ -6,8 +6,8 @@ use bray_symbols::{
 };
 
 use crate::{
-    BoundBlockId, BoundCallableBodyId, BoundExpressionId, BoundNodeKind, BoundTree, BoundUnitId,
-    BoundUnitIdentity, BoundUnitKey, BoundUnitKeyData, BoundUnitKind, BoundUnitView,
+    AnyBoundNodeId, BoundBlockId, BoundCallableBodyId, BoundExpressionId, BoundNodeKind, BoundTree,
+    BoundUnitId, BoundUnitIdentity, BoundUnitKey, BoundUnitKeyData, BoundUnitKind, BoundUnitView,
     DeclaredBoundUnitKey,
 };
 
@@ -110,6 +110,18 @@ pub enum BoundUnitRoot {
     Expression(BoundExpressionId),
     /// An ordered declaration-owned expression sequence.
     ExpressionSequence(BoundBlockId),
+}
+
+impl From<BoundUnitRoot> for AnyBoundNodeId {
+    fn from(root: BoundUnitRoot) -> Self {
+        match root {
+            BoundUnitRoot::CallableBody(body) | BoundUnitRoot::AnonymousCallable { body, .. } => {
+                Self::CallableBody(body)
+            }
+            BoundUnitRoot::Expression(expression) => Self::Expression(expression),
+            BoundUnitRoot::ExpressionSequence(block) => Self::Block(block),
+        }
+    }
 }
 
 /// A contract violation that prevents creation of a bound unit.

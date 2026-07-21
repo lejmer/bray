@@ -7,5 +7,6 @@ mod literal;
 mod propagation;
 mod session;
 
-pub(crate) use check::check_expression_types;
+pub(crate) use check::{check_expression_types, finish_expression_types_with_deferred};
 pub use input::{ExpressionTypeEvidence, ExpressionTypeExpectation, ExpressionTypeInput};
+pub(crate) use session::{ExpressionTypeSession, SessionProgress};

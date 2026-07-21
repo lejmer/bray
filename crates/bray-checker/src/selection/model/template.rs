@@ -3,8 +3,8 @@ use std::sync::Arc;
 use bray_base::shared_slice;
 use bray_bound_tree::{BoundExpressionId, DeclaredValueTypeTerm, SelectionKind};
 use bray_symbols::{
-    CallableDefinitionId, CallableParameterSymbolId, CallableSignatureTemplate,
-    GenericDeclarationTemplate, SymbolKey, UnevaluatedDefaultTemplate,
+    CallableDefinitionId, CallableParameterDefaultProviderSymbolId, CallableParameterSymbolId,
+    CallableSignatureTemplate, GenericDeclarationTemplate, SymbolKey, UnevaluatedDefaultTemplate,
 };
 
 /// Why an exact semantic candidate request has no candidate surface.
@@ -34,6 +34,7 @@ pub enum CallableCandidateTemplateState {
 pub struct CallableParameterDefaultTemplate {
     parameter: CallableParameterSymbolId,
     value: UnevaluatedDefaultTemplate,
+    provider: Option<CallableParameterDefaultProviderSymbolId>,
 }
 
 impl CallableParameterDefaultTemplate {
@@ -41,8 +42,13 @@ impl CallableParameterDefaultTemplate {
     pub const fn new(
         parameter: CallableParameterSymbolId,
         value: UnevaluatedDefaultTemplate,
+        provider: Option<CallableParameterDefaultProviderSymbolId>,
     ) -> Self {
-        Self { parameter, value }
+        Self {
+            parameter,
+            value,
+            provider,
+        }
     }
 
     /// Returns the declaration parameter.
@@ -53,6 +59,11 @@ impl CallableParameterDefaultTemplate {
     /// Returns the unevaluated default expression surface.
     pub const fn value(self) -> UnevaluatedDefaultTemplate {
         self.value
+    }
+
+    /// Returns the declaration-owned provider for a present runtime default.
+    pub const fn provider(self) -> Option<CallableParameterDefaultProviderSymbolId> {
+        self.provider
     }
 }
 

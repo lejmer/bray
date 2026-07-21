@@ -79,6 +79,6 @@ where
 }
 
 const fn unsupported(expression: BoundExpressionId, kind: SelectionKind) -> ExpressionCandidateSet {
-    // TODO(BRA-122): Add candidate providers for the remaining semantic selection categories.
+    // TODO(BRA-242): Add candidate providers for the remaining semantic selection categories.
     ExpressionCandidateSet::Unsupported { expression, kind }
 }

@@ -3,7 +3,6 @@ mod operation;
 mod result;
 mod template;
 
-pub(in crate::selection) use call::CallableCandidateParts;
 pub use call::{
     CallableCandidate, CallableCandidateState, CallableSelectionRequest,
     ImplementationSelectionEvidence, ReceiverCapability, ReceiverSelection,
