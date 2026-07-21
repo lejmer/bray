@@ -514,6 +514,7 @@ mod tests {
     #[test]
     fn imported_callable_candidates_remain_explicit_until_signature_facts_are_portable() {
         let fixture = encoded_template_test_interface();
+
         let compilation = compilation_with_source(
             concat!(
                 "module current.package;\n",
