@@ -2,7 +2,10 @@ use bray_bound_tree::BoundUnitKey;
 use bray_checker::TargetValidityRequest;
 use bray_package_interface::InterfaceSemanticFactKind;
 use bray_source::SourceId;
-use bray_symbols::{AnySymbolId, ImportedInterfaceId, InterfaceSymbolId, SymbolFactKind};
+use bray_symbols::{
+    AnySymbolId, ImplementationCoherenceDomainKey, ImportedInterfaceId, InterfaceSymbolId,
+    SymbolFactKind,
+};
 
 /// The exact artifact-local address of one imported symbol-owned fact category.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -106,6 +109,8 @@ pub(crate) enum CompilationFactKey {
     ImportedSemanticGraph(ImportedInterfaceId),
     /// One exact decoded and remapped imported symbol-owned fact category.
     ImportedSemanticFact(ImportedSemanticFactKey),
+    /// Implementations participating in one package coherence domain.
+    ImplementationParticipation(ImplementationCoherenceDomainKey),
     /// The deterministic compilation-local imported symbol identity skeleton.
     ImportedSymbolSkeleton,
     /// The current library product's complete immutable interface export bundle.
@@ -144,6 +149,7 @@ impl CompilationFactKey {
             | Self::ImportedDiagnostics
             | Self::ImportedSemanticGraph(_)
             | Self::ImportedSemanticFact(_)
+            | Self::ImplementationParticipation(_)
             | Self::ImportedSymbolSkeleton
             | Self::PackageInterfaceExportBundle
             | Self::SemanticValueStore

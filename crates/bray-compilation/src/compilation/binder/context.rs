@@ -223,7 +223,7 @@ mod tests {
     #[test]
     fn unrelated_paths_do_not_demand_dependency_interfaces() {
         let fixture = encoded_template_test_interface();
-        let compilation = compilation([valid_dependency(&fixture)]);
+        let compilation = compilation([crate::test_support::encoded_template_dependency(&fixture)]);
         let cancellation = CancellationToken::new();
 
         let facts = compilation
@@ -252,7 +252,7 @@ mod tests {
     fn matching_paths_demand_only_the_imported_identity_skeleton() {
         let fixture = encoded_template_test_interface();
         let components = fixture.package.as_str().split('.').collect::<Vec<_>>();
-        let compilation = compilation([valid_dependency(&fixture)]);
+        let compilation = compilation([crate::test_support::encoded_template_dependency(&fixture)]);
         let cancellation = CancellationToken::new();
 
         let facts = compilation
@@ -283,7 +283,7 @@ mod tests {
     fn cancelled_imported_path_lookup_does_not_publish_a_skeleton() {
         let fixture = encoded_template_test_interface();
         let components = fixture.package.as_str().split('.').collect::<Vec<_>>();
-        let compilation = compilation([valid_dependency(&fixture)]);
+        let compilation = compilation([crate::test_support::encoded_template_dependency(&fixture)]);
         let cancellation = CancellationToken::new();
 
         let facts = compilation
@@ -509,7 +509,7 @@ mod tests {
                 "{\n",
                 "}\n",
             ),
-            [valid_dependency(&fixture)],
+            [crate::test_support::encoded_template_dependency(&fixture)],
         );
 
         let key = crate::test_support::source_callable_body_key(&compilation);
@@ -659,18 +659,6 @@ mod tests {
         .unwrap_or_else(|error| panic!("test bound unit must be valid: {error:?}"));
 
         (unit, call)
-    }
-
-    fn valid_dependency(
-        fixture: &bray_package_interface::test_support::EncodedTemplateTestInterface,
-    ) -> DependencyInterfaceInput {
-        DependencyInterfaceInput::new(
-            fixture.package.clone(),
-            fixture.product.clone(),
-            "dependency.brayi",
-            Arc::<[u8]>::from(fixture.bytes.clone()),
-            InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
-        )
     }
 
     fn compilation(

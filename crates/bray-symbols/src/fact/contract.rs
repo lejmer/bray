@@ -15,11 +15,11 @@ use super::{
     CallableContractSet, CallableContractTemplate, CallableSignatureTemplate,
     CheckedCallableParameterDefault, CheckedStructFieldDefault, CheckedUnionPayloadDefault,
     ConstantDefinitionState, ConstantInstanceKey, GenericConstraintSet, GenericDeclarationTemplate,
-    ImplementationCandidateSet, ImplementationCoherenceKey, ImplementationHeadTemplate,
-    ImplementationRequirementKey, ImplementationSelection, ImplementationSubjectTemplate,
-    OverloadSignatureTemplate, PredicateDefinition, PredicateDefinitionState,
-    PredicateSignatureTemplate, SymbolFactKind, TraitApplicationTemplate, TypeExpressionTemplate,
-    UnevaluatedDefaultTemplate,
+    ImplementationCandidateSet, ImplementationCoherenceDomainKey, ImplementationCoherenceKey,
+    ImplementationHeadTemplate, ImplementationParticipationSet, ImplementationRequirementKey,
+    ImplementationSelection, ImplementationSubjectTemplate, OverloadSignatureTemplate,
+    PredicateDefinition, PredicateDefinitionState, PredicateSignatureTemplate, SymbolFactKind,
+    TraitApplicationTemplate, TypeExpressionTemplate, UnevaluatedDefaultTemplate,
 };
 
 mod sealed {
@@ -383,6 +383,11 @@ macro_rules! define_semantic_fact_contract {
 }
 
 define_semantic_fact_contract! {
+    /// Finds the implementations participating in one package coherence domain.
+    ImplementationParticipationFact {
+        key: ImplementationCoherenceDomainKey,
+        value: ImplementationParticipationSet,
+    }
     /// Finds uncommitted implementation candidates for an exact subject and trait application.
     ImplementationCandidateSetFact {
         key: ImplementationRequirementKey,
@@ -404,7 +409,8 @@ define_semantic_fact_contract! {
 mod tests {
     use crate::{
         CallableSignatureFact, ConstantDefinitionFact, ConstantSymbolId, FunctionSymbolId,
-        ImplementationCandidateSetFact, ImplementationRequirementKey, ImplementationSelectionFact,
+        ImplementationCandidateSetFact, ImplementationCoherenceDomainKey,
+        ImplementationParticipationFact, ImplementationRequirementKey, ImplementationSelectionFact,
         SemanticFactContract, SymbolFactKind, SymbolFactRequest, SymbolId,
         TraitConstantMemberDefinitionFact, TraitConstantMemberSymbolId,
     };
@@ -465,7 +471,17 @@ mod tests {
         {
         }
 
+        fn assert_participation_contract<C>()
+        where
+            C: SemanticFactContract<
+                    Key = ImplementationCoherenceDomainKey,
+                    Value = crate::ImplementationParticipationSet,
+                >,
+        {
+        }
+
         assert_candidate_contract::<ImplementationCandidateSetFact>();
         assert_selection_contract::<ImplementationSelectionFact>();
+        assert_participation_contract::<ImplementationParticipationFact>();
     }
 }
