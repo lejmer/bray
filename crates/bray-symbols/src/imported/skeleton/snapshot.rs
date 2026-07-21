@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
 use crate::collection::TypedSymbolRecords;
+use crate::provider::symbol_key_from_provider;
 use crate::record::for_each_declaration_symbol;
 use crate::{
     AnySymbolId, CallableParameterDefaultProviderSymbol, CallableParameterDefaultProviderSymbolId,
@@ -101,6 +102,11 @@ macro_rules! define_imported_symbol_skeleton {
                 key: &ExternalSymbolKey,
             ) -> Option<AnySymbolId> {
                 self.external_index.get(key).copied()
+            }
+
+            /// Returns one imported symbol's stable compilation semantic key.
+            pub fn symbol_key(&self, symbol: AnySymbolId) -> Option<&crate::SymbolKey> {
+                symbol_key_from_provider(self, symbol)
             }
 
             /// Returns the compiled-interface address backing one imported declaration symbol.
@@ -295,6 +301,11 @@ mod tests {
         assert_eq!(function.containing_symbol(), module_id.into());
         assert_eq!(function.origin(), SymbolOrigin::Imported);
         assert_eq!(function.declaration(), None);
+
+        assert_eq!(
+            skeleton.symbol_key(function_id.into()),
+            Some(function.key())
+        );
 
         assert_eq!(
             function.imported_fact_key().map(|key| key.interface()),

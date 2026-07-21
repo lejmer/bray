@@ -12,9 +12,13 @@ mod order;
 
 pub(crate) use check::{select_callable, select_operation};
 pub use model::{
-    CallableCandidate, CallableCandidateState, CallableSelectionRequest, CandidateSelection,
-    CompilerKnownOperationEvidence, ConstructionInputSurface, ImplementationSelectionEvidence,
-    OperationCandidate, OperationCandidateState, OperationSelectionRequest, ReceiverCapability,
-    ReceiverSelection, SelectionCandidateKey, SelectionFailure,
+    CallableCandidate, CallableCandidateState, CallableCandidateTemplate,
+    CallableCandidateTemplateState, CallableCandidateTemplates,
+    CallableDeclarationCandidateTemplate, CallableParameterDefaultTemplate,
+    CallableSelectionRequest, CallableValueCandidateTemplate, CandidateAbsence, CandidateSelection,
+    CompilerKnownOperationEvidence, ConstructionInputSurface, ExpressionCandidateSet,
+    ImplementationSelectionEvidence, OperationCandidate, OperationCandidateState,
+    OperationSelectionRequest, ReceiverCapability, ReceiverSelection, SelectionCandidateKey,
+    SelectionFailure,
 };
 pub(in crate::selection) use model::{CallableCandidateParts, OperationCandidatePlan};

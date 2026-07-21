@@ -28,10 +28,14 @@ pub use context::{
 };
 pub use outcome::{CheckerOutcome, ControlFlowCheckResult};
 pub use selection::{
-    CallableCandidate, CallableCandidateState, CallableSelectionRequest, CandidateSelection,
-    CompilerKnownOperationEvidence, ConstructionInputSurface, ImplementationSelectionEvidence,
-    OperationCandidate, OperationCandidateState, OperationSelectionRequest, ReceiverCapability,
-    ReceiverSelection, SelectionCandidateKey, SelectionFailure,
+    CallableCandidate, CallableCandidateState, CallableCandidateTemplate,
+    CallableCandidateTemplateState, CallableCandidateTemplates,
+    CallableDeclarationCandidateTemplate, CallableParameterDefaultTemplate,
+    CallableSelectionRequest, CallableValueCandidateTemplate, CandidateAbsence, CandidateSelection,
+    CompilerKnownOperationEvidence, ConstructionInputSurface, ExpressionCandidateSet,
+    ImplementationSelectionEvidence, OperationCandidate, OperationCandidateState,
+    OperationSelectionRequest, ReceiverCapability, ReceiverSelection, SelectionCandidateKey,
+    SelectionFailure,
 };
 pub use semantic_context::{
     AnonymousCallableContext, ContractClauseContext, DeclaredUnitContext, SemanticUnitContext,

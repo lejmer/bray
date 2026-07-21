@@ -8,12 +8,12 @@ mod publication;
 mod semantic_context;
 mod surface;
 
-// TODO(binder): Narrow and remove this expectation as candidate binding becomes production-used.
+// TODO(binder): Narrow and remove this expectation as remaining speculative binding APIs become used.
 #[cfg_attr(
     not(test),
     expect(
         dead_code,
-        reason = "candidate binding remains reserved for later semantic decisions"
+        reason = "some speculative binding APIs remain reserved for later semantic decisions"
     )
 )]
 mod binding;
@@ -49,7 +49,7 @@ mod unit;
 pub use binder::BinderDependency;
 pub use binding::{
     CallableTypeQualifiers, TypeExpressionBinder, TypeExpressionScope, TypeParameterBinding,
-    bind_callable_abi,
+    bind_callable_abi, bind_expression_candidates,
 };
 pub use bray_checker::CheckerOutcome as BindingOutcome;
 pub use entry::{

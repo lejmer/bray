@@ -1,6 +1,7 @@
 mod call;
 mod operation;
 mod result;
+mod template;
 
 pub(in crate::selection) use call::CallableCandidateParts;
 pub use call::{
@@ -13,3 +14,8 @@ pub use operation::{
     OperationCandidateState, OperationSelectionRequest,
 };
 pub use result::{CandidateSelection, SelectionCandidateKey, SelectionFailure};
+pub use template::{
+    CallableCandidateTemplate, CallableCandidateTemplateState, CallableCandidateTemplates,
+    CallableDeclarationCandidateTemplate, CallableParameterDefaultTemplate,
+    CallableValueCandidateTemplate, CandidateAbsence, ExpressionCandidateSet,
+};
