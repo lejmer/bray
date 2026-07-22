@@ -132,6 +132,8 @@ impl<'facts> DeclaredValueTypeBinding<'facts> {
             .ok_or(BinderFactError::DependencyUnavailable)?;
 
         if let BoundExpression::Name(name) = expression {
+            self.bind_surface_reference_type(name.target())?;
+
             self.add_constraint(
                 DeclaredValueTypeConstraintKind::DefinitionUse,
                 DeclaredValueTypeTerm::Expression(id),

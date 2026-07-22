@@ -288,6 +288,30 @@ impl DeclaredValueTypeBinding<'_> {
         }
     }
 
+    pub(super) fn bind_surface_reference_type(
+        &mut self,
+        target: BoundReferenceTarget,
+    ) -> BinderFactResult<()> {
+        let BoundReferenceTarget::Surface(symbol) = target else {
+            return Ok(());
+        };
+
+        let template = match symbol {
+            AnySymbolId::Constant(_)
+            | AnySymbolId::TraitConstantMember(_)
+            | AnySymbolId::TraitConstantFulfillment(_) => {
+                Some(self.constant_declared_type(symbol)?)
+            }
+            _ => None,
+        };
+
+        if let Some(template) = template {
+            self.add_evidence(surface_value(symbol), template);
+        }
+
+        Ok(())
+    }
+
     fn constant_type(
         &self,
         constant: ConstantSymbolId,

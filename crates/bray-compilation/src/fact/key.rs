@@ -3,9 +3,10 @@ use bray_checker::TargetValidityRequest;
 use bray_package_interface::InterfaceSemanticFactKind;
 use bray_source::SourceId;
 use bray_symbols::{
-    AnySymbolId, ImplementationCoherenceDomainKey, ImplementationRequirementKey,
-    ImportedInterfaceId, InterfaceSymbolId, SymbolFactKind,
+    AnySymbolId, ConstantInstanceKey, ImplementationCoherenceDomainKey,
+    ImplementationRequirementKey, ImportedInterfaceId, InterfaceSymbolId, SymbolFactKind,
 };
+use bray_target::TargetProfile;
 
 /// The exact artifact-local address of one imported symbol-owned fact category.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -69,6 +70,19 @@ impl SymbolFactKey {
     }
 }
 
+/// The complete compilation-local identity of one concrete constant evaluation.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub(crate) struct ConstantInstanceFactKey {
+    instance: ConstantInstanceKey,
+    target: TargetProfile,
+}
+
+impl ConstantInstanceFactKey {
+    pub(crate) const fn new(instance: ConstantInstanceKey, target: TargetProfile) -> Self {
+        Self { instance, target }
+    }
+}
+
 /// A compilation-fact identity used only for private dependency coordination.
 ///
 /// The key preserves enough semantic identity to detect dependency cycles and coordinate
@@ -87,6 +101,10 @@ pub(crate) enum CompilationFactKey {
     BoundUnit(BoundUnitKey),
     /// Diagnostics for the current whole-compilation check boundary.
     CheckDiagnostics,
+    /// Source constant definitions mapped to their exact expression units.
+    ConstantTemplateKeys,
+    /// One concrete constant value for an exact semantic instance and target profile.
+    ConstantInstance(ConstantInstanceFactKey),
     /// Durable control-flow facts for one bound unit.
     CheckedControlFlow(BoundUnitKey),
     /// Final expression types for one bound unit.
@@ -97,6 +115,8 @@ pub(crate) enum CompilationFactKey {
     DeclaredValueTypeTemplates(BoundUnitKey),
     /// The private fixed-point computation shared by expression type and selection facts.
     ExpressionSemantics(BoundUnitKey),
+    /// The checked symbolic term produced for one constant definition template.
+    SymbolicConstantTerm(BoundUnitKey),
     /// Declaration discovery for one source unit.
     DeclarationChunk(SourceId),
     /// The deterministically merged declaration table.
@@ -141,12 +161,15 @@ impl CompilationFactKey {
             | Self::CheckedExpressionTypes(key)
             | Self::CheckedSemanticSelections(key)
             | Self::DeclaredValueTypeTemplates(key)
-            | Self::ExpressionSemantics(key) => Some(key),
+            | Self::ExpressionSemantics(key)
+            | Self::SymbolicConstantTerm(key) => Some(key),
             Self::SelectedTarget
             | Self::TargetValidity(_)
             | Self::CompilerKnownSymbols
             | Self::BoundUnitIdentities
             | Self::CheckDiagnostics
+            | Self::ConstantTemplateKeys
+            | Self::ConstantInstance(_)
             | Self::DeclarationChunk(_)
             | Self::DeclarationTable
             | Self::DependencyInterface(_)
@@ -178,7 +201,9 @@ impl From<SymbolFactKey> for CompilationFactKey {
 mod tests {
     use bray_symbols::{AnySymbolId, FunctionSymbolId, SymbolFactKind, SymbolId};
 
-    use super::{CompilationFactKey, ImportedSemanticFactKey, SymbolFactKey};
+    use super::{
+        CompilationFactKey, ConstantInstanceFactKey, ImportedSemanticFactKey, SymbolFactKey,
+    };
 
     #[test]
     fn symbol_fact_keys_keep_exact_identity_and_category() {
@@ -199,6 +224,7 @@ mod tests {
         fn assert_send_sync<T: Send + Sync>() {}
 
         assert_send_sync::<CompilationFactKey>();
+        assert_send_sync::<ConstantInstanceFactKey>();
         assert_send_sync::<ImportedSemanticFactKey>();
         assert_send_sync::<SymbolFactKey>();
     }

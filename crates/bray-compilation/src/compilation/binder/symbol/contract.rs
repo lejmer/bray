@@ -15,8 +15,8 @@ use bray_syntax::{
     UsesClauseSyntax, WithClauseSyntax, syntax_node_view, walk_direct_child_nodes,
 };
 
+use super::binding::CompilationSymbolFactBinding;
 use super::cache::CompilationSymbolFacts;
-use super::compute::CompilationSymbolFactBinding;
 use super::surface::{compiler_known_surface, symbol_ordinal, with_declaration_root};
 use crate::compilation::binder::CompilationBinderFacts;
 use crate::fact::SymbolFactCache;

@@ -12,15 +12,15 @@ use bray_bound_tree::{
     CheckedSemanticSelections, DeclaredValueTypeTemplates, walk_bound_unit_view,
 };
 use bray_checker::{
-    CheckerInfrastructureError, CheckerOutcome, CheckerUnitView, ControlFlowChecker,
-    DefaultControlFlowChecker, DefaultExpressionSemanticChecker, ExpressionCandidateSet,
-    ExpressionSemanticChecker, NestedCallableEvidence, SemanticUnitContext,
+    CheckerInfrastructureError, CheckerUnitView, ControlFlowChecker, DefaultControlFlowChecker,
+    DefaultExpressionSemanticChecker, ExpressionCandidateSet, ExpressionSemanticChecker,
+    NestedCallableEvidence, SemanticUnitContext,
 };
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::SymbolGraph;
 
 use super::binder::{CompilationBinderFacts, bind_declared_value_type_templates, type_scope};
-use super::checker::CompilationCheckerContext;
+use super::checker::{CompilationCheckerContext, checker_result};
 use super::facts::{CheckedExpressionSemantics, Compilation};
 use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError, PublishedUnitFact};
 
@@ -84,7 +84,7 @@ impl Compilation {
         Ok(Arc::clone(published.result()))
     }
 
-    fn bound_unit_with_cancellation(
+    pub(in crate::compilation) fn bound_unit_with_cancellation(
         &self,
         key: BoundUnitKey,
         cancellation: &CancellationToken,
@@ -255,7 +255,7 @@ impl Compilation {
         }
     }
 
-    fn checked_expression_types_with_cancellation(
+    pub(in crate::compilation) fn checked_expression_types_with_cancellation(
         &self,
         key: BoundUnitKey,
         cancellation: &CancellationToken,
@@ -342,7 +342,7 @@ fn bind_unit(
     }
 }
 
-fn semantic_unit_context_for(
+pub(in crate::compilation) fn semantic_unit_context_for(
     symbols: &SymbolGraph,
     bound: &BoundUnit,
 ) -> Result<SemanticUnitContext, FactQueryError> {
@@ -364,13 +364,8 @@ fn check_control_flow(
         FactQueryError::CheckerInfrastructure(CheckerInfrastructureError::InvalidUnitView(error))
     })?;
 
-    let result = match DefaultControlFlowChecker.check_control_flow(unit) {
-        CheckerOutcome::Complete(result) => result.map(|result| result.into_facts()),
-        CheckerOutcome::Cancelled => return Err(FactQueryError::Cancelled),
-        CheckerOutcome::InfrastructureFailure(error) => {
-            return Err(FactQueryError::CheckerInfrastructure(error));
-        }
-    };
+    let result = checker_result(DefaultControlFlowChecker.check_control_flow(unit))?
+        .map(|result| result.into_facts());
 
     Ok((result, Box::new([])))
 }
@@ -440,22 +435,15 @@ fn check_expression_semantics(
         FactQueryError::CheckerInfrastructure(CheckerInfrastructureError::InvalidUnitView(error))
     })?;
 
-    let result = match DefaultExpressionSemanticChecker.check_expression_semantics(
+    let result = checker_result(DefaultExpressionSemanticChecker.check_expression_semantics(
         unit,
         declared_types,
         nested_callables,
         candidates,
-    ) {
-        CheckerOutcome::Complete(result) => {
-            let (value, diagnostics) = result.into_parts();
+    ))?;
 
-            DiagnosticResult::new(value, candidate_diagnostics.merged(&diagnostics))
-        }
-        CheckerOutcome::Cancelled => return Err(FactQueryError::Cancelled),
-        CheckerOutcome::InfrastructureFailure(error) => {
-            return Err(FactQueryError::CheckerInfrastructure(error));
-        }
-    };
+    let (value, diagnostics) = result.into_parts();
+    let result = DiagnosticResult::new(value, candidate_diagnostics.merged(&diagnostics));
 
     Ok((result, Box::new([])))
 }

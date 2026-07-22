@@ -18,23 +18,11 @@ use bray_syntax::{
 };
 
 use super::super::context::CompilationBinderFacts;
+use super::binding::CompilationSymbolFactBinding;
 use super::cache::CompilationSymbolFacts;
 use super::environment::type_binder;
 use super::surface::{declaration_callable_surface, declaration_child, declaration_syntax};
 use crate::fact::SymbolFactCache;
-
-pub(super) trait CompilationSymbolFactBinding<C>
-where
-    C: SymbolFactContract,
-{
-    fn cache(&self) -> &SymbolFactCache<C>;
-
-    fn bind(
-        &self,
-        context: &CompilationBinderFacts<'_>,
-        request: SymbolFactRequest<C>,
-    ) -> BinderFactResult<SymbolFactResult<C>>;
-}
 
 impl CompilationSymbolFactBinding<CallableSignatureFact> for CompilationSymbolFacts {
     fn cache(&self) -> &SymbolFactCache<CallableSignatureFact> {

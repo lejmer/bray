@@ -7,9 +7,14 @@ use bray_bound_tree::{
 };
 use bray_declarations::{DeclarationKind, DeclarationRecord, SyntaxAnchor};
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
-use bray_symbols::{AnySymbolId, SymbolGraph, SymbolKey};
+use bray_symbols::{
+    AnySymbolId, ConstantDefinitionState, ConstantInstanceValueFact, SemanticFactResult,
+    SymbolGraph, SymbolKey,
+};
 use bray_syntax::{SyntaxKind, SyntaxTree, SyntaxWalkControl, SyntaxWalkEvent, walk_syntax_tree};
 
+use super::binder::has_visible_generic_parameters;
+use super::constant::{constant_definition_id, empty_concrete_substitution};
 use super::facts::{CheckedExpressionSemantics, Compilation};
 use crate::fact::{CompilationFactKey, FactQueryError, PublishedUnitFact};
 
@@ -79,7 +84,7 @@ impl Compilation {
             let expression_semantics =
                 self.expression_semantics_with_cancellation(key.clone(), &self.state.cancellation)?;
 
-            let control_flow = self.checked_control_flow(key)?;
+            let control_flow = self.checked_control_flow(key.clone())?;
 
             // TODO(BRA-199): Finalized invocation and layout facts must request their exact
             // target-validity facts and retain those diagnostics in their semantic results.
@@ -92,6 +97,34 @@ impl Compilation {
             ));
 
             facts.push(SemanticDiagnosticFact::ControlFlow(control_flow));
+
+            if key.kind() == BoundUnitKind::ConstantTemplate {
+                let symbols = self.symbol_graph()?;
+
+                let owner = symbols
+                    .symbol_for_key(key.declared_owner())
+                    .ok_or(FactQueryError::InfrastructureFailure)?;
+
+                let definition =
+                    constant_definition_id(owner).ok_or(FactQueryError::InfrastructureFailure)?;
+
+                let template = self.checked_constant_template(definition)?;
+
+                facts.push(SemanticDiagnosticFact::ConstantTemplate(template));
+
+                if !has_visible_generic_parameters(symbols, owner) {
+                    let substitution =
+                        empty_concrete_substitution(self.semantic_value_store()?, definition)?;
+
+                    let instance =
+                        bray_symbols::ConstantInstanceKey::new(definition, substitution, None);
+
+                    let value = self
+                        .constant_instance_with_cancellation(instance, &self.state.cancellation)?;
+
+                    facts.push(SemanticDiagnosticFact::ConstantInstance(value));
+                }
+            }
         }
 
         Ok(DiagnosticBag::merged_all(
@@ -99,7 +132,9 @@ impl Compilation {
         ))
     }
 
-    fn declared_unit_keys(&self) -> Result<Vec<BoundUnitKey>, FactQueryError> {
+    pub(in crate::compilation) fn declared_unit_keys(
+        &self,
+    ) -> Result<Vec<BoundUnitKey>, FactQueryError> {
         let symbols = self.symbol_graph()?;
         let syntax = self.syntax_tree();
         let declarations = self.declaration_table();
@@ -240,6 +275,8 @@ enum SemanticDiagnosticFact {
     DeclaredTypes(Arc<DiagnosticResult<DeclaredValueTypeTemplates>>),
     ExpressionSemantics(Arc<PublishedUnitFact<CheckedExpressionSemantics>>),
     ControlFlow(Arc<DiagnosticResult<CheckedControlFlowFacts>>),
+    ConstantTemplate(Arc<DiagnosticResult<ConstantDefinitionState>>),
+    ConstantInstance(Arc<SemanticFactResult<ConstantInstanceValueFact>>),
 }
 
 impl SemanticDiagnosticFact {
@@ -249,6 +286,8 @@ impl SemanticDiagnosticFact {
             Self::DeclaredTypes(result) => result.diagnostics(),
             Self::ExpressionSemantics(result) => result.result().diagnostics(),
             Self::ControlFlow(result) => result.diagnostics(),
+            Self::ConstantTemplate(result) => result.diagnostics(),
+            Self::ConstantInstance(result) => result.diagnostics(),
         }
     }
 }

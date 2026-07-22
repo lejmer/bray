@@ -107,6 +107,15 @@ pub(crate) fn lookup_unqualified_name(
         };
     }
 
+    let generic_lookup = symbols
+        .symbol_for_key(unit.key().declared_owner())
+        .map(|owner| lookup_visible_generic_parameter(symbols, owner, name))
+        .unwrap_or(MemberLookupResult::NotFound);
+
+    if !matches!(generic_lookup, MemberLookupResult::NotFound) {
+        return generic_lookup;
+    }
+
     let module_lookup = module
         .map(|module| lookup_surface_name(symbols, module.into(), name, access))
         .unwrap_or(MemberLookupResult::NotFound);
@@ -119,6 +128,36 @@ pub(crate) fn lookup_unqualified_name(
     );
 
     combine_name_lookups(module_lookup, ambient_lookup)
+}
+
+fn lookup_visible_generic_parameter(
+    symbols: &SymbolGraph,
+    owner: AnySymbolId,
+    name: &str,
+) -> NameLookupResult<ResolvedName> {
+    let mut current = Some(owner);
+
+    while let Some(owner) = current {
+        let lookup =
+            lookup_surface_name(symbols, owner, name, NameAccess::Internal).classify(|candidate| {
+                match candidate {
+                    ResolvedName::Surface(
+                        AnySymbolId::GenericTypeParameter(_)
+                        | AnySymbolId::GenericConstParameter(_),
+                    ) => Some(candidate),
+                    ResolvedName::Local(_) | ResolvedName::Surface(_) => None,
+                }
+            });
+
+        match lookup {
+            MemberLookupResult::NotFound | MemberLookupResult::WrongKind(_) => {}
+            result => return result,
+        }
+
+        current = symbols.containing_symbol(owner);
+    }
+
+    MemberLookupResult::NotFound
 }
 
 pub(crate) fn lookup_surface_name(

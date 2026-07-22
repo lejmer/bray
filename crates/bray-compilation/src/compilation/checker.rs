@@ -174,13 +174,10 @@ impl Compilation {
                     cancellation,
                 };
 
-                match DefaultTargetValidityChecker.check_target_validity(&context, &request) {
-                    CheckerOutcome::Complete(result) => Ok(Arc::new(result)),
-                    CheckerOutcome::Cancelled => Err(FactQueryError::Cancelled),
-                    CheckerOutcome::InfrastructureFailure(error) => {
-                        Err(FactQueryError::CheckerInfrastructure(error))
-                    }
-                }
+                checker_result(
+                    DefaultTargetValidityChecker.check_target_validity(&context, &request),
+                )
+                .map(Arc::new)
             },
         )?;
 
@@ -196,6 +193,18 @@ impl Compilation {
         let facts = self.binder_facts_for(key, cancellation)?;
 
         Ok(CompilationCheckerContext::new(facts))
+    }
+}
+
+pub(super) fn checker_result<T>(
+    outcome: CheckerOutcome<T>,
+) -> Result<DiagnosticResult<T>, FactQueryError> {
+    match outcome {
+        CheckerOutcome::Complete(result) => Ok(result),
+        CheckerOutcome::Cancelled => Err(FactQueryError::Cancelled),
+        CheckerOutcome::InfrastructureFailure(error) => {
+            Err(FactQueryError::CheckerInfrastructure(error))
+        }
     }
 }
 
