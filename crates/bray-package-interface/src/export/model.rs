@@ -296,6 +296,7 @@ mod tests {
     #[test]
     fn bundles_reject_declaration_identities_without_semantic_facts() {
         let complete = package_interface_export_bundle();
+
         let first_declaration = complete
             .surface()
             .symbols()
@@ -320,6 +321,7 @@ mod tests {
     #[test]
     fn implementation_auxiliary_facts_do_not_replace_the_header() {
         let complete = package_interface_export_bundle();
+
         let implementation = complete
             .surface()
             .symbols()

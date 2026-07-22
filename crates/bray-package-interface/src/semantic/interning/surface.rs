@@ -37,6 +37,7 @@ impl InternState {
         let callable_contracts = self.convert_callable_contracts(facts, symbols)?;
         let coherence = self.convert_coherence(facts, symbols)?;
         let target_dependencies = self.convert_target_dependencies(facts, symbols)?;
+
         let implementations = self.convert_implementations(
             facts,
             symbols,
