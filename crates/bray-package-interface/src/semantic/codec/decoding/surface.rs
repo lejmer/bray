@@ -83,6 +83,7 @@ pub(super) fn decode_target_dependencies(
     for _ in 0..target_count {
         targets.push(InterfaceTargetFactDependency::new(
             read_symbol_reference(&mut reader, context)?,
+            read_symbol_reference(&mut reader, context)?,
             InterfaceConstantValueId::new(read_u32(&mut reader)?),
         ));
     }

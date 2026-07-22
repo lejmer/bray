@@ -100,6 +100,18 @@ impl ValidatedPackageInterface {
 
         crate::decode_semantic_facts(&sections, surface, self.limits)
     }
+
+    /// Decodes the semantic dependency graph required by one symbol-owned fact category.
+    pub fn decode_semantic_fact_graph(
+        &self,
+        surface: &crate::PackageInterfaceSurface,
+        owner: bray_symbols::InterfaceSymbolId,
+        kind: crate::InterfaceSemanticFactKind,
+    ) -> Result<crate::InterfaceSemanticFacts, InterfaceValidationError> {
+        let sections: Vec<_> = self.sections().collect();
+
+        crate::semantic::decode_semantic_fact_graph(&sections, surface, owner, kind, self.limits)
+    }
 }
 
 fn validate_file_size(
@@ -256,6 +268,7 @@ fn validate_hashes(
 
     let content_hash = compute_content_hash(&header, directory, bytes)
         .ok_or(InterfaceValidationError::Malformed)?;
+
     let artifact_hash = compute_artifact_hash(bytes).ok_or(InterfaceValidationError::Malformed)?;
 
     if content_hash != header.content_hash() || artifact_hash != header.artifact_hash() {
@@ -397,9 +410,9 @@ mod tests {
         assert_mutation_error(
             &bytes,
             8,
-            5,
+            6,
             InterfaceValidationError::UnsupportedFormatRevision {
-                actual: crate::InterfaceFormatRevision::new(5),
+                actual: crate::InterfaceFormatRevision::new(6),
             },
         );
 
@@ -717,7 +730,7 @@ mod tests {
 
         assert_eq!(
             DiagnosticRenderer::english().render(&revision).message(),
-            "unsupported package-interface format revision 9; expected 4"
+            "unsupported package-interface format revision 9; expected 5"
         );
     }
 

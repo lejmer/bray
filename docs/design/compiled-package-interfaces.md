@@ -539,10 +539,12 @@ interface diagnostic, not a later code-generation failure.
 
 ### Per-Fact Dependencies
 
-The artifact retains per-fact target dependencies so incremental and lazy queries can use precise keys. It can also publish a
-canonical interface-wide compatibility summary for fast rejection.
+The artifact retains per-fact target dependencies so incremental and lazy queries can use precise keys. Every dependency records the
+exact semantic-fact owner that consumes it, the required target-fact declaration, and the required canonical value. An
+implementation-header query therefore obtains only the target dependencies owned by that exact implementation.
 
-The summary is derived from the per-fact records and must not discard information needed to validate an individual lazy fact.
+The artifact can also publish a canonical interface-wide compatibility summary for fast rejection. The summary is derived from the
+per-fact records and must not discard information needed to validate an individual lazy fact.
 
 ---
 
@@ -946,7 +948,9 @@ The interface system must satisfy these invariants:
 - source provenance cannot affect semantic lookup or identity.
 
 Parallel encoding can build independent sections or record batches with task-local buffers, followed by deterministic canonical
-assembly. Parallel decoding can evaluate independent facts after eager structural validation.
+assembly. Parallel decoding can evaluate independent facts after eager structural validation. An exact implementation-header query
+decodes its implementation record, coherence evidence, generic constraints, semantic value dependencies, and owner-scoped target
+dependencies without decoding unrelated declaration templates, callable contracts, or implementation records.
 
 ---
 

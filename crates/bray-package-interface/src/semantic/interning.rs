@@ -11,8 +11,8 @@ mod ty;
 pub use model::{
     ImportedAbiDependency, ImportedCallableContractFact, ImportedConstraintFact,
     ImportedDeclarationTemplateFact, ImportedImplementationFact, ImportedSemanticFact,
-    ImportedSemanticFacts, ImportedSourceProvenance, InterfaceSemanticInternError,
-    InterfaceSymbolResolver,
+    ImportedSemanticFacts, ImportedSourceProvenance, ImportedTargetFact,
+    InterfaceSemanticInternError, InterfaceSymbolResolver,
 };
 
 use state::InternState;

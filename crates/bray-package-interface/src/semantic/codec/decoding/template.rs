@@ -310,6 +310,7 @@ mod tests {
     use super::super::decode_semantic_facts;
     use super::super::test_support::{
         interface_surface, key_by_kind as symbol_key, local_by_kind as symbol_reference,
+        section_views,
     };
     use crate::semantic::codec::encode_semantic_facts;
     use crate::test_support::{module_key as test_module_key, named_key};
@@ -323,7 +324,7 @@ mod tests {
         InterfaceImplementationReference, InterfaceSectionTag, InterfaceSemanticFacts,
         InterfaceSupportEntity, InterfaceSupportImplementation, InterfaceSymbolReference,
         InterfaceSymbolResolver, InterfaceTemplateReference, InterfaceType, InterfaceTypeId,
-        InterfaceValidationError, InterfaceValidationLimits, ValidatedInterfaceSection,
+        InterfaceValidationError, InterfaceValidationLimits,
     };
 
     #[test]
@@ -623,6 +624,7 @@ mod tests {
         let mut entities = facts.support_entities().to_vec();
         let foreign_package = PackageIdentity::try_new("foreign.templates")
             .unwrap_or_else(|| panic!("foreign test package identity must be valid"));
+
         let foreign_module = test_module_key(foreign_package, "templates");
 
         entities[0] = InterfaceSupportEntity::Declaration(named_key(
@@ -658,6 +660,7 @@ mod tests {
         let limits = InterfaceValidationLimits::default();
         let sections = encode_semantic_facts(&facts, &surface, limits)
             .unwrap_or_else(|error| panic!("valid checked templates must encode: {error:?}"));
+
         let mut owned = owned_sections(&sections);
         let (_, record_count, templates) = owned
             .iter_mut()
@@ -687,6 +690,7 @@ mod tests {
             CheckedTemplateKind::GenericConstraint,
             CheckedTemplateKind::CallableContract,
         ];
+
         let generic_type = symbol_reference(surface, SymbolKind::GenericTypeParameter);
         let generic_constant = symbol_reference(surface, SymbolKind::GenericConstParameter);
         let owners = [
@@ -958,18 +962,21 @@ mod tests {
             Some(SymbolOrdinal::new(0)),
         )
         .unwrap_or_else(|| panic!("test runtime default provider key must be valid"));
+
         let generic_type = ExternalSymbolKey::ordinal(
             structure.clone(),
             SymbolKind::GenericTypeParameter,
             SymbolOrdinal::new(0),
         )
         .unwrap_or_else(|| panic!("test generic type parameter key must be valid"));
+
         let generic_constant = ExternalSymbolKey::ordinal(
             structure.clone(),
             SymbolKind::GenericConstParameter,
             SymbolOrdinal::new(1),
         )
         .unwrap_or_else(|| panic!("test generic constant parameter key must be valid"));
+
         let symbols = [
             function,
             structure,
@@ -1082,15 +1089,6 @@ mod tests {
                     section.payload().to_vec(),
                 )
             })
-            .collect()
-    }
-
-    fn section_views(
-        sections: &[(InterfaceSectionTag, u64, Vec<u8>)],
-    ) -> Vec<ValidatedInterfaceSection<'_>> {
-        sections
-            .iter()
-            .map(|(tag, count, payload)| ValidatedInterfaceSection::for_test(*tag, *count, payload))
             .collect()
     }
 

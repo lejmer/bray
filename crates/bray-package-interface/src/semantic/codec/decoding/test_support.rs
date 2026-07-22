@@ -5,9 +5,19 @@ use bray_symbols::{ExternalSymbolKey, PackageIdentity, SymbolKind};
 use crate::test_support::insert_key_and_owners;
 use crate::{
     ExportSymbolInput, InterfaceContentHash, InterfaceDependency, InterfaceProductIdentity,
-    InterfaceProductKind, InterfaceSymbolReference, PackageInterfaceIdentity,
-    PackageInterfaceSurface, build_package_interface_surface,
+    InterfaceProductKind, InterfaceSectionTag, PackageInterfaceIdentity, PackageInterfaceSurface,
+    ValidatedInterfaceSection, build_package_interface_surface,
 };
+
+pub(super) use crate::test_support::local_by_kind;
+pub(super) type OwnedSection = (InterfaceSectionTag, u64, Vec<u8>);
+
+pub(super) fn section_views(sections: &[OwnedSection]) -> Vec<ValidatedInterfaceSection<'_>> {
+    sections
+        .iter()
+        .map(|(tag, count, payload)| ValidatedInterfaceSection::for_test(*tag, *count, payload))
+        .collect()
+}
 
 pub(super) fn interface_surface(
     package: PackageIdentity,
@@ -42,24 +52,6 @@ pub(super) fn interface_surface(
         [],
     )
     .unwrap_or_else(|error| panic!("test interface surface must be valid: {error:?}"))
-}
-
-pub(super) fn local(
-    surface: &PackageInterfaceSurface,
-    key: &ExternalSymbolKey,
-) -> InterfaceSymbolReference {
-    let id = surface
-        .symbol_by_external_key(key)
-        .unwrap_or_else(|| panic!("test symbol must be present in the identity surface"));
-
-    InterfaceSymbolReference::Local(id)
-}
-
-pub(super) fn local_by_kind(
-    surface: &PackageInterfaceSurface,
-    kind: SymbolKind,
-) -> InterfaceSymbolReference {
-    local(surface, &key_by_kind(surface, kind))
 }
 
 pub(super) fn key_by_kind(

@@ -3,10 +3,10 @@ use std::sync::Arc;
 use bray_binder::SymbolFactProvider;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
-    ImplementationCandidate, ImplementationCandidateSet, ImplementationCoherenceDomainKey,
-    ImplementationCoherenceEvidence, ImplementationCoherenceFact,
-    ImplementationCoherenceParticipant, ImplementationHeadTemplateFact,
-    ImplementationRequirementKey, SymbolFactRequest,
+    GenericDeclarationTemplateFact, GenericOwnerId, ImplementationCandidate,
+    ImplementationCandidateSet, ImplementationCoherenceDomainKey, ImplementationCoherenceEvidence,
+    ImplementationCoherenceFact, ImplementationCoherenceParticipant,
+    ImplementationHeadTemplateFact, ImplementationRequirementKey, SymbolFactRequest,
 };
 
 use super::index::{ImplementationHeader, ImplementationHeaderIndex};
@@ -75,6 +75,43 @@ impl super::super::Compilation {
 
             let implementation = participant.implementation();
 
+            if let Some(address) = facts
+                .imported_fact_address(implementation.into_any())
+                .map_err(super::super::binder::binder_fact_error)?
+            {
+                let imported = super::super::binder::imported_implementation(&facts, address)
+                    .map_err(super::super::binder::binder_fact_error)?;
+
+                let owner = GenericOwnerId::try_new(implementation.into_any())
+                    .ok_or(FactQueryError::InfrastructureFailure)?;
+
+                let generic = facts
+                    .symbol_fact(SymbolFactRequest::<GenericDeclarationTemplateFact>::new(
+                        owner,
+                    ))
+                    .map_err(super::super::binder::binder_fact_error)?;
+
+                let Some(trait_application) = imported.value().trait_application() else {
+                    continue;
+                };
+
+                // The generic template reuses the exact implementation publication and diagnostics.
+                let diagnostics = generic.diagnostics().clone();
+
+                // Header records retain shallow Arc-backed keys, templates, and target values independently.
+                headers.push(ImplementationHeader::new(
+                    participant.key().clone(),
+                    implementation,
+                    imported.value().subject().ty(),
+                    trait_application,
+                    generic.value().clone(),
+                    imported.value().target_dependencies().iter().cloned(),
+                    diagnostics,
+                ));
+
+                continue;
+            }
+
             let head = facts
                 .symbol_fact(SymbolFactRequest::<ImplementationHeadTemplateFact>::new(
                     implementation,
@@ -118,7 +155,6 @@ impl super::super::Compilation {
                 .chain([participation.diagnostics()]),
         );
 
-        // TODO(BRA-240): Add explicitly participating imported headers through their narrow facts.
         let index = ImplementationHeaderIndex::try_new(headers, values)
             .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
@@ -223,7 +259,7 @@ mod tests {
 
     use crate::fact::CompilationFactKey;
     use crate::test_support::{
-        compilation, encoded_template_dependency, package_identity, source_input,
+        compilation, encoded_semantic_dependency, package_identity, source_input,
     };
     use crate::{CancellationToken, Compilation, CompilationRequest};
 
@@ -395,11 +431,11 @@ impl WrapperConverts = Wrapper<T>(Converts<T>) with(true)
 
     #[test]
     fn candidate_indexes_depend_on_participation_without_demanding_dependency_interfaces() {
-        let interface = bray_package_interface::test_support::encoded_template_test_interface();
+        let interface = bray_package_interface::test_support::encoded_semantic_test_interface();
 
         let request =
             CompilationRequest::new(package_identity(), vec![source_input(IMPLEMENTATIONS, 0)])
-                .with_dependency_interfaces([encoded_template_dependency(&interface)]);
+                .with_dependency_interfaces([encoded_semantic_dependency(&interface)]);
 
         let compilation = Compilation::load(request)
             .unwrap_or_else(|error| panic!("test compilation must load: {error:?}"));

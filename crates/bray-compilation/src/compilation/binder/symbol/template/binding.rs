@@ -25,8 +25,10 @@ use super::super::cache::CompilationSymbolFacts;
 use super::super::compute::CompilationSymbolFactBinding;
 use super::super::environment::{generic_parameter_ids, type_binder};
 use super::super::surface::{symbol_ordinal, with_declaration_root};
-use super::imported::{imported_callable_contract, imported_constraints};
 use crate::compilation::binder::CompilationBinderFacts;
+use crate::compilation::binder::symbol::imported::{
+    imported_callable_contract, imported_constraints,
+};
 use crate::fact::SymbolFactCache;
 
 impl CompilationSymbolFactBinding<GenericDeclarationTemplateFact> for CompilationSymbolFacts {
@@ -171,7 +173,7 @@ fn bind_generic_declaration_template(
 
         let parameters = generic_parameter_ids(symbols, symbol)?;
 
-        let (constraints, diagnostics) = imported_constraints(context, address)?;
+        let (constraints, diagnostics) = imported_constraints(context, owner, address)?;
 
         return Ok(DiagnosticResult::new(
             GenericDeclarationTemplate::new(owner, parameters, constraints),
@@ -499,7 +501,7 @@ mod tests {
 
     use bray_package_interface::{
         InterfaceLanguageRevision, InterfaceValidationPolicy,
-        test_support::encoded_template_test_interface,
+        test_support::encoded_semantic_test_interface,
     };
     use bray_source::{SourceIdentity, SourceInput, SourceVersion};
     use bray_symbols::{
@@ -771,7 +773,7 @@ overload choose_any = {fast}
 
     #[test]
     fn imported_constraints_and_contracts_publish_resolved_templates() {
-        let fixture = encoded_template_test_interface();
+        let fixture = encoded_semantic_test_interface();
 
         let dependency = DependencyInterfaceInput::new(
             fixture.package.clone(),

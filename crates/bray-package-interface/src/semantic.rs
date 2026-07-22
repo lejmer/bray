@@ -3,13 +3,13 @@ mod interning;
 mod model;
 mod validation;
 
-pub(crate) use codec::encode_validated_semantic_facts;
 pub use codec::{EncodedSemanticSection, decode_semantic_facts, encode_semantic_facts};
+pub(crate) use codec::{decode_semantic_fact_graph, encode_validated_semantic_facts};
 pub use interning::{
     ImportedAbiDependency, ImportedCallableContractFact, ImportedConstraintFact,
     ImportedDeclarationTemplateFact, ImportedImplementationFact, ImportedSemanticFact,
-    ImportedSemanticFacts, ImportedSourceProvenance, InterfaceSemanticInternError,
-    InterfaceSymbolResolver,
+    ImportedSemanticFacts, ImportedSourceProvenance, ImportedTargetFact,
+    InterfaceSemanticInternError, InterfaceSymbolResolver,
 };
 pub use model::{
     InterfaceAbiDependency, InterfaceCallableContract, InterfaceCallableContractClause,

@@ -30,6 +30,7 @@ pub(super) fn decode_types(
     let callable_instance_count = read_count(&mut reader, limits, InterfaceLimit::RecordCount)?;
     let implementation_instance_count =
         read_count(&mut reader, limits, InterfaceLimit::RecordCount)?;
+
     let type_count = read_count(&mut reader, limits, InterfaceLimit::RecordCount)?;
 
     validate_record_count(
@@ -401,7 +402,7 @@ mod tests {
 
     struct Resolver {
         symbols: Vec<AnySymbolId>,
-        keys: Vec<bray_symbols::ExternalSymbolKey>,
+        keys: Vec<ExternalSymbolKey>,
     }
 
     impl InterfaceSymbolResolver for Resolver {
@@ -413,10 +414,7 @@ mod tests {
             self.symbols.get(id.to_index()?).copied()
         }
 
-        fn external_key(
-            &self,
-            reference: &InterfaceSymbolReference,
-        ) -> Option<bray_symbols::ExternalSymbolKey> {
+        fn external_key(&self, reference: &InterfaceSymbolReference) -> Option<ExternalSymbolKey> {
             let InterfaceSymbolReference::Local(id) = reference else {
                 return None;
             };
@@ -764,6 +762,7 @@ mod tests {
 
         facts = facts.with_target_dependencies(
             [InterfaceTargetFactDependency::new(
+                symbol_reference(&surface, SymbolKind::Function),
                 dependency_fact,
                 InterfaceConstantValueId::new(0),
             )],
@@ -786,14 +785,14 @@ mod tests {
 
         assert_eq!(decode_semantic_facts(&views, &surface, limits), Ok(facts));
 
-        let constrained_limits = limits.with_external_reference_count(2);
+        let constrained_limits = limits.with_external_reference_count(1);
 
         assert_eq!(
             decode_semantic_facts(&views, &surface, constrained_limits),
             Err(InterfaceValidationError::ResourceLimitExceeded {
                 limit: crate::InterfaceLimit::ExternalReferenceCount,
-                actual: 4,
-                maximum: 2,
+                actual: 2,
+                maximum: 1,
             })
         );
     }
@@ -876,24 +875,24 @@ mod tests {
             .with_contracts(
                 [InterfaceConstraint::new(
                     struct_reference,
-                    bray_symbols::SymbolOrdinal::new(0),
+                    SymbolOrdinal::new(0),
                     InterfacePredicateSummary::new(InterfaceDependencyContractId::new(0)),
                 )],
                 [InterfaceCallableContract::new(
                     function_reference.clone(),
                     [
                         crate::InterfaceCallableContractClause::new(
-                            bray_symbols::SymbolOrdinal::new(0),
+                            SymbolOrdinal::new(0),
                             bray_symbols::CallableContractClauseKind::Requires,
                             InterfacePredicateSummary::new(InterfaceDependencyContractId::new(0)),
                         ),
                         crate::InterfaceCallableContractClause::new(
-                            bray_symbols::SymbolOrdinal::new(1),
+                            SymbolOrdinal::new(1),
                             bray_symbols::CallableContractClauseKind::Ensures,
                             InterfacePredicateSummary::new(InterfaceDependencyContractId::new(0)),
                         ),
                         crate::InterfaceCallableContractClause::new(
-                            bray_symbols::SymbolOrdinal::new(2),
+                            SymbolOrdinal::new(2),
                             bray_symbols::CallableContractClauseKind::Static,
                             InterfacePredicateSummary::new(InterfaceDependencyContractId::new(0)),
                         ),
@@ -920,6 +919,7 @@ mod tests {
             )
             .with_target_dependencies(
                 [InterfaceTargetFactDependency::new(
+                    function_reference.clone(),
                     constant_reference,
                     InterfaceConstantValueId::new(0),
                 )],

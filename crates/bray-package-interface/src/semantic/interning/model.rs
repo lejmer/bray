@@ -65,7 +65,7 @@ pub struct ImportedSemanticFacts {
     pub(super) callable_contracts: Arc<[ImportedCallableContractFact]>,
     pub(super) implementations: Arc<[ImportedImplementationFact]>,
     pub(super) coherence: Arc<[ImplementationCoherenceEvidence]>,
-    pub(super) target_dependencies: Arc<[TargetFactDependency]>,
+    pub(super) target_dependencies: Arc<[ImportedTargetFact]>,
     pub(super) abi_dependencies: Arc<[ImportedAbiDependency]>,
     pub(super) provenance: Arc<[ImportedSourceProvenance]>,
 }
@@ -157,27 +157,64 @@ impl ImportedCallableContractFact {
 }
 
 /// One imported implementation surface.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ImportedImplementationFact {
     pub(super) implementation: ImplementationSymbolId,
     pub(super) subject: ImplementationSubject,
     pub(super) trait_application: Option<TraitApplicationId>,
+    pub(super) coherence: Option<ImplementationCoherenceEvidence>,
+    pub(super) constraints: Arc<[CheckedConstraint]>,
+    pub(super) target_dependencies: Arc<[TargetFactDependency]>,
 }
 
 impl ImportedImplementationFact {
     /// Returns the implementation declaration.
-    pub const fn implementation(self) -> ImplementationSymbolId {
+    pub const fn implementation(&self) -> ImplementationSymbolId {
         self.implementation
     }
 
     /// Returns the implemented subject type.
-    pub const fn subject(self) -> ImplementationSubject {
+    pub const fn subject(&self) -> ImplementationSubject {
         self.subject
     }
 
     /// Returns the implemented trait application for trait implementations.
-    pub const fn trait_application(self) -> Option<TraitApplicationId> {
+    pub const fn trait_application(&self) -> Option<TraitApplicationId> {
         self.trait_application
+    }
+
+    /// Returns the exported coherence set containing this trait implementation.
+    pub const fn coherence(&self) -> Option<&ImplementationCoherenceEvidence> {
+        self.coherence.as_ref()
+    }
+
+    /// Returns the implementation's checked generic constraints.
+    pub fn constraints(&self) -> &[CheckedConstraint] {
+        &self.constraints
+    }
+
+    /// Returns the target facts required by this implementation header.
+    pub fn target_dependencies(&self) -> &[TargetFactDependency] {
+        &self.target_dependencies
+    }
+}
+
+/// One imported target requirement and the semantic fact that consumes it.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct ImportedTargetFact {
+    pub(super) owner: AnySymbolId,
+    pub(super) dependency: TargetFactDependency,
+}
+
+impl ImportedTargetFact {
+    /// Returns the semantic fact that consumes this requirement.
+    pub const fn owner(&self) -> AnySymbolId {
+        self.owner
+    }
+
+    /// Returns the required target fact and value.
+    pub const fn dependency(&self) -> &TargetFactDependency {
+        &self.dependency
     }
 }
 
@@ -259,15 +296,15 @@ impl ImportedSemanticFacts {
             InterfaceSemanticFactKind::Implementation => self
                 .implementations
                 .iter()
-                .copied()
                 .filter(|fact| fact.implementation().into_any() == owner)
+                .cloned()
                 .map(ImportedSemanticFact::Implementation)
                 .collect(),
             InterfaceSemanticFactKind::TargetFact => self
                 .target_dependencies
                 .iter()
-                .filter(|fact| AnySymbolId::from(fact.fact()) == owner)
-                .cloned()
+                .filter(|fact| fact.owner() == owner)
+                .map(|fact| fact.dependency().clone())
                 .map(ImportedSemanticFact::TargetFact)
                 .collect(),
             InterfaceSemanticFactKind::Abi => self
@@ -346,7 +383,7 @@ impl ImportedSemanticFacts {
     }
 
     /// Returns imported target-fact dependencies in canonical order.
-    pub fn target_dependencies(&self) -> &[TargetFactDependency] {
+    pub fn target_dependencies(&self) -> &[ImportedTargetFact] {
         &self.target_dependencies
     }
 

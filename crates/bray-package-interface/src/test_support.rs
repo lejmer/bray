@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{CheckedTemplateInputId, CheckedTemplateKind, CheckedTemplateNodeId};
 use bray_symbols::{
@@ -10,28 +10,34 @@ use crate::{
     ExportLookupInput, ExportRelationshipInput, ExportSymbolInput, ExportSymbolReferenceInput,
     ExportedLookupKind, InterfaceCheckedTemplate, InterfaceCheckedTemplateBehavior,
     InterfaceCheckedTemplateId, InterfaceCheckedTemplateInput, InterfaceCheckedTemplateInputKind,
-    InterfaceCheckedTemplateNode, InterfaceCheckedTemplateOperation, InterfaceDeclarationTemplate,
-    InterfaceDependencyContract, InterfaceLanguageRevision, InterfacePredicateSummary,
-    InterfaceProductIdentity, InterfaceProductKind, InterfaceSemanticFacts, InterfaceSupportEntity,
-    InterfaceSymbolReference, InterfaceType, InterfaceTypeId, PackageInterfaceExportBundle,
-    PackageInterfaceIdentity, PackageInterfaceSurface, SymbolRelationshipKind,
-    build_package_interface_surface, encode_package_interface,
+    InterfaceCheckedTemplateNode, InterfaceCheckedTemplateOperation, InterfaceCoherenceRecord,
+    InterfaceConstantValue, InterfaceConstantValueId, InterfaceConstantValueKind,
+    InterfaceDeclarationTemplate, InterfaceDependencyContract, InterfaceGenericSubstitution,
+    InterfaceGenericSubstitutionId, InterfaceImplementationRecord, InterfaceLanguageRevision,
+    InterfacePredicateSummary, InterfaceProductIdentity, InterfaceProductKind,
+    InterfaceSemanticFacts, InterfaceSupportEntity, InterfaceSymbolReference,
+    InterfaceTargetFactDependency, InterfaceTraitApplication, InterfaceTraitApplicationId,
+    InterfaceType, InterfaceTypeId, PackageInterfaceExportBundle, PackageInterfaceIdentity,
+    PackageInterfaceSurface, SymbolRelationshipKind, build_package_interface_surface,
+    encode_package_interface,
 };
 
 /// One valid encoded interface used by cross-crate compilation tests.
-pub struct EncodedTemplateTestInterface {
+pub struct EncodedSemanticTestInterface {
     /// Package identity recorded by the artifact.
     pub package: PackageIdentity,
     /// Product identity recorded by the artifact.
     pub product: InterfaceProductIdentity,
     /// Interface-local owner of the declaration template.
     pub template_owner: InterfaceSymbolId,
+    /// Interface-local owner of the imported implementation header.
+    pub implementation_owner: InterfaceSymbolId,
     /// Complete encoded artifact bytes.
     pub bytes: Vec<u8>,
 }
 
-/// Builds one valid interface containing a declaration-owned checked template.
-pub fn encoded_template_test_interface() -> EncodedTemplateTestInterface {
+/// Builds one valid interface containing representative exported semantic facts.
+pub fn encoded_semantic_test_interface() -> EncodedSemanticTestInterface {
     let bundle = package_interface_export_bundle();
     let package = bundle.surface().identity().package().clone();
     let product = bundle.surface().identity().product().clone();
@@ -45,13 +51,23 @@ pub fn encoded_template_test_interface() -> EncodedTemplateTestInterface {
         .map(|symbol| symbol.id())
         .unwrap_or_else(|| panic!("test template owner must be present"));
 
+    let implementation_owner = bundle
+        .surface()
+        .symbols()
+        .symbols()
+        .iter()
+        .find(|symbol| symbol.kind() == SymbolKind::NamedTraitImplementation)
+        .map(|symbol| symbol.id())
+        .unwrap_or_else(|| panic!("test implementation owner must be present"));
+
     let encoded = encode_package_interface(&bundle)
         .unwrap_or_else(|error| panic!("test interface must encode: {error:?}"));
 
-    EncodedTemplateTestInterface {
+    EncodedSemanticTestInterface {
         package,
         product,
         template_owner,
+        implementation_owner,
         bytes: encoded.bytes().to_vec(),
     }
 }
@@ -88,6 +104,17 @@ fn package_interface_export_bundle_for(
 
     let function = named_key(module.clone(), SymbolKind::Function, "run");
 
+    let structure = named_key(module.clone(), SymbolKind::Struct, "Record");
+    let trait_definition = named_key(module.clone(), SymbolKind::Trait, "Contract");
+
+    let implementation = named_key(
+        module.clone(),
+        SymbolKind::NamedTraitImplementation,
+        "RecordContract",
+    );
+
+    let target_fact = named_key(module.clone(), SymbolKind::Constant, "pointer_width");
+
     let generic_type = ExternalSymbolKey::ordinal(
         function.clone(),
         SymbolKind::GenericTypeParameter,
@@ -98,7 +125,14 @@ fn package_interface_export_bundle_for(
     let surface = identity_surface(
         package.clone(),
         product.clone(),
-        [function.clone(), generic_type],
+        [
+            function.clone(),
+            generic_type,
+            structure,
+            trait_definition,
+            implementation,
+            target_fact,
+        ],
         [
             ExportLookupInput::new(
                 ExternalSymbolKey::package(package.clone()),
@@ -143,23 +177,42 @@ fn identity_surface(
         .iter()
         .map(|key| ExportSymbolInput::new(key.clone(), key.owner().cloned()));
 
-    let relationships = keys.iter().filter_map(|key| {
+    let mut relationship_ordinals = BTreeMap::new();
+
+    let relationships = keys.iter().filter_map(move |key| {
         let owner = key.owner()?;
 
         let kind = match (owner.kind(), key.kind()) {
             (SymbolKind::Package, SymbolKind::Module) => SymbolRelationshipKind::PackageModule,
-            (SymbolKind::Module, SymbolKind::Function) => SymbolRelationshipKind::ModuleMember,
+            (
+                SymbolKind::Module,
+                SymbolKind::Function
+                | SymbolKind::Struct
+                | SymbolKind::Trait
+                | SymbolKind::NamedTraitImplementation
+                | SymbolKind::Constant,
+            ) => SymbolRelationshipKind::ModuleMember,
             (SymbolKind::Function, SymbolKind::GenericTypeParameter) => {
                 SymbolRelationshipKind::GenericParameter
             }
             pair => panic!("unsupported test symbol relationship: {pair:?}"),
         };
 
+        let next_ordinal = relationship_ordinals
+            .entry((owner.clone(), kind))
+            .or_insert(0_u32);
+
+        let ordinal = *next_ordinal;
+
+        *next_ordinal = next_ordinal
+            .checked_add(1)
+            .unwrap_or_else(|| panic!("test relationship ordinal must fit the wire format"));
+
         Some(ExportRelationshipInput::new(
             kind,
             owner.clone(),
             key.clone(),
-            0,
+            ordinal,
         ))
     });
 
@@ -181,13 +234,11 @@ fn template_facts(
 ) -> InterfaceSemanticFacts {
     let owner = InterfaceSymbolReference::Local(owner);
 
-    let generic_type = surface
-        .symbols()
-        .symbols()
-        .iter()
-        .find(|symbol| symbol.kind() == SymbolKind::GenericTypeParameter)
-        .map(|symbol| InterfaceSymbolReference::Local(symbol.id()))
-        .unwrap_or_else(|| panic!("test generic type parameter must be present"));
+    let generic_type = local_by_kind(surface, SymbolKind::GenericTypeParameter);
+    let structure = local_by_kind(surface, SymbolKind::Struct);
+    let trait_definition = local_by_kind(surface, SymbolKind::Trait);
+    let implementation = local_by_kind(surface, SymbolKind::NamedTraitImplementation);
+    let target_fact = local_by_kind(surface, SymbolKind::Constant);
 
     let behavior = InterfaceCheckedTemplateBehavior::new(
         [],
@@ -230,18 +281,42 @@ fn template_facts(
     );
 
     InterfaceSemanticFacts::new()
-        .with_values(
-            [InterfaceDependencyContract::new([])],
-            [InterfaceType::TypeParameter(generic_type)],
+        .with_applications(
+            [
+                InterfaceGenericSubstitution::new(structure.clone(), []),
+                InterfaceGenericSubstitution::new(trait_definition.clone(), []),
+            ],
+            [InterfaceTraitApplication::new(
+                trait_definition.clone(),
+                InterfaceGenericSubstitutionId::new(1),
+            )],
             [],
             [],
         )
-        .with_contracts(
-            [crate::InterfaceConstraint::new(
-                owner.clone(),
-                SymbolOrdinal::new(0),
-                predicate,
+        .with_values(
+            [InterfaceDependencyContract::new([])],
+            [
+                InterfaceType::TypeParameter(generic_type),
+                InterfaceType::Named {
+                    definition: structure.clone(),
+                    substitution: InterfaceGenericSubstitutionId::new(0),
+                },
+            ],
+            [InterfaceConstantValue::new(
+                InterfaceTypeId::new(1),
+                InterfaceConstantValueKind::Boolean(true),
             )],
+            [],
+        )
+        .with_contracts(
+            [
+                crate::InterfaceConstraint::new(owner.clone(), SymbolOrdinal::new(0), predicate),
+                crate::InterfaceConstraint::new(
+                    implementation.clone(),
+                    SymbolOrdinal::new(0),
+                    predicate,
+                ),
+            ],
             [crate::InterfaceCallableContract::new(
                 owner.clone(),
                 [crate::InterfaceCallableContractClause::new(
@@ -265,6 +340,56 @@ fn template_facts(
                 InterfaceCheckedTemplateId::new(0),
             )],
         )
+        .with_implementations(
+            [InterfaceImplementationRecord::new(
+                implementation.clone(),
+                InterfaceTypeId::new(1),
+                Some(InterfaceTraitApplicationId::new(0)),
+            )],
+            [InterfaceCoherenceRecord::new(
+                InterfaceTypeId::new(1),
+                InterfaceTraitApplicationId::new(0),
+                [implementation.clone()],
+            )],
+        )
+        .with_target_dependencies(
+            [
+                InterfaceTargetFactDependency::new(
+                    structure,
+                    target_fact.clone(),
+                    InterfaceConstantValueId::new(0),
+                ),
+                InterfaceTargetFactDependency::new(
+                    trait_definition,
+                    target_fact.clone(),
+                    InterfaceConstantValueId::new(0),
+                ),
+                InterfaceTargetFactDependency::new(
+                    implementation,
+                    target_fact.clone(),
+                    InterfaceConstantValueId::new(0),
+                ),
+                InterfaceTargetFactDependency::new(
+                    target_fact.clone(),
+                    target_fact,
+                    InterfaceConstantValueId::new(0),
+                ),
+            ],
+            [],
+        )
+}
+
+pub(crate) fn local_by_kind(
+    surface: &PackageInterfaceSurface,
+    kind: SymbolKind,
+) -> InterfaceSymbolReference {
+    surface
+        .symbols()
+        .symbols()
+        .iter()
+        .find(|symbol| symbol.kind() == kind)
+        .map(|symbol| InterfaceSymbolReference::Local(symbol.id()))
+        .unwrap_or_else(|| panic!("test symbol kind must be present"))
 }
 
 pub(crate) fn insert_key_and_owners(

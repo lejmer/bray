@@ -98,8 +98,8 @@ impl Compilation {
             participating.push(participant);
         }
 
-        // TODO(compilation): Include explicitly used imported named implementations when BRA-240
-        // publishes their implementation headers.
+        // TODO(compilation): Include imported named implementations when explicit using binding
+        // publishes their resolved identities and syntax anchors.
         let participation = ImplementationParticipationSet::try_new(domain, participating)
             .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
@@ -135,7 +135,7 @@ mod tests {
 
     use crate::fact::{CompilationFactKey, FactCellTestEvent};
     use crate::test_support::{
-        FactTestGate, compilation, encoded_template_dependency, package_identity, source_input,
+        FactTestGate, compilation, encoded_semantic_dependency, package_identity, source_input,
     };
     use crate::{Compilation, CompilationRequest};
 
@@ -307,11 +307,11 @@ impl First
 
     #[test]
     fn dependency_interfaces_do_not_contribute_or_get_demanded() {
-        let fixture = bray_package_interface::test_support::encoded_template_test_interface();
+        let fixture = bray_package_interface::test_support::encoded_semantic_test_interface();
 
         let request =
             CompilationRequest::new(package_identity(), vec![source_input("module app;", 0)])
-                .with_dependency_interfaces([encoded_template_dependency(&fixture)]);
+                .with_dependency_interfaces([encoded_semantic_dependency(&fixture)]);
 
         let with_dependency = Compilation::load(request)
             .unwrap_or_else(|error| panic!("test compilation must load: {error:?}"));
