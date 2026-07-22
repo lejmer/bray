@@ -2,6 +2,7 @@ mod common;
 mod contract;
 mod directory;
 mod facts;
+mod selection;
 mod support;
 mod surface;
 mod template;

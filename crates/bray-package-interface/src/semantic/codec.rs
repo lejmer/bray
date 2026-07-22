@@ -1,6 +1,8 @@
+mod coherence;
 mod common;
 mod decoding;
 mod encoding;
+mod record;
 
 pub(crate) use decoding::decode_semantic_fact_graph;
 pub use decoding::decode_semantic_facts;

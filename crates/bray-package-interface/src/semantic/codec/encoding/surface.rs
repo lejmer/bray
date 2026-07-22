@@ -1,40 +1,57 @@
 use super::facts::section;
 use super::model::EncodedSemanticSection;
+use crate::semantic::codec::coherence::coherence_record_indexes;
 use crate::semantic::codec::common::{
     write_count, write_optional_u32, write_string, write_symbol_reference,
 };
+use crate::semantic::codec::record::encode_record_table;
 use crate::tag::WireTag;
 use crate::wire::WireEncoder;
 use crate::{InterfaceSectionTag, InterfaceSemanticFacts};
 
 pub(super) fn encode_implementations(facts: &InterfaceSemanticFacts) -> EncodedSemanticSection {
+    let Some(coherence_by_implementation) = coherence_record_indexes(&facts.coherence) else {
+        unreachable!("validated coherence indexes fit the wire format");
+    };
+
     let mut encoder = WireEncoder::new();
 
-    write_count(&mut encoder, facts.implementations.len());
-    write_count(&mut encoder, facts.coherence.len());
+    encode_record_table(
+        &mut encoder,
+        &facts.implementations,
+        |encoder, implementation| {
+            write_symbol_reference(encoder, &implementation.implementation);
+            encoder.write_u32(implementation.subject.raw());
 
-    for implementation in &*facts.implementations {
-        write_symbol_reference(&mut encoder, &implementation.implementation);
-        encoder.write_u32(implementation.subject.raw());
+            write_optional_u32(
+                encoder,
+                implementation
+                    .trait_application
+                    .map(|application| application.raw()),
+            );
 
-        write_optional_u32(
-            &mut encoder,
-            implementation
-                .trait_application
-                .map(|application| application.raw()),
-        );
-    }
+            let coherence = coherence_by_implementation
+                .get(&implementation.implementation)
+                .map_or(&[][..], Vec::as_slice);
 
-    for coherence in &*facts.coherence {
+            write_count(encoder, coherence.len());
+
+            for index in coherence {
+                encoder.write_u32(*index);
+            }
+        },
+    );
+
+    encode_record_table(&mut encoder, &facts.coherence, |encoder, coherence| {
         encoder.write_u32(coherence.subject.raw());
         encoder.write_u32(coherence.trait_application.raw());
 
-        write_count(&mut encoder, coherence.implementations.len());
+        write_count(encoder, coherence.implementations.len());
 
         for implementation in &*coherence.implementations {
-            write_symbol_reference(&mut encoder, implementation);
+            write_symbol_reference(encoder, implementation);
         }
-    }
+    });
 
     section(
         InterfaceSectionTag::Implementations,
@@ -46,19 +63,24 @@ pub(super) fn encode_implementations(facts: &InterfaceSemanticFacts) -> EncodedS
 pub(super) fn encode_target_dependencies(facts: &InterfaceSemanticFacts) -> EncodedSemanticSection {
     let mut encoder = WireEncoder::new();
 
-    write_count(&mut encoder, facts.target_dependencies.len());
-    write_count(&mut encoder, facts.abi_dependencies.len());
+    encode_record_table(
+        &mut encoder,
+        &facts.target_dependencies,
+        |encoder, dependency| {
+            write_symbol_reference(encoder, &dependency.owner);
+            write_symbol_reference(encoder, &dependency.fact);
+            encoder.write_u32(dependency.value.raw());
+        },
+    );
 
-    for dependency in &*facts.target_dependencies {
-        write_symbol_reference(&mut encoder, &dependency.owner);
-        write_symbol_reference(&mut encoder, &dependency.fact);
-        encoder.write_u32(dependency.value.raw());
-    }
-
-    for dependency in &*facts.abi_dependencies {
-        write_symbol_reference(&mut encoder, &dependency.symbol);
-        encoder.write_u32(dependency.abi.to_wire());
-    }
+    encode_record_table(
+        &mut encoder,
+        &facts.abi_dependencies,
+        |encoder, dependency| {
+            write_symbol_reference(encoder, &dependency.symbol);
+            encoder.write_u32(dependency.abi.to_wire());
+        },
+    );
 
     section(
         InterfaceSectionTag::TargetDependencies,

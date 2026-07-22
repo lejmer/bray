@@ -1,4 +1,5 @@
 use std::collections::BTreeSet;
+use std::ops::Range;
 
 use bray_symbols::{ExternalSymbolKey, PackageIdentity, SymbolKind};
 
@@ -45,6 +46,121 @@ pub(super) fn owned_sections(sections: &[EncodedSemanticSection]) -> Vec<OwnedSe
             )
         })
         .collect()
+}
+
+pub(super) fn record_range(
+    payload: &[u8],
+    table_index: usize,
+    record_index: usize,
+) -> Range<usize> {
+    let table = table_range(payload, table_index);
+    let count = read_u32(payload, table.start) as usize;
+
+    if record_index >= count {
+        panic!("test record index must exist");
+    }
+
+    let directory_start = table.start + 4;
+    let payload_start = directory_start + count * 8;
+    let entry = directory_start + record_index * 8;
+    let offset = read_u32(payload, entry) as usize;
+    let length = read_u32(payload, entry + 4) as usize;
+
+    payload_start + offset..payload_start + offset + length
+}
+
+pub(super) fn append_record(payload: &mut Vec<u8>, table_index: usize, record: &[u8]) {
+    let table = table_range(payload, table_index);
+    let count = read_u32(payload, table.start) as usize;
+    let directory_start = table.start + 4;
+    let payload_start = directory_start + count * 8;
+    let payload_length = table.end - payload_start;
+
+    let mut replacement = Vec::with_capacity(table.len() + 8 + record.len());
+
+    replacement.extend_from_slice(
+        &u32::try_from(count + 1)
+            .unwrap_or_else(|_| panic!("test record count must fit the wire format"))
+            .to_le_bytes(),
+    );
+
+    replacement.extend_from_slice(&payload[directory_start..payload_start]);
+
+    replacement.extend_from_slice(
+        &u32::try_from(payload_length)
+            .unwrap_or_else(|_| panic!("test table length must fit the wire format"))
+            .to_le_bytes(),
+    );
+
+    replacement.extend_from_slice(
+        &u32::try_from(record.len())
+            .unwrap_or_else(|_| panic!("test record length must fit the wire format"))
+            .to_le_bytes(),
+    );
+
+    replacement.extend_from_slice(&payload[payload_start..table.end]);
+    replacement.extend_from_slice(record);
+
+    payload.splice(table, replacement);
+}
+
+pub(super) fn record_directory_entry(
+    payload: &[u8],
+    table_index: usize,
+    record_index: usize,
+) -> Range<usize> {
+    let table = table_range(payload, table_index);
+    let count = read_u32(payload, table.start) as usize;
+
+    if record_index >= count {
+        panic!("test record index must exist");
+    }
+
+    let start = table.start + 4 + record_index * 8;
+
+    start..start + 8
+}
+
+fn table_range(payload: &[u8], table_index: usize) -> Range<usize> {
+    let mut table_start = 0_usize;
+
+    for current_table in 0..=table_index {
+        let count = read_u32(payload, table_start) as usize;
+        let directory_start = table_start + 4;
+        let payload_start = directory_start + count * 8;
+
+        let payload_length = if count == 0 {
+            0
+        } else {
+            let last = directory_start + (count - 1) * 8;
+
+            read_u32(payload, last) as usize + read_u32(payload, last + 4) as usize
+        };
+
+        let table_end = payload_start + payload_length;
+
+        if current_table == table_index {
+            return table_start..table_end;
+        }
+
+        table_start = table_end;
+    }
+
+    unreachable!("requested test table must exist")
+}
+
+fn read_u32(bytes: &[u8], offset: usize) -> u32 {
+    let end = offset + 4;
+
+    let bytes = bytes
+        .get(offset..end)
+        .unwrap_or_else(|| panic!("test record framing must be complete"));
+
+    u32::from_le_bytes(
+        bytes
+            .try_into()
+            .unwrap_or_else(|_| panic!("test record scalar must be complete")),
+    )
 }
 
 pub(super) fn interface_surface(

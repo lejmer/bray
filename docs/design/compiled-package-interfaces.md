@@ -395,6 +395,15 @@ directly from private Rust field names.
 Every enum has an explicit stable wire tag. Every collection is length-delimited. Every reference names its table and is bounds
 checked. Reserved tags are rejected for the current exact format revision.
 
+Semantic value tables use canonical record directories followed by contiguous payload bytes. Each directory entry stores the
+record's relative offset and length. Structural validation checks the complete directory before any record is read, while exact-fact
+decoding reads only the records in the requested fact's transitive dependency closure. Record references are remapped into compact
+artifact-local tables before the ordinary semantic model is published.
+
+Implementation records identify the coherence records required by that implementation. This makes implementation selection
+addressable without scanning unrelated coherence payloads. Full semantic decoding iterates the same record directories in canonical
+order, so narrow and complete decoding share one wire representation.
+
 ### Types
 
 `InterfaceType` encodes canonical checked semantic types. Its closed variants include the forms required by the language, such as:
@@ -732,7 +741,7 @@ not store package-interface reader objects in public records.
 When an imported symbol fact is requested:
 
 1. `bray-compilation` resolves the imported fact key to the loaded interface.
-2. `bray-package-interface` validates and decodes the exact length-delimited payload.
+2. `bray-package-interface` validates the relevant record directories and decodes the exact fact's transitive record closure.
 3. External symbol references are mapped through the immutable imported skeleton and dependency maps.
 4. The decoded value is converted to the ordinary symbol-owned or bound-representation-owned fact type.
 5. The immutable `DiagnosticResult<T>` is cached under the compilation fact key.
