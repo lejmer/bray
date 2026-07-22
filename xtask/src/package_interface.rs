@@ -499,12 +499,12 @@ mod tests {
         ))
     }
 
-    fn write_fixture(path: &std::path::Path, bytes: &[u8]) {
+    fn write_fixture(path: &Path, bytes: &[u8]) {
         std::fs::write(path, bytes)
             .unwrap_or_else(|error| panic!("test fixture must be writable: {error}"));
     }
 
-    fn remove_fixture(path: &std::path::Path) {
+    fn remove_fixture(path: &Path) {
         std::fs::remove_file(path)
             .unwrap_or_else(|error| panic!("test fixture must be removable: {error}"));
     }
