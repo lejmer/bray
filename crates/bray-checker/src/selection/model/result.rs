@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use bray_bound_tree::DeclaredValueTypeTerm;
 use bray_symbols::SymbolKey;
 
 /// Stable identity of one candidate participating in deterministic selection.
@@ -9,6 +10,8 @@ pub enum SelectionCandidateKey {
     BuiltIn,
     /// A source, imported, or compiler-known declaration candidate.
     Symbol(SymbolKey),
+    /// One local or source-correlated callable value.
+    Value(DeclaredValueTypeTerm),
 }
 
 impl From<SymbolKey> for SelectionCandidateKey {

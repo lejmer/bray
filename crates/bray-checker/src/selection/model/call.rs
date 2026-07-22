@@ -2,12 +2,15 @@ use std::sync::Arc;
 
 use bray_base::shared_slice;
 use bray_bound_tree::{
-    BoundArgument, BoundExpressionId, BoundGenericArgument, BoundResolvedCall, MemberTarget,
+    BoundArgument, BoundExpressionId, BoundGenericArgument, BoundResolvedCall,
+    DeclaredValueTypeTerm, MemberTarget,
 };
 use bray_symbols::{
     CallableParameterDefaultProviderSymbolId, CallableParameterSymbolId, CallableSignature,
-    ImplementationRequirementKey, ImplementationSelection, SymbolKey,
+    GenericConstraintTemplate, ImplementationRequirementKey, ImplementationSelection, TypeId,
 };
+
+use super::SelectionCandidateKey;
 
 /// Receiver authority relevant to method candidate applicability.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -95,15 +98,18 @@ impl ImplementationSelectionEvidence {
 /// One callable target considered by exact argument and receiver applicability checking.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CallableCandidate {
-    key: SymbolKey,
+    key: SelectionCandidateKey,
     resolution: BoundResolvedCall,
-    signature: CallableSignature,
+    callable_type: TypeId,
+    declaration_signature: Option<CallableSignature>,
+    result: TypeId,
     defaults: Arc<
         [(
             CallableParameterSymbolId,
             CallableParameterDefaultProviderSymbolId,
         )],
     >,
+    generic_constraints: Arc<[GenericConstraintTemplate]>,
     implementation_selections: Arc<[ImplementationSelectionEvidence]>,
     state: CallableCandidateState,
 }
@@ -111,7 +117,7 @@ pub struct CallableCandidate {
 impl CallableCandidate {
     /// Creates a callable candidate and its available runtime defaults.
     pub fn new(
-        key: SymbolKey,
+        key: impl Into<SelectionCandidateKey>,
         resolution: BoundResolvedCall,
         signature: CallableSignature,
         defaults: impl IntoIterator<
@@ -127,13 +133,47 @@ impl CallableCandidate {
         defaults.sort_unstable_by_key(|(parameter, _)| *parameter);
 
         Self {
-            key,
+            key: key.into(),
             resolution,
-            signature,
+            callable_type: signature.callable_type(),
+            result: signature.result(),
+            declaration_signature: Some(signature),
             defaults: defaults.into(),
+            generic_constraints: Arc::new([]),
             implementation_selections: Arc::new([]),
             state,
         }
+    }
+
+    /// Creates a candidate from a value whose converged type is callable.
+    pub(crate) fn value(
+        key: DeclaredValueTypeTerm,
+        resolution: BoundResolvedCall,
+        callable_type: TypeId,
+        result: TypeId,
+        state: CallableCandidateState,
+    ) -> Self {
+        Self {
+            key: SelectionCandidateKey::Value(key),
+            resolution,
+            callable_type,
+            declaration_signature: None,
+            result,
+            defaults: Arc::new([]),
+            generic_constraints: Arc::new([]),
+            implementation_selections: Arc::new([]),
+            state,
+        }
+    }
+
+    /// Supplies declaration constraints retained with this candidate's substitution.
+    pub(crate) fn with_generic_constraints(
+        mut self,
+        constraints: impl IntoIterator<Item = GenericConstraintTemplate>,
+    ) -> Self {
+        self.generic_constraints = shared_slice(constraints);
+
+        self
     }
 
     /// Supplies typed implementation-selection facts used by the callable target.
@@ -150,7 +190,7 @@ impl CallableCandidate {
     }
 
     /// Returns the stable semantic key used for deterministic ordering.
-    pub const fn key(&self) -> &SymbolKey {
+    pub const fn key(&self) -> &SelectionCandidateKey {
         &self.key
     }
 
@@ -159,9 +199,19 @@ impl CallableCandidate {
         &self.resolution
     }
 
-    /// Returns the checked callable signature.
-    pub const fn signature(&self) -> &CallableSignature {
-        &self.signature
+    /// Returns the canonical callable type.
+    pub const fn callable_type(&self) -> TypeId {
+        self.callable_type
+    }
+
+    /// Returns the declaration signature when the candidate names a declaration.
+    pub(crate) const fn declaration_signature(&self) -> Option<&CallableSignature> {
+        self.declaration_signature.as_ref()
+    }
+
+    /// Returns the callable's checked result type before asynchronous wrapping.
+    pub const fn result(&self) -> TypeId {
+        self.result
     }
 
     /// Returns available parameter defaults in parameter-ID order.
@@ -177,6 +227,10 @@ impl CallableCandidate {
     /// Returns this candidate's non-type participation state.
     pub const fn state(&self) -> CallableCandidateState {
         self.state
+    }
+
+    pub(crate) fn generic_constraints(&self) -> &[GenericConstraintTemplate] {
+        &self.generic_constraints
     }
 
     pub(in crate::selection) fn implementation_selections(

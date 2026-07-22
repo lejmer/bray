@@ -347,6 +347,22 @@ mod tests {
     }
 
     #[test]
+    fn parser_parses_direct_explicit_generic_call_arguments() {
+        let sources = source_store(["target<Item, 4>(0);"]);
+        let snapshot = source(&sources, 0);
+
+        let mut parser = Parser::new(snapshot);
+        let mut boundary = |parser: &mut Parser| parser.at(SyntaxKind::SemicolonToken);
+
+        let expression = parser.parse_expression_until(&mut boundary);
+        let diagnostics = parser.finish();
+
+        assert_eq!(expression.call_operations().count(), 1);
+        assert!(expression.operator_token().is_none());
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
     fn parser_does_not_treat_comparison_as_a_generic_call() {
         let sources = source_store(["left < right;"]);
         let snapshot = source(&sources, 0);

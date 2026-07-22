@@ -98,6 +98,13 @@ impl DeclaredValueTypeBinding<'_> {
             .find_descendant::<LambdaExpressionSyntax>(self.context.syntax())
             .ok_or(BinderFactError::DependencyUnavailable)?;
 
+        let callable_type =
+            type_binder(self.context, self.owner)?.bind_anonymous_callable_type(&syntax)?;
+        let (callable_type, diagnostics) = callable_type.into_parts();
+
+        self.diagnostics.add_range(diagnostics);
+        self.callable_type = Some(callable_type);
+
         let parameters = syntax.parameter_list().parameters().collect::<Vec<_>>();
 
         if parameters.len() != symbol.parameters().len() {

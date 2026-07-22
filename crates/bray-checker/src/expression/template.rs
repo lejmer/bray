@@ -1,8 +1,12 @@
-use bray_bound_tree::{BoundCallResult, BoundCallableTarget, BoundResolvedCall};
+use bray_bound_tree::{
+    BoundCallResult, BoundCallableTarget, BoundFutureConstruction, BoundResolvedCall,
+};
+use bray_compiler_known::RepresentationRole;
 use bray_symbols::{
     CallableExecution, CallableInstanceData, CallableParameterSignature, CallableSignature,
-    CallableSignatureTemplate, GenericSubstitutionData, SemanticValueStore, TypeData,
-    TypeExpressionTemplate, TypeId,
+    CallableSignatureTemplate, CallableTypeData, GenericArgument, GenericParameterSymbolId,
+    GenericSubstitutionData, GenericSubstitutionId, NamedTypeSymbolId, SemanticValueStore,
+    StructSymbolId, SymbolProvider, TypeData, TypeExpressionTemplate, TypeId,
 };
 
 use crate::{
@@ -16,16 +20,41 @@ pub(super) enum TemplateResolution<T> {
     Unsupported,
 }
 
-pub(super) fn resolve_declaration_candidate(
-    values: &SemanticValueStore,
+pub(super) fn resolve_declaration_candidate<C>(
+    request: crate::CheckerUnitView<'_, C>,
     template: &CallableDeclarationCandidateTemplate,
-) -> Result<TemplateResolution<CallableCandidate>, CheckerInfrastructureError> {
-    if !template.generic().parameters().is_empty() || !template.generic().constraints().is_empty() {
-        // TODO(BRA-242): Bind candidate-specific generic arguments and constraints.
+) -> Result<TemplateResolution<CallableCandidate>, CheckerInfrastructureError>
+where
+    C: crate::CheckerRequestContext + ?Sized,
+{
+    let values = request.semantic_values();
+
+    if template.generic_arguments().len() != template.generic().parameters().len() {
         return Ok(TemplateResolution::Unsupported);
     }
 
-    let signature = match resolve_signature(values, template.signature())? {
+    let arguments = template
+        .generic_arguments()
+        .iter()
+        .map(bray_symbols::GenericArgumentTemplate::resolved_argument)
+        .collect::<Option<Vec<_>>>();
+
+    let Some(arguments) = arguments else {
+        return Ok(TemplateResolution::Unsupported);
+    };
+
+    let substitution = GenericSubstitutionData::try_new(
+        template.generic().owner(),
+        template.generic().parameters().iter().copied(),
+        arguments,
+    )
+    .map_err(|_| CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+
+    let substitution = values
+        .intern_generic_substitution(substitution)
+        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+
+    let signature = match resolve_signature(values, template.signature(), substitution)? {
         TemplateResolution::Resolved(signature) => signature,
         TemplateResolution::Unsupported => return Ok(TemplateResolution::Unsupported),
     };
@@ -38,29 +67,11 @@ pub(super) fn resolve_declaration_candidate(
         return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
     };
 
-    if callable_type.execution() == CallableExecution::Asynchronous {
-        // TODO(BRA-242): Construct the target-specific Future result for asynchronous calls.
-        return Ok(TemplateResolution::Unsupported);
-    }
-
-    let substitution = GenericSubstitutionData::try_new(
-        template.generic().owner(),
-        std::iter::empty(),
-        std::iter::empty(),
-    )
-    .map_err(|_| CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
-
-    let substitution = values
-        .intern_generic_substitution(substitution)
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
-
     let instance = CallableInstanceData::new(template.definition(), substitution);
 
-    let resolution = BoundResolvedCall::new(
-        BoundCallableTarget::Declaration(instance),
-        [],
-        BoundCallResult::Immediate(signature.result()),
-    );
+    let result = call_result(request, callable_type, signature.result())?;
+
+    let resolution = BoundResolvedCall::new(BoundCallableTarget::Declaration(instance), [], result);
 
     let mut defaults = Vec::new();
 
@@ -79,13 +90,16 @@ pub(super) fn resolve_declaration_candidate(
     // Selection owns its candidate key while binder templates remain reusable.
     let key = template.key().clone();
 
-    Ok(TemplateResolution::Resolved(CallableCandidate::new(
-        key,
-        resolution,
-        signature,
-        defaults,
-        candidate_state(template.state()),
-    )))
+    Ok(TemplateResolution::Resolved(
+        CallableCandidate::new(
+            key,
+            resolution,
+            signature,
+            defaults,
+            candidate_state(template.state()),
+        )
+        .with_generic_constraints(template.generic().constraints().iter().copied()),
+    ))
 }
 
 pub(super) fn resolve_type_template(
@@ -103,14 +117,15 @@ pub(super) fn resolve_type_template(
 fn resolve_signature(
     values: &SemanticValueStore,
     template: &CallableSignatureTemplate,
+    substitution: GenericSubstitutionId,
 ) -> Result<TemplateResolution<CallableSignature>, CheckerInfrastructureError> {
     let callable_type = match resolve_type_template(values, template.callable_type())? {
-        TemplateResolution::Resolved(ty) => ty,
+        TemplateResolution::Resolved(ty) => substitute_type(values, ty, substitution)?,
         TemplateResolution::Unsupported => return Ok(TemplateResolution::Unsupported),
     };
 
     let result = match resolve_type_template(values, template.result())? {
-        TemplateResolution::Resolved(ty) => ty,
+        TemplateResolution::Resolved(ty) => substitute_type(values, ty, substitution)?,
         TemplateResolution::Unsupported => return Ok(TemplateResolution::Unsupported),
     };
 
@@ -127,22 +142,118 @@ fn resolve_signature(
         .zip(parameter_templates)
     {
         let ty = match resolve_type_template(values, &parameter_template)? {
-            TemplateResolution::Resolved(ty) => ty,
+            TemplateResolution::Resolved(ty) => substitute_type(values, ty, substitution)?,
             TemplateResolution::Unsupported => return Ok(TemplateResolution::Unsupported),
         };
 
         parameters.push(CallableParameterSignature::new(parameter, ty));
     }
 
+    let receiver = template
+        .receiver()
+        .map(|receiver| {
+            substitute_type(values, receiver.ty(), substitution).map(|ty| {
+                bray_symbols::ReceiverParameterSignature::new(
+                    receiver.parameter(),
+                    ty,
+                    receiver.mode(),
+                )
+            })
+        })
+        .transpose()?;
+
     Ok(TemplateResolution::Resolved(CallableSignature::new(
         callable_type,
-        template.receiver(),
+        receiver,
         parameters,
         result,
     )))
 }
 
-const fn candidate_state(state: CallableCandidateTemplateState) -> CallableCandidateState {
+fn substitute_type(
+    values: &SemanticValueStore,
+    ty: TypeId,
+    substitution: GenericSubstitutionId,
+) -> Result<TypeId, CheckerInfrastructureError> {
+    values
+        .substitute_type(ty, substitution)
+        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)
+}
+
+pub(super) fn call_result<C>(
+    request: crate::CheckerUnitView<'_, C>,
+    callable: &CallableTypeData,
+    result: TypeId,
+) -> Result<BoundCallResult, CheckerInfrastructureError>
+where
+    C: crate::CheckerRequestContext + ?Sized,
+{
+    match callable.execution() {
+        CallableExecution::Synchronous => Ok(BoundCallResult::Immediate(result)),
+        CallableExecution::Asynchronous => Ok(BoundCallResult::LazyFuture(
+            BoundFutureConstruction::new(result, future_type(request, result)?),
+        )),
+    }
+}
+
+fn future_type<C>(
+    request: crate::CheckerUnitView<'_, C>,
+    completion: TypeId,
+) -> Result<TypeId, CheckerInfrastructureError>
+where
+    C: crate::CheckerRequestContext + ?Sized,
+{
+    let Some(definition) = request
+        .available_compiler_known_symbols()
+        .representation_symbol::<StructSymbolId>(RepresentationRole::Future)
+    else {
+        return Err(
+            CheckerInfrastructureError::CompilerKnownRepresentationUnavailable {
+                role: RepresentationRole::Future,
+            },
+        );
+    };
+
+    let Some(symbol) = request
+        .available_compiler_known_symbols()
+        .provider()
+        .symbol(definition)
+    else {
+        return Err(CheckerInfrastructureError::SemanticValueUnavailable);
+    };
+
+    let [parameter] = symbol.generic_type_parameters() else {
+        return Err(CheckerInfrastructureError::SemanticValueUnavailable);
+    };
+
+    let Some(owner) = bray_symbols::GenericOwnerId::try_new(definition.into()) else {
+        return Err(CheckerInfrastructureError::SemanticValueUnavailable);
+    };
+
+    let substitution = GenericSubstitutionData::try_new(
+        owner,
+        [GenericParameterSymbolId::Type(*parameter)],
+        [GenericArgument::Type(completion)],
+    )
+    .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+
+    let substitution = request
+        .semantic_values()
+        .intern_generic_substitution(substitution)
+        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+
+    request
+        .semantic_values()
+        .intern_type(TypeData::Named {
+            definition: NamedTypeSymbolId::Struct(definition),
+            substitution,
+        })
+        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)
+}
+
+pub(super) const fn candidate_state(
+    state: CallableCandidateTemplateState,
+) -> CallableCandidateState {
     match state {
         CallableCandidateTemplateState::Visible => CallableCandidateState::Available,
         CallableCandidateTemplateState::Inaccessible => CallableCandidateState::Inaccessible,

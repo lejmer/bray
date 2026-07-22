@@ -1,8 +1,6 @@
 use std::collections::BTreeSet;
 
-use bray_bound_tree::{
-    BoundExpression, BoundExpressionId, CheckedExpressionTypes, ExpressionTypeEntry,
-};
+use bray_bound_tree::{BoundExpressionId, CheckedExpressionTypes, ExpressionTypeEntry};
 use bray_compiler_known::RepresentationRole;
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticKind, DiagnosticType, SeverityKind,
@@ -132,18 +130,13 @@ where
     }
 
     for expression in finished.unresolved {
-        let Some(bound) = request.view().expression(expression) else {
+        if request.view().expression(expression).is_none() {
             return CheckerOutcome::InfrastructureFailure(
                 CheckerInfrastructureError::InvalidExpressionTypeInput { expression },
             );
-        };
-
-        if deferred.contains(&expression) {
-            continue;
         }
 
-        if matches!(bound, BoundExpression::AnonymousCallable(_)) {
-            // TODO(BRA-242): Infer anonymous callable types from their nested semantic unit.
+        if deferred.contains(&expression) {
             continue;
         }
 

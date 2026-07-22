@@ -15,6 +15,20 @@ pub(in crate::compilation) fn type_binder<'facts>(
     context: &'facts CompilationBinderFacts<'facts>,
     symbol: AnySymbolId,
 ) -> BinderFactResult<TypeExpressionBinder<'facts>> {
+    let scope = type_scope(context, symbol)?;
+
+    Ok(TypeExpressionBinder::new(
+        context.symbols,
+        context.semantic_values,
+        scope,
+        context.cancellation,
+    ))
+}
+
+pub(in crate::compilation) fn type_scope(
+    context: &CompilationBinderFacts<'_>,
+    symbol: AnySymbolId,
+) -> BinderFactResult<TypeExpressionScope> {
     let type_parameters = type_parameter_bindings(context, symbol)?;
 
     let module = context
@@ -24,13 +38,11 @@ pub(in crate::compilation) fn type_binder<'facts>(
 
     let self_type = self_type_context(context.symbols, symbol);
 
-    let scope = TypeExpressionScope::new(symbol, module, type_parameters, self_type);
-
-    Ok(TypeExpressionBinder::new(
-        context.symbols,
-        context.semantic_values,
-        scope,
-        context.cancellation,
+    Ok(TypeExpressionScope::new(
+        symbol,
+        module,
+        type_parameters,
+        self_type,
     ))
 }
 

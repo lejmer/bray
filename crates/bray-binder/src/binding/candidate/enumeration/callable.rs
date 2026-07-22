@@ -1,22 +1,44 @@
+use bray_base::Cancellation;
 use bray_bound_tree::{
     BoundExpression, BoundExpressionId, BoundReferenceTarget, BoundUnit,
-    BoundUnresolvedReferenceKind, DeclaredValueTypeTerm, SelectionKind,
+    BoundUnresolvedReferenceKind, DeclaredValueTypeTerm,
 };
 use bray_checker::{
     CallableCandidateTemplate, CallableCandidateTemplateState, CallableCandidateTemplates,
     CallableDeclarationCandidateTemplate, CallableParameterDefaultTemplate,
     CallableValueCandidateTemplate, CandidateAbsence, ExpressionCandidateSet,
 };
+use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
     AnySymbolId, CallableDefinitionId, CallableOverloadSymbolId, CallableOverloadTemplateFact,
     CallableParameterDefaultTemplateFact, CallableSignatureFact, CallableSymbolId,
     GenericDeclarationTemplateFact, GenericOwnerId, MemberLookupResult, OverloadArmTemplate,
     SymbolFactContract, SymbolFactRequest,
 };
-use bray_syntax::PathSyntax;
+use bray_syntax::{GenericArgumentSyntax, PathSyntax};
 
 use crate::lookup::{NameAccess, ResolvedName, bind_module_path};
-use crate::{BinderFactContext, BinderFactError, BinderFactResult, SymbolFactProvider};
+use crate::{
+    BinderFactContext, BinderFactError, BinderFactResult, SymbolFactProvider, TypeExpressionBinder,
+    TypeExpressionScope,
+};
+
+#[derive(Clone, Copy)]
+struct CallGenericContext<'syntax> {
+    arguments: &'syntax [GenericArgumentSyntax],
+    scope: &'syntax TypeExpressionScope,
+}
+
+struct CandidateCancellation<'context, C: ?Sized>(&'context C);
+
+impl<C> Cancellation for CandidateCancellation<'_, C>
+where
+    C: BinderFactContext + ?Sized,
+{
+    fn is_cancelled(&self) -> bool {
+        self.0.is_cancelled()
+    }
+}
 
 #[derive(Clone, Copy)]
 enum DeclarationCandidateOutcome {
@@ -47,7 +69,9 @@ pub(super) fn bind_call_candidates<C>(
     unit: &BoundUnit,
     expression: BoundExpressionId,
     callee: BoundExpressionId,
-) -> BinderFactResult<ExpressionCandidateSet>
+    generic_arguments: &[GenericArgumentSyntax],
+    type_scope: &TypeExpressionScope,
+) -> BinderFactResult<DiagnosticResult<ExpressionCandidateSet>>
 where
     C: BinderFactContext + ?Sized,
     C::SymbolFacts: SymbolFactProvider<CallableSignatureFact>
@@ -60,12 +84,19 @@ where
     };
 
     let mut candidates = Vec::new();
+    let mut diagnostics = DiagnosticBag::new();
+    let generic = CallGenericContext {
+        arguments: generic_arguments,
+        scope: type_scope,
+    };
 
     let absence = match callee_expression {
         BoundExpression::Name(name) => bind_reference_target(
             context,
             name.target(),
             state_for_recovery(name.is_recovered()),
+            generic,
+            &mut diagnostics,
             &mut candidates,
         )?,
         BoundExpression::UnresolvedReference(reference) => {
@@ -75,17 +106,21 @@ where
             for target in reference.candidates() {
                 absence = preferred_absence(
                     absence,
-                    bind_reference_target(context, *target, state, &mut candidates)?,
+                    bind_reference_target(
+                        context,
+                        *target,
+                        state,
+                        generic,
+                        &mut diagnostics,
+                        &mut candidates,
+                    )?,
                 );
             }
 
             absence
         }
         BoundExpression::MemberAccess(_) | BoundExpression::TraitQualifiedMember(_) => {
-            return Ok(ExpressionCandidateSet::Unsupported {
-                expression,
-                kind: SelectionKind::Member,
-            });
+            CandidateAbsence::UnavailableDeclarationFacts
         }
         _ => {
             bind_callable_value(
@@ -105,13 +140,18 @@ where
     let candidate_set = CallableCandidateTemplates::present(expression, candidates)
         .unwrap_or_else(|| CallableCandidateTemplates::absent(expression, absence));
 
-    Ok(ExpressionCandidateSet::Callable(candidate_set))
+    Ok(DiagnosticResult::new(
+        ExpressionCandidateSet::Callable(candidate_set),
+        diagnostics,
+    ))
 }
 
 fn bind_reference_target<C>(
     context: &C,
     target: BoundReferenceTarget,
     state: CallableCandidateTemplateState,
+    generic: CallGenericContext<'_>,
+    diagnostics: &mut DiagnosticBag,
     candidates: &mut Vec<CallableCandidateTemplate>,
 ) -> BinderFactResult<CandidateAbsence>
 where
@@ -123,11 +163,12 @@ where
 {
     match target {
         BoundReferenceTarget::Surface(AnySymbolId::CallableOverload(overload)) => {
-            bind_overload_candidates(context, overload, state, candidates)
+            bind_overload_candidates(context, overload, state, generic, diagnostics, candidates)
         }
-        BoundReferenceTarget::Surface(symbol) if symbol.kind().is_callable() => {
-            Ok(bind_declaration_candidate(context, symbol, state, candidates)?.absence())
-        }
+        BoundReferenceTarget::Surface(symbol) if symbol.kind().is_callable() => Ok(
+            bind_declaration_candidate(context, symbol, state, generic, diagnostics, candidates)?
+                .absence(),
+        ),
         BoundReferenceTarget::Local(_) | BoundReferenceTarget::Surface(_) => {
             bind_callable_value(DeclaredValueTypeTerm::Value(target), state, candidates);
 
@@ -150,6 +191,8 @@ fn bind_overload_candidates<C>(
     context: &C,
     overload: CallableOverloadSymbolId,
     state: CallableCandidateTemplateState,
+    generic: CallGenericContext<'_>,
+    diagnostics: &mut DiagnosticBag,
     candidates: &mut Vec<CallableCandidateTemplate>,
 ) -> BinderFactResult<CandidateAbsence>
 where
@@ -167,12 +210,23 @@ where
 
     for arm in template.arms() {
         let arm_outcome = match arm {
-            OverloadArmTemplate::Resolved(symbol) => {
-                bind_declaration_candidate(context, *symbol, state, candidates)?
-            }
-            OverloadArmTemplate::Source(anchor) => {
-                bind_source_overload_arm(context, overload, *anchor, state, candidates)?
-            }
+            OverloadArmTemplate::Resolved(symbol) => bind_declaration_candidate(
+                context,
+                *symbol,
+                state,
+                generic,
+                diagnostics,
+                candidates,
+            )?,
+            OverloadArmTemplate::Source(anchor) => bind_source_overload_arm(
+                context,
+                overload,
+                *anchor,
+                state,
+                generic,
+                diagnostics,
+                candidates,
+            )?,
         };
 
         outcome = outcome.merge(arm_outcome);
@@ -193,6 +247,8 @@ fn bind_source_overload_arm<C>(
     overload: CallableOverloadSymbolId,
     anchor: bray_declarations::SyntaxAnchor,
     state: CallableCandidateTemplateState,
+    generic: CallGenericContext<'_>,
+    diagnostics: &mut DiagnosticBag,
     candidates: &mut Vec<CallableCandidateTemplate>,
 ) -> BinderFactResult<DeclarationCandidateOutcome>
 where
@@ -214,7 +270,7 @@ where
 
     let outcome = match lookup {
         MemberLookupResult::Found(name) => {
-            bind_resolved_name_candidate(context, name, state, candidates)?
+            bind_resolved_name_candidate(context, name, state, generic, diagnostics, candidates)?
         }
         MemberLookupResult::Inaccessible(names) => {
             let mut outcome = DeclarationCandidateOutcome::Ignored;
@@ -224,6 +280,8 @@ where
                     context,
                     name,
                     CallableCandidateTemplateState::Inaccessible,
+                    generic,
+                    diagnostics,
                     candidates,
                 )?;
 
@@ -242,6 +300,8 @@ where
                     context,
                     name,
                     CallableCandidateTemplateState::Recovered,
+                    generic,
+                    diagnostics,
                     candidates,
                 )?;
 
@@ -260,6 +320,8 @@ fn bind_resolved_name_candidate<C>(
     context: &C,
     name: ResolvedName,
     state: CallableCandidateTemplateState,
+    generic: CallGenericContext<'_>,
+    diagnostics: &mut DiagnosticBag,
     candidates: &mut Vec<CallableCandidateTemplate>,
 ) -> BinderFactResult<DeclarationCandidateOutcome>
 where
@@ -272,7 +334,14 @@ where
     if let ResolvedName::Surface(symbol) = name
         && symbol.kind().is_callable()
     {
-        return bind_declaration_candidate(context, symbol, state, candidates);
+        return bind_declaration_candidate(
+            context,
+            symbol,
+            state,
+            generic,
+            diagnostics,
+            candidates,
+        );
     }
 
     Ok(DeclarationCandidateOutcome::Ignored)
@@ -282,6 +351,8 @@ fn bind_declaration_candidate<C>(
     context: &C,
     symbol: AnySymbolId,
     state: CallableCandidateTemplateState,
+    call_generic: CallGenericContext<'_>,
+    diagnostics: &mut DiagnosticBag,
     candidates: &mut Vec<CallableCandidateTemplate>,
 ) -> BinderFactResult<DeclarationCandidateOutcome>
 where
@@ -313,8 +384,42 @@ where
     let (generic, generic_diagnostics) =
         symbol_fact_value::<_, GenericDeclarationTemplateFact>(context, generic_owner)?;
 
+    if !call_generic.arguments.is_empty()
+        && call_generic.arguments.len() != generic.parameters().len()
+    {
+        return Ok(DeclarationCandidateOutcome::Ignored);
+    }
+
+    let generic_arguments = if call_generic.arguments.is_empty() {
+        DiagnosticResult::without_diagnostics(Vec::new())
+    } else {
+        let cancellation = CandidateCancellation(context);
+
+        // Each overload candidate owns an isolated type-expression binder scope.
+        match TypeExpressionBinder::new(
+            context.symbols(),
+            context.semantic_values(),
+            call_generic.scope.clone(),
+            &cancellation,
+        )
+        .bind_call_generic_arguments(call_generic.arguments, generic.parameters())
+        {
+            Ok(arguments) => arguments,
+            Err(BinderFactError::Cancelled) => return Err(BinderFactError::Cancelled),
+            Err(BinderFactError::DependencyUnavailable) => {
+                return Ok(DeclarationCandidateOutcome::Ignored);
+            }
+        }
+    };
+
+    let (generic_arguments, generic_argument_diagnostics) = generic_arguments.into_parts();
+    let has_generic_argument_diagnostics = !generic_argument_diagnostics.is_empty();
+
+    diagnostics.add_range(generic_argument_diagnostics);
+
     let mut defaults = Vec::with_capacity(signature.parameters().len());
-    let mut has_diagnostics = signature_diagnostics || generic_diagnostics;
+    let mut has_diagnostics =
+        signature_diagnostics || generic_diagnostics || has_generic_argument_diagnostics;
 
     for parameter in signature.parameters() {
         let (value, default_diagnostics) =
@@ -335,7 +440,13 @@ where
 
     candidates.push(CallableCandidateTemplate::Declaration(
         CallableDeclarationCandidateTemplate::new(
-            key, definition, signature, generic, defaults, state,
+            key,
+            definition,
+            signature,
+            generic,
+            generic_arguments,
+            defaults,
+            state,
         ),
     ));
 

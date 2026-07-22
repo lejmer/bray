@@ -17,7 +17,7 @@ use bray_syntax::{
 
 use super::cache::CompilationSymbolFacts;
 use super::compute::CompilationSymbolFactBinding;
-use super::surface::{compiler_known_surface, symbol_ordinal};
+use super::surface::{compiler_known_surface, symbol_ordinal, with_declaration_root};
 use crate::compilation::binder::CompilationBinderFacts;
 use crate::fact::SymbolFactCache;
 
@@ -53,8 +53,7 @@ fn bind_generic_constraints(
     context: &CompilationBinderFacts<'_>,
     owner: AnySymbolId,
 ) -> BinderFactResult<SymbolFactResult<GenericConstraintsFact>> {
-    let fragment = compiler_known_fragment(context.symbols, owner)?;
-    let clauses = direct_with_clauses(fragment.root());
+    let clauses = with_declaration_root(context, owner, |root| Ok(direct_with_clauses(root)))?;
 
     let mut constraints = Vec::new();
     let mut diagnostics = DiagnosticBag::new();

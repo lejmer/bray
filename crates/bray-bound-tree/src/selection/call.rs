@@ -45,8 +45,10 @@ pub enum SelectedArgument {
     Explicit {
         /// The argument expression occurrence.
         expression: BoundExpressionId,
-        /// The exact selected parameter.
-        parameter: CallableParameterSymbolId,
+        /// The exact declaration parameter, when the target is declaration-backed.
+        parameter: Option<CallableParameterSymbolId>,
+        /// The selected parameter's declaration-order ordinal.
+        ordinal: u32,
     },
     /// An omitted parameter supplied by its declaration-owned default provider.
     Default {

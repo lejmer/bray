@@ -7,13 +7,39 @@ use bray_symbols::{
     CallableTrust, CallableTypeData, CallableTypeTemplate, DependencyContractTemplateData,
     ReceiverParameterSignature, ReceiverParameterSymbolId, TypeData, TypeExpressionTemplate,
 };
-use bray_syntax::{ParameterListSyntax, ParameterSyntax, SourceSyntaxNode, TypeExpressionSyntax};
+use bray_syntax::{
+    CallableDirectivesSyntax, CallableModifiersSyntax, LambdaExpressionSyntax, ParameterListSyntax,
+    ParameterSyntax, SourceSyntaxNode, TypeExpressionSyntax,
+};
 
 use super::contract::CallableTypeQualifiers;
 use super::core::{TypeExpressionBinder, token_text};
 use crate::{BinderFactError, BinderFactResult};
 
 impl TypeExpressionBinder<'_> {
+    /// Binds the callable type owned by one anonymous callable semantic unit.
+    pub fn bind_anonymous_callable_type(
+        mut self,
+        syntax: &LambdaExpressionSyntax,
+    ) -> BinderFactResult<DiagnosticResult<TypeExpressionTemplate>> {
+        self.check_cancellation()?;
+
+        let result = syntax
+            .callable_result_clause()
+            .map(|result| result.type_expression());
+
+        let ty = self.bind_callable_type_surface(
+            Some(&syntax.parameter_list()),
+            result.as_ref(),
+            Some(&syntax.callable_modifiers()),
+            Some(&syntax.callable_directives()),
+        )?;
+
+        self.check_cancellation()?;
+
+        Ok(DiagnosticResult::new(ty, self.diagnostics))
+    }
+
     /// Binds one declaration callable signature through ordinary type-expression rules.
     pub fn bind_callable_signature(
         mut self,
@@ -110,49 +136,59 @@ impl TypeExpressionBinder<'_> {
         &mut self,
         syntax: &TypeExpressionSyntax,
     ) -> BinderFactResult<TypeExpressionTemplate> {
-        let parameters = match syntax.parameter_lists().next() {
-            Some(list) => list
-                .parameters()
-                .map(|parameter| self.bind_callable_parameter(&parameter))
-                .collect::<Result<Vec<_>, _>>()?,
-            None => Vec::new(),
-        };
+        let parameters = syntax.parameter_lists().next();
+        let modifiers = syntax.callable_modifiers().next();
+        let directives = syntax.callable_directives().next();
+        let result = syntax
+            .callable_result_clauses()
+            .next()
+            .map(|result| result.type_expression());
 
-        let result = match syntax.callable_result_clauses().next() {
-            Some(result) => self.bind_type(&result.type_expression())?,
+        self.bind_callable_type_surface(
+            parameters.as_ref(),
+            result.as_ref(),
+            modifiers.as_ref(),
+            directives.as_ref(),
+        )
+    }
+
+    fn bind_callable_type_surface(
+        &mut self,
+        parameters: Option<&ParameterListSyntax>,
+        result: Option<&TypeExpressionSyntax>,
+        modifiers: Option<&CallableModifiersSyntax>,
+        directives: Option<&CallableDirectivesSyntax>,
+    ) -> BinderFactResult<TypeExpressionTemplate> {
+        let parameters = parameters
+            .into_iter()
+            .flat_map(ParameterListSyntax::parameters)
+            .map(|parameter| self.bind_callable_parameter(&parameter))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let result = match result {
+            Some(result) => self.bind_type(result)?,
             None => self.bind_compiler_known_type(RepresentationRole::Unit)?,
         };
 
-        let modifiers = syntax.callable_modifiers().next();
-        let constness = if modifiers
-            .as_ref()
-            .is_some_and(|value| value.const_token().is_some())
-        {
+        let constness = if modifiers.is_some_and(|value| value.const_token().is_some()) {
             CallableConstness::Constant
         } else {
             CallableConstness::Runtime
         };
 
-        let execution = if modifiers
-            .as_ref()
-            .is_some_and(|value| value.async_token().is_some())
-        {
+        let execution = if modifiers.is_some_and(|value| value.async_token().is_some()) {
             CallableExecution::Asynchronous
         } else {
             CallableExecution::Synchronous
         };
 
-        let trust = if modifiers
-            .as_ref()
-            .is_some_and(|value| value.trusted_token().is_some())
-        {
+        let trust = if modifiers.is_some_and(|value| value.trusted_token().is_some()) {
             CallableTrust::Trusted
         } else {
             CallableTrust::Safe
         };
 
-        let directives = syntax.callable_directives().next();
-        let abi = self.bind_optional_callable_abi(directives.as_ref());
+        let abi = self.bind_optional_callable_abi(directives);
 
         let dependency_contract = self.empty_dependency_contract()?;
         let dependencies = CallableDependencyContracts::for_execution(

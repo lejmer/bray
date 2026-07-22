@@ -358,11 +358,20 @@ mod tests {
             "    inferred(3);\n",
             "    missing();\n",
             "    1 + 2;\n",
+            "    [1, 2][0];\n",
+            "    1 as i64;\n",
+            "    Record { value = 1 };\n",
+            "    let record = Record { value = 2 };\n",
+            "    record.value;\n",
             "}\n",
             "\n",
             "extern func fixed(value: [i32; 4] = [0; 4]) -> [i32; 4];\n",
             "extern func alternate(value: i32) -> i32;\n",
             "overload choose = {fixed, alternate}\n",
+            "struct Record\n",
+            "{\n",
+            "    value: i32;\n",
+            "}\n",
         ));
 
         assert!(
@@ -503,13 +512,22 @@ mod tests {
             })
         )));
 
-        assert!(results.iter().any(|result| matches!(
-            result.value(),
-            ExpressionCandidateSet::Unsupported {
-                kind: SelectionKind::Operator,
-                ..
-            }
-        )));
+        for kind in [
+            SelectionKind::Member,
+            SelectionKind::Operator,
+            SelectionKind::Index,
+            SelectionKind::Construction,
+            SelectionKind::Conversion,
+        ] {
+            assert!(
+                results.iter().any(|result| matches!(
+                    result.value(),
+                    ExpressionCandidateSet::Operation(operation)
+                        if operation.kind() == kind
+                )),
+                "candidate enumeration must cover {kind:?}: {results:?}"
+            );
+        }
 
         let repeated = candidates(&facts, bound.value(), first_overload.value().expression());
 
@@ -619,7 +637,17 @@ mod tests {
         unit: &BoundUnit,
         expression: BoundExpressionId,
     ) -> bray_diagnostics::DiagnosticResult<ExpressionCandidateSet> {
-        let result = bind_expression_candidates(facts, unit, expression)
+        let owner = facts
+            .symbols
+            .symbol_for_key(unit.key().declared_owner())
+            .unwrap_or_else(|| panic!("candidate unit owner must resolve"));
+
+        let scope = match super::super::symbol::type_scope(facts, owner) {
+            Ok(scope) => scope,
+            Err(error) => panic!("candidate type scope must bind: {error:?}"),
+        };
+
+        let result = bind_expression_candidates(facts, unit, expression, &scope)
             .unwrap_or_else(|error| panic!("candidate enumeration must complete: {error:?}"));
 
         assert!(result.diagnostics().is_empty());
@@ -643,7 +671,15 @@ mod tests {
                 bound,
                 BoundExpression::Call(_)
                     | BoundExpression::ErrorCall(_)
+                    | BoundExpression::MemberAccess(_)
+                    | BoundExpression::TraitQualifiedMember(_)
+                    | BoundExpression::Unary(_)
                     | BoundExpression::Binary(_)
+                    | BoundExpression::Assignment(_)
+                    | BoundExpression::Conversion(_)
+                    | BoundExpression::StructConstruction(_)
+                    | BoundExpression::LeadingDotVariant(_)
+                    | BoundExpression::Structured(_)
             ) {
                 expressions.push(expression);
             }
