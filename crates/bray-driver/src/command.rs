@@ -39,8 +39,11 @@ impl DriverOptions {
     }
 
     /// Returns compilation options derived from driver options.
-    pub const fn compilation_options(self) -> CompilationOptions {
-        CompilationOptions::new(self.worker_budget)
+    pub fn compilation_options(self) -> CompilationOptions {
+        CompilationOptions::new(
+            self.worker_budget,
+            bray_compilation::SelectedTarget::baseline(),
+        )
     }
 }
 

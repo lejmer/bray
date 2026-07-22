@@ -181,6 +181,9 @@ enum DiagnosticArgValueJson {
     ArtifactDigest(DiagnosticArtifactDigestJson),
     ArtifactKind(&'static str),
     ArtifactOrdinal(u32),
+    TargetRepresentation(&'static str),
+    CallableAbi(&'static str),
+    AlignmentKind(&'static str),
     Character(char),
     DeclarationName(String),
     ReferencedName(String),
@@ -220,6 +223,11 @@ impl DiagnosticArgValueJson {
             }
             DiagnosticArgValue::ArtifactKind(kind) => Self::ArtifactKind((*kind).as_str()),
             DiagnosticArgValue::ArtifactOrdinal(ordinal) => Self::ArtifactOrdinal(*ordinal),
+            DiagnosticArgValue::TargetRepresentation(kind) => {
+                Self::TargetRepresentation((*kind).as_str())
+            }
+            DiagnosticArgValue::CallableAbi(abi) => Self::CallableAbi((*abi).as_str()),
+            DiagnosticArgValue::AlignmentKind(kind) => Self::AlignmentKind((*kind).as_str()),
             DiagnosticArgValue::Character(character) => Self::Character(*character),
             DiagnosticArgValue::DeclarationName(name) => Self::DeclarationName(name.to_owned()),
             DiagnosticArgValue::ReferencedName(name) => Self::ReferencedName(name.to_owned()),
@@ -530,6 +538,7 @@ mod tests {
             Ok(value) => value,
             Err(error) => panic!("JSON diagnostics should parse: {error:?}"),
         };
+
         let arguments = &output["diagnostics"][0]["args"];
 
         assert_eq!(arguments[0]["name"], "expected_type");

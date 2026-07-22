@@ -223,18 +223,22 @@ mod tests {
     #[test]
     fn file_arguments_build_compilation_requests_with_options() {
         let file = TemporaryFile::write("main.bray", b"module main\n");
-        let options = CompilationOptions::new(WorkerBudget::serial());
+
+        let options = CompilationOptions::new(
+            WorkerBudget::serial(),
+            bray_compilation::SelectedTarget::baseline(),
+        );
 
         let request = match compilation_request_from_file_arguments(
             package_identity(),
             [file.path().to_path_buf()],
-            options,
+            options.clone(),
         ) {
             Ok(request) => request,
             Err(error) => panic!("compilation request should build: {error:?}"),
         };
 
-        assert_eq!(request.options(), options);
+        assert_eq!(request.options(), &options);
         assert_eq!(request.sources().len(), 1);
 
         let compilation = match Compilation::load(request) {
@@ -278,7 +282,10 @@ mod tests {
         let diagnostics = match compilation_request_from_file_arguments(
             package_identity(),
             [missing_path.clone()],
-            CompilationOptions::new(WorkerBudget::serial()),
+            CompilationOptions::new(
+                WorkerBudget::serial(),
+                bray_compilation::SelectedTarget::baseline(),
+            ),
         ) {
             Ok(request) => panic!("missing file should fail to build a request: {request:?}"),
             Err(diagnostics) => diagnostics,

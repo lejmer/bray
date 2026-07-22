@@ -14,13 +14,8 @@ pub(crate) fn test_type() -> TypeId {
 }
 
 pub(crate) fn test_target() -> MirTargetFacts {
-    let Some(identity) = bray_target::TargetIdentity::try_new("x86_64-linux") else {
-        panic!("test target identity must be valid");
-    };
-
     MirTargetFacts::new(
-        identity,
-        bray_target::test_support::test_target_machine(),
+        bray_target::test_support::test_target_profile(),
         bray_runtime_interface::RuntimeAbiVersion::new(1, 0),
     )
 }

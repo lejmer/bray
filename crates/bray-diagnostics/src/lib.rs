@@ -15,10 +15,11 @@ mod result;
 mod severity;
 
 pub use argument::{
-    DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticArtifactDigest,
-    DiagnosticArtifactDigestAlgorithm, DiagnosticArtifactKind, DiagnosticIoErrorKind,
-    DiagnosticModuleTrust, DiagnosticNameKind, DiagnosticOutputSink, DiagnosticSelectionKind,
-    DiagnosticType, DiagnosticVisibility,
+    DiagnosticAlignmentKind, DiagnosticArg, DiagnosticArgName, DiagnosticArgValue,
+    DiagnosticArtifactDigest, DiagnosticArtifactDigestAlgorithm, DiagnosticArtifactKind,
+    DiagnosticCallableAbi, DiagnosticIoErrorKind, DiagnosticModuleTrust, DiagnosticNameKind,
+    DiagnosticOutputSink, DiagnosticSelectionKind, DiagnosticTargetRepresentation, DiagnosticType,
+    DiagnosticVisibility,
 };
 pub use bag::DiagnosticBag;
 pub use code::DiagnosticCode;

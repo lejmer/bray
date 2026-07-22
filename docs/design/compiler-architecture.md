@@ -204,6 +204,35 @@ Diagnostics from lazily evaluated facts must be merged and ordered deterministic
 
 ---
 
+## Selected Target Facts
+
+One product compilation selects one immutable target context before requesting target-dependent semantic facts. The context owns
+the canonical `bray_target::TargetProfile`, the selected private runtime ABI version, and the capabilities used to derive the
+target-available compiler-known declaration view. It must not infer any of these values from the compiler host.
+
+The target profile contains the complete typed language-defined fact surface. Pointer, endian, architecture, and target-name facts
+are derived from the profile's identity and machine properties so independently supplied values cannot contradict them. Profile
+construction rejects incomplete fact groups, values outside the target `usize` range, scalar dependencies that contradict each
+other, ABI contracts that accept unavailable representations, and cross-group alignment contradictions before source checking
+begins. Compiler-known declaration availability is derived from this validated profile rather than supplied as a second capability
+model.
+
+The selected target is a typed compilation fact. Binder and checker requests borrow the same target profile instead of copying its
+identity, machine properties, or widths into phase-specific models. Target-sized literals and constants always use the profile's
+pointer width. Post-selection layout and ABI checks consume the same context after type and operation selection. Lowering and
+output contracts derive their target-facing inputs from those selected facts rather than rediscovering target properties.
+
+Post-selection target validity is keyed by the complete source-correlated representation, callable ABI, or layout requirement.
+Foreign ABI requirements include every by-value parameter and result representation plus the selected aggregate layout contract.
+The semantic fact that establishes such a requirement requests its validity and retains its diagnostics, preserving ordinary
+diagnostic projection without introducing a mutable global registry of previously requested checks.
+
+Target-independent facts do not depend on the selected-target fact. A target change invalidates declaration availability and the
+semantic, lowering, and output facts that requested target data while allowing source, syntax, declaration discovery, and other
+target-independent facts to remain reusable.
+
+---
+
 ## Parallel Execution Model
 
 Compiler work should be split at stable semantic boundaries:

@@ -59,6 +59,35 @@ const CHECKING_INCOMPATIBLE_CANDIDATE: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text(" candidate is incompatible with the supplied expressions"),
 ];
 
+const CHECKING_TARGET_REPRESENTATION_UNAVAILABLE: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("selected target does not provide the required "),
+    MessageTemplatePart::Arg(DiagnosticArgName::TargetRepresentation),
+    MessageTemplatePart::Text(" representation"),
+];
+
+const CHECKING_TARGET_CALLABLE_ABI_UNAVAILABLE: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("selected target does not provide the required "),
+    MessageTemplatePart::Arg(DiagnosticArgName::CallableAbi),
+    MessageTemplatePart::Text(" callable ABI"),
+];
+
+const CHECKING_TARGET_ALIGNMENT_UNSUPPORTED: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("required "),
+    MessageTemplatePart::Arg(DiagnosticArgName::AlignmentKind),
+    MessageTemplatePart::Text(" alignment "),
+    MessageTemplatePart::Arg(DiagnosticArgName::RequiredAlignment),
+    MessageTemplatePart::Text(" exceeds the selected target maximum of "),
+    MessageTemplatePart::Arg(DiagnosticArgName::MaximumAlignment),
+];
+
+const CHECKING_TARGET_ABI_REPRESENTATION_UNSUPPORTED: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("the selected "),
+    MessageTemplatePart::Arg(DiagnosticArgName::CallableAbi),
+    MessageTemplatePart::Text(" callable ABI does not accept "),
+    MessageTemplatePart::Arg(DiagnosticArgName::TargetRepresentation),
+    MessageTemplatePart::Text(" values by value"),
+];
+
 const BINDING_INVALID_CALLABLE_ABI: &[MessageTemplatePart] =
     &[MessageTemplatePart::Text("invalid callable ABI directive")];
 
@@ -539,6 +568,18 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         }
         DiagnosticKind::CheckingIncompatibleCandidate => {
             MessageTemplate::new(CHECKING_INCOMPATIBLE_CANDIDATE)
+        }
+        DiagnosticKind::CheckingTargetRepresentationUnavailable => {
+            MessageTemplate::new(CHECKING_TARGET_REPRESENTATION_UNAVAILABLE)
+        }
+        DiagnosticKind::CheckingTargetCallableAbiUnavailable => {
+            MessageTemplate::new(CHECKING_TARGET_CALLABLE_ABI_UNAVAILABLE)
+        }
+        DiagnosticKind::CheckingTargetAlignmentUnsupported => {
+            MessageTemplate::new(CHECKING_TARGET_ALIGNMENT_UNSUPPORTED)
+        }
+        DiagnosticKind::CheckingTargetAbiRepresentationUnsupported => {
+            MessageTemplate::new(CHECKING_TARGET_ABI_REPRESENTATION_UNSUPPORTED)
         }
         DiagnosticKind::BindingInvalidCallableAbi => {
             MessageTemplate::new(BINDING_INVALID_CALLABLE_ABI)

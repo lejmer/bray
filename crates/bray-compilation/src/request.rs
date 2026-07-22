@@ -8,43 +8,33 @@ use bray_package_interface::{
 use bray_source::{SourceInput, SourceSpan};
 use bray_symbols::PackageIdentity;
 
-use crate::TargetAvailabilityFacts;
+use crate::SelectedTarget;
 use crate::worker::WorkerBudget;
 
 /// Options for one compiler operation.
-#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub struct CompilationOptions {
     worker_budget: WorkerBudget,
-    target_availability: TargetAvailabilityFacts,
+    selected_target: SelectedTarget,
 }
 
 impl CompilationOptions {
     /// Creates compilation options.
-    pub const fn new(worker_budget: WorkerBudget) -> Self {
+    pub const fn new(worker_budget: WorkerBudget, selected_target: SelectedTarget) -> Self {
         Self {
             worker_budget,
-            target_availability: TargetAvailabilityFacts::portable(),
+            selected_target,
         }
     }
 
     /// Returns the compiler-owned CPU worker budget.
-    pub const fn worker_budget(self) -> WorkerBudget {
+    pub const fn worker_budget(&self) -> WorkerBudget {
         self.worker_budget
     }
 
-    /// Returns a copy configured with target availability facts.
-    pub const fn with_target_availability(
-        mut self,
-        target_availability: TargetAvailabilityFacts,
-    ) -> Self {
-        self.target_availability = target_availability;
-
-        self
-    }
-
-    /// Returns the immutable target availability facts.
-    pub const fn target_availability(self) -> TargetAvailabilityFacts {
-        self.target_availability
+    /// Returns the selected target for this compiler operation.
+    pub const fn selected_target(&self) -> &SelectedTarget {
+        &self.selected_target
     }
 }
 
@@ -208,8 +198,8 @@ impl CompilationRequest {
     }
 
     /// Returns the compilation options.
-    pub const fn options(&self) -> CompilationOptions {
-        self.options
+    pub const fn options(&self) -> &CompilationOptions {
+        &self.options
     }
 
     /// Returns the source inputs in request order.
@@ -266,7 +256,8 @@ mod tests {
 
     #[test]
     fn compilation_requests_hold_sources_and_options() {
-        let options = CompilationOptions::new(WorkerBudget::serial());
+        let options =
+            CompilationOptions::new(WorkerBudget::serial(), crate::SelectedTarget::baseline());
 
         let source = SourceInput::virtual_text(
             SourceIdentity::new(1),
@@ -291,13 +282,16 @@ mod tests {
         let export =
             PackageInterfaceExportRequest::new(export_identity, InterfaceLanguageRevision::new(0));
 
-        let request =
-            CompilationRequest::with_options(package_identity.clone(), vec![source], options)
-                .with_dependency_interfaces([dependency_interface()])
-                .with_package_interface_export(export);
+        let request = CompilationRequest::with_options(
+            package_identity.clone(),
+            vec![source],
+            options.clone(),
+        )
+        .with_dependency_interfaces([dependency_interface()])
+        .with_package_interface_export(export);
 
         assert_eq!(request.package_identity(), &package_identity);
-        assert_eq!(request.options(), options);
+        assert_eq!(request.options(), &options);
         assert_eq!(request.sources().len(), 1);
         assert_eq!(request.dependency_interfaces().len(), 1);
 

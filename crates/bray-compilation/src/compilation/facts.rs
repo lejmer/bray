@@ -6,6 +6,7 @@ use bray_bound_tree::{
     BoundUnit, BoundUnitKey, CheckedControlFlowFacts, CheckedExpressionTypes,
     CheckedSemanticSelections, DeclaredValueTypeTemplates,
 };
+use bray_checker::{TargetValidity, TargetValidityRequest};
 use bray_declarations::{
     DeclarationChunkResult, DeclarationTable, DeclarationTableResult,
     discover_source_unit_declarations, merge_declaration_chunks,
@@ -32,7 +33,7 @@ use crate::request::{
 };
 use crate::worker::WorkerBudget;
 
-use super::binder::{CompilationSymbolFacts, CompilationTargetFacts};
+use super::binder::CompilationSymbolFacts;
 use super::load::{
     CompilationLoadError, SourceInputDiagnosticContext, missing_source_input_diagnostic,
     next_diagnostic_id, source_load_diagnostic,
@@ -61,7 +62,9 @@ pub(super) struct CompilationState {
     declaration_table_result: FactCell<DeclarationTableResult>,
     compiler_known_symbols:
         FactCell<Result<Arc<CompilerKnownSymbolProvider>, CompilerKnownSymbolBuildError>>,
-    available_compiler_known_symbols: FactCell<AvailableCompilerKnownSymbols>,
+    selected_target: FactCell<crate::SelectedTargetContext>,
+    pub(super) target_validity:
+        FactCellMap<TargetValidityRequest, Arc<bray_diagnostics::DiagnosticResult<TargetValidity>>>,
     bound_unit_identities: FactCell<Result<BoundUnitIdentityMap, FactQueryError>>,
     symbol_graph: FactCell<Result<SymbolGraph, FactQueryError>>,
     semantic_values: FactCell<Result<SemanticValueStore, SemanticValueStoreCreateError>>,
@@ -77,7 +80,6 @@ pub(super) struct CompilationState {
     >,
     pub(super) imported_diagnostics: FactCell<DiagnosticBag>,
     pub(super) semantic_diagnostics: FactCell<DiagnosticBag>,
-    pub(super) target_facts: CompilationTargetFacts,
     pub(super) symbol_facts: CompilationSymbolFacts,
     pub(super) bound_units: UnitFactCache<BoundUnit>,
     pub(super) declared_value_type_templates: UnitFactCache<DeclaredValueTypeTemplates>,
@@ -157,7 +159,8 @@ impl Compilation {
                 declaration_chunks: empty_fact_caches(source_count),
                 declaration_table_result: FactCell::new(),
                 compiler_known_symbols: FactCell::new(),
-                available_compiler_known_symbols: FactCell::new(),
+                selected_target: FactCell::new(),
+                target_validity: FactCellMap::new(),
                 bound_unit_identities: FactCell::new(),
                 symbol_graph: FactCell::new(),
                 semantic_values: FactCell::new(),
@@ -167,7 +170,6 @@ impl Compilation {
                 imported_semantic_facts: FactCellMap::new(),
                 imported_diagnostics: FactCell::new(),
                 semantic_diagnostics: FactCell::new(),
-                target_facts: CompilationTargetFacts,
                 symbol_facts: CompilationSymbolFacts::new(),
                 bound_units: UnitFactCache::new(),
                 declared_value_type_templates: UnitFactCache::new(),
@@ -195,8 +197,8 @@ impl Compilation {
     }
 
     /// Returns the compilation options.
-    pub fn options(&self) -> CompilationOptions {
-        self.state.options
+    pub fn options(&self) -> &CompilationOptions {
+        &self.state.options
     }
 
     /// Returns the compiler-owned CPU worker budget.
@@ -204,16 +206,11 @@ impl Compilation {
         self.state.options.worker_budget()
     }
 
-    /// Returns the target capability facts selected for this compilation.
-    pub fn target_availability(&self) -> crate::TargetAvailabilityFacts {
-        self.state.options.target_availability()
-    }
-
-    /// Returns the compiler-known symbols available for the selected target.
-    pub fn available_compiler_known_symbols(&self) -> &AvailableCompilerKnownSymbols {
+    /// Returns the selected target and its available compiler-known declarations.
+    pub fn selected_target(&self) -> &crate::SelectedTargetContext {
         self.fact(
-            CompilationFactKey::AvailableCompilerKnownSymbols,
-            &self.state.available_compiler_known_symbols,
+            CompilationFactKey::SelectedTarget,
+            &self.state.selected_target,
             || {
                 let provider = match self.compiler_known_provider() {
                     Ok(provider) => Arc::clone(provider),
@@ -221,11 +218,18 @@ impl Compilation {
                     Err(error) => panic!("compiler-known symbol provider is invalid: {error:?}"),
                 };
 
-                let target = self.target_availability();
+                // The published fact retains its target independently of request options.
+                let target = self.state.options.selected_target().clone();
+                let available = provider.available_symbols(|rule| target.supports(rule));
 
-                provider.available_symbols(|rule| target.supports(rule))
+                crate::SelectedTargetContext::new(target, available)
             },
         )
+    }
+
+    /// Returns the compiler-known symbols available for the selected target.
+    pub fn available_compiler_known_symbols(&self) -> &AvailableCompilerKnownSymbols {
+        self.selected_target().available_compiler_known_symbols()
     }
 
     /// Returns the loaded source snapshots.
@@ -484,7 +488,7 @@ fn empty_fact_caches<T>(len: usize) -> Vec<FactCell<T>> {
 #[cfg(test)]
 mod tests {
     use bray_bound_tree::{BoundSourceAnchor, BoundUnitKey, BoundUnitKind};
-    use bray_compiler_known::{AvailabilityRule, CompilerKnownDeclarationKey};
+    use bray_compiler_known::CompilerKnownDeclarationKey;
     use bray_declarations::{DeclarationKind, ModulePath};
     use bray_diagnostics::{
         DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticId, DiagnosticKind,
@@ -499,7 +503,6 @@ mod tests {
     };
     use bray_syntax::SourceSyntaxNode;
 
-    use crate::TargetAvailabilityFacts;
     use crate::fact::{CompilationFactKey, FactQueryError};
     use crate::request::{CompilationOptions, CompilationRequest};
     use crate::test_support::{
@@ -541,7 +544,8 @@ mod tests {
 
     #[test]
     fn compilations_load_source_inputs_in_request_order() {
-        let options = CompilationOptions::new(WorkerBudget::serial());
+        let options =
+            CompilationOptions::new(WorkerBudget::serial(), crate::SelectedTarget::baseline());
 
         let request = CompilationRequest::with_options(
             package_identity(),
@@ -549,7 +553,7 @@ mod tests {
                 source_input("module first\n", 1),
                 source_input("module second\n", 2),
             ],
-            options,
+            options.clone(),
         );
 
         let compilation = match Compilation::load(request) {
@@ -557,7 +561,7 @@ mod tests {
             Err(error) => panic!("test compilation should load: {error:?}"),
         };
 
-        assert_eq!(compilation.options(), options);
+        assert_eq!(compilation.options(), &options);
         assert_eq!(compilation.worker_budget(), WorkerBudget::serial());
         assert_eq!(compilation.source_count(), 2);
 
@@ -719,7 +723,7 @@ mod tests {
     }
 
     #[test]
-    fn compiler_known_availability_is_lazy_cached_and_keeps_the_complete_provider() {
+    fn selected_targets_are_lazy_cached_without_requesting_source_facts() {
         let compilation = match Compilation::load_sources(
             package_identity(),
             vec![source_input("module app;", 0)],
@@ -728,35 +732,47 @@ mod tests {
             Err(error) => panic!("test compilation should load: {error:?}"),
         };
 
-        assert!(
-            compilation
-                .state
-                .available_compiler_known_symbols
-                .get()
-                .is_none()
-        );
+        assert!(compilation.state.selected_target.get().is_none());
+        assert!(compilation.state.syntax_tree_result.get().is_none());
+        assert!(compilation.state.declaration_table_result.get().is_none());
 
         let first = compilation.available_compiler_known_symbols();
         let second = compilation.available_compiler_known_symbols();
+
+        assert!(std::ptr::eq(first, second));
+
+        assert_eq!(
+            compilation
+                .selected_target()
+                .target()
+                .integer_width_bits()
+                .get(),
+            64
+        );
+
+        assert!(compilation.state.selected_target.get().is_some());
+        assert!(compilation.state.syntax_tree_result.get().is_none());
+        assert!(compilation.state.declaration_table_result.get().is_none());
+
+        assert_eq!(
+            compilation
+                .state
+                .fact_runtime
+                .dependencies(&CompilationFactKey::SelectedTarget),
+            Ok(Some(
+                vec![CompilationFactKey::CompilerKnownSymbols].into_boxed_slice()
+            ))
+        );
+
         let graph = match compilation.symbol_graph() {
             Ok(graph) => graph,
             Err(error) => panic!("test symbol graph must build: {error:?}"),
         };
 
-        assert!(std::ptr::eq(first, second));
-
         assert!(std::ptr::eq(
             first.provider(),
             graph.compiler_known_provider()
         ));
-
-        assert!(
-            compilation
-                .state
-                .available_compiler_known_symbols
-                .get()
-                .is_some()
-        );
 
         assert_eq!(
             first.provider().declaration_symbols().len(),
@@ -782,11 +798,36 @@ mod tests {
     }
 
     #[test]
+    fn concurrent_selected_target_requests_share_one_immutable_context() {
+        let compilation = match Compilation::load_sources(
+            package_identity(),
+            vec![source_input("module app;", 0)],
+        ) {
+            Ok(compilation) => compilation,
+            Err(error) => panic!("test compilation should load: {error:?}"),
+        };
+
+        let pointers = std::thread::scope(|scope| {
+            let requests = (0..4)
+                .map(|_| scope.spawn(|| std::ptr::from_ref(compilation.selected_target()) as usize))
+                .collect::<Vec<_>>();
+
+            requests
+                .into_iter()
+                .map(|request| match request.join() {
+                    Ok(pointer) => pointer,
+                    Err(_) => panic!("selected target request must not panic"),
+                })
+                .collect::<Vec<_>>()
+        });
+
+        assert!(pointers.windows(2).all(|pair| pair[0] == pair[1]));
+    }
+
+    #[test]
     fn compilations_publish_independent_views_for_their_target_facts() {
-        let portable = compilation_with_target(TargetAvailabilityFacts::portable());
-        let real16 = compilation_with_target(
-            TargetAvailabilityFacts::portable().with_rule(AvailabilityRule::Real16, true),
-        );
+        let portable = compilation_with_optional_real16(false);
+        let real16 = compilation_with_optional_real16(true);
 
         let key = declaration_key("TargetReal16");
 
@@ -1029,6 +1070,28 @@ mod tests {
     }
 
     #[test]
+    fn target_independent_control_flow_does_not_request_selected_target_facts() {
+        let compilation = checked_body_compilation();
+        let key = source_callable_body_key(&compilation);
+
+        let result = compilation.checked_control_flow(key.clone());
+
+        assert!(result.is_ok());
+
+        let dependencies = match compilation
+            .state
+            .fact_runtime
+            .dependencies(&CompilationFactKey::CheckedControlFlow(key))
+        {
+            Ok(Some(dependencies)) => dependencies,
+            Ok(None) => panic!("checked control flow must publish its dependencies"),
+            Err(error) => panic!("checked control-flow dependencies must be readable: {error:?}"),
+        };
+
+        assert!(!dependencies.contains(&CompilationFactKey::SelectedTarget));
+    }
+
+    #[test]
     fn declaration_owned_expression_queries_use_the_same_finalization_path() {
         let compilation = match Compilation::load_sources(
             package_identity(),
@@ -1228,6 +1291,7 @@ mod tests {
             Ok(symbols) => symbols,
             Err(error) => panic!("test symbol graph must build: {error:?}"),
         };
+
         let Some(constant) = symbols
             .constants()
             .iter()
@@ -1259,9 +1323,32 @@ mod tests {
         }
     }
 
-    fn compilation_with_target(target: TargetAvailabilityFacts) -> Compilation {
-        let options =
-            CompilationOptions::new(WorkerBudget::serial()).with_target_availability(target);
+    fn compilation_with_optional_real16(real16: bool) -> Compilation {
+        let baseline = crate::SelectedTarget::baseline();
+        let profile = baseline.profile();
+        let baseline_facts = profile.facts();
+
+        let facts = bray_target::TargetFacts::new(
+            baseline_facts.identity().clone(),
+            bray_target::TargetScalarFacts::new(real16, false, false, false),
+            baseline_facts.atomics(),
+            baseline_facts.abis(),
+            baseline_facts.address_spaces(),
+            baseline_facts.alignments(),
+            baseline_facts.operations(),
+        );
+
+        let profile = match bray_target::TargetProfile::try_new(
+            profile.identity().clone(),
+            profile.machine().clone(),
+            facts,
+        ) {
+            Ok(profile) => profile,
+            Err(error) => panic!("test target profile must be valid: {error:?}"),
+        };
+
+        let target = crate::SelectedTarget::new(profile, baseline.runtime_abi());
+        let options = CompilationOptions::new(WorkerBudget::serial(), target);
 
         let request = CompilationRequest::with_options(
             package_identity(),

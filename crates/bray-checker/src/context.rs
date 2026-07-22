@@ -8,6 +8,7 @@ use bray_symbols::{
     AnySymbolId, AvailableCompilerKnownSymbols, SemanticValueStore, SymbolFactContract,
     SymbolFactKind, SymbolFactRequest, SymbolFactResult,
 };
+use bray_target::TargetProfile;
 
 use crate::{CheckerUnitViewError, SemanticUnitContext};
 
@@ -129,6 +130,9 @@ pub trait CheckerRequestContext: Sync {
 
     /// Returns compiler-known symbols available for the current target.
     fn available_compiler_known_symbols(&self) -> &AvailableCompilerKnownSymbols;
+
+    /// Returns the selected language-level target profile.
+    fn selected_target(&self) -> &TargetProfile;
 
     /// Resolves a bound source anchor without exposing its source snapshot.
     fn source(

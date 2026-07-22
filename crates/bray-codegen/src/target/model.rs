@@ -1,14 +1,15 @@
 use std::sync::Arc;
 
 use bray_base::{NonEmptySharedStr, sorted_unique_shared_slice};
-use bray_target::{CodeModel, RelocationModel, TargetIdentity, TargetMachineProperties};
+use bray_target::{
+    CodeModel, RelocationModel, TargetIdentity, TargetMachineProperties, TargetProfile,
+};
 
 use super::{TargetAbi, TargetCompatibility, TargetDataLayout, TargetSymbolConvention};
 
 /// Complete target semantics that no backend may rediscover or override.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct TargetContract {
-    machine: TargetMachineProperties,
     data_layout: TargetDataLayout,
     abi: TargetAbi,
     symbols: TargetSymbolConvention,
@@ -16,16 +17,14 @@ pub struct TargetContract {
 }
 
 impl TargetContract {
-    /// Composes independently validated machine, layout, ABI, symbol, and compatibility facts.
+    /// Composes independently validated layout, ABI, symbol, and compatibility facts.
     pub const fn new(
-        machine: TargetMachineProperties,
         data_layout: TargetDataLayout,
         abi: TargetAbi,
         symbols: TargetSymbolConvention,
         compatibility: TargetCompatibility,
     ) -> Self {
         Self {
-            machine,
             data_layout,
             abi,
             symbols,
@@ -80,7 +79,7 @@ impl TargetMachineSelection {
 /// Validated backend-neutral target configuration for code generation.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CodegenTarget {
-    identity: TargetIdentity,
+    profile: TargetProfile,
     triple: NonEmptySharedStr,
     contract: TargetContract,
     selection: TargetMachineSelection,
@@ -89,7 +88,7 @@ pub struct CodegenTarget {
 impl CodegenTarget {
     /// Creates a complete target from validated semantic and machine-selection components.
     pub fn try_new(
-        identity: TargetIdentity,
+        profile: TargetProfile,
         triple: impl Into<Arc<str>>,
         contract: TargetContract,
         selection: TargetMachineSelection,
@@ -99,7 +98,7 @@ impl CodegenTarget {
         };
 
         Ok(Self {
-            identity,
+            profile,
             triple,
             contract,
             selection,
@@ -108,7 +107,12 @@ impl CodegenTarget {
 
     /// Returns the stable target identity used by codegen facts and artifacts.
     pub const fn identity(&self) -> &TargetIdentity {
-        &self.identity
+        self.profile.identity()
+    }
+
+    /// Returns the language-level target profile used by code generation.
+    pub const fn profile(&self) -> &TargetProfile {
+        &self.profile
     }
 
     /// Returns the canonical target triple.
@@ -118,7 +122,7 @@ impl CodegenTarget {
 
     /// Returns validated pointer, alignment, platform, and byte-order facts.
     pub const fn machine(&self) -> &TargetMachineProperties {
-        &self.contract.machine
+        self.profile.machine()
     }
 
     /// Returns validated scalar, aggregate, and address-space layout facts.

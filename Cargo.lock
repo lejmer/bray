@@ -111,6 +111,7 @@ dependencies = [
  "bray-source",
  "bray-symbols",
  "bray-syntax",
+ "bray-target",
  "bray-testing",
 ]
 
@@ -138,6 +139,7 @@ dependencies = [
  "bray-source",
  "bray-symbols",
  "bray-syntax",
+ "bray-target",
  "bray-testing",
  "rustc_apfloat",
 ]
@@ -168,9 +170,11 @@ dependencies = [
  "bray-diagnostics",
  "bray-package-interface",
  "bray-parser",
+ "bray-runtime-interface",
  "bray-source",
  "bray-symbols",
  "bray-syntax",
+ "bray-target",
 ]
 
 [[package]]

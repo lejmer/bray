@@ -541,6 +541,19 @@ checker can report the actual target constraint.
 Target checks receive the immutable selected target profile and available compiler-known surface. They do not read process-global
 host properties or infer the target from the machine running the compiler.
 
+`CheckerRequestContext` supplies the canonical `bray_target::TargetProfile` used by the request. Target-sized literal and constant
+checks take their width from that profile and do not accept an optional caller-supplied width. The same request context supplies the
+target-filtered compiler-known declaration view. Post-selection layout and ABI checks must consume these inputs rather than build a
+parallel target model.
+
+Post-selection target validity uses a typed request that pairs the selected representation, callable ABI, or alignment requirement
+with its exact source anchor. Its immutable result distinguishes valid and invalid requirements, and an invalid result owns a
+source-correlated structured diagnostic. The check does not reopen candidate selection or substitute a different operation.
+
+Each finalized semantic fact that establishes a target-dependent representation, callable ABI, or layout requests validity by the
+exact requirement key. The semantic fact retains the returned diagnostics in its own immutable result, so ordinary semantic
+diagnostic projection includes them without scanning caches or depending on which unrelated queries happened to run first.
+
 Product constraints and module-contribution gates use the same target rule service before ordinary body checking. Their earlier
 request point does not make target policy part of package loading or declaration discovery.
 

@@ -2,8 +2,8 @@ use std::num::{NonZeroU16, NonZeroU32};
 
 use bray_base::Cancellation;
 use bray_symbols::CallableAbi;
-use bray_target::test_support::test_target_machine;
-use bray_target::{CodeModel, RelocationModel, TargetIdentity};
+use bray_target::test_support::test_target_profile;
+use bray_target::{CodeModel, RelocationModel};
 use bray_testing::test_mir_unit;
 
 use crate::{
@@ -162,10 +162,6 @@ fn backend_identity() -> BackendIdentity {
 }
 
 pub(crate) fn codegen_target() -> CodegenTarget {
-    let Some(identity) = TargetIdentity::try_new("x86_64-linux") else {
-        panic!("test target identity must be valid");
-    };
-
     let contract = target_contract();
 
     let Ok(selection) = TargetMachineSelection::try_new(
@@ -177,9 +173,12 @@ pub(crate) fn codegen_target() -> CodegenTarget {
         panic!("test target machine selection must be valid");
     };
 
-    let Ok(target) =
-        CodegenTarget::try_new(identity, "x86_64-unknown-linux-gnu", contract, selection)
-    else {
+    let Ok(target) = CodegenTarget::try_new(
+        test_target_profile(),
+        "x86_64-unknown-linux-gnu",
+        contract,
+        selection,
+    ) else {
         panic!("test target must be valid");
     };
 
@@ -188,7 +187,6 @@ pub(crate) fn codegen_target() -> CodegenTarget {
 
 fn target_contract() -> TargetContract {
     TargetContract::new(
-        test_target_machine(),
         target_data_layout(),
         target_abi(),
         target_symbols(),

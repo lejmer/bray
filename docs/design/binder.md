@@ -658,9 +658,13 @@ contract. Broad consumers such as package diagnostics traverse reachable nested-
 Binder diagnostics remain owned by the bound-unit fact and checker diagnostics remain owned by the checker fact that produced them.
 
 Public compilation queries do not accept a caller-supplied `BinderFactContext`. `Compilation` owns the package identity, syntax,
-declarations, symbol graph, semantic value store, target provider, symbol-fact provider, cancellation token, and exact cache universe.
+declarations, symbol graph, semantic value store, selected target context, symbol-fact provider, cancellation token, and exact cache universe.
 It constructs a private `Binder` with the injected fact context and rejects unit keys whose owners do not belong to that symbol
 graph.
+
+The binder fact context also exposes the canonical `bray_target::TargetProfile`. Binding that depends on pointer width, machine
+properties, or another language-visible target fact must request that profile explicitly. It must not inspect the compiler host or
+accept a missing target value as a portable fallback.
 
 The typed bound-unit and semantic-fact accessors are the public demand model. `CheckerUnitView` is validated borrowed input to a
 focused checker service, not a query object or evidence that other domains completed. Dependency recording, scheduling, waiting,

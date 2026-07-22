@@ -75,15 +75,22 @@ impl Compilation {
             }
 
             let declared_types = self.declared_value_type_templates(key.clone())?;
+
             let expression_semantics =
                 self.expression_semantics_with_cancellation(key.clone(), &self.state.cancellation)?;
+
             let control_flow = self.checked_control_flow(key)?;
+
+            // TODO(BRA-199): Finalized invocation and layout facts must request their exact
+            // target-validity facts and retain those diagnostics in their semantic results.
 
             facts.push(SemanticDiagnosticFact::Bound(bound));
             facts.push(SemanticDiagnosticFact::DeclaredTypes(declared_types));
+
             facts.push(SemanticDiagnosticFact::ExpressionSemantics(
                 expression_semantics,
             ));
+
             facts.push(SemanticDiagnosticFact::ControlFlow(control_flow));
         }
 
@@ -722,10 +729,12 @@ mod tests {
 
         for source in cases {
             let compilation = compilation(source);
+
             let keys = match compilation.declared_unit_keys() {
                 Ok(keys) => keys,
                 Err(error) => panic!("recovered unit keys must be discoverable: {error:?}"),
             };
+
             let mut recovered = false;
 
             assert!(!keys.is_empty(), "{source}");
@@ -814,6 +823,7 @@ mod tests {
         ];
 
         let serial = compilation_with_sources_and_worker_budget(&sources, WorkerBudget::serial());
+
         let serial_keys = match serial.declared_unit_keys() {
             Ok(keys) => keys,
             Err(error) => panic!("serial unit keys must be discoverable: {error:?}"),
@@ -831,6 +841,7 @@ mod tests {
         };
 
         let parallel = compilation_with_sources_and_worker_budget(&sources, parallel_budget);
+
         let mut parallel_keys = match parallel.declared_unit_keys() {
             Ok(keys) => keys,
             Err(error) => panic!("parallel unit keys must be discoverable: {error:?}"),
@@ -860,6 +871,7 @@ mod tests {
         // Bound-unit keys share immutable identity storage across worker requests.
         std::thread::scope(|scope| {
             let parallel = &parallel;
+
             let handles = parallel_keys
                 .into_iter()
                 .map(|key| scope.spawn(move || parallel.checked_control_flow(key)))

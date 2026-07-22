@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use bray_base::shared_str;
 
-use crate::{TargetIdentity, TargetMachineProperties};
+use crate::{TargetIdentity, TargetMachineProperties, TargetProfile};
 
 /// Artifact categories whose external names are selected by target policy.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -90,16 +90,14 @@ impl TargetOutputName {
 /// Validated target and external artifact naming facts used by output phases.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct TargetOutputDescription {
-    identity: TargetIdentity,
-    machine: TargetMachineProperties,
+    profile: TargetProfile,
     names: Arc<[TargetOutputName]>,
 }
 
 impl TargetOutputDescription {
     /// Creates target output facts with at most one naming rule per artifact category.
     pub fn try_new(
-        identity: TargetIdentity,
-        machine: TargetMachineProperties,
+        profile: TargetProfile,
         names: impl IntoIterator<Item = TargetOutputName>,
     ) -> Result<Self, TargetOutputDescriptionBuildError> {
         let mut names: Vec<_> = names.into_iter().collect();
@@ -120,20 +118,24 @@ impl TargetOutputDescription {
         }
 
         Ok(Self {
-            identity,
-            machine,
+            profile,
             names: names.into(),
         })
     }
 
     /// Returns the target identity covered by these output facts.
     pub const fn identity(&self) -> &TargetIdentity {
-        &self.identity
+        self.profile.identity()
     }
 
     /// Returns the machine properties relevant to backend output compatibility.
     pub const fn machine(&self) -> &TargetMachineProperties {
-        &self.machine
+        self.profile.machine()
+    }
+
+    /// Returns the target profile covered by these output facts.
+    pub const fn profile(&self) -> &TargetProfile {
+        &self.profile
     }
 
     /// Returns naming rules in canonical artifact-category order.
@@ -182,8 +184,7 @@ mod tests {
         TargetOutputDescription, TargetOutputDescriptionBuildError, TargetOutputKind,
         TargetOutputName, TargetOutputNameBuildError,
     };
-    use crate::TargetIdentity;
-    use crate::test_support::test_target_machine;
+    use crate::test_support::test_target_profile;
 
     #[test]
     fn output_names_reject_path_fragments() {
@@ -204,8 +205,7 @@ mod tests {
         let object = output_name(TargetOutputKind::RelocatableObject, "", ".o");
 
         let Ok(description) = TargetOutputDescription::try_new(
-            target_identity(),
-            test_target_machine(),
+            test_target_profile(),
             [object.clone(), executable.clone()],
         ) else {
             panic!("test target output description must be valid");
@@ -228,11 +228,7 @@ mod tests {
         );
 
         assert_eq!(
-            TargetOutputDescription::try_new(
-                target_identity(),
-                test_target_machine(),
-                [object.clone(), object],
-            ),
+            TargetOutputDescription::try_new(test_target_profile(), [object.clone(), object]),
             Err(TargetOutputDescriptionBuildError::DuplicateKind(
                 TargetOutputKind::RelocatableObject
             ))
@@ -245,13 +241,5 @@ mod tests {
         };
 
         name
-    }
-
-    fn target_identity() -> TargetIdentity {
-        let Some(identity) = TargetIdentity::try_new("x86_64-linux") else {
-            panic!("test target identity must be valid");
-        };
-
-        identity
     }
 }

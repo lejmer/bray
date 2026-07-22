@@ -129,6 +129,14 @@ pub enum DiagnosticKind {
     CheckingInaccessibleCandidate,
     /// Candidate parameter or operand types do not accept the supplied expressions.
     CheckingIncompatibleCandidate,
+    /// The selected target does not provide the required scalar representation.
+    CheckingTargetRepresentationUnavailable,
+    /// The selected target does not provide the required callable ABI.
+    CheckingTargetCallableAbiUnavailable,
+    /// The selected callable ABI does not accept one by-value representation.
+    CheckingTargetAbiRepresentationUnsupported,
+    /// The selected target cannot represent the required alignment.
+    CheckingTargetAlignmentUnsupported,
     /// A required planned artifact contribution was not supplied.
     EmissionMissingContribution,
     /// An artifact contribution does not satisfy the immutable emission plan.
@@ -215,6 +223,10 @@ impl DiagnosticKind {
             Self::CheckingAmbiguousCandidate => 7010,
             Self::CheckingInaccessibleCandidate => 7011,
             Self::CheckingIncompatibleCandidate => 7012,
+            Self::CheckingTargetRepresentationUnavailable => 7014,
+            Self::CheckingTargetCallableAbiUnavailable => 7015,
+            Self::CheckingTargetAlignmentUnsupported => 7016,
+            Self::CheckingTargetAbiRepresentationUnsupported => 7017,
             Self::EmissionMissingContribution => 9001,
             Self::EmissionInvalidContribution => 9002,
             Self::EmissionArtifactReadFailed => 9003,
@@ -304,6 +316,16 @@ impl DiagnosticKind {
             Self::CheckingAmbiguousCandidate => "checking_ambiguous_candidate",
             Self::CheckingInaccessibleCandidate => "checking_inaccessible_candidate",
             Self::CheckingIncompatibleCandidate => "checking_incompatible_candidate",
+            Self::CheckingTargetRepresentationUnavailable => {
+                "checking_target_representation_unavailable"
+            }
+            Self::CheckingTargetCallableAbiUnavailable => {
+                "checking_target_callable_abi_unavailable"
+            }
+            Self::CheckingTargetAlignmentUnsupported => "checking_target_alignment_unsupported",
+            Self::CheckingTargetAbiRepresentationUnsupported => {
+                "checking_target_abi_representation_unsupported"
+            }
             Self::EmissionMissingContribution => "emission_missing_contribution",
             Self::EmissionInvalidContribution => "emission_invalid_contribution",
             Self::EmissionArtifactReadFailed => "emission_artifact_read_failed",
@@ -367,7 +389,7 @@ mod tests {
         }
     }
 
-    fn all_diagnostic_kinds() -> [DiagnosticKind; 71] {
+    fn all_diagnostic_kinds() -> [DiagnosticKind; 75] {
         [
             DiagnosticKind::SourceFileReadFailed,
             DiagnosticKind::SourceInvalidUtf8,
@@ -431,6 +453,10 @@ mod tests {
             DiagnosticKind::CheckingAmbiguousCandidate,
             DiagnosticKind::CheckingInaccessibleCandidate,
             DiagnosticKind::CheckingIncompatibleCandidate,
+            DiagnosticKind::CheckingTargetRepresentationUnavailable,
+            DiagnosticKind::CheckingTargetCallableAbiUnavailable,
+            DiagnosticKind::CheckingTargetAlignmentUnsupported,
+            DiagnosticKind::CheckingTargetAbiRepresentationUnsupported,
             DiagnosticKind::EmissionMissingContribution,
             DiagnosticKind::EmissionInvalidContribution,
             DiagnosticKind::EmissionArtifactReadFailed,

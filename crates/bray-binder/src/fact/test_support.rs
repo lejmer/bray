@@ -11,15 +11,14 @@ use bray_diagnostics::DiagnosticResult;
 use bray_parser::{SyntaxTreeResult, parse_source_unit};
 use bray_source::{SourceIdentity, SourceInput, SourceStore, SourceVersion};
 use bray_symbols::{
-    ConstantDeclaredTypeFact, ConstantSymbolId, ConstantValueData, ConstantValueId,
-    ConstantValueKind, ImportedSymbolSkeleton, PackageIdentity, SemanticValueStore,
-    SymbolFactRequest, SymbolGraph, TypeData, TypeExpressionTemplate, TypeId,
+    ConstantDeclaredTypeFact, ConstantSymbolId, ImportedSymbolSkeleton, PackageIdentity,
+    SemanticValueStore, SymbolFactRequest, SymbolGraph, TypeData, TypeExpressionTemplate, TypeId,
 };
 use bray_syntax::SyntaxTree;
+use bray_target::TargetProfile;
 
 use super::{
     BinderFactContext, BinderFactError, BinderFactResult, ImportedPathRoot, SymbolFactProvider,
-    TargetFactProvider, TargetFactResult,
 };
 
 pub(crate) struct TestSymbolFacts {
@@ -33,21 +32,6 @@ impl SymbolFactProvider<ConstantDeclaredTypeFact> for TestSymbolFacts {
         request: SymbolFactRequest<ConstantDeclaredTypeFact>,
     ) -> BinderFactResult<Arc<DiagnosticResult<TypeExpressionTemplate>>> {
         if request.owner() != self.symbol {
-            return Err(BinderFactError::DependencyUnavailable);
-        }
-
-        Ok(Arc::clone(&self.result))
-    }
-}
-
-pub(crate) struct TestTargetFacts {
-    symbol: ConstantSymbolId,
-    result: Arc<TargetFactResult>,
-}
-
-impl TargetFactProvider for TestTargetFacts {
-    fn target_fact(&self, fact: ConstantSymbolId) -> BinderFactResult<Arc<TargetFactResult>> {
-        if fact != self.symbol {
             return Err(BinderFactError::DependencyUnavailable);
         }
 
@@ -77,13 +61,12 @@ pub(crate) struct TestContext<'facts> {
     symbols: &'facts SymbolGraph,
     imported_symbols: Option<&'facts ImportedSymbolSkeleton>,
     semantic_values: &'facts SemanticValueStore,
-    target_facts: &'facts TestTargetFacts,
+    target: &'facts TargetProfile,
     symbol_facts: &'facts TestSymbolFacts,
     cancellation: &'facts TestCancellation,
 }
 
 impl BinderFactContext for TestContext<'_> {
-    type TargetFacts = TestTargetFacts;
     type SymbolFacts = TestSymbolFacts;
     type Cancellation = TestCancellation;
 
@@ -131,8 +114,8 @@ impl BinderFactContext for TestContext<'_> {
         self.semantic_values
     }
 
-    fn target_facts(&self) -> &Self::TargetFacts {
-        self.target_facts
+    fn selected_target(&self) -> &TargetProfile {
+        self.target
     }
 
     fn symbol_facts(&self) -> &Self::SymbolFacts {
@@ -151,9 +134,8 @@ pub(crate) struct TestFixture {
     pub(crate) semantic_values: SemanticValueStore,
     pub(crate) constant: ConstantSymbolId,
     pub(crate) declared_type: TypeId,
-    pub(crate) target_value: ConstantValueId,
     symbol_facts: TestSymbolFacts,
-    target_facts: TestTargetFacts,
+    target: TargetProfile,
     cancellation: TestCancellation,
 }
 
@@ -184,7 +166,9 @@ impl TestFixture {
 
         let source_syntax = parse_source_unit(snapshot);
         let declaration_chunk = discover_source_unit_declarations(source_syntax.source_unit());
+
         let (syntax, _) = SyntaxTreeResult::from_source_unit_results([source_syntax]).into_parts();
+
         let (declarations, _) = merge_declaration_chunks([&declaration_chunk]).into_parts();
 
         let package = match PackageIdentity::try_new("test.package") {
@@ -217,18 +201,9 @@ impl TestFixture {
             Err(error) => panic!("test type should intern: {error:?}"),
         };
 
-        let target_value = match semantic_values.intern_constant_value(ConstantValueData::new(
-            declared_type,
-            ConstantValueKind::Error,
-        )) {
-            Ok(value) => value,
-            Err(error) => panic!("test target value should intern: {error:?}"),
-        };
-
         let symbol_result = Arc::new(DiagnosticResult::without_diagnostics(
             TypeExpressionTemplate::Resolved(declared_type),
         ));
-        let target_result = Arc::new(DiagnosticResult::without_diagnostics(target_value));
 
         Self {
             syntax,
@@ -237,15 +212,11 @@ impl TestFixture {
             semantic_values,
             constant,
             declared_type,
-            target_value,
             symbol_facts: TestSymbolFacts {
                 symbol: constant,
                 result: symbol_result,
             },
-            target_facts: TestTargetFacts {
-                symbol: constant,
-                result: target_result,
-            },
+            target: bray_target::test_support::test_target_profile(),
             cancellation: TestCancellation {
                 cancelled: AtomicBool::new(false),
             },
@@ -259,7 +230,7 @@ impl TestFixture {
             symbols: &self.symbols,
             imported_symbols: None,
             semantic_values: &self.semantic_values,
-            target_facts: &self.target_facts,
+            target: &self.target,
             symbol_facts: &self.symbol_facts,
             cancellation: &self.cancellation,
         }

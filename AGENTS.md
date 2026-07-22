@@ -6,6 +6,14 @@ We're building a compiler for a brand-new programming language. It's an opiniona
 
 Bray is currently a greenfield project. Therefore, do not preserve backwards-compatibility unless explicitly requested. Always go for clean, coherent design changes instead of compatibility layers, migration shims, deprecated aliases, or legacy fallbacks.
 
+## Simplicity and scope
+
+Implement the smallest coherent design that satisfies the current requirements and known near-term consumers. Do not add abstraction layers, wrapper types, request/context/result types, validation surfaces, or APIs based only on speculative future needs. Forward-looking APIs are appropriate when a planned consumer and its required contract are already understood. Every new type must enforce a current or planned invariant, establish meaningful identity or ownership, or provide behavior that cannot be expressed clearly by an existing type or direct function.
+
+Do not treat existing code as permanent. When touching an area, delete or flatten redundant layers, forwarding APIs, duplicated representations, and speculative infrastructure when a simpler implementation preserves immutability, demand-driven evaluation, safe parallelism, determinism, efficiency, correctness, reliability, and structured diagnostics. Make these simplifications as part of the relevant work instead of creating standalone cleanup issues.
+
+Keep reviews bounded by the issue contract. Fix correctness defects, architectural violations, and mandatory convention failures, but move unrelated improvements to later work instead of repeatedly expanding or rewriting the current change.
+
 ## Structured messages
 
 Do not construct user-facing English text inside compiler logic. Emit structured message IDs and typed arguments instead. User-facing text must be rendered through `bray-messages`.

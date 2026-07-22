@@ -136,12 +136,12 @@ impl DiagnosticRenderer {
 #[cfg(test)]
 mod tests {
     use bray_diagnostics::{
-        Diagnostic, DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticArtifactDigest,
-        DiagnosticArtifactDigestAlgorithm, DiagnosticArtifactKind, DiagnosticBag, DiagnosticId,
-        DiagnosticIoErrorKind, DiagnosticKind, DiagnosticLabel, DiagnosticLabelKind,
-        DiagnosticLabelStyle, DiagnosticModuleTrust, DiagnosticNameKind, DiagnosticNote,
-        DiagnosticNoteKind, DiagnosticOutputSink, DiagnosticSelectionKind, DiagnosticVisibility,
-        SeverityKind,
+        Diagnostic, DiagnosticAlignmentKind, DiagnosticArg, DiagnosticArgName, DiagnosticArgValue,
+        DiagnosticArtifactDigest, DiagnosticArtifactDigestAlgorithm, DiagnosticArtifactKind,
+        DiagnosticBag, DiagnosticId, DiagnosticIoErrorKind, DiagnosticKind, DiagnosticLabel,
+        DiagnosticLabelKind, DiagnosticLabelStyle, DiagnosticModuleTrust, DiagnosticNameKind,
+        DiagnosticNote, DiagnosticNoteKind, DiagnosticOutputSink, DiagnosticSelectionKind,
+        DiagnosticVisibility, SeverityKind,
     };
     use bray_source::{SourceId, SourceSpan, TextRange, TextSize};
     use bray_syntax::SyntaxKind;
@@ -225,6 +225,17 @@ mod tests {
             DiagnosticSelectionKind::Operator,
         ));
 
+        let target_alignment = Diagnostic::new(
+            DiagnosticId::new(4),
+            DiagnosticKind::CheckingTargetAlignmentUnsupported,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::alignment_kind(
+            DiagnosticAlignmentKind::Storage,
+        ))
+        .with_arg(DiagnosticArg::required_alignment(64))
+        .with_arg(DiagnosticArg::maximum_alignment(16));
+
         let renderer = DiagnosticRenderer::english();
 
         assert_eq!(
@@ -243,13 +254,13 @@ mod tests {
         );
 
         assert_eq!(
-            renderer.render(&array_length).message(),
-            "array length must be greater than zero"
+            renderer.render(&ambiguous).message(),
+            "operator selection is ambiguous"
         );
 
         assert_eq!(
-            renderer.render(&ambiguous).message(),
-            "operator selection is ambiguous"
+            renderer.render(&target_alignment).message(),
+            "required storage alignment 64 exceeds the selected target maximum of 16"
         );
     }
 

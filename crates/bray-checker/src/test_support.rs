@@ -21,6 +21,7 @@ use bray_symbols::{
     PackageIdentity, SemanticValueStore, SymbolId, SymbolKey, SymbolKind, SymbolName,
     SymbolRootKey, TraitCallableMemberSymbolId, TypeData, TypeId,
 };
+use bray_target::TargetProfile;
 
 pub(crate) use bray_symbols::testing::available_compiler_known_symbols;
 
@@ -34,7 +35,9 @@ pub(crate) struct TestCheckerContext {
     cancelled: bool,
     cancel_after: Option<usize>,
     observations: AtomicUsize,
+    target_observations: AtomicUsize,
     source: Option<SourceSnapshot>,
+    target: Option<TargetProfile>,
 }
 
 impl TestCheckerContext {
@@ -43,7 +46,9 @@ impl TestCheckerContext {
             cancelled,
             cancel_after: None,
             observations: AtomicUsize::new(0),
+            target_observations: AtomicUsize::new(0),
             source: None,
+            target: None,
         }
     }
 
@@ -52,7 +57,9 @@ impl TestCheckerContext {
             cancelled: false,
             cancel_after: Some(observations),
             observations: AtomicUsize::new(0),
+            target_observations: AtomicUsize::new(0),
             source: None,
+            target: None,
         }
     }
 
@@ -61,8 +68,20 @@ impl TestCheckerContext {
             cancelled: false,
             cancel_after: None,
             observations: AtomicUsize::new(0),
+            target_observations: AtomicUsize::new(0),
             source: Some(source),
+            target: None,
         }
+    }
+
+    pub(crate) fn with_selected_target(mut self, target: TargetProfile) -> Self {
+        self.target = Some(target);
+
+        self
+    }
+
+    pub(crate) fn target_observations(&self) -> usize {
+        self.target_observations.load(Ordering::Relaxed)
     }
 }
 
@@ -94,6 +113,14 @@ impl CheckerRequestContext for TestCheckerContext {
 
     fn available_compiler_known_symbols(&self) -> &bray_symbols::AvailableCompilerKnownSymbols {
         available_compiler_known_symbols()
+    }
+
+    fn selected_target(&self) -> &bray_target::TargetProfile {
+        self.target_observations.fetch_add(1, Ordering::Relaxed);
+
+        self.target
+            .as_ref()
+            .unwrap_or_else(|| test_target_profile())
     }
 
     fn source(
@@ -129,6 +156,12 @@ pub(crate) fn semantic_values() -> &'static SemanticValueStore {
         Ok(values) => values,
         Err(error) => panic!("test semantic value store must be available: {error:?}"),
     })
+}
+
+pub(crate) fn test_target_profile() -> &'static bray_target::TargetProfile {
+    static TARGET: OnceLock<bray_target::TargetProfile> = OnceLock::new();
+
+    TARGET.get_or_init(bray_target::test_support::test_target_profile)
 }
 
 pub(crate) fn compiler_known_symbol<I: ExactSymbolId>(key: &str) -> I {
