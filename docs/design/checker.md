@@ -550,6 +550,10 @@ Post-selection target validity uses a typed request that pairs the selected repr
 with its exact source anchor. Its immutable result distinguishes valid and invalid requirements, and an invalid result owns a
 source-correlated structured diagnostic. The check does not reopen candidate selection or substitute a different operation.
 
+Each finalized semantic fact that establishes a target-dependent representation, callable ABI, or layout requests validity by the
+exact requirement key. The semantic fact retains the returned diagnostics in its own immutable result, so ordinary semantic
+diagnostic projection includes them without scanning caches or depending on which unrelated queries happened to run first.
+
 Product constraints and module-contribution gates use the same target rule service before ordinary body checking. Their earlier
 request point does not make target policy part of package loading or declaration discovery.
 

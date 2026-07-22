@@ -158,20 +158,20 @@ impl<C> ConstantEvaluator<C> for DefaultConstantEvaluator where C: CheckerReques
 /// Validation reports target incompatibility without changing semantic selection.
 pub trait TargetValidityChecker<C>: Sync
 where
-    C: CheckerRequestContext + ?Sized,
+    C: crate::TargetValidityContext + ?Sized,
 {
     /// Checks one selected target requirement at its source anchor.
     fn check_target_validity(
         &self,
         context: &C,
-        request: TargetValidityRequest,
+        request: &TargetValidityRequest,
     ) -> CheckerOutcome<TargetValidity> {
         check_target_validity(context, request)
     }
 }
 
 impl<C> TargetValidityChecker<C> for DefaultTargetValidityChecker where
-    C: CheckerRequestContext + ?Sized
+    C: crate::TargetValidityContext + ?Sized
 {
 }
 

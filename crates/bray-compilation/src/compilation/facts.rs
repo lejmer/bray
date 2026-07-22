@@ -6,6 +6,7 @@ use bray_bound_tree::{
     BoundUnit, BoundUnitKey, CheckedControlFlowFacts, CheckedExpressionTypes,
     CheckedSemanticSelections, DeclaredValueTypeTemplates,
 };
+use bray_checker::{TargetValidity, TargetValidityRequest};
 use bray_declarations::{
     DeclarationChunkResult, DeclarationTable, DeclarationTableResult,
     discover_source_unit_declarations, merge_declaration_chunks,
@@ -62,6 +63,8 @@ pub(super) struct CompilationState {
     compiler_known_symbols:
         FactCell<Result<Arc<CompilerKnownSymbolProvider>, CompilerKnownSymbolBuildError>>,
     selected_target: FactCell<crate::SelectedTargetContext>,
+    pub(super) target_validity:
+        FactCellMap<TargetValidityRequest, Arc<bray_diagnostics::DiagnosticResult<TargetValidity>>>,
     bound_unit_identities: FactCell<Result<BoundUnitIdentityMap, FactQueryError>>,
     symbol_graph: FactCell<Result<SymbolGraph, FactQueryError>>,
     semantic_values: FactCell<Result<SemanticValueStore, SemanticValueStoreCreateError>>,
@@ -157,6 +160,7 @@ impl Compilation {
                 declaration_table_result: FactCell::new(),
                 compiler_known_symbols: FactCell::new(),
                 selected_target: FactCell::new(),
+                target_validity: FactCellMap::new(),
                 bound_unit_identities: FactCell::new(),
                 symbol_graph: FactCell::new(),
                 semantic_values: FactCell::new(),
@@ -216,8 +220,7 @@ impl Compilation {
 
                 // The published fact retains its target independently of request options.
                 let target = self.state.options.selected_target().clone();
-                let availability = target.declaration_availability();
-                let available = provider.available_symbols(|rule| availability.supports(rule));
+                let available = provider.available_symbols(|rule| target.supports(rule));
 
                 crate::SelectedTargetContext::new(target, available)
             },
@@ -485,7 +488,7 @@ fn empty_fact_caches<T>(len: usize) -> Vec<FactCell<T>> {
 #[cfg(test)]
 mod tests {
     use bray_bound_tree::{BoundSourceAnchor, BoundUnitKey, BoundUnitKind};
-    use bray_compiler_known::{AvailabilityRule, CompilerKnownDeclarationKey};
+    use bray_compiler_known::CompilerKnownDeclarationKey;
     use bray_declarations::{DeclarationKind, ModulePath};
     use bray_diagnostics::{
         DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticId, DiagnosticKind,
@@ -500,7 +503,6 @@ mod tests {
     };
     use bray_syntax::SourceSyntaxNode;
 
-    use crate::TargetAvailabilityFacts;
     use crate::fact::{CompilationFactKey, FactQueryError};
     use crate::request::{CompilationOptions, CompilationRequest};
     use crate::test_support::{
@@ -824,10 +826,8 @@ mod tests {
 
     #[test]
     fn compilations_publish_independent_views_for_their_target_facts() {
-        let portable = compilation_with_target(TargetAvailabilityFacts::portable());
-        let real16 = compilation_with_target(
-            TargetAvailabilityFacts::portable().with_rule(AvailabilityRule::Real16, true),
-        );
+        let portable = compilation_with_optional_real16(false);
+        let real16 = compilation_with_optional_real16(true);
 
         let key = declaration_key("TargetReal16");
 
@@ -1323,8 +1323,30 @@ mod tests {
         }
     }
 
-    fn compilation_with_target(target: TargetAvailabilityFacts) -> Compilation {
-        let target = crate::SelectedTarget::baseline().with_declaration_availability(target);
+    fn compilation_with_optional_real16(real16: bool) -> Compilation {
+        let baseline = crate::SelectedTarget::baseline();
+        let profile = baseline.profile();
+        let baseline_facts = profile.facts();
+        let facts = bray_target::TargetFacts::new(
+            baseline_facts.identity().clone(),
+            bray_target::TargetScalarFacts::new(real16, false, false, false),
+            baseline_facts.atomics(),
+            baseline_facts.abis(),
+            baseline_facts.address_spaces(),
+            baseline_facts.alignments(),
+            baseline_facts.operations(),
+        );
+
+        let profile = match bray_target::TargetProfile::try_new(
+            profile.identity().clone(),
+            profile.machine().clone(),
+            facts,
+        ) {
+            Ok(profile) => profile,
+            Err(error) => panic!("test target profile must be valid: {error:?}"),
+        };
+
+        let target = crate::SelectedTarget::new(profile, baseline.runtime_abi());
         let options = CompilationOptions::new(WorkerBudget::serial(), target);
 
         let request = CompilationRequest::with_options(

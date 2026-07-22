@@ -65,6 +65,46 @@ impl DiagnosticArg {
         )
     }
 
+    /// Creates a target representation argument.
+    pub const fn target_representation(kind: DiagnosticTargetRepresentation) -> Self {
+        Self::new(
+            DiagnosticArgName::TargetRepresentation,
+            DiagnosticArgValue::TargetRepresentation(kind),
+        )
+    }
+
+    /// Creates a callable ABI argument.
+    pub const fn callable_abi(abi: DiagnosticCallableAbi) -> Self {
+        Self::new(
+            DiagnosticArgName::CallableAbi,
+            DiagnosticArgValue::CallableAbi(abi),
+        )
+    }
+
+    /// Creates an alignment-purpose argument.
+    pub const fn alignment_kind(kind: DiagnosticAlignmentKind) -> Self {
+        Self::new(
+            DiagnosticArgName::AlignmentKind,
+            DiagnosticArgValue::AlignmentKind(kind),
+        )
+    }
+
+    /// Creates a required alignment argument.
+    pub const fn required_alignment(alignment: u64) -> Self {
+        Self::new(
+            DiagnosticArgName::RequiredAlignment,
+            DiagnosticArgValue::Count(alignment),
+        )
+    }
+
+    /// Creates a maximum supported alignment argument.
+    pub const fn maximum_alignment(alignment: u64) -> Self {
+        Self::new(
+            DiagnosticArgName::MaximumAlignment,
+            DiagnosticArgValue::Count(alignment),
+        )
+    }
+
     /// Creates an artifact-kind argument.
     pub const fn artifact_kind(kind: DiagnosticArtifactKind) -> Self {
         Self::new(
@@ -306,6 +346,16 @@ pub enum DiagnosticArgName {
     ArtifactKind,
     /// Stable same-category artifact ordinal.
     ArtifactOrdinal,
+    /// Target representation rejected by the selected target or ABI.
+    TargetRepresentation,
+    /// Selected foreign callable ABI.
+    CallableAbi,
+    /// Storage, allocation, or ABI alignment surface.
+    AlignmentKind,
+    /// Alignment required by a selected layout.
+    RequiredAlignment,
+    /// Maximum alignment accepted by the target surface.
+    MaximumAlignment,
     /// Actual interface or language revision.
     ActualRevision,
     /// Semantic type found by checking.
@@ -392,6 +442,11 @@ impl DiagnosticArgName {
             Self::ArtifactPath => "artifact_path",
             Self::ArtifactKind => "artifact_kind",
             Self::ArtifactOrdinal => "artifact_ordinal",
+            Self::TargetRepresentation => "target_representation",
+            Self::CallableAbi => "callable_abi",
+            Self::AlignmentKind => "alignment_kind",
+            Self::RequiredAlignment => "required_alignment",
+            Self::MaximumAlignment => "maximum_alignment",
             Self::ActualRevision => "actual_revision",
             Self::ActualType => "actual_type",
             Self::Byte => "byte",
@@ -448,6 +503,12 @@ pub enum DiagnosticArgValue {
     ArtifactKind(DiagnosticArtifactKind),
     /// Same-category artifact ordinal.
     ArtifactOrdinal(u32),
+    /// Target representation category.
+    TargetRepresentation(DiagnosticTargetRepresentation),
+    /// Foreign callable ABI mode.
+    CallableAbi(DiagnosticCallableAbi),
+    /// Alignment validation surface.
+    AlignmentKind(DiagnosticAlignmentKind),
     /// Source character.
     Character(char),
     /// Source-level declaration name.
@@ -500,6 +561,116 @@ pub enum DiagnosticArgValue {
     Type(DiagnosticType),
     /// Semantic operation category being selected.
     SelectionKind(DiagnosticSelectionKind),
+}
+
+/// Locale-neutral target representation categories used by target diagnostics.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum DiagnosticTargetRepresentation {
+    Bool,
+    Char,
+    I8,
+    I16,
+    I32,
+    I64,
+    I128,
+    U8,
+    U16,
+    U32,
+    U64,
+    U128,
+    Isize,
+    Usize,
+    R16,
+    R32,
+    R64,
+    R128,
+    C32,
+    C64,
+    C128,
+    C256,
+    RawPointer,
+    AbiQualifiedCallable,
+    DefaultLayoutAggregate,
+    StableLayoutAggregate,
+    CLayoutAggregate,
+    TransparentLayoutAggregate,
+}
+
+impl DiagnosticTargetRepresentation {
+    /// Returns the stable machine key for this representation category.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Bool => "bool",
+            Self::Char => "char",
+            Self::I8 => "i8",
+            Self::I16 => "i16",
+            Self::I32 => "i32",
+            Self::I64 => "i64",
+            Self::I128 => "i128",
+            Self::U8 => "u8",
+            Self::U16 => "u16",
+            Self::U32 => "u32",
+            Self::U64 => "u64",
+            Self::U128 => "u128",
+            Self::Isize => "isize",
+            Self::Usize => "usize",
+            Self::R16 => "r16",
+            Self::R32 => "r32",
+            Self::R64 => "r64",
+            Self::R128 => "r128",
+            Self::C32 => "c32",
+            Self::C64 => "c64",
+            Self::C128 => "c128",
+            Self::C256 => "c256",
+            Self::RawPointer => "raw_pointer",
+            Self::AbiQualifiedCallable => "abi_qualified_callable",
+            Self::DefaultLayoutAggregate => "default_layout_aggregate",
+            Self::StableLayoutAggregate => "stable_layout_aggregate",
+            Self::CLayoutAggregate => "c_layout_aggregate",
+            Self::TransparentLayoutAggregate => "transparent_layout_aggregate",
+        }
+    }
+}
+
+/// Locale-neutral callable ABI modes used by target diagnostics.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum DiagnosticCallableAbi {
+    /// The target's C ABI.
+    C,
+    /// The target's system ABI.
+    System,
+}
+
+impl DiagnosticCallableAbi {
+    /// Returns the stable machine key for this ABI mode.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::C => "c",
+            Self::System => "system",
+        }
+    }
+}
+
+/// Locale-neutral alignment validation surfaces.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum DiagnosticAlignmentKind {
+    /// Ordinary value storage.
+    Storage,
+    /// Dynamic allocation.
+    Allocation,
+    /// A foreign callable ABI boundary.
+    CallableAbi,
+}
+
+impl DiagnosticAlignmentKind {
+    /// Returns the stable machine key for this alignment surface.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Storage => "storage",
+            Self::Allocation => "allocation",
+            Self::CallableAbi => "callable_abi",
+        }
+    }
 }
 
 /// Locale-neutral semantic operation categories used by selection diagnostics.

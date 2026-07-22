@@ -4,6 +4,7 @@
 
 mod facts;
 mod identity;
+mod layout;
 mod machine;
 mod output;
 mod profile;
@@ -12,10 +13,12 @@ mod profile;
 pub mod test_support;
 
 pub use facts::{
-    TargetAbiFacts, TargetAddressSpaceFacts, TargetAlignmentFacts, TargetAtomicFacts,
-    TargetFactKind, TargetFactValue, TargetFacts, TargetIdentityFacts, TargetScalarFacts,
+    TargetAbiFacts, TargetAbiScalarFacts, TargetAddressSpaceFacts, TargetAlignmentFacts,
+    TargetAtomicFacts, TargetFactKind, TargetFactValue, TargetFacts, TargetForeignAbiFacts,
+    TargetIdentityFacts, TargetOperationFacts, TargetScalarFacts, TargetScalarKind,
 };
 pub use identity::TargetIdentity;
+pub use layout::{TargetLayoutContract, TargetValueLayout};
 pub use machine::{
     CodeModel, Endianness, ObjectFormat, RelocationModel, TargetArchitecture,
     TargetMachineProperties,

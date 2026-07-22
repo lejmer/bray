@@ -3,9 +3,12 @@ use std::sync::Arc;
 use bray_binder::{BinderFactContext, BinderFactError, SymbolFactProvider};
 use bray_bound_tree::{BoundSourceAnchor, BoundUnit, BoundUnitKey};
 use bray_checker::{
-    CheckerFactError, CheckerFactResult, CheckerInfrastructureError, CheckerRequestContext,
-    CheckerSemanticFactProvider, CheckerSource,
+    CheckerFactError, CheckerFactResult, CheckerInfrastructureError, CheckerOutcome,
+    CheckerRequestContext, CheckerSemanticFactProvider, CheckerSource,
+    DefaultTargetValidityChecker, TargetValidity, TargetValidityChecker, TargetValidityContext,
+    TargetValidityRequest,
 };
+use bray_diagnostics::DiagnosticResult;
 use bray_source::{SourceSnapshot, SourceSpan};
 use bray_symbols::{
     AvailableCompilerKnownSymbols, SemanticValueStore, SymbolFactContract, SymbolFactRequest,
@@ -24,28 +27,6 @@ pub(super) struct CompilationCheckerContext<'compilation> {
 impl<'compilation> CompilationCheckerContext<'compilation> {
     fn new(facts: CompilationBinderFacts<'compilation>) -> Self {
         Self { facts }
-    }
-
-    fn source_snapshot(
-        &self,
-        anchor: BoundSourceAnchor,
-    ) -> Result<&SourceSnapshot, CheckerInfrastructureError> {
-        let syntax = anchor.syntax();
-        let source_id = syntax.source_id();
-
-        let Some(source) = self.facts.compilation().source(source_id) else {
-            return Err(CheckerInfrastructureError::MissingSource { source_id });
-        };
-
-        if source.version() != anchor.source_version() {
-            return Err(CheckerInfrastructureError::SourceVersionMismatch {
-                source_id,
-                expected: anchor.source_version(),
-                actual: source.version(),
-            });
-        }
-
-        Ok(source)
     }
 
     pub(super) fn symbols(&self) -> &bray_symbols::SymbolGraph {
@@ -86,20 +67,70 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
         &self,
         anchor: BoundSourceAnchor,
     ) -> Result<CheckerSource<'_>, CheckerInfrastructureError> {
-        let source = self.source_snapshot(anchor)?;
-        let range = anchor.syntax().full_range();
-        let span = SourceSpan::new(source.source_id(), range);
-
-        let Some(text) = source.text_slice(range) else {
-            return Err(CheckerInfrastructureError::InvalidSourceRange { span });
-        };
-
-        Ok(CheckerSource::new(span, text))
+        checker_source(self.facts.compilation(), anchor)
     }
 
     fn cancellation(&self) -> &dyn bray_base::Cancellation {
         self.facts.cancellation()
     }
+}
+
+struct CompilationTargetValidityContext<'compilation> {
+    compilation: &'compilation Compilation,
+    cancellation: &'compilation CancellationToken,
+}
+
+impl TargetValidityContext for CompilationTargetValidityContext<'_> {
+    fn selected_target(&self) -> &TargetProfile {
+        self.compilation.selected_target().target().profile()
+    }
+
+    fn source(
+        &self,
+        anchor: BoundSourceAnchor,
+    ) -> Result<CheckerSource<'_>, CheckerInfrastructureError> {
+        checker_source(self.compilation, anchor)
+    }
+
+    fn cancellation(&self) -> &dyn bray_base::Cancellation {
+        self.cancellation
+    }
+}
+
+fn checker_source_snapshot(
+    compilation: &Compilation,
+    anchor: BoundSourceAnchor,
+) -> Result<&SourceSnapshot, CheckerInfrastructureError> {
+    let source_id = anchor.syntax().source_id();
+
+    let Some(source) = compilation.source(source_id) else {
+        return Err(CheckerInfrastructureError::MissingSource { source_id });
+    };
+
+    if source.version() != anchor.source_version() {
+        return Err(CheckerInfrastructureError::SourceVersionMismatch {
+            source_id,
+            expected: anchor.source_version(),
+            actual: source.version(),
+        });
+    }
+
+    Ok(source)
+}
+
+fn checker_source(
+    compilation: &Compilation,
+    anchor: BoundSourceAnchor,
+) -> Result<CheckerSource<'_>, CheckerInfrastructureError> {
+    let source = checker_source_snapshot(compilation, anchor)?;
+    let range = anchor.syntax().full_range();
+    let span = SourceSpan::new(source.source_id(), range);
+
+    let Some(text) = source.text_slice(range) else {
+        return Err(CheckerInfrastructureError::InvalidSourceRange { span });
+    };
+
+    Ok(CheckerSource::new(span, text))
 }
 
 impl<'compilation, C> CheckerSemanticFactProvider<C> for CompilationCheckerContext<'compilation>
@@ -126,6 +157,36 @@ where
 }
 
 impl Compilation {
+    /// Returns post-selection validity and diagnostics for one exact target requirement.
+    pub fn target_validity(
+        &self,
+        request: TargetValidityRequest,
+    ) -> Result<Arc<DiagnosticResult<TargetValidity>>, FactQueryError> {
+        let cell = self.state.target_validity.cell(request.clone())?;
+        let published = self.query_fact_with_cancellation(
+            crate::fact::CompilationFactKey::TargetValidity(request.clone()),
+            &cell,
+            &self.state.cancellation,
+            |cancellation| {
+                let context = CompilationTargetValidityContext {
+                    compilation: self,
+                    cancellation,
+                };
+
+                match DefaultTargetValidityChecker.check_target_validity(&context, &request) {
+                    CheckerOutcome::Complete(result) => Ok(Arc::new(result)),
+                    CheckerOutcome::Cancelled => Err(FactQueryError::Cancelled),
+                    CheckerOutcome::InfrastructureFailure(error) => {
+                        Err(FactQueryError::CheckerInfrastructure(error))
+                    }
+                }
+            },
+        )?;
+
+        // The caller owns the immutable publication independently of the map cell guard.
+        Ok(Arc::clone(published))
+    }
+
     pub(super) fn checker_context_for<'compilation>(
         &'compilation self,
         key: &BoundUnitKey,
@@ -139,13 +200,21 @@ impl Compilation {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use bray_binder::semantic_unit_context;
     use bray_bound_tree::BoundSourceAnchor;
-    use bray_checker::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
+    use bray_checker::{
+        CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView, TargetValidity,
+        TargetValidityRequest, TargetValidityRequirement,
+    };
+    use bray_compiler_known::RepresentationRole;
+    use bray_diagnostics::DiagnosticKind;
     use bray_source::SourceVersion;
     use bray_symbols::{CallableSignatureFact, CallableSymbolId, SymbolFactRequest, SymbolOrigin};
 
     use super::Compilation;
+    use crate::fact::CompilationFactKey;
     use crate::test_support::{compilation, source_callable_body_key};
 
     #[test]
@@ -245,6 +314,104 @@ mod tests {
         let signature = request.symbol_fact(signature_request);
 
         assert!(signature.is_ok());
+    }
+
+    #[test]
+    fn target_validity_reuses_one_exact_published_fact() {
+        let compilation = callable_compilation();
+        let source = source_callable_body_key(&compilation).source();
+
+        let request = TargetValidityRequest::new(
+            source,
+            TargetValidityRequirement::Representation(RepresentationRole::ScalarR16),
+        );
+
+        let first = match compilation.target_validity(request.clone()) {
+            Ok(result) => result,
+            Err(error) => panic!("target validity must be available: {error:?}"),
+        };
+
+        let second = match compilation.target_validity(request) {
+            Ok(result) => result,
+            Err(error) => panic!("target validity must be available: {error:?}"),
+        };
+
+        assert!(Arc::ptr_eq(&first, &second));
+    }
+
+    #[test]
+    fn unconditional_target_validity_does_not_demand_target_or_source() {
+        let compilation = callable_compilation();
+        let source = source_callable_body_key(&compilation).source();
+
+        let stale_source = BoundSourceAnchor::new(
+            source.syntax(),
+            SourceVersion::new(source.source_version().raw() + 1),
+        );
+
+        let request = TargetValidityRequest::new(
+            stale_source,
+            TargetValidityRequirement::Representation(RepresentationRole::ScalarI32),
+        );
+
+        let key = CompilationFactKey::TargetValidity(request.clone());
+
+        let validity = match compilation.target_validity(request) {
+            Ok(result) => result,
+            Err(error) => panic!("unconditional target validity must be available: {error:?}"),
+        };
+
+        let dependencies = match compilation.state.fact_runtime.dependencies(&key) {
+            Ok(Some(dependencies)) => dependencies,
+            Ok(None) => panic!("target-validity dependencies must be published"),
+            Err(error) => panic!("target-validity dependencies must be readable: {error:?}"),
+        };
+
+        assert_eq!(*validity.value(), TargetValidity::Valid);
+        assert!(validity.diagnostics().is_empty());
+        assert!(dependencies.is_empty());
+    }
+
+    #[test]
+    fn target_dependent_invalidity_demands_target_and_reports_source() {
+        let compilation = callable_compilation();
+        let source = source_callable_body_key(&compilation).source();
+
+        let request = TargetValidityRequest::new(
+            source,
+            TargetValidityRequirement::Representation(RepresentationRole::ScalarR16),
+        );
+
+        let key = CompilationFactKey::TargetValidity(request.clone());
+
+        let validity = match compilation.target_validity(request) {
+            Ok(result) => result,
+            Err(error) => panic!("target validity must be available: {error:?}"),
+        };
+
+        let dependencies = match compilation.state.fact_runtime.dependencies(&key) {
+            Ok(Some(dependencies)) => dependencies,
+            Ok(None) => panic!("target-validity dependencies must be published"),
+            Err(error) => panic!("target-validity dependencies must be readable: {error:?}"),
+        };
+
+        let [diagnostic] = validity.diagnostics().diagnostics() else {
+            panic!("invalid target requirement must report one diagnostic");
+        };
+
+        assert_eq!(*validity.value(), TargetValidity::Invalid);
+
+        assert_eq!(
+            diagnostic.kind(),
+            DiagnosticKind::CheckingTargetRepresentationUnavailable
+        );
+
+        assert_eq!(
+            diagnostic.primary_span().map(|span| span.range()),
+            Some(source.syntax().full_range())
+        );
+
+        assert_eq!(dependencies.as_ref(), [CompilationFactKey::SelectedTarget]);
     }
 
     fn callable_compilation() -> Compilation {

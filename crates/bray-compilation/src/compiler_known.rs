@@ -7,8 +7,7 @@ use bray_symbols::{
 
 use crate::{
     CancellationToken, Compilation, CompilationLoadError, CompilationOptions, CompilationRequest,
-    FactQueryError, SymbolCompletionError, TargetAvailabilityFacts, WorkerBudget,
-    WorkerBudgetError,
+    FactQueryError, SymbolCompletionError, WorkerBudget, WorkerBudgetError,
 };
 
 /// Deterministic result of checking generated compiler-known semantic data.
@@ -62,10 +61,7 @@ fn check_compiler_known_catalog_with(
         return Err(CompilerKnownCatalogCheckError::InvalidPackageIdentity);
     };
 
-    let target = crate::SelectedTarget::baseline()
-        .with_declaration_availability(TargetAvailabilityFacts::all());
-
-    let options = CompilationOptions::new(workers, target);
+    let options = CompilationOptions::new(workers, crate::SelectedTarget::baseline());
 
     // The private validation compilation has no source package because catalog symbols are its
     // only semantic roots.
@@ -107,20 +103,14 @@ fn check_compiler_known_catalog_with(
 fn audit_target_views(
     audit: &mut CompilerKnownCatalogAudit<'_>,
 ) -> Result<(), CompilerKnownCatalogCheckError> {
-    let portable = TargetAvailabilityFacts::portable();
-
     audit
         .audit_target_view(CompilerKnownTargetProfile::Portable, |rule| {
-            portable.supports(rule)
+            rule == AvailabilityRule::Always
         })
         .map_err(CompilerKnownCatalogCheckError::Audit)?;
 
-    let complete = TargetAvailabilityFacts::all();
-
     audit
-        .audit_target_view(CompilerKnownTargetProfile::Complete, |rule| {
-            complete.supports(rule)
-        })
+        .audit_target_view(CompilerKnownTargetProfile::Complete, |_| true)
         .map_err(CompilerKnownCatalogCheckError::Audit)?;
 
     for capability in AvailabilityRule::ALL
@@ -128,11 +118,9 @@ fn audit_target_views(
         .copied()
         .filter(|rule| *rule != AvailabilityRule::Always)
     {
-        let facts = TargetAvailabilityFacts::portable().with_rule(capability, true);
-
         audit
             .audit_target_view(CompilerKnownTargetProfile::Capability(capability), |rule| {
-                facts.supports(rule)
+                rule == AvailabilityRule::Always || rule == capability
             })
             .map_err(CompilerKnownCatalogCheckError::Audit)?;
     }

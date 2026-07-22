@@ -48,6 +48,9 @@ pub use service::{
     DefaultTargetValidityChecker, ExpressionSemanticChecker, ExpressionTypeChecker,
     SemanticSelector, TargetValidityChecker,
 };
-pub use target::{TargetValidity, TargetValidityRequest, TargetValidityRequirement};
+pub use target::{
+    TargetAbiValue, TargetCallableAbiRequirement, TargetLayoutRequirement, TargetLayoutUse,
+    TargetValidity, TargetValidityContext, TargetValidityRequest, TargetValidityRequirement,
+};
 pub use type_check::{ExpressionTypeEvidence, ExpressionTypeExpectation, ExpressionTypeInput};
 pub use unit::{CheckerUnitRoot, CheckerUnitView, CheckerUnitViewError};

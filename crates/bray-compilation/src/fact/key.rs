@@ -1,4 +1,5 @@
 use bray_bound_tree::BoundUnitKey;
+use bray_checker::TargetValidityRequest;
 use bray_package_interface::InterfaceSemanticFactKind;
 use bray_source::SourceId;
 use bray_symbols::{AnySymbolId, ImportedInterfaceId, InterfaceSymbolId, SymbolFactKind};
@@ -73,6 +74,8 @@ impl SymbolFactKey {
 pub(crate) enum CompilationFactKey {
     /// The selected target and its target-filtered compiler-known declaration view.
     SelectedTarget,
+    /// Post-selection validity of one exact target requirement.
+    TargetValidity(TargetValidityRequest),
     /// The complete canonical compiler-known symbol and fact provider.
     CompilerKnownSymbols,
     /// Deterministic compact identities for bound-unit source anchors.
@@ -131,6 +134,7 @@ impl CompilationFactKey {
             | Self::DeclaredValueTypeTemplates(key)
             | Self::ExpressionSemantics(key) => Some(key),
             Self::SelectedTarget
+            | Self::TargetValidity(_)
             | Self::CompilerKnownSymbols
             | Self::BoundUnitIdentities
             | Self::CheckDiagnostics

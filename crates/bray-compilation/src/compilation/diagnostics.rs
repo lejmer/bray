@@ -79,6 +79,9 @@ impl Compilation {
                 self.expression_semantics_with_cancellation(key.clone(), &self.state.cancellation)?;
             let control_flow = self.checked_control_flow(key)?;
 
+            // TODO(BRA-199): Finalized invocation and layout facts must request their exact
+            // target-validity facts and retain those diagnostics in their semantic results.
+
             facts.push(SemanticDiagnosticFact::Bound(bound));
             facts.push(SemanticDiagnosticFact::DeclaredTypes(declared_types));
             facts.push(SemanticDiagnosticFact::ExpressionSemantics(
