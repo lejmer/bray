@@ -804,6 +804,35 @@ mod tests {
     }
 
     #[test]
+    fn exact_fact_request_order_does_not_affect_published_results() {
+        let fixture = encoded_semantic_test_interface();
+        let forward = semantic_compilation(&fixture);
+        let reverse = semantic_compilation(&fixture);
+
+        let forward = requested_fact_kinds(
+            &forward,
+            &fixture,
+            [
+                InterfaceSemanticFactKind::DeclarationTemplate,
+                InterfaceSemanticFactKind::Implementation,
+            ],
+        );
+
+        let mut reverse = requested_fact_kinds(
+            &reverse,
+            &fixture,
+            [
+                InterfaceSemanticFactKind::Implementation,
+                InterfaceSemanticFactKind::DeclarationTemplate,
+            ],
+        );
+
+        reverse.reverse();
+
+        assert_eq!(forward, reverse);
+    }
+
+    #[test]
     fn identical_interface_failures_retain_dependency_provenance() {
         let compilation = compilation([
             dependency("example.alpha", "main"),
@@ -860,6 +889,53 @@ mod tests {
             Arc::<[u8]>::from(vec![0; 112]),
             InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
         )
+    }
+
+    fn semantic_compilation(
+        fixture: &bray_package_interface::test_support::EncodedSemanticTestInterface,
+    ) -> Compilation {
+        compilation([DependencyInterfaceInput::new(
+            fixture.package.clone(),
+            fixture.product.clone(),
+            "semantic-dependency.brayi",
+            Arc::<[u8]>::from(fixture.bytes.clone()),
+            InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
+        )])
+    }
+
+    fn requested_fact_kinds(
+        compilation: &Compilation,
+        fixture: &bray_package_interface::test_support::EncodedSemanticTestInterface,
+        requested: [InterfaceSemanticFactKind; 2],
+    ) -> Vec<std::mem::Discriminant<ImportedSemanticFact>> {
+        let interface = compilation
+            .dependency_interface_id(&fixture.package, &fixture.product)
+            .unwrap_or_else(|| panic!("test dependency interface must have an ID"));
+
+        requested
+            .into_iter()
+            .flat_map(|kind| {
+                let owner = match kind {
+                    InterfaceSemanticFactKind::DeclarationTemplate => fixture.template_owner,
+                    InterfaceSemanticFactKind::Implementation => fixture.implementation_owner,
+                    _ => panic!("test request kind must have an owner"),
+                };
+
+                let result = compilation
+                    .imported_semantic_fact_result(ImportedSemanticFactKey::new(
+                        interface, owner, kind,
+                    ))
+                    .unwrap_or_else(|error| panic!("semantic fact query must complete: {error:?}"));
+
+                assert!(result.diagnostics().is_empty());
+
+                result
+                    .value()
+                    .iter()
+                    .map(std::mem::discriminant)
+                    .collect::<Vec<_>>()
+            })
+            .collect()
     }
 
     fn interface_id(

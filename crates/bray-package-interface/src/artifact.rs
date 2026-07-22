@@ -273,9 +273,9 @@ fn encoded_directory_entry(
 }
 
 fn encode_directory_entry(encoder: &mut WireEncoder, entry: DirectoryEntry) {
-    encoder.write_u32(entry.tag().wire_value());
+    encoder.write_u32(entry.raw_tag());
 
-    encoder.write_u32(0);
+    encoder.write_u32(entry.encoding_flags());
 
     encoder.write_u64(entry.offset());
     encoder.write_u64(entry.length());

@@ -615,8 +615,9 @@ different revision and does not preserve unknown semantic fields.
 Changing the meaning or required encoding of a semantic record increments the format revision. Compatibility shims are added only
 when explicitly required by distribution policy, not by default during greenfield development.
 
-Unknown sections, tags, or required flags in the current exact revision are errors. Optional non-semantic tooling data can be added
-later only through an explicitly skippable extension mechanism.
+Unknown semantic sections, record tags, and required flags in the current exact revision are errors. A directory entry may use the
+optional non-semantic section flag with an unknown section tag. Readers validate its bounds and checksum, exclude it from semantic
+content identity, and otherwise ignore it. Known sections cannot use this flag.
 
 ### Hashes
 
