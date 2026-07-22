@@ -85,6 +85,7 @@ where
 
     let mut candidates = Vec::new();
     let mut diagnostics = DiagnosticBag::new();
+
     let generic = CallGenericContext {
         arguments: generic_arguments,
         scope: type_scope,
@@ -415,9 +416,10 @@ where
     let (generic_arguments, generic_argument_diagnostics) = generic_arguments.into_parts();
     let has_generic_argument_diagnostics = !generic_argument_diagnostics.is_empty();
 
-    diagnostics.add_range(generic_argument_diagnostics);
+    *diagnostics = diagnostics.merged(&generic_argument_diagnostics);
 
     let mut defaults = Vec::with_capacity(signature.parameters().len());
+
     let mut has_diagnostics =
         signature_diagnostics || generic_diagnostics || has_generic_argument_diagnostics;
 

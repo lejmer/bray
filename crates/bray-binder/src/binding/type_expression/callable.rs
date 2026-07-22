@@ -57,11 +57,13 @@ impl TypeExpressionBinder<'_> {
         self.diagnostics.add_range(diagnostics);
 
         let parameters = parameter_list.parameters().collect::<Vec<_>>();
+
         let parameters_match_owner = parameter_symbols.iter().all(|parameter| {
             self.symbols
                 .callable_parameter(*parameter)
                 .is_some_and(|record| record.owner() == callable)
         });
+
         let receiver_matches_owner = receiver.is_none_or(|parameter| {
             self.symbols
                 .receiver_parameter(parameter)
@@ -102,6 +104,7 @@ impl TypeExpressionBinder<'_> {
         };
 
         let dependency_contract = self.empty_dependency_contract()?;
+
         let dependencies = CallableDependencyContracts::for_execution(
             qualifiers.execution,
             dependency_contract,
@@ -110,6 +113,7 @@ impl TypeExpressionBinder<'_> {
 
         // The signature and callable identity share the same immutable result structure.
         let signature_result = result.clone();
+
         let callable_type = self.make_callable_type_template(
             callable_parameters,
             result,
@@ -139,6 +143,7 @@ impl TypeExpressionBinder<'_> {
         let parameters = syntax.parameter_lists().next();
         let modifiers = syntax.callable_modifiers().next();
         let directives = syntax.callable_directives().next();
+
         let result = syntax
             .callable_result_clauses()
             .next()
@@ -191,6 +196,7 @@ impl TypeExpressionBinder<'_> {
         let abi = self.bind_optional_callable_abi(directives);
 
         let dependency_contract = self.empty_dependency_contract()?;
+
         let dependencies = CallableDependencyContracts::for_execution(
             execution,
             dependency_contract,
@@ -225,6 +231,7 @@ impl TypeExpressionBinder<'_> {
                 .collect::<BinderFactResult<Vec<_>>>()?;
 
             let result = self.require_resolved_type(&result)?;
+
             let callable =
                 CallableTypeData::new(parameters, result, constness, trust, abi, dependencies);
 
@@ -252,6 +259,7 @@ impl TypeExpressionBinder<'_> {
             .ok_or(BinderFactError::DependencyUnavailable)?;
 
         let modifiers = syntax.parameter_modifiers();
+
         let position = if modifiers.pos_token().is_some() {
             CallablePosition::PositionalOrNamed
         } else {

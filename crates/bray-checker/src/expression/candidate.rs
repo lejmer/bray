@@ -422,10 +422,12 @@ where
     };
 
     let result = call_result(request, callable, callable.result())?;
+
     let target = prepared.anonymous_target.map_or(
         BoundCallableTarget::Indirect(callee_type.ty()),
         BoundCallableTarget::Anonymous,
     );
+
     let resolution = BoundResolvedCall::new(target, [], result);
 
     // Each materialized value candidate owns its reusable resolved-call description.

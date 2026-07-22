@@ -1,8 +1,10 @@
 use super::{
-    CallableInstanceData, CallableParameterData, CallableTypeData, ConstantProjection,
-    ConstantProjectionKind, ConstantTermData, ConstantTermId, GenericArgument,
-    GenericSubstitutionData, GenericSubstitutionId, ImplementationInstanceData, SemanticValueStore,
-    SemanticValueStoreError, TraitApplicationData, TypeData, TypeId,
+    CallableDependencyContracts, CallableInstanceData, CallableParameterData, CallableTypeData,
+    ConstantProjection, ConstantProjectionKind, ConstantTermData, ConstantTermId,
+    DependencyContractTemplateData, DependencyGuard, DependencyProjection, DependencyRequirement,
+    DependencySubject, DependencySubjectRoot, GenericArgument, GenericSubstitutionData,
+    GenericSubstitutionId, ImplementationInstanceData, SemanticValueStore, SemanticValueStoreError,
+    TraitApplicationData, TypeData, TypeId,
 };
 use crate::GenericParameterSymbolId;
 
@@ -49,8 +51,10 @@ impl SemanticValueStore {
                 member,
             } => {
                 let application = self.trait_application_data(*application)?;
+
                 let nested =
                     self.substitute_generic_substitution(application.substitution(), substitution)?;
+
                 let application = self.intern_trait_application(TraitApplicationData::new(
                     application.definition(),
                     nested,
@@ -84,8 +88,10 @@ impl SemanticValueStore {
             },
             TypeData::TraitView(application) => {
                 let application = self.trait_application_data(*application)?;
+
                 let nested =
                     self.substitute_generic_substitution(application.substitution(), substitution)?;
+
                 let application = self.intern_trait_application(TraitApplicationData::new(
                     application.definition(),
                     nested,
@@ -117,7 +123,10 @@ impl SemanticValueStore {
                     callable.constness(),
                     callable.trust(),
                     callable.abi(),
-                    callable.dependency_contracts(),
+                    self.substitute_callable_dependency_contracts(
+                        callable.dependency_contracts(),
+                        substitution,
+                    )?,
                 ))
             }
         };
@@ -234,6 +243,108 @@ impl SemanticValueStore {
         self.intern_constant_term(substituted)
     }
 
+    fn substitute_callable_dependency_contracts(
+        &self,
+        contracts: CallableDependencyContracts,
+        substitution: &GenericSubstitutionData,
+    ) -> Result<CallableDependencyContracts, SemanticValueStoreError> {
+        let invocation =
+            self.substitute_dependency_contract_template(contracts.invocation(), substitution)?;
+
+        match contracts.deferred_execution() {
+            Some(deferred) => Ok(CallableDependencyContracts::asynchronous(
+                invocation,
+                self.substitute_dependency_contract_template(deferred, substitution)?,
+            )),
+            None => Ok(CallableDependencyContracts::synchronous(invocation)),
+        }
+    }
+
+    fn substitute_dependency_contract_template(
+        &self,
+        template: super::DependencyContractTemplateId,
+        substitution: &GenericSubstitutionData,
+    ) -> Result<super::DependencyContractTemplateId, SemanticValueStoreError> {
+        let template = self.dependency_contract_template_data(template)?;
+
+        let requirements = template
+            .requirements()
+            .iter()
+            .map(|requirement| self.substitute_dependency_requirement(requirement, substitution))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        self.intern_dependency_contract_template(DependencyContractTemplateData::new(requirements))
+    }
+
+    fn substitute_dependency_requirement(
+        &self,
+        requirement: &DependencyRequirement,
+        substitution: &GenericSubstitutionData,
+    ) -> Result<DependencyRequirement, SemanticValueStoreError> {
+        match requirement {
+            DependencyRequirement::Direct { subject, kind } => Ok(DependencyRequirement::direct(
+                self.substitute_dependency_subject(subject, substitution)?,
+                *kind,
+            )),
+            DependencyRequirement::Guarded(guarded) => Ok(DependencyRequirement::guarded(
+                self.substitute_dependency_guard(guarded.guard(), substitution)?,
+                guarded
+                    .requirements()
+                    .iter()
+                    .map(|requirement| {
+                        self.substitute_dependency_requirement(requirement, substitution)
+                    })
+                    .collect::<Result<Vec<_>, _>>()?,
+            )),
+        }
+    }
+
+    fn substitute_dependency_guard(
+        &self,
+        guard: &DependencyGuard,
+        substitution: &GenericSubstitutionData,
+    ) -> Result<DependencyGuard, SemanticValueStoreError> {
+        match guard {
+            DependencyGuard::NullablePresent(subject) => Ok(DependencyGuard::NullablePresent(
+                self.substitute_dependency_subject(subject, substitution)?,
+            )),
+            DependencyGuard::ActiveUnionVariant { subject, variant } => {
+                Ok(DependencyGuard::ActiveUnionVariant {
+                    subject: self.substitute_dependency_subject(subject, substitution)?,
+                    variant: *variant,
+                })
+            }
+        }
+    }
+
+    fn substitute_dependency_subject(
+        &self,
+        subject: &DependencySubject,
+        substitution: &GenericSubstitutionData,
+    ) -> Result<DependencySubject, SemanticValueStoreError> {
+        let root = match subject.subject_root() {
+            DependencySubjectRoot::ImplementationWitness(instance) => {
+                DependencySubjectRoot::ImplementationWitness(
+                    self.substitute_implementation_instance(instance, substitution)?,
+                )
+            }
+            root => root,
+        };
+
+        let projections = subject
+            .projections()
+            .iter()
+            .map(|projection| match projection {
+                DependencyProjection::Element(index) => self
+                    .substitute_constant_term(*index, substitution)
+                    .map(DependencyProjection::Element),
+                projection => Ok(*projection),
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(DependencySubject::new(root, projections))
+    }
+
     fn substitute_callable_instance(
         &self,
         callable: super::CallableInstanceId,
@@ -251,6 +362,7 @@ impl SemanticValueStore {
         substitution: &GenericSubstitutionData,
     ) -> Result<super::ImplementationInstanceId, SemanticValueStoreError> {
         let implementation = self.implementation_instance_data(implementation)?;
+
         let nested =
             self.substitute_generic_substitution(implementation.substitution(), substitution)?;
 
@@ -264,11 +376,15 @@ impl SemanticValueStore {
 #[cfg(test)]
 mod tests {
     use super::{
-        ConstantTermData, GenericArgument, GenericSubstitutionData, SemanticValueStore, TypeData,
+        CallableDependencyContracts, CallableTypeData, ConstantTermData,
+        DependencyContractTemplateData, DependencyGuard, DependencyProjection,
+        DependencyRequirement, DependencySubject, DependencySubjectRoot, GenericArgument,
+        GenericSubstitutionData, SemanticValueStore, TypeData,
     };
     use crate::{
-        AnySymbolId, FunctionSymbolId, GenericConstParameterSymbolId, GenericOwnerId,
-        GenericParameterSymbolId, GenericTypeParameterSymbolId, SymbolId,
+        AnySymbolId, CallableAbi, CallableConstness, CallableTrust, DependencyRequirementKind,
+        FunctionSymbolId, GenericConstParameterSymbolId, GenericOwnerId, GenericParameterSymbolId,
+        GenericTypeParameterSymbolId, SymbolId, SymbolOrdinal,
     };
 
     #[test]
@@ -277,21 +393,27 @@ mod tests {
             .unwrap_or_else(|error| panic!("semantic store creation failed: {error:?}"));
 
         let source_type_parameter = GenericTypeParameterSymbolId::from_symbol_id(SymbolId::new(2));
+
         let source_const_parameter =
             GenericConstParameterSymbolId::from_symbol_id(SymbolId::new(3));
+
         let target_type_parameter = GenericTypeParameterSymbolId::from_symbol_id(SymbolId::new(4));
+
         let target_const_parameter =
             GenericConstParameterSymbolId::from_symbol_id(SymbolId::new(5));
 
         let source_type = store
             .intern_type(TypeData::TypeParameter(source_type_parameter))
             .unwrap_or_else(|error| panic!("source type interning failed: {error:?}"));
+
         let source_const = store
             .intern_constant_term(ConstantTermData::Parameter(source_const_parameter))
             .unwrap_or_else(|error| panic!("source constant interning failed: {error:?}"));
+
         let target_type = store
             .intern_type(TypeData::TypeParameter(target_type_parameter))
             .unwrap_or_else(|error| panic!("target type interning failed: {error:?}"));
+
         let target_const = store
             .intern_constant_term(ConstantTermData::Parameter(target_const_parameter))
             .unwrap_or_else(|error| panic!("target constant interning failed: {error:?}"));
@@ -304,8 +426,10 @@ mod tests {
             .unwrap_or_else(|error| panic!("subject type interning failed: {error:?}"));
 
         let function = AnySymbolId::from(FunctionSymbolId::from_symbol_id(SymbolId::new(1)));
+
         let owner = GenericOwnerId::try_new(function)
             .unwrap_or_else(|| panic!("function must support generic substitutions"));
+
         let substitution = GenericSubstitutionData::try_new(
             owner,
             [
@@ -318,6 +442,7 @@ mod tests {
             ],
         )
         .unwrap_or_else(|error| panic!("substitution construction failed: {error:?}"));
+
         let substitution = store
             .intern_generic_substitution(substitution)
             .unwrap_or_else(|error| panic!("substitution interning failed: {error:?}"));
@@ -325,6 +450,7 @@ mod tests {
         let substituted = store
             .substitute_type(subject, substitution)
             .unwrap_or_else(|error| panic!("type substitution failed: {error:?}"));
+
         let substituted = store
             .type_data(substituted)
             .unwrap_or_else(|error| panic!("substituted type must be available: {error:?}"));
@@ -335,6 +461,130 @@ mod tests {
                 element: target_type,
                 length: target_const,
             }
+        );
+    }
+
+    #[test]
+    fn substitutions_apply_constant_arguments_through_callable_dependency_contracts() {
+        let store = SemanticValueStore::try_new()
+            .unwrap_or_else(|error| panic!("semantic store creation failed: {error:?}"));
+
+        let source_parameter = GenericConstParameterSymbolId::from_symbol_id(SymbolId::new(2));
+        let target_parameter = GenericConstParameterSymbolId::from_symbol_id(SymbolId::new(3));
+
+        let source_term = store
+            .intern_constant_term(ConstantTermData::Parameter(source_parameter))
+            .unwrap_or_else(|error| panic!("source constant interning failed: {error:?}"));
+
+        let target_term = store
+            .intern_constant_term(ConstantTermData::Parameter(target_parameter))
+            .unwrap_or_else(|error| panic!("target constant interning failed: {error:?}"));
+
+        let source_subject = DependencySubject::new(
+            DependencySubjectRoot::Parameter(SymbolOrdinal::new(0)),
+            [DependencyProjection::Element(source_term)],
+        );
+
+        let target_subject = DependencySubject::new(
+            DependencySubjectRoot::Parameter(SymbolOrdinal::new(0)),
+            [DependencyProjection::Element(target_term)],
+        );
+
+        let invocation = store
+            .intern_dependency_contract_template(DependencyContractTemplateData::new([
+                DependencyRequirement::direct(
+                    source_subject.clone(),
+                    DependencyRequirementKind::StorageAlive,
+                ),
+            ]))
+            .unwrap_or_else(|error| panic!("invocation contract interning failed: {error:?}"));
+
+        let deferred = store
+            .intern_dependency_contract_template(DependencyContractTemplateData::new([
+                DependencyRequirement::guarded(
+                    DependencyGuard::NullablePresent(source_subject),
+                    [DependencyRequirement::direct(
+                        DependencySubject::root(DependencySubjectRoot::Result),
+                        DependencyRequirementKind::StorageInitialized,
+                    )],
+                ),
+            ]))
+            .unwrap_or_else(|error| panic!("deferred contract interning failed: {error:?}"));
+
+        let result = store
+            .intern_type(TypeData::Error)
+            .unwrap_or_else(|error| panic!("callable result interning failed: {error:?}"));
+
+        let subject = store
+            .intern_type(TypeData::Callable(CallableTypeData::new(
+                [],
+                result,
+                CallableConstness::Runtime,
+                CallableTrust::Safe,
+                CallableAbi::Bray,
+                CallableDependencyContracts::asynchronous(invocation, deferred),
+            )))
+            .unwrap_or_else(|error| panic!("callable type interning failed: {error:?}"));
+
+        let function = AnySymbolId::from(FunctionSymbolId::from_symbol_id(SymbolId::new(1)));
+
+        let owner = GenericOwnerId::try_new(function)
+            .unwrap_or_else(|| panic!("function must support generic substitutions"));
+
+        let substitution = GenericSubstitutionData::try_new(
+            owner,
+            [GenericParameterSymbolId::Const(source_parameter)],
+            [GenericArgument::Constant(target_term)],
+        )
+        .unwrap_or_else(|error| panic!("substitution construction failed: {error:?}"));
+
+        let substitution = store
+            .intern_generic_substitution(substitution)
+            .unwrap_or_else(|error| panic!("substitution interning failed: {error:?}"));
+
+        let substituted = store
+            .substitute_type(subject, substitution)
+            .unwrap_or_else(|error| panic!("type substitution failed: {error:?}"));
+
+        let substituted = store
+            .type_data(substituted)
+            .unwrap_or_else(|error| panic!("substituted type must be available: {error:?}"));
+
+        let TypeData::Callable(callable) = substituted.as_ref() else {
+            panic!("substituted type must remain callable");
+        };
+
+        let contracts = callable.dependency_contracts();
+
+        let invocation = store
+            .dependency_contract_template_data(contracts.invocation())
+            .unwrap_or_else(|error| panic!("substituted invocation must be available: {error:?}"));
+
+        let deferred = contracts
+            .deferred_execution()
+            .unwrap_or_else(|| panic!("substituted callable must remain asynchronous"));
+
+        let deferred = store
+            .dependency_contract_template_data(deferred)
+            .unwrap_or_else(|error| panic!("substituted deferred contract missing: {error:?}"));
+
+        assert_eq!(
+            invocation.as_ref(),
+            &DependencyContractTemplateData::new([DependencyRequirement::direct(
+                target_subject.clone(),
+                DependencyRequirementKind::StorageAlive,
+            )])
+        );
+
+        assert_eq!(
+            deferred.as_ref(),
+            &DependencyContractTemplateData::new([DependencyRequirement::guarded(
+                DependencyGuard::NullablePresent(target_subject),
+                [DependencyRequirement::direct(
+                    DependencySubject::root(DependencySubjectRoot::Result),
+                    DependencyRequirementKind::StorageInitialized,
+                )],
+            )])
         );
     }
 }

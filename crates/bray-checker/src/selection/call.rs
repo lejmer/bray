@@ -526,6 +526,7 @@ fn map_arguments(
     on_argument: &mut impl FnMut(SelectedArgument),
 ) -> Result<Option<bool>, CheckerInfrastructureError> {
     let parameters = callable.parameters();
+
     let Some(parameter_indices) = map_argument_parameter_indices(arguments, parameters) else {
         return Ok(None);
     };
@@ -544,6 +545,7 @@ fn map_arguments(
 
         supplied[parameter_index] = Some(argument.expression());
         let parameter = signatures.map(|signatures| signatures[parameter_index].parameter());
+
         let Ok(ordinal) = u32::try_from(parameter_index) else {
             return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
         };

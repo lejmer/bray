@@ -119,6 +119,7 @@ impl Compilation {
                 let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
 
                 let context = self.checker_context_for(&key, cancellation)?;
+
                 let semantic_context =
                     semantic_unit_context_for(context.symbols(), bound.result().value())?;
 
@@ -140,14 +141,18 @@ impl Compilation {
             cancellation,
             |cancellation| {
                 let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
+
                 let declared = self
                     .declared_value_type_templates_with_cancellation(key.clone(), cancellation)?;
+
                 let supplemental =
                     self.nested_callable_evidence(bound.result().value(), cancellation)?;
+
                 let facts = self.binder_facts_for(&key, cancellation)?;
                 let candidates = expression_candidates(&facts, bound.result().value())?;
 
                 let context = self.checker_context_for(&key, cancellation)?;
+
                 let semantic_context =
                     semantic_unit_context_for(context.symbols(), bound.result().value())?;
 
@@ -1343,6 +1348,7 @@ mod tests {
             expression_gate.wait_until_observed(FactCellTestEvent::Computing, 1);
 
             let selections_key = key.clone();
+
             let selections =
                 scope.spawn(|| compilation.checked_semantic_selections(selections_key));
 
@@ -1424,6 +1430,7 @@ mod tests {
 
         let bound = std::thread::scope(|scope| {
             let request_key = key.clone();
+
             let request = scope.spawn(|| {
                 compilation.bound_unit_with_cancellation(request_key, &bound_cancellation)
             });
@@ -1458,6 +1465,7 @@ mod tests {
 
         let checked = std::thread::scope(|scope| {
             let request_key = key.clone();
+
             let request = scope.spawn(|| {
                 compilation
                     .checked_control_flow_with_cancellation(request_key, &checked_cancellation)
@@ -1495,6 +1503,7 @@ mod tests {
 
         let expression_semantics = std::thread::scope(|scope| {
             let request_key = key.clone();
+
             let request = scope.spawn(|| {
                 compilation
                     .expression_semantics_with_cancellation(request_key, &expression_cancellation)
