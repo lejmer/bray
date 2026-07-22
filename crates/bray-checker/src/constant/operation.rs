@@ -13,6 +13,7 @@ pub(super) enum ConstantOperationError {
     Unsupported,
     DivisionByZero,
     NotRepresentable,
+    ResourceLimitExceeded,
 }
 
 pub(super) fn fold_unary(
@@ -60,16 +61,11 @@ pub(super) fn fold_binary(
     operator: BoundOperator,
     left: &ConstantValueKind,
     right: &ConstantValueKind,
-    representation: Option<RepresentationRole>,
-    target_width: NonZeroU16,
+    maximum_integer_bits: u32,
 ) -> Result<ConstantValueKind, ConstantOperationError> {
     let result = match (left, right) {
         (ConstantValueKind::Integer(left), ConstantValueKind::Integer(right)) => {
-            let Some(width) = integer_width(representation, target_width) else {
-                return Err(ConstantOperationError::Invalid);
-            };
-
-            fold_integer_binary(operator, left, right, width)?
+            fold_integer_binary(operator, left, right, maximum_integer_bits)?
         }
         (ConstantValueKind::Boolean(left), ConstantValueKind::Boolean(right)) => {
             fold_boolean_binary(operator, *left, *right)?
@@ -104,7 +100,7 @@ fn fold_integer_binary(
     operator: BoundOperator,
     left: &IntegerConstant,
     right: &IntegerConstant,
-    width: u16,
+    maximum_integer_bits: u32,
 ) -> Result<ConstantValueKind, ConstantOperationError> {
     let left = to_big_integer(left);
     let right = to_big_integer(right);
@@ -121,15 +117,15 @@ fn fold_integer_binary(
         BoundOperator::BitwiseAnd => integer(left & right),
         BoundOperator::BitwiseOr => integer(left | right),
         BoundOperator::BitwiseXor => integer(left ^ right),
-        BoundOperator::ShiftLeft => shift_left(left, &right, width)?,
-        BoundOperator::ShiftRight => shift_right(left, &right, width)?,
+        BoundOperator::ShiftLeft => shift_left(left, &right, maximum_integer_bits)?,
+        BoundOperator::ShiftRight => shift_right(left, &right)?,
         BoundOperator::Equal => ConstantValueKind::Boolean(left == right),
         BoundOperator::NotEqual => ConstantValueKind::Boolean(left != right),
         BoundOperator::Less => ConstantValueKind::Boolean(left < right),
         BoundOperator::LessEqual => ConstantValueKind::Boolean(left <= right),
         BoundOperator::Greater => ConstantValueKind::Boolean(left > right),
         BoundOperator::GreaterEqual => ConstantValueKind::Boolean(left >= right),
-        BoundOperator::Exponentiate => exponentiate(left, &right, width)?,
+        BoundOperator::Exponentiate => exponentiate(left, &right, maximum_integer_bits)?,
         _ => return Err(ConstantOperationError::Invalid),
     };
 
@@ -173,24 +169,10 @@ where
     Ok(ConstantValueKind::Boolean(value))
 }
 
-fn integer_width(
-    representation: Option<RepresentationRole>,
-    target_width: NonZeroU16,
-) -> Option<u16> {
-    match representation?.integer_representation()? {
-        IntegerRepresentation::Signed(width) | IntegerRepresentation::Unsigned(width) => {
-            Some(width)
-        }
-        IntegerRepresentation::TargetSigned | IntegerRepresentation::TargetUnsigned => {
-            Some(target_width.get())
-        }
-    }
-}
-
 fn shift_left(
     value: BigInt,
     count: &BigInt,
-    width: u16,
+    maximum_integer_bits: u32,
 ) -> Result<ConstantValueKind, ConstantOperationError> {
     if count < &BigInt::from(0_u8) {
         return Err(ConstantOperationError::Invalid);
@@ -200,8 +182,11 @@ fn shift_left(
         return Ok(integer(value));
     }
 
-    if count >= &BigInt::from(width) {
-        return Err(ConstantOperationError::NotRepresentable);
+    let value_bits = value.bits();
+    let available_bits = u64::from(maximum_integer_bits).saturating_sub(value_bits);
+
+    if value_bits > u64::from(maximum_integer_bits) || count > &BigInt::from(available_bits) {
+        return Err(ConstantOperationError::ResourceLimitExceeded);
     }
 
     let count = shift_count(count)?;
@@ -209,16 +194,12 @@ fn shift_left(
     Ok(integer(value << count))
 }
 
-fn shift_right(
-    value: BigInt,
-    count: &BigInt,
-    width: u16,
-) -> Result<ConstantValueKind, ConstantOperationError> {
+fn shift_right(value: BigInt, count: &BigInt) -> Result<ConstantValueKind, ConstantOperationError> {
     if count < &BigInt::from(0_u8) {
         return Err(ConstantOperationError::Invalid);
     }
 
-    if count >= &BigInt::from(width) {
+    if count >= &BigInt::from(value.bits()) {
         return Ok(integer(if value < BigInt::from(0_u8) {
             BigInt::from(-1_i8)
         } else {
@@ -234,7 +215,7 @@ fn shift_right(
 fn exponentiate(
     value: BigInt,
     exponent: &BigInt,
-    width: u16,
+    maximum_integer_bits: u32,
 ) -> Result<ConstantValueKind, ConstantOperationError> {
     if exponent < &BigInt::from(0_u8) {
         return Err(ConstantOperationError::Invalid);
@@ -262,13 +243,22 @@ fn exponentiate(
         ));
     }
 
-    let exponent = u32::try_from(exponent).map_err(|_| ConstantOperationError::NotRepresentable)?;
+    let minimum_result_bits = BigInt::from(value.bits() - 1) * exponent + BigInt::from(1_u8);
 
-    if exponent >= u32::from(width) {
-        return Err(ConstantOperationError::NotRepresentable);
+    if minimum_result_bits > BigInt::from(maximum_integer_bits) {
+        return Err(ConstantOperationError::ResourceLimitExceeded);
     }
 
-    Ok(integer(value.pow(exponent)))
+    let exponent =
+        u32::try_from(exponent).map_err(|_| ConstantOperationError::ResourceLimitExceeded)?;
+
+    let result = value.pow(exponent);
+
+    if result.bits() > u64::from(maximum_integer_bits) {
+        return Err(ConstantOperationError::ResourceLimitExceeded);
+    }
+
+    Ok(integer(result))
 }
 
 fn bitwise_not(
@@ -296,7 +286,7 @@ fn integer(value: BigInt) -> ConstantValueKind {
 }
 
 fn shift_count(value: &BigInt) -> Result<usize, ConstantOperationError> {
-    usize::try_from(value).map_err(|_| ConstantOperationError::NotRepresentable)
+    usize::try_from(value).map_err(|_| ConstantOperationError::ResourceLimitExceeded)
 }
 
 pub(super) fn negate_real(value: RealConstantBits) -> RealConstantBits {
@@ -327,25 +317,13 @@ mod tests {
         let maximum = integer([0xff]);
         let one = integer([1]);
 
-        let intermediate = fold_binary(
-            BoundOperator::Add,
-            &maximum,
-            &one,
-            Some(RepresentationRole::ScalarU8),
-            NonZeroU16::MIN,
-        );
+        let intermediate = fold_binary(BoundOperator::Add, &maximum, &one, 64);
 
         let Ok(intermediate) = intermediate else {
             panic!("exact intermediate addition must succeed");
         };
 
-        let result = fold_binary(
-            BoundOperator::Subtract,
-            &intermediate,
-            &one,
-            Some(RepresentationRole::ScalarU8),
-            NonZeroU16::MIN,
-        );
+        let result = fold_binary(BoundOperator::Subtract, &intermediate, &one, 64);
 
         assert_eq!(result, Ok(maximum));
     }
@@ -365,19 +343,53 @@ mod tests {
     }
 
     #[test]
-    fn exponentiation_rejects_results_beyond_the_selected_width_before_materialization() {
+    fn shifts_keep_exact_intermediates_beyond_the_selected_width() {
+        let one = integer([1]);
+        let eight = integer([8]);
+
+        let intermediate = fold_binary(BoundOperator::ShiftLeft, &one, &eight, 64);
+
+        let Ok(intermediate) = intermediate else {
+            panic!("exact intermediate shift must succeed");
+        };
+
+        let result = fold_binary(BoundOperator::ShiftRight, &intermediate, &eight, 64);
+
+        assert_eq!(result, Ok(one));
+    }
+
+    #[test]
+    fn exponentiation_keeps_exact_intermediates_beyond_the_selected_width() {
         let two = integer([2]);
-        let exponent = integer([0x01, 0x00]);
+        let eight = integer([8]);
+        let one = integer([1]);
 
-        let result = fold_binary(
-            BoundOperator::Exponentiate,
-            &two,
-            &exponent,
-            Some(RepresentationRole::ScalarU8),
-            NonZeroU16::MIN,
+        let intermediate = fold_binary(BoundOperator::Exponentiate, &two, &eight, 64);
+
+        let Ok(intermediate) = intermediate else {
+            panic!("exact intermediate exponentiation must succeed");
+        };
+
+        let result = fold_binary(BoundOperator::Subtract, &intermediate, &one, 64);
+
+        assert_eq!(result, Ok(integer([0xff])));
+    }
+
+    #[test]
+    fn growing_integer_operations_observe_the_exact_integer_resource_limit() {
+        let one = integer([1]);
+        let two = integer([2]);
+        let eight = integer([8]);
+
+        let shift = fold_binary(BoundOperator::ShiftLeft, &one, &eight, 8);
+        let exponentiation = fold_binary(BoundOperator::Exponentiate, &two, &eight, 8);
+
+        assert_eq!(shift, Err(ConstantOperationError::ResourceLimitExceeded));
+
+        assert_eq!(
+            exponentiation,
+            Err(ConstantOperationError::ResourceLimitExceeded)
         );
-
-        assert_eq!(result, Err(ConstantOperationError::NotRepresentable));
     }
 
     #[test]
@@ -385,13 +397,7 @@ mod tests {
         let one = integer([1]);
         let zero = integer([]);
 
-        let result = fold_binary(
-            BoundOperator::Divide,
-            &one,
-            &zero,
-            Some(RepresentationRole::ScalarU8),
-            NonZeroU16::MIN,
-        );
+        let result = fold_binary(BoundOperator::Divide, &one, &zero, 64);
 
         assert_eq!(result, Err(ConstantOperationError::DivisionByZero));
     }

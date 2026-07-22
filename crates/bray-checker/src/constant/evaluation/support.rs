@@ -302,6 +302,9 @@ impl EvaluationFailure {
             ConstantOperationError::NotRepresentable => {
                 DiagnosticKind::CheckingConstantValueNotRepresentable
             }
+            ConstantOperationError::ResourceLimitExceeded => {
+                DiagnosticKind::CheckingConstantIntegerSizeLimitExceeded
+            }
         };
 
         Self::Source { expression, kind }

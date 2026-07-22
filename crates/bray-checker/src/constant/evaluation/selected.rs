@@ -92,8 +92,7 @@ where
         right: BoundExpressionId,
         ty: TypeId,
     ) -> Result<ConstantTermId, EvaluationFailure> {
-        let left_expression = left;
-        let left = self.evaluate(left_expression)?;
+        let left = self.evaluate(left)?;
 
         if let Some(short_circuit) = self.short_circuit(expression, operation, left, ty)? {
             return Ok(short_circuit);
@@ -119,19 +118,11 @@ where
         let left_value = self.constant_value(left_value)?;
         let right_value = self.constant_value(right_value)?;
 
-        let operand_type = self.expression_type(left_expression)?;
-
-        let representation = type_representation(self.request, operand_type)
-            .map_err(EvaluationFailure::Infrastructure)?;
-
-        let target_width = self.target_integer_width(representation);
-
         let kind = fold_binary(
             operation,
             left_value.kind(),
             right_value.kind(),
-            representation,
-            target_width,
+            self.input.limits().integer_bits(),
         )
         .map_err(|error| EvaluationFailure::operation(expression, error))?;
 

@@ -9,6 +9,7 @@ pub struct ConstantEvaluationLimits {
     steps: u64,
     aggregate_elements: u64,
     literal_bytes: u64,
+    integer_bits: u32,
 }
 
 impl ConstantEvaluationLimits {
@@ -18,7 +19,15 @@ impl ConstantEvaluationLimits {
             steps,
             aggregate_elements,
             literal_bytes,
+            integer_bits: 16 * 1024 * 1024,
         }
+    }
+
+    /// Uses an explicit maximum bit size for one exact integer result.
+    pub const fn with_integer_bits(mut self, integer_bits: u32) -> Self {
+        self.integer_bits = integer_bits;
+
+        self
     }
 
     /// Returns the maximum number of evaluated expression operations.
@@ -34,6 +43,11 @@ impl ConstantEvaluationLimits {
     /// Returns the maximum total source bytes decoded from literals.
     pub const fn literal_bytes(self) -> u64 {
         self.literal_bytes
+    }
+
+    /// Returns the maximum bit size of one exact integer result.
+    pub const fn integer_bits(self) -> u32 {
+        self.integer_bits
     }
 }
 
@@ -125,5 +139,13 @@ mod tests {
         assert!(limits.steps() > 0);
         assert!(limits.aggregate_elements() > 0);
         assert!(limits.literal_bytes() > 0);
+        assert!(limits.integer_bits() > 0);
+    }
+
+    #[test]
+    fn exact_integer_limit_is_explicitly_configurable() {
+        let limits = ConstantEvaluationLimits::default().with_integer_bits(9);
+
+        assert_eq!(limits.integer_bits(), 9);
     }
 }

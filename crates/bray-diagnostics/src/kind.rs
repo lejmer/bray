@@ -119,6 +119,8 @@ pub enum DiagnosticKind {
     CheckingConstantAggregateLimitExceeded,
     /// Constant evaluation exhausted its deterministic literal-byte budget.
     CheckingConstantLiteralSizeLimitExceeded,
+    /// Constant evaluation exceeded its deterministic exact-integer size limit.
+    CheckingConstantIntegerSizeLimitExceeded,
     /// Constant definitions form a direct or transitive dependency cycle.
     CheckingCyclicConstantDefinition,
     /// A constant operation divides or takes a remainder by zero.
@@ -222,6 +224,7 @@ impl DiagnosticKind {
             Self::CheckingConstantEvaluationStepLimitExceeded => 7005,
             Self::CheckingConstantAggregateLimitExceeded => 7006,
             Self::CheckingConstantLiteralSizeLimitExceeded => 7007,
+            Self::CheckingConstantIntegerSizeLimitExceeded => 7020,
             Self::CheckingCyclicConstantDefinition => 7008,
             Self::CheckingConstantDivisionByZero => 7018,
             Self::CheckingConstantValueNotRepresentable => 7019,
@@ -317,6 +320,9 @@ impl DiagnosticKind {
             Self::CheckingConstantLiteralSizeLimitExceeded => {
                 "checking_constant_literal_size_limit_exceeded"
             }
+            Self::CheckingConstantIntegerSizeLimitExceeded => {
+                "checking_constant_integer_size_limit_exceeded"
+            }
             Self::CheckingCyclicConstantDefinition => "checking_cyclic_constant_definition",
             Self::CheckingConstantDivisionByZero => "checking_constant_division_by_zero",
             Self::CheckingConstantValueNotRepresentable => {
@@ -399,7 +405,7 @@ mod tests {
         }
     }
 
-    fn all_diagnostic_kinds() -> [DiagnosticKind; 77] {
+    fn all_diagnostic_kinds() -> [DiagnosticKind; 78] {
         [
             DiagnosticKind::SourceFileReadFailed,
             DiagnosticKind::SourceInvalidUtf8,
@@ -458,6 +464,7 @@ mod tests {
             DiagnosticKind::CheckingConstantEvaluationStepLimitExceeded,
             DiagnosticKind::CheckingConstantAggregateLimitExceeded,
             DiagnosticKind::CheckingConstantLiteralSizeLimitExceeded,
+            DiagnosticKind::CheckingConstantIntegerSizeLimitExceeded,
             DiagnosticKind::CheckingCyclicConstantDefinition,
             DiagnosticKind::CheckingConstantDivisionByZero,
             DiagnosticKind::CheckingConstantValueNotRepresentable,
