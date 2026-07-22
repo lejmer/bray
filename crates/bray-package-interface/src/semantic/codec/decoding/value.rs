@@ -385,7 +385,10 @@ mod tests {
     };
 
     use super::super::decode_semantic_facts;
-    use super::super::test_support::{interface_surface, local_by_kind as symbol_reference};
+    use super::super::test_support::{
+        OwnedSection, encoded_section_views, interface_surface, local_by_kind as symbol_reference,
+        owned_section_views, owned_sections,
+    };
     use crate::semantic::codec::encode_semantic_facts;
     use crate::test_support::{module_key as test_module_key, named_key};
     use crate::{
@@ -397,7 +400,7 @@ mod tests {
         InterfaceSemanticFacts, InterfaceSemanticInternError, InterfaceSourceProvenance,
         InterfaceSymbolReference, InterfaceSymbolResolver, InterfaceTargetFactDependency,
         InterfaceTraitApplication, InterfaceTraitApplicationId, InterfaceType, InterfaceTypeId,
-        InterfaceValidationError, InterfaceValidationLimits, ValidatedInterfaceSection,
+        InterfaceValidationError, InterfaceValidationLimits,
     };
 
     struct Resolver {
@@ -431,16 +434,7 @@ mod tests {
         let sections = encode_semantic_facts(&facts, &surface, limits)
             .unwrap_or_else(|error| panic!("semantic encoding failed: {error:?}"));
 
-        let views: Vec<_> = sections
-            .iter()
-            .map(|section| {
-                ValidatedInterfaceSection::for_test(
-                    section.tag(),
-                    section.record_count(),
-                    section.payload(),
-                )
-            })
-            .collect();
+        let views = encoded_section_views(&sections);
 
         let decoded = decode_semantic_facts(&views, &surface, limits)
             .unwrap_or_else(|error| panic!("semantic decoding failed: {error:?}"));
@@ -530,32 +524,14 @@ mod tests {
         let sections = encode_semantic_facts(&facts, &surface, limits)
             .unwrap_or_else(|error| panic!("semantic encoding failed: {error:?}"));
 
-        let views = sections
-            .iter()
-            .map(|section| {
-                ValidatedInterfaceSection::for_test(
-                    section.tag(),
-                    section.record_count(),
-                    section.payload(),
-                )
-            })
-            .collect::<Vec<_>>();
+        let views = encoded_section_views(&sections);
 
         let decoded = decode_semantic_facts(&views, &surface, limits)
             .unwrap_or_else(|error| panic!("semantic decoding failed: {error:?}"));
 
         assert_eq!(decoded, facts);
 
-        let mut malformed = sections
-            .iter()
-            .map(|section| {
-                (
-                    section.tag(),
-                    section.record_count(),
-                    section.payload().to_vec(),
-                )
-            })
-            .collect::<Vec<_>>();
+        let mut malformed = owned_sections(&sections);
 
         let Some((_, _, constants)) = malformed
             .iter_mut()
@@ -772,16 +748,7 @@ mod tests {
         let sections = encode_semantic_facts(&facts, &surface, limits)
             .unwrap_or_else(|error| panic!("semantic encoding failed: {error:?}"));
 
-        let views: Vec<_> = sections
-            .iter()
-            .map(|section| {
-                ValidatedInterfaceSection::for_test(
-                    section.tag(),
-                    section.record_count(),
-                    section.payload(),
-                )
-            })
-            .collect();
+        let views = encoded_section_views(&sections);
 
         assert_eq!(decode_semantic_facts(&views, &surface, limits), Ok(facts));
 
@@ -999,14 +966,11 @@ mod tests {
     }
 
     fn decode_owned(
-        owned: &[(crate::InterfaceSectionTag, u64, Vec<u8>)],
+        owned: &[OwnedSection],
         surface: &crate::PackageInterfaceSurface,
         limits: InterfaceValidationLimits,
     ) -> Result<InterfaceSemanticFacts, InterfaceValidationError> {
-        let views: Vec<_> = owned
-            .iter()
-            .map(|(tag, count, payload)| ValidatedInterfaceSection::for_test(*tag, *count, payload))
-            .collect();
+        let views = owned_section_views(owned);
 
         decode_semantic_facts(&views, surface, limits)
     }

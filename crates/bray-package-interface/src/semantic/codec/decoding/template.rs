@@ -310,21 +310,20 @@ mod tests {
     use super::super::decode_semantic_facts;
     use super::super::test_support::{
         interface_surface, key_by_kind as symbol_key, local_by_kind as symbol_reference,
-        section_views,
+        owned_section_views, owned_sections,
     };
     use crate::semantic::codec::encode_semantic_facts;
     use crate::test_support::{module_key as test_module_key, named_key};
     use crate::{
-        EncodedSemanticSection, InterfaceCheckedTemplate, InterfaceCheckedTemplateBehavior,
-        InterfaceCheckedTemplateId, InterfaceCheckedTemplateInput,
-        InterfaceCheckedTemplateInputKind, InterfaceCheckedTemplateNode,
-        InterfaceCheckedTemplateOperation, InterfaceCheckedTemplateTemporary,
-        InterfaceConstantTerm, InterfaceConstantValue, InterfaceConstantValueId,
-        InterfaceConstantValueKind, InterfaceDeclarationTemplate, InterfaceDependencyContract,
-        InterfaceImplementationReference, InterfaceSectionTag, InterfaceSemanticFacts,
-        InterfaceSupportEntity, InterfaceSupportImplementation, InterfaceSymbolReference,
-        InterfaceSymbolResolver, InterfaceTemplateReference, InterfaceType, InterfaceTypeId,
-        InterfaceValidationError, InterfaceValidationLimits,
+        InterfaceCheckedTemplate, InterfaceCheckedTemplateBehavior, InterfaceCheckedTemplateId,
+        InterfaceCheckedTemplateInput, InterfaceCheckedTemplateInputKind,
+        InterfaceCheckedTemplateNode, InterfaceCheckedTemplateOperation,
+        InterfaceCheckedTemplateTemporary, InterfaceConstantTerm, InterfaceConstantValue,
+        InterfaceConstantValueId, InterfaceConstantValueKind, InterfaceDeclarationTemplate,
+        InterfaceDependencyContract, InterfaceImplementationReference, InterfaceSectionTag,
+        InterfaceSemanticFacts, InterfaceSupportEntity, InterfaceSupportImplementation,
+        InterfaceSymbolReference, InterfaceSymbolResolver, InterfaceTemplateReference,
+        InterfaceType, InterfaceTypeId, InterfaceValidationError, InterfaceValidationLimits,
     };
 
     #[test]
@@ -338,7 +337,7 @@ mod tests {
         };
 
         let owned = owned_sections(&sections);
-        let views = section_views(&owned);
+        let views = owned_section_views(&owned);
         let decoded = decode_semantic_facts(&views, &surface, limits);
 
         assert_eq!(decoded, Ok(facts));
@@ -376,7 +375,7 @@ mod tests {
         let owned = owned_sections(&sections);
 
         assert_eq!(
-            decode_semantic_facts(&section_views(&owned), &surface, limits),
+            decode_semantic_facts(&owned_section_views(&owned), &surface, limits),
             Ok(facts)
         );
     }
@@ -478,7 +477,7 @@ mod tests {
         templates[8..12].copy_from_slice(&u32::MAX.to_le_bytes());
 
         assert_eq!(
-            decode_semantic_facts(&section_views(&owned), &surface, limits),
+            decode_semantic_facts(&owned_section_views(&owned), &surface, limits),
             Err(InterfaceValidationError::Malformed)
         );
 
@@ -670,7 +669,7 @@ mod tests {
         templates[..4].copy_from_slice(&10_000_000_u32.to_le_bytes());
         *record_count = 10_000_001;
 
-        let decoded = decode_semantic_facts(&section_views(&owned), &surface, limits);
+        let decoded = decode_semantic_facts(&owned_section_views(&owned), &surface, limits);
 
         assert_eq!(decoded, Err(InterfaceValidationError::Truncated));
     }
@@ -1075,21 +1074,6 @@ mod tests {
     fn package_identity() -> PackageIdentity {
         PackageIdentity::try_new("example.templates")
             .unwrap_or_else(|| panic!("test package identity must be valid"))
-    }
-
-    fn owned_sections(
-        sections: &[EncodedSemanticSection],
-    ) -> Vec<(InterfaceSectionTag, u64, Vec<u8>)> {
-        sections
-            .iter()
-            .map(|section| {
-                (
-                    section.tag(),
-                    section.record_count(),
-                    section.payload().to_vec(),
-                )
-            })
-            .collect()
     }
 
     fn index_u32(index: usize) -> u32 {

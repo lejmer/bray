@@ -4,18 +4,46 @@ use bray_symbols::{ExternalSymbolKey, PackageIdentity, SymbolKind};
 
 use crate::test_support::insert_key_and_owners;
 use crate::{
-    ExportSymbolInput, InterfaceContentHash, InterfaceDependency, InterfaceProductIdentity,
-    InterfaceProductKind, InterfaceSectionTag, PackageInterfaceIdentity, PackageInterfaceSurface,
-    ValidatedInterfaceSection, build_package_interface_surface,
+    EncodedSemanticSection, ExportSymbolInput, InterfaceContentHash, InterfaceDependency,
+    InterfaceProductIdentity, InterfaceProductKind, InterfaceSectionTag, PackageInterfaceIdentity,
+    PackageInterfaceSurface, ValidatedInterfaceSection, build_package_interface_surface,
 };
 
 pub(super) use crate::test_support::local_by_kind;
 pub(super) type OwnedSection = (InterfaceSectionTag, u64, Vec<u8>);
 
-pub(super) fn section_views(sections: &[OwnedSection]) -> Vec<ValidatedInterfaceSection<'_>> {
+pub(super) fn owned_section_views(sections: &[OwnedSection]) -> Vec<ValidatedInterfaceSection<'_>> {
     sections
         .iter()
         .map(|(tag, count, payload)| ValidatedInterfaceSection::for_test(*tag, *count, payload))
+        .collect()
+}
+
+pub(super) fn encoded_section_views(
+    sections: &[EncodedSemanticSection],
+) -> Vec<ValidatedInterfaceSection<'_>> {
+    sections
+        .iter()
+        .map(|section| {
+            ValidatedInterfaceSection::for_test(
+                section.tag(),
+                section.record_count(),
+                section.payload(),
+            )
+        })
+        .collect()
+}
+
+pub(super) fn owned_sections(sections: &[EncodedSemanticSection]) -> Vec<OwnedSection> {
+    sections
+        .iter()
+        .map(|section| {
+            (
+                section.tag(),
+                section.record_count(),
+                section.payload().to_vec(),
+            )
+        })
         .collect()
 }
 

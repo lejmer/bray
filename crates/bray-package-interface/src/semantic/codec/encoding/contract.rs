@@ -1,5 +1,5 @@
+use super::facts::section;
 use super::model::EncodedSemanticSection;
-use super::section;
 use super::value::write_tagged_id;
 use crate::semantic::codec::common::{
     write_count, write_symbol_reference, write_symbol_references,

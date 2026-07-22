@@ -184,6 +184,16 @@ fn decode_selected_implementation(
 
     retain_owner_constraints(facts, &owner);
 
+    if facts
+        .implementations
+        .iter()
+        .filter(|implementation| implementation.implementation == owner)
+        .count()
+        != 1
+    {
+        return Err(InterfaceValidationError::Malformed);
+    }
+
     // The selected graph owns shallow copies of its implementation and coherence records.
     facts.implementations = facts
         .implementations
@@ -382,13 +392,14 @@ fn optional_section<'bytes>(
 mod tests {
     use bray_symbols::{InterfaceSymbolId, SymbolKind};
 
-    use super::super::test_support::{OwnedSection, section_views};
+    use super::super::test_support::{OwnedSection, owned_section_views};
     use super::decode_semantic_fact_graph;
     use crate::semantic::codec::encode_semantic_facts;
     use crate::test_support::{local_by_kind, package_interface_export_bundle};
     use crate::{
-        InterfaceSectionTag, InterfaceSemanticFactKind, InterfaceSymbolReference,
-        InterfaceValidationError, InterfaceValidationLimits, PackageInterfaceSurface,
+        InterfaceSectionTag, InterfaceSemanticFactKind, InterfaceSemanticFacts,
+        InterfaceSymbolReference, InterfaceValidationError, InterfaceValidationLimits,
+        PackageInterfaceSurface,
     };
 
     #[test]
@@ -400,7 +411,7 @@ mod tests {
             .clear();
 
         let decoded = decode_semantic_fact_graph(
-            &section_views(&sections),
+            &owned_section_views(&sections),
             &surface,
             owner,
             InterfaceSemanticFactKind::Implementation,
@@ -423,6 +434,33 @@ mod tests {
     }
 
     #[test]
+    fn implementation_fact_decoding_rejects_missing_header() {
+        let bundle = package_interface_export_bundle();
+        let surface = bundle.surface().clone();
+
+        let InterfaceSymbolReference::Local(owner) =
+            local_by_kind(&surface, SymbolKind::NamedTraitImplementation)
+        else {
+            panic!("test implementation must be local");
+        };
+
+        let facts = bundle.semantic_facts().clone().with_implementations([], []);
+
+        let sections = semantic_sections(&facts, &surface);
+
+        assert_eq!(
+            decode_semantic_fact_graph(
+                &owned_section_views(&sections),
+                &surface,
+                owner,
+                InterfaceSemanticFactKind::Implementation,
+                InterfaceValidationLimits::default(),
+            ),
+            Err(InterfaceValidationError::Malformed)
+        );
+    }
+
+    #[test]
     fn referenced_implementation_corruption_fails_deterministically() {
         let (surface, owner, mut sections) = implementation_fixture();
 
@@ -432,7 +470,7 @@ mod tests {
 
         let decode = || {
             decode_semantic_fact_graph(
-                &section_views(&sections),
+                &owned_section_views(&sections),
                 &surface,
                 owner,
                 InterfaceSemanticFactKind::Implementation,
@@ -461,17 +499,20 @@ mod tests {
             panic!("test implementation must be local");
         };
 
-        let sections = encode_semantic_facts(
-            bundle.semantic_facts(),
-            &surface,
-            InterfaceValidationLimits::default(),
-        )
-        .unwrap_or_else(|error| panic!("test semantic facts must encode: {error:?}"))
-        .into_iter()
-        .map(crate::EncodedSemanticSection::into_parts)
-        .collect();
+        let sections = semantic_sections(bundle.semantic_facts(), &surface);
 
         (surface, owner, sections)
+    }
+
+    fn semantic_sections(
+        facts: &InterfaceSemanticFacts,
+        surface: &PackageInterfaceSurface,
+    ) -> Vec<OwnedSection> {
+        encode_semantic_facts(facts, surface, InterfaceValidationLimits::default())
+            .unwrap_or_else(|error| panic!("test semantic facts must encode: {error:?}"))
+            .into_iter()
+            .map(crate::EncodedSemanticSection::into_parts)
+            .collect()
     }
 
     fn section_mut(sections: &mut [OwnedSection], tag: InterfaceSectionTag) -> &mut OwnedSection {

@@ -1,5 +1,5 @@
+use super::facts::section;
 use super::model::EncodedSemanticSection;
-use super::section;
 use crate::semantic::codec::common::{write_count, write_external_key, write_optional_u32};
 use crate::wire::WireEncoder;
 use crate::{InterfaceSectionTag, InterfaceSemanticFacts, InterfaceSupportEntity};
