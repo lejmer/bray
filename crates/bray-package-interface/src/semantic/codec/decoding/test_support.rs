@@ -83,17 +83,21 @@ pub(super) fn append_record(payload: &mut Vec<u8>, table_index: usize, record: &
             .unwrap_or_else(|_| panic!("test record count must fit the wire format"))
             .to_le_bytes(),
     );
+
     replacement.extend_from_slice(&payload[directory_start..payload_start]);
+
     replacement.extend_from_slice(
         &u32::try_from(payload_length)
             .unwrap_or_else(|_| panic!("test table length must fit the wire format"))
             .to_le_bytes(),
     );
+
     replacement.extend_from_slice(
         &u32::try_from(record.len())
             .unwrap_or_else(|_| panic!("test record length must fit the wire format"))
             .to_le_bytes(),
     );
+
     replacement.extend_from_slice(&payload[payload_start..table.end]);
     replacement.extend_from_slice(record);
 
