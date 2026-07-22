@@ -1,25 +1,25 @@
 use std::sync::Arc;
 
 use bray_binder::{
-    BinderDependency, BoundUnitBindingError, BoundUnitComputation, bind_anonymous_callable,
-    bind_callable_body, bind_constant_template, bind_constraint, bind_contract_clause,
-    bind_expression_candidates, bind_predicate_definition, bind_runtime_default,
-    semantic_unit_context,
+    BinderDependency, BinderFactContext, BoundUnitBindingError, BoundUnitComputation,
+    bind_anonymous_callable, bind_callable_body, bind_constant_template, bind_constraint,
+    bind_contract_clause, bind_expression_candidates, bind_predicate_definition,
+    bind_runtime_default, semantic_unit_context,
 };
 use bray_bound_tree::{
-    AnyBoundNodeId, BoundUnit, BoundUnitKey, BoundUnitKind, BoundWalkControl, BoundWalkEvent,
-    BoundWalkOutcome, CheckedControlFlowFacts, CheckedExpressionTypes, CheckedSemanticSelections,
-    DeclaredValueTypeTemplates, walk_bound_unit_view,
+    AnyBoundNodeId, BoundUnit, BoundUnitKey, BoundUnitKind, BoundUnitRoot, BoundWalkControl,
+    BoundWalkEvent, BoundWalkOutcome, CheckedControlFlowFacts, CheckedExpressionTypes,
+    CheckedSemanticSelections, DeclaredValueTypeTemplates, walk_bound_unit_view,
 };
 use bray_checker::{
     CheckerInfrastructureError, CheckerOutcome, CheckerUnitView, ControlFlowChecker,
     DefaultControlFlowChecker, DefaultExpressionSemanticChecker, ExpressionCandidateSet,
-    ExpressionSemanticChecker, SemanticUnitContext,
+    ExpressionSemanticChecker, NestedCallableEvidence, SemanticUnitContext,
 };
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::SymbolGraph;
 
-use super::binder::{CompilationBinderFacts, bind_declared_value_type_templates};
+use super::binder::{CompilationBinderFacts, bind_declared_value_type_templates, type_scope};
 use super::checker::CompilationCheckerContext;
 use super::facts::{CheckedExpressionSemantics, Compilation};
 use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError, PublishedUnitFact};
@@ -119,6 +119,7 @@ impl Compilation {
                 let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
 
                 let context = self.checker_context_for(&key, cancellation)?;
+
                 let semantic_context =
                     semantic_unit_context_for(context.symbols(), bound.result().value())?;
 
@@ -140,12 +141,18 @@ impl Compilation {
             cancellation,
             |cancellation| {
                 let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
+
                 let declared = self
                     .declared_value_type_templates_with_cancellation(key.clone(), cancellation)?;
+
+                let supplemental =
+                    self.nested_callable_evidence(bound.result().value(), cancellation)?;
+
                 let facts = self.binder_facts_for(&key, cancellation)?;
                 let candidates = expression_candidates(&facts, bound.result().value())?;
 
                 let context = self.checker_context_for(&key, cancellation)?;
+
                 let semantic_context =
                     semantic_unit_context_for(context.symbols(), bound.result().value())?;
 
@@ -154,11 +161,98 @@ impl Compilation {
                     &semantic_context,
                     &context,
                     declared.result().value(),
+                    &supplemental,
                     candidates.value(),
                     candidates.diagnostics(),
                 )
             },
         )
+    }
+
+    fn nested_callable_evidence(
+        &self,
+        bound: &BoundUnit,
+        cancellation: &CancellationToken,
+    ) -> Result<Vec<NestedCallableEvidence>, FactQueryError> {
+        let mut evidence = Vec::new();
+        let mut failure = None;
+
+        let outcome = walk_bound_unit_view(bound.view(), bound.root(), |event| {
+            if cancellation.is_cancelled() {
+                failure = Some(FactQueryError::Cancelled);
+
+                return BoundWalkControl::Stop;
+            }
+
+            let BoundWalkEvent::Enter(AnyBoundNodeId::Expression(expression)) = event else {
+                return BoundWalkControl::Continue;
+            };
+
+            let Some(bray_bound_tree::BoundExpression::AnonymousCallable(callable)) =
+                bound.view().expression(expression)
+            else {
+                return BoundWalkControl::Continue;
+            };
+
+            // Each independently demandable nested fact owns its cache key.
+            let nested_bound =
+                match self.bound_unit_with_cancellation(callable.unit().clone(), cancellation) {
+                    Ok(nested) => nested,
+                    Err(error) => {
+                        failure = Some(error);
+
+                        return BoundWalkControl::Stop;
+                    }
+                };
+
+            let BoundUnitRoot::AnonymousCallable {
+                callable: callable_symbol,
+                ..
+            } = nested_bound.result().value().root()
+            else {
+                failure = Some(FactQueryError::InfrastructureFailure);
+
+                return BoundWalkControl::Stop;
+            };
+
+            let nested = match self.declared_value_type_templates_with_cancellation(
+                callable.unit().clone(),
+                cancellation,
+            ) {
+                Ok(nested) => nested,
+                Err(error) => {
+                    failure = Some(error);
+
+                    return BoundWalkControl::Stop;
+                }
+            };
+
+            let Some(callable_type) = nested.result().value().callable_type() else {
+                failure = Some(FactQueryError::InfrastructureFailure);
+
+                return BoundWalkControl::Stop;
+            };
+
+            // The outer expression fact owns this template after the nested fact handle drops.
+            evidence.push(NestedCallableEvidence::new(
+                expression,
+                callable_symbol,
+                callable_type.clone(),
+            ));
+
+            BoundWalkControl::Continue
+        });
+
+        if let Some(error) = failure {
+            return Err(error);
+        }
+
+        match outcome {
+            BoundWalkOutcome::Completed => Ok(evidence),
+            BoundWalkOutcome::Stopped | BoundWalkOutcome::MissingNode(_) => {
+                Err(FactQueryError::InfrastructureFailure)
+            }
+        }
     }
 
     fn checked_expression_types_with_cancellation(
@@ -285,6 +379,13 @@ fn expression_candidates(
     facts: &CompilationBinderFacts<'_>,
     bound: &BoundUnit,
 ) -> Result<DiagnosticResult<Vec<ExpressionCandidateSet>>, FactQueryError> {
+    let owner = facts
+        .symbols()
+        .symbol_for_key(bound.key().declared_owner())
+        .ok_or(FactQueryError::InfrastructureFailure)?;
+
+    let type_scope = type_scope(facts, owner).map_err(super::binder::binder_fact_error)?;
+
     let mut candidates = Vec::new();
     let mut diagnostics = DiagnosticBag::new();
     let mut failure = None;
@@ -294,7 +395,7 @@ fn expression_candidates(
             return BoundWalkControl::Continue;
         };
 
-        match bind_expression_candidates(facts, bound, expression) {
+        match bind_expression_candidates(facts, bound, expression, &type_scope) {
             Ok(result) => {
                 let (candidate, candidate_diagnostics) = result.into_parts();
 
@@ -331,6 +432,7 @@ fn check_expression_semantics(
     semantic_context: &SemanticUnitContext,
     context: &CompilationCheckerContext<'_>,
     declared_types: &DeclaredValueTypeTemplates,
+    nested_callables: &[NestedCallableEvidence],
     candidates: &[ExpressionCandidateSet],
     candidate_diagnostics: &DiagnosticBag,
 ) -> Result<ExpressionSemanticComputation, FactQueryError> {
@@ -341,6 +443,7 @@ fn check_expression_semantics(
     let result = match DefaultExpressionSemanticChecker.check_expression_semantics(
         unit,
         declared_types,
+        nested_callables,
         candidates,
     ) {
         CheckerOutcome::Complete(result) => {
@@ -377,9 +480,9 @@ mod tests {
 
     use bray_binder::{SemanticUnitContextError, semantic_unit_context};
     use bray_bound_tree::{
-        BoundExpressionId, BoundReferenceTarget, BoundUnitKind, CheckedExpressionTypes,
-        DeclaredValueTypeConstraintKind, DeclaredValueTypeTemplates, DeclaredValueTypeTerm,
-        SelectedArgument, SemanticSelection,
+        BoundCallResult, BoundCallableTarget, BoundExpressionId, BoundReferenceTarget,
+        BoundUnitKind, CheckedExpressionTypes, DeclaredValueTypeConstraintKind,
+        DeclaredValueTypeTemplates, DeclaredValueTypeTerm, SelectedArgument, SemanticSelection,
     };
     use bray_checker::{CheckerInfrastructureError, CheckerUnitViewError, SemanticUnitContext};
     use bray_compiler_known::RepresentationRole;
@@ -834,6 +937,60 @@ mod tests {
     }
 
     #[test]
+    fn named_arguments_share_selection_mapping_with_type_inference() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "func main()\n",
+            "{\n",
+            "    let result = select(second = 1, first = true);\n",
+            "}\n",
+            "func select(pos first: bool, pos second: i64) -> i64\n",
+            "{\n",
+            "    return second;\n",
+            "}\n",
+        ));
+
+        let key = source_callable_body_key(&compilation);
+
+        let types = match compilation.checked_expression_types(key.clone()) {
+            Ok(types) => types,
+            Err(error) => panic!("named-argument expression types must publish: {error:?}"),
+        };
+
+        let selections = match compilation.checked_semantic_selections(key) {
+            Ok(selections) => selections,
+            Err(error) => panic!("named-argument selection must publish: {error:?}"),
+        };
+
+        let [selection] = selections.value().entries() else {
+            panic!("named call must publish one semantic selection");
+        };
+
+        let SemanticSelection::Call(call) = selection.selection() else {
+            panic!("named call must publish a callable selection");
+        };
+
+        let [
+            SelectedArgument::Explicit {
+                expression: second,
+                ordinal: 1,
+                ..
+            },
+            SelectedArgument::Explicit { ordinal: 0, .. },
+        ] = call.arguments()
+        else {
+            panic!("named call must preserve source order and declaration ordinals");
+        };
+
+        assert_expression_representation(
+            &compilation,
+            types.value(),
+            *second,
+            RepresentationRole::ScalarI64,
+        );
+    }
+
+    #[test]
     fn unsupported_declared_type_components_defer_owned_diagnostics() {
         let compilation = compilation(concat!(
             "module app;\n",
@@ -860,15 +1017,133 @@ mod tests {
     }
 
     #[test]
-    fn unsupported_generic_calls_defer_without_false_diagnostics() {
-        // TODO(BRA-242): Replace this boundary test when generic call candidates are materialized.
+    fn explicit_generic_calls_publish_specialized_types_and_selections() {
         let compilation = compilation(concat!(
             "module app;\n",
             "func main()\n",
             "{\n",
-            "    let result = identity<i64>(1);\n",
+            "    let result = target<Item, Item>(0);\n",
             "}\n",
-            "func identity<T>(pos value: T) -> T\n",
+            "func target<T, U>(pos unused: i32) -> T\n",
+            "{\n",
+            "}\n",
+            "struct Item\n",
+            "{\n",
+            "}\n",
+        ));
+
+        let key = source_callable_body_key(&compilation);
+
+        let types = match compilation.checked_expression_types(key.clone()) {
+            Ok(types) => types,
+            Err(error) => panic!("generic expression types must publish: {error:?}"),
+        };
+
+        let selections = match compilation.checked_semantic_selections(key) {
+            Ok(selections) => selections,
+            Err(error) => panic!("generic semantic selections must publish: {error:?}"),
+        };
+
+        assert!(
+            types.diagnostics().is_empty(),
+            "generic expression typing must be diagnostic-free: {:?}",
+            types.diagnostics()
+        );
+
+        assert!(!types.value().is_recovered());
+        assert!(selections.diagnostics().is_empty());
+
+        let [selection] = selections.value().entries() else {
+            panic!("generic call must publish one semantic selection");
+        };
+
+        assert!(matches!(selection.selection(), SemanticSelection::Call(_)));
+
+        let Some(result) = types.value().expression(selection.expression()) else {
+            panic!("generic call must have a final type");
+        };
+
+        let values = match compilation.semantic_value_store() {
+            Ok(values) => values,
+            Err(error) => panic!("semantic values must be available: {error:?}"),
+        };
+
+        let result = match values.type_data(result.ty()) {
+            Ok(result) => result,
+            Err(error) => panic!("generic result type must be available: {error:?}"),
+        };
+
+        assert!(matches!(
+            result.as_ref(),
+            TypeData::Named {
+                definition: NamedTypeSymbolId::Struct(_),
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn asynchronous_calls_publish_target_specific_future_types() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "func main()\n",
+            "{\n",
+            "    let pending = produce();\n",
+            "}\n",
+            "async func produce() -> i32\n",
+            "{\n",
+            "    return 1;\n",
+            "}\n",
+        ));
+
+        let key = source_callable_body_key(&compilation);
+
+        let types = match compilation.checked_expression_types(key.clone()) {
+            Ok(types) => types,
+            Err(error) => panic!("asynchronous expression types must publish: {error:?}"),
+        };
+
+        let selections = match compilation.checked_semantic_selections(key) {
+            Ok(selections) => selections,
+            Err(error) => panic!("asynchronous call selection must publish: {error:?}"),
+        };
+
+        let [selection] = selections.value().entries() else {
+            panic!("asynchronous call must publish one semantic selection");
+        };
+
+        let SemanticSelection::Call(call) = selection.selection() else {
+            panic!("asynchronous invocation must publish a call selection");
+        };
+
+        let BoundCallResult::LazyFuture(future) = call.resolution().result() else {
+            panic!("asynchronous invocation must construct a lazy future");
+        };
+
+        let Some(result) = types.value().expression(selection.expression()) else {
+            panic!("asynchronous call must have a final type");
+        };
+
+        assert_eq!(result.ty(), future.future_type());
+
+        assert_expression_representation(
+            &compilation,
+            types.value(),
+            selection.expression(),
+            RepresentationRole::Future,
+        );
+    }
+
+    #[test]
+    fn callable_values_are_classified_from_converged_types() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "func main()\n",
+            "{\n",
+            "    let operation: func(pos value: i32) -> i32 = identity;\n",
+            "    let result = operation(1);\n",
+            "}\n",
+            "func identity(pos value: i32) -> i32\n",
             "{\n",
             "    return value;\n",
             "}\n",
@@ -878,23 +1153,63 @@ mod tests {
 
         let types = match compilation.checked_expression_types(key.clone()) {
             Ok(types) => types,
-            Err(error) => panic!("deferred expression types must publish: {error:?}"),
+            Err(error) => panic!("callable-value expression types must publish: {error:?}"),
         };
 
         let selections = match compilation.checked_semantic_selections(key) {
             Ok(selections) => selections,
-            Err(error) => panic!("deferred semantic selections must publish: {error:?}"),
+            Err(error) => panic!("callable-value selection must publish: {error:?}"),
         };
 
-        assert!(
-            types.diagnostics().is_empty(),
-            "deferred expression typing must be diagnostic-free: {:?}",
-            types.diagnostics()
-        );
+        let [selection] = selections.value().entries() else {
+            panic!("callable-value invocation must publish one semantic selection");
+        };
 
-        assert!(types.value().is_recovered());
-        assert!(selections.diagnostics().is_empty());
-        assert!(selections.value().entries().is_empty());
+        let SemanticSelection::Call(call) = selection.selection() else {
+            panic!("callable value must publish a call selection");
+        };
+
+        assert!(matches!(call.target(), BoundCallableTarget::Indirect(_)));
+
+        assert!(!types.value().is_recovered());
+    }
+
+    #[test]
+    fn direct_lambda_calls_use_nested_callable_types_and_identities() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "func main()\n",
+            "{\n",
+            "    let result = lambda(pos value: i32) -> i32\n",
+            "    {\n",
+            "        return value;\n",
+            "    }(1);\n",
+            "}\n",
+        ));
+
+        let key = source_callable_body_key(&compilation);
+
+        let types = match compilation.checked_expression_types(key.clone()) {
+            Ok(types) => types,
+            Err(error) => panic!("lambda expression types must publish: {error:?}"),
+        };
+
+        let selections = match compilation.checked_semantic_selections(key) {
+            Ok(selections) => selections,
+            Err(error) => panic!("lambda call selection must publish: {error:?}"),
+        };
+
+        assert!(!types.value().is_recovered());
+
+        let [selection] = selections.value().entries() else {
+            panic!("direct lambda call must publish one semantic selection");
+        };
+
+        let SemanticSelection::Call(call) = selection.selection() else {
+            panic!("direct lambda invocation must publish a call selection");
+        };
+
+        assert!(matches!(call.target(), BoundCallableTarget::Anonymous(_)));
     }
 
     fn facts_for_kind(
@@ -1033,6 +1348,7 @@ mod tests {
             expression_gate.wait_until_observed(FactCellTestEvent::Computing, 1);
 
             let selections_key = key.clone();
+
             let selections =
                 scope.spawn(|| compilation.checked_semantic_selections(selections_key));
 
@@ -1114,6 +1430,7 @@ mod tests {
 
         let bound = std::thread::scope(|scope| {
             let request_key = key.clone();
+
             let request = scope.spawn(|| {
                 compilation.bound_unit_with_cancellation(request_key, &bound_cancellation)
             });
@@ -1148,6 +1465,7 @@ mod tests {
 
         let checked = std::thread::scope(|scope| {
             let request_key = key.clone();
+
             let request = scope.spawn(|| {
                 compilation
                     .checked_control_flow_with_cancellation(request_key, &checked_cancellation)
@@ -1185,6 +1503,7 @@ mod tests {
 
         let expression_semantics = std::thread::scope(|scope| {
             let request_key = key.clone();
+
             let request = scope.spawn(|| {
                 compilation
                     .expression_semantics_with_cancellation(request_key, &expression_cancellation)

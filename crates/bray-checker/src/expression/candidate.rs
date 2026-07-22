@@ -1,22 +1,28 @@
-use std::collections::BTreeSet;
+use std::{borrow::Cow, collections::BTreeSet};
 
 use bray_bound_tree::{
-    BoundExpression, BoundExpressionId, SelectedArgument, SemanticSelection, SemanticSelectionEntry,
+    BoundCallableTarget, BoundExpression, BoundExpressionId, BoundResolvedCall, SelectedArgument,
+    SemanticSelection, SemanticSelectionEntry,
 };
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::TypeId;
 
-use super::template::{TemplateResolution, resolve_declaration_candidate};
+use super::template::{
+    TemplateResolution, call_result, candidate_state, resolve_declaration_candidate,
+};
 use crate::type_check::{ExpressionTypeSession, SessionProgress};
 use crate::{
     CallableCandidate, CallableCandidateTemplate, CallableCandidateTemplates,
-    CallableSelectionRequest, CandidateAbsence, CandidateSelection, CheckerInfrastructureError,
-    CheckerOutcome, CheckerRequestContext, CheckerUnitView, ExpressionCandidateSet,
+    CallableSelectionRequest, CallableValueCandidateTemplate, CandidateAbsence, CandidateSelection,
+    CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext, CheckerUnitView,
+    ExpressionCandidateSet, NestedCallableEvidence,
 };
 
 struct PreparedCall {
     expression: BoundExpressionId,
     candidates: Vec<CallableCandidate>,
+    values: Vec<CallableValueCandidateTemplate>,
+    anonymous_target: Option<bray_symbols::AnonymousCallableSymbolId>,
 }
 
 pub(super) struct PreparedExpressions {
@@ -40,6 +46,7 @@ impl PreparedExpressions {
 
 pub(super) fn prepare_calls<C>(
     request: CheckerUnitView<'_, C>,
+    nested_callables: &[NestedCallableEvidence],
     candidate_sets: &[ExpressionCandidateSet],
 ) -> Result<SessionProgress<PreparedExpressions>, CheckerInfrastructureError>
 where
@@ -75,6 +82,7 @@ where
                 candidates,
             }) => {
                 let mut resolved = Vec::with_capacity(candidates.len());
+                let mut values = Vec::new();
                 let mut defer_call = false;
 
                 for candidate in candidates.iter() {
@@ -84,20 +92,21 @@ where
 
                     match candidate {
                         CallableCandidateTemplate::Declaration(candidate) => {
-                            match resolve_declaration_candidate(
-                                request.semantic_values(),
-                                candidate,
-                            )? {
+                            let materialized = resolve_declaration_candidate(request, candidate)?;
+
+                            match materialized {
                                 TemplateResolution::Resolved(candidate) => {
-                                    resolved.push(candidate);
+                                    if candidate.generic_constraints().is_empty() {
+                                        resolved.push(candidate);
+                                    } else {
+                                        // TODO(BRA-233): Select constrained candidates from checked predicate facts.
+                                        defer_call = true;
+                                    }
                                 }
                                 TemplateResolution::Unsupported => defer_call = true,
                             }
                         }
-                        CallableCandidateTemplate::Value(_) => {
-                            // TODO(BRA-242): Classify callable values from their converged value type.
-                            defer_call = true;
-                        }
+                        CallableCandidateTemplate::Value(candidate) => values.push(*candidate),
                     }
                 }
 
@@ -110,6 +119,12 @@ where
                     calls.push(PreparedCall {
                         expression: *expression,
                         candidates: CallableSelectionRequest::canonical_candidates(resolved),
+                        values,
+                        anonymous_target: nested_callable_target(
+                            request,
+                            *expression,
+                            nested_callables,
+                        )?,
                     });
                 }
             }
@@ -119,6 +134,8 @@ where
             }) => calls.push(PreparedCall {
                 expression: *expression,
                 candidates: Vec::new(),
+                values: Vec::new(),
+                anonymous_target: None,
             }),
             ExpressionCandidateSet::Callable(CallableCandidateTemplates::Absent {
                 expression,
@@ -128,8 +145,8 @@ where
                     return Ok(SessionProgress::Cancelled);
                 }
             }
-            ExpressionCandidateSet::Unsupported { expression, .. } => {
-                deferred.insert(*expression);
+            ExpressionCandidateSet::Operation(source) => {
+                deferred.insert(source.expression());
             }
             ExpressionCandidateSet::NotApplicable(_) => {}
         }
@@ -160,6 +177,40 @@ where
     deferred.insert(expression);
 
     defer_expression_tree(request, callee, deferred)
+}
+
+fn nested_callable_target<C>(
+    request: CheckerUnitView<'_, C>,
+    expression: BoundExpressionId,
+    nested_callables: &[NestedCallableEvidence],
+) -> Result<Option<bray_symbols::AnonymousCallableSymbolId>, CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let Some(BoundExpression::Call(call)) = request.view().expression(expression) else {
+        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+    };
+
+    if !matches!(
+        request.view().expression(call.callee()),
+        Some(BoundExpression::AnonymousCallable(_))
+    ) {
+        return Ok(None);
+    }
+
+    let mut matching = nested_callables
+        .iter()
+        .filter(|evidence| evidence.expression() == call.callee());
+
+    let Some(evidence) = matching.next() else {
+        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+    };
+
+    if matching.next().is_some() {
+        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+    }
+
+    Ok(Some(evidence.callable()))
 }
 
 fn defer_expression_tree<C>(
@@ -205,27 +256,17 @@ where
             return Ok(SessionProgress::Cancelled);
         }
 
+        let Some(candidates) = materialize_call_candidates(request, types, prepared_call)? else {
+            continue;
+        };
+
         let Some(BoundExpression::Call(call)) = request.view().expression(prepared_call.expression)
         else {
             return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
         };
 
-        if call
-            .arguments()
-            .iter()
-            .any(|argument| argument.name().is_some())
-        {
-            // TODO(BRA-242): Share exact named-argument mapping with callable selection.
-            continue;
-        }
-
-        let Some(candidates) = viable_candidates(
-            request,
-            types,
-            prepared_call.expression,
-            call,
-            &prepared_call.candidates,
-        )?
+        let Some(candidates) =
+            viable_candidates(request, types, prepared_call.expression, call, &candidates)?
         else {
             return Ok(SessionProgress::Cancelled);
         };
@@ -235,7 +276,9 @@ where
         }
 
         for (ordinal, argument) in call.arguments().iter().enumerate() {
-            let Some(expected) = common_parameter_type(&candidates, ordinal) else {
+            let Some(expected) =
+                common_parameter_type(request, &candidates, call.arguments(), ordinal)?
+            else {
                 continue;
             };
 
@@ -281,19 +324,52 @@ where
 }
 
 fn common_candidate_type(candidates: &[&CallableCandidate]) -> Option<TypeId> {
-    common_candidate_value(candidates, |candidate| {
-        Some(candidate.signature().callable_type())
-    })
+    common_candidate_value(candidates, |candidate| Some(candidate.callable_type()))
 }
 
-fn common_parameter_type(candidates: &[&CallableCandidate], ordinal: usize) -> Option<TypeId> {
-    common_candidate_value(candidates, |candidate| {
-        candidate
-            .signature()
-            .parameters()
-            .get(ordinal)
-            .map(|parameter| parameter.ty())
-    })
+fn common_parameter_type<C>(
+    request: CheckerUnitView<'_, C>,
+    candidates: &[&CallableCandidate],
+    arguments: &[bray_bound_tree::BoundArgument],
+    ordinal: usize,
+) -> Result<Option<TypeId>, CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let mut expected = None;
+
+    for candidate in candidates {
+        let callable = request
+            .semantic_values()
+            .type_data(candidate.callable_type())
+            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+
+        let bray_symbols::TypeData::Callable(callable) = callable.as_ref() else {
+            return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+        };
+
+        let Some(mapping) =
+            crate::selection::map_argument_parameter_indices(arguments, callable.parameters())
+        else {
+            return Ok(None);
+        };
+
+        let Some(parameter_index) = mapping.get(ordinal).copied() else {
+            return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+        };
+
+        let Some(parameter) = callable.parameters().get(parameter_index) else {
+            return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+        };
+
+        match expected {
+            Some(expected) if expected != parameter.ty() => return Ok(None),
+            Some(_) => {}
+            None => expected = Some(parameter.ty()),
+        }
+    }
+
+    Ok(expected)
 }
 
 fn common_candidate_value<T: Copy + Eq>(
@@ -307,6 +383,67 @@ fn common_candidate_value<T: Copy + Eq>(
     candidates
         .all(|candidate| value(candidate) == Some(first))
         .then_some(first)
+}
+
+fn materialize_call_candidates<'prepared, C>(
+    request: CheckerUnitView<'_, C>,
+    types: &bray_bound_tree::CheckedExpressionTypes,
+    prepared: &'prepared PreparedCall,
+) -> Result<Option<Cow<'prepared, [CallableCandidate]>>, CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    if prepared.values.is_empty() {
+        return Ok(Some(Cow::Borrowed(&prepared.candidates)));
+    }
+
+    // Value materialization appends to a task-local candidate list without mutating preparation.
+    let mut candidates = prepared.candidates.clone();
+
+    let Some(BoundExpression::Call(call)) = request.view().expression(prepared.expression) else {
+        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+    };
+
+    let Some(callee_type) = types.expression(call.callee()) else {
+        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+    };
+
+    if callee_type.is_recovered() {
+        return Ok(None);
+    }
+
+    let data = request
+        .semantic_values()
+        .type_data(callee_type.ty())
+        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+
+    let bray_symbols::TypeData::Callable(callable) = data.as_ref() else {
+        return Ok(Some(Cow::Owned(candidates)));
+    };
+
+    let result = call_result(request, callable, callable.result())?;
+
+    let target = prepared.anonymous_target.map_or(
+        BoundCallableTarget::Indirect(callee_type.ty()),
+        BoundCallableTarget::Anonymous,
+    );
+
+    let resolution = BoundResolvedCall::new(target, [], result);
+
+    // Each materialized value candidate owns its reusable resolved-call description.
+    candidates.extend(prepared.values.iter().map(|template| {
+        CallableCandidate::value(
+            template.value(),
+            resolution.clone(),
+            callee_type.ty(),
+            callable.result(),
+            candidate_state(template.state()),
+        )
+    }));
+
+    Ok(Some(Cow::Owned(
+        CallableSelectionRequest::canonical_candidates(candidates),
+    )))
 }
 
 pub(super) fn converge<C>(
@@ -358,12 +495,22 @@ where
             return Ok(SessionProgress::Cancelled);
         }
 
-        let outcome = select_prepared_call(request, types, prepared_call);
+        let Some(candidates) = materialize_call_candidates(request, types, prepared_call)? else {
+            continue;
+        };
+
+        let outcome = select_prepared_call(request, types, prepared_call, &candidates);
 
         match outcome {
             CheckerOutcome::Complete(result) => {
                 if let CandidateSelection::Selected(selection) = result.value() {
-                    apply_selected_signature(request, prepared_call, selection, session)?;
+                    apply_selected_signature(
+                        request,
+                        prepared_call,
+                        &candidates,
+                        selection,
+                        session,
+                    )?;
                 }
             }
             CheckerOutcome::Cancelled => return Ok(SessionProgress::Cancelled),
@@ -377,6 +524,7 @@ where
 fn apply_selected_signature<C>(
     request: CheckerUnitView<'_, C>,
     prepared: &PreparedCall,
+    candidates: &[CallableCandidate],
     selection: &bray_bound_tree::SelectedCall,
     session: &mut ExpressionTypeSession<'_, C>,
 ) -> Result<(), CheckerInfrastructureError>
@@ -387,35 +535,53 @@ where
         return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
     };
 
-    let Some(candidate) = prepared
-        .candidates
+    let Some(candidate) = candidates
         .iter()
         .find(|candidate| candidate.resolution() == selection.resolution())
     else {
         return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
     };
 
-    session.add_evidence(call.callee(), candidate.signature().callable_type())?;
+    session.add_evidence(call.callee(), candidate.callable_type())?;
 
     for argument in selection.arguments() {
         let SelectedArgument::Explicit {
             expression,
             parameter,
+            ordinal,
         } = argument
         else {
             continue;
         };
 
-        let Some(parameter) = candidate
-            .signature()
-            .parameters()
-            .iter()
-            .find(|candidate| candidate.parameter() == *parameter)
-        else {
+        let callable = request
+            .semantic_values()
+            .type_data(candidate.callable_type())
+            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+
+        let bray_symbols::TypeData::Callable(callable) = callable.as_ref() else {
             return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
         };
 
-        session.add_expectation(*expression, parameter.ty())?;
+        let Some(selected) = callable.parameters().get(*ordinal as usize) else {
+            return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+        };
+
+        if let Some(parameter) = parameter {
+            let Some(signature) = candidate.declaration_signature() else {
+                return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+            };
+
+            if signature
+                .parameters()
+                .get(*ordinal as usize)
+                .is_none_or(|signature| signature.parameter() != *parameter)
+            {
+                return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+            }
+        }
+
+        session.add_expectation(*expression, selected.ty())?;
     }
 
     session.add_evidence(prepared.expression, selection.resolution().result().ty())?;
@@ -435,7 +601,11 @@ where
     let mut diagnostics = DiagnosticBag::new();
 
     for prepared_call in &prepared.calls {
-        match select_prepared_call(request, types, prepared_call) {
+        let Some(candidates) = materialize_call_candidates(request, types, prepared_call)? else {
+            continue;
+        };
+
+        match select_prepared_call(request, types, prepared_call, &candidates) {
             CheckerOutcome::Complete(result) => {
                 let (selection, selection_diagnostics) = result.into_parts();
 
@@ -460,6 +630,7 @@ fn select_prepared_call<C>(
     request: CheckerUnitView<'_, C>,
     types: &bray_bound_tree::CheckedExpressionTypes,
     prepared: &PreparedCall,
+    candidates: &[CallableCandidate],
 ) -> CheckerOutcome<CandidateSelection<bray_bound_tree::SelectedCall>>
 where
     C: CheckerRequestContext + ?Sized,
@@ -482,7 +653,7 @@ where
         [],
     );
 
-    crate::selection::select_callable_candidates(request, types, &input, &prepared.candidates)
+    crate::selection::select_callable_candidates(request, types, &input, candidates)
 }
 
 #[cfg(test)]
@@ -518,7 +689,7 @@ mod tests {
             Err(error) => panic!("test checker unit view must be valid: {error:?}"),
         };
 
-        let result = prepare_calls(request, &candidates);
+        let result = prepare_calls(request, &[], &candidates);
 
         assert!(matches!(
             result,

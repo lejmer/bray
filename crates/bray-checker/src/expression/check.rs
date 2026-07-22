@@ -7,12 +7,13 @@ use crate::type_check::{
 };
 use crate::{
     CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext, CheckerUnitView,
-    ExpressionCandidateSet,
+    ExpressionCandidateSet, NestedCallableEvidence,
 };
 
 pub(crate) fn check_expression_semantics<C>(
     request: CheckerUnitView<'_, C>,
     declared_types: &DeclaredValueTypeTemplates,
+    nested_callables: &[NestedCallableEvidence],
     candidate_sets: &[ExpressionCandidateSet],
 ) -> CheckerOutcome<(
     bray_bound_tree::CheckedExpressionTypes,
@@ -30,7 +31,7 @@ where
     }
 
     let (session, prepared) =
-        match prepare_expression_check(request, declared_types, candidate_sets) {
+        match prepare_expression_check(request, declared_types, nested_callables, candidate_sets) {
             Ok(SessionProgress::Complete(prepared)) => prepared,
             Ok(SessionProgress::Cancelled) => return CheckerOutcome::Cancelled,
             Err(error) => return CheckerOutcome::InfrastructureFailure(error),
@@ -42,6 +43,7 @@ where
 fn prepare_expression_check<'view, C>(
     request: CheckerUnitView<'view, C>,
     declared_types: &DeclaredValueTypeTemplates,
+    nested_callables: &[NestedCallableEvidence],
     candidate_sets: &[ExpressionCandidateSet],
 ) -> Result<
     SessionProgress<(ExpressionTypeSession<'view, C>, PreparedExpressions)>,
@@ -50,7 +52,15 @@ fn prepare_expression_check<'view, C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let Some(declared) = prepare_declared_types(request, declared_types)?.into_value() else {
+    let supplemental_types = nested_callables
+        .iter()
+        .map(NestedCallableEvidence::value_type)
+        .cloned()
+        .collect::<Vec<_>>();
+
+    let Some(declared) =
+        prepare_declared_types(request, declared_types, &supplemental_types)?.into_value()
+    else {
         return Ok(SessionProgress::Cancelled);
     };
 
@@ -60,7 +70,8 @@ where
         unsupported_callable_result,
     } = declared;
 
-    let Some(mut prepared) = prepare_calls(request, candidate_sets)?.into_value() else {
+    let Some(mut prepared) = prepare_calls(request, nested_callables, candidate_sets)?.into_value()
+    else {
         return Ok(SessionProgress::Cancelled);
     };
 
@@ -147,7 +158,7 @@ mod tests {
         let (_, foreign) = literal_unit(BoundUnitId::new(92));
 
         let declared =
-            DeclaredValueTypeTemplates::new(unit.unit(), unit.key().kind(), [], [], None);
+            DeclaredValueTypeTemplates::new(unit.unit(), unit.key().kind(), [], [], None, None);
 
         let context = TestCheckerContext::new(false);
         let semantic_context = callable_entry(unit.key());
@@ -160,6 +171,7 @@ mod tests {
         let outcome = check_expression_semantics(
             request,
             &declared,
+            &[],
             &[ExpressionCandidateSet::NotApplicable(foreign)],
         );
 

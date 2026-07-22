@@ -10,7 +10,7 @@ mod model;
 mod operation;
 mod order;
 
-pub(crate) use call::viable_candidate_indices;
+pub(crate) use call::{map_argument_parameter_indices, viable_candidate_indices};
 pub(crate) use check::{select_callable, select_callable_candidates, select_operation};
 pub(in crate::selection) use model::OperationCandidatePlan;
 pub use model::{
@@ -19,7 +19,7 @@ pub use model::{
     CallableDeclarationCandidateTemplate, CallableParameterDefaultTemplate,
     CallableSelectionRequest, CallableValueCandidateTemplate, CandidateAbsence, CandidateSelection,
     CompilerKnownOperationEvidence, ConstructionInputSurface, ExpressionCandidateSet,
-    ImplementationSelectionEvidence, OperationCandidate, OperationCandidateState,
-    OperationSelectionRequest, ReceiverCapability, ReceiverSelection, SelectionCandidateKey,
-    SelectionFailure,
+    ImplementationSelectionEvidence, OperationCandidate, OperationCandidateSource,
+    OperationCandidateState, OperationSelectionRequest, ReceiverCapability, ReceiverSelection,
+    SelectionCandidateKey, SelectionFailure,
 };

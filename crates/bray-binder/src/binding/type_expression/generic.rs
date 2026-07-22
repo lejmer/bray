@@ -6,12 +6,32 @@ use bray_symbols::{
     MemberLookupResult, NamedTypeSymbolId, StructSymbolId, TypeData, TypeExpressionTemplate,
     TypeId,
 };
-use bray_syntax::{GenericArgumentListSyntax, PathSyntax, TypeExpressionSyntax};
+use bray_syntax::{
+    GenericArgumentListSyntax, GenericArgumentSyntax, PathSyntax, TypeExpressionSyntax,
+};
 
 use super::core::TypeExpressionBinder;
 use crate::{BinderFactError, BinderFactResult};
 
 impl TypeExpressionBinder<'_> {
+    /// Binds explicit call arguments against one candidate's generic parameter list.
+    pub fn bind_call_generic_arguments(
+        mut self,
+        arguments: &[GenericArgumentSyntax],
+        parameters: &[GenericParameterSymbolId],
+    ) -> BinderFactResult<bray_diagnostics::DiagnosticResult<Vec<GenericArgumentTemplate>>> {
+        self.check_cancellation()?;
+
+        let arguments = self.bind_generic_argument_syntaxes(arguments, parameters)?;
+
+        self.check_cancellation()?;
+
+        Ok(bray_diagnostics::DiagnosticResult::new(
+            arguments,
+            self.diagnostics,
+        ))
+    }
+
     pub(super) fn bind_generic_named_type(
         &mut self,
         syntax: &TypeExpressionSyntax,
@@ -131,6 +151,14 @@ impl TypeExpressionBinder<'_> {
 
         let arguments = arguments.generic_arguments().collect::<Vec<_>>();
 
+        self.bind_generic_argument_syntaxes(&arguments, parameters)
+    }
+
+    fn bind_generic_argument_syntaxes(
+        &mut self,
+        arguments: &[GenericArgumentSyntax],
+        parameters: &[GenericParameterSymbolId],
+    ) -> BinderFactResult<Vec<GenericArgumentTemplate>> {
         if arguments.len() != parameters.len() {
             return Err(BinderFactError::DependencyUnavailable);
         }

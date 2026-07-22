@@ -281,16 +281,26 @@ fn call_matches_expression(call: &SelectedCall, source: &crate::BoundCallExpress
         return false;
     }
 
+    let declaration_backed = matches!(call.target(), crate::BoundCallableTarget::Declaration(_));
     let mut parameters = BTreeSet::new();
+    let mut ordinals = BTreeSet::new();
     let mut saw_default = false;
 
     if !call.arguments().iter().all(|argument| match argument {
-        SelectedArgument::Explicit { parameter, .. } if !saw_default => {
-            parameters.insert(*parameter)
+        SelectedArgument::Explicit {
+            parameter, ordinal, ..
+        } if !saw_default
+            && parameter.is_some() == declaration_backed
+            && (declaration_backed
+                || usize::try_from(*ordinal)
+                    .is_ok_and(|ordinal| ordinal < source.arguments().len())) =>
+        {
+            ordinals.insert(*ordinal)
+                && parameter.is_none_or(|parameter| parameters.insert(parameter))
         }
         SelectedArgument::Default { parameter, .. } => {
             saw_default = true;
-            parameters.insert(*parameter)
+            declaration_backed && parameters.insert(*parameter)
         }
         SelectedArgument::Explicit { .. } => false,
     }) {

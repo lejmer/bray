@@ -36,6 +36,7 @@ pub(super) struct DeclaredValueTypeBinding<'facts> {
     pub(super) owner: AnySymbolId,
     pub(super) evidence: Vec<DeclaredValueTypeEvidence>,
     pub(super) constraints: Vec<DeclaredValueTypeConstraint>,
+    pub(super) callable_type: Option<TypeExpressionTemplate>,
     pub(super) callable_result: Option<TypeExpressionTemplate>,
     pub(super) diagnostics: DiagnosticBag,
 }
@@ -52,6 +53,7 @@ impl<'facts> DeclaredValueTypeBinding<'facts> {
             owner,
             evidence: Vec::new(),
             constraints: Vec::new(),
+            callable_type: None,
             callable_result: None,
             diagnostics: DiagnosticBag::new(),
         }
@@ -257,6 +259,7 @@ impl<'facts> DeclaredValueTypeBinding<'facts> {
                 self.unit.key().kind(),
                 self.evidence,
                 self.constraints,
+                self.callable_type,
                 self.callable_result,
             ),
             self.diagnostics,

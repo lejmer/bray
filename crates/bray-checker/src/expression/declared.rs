@@ -1,7 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
-    BoundExpression, BoundExpressionId, DeclaredValueTypeTemplates, DeclaredValueTypeTerm,
+    BoundExpression, BoundExpressionId, DeclaredValueTypeEvidence, DeclaredValueTypeTemplates,
+    DeclaredValueTypeTerm,
 };
 use bray_symbols::TypeId;
 
@@ -71,13 +72,14 @@ impl TypeTermComponents {
 pub(super) fn prepare_declared_types<C>(
     request: CheckerUnitView<'_, C>,
     declared: &DeclaredValueTypeTemplates,
+    supplemental: &[DeclaredValueTypeEvidence],
 ) -> Result<SessionProgress<PreparedDeclaredTypes>, CheckerInfrastructureError>
 where
     C: CheckerRequestContext + ?Sized,
 {
     let mut components = TypeTermComponents::default();
 
-    for evidence in declared.evidence() {
+    for evidence in declared.evidence().iter().chain(supplemental) {
         if request.is_cancelled() {
             return Ok(SessionProgress::Cancelled);
         }
@@ -96,7 +98,7 @@ where
     let mut component_types = BTreeMap::<DeclaredValueTypeTerm, BTreeSet<TypeId>>::new();
     let mut unsupported = BTreeSet::new();
 
-    for evidence in declared.evidence() {
+    for evidence in declared.evidence().iter().chain(supplemental) {
         if request.is_cancelled() {
             return Ok(SessionProgress::Cancelled);
         }

@@ -226,6 +226,7 @@ mod tests {
         CallableCandidateTemplate, CallableCandidateTemplates, CandidateAbsence,
         ExpressionCandidateSet,
     };
+    use bray_diagnostics::DiagnosticKind;
     use bray_package_interface::{
         InterfaceLanguageRevision, InterfaceValidationPolicy,
         test_support::encoded_semantic_test_interface,
@@ -358,11 +359,20 @@ mod tests {
             "    inferred(3);\n",
             "    missing();\n",
             "    1 + 2;\n",
+            "    [1, 2][0];\n",
+            "    1 as i64;\n",
+            "    Record { value = 1 };\n",
+            "    let record = Record { value = 2 };\n",
+            "    record.value;\n",
             "}\n",
             "\n",
             "extern func fixed(value: [i32; 4] = [0; 4]) -> [i32; 4];\n",
             "extern func alternate(value: i32) -> i32;\n",
             "overload choose = {fixed, alternate}\n",
+            "struct Record\n",
+            "{\n",
+            "    value: i32;\n",
+            "}\n",
         ));
 
         assert!(
@@ -503,17 +513,95 @@ mod tests {
             })
         )));
 
-        assert!(results.iter().any(|result| matches!(
-            result.value(),
-            ExpressionCandidateSet::Unsupported {
-                kind: SelectionKind::Operator,
-                ..
-            }
-        )));
+        for kind in [
+            SelectionKind::Member,
+            SelectionKind::Operator,
+            SelectionKind::Index,
+            SelectionKind::Construction,
+            SelectionKind::Conversion,
+        ] {
+            assert!(
+                results.iter().any(|result| matches!(
+                    result.value(),
+                    ExpressionCandidateSet::Operation(operation)
+                        if operation.kind() == kind
+                )),
+                "candidate enumeration must cover {kind:?}: {results:?}"
+            );
+        }
 
         let repeated = candidates(&facts, bound.value(), first_overload.value().expression());
 
         assert_eq!(&repeated, first_overload);
+    }
+
+    #[test]
+    fn overloaded_call_reports_generic_argument_diagnostics_once() {
+        let compilation = compilation_with_source(
+            concat!(
+                "module app;\n",
+                "func run()\n",
+                "{\n",
+                "    choose<Missing>(1);\n",
+                "}\n",
+                "extern func first<T>(value: i32) -> i32;\n",
+                "extern func second<T>(value: i32) -> i32;\n",
+                "overload choose = {first, second}\n",
+            ),
+            [],
+        );
+
+        assert!(
+            compilation.syntax_tree_result().diagnostics().is_empty(),
+            "test source must parse without recovery: {:?}",
+            compilation.syntax_tree_result().diagnostics()
+        );
+
+        let key = crate::test_support::source_callable_body_key(&compilation);
+
+        let bound = compilation
+            .bound_unit(key.clone())
+            .unwrap_or_else(|error| panic!("test callable must bind: {error:?}"));
+
+        let cancellation = CancellationToken::new();
+
+        let facts = compilation
+            .binder_facts_for(&key, &cancellation)
+            .unwrap_or_else(|error| panic!("binder facts must be available: {error:?}"));
+
+        let expressions = candidate_expressions(bound.value());
+
+        let [expression] = expressions.as_slice() else {
+            panic!("test source must contain one candidate expression");
+        };
+
+        let owner = facts
+            .symbols
+            .symbol_for_key(bound.value().key().declared_owner())
+            .unwrap_or_else(|| panic!("candidate unit owner must resolve"));
+
+        let scope = super::super::symbol::type_scope(&facts, owner)
+            .unwrap_or_else(|error| panic!("candidate type scope must bind: {error:?}"));
+
+        let result = bind_expression_candidates(&facts, bound.value(), *expression, &scope)
+            .unwrap_or_else(|error| panic!("candidate enumeration must complete: {error:?}"));
+
+        assert!(matches!(
+            result.value(),
+            ExpressionCandidateSet::Callable(CallableCandidateTemplates::Present {
+                candidates,
+                ..
+            }) if candidates.len() == 2
+        ));
+
+        assert_eq!(
+            result
+                .diagnostics()
+                .iter()
+                .map(|diagnostic| diagnostic.kind())
+                .collect::<Vec<_>>(),
+            [DiagnosticKind::BindingUnresolvedName]
+        );
     }
 
     #[test]
@@ -619,7 +707,17 @@ mod tests {
         unit: &BoundUnit,
         expression: BoundExpressionId,
     ) -> bray_diagnostics::DiagnosticResult<ExpressionCandidateSet> {
-        let result = bind_expression_candidates(facts, unit, expression)
+        let owner = facts
+            .symbols
+            .symbol_for_key(unit.key().declared_owner())
+            .unwrap_or_else(|| panic!("candidate unit owner must resolve"));
+
+        let scope = match super::super::symbol::type_scope(facts, owner) {
+            Ok(scope) => scope,
+            Err(error) => panic!("candidate type scope must bind: {error:?}"),
+        };
+
+        let result = bind_expression_candidates(facts, unit, expression, &scope)
             .unwrap_or_else(|error| panic!("candidate enumeration must complete: {error:?}"));
 
         assert!(result.diagnostics().is_empty());
@@ -643,7 +741,15 @@ mod tests {
                 bound,
                 BoundExpression::Call(_)
                     | BoundExpression::ErrorCall(_)
+                    | BoundExpression::MemberAccess(_)
+                    | BoundExpression::TraitQualifiedMember(_)
+                    | BoundExpression::Unary(_)
                     | BoundExpression::Binary(_)
+                    | BoundExpression::Assignment(_)
+                    | BoundExpression::Conversion(_)
+                    | BoundExpression::StructConstruction(_)
+                    | BoundExpression::LeadingDotVariant(_)
+                    | BoundExpression::Structured(_)
             ) {
                 expressions.push(expression);
             }

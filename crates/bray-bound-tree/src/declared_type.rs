@@ -91,6 +91,7 @@ pub struct DeclaredValueTypeTemplates {
     kind: BoundUnitKind,
     evidence: Arc<[DeclaredValueTypeEvidence]>,
     constraints: Arc<[DeclaredValueTypeConstraint]>,
+    callable_type: Option<TypeExpressionTemplate>,
     callable_result: Option<TypeExpressionTemplate>,
 }
 
@@ -101,6 +102,7 @@ impl DeclaredValueTypeTemplates {
         kind: BoundUnitKind,
         evidence: impl IntoIterator<Item = DeclaredValueTypeEvidence>,
         constraints: impl IntoIterator<Item = DeclaredValueTypeConstraint>,
+        callable_type: Option<TypeExpressionTemplate>,
         callable_result: Option<TypeExpressionTemplate>,
     ) -> Self {
         let mut evidence = evidence.into_iter().collect::<Vec<_>>();
@@ -116,6 +118,7 @@ impl DeclaredValueTypeTemplates {
             kind,
             evidence: evidence.into(),
             constraints: constraints.into(),
+            callable_type,
             callable_result,
         }
     }
@@ -138,6 +141,11 @@ impl DeclaredValueTypeTemplates {
     /// Returns source value-type equalities in canonical order.
     pub fn constraints(&self) -> &[DeclaredValueTypeConstraint] {
         &self.constraints
+    }
+
+    /// Returns the callable type surface owned by this unit, when any.
+    pub const fn callable_type(&self) -> Option<&TypeExpressionTemplate> {
+        self.callable_type.as_ref()
     }
 
     /// Returns the callable result expectation active for this unit, when any.
@@ -186,6 +194,7 @@ mod tests {
             BoundUnitKind::CallableBody,
             [evidence.clone(), evidence.clone()],
             [constraint, constraint],
+            None,
             Some(template.clone()),
         );
 

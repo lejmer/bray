@@ -4,7 +4,8 @@ use bray_base::shared_slice;
 use bray_bound_tree::{BoundExpressionId, DeclaredValueTypeTerm, SelectionKind};
 use bray_symbols::{
     CallableDefinitionId, CallableParameterDefaultProviderSymbolId, CallableParameterSymbolId,
-    CallableSignatureTemplate, GenericDeclarationTemplate, SymbolKey, UnevaluatedDefaultTemplate,
+    CallableSignatureTemplate, GenericArgumentTemplate, GenericDeclarationTemplate, SymbolKey,
+    UnevaluatedDefaultTemplate,
 };
 
 /// Why an exact semantic candidate request has no candidate surface.
@@ -79,6 +80,7 @@ struct CallableDeclarationCandidateTemplateData {
     definition: CallableDefinitionId,
     signature: CallableSignatureTemplate,
     generic: GenericDeclarationTemplate,
+    generic_arguments: Arc<[GenericArgumentTemplate]>,
     defaults: Arc<[CallableParameterDefaultTemplate]>,
     state: CallableCandidateTemplateState,
 }
@@ -90,6 +92,7 @@ impl CallableDeclarationCandidateTemplate {
         definition: CallableDefinitionId,
         signature: CallableSignatureTemplate,
         generic: GenericDeclarationTemplate,
+        generic_arguments: impl IntoIterator<Item = GenericArgumentTemplate>,
         defaults: impl IntoIterator<Item = CallableParameterDefaultTemplate>,
         state: CallableCandidateTemplateState,
     ) -> Self {
@@ -99,6 +102,7 @@ impl CallableDeclarationCandidateTemplate {
                 definition,
                 signature,
                 generic,
+                generic_arguments: shared_slice(generic_arguments),
                 defaults: shared_slice(defaults),
                 state,
             }),
@@ -125,6 +129,11 @@ impl CallableDeclarationCandidateTemplate {
         &self.data.generic
     }
 
+    /// Returns explicit generic arguments bound for this candidate.
+    pub fn generic_arguments(&self) -> &[GenericArgumentTemplate] {
+        &self.data.generic_arguments
+    }
+
     /// Returns parameter defaults in declaration order.
     pub fn defaults(&self) -> &[CallableParameterDefaultTemplate] {
         &self.data.defaults
@@ -137,7 +146,7 @@ impl CallableDeclarationCandidateTemplate {
 }
 
 /// One value retained for callable classification by the type-selection fixed point.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CallableValueCandidateTemplate {
     value: DeclaredValueTypeTerm,
     state: CallableCandidateTemplateState,
@@ -186,6 +195,44 @@ pub enum CallableCandidateTemplates {
         /// Why candidate production could not provide a candidate.
         reason: CandidateAbsence,
     },
+}
+
+/// Binder-associated source inputs for one non-call semantic selection.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct OperationCandidateSource {
+    expression: BoundExpressionId,
+    kind: SelectionKind,
+    operands: Arc<[BoundExpressionId]>,
+}
+
+impl OperationCandidateSource {
+    /// Creates one operation source with operands in semantic evaluation order.
+    pub fn new(
+        expression: BoundExpressionId,
+        kind: SelectionKind,
+        operands: impl IntoIterator<Item = BoundExpressionId>,
+    ) -> Self {
+        Self {
+            expression,
+            kind,
+            operands: shared_slice(operands),
+        }
+    }
+
+    /// Returns the expression that owns semantic selection.
+    pub const fn expression(&self) -> BoundExpressionId {
+        self.expression
+    }
+
+    /// Returns the exact semantic selection category.
+    pub const fn kind(&self) -> SelectionKind {
+        self.kind
+    }
+
+    /// Returns operands in semantic evaluation order.
+    pub fn operands(&self) -> &[BoundExpressionId] {
+        &self.operands
+    }
 }
 
 impl CallableCandidateTemplates {
@@ -241,21 +288,17 @@ pub enum ExpressionCandidateSet {
     NotApplicable(BoundExpressionId),
     /// The expression is an ordinary callable application.
     Callable(CallableCandidateTemplates),
-    /// The expression selects a category not covered by the current candidate producer.
-    Unsupported {
-        /// The expression that requested candidates.
-        expression: BoundExpressionId,
-        /// The semantic selection category requiring another candidate provider.
-        kind: SelectionKind,
-    },
+    /// The expression requests a non-call semantic operation.
+    Operation(OperationCandidateSource),
 }
 
 impl ExpressionCandidateSet {
     /// Returns the expression that requested candidate production.
     pub const fn expression(&self) -> BoundExpressionId {
         match self {
-            Self::NotApplicable(expression) | Self::Unsupported { expression, .. } => *expression,
+            Self::NotApplicable(expression) => *expression,
             Self::Callable(candidates) => candidates.expression(),
+            Self::Operation(source) => source.expression(),
         }
     }
 }
@@ -265,6 +308,7 @@ mod tests {
     use super::{
         CallableCandidateTemplate, CallableCandidateTemplateState, CallableCandidateTemplates,
         CallableValueCandidateTemplate, CandidateAbsence, ExpressionCandidateSet,
+        OperationCandidateSource,
     };
     use crate::test_support::{callable_key, error_type, push_expression};
     use bray_bound_tree::{
@@ -305,7 +349,7 @@ mod tests {
     }
 
     #[test]
-    fn empty_and_unsupported_results_are_explicit() {
+    fn empty_and_operation_results_are_explicit() {
         let expression = expression_id();
 
         assert!(CallableCandidateTemplates::present(expression, []).is_none());
@@ -322,12 +366,13 @@ mod tests {
             Some(CandidateAbsence::UnavailableDeclarationFacts)
         );
 
-        let unsupported = ExpressionCandidateSet::Unsupported {
+        let operation = ExpressionCandidateSet::Operation(OperationCandidateSource::new(
             expression,
-            kind: SelectionKind::Operator,
-        };
+            SelectionKind::Operator,
+            [expression],
+        ));
 
-        assert_eq!(unsupported.expression(), expression);
+        assert_eq!(operation.expression(), expression);
     }
 
     fn value_candidate(symbol: u32) -> CallableCandidateTemplate {

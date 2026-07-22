@@ -29,6 +29,7 @@ pub use context::{
     CheckerFactError, CheckerFactResult, CheckerInfrastructureError, CheckerRequestContext,
     CheckerSemanticFactProvider, CheckerSource,
 };
+pub use expression::NestedCallableEvidence;
 pub use outcome::{CheckerOutcome, ControlFlowCheckResult};
 pub use selection::{
     CallableCandidate, CallableCandidateState, CallableCandidateTemplate,
@@ -36,9 +37,9 @@ pub use selection::{
     CallableDeclarationCandidateTemplate, CallableParameterDefaultTemplate,
     CallableSelectionRequest, CallableValueCandidateTemplate, CandidateAbsence, CandidateSelection,
     CompilerKnownOperationEvidence, ConstructionInputSurface, ExpressionCandidateSet,
-    ImplementationSelectionEvidence, OperationCandidate, OperationCandidateState,
-    OperationSelectionRequest, ReceiverCapability, ReceiverSelection, SelectionCandidateKey,
-    SelectionFailure,
+    ImplementationSelectionEvidence, OperationCandidate, OperationCandidateSource,
+    OperationCandidateState, OperationSelectionRequest, ReceiverCapability, ReceiverSelection,
+    SelectionCandidateKey, SelectionFailure,
 };
 pub use semantic_context::{
     AnonymousCallableContext, ContractClauseContext, DeclaredUnitContext, SemanticUnitContext,

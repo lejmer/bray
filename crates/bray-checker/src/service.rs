@@ -7,7 +7,8 @@ use crate::type_check::check_expression_types;
 use crate::{
     CallableSelectionRequest, CandidateSelection, CheckerOutcome, CheckerRequestContext,
     CheckerUnitView, ConstantEvaluationInput, ControlFlowCheckResult, ExpressionCandidateSet,
-    ExpressionTypeInput, OperationSelectionRequest, TargetValidity, TargetValidityRequest,
+    ExpressionTypeInput, NestedCallableEvidence, OperationSelectionRequest, TargetValidity,
+    TargetValidityRequest,
 };
 use bray_bound_tree::{
     CheckedExpressionTypes, DeclaredValueTypeTemplates, SelectedCall, SelectedOperation,
@@ -95,12 +96,13 @@ where
         &self,
         request: CheckerUnitView<'_, C>,
         declared_types: &DeclaredValueTypeTemplates,
+        nested_callables: &[NestedCallableEvidence],
         candidate_sets: &[ExpressionCandidateSet],
     ) -> CheckerOutcome<(
         CheckedExpressionTypes,
         bray_bound_tree::CheckedSemanticSelections,
     )> {
-        check_expression_semantics(request, declared_types, candidate_sets)
+        check_expression_semantics(request, declared_types, nested_callables, candidate_sets)
     }
 }
 

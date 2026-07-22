@@ -7,14 +7,14 @@ use bray_bound_tree::{
 use bray_symbols::{
     CallableAbi, CallableParameterDefaultProviderSymbolId, CallableParameterSignature,
     CallableParameterSymbolId, CallablePosition, CallableSignature, CallableTypeData,
-    ImplementationSelection, ReceiverMode, SymbolKey, TypeData,
+    ImplementationSelection, ReceiverMode, TypeData,
 };
 
 use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
 
 use super::{
     CallableCandidate, CallableCandidateState, CallableSelectionRequest, CandidateSelection,
-    ImplementationSelectionEvidence, ReceiverCapability, SelectionFailure,
+    ImplementationSelectionEvidence, ReceiverCapability, SelectionCandidateKey, SelectionFailure,
 };
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -111,9 +111,7 @@ where
     match applicable.len() {
         1 => Ok(Some(CandidateSelection::Selected(applicable.remove(0).1))),
         count if count > 1 => Ok(Some(CandidateSelection::Failed(
-            SelectionFailure::Ambiguous(
-                applicable.into_iter().map(|(key, _)| key.into()).collect(),
-            ),
+            SelectionFailure::Ambiguous(applicable.into_iter().map(|(key, _)| key).collect()),
         ))),
         _ if has_inaccessible => Ok(Some(CandidateSelection::Failed(
             SelectionFailure::Inaccessible,
@@ -184,7 +182,10 @@ where
 }
 
 enum CandidateCheck {
-    Applicable { key: SymbolKey, call: SelectedCall },
+    Applicable {
+        key: SelectionCandidateKey,
+        call: SelectedCall,
+    },
     Incompatible,
     Recovered,
 }
@@ -206,7 +207,7 @@ fn check_candidate<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let mut selected_arguments = Vec::with_capacity(candidate.signature().parameters().len());
+    let mut selected_arguments = Vec::new();
     let mut witnesses = Vec::with_capacity(candidate.implementation_selections().len());
 
     match check_candidate_applicability(
@@ -247,7 +248,7 @@ fn check_candidate_applicability<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let callable_type = callable_type(request, candidate.signature())?;
+    let callable_type = callable_type(request, candidate.callable_type())?;
 
     let TypeData::Callable(callable_type) = callable_type.as_ref() else {
         return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
@@ -255,7 +256,8 @@ where
 
     if !callable_surface_is_consistent(
         candidate.resolution(),
-        candidate.signature(),
+        candidate.declaration_signature(),
+        candidate.result(),
         callable_type,
         candidate.defaults(),
     ) {
@@ -284,7 +286,9 @@ where
     match receiver_is_compatible(
         input.types,
         input.receiver,
-        candidate.signature().receiver(),
+        candidate
+            .declaration_signature()
+            .and_then(CallableSignature::receiver),
     )? {
         Compatibility::No => return Ok(CandidateApplicability::Incompatible),
         Compatibility::Recovered => return Ok(CandidateApplicability::Recovered),
@@ -296,7 +300,9 @@ where
         input.mode,
         input.arguments,
         callable_type,
-        candidate.signature().parameters(),
+        candidate
+            .declaration_signature()
+            .map(CallableSignature::parameters),
         candidate.defaults(),
         on_argument,
     )?
@@ -354,36 +360,40 @@ where
 
 fn callable_surface_is_consistent(
     resolution: &bray_bound_tree::BoundResolvedCall,
-    signature: &CallableSignature,
+    signature: Option<&CallableSignature>,
+    result: bray_symbols::TypeId,
     callable: &CallableTypeData,
     defaults: &[(
         CallableParameterSymbolId,
         CallableParameterDefaultProviderSymbolId,
     )],
 ) -> bool {
-    if callable.parameters().len() != signature.parameters().len()
-        || callable.result() != signature.result()
-        || !callable
-            .parameters()
-            .iter()
-            .zip(signature.parameters())
-            .all(|(parameter, signature)| parameter.ty() == signature.ty())
-        || defaults.windows(2).any(|pair| pair[0].0 == pair[1].0)
-        || defaults.iter().any(|(parameter, _)| {
-            !signature
-                .parameters()
-                .iter()
-                .any(|item| item.parameter() == *parameter)
-        })
-    {
+    if callable.result() != result {
         return false;
     }
 
+    match signature {
+        Some(signature)
+            if callable.parameters().len() == signature.parameters().len()
+                && callable
+                    .parameters()
+                    .iter()
+                    .zip(signature.parameters())
+                    .all(|(parameter, signature)| parameter.ty() == signature.ty())
+                && defaults.windows(2).all(|pair| pair[0].0 != pair[1].0)
+                && defaults.iter().all(|(parameter, _)| {
+                    signature
+                        .parameters()
+                        .iter()
+                        .any(|item| item.parameter() == *parameter)
+                }) => {}
+        None if defaults.is_empty() => {}
+        Some(_) | None => return false,
+    }
+
     match resolution.result() {
-        bray_bound_tree::BoundCallResult::Immediate(result) => result == signature.result(),
-        bray_bound_tree::BoundCallResult::LazyFuture(future) => {
-            future.completion_type() == signature.result()
-        }
+        bray_bound_tree::BoundCallResult::Immediate(selected) => selected == result,
+        bray_bound_tree::BoundCallResult::LazyFuture(future) => future.completion_type() == result,
     }
 }
 
@@ -439,14 +449,14 @@ where
 
 fn callable_type<C>(
     request: CheckerUnitView<'_, C>,
-    signature: &CallableSignature,
+    callable_type: bray_symbols::TypeId,
 ) -> Result<std::sync::Arc<TypeData>, CheckerInfrastructureError>
 where
     C: CheckerRequestContext + ?Sized,
 {
     let data = request
         .semantic_values()
-        .type_data(signature.callable_type())
+        .type_data(callable_type)
         .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
 
     let TypeData::Callable(_) = data.as_ref() else {
@@ -508,7 +518,7 @@ fn map_arguments(
     mode: CallableSelectionMode,
     arguments: &[BoundArgument],
     callable: &CallableTypeData,
-    signatures: &[CallableParameterSignature],
+    signatures: Option<&[CallableParameterSignature]>,
     defaults: &[(
         CallableParameterSymbolId,
         CallableParameterDefaultProviderSymbolId,
@@ -516,40 +526,15 @@ fn map_arguments(
     on_argument: &mut impl FnMut(SelectedArgument),
 ) -> Result<Option<bool>, CheckerInfrastructureError> {
     let parameters = callable.parameters();
-    let mut supplied = vec![None; parameters.len()];
-    let mut positional_index = 0;
 
-    let mut saw_named = false;
+    let Some(parameter_indices) = map_argument_parameter_indices(arguments, parameters) else {
+        return Ok(None);
+    };
+
+    let mut supplied = vec![None; parameters.len()];
     let mut recovered = false;
 
-    for argument in arguments {
-        let parameter_index = match argument.name() {
-            Some(name) => {
-                saw_named = true;
-
-                parameters
-                    .iter()
-                    .position(|parameter| parameter.name().as_str() == name.as_str())
-            }
-            None if saw_named => return Ok(None),
-            None => {
-                let index = positional_index;
-                positional_index += 1;
-
-                parameters.get(index).and_then(|parameter| {
-                    (parameter.position() == CallablePosition::PositionalOrNamed).then_some(index)
-                })
-            }
-        };
-
-        let Some(parameter_index) = parameter_index else {
-            return Ok(None);
-        };
-
-        if supplied[parameter_index].is_some() {
-            return Ok(None);
-        }
-
+    for (argument, parameter_index) in arguments.iter().zip(parameter_indices) {
         let actual = expression_type(types, argument.expression())?;
 
         recovered |= argument.is_recovered() || actual.is_recovered();
@@ -559,11 +544,22 @@ fn map_arguments(
         }
 
         supplied[parameter_index] = Some(argument.expression());
+        let parameter = signatures.map(|signatures| signatures[parameter_index].parameter());
+
+        let Ok(ordinal) = u32::try_from(parameter_index) else {
+            return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+        };
+
         on_argument(SelectedArgument::Explicit {
             expression: argument.expression(),
-            parameter: signatures[parameter_index].parameter(),
+            parameter,
+            ordinal,
         });
     }
+
+    let Some(signatures) = signatures else {
+        return Ok((supplied.iter().all(Option::is_some)).then_some(recovered));
+    };
 
     let mut seen_parameters = BTreeSet::new();
 
@@ -597,6 +593,45 @@ fn map_arguments(
     }
 
     Ok(Some(recovered))
+}
+
+pub(crate) fn map_argument_parameter_indices(
+    arguments: &[BoundArgument],
+    parameters: &[bray_symbols::CallableParameterData],
+) -> Option<Vec<usize>> {
+    let mut supplied = vec![false; parameters.len()];
+    let mut positional_index = 0;
+    let mut saw_named = false;
+    let mut mapped = Vec::with_capacity(arguments.len());
+
+    for argument in arguments {
+        let parameter_index = match argument.name() {
+            Some(name) => {
+                saw_named = true;
+
+                parameters
+                    .iter()
+                    .position(|parameter| parameter.name().as_str() == name.as_str())
+            }
+            None if saw_named => return None,
+            None => {
+                let index = positional_index;
+                positional_index += 1;
+
+                parameters.get(index).and_then(|parameter| {
+                    (parameter.position() == CallablePosition::PositionalOrNamed).then_some(index)
+                })
+            }
+        }?;
+
+        if std::mem::replace(&mut supplied[parameter_index], true) {
+            return None;
+        }
+
+        mapped.push(parameter_index);
+    }
+
+    Some(mapped)
 }
 
 #[derive(Clone, Copy)]
@@ -756,7 +791,8 @@ mod tests {
             [
                 SelectedArgument::Explicit {
                     expression: fixture.argument,
-                    parameter: parameter(2),
+                    parameter: Some(parameter(2)),
+                    ordinal: 1,
                 },
                 SelectedArgument::Default {
                     parameter: parameter(1),

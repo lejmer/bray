@@ -114,8 +114,8 @@ define_source_syntax_node! {
 impl ExpressionSyntax {
     /// Returns the operator token when this expression is operator-shaped.
     pub fn operator_token(&self) -> Option<SyntaxToken> {
-        self.tokens()
-            .find(|token| is_expression_operator(token.kind()))
+        self.node
+            .first_child_token_matching(self.start, is_expression_operator)
     }
 
     /// Returns the primary-expression child when this is a primary expression.

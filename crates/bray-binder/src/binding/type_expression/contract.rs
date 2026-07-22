@@ -4,6 +4,7 @@ use bray_symbols::{
 };
 
 /// The lexical semantic scope used while binding a declaration's type expressions.
+#[derive(Clone)]
 pub struct TypeExpressionScope {
     pub(super) owner: AnySymbolId,
     pub(super) module: Option<ModuleSymbolId>,

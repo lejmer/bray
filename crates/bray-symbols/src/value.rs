@@ -5,6 +5,7 @@ mod error;
 mod id;
 mod store;
 mod substitution;
+mod substitution_apply;
 mod ty;
 
 pub use application::{

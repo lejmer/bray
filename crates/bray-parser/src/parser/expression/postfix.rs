@@ -243,6 +243,7 @@ impl Parser {
         let start = self.peek().full_range().start();
 
         let mut builder = ConversionOperationSyntax::builder(self.syntax_source(), start);
+
         let mut at_type_boundary =
             |parser: &mut Parser| parser.at_conversion_type_boundary(at_boundary);
 
@@ -331,11 +332,13 @@ mod tests {
         };
 
         let generic_lists = call.generic_argument_lists().collect::<Vec<_>>();
+
         let [generic_list] = generic_lists.as_slice() else {
             panic!("call must retain exactly one generic argument list: {generic_lists:?}");
         };
 
         let generic_arguments = generic_list.generic_arguments().collect::<Vec<_>>();
+
         let [type_argument, constant_argument] = generic_arguments.as_slice() else {
             panic!("call must retain both generic arguments: {generic_arguments:?}");
         };
@@ -343,6 +346,22 @@ mod tests {
         assert_eq!(expression.full_text(), "target.method<Result, 4>(value)");
         assert_eq!(type_argument.type_expressions().count(), 1);
         assert_eq!(constant_argument.expressions().count(), 1);
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn parser_parses_direct_explicit_generic_call_arguments() {
+        let sources = source_store(["target<Item, 4>(0);"]);
+        let snapshot = source(&sources, 0);
+
+        let mut parser = Parser::new(snapshot);
+        let mut boundary = |parser: &mut Parser| parser.at(SyntaxKind::SemicolonToken);
+
+        let expression = parser.parse_expression_until(&mut boundary);
+        let diagnostics = parser.finish();
+
+        assert_eq!(expression.call_operations().count(), 1);
+        assert!(expression.operator_token().is_none());
         assert!(diagnostics.is_empty());
     }
 
@@ -382,6 +401,7 @@ mod tests {
         };
 
         let separators = generic_list.separator_tokens().collect::<Vec<_>>();
+
         let [separator] = separators.as_slice() else {
             panic!("recovered list must retain one separator: {separators:?}");
         };
