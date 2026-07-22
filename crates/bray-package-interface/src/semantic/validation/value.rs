@@ -251,6 +251,10 @@ impl InterfaceSemanticFacts {
                 validate_index(left.to_index(), self.constant_terms.len())?;
                 validate_index(right.to_index(), self.constant_terms.len())?;
             }
+            InterfaceConstantTerm::Conversion { operand, target } => {
+                validate_index(operand.to_index(), self.constant_terms.len())?;
+                validate_index(target.to_index(), self.types.len())?;
+            }
             InterfaceConstantTerm::DefinitionApplication {
                 definition,
                 substitution,

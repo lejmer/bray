@@ -83,7 +83,7 @@ impl<'values> HeaderMatcher<'values> {
             .map_err(|_| ImplementationMatchError::SemanticValue)
     }
 
-    fn match_type(
+    pub(super) fn match_type(
         &mut self,
         pattern: TypeId,
         actual: TypeId,

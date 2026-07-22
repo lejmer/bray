@@ -360,6 +360,10 @@ pub enum ConstantTermData {
         left: ConstantTermId,
         right: ConstantTermId,
     },
+    Conversion {
+        operand: ConstantTermId,
+        target: TypeId,
+    },
     DefinitionApplication {
         definition: AnyConstantDefinitionId,
         substitution: GenericSubstitutionId,

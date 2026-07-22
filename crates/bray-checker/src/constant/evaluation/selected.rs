@@ -64,7 +64,6 @@ where
 
         let Some(value) = self.term_value(operand)? else {
             let Some(operation) = unary_term_operation(operation) else {
-                // TODO(BRA-244): Represent additional selected unary operations as constant terms.
                 return Err(EvaluationFailure::invalid_expression(expression));
             };
 
@@ -104,7 +103,6 @@ where
 
         let (Some(left_value), Some(right_value)) = (left_value, right_value) else {
             let Some(operation) = binary_term_operation(operation) else {
-                // TODO(BRA-244): Represent additional selected binary operations as constant terms.
                 return Err(EvaluationFailure::invalid_expression(expression));
             };
 
@@ -185,8 +183,21 @@ where
         }
 
         let Some(operand) = self.term_value(operand)? else {
-            // TODO(BRA-244): Add checked conversion operations to open constant terms.
-            return Err(EvaluationFailure::invalid_expression(expression));
+            return match conversion.target() {
+                ConversionTarget::Identity => Ok(operand),
+                ConversionTarget::BuiltInScalar => self.intern_term(ConstantTermData::Conversion {
+                    operand,
+                    target: conversion.target_type(),
+                }),
+                ConversionTarget::Composite(_) => {
+                    // TODO(BRA-246): Represent open aggregate conversions as constant terms.
+                    Err(EvaluationFailure::invalid_expression(expression))
+                }
+                ConversionTarget::Trait { .. } => {
+                    // TODO(BRA-245): Evaluate const-call conversion implementations.
+                    Err(EvaluationFailure::invalid_expression(expression))
+                }
+            };
         };
 
         let value = self.convert_value(expression, &conversion, operand)?;

@@ -1,6 +1,7 @@
-use bray_compiler_known::RepresentationRole;
+use bray_compiler_known::{NumericRepresentationKind, RepresentationRole};
 use bray_symbols::ConstantValueKind;
 
+use super::floating::{convert_real, integer_to_real};
 use super::operation::ConstantOperationError;
 
 pub(super) fn convert_scalar(
@@ -10,21 +11,36 @@ pub(super) fn convert_scalar(
 ) -> Result<ConstantValueKind, ConstantOperationError> {
     match value {
         ConstantValueKind::Integer(value) => {
-            let Some(representation) = target.integer_representation() else {
+            if let Some(representation) = target.integer_representation() {
+                if !super::integer::fits_integer_representation(value, representation, target_width)
+                {
+                    return Err(ConstantOperationError::NotRepresentable);
+                }
+
+                // Integer constants are immutable, Arc-backed canonical payloads.
+                return Ok(ConstantValueKind::Integer(value.clone()));
+            }
+
+            integer_to_real(value, target).map(ConstantValueKind::Real)
+        }
+        ConstantValueKind::Real(value)
+            if target.numeric_kind() == Some(NumericRepresentationKind::Real) =>
+        {
+            convert_real(*value, target).map(ConstantValueKind::Real)
+        }
+        ConstantValueKind::Complex { real, imaginary }
+            if target.numeric_kind() == Some(NumericRepresentationKind::Complex) =>
+        {
+            let Some(component) = target.complex_component() else {
                 return Err(ConstantOperationError::Invalid);
             };
 
-            if !super::integer::fits_integer_representation(value, representation, target_width) {
-                return Err(ConstantOperationError::NotRepresentable);
-            }
+            let real = convert_real(*real, component)?;
+            let imaginary = convert_real(*imaginary, component)?;
 
-            // Integer constants are immutable, Arc-backed canonical payloads.
-            Ok(ConstantValueKind::Integer(value.clone()))
+            Ok(ConstantValueKind::Complex { real, imaginary })
         }
-        _ => {
-            // TODO(BRA-244): Add selected runtime-format real and complex widening.
-            Err(ConstantOperationError::Invalid)
-        }
+        _ => Err(ConstantOperationError::Invalid),
     }
 }
 
@@ -34,7 +50,7 @@ mod tests {
     use std::num::NonZeroU16;
 
     use bray_compiler_known::RepresentationRole;
-    use bray_symbols::{ConstantValueKind, IntegerConstant, IntegerSign};
+    use bray_symbols::{ConstantValueKind, IntegerConstant, IntegerSign, RealConstantBits};
 
     use super::convert_scalar;
     use crate::constant::operation::ConstantOperationError;
@@ -66,5 +82,25 @@ mod tests {
 
         assert_eq!(target_sized, Err(ConstantOperationError::NotRepresentable));
         assert_eq!(observations.get(), 1);
+    }
+
+    #[test]
+    fn complex_widening_converts_both_components() {
+        let value = ConstantValueKind::Complex {
+            real: RealConstantBits::Binary32(0x3fc0_0000),
+            imaginary: RealConstantBits::Binary32(0x4000_0000),
+        };
+
+        let result = convert_scalar(&value, RepresentationRole::ScalarC128, || {
+            panic!("complex widening must not request target integer width")
+        });
+
+        assert_eq!(
+            result,
+            Ok(ConstantValueKind::Complex {
+                real: RealConstantBits::Binary64(0x3ff8_0000_0000_0000),
+                imaginary: RealConstantBits::Binary64(0x4000_0000_0000_0000),
+            })
+        );
     }
 }

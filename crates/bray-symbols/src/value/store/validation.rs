@@ -114,6 +114,10 @@ pub(super) fn validate_constant_term_data(
             tables.constant_terms.get(store, *left)?;
             tables.constant_terms.get(store, *right)?;
         }
+        ConstantTermData::Conversion { operand, target } => {
+            tables.constant_terms.get(store, *operand)?;
+            tables.types.get(store, *target)?;
+        }
         ConstantTermData::DefinitionApplication {
             definition,
             substitution,

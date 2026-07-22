@@ -273,6 +273,11 @@ pub(super) fn encode_constant_term(encoder: &mut WireEncoder, term: &InterfaceCo
             encoder.write_u32(left.raw());
             encoder.write_u32(right.raw());
         }
+        InterfaceConstantTerm::Conversion { operand, target } => {
+            encoder.write_u32(10);
+            encoder.write_u32(operand.raw());
+            encoder.write_u32(target.raw());
+        }
         InterfaceConstantTerm::DefinitionApplication {
             definition,
             substitution,

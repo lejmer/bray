@@ -659,6 +659,10 @@ impl<'bytes> SelectionBuilder<'bytes> {
                 self.enqueue(PendingRecord::ConstantTerm(left.raw()));
                 self.enqueue(PendingRecord::ConstantTerm(right.raw()));
             }
+            InterfaceConstantTerm::Conversion { operand, target } => {
+                self.enqueue(PendingRecord::ConstantTerm(operand.raw()));
+                self.enqueue(PendingRecord::Type(target.raw()));
+            }
             InterfaceConstantTerm::DefinitionApplication {
                 substitution,
                 selected_implementation,

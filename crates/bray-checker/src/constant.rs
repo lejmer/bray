@@ -1,6 +1,7 @@
 mod array;
 mod conversion;
 mod evaluation;
+mod floating;
 mod input;
 mod integer;
 mod limits;

@@ -540,11 +540,12 @@ mod tests {
     use std::num::{NonZeroU16, NonZeroU32};
 
     use bray_bound_tree::{
-        BoundBinaryExpression, BoundExpression, BoundExpressionId, BoundLiteralExpression,
-        BoundLiteralKind, BoundNameExpression, BoundNodeOrigin, BoundOperator,
-        BoundReferenceTarget, BoundStructuredExpression, BoundStructuredExpressionKind,
-        BoundTreeBuilder, BoundUnit, BoundUnitId, BoundUnitKey, BoundUnitRoot, OperatorTarget,
-        SelectedOperation, SemanticSelection, SemanticSelectionEntry,
+        BoundBinaryExpression, BoundConversionExpression, BoundExpression, BoundExpressionId,
+        BoundLiteralExpression, BoundLiteralKind, BoundNameExpression, BoundNodeOrigin,
+        BoundOperator, BoundReferenceTarget, BoundStructuredExpression,
+        BoundStructuredExpressionKind, BoundTreeBuilder, BoundUnit, BoundUnitId, BoundUnitKey,
+        BoundUnitRoot, ConversionTarget, OperatorTarget, SelectedConversion, SelectedOperation,
+        SemanticSelection, SemanticSelectionEntry,
     };
     use bray_compiler_known::RepresentationRole;
     use bray_declarations::{DeclarationId, SyntaxAnchor, discover_source_unit_declarations};
@@ -553,10 +554,10 @@ mod tests {
     use bray_source::{SourceId, SourceIdentity, SourceOrigin, SourceSnapshot, SourceVersion};
     use bray_symbols::{
         AnySymbolId, ConstantSymbolId, ConstantTermData, ConstantValueData, ConstantValueKind,
-        LocalScopeBoundary, LocalSymbolRegionId, LocalSymbolRegionKey, LocalSymbolRegionRole,
-        LocalSymbolSnapshotBuilder, ModulePathKey, PackageIdentity, RealConstantBits,
-        SymbolFactKind, SymbolId, SymbolKey, SymbolKind, SymbolRootKey, TargetSizedIntegerType,
-        TypeId,
+        GenericConstParameterSymbolId, LocalScopeBoundary, LocalSymbolRegionId,
+        LocalSymbolRegionKey, LocalSymbolRegionRole, LocalSymbolSnapshotBuilder, ModulePathKey,
+        PackageIdentity, RealConstantBits, SymbolFactKind, SymbolId, SymbolKey, SymbolKind,
+        SymbolRootKey, TargetSizedIntegerType, TypeId,
     };
     use bray_syntax::LiteralExpressionSyntax;
     use bray_target::{
@@ -1100,6 +1101,107 @@ mod tests {
         assert_eq!(
             constant_value(*closed.value()).kind(),
             &ConstantValueKind::Error
+        );
+    }
+
+    #[test]
+    fn open_scalar_conversions_publish_selected_conversion_terms() {
+        let (seed, _, seed_context) = literal_unit(
+            BoundUnitId::new(107),
+            "module example;\nconst value: u32 = 1;\n",
+            BoundLiteralKind::Integer,
+        );
+
+        let source_type = representation(&seed, &seed_context, RepresentationRole::ScalarU32);
+        let target_type = representation(&seed, &seed_context, RepresentationRole::ScalarU64);
+
+        let mut operand = None;
+
+        let (unit, root, context) = expression_unit(
+            BoundUnitId::new(108),
+            "module example;\nconst value: u64 = 1;\n",
+            |tree, _, origin| {
+                let reference = push_expression(
+                    tree,
+                    BoundExpression::Name(BoundNameExpression::new(
+                        origin,
+                        BoundReferenceTarget::Surface(AnySymbolId::from(
+                            ConstantSymbolId::from_symbol_id(SymbolId::new(1)),
+                        )),
+                        Some(source_type),
+                        false,
+                    )),
+                );
+
+                operand = Some(reference);
+
+                push_expression(
+                    tree,
+                    BoundExpression::Conversion(BoundConversionExpression::new(
+                        origin,
+                        reference,
+                        origin.source_anchor().syntax(),
+                        Some(target_type),
+                        Some(target_type),
+                        false,
+                    )),
+                )
+            },
+        );
+
+        let Some(operand) = operand else {
+            panic!("conversion unit must contain its operand");
+        };
+
+        let types = checked_types(&unit, root, &context, target_type);
+
+        let selections = bray_bound_tree::CheckedSemanticSelections::try_new(
+            &unit,
+            &types,
+            [SemanticSelectionEntry::new(
+                root,
+                SemanticSelection::Operation(SelectedOperation::Conversion(
+                    SelectedConversion::new(
+                        source_type,
+                        target_type,
+                        ConversionTarget::BuiltInScalar,
+                    ),
+                )),
+            )],
+        )
+        .unwrap_or_else(|error| panic!("conversion selection must be valid: {error:?}"));
+
+        let parameter = GenericConstParameterSymbolId::from_symbol_id(SymbolId::new(2));
+
+        let parameter = semantic_values()
+            .intern_constant_term(ConstantTermData::Parameter(parameter))
+            .unwrap_or_else(|error| panic!("parameter term must intern: {error:?}"));
+
+        let input = ConstantEvaluationInput::new(&types, &selections)
+            .with_references([(operand, ConstantReferenceResolution::Term(parameter))]);
+
+        let entry = checker_entry(&unit);
+
+        let request = CheckerUnitView::new(&unit, &entry, &context)
+            .unwrap_or_else(|error| panic!("constant checker unit view must be valid: {error:?}"));
+
+        let result = DefaultConstantChecker
+            .check_constant_term(request, &input)
+            .into_result()
+            .unwrap_or_else(|| panic!("open conversion checking must complete"));
+
+        let data = semantic_values()
+            .constant_term_data(*result.value())
+            .unwrap_or_else(|error| panic!("conversion term must be available: {error:?}"));
+
+        assert!(result.diagnostics().is_empty());
+
+        assert_eq!(
+            data.as_ref(),
+            &ConstantTermData::Conversion {
+                operand: parameter,
+                target: target_type,
+            }
         );
     }
 
