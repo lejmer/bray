@@ -223,6 +223,7 @@ where
     let mut binder = create_binder(facts, unit, key, context)?;
 
     let root_scope = binder.unit().root_scope();
+
     configure_scope(&mut binder, root_scope)?;
 
     let path_context = path_context(&binder, root_scope)?;
