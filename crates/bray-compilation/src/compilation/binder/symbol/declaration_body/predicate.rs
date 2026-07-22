@@ -2,7 +2,11 @@ use std::collections::BTreeMap;
 
 use bray_binder::{BinderFactContext, BinderFactError, BinderFactResult, SymbolFactProvider};
 use bray_bound_tree::{BoundUnitKey, CheckedTemplateKind};
-use bray_diagnostics::DiagnosticResult;
+use bray_declarations::SyntaxAnchor;
+use bray_diagnostics::{
+    Diagnostic, DiagnosticBag, DiagnosticId, DiagnosticKind, DiagnosticResult, SeverityKind,
+};
+use bray_source::SourceSpan;
 use bray_symbols::{
     ErrorPredicateDefinition, PredicateDefinition, PredicateDefinitionFact,
     PredicateDefinitionState, PredicateDefinitionSymbolId, PredicateSemanticSummary,
@@ -72,7 +76,9 @@ fn predicate_definition(
             Some(template) => PredicateDefinitionState::Defined(PredicateDefinition::new(
                 PredicateSemanticSummary::new(template.template().behavior().dependency_contract()),
             )),
-            None => missing_predicate_state(owner, true),
+            // TODO(BRA-247): Reconstruct required and opaque trusted states from validated
+            // package-interface predicate metadata.
+            None => missing_imported_predicate_state(owner),
         };
 
         return Ok(DiagnosticResult::new(state, diagnostics));
@@ -88,13 +94,42 @@ fn predicate_definition(
         SymbolFactRequest::<PredicateSignatureTemplateFact>::new(owner),
     )?;
 
-    let Some(key) = predicate_definition_key(context, owner)? else {
-        let state = missing_predicate_state(owner, signature.value().is_trusted());
+    let key = predicate_definition_key(context, owner)?;
+
+    if signature.value().is_trusted()
+        && let Some(key) = key.as_ref()
+    {
+        let diagnostic = predicate_diagnostic(
+            key.source().syntax(),
+            DiagnosticKind::BindingTrustedPredicateBodyNotAllowed,
+        );
+
+        let diagnostics = signature
+            .diagnostics()
+            .merged(&DiagnosticBag::single(diagnostic));
 
         return Ok(DiagnosticResult::new(
-            state,
-            signature.diagnostics().clone(),
+            PredicateDefinitionState::Error(ErrorPredicateDefinition),
+            diagnostics,
         ));
+    }
+
+    let Some(key) = key else {
+        let state = missing_predicate_state(owner, signature.value().is_trusted());
+        let diagnostics =
+            match missing_predicate_diagnostic_kind(owner, signature.value().is_trusted()) {
+                Some(kind) => {
+                    let anchor = predicate_declaration_anchor(context, owner)?;
+                    let diagnostic = predicate_diagnostic(anchor, kind);
+
+                    signature
+                        .diagnostics()
+                        .merged(&DiagnosticBag::single(diagnostic))
+                }
+                None => signature.diagnostics().clone(),
+            };
+
+        return Ok(DiagnosticResult::new(state, diagnostics));
     };
 
     let parser_diagnostics = syntax_diagnostics(context, key.source().syntax());
@@ -131,6 +166,56 @@ fn missing_predicate_state(
             PredicateDefinitionState::Error(ErrorPredicateDefinition)
         }
     }
+}
+
+fn missing_imported_predicate_state(
+    owner: PredicateDefinitionSymbolId,
+) -> PredicateDefinitionState<PredicateDefinition> {
+    match owner {
+        PredicateDefinitionSymbolId::TraitMember(_) => PredicateDefinitionState::Required,
+        PredicateDefinitionSymbolId::Predicate(_)
+        | PredicateDefinitionSymbolId::TraitFulfillment(_) => {
+            PredicateDefinitionState::Error(ErrorPredicateDefinition)
+        }
+    }
+}
+
+fn missing_predicate_diagnostic_kind(
+    owner: PredicateDefinitionSymbolId,
+    is_trusted: bool,
+) -> Option<DiagnosticKind> {
+    match owner {
+        PredicateDefinitionSymbolId::Predicate(_) if is_trusted => None,
+        PredicateDefinitionSymbolId::TraitMember(_) => None,
+        PredicateDefinitionSymbolId::Predicate(_)
+        | PredicateDefinitionSymbolId::TraitFulfillment(_) => {
+            Some(DiagnosticKind::BindingPredicateBodyRequired)
+        }
+    }
+}
+
+fn predicate_declaration_anchor(
+    context: &CompilationBinderFacts<'_>,
+    owner: PredicateDefinitionSymbolId,
+) -> BinderFactResult<SyntaxAnchor> {
+    context
+        .symbols()
+        .symbol_key(owner.into_any())
+        .and_then(bray_symbols::SymbolKey::source_declaration_id)
+        .and_then(|declaration| context.declarations().declaration(declaration))
+        .map(bray_declarations::DeclarationRecord::syntax_anchor)
+        .ok_or(BinderFactError::DependencyUnavailable)
+}
+
+fn predicate_diagnostic(anchor: SyntaxAnchor, kind: DiagnosticKind) -> Diagnostic {
+    let span = SourceSpan::new(anchor.source_id(), anchor.full_range());
+
+    Diagnostic::new(
+        DiagnosticId::new(span.range().start().bytes()),
+        kind,
+        SeverityKind::Error,
+    )
+    .with_primary_span(span)
 }
 
 fn predicate_definition_key(
@@ -195,6 +280,7 @@ fn predicate_origin(
 mod tests {
     use std::sync::Arc;
 
+    use bray_diagnostics::DiagnosticKind;
     use bray_symbols::{PredicateDefinitionState, PredicateDefinitionSymbolId, SymbolOrigin};
 
     use crate::test_support::compilation;
@@ -278,5 +364,61 @@ mod tests {
             provided.value(),
             PredicateDefinitionState::Defined(_)
         ));
+    }
+
+    #[test]
+    fn invalid_predicate_tails_publish_structured_diagnostics() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "predicate missing();\n",
+            "trusted predicate defined() = true;\n",
+        ));
+
+        let symbols = compilation
+            .symbol_graph()
+            .unwrap_or_else(|error| panic!("symbol graph must build: {error:?}"));
+
+        let predicates = symbols
+            .predicates()
+            .iter()
+            .filter(|predicate| predicate.origin() == SymbolOrigin::Source)
+            .collect::<Vec<_>>();
+
+        let [missing, defined] = predicates.as_slice() else {
+            panic!("test source must declare two predicates: {predicates:?}");
+        };
+
+        let missing = compilation
+            .predicate_definition(PredicateDefinitionSymbolId::Predicate(missing.id()))
+            .unwrap_or_else(|error| panic!("missing predicate body must publish: {error:?}"));
+
+        let defined = compilation
+            .predicate_definition(PredicateDefinitionSymbolId::Predicate(defined.id()))
+            .unwrap_or_else(|error| panic!("trusted predicate body must publish: {error:?}"));
+
+        assert!(matches!(
+            missing.value(),
+            PredicateDefinitionState::Error(_)
+        ));
+        assert!(matches!(
+            defined.value(),
+            PredicateDefinitionState::Error(_)
+        ));
+        assert_eq!(
+            missing
+                .diagnostics()
+                .iter()
+                .map(bray_diagnostics::Diagnostic::kind)
+                .collect::<Vec<_>>(),
+            [DiagnosticKind::BindingPredicateBodyRequired]
+        );
+        assert_eq!(
+            defined
+                .diagnostics()
+                .iter()
+                .map(bray_diagnostics::Diagnostic::kind)
+                .collect::<Vec<_>>(),
+            [DiagnosticKind::BindingTrustedPredicateBodyNotAllowed]
+        );
     }
 }
