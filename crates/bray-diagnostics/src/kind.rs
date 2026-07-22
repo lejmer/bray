@@ -85,20 +85,6 @@ pub enum DiagnosticKind {
     InterfaceDependencyGraphInvalid,
     /// Decoded package-interface semantic facts cannot be used in this compilation.
     InterfaceSemanticFactsInvalid,
-    /// A package-interface command was invoked without the required command shape.
-    InterfaceCommandUsage,
-    /// A package-interface command action is not recognized.
-    InterfaceCommandUnexpectedAction,
-    /// A package-interface command received an argument it does not accept.
-    InterfaceCommandUnexpectedArgument,
-    /// A package-interface section option is missing its section name.
-    InterfaceCommandMissingSectionName,
-    /// A package-interface section name is not recognized.
-    InterfaceCommandUnknownSectionName,
-    /// A package-interface artifact could not be read from the host.
-    InterfaceArtifactReadFailed,
-    /// Structured package-interface command output could not be rendered.
-    InterfaceCommandOutputFailed,
     /// Name binding could not find a declaration or local with the requested spelling.
     BindingUnresolvedName,
     /// Name binding found more than one candidate for one ordinary name.
@@ -215,13 +201,6 @@ impl DiagnosticKind {
             Self::InterfaceProductIdentityMismatch => 5011,
             Self::InterfaceDependencyGraphInvalid => 5012,
             Self::InterfaceSemanticFactsInvalid => 5013,
-            Self::InterfaceCommandUsage => 5014,
-            Self::InterfaceCommandUnexpectedAction => 5015,
-            Self::InterfaceCommandUnexpectedArgument => 5016,
-            Self::InterfaceCommandMissingSectionName => 5017,
-            Self::InterfaceCommandUnknownSectionName => 5018,
-            Self::InterfaceArtifactReadFailed => 5019,
-            Self::InterfaceCommandOutputFailed => 5020,
             Self::BindingUnresolvedName => 6001,
             Self::BindingAmbiguousName => 6002,
             Self::BindingInaccessibleName => 6003,
@@ -307,13 +286,6 @@ impl DiagnosticKind {
             Self::InterfaceProductIdentityMismatch => "interface_product_identity_mismatch",
             Self::InterfaceDependencyGraphInvalid => "interface_dependency_graph_invalid",
             Self::InterfaceSemanticFactsInvalid => "interface_semantic_facts_invalid",
-            Self::InterfaceCommandUsage => "interface_command_usage",
-            Self::InterfaceCommandUnexpectedAction => "interface_command_unexpected_action",
-            Self::InterfaceCommandUnexpectedArgument => "interface_command_unexpected_argument",
-            Self::InterfaceCommandMissingSectionName => "interface_command_missing_section_name",
-            Self::InterfaceCommandUnknownSectionName => "interface_command_unknown_section_name",
-            Self::InterfaceArtifactReadFailed => "interface_artifact_read_failed",
-            Self::InterfaceCommandOutputFailed => "interface_command_output_failed",
             Self::BindingUnresolvedName => "binding_unresolved_name",
             Self::BindingAmbiguousName => "binding_ambiguous_name",
             Self::BindingInaccessibleName => "binding_inaccessible_name",
@@ -417,7 +389,7 @@ mod tests {
         }
     }
 
-    fn all_diagnostic_kinds() -> [DiagnosticKind; 82] {
+    fn all_diagnostic_kinds() -> [DiagnosticKind; 75] {
         [
             DiagnosticKind::SourceFileReadFailed,
             DiagnosticKind::SourceInvalidUtf8,
@@ -459,13 +431,6 @@ mod tests {
             DiagnosticKind::InterfaceProductIdentityMismatch,
             DiagnosticKind::InterfaceDependencyGraphInvalid,
             DiagnosticKind::InterfaceSemanticFactsInvalid,
-            DiagnosticKind::InterfaceCommandUsage,
-            DiagnosticKind::InterfaceCommandUnexpectedAction,
-            DiagnosticKind::InterfaceCommandUnexpectedArgument,
-            DiagnosticKind::InterfaceCommandMissingSectionName,
-            DiagnosticKind::InterfaceCommandUnknownSectionName,
-            DiagnosticKind::InterfaceArtifactReadFailed,
-            DiagnosticKind::InterfaceCommandOutputFailed,
             DiagnosticKind::BindingUnresolvedName,
             DiagnosticKind::BindingAmbiguousName,
             DiagnosticKind::BindingInaccessibleName,

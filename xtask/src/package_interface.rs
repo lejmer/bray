@@ -4,10 +4,6 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use bray_diagnostics::{
-    Diagnostic, DiagnosticArg, DiagnosticId, DiagnosticIoErrorKind, DiagnosticKind, SeverityKind,
-};
-use bray_messages::DiagnosticRenderer;
 use bray_package_interface::{
     InterfaceHeader, InterfaceInspectionRecord, InterfaceInspectionSection,
     InterfaceLanguageRevision, InterfaceLimit, InterfaceSectionIndexEntry, InterfaceSectionTag,
@@ -17,6 +13,8 @@ use bray_package_interface::{
 use serde::Serialize;
 
 const LANGUAGE_REVISION: InterfaceLanguageRevision = InterfaceLanguageRevision::new(0);
+const USAGE: &str =
+    "usage: cargo xtask package-interface <inspect <path> [--section <name>]... | validate <path>>";
 
 pub(crate) fn run(arguments: impl Iterator<Item = String>) -> ExitCode {
     match execute(arguments) {
@@ -140,7 +138,7 @@ fn read_bounded_interface(
 }
 
 fn render_json(output: &impl Serialize) -> Result<String, CommandError> {
-    let mut rendered = serde_json::to_string_pretty(output).map_err(|_| CommandError::Json)?;
+    let mut rendered = serde_json::to_string_pretty(output).map_err(CommandError::Json)?;
 
     rendered.push('\n');
 
@@ -286,10 +284,10 @@ enum CommandError {
     UnknownSection(String),
     Read {
         path: PathBuf,
-        kind: std::io::ErrorKind,
+        error: std::io::Error,
     },
     Validation(InterfaceValidationError),
-    Json,
+    Json(serde_json::Error),
 }
 
 impl From<InterfaceValidationError> for CommandError {
@@ -302,68 +300,61 @@ impl CommandError {
     fn read(path: &Path, error: std::io::Error) -> Self {
         Self::Read {
             path: path.to_path_buf(),
-            kind: error.kind(),
-        }
-    }
-
-    fn diagnostic(&self) -> Diagnostic {
-        let id = DiagnosticId::new(0);
-
-        match self {
-            Self::Usage => diagnostic(id, DiagnosticKind::InterfaceCommandUsage),
-            Self::UnexpectedAction(action) => {
-                diagnostic(id, DiagnosticKind::InterfaceCommandUnexpectedAction)
-                    .with_arg(DiagnosticArg::token_text(action.clone()))
-            }
-            Self::UnexpectedArgument(argument) => {
-                diagnostic(id, DiagnosticKind::InterfaceCommandUnexpectedArgument)
-                    .with_arg(DiagnosticArg::token_text(argument.clone()))
-            }
-            Self::MissingSection => {
-                diagnostic(id, DiagnosticKind::InterfaceCommandMissingSectionName)
-            }
-            Self::UnknownSection(section) => {
-                diagnostic(id, DiagnosticKind::InterfaceCommandUnknownSectionName)
-                    .with_arg(DiagnosticArg::token_text(section.clone()))
-            }
-            Self::Read { path, kind } => {
-                diagnostic(id, DiagnosticKind::InterfaceArtifactReadFailed)
-                    .with_arg(DiagnosticArg::artifact_path(path.clone()))
-                    .with_arg(DiagnosticArg::io_error_kind(DiagnosticIoErrorKind::from(
-                        *kind,
-                    )))
-            }
-            Self::Validation(error) => error.into_diagnostic(id),
-            Self::Json => diagnostic(id, DiagnosticKind::InterfaceCommandOutputFailed),
+            error,
         }
     }
 }
 
 impl fmt::Display for CommandError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let diagnostic = self.diagnostic();
-        let rendered = DiagnosticRenderer::english().render(&diagnostic);
-
-        formatter.write_str(rendered.message())
+        match self {
+            Self::Usage => formatter.write_str(USAGE),
+            Self::UnexpectedAction(action) => {
+                write!(formatter, "unexpected package-interface command: {action}")
+            }
+            Self::UnexpectedArgument(argument) => {
+                write!(
+                    formatter,
+                    "unexpected package-interface argument: {argument}"
+                )
+            }
+            Self::MissingSection => {
+                formatter.write_str("--section requires a package-interface section name")
+            }
+            Self::UnknownSection(section) => {
+                write!(formatter, "unknown package-interface section: {section}")
+            }
+            Self::Read { path, error } => {
+                write!(
+                    formatter,
+                    "could not read package interface {}: {error}",
+                    path.display()
+                )
+            }
+            Self::Validation(error) => {
+                write!(formatter, "package-interface validation failed: {error:?}")
+            }
+            Self::Json(error) => {
+                write!(
+                    formatter,
+                    "could not render package-interface output: {error}"
+                )
+            }
+        }
     }
-}
-
-fn diagnostic(id: DiagnosticId, kind: DiagnosticKind) -> Diagnostic {
-    Diagnostic::new(id, kind, SeverityKind::Error)
 }
 
 #[cfg(test)]
 mod tests {
     use std::io::Cursor;
-    use std::path::{Path, PathBuf};
+    use std::path::Path;
 
-    use bray_diagnostics::{DiagnosticArgName, DiagnosticKind};
     use bray_package_interface::test_support::encoded_semantic_test_interface;
     use bray_package_interface::{
         InterfaceLimit, InterfaceValidationError, InterfaceValidationLimits,
     };
 
-    use super::{CommandError, execute, read_bounded_interface};
+    use super::{CommandError, USAGE, execute, read_bounded_interface};
 
     #[test]
     fn inspect_selects_one_section_and_keeps_the_complete_known_index() {
@@ -417,7 +408,7 @@ mod tests {
     }
 
     #[test]
-    fn malformed_artifacts_use_structured_localized_validation_errors() {
+    fn malformed_artifacts_report_validation_failures() {
         let path = fixture_path("malformed");
 
         write_fixture(&path, b"not an interface");
@@ -428,7 +419,10 @@ mod tests {
         };
 
         assert!(matches!(error, CommandError::Validation(_)));
-        assert_eq!(error.to_string(), "package interface is truncated");
+        assert_eq!(
+            error.to_string(),
+            "package-interface validation failed: Truncated"
+        );
 
         remove_fixture(&path);
     }
@@ -453,77 +447,30 @@ mod tests {
     }
 
     #[test]
-    fn command_failures_use_structured_localized_diagnostics() {
+    fn command_failures_are_plain_development_tool_errors() {
         let cases = [
-            (
-                CommandError::Usage,
-                DiagnosticKind::InterfaceCommandUsage,
-                "usage: cargo xtask package-interface <inspect <path> [--section <name>]... | validate <path>>",
-            ),
+            (CommandError::Usage, USAGE),
             (
                 CommandError::UnexpectedAction("scan".to_owned()),
-                DiagnosticKind::InterfaceCommandUnexpectedAction,
-                "unexpected package-interface command: 'scan'",
+                "unexpected package-interface command: scan",
             ),
             (
                 CommandError::UnexpectedArgument("--all".to_owned()),
-                DiagnosticKind::InterfaceCommandUnexpectedArgument,
-                "unexpected package-interface argument: '--all'",
+                "unexpected package-interface argument: --all",
             ),
             (
                 CommandError::MissingSection,
-                DiagnosticKind::InterfaceCommandMissingSectionName,
                 "--section requires a package-interface section name",
             ),
             (
                 CommandError::UnknownSection("unknown".to_owned()),
-                DiagnosticKind::InterfaceCommandUnknownSectionName,
-                "unknown package-interface section: 'unknown'",
-            ),
-            (
-                CommandError::Read {
-                    path: PathBuf::from("missing.brayi"),
-                    kind: std::io::ErrorKind::NotFound,
-                },
-                DiagnosticKind::InterfaceArtifactReadFailed,
-                "could not read package interface missing.brayi: not found",
-            ),
-            (
-                CommandError::Json,
-                DiagnosticKind::InterfaceCommandOutputFailed,
-                "could not render structured package-interface output",
+                "unknown package-interface section: unknown",
             ),
         ];
 
-        for (error, kind, message) in cases {
-            assert_eq!(error.diagnostic().kind(), kind);
+        for (error, message) in cases {
             assert_eq!(error.to_string(), message);
         }
-
-        let token_diagnostic = CommandError::UnexpectedAction("scan".to_owned()).diagnostic();
-
-        assert_eq!(
-            token_diagnostic.args()[0].name(),
-            DiagnosticArgName::TokenText
-        );
-
-        let read_diagnostic = CommandError::Read {
-            path: PathBuf::from("missing.brayi"),
-            kind: std::io::ErrorKind::NotFound,
-        }
-        .diagnostic();
-
-        assert_eq!(
-            read_diagnostic
-                .args()
-                .iter()
-                .map(|argument| argument.name())
-                .collect::<Vec<_>>(),
-            [
-                DiagnosticArgName::ArtifactPath,
-                DiagnosticArgName::IoErrorKind,
-            ]
-        );
     }
 
     fn assert_resource_limit(error: CommandError, actual: u64, maximum: u64) {
