@@ -720,6 +720,7 @@ mod tests {
         });
 
         assert!(Arc::ptr_eq(&signatures[0], &signatures[1]));
+
         assert!(matches!(
             signatures[0].value().as_ref(),
             [ImportedSemanticFact::CallableSignature(_)]

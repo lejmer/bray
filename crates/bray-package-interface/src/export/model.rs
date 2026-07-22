@@ -420,6 +420,7 @@ mod tests {
         for &missing in REQUIRED_FACTS {
             let complete = package_interface_export_bundle();
             let facts = complete.semantic_facts();
+
             let incomplete = facts.clone().with_declarations(
                 facts
                     .callable_signatures()

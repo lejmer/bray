@@ -84,6 +84,7 @@ impl InterfaceSemanticFacts {
             }
 
             let parameter = local_symbol(&default.parameter)?;
+
             let has_provider = surface.relationships().iter().any(|relationship| {
                 relationship.kind() == bray_symbols::SymbolRelationshipKind::DefaultProvider
                     && relationship.owner() == parameter

@@ -456,6 +456,7 @@ mod tests {
         .unwrap_or_else(|error| panic!("callable signature must decode: {error:?}"));
 
         assert_eq!(signature.callable_signatures().len(), 1);
+
         assert_eq!(
             signature.dependency_contracts.as_ref(),
             &[dependency_contract]
@@ -521,6 +522,7 @@ mod tests {
         );
 
         let generic = &base.generic_declarations()[0];
+
         let reversed_generic = InterfaceGenericDeclaration::new(
             generic.owner().clone(),
             generic.parameters().iter().rev().cloned(),
@@ -542,6 +544,7 @@ mod tests {
         );
 
         let default = &base.callable_parameter_defaults()[0];
+
         let absent_default =
             InterfaceCallableParameterDefault::new(default.parameter().clone(), false);
 

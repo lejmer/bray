@@ -380,6 +380,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("inspection output must be JSON: {error}"));
 
         assert_eq!(output["kind"], "package_interface_inspection");
+
         assert_eq!(
             output["section_index"].as_array().map(Vec::len),
             Some(InterfaceSectionTag::ALL.len())

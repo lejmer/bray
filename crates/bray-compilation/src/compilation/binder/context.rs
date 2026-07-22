@@ -565,6 +565,7 @@ mod tests {
         assert_eq!(candidate.generic().parameters().len(), 2);
         assert_eq!(candidate.generic().constraints().len(), 1);
         assert_eq!(candidate.defaults().len(), 1);
+
         assert_eq!(
             candidate.defaults()[0].value(),
             UnevaluatedDefaultTemplate::Resolved

@@ -17,6 +17,7 @@ pub(super) fn decode_callable_parameter_default(
     directory: &[InterfaceSemanticFactEntry],
 ) -> Result<InterfaceSemanticFacts, InterfaceValidationError> {
     let owner = InterfaceSymbolReference::Local(owner);
+
     let entries = directory
         .iter()
         .filter(|entry| {
@@ -35,6 +36,7 @@ pub(super) fn decode_callable_parameter_default(
 
     let section = facts::required_section(sections, InterfaceSectionTag::DeclarationFacts)?;
     let tables = codec::decode_declaration_tables(section, &mut context)?;
+
     let default = tables.callable_parameter_defaults.decode(
         entry.record(),
         &mut context,
