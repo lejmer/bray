@@ -1,6 +1,4 @@
-use std::sync::Arc;
-
-use super::{contract, directory, support, surface, template, value};
+use super::{contract, directory, selection, support, surface, template, value};
 
 use crate::semantic::codec::common::SemanticDecodeContext;
 use crate::{
@@ -71,203 +69,7 @@ pub(crate) fn decode_semantic_fact_graph(
 
     validate_decode_allocation(&selected_sections, limits)?;
 
-    let mut context = SemanticDecodeContext::new(limits);
-
-    // TODO(BRA-243): Decode only the transitive record closure required by this exact fact.
-    let types = required_section(sections, InterfaceSectionTag::SemanticTypes)?;
-    let constants = required_section(sections, InterfaceSectionTag::Constants)?;
-
-    let mut facts = value::decode_types(types, limits, &mut context)?;
-
-    value::decode_constants(constants, limits, &mut context, &mut facts)?;
-
-    let directory = required_section(sections, InterfaceSectionTag::SymbolFactDirectory)?;
-    let encoded_directory = directory::decode_fact_directory(directory, limits, &mut context)?;
-
-    match kind {
-        crate::InterfaceSemanticFactKind::GenericConstraint => decode_selected_constraints(
-            sections,
-            owner,
-            limits,
-            &encoded_directory,
-            &mut context,
-            &mut facts,
-        )?,
-        crate::InterfaceSemanticFactKind::Implementation => decode_selected_implementation(
-            sections,
-            owner,
-            limits,
-            &encoded_directory,
-            &mut context,
-            &mut facts,
-        )?,
-        crate::InterfaceSemanticFactKind::TargetFact => decode_selected_target_facts(
-            sections,
-            owner,
-            limits,
-            &encoded_directory,
-            &mut context,
-            &mut facts,
-        )?,
-        _ => unreachable!("unsupported fact kinds returned above"),
-    }
-
-    facts.validate(surface, limits)?;
-
-    Ok(facts)
-}
-
-fn decode_selected_constraints(
-    sections: &[ValidatedInterfaceSection<'_>],
-    owner: bray_symbols::InterfaceSymbolId,
-    limits: InterfaceValidationLimits,
-    encoded_directory: &[crate::InterfaceSemanticFactEntry],
-    context: &mut SemanticDecodeContext,
-    facts: &mut InterfaceSemanticFacts,
-) -> Result<(), InterfaceValidationError> {
-    let contracts = required_section(sections, InterfaceSectionTag::Contracts)?;
-
-    contract::decode_contracts(contracts, limits, context, facts)?;
-
-    validate_selected_fact_directory(
-        facts,
-        encoded_directory,
-        owner,
-        crate::InterfaceSemanticFactKind::GenericConstraint,
-    )?;
-
-    let owner = crate::InterfaceSymbolReference::Local(owner);
-
-    retain_owner_constraints(facts, &owner);
-
-    Ok(())
-}
-
-fn decode_selected_implementation(
-    sections: &[ValidatedInterfaceSection<'_>],
-    owner: bray_symbols::InterfaceSymbolId,
-    limits: InterfaceValidationLimits,
-    encoded_directory: &[crate::InterfaceSemanticFactEntry],
-    context: &mut SemanticDecodeContext,
-    facts: &mut InterfaceSemanticFacts,
-) -> Result<(), InterfaceValidationError> {
-    let contracts = required_section(sections, InterfaceSectionTag::Contracts)?;
-    let implementations = required_section(sections, InterfaceSectionTag::Implementations)?;
-    let targets = required_section(sections, InterfaceSectionTag::TargetDependencies)?;
-
-    contract::decode_contracts(contracts, limits, context, facts)?;
-    surface::decode_implementations(implementations, limits, context, facts)?;
-    surface::decode_target_dependencies(targets, limits, context, facts)?;
-
-    validate_selected_fact_directory(
-        facts,
-        encoded_directory,
-        owner,
-        crate::InterfaceSemanticFactKind::GenericConstraint,
-    )?;
-
-    validate_selected_fact_directory(
-        facts,
-        encoded_directory,
-        owner,
-        crate::InterfaceSemanticFactKind::Implementation,
-    )?;
-
-    validate_selected_fact_directory(
-        facts,
-        encoded_directory,
-        owner,
-        crate::InterfaceSemanticFactKind::TargetFact,
-    )?;
-
-    let owner = crate::InterfaceSymbolReference::Local(owner);
-
-    retain_owner_constraints(facts, &owner);
-
-    if facts
-        .implementations
-        .iter()
-        .filter(|implementation| implementation.implementation == owner)
-        .count()
-        != 1
-    {
-        return Err(InterfaceValidationError::Malformed);
-    }
-
-    // The selected graph owns shallow copies of its implementation and coherence records.
-    facts.implementations = facts
-        .implementations
-        .iter()
-        .filter(|implementation| implementation.implementation == owner)
-        .cloned()
-        .collect();
-
-    facts.coherence = facts
-        .coherence
-        .iter()
-        .filter(|coherence| coherence.implementations.contains(&owner))
-        .cloned()
-        .collect();
-
-    retain_owner_target_dependencies(facts, &owner);
-
-    Ok(())
-}
-
-fn decode_selected_target_facts(
-    sections: &[ValidatedInterfaceSection<'_>],
-    owner: bray_symbols::InterfaceSymbolId,
-    limits: InterfaceValidationLimits,
-    encoded_directory: &[crate::InterfaceSemanticFactEntry],
-    context: &mut SemanticDecodeContext,
-    facts: &mut InterfaceSemanticFacts,
-) -> Result<(), InterfaceValidationError> {
-    let targets = required_section(sections, InterfaceSectionTag::TargetDependencies)?;
-
-    surface::decode_target_dependencies(targets, limits, context, facts)?;
-
-    validate_selected_fact_directory(
-        facts,
-        encoded_directory,
-        owner,
-        crate::InterfaceSemanticFactKind::TargetFact,
-    )?;
-
-    let owner = crate::InterfaceSymbolReference::Local(owner);
-
-    retain_owner_target_dependencies(facts, &owner);
-
-    Ok(())
-}
-
-fn retain_owner_constraints(
-    facts: &mut InterfaceSemanticFacts,
-    owner: &crate::InterfaceSymbolReference,
-) {
-    // Selected graphs retain shallow copies after validating the complete encoded table.
-    facts.constraints = facts
-        .constraints
-        .iter()
-        .filter(|constraint| &constraint.owner == owner)
-        .cloned()
-        .collect();
-
-    facts.callable_contracts = Arc::from([]);
-}
-
-fn retain_owner_target_dependencies(
-    facts: &mut InterfaceSemanticFacts,
-    owner: &crate::InterfaceSymbolReference,
-) {
-    // Selected graphs retain shallow copies after validating the complete encoded table.
-    facts.target_dependencies = facts
-        .target_dependencies
-        .iter()
-        .filter(|dependency| &dependency.owner == owner)
-        .cloned()
-        .collect();
-
-    facts.abi_dependencies = Arc::from([]);
+    selection::decode_selected_fact_graph(sections, surface, owner, kind, limits)
 }
 
 fn selected_fact_sections(
@@ -304,31 +106,6 @@ fn selected_fact_sections(
         | crate::InterfaceSemanticFactKind::DeclarationTemplate
         | crate::InterfaceSemanticFactKind::Abi => None,
     }
-}
-
-fn validate_selected_fact_directory(
-    facts: &InterfaceSemanticFacts,
-    encoded_directory: &[crate::InterfaceSemanticFactEntry],
-    owner: bray_symbols::InterfaceSymbolId,
-    kind: crate::InterfaceSemanticFactKind,
-) -> Result<(), InterfaceValidationError> {
-    let owner = crate::InterfaceSymbolReference::Local(owner);
-
-    let requested = encoded_directory
-        .iter()
-        .filter(|entry| entry.owner() == &owner && entry.kind() == kind);
-
-    let decoded_directory = facts.fact_directory();
-
-    let decoded = decoded_directory
-        .iter()
-        .filter(|entry| entry.owner() == &owner && entry.kind() == kind);
-
-    if !requested.eq(decoded) {
-        return Err(InterfaceValidationError::Malformed);
-    }
-
-    Ok(())
 }
 
 fn validate_decode_allocation(
@@ -371,7 +148,7 @@ fn validate_decode_allocation(
     limits.check(crate::InterfaceLimit::DecodedAllocation, allocation)
 }
 
-fn required_section<'bytes>(
+pub(super) fn required_section<'bytes>(
     sections: &'bytes [ValidatedInterfaceSection<'bytes>],
     tag: InterfaceSectionTag,
 ) -> Result<ValidatedInterfaceSection<'bytes>, InterfaceValidationError> {
@@ -392,8 +169,10 @@ fn optional_section<'bytes>(
 mod tests {
     use bray_symbols::{InterfaceSymbolId, SymbolKind};
 
-    use super::super::test_support::{OwnedSection, owned_section_views};
-    use super::decode_semantic_fact_graph;
+    use super::super::test_support::{
+        OwnedSection, append_record, owned_section_views, record_directory_entry, record_range,
+    };
+    use super::{decode_semantic_fact_graph, decode_semantic_facts};
     use crate::semantic::codec::encode_semantic_facts;
     use crate::test_support::{local_by_kind, package_interface_export_bundle};
     use crate::{
@@ -434,6 +213,51 @@ mod tests {
     }
 
     #[test]
+    fn implementation_fact_decoding_ignores_unrelated_semantic_records() {
+        const UNRELATED_RECORDS: &[(InterfaceSectionTag, usize)] = &[
+            (InterfaceSectionTag::SemanticTypes, 4),
+            (InterfaceSectionTag::Constants, 0),
+            (InterfaceSectionTag::Contracts, 1),
+            (InterfaceSectionTag::Implementations, 0),
+            (InterfaceSectionTag::Implementations, 1),
+        ];
+
+        for &(tag, table_index) in UNRELATED_RECORDS {
+            let (surface, owner, mut sections) = implementation_fixture();
+            let section = section_mut(&mut sections, tag);
+
+            append_record(&mut section.2, table_index, &[u8::MAX]);
+            section.1 += 1;
+
+            let decoded = decode_semantic_fact_graph(
+                &owned_section_views(&sections),
+                &surface,
+                owner,
+                InterfaceSemanticFactKind::Implementation,
+                InterfaceValidationLimits::default(),
+            )
+            .unwrap_or_else(|error| {
+                panic!("unrelated record in {tag:?} table {table_index} must be ignored: {error:?}")
+            });
+
+            assert_eq!(decoded.types().len(), 1);
+            assert_eq!(decoded.constant_values().len(), 1);
+            assert_eq!(decoded.constraints().len(), 1);
+            assert_eq!(decoded.implementations().len(), 1);
+            assert_eq!(decoded.coherence().len(), 1);
+
+            assert!(
+                decode_semantic_facts(
+                    &owned_section_views(&sections),
+                    &surface,
+                    InterfaceValidationLimits::default(),
+                )
+                .is_err()
+            );
+        }
+    }
+
+    #[test]
     fn implementation_fact_decoding_rejects_missing_header() {
         let bundle = package_interface_export_bundle();
         let surface = bundle.surface().clone();
@@ -463,10 +287,11 @@ mod tests {
     #[test]
     fn referenced_implementation_corruption_fails_deterministically() {
         let (surface, owner, mut sections) = implementation_fixture();
+        let section = section_mut(&mut sections, InterfaceSectionTag::Implementations);
+        let implementation = record_range(&section.2, 0, 0);
 
-        section_mut(&mut sections, InterfaceSectionTag::Implementations)
-            .2
-            .clear();
+        section.2[implementation.start..implementation.start + 4]
+            .copy_from_slice(&u32::MAX.to_le_bytes());
 
         let decode = || {
             decode_semantic_fact_graph(
@@ -482,7 +307,57 @@ mod tests {
         let second = decode();
 
         assert_eq!(first, second);
-        assert_eq!(first, Err(InterfaceValidationError::Truncated));
+        assert_eq!(first, Err(InterfaceValidationError::Malformed));
+    }
+
+    #[test]
+    fn referenced_transitive_record_corruption_fails_deterministically() {
+        let (surface, owner, mut sections) = implementation_fixture();
+        let section = section_mut(&mut sections, InterfaceSectionTag::SemanticTypes);
+        let subject_type = record_range(&section.2, 4, 1);
+
+        section.2[subject_type.start..subject_type.start + 4]
+            .copy_from_slice(&u32::MAX.to_le_bytes());
+
+        let decode = || {
+            decode_semantic_fact_graph(
+                &owned_section_views(&sections),
+                &surface,
+                owner,
+                InterfaceSemanticFactKind::Implementation,
+                InterfaceValidationLimits::default(),
+            )
+        };
+
+        let first = decode();
+        let second = decode();
+
+        assert_eq!(first, second);
+        assert_eq!(first, Err(InterfaceValidationError::Malformed));
+    }
+
+    #[test]
+    fn narrow_decoding_validates_unrelated_record_ranges() {
+        let (surface, owner, mut sections) = implementation_fixture();
+        let section = section_mut(&mut sections, InterfaceSectionTag::SemanticTypes);
+
+        append_record(&mut section.2, 4, &[u8::MAX]);
+        section.1 += 1;
+
+        let unrelated = record_directory_entry(&section.2, 4, 2);
+
+        section.2[unrelated.start..unrelated.start + 4].copy_from_slice(&u32::MAX.to_le_bytes());
+
+        assert_eq!(
+            decode_semantic_fact_graph(
+                &owned_section_views(&sections),
+                &surface,
+                owner,
+                InterfaceSemanticFactKind::Implementation,
+                InterfaceValidationLimits::default(),
+            ),
+            Err(InterfaceValidationError::Malformed)
+        );
     }
 
     fn implementation_fixture() -> (

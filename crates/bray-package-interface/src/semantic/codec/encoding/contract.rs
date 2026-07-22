@@ -4,6 +4,7 @@ use super::value::write_tagged_id;
 use crate::semantic::codec::common::{
     write_count, write_symbol_reference, write_symbol_references,
 };
+use crate::semantic::codec::record::encode_record_table;
 use crate::semantic::model::{
     InterfaceCallableContractClause, InterfaceCallablePhaseBehavior, InterfaceDependencyGuard,
     InterfaceDependencyProjection, InterfaceDependencyRequirement,
@@ -18,39 +19,43 @@ use bray_symbols::BorrowKind;
 pub(super) fn encode_contracts(facts: &InterfaceSemanticFacts) -> EncodedSemanticSection {
     let mut encoder = WireEncoder::new();
 
-    write_count(&mut encoder, facts.dependency_contracts.len());
-    write_count(&mut encoder, facts.constraints.len());
-    write_count(&mut encoder, facts.callable_contracts.len());
+    encode_record_table(
+        &mut encoder,
+        &facts.dependency_contracts,
+        |encoder, contract| {
+            write_count(encoder, contract.requirements.len());
 
-    for contract in &*facts.dependency_contracts {
-        write_count(&mut encoder, contract.requirements.len());
+            for requirement in &*contract.requirements {
+                encode_dependency_requirement(encoder, requirement);
+            }
+        },
+    );
 
-        for requirement in &*contract.requirements {
-            encode_dependency_requirement(&mut encoder, requirement);
-        }
-    }
-
-    for constraint in &*facts.constraints {
-        write_symbol_reference(&mut encoder, &constraint.owner);
+    encode_record_table(&mut encoder, &facts.constraints, |encoder, constraint| {
+        write_symbol_reference(encoder, &constraint.owner);
         encoder.write_u32(constraint.ordinal.raw());
         encoder.write_u32(constraint.predicate.dependency_contract.raw());
-    }
+    });
 
-    for contract in &*facts.callable_contracts {
-        write_symbol_reference(&mut encoder, &contract.owner);
-        encode_callable_clauses(&mut encoder, &contract.invocation_preconditions);
-        encode_callable_clauses(&mut encoder, &contract.static_constraints);
-        encode_callable_clauses(&mut encoder, &contract.normal_completion_postconditions);
-        encode_callable_behavior(&mut encoder, &contract.invocation_behavior);
+    encode_record_table(
+        &mut encoder,
+        &facts.callable_contracts,
+        |encoder, contract| {
+            write_symbol_reference(encoder, &contract.owner);
+            encode_callable_clauses(encoder, &contract.invocation_preconditions);
+            encode_callable_clauses(encoder, &contract.static_constraints);
+            encode_callable_clauses(encoder, &contract.normal_completion_postconditions);
+            encode_callable_behavior(encoder, &contract.invocation_behavior);
 
-        match &contract.deferred_execution_behavior {
-            Some(behavior) => {
-                encoder.write_u32(1);
-                encode_callable_behavior(&mut encoder, behavior);
+            match &contract.deferred_execution_behavior {
+                Some(behavior) => {
+                    encoder.write_u32(1);
+                    encode_callable_behavior(encoder, behavior);
+                }
+                None => encoder.write_u32(0),
             }
-            None => encoder.write_u32(0),
-        }
-    }
+        },
+    );
 
     section(
         InterfaceSectionTag::Contracts,

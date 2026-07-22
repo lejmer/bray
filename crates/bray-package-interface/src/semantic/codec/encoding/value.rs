@@ -3,6 +3,7 @@ use super::model::EncodedSemanticSection;
 use crate::semantic::codec::common::{
     write_count, write_optional_u32, write_string, write_symbol_reference,
 };
+use crate::semantic::codec::record::encode_record_table;
 use crate::semantic::model::{
     InterfaceConstantProjection, InterfaceConstantTerm, InterfaceConstantValueKind,
     InterfaceDependencyContractId, InterfaceGenericArgument, InterfaceType,
@@ -15,50 +16,58 @@ use bray_symbols::{BorrowKind, IntegerConstant, IntegerSign, RealConstantBits};
 pub(super) fn encode_types(facts: &InterfaceSemanticFacts) -> EncodedSemanticSection {
     let mut encoder = WireEncoder::new();
 
-    write_count(&mut encoder, facts.substitutions.len());
-    write_count(&mut encoder, facts.trait_applications.len());
-    write_count(&mut encoder, facts.callable_instances.len());
-    write_count(&mut encoder, facts.implementation_instances.len());
-    write_count(&mut encoder, facts.types.len());
+    encode_record_table(
+        &mut encoder,
+        &facts.substitutions,
+        |encoder, substitution| {
+            write_symbol_reference(encoder, &substitution.owner);
+            write_count(encoder, substitution.bindings.len());
 
-    for substitution in &*facts.substitutions {
-        write_symbol_reference(&mut encoder, &substitution.owner);
-        write_count(&mut encoder, substitution.bindings.len());
+            for binding in &*substitution.bindings {
+                write_symbol_reference(encoder, &binding.parameter);
 
-        for binding in &*substitution.bindings {
-            write_symbol_reference(&mut encoder, &binding.parameter);
-
-            match binding.argument {
-                InterfaceGenericArgument::Type(id) => {
-                    encoder.write_u32(1);
-                    encoder.write_u32(id.raw());
-                }
-                InterfaceGenericArgument::Constant(id) => {
-                    encoder.write_u32(2);
-                    encoder.write_u32(id.raw());
+                match binding.argument {
+                    InterfaceGenericArgument::Type(id) => {
+                        encoder.write_u32(1);
+                        encoder.write_u32(id.raw());
+                    }
+                    InterfaceGenericArgument::Constant(id) => {
+                        encoder.write_u32(2);
+                        encoder.write_u32(id.raw());
+                    }
                 }
             }
-        }
-    }
+        },
+    );
 
-    for application in &*facts.trait_applications {
-        write_symbol_reference(&mut encoder, &application.definition);
-        encoder.write_u32(application.substitution.raw());
-    }
+    encode_record_table(
+        &mut encoder,
+        &facts.trait_applications,
+        |encoder, application| {
+            write_symbol_reference(encoder, &application.definition);
+            encoder.write_u32(application.substitution.raw());
+        },
+    );
 
-    for instance in &*facts.callable_instances {
-        write_symbol_reference(&mut encoder, &instance.definition);
-        encoder.write_u32(instance.substitution.raw());
-    }
+    encode_record_table(
+        &mut encoder,
+        &facts.callable_instances,
+        |encoder, instance| {
+            write_symbol_reference(encoder, &instance.definition);
+            encoder.write_u32(instance.substitution.raw());
+        },
+    );
 
-    for instance in &*facts.implementation_instances {
-        write_symbol_reference(&mut encoder, &instance.definition);
-        encoder.write_u32(instance.substitution.raw());
-    }
+    encode_record_table(
+        &mut encoder,
+        &facts.implementation_instances,
+        |encoder, instance| {
+            write_symbol_reference(encoder, &instance.definition);
+            encoder.write_u32(instance.substitution.raw());
+        },
+    );
 
-    for ty in &*facts.types {
-        encode_type(&mut encoder, ty);
-    }
+    encode_record_table(&mut encoder, &facts.types, encode_type);
 
     section(
         InterfaceSectionTag::SemanticTypes,
@@ -97,6 +106,7 @@ pub(super) fn encode_type(encoder: &mut WireEncoder, ty: &InterfaceType) {
             encoder.write_u32(3);
             encoder.write_u32(subject.raw());
             encoder.write_u32(application.raw());
+
             write_symbol_reference(encoder, member);
         }
         InterfaceType::Tuple(elements) => {
@@ -112,10 +122,12 @@ pub(super) fn encode_type(encoder: &mut WireEncoder, ty: &InterfaceType) {
         InterfaceType::Nullable(target) => write_tagged_id(encoder, 7, target.raw()),
         InterfaceType::Borrow { kind, target } => {
             encoder.write_u32(8);
+
             encoder.write_u32(match kind {
                 BorrowKind::Shared => 1,
                 BorrowKind::Mutable => 2,
             });
+
             encoder.write_u32(target.raw());
         }
         InterfaceType::TraitView(application) => write_tagged_id(encoder, 9, application.raw()),
@@ -135,6 +147,7 @@ pub(super) fn encode_type(encoder: &mut WireEncoder, ty: &InterfaceType) {
             deferred_dependency_contract,
         } => {
             encoder.write_u32(11);
+
             write_count(encoder, parameters.len());
 
             for parameter in &**parameters {
@@ -151,6 +164,7 @@ pub(super) fn encode_type(encoder: &mut WireEncoder, ty: &InterfaceType) {
             encoder.write_u32((*trust).to_wire());
             encoder.write_u32((*abi).to_wire());
             encoder.write_u32(invocation_dependency_contract.raw());
+
             write_optional_u32(
                 encoder,
                 deferred_dependency_contract.map(InterfaceDependencyContractId::raw),
@@ -162,17 +176,12 @@ pub(super) fn encode_type(encoder: &mut WireEncoder, ty: &InterfaceType) {
 pub(super) fn encode_constants(facts: &InterfaceSemanticFacts) -> EncodedSemanticSection {
     let mut encoder = WireEncoder::new();
 
-    write_count(&mut encoder, facts.constant_values.len());
-    write_count(&mut encoder, facts.constant_terms.len());
-
-    for value in &*facts.constant_values {
+    encode_record_table(&mut encoder, &facts.constant_values, |encoder, value| {
         encoder.write_u32(value.ty.raw());
-        encode_constant_value(&mut encoder, &value.kind);
-    }
+        encode_constant_value(encoder, &value.kind);
+    });
 
-    for term in &*facts.constant_terms {
-        encode_constant_term(&mut encoder, term);
-    }
+    encode_record_table(&mut encoder, &facts.constant_terms, encode_constant_term);
 
     section(
         InterfaceSectionTag::Constants,
@@ -238,6 +247,7 @@ pub(super) fn encode_constant_term(encoder: &mut WireEncoder, term: &InterfaceCo
         InterfaceConstantTerm::IntegerLiteral { ty, value } => {
             encoder.write_u32(9);
             encoder.write_u32((*ty).to_wire());
+
             encode_integer(encoder, value);
         }
         InterfaceConstantTerm::Parameter(parameter) => {

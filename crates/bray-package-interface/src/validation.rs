@@ -410,9 +410,9 @@ mod tests {
         assert_mutation_error(
             &bytes,
             8,
-            6,
+            7,
             InterfaceValidationError::UnsupportedFormatRevision {
-                actual: crate::InterfaceFormatRevision::new(6),
+                actual: crate::InterfaceFormatRevision::new(7),
             },
         );
 
@@ -730,7 +730,7 @@ mod tests {
 
         assert_eq!(
             DiagnosticRenderer::english().render(&revision).message(),
-            "unsupported package-interface format revision 9; expected 5"
+            "unsupported package-interface format revision 9; expected 6"
         );
     }
 

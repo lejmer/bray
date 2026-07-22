@@ -3,6 +3,7 @@ use crate::semantic::codec::common::{
     SemanticDecodeContext, map_wire_error, read_count, read_optional_u32, read_string,
     read_symbol_reference, read_u32,
 };
+use crate::semantic::codec::record::RecordTable;
 use crate::semantic::model::{
     InterfaceCallableInstance, InterfaceCallableInstanceId, InterfaceCallableParameter,
     InterfaceConstantProjection, InterfaceConstantTerm, InterfaceConstantTermId,
@@ -18,92 +19,76 @@ use crate::{
 };
 use bray_symbols::{IntegerConstant, IntegerSign, SymbolOrdinal};
 
+pub(super) struct TypeRecordTables<'bytes> {
+    pub(super) substitutions: RecordTable<'bytes>,
+    pub(super) trait_applications: RecordTable<'bytes>,
+    pub(super) callable_instances: RecordTable<'bytes>,
+    pub(super) implementation_instances: RecordTable<'bytes>,
+    pub(super) types: RecordTable<'bytes>,
+}
+
+pub(super) fn decode_type_tables<'bytes>(
+    section: ValidatedInterfaceSection<'bytes>,
+    context: &mut SemanticDecodeContext,
+) -> Result<TypeRecordTables<'bytes>, InterfaceValidationError> {
+    let mut reader = WireReader::new(section.bytes());
+
+    let substitutions = RecordTable::read_from(&mut reader, context)?;
+    let trait_applications = RecordTable::read_from(&mut reader, context)?;
+    let callable_instances = RecordTable::read_from(&mut reader, context)?;
+    let implementation_instances = RecordTable::read_from(&mut reader, context)?;
+    let types = RecordTable::read_from(&mut reader, context)?;
+
+    validate_record_count(
+        section,
+        [
+            substitutions.len(),
+            trait_applications.len(),
+            callable_instances.len(),
+            implementation_instances.len(),
+            types.len(),
+        ],
+    )?;
+
+    reader.finish().map_err(map_wire_error)?;
+
+    Ok(TypeRecordTables {
+        substitutions,
+        trait_applications,
+        callable_instances,
+        implementation_instances,
+        types,
+    })
+}
+
 pub(super) fn decode_types(
     section: ValidatedInterfaceSection<'_>,
     limits: InterfaceValidationLimits,
     context: &mut SemanticDecodeContext,
 ) -> Result<InterfaceSemanticFacts, InterfaceValidationError> {
-    let mut reader = WireReader::new(section.bytes());
+    let tables = decode_type_tables(section, context)?;
 
-    let substitution_count = read_count(&mut reader, limits, InterfaceLimit::RecordCount)?;
-    let trait_application_count = read_count(&mut reader, limits, InterfaceLimit::RecordCount)?;
-    let callable_instance_count = read_count(&mut reader, limits, InterfaceLimit::RecordCount)?;
-    let implementation_instance_count =
-        read_count(&mut reader, limits, InterfaceLimit::RecordCount)?;
+    let substitutions = tables
+        .substitutions
+        .decode_all(context, |reader, context| {
+            decode_substitution(reader, limits, context)
+        })?;
 
-    let type_count = read_count(&mut reader, limits, InterfaceLimit::RecordCount)?;
+    let trait_applications = tables
+        .trait_applications
+        .decode_all(context, decode_trait_application)?;
 
-    validate_record_count(
-        section,
-        [
-            substitution_count,
-            trait_application_count,
-            callable_instance_count,
-            implementation_instance_count,
-            type_count,
-        ],
-    )?;
+    let callable_instances = tables
+        .callable_instances
+        .decode_all(context, decode_callable_instance)?;
 
-    let mut substitutions = context.allocate_items(&reader, substitution_count)?;
+    let implementation_instances = tables
+        .implementation_instances
+        .decode_all(context, decode_implementation_instance)?;
 
-    for _ in 0..substitution_count {
-        let owner = read_symbol_reference(&mut reader, context)?;
-        let binding_count = read_count(&mut reader, limits, InterfaceLimit::RecordCount)?;
-
-        let mut bindings = context.allocate_items(&reader, binding_count)?;
-
-        for _ in 0..binding_count {
-            let parameter = read_symbol_reference(&mut reader, context)?;
-
-            let argument = match read_u32(&mut reader)? {
-                1 => InterfaceGenericArgument::Type(InterfaceTypeId::new(read_u32(&mut reader)?)),
-                2 => InterfaceGenericArgument::Constant(InterfaceConstantTermId::new(read_u32(
-                    &mut reader,
-                )?)),
-                _ => return Err(InterfaceValidationError::Malformed),
-            };
-
-            bindings.push(InterfaceGenericBinding::new(parameter, argument));
-        }
-
-        substitutions.push(InterfaceGenericSubstitution::new(owner, bindings));
-    }
-
-    let mut trait_applications = context.allocate_items(&reader, trait_application_count)?;
-
-    for _ in 0..trait_application_count {
-        trait_applications.push(InterfaceTraitApplication::new(
-            read_symbol_reference(&mut reader, context)?,
-            InterfaceGenericSubstitutionId::new(read_u32(&mut reader)?),
-        ));
-    }
-
-    let mut callable_instances = context.allocate_items(&reader, callable_instance_count)?;
-
-    for _ in 0..callable_instance_count {
-        callable_instances.push(InterfaceCallableInstance::new(
-            read_symbol_reference(&mut reader, context)?,
-            InterfaceGenericSubstitutionId::new(read_u32(&mut reader)?),
-        ));
-    }
-
-    let mut implementation_instances =
-        context.allocate_items(&reader, implementation_instance_count)?;
-
-    for _ in 0..implementation_instance_count {
-        implementation_instances.push(InterfaceImplementationInstance::new(
-            read_symbol_reference(&mut reader, context)?,
-            InterfaceGenericSubstitutionId::new(read_u32(&mut reader)?),
-        ));
-    }
-
-    let mut types = context.allocate_items(&reader, type_count)?;
-
-    for _ in 0..type_count {
-        types.push(decode_type(&mut reader, limits, context)?);
-    }
-
-    reader.finish().map_err(map_wire_error)?;
+    let types = tables.types.decode_all(context, |reader, context| {
+        decode_type(reader, limits, context)
+    })?;
 
     Ok(InterfaceSemanticFacts::new()
         .with_applications(
@@ -113,6 +98,63 @@ pub(super) fn decode_types(
             implementation_instances,
         )
         .with_values([], types, [], []))
+}
+
+pub(super) fn decode_substitution(
+    reader: &mut WireReader<'_>,
+    limits: InterfaceValidationLimits,
+    context: &mut SemanticDecodeContext,
+) -> Result<InterfaceGenericSubstitution, InterfaceValidationError> {
+    let owner = read_symbol_reference(reader, context)?;
+    let binding_count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
+
+    let mut bindings = context.allocate_items(reader, binding_count)?;
+
+    for _ in 0..binding_count {
+        let parameter = read_symbol_reference(reader, context)?;
+
+        let argument = match read_u32(reader)? {
+            1 => InterfaceGenericArgument::Type(InterfaceTypeId::new(read_u32(reader)?)),
+            2 => {
+                InterfaceGenericArgument::Constant(InterfaceConstantTermId::new(read_u32(reader)?))
+            }
+            _ => return Err(InterfaceValidationError::Malformed),
+        };
+
+        bindings.push(InterfaceGenericBinding::new(parameter, argument));
+    }
+
+    Ok(InterfaceGenericSubstitution::new(owner, bindings))
+}
+
+pub(super) fn decode_trait_application(
+    reader: &mut WireReader<'_>,
+    context: &mut SemanticDecodeContext,
+) -> Result<InterfaceTraitApplication, InterfaceValidationError> {
+    Ok(InterfaceTraitApplication::new(
+        read_symbol_reference(reader, context)?,
+        InterfaceGenericSubstitutionId::new(read_u32(reader)?),
+    ))
+}
+
+pub(super) fn decode_callable_instance(
+    reader: &mut WireReader<'_>,
+    context: &mut SemanticDecodeContext,
+) -> Result<InterfaceCallableInstance, InterfaceValidationError> {
+    Ok(InterfaceCallableInstance::new(
+        read_symbol_reference(reader, context)?,
+        InterfaceGenericSubstitutionId::new(read_u32(reader)?),
+    ))
+}
+
+pub(super) fn decode_implementation_instance(
+    reader: &mut WireReader<'_>,
+    context: &mut SemanticDecodeContext,
+) -> Result<InterfaceImplementationInstance, InterfaceValidationError> {
+    Ok(InterfaceImplementationInstance::new(
+        read_symbol_reference(reader, context)?,
+        InterfaceGenericSubstitutionId::new(read_u32(reader)?),
+    ))
 }
 
 pub(super) fn decode_type(
@@ -198,40 +240,56 @@ pub(super) fn decode_callable_type(
     })
 }
 
+pub(super) struct ConstantRecordTables<'bytes> {
+    pub(super) values: RecordTable<'bytes>,
+    pub(super) terms: RecordTable<'bytes>,
+}
+
+pub(super) fn decode_constant_tables<'bytes>(
+    section: ValidatedInterfaceSection<'bytes>,
+    context: &mut SemanticDecodeContext,
+) -> Result<ConstantRecordTables<'bytes>, InterfaceValidationError> {
+    let mut reader = WireReader::new(section.bytes());
+
+    let values = RecordTable::read_from(&mut reader, context)?;
+    let terms = RecordTable::read_from(&mut reader, context)?;
+
+    validate_record_count(section, [values.len(), terms.len()])?;
+
+    reader.finish().map_err(map_wire_error)?;
+
+    Ok(ConstantRecordTables { values, terms })
+}
+
 pub(super) fn decode_constants(
     section: ValidatedInterfaceSection<'_>,
     limits: InterfaceValidationLimits,
     context: &mut SemanticDecodeContext,
     facts: &mut InterfaceSemanticFacts,
 ) -> Result<(), InterfaceValidationError> {
-    let mut reader = WireReader::new(section.bytes());
+    let tables = decode_constant_tables(section, context)?;
 
-    let value_count = read_count(&mut reader, limits, InterfaceLimit::RecordCount)?;
-    let term_count = read_count(&mut reader, limits, InterfaceLimit::RecordCount)?;
+    let values = tables.values.decode_all(context, |reader, context| {
+        decode_constant_value_record(reader, limits, context)
+    })?;
 
-    validate_record_count(section, [value_count, term_count])?;
-
-    let mut values = context.allocate_items(&reader, value_count)?;
-
-    for _ in 0..value_count {
-        values.push(InterfaceConstantValue::new(
-            InterfaceTypeId::new(read_u32(&mut reader)?),
-            decode_constant_value(&mut reader, limits, context)?,
-        ));
-    }
-
-    let mut terms = context.allocate_items(&reader, term_count)?;
-
-    for _ in 0..term_count {
-        terms.push(decode_constant_term(&mut reader, context)?);
-    }
-
-    reader.finish().map_err(map_wire_error)?;
+    let terms = tables.terms.decode_all(context, decode_constant_term)?;
 
     facts.constant_values = values.into();
     facts.constant_terms = terms.into();
 
     Ok(())
+}
+
+pub(super) fn decode_constant_value_record(
+    reader: &mut WireReader<'_>,
+    limits: InterfaceValidationLimits,
+    context: &mut SemanticDecodeContext,
+) -> Result<InterfaceConstantValue, InterfaceValidationError> {
+    Ok(InterfaceConstantValue::new(
+        InterfaceTypeId::new(read_u32(reader)?),
+        decode_constant_value(reader, limits, context)?,
+    ))
 }
 
 pub(super) fn decode_constant_value(
@@ -342,6 +400,7 @@ fn decode_integer(
 
     let length = read_count(reader, limits, InterfaceLimit::BlobLength)?;
     let magnitude = reader.read_bytes(length).map_err(map_wire_error)?;
+
     let integer = IntegerConstant::new(sign, magnitude.iter().copied());
 
     if integer.sign() != sign || integer.magnitude() != magnitude {
@@ -387,7 +446,7 @@ mod tests {
     use super::super::decode_semantic_facts;
     use super::super::test_support::{
         OwnedSection, encoded_section_views, interface_surface, local_by_kind as symbol_reference,
-        owned_section_views, owned_sections,
+        owned_section_views, owned_sections, record_range,
     };
     use crate::semantic::codec::encode_semantic_facts;
     use crate::test_support::{module_key as test_module_key, named_key};
@@ -645,16 +704,7 @@ mod tests {
         let sections = encode_semantic_facts(&facts, &surface, limits)
             .unwrap_or_else(|error| panic!("semantic encoding failed: {error:?}"));
 
-        let mut owned: Vec<_> = sections
-            .iter()
-            .map(|section| {
-                (
-                    section.tag(),
-                    section.record_count(),
-                    section.payload().to_vec(),
-                )
-            })
-            .collect();
+        let mut owned = owned_sections(&sections);
 
         let Some(types_index) = owned
             .iter_mut()
@@ -663,14 +713,19 @@ mod tests {
             panic!("semantic type section must be encoded");
         };
 
-        owned[types_index].2[32..36].copy_from_slice(&99_u32.to_le_bytes());
+        let type_range = record_range(&owned[types_index].2, 4, 0);
+
+        owned[types_index].2[type_range.start..type_range.start + 4]
+            .copy_from_slice(&99_u32.to_le_bytes());
 
         assert_eq!(
             decode_owned(&owned, &surface, limits),
             Err(InterfaceValidationError::Malformed)
         );
 
-        owned[types_index].2[32..36].copy_from_slice(&1_u32.to_le_bytes());
+        owned[types_index].2[type_range.start..type_range.start + 4]
+            .copy_from_slice(&1_u32.to_le_bytes());
+
         owned[types_index].1 += 1;
 
         assert_eq!(
@@ -682,6 +737,7 @@ mod tests {
     #[test]
     fn semantic_strings_and_graph_depth_obey_loader_limits() {
         let (surface, facts) = fixture();
+
         let limits = InterfaceValidationLimits::default().with_string_length(3);
 
         assert_eq!(
@@ -769,6 +825,7 @@ mod tests {
         let (surface, base) = fixture();
 
         let constraint = base.constraints()[0].clone();
+
         let facts = base.clone().with_contracts(
             [constraint.clone(), constraint],
             base.callable_contracts().iter().cloned(),

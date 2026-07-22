@@ -3,6 +3,7 @@ use crate::semantic::codec::common::{
     SemanticDecodeContext, map_wire_error, read_count, read_symbol_reference,
     read_symbol_references, read_u32,
 };
+use crate::semantic::codec::record::RecordTable;
 use crate::semantic::model::{
     InterfaceCallableContract, InterfaceCallableContractClause, InterfaceCallablePhaseBehavior,
     InterfaceConstantTermId, InterfaceConstraint, InterfaceDependencyContract,
@@ -17,101 +18,129 @@ use crate::{
 };
 use bray_symbols::{CallableContractClauseKind, SymbolOrdinal};
 
+pub(super) struct ContractRecordTables<'bytes> {
+    pub(super) dependencies: RecordTable<'bytes>,
+    pub(super) constraints: RecordTable<'bytes>,
+    pub(super) callables: RecordTable<'bytes>,
+}
+
+pub(super) fn decode_contract_tables<'bytes>(
+    section: ValidatedInterfaceSection<'bytes>,
+    context: &mut SemanticDecodeContext,
+) -> Result<ContractRecordTables<'bytes>, InterfaceValidationError> {
+    let mut reader = WireReader::new(section.bytes());
+
+    let dependencies = RecordTable::read_from(&mut reader, context)?;
+    let constraints = RecordTable::read_from(&mut reader, context)?;
+    let callables = RecordTable::read_from(&mut reader, context)?;
+
+    validate_record_count(
+        section,
+        [dependencies.len(), constraints.len(), callables.len()],
+    )?;
+
+    reader.finish().map_err(map_wire_error)?;
+
+    Ok(ContractRecordTables {
+        dependencies,
+        constraints,
+        callables,
+    })
+}
+
 pub(super) fn decode_contracts(
     section: ValidatedInterfaceSection<'_>,
     limits: InterfaceValidationLimits,
     context: &mut SemanticDecodeContext,
     facts: &mut InterfaceSemanticFacts,
 ) -> Result<(), InterfaceValidationError> {
-    let mut reader = WireReader::new(section.bytes());
+    let tables = decode_contract_tables(section, context)?;
 
-    let dependency_count = read_count(&mut reader, limits, InterfaceLimit::RecordCount)?;
-    let constraint_count = read_count(&mut reader, limits, InterfaceLimit::RecordCount)?;
-    let callable_count = read_count(&mut reader, limits, InterfaceLimit::RecordCount)?;
+    let dependencies = tables.dependencies.decode_all(context, |reader, context| {
+        decode_dependency_contract(reader, limits, context)
+    })?;
 
-    validate_record_count(
-        section,
-        [dependency_count, constraint_count, callable_count],
-    )?;
+    let constraints = tables.constraints.decode_all(context, decode_constraint)?;
 
-    let mut dependencies = context.allocate_items(&reader, dependency_count)?;
-
-    for _ in 0..dependency_count {
-        let requirement_count = read_count(&mut reader, limits, InterfaceLimit::RecordCount)?;
-        let mut requirements = context.allocate_items(&reader, requirement_count)?;
-
-        for _ in 0..requirement_count {
-            requirements.push(decode_dependency_requirement(
-                &mut reader,
-                limits,
-                context,
-                0,
-            )?);
-        }
-
-        dependencies.push(InterfaceDependencyContract::new(requirements));
-    }
-
-    let mut constraints = context.allocate_items(&reader, constraint_count)?;
-
-    for _ in 0..constraint_count {
-        constraints.push(InterfaceConstraint::new(
-            read_symbol_reference(&mut reader, context)?,
-            SymbolOrdinal::new(read_u32(&mut reader)?),
-            InterfacePredicateSummary::new(InterfaceDependencyContractId::new(read_u32(
-                &mut reader,
-            )?)),
-        ));
-    }
-
-    let mut callable_contracts = context.allocate_items(&reader, callable_count)?;
-
-    for _ in 0..callable_count {
-        let owner = read_symbol_reference(&mut reader, context)?;
-
-        let mut decoded_clauses = decode_callable_clauses(
-            &mut reader,
-            limits,
-            context,
-            CallableContractClauseKind::Requires,
-        )?;
-
-        decoded_clauses.extend(decode_callable_clauses(
-            &mut reader,
-            limits,
-            context,
-            CallableContractClauseKind::Static,
-        )?);
-
-        decoded_clauses.extend(decode_callable_clauses(
-            &mut reader,
-            limits,
-            context,
-            CallableContractClauseKind::Ensures,
-        )?);
-
-        let invocation_behavior = decode_callable_behavior(&mut reader, limits, context)?;
-        let deferred_execution_behavior = match read_u32(&mut reader)? {
-            0 => None,
-            1 => Some(decode_callable_behavior(&mut reader, limits, context)?),
-            _ => return Err(InterfaceValidationError::Malformed),
-        };
-
-        callable_contracts.push(InterfaceCallableContract::new(
-            owner,
-            decoded_clauses,
-            invocation_behavior,
-            deferred_execution_behavior,
-        ));
-    }
-
-    reader.finish().map_err(map_wire_error)?;
+    let callables = tables.callables.decode_all(context, |reader, context| {
+        decode_callable_contract(reader, limits, context)
+    })?;
 
     facts.dependency_contracts = dependencies.into();
     facts.constraints = constraints.into();
-    facts.callable_contracts = callable_contracts.into();
+    facts.callable_contracts = callables.into();
 
     Ok(())
+}
+
+pub(super) fn decode_dependency_contract(
+    reader: &mut WireReader<'_>,
+    limits: InterfaceValidationLimits,
+    context: &mut SemanticDecodeContext,
+) -> Result<InterfaceDependencyContract, InterfaceValidationError> {
+    let requirement_count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
+    let mut requirements = context.allocate_items(reader, requirement_count)?;
+
+    for _ in 0..requirement_count {
+        requirements.push(decode_dependency_requirement(reader, limits, context, 0)?);
+    }
+
+    Ok(InterfaceDependencyContract::new(requirements))
+}
+
+pub(super) fn decode_constraint(
+    reader: &mut WireReader<'_>,
+    context: &mut SemanticDecodeContext,
+) -> Result<InterfaceConstraint, InterfaceValidationError> {
+    Ok(InterfaceConstraint::new(
+        read_symbol_reference(reader, context)?,
+        SymbolOrdinal::new(read_u32(reader)?),
+        InterfacePredicateSummary::new(InterfaceDependencyContractId::new(read_u32(reader)?)),
+    ))
+}
+
+pub(super) fn decode_callable_contract(
+    reader: &mut WireReader<'_>,
+    limits: InterfaceValidationLimits,
+    context: &mut SemanticDecodeContext,
+) -> Result<InterfaceCallableContract, InterfaceValidationError> {
+    let owner = read_symbol_reference(reader, context)?;
+
+    let mut decoded_clauses = decode_callable_clauses(
+        reader,
+        limits,
+        context,
+        CallableContractClauseKind::Requires,
+    )?;
+
+    decoded_clauses.extend(decode_callable_clauses(
+        reader,
+        limits,
+        context,
+        CallableContractClauseKind::Static,
+    )?);
+
+    decoded_clauses.extend(decode_callable_clauses(
+        reader,
+        limits,
+        context,
+        CallableContractClauseKind::Ensures,
+    )?);
+
+    let invocation_behavior = decode_callable_behavior(reader, limits, context)?;
+
+    let deferred_execution_behavior = match read_u32(reader)? {
+        0 => None,
+        1 => Some(decode_callable_behavior(reader, limits, context)?),
+        _ => return Err(InterfaceValidationError::Malformed),
+    };
+
+    Ok(InterfaceCallableContract::new(
+        owner,
+        decoded_clauses,
+        invocation_behavior,
+        deferred_execution_behavior,
+    ))
 }
 
 fn decode_callable_clauses(
