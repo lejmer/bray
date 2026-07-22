@@ -19,7 +19,8 @@ use bray_parser::{SourceUnitSyntaxResult, SyntaxTreeResult, parse_source_unit};
 use bray_source::{SourceId, SourceInput, SourceLoadError, SourceSnapshot, SourceStore};
 use bray_symbols::{
     AvailableCompilerKnownSymbols, CompilerKnownSymbolBuildError, CompilerKnownSymbolProvider,
-    ImportedSymbolSkeleton, PackageIdentity, SemanticValueStore, SemanticValueStoreCreateError,
+    ImplementationCoherenceDomainKey, ImplementationParticipationFact, ImportedSymbolSkeleton,
+    PackageIdentity, SemanticFactResult, SemanticValueStore, SemanticValueStoreCreateError,
     SymbolGraph,
 };
 use bray_syntax::SyntaxTree;
@@ -77,6 +78,10 @@ pub(super) struct CompilationState {
     pub(super) imported_semantic_facts: FactCellMap<
         ImportedSemanticFactKey,
         Arc<bray_diagnostics::DiagnosticResult<Arc<[ImportedSemanticFact]>>>,
+    >,
+    pub(super) implementation_participation: FactCellMap<
+        ImplementationCoherenceDomainKey,
+        Arc<SemanticFactResult<ImplementationParticipationFact>>,
     >,
     pub(super) imported_diagnostics: FactCell<DiagnosticBag>,
     pub(super) semantic_diagnostics: FactCell<DiagnosticBag>,
@@ -168,6 +173,7 @@ impl Compilation {
                 imported_symbol_skeleton: FactCell::new(),
                 imported_semantic_graphs: empty_fact_caches(dependency_count),
                 imported_semantic_facts: FactCellMap::new(),
+                implementation_participation: FactCellMap::new(),
                 imported_diagnostics: FactCell::new(),
                 semantic_diagnostics: FactCell::new(),
                 symbol_facts: CompilationSymbolFacts::new(),

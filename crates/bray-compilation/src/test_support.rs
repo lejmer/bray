@@ -4,6 +4,10 @@ use std::time::Duration;
 use bray_bound_tree::{BoundSourceAnchor, BoundUnitKey};
 use bray_declarations::{DeclarationId, discover_source_unit_declarations};
 use bray_diagnostics::{DiagnosticBag, DiagnosticKind};
+use bray_package_interface::{
+    InterfaceLanguageRevision, InterfaceValidationPolicy,
+    test_support::EncodedTemplateTestInterface,
+};
 use bray_parser::parse_source_unit;
 use bray_source::{
     SourceId, SourceIdentity, SourceInput, SourceOrigin, SourceSnapshot, SourceVersion,
@@ -13,7 +17,9 @@ use bray_symbols::{
 };
 
 use crate::fact::{FactCellTestEvent, FactCellTestObserver};
-use crate::{Compilation, CompilationOptions, CompilationRequest, WorkerBudget};
+use crate::{
+    Compilation, CompilationOptions, CompilationRequest, DependencyInterfaceInput, WorkerBudget,
+};
 
 const FACT_OBSERVATION_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -139,6 +145,18 @@ pub(crate) fn compilation(source: &str) -> Compilation {
         Ok(compilation) => compilation,
         Err(error) => panic!("test compilation must load: {error:?}"),
     }
+}
+
+pub(crate) fn encoded_template_dependency(
+    fixture: &EncodedTemplateTestInterface,
+) -> DependencyInterfaceInput {
+    DependencyInterfaceInput::new(
+        fixture.package.clone(),
+        fixture.product.clone(),
+        "dependency.brayi",
+        Arc::<[u8]>::from(fixture.bytes.clone()),
+        InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
+    )
 }
 
 pub(crate) fn compilation_with_sources_and_worker_budget(
