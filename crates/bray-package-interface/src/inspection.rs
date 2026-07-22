@@ -147,6 +147,12 @@ pub enum InterfaceInspectionRecordKind {
     Constraints,
     /// Callable contracts.
     CallableContracts,
+    /// Callable signature facts.
+    CallableSignatures,
+    /// Generic declaration facts.
+    GenericDeclarations,
+    /// Callable parameter default-availability facts.
+    CallableParameterDefaults,
     /// Source-independent checked templates.
     CheckedTemplates,
     /// Declaration-owned template facts.
@@ -186,6 +192,9 @@ impl InterfaceInspectionRecordKind {
             Self::DependencyContracts => "dependency_contracts",
             Self::Constraints => "constraints",
             Self::CallableContracts => "callable_contracts",
+            Self::CallableSignatures => "callable_signatures",
+            Self::GenericDeclarations => "generic_declarations",
+            Self::CallableParameterDefaults => "callable_parameter_defaults",
             Self::CheckedTemplates => "checked_templates",
             Self::DeclarationTemplates => "declaration_templates",
             Self::Implementations => "implementations",
@@ -329,6 +338,7 @@ fn decode_surface_inspection_records(
         | InterfaceSectionTag::SemanticTypes
         | InterfaceSectionTag::Constants
         | InterfaceSectionTag::Contracts
+        | InterfaceSectionTag::DeclarationFacts
         | InterfaceSectionTag::DeclarationTemplates
         | InterfaceSectionTag::Implementations
         | InterfaceSectionTag::TargetDependencies
@@ -369,6 +379,7 @@ const fn is_semantic_section(section: InterfaceSectionTag) -> bool {
             | InterfaceSectionTag::SemanticTypes
             | InterfaceSectionTag::Constants
             | InterfaceSectionTag::Contracts
+            | InterfaceSectionTag::DeclarationFacts
             | InterfaceSectionTag::DeclarationTemplates
             | InterfaceSectionTag::Implementations
             | InterfaceSectionTag::TargetDependencies
@@ -435,6 +446,28 @@ mod tests {
     }
 
     #[test]
+    fn declaration_fact_inspection_reports_each_record_category() {
+        let interface = validated_test_interface();
+
+        let inspection = interface
+            .inspect(&[InterfaceSectionTag::DeclarationFacts])
+            .unwrap_or_else(|error| panic!("declaration facts must inspect: {error:?}"));
+
+        assert_eq!(
+            inspection.sections()[0]
+                .records()
+                .iter()
+                .map(|record| record.kind())
+                .collect::<Vec<_>>(),
+            [
+                InterfaceInspectionRecordKind::CallableSignatures,
+                InterfaceInspectionRecordKind::GenericDeclarations,
+                InterfaceInspectionRecordKind::CallableParameterDefaults,
+            ]
+        );
+    }
+
+    #[test]
     fn selected_semantic_sections_share_one_aggregate_allocation_preflight() {
         let bundle = package_interface_export_bundle();
 
@@ -486,7 +519,7 @@ mod tests {
             .find(|section| section.tag() == InterfaceSectionTag::DeclarationTemplates)
             .unwrap_or_else(|| panic!("test template section must be present"));
 
-        *template_section.payload_mut() = vec![u8::MAX];
+        template_section.payload_mut().fill(u8::MAX);
 
         let artifact = assemble_sections(
             &sections,
@@ -544,7 +577,7 @@ mod tests {
     fn encoded_sections(
         bundle: &crate::PackageInterfaceExportBundle,
     ) -> Vec<EncodedArtifactSection> {
-        encode_surface(bundle.surface())
+        let mut sections = encode_surface(bundle.surface())
             .into_iter()
             .map(EncodedArtifactSection::from_surface)
             .chain(
@@ -552,6 +585,10 @@ mod tests {
                     .into_iter()
                     .map(EncodedArtifactSection::from_semantic),
             )
-            .collect()
+            .collect::<Vec<_>>();
+
+        sections.sort_by_key(|section| section.tag());
+
+        sections
     }
 }

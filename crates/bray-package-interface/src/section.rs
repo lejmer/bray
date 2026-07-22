@@ -42,7 +42,7 @@ pub enum InterfaceSectionTag {
 
 impl InterfaceSectionTag {
     /// Every section category implemented by the current exact format revision.
-    pub const ALL: [Self; 15] = [
+    pub const ALL: [Self; 16] = [
         Self::Strings,
         Self::PackageMetadata,
         Self::Dependencies,
@@ -58,6 +58,7 @@ impl InterfaceSectionTag {
         Self::TargetDependencies,
         Self::SourceProvenance,
         Self::SupportGraph,
+        Self::DeclarationFacts,
     ];
 
     pub(crate) const fn from_wire_value(value: u32) -> Option<Self> {
@@ -122,6 +123,7 @@ impl InterfaceSectionTag {
             Self::TargetDependencies => "target_dependencies",
             Self::SourceProvenance => "source_provenance",
             Self::SupportGraph => "support_graph",
+            Self::DeclarationFacts => "declaration_facts",
         }
     }
 
