@@ -101,6 +101,8 @@ pub(crate) enum CompilationFactKey {
     BoundUnit(BoundUnitKey),
     /// Diagnostics for the current whole-compilation check boundary.
     CheckDiagnostics,
+    /// Source constant definitions mapped to their exact expression units.
+    ConstantTemplateKeys,
     /// One concrete constant value for an exact semantic instance and target profile.
     ConstantInstance(ConstantInstanceFactKey),
     /// Durable control-flow facts for one bound unit.
@@ -166,6 +168,7 @@ impl CompilationFactKey {
             | Self::CompilerKnownSymbols
             | Self::BoundUnitIdentities
             | Self::CheckDiagnostics
+            | Self::ConstantTemplateKeys
             | Self::ConstantInstance(_)
             | Self::DeclarationChunk(_)
             | Self::DeclarationTable

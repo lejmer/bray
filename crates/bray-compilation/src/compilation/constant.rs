@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use bray_binder::{BinderFactError, SymbolFactProvider};
@@ -357,18 +358,43 @@ impl Compilation {
         &self,
         definition: AnyConstantDefinitionId,
     ) -> Result<Option<BoundUnitKey>, FactQueryError> {
-        let symbols = self.symbol_graph()?;
-        let target = definition.into_any();
+        Ok(self.constant_template_keys()?.get(&definition).cloned())
+    }
 
-        for key in self.declared_unit_keys()? {
-            if key.kind() == BoundUnitKind::ConstantTemplate
-                && symbols.symbol_for_key(key.declared_owner()) == Some(target)
-            {
-                return Ok(Some(key));
-            }
+    fn constant_template_keys(
+        &self,
+    ) -> Result<&BTreeMap<AnyConstantDefinitionId, BoundUnitKey>, FactQueryError> {
+        let result = self.fact(
+            CompilationFactKey::ConstantTemplateKeys,
+            &self.state.constant_template_keys,
+            || {
+                let symbols = self.symbol_graph()?;
+                let mut templates = BTreeMap::new();
+
+                for key in self.declared_unit_keys()? {
+                    if key.kind() != BoundUnitKind::ConstantTemplate {
+                        continue;
+                    }
+
+                    let symbol = symbols
+                        .symbol_for_key(key.declared_owner())
+                        .ok_or(FactQueryError::InfrastructureFailure)?;
+                    let definition = constant_definition_id(symbol)
+                        .ok_or(FactQueryError::InfrastructureFailure)?;
+
+                    if templates.insert(definition, key).is_some() {
+                        return Err(FactQueryError::InfrastructureFailure);
+                    }
+                }
+
+                Ok(templates)
+            },
+        );
+
+        match result {
+            Ok(templates) => Ok(templates),
+            Err(error) => Err(error.clone()),
         }
-
-        Ok(None)
     }
 }
 
@@ -608,7 +634,8 @@ mod tests {
 
     #[test]
     fn checked_constant_templates_are_cached_without_closing_instances() {
-        let compilation = compilation("module app; const value: i32 = 1;");
+        let compilation = compilation(concat!("module app;\n", "const value: i32 = 1;\n",));
+
         let definitions = source_constant_definitions(&compilation);
 
         let [definition] = definitions.as_slice() else {
@@ -723,7 +750,7 @@ mod tests {
             "module app;\n",
             "struct Buffer<const count: i32>\n",
             "{\n",
-            "    const size: i32 = 1;\n",
+            "    const size: i32 = count;\n",
             "}\n",
         )));
 
@@ -742,6 +769,7 @@ mod tests {
             .iter()
             .find(|structure| structure.origin() == SymbolOrigin::Source)
             .unwrap_or_else(|| panic!("test source must produce one structure"));
+
         let [parameter] = structure.generic_const_parameters() else {
             panic!("test structure must produce one const parameter");
         };
@@ -752,6 +780,7 @@ mod tests {
 
         let first_key = ConstantInstanceKey::new(*definition, first, None);
         let second_key = ConstantInstanceKey::new(*definition, second, None);
+
         let gate = FactTestGate::holding(FactCellTestEvent::Computing);
 
         for instance in [first_key, second_key] {
@@ -769,6 +798,7 @@ mod tests {
         let (first, second) = std::thread::scope(|scope| {
             let first_compilation = Arc::clone(&compilation);
             let first = scope.spawn(move || first_compilation.constant_instance(first_key));
+
             let second_compilation = Arc::clone(&compilation);
             let second = scope.spawn(move || second_compilation.constant_instance(second_key));
 
@@ -802,14 +832,15 @@ mod tests {
             second.diagnostics()
         );
 
-        assert_eq!(integer_value(&compilation, *first.value()), 1);
-        assert_eq!(integer_value(&compilation, *second.value()), 1);
+        assert_eq!(integer_value(&compilation, *first.value()), 3);
+        assert_eq!(integer_value(&compilation, *second.value()), 7);
         assert!(!Arc::ptr_eq(&first, &second));
     }
 
     #[test]
     fn constant_instance_fact_keys_include_the_complete_target_profile() {
-        let compilation = compilation("module app; const value: i32 = 1;");
+        let compilation = compilation(concat!("module app;\n", "const value: i32 = 1;\n",));
+
         let definitions = source_constant_definitions(&compilation);
 
         let [definition] = definitions.as_slice() else {
