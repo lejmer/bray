@@ -205,7 +205,6 @@ fn decode_directory(
 
     for chunk in bytes[directory_range.clone()].chunks_exact(DirectoryEntry::LENGTH) {
         let decoded = DirectoryEntry::decode(chunk).map_err(map_wire_error)?;
-
         let tag = InterfaceSectionTag::from_wire_value(decoded.raw_tag);
 
         if !valid_section_encoding(tag, decoded.encoding_flags)
@@ -601,6 +600,7 @@ mod tests {
 
         assert_eq!(interface.header().content_hash(), content_hash);
         assert_eq!(interface.sections().count(), 0);
+
         assert_eq!(
             interface.section(InterfaceSectionTag::SourceProvenance),
             None
@@ -813,6 +813,7 @@ mod tests {
         let directory = bytes.len() - DirectoryEntry::LENGTH;
 
         write_u32(&mut bytes, directory, raw_tag);
+
         write_u32(
             &mut bytes,
             directory + 4,
@@ -823,6 +824,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("test extension directory must decode: {error:?}"));
 
         let entry = DirectoryEntry::from_decoded(decoded);
+
         let payload = entry
             .payload(&bytes)
             .unwrap_or_else(|| panic!("test extension payload must be in bounds"));
