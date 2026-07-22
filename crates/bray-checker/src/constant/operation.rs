@@ -5,7 +5,7 @@ use bray_compiler_known::{IntegerRepresentation, RepresentationRole};
 use bray_symbols::{ConstantValueKind, IntegerConstant, RealConstantBits};
 use num_bigint::BigInt;
 
-use super::integer::{from_big_integer, to_big_integer};
+use super::integer::{from_big_integer, significant_bits, to_big_integer};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum ConstantOperationError {
@@ -128,6 +128,14 @@ fn fold_integer_binary(
         BoundOperator::Exponentiate => exponentiate(left, &right, maximum_integer_bits)?,
         _ => return Err(ConstantOperationError::Invalid),
     };
+
+    if let ConstantValueKind::Integer(value) = &result {
+        let result_bits = u64::try_from(significant_bits(value.magnitude())).unwrap_or(u64::MAX);
+
+        if result_bits > u64::from(maximum_integer_bits) {
+            return Err(ConstantOperationError::ResourceLimitExceeded);
+        }
+    }
 
     Ok(result)
 }
@@ -254,10 +262,6 @@ fn exponentiate(
 
     let result = value.pow(exponent);
 
-    if result.bits() > u64::from(maximum_integer_bits) {
-        return Err(ConstantOperationError::ResourceLimitExceeded);
-    }
-
     Ok(integer(result))
 }
 
@@ -380,9 +384,20 @@ mod tests {
         let one = integer([1]);
         let two = integer([2]);
         let eight = integer([8]);
+        let sixteen = integer([0x10]);
+        let maximum_byte = integer([0xff]);
 
+        let addition = fold_binary(BoundOperator::Add, &maximum_byte, &one, 8);
+        let multiplication = fold_binary(BoundOperator::Multiply, &sixteen, &sixteen, 8);
         let shift = fold_binary(BoundOperator::ShiftLeft, &one, &eight, 8);
         let exponentiation = fold_binary(BoundOperator::Exponentiate, &two, &eight, 8);
+
+        assert_eq!(addition, Err(ConstantOperationError::ResourceLimitExceeded));
+
+        assert_eq!(
+            multiplication,
+            Err(ConstantOperationError::ResourceLimitExceeded)
+        );
 
         assert_eq!(shift, Err(ConstantOperationError::ResourceLimitExceeded));
 
