@@ -4,7 +4,7 @@ mod decoding;
 mod encoding;
 mod record;
 
-const DECLARATION_FACT_FORMAT_VERSION: u32 = 2;
+const DECLARATION_FACT_FORMAT_VERSION: u32 = 1;
 const DECLARATION_TEMPLATE_FORMAT_VERSION: u32 = 1;
 
 pub use decoding::decode_semantic_facts;
