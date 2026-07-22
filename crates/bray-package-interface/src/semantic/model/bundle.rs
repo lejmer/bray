@@ -248,7 +248,7 @@ impl InterfaceSemanticFacts {
             .iter()
             .enumerate()
             .map(|(index, fact)| InterfaceSemanticFactEntry {
-                owner: fact.fact.clone(),
+                owner: fact.owner.clone(),
                 kind: InterfaceSemanticFactKind::TargetFact,
                 section: crate::InterfaceSectionTag::TargetDependencies,
                 record: checked_record(index),

@@ -313,14 +313,34 @@ impl InterfaceCoherenceRecord {
 /// One target fact and exact value required by an exported semantic fact.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct InterfaceTargetFactDependency {
+    pub(crate) owner: InterfaceSymbolReference,
     pub(crate) fact: InterfaceSymbolReference,
     pub(crate) value: InterfaceConstantValueId,
 }
 
 impl InterfaceTargetFactDependency {
     /// Creates one exact target-fact requirement.
-    pub const fn new(fact: InterfaceSymbolReference, value: InterfaceConstantValueId) -> Self {
-        Self { fact, value }
+    pub const fn new(
+        owner: InterfaceSymbolReference,
+        fact: InterfaceSymbolReference,
+        value: InterfaceConstantValueId,
+    ) -> Self {
+        Self { owner, fact, value }
+    }
+
+    /// Returns the semantic fact that consumes this requirement.
+    pub const fn owner(&self) -> &InterfaceSymbolReference {
+        &self.owner
+    }
+
+    /// Returns the required target-fact declaration.
+    pub const fn fact(&self) -> &InterfaceSymbolReference {
+        &self.fact
+    }
+
+    /// Returns the required canonical value.
+    pub const fn value(&self) -> InterfaceConstantValueId {
+        self.value
     }
 }
 

@@ -35,7 +35,7 @@ impl InterfaceSemanticFacts {
             || !self
                 .target_dependencies
                 .windows(2)
-                .all(|pair| pair[0].fact < pair[1].fact)
+                .all(|pair| (&pair[0].owner, &pair[0].fact) < (&pair[1].owner, &pair[1].fact))
             || !self
                 .abi_dependencies
                 .windows(2)
@@ -97,6 +97,7 @@ impl InterfaceSemanticFacts {
         }
 
         for target in &*self.target_dependencies {
+            validate_symbol(&target.owner, symbol_count, dependency_count)?;
             validate_symbol(&target.fact, symbol_count, dependency_count)?;
             validate_index(target.value.to_index(), self.constant_values.len())?;
         }

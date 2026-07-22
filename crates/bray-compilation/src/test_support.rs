@@ -6,7 +6,7 @@ use bray_declarations::{DeclarationId, discover_source_unit_declarations};
 use bray_diagnostics::{DiagnosticBag, DiagnosticKind};
 use bray_package_interface::{
     InterfaceLanguageRevision, InterfaceValidationPolicy,
-    test_support::EncodedTemplateTestInterface,
+    test_support::EncodedSemanticTestInterface,
 };
 use bray_parser::parse_source_unit;
 use bray_source::{
@@ -147,8 +147,8 @@ pub(crate) fn compilation(source: &str) -> Compilation {
     }
 }
 
-pub(crate) fn encoded_template_dependency(
-    fixture: &EncodedTemplateTestInterface,
+pub(crate) fn encoded_semantic_dependency(
+    fixture: &EncodedSemanticTestInterface,
 ) -> DependencyInterfaceInput {
     DependencyInterfaceInput::new(
         fixture.package.clone(),

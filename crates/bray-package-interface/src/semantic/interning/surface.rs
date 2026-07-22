@@ -24,7 +24,7 @@ use super::common::{
 use super::{
     ImportedAbiDependency, ImportedCallableContractFact, ImportedConstraintFact,
     ImportedImplementationFact, ImportedSemanticFacts, ImportedSourceProvenance,
-    InterfaceSemanticInternError, InterfaceSymbolResolver, InternState,
+    ImportedTargetFact, InterfaceSemanticInternError, InterfaceSymbolResolver, InternState,
 };
 
 impl InternState {
@@ -35,9 +35,17 @@ impl InternState {
     ) -> Result<ImportedSemanticFacts, InterfaceSemanticInternError> {
         let constraints = self.convert_constraints(facts, symbols)?;
         let callable_contracts = self.convert_callable_contracts(facts, symbols)?;
-        let implementations = self.convert_implementations(facts, symbols)?;
         let coherence = self.convert_coherence(facts, symbols)?;
         let target_dependencies = self.convert_target_dependencies(facts, symbols)?;
+
+        let implementations = self.convert_implementations(
+            facts,
+            symbols,
+            &coherence,
+            &constraints,
+            &target_dependencies,
+        )?;
+
         let abi_dependencies = self.convert_abi_dependencies(facts, symbols)?;
         let provenance = self.convert_provenance(facts, symbols)?;
         let declaration_templates = self.convert_declaration_templates(facts, symbols)?;
@@ -202,6 +210,9 @@ impl InternState {
         &self,
         facts: &InterfaceSemanticFacts,
         symbols: &impl InterfaceSymbolResolver,
+        coherence: &[ImplementationCoherenceEvidence],
+        constraints: &[ImportedConstraintFact],
+        target_dependencies: &[ImportedTargetFact],
     ) -> Result<Vec<ImportedImplementationFact>, InterfaceSemanticInternError> {
         facts
             .implementations
@@ -223,13 +234,56 @@ impl InternState {
                     return Err(invalid_symbol(&input.implementation));
                 }
 
+                let subject = ImplementationSubject::new(
+                    self.type_id(input.subject)
+                        .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)?,
+                );
+
+                // Header facts retain shallow Arc-backed semantic values independently.
+                let coherence = trait_application
+                    .and_then(|trait_application| {
+                        coherence.iter().find(|evidence| {
+                            evidence.key()
+                                == ImplementationRequirementKey::new(
+                                    subject.ty(),
+                                    trait_application,
+                                )
+                                && evidence
+                                    .participants()
+                                    .iter()
+                                    .any(|candidate| candidate.implementation() == implementation)
+                        })
+                    })
+                    .cloned();
+
+                if trait_application.is_some() != coherence.is_some() {
+                    return Err(InterfaceSemanticInternError::UnresolvedValueGraph);
+                }
+
+                let owner = implementation.into_any();
+
+                let constraints = constraints
+                    .iter()
+                    .filter(|constraint| constraint.owner().symbol() == owner)
+                    .map(|constraint| constraint.constraint())
+                    .collect::<Vec<_>>()
+                    .into();
+
+                // Header facts retain shallow copies of shared semantic values independently.
+                let target_dependencies = target_dependencies
+                    .iter()
+                    .filter(|dependency| dependency.owner() == owner)
+                    .map(|dependency| dependency.dependency().clone())
+                    .collect::<Vec<_>>()
+                    .into();
+
                 Ok(ImportedImplementationFact {
                     implementation,
-                    subject: ImplementationSubject::new(
-                        self.type_id(input.subject)
-                            .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)?,
-                    ),
+                    subject,
                     trait_application,
+                    coherence,
+                    constraints,
+                    target_dependencies,
                 })
             })
             .collect()
@@ -281,11 +335,12 @@ impl InternState {
         &self,
         facts: &InterfaceSemanticFacts,
         symbols: &impl InterfaceSymbolResolver,
-    ) -> Result<Vec<TargetFactDependency>, InterfaceSemanticInternError> {
+    ) -> Result<Vec<ImportedTargetFact>, InterfaceSemanticInternError> {
         facts
             .target_dependencies
             .iter()
             .map(|input| {
+                let owner = resolve_symbol(symbols, &input.owner)?;
                 let fact = resolve_exact(symbols, &input.fact)?;
 
                 let key = resolve_stable_symbol_key(symbols, &input.fact)?;
@@ -294,7 +349,10 @@ impl InternState {
                     .constant_value_id(input.value)
                     .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)?;
 
-                Ok(TargetFactDependency::new(key, fact, value))
+                Ok(ImportedTargetFact {
+                    owner,
+                    dependency: TargetFactDependency::new(key, fact, value),
+                })
             })
             .collect()
     }

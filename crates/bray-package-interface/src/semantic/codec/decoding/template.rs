@@ -310,20 +310,20 @@ mod tests {
     use super::super::decode_semantic_facts;
     use super::super::test_support::{
         interface_surface, key_by_kind as symbol_key, local_by_kind as symbol_reference,
+        owned_section_views, owned_sections,
     };
     use crate::semantic::codec::encode_semantic_facts;
     use crate::test_support::{module_key as test_module_key, named_key};
     use crate::{
-        EncodedSemanticSection, InterfaceCheckedTemplate, InterfaceCheckedTemplateBehavior,
-        InterfaceCheckedTemplateId, InterfaceCheckedTemplateInput,
-        InterfaceCheckedTemplateInputKind, InterfaceCheckedTemplateNode,
-        InterfaceCheckedTemplateOperation, InterfaceCheckedTemplateTemporary,
-        InterfaceConstantTerm, InterfaceConstantValue, InterfaceConstantValueId,
-        InterfaceConstantValueKind, InterfaceDeclarationTemplate, InterfaceDependencyContract,
-        InterfaceImplementationReference, InterfaceSectionTag, InterfaceSemanticFacts,
-        InterfaceSupportEntity, InterfaceSupportImplementation, InterfaceSymbolReference,
-        InterfaceSymbolResolver, InterfaceTemplateReference, InterfaceType, InterfaceTypeId,
-        InterfaceValidationError, InterfaceValidationLimits, ValidatedInterfaceSection,
+        InterfaceCheckedTemplate, InterfaceCheckedTemplateBehavior, InterfaceCheckedTemplateId,
+        InterfaceCheckedTemplateInput, InterfaceCheckedTemplateInputKind,
+        InterfaceCheckedTemplateNode, InterfaceCheckedTemplateOperation,
+        InterfaceCheckedTemplateTemporary, InterfaceConstantTerm, InterfaceConstantValue,
+        InterfaceConstantValueId, InterfaceConstantValueKind, InterfaceDeclarationTemplate,
+        InterfaceDependencyContract, InterfaceImplementationReference, InterfaceSectionTag,
+        InterfaceSemanticFacts, InterfaceSupportEntity, InterfaceSupportImplementation,
+        InterfaceSymbolReference, InterfaceSymbolResolver, InterfaceTemplateReference,
+        InterfaceType, InterfaceTypeId, InterfaceValidationError, InterfaceValidationLimits,
     };
 
     #[test]
@@ -337,7 +337,7 @@ mod tests {
         };
 
         let owned = owned_sections(&sections);
-        let views = section_views(&owned);
+        let views = owned_section_views(&owned);
         let decoded = decode_semantic_facts(&views, &surface, limits);
 
         assert_eq!(decoded, Ok(facts));
@@ -375,7 +375,7 @@ mod tests {
         let owned = owned_sections(&sections);
 
         assert_eq!(
-            decode_semantic_facts(&section_views(&owned), &surface, limits),
+            decode_semantic_facts(&owned_section_views(&owned), &surface, limits),
             Ok(facts)
         );
     }
@@ -477,7 +477,7 @@ mod tests {
         templates[8..12].copy_from_slice(&u32::MAX.to_le_bytes());
 
         assert_eq!(
-            decode_semantic_facts(&section_views(&owned), &surface, limits),
+            decode_semantic_facts(&owned_section_views(&owned), &surface, limits),
             Err(InterfaceValidationError::Malformed)
         );
 
@@ -623,6 +623,7 @@ mod tests {
         let mut entities = facts.support_entities().to_vec();
         let foreign_package = PackageIdentity::try_new("foreign.templates")
             .unwrap_or_else(|| panic!("foreign test package identity must be valid"));
+
         let foreign_module = test_module_key(foreign_package, "templates");
 
         entities[0] = InterfaceSupportEntity::Declaration(named_key(
@@ -658,6 +659,7 @@ mod tests {
         let limits = InterfaceValidationLimits::default();
         let sections = encode_semantic_facts(&facts, &surface, limits)
             .unwrap_or_else(|error| panic!("valid checked templates must encode: {error:?}"));
+
         let mut owned = owned_sections(&sections);
         let (_, record_count, templates) = owned
             .iter_mut()
@@ -667,7 +669,7 @@ mod tests {
         templates[..4].copy_from_slice(&10_000_000_u32.to_le_bytes());
         *record_count = 10_000_001;
 
-        let decoded = decode_semantic_facts(&section_views(&owned), &surface, limits);
+        let decoded = decode_semantic_facts(&owned_section_views(&owned), &surface, limits);
 
         assert_eq!(decoded, Err(InterfaceValidationError::Truncated));
     }
@@ -687,6 +689,7 @@ mod tests {
             CheckedTemplateKind::GenericConstraint,
             CheckedTemplateKind::CallableContract,
         ];
+
         let generic_type = symbol_reference(surface, SymbolKind::GenericTypeParameter);
         let generic_constant = symbol_reference(surface, SymbolKind::GenericConstParameter);
         let owners = [
@@ -958,18 +961,21 @@ mod tests {
             Some(SymbolOrdinal::new(0)),
         )
         .unwrap_or_else(|| panic!("test runtime default provider key must be valid"));
+
         let generic_type = ExternalSymbolKey::ordinal(
             structure.clone(),
             SymbolKind::GenericTypeParameter,
             SymbolOrdinal::new(0),
         )
         .unwrap_or_else(|| panic!("test generic type parameter key must be valid"));
+
         let generic_constant = ExternalSymbolKey::ordinal(
             structure.clone(),
             SymbolKind::GenericConstParameter,
             SymbolOrdinal::new(1),
         )
         .unwrap_or_else(|| panic!("test generic constant parameter key must be valid"));
+
         let symbols = [
             function,
             structure,
@@ -1068,30 +1074,6 @@ mod tests {
     fn package_identity() -> PackageIdentity {
         PackageIdentity::try_new("example.templates")
             .unwrap_or_else(|| panic!("test package identity must be valid"))
-    }
-
-    fn owned_sections(
-        sections: &[EncodedSemanticSection],
-    ) -> Vec<(InterfaceSectionTag, u64, Vec<u8>)> {
-        sections
-            .iter()
-            .map(|section| {
-                (
-                    section.tag(),
-                    section.record_count(),
-                    section.payload().to_vec(),
-                )
-            })
-            .collect()
-    }
-
-    fn section_views(
-        sections: &[(InterfaceSectionTag, u64, Vec<u8>)],
-    ) -> Vec<ValidatedInterfaceSection<'_>> {
-        sections
-            .iter()
-            .map(|(tag, count, payload)| ValidatedInterfaceSection::for_test(*tag, *count, payload))
-            .collect()
     }
 
     fn index_u32(index: usize) -> u32 {

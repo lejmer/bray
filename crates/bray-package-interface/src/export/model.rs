@@ -214,6 +214,8 @@ fn validate_semantic_coverage(
 
         if !fact_directory.iter().any(|fact| {
             matches!(fact.owner(), InterfaceSymbolReference::Local(owner) if *owner == symbol.id())
+                && (!symbol.kind().is_implementation()
+                    || fact.kind() == crate::InterfaceSemanticFactKind::Implementation)
         }) {
             // External keys are Arc-backed and make the failure independent of local table IDs.
             return Err(PackageInterfaceExportBuildError::MissingSemanticFacts(
@@ -294,14 +296,15 @@ mod tests {
     #[test]
     fn bundles_reject_declaration_identities_without_semantic_facts() {
         let complete = package_interface_export_bundle();
-        let function = complete
+
+        let first_declaration = complete
             .surface()
             .symbols()
             .symbols()
             .iter()
-            .find(|symbol| symbol.kind() == SymbolKind::Function)
+            .find(|symbol| super::requires_owned_semantic_fact(symbol.kind()))
             .map(|symbol| symbol.key().clone())
-            .unwrap_or_else(|| panic!("test surface must contain one function"));
+            .unwrap_or_else(|| panic!("test surface must contain one declaration"));
 
         assert_eq!(
             PackageInterfaceExportBundle::try_new(
@@ -310,7 +313,37 @@ mod tests {
                 InterfaceLanguageRevision::new(0),
             ),
             Err(PackageInterfaceExportBuildError::MissingSemanticFacts(
-                function
+                first_declaration
+            ))
+        );
+    }
+
+    #[test]
+    fn implementation_auxiliary_facts_do_not_replace_the_header() {
+        let complete = package_interface_export_bundle();
+
+        let implementation = complete
+            .surface()
+            .symbols()
+            .symbols()
+            .iter()
+            .find(|symbol| symbol.kind().is_implementation())
+            .map(|symbol| symbol.key().clone())
+            .unwrap_or_else(|| panic!("test surface must contain one implementation"));
+
+        let facts = complete
+            .semantic_facts()
+            .clone()
+            .with_implementations([], []);
+
+        assert_eq!(
+            PackageInterfaceExportBundle::try_new(
+                complete.surface().clone(),
+                facts,
+                InterfaceLanguageRevision::new(0),
+            ),
+            Err(PackageInterfaceExportBuildError::MissingSemanticFacts(
+                implementation
             ))
         );
     }
@@ -334,7 +367,11 @@ mod tests {
             .unwrap_or_else(|_| panic!("test surface must contain two semantic fact owners"));
 
         let first_facts = complete.semantic_facts().clone().with_target_dependencies(
-            [],
+            complete
+                .semantic_facts()
+                .target_dependencies()
+                .iter()
+                .cloned(),
             [
                 InterfaceAbiDependency::new(first_owner.clone(), CallableAbi::Bray),
                 InterfaceAbiDependency::new(second_owner.clone(), CallableAbi::C),
@@ -342,7 +379,11 @@ mod tests {
         );
 
         let second_facts = complete.semantic_facts().clone().with_target_dependencies(
-            [],
+            complete
+                .semantic_facts()
+                .target_dependencies()
+                .iter()
+                .cloned(),
             [
                 InterfaceAbiDependency::new(second_owner, CallableAbi::C),
                 InterfaceAbiDependency::new(first_owner, CallableAbi::Bray),

@@ -93,7 +93,7 @@ impl<'compilation> CompilationBinderFacts<'compilation> {
         Ok(result.value().as_deref())
     }
 
-    pub(super) fn imported_fact_address(
+    pub(in crate::compilation) fn imported_fact_address(
         &self,
         symbol: AnySymbolId,
     ) -> BinderFactResult<Option<ImportedSymbolFactAddress>> {
@@ -209,7 +209,7 @@ mod tests {
     };
     use bray_package_interface::{
         InterfaceLanguageRevision, InterfaceValidationPolicy,
-        test_support::encoded_template_test_interface,
+        test_support::encoded_semantic_test_interface,
     };
     use bray_source::{SourceIdentity, SourceInput, SourceVersion};
     use bray_symbols::{
@@ -222,8 +222,8 @@ mod tests {
 
     #[test]
     fn unrelated_paths_do_not_demand_dependency_interfaces() {
-        let fixture = encoded_template_test_interface();
-        let compilation = compilation([crate::test_support::encoded_template_dependency(&fixture)]);
+        let fixture = encoded_semantic_test_interface();
+        let compilation = compilation([crate::test_support::encoded_semantic_dependency(&fixture)]);
         let cancellation = CancellationToken::new();
 
         let facts = compilation
@@ -250,9 +250,9 @@ mod tests {
 
     #[test]
     fn matching_paths_demand_only_the_imported_identity_skeleton() {
-        let fixture = encoded_template_test_interface();
+        let fixture = encoded_semantic_test_interface();
         let components = fixture.package.as_str().split('.').collect::<Vec<_>>();
-        let compilation = compilation([crate::test_support::encoded_template_dependency(&fixture)]);
+        let compilation = compilation([crate::test_support::encoded_semantic_dependency(&fixture)]);
         let cancellation = CancellationToken::new();
 
         let facts = compilation
@@ -281,9 +281,9 @@ mod tests {
 
     #[test]
     fn cancelled_imported_path_lookup_does_not_publish_a_skeleton() {
-        let fixture = encoded_template_test_interface();
+        let fixture = encoded_semantic_test_interface();
         let components = fixture.package.as_str().split('.').collect::<Vec<_>>();
-        let compilation = compilation([crate::test_support::encoded_template_dependency(&fixture)]);
+        let compilation = compilation([crate::test_support::encoded_semantic_dependency(&fixture)]);
         let cancellation = CancellationToken::new();
 
         let facts = compilation
@@ -499,7 +499,7 @@ mod tests {
 
     #[test]
     fn imported_callable_candidates_remain_explicit_until_signature_facts_are_portable() {
-        let fixture = encoded_template_test_interface();
+        let fixture = encoded_semantic_test_interface();
 
         let compilation = compilation_with_source(
             concat!(
@@ -509,7 +509,7 @@ mod tests {
                 "{\n",
                 "}\n",
             ),
-            [crate::test_support::encoded_template_dependency(&fixture)],
+            [crate::test_support::encoded_semantic_dependency(&fixture)],
         );
 
         let key = crate::test_support::source_callable_body_key(&compilation);

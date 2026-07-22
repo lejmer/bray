@@ -1,5 +1,5 @@
+use super::facts::section;
 use super::model::EncodedSemanticSection;
-use super::section;
 use crate::semantic::codec::common::{
     write_count, write_optional_u32, write_string, write_symbol_reference,
 };
@@ -50,6 +50,7 @@ pub(super) fn encode_target_dependencies(facts: &InterfaceSemanticFacts) -> Enco
     write_count(&mut encoder, facts.abi_dependencies.len());
 
     for dependency in &*facts.target_dependencies {
+        write_symbol_reference(&mut encoder, &dependency.owner);
         write_symbol_reference(&mut encoder, &dependency.fact);
         encoder.write_u32(dependency.value.raw());
     }
