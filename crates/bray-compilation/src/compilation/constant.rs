@@ -105,6 +105,7 @@ impl Compilation {
         };
 
         let diagnostics = term.result().diagnostics().clone();
+
         let state = if diagnostics.has_errors() {
             ConstantDefinitionState::Error(ErrorConstantDefinition)
         } else {
@@ -221,6 +222,7 @@ impl Compilation {
 
         if term.result().diagnostics().has_errors() {
             let root = expression_root(bound.result().value())?;
+
             let ty = types
                 .expression(root)
                 .ok_or(FactQueryError::InfrastructureFailure)?
@@ -270,6 +272,7 @@ impl Compilation {
                 };
 
                 let substitution = empty_substitution(values, definition)?;
+
                 let term = values
                     .intern_constant_term(ConstantTermData::DefinitionApplication {
                         definition,
@@ -297,6 +300,7 @@ impl Compilation {
         FactQueryError,
     > {
         let values = self.semantic_value_store()?;
+
         let substitution = values
             .generic_substitution_data(instance.substitution().substitution())
             .map_err(|_| FactQueryError::InfrastructureFailure)?;
@@ -379,6 +383,7 @@ impl Compilation {
                     let symbol = symbols
                         .symbol_for_key(key.declared_owner())
                         .ok_or(FactQueryError::InfrastructureFailure)?;
+
                     let definition = constant_definition_id(symbol)
                         .ok_or(FactQueryError::InfrastructureFailure)?;
 
@@ -451,6 +456,7 @@ fn substitute_expression_types(
         .iter()
         .map(|entry| {
             let result = entry.result();
+
             let ty = values
                 .substitute_type(result.ty(), substitution)
                 .map_err(|_| FactQueryError::InfrastructureFailure)?;
@@ -562,6 +568,7 @@ mod tests {
         )));
 
         let definitions = source_constant_definitions(&compilation);
+
         let [first, second, unrelated] = definitions.as_slice() else {
             panic!("test source must produce three constant definitions");
         };
@@ -612,6 +619,7 @@ mod tests {
         });
 
         let left = left.unwrap_or_else(|error| panic!("constant instance must publish: {error:?}"));
+
         let right =
             right.unwrap_or_else(|error| panic!("constant instance must publish: {error:?}"));
 
@@ -635,7 +643,6 @@ mod tests {
     #[test]
     fn checked_constant_templates_are_cached_without_closing_instances() {
         let compilation = compilation(concat!("module app;\n", "const value: i32 = 1;\n",));
-
         let definitions = source_constant_definitions(&compilation);
 
         let [definition] = definitions.as_slice() else {
@@ -712,7 +719,6 @@ mod tests {
     #[test]
     fn constant_instance_cycles_publish_one_deterministic_diagnostic() {
         let compilation = compilation(concat!("module app;\n", "const value: i32 = value;\n",));
-
         let definitions = source_constant_definitions(&compilation);
 
         let [definition] = definitions.as_slice() else {
@@ -775,6 +781,7 @@ mod tests {
         };
 
         let ty = i32_type(&compilation);
+
         let first = concrete_substitution(&compilation, structure.id().into(), *parameter, ty, 3);
         let second = concrete_substitution(&compilation, structure.id().into(), *parameter, ty, 7);
 
@@ -840,7 +847,6 @@ mod tests {
     #[test]
     fn constant_instance_fact_keys_include_the_complete_target_profile() {
         let compilation = compilation(concat!("module app;\n", "const value: i32 = 1;\n",));
-
         let definitions = source_constant_definitions(&compilation);
 
         let [definition] = definitions.as_slice() else {
@@ -849,6 +855,7 @@ mod tests {
 
         let instance = instance_key(&compilation, *definition);
         let baseline = SelectedTarget::baseline();
+
         let alternate_identity = TargetIdentity::try_new("alternate-test-target")
             .unwrap_or_else(|| panic!("alternate target identity must be valid"));
 

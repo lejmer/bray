@@ -100,11 +100,14 @@ impl Compilation {
 
             if key.kind() == BoundUnitKind::ConstantTemplate {
                 let symbols = self.symbol_graph()?;
+
                 let owner = symbols
                     .symbol_for_key(key.declared_owner())
                     .ok_or(FactQueryError::InfrastructureFailure)?;
+
                 let definition =
                     constant_definition_id(owner).ok_or(FactQueryError::InfrastructureFailure)?;
+
                 let template = self.checked_constant_template(definition)?;
 
                 facts.push(SemanticDiagnosticFact::ConstantTemplate(template));
@@ -112,6 +115,7 @@ impl Compilation {
                 if !has_visible_generic_parameters(symbols, owner) {
                     let substitution =
                         empty_concrete_substitution(self.semantic_value_store()?, definition)?;
+
                     let instance =
                         bray_symbols::ConstantInstanceKey::new(definition, substitution, None);
 
