@@ -83,7 +83,7 @@ fn required_section(
         .ok_or(InterfaceValidationError::Malformed)
 }
 
-fn decode_strings(
+pub(crate) fn decode_strings(
     section: ValidatedInterfaceSection<'_>,
     budget: &mut DecodeBudget,
 ) -> Result<Vec<Arc<str>>, InterfaceValidationError> {
@@ -121,7 +121,7 @@ fn decode_strings(
     Ok(strings)
 }
 
-fn decode_metadata(
+pub(crate) fn decode_metadata(
     section: ValidatedInterfaceSection<'_>,
     strings: &[Arc<str>],
 ) -> Result<PackageInterfaceIdentity, InterfaceValidationError> {
@@ -141,7 +141,7 @@ fn decode_metadata(
         .ok_or(InterfaceValidationError::Malformed)
 }
 
-fn decode_dependencies(
+pub(crate) fn decode_dependencies(
     section: ValidatedInterfaceSection<'_>,
     strings: &[Arc<str>],
     budget: &mut DecodeBudget,
@@ -165,7 +165,7 @@ fn decode_dependencies(
     Ok(dependencies)
 }
 
-fn decode_symbols(
+pub(crate) fn decode_symbols(
     section: ValidatedInterfaceSection<'_>,
     strings: &[Arc<str>],
     budget: &mut DecodeBudget,
@@ -197,7 +197,7 @@ fn decode_symbols(
     Ok(symbols)
 }
 
-fn decode_relationships(
+pub(crate) fn decode_relationships(
     section: ValidatedInterfaceSection<'_>,
     budget: &mut DecodeBudget,
 ) -> Result<Vec<SymbolRelationship>, InterfaceValidationError> {
@@ -220,7 +220,7 @@ fn decode_relationships(
     Ok(relationships)
 }
 
-fn decode_exports(
+pub(crate) fn decode_exports(
     section: ValidatedInterfaceSection<'_>,
     strings: &[Arc<str>],
     budget: &mut DecodeBudget,

@@ -10,7 +10,7 @@ use crate::{
 };
 use std::sync::Arc;
 
-pub(super) fn decode_fact_directory(
+pub(crate) fn decode_fact_directory(
     section: ValidatedInterfaceSection<'_>,
     limits: InterfaceValidationLimits,
     context: &mut SemanticDecodeContext,

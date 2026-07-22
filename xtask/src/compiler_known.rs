@@ -10,16 +10,6 @@ const GENERATED_DIGEST_PATH: &str =
     "crates/bray-compiler-known/src/catalog/generated/catalog.sha256";
 
 pub(crate) fn run(mut arguments: impl Iterator<Item = String>) -> ExitCode {
-    let Some(command) = arguments.next() else {
-        eprintln!("{USAGE}");
-        return ExitCode::FAILURE;
-    };
-
-    if command != "compiler-known" {
-        eprintln!("{USAGE}");
-        return ExitCode::FAILURE;
-    }
-
     let Some(action) = arguments.next() else {
         eprintln!("{USAGE}");
         return ExitCode::FAILURE;
@@ -138,11 +128,8 @@ mod tests {
     use super::{check_files, run};
 
     #[test]
-    fn unrelated_commands_fail_without_side_effects() {
-        assert_eq!(
-            run(["other".to_owned()].into_iter()),
-            std::process::ExitCode::FAILURE
-        );
+    fn missing_actions_fail_without_side_effects() {
+        assert_eq!(run(std::iter::empty()), std::process::ExitCode::FAILURE);
     }
 
     #[test]
@@ -171,7 +158,7 @@ mod tests {
     #[test]
     fn check_command_runs_generated_and_semantic_validation() {
         assert_eq!(
-            run(["compiler-known".to_owned(), "check".to_owned()].into_iter()),
+            run(["check".to_owned()].into_iter()),
             std::process::ExitCode::SUCCESS
         );
     }
@@ -179,12 +166,7 @@ mod tests {
     #[test]
     fn check_command_rejects_arguments() {
         assert_eq!(
-            run([
-                "compiler-known".to_owned(),
-                "check".to_owned(),
-                "--check".to_owned(),
-            ]
-            .into_iter()),
+            run(["check".to_owned(), "--check".to_owned(),].into_iter()),
             std::process::ExitCode::FAILURE
         );
     }

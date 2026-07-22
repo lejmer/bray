@@ -763,6 +763,10 @@ version = "0.1.0"
 dependencies = [
  "bray-compilation",
  "bray-compiler-known",
+ "bray-messages",
+ "bray-package-interface",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

@@ -39,6 +39,25 @@ pub enum InterfaceSectionTag {
 }
 
 impl InterfaceSectionTag {
+    /// Every section category implemented by the current exact format revision.
+    pub const ALL: [Self; 15] = [
+        Self::Strings,
+        Self::PackageMetadata,
+        Self::Dependencies,
+        Self::SymbolIdentities,
+        Self::Relationships,
+        Self::ExportedLookup,
+        Self::SymbolFactDirectory,
+        Self::SemanticTypes,
+        Self::Constants,
+        Self::Contracts,
+        Self::DeclarationTemplates,
+        Self::Implementations,
+        Self::TargetDependencies,
+        Self::SourceProvenance,
+        Self::SupportGraph,
+    ];
+
     pub(crate) const fn from_wire_value(value: u32) -> Option<Self> {
         match value {
             1 => Some(Self::Strings),
@@ -79,6 +98,38 @@ impl InterfaceSectionTag {
             Self::SourceProvenance => 14,
             Self::SupportGraph => 15,
         }
+    }
+
+    /// Returns the stable machine-readable section name.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Strings => "strings",
+            Self::PackageMetadata => "package_metadata",
+            Self::Dependencies => "dependencies",
+            Self::SymbolIdentities => "symbol_identities",
+            Self::Relationships => "relationships",
+            Self::ExportedLookup => "exported_lookup",
+            Self::SymbolFactDirectory => "symbol_fact_directory",
+            Self::SemanticTypes => "semantic_types",
+            Self::Constants => "constants",
+            Self::Contracts => "contracts",
+            Self::DeclarationTemplates => "declaration_templates",
+            Self::Implementations => "implementations",
+            Self::TargetDependencies => "target_dependencies",
+            Self::SourceProvenance => "source_provenance",
+            Self::SupportGraph => "support_graph",
+        }
+    }
+
+    /// Resolves one exact machine-readable section name.
+    pub fn from_name(name: &str) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|section| section.as_str() == name)
+    }
+
+    pub(crate) const fn is_optional(self) -> bool {
+        matches!(self, Self::SourceProvenance)
     }
 
     pub(crate) const fn contributes_to_content_hash(self) -> bool {
@@ -272,6 +323,18 @@ mod tests {
 
         assert_eq!(InterfaceSectionTag::from_wire_value(0), None);
         assert_eq!(InterfaceSectionTag::from_wire_value(16), None);
+    }
+
+    #[test]
+    fn section_names_round_trip_in_canonical_order() {
+        for section in InterfaceSectionTag::ALL {
+            assert_eq!(
+                InterfaceSectionTag::from_name(section.as_str()),
+                Some(section)
+            );
+        }
+
+        assert_eq!(InterfaceSectionTag::from_name("unknown"), None);
     }
 
     #[test]

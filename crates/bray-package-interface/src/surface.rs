@@ -12,5 +12,8 @@ pub use model::{
     SymbolRelationship, SymbolRelationshipKind,
 };
 
-pub(crate) use decoding::decode_surface;
+pub(crate) use decoding::{
+    decode_dependencies, decode_exports, decode_metadata, decode_relationships, decode_strings,
+    decode_surface, decode_symbols,
+};
 pub(crate) use encoding::{EncodedSurfaceSection, encode_surface};
