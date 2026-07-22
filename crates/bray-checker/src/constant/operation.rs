@@ -78,7 +78,7 @@ pub(super) fn fold_binary(
         }
         (ConstantValueKind::Real(_), ConstantValueKind::Real(_))
         | (ConstantValueKind::Complex { .. }, ConstantValueKind::Complex { .. }) => {
-            // TODO(BRA-122): Evaluate selected runtime-format real and complex operations.
+            // TODO(BRA-244): Evaluate selected runtime-format real and complex operations.
             return Err(ConstantOperationError::Unsupported);
         }
         _ if matches!(operator, BoundOperator::Equal | BoundOperator::NotEqual) => {

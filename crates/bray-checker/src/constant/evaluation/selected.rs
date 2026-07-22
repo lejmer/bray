@@ -32,7 +32,7 @@ where
             ..
         })) = self.input.semantic_selections().expression(expression)
         else {
-            // TODO(BRA-122): Evaluate selected const-call operator implementations.
+            // TODO(BRA-245): Evaluate selected const-call operator implementations.
             return Err(EvaluationFailure::invalid_expression(expression));
         };
 
@@ -64,7 +64,7 @@ where
 
         let Some(value) = self.term_value(operand)? else {
             let Some(operation) = unary_term_operation(operation) else {
-                // TODO(BRA-122): Represent additional selected unary operations as constant terms.
+                // TODO(BRA-244): Represent additional selected unary operations as constant terms.
                 return Err(EvaluationFailure::invalid_expression(expression));
             };
 
@@ -104,7 +104,7 @@ where
 
         let (Some(left_value), Some(right_value)) = (left_value, right_value) else {
             let Some(operation) = binary_term_operation(operation) else {
-                // TODO(BRA-122): Represent additional selected binary operations as constant terms.
+                // TODO(BRA-244): Represent additional selected binary operations as constant terms.
                 return Err(EvaluationFailure::invalid_expression(expression));
             };
 
@@ -185,7 +185,7 @@ where
         }
 
         let Some(operand) = self.term_value(operand)? else {
-            // TODO(BRA-122): Add checked conversion operations to open constant terms.
+            // TODO(BRA-244): Add checked conversion operations to open constant terms.
             return Err(EvaluationFailure::invalid_expression(expression));
         };
 
@@ -236,7 +236,7 @@ where
                 self.convert_composite(expression, conversion.target_type(), data.kind(), children)?
             }
             ConversionTarget::Trait { .. } => {
-                // TODO(BRA-122): Evaluate const-call conversion implementations.
+                // TODO(BRA-245): Evaluate const-call conversion implementations.
                 return Err(EvaluationFailure::invalid_expression(expression));
             }
         };
@@ -299,7 +299,7 @@ where
             ..
         })) = self.input.semantic_selections().expression(expression)
         else {
-            // TODO(BRA-122): Evaluate slice and selected const-call indexing operations.
+            // TODO(BRA-245): Evaluate slice and selected const-call indexing operations.
             return Err(EvaluationFailure::invalid_expression(expression));
         };
 
@@ -353,7 +353,7 @@ where
             .selector()
             .ok_or_else(|| EvaluationFailure::invalid_expression(expression))?
         else {
-            // TODO(BRA-122): Retain product and union field identities in closed values for projection.
+            // TODO(BRA-246): Retain product and union field identities in closed values for projection.
             return Err(EvaluationFailure::invalid_expression(expression));
         };
 
@@ -399,12 +399,13 @@ where
         let Some(SemanticSelection::Operation(SelectedOperation::Construction(construction))) =
             self.input.semantic_selections().expression(expression)
         else {
-            // TODO(BRA-122): Evaluate const-call and value-bearing construction operations.
+            // TODO(BRA-245): Evaluate const-call construction operations.
+            // TODO(BRA-246): Evaluate value-bearing construction operations.
             return Err(EvaluationFailure::invalid_expression(expression));
         };
 
         if !construction.inputs().is_empty() {
-            // TODO(BRA-122): Retain field identities in product and union constant values.
+            // TODO(BRA-246): Retain field identities in product and union constant values.
             return Err(EvaluationFailure::invalid_expression(expression));
         }
 
@@ -412,7 +413,7 @@ where
             ConstructionTarget::Struct(_) => ConstantValueKind::product([]),
             ConstructionTarget::UnionVariant(variant) => ConstantValueKind::union(variant, []),
             ConstructionTarget::TypeForm(_) => {
-                // TODO(BRA-122): Evaluate const type-form construction callables.
+                // TODO(BRA-245): Evaluate const type-form construction callables.
                 return Err(EvaluationFailure::invalid_expression(expression));
             }
         };

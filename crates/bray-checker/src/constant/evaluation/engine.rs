@@ -247,7 +247,7 @@ where
             | BoundExpression::Match(_)
             | BoundExpression::Generator(_)
             | BoundExpression::Error(_) => {
-                // TODO(BRA-122): Extend constant checking when this expression category gains constant semantics.
+                // TODO(BRA-246): Extend constant checking when this expression category gains constant semantics.
                 Err(EvaluationFailure::invalid_expression(expression))
             }
         }
@@ -401,7 +401,7 @@ where
             | BoundStructuredExpressionKind::TypeFormConstruction
             | BoundStructuredExpressionKind::BooleanFold
             | BoundStructuredExpressionKind::Panic => {
-                // TODO(BRA-122): Extend constant checking when this structured form gains constant semantics.
+                // TODO(BRA-246): Extend constant checking when this structured form gains constant semantics.
                 Err(EvaluationFailure::invalid_expression(expression))
             }
         }
@@ -420,7 +420,7 @@ where
             .map(|operand| {
                 let term = self.evaluate(operand)?;
 
-                // TODO(BRA-122): Add aggregate constant terms before accepting open aggregates.
+                // TODO(BRA-246): Add aggregate constant terms before accepting open aggregates.
                 self.closed_value(term, owner)
             })
             .collect()

@@ -22,7 +22,7 @@ pub(super) fn convert_scalar(
             Ok(ConstantValueKind::Integer(value.clone()))
         }
         _ => {
-            // TODO(BRA-122): Add selected runtime-format real and complex widening.
+            // TODO(BRA-244): Add selected runtime-format real and complex widening.
             Err(ConstantOperationError::Invalid)
         }
     }
