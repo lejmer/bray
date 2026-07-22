@@ -8,7 +8,7 @@ Bray is currently a greenfield project. Therefore, do not preserve backwards-com
 
 ## Simplicity and scope
 
-Implement the smallest coherent design that satisfies the current requirements. Do not add abstraction layers, wrapper types, request/context/result types, validation surfaces, or APIs for hypothetical future consumers. Every new type must enforce a current invariant, establish meaningful identity or ownership, or provide behavior that cannot be expressed clearly by an existing type or direct function.
+Implement the smallest coherent design that satisfies the current requirements and known near-term consumers. Do not add abstraction layers, wrapper types, request/context/result types, validation surfaces, or APIs based only on speculative future needs. Forward-looking APIs are appropriate when a planned consumer and its required contract are already understood. Every new type must enforce a current or planned invariant, establish meaningful identity or ownership, or provide behavior that cannot be expressed clearly by an existing type or direct function.
 
 Do not treat existing code as permanent. When touching an area, delete or flatten redundant layers, forwarding APIs, duplicated representations, and speculative infrastructure when a simpler implementation preserves immutability, demand-driven evaluation, safe parallelism, determinism, efficiency, correctness, reliability, and structured diagnostics. Make these simplifications as part of the relevant work instead of creating standalone cleanup issues.
 
