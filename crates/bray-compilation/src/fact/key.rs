@@ -103,6 +103,8 @@ pub(crate) enum CompilationFactKey {
     CheckDiagnostics,
     /// Source constant definitions mapped to their exact expression units.
     ConstantTemplateKeys,
+    /// Source predicate definitions mapped to their exact expression units.
+    PredicateDefinitionKeys,
     /// One concrete constant value for an exact semantic instance and target profile.
     ConstantInstance(ConstantInstanceFactKey),
     /// Durable control-flow facts for one bound unit.
@@ -169,6 +171,7 @@ impl CompilationFactKey {
             | Self::BoundUnitIdentities
             | Self::CheckDiagnostics
             | Self::ConstantTemplateKeys
+            | Self::PredicateDefinitionKeys
             | Self::ConstantInstance(_)
             | Self::DeclarationChunk(_)
             | Self::DeclarationTable

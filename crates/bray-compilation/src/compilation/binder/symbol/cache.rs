@@ -3,15 +3,18 @@ use std::sync::Arc;
 use bray_binder::{BinderFactResult, SymbolFactProvider};
 use bray_symbols::{
     CallableContractTemplateFact, CallableContractTypeFact, CallableContractsFact,
-    CallableOverloadTemplateFact, CallableParameterDefaultTemplateFact, CallableSignatureFact,
-    ConstantDeclaredTypeFact, ConstantDefinitionFact, GenericConstParameterDeclaredTypeFact,
-    GenericConstraintsFact, GenericDeclarationTemplateFact, ImplementationCoherenceFact,
-    ImplementationHeadTemplateFact, ImplementationOverloadTemplateFact, ImplementationSubjectFact,
-    ImplementedTraitApplicationFact, InherentTypeMemberValueFact, PredicateSignatureTemplateFact,
-    StructFieldDefaultTemplateFact, StructFieldTypeFact, SymbolFactContract, SymbolFactRequest,
-    SymbolFactResult, TraitConstantFulfillmentDeclaredTypeFact,
-    TraitConstantFulfillmentDefinitionFact, TraitConstantMemberDeclaredTypeFact,
-    TraitConstantMemberDefinitionFact, TraitTypeFulfillmentValueFact,
+    CallableOverloadTemplateFact, CallableParameterDefaultFact,
+    CallableParameterDefaultTemplateFact, CallableSignatureFact, ConstantDeclaredTypeFact,
+    ConstantDefinitionFact, GenericConstParameterDeclaredTypeFact, GenericConstraintsFact,
+    GenericDeclarationTemplateFact, ImplementationCoherenceFact, ImplementationHeadTemplateFact,
+    ImplementationOverloadTemplateFact, ImplementationSubjectFact, ImplementedTraitApplicationFact,
+    InherentTypeMemberValueFact, PredicateDefinitionFact, PredicateSignatureTemplateFact,
+    StructFieldDefaultFact, StructFieldDefaultTemplateFact, StructFieldTypeFact,
+    SymbolFactContract, SymbolFactRequest, SymbolFactResult,
+    TraitConstantFulfillmentDeclaredTypeFact, TraitConstantFulfillmentDefinitionFact,
+    TraitConstantMemberDeclaredTypeFact, TraitConstantMemberDefinitionFact,
+    TraitPredicateFulfillmentDefinitionFact, TraitPredicateMemberDefinitionFact,
+    TraitTypeFulfillmentValueFact, UnionPayloadFieldDefaultFact,
     UnionPayloadFieldDefaultTemplateFact, UnionPayloadFieldTypeFact,
 };
 
@@ -50,9 +53,17 @@ pub(in crate::compilation) struct CompilationSymbolFacts {
     pub(super) implementation_head_templates: SymbolFactCache<ImplementationHeadTemplateFact>,
     pub(super) callable_parameter_default_templates:
         SymbolFactCache<CallableParameterDefaultTemplateFact>,
+    pub(super) callable_parameter_defaults: SymbolFactCache<CallableParameterDefaultFact>,
     pub(super) struct_field_default_templates: SymbolFactCache<StructFieldDefaultTemplateFact>,
+    pub(super) struct_field_defaults: SymbolFactCache<StructFieldDefaultFact>,
     pub(super) union_payload_field_default_templates:
         SymbolFactCache<UnionPayloadFieldDefaultTemplateFact>,
+    pub(super) union_payload_field_defaults: SymbolFactCache<UnionPayloadFieldDefaultFact>,
+    pub(super) predicate_definitions: SymbolFactCache<PredicateDefinitionFact>,
+    pub(super) trait_predicate_member_definitions:
+        SymbolFactCache<TraitPredicateMemberDefinitionFact>,
+    pub(super) trait_predicate_fulfillment_definitions:
+        SymbolFactCache<TraitPredicateFulfillmentDefinitionFact>,
     pub(super) callable_overload_templates: SymbolFactCache<CallableOverloadTemplateFact>,
     pub(super) implementation_overload_templates:
         SymbolFactCache<ImplementationOverloadTemplateFact>,
@@ -84,8 +95,14 @@ impl CompilationSymbolFacts {
             implementation_coherence: SymbolFactCache::new(),
             implementation_head_templates: SymbolFactCache::new(),
             callable_parameter_default_templates: SymbolFactCache::new(),
+            callable_parameter_defaults: SymbolFactCache::new(),
             struct_field_default_templates: SymbolFactCache::new(),
+            struct_field_defaults: SymbolFactCache::new(),
             union_payload_field_default_templates: SymbolFactCache::new(),
+            union_payload_field_defaults: SymbolFactCache::new(),
+            predicate_definitions: SymbolFactCache::new(),
+            trait_predicate_member_definitions: SymbolFactCache::new(),
+            trait_predicate_fulfillment_definitions: SymbolFactCache::new(),
             callable_overload_templates: SymbolFactCache::new(),
             implementation_overload_templates: SymbolFactCache::new(),
         }

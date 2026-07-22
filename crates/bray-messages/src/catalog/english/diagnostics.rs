@@ -95,6 +95,15 @@ const BINDING_DUPLICATE_CALLABLE_ABI: &[MessageTemplatePart] = &[MessageTemplate
     "callable ABI directive is repeated",
 )];
 
+const BINDING_PREDICATE_BODY_REQUIRED: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "ordinary predicate declaration requires a body",
+)];
+
+const BINDING_TRUSTED_PREDICATE_BODY_NOT_ALLOWED: &[MessageTemplatePart] =
+    &[MessageTemplatePart::Text(
+        "trusted predicate declaration cannot have a body",
+    )];
+
 const EMISSION_MISSING_CONTRIBUTION: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("missing required "),
     MessageTemplatePart::Arg(DiagnosticArgName::ArtifactKind),
@@ -609,6 +618,12 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         }
         DiagnosticKind::BindingDuplicateCallableAbi => {
             MessageTemplate::new(BINDING_DUPLICATE_CALLABLE_ABI)
+        }
+        DiagnosticKind::BindingPredicateBodyRequired => {
+            MessageTemplate::new(BINDING_PREDICATE_BODY_REQUIRED)
+        }
+        DiagnosticKind::BindingTrustedPredicateBodyNotAllowed => {
+            MessageTemplate::new(BINDING_TRUSTED_PREDICATE_BODY_NOT_ALLOWED)
         }
         DiagnosticKind::EmissionMissingContribution => {
             MessageTemplate::new(EMISSION_MISSING_CONTRIBUTION)

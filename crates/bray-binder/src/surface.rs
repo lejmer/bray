@@ -2,8 +2,8 @@ use bray_bound_tree::{BoundSourceAnchor, BoundUnitId, BoundUnitKey};
 use bray_declarations::SyntaxAnchor;
 use bray_diagnostics::DiagnosticResult;
 use bray_symbols::{
-    AnySymbolId, CallableContractClauseKind, CallableSignatureFact, DependencyContractTemplateData,
-    LocalSymbolRegionId, MemberLookupResult, PredicateSemanticSummary,
+    AnySymbolId, CallableContractClauseKind, CallableSignatureFact, LocalSymbolRegionId,
+    MemberLookupResult, PredicateSemanticSummary,
 };
 use bray_syntax::{ExpressionSyntax, SyntaxNodeView, UsesClauseSyntax, syntax_node_view};
 
@@ -71,9 +71,10 @@ where
 
             let mut expression_binder = ExpressionBinder::new(path, error_type);
             let mut predicates = Vec::new();
+
             let dependency = facts
                 .semantic_values()
-                .intern_dependency_contract_template(DependencyContractTemplateData::new([]))
+                .empty_dependency_contract_template()
                 .map_err(|_| BindingError::IdentityCapacityExceeded)?;
 
             for expression in expressions {

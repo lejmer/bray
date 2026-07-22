@@ -84,7 +84,7 @@ impl Compilation {
             let expression_semantics =
                 self.expression_semantics_with_cancellation(key.clone(), &self.state.cancellation)?;
 
-            let control_flow = self.checked_control_flow(key.clone())?;
+            let control_flow = self.control_flow(key.clone())?;
 
             // TODO(BRA-199): Finalized invocation and layout facts must request their exact
             // target-validity facts and retain those diagnostics in their semantic results.
@@ -108,7 +108,7 @@ impl Compilation {
                 let definition =
                     constant_definition_id(owner).ok_or(FactQueryError::InfrastructureFailure)?;
 
-                let template = self.checked_constant_template(definition)?;
+                let template = self.constant_definition(definition)?;
 
                 facts.push(SemanticDiagnosticFact::ConstantTemplate(template));
 
@@ -779,7 +779,7 @@ mod tests {
             assert!(!keys.is_empty(), "{source}");
 
             for key in keys {
-                let checked = match compilation.checked_control_flow(key) {
+                let checked = match compilation.control_flow(key) {
                     Ok(checked) => checked,
                     Err(error) => panic!("recovered semantic check failed: {source}: {error:?}"),
                 };
@@ -869,7 +869,7 @@ mod tests {
         };
 
         for key in serial_keys {
-            if let Err(error) = serial.checked_control_flow(key) {
+            if let Err(error) = serial.control_flow(key) {
                 panic!("serial semantic demand failed: {error:?}");
             }
         }
@@ -913,7 +913,7 @@ mod tests {
 
             let handles = parallel_keys
                 .into_iter()
-                .map(|key| scope.spawn(move || parallel.checked_control_flow(key)))
+                .map(|key| scope.spawn(move || parallel.control_flow(key)))
                 .collect::<Vec<_>>();
 
             for gate in &gates {

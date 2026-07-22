@@ -23,10 +23,7 @@ macro_rules! impl_constant_definition_fact {
             ) -> BinderFactResult<SymbolFactResult<$contract>> {
                 context
                     .compilation()
-                    .compute_checked_constant_template(
-                        $definition(request.owner()),
-                        context.cancellation,
-                    )
+                    .compute_constant_definition($definition(request.owner()), context.cancellation)
                     .map_err(binder_error)
             }
         }

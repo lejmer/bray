@@ -645,7 +645,7 @@ representation of the unit.
 checker-internal control-flow graph. Type, overload, implementation, ownership, borrow, contract, effect, and capability analyses
 follow the same side-fact model.
 
-The compilation fact graph expresses each typed accessor's guarantees. `checked_control_flow(key)` depends on `bound_unit(key)` and
+The compilation fact graph expresses each typed accessor's guarantees. `control_flow(key)` depends on `bound_unit(key)` and
 guarantees that its returned `CheckedControlFlowFacts` belong to that bound unit. Other semantic accessors declare their own exact
 prerequisites. The compiler must not encode evaluation history by introducing `ControlFlowChecked*`, `BorrowChecked*`, or similar
 bound-tree wrapper families.

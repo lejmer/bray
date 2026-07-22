@@ -103,6 +103,9 @@ pub(super) struct CompilationState {
     pub(super) checked_semantic_selections: UnitFactCache<CheckedSemanticSelections>,
     pub(super) constant_template_keys:
         FactCell<Result<BTreeMap<AnyConstantDefinitionId, BoundUnitKey>, FactQueryError>>,
+    pub(super) predicate_definition_keys: FactCell<
+        Result<BTreeMap<bray_symbols::PredicateDefinitionSymbolId, BoundUnitKey>, FactQueryError>,
+    >,
     pub(super) symbolic_constant_terms: UnitFactCache<ConstantTermId>,
     pub(super) constant_instances:
         FactCellMap<ConstantInstanceFactKey, Arc<SemanticFactResult<ConstantInstanceValueFact>>>,
@@ -200,6 +203,7 @@ impl Compilation {
                 checked_expression_types: UnitFactCache::new(),
                 checked_semantic_selections: UnitFactCache::new(),
                 constant_template_keys: FactCell::new(),
+                predicate_definition_keys: FactCell::new(),
                 symbolic_constant_terms: UnitFactCache::new(),
                 constant_instances: FactCellMap::new(),
                 check_diagnostics: FactCell::new(),
@@ -1071,7 +1075,7 @@ mod tests {
         let mut recovered = Vec::new();
 
         for nested_key in nested {
-            let child = match compilation.checked_control_flow(nested_key.clone()) {
+            let child = match compilation.control_flow(nested_key.clone()) {
                 Ok(child) => child,
                 Err(error) => panic!("nested control-flow fact must be available: {error:?}"),
             };
@@ -1081,7 +1085,7 @@ mod tests {
 
         assert_eq!(recovered, [true, false]);
 
-        let parent = match compilation.checked_control_flow(key) {
+        let parent = match compilation.control_flow(key) {
             Ok(parent) => parent,
             Err(error) => panic!("parent control-flow fact must complete: {error:?}"),
         };
@@ -1094,7 +1098,7 @@ mod tests {
         let compilation = checked_body_compilation();
         let key = source_callable_body_key(&compilation);
 
-        let result = compilation.checked_control_flow(key.clone());
+        let result = compilation.control_flow(key.clone());
 
         assert!(result.is_ok());
 
@@ -1123,7 +1127,7 @@ mod tests {
 
         let key = source_constant_template_key(&compilation);
 
-        let checked = match compilation.checked_control_flow(key) {
+        let checked = match compilation.control_flow(key) {
             Ok(checked) => checked,
             Err(error) => panic!("constant template query must complete: {error:?}"),
         };
@@ -1150,7 +1154,7 @@ mod tests {
 
         let foreign_key = source_callable_body_key_from_symbols(&compilation, &foreign_symbols);
 
-        let foreign = compilation.checked_control_flow(foreign_key.clone());
+        let foreign = compilation.control_flow(foreign_key.clone());
 
         assert!(matches!(
             foreign,
@@ -1166,7 +1170,7 @@ mod tests {
         );
 
         let local_key = source_callable_body_key(&compilation);
-        let local = compilation.checked_control_flow(local_key);
+        let local = compilation.control_flow(local_key);
 
         assert!(local.is_ok());
     }

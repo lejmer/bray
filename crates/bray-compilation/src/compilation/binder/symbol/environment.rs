@@ -85,12 +85,24 @@ pub(in crate::compilation) fn visible_generic_const_parameters(
     symbols: &SymbolGraph,
     symbol: AnySymbolId,
 ) -> Vec<GenericConstParameterSymbolId> {
+    visible_generic_parameters(symbols, symbol)
+        .into_iter()
+        .filter_map(|parameter| match parameter {
+            GenericParameterSymbolId::Const(parameter) => Some(parameter),
+            GenericParameterSymbolId::Type(_) => None,
+        })
+        .collect()
+}
+
+pub(in crate::compilation) fn visible_generic_parameters(
+    symbols: &SymbolGraph,
+    symbol: AnySymbolId,
+) -> Vec<GenericParameterSymbolId> {
     symbol_ancestry(symbols, symbol)
         .into_iter()
         .rev()
-        .filter_map(|owner| GenericParameterAccess::generic_const_parameters(symbols, owner))
+        .filter_map(|owner| generic_parameter_ids(symbols, owner).ok())
         .flatten()
-        .copied()
         .collect()
 }
 

@@ -103,6 +103,10 @@ pub enum DiagnosticKind {
     BindingInvalidCallableAbi,
     /// A callable surface contains more than one ABI directive.
     BindingDuplicateCallableAbi,
+    /// An ordinary predicate declaration does not provide its required body.
+    BindingPredicateBodyRequired,
+    /// A trusted predicate declaration provides a body despite being opaque.
+    BindingTrustedPredicateBodyNotAllowed,
     /// An expression's established type is incompatible with its expected type.
     CheckingIncompatibleExpressionType,
     /// Available constraints cannot establish an expression's canonical type.
@@ -216,6 +220,8 @@ impl DiagnosticKind {
             Self::BindingIncoherentAlternativePattern => 6007,
             Self::BindingInvalidCallableAbi => 6008,
             Self::BindingDuplicateCallableAbi => 6009,
+            Self::BindingPredicateBodyRequired => 6010,
+            Self::BindingTrustedPredicateBodyNotAllowed => 6011,
             Self::CheckingIncompatibleExpressionType => 7001,
             Self::CheckingCannotInferExpressionType => 7002,
             Self::CheckingInvalidConstantExpression => 7003,
@@ -304,6 +310,10 @@ impl DiagnosticKind {
             Self::BindingIncoherentAlternativePattern => "binding_incoherent_alternative_pattern",
             Self::BindingInvalidCallableAbi => "binding_invalid_callable_abi",
             Self::BindingDuplicateCallableAbi => "binding_duplicate_callable_abi",
+            Self::BindingPredicateBodyRequired => "binding_predicate_body_required",
+            Self::BindingTrustedPredicateBodyNotAllowed => {
+                "binding_trusted_predicate_body_not_allowed"
+            }
             Self::CheckingIncompatibleExpressionType => "checking_incompatible_expression_type",
             Self::CheckingCannotInferExpressionType => "checking_cannot_infer_expression_type",
             Self::CheckingInvalidConstantExpression => "checking_invalid_constant_expression",
@@ -405,7 +415,7 @@ mod tests {
         }
     }
 
-    fn all_diagnostic_kinds() -> [DiagnosticKind; 78] {
+    fn all_diagnostic_kinds() -> [DiagnosticKind; 80] {
         [
             DiagnosticKind::SourceFileReadFailed,
             DiagnosticKind::SourceInvalidUtf8,
@@ -456,6 +466,8 @@ mod tests {
             DiagnosticKind::BindingIncoherentAlternativePattern,
             DiagnosticKind::BindingInvalidCallableAbi,
             DiagnosticKind::BindingDuplicateCallableAbi,
+            DiagnosticKind::BindingPredicateBodyRequired,
+            DiagnosticKind::BindingTrustedPredicateBodyNotAllowed,
             DiagnosticKind::CheckingIncompatibleExpressionType,
             DiagnosticKind::CheckingCannotInferExpressionType,
             DiagnosticKind::CheckingInvalidConstantExpression,

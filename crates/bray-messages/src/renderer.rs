@@ -572,6 +572,18 @@ mod tests {
             SeverityKind::Error,
         );
 
+        let missing_predicate_body = Diagnostic::new(
+            DiagnosticId::new(17),
+            DiagnosticKind::BindingPredicateBodyRequired,
+            SeverityKind::Error,
+        );
+
+        let trusted_predicate_body = Diagnostic::new(
+            DiagnosticId::new(18),
+            DiagnosticKind::BindingTrustedPredicateBodyNotAllowed,
+            SeverityKind::Error,
+        );
+
         assert_eq!(
             DiagnosticRenderer::english().render(&shadowing).message(),
             "name is already defined: 'value'"
@@ -580,6 +592,20 @@ mod tests {
         assert_eq!(
             DiagnosticRenderer::english().render(&incoherent).message(),
             "alternative patterns must bind the same names"
+        );
+
+        assert_eq!(
+            DiagnosticRenderer::english()
+                .render(&missing_predicate_body)
+                .message(),
+            "ordinary predicate declaration requires a body"
+        );
+
+        assert_eq!(
+            DiagnosticRenderer::english()
+                .render(&trusted_predicate_body)
+                .message(),
+            "trusted predicate declaration cannot have a body"
         );
     }
 

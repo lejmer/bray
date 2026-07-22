@@ -4,8 +4,8 @@ use bray_symbols::{
     CallableConstness, CallableDependencyContracts, CallableExecution, CallableParameterData,
     CallableParameterMode, CallableParameterName, CallableParameterSymbolId,
     CallableParameterTypeTemplate, CallablePosition, CallableSignatureTemplate, CallableSymbolId,
-    CallableTrust, CallableTypeData, CallableTypeTemplate, DependencyContractTemplateData,
-    ReceiverParameterSignature, ReceiverParameterSymbolId, TypeData, TypeExpressionTemplate,
+    CallableTrust, CallableTypeData, CallableTypeTemplate, ReceiverParameterSignature,
+    ReceiverParameterSymbolId, TypeData, TypeExpressionTemplate,
 };
 use bray_syntax::{
     CallableDirectivesSyntax, CallableModifiersSyntax, LambdaExpressionSyntax, ParameterListSyntax,
@@ -281,7 +281,7 @@ impl TypeExpressionBinder<'_> {
         &self,
     ) -> BinderFactResult<bray_symbols::DependencyContractTemplateId> {
         self.semantic_values
-            .intern_dependency_contract_template(DependencyContractTemplateData::new([]))
+            .empty_dependency_contract_template()
             .map_err(|_| BinderFactError::DependencyUnavailable)
     }
 }
