@@ -1,3 +1,5 @@
+use std::fmt;
+
 use blake3::Hasher;
 
 use crate::header::InterfaceHeader;
@@ -25,6 +27,16 @@ macro_rules! interface_hash {
             /// Returns the canonical hash bytes.
             pub const fn as_bytes(&self) -> &[u8; Self::LENGTH] {
                 &self.0
+            }
+        }
+
+        impl fmt::Display for $name {
+            fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                for byte in self.as_bytes() {
+                    write!(formatter, "{byte:02x}")?;
+                }
+
+                Ok(())
             }
         }
     };
@@ -122,5 +134,10 @@ mod tests {
         assert_eq!(InterfaceArtifactHash::from_bytes(bytes).as_bytes(), &bytes);
         assert_eq!(InterfaceContentHash::from_bytes(bytes).as_bytes(), &bytes);
         assert_eq!(InterfaceSectionHash::from_bytes(bytes).as_bytes(), &bytes);
+
+        assert_eq!(
+            InterfaceContentHash::from_bytes(bytes).to_string(),
+            "5a".repeat(32)
+        );
     }
 }

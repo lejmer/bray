@@ -68,6 +68,16 @@ impl ValidatedPackageInterface {
         self.header
     }
 
+    /// Returns the exact validated artifact byte length.
+    pub const fn byte_len(&self) -> u64 {
+        self.header.declared_file_length()
+    }
+
+    /// Returns the total number of validated sections.
+    pub fn section_count(&self) -> usize {
+        self.directory.len()
+    }
+
     /// Returns one validated section by its stable category.
     pub fn section(&self, tag: InterfaceSectionTag) -> Option<ValidatedInterfaceSection<'_>> {
         let index = self
@@ -114,6 +124,17 @@ impl ValidatedPackageInterface {
         let sections: Vec<_> = self.sections().collect();
 
         crate::semantic::decode_semantic_fact_graph(&sections, surface, owner, kind, self.limits)
+    }
+
+    /// Decodes and validates the complete semantic closure of this interface.
+    pub fn validate_complete(&self) -> Result<(), InterfaceValidationError> {
+        let surface = self.decode_identity_surface()?;
+
+        self.decode_semantic_facts(&surface).map(|_| ())
+    }
+
+    pub(crate) const fn limits(&self) -> InterfaceValidationLimits {
+        self.limits
     }
 }
 

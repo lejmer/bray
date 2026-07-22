@@ -108,7 +108,7 @@ fn selected_fact_sections(
     }
 }
 
-fn validate_decode_allocation(
+pub(crate) fn validate_decode_allocation(
     sections: &[ValidatedInterfaceSection<'_>],
     limits: InterfaceValidationLimits,
 ) -> Result<(), InterfaceValidationError> {

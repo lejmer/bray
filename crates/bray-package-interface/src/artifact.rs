@@ -334,7 +334,7 @@ impl EncodedArtifactSection {
         }
     }
 
-    fn from_surface(section: EncodedSurfaceSection) -> Self {
+    pub(crate) fn from_surface(section: EncodedSurfaceSection) -> Self {
         Self {
             tag: section.tag,
             record_count: section.record_count,
@@ -342,7 +342,7 @@ impl EncodedArtifactSection {
         }
     }
 
-    fn from_semantic(section: crate::EncodedSemanticSection) -> Self {
+    pub(crate) fn from_semantic(section: crate::EncodedSemanticSection) -> Self {
         let (tag, record_count, payload) = section.into_parts();
 
         Self {
@@ -350,6 +350,16 @@ impl EncodedArtifactSection {
             record_count,
             payload,
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) const fn tag(&self) -> InterfaceSectionTag {
+        self.tag
+    }
+
+    #[cfg(test)]
+    pub(crate) fn payload_mut(&mut self) -> &mut Vec<u8> {
+        &mut self.payload
     }
 }
 
