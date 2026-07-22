@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
 use bray_binder::{
-    BinderDependency, BinderFactError, BoundUnitBindingError, BoundUnitComputation,
-    bind_anonymous_callable, bind_callable_body, bind_constant_template, bind_constraint,
-    bind_contract_clause, bind_expression_candidates, bind_predicate_definition,
-    bind_runtime_default, semantic_unit_context,
+    BinderDependency, BoundUnitBindingError, BoundUnitComputation, bind_anonymous_callable,
+    bind_callable_body, bind_constant_template, bind_constraint, bind_contract_clause,
+    bind_expression_candidates, bind_predicate_definition, bind_runtime_default,
+    semantic_unit_context,
 };
 use bray_bound_tree::{
     AnyBoundNodeId, BoundUnit, BoundUnitKey, BoundUnitKind, BoundWalkControl, BoundWalkEvent,
@@ -224,7 +224,7 @@ impl Compilation {
                 let facts = self.binder_facts_for(&key, cancellation)?;
 
                 let result = bind_declared_value_type_templates(&facts, bound.result().value())
-                    .map_err(map_binder_fact_error)?;
+                    .map_err(super::binder::binder_fact_error)?;
 
                 Ok((result, Box::new([])))
             },
@@ -315,7 +315,7 @@ fn expression_candidates(
     });
 
     if let Some(error) = failure {
-        return Err(map_binder_fact_error(error));
+        return Err(super::binder::binder_fact_error(error));
     }
 
     match outcome {
@@ -368,13 +368,6 @@ const fn map_binding_error(error: BoundUnitBindingError) -> FactQueryError {
         | BoundUnitBindingError::Construction
         | BoundUnitBindingError::Binding
         | BoundUnitBindingError::Assembly => FactQueryError::InfrastructureFailure,
-    }
-}
-
-const fn map_binder_fact_error(error: BinderFactError) -> FactQueryError {
-    match error {
-        BinderFactError::Cancelled => FactQueryError::Cancelled,
-        BinderFactError::DependencyUnavailable => FactQueryError::InfrastructureFailure,
     }
 }
 

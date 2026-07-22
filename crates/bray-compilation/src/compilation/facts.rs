@@ -11,7 +11,7 @@ use bray_declarations::{
     DeclarationChunkResult, DeclarationTable, DeclarationTableResult,
     discover_source_unit_declarations, merge_declaration_chunks,
 };
-use bray_diagnostics::DiagnosticBag;
+use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_package_interface::{
     ImportedSemanticFact, ImportedSemanticFacts, PackageInterfaceExportBundle,
 };
@@ -19,9 +19,9 @@ use bray_parser::{SourceUnitSyntaxResult, SyntaxTreeResult, parse_source_unit};
 use bray_source::{SourceId, SourceInput, SourceLoadError, SourceSnapshot, SourceStore};
 use bray_symbols::{
     AvailableCompilerKnownSymbols, CompilerKnownSymbolBuildError, CompilerKnownSymbolProvider,
-    ImplementationCoherenceDomainKey, ImplementationParticipationFact, ImportedSymbolSkeleton,
-    PackageIdentity, SemanticFactResult, SemanticValueStore, SemanticValueStoreCreateError,
-    SymbolGraph,
+    ImplementationCandidateSet, ImplementationCoherenceDomainKey, ImplementationParticipationFact,
+    ImplementationRequirementKey, ImportedSymbolSkeleton, PackageIdentity, SemanticFactResult,
+    SemanticValueStore, SemanticValueStoreCreateError, SymbolGraph,
 };
 use bray_syntax::SyntaxTree;
 
@@ -72,18 +72,24 @@ pub(super) struct CompilationState {
     pub(super) loaded_dependency_interfaces:
         Vec<FactCell<super::imported::LoadedDependencyInterface>>,
     pub(super) imported_symbol_skeleton:
-        FactCell<bray_diagnostics::DiagnosticResult<Option<Arc<ImportedSymbolSkeleton>>>>,
+        FactCell<DiagnosticResult<Option<Arc<ImportedSymbolSkeleton>>>>,
     pub(super) imported_semantic_graphs:
         Vec<FactCell<bray_diagnostics::DiagnosticResult<Option<Arc<ImportedSemanticFacts>>>>>,
     pub(super) imported_semantic_facts: FactCellMap<
         ImportedSemanticFactKey,
         Arc<bray_diagnostics::DiagnosticResult<Arc<[ImportedSemanticFact]>>>,
     >,
+    pub(super) imported_diagnostics: FactCell<DiagnosticBag>,
     pub(super) implementation_participation: FactCellMap<
         ImplementationCoherenceDomainKey,
         Arc<SemanticFactResult<ImplementationParticipationFact>>,
     >,
-    pub(super) imported_diagnostics: FactCell<DiagnosticBag>,
+    pub(super) implementation_index:
+        FactCell<DiagnosticResult<Arc<super::implementation::ImplementationHeaderIndex>>>,
+    pub(super) implementation_candidate_sets: FactCellMap<
+        ImplementationRequirementKey,
+        Arc<DiagnosticResult<ImplementationCandidateSet>>,
+    >,
     pub(super) semantic_diagnostics: FactCell<DiagnosticBag>,
     pub(super) symbol_facts: CompilationSymbolFacts,
     pub(super) bound_units: UnitFactCache<BoundUnit>,
@@ -173,8 +179,10 @@ impl Compilation {
                 imported_symbol_skeleton: FactCell::new(),
                 imported_semantic_graphs: empty_fact_caches(dependency_count),
                 imported_semantic_facts: FactCellMap::new(),
-                implementation_participation: FactCellMap::new(),
                 imported_diagnostics: FactCell::new(),
+                implementation_participation: FactCellMap::new(),
+                implementation_index: FactCell::new(),
+                implementation_candidate_sets: FactCellMap::new(),
                 semantic_diagnostics: FactCell::new(),
                 symbol_facts: CompilationSymbolFacts::new(),
                 bound_units: UnitFactCache::new(),
@@ -458,13 +466,8 @@ impl Compilation {
         cancellation: &CancellationToken,
         compute: impl FnOnce(
             &CancellationToken,
-        ) -> Result<
-            (
-                bray_diagnostics::DiagnosticResult<T>,
-                Box<[BinderDependency]>,
-            ),
-            FactQueryError,
-        >,
+        )
+            -> Result<(DiagnosticResult<T>, Box<[BinderDependency]>), FactQueryError>,
     ) -> Result<Arc<PublishedUnitFact<T>>, FactQueryError> {
         cache.get_or_compute(
             &self.state.fact_runtime,

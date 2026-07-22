@@ -15,8 +15,8 @@ use bray_symbols::{
     UnionPayloadFieldDefaultTemplateFact, UnionPayloadFieldSymbolId, UnionPayloadFieldTypeFact,
 };
 
+use super::super::binder_fact_error;
 use super::super::context::CompilationBinderFacts;
-use super::cache::fact_error;
 use crate::compilation::Compilation;
 use crate::fact::{CancellationToken, FactQueryError, SymbolCompletionError};
 
@@ -236,7 +236,7 @@ where
 {
     let result = facts
         .symbol_fact(SymbolFactRequest::<C>::new(owner))
-        .map_err(fact_error)?;
+        .map_err(binder_fact_error)?;
 
     // Completion aggregates independently owned fact diagnostics after all work succeeds.
     Ok(result.diagnostics().clone())

@@ -1,0 +1,328 @@
+use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
+
+use bray_base::shared_slice;
+use bray_diagnostics::DiagnosticBag;
+use bray_symbols::{
+    BorrowKind, GenericConstraintTemplate, GenericDeclarationTemplate, GenericParameterSymbolId,
+    ImplementationSymbolId, NamedTypeSymbolId, SemanticValueStore, SemanticValueStoreError,
+    SymbolKey, TargetFactDependency, TraitApplicationId, TraitSymbolId, TypeData, TypeId,
+};
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+enum SubjectBucket {
+    Generic,
+    Named(NamedTypeSymbolId),
+    BorrowGeneric(BorrowKind),
+    BorrowNamed(BorrowKind, NamedTypeSymbolId),
+    Exact(TypeId),
+}
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+struct HeaderBucket {
+    trait_definition: TraitSymbolId,
+    subject: SubjectBucket,
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct ImplementationHeader {
+    key: SymbolKey,
+    implementation: ImplementationSymbolId,
+    subject: TypeId,
+    trait_application: TraitApplicationId,
+    generic: GenericDeclarationTemplate,
+    target_dependencies: Arc<[TargetFactDependency]>,
+    diagnostics: DiagnosticBag,
+}
+
+impl ImplementationHeader {
+    pub(super) fn new(
+        key: SymbolKey,
+        implementation: ImplementationSymbolId,
+        subject: TypeId,
+        trait_application: TraitApplicationId,
+        generic: GenericDeclarationTemplate,
+        target_dependencies: impl IntoIterator<Item = TargetFactDependency>,
+        diagnostics: DiagnosticBag,
+    ) -> Self {
+        Self {
+            key,
+            implementation,
+            subject,
+            trait_application,
+            generic,
+            target_dependencies: shared_slice(target_dependencies),
+            diagnostics,
+        }
+    }
+
+    pub(super) const fn key(&self) -> &SymbolKey {
+        &self.key
+    }
+
+    pub(super) const fn implementation(&self) -> ImplementationSymbolId {
+        self.implementation
+    }
+
+    pub(super) const fn subject(&self) -> TypeId {
+        self.subject
+    }
+
+    pub(super) const fn trait_application(&self) -> TraitApplicationId {
+        self.trait_application
+    }
+
+    pub(super) fn parameters(&self) -> &[GenericParameterSymbolId] {
+        self.generic.parameters()
+    }
+
+    pub(super) fn constraints(&self) -> &[GenericConstraintTemplate] {
+        self.generic.constraints()
+    }
+
+    pub(super) fn target_dependencies(&self) -> &[TargetFactDependency] {
+        &self.target_dependencies
+    }
+
+    pub(super) const fn diagnostics(&self) -> &DiagnosticBag {
+        &self.diagnostics
+    }
+}
+
+#[derive(Debug)]
+pub(in crate::compilation) struct ImplementationHeaderIndex {
+    buckets: BTreeMap<HeaderBucket, Arc<[ImplementationHeader]>>,
+}
+
+impl ImplementationHeaderIndex {
+    pub(super) fn try_new(
+        headers: impl IntoIterator<Item = ImplementationHeader>,
+        values: &SemanticValueStore,
+    ) -> Result<Self, SemanticValueStoreError> {
+        let mut buckets: BTreeMap<HeaderBucket, Vec<ImplementationHeader>> = BTreeMap::new();
+
+        for header in headers {
+            let application = values.trait_application_data(header.trait_application)?;
+            let subject = subject_bucket(&header, values)?;
+
+            let bucket = HeaderBucket {
+                trait_definition: application.definition(),
+                subject,
+            };
+
+            buckets.entry(bucket).or_default().push(header);
+        }
+
+        let buckets = buckets
+            .into_iter()
+            .map(|(key, mut headers)| {
+                headers.sort_by(|left, right| left.key.cmp(&right.key));
+
+                (key, Arc::from(headers))
+            })
+            .collect();
+
+        Ok(Self { buckets })
+    }
+
+    pub(super) fn compatible_headers(
+        &self,
+        subject: TypeId,
+        trait_definition: TraitSymbolId,
+        values: &SemanticValueStore,
+    ) -> Result<Vec<&ImplementationHeader>, SemanticValueStoreError> {
+        let buckets = query_buckets(subject, values)?;
+
+        Ok(merge_headers(
+            buckets
+                .into_iter()
+                .map(|subject| self.bucket(trait_definition, subject)),
+        ))
+    }
+
+    fn bucket(
+        &self,
+        trait_definition: TraitSymbolId,
+        subject: SubjectBucket,
+    ) -> &[ImplementationHeader] {
+        self.buckets
+            .get(&HeaderBucket {
+                trait_definition,
+                subject,
+            })
+            .map(Arc::as_ref)
+            .unwrap_or(&[])
+    }
+}
+
+fn merge_headers<'index>(
+    buckets: impl IntoIterator<Item = &'index [ImplementationHeader]>,
+) -> Vec<&'index ImplementationHeader> {
+    let mut merged = buckets
+        .into_iter()
+        .flat_map(<[ImplementationHeader]>::iter)
+        .collect::<Vec<_>>();
+
+    merged.sort_by(|left, right| left.key.cmp(&right.key));
+
+    merged
+}
+
+fn subject_bucket(
+    header: &ImplementationHeader,
+    values: &SemanticValueStore,
+) -> Result<SubjectBucket, SemanticValueStoreError> {
+    let parameters = header.parameters().iter().copied().collect::<BTreeSet<_>>();
+
+    classify_subject(header.subject, &parameters, values)
+}
+
+fn classify_subject(
+    subject: TypeId,
+    parameters: &BTreeSet<GenericParameterSymbolId>,
+    values: &SemanticValueStore,
+) -> Result<SubjectBucket, SemanticValueStoreError> {
+    let data = values.type_data(subject)?;
+
+    match data.as_ref() {
+        TypeData::TypeParameter(parameter)
+            if parameters.contains(&GenericParameterSymbolId::Type(*parameter)) =>
+        {
+            Ok(SubjectBucket::Generic)
+        }
+        TypeData::Named { definition, .. } => Ok(SubjectBucket::Named(*definition)),
+        TypeData::Borrow { kind, target } => {
+            let target = values.type_data(*target)?;
+
+            match target.as_ref() {
+                TypeData::TypeParameter(parameter)
+                    if parameters.contains(&GenericParameterSymbolId::Type(*parameter)) =>
+                {
+                    Ok(SubjectBucket::BorrowGeneric(*kind))
+                }
+                TypeData::Named { definition, .. } => {
+                    Ok(SubjectBucket::BorrowNamed(*kind, *definition))
+                }
+                _ => Ok(SubjectBucket::Exact(subject)),
+            }
+        }
+        _ => Ok(SubjectBucket::Exact(subject)),
+    }
+}
+
+fn query_buckets(
+    subject: TypeId,
+    values: &SemanticValueStore,
+) -> Result<Vec<SubjectBucket>, SemanticValueStoreError> {
+    let data = values.type_data(subject)?;
+
+    let exact = match data.as_ref() {
+        TypeData::Named { definition, .. } => SubjectBucket::Named(*definition),
+        TypeData::Borrow { kind, target } => {
+            let target = values.type_data(*target)?;
+
+            match target.as_ref() {
+                TypeData::Named { definition, .. } => {
+                    SubjectBucket::BorrowNamed(*kind, *definition)
+                }
+                _ => SubjectBucket::Exact(subject),
+            }
+        }
+        _ => SubjectBucket::Exact(subject),
+    };
+
+    let mut buckets = vec![exact, SubjectBucket::Generic];
+
+    if let TypeData::Borrow { kind, .. } = data.as_ref() {
+        buckets.push(SubjectBucket::BorrowGeneric(*kind));
+    }
+
+    Ok(buckets)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use bray_symbols::{
+        BorrowKind, GenericOwnerId, GenericSubstitutionData, NamedTypeSymbolId, SemanticValueStore,
+        StructSymbolId, SymbolId, TypeData,
+    };
+
+    use super::{SubjectBucket, query_buckets};
+
+    #[test]
+    fn borrowed_requirements_search_unwrapped_and_borrow_generic_headers() {
+        let values = semantic_values();
+
+        let structure = StructSymbolId::from_symbol_id(SymbolId::new(1));
+
+        let substitution = empty_substitution(&values, structure);
+
+        let named = values
+            .intern_type(TypeData::Named {
+                definition: NamedTypeSymbolId::Struct(structure),
+                substitution,
+            })
+            .unwrap_or_else(|error| panic!("named type must be valid: {error:?}"));
+
+        let named_borrow = values
+            .intern_type(TypeData::Borrow {
+                kind: BorrowKind::Shared,
+                target: named,
+            })
+            .unwrap_or_else(|error| panic!("named borrow must be valid: {error:?}"));
+
+        assert_eq!(
+            query_buckets(named_borrow, &values),
+            Ok(vec![
+                SubjectBucket::BorrowNamed(
+                    BorrowKind::Shared,
+                    NamedTypeSymbolId::Struct(structure),
+                ),
+                SubjectBucket::Generic,
+                SubjectBucket::BorrowGeneric(BorrowKind::Shared),
+            ])
+        );
+
+        let tuple = values
+            .intern_type(TypeData::Tuple(Arc::from([])))
+            .unwrap_or_else(|error| panic!("tuple type must be valid: {error:?}"));
+
+        let tuple_borrow = values
+            .intern_type(TypeData::Borrow {
+                kind: BorrowKind::Mutable,
+                target: tuple,
+            })
+            .unwrap_or_else(|error| panic!("tuple borrow must be valid: {error:?}"));
+
+        assert_eq!(
+            query_buckets(tuple_borrow, &values),
+            Ok(vec![
+                SubjectBucket::Exact(tuple_borrow),
+                SubjectBucket::Generic,
+                SubjectBucket::BorrowGeneric(BorrowKind::Mutable),
+            ])
+        );
+    }
+
+    fn semantic_values() -> SemanticValueStore {
+        SemanticValueStore::try_new()
+            .unwrap_or_else(|error| panic!("semantic value store must build: {error:?}"))
+    }
+
+    fn empty_substitution(
+        values: &SemanticValueStore,
+        owner: StructSymbolId,
+    ) -> bray_symbols::GenericSubstitutionId {
+        let owner = GenericOwnerId::try_new(owner.into())
+            .unwrap_or_else(|| panic!("structure must support generic substitution"));
+
+        let substitution = GenericSubstitutionData::try_new(owner, [], [])
+            .unwrap_or_else(|error| panic!("empty substitution must be valid: {error:?}"));
+
+        values
+            .intern_generic_substitution(substitution)
+            .unwrap_or_else(|error| panic!("empty substitution must be interned: {error:?}"))
+    }
+}
