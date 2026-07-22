@@ -85,6 +85,7 @@ impl Compilation {
     ) -> Result<DiagnosticResult<ConstantDefinitionState>, FactQueryError> {
         let Some(key) = self.constant_template_key(definition)? else {
             let facts = self.binder_facts(cancellation)?;
+
             let imported = facts
                 .imported_fact_address(definition.into_any())
                 .map_err(binder_fact_error)?;

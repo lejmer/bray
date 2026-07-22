@@ -34,6 +34,7 @@ pub(super) fn checked_source_expression(
         .map_err(super::super::binding::binder_error)?;
 
     let (types, _) = semantics.result().value();
+
     let result = types
         .expression(root)
         .ok_or(BinderFactError::DependencyUnavailable)?;
