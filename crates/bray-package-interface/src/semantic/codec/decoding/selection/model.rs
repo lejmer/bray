@@ -18,10 +18,6 @@ impl<T> RecordSet<T> {
         }
     }
 
-    pub(super) fn contains(&self, index: u32) -> bool {
-        self.values.contains_key(&index)
-    }
-
     pub(super) fn insert(&mut self, index: u32, value: T) {
         self.values.insert(index, value);
     }

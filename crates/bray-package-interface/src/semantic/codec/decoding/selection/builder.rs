@@ -7,13 +7,11 @@ use super::model::SelectedRecords;
 use super::remap::remap_selected_records;
 use crate::semantic::codec::common::SemanticDecodeContext;
 use crate::semantic::model::{
-    InterfaceConstantProjection, InterfaceConstantTerm, InterfaceConstantTermId,
-    InterfaceConstantValueId, InterfaceConstantValueKind, InterfaceDependencyGuard,
-    InterfaceDependencyProjection, InterfaceDependencyRequirement,
+    InterfaceConstantProjection, InterfaceConstantTerm, InterfaceConstantValueKind,
+    InterfaceDependencyGuard, InterfaceDependencyProjection, InterfaceDependencyRequirement,
     InterfaceDependencyRequirementValue, InterfaceDependencySubject,
-    InterfaceDependencySubjectRoot, InterfaceGenericArgument, InterfaceGenericSubstitutionId,
-    InterfaceImplementationInstanceId, InterfaceSemanticFactEntry, InterfaceSemanticFactKind,
-    InterfaceSemanticFacts, InterfaceTraitApplicationId, InterfaceType, InterfaceTypeId,
+    InterfaceDependencySubjectRoot, InterfaceGenericArgument, InterfaceSemanticFactEntry,
+    InterfaceSemanticFactKind, InterfaceSemanticFacts, InterfaceType,
 };
 use crate::{
     InterfaceSectionTag, InterfaceSymbolReference, InterfaceValidationError,
@@ -97,22 +95,27 @@ impl<'bytes> SelectedTables<'bytes> {
 }
 
 #[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
-enum RecordKind {
-    Substitution,
-    TraitApplication,
-    CallableInstance,
-    ImplementationInstance,
-    Type,
-    ConstantValue,
-    ConstantTerm,
-    DependencyContract,
+enum PendingRecord {
+    Constraint(u32),
+    Implementation(u32),
+    Coherence(u32),
+    Target(u32),
+    Substitution(u32),
+    TraitApplication(u32),
+    CallableInstance(u32),
+    ImplementationInstance(u32),
+    Type(u32),
+    ConstantValue(u32),
+    ConstantTerm(u32),
+    DependencyContract(u32),
 }
 
 struct SelectionBuilder<'bytes> {
     tables: SelectedTables<'bytes>,
     context: SemanticDecodeContext,
     owner: InterfaceSymbolReference,
-    visiting: BTreeSet<(RecordKind, u32)>,
+    pending: Vec<PendingRecord>,
+    scheduled: BTreeSet<PendingRecord>,
     records: SelectedRecords,
 }
 
@@ -126,7 +129,8 @@ impl<'bytes> SelectionBuilder<'bytes> {
             tables,
             context,
             owner: InterfaceSymbolReference::Local(owner),
-            visiting: BTreeSet::new(),
+            pending: Vec::new(),
+            scheduled: BTreeSet::new(),
             records: SelectedRecords::new(),
         }
     }
@@ -146,7 +150,7 @@ impl<'bytes> SelectionBuilder<'bytes> {
                 InterfaceSemanticFactKind::GenericConstraint,
                 InterfaceSectionTag::Contracts,
             )? {
-                self.include_constraint(index)?;
+                self.enqueue(PendingRecord::Constraint(index));
             }
         }
 
@@ -161,7 +165,7 @@ impl<'bytes> SelectionBuilder<'bytes> {
                 return Err(InterfaceValidationError::Malformed);
             };
 
-            self.include_implementation(*index)?;
+            self.enqueue(PendingRecord::Implementation(*index));
         }
 
         if matches!(
@@ -173,7 +177,38 @@ impl<'bytes> SelectionBuilder<'bytes> {
                 InterfaceSemanticFactKind::TargetFact,
                 InterfaceSectionTag::TargetDependencies,
             )? {
-                self.include_target(index)?;
+                self.enqueue(PendingRecord::Target(index));
+            }
+        }
+
+        self.include_pending_records()
+    }
+
+    fn enqueue(&mut self, record: PendingRecord) {
+        if self.scheduled.insert(record) {
+            self.pending.push(record);
+        }
+    }
+
+    fn include_pending_records(&mut self) -> Result<(), InterfaceValidationError> {
+        while let Some(record) = self.pending.pop() {
+            match record {
+                PendingRecord::Constraint(index) => self.include_constraint(index)?,
+                PendingRecord::Implementation(index) => self.include_implementation(index)?,
+                PendingRecord::Coherence(index) => self.include_coherence(index)?,
+                PendingRecord::Target(index) => self.include_target(index)?,
+                PendingRecord::Substitution(index) => self.include_substitution(index)?,
+                PendingRecord::TraitApplication(index) => self.include_trait_application(index)?,
+                PendingRecord::CallableInstance(index) => self.include_callable_instance(index)?,
+                PendingRecord::ImplementationInstance(index) => {
+                    self.include_implementation_instance(index)?;
+                }
+                PendingRecord::Type(index) => self.include_type(index)?,
+                PendingRecord::ConstantValue(index) => self.include_constant_value(index)?,
+                PendingRecord::ConstantTerm(index) => self.include_constant_term(index)?,
+                PendingRecord::DependencyContract(index) => {
+                    self.include_dependency_contract(index)?;
+                }
             }
         }
 
@@ -204,10 +239,6 @@ impl<'bytes> SelectionBuilder<'bytes> {
     }
 
     fn include_constraint(&mut self, index: u32) -> Result<(), InterfaceValidationError> {
-        if self.records.constraints.contains(index) {
-            return Ok(());
-        }
-
         let constraint = self.tables.contracts.constraints.decode(
             index,
             &mut self.context,
@@ -218,17 +249,15 @@ impl<'bytes> SelectionBuilder<'bytes> {
             return Err(InterfaceValidationError::Malformed);
         }
 
-        self.include_dependency_contract(constraint.predicate.dependency_contract)?;
+        self.enqueue(PendingRecord::DependencyContract(
+            constraint.predicate.dependency_contract.raw(),
+        ));
         self.records.constraints.insert(index, constraint);
 
         Ok(())
     }
 
     fn include_implementation(&mut self, index: u32) -> Result<(), InterfaceValidationError> {
-        if self.records.implementations.contains(index) {
-            return Ok(());
-        }
-
         let tables = self
             .tables
             .implementations
@@ -246,14 +275,14 @@ impl<'bytes> SelectionBuilder<'bytes> {
             return Err(InterfaceValidationError::Malformed);
         }
 
-        self.include_type(decoded.implementation.subject)?;
+        self.enqueue(PendingRecord::Type(decoded.implementation.subject.raw()));
 
         if let Some(application) = decoded.implementation.trait_application {
-            self.include_trait_application(application)?;
+            self.enqueue(PendingRecord::TraitApplication(application.raw()));
         }
 
         for coherence in decoded.coherence {
-            self.include_coherence(coherence)?;
+            self.enqueue(PendingRecord::Coherence(coherence));
         }
 
         self.records
@@ -264,10 +293,6 @@ impl<'bytes> SelectionBuilder<'bytes> {
     }
 
     fn include_coherence(&mut self, index: u32) -> Result<(), InterfaceValidationError> {
-        if self.records.coherence.contains(index) {
-            return Ok(());
-        }
-
         let tables = self
             .tables
             .implementations
@@ -284,8 +309,10 @@ impl<'bytes> SelectionBuilder<'bytes> {
             return Err(InterfaceValidationError::Malformed);
         }
 
-        self.include_type(coherence.subject)?;
-        self.include_trait_application(coherence.trait_application)?;
+        self.enqueue(PendingRecord::Type(coherence.subject.raw()));
+        self.enqueue(PendingRecord::TraitApplication(
+            coherence.trait_application.raw(),
+        ));
 
         self.records.coherence.insert(index, coherence);
 
@@ -293,10 +320,6 @@ impl<'bytes> SelectionBuilder<'bytes> {
     }
 
     fn include_target(&mut self, index: u32) -> Result<(), InterfaceValidationError> {
-        if self.records.target_dependencies.contains(index) {
-            return Ok(());
-        }
-
         let tables = self
             .tables
             .targets
@@ -312,24 +335,13 @@ impl<'bytes> SelectionBuilder<'bytes> {
             return Err(InterfaceValidationError::Malformed);
         }
 
-        self.include_constant_value(target.value)?;
+        self.enqueue(PendingRecord::ConstantValue(target.value.raw()));
         self.records.target_dependencies.insert(index, target);
 
         Ok(())
     }
 
-    fn include_substitution(
-        &mut self,
-        id: InterfaceGenericSubstitutionId,
-    ) -> Result<(), InterfaceValidationError> {
-        let index = id.raw();
-
-        if self.records.substitutions.contains(index)
-            || !self.visiting.insert((RecordKind::Substitution, index))
-        {
-            return Ok(());
-        }
-
+    fn include_substitution(&mut self, index: u32) -> Result<(), InterfaceValidationError> {
         let substitution = self.tables.types.substitutions.decode(
             index,
             &mut self.context,
@@ -338,64 +350,43 @@ impl<'bytes> SelectionBuilder<'bytes> {
 
         for binding in &*substitution.bindings {
             match binding.argument {
-                InterfaceGenericArgument::Type(ty) => self.include_type(ty)?,
-                InterfaceGenericArgument::Constant(term) => self.include_constant_term(term)?,
+                InterfaceGenericArgument::Type(ty) => {
+                    self.enqueue(PendingRecord::Type(ty.raw()));
+                }
+                InterfaceGenericArgument::Constant(term) => {
+                    self.enqueue(PendingRecord::ConstantTerm(term.raw()));
+                }
             }
         }
 
-        self.visiting.remove(&(RecordKind::Substitution, index));
         self.records.substitutions.insert(index, substitution);
 
         Ok(())
     }
 
-    fn include_trait_application(
-        &mut self,
-        id: InterfaceTraitApplicationId,
-    ) -> Result<(), InterfaceValidationError> {
-        let index = id.raw();
-
-        if self.records.trait_applications.contains(index)
-            || !self.visiting.insert((RecordKind::TraitApplication, index))
-        {
-            return Ok(());
-        }
-
+    fn include_trait_application(&mut self, index: u32) -> Result<(), InterfaceValidationError> {
         let application = self.tables.types.trait_applications.decode(
             index,
             &mut self.context,
             value::decode_trait_application,
         )?;
 
-        self.include_substitution(application.substitution)?;
+        self.enqueue(PendingRecord::Substitution(application.substitution.raw()));
 
-        self.visiting.remove(&(RecordKind::TraitApplication, index));
         self.records.trait_applications.insert(index, application);
 
         Ok(())
     }
 
-    fn include_callable_instance(
-        &mut self,
-        id: crate::InterfaceCallableInstanceId,
-    ) -> Result<(), InterfaceValidationError> {
-        let index = id.raw();
-
-        if self.records.callable_instances.contains(index)
-            || !self.visiting.insert((RecordKind::CallableInstance, index))
-        {
-            return Ok(());
-        }
-
+    fn include_callable_instance(&mut self, index: u32) -> Result<(), InterfaceValidationError> {
         let instance = self.tables.types.callable_instances.decode(
             index,
             &mut self.context,
             value::decode_callable_instance,
         )?;
 
-        self.include_substitution(instance.substitution)?;
+        self.enqueue(PendingRecord::Substitution(instance.substitution.raw()));
 
-        self.visiting.remove(&(RecordKind::CallableInstance, index));
         self.records.callable_instances.insert(index, instance);
 
         Ok(())
@@ -403,28 +394,15 @@ impl<'bytes> SelectionBuilder<'bytes> {
 
     fn include_implementation_instance(
         &mut self,
-        id: InterfaceImplementationInstanceId,
+        index: u32,
     ) -> Result<(), InterfaceValidationError> {
-        let index = id.raw();
-
-        if self.records.implementation_instances.contains(index)
-            || !self
-                .visiting
-                .insert((RecordKind::ImplementationInstance, index))
-        {
-            return Ok(());
-        }
-
         let instance = self.tables.types.implementation_instances.decode(
             index,
             &mut self.context,
             value::decode_implementation_instance,
         )?;
 
-        self.include_substitution(instance.substitution)?;
-
-        self.visiting
-            .remove(&(RecordKind::ImplementationInstance, index));
+        self.enqueue(PendingRecord::Substitution(instance.substitution.raw()));
 
         self.records
             .implementation_instances
@@ -433,13 +411,7 @@ impl<'bytes> SelectionBuilder<'bytes> {
         Ok(())
     }
 
-    fn include_type(&mut self, id: InterfaceTypeId) -> Result<(), InterfaceValidationError> {
-        let index = id.raw();
-
-        if self.records.types.contains(index) || !self.visiting.insert((RecordKind::Type, index)) {
-            return Ok(());
-        }
-
+    fn include_type(&mut self, index: u32) -> Result<(), InterfaceValidationError> {
         let ty = self
             .tables
             .types
@@ -450,34 +422,36 @@ impl<'bytes> SelectionBuilder<'bytes> {
 
         match &ty {
             InterfaceType::Named { substitution, .. } => {
-                self.include_substitution(*substitution)?;
+                self.enqueue(PendingRecord::Substitution(substitution.raw()));
             }
             InterfaceType::AssociatedTypeProjection {
                 subject,
                 application,
                 ..
             } => {
-                self.include_type(*subject)?;
-                self.include_trait_application(*application)?;
+                self.enqueue(PendingRecord::Type(subject.raw()));
+                self.enqueue(PendingRecord::TraitApplication(application.raw()));
             }
             InterfaceType::Tuple(elements) => {
                 for element in &**elements {
-                    self.include_type(*element)?;
+                    self.enqueue(PendingRecord::Type(element.raw()));
                 }
             }
             InterfaceType::Array { element, length } => {
-                self.include_type(*element)?;
-                self.include_constant_term(*length)?;
+                self.enqueue(PendingRecord::Type(element.raw()));
+                self.enqueue(PendingRecord::ConstantTerm(length.raw()));
             }
             InterfaceType::Slice(target)
             | InterfaceType::Nullable(target)
-            | InterfaceType::Borrow { target, .. } => self.include_type(*target)?,
+            | InterfaceType::Borrow { target, .. } => {
+                self.enqueue(PendingRecord::Type(target.raw()));
+            }
             InterfaceType::TraitView(application) => {
-                self.include_trait_application(*application)?;
+                self.enqueue(PendingRecord::TraitApplication(application.raw()));
             }
             InterfaceType::OwnedIndirection { storage, target } => {
-                self.include_type(*storage)?;
-                self.include_type(*target)?;
+                self.enqueue(PendingRecord::Type(storage.raw()));
+                self.enqueue(PendingRecord::Type(target.raw()));
             }
             InterfaceType::Callable {
                 parameters,
@@ -487,37 +461,27 @@ impl<'bytes> SelectionBuilder<'bytes> {
                 ..
             } => {
                 for parameter in &**parameters {
-                    self.include_type(parameter.ty)?;
+                    self.enqueue(PendingRecord::Type(parameter.ty.raw()));
                 }
 
-                self.include_type(*result)?;
-                self.include_dependency_contract(*invocation_dependency_contract)?;
+                self.enqueue(PendingRecord::Type(result.raw()));
+                self.enqueue(PendingRecord::DependencyContract(
+                    invocation_dependency_contract.raw(),
+                ));
 
                 if let Some(contract) = deferred_dependency_contract {
-                    self.include_dependency_contract(*contract)?;
+                    self.enqueue(PendingRecord::DependencyContract(contract.raw()));
                 }
             }
             InterfaceType::TypeParameter(_) | InterfaceType::ContextualSelf(_) => {}
         }
 
-        self.visiting.remove(&(RecordKind::Type, index));
         self.records.types.insert(index, ty);
 
         Ok(())
     }
 
-    fn include_constant_value(
-        &mut self,
-        id: InterfaceConstantValueId,
-    ) -> Result<(), InterfaceValidationError> {
-        let index = id.raw();
-
-        if self.records.constant_values.contains(index)
-            || !self.visiting.insert((RecordKind::ConstantValue, index))
-        {
-            return Ok(());
-        }
-
+    fn include_constant_value(&mut self, index: u32) -> Result<(), InterfaceValidationError> {
         let value =
             self.tables
                 .constants
@@ -526,22 +490,22 @@ impl<'bytes> SelectionBuilder<'bytes> {
                     value::decode_constant_value_record(reader, context.limits(), context)
                 })?;
 
-        self.include_type(value.ty)?;
+        self.enqueue(PendingRecord::Type(value.ty.raw()));
 
         match &value.kind {
             InterfaceConstantValueKind::NullablePresent(value) => {
-                self.include_constant_value(*value)?;
+                self.enqueue(PendingRecord::ConstantValue(value.raw()));
             }
             InterfaceConstantValueKind::Tuple(values)
             | InterfaceConstantValueKind::Array(values)
             | InterfaceConstantValueKind::Product(values) => {
                 for value in &**values {
-                    self.include_constant_value(*value)?;
+                    self.enqueue(PendingRecord::ConstantValue(value.raw()));
                 }
             }
             InterfaceConstantValueKind::Union { fields, .. } => {
                 for field in &**fields {
-                    self.include_constant_value(*field)?;
+                    self.enqueue(PendingRecord::ConstantValue(field.raw()));
                 }
             }
             InterfaceConstantValueKind::Boolean(_)
@@ -554,24 +518,12 @@ impl<'bytes> SelectionBuilder<'bytes> {
             | InterfaceConstantValueKind::NullableAbsent => {}
         }
 
-        self.visiting.remove(&(RecordKind::ConstantValue, index));
         self.records.constant_values.insert(index, value);
 
         Ok(())
     }
 
-    fn include_constant_term(
-        &mut self,
-        id: InterfaceConstantTermId,
-    ) -> Result<(), InterfaceValidationError> {
-        let index = id.raw();
-
-        if self.records.constant_terms.contains(index)
-            || !self.visiting.insert((RecordKind::ConstantTerm, index))
-        {
-            return Ok(());
-        }
-
+    fn include_constant_term(&mut self, index: u32) -> Result<(), InterfaceValidationError> {
         let term = self.tables.constants.terms.decode(
             index,
             &mut self.context,
@@ -579,38 +531,42 @@ impl<'bytes> SelectionBuilder<'bytes> {
         )?;
 
         match &term {
-            InterfaceConstantTerm::Value(value) => self.include_constant_value(*value)?,
-            InterfaceConstantTerm::Unary { operand, .. } => self.include_constant_term(*operand)?,
+            InterfaceConstantTerm::Value(value) => {
+                self.enqueue(PendingRecord::ConstantValue(value.raw()));
+            }
+            InterfaceConstantTerm::Unary { operand, .. } => {
+                self.enqueue(PendingRecord::ConstantTerm(operand.raw()));
+            }
             InterfaceConstantTerm::Binary { left, right, .. } => {
-                self.include_constant_term(*left)?;
-                self.include_constant_term(*right)?;
+                self.enqueue(PendingRecord::ConstantTerm(left.raw()));
+                self.enqueue(PendingRecord::ConstantTerm(right.raw()));
             }
             InterfaceConstantTerm::DefinitionApplication {
                 substitution,
                 selected_implementation,
                 ..
             } => {
-                self.include_substitution(*substitution)?;
+                self.enqueue(PendingRecord::Substitution(substitution.raw()));
 
                 if let Some(implementation) = selected_implementation {
-                    self.include_implementation_instance(*implementation)?;
+                    self.enqueue(PendingRecord::ImplementationInstance(implementation.raw()));
                 }
             }
             InterfaceConstantTerm::Call {
                 callable,
                 arguments,
             } => {
-                self.include_callable_instance(*callable)?;
+                self.enqueue(PendingRecord::CallableInstance(callable.raw()));
 
                 for argument in &**arguments {
-                    self.include_constant_term(*argument)?;
+                    self.enqueue(PendingRecord::ConstantTerm(argument.raw()));
                 }
             }
             InterfaceConstantTerm::Projection { subject, kind } => {
-                self.include_constant_term(*subject)?;
+                self.enqueue(PendingRecord::ConstantTerm(subject.raw()));
 
                 if let InterfaceConstantProjection::ArrayElement(index) = kind {
-                    self.include_constant_term(*index)?;
+                    self.enqueue(PendingRecord::ConstantTerm(index.raw()));
                 }
             }
             InterfaceConstantTerm::IntegerLiteral { .. }
@@ -618,26 +574,12 @@ impl<'bytes> SelectionBuilder<'bytes> {
             | InterfaceConstantTerm::TargetFact(_) => {}
         }
 
-        self.visiting.remove(&(RecordKind::ConstantTerm, index));
         self.records.constant_terms.insert(index, term);
 
         Ok(())
     }
 
-    fn include_dependency_contract(
-        &mut self,
-        id: crate::InterfaceDependencyContractId,
-    ) -> Result<(), InterfaceValidationError> {
-        let index = id.raw();
-
-        if self.records.dependency_contracts.contains(index)
-            || !self
-                .visiting
-                .insert((RecordKind::DependencyContract, index))
-        {
-            return Ok(());
-        }
-
+    fn include_dependency_contract(&mut self, index: u32) -> Result<(), InterfaceValidationError> {
         let contract = self.tables.contracts.dependencies.decode(
             index,
             &mut self.context,
@@ -647,60 +589,49 @@ impl<'bytes> SelectionBuilder<'bytes> {
         )?;
 
         for requirement in &*contract.requirements {
-            self.include_dependency_requirement(requirement)?;
+            self.include_dependency_requirement(requirement);
         }
-
-        self.visiting
-            .remove(&(RecordKind::DependencyContract, index));
 
         self.records.dependency_contracts.insert(index, contract);
 
         Ok(())
     }
 
-    fn include_dependency_requirement(
-        &mut self,
-        requirement: &InterfaceDependencyRequirement,
-    ) -> Result<(), InterfaceValidationError> {
-        match &requirement.value {
-            InterfaceDependencyRequirementValue::Direct { subject, .. } => {
-                self.include_dependency_subject(subject)?;
-            }
-            InterfaceDependencyRequirementValue::Guarded {
-                guard,
-                requirements,
-            } => {
-                match guard {
-                    InterfaceDependencyGuard::NullablePresent(subject)
-                    | InterfaceDependencyGuard::ActiveUnionVariant { subject, .. } => {
-                        self.include_dependency_subject(subject)?;
-                    }
-                }
+    fn include_dependency_requirement(&mut self, requirement: &InterfaceDependencyRequirement) {
+        let mut pending = vec![requirement];
 
-                for requirement in &**requirements {
-                    self.include_dependency_requirement(requirement)?;
+        while let Some(requirement) = pending.pop() {
+            match &requirement.value {
+                InterfaceDependencyRequirementValue::Direct { subject, .. } => {
+                    self.include_dependency_subject(subject);
+                }
+                InterfaceDependencyRequirementValue::Guarded {
+                    guard,
+                    requirements,
+                } => {
+                    match guard {
+                        InterfaceDependencyGuard::NullablePresent(subject)
+                        | InterfaceDependencyGuard::ActiveUnionVariant { subject, .. } => {
+                            self.include_dependency_subject(subject);
+                        }
+                    }
+
+                    pending.extend(requirements.iter().rev());
                 }
             }
         }
-
-        Ok(())
     }
 
-    fn include_dependency_subject(
-        &mut self,
-        subject: &InterfaceDependencySubject,
-    ) -> Result<(), InterfaceValidationError> {
+    fn include_dependency_subject(&mut self, subject: &InterfaceDependencySubject) {
         if let InterfaceDependencySubjectRoot::ImplementationWitness(implementation) = subject.root
         {
-            self.include_implementation_instance(implementation)?;
+            self.enqueue(PendingRecord::ImplementationInstance(implementation.raw()));
         }
 
         for projection in &*subject.projections {
             if let InterfaceDependencyProjection::Element(term) = projection {
-                self.include_constant_term(*term)?;
+                self.enqueue(PendingRecord::ConstantTerm(term.raw()));
             }
         }
-
-        Ok(())
     }
 }
