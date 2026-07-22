@@ -99,6 +99,9 @@ fn selected_fact_sections(
         InterfaceSectionTag::DeclarationFacts,
     ];
 
+    const PREDICATE_DEFINITION_SECTIONS: &[InterfaceSectionTag] =
+        CALLABLE_PARAMETER_DEFAULT_SECTIONS;
+
     const IMPLEMENTATION_SECTIONS: &[InterfaceSectionTag] = &[
         InterfaceSectionTag::SymbolFactDirectory,
         InterfaceSectionTag::SemanticTypes,
@@ -120,6 +123,9 @@ fn selected_fact_sections(
         crate::InterfaceSemanticFactKind::GenericDeclaration => Some(GENERIC_DECLARATION_SECTIONS),
         crate::InterfaceSemanticFactKind::CallableParameterDefault => {
             Some(CALLABLE_PARAMETER_DEFAULT_SECTIONS)
+        }
+        crate::InterfaceSemanticFactKind::PredicateDefinition => {
+            Some(PREDICATE_DEFINITION_SECTIONS)
         }
         crate::InterfaceSemanticFactKind::GenericConstraint => Some(GENERIC_CONSTRAINT_SECTIONS),
         crate::InterfaceSemanticFactKind::Implementation => Some(IMPLEMENTATION_SECTIONS),
@@ -202,9 +208,9 @@ mod tests {
         InterfaceCallableParameterDefault, InterfaceCallableSignature, InterfaceDependencyContract,
         InterfaceDependencyRequirement, InterfaceDependencyRequirementKind,
         InterfaceDependencySubject, InterfaceDependencySubjectRoot, InterfaceGenericDeclaration,
-        InterfaceSectionTag, InterfaceSemanticFactKind, InterfaceSemanticFacts,
-        InterfaceSymbolReference, InterfaceTypeId, InterfaceValidationError,
-        InterfaceValidationLimits, PackageInterfaceSurface,
+        InterfacePredicateDefinitionState, InterfaceSectionTag, InterfaceSemanticFactKind,
+        InterfaceSemanticFacts, InterfaceSymbolReference, InterfaceTypeId,
+        InterfaceValidationError, InterfaceValidationLimits, PackageInterfaceSurface,
     };
 
     #[test]
@@ -369,6 +375,21 @@ mod tests {
             panic!("test callable parameter must be local");
         };
 
+        let predicate_owners = [
+            (
+                SymbolKind::Predicate,
+                InterfacePredicateDefinitionState::OpaqueTrusted,
+            ),
+            (
+                SymbolKind::TraitPredicateMember,
+                InterfacePredicateDefinitionState::Required,
+            ),
+            (
+                SymbolKind::TraitPredicateFulfillment,
+                InterfacePredicateDefinitionState::Defined,
+            ),
+        ];
+
         let sections = semantic_sections(bundle.semantic_facts(), &surface);
         let sections = owned_section_views(&sections);
         let limits = InterfaceValidationLimits::default();
@@ -408,6 +429,25 @@ mod tests {
         assert_eq!(default.callable_parameter_defaults().len(), 1);
         assert!(default.types().is_empty());
         assert!(default.constant_terms().is_empty());
+
+        for (kind, expected_state) in predicate_owners {
+            let InterfaceSymbolReference::Local(owner) = local_by_kind(&surface, kind) else {
+                panic!("test predicate must be local");
+            };
+
+            let predicate = decode_semantic_fact_graph(
+                &sections,
+                &surface,
+                owner,
+                InterfaceSemanticFactKind::PredicateDefinition,
+                limits,
+            )
+            .unwrap_or_else(|error| panic!("predicate definition must decode: {error:?}"));
+
+            assert_eq!(predicate.predicate_definitions().len(), 1);
+            assert_eq!(predicate.predicate_definitions()[0].state(), expected_state);
+            assert!(predicate.declaration_templates().is_empty());
+        }
     }
 
     #[test]
@@ -510,6 +550,7 @@ mod tests {
             [invalid_signature],
             base.generic_declarations().iter().cloned(),
             base.callable_parameter_defaults().iter().cloned(),
+            base.predicate_definitions().iter().cloned(),
         );
 
         assert_eq!(
@@ -532,6 +573,7 @@ mod tests {
             base.callable_signatures().iter().cloned(),
             [reversed_generic],
             base.callable_parameter_defaults().iter().cloned(),
+            base.predicate_definitions().iter().cloned(),
         );
 
         assert_eq!(
@@ -552,6 +594,7 @@ mod tests {
             base.callable_signatures().iter().cloned(),
             base.generic_declarations().iter().cloned(),
             [absent_default],
+            base.predicate_definitions().iter().cloned(),
         );
 
         assert_eq!(

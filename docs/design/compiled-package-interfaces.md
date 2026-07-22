@@ -494,6 +494,10 @@ The complete metadata and compatibility contract is defined in `docs/design/asyn
 Runtime defaults, generic constant definitions, predicate definitions, contract expressions, and other declaration-owned facts that
 must execute or instantiate in a consuming compilation use source-independent checked templates.
 
+Every exported predicate must carry an explicit definition state. A defined predicate has exactly one predicate-definition template,
+a required trait predicate member has no definition template, and an opaque trusted predicate has no definition template. Importers
+must reconstruct these states directly and must never infer trusted behavior from an absent template.
+
 A template:
 
 - uses template-local node and temporary IDs,

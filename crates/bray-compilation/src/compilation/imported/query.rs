@@ -289,6 +289,7 @@ impl super::super::Compilation {
             key.kind(),
             bray_package_interface::InterfaceSemanticFactKind::GenericConstraint
                 | bray_package_interface::InterfaceSemanticFactKind::Implementation
+                | bray_package_interface::InterfaceSemanticFactKind::PredicateDefinition
                 | bray_package_interface::InterfaceSemanticFactKind::TargetFact
         ) {
             self.compute_selected_imported_semantic_graph(key, cancellation)?
@@ -530,8 +531,8 @@ mod tests {
     use bray_bound_tree::CheckedTemplateKind;
     use bray_diagnostics::{DiagnosticArgName, DiagnosticArgValue, DiagnosticKind};
     use bray_package_interface::{
-        ImportedSemanticFact, InterfaceLanguageRevision, InterfaceProductIdentity,
-        InterfaceSemanticFactKind, InterfaceValidationPolicy,
+        ImportedSemanticFact, InterfaceLanguageRevision, InterfacePredicateDefinitionState,
+        InterfaceProductIdentity, InterfaceSemanticFactKind, InterfaceValidationPolicy,
         test_support::encoded_semantic_test_interface,
     };
     use bray_source::{SourceIdentity, SourceInput, SourceVersion};
@@ -725,6 +726,65 @@ mod tests {
             signatures[0].value().as_ref(),
             [ImportedSemanticFact::CallableSignature(_)]
         ));
+    }
+
+    #[test]
+    fn predicate_definition_states_decode_without_unrelated_semantic_facts() {
+        let fixture = encoded_semantic_test_interface();
+
+        let dependency = DependencyInterfaceInput::new(
+            fixture.package.clone(),
+            fixture.product.clone(),
+            "predicate-dependency.brayi",
+            Arc::<[u8]>::from(fixture.bytes),
+            InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
+        );
+
+        let compilation = compilation([dependency]);
+
+        let interface = compilation
+            .dependency_interface_id(&fixture.package, &fixture.product)
+            .unwrap_or_else(|| panic!("test dependency interface must have an ID"));
+
+        let cases = [
+            (
+                fixture.opaque_predicate_owner,
+                InterfacePredicateDefinitionState::OpaqueTrusted,
+            ),
+            (
+                fixture.defined_predicate_owner,
+                InterfacePredicateDefinitionState::Defined,
+            ),
+        ];
+
+        for (owner, expected) in cases {
+            let key = ImportedSemanticFactKey::new(
+                interface,
+                owner,
+                InterfaceSemanticFactKind::PredicateDefinition,
+            );
+
+            let result = compilation
+                .imported_semantic_fact_result(key)
+                .unwrap_or_else(|error| panic!("predicate fact query must complete: {error:?}"));
+
+            let [ImportedSemanticFact::PredicateDefinition(definition)] = result.value().as_ref()
+            else {
+                panic!("exact predicate query must publish one definition state");
+            };
+
+            assert_eq!(definition.state(), expected);
+        }
+
+        let interface_index = interface
+            .to_index()
+            .unwrap_or_else(|| panic!("test interface ID must fit the host index"));
+
+        assert!(
+            compilation.state.imported_semantic_graphs[interface_index]
+                .get()
+                .is_none()
+        );
     }
 
     #[test]

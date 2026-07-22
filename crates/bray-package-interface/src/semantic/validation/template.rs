@@ -15,6 +15,7 @@ use crate::{
 };
 
 use super::checked_index;
+use super::declaration::validate_predicate_templates;
 use super::support::validate_support_entities;
 
 #[derive(Clone, Copy)]
@@ -102,6 +103,8 @@ impl InterfaceSemanticFacts {
         if mapped_entities.len() != self.checked_templates.len() {
             return Err(InterfaceValidationError::Malformed);
         }
+
+        validate_predicate_templates(self)?;
 
         Ok(())
     }

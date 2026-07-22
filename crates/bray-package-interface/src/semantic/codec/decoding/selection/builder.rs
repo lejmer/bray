@@ -36,6 +36,12 @@ pub(in crate::semantic::codec::decoding) fn decode_selected_fact_graph(
         );
     }
 
+    if kind == InterfaceSemanticFactKind::PredicateDefinition {
+        return super::declaration::decode_predicate_definition(
+            sections, surface, owner, limits, context, &directory,
+        );
+    }
+
     let tables = SelectedTables::read(sections, kind, &mut context)?;
     let mut builder = SelectionBuilder::new(tables, context, owner);
 

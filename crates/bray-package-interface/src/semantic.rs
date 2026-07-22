@@ -11,8 +11,8 @@ pub(crate) use codec::{
 pub use interning::{
     ImportedAbiDependency, ImportedCallableContractFact, ImportedCallableParameterDefaultFact,
     ImportedCallableSignatureFact, ImportedConstraintFact, ImportedDeclarationTemplateFact,
-    ImportedGenericDeclarationFact, ImportedImplementationFact, ImportedSemanticFact,
-    ImportedSemanticFacts, ImportedSourceProvenance, ImportedTargetFact,
+    ImportedGenericDeclarationFact, ImportedImplementationFact, ImportedPredicateDefinitionFact,
+    ImportedSemanticFact, ImportedSemanticFacts, ImportedSourceProvenance, ImportedTargetFact,
     InterfaceSemanticInternError, InterfaceSymbolResolver,
 };
 pub use model::{
@@ -32,10 +32,10 @@ pub use model::{
     InterfaceDependencySubjectRoot, InterfaceGenericArgument, InterfaceGenericBinding,
     InterfaceGenericDeclaration, InterfaceGenericSubstitution, InterfaceGenericSubstitutionId,
     InterfaceImplementationInstance, InterfaceImplementationInstanceId,
-    InterfaceImplementationRecord, InterfaceImplementationReference, InterfacePredicateSummary,
-    InterfaceSemanticFactEntry, InterfaceSemanticFactKind, InterfaceSemanticFacts,
-    InterfaceSourceProvenance, InterfaceSupportEntity, InterfaceSupportImplementation,
-    InterfaceTargetFactDependency, InterfaceTemplateReference, InterfaceTraitApplication,
-    InterfaceTraitApplicationId, InterfaceTrustedCapabilityRequirement, InterfaceType,
-    InterfaceTypeId,
+    InterfaceImplementationRecord, InterfaceImplementationReference, InterfacePredicateDefinition,
+    InterfacePredicateDefinitionState, InterfacePredicateSummary, InterfaceSemanticFactEntry,
+    InterfaceSemanticFactKind, InterfaceSemanticFacts, InterfaceSourceProvenance,
+    InterfaceSupportEntity, InterfaceSupportImplementation, InterfaceTargetFactDependency,
+    InterfaceTemplateReference, InterfaceTraitApplication, InterfaceTraitApplicationId,
+    InterfaceTrustedCapabilityRequirement, InterfaceType, InterfaceTypeId,
 };

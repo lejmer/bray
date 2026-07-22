@@ -320,7 +320,8 @@ mod tests {
         InterfaceCheckedTemplateNode, InterfaceCheckedTemplateOperation,
         InterfaceCheckedTemplateTemporary, InterfaceConstantTerm, InterfaceConstantValue,
         InterfaceConstantValueId, InterfaceConstantValueKind, InterfaceDeclarationTemplate,
-        InterfaceDependencyContract, InterfaceImplementationReference, InterfaceSectionTag,
+        InterfaceDependencyContract, InterfaceImplementationReference,
+        InterfacePredicateDefinition, InterfacePredicateDefinitionState, InterfaceSectionTag,
         InterfaceSemanticFacts, InterfaceSupportEntity, InterfaceSupportImplementation,
         InterfaceSymbolReference, InterfaceSymbolResolver, InterfaceTemplateReference,
         InterfaceType, InterfaceTypeId, InterfaceValidationError, InterfaceValidationLimits,
@@ -355,6 +356,11 @@ mod tests {
             .unwrap_or_else(|error| panic!("template interning failed: {error:?}"));
 
         assert_eq!(imported.declaration_templates().len(), 5);
+        assert_eq!(imported.predicate_definitions().len(), 1);
+        assert_eq!(
+            imported.predicate_definitions()[0].state(),
+            InterfacePredicateDefinitionState::Defined
+        );
 
         for template in imported.declaration_templates() {
             assert_eq!(template.kind(), template.template().kind());
@@ -788,6 +794,15 @@ mod tests {
                 [InterfaceType::TypeParameter(generic_type.clone())],
                 [],
                 [],
+            )
+            .with_declarations(
+                [],
+                [],
+                [],
+                [InterfacePredicateDefinition::new(
+                    symbol_reference(surface, SymbolKind::Predicate),
+                    InterfacePredicateDefinitionState::Defined,
+                )],
             )
             .with_templates(templates, declarations, support)
     }

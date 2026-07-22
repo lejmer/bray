@@ -7,7 +7,8 @@ use bray_symbols::{
 };
 
 use super::{
-    ExportedLookupKind, InterfaceProductKind, InterfaceSemanticFactKind, SymbolRelationshipKind,
+    ExportedLookupKind, InterfacePredicateDefinitionState, InterfaceProductKind,
+    InterfaceSemanticFactKind, SymbolRelationshipKind,
 };
 
 pub(crate) trait WireTag: Sized {
@@ -216,6 +217,13 @@ wire_tags!(InterfaceSemanticFactKind {
     7 => InterfaceSemanticFactKind::CallableSignature,
     8 => InterfaceSemanticFactKind::GenericDeclaration,
     9 => InterfaceSemanticFactKind::CallableParameterDefault,
+    10 => InterfaceSemanticFactKind::PredicateDefinition,
+});
+
+wire_tags!(InterfacePredicateDefinitionState {
+    1 => InterfacePredicateDefinitionState::Defined,
+    2 => InterfacePredicateDefinitionState::Required,
+    3 => InterfacePredicateDefinitionState::OpaqueTrusted,
 });
 
 wire_tags!(CheckedTemplateKind {
@@ -249,7 +257,7 @@ mod tests {
     use bray_symbols::{CurrentRunCancellation, LifecycleObligationKind, SymbolKind};
 
     use super::WireTag;
-    use crate::SymbolRelationshipKind;
+    use crate::{InterfacePredicateDefinitionState, SymbolRelationshipKind};
 
     #[test]
     fn symbol_kind_tags_are_exact_and_closed() {
@@ -302,6 +310,28 @@ mod tests {
         assert_eq!(CheckedTemplateShortCircuitKind::And.to_wire(), 1);
         assert_eq!(CheckedTemplateShortCircuitKind::Or.to_wire(), 2);
         assert_eq!(CheckedTemplateShortCircuitKind::from_wire(3), None);
+    }
+
+    #[test]
+    fn predicate_definition_state_tags_are_exact_and_closed() {
+        let states = [
+            InterfacePredicateDefinitionState::Defined,
+            InterfacePredicateDefinitionState::Required,
+            InterfacePredicateDefinitionState::OpaqueTrusted,
+        ];
+
+        for (index, state) in states.into_iter().enumerate() {
+            let wire = index_u32(index + 1);
+
+            assert_eq!(
+                InterfacePredicateDefinitionState::from_wire(wire),
+                Some(state)
+            );
+            assert_eq!(state.to_wire(), wire);
+        }
+
+        assert_eq!(InterfacePredicateDefinitionState::from_wire(0), None);
+        assert_eq!(InterfacePredicateDefinitionState::from_wire(4), None);
     }
 
     #[test]

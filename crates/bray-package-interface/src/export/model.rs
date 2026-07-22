@@ -239,6 +239,20 @@ fn validate_semantic_coverage(
             )?;
         }
 
+        if matches!(
+            symbol.kind(),
+            SymbolKind::Predicate
+                | SymbolKind::TraitPredicateMember
+                | SymbolKind::TraitPredicateFulfillment
+        ) {
+            require_owned_semantic_fact(
+                &fact_directory,
+                symbol.id(),
+                symbol.key(),
+                InterfaceSemanticFactKind::PredicateDefinition,
+            )?;
+        }
+
         if symbol.kind().is_implementation() {
             require_owned_semantic_fact(
                 &fact_directory,
@@ -291,6 +305,7 @@ fn canonicalize_owner_addressed_facts(mut facts: InterfaceSemanticFacts) -> Inte
     Arc::make_mut(&mut facts.callable_signatures).sort();
     Arc::make_mut(&mut facts.generic_declarations).sort();
     Arc::make_mut(&mut facts.callable_parameter_defaults).sort();
+    Arc::make_mut(&mut facts.predicate_definitions).sort();
     Arc::make_mut(&mut facts.declaration_templates).sort();
     Arc::make_mut(&mut facts.implementations).sort();
     Arc::make_mut(&mut facts.coherence).sort();
@@ -410,11 +425,12 @@ mod tests {
     }
 
     #[test]
-    fn callable_generic_and_default_facts_are_each_required() {
+    fn declaration_facts_are_each_required() {
         const REQUIRED_FACTS: &[InterfaceSemanticFactKind] = &[
             InterfaceSemanticFactKind::CallableSignature,
             InterfaceSemanticFactKind::GenericDeclaration,
             InterfaceSemanticFactKind::CallableParameterDefault,
+            InterfaceSemanticFactKind::PredicateDefinition,
         ];
 
         for &missing in REQUIRED_FACTS {
@@ -437,12 +453,19 @@ mod tests {
                     .iter()
                     .filter(|_| missing != InterfaceSemanticFactKind::CallableParameterDefault)
                     .cloned(),
+                facts
+                    .predicate_definitions()
+                    .iter()
+                    .filter(|_| missing != InterfaceSemanticFactKind::PredicateDefinition)
+                    .cloned(),
             );
 
-            let owner_kind = if missing == InterfaceSemanticFactKind::CallableParameterDefault {
-                SymbolKind::CallableParameter
-            } else {
-                SymbolKind::Function
+            let owner_kind = match missing {
+                InterfaceSemanticFactKind::CallableParameterDefault => {
+                    SymbolKind::CallableParameter
+                }
+                InterfaceSemanticFactKind::PredicateDefinition => SymbolKind::Predicate,
+                _ => SymbolKind::Function,
             };
 
             let owner = complete

@@ -1,7 +1,10 @@
+mod declaration;
 mod fact;
 mod support;
 mod template;
 mod value;
+
+pub(crate) use declaration::validate_predicate_definition;
 
 use crate::{
     InterfaceLimit, InterfaceSemanticFacts, InterfaceValidationError, InterfaceValidationLimits,
@@ -26,7 +29,7 @@ impl InterfaceSemanticFacts {
         self.validate_template_facts(surface, limits)
     }
 
-    fn table_counts(&self) -> [usize; 20] {
+    fn table_counts(&self) -> [usize; 21] {
         [
             self.substitutions.len(),
             self.trait_applications.len(),
@@ -41,6 +44,7 @@ impl InterfaceSemanticFacts {
             self.callable_signatures.len(),
             self.generic_declarations.len(),
             self.callable_parameter_defaults.len(),
+            self.predicate_definitions.len(),
             self.checked_templates.len(),
             self.declaration_templates.len(),
             self.support_entities.len(),

@@ -4,7 +4,7 @@ mod decoding;
 mod encoding;
 mod record;
 
-const DECLARATION_FACT_SECTION_REVISION: u32 = 1;
+const DECLARATION_FACT_SECTION_REVISION: u32 = 2;
 
 pub use decoding::decode_semantic_facts;
 pub(crate) use decoding::{

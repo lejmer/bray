@@ -185,6 +185,7 @@ pub(super) fn remap_selected_records(
             callable_signatures,
             generic_declarations,
             callable_parameter_defaults,
+            [],
         )
         .with_implementations(implementations, coherence)
         .with_target_dependencies(target_dependencies, []))

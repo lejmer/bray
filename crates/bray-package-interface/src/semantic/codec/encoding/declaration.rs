@@ -60,11 +60,21 @@ pub(super) fn encode_declaration_facts(facts: &InterfaceSemanticFacts) -> Encode
         },
     );
 
+    encode_record_table(
+        &mut encoder,
+        &facts.predicate_definitions,
+        |encoder, definition| {
+            write_symbol_reference(encoder, &definition.owner);
+            encoder.write_u32(definition.state.to_wire());
+        },
+    );
+
     section(
         InterfaceSectionTag::DeclarationFacts,
         facts.callable_signatures.len()
             + facts.generic_declarations.len()
-            + facts.callable_parameter_defaults.len(),
+            + facts.callable_parameter_defaults.len()
+            + facts.predicate_definitions.len(),
         encoder,
     )
 }

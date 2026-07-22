@@ -15,12 +15,13 @@ use crate::{
     InterfaceConstantTerm, InterfaceConstantTermId, InterfaceConstantValue,
     InterfaceConstantValueId, InterfaceConstantValueKind, InterfaceDeclarationTemplate,
     InterfaceDependencyContract, InterfaceGenericSubstitution, InterfaceGenericSubstitutionId,
-    InterfaceImplementationRecord, InterfaceLanguageRevision, InterfacePredicateSummary,
-    InterfaceProductIdentity, InterfaceProductKind, InterfaceSemanticFacts, InterfaceSupportEntity,
-    InterfaceSymbolReference, InterfaceTargetFactDependency, InterfaceTraitApplication,
-    InterfaceTraitApplicationId, InterfaceType, InterfaceTypeId, PackageInterfaceExportBundle,
-    PackageInterfaceIdentity, PackageInterfaceSurface, SymbolRelationshipKind,
-    build_package_interface_surface, encode_package_interface,
+    InterfaceImplementationRecord, InterfaceLanguageRevision, InterfacePredicateDefinition,
+    InterfacePredicateDefinitionState, InterfacePredicateSummary, InterfaceProductIdentity,
+    InterfaceProductKind, InterfaceSemanticFacts, InterfaceSupportEntity, InterfaceSymbolReference,
+    InterfaceTargetFactDependency, InterfaceTraitApplication, InterfaceTraitApplicationId,
+    InterfaceType, InterfaceTypeId, PackageInterfaceExportBundle, PackageInterfaceIdentity,
+    PackageInterfaceSurface, SymbolRelationshipKind, build_package_interface_surface,
+    encode_package_interface,
 };
 
 /// One valid encoded interface used by cross-crate compilation tests.
@@ -33,6 +34,10 @@ pub struct EncodedSemanticTestInterface {
     pub template_owner: InterfaceSymbolId,
     /// Interface-local owner of the imported implementation header.
     pub implementation_owner: InterfaceSymbolId,
+    /// Interface-local owner of an opaque trusted predicate.
+    pub opaque_predicate_owner: InterfaceSymbolId,
+    /// Interface-local owner of a defined trait predicate fulfillment.
+    pub defined_predicate_owner: InterfaceSymbolId,
     /// Complete encoded artifact bytes.
     pub bytes: Vec<u8>,
 }
@@ -61,6 +66,24 @@ pub fn encoded_semantic_test_interface() -> EncodedSemanticTestInterface {
         .map(|symbol| symbol.id())
         .unwrap_or_else(|| panic!("test implementation owner must be present"));
 
+    let opaque_predicate_owner = bundle
+        .surface()
+        .symbols()
+        .symbols()
+        .iter()
+        .find(|symbol| symbol.kind() == SymbolKind::Predicate)
+        .map(|symbol| symbol.id())
+        .unwrap_or_else(|| panic!("test opaque predicate owner must be present"));
+
+    let defined_predicate_owner = bundle
+        .surface()
+        .symbols()
+        .symbols()
+        .iter()
+        .find(|symbol| symbol.kind() == SymbolKind::TraitPredicateFulfillment)
+        .map(|symbol| symbol.id())
+        .unwrap_or_else(|| panic!("test defined predicate owner must be present"));
+
     let encoded = encode_package_interface(&bundle)
         .unwrap_or_else(|error| panic!("test interface must encode: {error:?}"));
 
@@ -69,6 +92,8 @@ pub fn encoded_semantic_test_interface() -> EncodedSemanticTestInterface {
         product,
         template_owner,
         implementation_owner,
+        opaque_predicate_owner,
+        defined_predicate_owner,
         bytes: encoded.bytes().to_vec(),
     }
 }
@@ -116,6 +141,18 @@ fn package_interface_export_bundle_for(
 
     let target_fact = named_key(module.clone(), SymbolKind::Constant, "pointer_width");
 
+    let opaque_predicate = named_key(module.clone(), SymbolKind::Predicate, "trusted_boundary");
+    let required_predicate = named_key(
+        trait_definition.clone(),
+        SymbolKind::TraitPredicateMember,
+        "valid",
+    );
+    let defined_predicate = named_key(
+        implementation.clone(),
+        SymbolKind::TraitPredicateFulfillment,
+        "valid",
+    );
+
     let generic_type = ExternalSymbolKey::ordinal(
         function.clone(),
         SymbolKind::GenericTypeParameter,
@@ -157,6 +194,9 @@ fn package_interface_export_bundle_for(
             trait_definition,
             implementation,
             target_fact,
+            opaque_predicate,
+            required_predicate,
+            defined_predicate,
         ],
         [
             ExportLookupInput::new(
@@ -215,8 +255,15 @@ fn identity_surface(
                 | SymbolKind::Struct
                 | SymbolKind::Trait
                 | SymbolKind::NamedTraitImplementation
-                | SymbolKind::Constant,
+                | SymbolKind::Constant
+                | SymbolKind::Predicate,
             ) => SymbolRelationshipKind::ModuleMember,
+            (SymbolKind::Trait, SymbolKind::TraitPredicateMember) => {
+                SymbolRelationshipKind::TraitMember
+            }
+            (SymbolKind::NamedTraitImplementation, SymbolKind::TraitPredicateFulfillment) => {
+                SymbolRelationshipKind::ImplementationFulfillment
+            }
             (
                 SymbolKind::Function,
                 SymbolKind::GenericTypeParameter | SymbolKind::GenericConstParameter,
@@ -273,33 +320,15 @@ fn template_facts(
     let trait_definition = local_by_kind(surface, SymbolKind::Trait);
     let implementation = local_by_kind(surface, SymbolKind::NamedTraitImplementation);
     let target_fact = local_by_kind(surface, SymbolKind::Constant);
+    let opaque_predicate = local_by_kind(surface, SymbolKind::Predicate);
+    let required_predicate = local_by_kind(surface, SymbolKind::TraitPredicateMember);
+    let defined_predicate = local_by_kind(surface, SymbolKind::TraitPredicateFulfillment);
 
-    let behavior = InterfaceCheckedTemplateBehavior::new(
-        [],
-        [],
-        [],
-        crate::InterfaceCheckedTemplateExecution::new(
-            [],
-            bray_symbols::CurrentRunCancellation::NotEntered,
-        ),
-        [],
-        crate::InterfaceDependencyContractId::new(0),
-        [],
-    );
+    let template = checked_template(CheckedTemplateKind::CallableContract, generic_type.clone());
 
-    let template = InterfaceCheckedTemplate::new(
-        CheckedTemplateKind::CallableContract,
-        [InterfaceCheckedTemplateInput::new(
-            InterfaceCheckedTemplateInputKind::GenericType(generic_type.clone()),
-            InterfaceTypeId::new(0),
-        )],
-        [InterfaceCheckedTemplateNode::new(
-            InterfaceCheckedTemplateOperation::Input(CheckedTemplateInputId::new(0)),
-            InterfaceTypeId::new(0),
-        )],
-        [],
-        CheckedTemplateNodeId::new(0),
-        behavior,
+    let predicate_template = checked_template(
+        CheckedTemplateKind::PredicateDefinition,
+        generic_type.clone(),
     );
 
     let predicate = InterfacePredicateSummary::new(crate::InterfaceDependencyContractId::new(0));
@@ -395,18 +424,41 @@ fn template_facts(
                 [generic_type, generic_constant],
             )],
             [InterfaceCallableParameterDefault::new(parameter, true)],
+            [
+                InterfacePredicateDefinition::new(
+                    opaque_predicate,
+                    InterfacePredicateDefinitionState::OpaqueTrusted,
+                ),
+                InterfacePredicateDefinition::new(
+                    required_predicate,
+                    InterfacePredicateDefinitionState::Required,
+                ),
+                InterfacePredicateDefinition::new(
+                    defined_predicate.clone(),
+                    InterfacePredicateDefinitionState::Defined,
+                ),
+            ],
         )
         .with_templates(
-            [template],
-            [InterfaceDeclarationTemplate::new(
-                owner,
-                CheckedTemplateKind::CallableContract,
-                SymbolOrdinal::new(0),
-                InterfaceSupportEntityId::new(0),
-            )],
-            [InterfaceSupportEntity::CheckedTemplate(
-                InterfaceCheckedTemplateId::new(0),
-            )],
+            [template, predicate_template],
+            [
+                InterfaceDeclarationTemplate::new(
+                    owner,
+                    CheckedTemplateKind::CallableContract,
+                    SymbolOrdinal::new(0),
+                    InterfaceSupportEntityId::new(0),
+                ),
+                InterfaceDeclarationTemplate::new(
+                    defined_predicate,
+                    CheckedTemplateKind::PredicateDefinition,
+                    SymbolOrdinal::new(0),
+                    InterfaceSupportEntityId::new(1),
+                ),
+            ],
+            [
+                InterfaceSupportEntity::CheckedTemplate(InterfaceCheckedTemplateId::new(0)),
+                InterfaceSupportEntity::CheckedTemplate(InterfaceCheckedTemplateId::new(1)),
+            ],
         )
         .with_implementations(
             [InterfaceImplementationRecord::new(
@@ -445,6 +497,37 @@ fn template_facts(
             ],
             [],
         )
+}
+
+fn checked_template(
+    kind: CheckedTemplateKind,
+    generic_type: InterfaceSymbolReference,
+) -> InterfaceCheckedTemplate {
+    InterfaceCheckedTemplate::new(
+        kind,
+        [InterfaceCheckedTemplateInput::new(
+            InterfaceCheckedTemplateInputKind::GenericType(generic_type),
+            InterfaceTypeId::new(0),
+        )],
+        [InterfaceCheckedTemplateNode::new(
+            InterfaceCheckedTemplateOperation::Input(CheckedTemplateInputId::new(0)),
+            InterfaceTypeId::new(0),
+        )],
+        [],
+        CheckedTemplateNodeId::new(0),
+        InterfaceCheckedTemplateBehavior::new(
+            [],
+            [],
+            [],
+            crate::InterfaceCheckedTemplateExecution::new(
+                [],
+                bray_symbols::CurrentRunCancellation::NotEntered,
+            ),
+            [],
+            crate::InterfaceDependencyContractId::new(0),
+            [],
+        ),
+    )
 }
 
 pub(crate) fn local_by_kind(

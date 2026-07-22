@@ -1,7 +1,10 @@
 use bray_symbols::{
     CallableParameterSymbolId, CallableSignatureTemplate, CallableSymbolId,
-    GenericDeclarationTemplate, GenericOwnerId, UnevaluatedDefaultTemplate,
+    GenericDeclarationTemplate, GenericOwnerId, PredicateDefinitionSymbolId,
+    UnevaluatedDefaultTemplate,
 };
+
+use crate::InterfacePredicateDefinitionState;
 
 /// One imported callable signature template and its exact owner.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -57,5 +60,24 @@ impl ImportedCallableParameterDefaultFact {
     /// Returns the source-independent default template.
     pub const fn default(self) -> UnevaluatedDefaultTemplate {
         self.default
+    }
+}
+
+/// One imported predicate definition state and its exact owner.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct ImportedPredicateDefinitionFact {
+    pub(super) owner: PredicateDefinitionSymbolId,
+    pub(super) state: InterfacePredicateDefinitionState,
+}
+
+impl ImportedPredicateDefinitionFact {
+    /// Returns the predicate declaration that owns this state.
+    pub const fn owner(self) -> PredicateDefinitionSymbolId {
+        self.owner
+    }
+
+    /// Returns the predicate's exported definition state.
+    pub const fn state(self) -> InterfacePredicateDefinitionState {
+        self.state
     }
 }

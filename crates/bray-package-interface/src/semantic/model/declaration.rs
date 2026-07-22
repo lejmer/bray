@@ -134,6 +134,44 @@ pub struct InterfaceCallableParameterDefault {
     pub(crate) is_present: bool,
 }
 
+/// The validated definition form of one exported predicate.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum InterfacePredicateDefinitionState {
+    /// The predicate has one checked definition template.
+    Defined,
+    /// A trait predicate member requires an implementation definition.
+    Required,
+    /// The predicate is an opaque trusted relation.
+    OpaqueTrusted,
+}
+
+/// One source-independent predicate definition state.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct InterfacePredicateDefinition {
+    pub(crate) owner: InterfaceSymbolReference,
+    pub(crate) state: InterfacePredicateDefinitionState,
+}
+
+impl InterfacePredicateDefinition {
+    /// Creates one durable predicate definition fact.
+    pub const fn new(
+        owner: InterfaceSymbolReference,
+        state: InterfacePredicateDefinitionState,
+    ) -> Self {
+        Self { owner, state }
+    }
+
+    /// Returns the predicate declaration that owns this fact.
+    pub const fn owner(&self) -> &InterfaceSymbolReference {
+        &self.owner
+    }
+
+    /// Returns the predicate's validated definition form.
+    pub const fn state(&self) -> InterfacePredicateDefinitionState {
+        self.state
+    }
+}
+
 impl InterfaceCallableParameterDefault {
     /// Creates one durable callable parameter default fact.
     pub const fn new(parameter: InterfaceSymbolReference, is_present: bool) -> Self {

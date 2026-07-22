@@ -7,6 +7,7 @@ use crate::{
 };
 use bray_symbols::SymbolKind;
 
+use super::declaration::validate_predicate_definition;
 use super::saturating_u64;
 use crate::semantic::model::{
     InterfaceCallableContract, InterfaceCallableContractClause, InterfaceCallablePhaseBehavior,
@@ -40,6 +41,10 @@ impl InterfaceSemanticFacts {
                 .callable_parameter_defaults
                 .windows(2)
                 .all(|pair| pair[0].parameter < pair[1].parameter)
+            || !self
+                .predicate_definitions
+                .windows(2)
+                .all(|pair| pair[0].owner < pair[1].owner)
             || !self
                 .implementations
                 .windows(2)
@@ -93,6 +98,10 @@ impl InterfaceSemanticFacts {
             if default.is_present != has_provider {
                 return Err(InterfaceValidationError::Malformed);
             }
+        }
+
+        for definition in &*self.predicate_definitions {
+            validate_predicate_definition(definition, surface)?;
         }
 
         for implementation in &*self.implementations {
@@ -404,7 +413,7 @@ fn validate_owned_parameter(
     Ok(())
 }
 
-fn local_symbol(
+pub(super) fn local_symbol(
     reference: &InterfaceSymbolReference,
 ) -> Result<bray_symbols::InterfaceSymbolId, InterfaceValidationError> {
     match reference {
