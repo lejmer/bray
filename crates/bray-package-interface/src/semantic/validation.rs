@@ -4,7 +4,9 @@ mod support;
 mod template;
 mod value;
 
-pub(crate) use declaration::validate_predicate_definition;
+pub(crate) use declaration::{
+    validate_predicate_definition, validate_predicate_template, validate_predicate_template_count,
+};
 
 use crate::{
     InterfaceLimit, InterfaceSemanticFacts, InterfaceValidationError, InterfaceValidationLimits,

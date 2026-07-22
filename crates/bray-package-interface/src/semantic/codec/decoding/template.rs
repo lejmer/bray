@@ -6,6 +6,7 @@ use crate::semantic::codec::common::{
     SemanticDecodeContext, map_wire_error, read_count, read_symbol_reference,
     read_symbol_references, read_u32,
 };
+use crate::semantic::codec::record::RecordTable;
 use crate::semantic::model::{
     InterfaceCheckedTemplate, InterfaceCheckedTemplateBehavior, InterfaceCheckedTemplateExecution,
     InterfaceCheckedTemplateInput, InterfaceCheckedTemplateInputKind, InterfaceCheckedTemplateNode,
@@ -18,37 +19,55 @@ use crate::{
     InterfaceLimit, InterfaceValidationError, InterfaceValidationLimits, ValidatedInterfaceSection,
 };
 
+pub(super) struct TemplateRecordTables<'bytes> {
+    pub(super) checked_templates: RecordTable<'bytes>,
+    pub(super) declaration_templates: RecordTable<'bytes>,
+}
+
+pub(super) fn decode_template_tables<'bytes>(
+    section: ValidatedInterfaceSection<'bytes>,
+    context: &mut SemanticDecodeContext,
+) -> Result<TemplateRecordTables<'bytes>, InterfaceValidationError> {
+    let mut reader = WireReader::new(section.bytes());
+    let format_version = read_u32(&mut reader)?;
+
+    if format_version != super::super::DECLARATION_TEMPLATE_FORMAT_VERSION {
+        return Err(InterfaceValidationError::Malformed);
+    }
+
+    let checked_templates = RecordTable::read_from(&mut reader, context)?;
+    let declaration_templates = RecordTable::read_from(&mut reader, context)?;
+
+    validate_record_count(
+        section,
+        [checked_templates.len(), declaration_templates.len()],
+    )?;
+
+    reader.finish().map_err(map_wire_error)?;
+
+    Ok(TemplateRecordTables {
+        checked_templates,
+        declaration_templates,
+    })
+}
+
 pub(super) fn decode_templates(
     section: ValidatedInterfaceSection<'_>,
     limits: InterfaceValidationLimits,
     context: &mut SemanticDecodeContext,
     facts: &mut InterfaceSemanticFacts,
 ) -> Result<(), InterfaceValidationError> {
-    let mut reader = WireReader::new(section.bytes());
+    let tables = decode_template_tables(section, context)?;
 
-    let template_count = read_count(&mut reader, limits, InterfaceLimit::RecordCount)?;
-    let declaration_count = read_count(&mut reader, limits, InterfaceLimit::RecordCount)?;
+    let templates = tables
+        .checked_templates
+        .decode_all(context, |reader, context| {
+            decode_template(reader, limits, context)
+        })?;
 
-    validate_record_count(section, [template_count, declaration_count])?;
-
-    let mut templates = context.allocate_items(&reader, template_count)?;
-
-    for _ in 0..template_count {
-        templates.push(decode_template(&mut reader, limits, context)?);
-    }
-
-    let mut declarations = context.allocate_items(&reader, declaration_count)?;
-
-    for _ in 0..declaration_count {
-        declarations.push(InterfaceDeclarationTemplate::new(
-            read_symbol_reference(&mut reader, context)?,
-            decode_tag(read_u32(&mut reader)?)?,
-            SymbolOrdinal::new(read_u32(&mut reader)?),
-            InterfaceSupportEntityId::new(read_u32(&mut reader)?),
-        ));
-    }
-
-    reader.finish().map_err(map_wire_error)?;
+    let declarations = tables
+        .declaration_templates
+        .decode_all(context, decode_declaration_template)?;
 
     facts.checked_templates = templates.into();
     facts.declaration_templates = declarations.into();
@@ -141,6 +160,18 @@ fn decode_template(
         temporaries,
         result,
         behavior,
+    ))
+}
+
+pub(super) fn decode_declaration_template(
+    reader: &mut WireReader<'_>,
+    context: &mut SemanticDecodeContext,
+) -> Result<InterfaceDeclarationTemplate, InterfaceValidationError> {
+    Ok(InterfaceDeclarationTemplate::new(
+        read_symbol_reference(reader, context)?,
+        decode_tag(read_u32(reader)?)?,
+        SymbolOrdinal::new(read_u32(reader)?),
+        InterfaceSupportEntityId::new(read_u32(reader)?),
     ))
 }
 
@@ -310,7 +341,7 @@ mod tests {
     use super::super::decode_semantic_facts;
     use super::super::test_support::{
         interface_surface, key_by_kind as symbol_key, local_by_kind as symbol_reference,
-        owned_section_views, owned_sections,
+        owned_section_views, owned_sections, record_range,
     };
     use crate::semantic::codec::encode_semantic_facts;
     use crate::test_support::{module_key as test_module_key, named_key};
@@ -357,6 +388,7 @@ mod tests {
 
         assert_eq!(imported.declaration_templates().len(), 5);
         assert_eq!(imported.predicate_definitions().len(), 1);
+
         assert_eq!(
             imported.predicate_definitions()[0].state(),
             InterfacePredicateDefinitionState::Defined
@@ -480,7 +512,10 @@ mod tests {
             panic!("template section must be encoded");
         };
 
-        templates[8..12].copy_from_slice(&u32::MAX.to_le_bytes());
+        let kind = record_range(&templates[4..], 0, 0);
+        let kind_start = kind.start + 4;
+
+        templates[kind_start..kind_start + 4].copy_from_slice(&u32::MAX.to_le_bytes());
 
         assert_eq!(
             decode_semantic_facts(&owned_section_views(&owned), &surface, limits),
@@ -672,7 +707,7 @@ mod tests {
             .find(|(tag, _, _)| *tag == InterfaceSectionTag::DeclarationTemplates)
             .unwrap_or_else(|| panic!("template section must be encoded"));
 
-        templates[..4].copy_from_slice(&10_000_000_u32.to_le_bytes());
+        templates[4..8].copy_from_slice(&10_000_000_u32.to_le_bytes());
         *record_count = 10_000_001;
 
         let decoded = decode_semantic_facts(&owned_section_views(&owned), &surface, limits);

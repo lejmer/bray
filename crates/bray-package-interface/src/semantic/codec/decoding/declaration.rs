@@ -25,9 +25,9 @@ pub(super) fn decode_declaration_tables<'bytes>(
     context: &mut SemanticDecodeContext,
 ) -> Result<DeclarationRecordTables<'bytes>, InterfaceValidationError> {
     let mut reader = WireReader::new(section.bytes());
-    let revision = read_u32(&mut reader)?;
+    let format_version = read_u32(&mut reader)?;
 
-    if revision != super::super::DECLARATION_FACT_SECTION_REVISION {
+    if format_version != super::super::DECLARATION_FACT_FORMAT_VERSION {
         return Err(InterfaceValidationError::Malformed);
     }
 

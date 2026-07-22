@@ -158,7 +158,6 @@ fn imported_predicate_definition(
 ) -> BinderFactResult<DiagnosticResult<PredicateDefinitionState<PredicateDefinition>>> {
     let state = imported_predicate_definition_state(context, address)?;
 
-    // Each typed result retains the imported fact's shallow immutable diagnostics.
     match state.value() {
         InterfacePredicateDefinitionState::Required => Ok(DiagnosticResult::new(
             PredicateDefinitionState::Required,
@@ -180,6 +179,7 @@ fn imported_predicate_definition(
             };
 
             let diagnostics = state.diagnostics().merged(template_result.diagnostics());
+
             let definition = PredicateDefinition::new(PredicateSemanticSummary::new(
                 template.template().behavior().dependency_contract(),
             ));

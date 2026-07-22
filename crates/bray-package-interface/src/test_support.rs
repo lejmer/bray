@@ -142,11 +142,13 @@ fn package_interface_export_bundle_for(
     let target_fact = named_key(module.clone(), SymbolKind::Constant, "pointer_width");
 
     let opaque_predicate = named_key(module.clone(), SymbolKind::Predicate, "trusted_boundary");
+
     let required_predicate = named_key(
         trait_definition.clone(),
         SymbolKind::TraitPredicateMember,
         "valid",
     );
+
     let defined_predicate = named_key(
         implementation.clone(),
         SymbolKind::TraitPredicateFulfillment,

@@ -327,6 +327,7 @@ mod tests {
                 InterfacePredicateDefinitionState::from_wire(wire),
                 Some(state)
             );
+
             assert_eq!(state.to_wire(), wire);
         }
 

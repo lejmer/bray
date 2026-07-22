@@ -9,7 +9,7 @@ use crate::{InterfaceSectionTag, InterfaceSemanticFacts};
 pub(super) fn encode_declaration_facts(facts: &InterfaceSemanticFacts) -> EncodedSemanticSection {
     let mut encoder = WireEncoder::new();
 
-    encoder.write_u32(super::super::DECLARATION_FACT_SECTION_REVISION);
+    encoder.write_u32(super::super::DECLARATION_FACT_FORMAT_VERSION);
 
     encode_record_table(
         &mut encoder,
