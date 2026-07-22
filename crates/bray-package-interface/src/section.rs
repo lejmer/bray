@@ -36,11 +36,13 @@ pub enum InterfaceSectionTag {
     SourceProvenance,
     /// Private support graph and implementation references.
     SupportGraph,
+    /// Source-independent declaration signature and default-template facts.
+    DeclarationFacts,
 }
 
 impl InterfaceSectionTag {
     /// Every section category implemented by the current exact format revision.
-    pub const ALL: [Self; 15] = [
+    pub const ALL: [Self; 16] = [
         Self::Strings,
         Self::PackageMetadata,
         Self::Dependencies,
@@ -56,6 +58,7 @@ impl InterfaceSectionTag {
         Self::TargetDependencies,
         Self::SourceProvenance,
         Self::SupportGraph,
+        Self::DeclarationFacts,
     ];
 
     pub(crate) const fn from_wire_value(value: u32) -> Option<Self> {
@@ -75,6 +78,7 @@ impl InterfaceSectionTag {
             13 => Some(Self::TargetDependencies),
             14 => Some(Self::SourceProvenance),
             15 => Some(Self::SupportGraph),
+            16 => Some(Self::DeclarationFacts),
             _ => None,
         }
     }
@@ -97,6 +101,7 @@ impl InterfaceSectionTag {
             Self::TargetDependencies => 13,
             Self::SourceProvenance => 14,
             Self::SupportGraph => 15,
+            Self::DeclarationFacts => 16,
         }
     }
 
@@ -118,6 +123,7 @@ impl InterfaceSectionTag {
             Self::TargetDependencies => "target_dependencies",
             Self::SourceProvenance => "source_provenance",
             Self::SupportGraph => "support_graph",
+            Self::DeclarationFacts => "declaration_facts",
         }
     }
 
@@ -313,7 +319,7 @@ mod tests {
 
     #[test]
     fn section_tags_round_trip_exact_wire_values() {
-        for value in 1..=15 {
+        for value in 1..=16 {
             let Some(tag) = InterfaceSectionTag::from_wire_value(value) else {
                 panic!("known section tag was rejected: {value}");
             };
@@ -322,7 +328,7 @@ mod tests {
         }
 
         assert_eq!(InterfaceSectionTag::from_wire_value(0), None);
-        assert_eq!(InterfaceSectionTag::from_wire_value(16), None);
+        assert_eq!(InterfaceSectionTag::from_wire_value(17), None);
     }
 
     #[test]

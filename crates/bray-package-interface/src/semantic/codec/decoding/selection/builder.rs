@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 use bray_symbols::InterfaceSymbolId;
 
-use super::super::{contract, directory, facts, surface, value};
+use super::super::{contract, declaration, directory, facts, surface, value};
 use super::model::SelectedRecords;
 use super::remap::remap_selected_records;
 use crate::semantic::codec::common::SemanticDecodeContext;
@@ -30,6 +30,12 @@ pub(in crate::semantic::codec::decoding) fn decode_selected_fact_graph(
     let directory = facts::required_section(sections, InterfaceSectionTag::SymbolFactDirectory)?;
     let directory = directory::decode_fact_directory(directory, limits, &mut context)?;
 
+    if kind == InterfaceSemanticFactKind::CallableParameterDefault {
+        return super::declaration::decode_callable_parameter_default(
+            sections, surface, owner, limits, context, &directory,
+        );
+    }
+
     let tables = SelectedTables::read(sections, kind, &mut context)?;
     let mut builder = SelectionBuilder::new(tables, context, owner);
 
@@ -48,6 +54,7 @@ struct SelectedTables<'bytes> {
     contracts: contract::ContractRecordTables<'bytes>,
     implementations: Option<surface::ImplementationRecordTables<'bytes>>,
     targets: Option<surface::TargetRecordTables<'bytes>>,
+    declarations: Option<declaration::DeclarationRecordTables<'bytes>>,
 }
 
 impl<'bytes> SelectedTables<'bytes> {
@@ -84,12 +91,25 @@ impl<'bytes> SelectedTables<'bytes> {
             None
         };
 
+        let declarations = if matches!(
+            kind,
+            InterfaceSemanticFactKind::CallableSignature
+                | InterfaceSemanticFactKind::GenericDeclaration
+        ) {
+            let section = facts::required_section(sections, InterfaceSectionTag::DeclarationFacts)?;
+
+            Some(declaration::decode_declaration_tables(section, context)?)
+        } else {
+            None
+        };
+
         Ok(Self {
             types,
             constants,
             contracts,
             implementations,
             targets,
+            declarations,
         })
     }
 }
@@ -97,6 +117,8 @@ impl<'bytes> SelectedTables<'bytes> {
 #[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
 enum PendingRecord {
     Constraint(u32),
+    CallableSignature(u32),
+    GenericDeclaration(u32),
     Implementation(u32),
     Coherence(u32),
     Target(u32),
@@ -143,6 +165,7 @@ impl<'bytes> SelectionBuilder<'bytes> {
         if matches!(
             kind,
             InterfaceSemanticFactKind::GenericConstraint
+                | InterfaceSemanticFactKind::GenericDeclaration
                 | InterfaceSemanticFactKind::Implementation
         ) {
             for index in self.record_indexes(
@@ -152,6 +175,26 @@ impl<'bytes> SelectionBuilder<'bytes> {
             )? {
                 self.enqueue(PendingRecord::Constraint(index));
             }
+        }
+
+        if kind == InterfaceSemanticFactKind::CallableSignature {
+            let index = self.one_record_index(
+                directory,
+                InterfaceSemanticFactKind::CallableSignature,
+                InterfaceSectionTag::DeclarationFacts,
+            )?;
+
+            self.enqueue(PendingRecord::CallableSignature(index));
+        }
+
+        if kind == InterfaceSemanticFactKind::GenericDeclaration {
+            let index = self.one_record_index(
+                directory,
+                InterfaceSemanticFactKind::GenericDeclaration,
+                InterfaceSectionTag::DeclarationFacts,
+            )?;
+
+            self.enqueue(PendingRecord::GenericDeclaration(index));
         }
 
         if kind == InterfaceSemanticFactKind::Implementation {
@@ -194,6 +237,12 @@ impl<'bytes> SelectionBuilder<'bytes> {
         while let Some(record) = self.pending.pop() {
             match record {
                 PendingRecord::Constraint(index) => self.include_constraint(index)?,
+                PendingRecord::CallableSignature(index) => {
+                    self.include_callable_signature(index)?;
+                }
+                PendingRecord::GenericDeclaration(index) => {
+                    self.include_generic_declaration(index)?;
+                }
                 PendingRecord::Implementation(index) => self.include_implementation(index)?,
                 PendingRecord::Coherence(index) => self.include_coherence(index)?,
                 PendingRecord::Target(index) => self.include_target(index)?,
@@ -238,6 +287,74 @@ impl<'bytes> SelectionBuilder<'bytes> {
         Ok(indexes)
     }
 
+    fn one_record_index(
+        &self,
+        directory: &[InterfaceSemanticFactEntry],
+        kind: InterfaceSemanticFactKind,
+        section: InterfaceSectionTag,
+    ) -> Result<u32, InterfaceValidationError> {
+        let indexes = self.record_indexes(directory, kind, section)?;
+
+        let [index] = indexes.as_slice() else {
+            return Err(InterfaceValidationError::Malformed);
+        };
+
+        Ok(*index)
+    }
+
+    fn include_callable_signature(&mut self, index: u32) -> Result<(), InterfaceValidationError> {
+        let tables = self
+            .tables
+            .declarations
+            .as_ref()
+            .ok_or(InterfaceValidationError::Malformed)?;
+
+        let signature =
+            tables
+                .callable_signatures
+                .decode(index, &mut self.context, |reader, context| {
+                    declaration::decode_callable_signature(reader, context.limits(), context)
+                })?;
+
+        if signature.owner != self.owner {
+            return Err(InterfaceValidationError::Malformed);
+        }
+
+        self.enqueue(PendingRecord::Type(signature.callable_type.raw()));
+        self.enqueue(PendingRecord::Type(signature.result.raw()));
+
+        if let Some(receiver) = &signature.receiver {
+            self.enqueue(PendingRecord::Type(receiver.ty.raw()));
+        }
+
+        self.records.callable_signatures.insert(index, signature);
+
+        Ok(())
+    }
+
+    fn include_generic_declaration(&mut self, index: u32) -> Result<(), InterfaceValidationError> {
+        let tables = self
+            .tables
+            .declarations
+            .as_ref()
+            .ok_or(InterfaceValidationError::Malformed)?;
+
+        let declaration =
+            tables
+                .generic_declarations
+                .decode(index, &mut self.context, |reader, context| {
+                    declaration::decode_generic_declaration(reader, context.limits(), context)
+                })?;
+
+        if declaration.owner != self.owner {
+            return Err(InterfaceValidationError::Malformed);
+        }
+
+        self.records.generic_declarations.insert(index, declaration);
+
+        Ok(())
+    }
+
     fn include_constraint(&mut self, index: u32) -> Result<(), InterfaceValidationError> {
         let constraint = self.tables.contracts.constraints.decode(
             index,
@@ -252,6 +369,7 @@ impl<'bytes> SelectionBuilder<'bytes> {
         self.enqueue(PendingRecord::DependencyContract(
             constraint.predicate.dependency_contract.raw(),
         ));
+
         self.records.constraints.insert(index, constraint);
 
         Ok(())

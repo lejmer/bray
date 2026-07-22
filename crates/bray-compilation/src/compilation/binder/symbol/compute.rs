@@ -264,6 +264,11 @@ fn bind_callable_signature(
     callable: CallableSymbolId,
 ) -> BinderFactResult<SymbolFactResult<CallableSignatureFact>> {
     let symbol = callable.into_any();
+
+    if let Some(address) = context.imported_fact_address(symbol)? {
+        return super::imported::imported_callable_signature(context, address);
+    }
+
     let (parameters, receiver) = callable_relationships(context.symbols, callable)?;
     let surface = declaration_callable_surface(context, symbol)?;
 

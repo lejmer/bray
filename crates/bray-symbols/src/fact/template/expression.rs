@@ -33,6 +33,8 @@ pub enum UnevaluatedDefaultTemplate {
     Absent,
     /// The declaration has this exact source default expression.
     Present(DeclarationExpressionTemplate),
+    /// A source-independent imported default is available through its checked provider.
+    Resolved,
 }
 
 impl UnevaluatedDefaultTemplate {
@@ -41,6 +43,12 @@ impl UnevaluatedDefaultTemplate {
         match self {
             Self::Absent => None,
             Self::Present(expression) => Some(expression),
+            Self::Resolved => None,
         }
+    }
+
+    /// Returns whether this declaration has a default template.
+    pub const fn is_present(self) -> bool {
+        matches!(self, Self::Present(_) | Self::Resolved)
     }
 }

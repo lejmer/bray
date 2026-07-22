@@ -2,12 +2,13 @@ use std::sync::Arc;
 
 use super::{
     InterfaceAbiDependency, InterfaceCallableContract, InterfaceCallableInstance,
-    InterfaceCheckedTemplate, InterfaceCoherenceRecord, InterfaceConstantTerm,
-    InterfaceConstantValue, InterfaceConstraint, InterfaceDeclarationTemplate,
-    InterfaceDependencyContract, InterfaceGenericSubstitution, InterfaceImplementationInstance,
-    InterfaceImplementationRecord, InterfaceSemanticFactEntry, InterfaceSemanticFactKind,
-    InterfaceSourceProvenance, InterfaceSupportEntity, InterfaceTargetFactDependency,
-    InterfaceTraitApplication, InterfaceType,
+    InterfaceCallableParameterDefault, InterfaceCallableSignature, InterfaceCheckedTemplate,
+    InterfaceCoherenceRecord, InterfaceConstantTerm, InterfaceConstantValue, InterfaceConstraint,
+    InterfaceDeclarationTemplate, InterfaceDependencyContract, InterfaceGenericDeclaration,
+    InterfaceGenericSubstitution, InterfaceImplementationInstance, InterfaceImplementationRecord,
+    InterfaceSemanticFactEntry, InterfaceSemanticFactKind, InterfaceSourceProvenance,
+    InterfaceSupportEntity, InterfaceTargetFactDependency, InterfaceTraitApplication,
+    InterfaceType,
 };
 
 /// Complete immutable semantic fact tables ready for package-interface encoding.
@@ -23,6 +24,9 @@ pub struct InterfaceSemanticFacts {
     pub(crate) constant_terms: Arc<[InterfaceConstantTerm]>,
     pub(crate) constraints: Arc<[InterfaceConstraint]>,
     pub(crate) callable_contracts: Arc<[InterfaceCallableContract]>,
+    pub(crate) callable_signatures: Arc<[InterfaceCallableSignature]>,
+    pub(crate) generic_declarations: Arc<[InterfaceGenericDeclaration]>,
+    pub(crate) callable_parameter_defaults: Arc<[InterfaceCallableParameterDefault]>,
     pub(crate) checked_templates: Arc<[InterfaceCheckedTemplate]>,
     pub(crate) declaration_templates: Arc<[InterfaceDeclarationTemplate]>,
     pub(crate) support_entities: Arc<[InterfaceSupportEntity]>,
@@ -79,6 +83,20 @@ impl InterfaceSemanticFacts {
     ) -> Self {
         self.constraints = constraints.into_iter().collect();
         self.callable_contracts = callable_contracts.into_iter().collect();
+
+        self
+    }
+
+    /// Replaces source-independent declaration signature and default-template facts.
+    pub fn with_declarations(
+        mut self,
+        callable_signatures: impl IntoIterator<Item = InterfaceCallableSignature>,
+        generic_declarations: impl IntoIterator<Item = InterfaceGenericDeclaration>,
+        callable_parameter_defaults: impl IntoIterator<Item = InterfaceCallableParameterDefault>,
+    ) -> Self {
+        self.callable_signatures = callable_signatures.into_iter().collect();
+        self.generic_declarations = generic_declarations.into_iter().collect();
+        self.callable_parameter_defaults = callable_parameter_defaults.into_iter().collect();
 
         self
     }
@@ -156,6 +174,21 @@ impl InterfaceSemanticFacts {
         &self.callable_contracts
     }
 
+    /// Returns callable signatures in canonical owner order.
+    pub fn callable_signatures(&self) -> &[InterfaceCallableSignature] {
+        &self.callable_signatures
+    }
+
+    /// Returns generic declarations in canonical owner order.
+    pub fn generic_declarations(&self) -> &[InterfaceGenericDeclaration] {
+        &self.generic_declarations
+    }
+
+    /// Returns callable parameter defaults in canonical parameter order.
+    pub fn callable_parameter_defaults(&self) -> &[InterfaceCallableParameterDefault] {
+        &self.callable_parameter_defaults
+    }
+
     /// Returns source-independent checked templates in artifact-local ID order.
     pub fn checked_templates(&self) -> &[InterfaceCheckedTemplate] {
         &self.checked_templates
@@ -221,6 +254,39 @@ impl InterfaceSemanticFacts {
                 record: checked_record(index),
             });
 
+        let callable_signatures =
+            self.callable_signatures
+                .iter()
+                .enumerate()
+                .map(|(index, fact)| InterfaceSemanticFactEntry {
+                    owner: fact.owner.clone(),
+                    kind: InterfaceSemanticFactKind::CallableSignature,
+                    section: crate::InterfaceSectionTag::DeclarationFacts,
+                    record: checked_record(index),
+                });
+
+        let generic_declarations =
+            self.generic_declarations
+                .iter()
+                .enumerate()
+                .map(|(index, fact)| InterfaceSemanticFactEntry {
+                    owner: fact.owner.clone(),
+                    kind: InterfaceSemanticFactKind::GenericDeclaration,
+                    section: crate::InterfaceSectionTag::DeclarationFacts,
+                    record: checked_record(index),
+                });
+
+        let callable_parameter_defaults =
+            self.callable_parameter_defaults
+                .iter()
+                .enumerate()
+                .map(|(index, fact)| InterfaceSemanticFactEntry {
+                    owner: fact.parameter.clone(),
+                    kind: InterfaceSemanticFactKind::CallableParameterDefault,
+                    section: crate::InterfaceSectionTag::DeclarationFacts,
+                    record: checked_record(index),
+                });
+
         let declaration_templates =
             self.declaration_templates
                 .iter()
@@ -267,6 +333,9 @@ impl InterfaceSemanticFacts {
 
         let mut entries: Vec<_> = constraints
             .chain(callable_contracts)
+            .chain(callable_signatures)
+            .chain(generic_declarations)
+            .chain(callable_parameter_defaults)
             .chain(declaration_templates)
             .chain(implementations)
             .chain(targets)

@@ -148,6 +148,7 @@ const fn diagnostic_section(section: InterfaceSectionTag) -> DiagnosticInterface
         InterfaceSectionTag::SemanticTypes => DiagnosticInterfaceSection::SemanticTypes,
         InterfaceSectionTag::Constants => DiagnosticInterfaceSection::Constants,
         InterfaceSectionTag::Contracts => DiagnosticInterfaceSection::Contracts,
+        InterfaceSectionTag::DeclarationFacts => DiagnosticInterfaceSection::DeclarationFacts,
         InterfaceSectionTag::DeclarationTemplates => {
             DiagnosticInterfaceSection::DeclarationTemplates
         }

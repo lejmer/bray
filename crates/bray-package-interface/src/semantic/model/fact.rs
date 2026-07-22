@@ -370,6 +370,12 @@ pub struct InterfaceSourceProvenance {
 /// Symbol-owned semantic fact category addressable through the fact directory.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum InterfaceSemanticFactKind {
+    /// Complete source-independent callable signature template.
+    CallableSignature,
+    /// Ordered generic declaration template.
+    GenericDeclaration,
+    /// Callable parameter default-template presence.
+    CallableParameterDefault,
     /// Checked generic constraint.
     GenericConstraint,
     /// Complete callable contract set.

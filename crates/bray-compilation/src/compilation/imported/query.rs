@@ -698,6 +698,33 @@ mod tests {
             template.template().kind(),
             CheckedTemplateKind::CallableContract
         );
+
+        let signature_key = ImportedSemanticFactKey::new(
+            interface,
+            fixture.template_owner,
+            InterfaceSemanticFactKind::CallableSignature,
+        );
+
+        let signatures = std::thread::scope(|scope| {
+            let first = scope.spawn(|| compilation.imported_semantic_fact_result(signature_key));
+            let second = scope.spawn(|| compilation.imported_semantic_fact_result(signature_key));
+
+            [first, second].map(|thread| {
+                thread
+                    .join()
+                    .unwrap_or_else(|_| panic!("imported signature query thread must not panic"))
+                    .unwrap_or_else(|error| {
+                        panic!("imported signature query must complete: {error:?}")
+                    })
+            })
+        });
+
+        assert!(Arc::ptr_eq(&signatures[0], &signatures[1]));
+
+        assert!(matches!(
+            signatures[0].value().as_ref(),
+            [ImportedSemanticFact::CallableSignature(_)]
+        ));
     }
 
     #[test]

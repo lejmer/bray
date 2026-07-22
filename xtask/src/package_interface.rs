@@ -353,7 +353,7 @@ mod tests {
 
     use bray_package_interface::test_support::encoded_semantic_test_interface;
     use bray_package_interface::{
-        InterfaceLimit, InterfaceValidationError, InterfaceValidationLimits,
+        InterfaceLimit, InterfaceSectionTag, InterfaceValidationError, InterfaceValidationLimits,
     };
 
     use super::{CommandError, USAGE, execute, read_bounded_interface};
@@ -380,7 +380,12 @@ mod tests {
             .unwrap_or_else(|error| panic!("inspection output must be JSON: {error}"));
 
         assert_eq!(output["kind"], "package_interface_inspection");
-        assert_eq!(output["section_index"].as_array().map(Vec::len), Some(15));
+
+        assert_eq!(
+            output["section_index"].as_array().map(Vec::len),
+            Some(InterfaceSectionTag::ALL.len())
+        );
+
         assert_eq!(output["sections"].as_array().map(Vec::len), Some(1));
         assert_eq!(output["sections"][0]["section"], "target_dependencies");
         assert!(output["sections"][0].get("offset").is_none());
@@ -404,7 +409,7 @@ mod tests {
 
         assert_eq!(output["kind"], "package_interface_validation");
         assert_eq!(output["valid"], true);
-        assert_eq!(output["section_count"], 15);
+        assert_eq!(output["section_count"], InterfaceSectionTag::ALL.len());
 
         remove_fixture(&path);
     }

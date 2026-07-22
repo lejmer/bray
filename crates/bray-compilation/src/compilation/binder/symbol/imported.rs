@@ -1,51 +1,77 @@
 use bray_binder::{BinderFactError, BinderFactResult};
-use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
+use bray_diagnostics::DiagnosticResult;
 use bray_package_interface::{
     ImportedImplementationFact, ImportedSemanticFact, InterfaceSemanticFactKind,
 };
 use bray_symbols::{
-    CallableContractTemplate, GenericConstraintTemplate, GenericOwnerId, ImplementationSymbolId,
-    ImportedSymbolFactAddress,
+    CallableContractTemplate, CallableSignatureTemplate, GenericDeclarationTemplate,
+    ImportedSymbolFactAddress, UnevaluatedDefaultTemplate,
 };
 
 use crate::compilation::binder::CompilationBinderFacts;
 use crate::fact::ImportedSemanticFactKey;
 
-pub(super) fn imported_constraints(
+pub(super) fn imported_callable_signature(
     context: &CompilationBinderFacts<'_>,
-    owner: GenericOwnerId,
     address: ImportedSymbolFactAddress,
-) -> BinderFactResult<(Vec<GenericConstraintTemplate>, DiagnosticBag)> {
-    let kind = if ImplementationSymbolId::try_from_any(owner.symbol()).is_some() {
-        InterfaceSemanticFactKind::Implementation
-    } else {
-        InterfaceSemanticFactKind::GenericConstraint
+) -> BinderFactResult<DiagnosticResult<CallableSignatureTemplate>> {
+    let result = imported_facts(
+        context,
+        address,
+        InterfaceSemanticFactKind::CallableSignature,
+    )?;
+
+    let [ImportedSemanticFact::CallableSignature(fact)] = result.value().as_ref() else {
+        return Err(BinderFactError::DependencyUnavailable);
     };
 
-    let result = imported_facts(context, address, kind)?;
+    // Candidate-facing facts retain shallow Arc-backed templates and diagnostics.
+    Ok(DiagnosticResult::new(
+        fact.signature().clone(),
+        result.diagnostics().clone(),
+    ))
+}
 
-    let constraints = match result.value().as_ref() {
-        [ImportedSemanticFact::Implementation(implementation)] => implementation
-            .constraints()
-            .iter()
-            .copied()
-            .map(GenericConstraintTemplate::Resolved)
-            .collect(),
-        facts if kind == InterfaceSemanticFactKind::GenericConstraint => facts
-            .iter()
-            .map(|fact| {
-                let ImportedSemanticFact::GenericConstraint(fact) = fact else {
-                    return Err(BinderFactError::DependencyUnavailable);
-                };
+pub(super) fn imported_generic_declaration(
+    context: &CompilationBinderFacts<'_>,
+    address: ImportedSymbolFactAddress,
+) -> BinderFactResult<DiagnosticResult<GenericDeclarationTemplate>> {
+    let result = imported_facts(
+        context,
+        address,
+        InterfaceSemanticFactKind::GenericDeclaration,
+    )?;
 
-                Ok(GenericConstraintTemplate::Resolved(fact.constraint()))
-            })
-            .collect::<BinderFactResult<Vec<_>>>()?,
-        _ => return Err(BinderFactError::DependencyUnavailable),
+    let [ImportedSemanticFact::GenericDeclaration(fact)] = result.value().as_ref() else {
+        return Err(BinderFactError::DependencyUnavailable);
+    };
+
+    // Candidate-facing facts retain shallow Arc-backed templates and diagnostics.
+    Ok(DiagnosticResult::new(
+        fact.declaration().clone(),
+        result.diagnostics().clone(),
+    ))
+}
+
+pub(super) fn imported_callable_parameter_default(
+    context: &CompilationBinderFacts<'_>,
+    address: ImportedSymbolFactAddress,
+) -> BinderFactResult<DiagnosticResult<UnevaluatedDefaultTemplate>> {
+    let result = imported_facts(
+        context,
+        address,
+        InterfaceSemanticFactKind::CallableParameterDefault,
+    )?;
+
+    let [ImportedSemanticFact::CallableParameterDefault(fact)] = result.value().as_ref() else {
+        return Err(BinderFactError::DependencyUnavailable);
     };
 
     // Imported fact results share immutable diagnostic storage.
-    Ok((constraints, result.diagnostics().clone()))
+    Ok(DiagnosticResult::new(
+        fact.default(),
+        result.diagnostics().clone(),
+    ))
 }
 
 pub(super) fn imported_callable_contract(

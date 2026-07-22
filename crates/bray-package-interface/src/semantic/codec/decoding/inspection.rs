@@ -5,7 +5,7 @@ use crate::{
     InterfaceValidationLimits, ValidatedInterfaceSection,
 };
 
-use super::{contract, directory, facts, support, surface, template, value};
+use super::{contract, declaration, directory, facts, support, surface, template, value};
 
 pub(crate) fn decode_inspection_records(
     section: ValidatedInterfaceSection<'_>,
@@ -26,6 +26,9 @@ pub(crate) fn decode_inspection_records(
         }
         InterfaceSectionTag::Contracts => {
             inspect_contracts(section, limits, &mut context, &mut decoded)
+        }
+        InterfaceSectionTag::DeclarationFacts => {
+            inspect_declarations(section, limits, &mut context, &mut decoded)
         }
         InterfaceSectionTag::DeclarationTemplates => {
             inspect_templates(section, limits, &mut context, &mut decoded)
@@ -135,6 +138,30 @@ fn inspect_contracts(
         record(
             InterfaceInspectionRecordKind::CallableContracts,
             decoded.callable_contracts.len(),
+        ),
+    ])
+}
+
+fn inspect_declarations(
+    section: ValidatedInterfaceSection<'_>,
+    limits: InterfaceValidationLimits,
+    context: &mut SemanticDecodeContext,
+    decoded: &mut InterfaceSemanticFacts,
+) -> Result<Vec<InterfaceInspectionRecord>, InterfaceValidationError> {
+    declaration::decode_declarations(section, limits, context, decoded)?;
+
+    Ok(vec![
+        record(
+            InterfaceInspectionRecordKind::CallableSignatures,
+            decoded.callable_signatures.len(),
+        ),
+        record(
+            InterfaceInspectionRecordKind::GenericDeclarations,
+            decoded.generic_declarations.len(),
+        ),
+        record(
+            InterfaceInspectionRecordKind::CallableParameterDefaults,
+            decoded.callable_parameter_defaults.len(),
         ),
     ])
 }

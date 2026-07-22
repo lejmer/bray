@@ -1,6 +1,7 @@
 mod application;
 mod bundle;
 mod constant;
+mod declaration;
 mod dependency;
 mod fact;
 mod id;
@@ -16,6 +17,10 @@ pub use bundle::InterfaceSemanticFacts;
 pub use constant::{
     InterfaceConstantProjection, InterfaceConstantTerm, InterfaceConstantValue,
     InterfaceConstantValueKind,
+};
+pub use declaration::{
+    InterfaceCallableParameterDefault, InterfaceCallableReceiver, InterfaceCallableSignature,
+    InterfaceGenericDeclaration,
 };
 pub use dependency::{
     InterfaceDependencyContract, InterfaceDependencyGuard, InterfaceDependencyProjection,

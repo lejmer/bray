@@ -595,11 +595,12 @@ The artifact is sectioned to support bounded validation and lazy decoding. Initi
 8. canonical semantic type table,
 9. constant values and checked const templates,
 10. constraints, contracts, effects, capabilities, and dependency contracts,
-11. runtime default and other declaration-owned checked templates,
-12. implementation and coherence records,
-13. target-fact and ABI dependencies,
-14. optional source provenance,
-15. support graph and implementation references.
+11. callable signatures, generic declarations, and callable parameter default availability,
+12. runtime default and other declaration-owned checked templates,
+13. implementation and coherence records,
+14. target-fact and ABI dependencies,
+15. optional source provenance,
+16. support graph and implementation references.
 
 Each section has an explicit tag, byte range, record count where applicable, and section checksum or digest contribution. Sections
 must not overlap or extend beyond the declared file length.

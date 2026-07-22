@@ -3,23 +3,24 @@ use std::collections::{BTreeMap, BTreeSet};
 use bray_bound_tree::{CheckedTemplateInputId, CheckedTemplateKind, CheckedTemplateNodeId};
 use bray_symbols::{
     ExternalSymbolKey, InterfaceSupportEntityId, InterfaceSymbolId, ModulePathKey, PackageIdentity,
-    SymbolKind, SymbolName, SymbolOrdinal,
+    SymbolKind, SymbolName, SymbolOrdinal, SynthesizedSymbolRole,
 };
 
 use crate::{
     ExportLookupInput, ExportRelationshipInput, ExportSymbolInput, ExportSymbolReferenceInput,
-    ExportedLookupKind, InterfaceCheckedTemplate, InterfaceCheckedTemplateBehavior,
+    ExportedLookupKind, InterfaceCallableParameter, InterfaceCallableParameterDefault,
+    InterfaceCallableSignature, InterfaceCheckedTemplate, InterfaceCheckedTemplateBehavior,
     InterfaceCheckedTemplateId, InterfaceCheckedTemplateInput, InterfaceCheckedTemplateInputKind,
     InterfaceCheckedTemplateNode, InterfaceCheckedTemplateOperation, InterfaceCoherenceRecord,
-    InterfaceConstantValue, InterfaceConstantValueId, InterfaceConstantValueKind,
-    InterfaceDeclarationTemplate, InterfaceDependencyContract, InterfaceGenericSubstitution,
-    InterfaceGenericSubstitutionId, InterfaceImplementationRecord, InterfaceLanguageRevision,
-    InterfacePredicateSummary, InterfaceProductIdentity, InterfaceProductKind,
-    InterfaceSemanticFacts, InterfaceSupportEntity, InterfaceSymbolReference,
-    InterfaceTargetFactDependency, InterfaceTraitApplication, InterfaceTraitApplicationId,
-    InterfaceType, InterfaceTypeId, PackageInterfaceExportBundle, PackageInterfaceIdentity,
-    PackageInterfaceSurface, SymbolRelationshipKind, build_package_interface_surface,
-    encode_package_interface,
+    InterfaceConstantTerm, InterfaceConstantTermId, InterfaceConstantValue,
+    InterfaceConstantValueId, InterfaceConstantValueKind, InterfaceDeclarationTemplate,
+    InterfaceDependencyContract, InterfaceGenericSubstitution, InterfaceGenericSubstitutionId,
+    InterfaceImplementationRecord, InterfaceLanguageRevision, InterfacePredicateSummary,
+    InterfaceProductIdentity, InterfaceProductKind, InterfaceSemanticFacts, InterfaceSupportEntity,
+    InterfaceSymbolReference, InterfaceTargetFactDependency, InterfaceTraitApplication,
+    InterfaceTraitApplicationId, InterfaceType, InterfaceTypeId, PackageInterfaceExportBundle,
+    PackageInterfaceIdentity, PackageInterfaceSurface, SymbolRelationshipKind,
+    build_package_interface_surface, encode_package_interface,
 };
 
 /// One valid encoded interface used by cross-crate compilation tests.
@@ -122,12 +123,36 @@ fn package_interface_export_bundle_for(
     )
     .unwrap_or_else(|| panic!("test generic type parameter key must be valid"));
 
+    let generic_constant = ExternalSymbolKey::ordinal(
+        function.clone(),
+        SymbolKind::GenericConstParameter,
+        SymbolOrdinal::new(1),
+    )
+    .unwrap_or_else(|| panic!("test generic constant parameter key must be valid"));
+
+    let parameter = ExternalSymbolKey::ordinal(
+        function.clone(),
+        SymbolKind::CallableParameter,
+        SymbolOrdinal::new(0),
+    )
+    .unwrap_or_else(|| panic!("test callable parameter key must be valid"));
+
+    let default_provider = ExternalSymbolKey::synthesized(
+        parameter.clone(),
+        SynthesizedSymbolRole::CallableParameterDefaultProvider,
+        Some(SymbolOrdinal::new(0)),
+    )
+    .unwrap_or_else(|| panic!("test callable default provider key must be valid"));
+
     let surface = identity_surface(
         package.clone(),
         product.clone(),
         [
             function.clone(),
             generic_type,
+            generic_constant,
+            parameter,
+            default_provider,
             structure,
             trait_definition,
             implementation,
@@ -192,8 +217,15 @@ fn identity_surface(
                 | SymbolKind::NamedTraitImplementation
                 | SymbolKind::Constant,
             ) => SymbolRelationshipKind::ModuleMember,
-            (SymbolKind::Function, SymbolKind::GenericTypeParameter) => {
-                SymbolRelationshipKind::GenericParameter
+            (
+                SymbolKind::Function,
+                SymbolKind::GenericTypeParameter | SymbolKind::GenericConstParameter,
+            ) => SymbolRelationshipKind::GenericParameter,
+            (SymbolKind::Function, SymbolKind::CallableParameter) => {
+                SymbolRelationshipKind::CallableParameter
+            }
+            (SymbolKind::CallableParameter, SymbolKind::CallableParameterDefaultProvider) => {
+                SymbolRelationshipKind::DefaultProvider
             }
             pair => panic!("unsupported test symbol relationship: {pair:?}"),
         };
@@ -235,6 +267,8 @@ fn template_facts(
     let owner = InterfaceSymbolReference::Local(owner);
 
     let generic_type = local_by_kind(surface, SymbolKind::GenericTypeParameter);
+    let generic_constant = local_by_kind(surface, SymbolKind::GenericConstParameter);
+    let parameter = local_by_kind(surface, SymbolKind::CallableParameter);
     let structure = local_by_kind(surface, SymbolKind::Struct);
     let trait_definition = local_by_kind(surface, SymbolKind::Trait);
     let implementation = local_by_kind(surface, SymbolKind::NamedTraitImplementation);
@@ -296,17 +330,37 @@ fn template_facts(
         .with_values(
             [InterfaceDependencyContract::new([])],
             [
-                InterfaceType::TypeParameter(generic_type),
+                InterfaceType::TypeParameter(generic_type.clone()),
                 InterfaceType::Named {
                     definition: structure.clone(),
                     substitution: InterfaceGenericSubstitutionId::new(0),
+                },
+                InterfaceType::Array {
+                    element: InterfaceTypeId::new(0),
+                    length: InterfaceConstantTermId::new(0),
+                },
+                InterfaceType::Callable {
+                    parameters: [InterfaceCallableParameter::new(
+                        "value",
+                        bray_symbols::CallablePosition::PositionalOrNamed,
+                        bray_symbols::CallableParameterMode::Immutable,
+                        InterfaceTypeId::new(2),
+                    )]
+                    .into(),
+                    result: InterfaceTypeId::new(0),
+                    constness: bray_symbols::CallableConstness::Runtime,
+                    execution: bray_symbols::CallableExecution::Synchronous,
+                    trust: bray_symbols::CallableTrust::Safe,
+                    abi: bray_symbols::CallableAbi::Bray,
+                    invocation_dependency_contract: crate::InterfaceDependencyContractId::new(0),
+                    deferred_dependency_contract: None,
                 },
             ],
             [InterfaceConstantValue::new(
                 InterfaceTypeId::new(1),
                 InterfaceConstantValueKind::Boolean(true),
             )],
-            [],
+            [InterfaceConstantTerm::Parameter(generic_constant.clone())],
         )
         .with_contracts(
             [
@@ -327,6 +381,20 @@ fn template_facts(
                 invocation_behavior,
                 None,
             )],
+        )
+        .with_declarations(
+            [InterfaceCallableSignature::new(
+                owner.clone(),
+                InterfaceTypeId::new(3),
+                None,
+                [parameter.clone()],
+                InterfaceTypeId::new(0),
+            )],
+            [crate::InterfaceGenericDeclaration::new(
+                owner.clone(),
+                [generic_type, generic_constant],
+            )],
+            [InterfaceCallableParameterDefault::new(parameter, true)],
         )
         .with_templates(
             [template],

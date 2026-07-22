@@ -258,6 +258,7 @@ const fn format_english_interface_section(section: DiagnosticInterfaceSection) -
         DiagnosticInterfaceSection::SemanticTypes => "semantic types",
         DiagnosticInterfaceSection::Constants => "constants",
         DiagnosticInterfaceSection::Contracts => "contracts",
+        DiagnosticInterfaceSection::DeclarationFacts => "declaration facts",
         DiagnosticInterfaceSection::DeclarationTemplates => "declaration templates",
         DiagnosticInterfaceSection::Implementations => "implementations",
         DiagnosticInterfaceSection::TargetDependencies => "target dependencies",
