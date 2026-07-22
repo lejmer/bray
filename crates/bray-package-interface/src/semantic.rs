@@ -6,6 +6,7 @@ mod validation;
 pub use codec::{EncodedSemanticSection, decode_semantic_facts, encode_semantic_facts};
 pub(crate) use codec::{
     decode_inspection_records, decode_semantic_fact_graph, encode_validated_semantic_facts,
+    validate_decode_allocation,
 };
 pub use interning::{
     ImportedAbiDependency, ImportedCallableContractFact, ImportedConstraintFact,

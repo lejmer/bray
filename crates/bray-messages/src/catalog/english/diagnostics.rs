@@ -626,7 +626,14 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         | DiagnosticKind::InterfacePackageIdentityMismatch
         | DiagnosticKind::InterfaceProductIdentityMismatch
         | DiagnosticKind::InterfaceDependencyGraphInvalid
-        | DiagnosticKind::InterfaceSemanticFactsInvalid => interface_diagnostic_template(kind),
+        | DiagnosticKind::InterfaceSemanticFactsInvalid
+        | DiagnosticKind::InterfaceCommandUsage
+        | DiagnosticKind::InterfaceCommandUnexpectedAction
+        | DiagnosticKind::InterfaceCommandUnexpectedArgument
+        | DiagnosticKind::InterfaceCommandMissingSectionName
+        | DiagnosticKind::InterfaceCommandUnknownSectionName
+        | DiagnosticKind::InterfaceArtifactReadFailed
+        | DiagnosticKind::InterfaceCommandOutputFailed => interface_diagnostic_template(kind),
     }
 }
 

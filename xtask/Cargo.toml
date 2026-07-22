@@ -11,6 +11,7 @@ workspace = true
 [dependencies]
 bray-compilation = { path = "../crates/bray-compilation" }
 bray-compiler-known = { path = "../crates/bray-compiler-known", features = ["generation"] }
+bray-diagnostics = { path = "../crates/bray-diagnostics" }
 bray-messages = { path = "../crates/bray-messages" }
 bray-package-interface = { path = "../crates/bray-package-interface" }
 serde = { version = "1", features = ["derive"] }

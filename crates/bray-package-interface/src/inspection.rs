@@ -212,22 +212,16 @@ impl ValidatedPackageInterface {
             })
             .collect::<Vec<_>>();
 
+        let selected_sections = selected_sections(self, selected)?;
+
+        crate::semantic::validate_decode_allocation(&selected_sections, self.limits())?;
+
         let mut strings = None;
         let mut surface_budget = DecodeBudget::new(self.limits());
         let mut sections = Vec::new();
 
-        for section_tag in InterfaceSectionTag::ALL {
-            if !selected.contains(&section_tag) {
-                continue;
-            }
-
-            let Some(section) = self.section(section_tag) else {
-                if section_tag.is_optional() {
-                    continue;
-                }
-
-                return Err(InterfaceValidationError::Malformed);
-            };
+        for section in selected_sections {
+            let section_tag = section.tag();
 
             let records = if is_semantic_section(section_tag) {
                 crate::semantic::decode_inspection_records(section, self.limits())?
@@ -250,6 +244,31 @@ impl ValidatedPackageInterface {
             sections: sections.into(),
         })
     }
+}
+
+fn selected_sections<'interface>(
+    interface: &'interface ValidatedPackageInterface,
+    selected: &[InterfaceSectionTag],
+) -> Result<Vec<ValidatedInterfaceSection<'interface>>, InterfaceValidationError> {
+    let mut sections = Vec::new();
+
+    for section_tag in InterfaceSectionTag::ALL {
+        if !selected.contains(&section_tag) {
+            continue;
+        }
+
+        let Some(section) = interface.section(section_tag) else {
+            if section_tag.is_optional() {
+                continue;
+            }
+
+            return Err(InterfaceValidationError::Malformed);
+        };
+
+        sections.push(section);
+    }
+
+    Ok(sections)
 }
 
 fn decode_surface_inspection_records(
@@ -413,6 +432,46 @@ mod tests {
         ]);
 
         assert_eq!(forward, reordered);
+    }
+
+    #[test]
+    fn selected_semantic_sections_share_one_aggregate_allocation_preflight() {
+        let bundle = package_interface_export_bundle();
+        let sections = [
+            EncodedArtifactSection::new(InterfaceSectionTag::SemanticTypes, 0, vec![0; 4]),
+            EncodedArtifactSection::new(InterfaceSectionTag::Constants, 0, vec![0; 4]),
+        ];
+
+        let artifact = assemble_sections(
+            &sections,
+            bundle.surface().identity().clone(),
+            bundle.language_revision(),
+        )
+        .unwrap_or_else(|error| panic!("test sections must assemble: {error:?}"));
+
+        let limits = crate::InterfaceValidationLimits::default().with_decoded_allocation(64);
+        let interface = ValidatedPackageInterface::try_new(
+            artifact.shared_bytes(),
+            InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)).with_limits(limits),
+        )
+        .unwrap_or_else(|error| panic!("test interface envelope must validate: {error:?}"));
+
+        let error = match interface.inspect(&[
+            InterfaceSectionTag::SemanticTypes,
+            InterfaceSectionTag::Constants,
+        ]) {
+            Ok(_) => panic!("aggregate semantic allocation must be rejected"),
+            Err(error) => error,
+        };
+
+        assert_eq!(
+            error,
+            crate::InterfaceValidationError::ResourceLimitExceeded {
+                limit: crate::InterfaceLimit::DecodedAllocation,
+                actual: 128,
+                maximum: 64,
+            }
+        );
     }
 
     #[test]

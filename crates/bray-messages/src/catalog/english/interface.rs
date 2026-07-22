@@ -52,6 +52,33 @@ const DEPENDENCY_GRAPH_INVALID: &[MessageTemplatePart] = &[MessageTemplatePart::
 const SEMANTIC_FACTS_INVALID: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
     "package-interface semantic facts cannot be loaded",
 )];
+const COMMAND_USAGE: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "usage: cargo xtask package-interface <inspect <path> [--section <name>]... | validate <path>>",
+)];
+const COMMAND_UNEXPECTED_ACTION: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("unexpected package-interface command: "),
+    MessageTemplatePart::Arg(DiagnosticArgName::TokenText),
+];
+const COMMAND_UNEXPECTED_ARGUMENT: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("unexpected package-interface argument: "),
+    MessageTemplatePart::Arg(DiagnosticArgName::TokenText),
+];
+const COMMAND_MISSING_SECTION_NAME: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "--section requires a package-interface section name",
+)];
+const COMMAND_UNKNOWN_SECTION_NAME: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("unknown package-interface section: "),
+    MessageTemplatePart::Arg(DiagnosticArgName::TokenText),
+];
+const ARTIFACT_READ_FAILED: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("could not read package interface "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ArtifactPath),
+    MessageTemplatePart::Text(": "),
+    MessageTemplatePart::Arg(DiagnosticArgName::IoErrorKind),
+];
+const COMMAND_OUTPUT_FAILED: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "could not render structured package-interface output",
+)];
 
 pub(super) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate {
     let parts = match kind {
@@ -68,6 +95,13 @@ pub(super) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         DiagnosticKind::InterfaceProductIdentityMismatch => PRODUCT_IDENTITY_MISMATCH,
         DiagnosticKind::InterfaceDependencyGraphInvalid => DEPENDENCY_GRAPH_INVALID,
         DiagnosticKind::InterfaceSemanticFactsInvalid => SEMANTIC_FACTS_INVALID,
+        DiagnosticKind::InterfaceCommandUsage => COMMAND_USAGE,
+        DiagnosticKind::InterfaceCommandUnexpectedAction => COMMAND_UNEXPECTED_ACTION,
+        DiagnosticKind::InterfaceCommandUnexpectedArgument => COMMAND_UNEXPECTED_ARGUMENT,
+        DiagnosticKind::InterfaceCommandMissingSectionName => COMMAND_MISSING_SECTION_NAME,
+        DiagnosticKind::InterfaceCommandUnknownSectionName => COMMAND_UNKNOWN_SECTION_NAME,
+        DiagnosticKind::InterfaceArtifactReadFailed => ARTIFACT_READ_FAILED,
+        DiagnosticKind::InterfaceCommandOutputFailed => COMMAND_OUTPUT_FAILED,
         _ => unreachable!(),
     };
 
