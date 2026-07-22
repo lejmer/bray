@@ -42,7 +42,7 @@ impl_declaration_body_fact!(
     bind_union_payload_field_default
 );
 
-struct CheckedRuntimeDefault {
+struct RuntimeDefaultSummary {
     provider: AnySymbolId,
     result: TypeId,
     generic_context: RuntimeDefaultGenericContext,
@@ -184,7 +184,7 @@ fn checked_runtime_default(
     owner: AnySymbolId,
     template: UnevaluatedDefaultTemplate,
     template_diagnostics: &DiagnosticBag,
-) -> BinderFactResult<DiagnosticResult<CheckedRuntimeDefault>> {
+) -> BinderFactResult<DiagnosticResult<RuntimeDefaultSummary>> {
     match template {
         UnevaluatedDefaultTemplate::Absent => Err(BinderFactError::DependencyUnavailable),
         UnevaluatedDefaultTemplate::Present(expression) => {
@@ -202,7 +202,7 @@ fn checked_runtime_default(
             ]);
 
             Ok(DiagnosticResult::new(
-                CheckedRuntimeDefault {
+                RuntimeDefaultSummary {
                     provider,
                     result: checked.result,
                     generic_context,
@@ -238,7 +238,7 @@ fn checked_runtime_default(
             let diagnostics = template_diagnostics.merged(imported.diagnostics());
 
             Ok(DiagnosticResult::new(
-                CheckedRuntimeDefault {
+                RuntimeDefaultSummary {
                     provider,
                     result,
                     generic_context,
