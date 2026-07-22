@@ -6,8 +6,10 @@ use bray_symbols::{
     ConstantValueData, ConstantValueId, ConstantValueKind, IntegerConstant, TypeData, TypeId,
 };
 
+use crate::constant::integer::fits_integer_representation;
 use crate::constant::literal::ConstantLiteralError;
 use crate::constant::operation::ConstantOperationError;
+use crate::representation::type_representation;
 use crate::{CheckerInfrastructureError, CheckerRequestContext};
 
 use super::engine::Evaluator;
@@ -139,6 +141,74 @@ where
     ) -> Result<ConstantValueId, EvaluationFailure> {
         self.term_value(term)?
             .ok_or_else(|| EvaluationFailure::invalid_expression(expression))
+    }
+
+    pub(super) fn finalize_closed_value(
+        &self,
+        term: ConstantTermId,
+        expression: BoundExpressionId,
+    ) -> Result<ConstantValueId, EvaluationFailure> {
+        let value = self.closed_value(term, expression)?;
+
+        self.validate_closed_value(value, expression)?;
+
+        Ok(value)
+    }
+
+    fn validate_closed_value(
+        &self,
+        value: ConstantValueId,
+        expression: BoundExpressionId,
+    ) -> Result<(), EvaluationFailure> {
+        self.observe_cancellation()?;
+
+        let data = self.constant_value(value)?;
+
+        match data.kind() {
+            ConstantValueKind::Integer(integer) => {
+                let representation = type_representation(self.request, data.ty())
+                    .map_err(EvaluationFailure::Infrastructure)?
+                    .and_then(bray_compiler_known::RepresentationRole::integer_representation)
+                    .ok_or_else(|| EvaluationFailure::invalid_expression(expression))?;
+
+                if !fits_integer_representation(integer, representation, || {
+                    self.request
+                        .selected_target()
+                        .machine()
+                        .pointer_width_bits()
+                }) {
+                    return Err(EvaluationFailure::operation(
+                        expression,
+                        ConstantOperationError::NotRepresentable,
+                    ));
+                }
+            }
+            ConstantValueKind::NullablePresent(value) => {
+                self.validate_closed_value(*value, expression)?;
+            }
+            ConstantValueKind::Tuple(values)
+            | ConstantValueKind::Array(values)
+            | ConstantValueKind::Product(values) => {
+                for value in values.iter() {
+                    self.validate_closed_value(*value, expression)?;
+                }
+            }
+            ConstantValueKind::Union { fields, .. } => {
+                for value in fields.iter() {
+                    self.validate_closed_value(*value, expression)?;
+                }
+            }
+            ConstantValueKind::Error
+            | ConstantValueKind::Boolean(_)
+            | ConstantValueKind::Character(_)
+            | ConstantValueKind::Real(_)
+            | ConstantValueKind::Complex { .. }
+            | ConstantValueKind::String(_)
+            | ConstantValueKind::Unit
+            | ConstantValueKind::NullableAbsent => {}
+        }
+
+        Ok(())
     }
 
     pub(super) fn constant_value(

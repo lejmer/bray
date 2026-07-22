@@ -5,7 +5,7 @@ use bray_compiler_known::{IntegerRepresentation, RepresentationRole};
 use bray_symbols::{ConstantValueKind, IntegerConstant, RealConstantBits};
 use num_bigint::BigInt;
 
-use super::integer::{fits_integer_representation, from_big_integer, to_big_integer};
+use super::integer::{from_big_integer, to_big_integer};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum ConstantOperationError {
@@ -53,7 +53,7 @@ pub(super) fn fold_unary(
         _ => return Err(ConstantOperationError::Invalid),
     };
 
-    validate_integer_result(result, representation, target_width)
+    Ok(result)
 }
 
 pub(super) fn fold_binary(
@@ -97,7 +97,7 @@ pub(super) fn fold_binary(
         _ => return Err(ConstantOperationError::Invalid),
     };
 
-    validate_integer_result(result, representation, target_width)
+    Ok(result)
 }
 
 fn fold_integer_binary(
@@ -171,27 +171,6 @@ where
     };
 
     Ok(ConstantValueKind::Boolean(value))
-}
-
-fn validate_integer_result(
-    result: ConstantValueKind,
-    representation: Option<RepresentationRole>,
-    target_width: NonZeroU16,
-) -> Result<ConstantValueKind, ConstantOperationError> {
-    let ConstantValueKind::Integer(value) = &result else {
-        return Ok(result);
-    };
-
-    let Some(representation) = representation.and_then(RepresentationRole::integer_representation)
-    else {
-        return Err(ConstantOperationError::Invalid);
-    };
-
-    if !fits_integer_representation(value, representation, || target_width) {
-        return Err(ConstantOperationError::NotRepresentable);
-    }
-
-    Ok(result)
 }
 
 fn integer_width(
@@ -344,11 +323,11 @@ mod tests {
     use super::{ConstantOperationError, fold_binary, fold_unary};
 
     #[test]
-    fn integer_arithmetic_uses_exact_intermediates_and_checks_the_result() {
+    fn integer_arithmetic_keeps_exact_intermediates_beyond_the_selected_width() {
         let maximum = integer([0xff]);
         let one = integer([1]);
 
-        let result = fold_binary(
+        let intermediate = fold_binary(
             BoundOperator::Add,
             &maximum,
             &one,
@@ -356,7 +335,19 @@ mod tests {
             NonZeroU16::MIN,
         );
 
-        assert_eq!(result, Err(ConstantOperationError::NotRepresentable));
+        let Ok(intermediate) = intermediate else {
+            panic!("exact intermediate addition must succeed");
+        };
+
+        let result = fold_binary(
+            BoundOperator::Subtract,
+            &intermediate,
+            &one,
+            Some(RepresentationRole::ScalarU8),
+            NonZeroU16::MIN,
+        );
+
+        assert_eq!(result, Ok(maximum));
     }
 
     #[test]
