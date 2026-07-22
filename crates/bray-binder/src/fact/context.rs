@@ -123,6 +123,7 @@ mod tests {
         assert_eq!(context.declarations().declarations().len(), 2);
         assert_eq!(context.symbols().constants().len(), 1);
         assert_eq!(context.semantic_values().id(), fixture.semantic_values.id());
+
         assert_eq!(
             context.selected_target().identity().as_str(),
             "x86_64-unknown-linux-gnu"

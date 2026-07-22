@@ -163,6 +163,7 @@ impl Compilation {
         request: TargetValidityRequest,
     ) -> Result<Arc<DiagnosticResult<TargetValidity>>, FactQueryError> {
         let cell = self.state.target_validity.cell(request.clone())?;
+
         let published = self.query_fact_with_cancellation(
             crate::fact::CompilationFactKey::TargetValidity(request.clone()),
             &cell,
@@ -228,6 +229,7 @@ mod tests {
         };
 
         let anchor = key.source();
+
         let source = match context.source(anchor) {
             Ok(source) => source,
             Err(error) => panic!("bound source must resolve: {error:?}"),
@@ -257,6 +259,7 @@ mod tests {
         };
 
         let source = key.source();
+
         let stale = BoundSourceAnchor::new(
             source.syntax(),
             SourceVersion::new(source.source_version().raw() + 1),

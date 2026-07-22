@@ -27,6 +27,7 @@ impl CompilerKnownCatalogCheckReport {
 pub fn check_compiler_known_catalog()
 -> Result<CompilerKnownCatalogCheckReport, CompilerKnownCatalogCheckError> {
     let serial_workers = WorkerBudget::serial();
+
     let parallel_workers =
         WorkerBudget::new(4).map_err(CompilerKnownCatalogCheckError::WorkerBudget)?;
 

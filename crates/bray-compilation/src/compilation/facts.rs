@@ -1327,6 +1327,7 @@ mod tests {
         let baseline = crate::SelectedTarget::baseline();
         let profile = baseline.profile();
         let baseline_facts = profile.facts();
+
         let facts = bray_target::TargetFacts::new(
             baseline_facts.identity().clone(),
             bray_target::TargetScalarFacts::new(real16, false, false, false),

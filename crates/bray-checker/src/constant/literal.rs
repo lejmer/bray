@@ -53,6 +53,7 @@ pub fn normalize_integer_literal(text: &str) -> Result<IntegerConstant, Constant
     }
 
     let (radix, digits) = integer_digits(text)?;
+
     let magnitude = parse_unsigned_magnitude(digits, radix)?;
 
     Ok(IntegerConstant::new(IntegerSign::NonNegative, magnitude))
@@ -72,6 +73,7 @@ fn parse_integer(
     };
 
     let (radix, digits) = integer_digits(text)?;
+
     let magnitude = parse_unsigned_magnitude(digits, radix)?;
 
     if !integer_literal_fits(
@@ -501,6 +503,7 @@ mod tests {
     #[test]
     fn only_target_sized_integer_literals_request_the_target_width() {
         let observations = Cell::new(0);
+
         let observe_width = || {
             observations.set(observations.get() + 1);
 

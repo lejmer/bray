@@ -705,6 +705,7 @@ mod tests {
 
         for (limits, diagnostic_kind) in cases {
             let (_, result) = evaluate(&unit, root, &context, expected, Some(limits));
+
             let value = constant_value(*result.value());
 
             assert_eq!(result.diagnostics().by_kind(diagnostic_kind).count(), 1);
@@ -910,6 +911,7 @@ mod tests {
                     SyntaxAnchor::from_node(literal),
                     source.version(),
                 ));
+
                 let Some(token) = literal.literal_token() else {
                     panic!("parsed literal expression must contain its token");
                 };

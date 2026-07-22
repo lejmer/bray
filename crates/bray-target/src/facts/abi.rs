@@ -155,6 +155,7 @@ impl TargetAbiFacts {
             Some(contract) => contract.scalars().is_supported_by(scalars),
             None => true,
         };
+
         let system_valid = match self.system {
             Some(contract) => contract.scalars().is_supported_by(scalars),
             None => true,

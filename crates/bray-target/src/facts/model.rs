@@ -239,6 +239,7 @@ impl TargetFacts {
         let address_spaces = TargetAddressSpaceFacts::try_new(true, false)?;
         let maximum_alignment = NonZeroU64::new(1 << 29).unwrap_or(NonZeroU64::MIN);
         let alignments = TargetAlignmentFacts::try_new(maximum_alignment, maximum_alignment)?;
+
         let foreign_abi = TargetForeignAbiFacts::new(
             TargetAbiScalarFacts::required(),
             true,

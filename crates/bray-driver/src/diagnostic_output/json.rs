@@ -538,6 +538,7 @@ mod tests {
             Ok(value) => value,
             Err(error) => panic!("JSON diagnostics should parse: {error:?}"),
         };
+
         let arguments = &output["diagnostics"][0]["args"];
 
         assert_eq!(arguments[0]["name"], "expected_type");
