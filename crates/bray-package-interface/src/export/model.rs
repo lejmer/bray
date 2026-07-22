@@ -1,9 +1,10 @@
 use std::sync::Arc;
 
-use bray_symbols::{ExternalSymbolKey, SymbolName};
+use bray_symbols::{ExternalSymbolKey, InterfaceSymbolId, SymbolKind, SymbolName};
 
 use crate::{
-    DependencyInterfaceId, ExportedLookupKind, InterfaceLanguageRevision, InterfaceSemanticFacts,
+    DependencyInterfaceId, ExportedLookupKind, InterfaceLanguageRevision,
+    InterfaceSemanticFactEntry, InterfaceSemanticFactKind, InterfaceSemanticFacts,
     InterfaceSymbolReference, InterfaceValidationError, PackageInterfaceSurface,
     PackageInterfaceSurfaceBuildError, SymbolRelationshipKind,
 };
@@ -208,14 +209,51 @@ fn validate_semantic_coverage(
     let fact_directory = semantic_facts.fact_directory();
 
     for symbol in surface.symbols().symbols() {
+        if symbol.kind().is_callable() {
+            require_owned_semantic_fact(
+                &fact_directory,
+                symbol.id(),
+                symbol.key(),
+                InterfaceSemanticFactKind::CallableSignature,
+            )?;
+        }
+
+        if surface.relationships().iter().any(|relationship| {
+            relationship.kind() == SymbolRelationshipKind::GenericParameter
+                && relationship.owner() == symbol.id()
+        }) {
+            require_owned_semantic_fact(
+                &fact_directory,
+                symbol.id(),
+                symbol.key(),
+                InterfaceSemanticFactKind::GenericDeclaration,
+            )?;
+        }
+
+        if symbol.kind() == SymbolKind::CallableParameter {
+            require_owned_semantic_fact(
+                &fact_directory,
+                symbol.id(),
+                symbol.key(),
+                InterfaceSemanticFactKind::CallableParameterDefault,
+            )?;
+        }
+
+        if symbol.kind().is_implementation() {
+            require_owned_semantic_fact(
+                &fact_directory,
+                symbol.id(),
+                symbol.key(),
+                InterfaceSemanticFactKind::Implementation,
+            )?;
+        }
+
         if !requires_owned_semantic_fact(symbol.kind()) {
             continue;
         }
 
         if !fact_directory.iter().any(|fact| {
             matches!(fact.owner(), InterfaceSymbolReference::Local(owner) if *owner == symbol.id())
-                && (!symbol.kind().is_implementation()
-                    || fact.kind() == crate::InterfaceSemanticFactKind::Implementation)
         }) {
             // External keys are Arc-backed and make the failure independent of local table IDs.
             return Err(PackageInterfaceExportBuildError::MissingSemanticFacts(
@@ -225,6 +263,26 @@ fn validate_semantic_coverage(
     }
 
     Ok(())
+}
+
+fn require_owned_semantic_fact(
+    fact_directory: &[InterfaceSemanticFactEntry],
+    owner: InterfaceSymbolId,
+    key: &ExternalSymbolKey,
+    kind: InterfaceSemanticFactKind,
+) -> Result<(), PackageInterfaceExportBuildError> {
+    let present = fact_directory.iter().any(|fact| {
+        fact.kind() == kind
+            && matches!(fact.owner(), InterfaceSymbolReference::Local(id) if *id == owner)
+    });
+
+    if present {
+        Ok(())
+    } else {
+        Err(PackageInterfaceExportBuildError::MissingSemanticFacts(
+            key.clone(),
+        ))
+    }
 }
 
 fn canonicalize_owner_addressed_facts(mut facts: InterfaceSemanticFacts) -> InterfaceSemanticFacts {
@@ -265,9 +323,9 @@ mod tests {
 
     use crate::test_support::package_interface_export_bundle;
     use crate::{
-        InterfaceAbiDependency, InterfaceLanguageRevision, InterfaceSemanticFacts,
-        InterfaceSymbolReference, InterfaceValidationError, PackageInterfaceExportBuildError,
-        PackageInterfaceExportBundle, encode_package_interface,
+        InterfaceAbiDependency, InterfaceLanguageRevision, InterfaceSemanticFactKind,
+        InterfaceSemanticFacts, InterfaceSymbolReference, InterfaceValidationError,
+        PackageInterfaceExportBuildError, PackageInterfaceExportBundle, encode_package_interface,
     };
 
     #[test]
@@ -349,6 +407,63 @@ mod tests {
                 implementation
             ))
         );
+    }
+
+    #[test]
+    fn callable_generic_and_default_facts_are_each_required() {
+        const REQUIRED_FACTS: &[InterfaceSemanticFactKind] = &[
+            InterfaceSemanticFactKind::CallableSignature,
+            InterfaceSemanticFactKind::GenericDeclaration,
+            InterfaceSemanticFactKind::CallableParameterDefault,
+        ];
+
+        for &missing in REQUIRED_FACTS {
+            let complete = package_interface_export_bundle();
+            let facts = complete.semantic_facts();
+            let incomplete = facts.clone().with_declarations(
+                facts
+                    .callable_signatures()
+                    .iter()
+                    .filter(|_| missing != InterfaceSemanticFactKind::CallableSignature)
+                    .cloned(),
+                facts
+                    .generic_declarations()
+                    .iter()
+                    .filter(|_| missing != InterfaceSemanticFactKind::GenericDeclaration)
+                    .cloned(),
+                facts
+                    .callable_parameter_defaults()
+                    .iter()
+                    .filter(|_| missing != InterfaceSemanticFactKind::CallableParameterDefault)
+                    .cloned(),
+            );
+
+            let owner_kind = if missing == InterfaceSemanticFactKind::CallableParameterDefault {
+                SymbolKind::CallableParameter
+            } else {
+                SymbolKind::Function
+            };
+
+            let owner = complete
+                .surface()
+                .symbols()
+                .symbols()
+                .iter()
+                .find(|symbol| symbol.kind() == owner_kind)
+                .map(|symbol| symbol.key().clone())
+                .unwrap_or_else(|| panic!("test surface must contain {owner_kind:?}"));
+
+            assert_eq!(
+                PackageInterfaceExportBundle::try_new(
+                    complete.surface().clone(),
+                    incomplete,
+                    InterfaceLanguageRevision::new(0),
+                ),
+                Err(PackageInterfaceExportBuildError::MissingSemanticFacts(
+                    owner
+                ))
+            );
+        }
     }
 
     #[test]

@@ -569,6 +569,7 @@ mod tests {
             candidate.defaults()[0].value(),
             UnevaluatedDefaultTemplate::Resolved
         );
+
         assert!(candidate.defaults()[0].provider().is_some());
 
         let [parameter] = candidate.signature().parameters() else {

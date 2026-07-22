@@ -88,11 +88,16 @@ fn selected_fact_sections(
         InterfaceSectionTag::SymbolFactDirectory,
         InterfaceSectionTag::SemanticTypes,
         InterfaceSectionTag::Constants,
-        InterfaceSectionTag::Contracts,
         InterfaceSectionTag::DeclarationFacts,
     ];
 
-    const GENERIC_DECLARATION_SECTIONS: &[InterfaceSectionTag] = CALLABLE_SIGNATURE_SECTIONS;
+    const GENERIC_DECLARATION_SECTIONS: &[InterfaceSectionTag] = &[
+        InterfaceSectionTag::SymbolFactDirectory,
+        InterfaceSectionTag::SemanticTypes,
+        InterfaceSectionTag::Constants,
+        InterfaceSectionTag::Contracts,
+        InterfaceSectionTag::DeclarationFacts,
+    ];
 
     const CALLABLE_PARAMETER_DEFAULT_SECTIONS: &[InterfaceSectionTag] = &[
         InterfaceSectionTag::SymbolFactDirectory,
@@ -406,6 +411,36 @@ mod tests {
         assert_eq!(default.callable_parameter_defaults().len(), 1);
         assert!(default.types().is_empty());
         assert!(default.constant_terms().is_empty());
+    }
+
+    #[test]
+    fn callable_signature_decoding_ignores_corrupt_contract_bytes() {
+        let bundle = package_interface_export_bundle();
+        let surface = bundle.surface().clone();
+        let mut sections = semantic_sections(bundle.semantic_facts(), &surface);
+
+        let InterfaceSymbolReference::Local(callable) =
+            local_by_kind(&surface, SymbolKind::Function)
+        else {
+            panic!("test callable must be local");
+        };
+
+        section_mut(&mut sections, InterfaceSectionTag::Contracts)
+            .2
+            .fill(u8::MAX);
+
+        let signature = decode_semantic_fact_graph(
+            &owned_section_views(&sections),
+            &surface,
+            callable,
+            InterfaceSemanticFactKind::CallableSignature,
+            InterfaceValidationLimits::default(),
+        )
+        .unwrap_or_else(|error| panic!("callable signature must decode: {error:?}"));
+
+        assert_eq!(signature.callable_signatures().len(), 1);
+        assert_eq!(signature.dependency_contracts.len(), 1);
+        assert!(signature.dependency_contracts[0].requirements.is_empty());
     }
 
     #[test]

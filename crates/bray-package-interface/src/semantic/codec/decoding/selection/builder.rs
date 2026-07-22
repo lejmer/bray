@@ -8,10 +8,10 @@ use super::remap::remap_selected_records;
 use crate::semantic::codec::common::SemanticDecodeContext;
 use crate::semantic::model::{
     InterfaceConstantProjection, InterfaceConstantTerm, InterfaceConstantValueKind,
-    InterfaceDependencyGuard, InterfaceDependencyProjection, InterfaceDependencyRequirement,
-    InterfaceDependencyRequirementValue, InterfaceDependencySubject,
-    InterfaceDependencySubjectRoot, InterfaceGenericArgument, InterfaceSemanticFactEntry,
-    InterfaceSemanticFactKind, InterfaceSemanticFacts, InterfaceType,
+    InterfaceDependencyContract, InterfaceDependencyGuard, InterfaceDependencyProjection,
+    InterfaceDependencyRequirement, InterfaceDependencyRequirementValue,
+    InterfaceDependencySubject, InterfaceDependencySubjectRoot, InterfaceGenericArgument,
+    InterfaceSemanticFactEntry, InterfaceSemanticFactKind, InterfaceSemanticFacts, InterfaceType,
 };
 use crate::{
     InterfaceSectionTag, InterfaceSymbolReference, InterfaceValidationError,
@@ -51,7 +51,7 @@ pub(in crate::semantic::codec::decoding) fn decode_selected_fact_graph(
 struct SelectedTables<'bytes> {
     types: value::TypeRecordTables<'bytes>,
     constants: value::ConstantRecordTables<'bytes>,
-    contracts: contract::ContractRecordTables<'bytes>,
+    contracts: Option<contract::ContractRecordTables<'bytes>>,
     implementations: Option<surface::ImplementationRecordTables<'bytes>>,
     targets: Option<surface::TargetRecordTables<'bytes>>,
     declarations: Option<declaration::DeclarationRecordTables<'bytes>>,
@@ -65,11 +65,21 @@ impl<'bytes> SelectedTables<'bytes> {
     ) -> Result<Self, InterfaceValidationError> {
         let types = facts::required_section(sections, InterfaceSectionTag::SemanticTypes)?;
         let constants = facts::required_section(sections, InterfaceSectionTag::Constants)?;
-        let contracts = facts::required_section(sections, InterfaceSectionTag::Contracts)?;
-
         let types = value::decode_type_tables(types, context)?;
         let constants = value::decode_constant_tables(constants, context)?;
-        let contracts = contract::decode_contract_tables(contracts, context)?;
+
+        let contracts = if matches!(
+            kind,
+            InterfaceSemanticFactKind::GenericConstraint
+                | InterfaceSemanticFactKind::GenericDeclaration
+                | InterfaceSemanticFactKind::Implementation
+        ) {
+            let section = facts::required_section(sections, InterfaceSectionTag::Contracts)?;
+
+            Some(contract::decode_contract_tables(section, context)?)
+        } else {
+            None
+        };
 
         let implementations = if kind == InterfaceSemanticFactKind::Implementation {
             let section = facts::required_section(sections, InterfaceSectionTag::Implementations)?;
@@ -356,11 +366,16 @@ impl<'bytes> SelectionBuilder<'bytes> {
     }
 
     fn include_constraint(&mut self, index: u32) -> Result<(), InterfaceValidationError> {
-        let constraint = self.tables.contracts.constraints.decode(
-            index,
-            &mut self.context,
-            contract::decode_constraint,
-        )?;
+        let tables = self
+            .tables
+            .contracts
+            .as_ref()
+            .ok_or(InterfaceValidationError::Malformed)?;
+
+        let constraint =
+            tables
+                .constraints
+                .decode(index, &mut self.context, contract::decode_constraint)?;
 
         if constraint.owner != self.owner {
             return Err(InterfaceValidationError::Malformed);
@@ -369,6 +384,7 @@ impl<'bytes> SelectionBuilder<'bytes> {
         self.enqueue(PendingRecord::DependencyContract(
             constraint.predicate.dependency_contract.raw(),
         ));
+
         self.records.constraints.insert(index, constraint);
 
         Ok(())
@@ -582,12 +598,26 @@ impl<'bytes> SelectionBuilder<'bytes> {
                 }
 
                 self.enqueue(PendingRecord::Type(result.raw()));
-                self.enqueue(PendingRecord::DependencyContract(
-                    invocation_dependency_contract.raw(),
-                ));
 
-                if let Some(contract) = deferred_dependency_contract {
-                    self.enqueue(PendingRecord::DependencyContract(contract.raw()));
+                if self.tables.contracts.is_some() {
+                    self.enqueue(PendingRecord::DependencyContract(
+                        invocation_dependency_contract.raw(),
+                    ));
+
+                    if let Some(contract) = deferred_dependency_contract {
+                        self.enqueue(PendingRecord::DependencyContract(contract.raw()));
+                    }
+                } else {
+                    self.records.dependency_contracts.insert(
+                        invocation_dependency_contract.raw(),
+                        InterfaceDependencyContract::new([]),
+                    );
+
+                    if let Some(contract) = deferred_dependency_contract {
+                        self.records
+                            .dependency_contracts
+                            .insert(contract.raw(), InterfaceDependencyContract::new([]));
+                    }
                 }
             }
             InterfaceType::TypeParameter(_) | InterfaceType::ContextualSelf(_) => {}
@@ -697,13 +727,18 @@ impl<'bytes> SelectionBuilder<'bytes> {
     }
 
     fn include_dependency_contract(&mut self, index: u32) -> Result<(), InterfaceValidationError> {
-        let contract = self.tables.contracts.dependencies.decode(
-            index,
-            &mut self.context,
-            |reader, context| {
-                contract::decode_dependency_contract(reader, context.limits(), context)
-            },
-        )?;
+        let tables = self
+            .tables
+            .contracts
+            .as_ref()
+            .ok_or(InterfaceValidationError::Malformed)?;
+
+        let contract =
+            tables
+                .dependencies
+                .decode(index, &mut self.context, |reader, context| {
+                    contract::decode_dependency_contract(reader, context.limits(), context)
+                })?;
 
         for requirement in &*contract.requirements {
             self.include_dependency_requirement(requirement);
