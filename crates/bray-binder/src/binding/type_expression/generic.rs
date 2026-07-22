@@ -69,6 +69,7 @@ impl TypeExpressionBinder<'_> {
         let Some(resolved_arguments) = resolved_arguments else {
             return Ok(TypeExpressionTemplate::Named {
                 definition,
+                parameters: Arc::from(parameters),
                 arguments: Arc::from(arguments),
             });
         };

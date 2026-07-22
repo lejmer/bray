@@ -296,9 +296,23 @@ const CHECKING_CONSTANT_LITERAL_SIZE_LIMIT_EXCEEDED: &[MessageTemplatePart] =
         "constant evaluation exceeded its literal size limit",
     )];
 
+const CHECKING_CONSTANT_INTEGER_SIZE_LIMIT_EXCEEDED: &[MessageTemplatePart] =
+    &[MessageTemplatePart::Text(
+        "constant evaluation exceeded its exact integer size limit",
+    )];
+
 const CHECKING_CYCLIC_CONSTANT_DEFINITION: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
     "constant definition depends on itself through a cycle",
 )];
+
+const CHECKING_CONSTANT_DIVISION_BY_ZERO: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "constant operation divides by zero",
+)];
+
+const CHECKING_CONSTANT_VALUE_NOT_REPRESENTABLE: &[MessageTemplatePart] =
+    &[MessageTemplatePart::Text(
+        "constant result cannot be represented by its selected type",
+    )];
 
 const BINDING_AMBIGUOUS_NAME: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("name "),
@@ -554,8 +568,17 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         DiagnosticKind::CheckingConstantLiteralSizeLimitExceeded => {
             MessageTemplate::new(CHECKING_CONSTANT_LITERAL_SIZE_LIMIT_EXCEEDED)
         }
+        DiagnosticKind::CheckingConstantIntegerSizeLimitExceeded => {
+            MessageTemplate::new(CHECKING_CONSTANT_INTEGER_SIZE_LIMIT_EXCEEDED)
+        }
         DiagnosticKind::CheckingCyclicConstantDefinition => {
             MessageTemplate::new(CHECKING_CYCLIC_CONSTANT_DEFINITION)
+        }
+        DiagnosticKind::CheckingConstantDivisionByZero => {
+            MessageTemplate::new(CHECKING_CONSTANT_DIVISION_BY_ZERO)
+        }
+        DiagnosticKind::CheckingConstantValueNotRepresentable => {
+            MessageTemplate::new(CHECKING_CONSTANT_VALUE_NOT_REPRESENTABLE)
         }
         DiagnosticKind::CheckingNoApplicableCandidate => {
             MessageTemplate::new(CHECKING_NO_APPLICABLE_CANDIDATE)

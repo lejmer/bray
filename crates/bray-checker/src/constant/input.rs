@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use bray_bound_tree::{BoundExpressionId, CheckedExpressionTypes, CheckedSemanticSelections};
-use bray_symbols::ConstantValueId;
+use bray_symbols::{ConstantTermId, ConstantValueId};
 
 use super::ConstantEvaluationLimits;
 
@@ -10,11 +10,13 @@ use super::ConstantEvaluationLimits;
 pub enum ConstantReferenceResolution {
     /// The referenced constant instance evaluated successfully.
     Value(ConstantValueId),
+    /// The reference remains a checked symbolic constant term.
+    Term(ConstantTermId),
     /// The compilation fact graph detected a constant-definition cycle.
     Cycle,
 }
 
-/// Checked semantic inputs for one closed constant-expression evaluation.
+/// Checked semantic inputs for one constant-expression checking or evaluation request.
 pub struct ConstantEvaluationInput<'facts> {
     expression_types: &'facts CheckedExpressionTypes,
     semantic_selections: &'facts CheckedSemanticSelections,

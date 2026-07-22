@@ -6,8 +6,8 @@ use bray_declarations::SyntaxAnchor;
 use crate::{
     AnySymbolId, BorrowKind, CallableAbi, CallableConstness, CallableDependencyContracts,
     CallableExecution, CallableParameterMode, CallableParameterName, CallablePosition,
-    CallableTrust, GenericArgument, GenericConstParameterSymbolId, NamedTypeSymbolId,
-    TraitSymbolId, TraitTypeMemberSymbolId, TypeId,
+    CallableTrust, GenericArgument, GenericConstParameterSymbolId, GenericParameterSymbolId,
+    NamedTypeSymbolId, TraitSymbolId, TraitTypeMemberSymbolId, TypeId,
 };
 
 /// Stable identity for one source constant expression embedded in a type expression.
@@ -96,6 +96,7 @@ impl GenericArgumentTemplate {
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct TraitApplicationTemplate {
     definition: TraitSymbolId,
+    parameters: Arc<[GenericParameterSymbolId]>,
     arguments: Arc<[GenericArgumentTemplate]>,
 }
 
@@ -103,10 +104,12 @@ impl TraitApplicationTemplate {
     /// Creates a trait application template in generic parameter order.
     pub fn new(
         definition: TraitSymbolId,
+        parameters: impl IntoIterator<Item = GenericParameterSymbolId>,
         arguments: impl IntoIterator<Item = GenericArgumentTemplate>,
     ) -> Self {
         Self {
             definition,
+            parameters: shared_slice(parameters),
             arguments: shared_slice(arguments),
         }
     }
@@ -114,6 +117,11 @@ impl TraitApplicationTemplate {
     /// Returns the applied trait definition.
     pub const fn definition(&self) -> TraitSymbolId {
         self.definition
+    }
+
+    /// Returns generic parameters in declaration order.
+    pub fn parameters(&self) -> &[GenericParameterSymbolId] {
+        &self.parameters
     }
 
     /// Returns generic arguments in declaration order.
@@ -254,7 +262,11 @@ pub enum TypeExpressionTemplate {
     Resolved(TypeId),
     /// A named type retains generic arguments in parameter order.
     Named {
+        /// The exact named type definition.
         definition: NamedTypeSymbolId,
+        /// Generic parameters in declaration order.
+        parameters: Arc<[GenericParameterSymbolId]>,
+        /// Generic arguments in parameter order.
         arguments: Arc<[GenericArgumentTemplate]>,
     },
     /// An associated type projection retains its applied trait and exact member.

@@ -14,6 +14,7 @@ bray-diagnostics = { path = "../bray-diagnostics" }
 bray-source = { path = "../bray-source" }
 bray-symbols = { path = "../bray-symbols" }
 bray-target = { path = "../bray-target" }
+num-bigint = "0.4.6"
 rustc_apfloat = "0.2.3"
 
 [dev-dependencies]

@@ -1,5 +1,5 @@
 use crate::analysis::check_control_flow;
-use crate::constant::evaluate_constant;
+use crate::constant::{check_constant_term, evaluate_constant};
 use crate::expression::check_expression_semantics;
 use crate::selection::{select_callable, select_operation};
 use crate::target::check_target_validity;
@@ -12,7 +12,7 @@ use crate::{
 use bray_bound_tree::{
     CheckedExpressionTypes, DeclaredValueTypeTemplates, SelectedCall, SelectedOperation,
 };
-use bray_symbols::ConstantValueId;
+use bray_symbols::{ConstantTermId, ConstantValueId};
 
 /// The standard Bray control-flow checker implementation.
 #[derive(Clone, Copy, Debug, Default)]
@@ -29,6 +29,10 @@ pub struct DefaultExpressionSemanticChecker;
 /// The standard Bray constant evaluator implementation.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DefaultConstantEvaluator;
+
+/// The standard Bray constant-expression checker implementation.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct DefaultConstantChecker;
 
 /// The standard Bray semantic candidate and operation selector.
 #[derive(Clone, Copy, Debug, Default)]
@@ -141,7 +145,7 @@ pub trait ConstantEvaluator<C>: Sync
 where
     C: CheckerRequestContext + ?Sized,
 {
-    /// Evaluates and interns the request's constant-expression root.
+    /// Evaluates the request's constant-expression root to a closed value.
     fn evaluate_constant(
         &self,
         request: CheckerUnitView<'_, C>,
@@ -152,6 +156,23 @@ where
 }
 
 impl<C> ConstantEvaluator<C> for DefaultConstantEvaluator where C: CheckerRequestContext + ?Sized {}
+
+/// Constant-expression validation and open-term construction over one checked bound unit.
+pub trait ConstantChecker<C>: Sync
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    /// Checks the request's constant-expression root and returns its checked term.
+    fn check_constant_term(
+        &self,
+        request: CheckerUnitView<'_, C>,
+        input: &ConstantEvaluationInput<'_>,
+    ) -> CheckerOutcome<ConstantTermId> {
+        check_constant_term(request, input)
+    }
+}
+
+impl<C> ConstantChecker<C> for DefaultConstantChecker where C: CheckerRequestContext + ?Sized {}
 
 /// Target-dependent validation for an already selected representation, ABI, or alignment.
 ///

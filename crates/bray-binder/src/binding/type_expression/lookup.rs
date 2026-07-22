@@ -30,7 +30,9 @@ impl TypeExpressionBinder<'_> {
         let arguments = self
             .bind_generic_arguments(syntax.generic_argument_lists().next().as_ref(), &parameters)?;
 
-        Ok(TraitApplicationTemplate::new(definition, arguments))
+        Ok(TraitApplicationTemplate::new(
+            definition, parameters, arguments,
+        ))
     }
 
     /// Produces a canonical trait application when every argument is already resolved.
@@ -48,17 +50,22 @@ impl TypeExpressionBinder<'_> {
             return Ok(None);
         };
 
-        let parameters = self.trait_parameters(template.definition())?;
         let Some(owner) = GenericOwnerId::try_new(template.definition().into()) else {
             return Err(BinderFactError::DependencyUnavailable);
         };
 
-        let substitution = GenericSubstitutionData::try_new(owner, parameters, arguments)
-            .map_err(|_| BinderFactError::DependencyUnavailable)?;
+        let substitution = GenericSubstitutionData::try_new(
+            owner,
+            template.parameters().iter().copied(),
+            arguments,
+        )
+        .map_err(|_| BinderFactError::DependencyUnavailable)?;
+
         let substitution = self
             .semantic_values
             .intern_generic_substitution(substitution)
             .map_err(|_| BinderFactError::DependencyUnavailable)?;
+
         let application = self
             .semantic_values
             .intern_trait_application(TraitApplicationData::new(

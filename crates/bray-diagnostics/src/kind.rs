@@ -119,8 +119,14 @@ pub enum DiagnosticKind {
     CheckingConstantAggregateLimitExceeded,
     /// Constant evaluation exhausted its deterministic literal-byte budget.
     CheckingConstantLiteralSizeLimitExceeded,
+    /// Constant evaluation exceeded its deterministic exact-integer size limit.
+    CheckingConstantIntegerSizeLimitExceeded,
     /// Constant definitions form a direct or transitive dependency cycle.
     CheckingCyclicConstantDefinition,
+    /// A constant operation divides or takes a remainder by zero.
+    CheckingConstantDivisionByZero,
+    /// A constant operation result cannot be represented by its selected type.
+    CheckingConstantValueNotRepresentable,
     /// No available candidate can perform the requested semantic operation.
     CheckingNoApplicableCandidate,
     /// More than one candidate can perform the requested semantic operation.
@@ -218,7 +224,10 @@ impl DiagnosticKind {
             Self::CheckingConstantEvaluationStepLimitExceeded => 7005,
             Self::CheckingConstantAggregateLimitExceeded => 7006,
             Self::CheckingConstantLiteralSizeLimitExceeded => 7007,
+            Self::CheckingConstantIntegerSizeLimitExceeded => 7020,
             Self::CheckingCyclicConstantDefinition => 7008,
+            Self::CheckingConstantDivisionByZero => 7018,
+            Self::CheckingConstantValueNotRepresentable => 7019,
             Self::CheckingNoApplicableCandidate => 7009,
             Self::CheckingAmbiguousCandidate => 7010,
             Self::CheckingInaccessibleCandidate => 7011,
@@ -311,7 +320,14 @@ impl DiagnosticKind {
             Self::CheckingConstantLiteralSizeLimitExceeded => {
                 "checking_constant_literal_size_limit_exceeded"
             }
+            Self::CheckingConstantIntegerSizeLimitExceeded => {
+                "checking_constant_integer_size_limit_exceeded"
+            }
             Self::CheckingCyclicConstantDefinition => "checking_cyclic_constant_definition",
+            Self::CheckingConstantDivisionByZero => "checking_constant_division_by_zero",
+            Self::CheckingConstantValueNotRepresentable => {
+                "checking_constant_value_not_representable"
+            }
             Self::CheckingNoApplicableCandidate => "checking_no_applicable_candidate",
             Self::CheckingAmbiguousCandidate => "checking_ambiguous_candidate",
             Self::CheckingInaccessibleCandidate => "checking_inaccessible_candidate",
@@ -389,7 +405,7 @@ mod tests {
         }
     }
 
-    fn all_diagnostic_kinds() -> [DiagnosticKind; 75] {
+    fn all_diagnostic_kinds() -> [DiagnosticKind; 78] {
         [
             DiagnosticKind::SourceFileReadFailed,
             DiagnosticKind::SourceInvalidUtf8,
@@ -448,7 +464,10 @@ mod tests {
             DiagnosticKind::CheckingConstantEvaluationStepLimitExceeded,
             DiagnosticKind::CheckingConstantAggregateLimitExceeded,
             DiagnosticKind::CheckingConstantLiteralSizeLimitExceeded,
+            DiagnosticKind::CheckingConstantIntegerSizeLimitExceeded,
             DiagnosticKind::CheckingCyclicConstantDefinition,
+            DiagnosticKind::CheckingConstantDivisionByZero,
+            DiagnosticKind::CheckingConstantValueNotRepresentable,
             DiagnosticKind::CheckingNoApplicableCandidate,
             DiagnosticKind::CheckingAmbiguousCandidate,
             DiagnosticKind::CheckingInaccessibleCandidate,
