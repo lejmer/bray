@@ -4,8 +4,10 @@ use rustc_apfloat::Float;
 use rustc_apfloat::ieee::{Double, Half, Quad, Single};
 
 use bray_bound_tree::BoundLiteralKind;
-use bray_compiler_known::{IntegerRepresentation, RepresentationRole};
+use bray_compiler_known::RepresentationRole;
 use bray_symbols::{ConstantValueKind, IntegerConstant, IntegerSign, RealConstantBits};
+
+use super::integer::fits_integer_representation;
 
 /// Why a source literal cannot become a constant value of its selected representation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -76,18 +78,13 @@ fn parse_integer(
 
     let magnitude = parse_unsigned_magnitude(digits, radix)?;
 
-    if !integer_literal_fits(
-        &magnitude,
-        integer_representation,
-        target_integer_width_bits,
-    ) {
+    let integer = IntegerConstant::new(IntegerSign::NonNegative, magnitude);
+
+    if !fits_integer_representation(&integer, integer_representation, target_integer_width_bits) {
         return Err(ConstantLiteralError::NotRepresentable);
     }
 
-    Ok(ConstantValueKind::Integer(IntegerConstant::new(
-        IntegerSign::NonNegative,
-        magnitude,
-    )))
+    Ok(ConstantValueKind::Integer(integer))
 }
 
 fn integer_digits(text: &str) -> Result<(u8, &str), ConstantLiteralError> {
@@ -141,27 +138,6 @@ fn multiply_add_magnitude(magnitude: &mut Vec<u8>, multiplier: u8, addend: u8) {
 
     if carry != 0 {
         magnitude.insert(0, carry.to_be_bytes()[1]);
-    }
-}
-
-fn integer_literal_fits(
-    magnitude: &[u8],
-    representation: IntegerRepresentation,
-    target_integer_width_bits: impl FnOnce() -> NonZeroU16,
-) -> bool {
-    let significant_bits = magnitude.first().map_or(0, |first| {
-        magnitude.len() * 8 - first.leading_zeros() as usize
-    });
-
-    match representation {
-        IntegerRepresentation::Signed(width) => significant_bits < usize::from(width),
-        IntegerRepresentation::Unsigned(width) => significant_bits <= usize::from(width),
-        IntegerRepresentation::TargetSigned => {
-            significant_bits < usize::from(target_integer_width_bits().get())
-        }
-        IntegerRepresentation::TargetUnsigned => {
-            significant_bits <= usize::from(target_integer_width_bits().get())
-        }
     }
 }
 

@@ -300,6 +300,15 @@ const CHECKING_CYCLIC_CONSTANT_DEFINITION: &[MessageTemplatePart] = &[MessageTem
     "constant definition depends on itself through a cycle",
 )];
 
+const CHECKING_CONSTANT_DIVISION_BY_ZERO: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "constant operation divides by zero",
+)];
+
+const CHECKING_CONSTANT_VALUE_NOT_REPRESENTABLE: &[MessageTemplatePart] =
+    &[MessageTemplatePart::Text(
+        "constant result cannot be represented by its selected type",
+    )];
+
 const BINDING_AMBIGUOUS_NAME: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("name "),
     MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
@@ -556,6 +565,12 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         }
         DiagnosticKind::CheckingCyclicConstantDefinition => {
             MessageTemplate::new(CHECKING_CYCLIC_CONSTANT_DEFINITION)
+        }
+        DiagnosticKind::CheckingConstantDivisionByZero => {
+            MessageTemplate::new(CHECKING_CONSTANT_DIVISION_BY_ZERO)
+        }
+        DiagnosticKind::CheckingConstantValueNotRepresentable => {
+            MessageTemplate::new(CHECKING_CONSTANT_VALUE_NOT_REPRESENTABLE)
         }
         DiagnosticKind::CheckingNoApplicableCandidate => {
             MessageTemplate::new(CHECKING_NO_APPLICABLE_CANDIDATE)

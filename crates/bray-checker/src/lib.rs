@@ -20,9 +20,10 @@ mod unit;
 mod test_support;
 
 pub use constant::{
-    ArrayLengthError, ConstantEvaluationInput, ConstantEvaluationLimits, ConstantLiteralError,
+    ArrayLengthError, CheckedConstantTerms, CheckedConstantTermsBuildError,
+    ConstantEvaluationInput, ConstantEvaluationLimits, ConstantLiteralError,
     ConstantReferenceResolution, check_array_length, check_constant_literal,
-    normalize_integer_literal,
+    normalize_integer_literal, resolve_type_expression_template,
 };
 pub use context::{
     CheckerFactError, CheckerFactResult, CheckerInfrastructureError, CheckerRequestContext,
@@ -43,10 +44,10 @@ pub use semantic_context::{
     AnonymousCallableContext, ContractClauseContext, DeclaredUnitContext, SemanticUnitContext,
 };
 pub use service::{
-    ConstantEvaluator, ControlFlowChecker, DefaultConstantEvaluator, DefaultControlFlowChecker,
-    DefaultExpressionSemanticChecker, DefaultExpressionTypeChecker, DefaultSemanticSelector,
-    DefaultTargetValidityChecker, ExpressionSemanticChecker, ExpressionTypeChecker,
-    SemanticSelector, TargetValidityChecker,
+    ConstantChecker, ConstantEvaluator, ControlFlowChecker, DefaultConstantChecker,
+    DefaultConstantEvaluator, DefaultControlFlowChecker, DefaultExpressionSemanticChecker,
+    DefaultExpressionTypeChecker, DefaultSemanticSelector, DefaultTargetValidityChecker,
+    ExpressionSemanticChecker, ExpressionTypeChecker, SemanticSelector, TargetValidityChecker,
 };
 pub use target::{
     TargetAbiValue, TargetCallableAbiRequirement, TargetLayoutRequirement, TargetLayoutUse,
