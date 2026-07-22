@@ -88,16 +88,11 @@ fn selected_fact_sections(
         InterfaceSectionTag::SymbolFactDirectory,
         InterfaceSectionTag::SemanticTypes,
         InterfaceSectionTag::Constants,
-        InterfaceSectionTag::DeclarationFacts,
-    ];
-
-    const GENERIC_DECLARATION_SECTIONS: &[InterfaceSectionTag] = &[
-        InterfaceSectionTag::SymbolFactDirectory,
-        InterfaceSectionTag::SemanticTypes,
-        InterfaceSectionTag::Constants,
         InterfaceSectionTag::Contracts,
         InterfaceSectionTag::DeclarationFacts,
     ];
+
+    const GENERIC_DECLARATION_SECTIONS: &[InterfaceSectionTag] = CALLABLE_SIGNATURE_SECTIONS;
 
     const CALLABLE_PARAMETER_DEFAULT_SECTIONS: &[InterfaceSectionTag] = &[
         InterfaceSectionTag::SymbolFactDirectory,
@@ -195,7 +190,7 @@ fn optional_section<'bytes>(
 
 #[cfg(test)]
 mod tests {
-    use bray_symbols::{InterfaceSymbolId, SymbolKind};
+    use bray_symbols::{InterfaceSymbolId, SymbolKind, SymbolOrdinal};
 
     use super::super::test_support::{
         OwnedSection, append_record, owned_section_views, record_directory_entry, record_range,
@@ -204,7 +199,9 @@ mod tests {
     use crate::semantic::codec::encode_semantic_facts;
     use crate::test_support::{local_by_kind, package_interface_export_bundle};
     use crate::{
-        InterfaceCallableParameterDefault, InterfaceCallableSignature, InterfaceGenericDeclaration,
+        InterfaceCallableParameterDefault, InterfaceCallableSignature, InterfaceDependencyContract,
+        InterfaceDependencyRequirement, InterfaceDependencyRequirementKind,
+        InterfaceDependencySubject, InterfaceDependencySubjectRoot, InterfaceGenericDeclaration,
         InterfaceSectionTag, InterfaceSemanticFactKind, InterfaceSemanticFacts,
         InterfaceSymbolReference, InterfaceTypeId, InterfaceValidationError,
         InterfaceValidationLimits, PackageInterfaceSurface,
@@ -414,10 +411,28 @@ mod tests {
     }
 
     #[test]
-    fn callable_signature_decoding_ignores_corrupt_contract_bytes() {
+    fn callable_signature_decoding_ignores_corrupt_unrelated_contract_records() {
         let bundle = package_interface_export_bundle();
         let surface = bundle.surface().clone();
-        let mut sections = semantic_sections(bundle.semantic_facts(), &surface);
+        let base = bundle.semantic_facts();
+
+        let dependency_contract =
+            InterfaceDependencyContract::new([InterfaceDependencyRequirement::new(
+                InterfaceDependencySubject::new(
+                    InterfaceDependencySubjectRoot::Parameter(SymbolOrdinal::new(0)),
+                    [],
+                ),
+                InterfaceDependencyRequirementKind::StorageInitialized,
+            )]);
+
+        let facts = base.clone().with_values(
+            [dependency_contract.clone()],
+            base.types().iter().cloned(),
+            base.constant_values().iter().cloned(),
+            base.constant_terms().iter().cloned(),
+        );
+
+        let mut sections = semantic_sections(&facts, &surface);
 
         let InterfaceSymbolReference::Local(callable) =
             local_by_kind(&surface, SymbolKind::Function)
@@ -425,9 +440,11 @@ mod tests {
             panic!("test callable must be local");
         };
 
-        section_mut(&mut sections, InterfaceSectionTag::Contracts)
-            .2
-            .fill(u8::MAX);
+        let contracts = section_mut(&mut sections, InterfaceSectionTag::Contracts);
+        let unrelated_constraint = record_range(&contracts.2, 1, 0);
+
+        contracts.2[unrelated_constraint.start..unrelated_constraint.start + 4]
+            .copy_from_slice(&u32::MAX.to_le_bytes());
 
         let signature = decode_semantic_fact_graph(
             &owned_section_views(&sections),
@@ -439,8 +456,19 @@ mod tests {
         .unwrap_or_else(|error| panic!("callable signature must decode: {error:?}"));
 
         assert_eq!(signature.callable_signatures().len(), 1);
-        assert_eq!(signature.dependency_contracts.len(), 1);
-        assert!(signature.dependency_contracts[0].requirements.is_empty());
+        assert_eq!(
+            signature.dependency_contracts.as_ref(),
+            &[dependency_contract]
+        );
+
+        assert!(
+            decode_semantic_facts(
+                &owned_section_views(&sections),
+                &surface,
+                InterfaceValidationLimits::default(),
+            )
+            .is_err()
+        );
     }
 
     #[test]
