@@ -61,6 +61,8 @@ pub enum DiagnosticInterfaceSection {
     Constants,
     /// Constraints, contracts, effects, and capabilities.
     Contracts,
+    /// Callable signatures, generic declarations, and parameter defaults.
+    DeclarationFacts,
     /// Declaration-owned checked templates.
     DeclarationTemplates,
     /// Implementation and coherence records.
@@ -87,6 +89,7 @@ impl DiagnosticInterfaceSection {
             Self::SemanticTypes => "semantic_types",
             Self::Constants => "constants",
             Self::Contracts => "contracts",
+            Self::DeclarationFacts => "declaration_facts",
             Self::DeclarationTemplates => "declaration_templates",
             Self::Implementations => "implementations",
             Self::TargetDependencies => "target_dependencies",

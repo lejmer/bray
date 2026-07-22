@@ -65,7 +65,7 @@ pub(super) fn resolve_declaration_candidate(
     let mut defaults = Vec::new();
 
     for default in template.defaults() {
-        if default.value().expression().is_none() {
+        if !default.value().is_present() {
             continue;
         }
 

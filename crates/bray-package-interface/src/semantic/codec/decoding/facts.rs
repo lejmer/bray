@@ -1,4 +1,4 @@
-use super::{contract, directory, selection, support, surface, template, value};
+use super::{contract, declaration, directory, selection, support, surface, template, value};
 
 use crate::semantic::codec::common::SemanticDecodeContext;
 use crate::{
@@ -20,6 +20,7 @@ pub fn decode_semantic_facts(
     let types = required_section(sections, InterfaceSectionTag::SemanticTypes)?;
     let constants = required_section(sections, InterfaceSectionTag::Constants)?;
     let contracts = required_section(sections, InterfaceSectionTag::Contracts)?;
+    let declarations = required_section(sections, InterfaceSectionTag::DeclarationFacts)?;
     let templates = required_section(sections, InterfaceSectionTag::DeclarationTemplates)?;
     let implementations = required_section(sections, InterfaceSectionTag::Implementations)?;
     let targets = required_section(sections, InterfaceSectionTag::TargetDependencies)?;
@@ -30,6 +31,7 @@ pub fn decode_semantic_facts(
 
     value::decode_constants(constants, limits, &mut context, &mut facts)?;
     contract::decode_contracts(contracts, limits, &mut context, &mut facts)?;
+    declaration::decode_declarations(declarations, limits, &mut context, &mut facts)?;
     template::decode_templates(templates, limits, &mut context, &mut facts)?;
     surface::decode_implementations(implementations, limits, &mut context, &mut facts)?;
     surface::decode_target_dependencies(targets, limits, &mut context, &mut facts)?;
@@ -82,6 +84,21 @@ fn selected_fact_sections(
         InterfaceSectionTag::Contracts,
     ];
 
+    const CALLABLE_SIGNATURE_SECTIONS: &[InterfaceSectionTag] = &[
+        InterfaceSectionTag::SymbolFactDirectory,
+        InterfaceSectionTag::SemanticTypes,
+        InterfaceSectionTag::Constants,
+        InterfaceSectionTag::Contracts,
+        InterfaceSectionTag::DeclarationFacts,
+    ];
+
+    const GENERIC_DECLARATION_SECTIONS: &[InterfaceSectionTag] = CALLABLE_SIGNATURE_SECTIONS;
+
+    const CALLABLE_PARAMETER_DEFAULT_SECTIONS: &[InterfaceSectionTag] = &[
+        InterfaceSectionTag::SymbolFactDirectory,
+        InterfaceSectionTag::DeclarationFacts,
+    ];
+
     const IMPLEMENTATION_SECTIONS: &[InterfaceSectionTag] = &[
         InterfaceSectionTag::SymbolFactDirectory,
         InterfaceSectionTag::SemanticTypes,
@@ -99,6 +116,11 @@ fn selected_fact_sections(
     ];
 
     match kind {
+        crate::InterfaceSemanticFactKind::CallableSignature => Some(CALLABLE_SIGNATURE_SECTIONS),
+        crate::InterfaceSemanticFactKind::GenericDeclaration => Some(GENERIC_DECLARATION_SECTIONS),
+        crate::InterfaceSemanticFactKind::CallableParameterDefault => {
+            Some(CALLABLE_PARAMETER_DEFAULT_SECTIONS)
+        }
         crate::InterfaceSemanticFactKind::GenericConstraint => Some(GENERIC_CONSTRAINT_SECTIONS),
         crate::InterfaceSemanticFactKind::Implementation => Some(IMPLEMENTATION_SECTIONS),
         crate::InterfaceSemanticFactKind::TargetFact => Some(TARGET_FACT_SECTIONS),
@@ -125,6 +147,7 @@ pub(crate) fn validate_decode_allocation(
                     | InterfaceSectionTag::SemanticTypes
                     | InterfaceSectionTag::Constants
                     | InterfaceSectionTag::Contracts
+                    | InterfaceSectionTag::DeclarationFacts
                     | InterfaceSectionTag::DeclarationTemplates
                     | InterfaceSectionTag::Implementations
                     | InterfaceSectionTag::TargetDependencies
@@ -176,9 +199,10 @@ mod tests {
     use crate::semantic::codec::encode_semantic_facts;
     use crate::test_support::{local_by_kind, package_interface_export_bundle};
     use crate::{
+        InterfaceCallableParameterDefault, InterfaceCallableSignature, InterfaceGenericDeclaration,
         InterfaceSectionTag, InterfaceSemanticFactKind, InterfaceSemanticFacts,
-        InterfaceSymbolReference, InterfaceValidationError, InterfaceValidationLimits,
-        PackageInterfaceSurface,
+        InterfaceSymbolReference, InterfaceTypeId, InterfaceValidationError,
+        InterfaceValidationLimits, PackageInterfaceSurface,
     };
 
     #[test]
@@ -324,6 +348,154 @@ mod tests {
 
         assert_eq!(forward_implementation, reverse_implementation);
         assert_eq!(forward_constraint, reverse_constraint);
+    }
+
+    #[test]
+    fn declaration_facts_decode_through_exact_narrow_sections() {
+        let bundle = package_interface_export_bundle();
+        let surface = bundle.surface().clone();
+
+        let InterfaceSymbolReference::Local(callable) =
+            local_by_kind(&surface, SymbolKind::Function)
+        else {
+            panic!("test callable must be local");
+        };
+
+        let InterfaceSymbolReference::Local(parameter) =
+            local_by_kind(&surface, SymbolKind::CallableParameter)
+        else {
+            panic!("test callable parameter must be local");
+        };
+
+        let sections = semantic_sections(bundle.semantic_facts(), &surface);
+        let sections = owned_section_views(&sections);
+        let limits = InterfaceValidationLimits::default();
+
+        let signature = decode_semantic_fact_graph(
+            &sections,
+            &surface,
+            callable,
+            InterfaceSemanticFactKind::CallableSignature,
+            limits,
+        )
+        .unwrap_or_else(|error| panic!("callable signature must decode: {error:?}"));
+
+        let generic = decode_semantic_fact_graph(
+            &sections,
+            &surface,
+            callable,
+            InterfaceSemanticFactKind::GenericDeclaration,
+            limits,
+        )
+        .unwrap_or_else(|error| panic!("generic declaration must decode: {error:?}"));
+
+        let default = decode_semantic_fact_graph(
+            &sections,
+            &surface,
+            parameter,
+            InterfaceSemanticFactKind::CallableParameterDefault,
+            limits,
+        )
+        .unwrap_or_else(|error| panic!("callable default must decode: {error:?}"));
+
+        assert_eq!(signature.callable_signatures().len(), 1);
+        assert_eq!(signature.types().len(), 3);
+        assert_eq!(signature.constant_terms().len(), 1);
+        assert_eq!(generic.generic_declarations().len(), 1);
+        assert_eq!(generic.constraints().len(), 1);
+        assert_eq!(default.callable_parameter_defaults().len(), 1);
+        assert!(default.types().is_empty());
+        assert!(default.constant_terms().is_empty());
+    }
+
+    #[test]
+    fn declaration_fact_section_revision_is_rejected_before_record_decoding() {
+        let bundle = package_interface_export_bundle();
+        let surface = bundle.surface().clone();
+        let mut sections = semantic_sections(bundle.semantic_facts(), &surface);
+        let section = section_mut(&mut sections, InterfaceSectionTag::DeclarationFacts);
+
+        section.2[..4].copy_from_slice(&u32::MAX.to_le_bytes());
+
+        assert_eq!(
+            decode_semantic_facts(
+                &owned_section_views(&sections),
+                &surface,
+                InterfaceValidationLimits::default(),
+            ),
+            Err(InterfaceValidationError::Malformed)
+        );
+    }
+
+    #[test]
+    fn declaration_fact_validation_rejects_surface_mismatches() {
+        let bundle = package_interface_export_bundle();
+        let surface = bundle.surface();
+        let base = bundle.semantic_facts();
+        let signature = &base.callable_signatures()[0];
+
+        let invalid_signature = InterfaceCallableSignature::new(
+            signature.owner().clone(),
+            InterfaceTypeId::new(0),
+            signature.receiver().cloned(),
+            signature.parameters().iter().cloned(),
+            signature.result(),
+        );
+
+        let invalid_signature_facts = base.clone().with_declarations(
+            [invalid_signature],
+            base.generic_declarations().iter().cloned(),
+            base.callable_parameter_defaults().iter().cloned(),
+        );
+
+        assert_eq!(
+            encode_semantic_facts(
+                &invalid_signature_facts,
+                surface,
+                InterfaceValidationLimits::default(),
+            ),
+            Err(InterfaceValidationError::Malformed)
+        );
+
+        let generic = &base.generic_declarations()[0];
+        let reversed_generic = InterfaceGenericDeclaration::new(
+            generic.owner().clone(),
+            generic.parameters().iter().rev().cloned(),
+        );
+
+        let reversed_generic_facts = base.clone().with_declarations(
+            base.callable_signatures().iter().cloned(),
+            [reversed_generic],
+            base.callable_parameter_defaults().iter().cloned(),
+        );
+
+        assert_eq!(
+            encode_semantic_facts(
+                &reversed_generic_facts,
+                surface,
+                InterfaceValidationLimits::default(),
+            ),
+            Err(InterfaceValidationError::Malformed)
+        );
+
+        let default = &base.callable_parameter_defaults()[0];
+        let absent_default =
+            InterfaceCallableParameterDefault::new(default.parameter().clone(), false);
+
+        let absent_default_facts = base.clone().with_declarations(
+            base.callable_signatures().iter().cloned(),
+            base.generic_declarations().iter().cloned(),
+            [absent_default],
+        );
+
+        assert_eq!(
+            encode_semantic_facts(
+                &absent_default_facts,
+                surface,
+                InterfaceValidationLimits::default(),
+            ),
+            Err(InterfaceValidationError::Malformed)
+        );
     }
 
     #[test]

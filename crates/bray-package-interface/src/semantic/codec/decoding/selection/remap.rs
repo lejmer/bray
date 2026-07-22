@@ -119,6 +119,24 @@ pub(super) fn remap_selected_records(
         })
         .collect::<Result<Vec<_>, InterfaceValidationError>>()?;
 
+    let callable_signatures = records
+        .callable_signatures
+        .into_values()
+        .map(|mut signature| {
+            signature.callable_type = maps.type_id(signature.callable_type)?;
+            signature.result = maps.type_id(signature.result)?;
+
+            if let Some(receiver) = &mut signature.receiver {
+                receiver.ty = maps.type_id(receiver.ty)?;
+            }
+
+            Ok(signature)
+        })
+        .collect::<Result<Vec<_>, InterfaceValidationError>>()?;
+
+    let generic_declarations = records.generic_declarations.into_values();
+    let callable_parameter_defaults = records.callable_parameter_defaults.into_values();
+
     let implementations = records
         .implementations
         .into_values()
@@ -163,6 +181,11 @@ pub(super) fn remap_selected_records(
         )
         .with_values(dependency_contracts, types, constant_values, constant_terms)
         .with_contracts(constraints, [])
+        .with_declarations(
+            callable_signatures,
+            generic_declarations,
+            callable_parameter_defaults,
+        )
         .with_implementations(implementations, coherence)
         .with_target_dependencies(target_dependencies, []))
 }

@@ -1,10 +1,11 @@
 use std::collections::BTreeMap;
 
 use crate::semantic::model::{
-    InterfaceCallableInstance, InterfaceCoherenceRecord, InterfaceConstantTerm,
-    InterfaceConstantValue, InterfaceConstraint, InterfaceDependencyContract,
-    InterfaceGenericSubstitution, InterfaceImplementationInstance, InterfaceImplementationRecord,
-    InterfaceTargetFactDependency, InterfaceTraitApplication, InterfaceType,
+    InterfaceCallableInstance, InterfaceCallableParameterDefault, InterfaceCallableSignature,
+    InterfaceCoherenceRecord, InterfaceConstantTerm, InterfaceConstantValue, InterfaceConstraint,
+    InterfaceDependencyContract, InterfaceGenericDeclaration, InterfaceGenericSubstitution,
+    InterfaceImplementationInstance, InterfaceImplementationRecord, InterfaceTargetFactDependency,
+    InterfaceTraitApplication, InterfaceType,
 };
 
 pub(super) struct RecordSet<T> {
@@ -41,6 +42,9 @@ pub(super) struct SelectedRecords {
     pub(super) constant_terms: RecordSet<InterfaceConstantTerm>,
     pub(super) dependency_contracts: RecordSet<InterfaceDependencyContract>,
     pub(super) constraints: RecordSet<InterfaceConstraint>,
+    pub(super) callable_signatures: RecordSet<InterfaceCallableSignature>,
+    pub(super) generic_declarations: RecordSet<InterfaceGenericDeclaration>,
+    pub(super) callable_parameter_defaults: RecordSet<InterfaceCallableParameterDefault>,
     pub(super) implementations: RecordSet<InterfaceImplementationRecord>,
     pub(super) coherence: RecordSet<InterfaceCoherenceRecord>,
     pub(super) target_dependencies: RecordSet<InterfaceTargetFactDependency>,
@@ -58,6 +62,9 @@ impl SelectedRecords {
             constant_terms: RecordSet::new(),
             dependency_contracts: RecordSet::new(),
             constraints: RecordSet::new(),
+            callable_signatures: RecordSet::new(),
+            generic_declarations: RecordSet::new(),
+            callable_parameter_defaults: RecordSet::new(),
             implementations: RecordSet::new(),
             coherence: RecordSet::new(),
             target_dependencies: RecordSet::new(),

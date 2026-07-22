@@ -2,7 +2,8 @@ use std::sync::Arc;
 
 use bray_symbols::{
     AnyConstantDefinitionId, AnySymbolId, CallableSymbolId, DependencyRequirementKind,
-    ExactSymbolId, ExternalSymbolKey, ImplementationSymbolId, NamedTypeSymbolId, SymbolKey,
+    ExactSymbolId, ExternalSymbolKey, GenericParameterSymbolId, ImplementationSymbolId,
+    NamedTypeSymbolId, SymbolKey,
 };
 
 use crate::{
@@ -63,6 +64,12 @@ impl SymbolFamily for ImplementationSymbolId {
 }
 
 impl SymbolFamily for CallableSymbolId {
+    fn try_from_any(id: AnySymbolId) -> Option<Self> {
+        Self::try_from_any(id)
+    }
+}
+
+impl SymbolFamily for GenericParameterSymbolId {
     fn try_from_any(id: AnySymbolId) -> Option<Self> {
         Self::try_from_any(id)
     }

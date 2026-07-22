@@ -34,6 +34,11 @@ impl InternState {
         symbols: &impl InterfaceSymbolResolver,
     ) -> Result<ImportedSemanticFacts, InterfaceSemanticInternError> {
         let constraints = self.convert_constraints(facts, symbols)?;
+        let callable_signatures = self.convert_callable_signatures(facts, symbols)?;
+        let generic_declarations =
+            self.convert_generic_declarations(facts, symbols, &constraints)?;
+        let callable_parameter_defaults =
+            self.convert_callable_parameter_defaults(facts, symbols)?;
         let callable_contracts = self.convert_callable_contracts(facts, symbols)?;
         let coherence = self.convert_coherence(facts, symbols)?;
         let target_dependencies = self.convert_target_dependencies(facts, symbols)?;
@@ -59,6 +64,9 @@ impl InternState {
             substitutions: finish_table(self.substitutions)?,
             implementation_instances: finish_table(self.implementation_instances)?,
             callable_instances: finish_table(self.callable_instances)?,
+            callable_signatures: callable_signatures.into(),
+            generic_declarations: generic_declarations.into(),
+            callable_parameter_defaults: callable_parameter_defaults.into(),
             declaration_templates: declaration_templates.into(),
             constraints: constraints.into(),
             callable_contracts: callable_contracts.into(),

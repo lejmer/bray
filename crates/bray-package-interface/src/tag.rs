@@ -2,8 +2,8 @@ use bray_bound_tree::{CheckedTemplateKind, CheckedTemplateShortCircuitKind};
 use bray_symbols::{
     BorrowKind, CallableAbi, CallableConstness, CallableExecution, CallableParameterMode,
     CallablePosition, CallableTrust, ConstantBinaryOperation, ConstantUnaryOperation,
-    CurrentRunCancellation, LifecycleObligationKind, SymbolKind, SynthesizedSymbolRole,
-    TargetSizedIntegerType,
+    CurrentRunCancellation, LifecycleObligationKind, ReceiverMode, SymbolKind,
+    SynthesizedSymbolRole, TargetSizedIntegerType,
 };
 
 use super::{
@@ -144,6 +144,13 @@ wire_tags!(CallableParameterMode {
     2 => CallableParameterMode::Mutable,
 });
 
+wire_tags!(ReceiverMode {
+    1 => ReceiverMode::Shared,
+    2 => ReceiverMode::Mutable,
+    3 => ReceiverMode::Consuming,
+    4 => ReceiverMode::ConsumingMutable,
+});
+
 wire_tags!(CallableConstness {
     1 => CallableConstness::Runtime,
     2 => CallableConstness::Constant,
@@ -205,6 +212,9 @@ wire_tags!(InterfaceSemanticFactKind {
     4 => InterfaceSemanticFactKind::TargetFact,
     5 => InterfaceSemanticFactKind::Abi,
     6 => InterfaceSemanticFactKind::DeclarationTemplate,
+    7 => InterfaceSemanticFactKind::CallableSignature,
+    8 => InterfaceSemanticFactKind::GenericDeclaration,
+    9 => InterfaceSemanticFactKind::CallableParameterDefault,
 });
 
 wire_tags!(CheckedTemplateKind {

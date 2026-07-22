@@ -4,16 +4,16 @@ use bray_diagnostics::DiagnosticResult;
 use bray_symbols::{
     AnySymbolId, CallableContractExpressionTemplate, CallableContractTemplate,
     CallableContractTemplateFact, CallableOverloadTemplateFact,
-    CallableParameterDefaultTemplateFact, CallableSymbolId, DeclarationCapabilityTemplate,
-    DeclarationExpressionTemplate, DeclarationPredicateClauseKind, GenericConstraintTemplate,
-    GenericDeclarationTemplate, GenericDeclarationTemplateFact, GenericOwnerId,
-    ImplementationHeadTemplate, ImplementationHeadTemplateFact, ImplementationOverloadTemplateFact,
-    ImplementationSubjectFact, ImplementationSymbolId, ImplementedTraitApplicationFact,
-    OverloadArmTemplate, OverloadSignatureTemplate, PredicateDefinitionSymbolId,
-    PredicateParameterSymbolId, PredicateParameterTemplate, PredicateSignatureTemplate,
-    PredicateSignatureTemplateFact, StructFieldDefaultTemplateFact, SymbolFactRequest,
-    SymbolFactResult, SymbolGraph, UnevaluatedDefaultTemplate,
-    UnionPayloadFieldDefaultTemplateFact,
+    CallableParameterDefaultTemplateFact, CallableParameterSymbolId, CallableSymbolId,
+    DeclarationCapabilityTemplate, DeclarationExpressionTemplate, DeclarationPredicateClauseKind,
+    ExactSymbolId, GenericConstraintTemplate, GenericDeclarationTemplate,
+    GenericDeclarationTemplateFact, GenericOwnerId, ImplementationHeadTemplate,
+    ImplementationHeadTemplateFact, ImplementationOverloadTemplateFact, ImplementationSubjectFact,
+    ImplementationSymbolId, ImplementedTraitApplicationFact, OverloadArmTemplate,
+    OverloadSignatureTemplate, PredicateDefinitionSymbolId, PredicateParameterSymbolId,
+    PredicateParameterTemplate, PredicateSignatureTemplate, PredicateSignatureTemplateFact,
+    StructFieldDefaultTemplateFact, SymbolFactRequest, SymbolFactResult, SymbolGraph,
+    UnevaluatedDefaultTemplate, UnionPayloadFieldDefaultTemplateFact,
 };
 use bray_syntax::{
     ExpressionSyntax, PredicateDeclarationSyntax, PredicateParameterListSyntax, SyntaxKind,
@@ -27,7 +27,7 @@ use super::super::environment::{generic_parameter_ids, type_binder};
 use super::super::surface::{symbol_ordinal, with_declaration_root};
 use crate::compilation::binder::CompilationBinderFacts;
 use crate::compilation::binder::symbol::imported::{
-    imported_callable_contract, imported_constraints,
+    imported_callable_contract, imported_callable_parameter_default, imported_generic_declaration,
 };
 use crate::fact::SymbolFactCache;
 
@@ -167,18 +167,7 @@ fn bind_generic_declaration_template(
     let symbol = owner.symbol();
 
     if let Some(address) = context.imported_fact_address(symbol)? {
-        let symbols = context
-            .imported_symbols()?
-            .ok_or(BinderFactError::DependencyUnavailable)?;
-
-        let parameters = generic_parameter_ids(symbols, symbol)?;
-
-        let (constraints, diagnostics) = imported_constraints(context, owner, address)?;
-
-        return Ok(DiagnosticResult::new(
-            GenericDeclarationTemplate::new(owner, parameters, constraints),
-            diagnostics,
-        ));
+        return imported_generic_declaration(context, address);
     }
 
     let parameters = generic_parameter_ids(context.symbols, symbol)?;
@@ -413,6 +402,12 @@ fn bind_default_template(
     context: &CompilationBinderFacts<'_>,
     owner: AnySymbolId,
 ) -> BinderFactResult<DiagnosticResult<UnevaluatedDefaultTemplate>> {
+    if CallableParameterSymbolId::try_from_any(owner).is_some()
+        && let Some(address) = context.imported_fact_address(owner)?
+    {
+        return imported_callable_parameter_default(context, address);
+    }
+
     with_declaration_root(context, owner, |root| {
         let default = direct_children::<ExpressionSyntax>(&root)?
             .into_iter()
@@ -826,7 +821,7 @@ overload choose_any = {fast}
             SymbolFactRequest::<GenericDeclarationTemplateFact>::new(generic_owner),
         );
 
-        assert_eq!(generic.value().parameters().len(), 1);
+        assert_eq!(generic.value().parameters().len(), 2);
         assert_eq!(generic.value().constraints().len(), 1);
         assert!(generic.value().constraints()[0].resolved().is_some());
 

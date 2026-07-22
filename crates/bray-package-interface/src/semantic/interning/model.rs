@@ -13,6 +13,10 @@ use bray_symbols::{
 use crate::{InterfaceSemanticFactKind, InterfaceSemanticFacts, InterfaceSymbolReference};
 
 use super::InternState;
+use super::declaration_model::{
+    ImportedCallableParameterDefaultFact, ImportedCallableSignatureFact,
+    ImportedGenericDeclarationFact,
+};
 
 /// Resolves artifact-local and dependency symbol references into one compilation snapshot.
 pub trait InterfaceSymbolResolver {
@@ -60,6 +64,9 @@ pub struct ImportedSemanticFacts {
     pub(super) substitutions: Arc<[GenericSubstitutionId]>,
     pub(super) implementation_instances: Arc<[ImplementationInstanceId]>,
     pub(super) callable_instances: Arc<[CallableInstanceId]>,
+    pub(super) callable_signatures: Arc<[ImportedCallableSignatureFact]>,
+    pub(super) generic_declarations: Arc<[ImportedGenericDeclarationFact]>,
+    pub(super) callable_parameter_defaults: Arc<[ImportedCallableParameterDefaultFact]>,
     pub(super) declaration_templates: Arc<[ImportedDeclarationTemplateFact]>,
     pub(super) constraints: Arc<[ImportedConstraintFact]>,
     pub(super) callable_contracts: Arc<[ImportedCallableContractFact]>,
@@ -82,6 +89,12 @@ pub struct ImportedDeclarationTemplateFact {
 /// One exact imported symbol-owned semantic fact.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ImportedSemanticFact {
+    /// One callable signature template.
+    CallableSignature(ImportedCallableSignatureFact),
+    /// One generic declaration template.
+    GenericDeclaration(ImportedGenericDeclarationFact),
+    /// One callable parameter default template.
+    CallableParameterDefault(ImportedCallableParameterDefaultFact),
     /// One checked generic constraint.
     GenericConstraint(ImportedConstraintFact),
     /// One complete callable contract set.
@@ -272,6 +285,27 @@ impl ImportedSemanticFacts {
     ) -> Vec<ImportedSemanticFact> {
         // Exact results own shallow Arc-backed fact views independently of the shared graph.
         match kind {
+            InterfaceSemanticFactKind::CallableSignature => self
+                .callable_signatures
+                .iter()
+                .filter(|fact| fact.owner().into_any() == owner)
+                .cloned()
+                .map(ImportedSemanticFact::CallableSignature)
+                .collect(),
+            InterfaceSemanticFactKind::GenericDeclaration => self
+                .generic_declarations
+                .iter()
+                .filter(|fact| fact.owner().symbol() == owner)
+                .cloned()
+                .map(ImportedSemanticFact::GenericDeclaration)
+                .collect(),
+            InterfaceSemanticFactKind::CallableParameterDefault => self
+                .callable_parameter_defaults
+                .iter()
+                .copied()
+                .filter(|fact| AnySymbolId::from(fact.parameter()) == owner)
+                .map(ImportedSemanticFact::CallableParameterDefault)
+                .collect(),
             InterfaceSemanticFactKind::GenericConstraint => self
                 .constraints
                 .iter()
@@ -355,6 +389,21 @@ impl ImportedSemanticFacts {
     /// Returns canonical callable instances in interface table order.
     pub fn callable_instances(&self) -> &[CallableInstanceId] {
         &self.callable_instances
+    }
+
+    /// Returns imported callable signatures in interface order.
+    pub fn callable_signatures(&self) -> &[ImportedCallableSignatureFact] {
+        &self.callable_signatures
+    }
+
+    /// Returns imported generic declaration templates in interface order.
+    pub fn generic_declarations(&self) -> &[ImportedGenericDeclarationFact] {
+        &self.generic_declarations
+    }
+
+    /// Returns imported callable parameter defaults in interface order.
+    pub fn callable_parameter_defaults(&self) -> &[ImportedCallableParameterDefaultFact] {
+        &self.callable_parameter_defaults
     }
 
     /// Returns imported declaration-owned templates in canonical interface order.

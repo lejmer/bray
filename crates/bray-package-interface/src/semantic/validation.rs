@@ -22,11 +22,11 @@ impl InterfaceSemanticFacts {
         let dependency_count = surface.dependencies().len();
 
         self.validate_value_graph(symbol_count, dependency_count, limits)?;
-        self.validate_surface_facts(symbol_count, dependency_count, limits)?;
+        self.validate_surface_facts(surface, symbol_count, dependency_count, limits)?;
         self.validate_template_facts(surface, limits)
     }
 
-    fn table_counts(&self) -> [usize; 17] {
+    fn table_counts(&self) -> [usize; 20] {
         [
             self.substitutions.len(),
             self.trait_applications.len(),
@@ -38,6 +38,9 @@ impl InterfaceSemanticFacts {
             self.constant_terms.len(),
             self.constraints.len(),
             self.callable_contracts.len(),
+            self.callable_signatures.len(),
+            self.generic_declarations.len(),
+            self.callable_parameter_defaults.len(),
             self.checked_templates.len(),
             self.declaration_templates.len(),
             self.support_entities.len(),

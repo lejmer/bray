@@ -1,8 +1,8 @@
 use bray_base::Cancellation;
 use bray_declarations::DeclarationTable;
 use bray_symbols::{
-    AnySymbolId, ImportedSymbolSkeleton, PackageSymbolId, SemanticValueStore, SymbolGraph,
-    SymbolKey,
+    AnySymbolId, CallableParameterDefaultProviderSymbolId, CallableParameterSymbolId,
+    ImportedSymbolSkeleton, PackageSymbolId, SemanticValueStore, SymbolGraph, SymbolKey,
 };
 use bray_syntax::SyntaxTree;
 use bray_target::TargetProfile;
@@ -83,6 +83,17 @@ pub trait BinderFactContext: Send + Sync {
     /// Returns whether recovery contributed to one exact symbol's surface.
     fn symbol_is_recovered(&self, symbol: AnySymbolId) -> BinderFactResult<Option<bool>> {
         Ok(self.symbols().symbol_is_recovered(symbol))
+    }
+
+    /// Returns one callable parameter's default provider across supported origins.
+    fn callable_parameter_default_provider(
+        &self,
+        parameter: CallableParameterSymbolId,
+    ) -> BinderFactResult<Option<CallableParameterDefaultProviderSymbolId>> {
+        Ok(self
+            .symbols()
+            .callable_parameter(parameter)
+            .and_then(|parameter| parameter.default_provider()))
     }
 
     /// Resolves the longest selected dependency package prefix of a qualified source path.

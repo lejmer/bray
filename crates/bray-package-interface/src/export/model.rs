@@ -230,6 +230,9 @@ fn validate_semantic_coverage(
 fn canonicalize_owner_addressed_facts(mut facts: InterfaceSemanticFacts) -> InterfaceSemanticFacts {
     Arc::make_mut(&mut facts.constraints).sort();
     Arc::make_mut(&mut facts.callable_contracts).sort();
+    Arc::make_mut(&mut facts.callable_signatures).sort();
+    Arc::make_mut(&mut facts.generic_declarations).sort();
+    Arc::make_mut(&mut facts.callable_parameter_defaults).sort();
     Arc::make_mut(&mut facts.declaration_templates).sort();
     Arc::make_mut(&mut facts.implementations).sort();
     Arc::make_mut(&mut facts.coherence).sort();

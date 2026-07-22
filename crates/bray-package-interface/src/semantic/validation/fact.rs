@@ -15,6 +15,7 @@ use crate::semantic::model::{
 impl InterfaceSemanticFacts {
     pub(super) fn validate_surface_facts(
         &self,
+        surface: &PackageInterfaceSurface,
         symbol_count: usize,
         dependency_count: usize,
         limits: InterfaceValidationLimits,
@@ -27,6 +28,18 @@ impl InterfaceSemanticFacts {
                 .callable_contracts
                 .windows(2)
                 .all(|pair| pair[0].owner < pair[1].owner)
+            || !self
+                .callable_signatures
+                .windows(2)
+                .all(|pair| pair[0].owner < pair[1].owner)
+            || !self
+                .generic_declarations
+                .windows(2)
+                .all(|pair| pair[0].owner < pair[1].owner)
+            || !self
+                .callable_parameter_defaults
+                .windows(2)
+                .all(|pair| pair[0].parameter < pair[1].parameter)
             || !self
                 .implementations
                 .windows(2)
@@ -55,6 +68,30 @@ impl InterfaceSemanticFacts {
 
         for contract in &*self.callable_contracts {
             self.validate_callable_contract(contract, symbol_count, dependency_count)?;
+        }
+
+        for signature in &*self.callable_signatures {
+            self.validate_callable_signature(signature, surface)?;
+        }
+
+        for declaration in &*self.generic_declarations {
+            self.validate_generic_declaration(declaration, surface)?;
+        }
+
+        for default in &*self.callable_parameter_defaults {
+            if validate_symbol_kind(&default.parameter, surface)? != SymbolKind::CallableParameter {
+                return Err(InterfaceValidationError::Malformed);
+            }
+
+            let parameter = local_symbol(&default.parameter)?;
+            let has_provider = surface.relationships().iter().any(|relationship| {
+                relationship.kind() == bray_symbols::SymbolRelationshipKind::DefaultProvider
+                    && relationship.owner() == parameter
+            });
+
+            if default.is_present != has_provider {
+                return Err(InterfaceValidationError::Malformed);
+            }
         }
 
         for implementation in &*self.implementations {
@@ -117,6 +154,134 @@ impl InterfaceSemanticFacts {
             if provenance.start > provenance.end {
                 return Err(InterfaceValidationError::Malformed);
             }
+        }
+
+        Ok(())
+    }
+
+    fn validate_callable_signature(
+        &self,
+        signature: &crate::InterfaceCallableSignature,
+        surface: &PackageInterfaceSurface,
+    ) -> Result<(), InterfaceValidationError> {
+        let owner = local_symbol(&signature.owner)?;
+        let owner_kind = validate_symbol_kind(&signature.owner, surface)?;
+
+        if !owner_kind.is_callable() {
+            return Err(InterfaceValidationError::Malformed);
+        }
+
+        validate_index(signature.callable_type.to_index(), self.types.len())?;
+        validate_index(signature.result.to_index(), self.types.len())?;
+
+        let Some(crate::InterfaceType::Callable {
+            parameters, result, ..
+        }) = signature
+            .callable_type
+            .to_index()
+            .and_then(|index| self.types.get(index))
+        else {
+            return Err(InterfaceValidationError::Malformed);
+        };
+
+        if parameters.len() != signature.parameters.len() || *result != signature.result {
+            return Err(InterfaceValidationError::Malformed);
+        }
+
+        if let Some(receiver) = &signature.receiver {
+            validate_owned_parameter(
+                &signature.owner,
+                &receiver.parameter,
+                SymbolKind::ReceiverParameter,
+                surface,
+            )?;
+
+            validate_index(receiver.ty.to_index(), self.types.len())?;
+        }
+
+        for parameter in &*signature.parameters {
+            validate_owned_parameter(
+                &signature.owner,
+                parameter,
+                SymbolKind::CallableParameter,
+                surface,
+            )?;
+        }
+
+        let relationship_parameters = relationship_members(
+            surface,
+            owner,
+            bray_symbols::SymbolRelationshipKind::CallableParameter,
+            SymbolKind::CallableParameter,
+        );
+
+        if signature.parameters.as_ref() != relationship_parameters.as_slice() {
+            return Err(InterfaceValidationError::Malformed);
+        }
+
+        let relationship_receivers = relationship_members(
+            surface,
+            owner,
+            bray_symbols::SymbolRelationshipKind::CallableParameter,
+            SymbolKind::ReceiverParameter,
+        );
+
+        let expected_receiver = match relationship_receivers.as_slice() {
+            [] => None,
+            [receiver] => Some(receiver),
+            _ => return Err(InterfaceValidationError::Malformed),
+        };
+
+        if signature
+            .receiver
+            .as_ref()
+            .map(|receiver| &receiver.parameter)
+            != expected_receiver
+        {
+            return Err(InterfaceValidationError::Malformed);
+        }
+
+        Ok(())
+    }
+
+    fn validate_generic_declaration(
+        &self,
+        declaration: &crate::InterfaceGenericDeclaration,
+        surface: &PackageInterfaceSurface,
+    ) -> Result<(), InterfaceValidationError> {
+        let owner = local_symbol(&declaration.owner)?;
+        let owner_kind = validate_symbol_kind(&declaration.owner, surface)?;
+
+        if !bray_symbols::SymbolRelationshipKind::GenericParameter
+            .supports(owner_kind, SymbolKind::GenericTypeParameter)
+        {
+            return Err(InterfaceValidationError::Malformed);
+        }
+
+        for parameter in &*declaration.parameters {
+            let parameter_kind = validate_symbol_kind(parameter, surface)?;
+
+            if !bray_symbols::SymbolRelationshipKind::GenericParameter
+                .supports(owner_kind, parameter_kind)
+                || reference_owner(parameter, surface)?
+                    != Some(reference_key(&declaration.owner, surface)?)
+            {
+                return Err(InterfaceValidationError::Malformed);
+            }
+        }
+
+        let relationship_parameters = surface
+            .relationships()
+            .iter()
+            .filter(|relationship| {
+                relationship.kind() == bray_symbols::SymbolRelationshipKind::GenericParameter
+                    && relationship.owner() == owner
+            })
+            .map(|relationship| InterfaceSymbolReference::Local(relationship.member()))
+            .collect::<Vec<_>>();
+
+        if declaration.parameters.as_ref() != relationship_parameters.as_slice() {
+            return Err(InterfaceValidationError::Malformed);
         }
 
         Ok(())
@@ -220,6 +385,72 @@ impl InterfaceSemanticFacts {
             behavior.dependency_contract.to_index(),
             self.dependency_contracts.len(),
         )
+    }
+}
+
+fn validate_owned_parameter(
+    owner: &InterfaceSymbolReference,
+    parameter: &InterfaceSymbolReference,
+    expected_kind: SymbolKind,
+    surface: &PackageInterfaceSurface,
+) -> Result<(), InterfaceValidationError> {
+    if validate_symbol_kind(parameter, surface)? != expected_kind
+        || reference_owner(parameter, surface)? != Some(reference_key(owner, surface)?)
+    {
+        return Err(InterfaceValidationError::Malformed);
+    }
+
+    Ok(())
+}
+
+fn local_symbol(
+    reference: &InterfaceSymbolReference,
+) -> Result<bray_symbols::InterfaceSymbolId, InterfaceValidationError> {
+    match reference {
+        InterfaceSymbolReference::Local(symbol) => Ok(*symbol),
+        InterfaceSymbolReference::Dependency { .. } => Err(InterfaceValidationError::Malformed),
+    }
+}
+
+fn relationship_members(
+    surface: &PackageInterfaceSurface,
+    owner: bray_symbols::InterfaceSymbolId,
+    relationship_kind: bray_symbols::SymbolRelationshipKind,
+    member_kind: SymbolKind,
+) -> Vec<InterfaceSymbolReference> {
+    surface
+        .relationships()
+        .iter()
+        .filter(|relationship| {
+            relationship.kind() == relationship_kind && relationship.owner() == owner
+        })
+        .filter_map(|relationship| {
+            let member = surface.symbols().symbol(relationship.member())?;
+
+            (member.kind() == member_kind)
+                .then_some(InterfaceSymbolReference::Local(relationship.member()))
+        })
+        .collect::<Vec<_>>()
+}
+
+fn reference_owner<'surface>(
+    reference: &'surface InterfaceSymbolReference,
+    surface: &'surface PackageInterfaceSurface,
+) -> Result<Option<&'surface bray_symbols::ExternalSymbolKey>, InterfaceValidationError> {
+    Ok(reference_key(reference, surface)?.owner())
+}
+
+fn reference_key<'surface>(
+    reference: &'surface InterfaceSymbolReference,
+    surface: &'surface PackageInterfaceSurface,
+) -> Result<&'surface bray_symbols::ExternalSymbolKey, InterfaceValidationError> {
+    match reference {
+        InterfaceSymbolReference::Local(id) => surface
+            .symbols()
+            .symbol(*id)
+            .map(|symbol| symbol.key())
+            .ok_or(InterfaceValidationError::Malformed),
+        InterfaceSymbolReference::Dependency { key, .. } => Ok(key),
     }
 }
 

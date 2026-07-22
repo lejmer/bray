@@ -1,5 +1,6 @@
 use super::{
-    contract, directory, model::EncodedSemanticSection, support, surface, template, value,
+    contract, declaration, directory, model::EncodedSemanticSection, support, surface, template,
+    value,
 };
 use crate::wire::WireEncoder;
 use crate::{
@@ -28,6 +29,7 @@ pub(crate) fn encode_validated_semantic_facts(
         value::encode_types(facts),
         value::encode_constants(facts),
         contract::encode_contracts(facts),
+        declaration::encode_declaration_facts(facts),
         template::encode_templates(facts),
         surface::encode_implementations(facts),
         surface::encode_target_dependencies(facts),

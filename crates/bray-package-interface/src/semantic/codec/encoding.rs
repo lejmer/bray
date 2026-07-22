@@ -1,4 +1,5 @@
 mod contract;
+mod declaration;
 mod directory;
 mod facts;
 mod model;

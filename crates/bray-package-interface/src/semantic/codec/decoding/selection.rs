@@ -1,4 +1,5 @@
 mod builder;
+mod declaration;
 mod mapping;
 mod model;
 mod remap;

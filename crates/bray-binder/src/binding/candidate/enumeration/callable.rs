@@ -302,15 +302,6 @@ where
         return Ok(DeclarationCandidateOutcome::Ignored);
     };
 
-    if context.symbols().symbol_key(symbol).is_none() {
-        // TODO(BRA-235): Enumerate imported callables after interfaces publish signature facts.
-        return Ok(if context.symbol_key(symbol)?.is_some() {
-            DeclarationCandidateOutcome::UnavailableFacts
-        } else {
-            DeclarationCandidateOutcome::Ignored
-        });
-    }
-
     // Candidate records outlive the provider borrow and therefore own the stable key.
     let Some(key) = context.symbol_key(symbol)?.cloned() else {
         return Ok(DeclarationCandidateOutcome::Ignored);
@@ -331,10 +322,7 @@ where
 
         has_diagnostics |= default_diagnostics;
 
-        let provider = context
-            .symbols()
-            .callable_parameter(*parameter)
-            .and_then(|parameter| parameter.default_provider());
+        let provider = context.callable_parameter_default_provider(*parameter)?;
 
         defaults.push(CallableParameterDefaultTemplate::new(
             *parameter, value, provider,

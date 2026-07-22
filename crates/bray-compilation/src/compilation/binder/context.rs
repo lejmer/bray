@@ -1,7 +1,8 @@
 use bray_binder::{BinderFactContext, BinderFactError, BinderFactResult, ImportedPathRoot};
 use bray_declarations::DeclarationTable;
 use bray_symbols::{
-    AnySymbolId, ImportedSymbolFactAddress, ImportedSymbolSkeleton, SemanticValueStore, SymbolGraph,
+    AnySymbolId, CallableParameterDefaultProviderSymbolId, CallableParameterSymbolId,
+    ImportedSymbolFactAddress, ImportedSymbolSkeleton, SemanticValueStore, SymbolGraph,
 };
 use bray_syntax::SyntaxTree;
 
@@ -134,6 +135,24 @@ impl BinderFactContext for CompilationBinderFacts<'_> {
         Ok(self
             .imported_symbols()?
             .and_then(|symbols| symbols.symbol_key(symbol)))
+    }
+
+    fn callable_parameter_default_provider(
+        &self,
+        parameter: CallableParameterSymbolId,
+    ) -> BinderFactResult<Option<CallableParameterDefaultProviderSymbolId>> {
+        if let Some(provider) = self
+            .symbols
+            .callable_parameter(parameter)
+            .and_then(|parameter| parameter.default_provider())
+        {
+            return Ok(Some(provider));
+        }
+
+        Ok(self
+            .imported_symbols()?
+            .and_then(|symbols| symbols.callable_parameter(parameter))
+            .and_then(|parameter| parameter.default_provider()))
     }
 
     fn imported_path_root(
@@ -498,7 +517,7 @@ mod tests {
     }
 
     #[test]
-    fn imported_callable_candidates_remain_explicit_until_signature_facts_are_portable() {
+    fn imported_callable_candidates_retain_source_independent_templates() {
         let fixture = encoded_semantic_test_interface();
 
         let compilation = compilation_with_source(
@@ -530,12 +549,58 @@ mod tests {
 
         let result = candidates(&facts, &unit, expression);
 
+        let ExpressionCandidateSet::Callable(CallableCandidateTemplates::Present {
+            candidates,
+            ..
+        }) = result.value()
+        else {
+            panic!("imported callable must publish one candidate: {result:?}");
+        };
+
+        let [CallableCandidateTemplate::Declaration(candidate)] = candidates.as_ref() else {
+            panic!("imported callable must publish one declaration candidate");
+        };
+
+        assert_eq!(candidate.signature().parameters().len(), 1);
+        assert_eq!(candidate.generic().parameters().len(), 2);
+        assert_eq!(candidate.generic().constraints().len(), 1);
+        assert_eq!(candidate.defaults().len(), 1);
+        assert_eq!(
+            candidate.defaults()[0].value(),
+            UnevaluatedDefaultTemplate::Resolved
+        );
+        assert!(candidate.defaults()[0].provider().is_some());
+
+        let [parameter] = candidate.signature().parameters() else {
+            unreachable!("parameter count was checked above");
+        };
+
+        let parameter_type = candidate
+            .signature()
+            .parameter_type_template(*parameter, 0, facts.semantic_values)
+            .unwrap_or_else(|error| panic!("imported parameter type must resolve: {error:?}"));
+
+        let TypeExpressionTemplate::Resolved(parameter_type) = parameter_type else {
+            panic!("imported parameter type must use canonical semantic identity");
+        };
+
+        let parameter_type = facts
+            .semantic_values
+            .type_data(parameter_type)
+            .unwrap_or_else(|error| panic!("imported parameter type must be interned: {error:?}"));
+
+        let bray_symbols::TypeData::Array { length, .. } = parameter_type.as_ref() else {
+            panic!("imported parameter must retain its array type");
+        };
+
+        let length = facts
+            .semantic_values
+            .constant_term_data(*length)
+            .unwrap_or_else(|error| panic!("imported array length must be interned: {error:?}"));
+
         assert!(matches!(
-            result.value(),
-            ExpressionCandidateSet::Callable(CallableCandidateTemplates::Absent {
-                reason: CandidateAbsence::UnavailableDeclarationFacts,
-                ..
-            })
+            length.as_ref(),
+            bray_symbols::ConstantTermData::Parameter(_)
         ));
 
         assert!(
@@ -543,7 +608,7 @@ mod tests {
                 .state
                 .imported_semantic_graphs
                 .iter()
-                .all(|graph| graph.get().is_none())
+                .any(|graph| graph.get().is_some())
         );
     }
 
