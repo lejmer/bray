@@ -203,6 +203,7 @@ wire_tags!(ConstantBinaryOperation {
     16 => ConstantBinaryOperation::LessOrEqual,
     17 => ConstantBinaryOperation::Greater,
     18 => ConstantBinaryOperation::GreaterOrEqual,
+    19 => ConstantBinaryOperation::Exponentiate,
 });
 
 wire_tags!(InterfaceSemanticFactKind {

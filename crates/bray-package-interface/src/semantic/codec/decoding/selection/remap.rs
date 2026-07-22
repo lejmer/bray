@@ -292,6 +292,10 @@ fn remap_constant_term(
             *left = maps.constant_term_id(*left)?;
             *right = maps.constant_term_id(*right)?;
         }
+        InterfaceConstantTerm::Conversion { operand, target } => {
+            *operand = maps.constant_term_id(*operand)?;
+            *target = maps.type_id(*target)?;
+        }
         InterfaceConstantTerm::DefinitionApplication {
             substitution,
             selected_implementation,

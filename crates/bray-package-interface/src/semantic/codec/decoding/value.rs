@@ -384,6 +384,10 @@ pub(super) fn decode_constant_term(
             ty: decode_tag(read_u32(reader)?)?,
             value: decode_integer(reader, context.limits())?,
         }),
+        10 => Ok(InterfaceConstantTerm::Conversion {
+            operand: InterfaceConstantTermId::new(read_u32(reader)?),
+            target: InterfaceTypeId::new(read_u32(reader)?),
+        }),
         _ => Err(InterfaceValidationError::Malformed),
     }
 }
@@ -623,6 +627,56 @@ mod tests {
                 ty: TargetSizedIntegerType::Usize,
                 value,
             } if value.magnitude() == [4]
+        ));
+    }
+
+    #[test]
+    fn scalar_conversion_terms_round_trip_and_intern() {
+        let surface = interface_surface(package_identity(), [], []);
+
+        let facts = InterfaceSemanticFacts::new().with_values(
+            [],
+            [InterfaceType::Tuple([].into())],
+            [InterfaceConstantValue::new(
+                InterfaceTypeId::new(0),
+                InterfaceConstantValueKind::Unit,
+            )],
+            [
+                InterfaceConstantTerm::Value(InterfaceConstantValueId::new(0)),
+                InterfaceConstantTerm::Conversion {
+                    operand: crate::InterfaceConstantTermId::new(0),
+                    target: InterfaceTypeId::new(0),
+                },
+            ],
+        );
+
+        let limits = InterfaceValidationLimits::default();
+
+        let sections = encode_semantic_facts(&facts, &surface, limits)
+            .unwrap_or_else(|error| panic!("semantic encoding failed: {error:?}"));
+
+        let views = encoded_section_views(&sections);
+
+        let decoded = decode_semantic_facts(&views, &surface, limits)
+            .unwrap_or_else(|error| panic!("semantic decoding failed: {error:?}"));
+
+        assert_eq!(decoded, facts);
+
+        let store = SemanticValueStore::try_new()
+            .unwrap_or_else(|error| panic!("semantic store creation failed: {error:?}"));
+
+        let imported = decoded
+            .intern(&store, &resolver(&surface))
+            .unwrap_or_else(|error| panic!("semantic interning failed: {error:?}"));
+
+        let term = store
+            .constant_term_data(imported.constant_terms()[1])
+            .unwrap_or_else(|error| panic!("constant term must be interned: {error:?}"));
+
+        assert!(matches!(
+            term.as_ref(),
+            ConstantTermData::Conversion { operand, target }
+                if *operand == imported.constant_terms()[0] && *target == imported.types()[0]
         ));
     }
 

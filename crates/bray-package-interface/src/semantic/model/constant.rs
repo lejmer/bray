@@ -98,6 +98,13 @@ pub enum InterfaceConstantTerm {
         /// Right operand.
         right: InterfaceConstantTermId,
     },
+    /// A selected compiler-defined scalar conversion.
+    Conversion {
+        /// Converted operand.
+        operand: InterfaceConstantTermId,
+        /// Exact conversion target type.
+        target: InterfaceTypeId,
+    },
     /// An applied constant definition that remains open.
     DefinitionApplication {
         /// Exact constant definition.

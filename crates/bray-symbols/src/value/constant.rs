@@ -258,6 +258,8 @@ pub enum ConstantBinaryOperation {
     Divide,
     /// Remainder.
     Remainder,
+    /// Exponentiation.
+    Exponentiate,
     /// Logical conjunction.
     LogicalAnd,
     /// Logical disjunction.
@@ -356,6 +358,13 @@ pub enum ConstantTermData {
         left: ConstantTermId,
         /// Right operand.
         right: ConstantTermId,
+    },
+    /// A selected compiler-defined scalar conversion.
+    Conversion {
+        /// Converted operand.
+        operand: ConstantTermId,
+        /// Exact conversion target type.
+        target: TypeId,
     },
     /// An applied constant definition that can remain open.
     DefinitionApplication {

@@ -66,6 +66,22 @@ impl HeaderMatcher<'_> {
                 self.match_constant(*pattern_right, *actual_right)
             }
             (
+                ConstantTermData::Conversion {
+                    operand: pattern_operand,
+                    target: pattern_target,
+                },
+                ConstantTermData::Conversion {
+                    operand: actual_operand,
+                    target: actual_target,
+                },
+            ) => {
+                if !self.match_type(*pattern_target, *actual_target)? {
+                    return Ok(false);
+                }
+
+                self.match_constant(*pattern_operand, *actual_operand)
+            }
+            (
                 ConstantTermData::DefinitionApplication {
                     definition: pattern_definition,
                     substitution: pattern_substitution,

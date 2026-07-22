@@ -128,6 +128,7 @@ where
             | ConstantTermData::TargetFact(_)
             | ConstantTermData::Unary { .. }
             | ConstantTermData::Binary { .. }
+            | ConstantTermData::Conversion { .. }
             | ConstantTermData::DefinitionApplication { .. }
             | ConstantTermData::Call { .. }
             | ConstantTermData::Projection(_) => None,
@@ -293,9 +294,7 @@ impl EvaluationFailure {
         error: ConstantOperationError,
     ) -> Self {
         let kind = match error {
-            ConstantOperationError::Invalid | ConstantOperationError::Unsupported => {
-                DiagnosticKind::CheckingInvalidConstantExpression
-            }
+            ConstantOperationError::Invalid => DiagnosticKind::CheckingInvalidConstantExpression,
             ConstantOperationError::DivisionByZero => {
                 DiagnosticKind::CheckingConstantDivisionByZero
             }
@@ -363,9 +362,9 @@ pub(super) const fn binary_term_operation(
         BoundOperator::Multiply => Some(ConstantBinaryOperation::Multiply),
         BoundOperator::Divide => Some(ConstantBinaryOperation::Divide),
         BoundOperator::Remainder => Some(ConstantBinaryOperation::Remainder),
+        BoundOperator::Exponentiate => Some(ConstantBinaryOperation::Exponentiate),
         BoundOperator::Assign
         | BoundOperator::MatrixMultiply
-        | BoundOperator::Exponentiate
         | BoundOperator::BitwiseNot
         | BoundOperator::LogicalNot => None,
     }

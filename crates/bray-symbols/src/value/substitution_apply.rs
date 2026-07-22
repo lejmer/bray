@@ -196,6 +196,10 @@ impl SemanticValueStore {
                 left: self.substitute_constant_term(*left, substitution)?,
                 right: self.substitute_constant_term(*right, substitution)?,
             },
+            ConstantTermData::Conversion { operand, target } => ConstantTermData::Conversion {
+                operand: self.substitute_constant_term(*operand, substitution)?,
+                target: self.substitute_type_data(*target, substitution)?,
+            },
             ConstantTermData::DefinitionApplication {
                 definition,
                 substitution: nested,
@@ -460,6 +464,79 @@ mod tests {
             &TypeData::Array {
                 element: target_type,
                 length: target_const,
+            }
+        );
+    }
+
+    #[test]
+    fn substitutions_apply_to_open_scalar_conversions() {
+        let store = SemanticValueStore::try_new()
+            .unwrap_or_else(|error| panic!("semantic store creation failed: {error:?}"));
+
+        let source_type_parameter = GenericTypeParameterSymbolId::from_symbol_id(SymbolId::new(2));
+
+        let source_const_parameter =
+            GenericConstParameterSymbolId::from_symbol_id(SymbolId::new(3));
+
+        let target_type_parameter = GenericTypeParameterSymbolId::from_symbol_id(SymbolId::new(4));
+
+        let target_const_parameter =
+            GenericConstParameterSymbolId::from_symbol_id(SymbolId::new(5));
+
+        let source_type = store
+            .intern_type(TypeData::TypeParameter(source_type_parameter))
+            .unwrap_or_else(|error| panic!("source type interning failed: {error:?}"));
+
+        let source_const = store
+            .intern_constant_term(ConstantTermData::Parameter(source_const_parameter))
+            .unwrap_or_else(|error| panic!("source constant interning failed: {error:?}"));
+
+        let target_type = store
+            .intern_type(TypeData::TypeParameter(target_type_parameter))
+            .unwrap_or_else(|error| panic!("target type interning failed: {error:?}"));
+
+        let target_const = store
+            .intern_constant_term(ConstantTermData::Parameter(target_const_parameter))
+            .unwrap_or_else(|error| panic!("target constant interning failed: {error:?}"));
+
+        let conversion = store
+            .intern_constant_term(ConstantTermData::Conversion {
+                operand: source_const,
+                target: source_type,
+            })
+            .unwrap_or_else(|error| panic!("conversion interning failed: {error:?}"));
+
+        let owner = GenericOwnerId::try_new(AnySymbolId::from(FunctionSymbolId::from_symbol_id(
+            SymbolId::new(1),
+        )))
+        .unwrap_or_else(|| panic!("function must support generic substitutions"));
+
+        let substitution = GenericSubstitutionData::try_new(
+            owner,
+            [
+                GenericParameterSymbolId::Type(source_type_parameter),
+                GenericParameterSymbolId::Const(source_const_parameter),
+            ],
+            [
+                GenericArgument::Type(target_type),
+                GenericArgument::Constant(target_const),
+            ],
+        )
+        .unwrap_or_else(|error| panic!("substitution construction failed: {error:?}"));
+
+        let substituted = store
+            .substitute_constant_term(conversion, &substitution)
+            .unwrap_or_else(|error| panic!("constant substitution failed: {error:?}"));
+
+        let substituted = store
+            .constant_term_data(substituted)
+            .unwrap_or_else(|error| panic!("substituted term must be available: {error:?}"));
+
+        assert_eq!(
+            substituted.as_ref(),
+            &ConstantTermData::Conversion {
+                operand: target_const,
+                target: target_type,
             }
         );
     }

@@ -5,12 +5,12 @@ use bray_compiler_known::{IntegerRepresentation, RepresentationRole};
 use bray_symbols::{ConstantValueKind, IntegerConstant, RealConstantBits};
 use num_bigint::BigInt;
 
+use super::floating::{fold_complex_binary, fold_real_binary};
 use super::integer::{from_big_integer, significant_bits, to_big_integer};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum ConstantOperationError {
     Invalid,
-    Unsupported,
     DivisionByZero,
     NotRepresentable,
     ResourceLimitExceeded,
@@ -45,10 +45,17 @@ pub(super) fn fold_unary(
         (BoundOperator::Subtract, ConstantValueKind::Real(value)) => {
             ConstantValueKind::Real(negate_real(*value))
         }
+        (BoundOperator::Add, ConstantValueKind::Real(value)) => ConstantValueKind::Real(*value),
         (BoundOperator::Subtract, ConstantValueKind::Complex { real, imaginary }) => {
             ConstantValueKind::Complex {
                 real: negate_real(*real),
                 imaginary: negate_real(*imaginary),
+            }
+        }
+        (BoundOperator::Add, ConstantValueKind::Complex { real, imaginary }) => {
+            ConstantValueKind::Complex {
+                real: *real,
+                imaginary: *imaginary,
             }
         }
         _ => return Err(ConstantOperationError::Invalid),
@@ -76,11 +83,25 @@ pub(super) fn fold_binary(
         (ConstantValueKind::String(left), ConstantValueKind::String(right)) => {
             fold_ordered(operator, left, right)?
         }
-        (ConstantValueKind::Real(_), ConstantValueKind::Real(_))
-        | (ConstantValueKind::Complex { .. }, ConstantValueKind::Complex { .. }) => {
-            // TODO(BRA-244): Evaluate selected runtime-format real and complex operations.
-            return Err(ConstantOperationError::Unsupported);
+        (ConstantValueKind::Real(left), ConstantValueKind::Real(right)) => {
+            fold_real_binary(operator, *left, *right)?
         }
+        (
+            ConstantValueKind::Complex {
+                real: left_real,
+                imaginary: left_imaginary,
+            },
+            ConstantValueKind::Complex {
+                real: right_real,
+                imaginary: right_imaginary,
+            },
+        ) => fold_complex_binary(
+            operator,
+            *left_real,
+            *left_imaginary,
+            *right_real,
+            *right_imaginary,
+        )?,
         _ if matches!(operator, BoundOperator::Equal | BoundOperator::NotEqual) => {
             let equal = left == right;
 

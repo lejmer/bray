@@ -159,6 +159,15 @@ impl InternState {
                     right,
                 })
             }
+            InterfaceConstantTerm::Conversion { operand, target } => {
+                let (Some(operand), Some(target)) =
+                    (self.constant_term_id(*operand), self.type_id(*target))
+                else {
+                    return Ok(None);
+                };
+
+                Some(ConstantTermData::Conversion { operand, target })
+            }
             InterfaceConstantTerm::DefinitionApplication {
                 definition,
                 substitution,
