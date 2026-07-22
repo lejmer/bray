@@ -19,15 +19,17 @@ use bray_parser::{SourceUnitSyntaxResult, SyntaxTreeResult, parse_source_unit};
 use bray_source::{SourceId, SourceInput, SourceLoadError, SourceSnapshot, SourceStore};
 use bray_symbols::{
     AvailableCompilerKnownSymbols, CompilerKnownSymbolBuildError, CompilerKnownSymbolProvider,
-    ImplementationCandidateSet, ImplementationCoherenceDomainKey, ImplementationParticipationFact,
+    ConstantInstanceValueFact, ConstantTermId, ImplementationCandidateSet,
+    ImplementationCoherenceDomainKey, ImplementationParticipationFact,
     ImplementationRequirementKey, ImportedSymbolSkeleton, PackageIdentity, SemanticFactResult,
     SemanticValueStore, SemanticValueStoreCreateError, SymbolGraph,
 };
 use bray_syntax::SyntaxTree;
 
 use crate::fact::{
-    BoundUnitIdentityMap, CancellationToken, CompilationFactKey, FactCell, FactCellMap,
-    FactQueryError, FactRuntime, ImportedSemanticFactKey, PublishedUnitFact, UnitFactCache,
+    BoundUnitIdentityMap, CancellationToken, CompilationFactKey, ConstantInstanceFactKey, FactCell,
+    FactCellMap, FactQueryError, FactRuntime, ImportedSemanticFactKey, PublishedUnitFact,
+    UnitFactCache,
 };
 use crate::request::{
     CompilationOptions, CompilationRequest, DependencyInterfaceInput, PackageInterfaceExportRequest,
@@ -98,6 +100,9 @@ pub(super) struct CompilationState {
     pub(super) expression_semantics: UnitFactCache<CheckedExpressionSemantics>,
     pub(super) checked_expression_types: UnitFactCache<CheckedExpressionTypes>,
     pub(super) checked_semantic_selections: UnitFactCache<CheckedSemanticSelections>,
+    pub(super) symbolic_constant_terms: UnitFactCache<ConstantTermId>,
+    pub(super) constant_instances:
+        FactCellMap<ConstantInstanceFactKey, Arc<SemanticFactResult<ConstantInstanceValueFact>>>,
     pub(super) check_diagnostics: FactCell<DiagnosticBag>,
     pub(super) package_interface_export_bundle: FactCell<
         Result<Arc<PackageInterfaceExportBundle>, super::export::PackageInterfaceExportError>,
@@ -191,6 +196,8 @@ impl Compilation {
                 expression_semantics: UnitFactCache::new(),
                 checked_expression_types: UnitFactCache::new(),
                 checked_semantic_selections: UnitFactCache::new(),
+                symbolic_constant_terms: UnitFactCache::new(),
+                constant_instances: FactCellMap::new(),
                 check_diagnostics: FactCell::new(),
                 package_interface_export_bundle: FactCell::new(),
             }),

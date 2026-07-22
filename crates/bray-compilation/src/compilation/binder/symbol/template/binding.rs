@@ -21,8 +21,8 @@ use bray_syntax::{
     WithClauseSyntax, walk_direct_child_nodes,
 };
 
+use super::super::binding::CompilationSymbolFactBinding;
 use super::super::cache::CompilationSymbolFacts;
-use super::super::compute::CompilationSymbolFactBinding;
 use super::super::environment::{generic_parameter_ids, type_binder};
 use super::super::surface::{symbol_ordinal, with_declaration_root};
 use crate::compilation::binder::CompilationBinderFacts;

@@ -1,22 +1,24 @@
 use std::sync::Arc;
 
-use bray_binder::{BinderFactError, BinderFactResult, SymbolFactProvider};
+use bray_binder::{BinderFactResult, SymbolFactProvider};
 use bray_symbols::{
     CallableContractTemplateFact, CallableContractTypeFact, CallableContractsFact,
     CallableOverloadTemplateFact, CallableParameterDefaultTemplateFact, CallableSignatureFact,
-    ConstantDeclaredTypeFact, GenericConstParameterDeclaredTypeFact, GenericConstraintsFact,
-    GenericDeclarationTemplateFact, ImplementationCoherenceFact, ImplementationHeadTemplateFact,
-    ImplementationOverloadTemplateFact, ImplementationSubjectFact, ImplementedTraitApplicationFact,
-    InherentTypeMemberValueFact, PredicateSignatureTemplateFact, StructFieldDefaultTemplateFact,
-    StructFieldTypeFact, SymbolFactContract, SymbolFactRequest, SymbolFactResult,
-    TraitConstantFulfillmentDeclaredTypeFact, TraitConstantMemberDeclaredTypeFact,
-    TraitTypeFulfillmentValueFact, UnionPayloadFieldDefaultTemplateFact, UnionPayloadFieldTypeFact,
+    ConstantDeclaredTypeFact, ConstantDefinitionFact, GenericConstParameterDeclaredTypeFact,
+    GenericConstraintsFact, GenericDeclarationTemplateFact, ImplementationCoherenceFact,
+    ImplementationHeadTemplateFact, ImplementationOverloadTemplateFact, ImplementationSubjectFact,
+    ImplementedTraitApplicationFact, InherentTypeMemberValueFact, PredicateSignatureTemplateFact,
+    StructFieldDefaultTemplateFact, StructFieldTypeFact, SymbolFactContract, SymbolFactRequest,
+    SymbolFactResult, TraitConstantFulfillmentDeclaredTypeFact,
+    TraitConstantFulfillmentDefinitionFact, TraitConstantMemberDeclaredTypeFact,
+    TraitConstantMemberDefinitionFact, TraitTypeFulfillmentValueFact,
+    UnionPayloadFieldDefaultTemplateFact, UnionPayloadFieldTypeFact,
 };
 
 use super::super::binder_fact_error;
 use super::super::context::CompilationBinderFacts;
-use super::compute::CompilationSymbolFactBinding;
-use crate::fact::{FactQueryError, SymbolFactCache};
+use super::binding::{CompilationSymbolFactBinding, binder_error};
+use crate::fact::SymbolFactCache;
 
 pub(in crate::compilation) struct CompilationSymbolFacts {
     pub(super) generic_constraints: SymbolFactCache<GenericConstraintsFact>,
@@ -27,12 +29,17 @@ pub(in crate::compilation) struct CompilationSymbolFacts {
     pub(super) predicate_signature_templates: SymbolFactCache<PredicateSignatureTemplateFact>,
     pub(super) callable_contract_types: SymbolFactCache<CallableContractTypeFact>,
     pub(super) constant_declared_types: SymbolFactCache<ConstantDeclaredTypeFact>,
+    pub(super) constant_definitions: SymbolFactCache<ConstantDefinitionFact>,
     pub(super) generic_const_parameter_declared_types:
         SymbolFactCache<GenericConstParameterDeclaredTypeFact>,
     pub(super) trait_constant_member_declared_types:
         SymbolFactCache<TraitConstantMemberDeclaredTypeFact>,
+    pub(super) trait_constant_member_definitions:
+        SymbolFactCache<TraitConstantMemberDefinitionFact>,
     pub(super) trait_constant_fulfillment_declared_types:
         SymbolFactCache<TraitConstantFulfillmentDeclaredTypeFact>,
+    pub(super) trait_constant_fulfillment_definitions:
+        SymbolFactCache<TraitConstantFulfillmentDefinitionFact>,
     pub(super) struct_field_types: SymbolFactCache<StructFieldTypeFact>,
     pub(super) union_payload_field_types: SymbolFactCache<UnionPayloadFieldTypeFact>,
     pub(super) inherent_type_member_values: SymbolFactCache<InherentTypeMemberValueFact>,
@@ -62,9 +69,12 @@ impl CompilationSymbolFacts {
             predicate_signature_templates: SymbolFactCache::new(),
             callable_contract_types: SymbolFactCache::new(),
             constant_declared_types: SymbolFactCache::new(),
+            constant_definitions: SymbolFactCache::new(),
             generic_const_parameter_declared_types: SymbolFactCache::new(),
             trait_constant_member_declared_types: SymbolFactCache::new(),
+            trait_constant_member_definitions: SymbolFactCache::new(),
             trait_constant_fulfillment_declared_types: SymbolFactCache::new(),
+            trait_constant_fulfillment_definitions: SymbolFactCache::new(),
             struct_field_types: SymbolFactCache::new(),
             union_payload_field_types: SymbolFactCache::new(),
             inherent_type_member_values: SymbolFactCache::new(),
@@ -106,15 +116,5 @@ where
                 },
             )
             .map_err(binder_error)
-    }
-}
-
-fn binder_error(error: FactQueryError) -> BinderFactError {
-    match error {
-        FactQueryError::Cancelled => BinderFactError::Cancelled,
-        FactQueryError::Cycle(_)
-        | FactQueryError::InfrastructureFailure
-        | FactQueryError::SemanticUnitContext(_)
-        | FactQueryError::CheckerInfrastructure(_) => BinderFactError::DependencyUnavailable,
     }
 }

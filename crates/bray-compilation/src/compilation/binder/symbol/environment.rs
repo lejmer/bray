@@ -94,6 +94,18 @@ pub(in crate::compilation) fn visible_generic_const_parameters(
         .collect()
 }
 
+pub(in crate::compilation) fn has_visible_generic_parameters(
+    symbols: &SymbolGraph,
+    symbol: AnySymbolId,
+) -> bool {
+    symbol_ancestry(symbols, symbol).into_iter().any(|owner| {
+        GenericParameterAccess::generic_type_parameters(symbols, owner)
+            .is_some_and(|parameters| !parameters.is_empty())
+            || GenericParameterAccess::generic_const_parameters(symbols, owner)
+                .is_some_and(|parameters| !parameters.is_empty())
+    })
+}
+
 fn type_parameter_name(
     context: &CompilationBinderFacts<'_>,
     owner: AnySymbolId,
