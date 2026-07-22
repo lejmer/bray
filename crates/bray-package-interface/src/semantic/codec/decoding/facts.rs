@@ -285,6 +285,48 @@ mod tests {
     }
 
     #[test]
+    fn exact_fact_decoding_is_independent_of_request_order() {
+        let (surface, owner, sections) = implementation_fixture();
+        let sections = owned_section_views(&sections);
+        let limits = InterfaceValidationLimits::default();
+
+        let forward_implementation = decode_semantic_fact_graph(
+            &sections,
+            &surface,
+            owner,
+            InterfaceSemanticFactKind::Implementation,
+            limits,
+        );
+
+        let forward_constraint = decode_semantic_fact_graph(
+            &sections,
+            &surface,
+            owner,
+            InterfaceSemanticFactKind::GenericConstraint,
+            limits,
+        );
+
+        let reverse_constraint = decode_semantic_fact_graph(
+            &sections,
+            &surface,
+            owner,
+            InterfaceSemanticFactKind::GenericConstraint,
+            limits,
+        );
+
+        let reverse_implementation = decode_semantic_fact_graph(
+            &sections,
+            &surface,
+            owner,
+            InterfaceSemanticFactKind::Implementation,
+            limits,
+        );
+
+        assert_eq!(forward_implementation, reverse_implementation);
+        assert_eq!(forward_constraint, reverse_constraint);
+    }
+
+    #[test]
     fn referenced_implementation_corruption_fails_deterministically() {
         let (surface, owner, mut sections) = implementation_fixture();
         let section = section_mut(&mut sections, InterfaceSectionTag::Implementations);
