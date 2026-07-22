@@ -6,9 +6,9 @@ use super::{
     InterfaceCoherenceRecord, InterfaceConstantTerm, InterfaceConstantValue, InterfaceConstraint,
     InterfaceDeclarationTemplate, InterfaceDependencyContract, InterfaceGenericDeclaration,
     InterfaceGenericSubstitution, InterfaceImplementationInstance, InterfaceImplementationRecord,
-    InterfaceSemanticFactEntry, InterfaceSemanticFactKind, InterfaceSourceProvenance,
-    InterfaceSupportEntity, InterfaceTargetFactDependency, InterfaceTraitApplication,
-    InterfaceType,
+    InterfacePredicateDefinition, InterfaceSemanticFactEntry, InterfaceSemanticFactKind,
+    InterfaceSourceProvenance, InterfaceSupportEntity, InterfaceTargetFactDependency,
+    InterfaceTraitApplication, InterfaceType,
 };
 
 /// Complete immutable semantic fact tables ready for package-interface encoding.
@@ -27,6 +27,7 @@ pub struct InterfaceSemanticFacts {
     pub(crate) callable_signatures: Arc<[InterfaceCallableSignature]>,
     pub(crate) generic_declarations: Arc<[InterfaceGenericDeclaration]>,
     pub(crate) callable_parameter_defaults: Arc<[InterfaceCallableParameterDefault]>,
+    pub(crate) predicate_definitions: Arc<[InterfacePredicateDefinition]>,
     pub(crate) checked_templates: Arc<[InterfaceCheckedTemplate]>,
     pub(crate) declaration_templates: Arc<[InterfaceDeclarationTemplate]>,
     pub(crate) support_entities: Arc<[InterfaceSupportEntity]>,
@@ -87,16 +88,18 @@ impl InterfaceSemanticFacts {
         self
     }
 
-    /// Replaces source-independent declaration signature and default-template facts.
+    /// Replaces source-independent declaration signature, default, and predicate facts.
     pub fn with_declarations(
         mut self,
         callable_signatures: impl IntoIterator<Item = InterfaceCallableSignature>,
         generic_declarations: impl IntoIterator<Item = InterfaceGenericDeclaration>,
         callable_parameter_defaults: impl IntoIterator<Item = InterfaceCallableParameterDefault>,
+        predicate_definitions: impl IntoIterator<Item = InterfacePredicateDefinition>,
     ) -> Self {
         self.callable_signatures = callable_signatures.into_iter().collect();
         self.generic_declarations = generic_declarations.into_iter().collect();
         self.callable_parameter_defaults = callable_parameter_defaults.into_iter().collect();
+        self.predicate_definitions = predicate_definitions.into_iter().collect();
 
         self
     }
@@ -187,6 +190,11 @@ impl InterfaceSemanticFacts {
     /// Returns callable parameter defaults in canonical parameter order.
     pub fn callable_parameter_defaults(&self) -> &[InterfaceCallableParameterDefault] {
         &self.callable_parameter_defaults
+    }
+
+    /// Returns predicate definition states in canonical owner order.
+    pub fn predicate_definitions(&self) -> &[InterfacePredicateDefinition] {
+        &self.predicate_definitions
     }
 
     /// Returns source-independent checked templates in artifact-local ID order.
@@ -287,6 +295,17 @@ impl InterfaceSemanticFacts {
                     record: checked_record(index),
                 });
 
+        let predicate_definitions =
+            self.predicate_definitions
+                .iter()
+                .enumerate()
+                .map(|(index, fact)| InterfaceSemanticFactEntry {
+                    owner: fact.owner.clone(),
+                    kind: InterfaceSemanticFactKind::PredicateDefinition,
+                    section: crate::InterfaceSectionTag::DeclarationFacts,
+                    record: checked_record(index),
+                });
+
         let declaration_templates =
             self.declaration_templates
                 .iter()
@@ -336,6 +355,7 @@ impl InterfaceSemanticFacts {
             .chain(callable_signatures)
             .chain(generic_declarations)
             .chain(callable_parameter_defaults)
+            .chain(predicate_definitions)
             .chain(declaration_templates)
             .chain(implementations)
             .chain(targets)

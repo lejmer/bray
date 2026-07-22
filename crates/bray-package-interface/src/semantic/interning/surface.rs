@@ -42,6 +42,8 @@ impl InternState {
         let callable_parameter_defaults =
             self.convert_callable_parameter_defaults(facts, symbols)?;
 
+        let predicate_definitions = self.convert_predicate_definitions(facts, symbols)?;
+
         let callable_contracts = self.convert_callable_contracts(facts, symbols)?;
         let coherence = self.convert_coherence(facts, symbols)?;
         let target_dependencies = self.convert_target_dependencies(facts, symbols)?;
@@ -70,6 +72,7 @@ impl InternState {
             callable_signatures: callable_signatures.into(),
             generic_declarations: generic_declarations.into(),
             callable_parameter_defaults: callable_parameter_defaults.into(),
+            predicate_definitions: predicate_definitions.into(),
             declaration_templates: declaration_templates.into(),
             constraints: constraints.into(),
             callable_contracts: callable_contracts.into(),

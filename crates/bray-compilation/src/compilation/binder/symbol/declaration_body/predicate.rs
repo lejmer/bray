@@ -6,6 +6,7 @@ use bray_declarations::SyntaxAnchor;
 use bray_diagnostics::{
     Diagnostic, DiagnosticBag, DiagnosticId, DiagnosticKind, DiagnosticResult, SeverityKind,
 };
+use bray_package_interface::InterfacePredicateDefinitionState;
 use bray_source::SourceSpan;
 use bray_symbols::{
     ErrorPredicateDefinition, PredicateDefinition, PredicateDefinitionFact,
@@ -17,7 +18,7 @@ use bray_symbols::{
 
 use super::super::binding::CompilationSymbolFactBinding;
 use super::super::cache::CompilationSymbolFacts;
-use super::super::imported::imported_declaration_template;
+use super::super::imported::{imported_declaration_template, imported_predicate_definition_state};
 use super::shared::{checked_source_expression, empty_dependency_contract, syntax_diagnostics};
 use crate::compilation::binder::CompilationBinderFacts;
 use crate::fact::{CompilationFactKey, SymbolFactCache};
@@ -64,24 +65,7 @@ fn predicate_definition(
     owner: PredicateDefinitionSymbolId,
 ) -> BinderFactResult<DiagnosticResult<PredicateDefinitionState<PredicateDefinition>>> {
     if let Some(address) = context.imported_fact_address(owner.into_any())? {
-        let imported = imported_declaration_template(
-            context,
-            address,
-            CheckedTemplateKind::PredicateDefinition,
-        )?;
-
-        let diagnostics = imported.diagnostics().clone();
-
-        let state = match imported.value() {
-            Some(template) => PredicateDefinitionState::Defined(PredicateDefinition::new(
-                PredicateSemanticSummary::new(template.template().behavior().dependency_contract()),
-            )),
-            // TODO(BRA-247): Reconstruct required and opaque trusted states from validated
-            // package-interface predicate metadata.
-            None => missing_imported_predicate_state(owner),
-        };
-
-        return Ok(DiagnosticResult::new(state, diagnostics));
+        return imported_predicate_definition(context, address);
     }
 
     if predicate_origin(context, owner)? != SymbolOrigin::Source {
@@ -168,14 +152,42 @@ fn missing_predicate_state(
     }
 }
 
-fn missing_imported_predicate_state(
-    owner: PredicateDefinitionSymbolId,
-) -> PredicateDefinitionState<PredicateDefinition> {
-    match owner {
-        PredicateDefinitionSymbolId::TraitMember(_) => PredicateDefinitionState::Required,
-        PredicateDefinitionSymbolId::Predicate(_)
-        | PredicateDefinitionSymbolId::TraitFulfillment(_) => {
-            PredicateDefinitionState::Error(ErrorPredicateDefinition)
+fn imported_predicate_definition(
+    context: &CompilationBinderFacts<'_>,
+    address: bray_symbols::ImportedSymbolFactAddress,
+) -> BinderFactResult<DiagnosticResult<PredicateDefinitionState<PredicateDefinition>>> {
+    let state = imported_predicate_definition_state(context, address)?;
+
+    match state.value() {
+        InterfacePredicateDefinitionState::Required => Ok(DiagnosticResult::new(
+            PredicateDefinitionState::Required,
+            state.diagnostics().clone(),
+        )),
+        InterfacePredicateDefinitionState::OpaqueTrusted => Ok(DiagnosticResult::new(
+            PredicateDefinitionState::OpaqueTrusted,
+            state.diagnostics().clone(),
+        )),
+        InterfacePredicateDefinitionState::Defined => {
+            let template_result = imported_declaration_template(
+                context,
+                address,
+                CheckedTemplateKind::PredicateDefinition,
+            )?;
+
+            let Some(template) = template_result.value() else {
+                return Err(BinderFactError::DependencyUnavailable);
+            };
+
+            let diagnostics = state.diagnostics().merged(template_result.diagnostics());
+
+            let definition = PredicateDefinition::new(PredicateSemanticSummary::new(
+                template.template().behavior().dependency_contract(),
+            ));
+
+            Ok(DiagnosticResult::new(
+                PredicateDefinitionState::Defined(definition),
+                diagnostics,
+            ))
         }
     }
 }

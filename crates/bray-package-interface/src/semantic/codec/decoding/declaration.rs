@@ -5,7 +5,8 @@ use crate::semantic::codec::common::{
 use crate::semantic::codec::record::RecordTable;
 use crate::semantic::model::{
     InterfaceCallableParameterDefault, InterfaceCallableReceiver, InterfaceCallableSignature,
-    InterfaceGenericDeclaration, InterfaceSemanticFacts, InterfaceTypeId,
+    InterfaceGenericDeclaration, InterfacePredicateDefinition, InterfaceSemanticFacts,
+    InterfaceTypeId,
 };
 use crate::wire::WireReader;
 use crate::{
@@ -16,6 +17,7 @@ pub(super) struct DeclarationRecordTables<'bytes> {
     pub(super) callable_signatures: RecordTable<'bytes>,
     pub(super) generic_declarations: RecordTable<'bytes>,
     pub(super) callable_parameter_defaults: RecordTable<'bytes>,
+    pub(super) predicate_definitions: RecordTable<'bytes>,
 }
 
 pub(super) fn decode_declaration_tables<'bytes>(
@@ -23,15 +25,16 @@ pub(super) fn decode_declaration_tables<'bytes>(
     context: &mut SemanticDecodeContext,
 ) -> Result<DeclarationRecordTables<'bytes>, InterfaceValidationError> {
     let mut reader = WireReader::new(section.bytes());
-    let revision = read_u32(&mut reader)?;
+    let format_version = read_u32(&mut reader)?;
 
-    if revision != super::super::DECLARATION_FACT_SECTION_REVISION {
+    if format_version != super::super::DECLARATION_FACT_FORMAT_VERSION {
         return Err(InterfaceValidationError::Malformed);
     }
 
     let callable_signatures = RecordTable::read_from(&mut reader, context)?;
     let generic_declarations = RecordTable::read_from(&mut reader, context)?;
     let callable_parameter_defaults = RecordTable::read_from(&mut reader, context)?;
+    let predicate_definitions = RecordTable::read_from(&mut reader, context)?;
 
     validate_record_count(
         section,
@@ -39,6 +42,7 @@ pub(super) fn decode_declaration_tables<'bytes>(
             callable_signatures.len(),
             generic_declarations.len(),
             callable_parameter_defaults.len(),
+            predicate_definitions.len(),
         ],
     )?;
 
@@ -48,6 +52,7 @@ pub(super) fn decode_declaration_tables<'bytes>(
         callable_signatures,
         generic_declarations,
         callable_parameter_defaults,
+        predicate_definitions,
     })
 }
 
@@ -75,9 +80,14 @@ pub(super) fn decode_declarations(
         .callable_parameter_defaults
         .decode_all(context, decode_callable_parameter_default)?;
 
+    let predicate_definitions = tables
+        .predicate_definitions
+        .decode_all(context, decode_predicate_definition)?;
+
     facts.callable_signatures = callable_signatures.into();
     facts.generic_declarations = generic_declarations.into();
     facts.callable_parameter_defaults = callable_parameter_defaults.into();
+    facts.predicate_definitions = predicate_definitions.into();
 
     Ok(())
 }
@@ -149,4 +159,14 @@ pub(super) fn decode_callable_parameter_default(
     Ok(InterfaceCallableParameterDefault::new(
         parameter, is_present,
     ))
+}
+
+pub(super) fn decode_predicate_definition(
+    reader: &mut WireReader<'_>,
+    context: &mut SemanticDecodeContext,
+) -> Result<InterfacePredicateDefinition, InterfaceValidationError> {
+    let owner = read_symbol_reference(reader, context)?;
+    let state = decode_tag(read_u32(reader)?)?;
+
+    Ok(InterfacePredicateDefinition::new(owner, state))
 }

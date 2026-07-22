@@ -1,15 +1,15 @@
 use bray_symbols::{
     CallableParameterSymbolId, CallableSignatureTemplate, CallableSymbolId,
     GenericConstraintTemplate, GenericDeclarationTemplate, GenericOwnerId,
-    GenericParameterSymbolId, ReceiverParameterSignature, ReceiverParameterSymbolId,
-    TypeExpressionTemplate, UnevaluatedDefaultTemplate,
+    GenericParameterSymbolId, PredicateDefinitionSymbolId, ReceiverParameterSignature,
+    ReceiverParameterSymbolId, TypeExpressionTemplate, UnevaluatedDefaultTemplate,
 };
 
 use super::common::{invalid_symbol, resolve_exact, resolve_family, resolve_symbol};
 use super::{
     ImportedCallableParameterDefaultFact, ImportedCallableSignatureFact, ImportedConstraintFact,
-    ImportedGenericDeclarationFact, InterfaceSemanticInternError, InterfaceSymbolResolver,
-    InternState,
+    ImportedGenericDeclarationFact, ImportedPredicateDefinitionFact, InterfaceSemanticInternError,
+    InterfaceSymbolResolver, InternState,
 };
 use crate::InterfaceSemanticFacts;
 
@@ -126,6 +126,29 @@ impl InternState {
                         input.parameter(),
                     )?,
                     default,
+                })
+            })
+            .collect()
+    }
+
+    pub(super) fn convert_predicate_definitions(
+        &self,
+        facts: &InterfaceSemanticFacts,
+        symbols: &impl InterfaceSymbolResolver,
+    ) -> Result<Vec<ImportedPredicateDefinitionFact>, InterfaceSemanticInternError> {
+        facts
+            .predicate_definitions
+            .iter()
+            .map(|input| {
+                let owner = resolve_symbol(symbols, input.owner())?;
+
+                let Some(owner) = PredicateDefinitionSymbolId::try_from_any(owner) else {
+                    return Err(invalid_symbol(input.owner()));
+                };
+
+                Ok(ImportedPredicateDefinitionFact {
+                    owner,
+                    state: input.state(),
                 })
             })
             .collect()

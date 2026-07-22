@@ -12,7 +12,7 @@ mod ty;
 
 pub use declaration_model::{
     ImportedCallableParameterDefaultFact, ImportedCallableSignatureFact,
-    ImportedGenericDeclarationFact,
+    ImportedGenericDeclarationFact, ImportedPredicateDefinitionFact,
 };
 pub use model::{
     ImportedAbiDependency, ImportedCallableContractFact, ImportedConstraintFact,

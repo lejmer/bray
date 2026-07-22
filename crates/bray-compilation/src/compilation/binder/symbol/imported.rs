@@ -1,7 +1,8 @@
 use bray_binder::{BinderFactError, BinderFactResult};
 use bray_diagnostics::DiagnosticResult;
 use bray_package_interface::{
-    ImportedImplementationFact, ImportedSemanticFact, InterfaceSemanticFactKind,
+    ImportedImplementationFact, ImportedSemanticFact, InterfacePredicateDefinitionState,
+    InterfaceSemanticFactKind,
 };
 use bray_symbols::{
     CallableContractTemplate, CallableSignatureTemplate, GenericDeclarationTemplate,
@@ -70,6 +71,26 @@ pub(super) fn imported_callable_parameter_default(
     // Imported fact results share immutable diagnostic storage.
     Ok(DiagnosticResult::new(
         fact.default(),
+        result.diagnostics().clone(),
+    ))
+}
+
+pub(super) fn imported_predicate_definition_state(
+    context: &CompilationBinderFacts<'_>,
+    address: ImportedSymbolFactAddress,
+) -> BinderFactResult<DiagnosticResult<InterfacePredicateDefinitionState>> {
+    let result = imported_facts(
+        context,
+        address,
+        InterfaceSemanticFactKind::PredicateDefinition,
+    )?;
+
+    let [ImportedSemanticFact::PredicateDefinition(fact)] = result.value().as_ref() else {
+        return Err(BinderFactError::DependencyUnavailable);
+    };
+
+    Ok(DiagnosticResult::new(
+        fact.state(),
         result.diagnostics().clone(),
     ))
 }

@@ -15,7 +15,7 @@ use crate::{InterfaceSemanticFactKind, InterfaceSemanticFacts, InterfaceSymbolRe
 use super::InternState;
 use super::declaration_model::{
     ImportedCallableParameterDefaultFact, ImportedCallableSignatureFact,
-    ImportedGenericDeclarationFact,
+    ImportedGenericDeclarationFact, ImportedPredicateDefinitionFact,
 };
 
 /// Resolves artifact-local and dependency symbol references into one compilation snapshot.
@@ -67,6 +67,7 @@ pub struct ImportedSemanticFacts {
     pub(super) callable_signatures: Arc<[ImportedCallableSignatureFact]>,
     pub(super) generic_declarations: Arc<[ImportedGenericDeclarationFact]>,
     pub(super) callable_parameter_defaults: Arc<[ImportedCallableParameterDefaultFact]>,
+    pub(super) predicate_definitions: Arc<[ImportedPredicateDefinitionFact]>,
     pub(super) declaration_templates: Arc<[ImportedDeclarationTemplateFact]>,
     pub(super) constraints: Arc<[ImportedConstraintFact]>,
     pub(super) callable_contracts: Arc<[ImportedCallableContractFact]>,
@@ -96,6 +97,8 @@ pub enum ImportedSemanticFact {
     GenericDeclaration(ImportedGenericDeclarationFact),
     /// One callable parameter default template.
     CallableParameterDefault(ImportedCallableParameterDefaultFact),
+    /// One predicate definition state.
+    PredicateDefinition(ImportedPredicateDefinitionFact),
     /// One checked generic constraint.
     GenericConstraint(ImportedConstraintFact),
     /// One complete callable contract set.
@@ -312,6 +315,13 @@ impl ImportedSemanticFacts {
                 .filter(|fact| AnySymbolId::from(fact.parameter()) == owner)
                 .map(ImportedSemanticFact::CallableParameterDefault)
                 .collect(),
+            InterfaceSemanticFactKind::PredicateDefinition => self
+                .predicate_definitions
+                .iter()
+                .copied()
+                .filter(|fact| fact.owner().into_any() == owner)
+                .map(ImportedSemanticFact::PredicateDefinition)
+                .collect(),
             InterfaceSemanticFactKind::GenericConstraint => self
                 .constraints
                 .iter()
@@ -410,6 +420,11 @@ impl ImportedSemanticFacts {
     /// Returns imported callable parameter defaults in interface order.
     pub fn callable_parameter_defaults(&self) -> &[ImportedCallableParameterDefaultFact] {
         &self.callable_parameter_defaults
+    }
+
+    /// Returns imported predicate definition states in interface order.
+    pub fn predicate_definitions(&self) -> &[ImportedPredicateDefinitionFact] {
+        &self.predicate_definitions
     }
 
     /// Returns imported declaration-owned templates in canonical interface order.

@@ -20,7 +20,7 @@ pub use constant::{
 };
 pub use declaration::{
     InterfaceCallableParameterDefault, InterfaceCallableReceiver, InterfaceCallableSignature,
-    InterfaceGenericDeclaration,
+    InterfaceGenericDeclaration, InterfacePredicateDefinition, InterfacePredicateDefinitionState,
 };
 pub use dependency::{
     InterfaceDependencyContract, InterfaceDependencyGuard, InterfaceDependencyProjection,

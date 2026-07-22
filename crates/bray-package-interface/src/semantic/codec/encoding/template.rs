@@ -3,6 +3,7 @@ use super::model::EncodedSemanticSection;
 use crate::semantic::codec::common::{
     write_count, write_symbol_reference, write_symbol_references,
 };
+use crate::semantic::codec::record::encode_record_table;
 use crate::semantic::model::{
     InterfaceCheckedTemplate, InterfaceCheckedTemplateInputKind, InterfaceCheckedTemplateOperation,
     InterfaceImplementationReference, InterfaceTemplateReference,
@@ -14,25 +15,39 @@ use crate::{InterfaceSectionTag, InterfaceSemanticFacts};
 pub(super) fn encode_templates(facts: &InterfaceSemanticFacts) -> EncodedSemanticSection {
     let mut encoder = WireEncoder::new();
 
-    write_count(&mut encoder, facts.checked_templates.len());
-    write_count(&mut encoder, facts.declaration_templates.len());
+    encoder.write_u32(super::super::DECLARATION_TEMPLATE_FORMAT_VERSION);
 
-    for template in &*facts.checked_templates {
-        encode_template(&mut encoder, template);
-    }
+    encode_record_table(
+        &mut encoder,
+        &facts.checked_templates,
+        |encoder, template| {
+            encode_template(encoder, template);
+        },
+    );
 
-    for declaration in &*facts.declaration_templates {
-        write_symbol_reference(&mut encoder, declaration.owner());
-        encoder.write_u32(declaration.kind().to_wire());
-        encoder.write_u32(declaration.ordinal().raw());
-        encoder.write_u32(declaration.entity().raw());
-    }
+    encode_record_table(
+        &mut encoder,
+        &facts.declaration_templates,
+        |encoder, declaration| {
+            encode_declaration_template(encoder, declaration);
+        },
+    );
 
     section(
         InterfaceSectionTag::DeclarationTemplates,
         facts.checked_templates.len() + facts.declaration_templates.len(),
         encoder,
     )
+}
+
+fn encode_declaration_template(
+    encoder: &mut WireEncoder,
+    declaration: &crate::InterfaceDeclarationTemplate,
+) {
+    write_symbol_reference(encoder, declaration.owner());
+    encoder.write_u32(declaration.kind().to_wire());
+    encoder.write_u32(declaration.ordinal().raw());
+    encoder.write_u32(declaration.entity().raw());
 }
 
 fn encode_template(encoder: &mut WireEncoder, template: &InterfaceCheckedTemplate) {

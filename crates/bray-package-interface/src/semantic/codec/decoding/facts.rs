@@ -99,6 +99,12 @@ fn selected_fact_sections(
         InterfaceSectionTag::DeclarationFacts,
     ];
 
+    const PREDICATE_DEFINITION_SECTIONS: &[InterfaceSectionTag] = &[
+        InterfaceSectionTag::SymbolFactDirectory,
+        InterfaceSectionTag::DeclarationFacts,
+        InterfaceSectionTag::DeclarationTemplates,
+    ];
+
     const IMPLEMENTATION_SECTIONS: &[InterfaceSectionTag] = &[
         InterfaceSectionTag::SymbolFactDirectory,
         InterfaceSectionTag::SemanticTypes,
@@ -120,6 +126,9 @@ fn selected_fact_sections(
         crate::InterfaceSemanticFactKind::GenericDeclaration => Some(GENERIC_DECLARATION_SECTIONS),
         crate::InterfaceSemanticFactKind::CallableParameterDefault => {
             Some(CALLABLE_PARAMETER_DEFAULT_SECTIONS)
+        }
+        crate::InterfaceSemanticFactKind::PredicateDefinition => {
+            Some(PREDICATE_DEFINITION_SECTIONS)
         }
         crate::InterfaceSemanticFactKind::GenericConstraint => Some(GENERIC_CONSTRAINT_SECTIONS),
         crate::InterfaceSemanticFactKind::Implementation => Some(IMPLEMENTATION_SECTIONS),
@@ -190,21 +199,23 @@ fn optional_section<'bytes>(
 
 #[cfg(test)]
 mod tests {
+    use bray_bound_tree::CheckedTemplateKind;
     use bray_symbols::{InterfaceSymbolId, SymbolKind, SymbolOrdinal};
 
     use super::super::test_support::{
         OwnedSection, append_record, owned_section_views, record_directory_entry, record_range,
     };
     use super::{decode_semantic_fact_graph, decode_semantic_facts};
-    use crate::semantic::codec::encode_semantic_facts;
+    use crate::semantic::codec::{encode_semantic_facts, encode_validated_semantic_facts};
     use crate::test_support::{local_by_kind, package_interface_export_bundle};
     use crate::{
-        InterfaceCallableParameterDefault, InterfaceCallableSignature, InterfaceDependencyContract,
-        InterfaceDependencyRequirement, InterfaceDependencyRequirementKind,
-        InterfaceDependencySubject, InterfaceDependencySubjectRoot, InterfaceGenericDeclaration,
-        InterfaceSectionTag, InterfaceSemanticFactKind, InterfaceSemanticFacts,
-        InterfaceSymbolReference, InterfaceTypeId, InterfaceValidationError,
-        InterfaceValidationLimits, PackageInterfaceSurface,
+        InterfaceCallableParameterDefault, InterfaceCallableSignature,
+        InterfaceDeclarationTemplate, InterfaceDependencyContract, InterfaceDependencyRequirement,
+        InterfaceDependencyRequirementKind, InterfaceDependencySubject,
+        InterfaceDependencySubjectRoot, InterfaceGenericDeclaration,
+        InterfacePredicateDefinitionState, InterfaceSectionTag, InterfaceSemanticFactKind,
+        InterfaceSemanticFacts, InterfaceSymbolReference, InterfaceTypeId,
+        InterfaceValidationError, InterfaceValidationLimits, PackageInterfaceSurface,
     };
 
     #[test]
@@ -369,6 +380,21 @@ mod tests {
             panic!("test callable parameter must be local");
         };
 
+        let predicate_owners = [
+            (
+                SymbolKind::Predicate,
+                InterfacePredicateDefinitionState::OpaqueTrusted,
+            ),
+            (
+                SymbolKind::TraitPredicateMember,
+                InterfacePredicateDefinitionState::Required,
+            ),
+            (
+                SymbolKind::TraitPredicateFulfillment,
+                InterfacePredicateDefinitionState::Defined,
+            ),
+        ];
+
         let sections = semantic_sections(bundle.semantic_facts(), &surface);
         let sections = owned_section_views(&sections);
         let limits = InterfaceValidationLimits::default();
@@ -408,6 +434,75 @@ mod tests {
         assert_eq!(default.callable_parameter_defaults().len(), 1);
         assert!(default.types().is_empty());
         assert!(default.constant_terms().is_empty());
+
+        for (kind, expected_state) in predicate_owners {
+            let InterfaceSymbolReference::Local(owner) = local_by_kind(&surface, kind) else {
+                panic!("test predicate must be local");
+            };
+
+            let predicate = decode_semantic_fact_graph(
+                &sections,
+                &surface,
+                owner,
+                InterfaceSemanticFactKind::PredicateDefinition,
+                limits,
+            )
+            .unwrap_or_else(|error| panic!("predicate definition must decode: {error:?}"));
+
+            assert_eq!(predicate.predicate_definitions().len(), 1);
+            assert_eq!(predicate.predicate_definitions()[0].state(), expected_state);
+            assert!(predicate.declaration_templates().is_empty());
+        }
+    }
+
+    #[test]
+    fn predicate_definition_decoding_rejects_opaque_state_with_definition_template() {
+        let bundle = package_interface_export_bundle();
+        let surface = bundle.surface().clone();
+        let facts = bundle.semantic_facts();
+
+        let opaque_owner = local_by_kind(&surface, SymbolKind::Predicate);
+
+        let InterfaceSymbolReference::Local(owner) = opaque_owner.clone() else {
+            panic!("test predicate must be local");
+        };
+
+        let mut declarations = facts.declaration_templates().to_vec();
+
+        let definition = declarations
+            .iter_mut()
+            .find(|template| template.kind() == CheckedTemplateKind::PredicateDefinition)
+            .unwrap_or_else(|| panic!("test predicate definition template must be present"));
+
+        *definition = InterfaceDeclarationTemplate::new(
+            opaque_owner,
+            definition.kind(),
+            definition.ordinal(),
+            definition.entity(),
+        );
+
+        declarations.sort();
+
+        let invalid = facts.clone().with_templates(
+            facts.checked_templates().iter().cloned(),
+            declarations,
+            facts.support_entities().iter().cloned(),
+        );
+
+        let sections = encode_validated_semantic_facts(&invalid)
+            .into_iter()
+            .map(crate::EncodedSemanticSection::into_parts)
+            .collect::<Vec<_>>();
+
+        let decoded = decode_semantic_fact_graph(
+            &owned_section_views(&sections),
+            &surface,
+            owner,
+            InterfaceSemanticFactKind::PredicateDefinition,
+            InterfaceValidationLimits::default(),
+        );
+
+        assert_eq!(decoded, Err(InterfaceValidationError::Malformed));
     }
 
     #[test]
@@ -473,22 +568,30 @@ mod tests {
     }
 
     #[test]
-    fn declaration_fact_section_revision_is_rejected_before_record_decoding() {
-        let bundle = package_interface_export_bundle();
-        let surface = bundle.surface().clone();
-        let mut sections = semantic_sections(bundle.semantic_facts(), &surface);
-        let section = section_mut(&mut sections, InterfaceSectionTag::DeclarationFacts);
+    fn declaration_section_format_versions_are_rejected_before_record_decoding() {
+        const VERSIONED_SECTIONS: &[InterfaceSectionTag] = &[
+            InterfaceSectionTag::DeclarationFacts,
+            InterfaceSectionTag::DeclarationTemplates,
+        ];
 
-        section.2[..4].copy_from_slice(&u32::MAX.to_le_bytes());
+        for &tag in VERSIONED_SECTIONS {
+            let bundle = package_interface_export_bundle();
+            let surface = bundle.surface().clone();
+            let mut sections = semantic_sections(bundle.semantic_facts(), &surface);
+            let section = section_mut(&mut sections, tag);
 
-        assert_eq!(
-            decode_semantic_facts(
-                &owned_section_views(&sections),
-                &surface,
-                InterfaceValidationLimits::default(),
-            ),
-            Err(InterfaceValidationError::Malformed)
-        );
+            section.2[..4].copy_from_slice(&u32::MAX.to_le_bytes());
+
+            assert_eq!(
+                decode_semantic_facts(
+                    &owned_section_views(&sections),
+                    &surface,
+                    InterfaceValidationLimits::default(),
+                ),
+                Err(InterfaceValidationError::Malformed),
+                "{tag:?}"
+            );
+        }
     }
 
     #[test]
@@ -510,6 +613,7 @@ mod tests {
             [invalid_signature],
             base.generic_declarations().iter().cloned(),
             base.callable_parameter_defaults().iter().cloned(),
+            base.predicate_definitions().iter().cloned(),
         );
 
         assert_eq!(
@@ -532,6 +636,7 @@ mod tests {
             base.callable_signatures().iter().cloned(),
             [reversed_generic],
             base.callable_parameter_defaults().iter().cloned(),
+            base.predicate_definitions().iter().cloned(),
         );
 
         assert_eq!(
@@ -552,6 +657,7 @@ mod tests {
             base.callable_signatures().iter().cloned(),
             base.generic_declarations().iter().cloned(),
             [absent_default],
+            base.predicate_definitions().iter().cloned(),
         );
 
         assert_eq!(
