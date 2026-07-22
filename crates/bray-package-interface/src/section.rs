@@ -1,6 +1,8 @@
 use crate::hash::InterfaceSectionHash;
 use crate::wire::{WireDecodeError, WireReader};
 
+pub(crate) const OPTIONAL_NON_SEMANTIC_SECTION_FLAG: u32 = 1;
+
 /// Stable tag for one package-interface section category.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum InterfaceSectionTag {
@@ -86,7 +88,8 @@ impl InterfaceSectionTag {
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(crate) struct DirectoryEntry {
-    tag: InterfaceSectionTag,
+    raw_tag: u32,
+    encoding_flags: u32,
     offset: u64,
     length: u64,
     record_count: u64,
@@ -117,12 +120,10 @@ impl DirectoryEntry {
         })
     }
 
-    pub(crate) const fn from_decoded(
-        decoded: DecodedDirectoryEntry,
-        tag: InterfaceSectionTag,
-    ) -> Self {
+    pub(crate) const fn from_decoded(decoded: DecodedDirectoryEntry) -> Self {
         Self {
-            tag,
+            raw_tag: decoded.raw_tag,
+            encoding_flags: decoded.encoding_flags,
             offset: decoded.offset,
             length: decoded.length,
             record_count: decoded.record_count,
@@ -138,7 +139,8 @@ impl DirectoryEntry {
         checksum: InterfaceSectionHash,
     ) -> Self {
         Self {
-            tag,
+            raw_tag: tag.wire_value(),
+            encoding_flags: 0,
             offset,
             length,
             record_count,
@@ -146,8 +148,23 @@ impl DirectoryEntry {
         }
     }
 
-    pub(crate) const fn tag(self) -> InterfaceSectionTag {
-        self.tag
+    pub(crate) const fn raw_tag(self) -> u32 {
+        self.raw_tag
+    }
+
+    pub(crate) const fn tag(self) -> Option<InterfaceSectionTag> {
+        InterfaceSectionTag::from_wire_value(self.raw_tag)
+    }
+
+    pub(crate) const fn encoding_flags(self) -> u32 {
+        self.encoding_flags
+    }
+
+    pub(crate) const fn contributes_to_content_hash(self) -> bool {
+        match self.tag() {
+            Some(tag) => tag.contributes_to_content_hash(),
+            None => false,
+        }
     }
 
     pub(crate) const fn length(self) -> u64 {
@@ -197,7 +214,7 @@ pub struct ValidatedInterfaceSection<'bytes> {
 impl<'bytes> ValidatedInterfaceSection<'bytes> {
     pub(crate) fn new(entry: DirectoryEntry, artifact: &'bytes [u8]) -> Option<Self> {
         Some(Self {
-            tag: entry.tag(),
+            tag: entry.tag()?,
             record_count: entry.record_count(),
             checksum: entry.checksum(),
             bytes: entry.payload(artifact)?,

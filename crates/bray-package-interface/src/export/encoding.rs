@@ -37,6 +37,34 @@ mod tests {
         assert_eq!(encoded.artifact_hash(), validated.header().artifact_hash());
     }
 
+    #[test]
+    fn complete_artifacts_decode_and_reencode_to_identical_bytes() {
+        let encoded = encode(&package_interface_export_bundle());
+
+        let validated = ValidatedPackageInterface::try_new(
+            encoded.shared_bytes(),
+            InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
+        )
+        .unwrap_or_else(|error| panic!("encoded interface must validate: {error:?}"));
+
+        let surface = validated
+            .decode_identity_surface()
+            .unwrap_or_else(|error| panic!("identity surface must decode: {error:?}"));
+
+        let facts = validated
+            .decode_semantic_facts(&surface)
+            .unwrap_or_else(|error| panic!("semantic facts must decode: {error:?}"));
+
+        let decoded = PackageInterfaceExportBundle::try_new(
+            surface,
+            facts,
+            InterfaceLanguageRevision::new(0),
+        )
+        .unwrap_or_else(|error| panic!("decoded export bundle must validate: {error:?}"));
+
+        assert_eq!(encode(&decoded), encoded);
+    }
+
     fn encode(bundle: &PackageInterfaceExportBundle) -> crate::InterfaceArtifact {
         encode_package_interface(bundle)
             .unwrap_or_else(|error| panic!("valid export bundle must encode: {error:?}"))

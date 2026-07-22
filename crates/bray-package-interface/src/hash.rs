@@ -46,7 +46,7 @@ interface_hash!(
 pub(crate) fn compute_section_hash(entry: &DirectoryEntry, payload: &[u8]) -> InterfaceSectionHash {
     let mut prefix = WireEncoder::new();
 
-    prefix.write_u32(entry.tag().wire_value());
+    prefix.write_u32(entry.raw_tag());
     prefix.write_u64(entry.record_count());
     prefix.write_u64(entry.length());
 
@@ -76,7 +76,7 @@ pub(crate) fn compute_content_hash(
     hasher.update(prefix.bytes());
 
     for entry in entries {
-        if !entry.tag().contributes_to_content_hash() {
+        if !entry.contributes_to_content_hash() {
             continue;
         }
 
@@ -84,7 +84,7 @@ pub(crate) fn compute_content_hash(
 
         let mut section_prefix = WireEncoder::new();
 
-        section_prefix.write_u32(entry.tag().wire_value());
+        section_prefix.write_u32(entry.raw_tag());
         section_prefix.write_u64(entry.length());
 
         hasher.update(section_prefix.bytes());

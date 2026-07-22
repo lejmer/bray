@@ -5,7 +5,10 @@ use crate::diagnostic::InterfaceValidationError;
 use crate::hash::{compute_artifact_hash, compute_content_hash, compute_section_hash};
 use crate::header::{BYTE_ORDER_MARKER, CURRENT_FORMAT_REVISION, InterfaceHeader, MAGIC};
 use crate::limits::{InterfaceLimit, InterfaceValidationLimits, InterfaceValidationPolicy};
-use crate::section::{DirectoryEntry, InterfaceSectionTag, ValidatedInterfaceSection};
+use crate::section::{
+    DirectoryEntry, InterfaceSectionTag, OPTIONAL_NON_SEMANTIC_SECTION_FLAG,
+    ValidatedInterfaceSection,
+};
 use crate::wire::WireDecodeError;
 
 pub(crate) fn is_strictly_sorted<T: Ord>(values: &[T]) -> bool {
@@ -69,7 +72,7 @@ impl ValidatedPackageInterface {
     pub fn section(&self, tag: InterfaceSectionTag) -> Option<ValidatedInterfaceSection<'_>> {
         let index = self
             .directory
-            .binary_search_by_key(&tag, |entry| entry.tag())
+            .binary_search_by_key(&tag.wire_value(), |entry| entry.raw_tag())
             .ok()?;
 
         let entry = *self.directory.get(index)?;
@@ -202,12 +205,9 @@ fn decode_directory(
 
     for chunk in bytes[directory_range.clone()].chunks_exact(DirectoryEntry::LENGTH) {
         let decoded = DirectoryEntry::decode(chunk).map_err(map_wire_error)?;
+        let tag = InterfaceSectionTag::from_wire_value(decoded.raw_tag);
 
-        let Some(tag) = InterfaceSectionTag::from_wire_value(decoded.raw_tag) else {
-            return Err(InterfaceValidationError::Malformed);
-        };
-
-        if decoded.encoding_flags != 0
+        if !valid_section_encoding(tag, decoded.encoding_flags)
             || previous_tag.is_some_and(|previous| decoded.raw_tag <= previous)
         {
             return Err(InterfaceValidationError::Malformed);
@@ -239,10 +239,11 @@ fn decode_directory(
             return Err(InterfaceValidationError::Malformed);
         }
 
-        let entry = DirectoryEntry::from_decoded(decoded, tag);
+        let entry = DirectoryEntry::from_decoded(decoded);
 
         previous_tag = Some(decoded.raw_tag);
         previous_end = payload_range.end;
+
         entries.push(entry);
     }
 
@@ -260,9 +261,10 @@ fn validate_hashes(
             .ok_or(InterfaceValidationError::Malformed)?;
 
         if compute_section_hash(entry, payload) != entry.checksum() {
-            return Err(InterfaceValidationError::SectionChecksumMismatch {
-                section: entry.tag(),
-            });
+            return match entry.tag() {
+                Some(section) => Err(InterfaceValidationError::SectionChecksumMismatch { section }),
+                None => Err(InterfaceValidationError::HashMismatch),
+            };
         }
     }
 
@@ -276,6 +278,13 @@ fn validate_hashes(
     }
 
     Ok(())
+}
+
+const fn valid_section_encoding(tag: Option<InterfaceSectionTag>, encoding_flags: u32) -> bool {
+    match tag {
+        Some(_) => encoding_flags == 0,
+        None => encoding_flags == OPTIONAL_NON_SEMANTIC_SECTION_FLAG,
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -337,9 +346,10 @@ mod tests {
     use super::ValidatedPackageInterface;
     use crate::artifact::{EncodedArtifactSection, assemble_sections};
     use crate::diagnostic::InterfaceValidationError;
+    use crate::hash::{compute_artifact_hash, compute_content_hash, compute_section_hash};
     use crate::header::InterfaceHeader;
     use crate::limits::{InterfaceLimit, InterfaceValidationLimits, InterfaceValidationPolicy};
-    use crate::section::{DirectoryEntry, InterfaceSectionTag};
+    use crate::section::{DirectoryEntry, InterfaceSectionTag, OPTIONAL_NON_SEMANTIC_SECTION_FLAG};
     use crate::{
         CURRENT_FORMAT_REVISION, InterfaceLanguageRevision, InterfaceProductIdentity,
         InterfaceProductKind, PackageInterfaceIdentity,
@@ -576,6 +586,47 @@ mod tests {
     }
 
     #[test]
+    fn explicitly_optional_unknown_sections_are_validated_and_ignored() {
+        let bytes = artifact(&[SectionFixture {
+            tag: InterfaceSectionTag::SourceProvenance,
+            record_count: 1,
+            payload: b"future tooling data",
+        }]);
+
+        let content_hash = validate(bytes.clone()).header().content_hash();
+
+        let extension = optional_extension(bytes, 99);
+        let interface = validate(extension.clone());
+
+        assert_eq!(interface.header().content_hash(), content_hash);
+        assert_eq!(interface.sections().count(), 0);
+
+        assert_eq!(
+            interface.section(InterfaceSectionTag::SourceProvenance),
+            None
+        );
+
+        let mut required = extension.clone();
+        let directory = required.len() - DirectoryEntry::LENGTH;
+
+        write_u32(&mut required, directory + 4, 0);
+
+        assert_eq!(
+            ValidatedPackageInterface::try_new(required, policy()),
+            Err(InterfaceValidationError::Malformed)
+        );
+
+        let mut corrupted = extension;
+
+        corrupted[InterfaceHeader::LENGTH] ^= 0xff;
+
+        assert_eq!(
+            ValidatedPackageInterface::try_new(corrupted, policy()),
+            Err(InterfaceValidationError::HashMismatch)
+        );
+    }
+
+    #[test]
     fn file_section_record_and_allocation_limits_are_enforced() {
         let bytes = artifact(&[SectionFixture {
             tag: InterfaceSectionTag::Strings,
@@ -756,6 +807,49 @@ mod tests {
         assemble_sections(&sections, interface_identity(), LANGUAGE_REVISION)
             .map(|artifact| artifact.bytes().to_vec())
             .unwrap_or_else(|error| panic!("test artifact must encode: {error:?}"))
+    }
+
+    fn optional_extension(mut bytes: Vec<u8>, raw_tag: u32) -> Vec<u8> {
+        let directory = bytes.len() - DirectoryEntry::LENGTH;
+
+        write_u32(&mut bytes, directory, raw_tag);
+
+        write_u32(
+            &mut bytes,
+            directory + 4,
+            OPTIONAL_NON_SEMANTIC_SECTION_FLAG,
+        );
+
+        let decoded = DirectoryEntry::decode(&bytes[directory..])
+            .unwrap_or_else(|error| panic!("test extension directory must decode: {error:?}"));
+
+        let entry = DirectoryEntry::from_decoded(decoded);
+
+        let payload = entry
+            .payload(&bytes)
+            .unwrap_or_else(|| panic!("test extension payload must be in bounds"));
+
+        let checksum = compute_section_hash(&entry, payload);
+
+        bytes[directory + 32..directory + 64].copy_from_slice(checksum.as_bytes());
+
+        let header = InterfaceHeader::decode(&bytes)
+            .unwrap_or_else(|error| panic!("test extension header must decode: {error:?}"))
+            .header;
+
+        let content_hash = compute_content_hash(&header, &[entry], &bytes)
+            .unwrap_or_else(|| panic!("test extension content hash must compute"));
+
+        bytes[InterfaceHeader::CONTENT_HASH_OFFSET..InterfaceHeader::CONTENT_HASH_OFFSET + 32]
+            .copy_from_slice(content_hash.as_bytes());
+
+        let artifact_hash = compute_artifact_hash(&bytes)
+            .unwrap_or_else(|| panic!("test extension artifact hash must compute"));
+
+        bytes[InterfaceHeader::ARTIFACT_HASH_OFFSET..InterfaceHeader::ARTIFACT_HASH_OFFSET + 32]
+            .copy_from_slice(artifact_hash.as_bytes());
+
+        bytes
     }
 
     fn interface_identity() -> PackageInterfaceIdentity {
