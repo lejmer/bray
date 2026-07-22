@@ -2,7 +2,10 @@ use bray_bound_tree::{
     BoundBlock, BoundBlockId, BoundBlockItem, BoundExpressionId, BoundNodeOrigin, BoundUnitId,
     BoundUnitKey,
 };
-use bray_symbols::CallableSignatureFact;
+use bray_symbols::{
+    AnySymbolId, CallableSignatureFact, LocalScopeId, PredicateDefinitionSymbolId,
+    PredicateSignatureTemplateFact, SymbolFactRequest, SymbolName,
+};
 use bray_syntax::{
     EnsuresClauseSyntax, ExpressionSyntax, RequiresClauseSyntax, SyntaxKind, WithClauseSyntax,
 };
@@ -12,7 +15,7 @@ use super::support::{
     anchored_descendant, create_binder, error_type, map_assembly_error, map_binding_error,
     path_context,
 };
-use crate::binder::{BinderOutput, BindingContext};
+use crate::binder::{Binder, BinderOutput, BindingContext};
 use crate::binding::{ExpressionBinder, callable_normal_completion_has_value, push_contract_scope};
 use crate::publication::{
     assemble_constant_template, assemble_constraint, assemble_contract_clause,
@@ -78,10 +81,10 @@ define_pending_expression_unit!(
     PendingBoundRuntimeDefault,
     bind_runtime_default,
     assemble_runtime_default,
-    bind_expression_unit,
+    bind_runtime_default_unit,
     BoundExpressionId,
     BindingContext::Expression,
-    [],
+    [CallableSignatureFact],
     "A bound runtime-default expression ready to complete its semantic unit.",
     "Binds one runtime-default expression into committed task-local state."
 );
@@ -100,10 +103,10 @@ define_pending_expression_unit!(
     PendingBoundPredicateDefinition,
     bind_predicate_definition,
     assemble_predicate_definition,
-    bind_expression_unit,
+    bind_predicate_definition_unit,
     BoundExpressionId,
     BindingContext::PredicateExpression,
-    [],
+    [PredicateSignatureTemplateFact],
     "A bound predicate-definition expression ready to complete its semantic unit.",
     "Binds one predicate-definition expression into committed task-local state."
 );
@@ -175,12 +178,53 @@ fn bind_expression_unit<C>(
 where
     C: BinderFactContext + ?Sized,
 {
+    bind_expression_unit_with_scope(facts, unit, key, context, |_, _| Ok(()))
+}
+
+fn bind_runtime_default_unit<C>(
+    facts: &C,
+    unit: BoundUnitId,
+    key: BoundUnitKey,
+    context: BindingContext,
+) -> Result<(BinderOutput, BoundExpressionId), BoundUnitBindingError>
+where
+    C: BinderFactContext + ?Sized,
+    C::SymbolFacts: SymbolFactProvider<CallableSignatureFact>,
+{
+    bind_expression_unit_with_scope(facts, unit, key, context, push_runtime_default_inputs)
+}
+
+fn bind_predicate_definition_unit<C>(
+    facts: &C,
+    unit: BoundUnitId,
+    key: BoundUnitKey,
+    context: BindingContext,
+) -> Result<(BinderOutput, BoundExpressionId), BoundUnitBindingError>
+where
+    C: BinderFactContext + ?Sized,
+    C::SymbolFacts: SymbolFactProvider<PredicateSignatureTemplateFact>,
+{
+    bind_expression_unit_with_scope(facts, unit, key, context, push_predicate_inputs)
+}
+
+fn bind_expression_unit_with_scope<C>(
+    facts: &C,
+    unit: BoundUnitId,
+    key: BoundUnitKey,
+    context: BindingContext,
+    configure_scope: impl FnOnce(&mut Binder<'_, C>, LocalScopeId) -> Result<(), BoundUnitBindingError>,
+) -> Result<(BinderOutput, BoundExpressionId), BoundUnitBindingError>
+where
+    C: BinderFactContext + ?Sized,
+{
     let syntax = anchored_descendant::<_, ExpressionSyntax>(facts, key.source().syntax())
         .ok_or(BoundUnitBindingError::MissingSyntax)?;
 
     let mut binder = create_binder(facts, unit, key, context)?;
 
     let root_scope = binder.unit().root_scope();
+    configure_scope(&mut binder, root_scope)?;
+
     let path_context = path_context(&binder, root_scope)?;
     let error_type = error_type(facts)?;
 
@@ -195,6 +239,131 @@ where
         .map_err(|_| BoundUnitBindingError::Construction)?;
 
     Ok((output, root))
+}
+
+fn push_runtime_default_inputs<C>(
+    binder: &mut Binder<'_, C>,
+    scope: LocalScopeId,
+) -> Result<(), BoundUnitBindingError>
+where
+    C: BinderFactContext + ?Sized,
+    C::SymbolFacts: SymbolFactProvider<CallableSignatureFact>,
+{
+    let provider = binder
+        .facts()
+        .symbols()
+        .symbol_for_key(binder.unit().key().declared_owner())
+        .ok_or(BoundUnitBindingError::MissingOwner)?;
+
+    let subject = binder
+        .facts()
+        .symbols()
+        .runtime_default_subject(provider)
+        .ok_or(BoundUnitBindingError::MissingOwner)?;
+
+    let AnySymbolId::CallableParameter(parameter) = subject else {
+        return Ok(());
+    };
+
+    let parameter = binder
+        .facts()
+        .symbols()
+        .callable_parameter(parameter)
+        .ok_or(BoundUnitBindingError::MissingOwner)?;
+
+    let signature = binder
+        .facts()
+        .symbol_facts()
+        .symbol_fact(SymbolFactRequest::<CallableSignatureFact>::new(
+            parameter.owner(),
+        ))
+        .map_err(map_fact_error)?;
+
+    if let Some(receiver) = signature.value().receiver() {
+        insert_named_surface(binder, scope, receiver.parameter().into(), "self")?;
+    }
+
+    for parameter in signature
+        .value()
+        .parameters()
+        .iter()
+        .take(parameter.ordinal() as usize)
+    {
+        insert_source_surface(binder, scope, (*parameter).into())?;
+    }
+
+    Ok(())
+}
+
+fn push_predicate_inputs<C>(
+    binder: &mut Binder<'_, C>,
+    scope: LocalScopeId,
+) -> Result<(), BoundUnitBindingError>
+where
+    C: BinderFactContext + ?Sized,
+    C::SymbolFacts: SymbolFactProvider<PredicateSignatureTemplateFact>,
+{
+    let owner = binder
+        .facts()
+        .symbols()
+        .symbol_for_key(binder.unit().key().declared_owner())
+        .and_then(PredicateDefinitionSymbolId::try_from_any)
+        .ok_or(BoundUnitBindingError::MissingOwner)?;
+
+    let signature = binder
+        .facts()
+        .symbol_facts()
+        .symbol_fact(SymbolFactRequest::<PredicateSignatureTemplateFact>::new(
+            owner,
+        ))
+        .map_err(map_fact_error)?;
+
+    for parameter in signature.value().parameters() {
+        insert_source_surface(binder, scope, parameter.parameter().into())?;
+    }
+
+    Ok(())
+}
+
+fn insert_source_surface<C>(
+    binder: &mut Binder<'_, C>,
+    scope: LocalScopeId,
+    symbol: AnySymbolId,
+) -> Result<(), BoundUnitBindingError>
+where
+    C: BinderFactContext + ?Sized,
+{
+    let declaration = binder
+        .facts()
+        .symbols()
+        .symbol_key(symbol)
+        .and_then(bray_symbols::SymbolKey::source_declaration_id)
+        .and_then(|declaration| binder.facts().declarations().declaration(declaration))
+        .ok_or(BoundUnitBindingError::MissingOwner)?;
+
+    let name = declaration
+        .name()
+        .and_then(bray_declarations::DeclarationName::as_identifier)
+        .ok_or(BoundUnitBindingError::MissingOwner)?;
+
+    insert_named_surface(binder, scope, symbol, name)
+}
+
+fn insert_named_surface<C>(
+    binder: &mut Binder<'_, C>,
+    scope: LocalScopeId,
+    symbol: AnySymbolId,
+    name: &str,
+) -> Result<(), BoundUnitBindingError>
+where
+    C: BinderFactContext + ?Sized,
+{
+    let name = SymbolName::try_new(name).ok_or(BoundUnitBindingError::MissingOwner)?;
+
+    binder
+        .unit_mut()
+        .insert_surface_name(scope, name, symbol)
+        .map_err(|_| BoundUnitBindingError::Construction)
 }
 
 fn bind_expression_sequence_unit<C>(

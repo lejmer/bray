@@ -212,6 +212,13 @@ impl SemanticValueStore {
         tables.dependency_contracts.intern(self.id, data)
     }
 
+    /// Returns the dependency-contract template with no requirements.
+    pub fn empty_dependency_contract_template(
+        &self,
+    ) -> Result<DependencyContractTemplateId, SemanticValueStoreError> {
+        self.intern_dependency_contract_template(DependencyContractTemplateData::new([]))
+    }
+
     /// Returns immutable data for a dependency-contract template issued by this store.
     pub fn dependency_contract_template_data(
         &self,

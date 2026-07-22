@@ -95,6 +95,39 @@ pub(super) fn imported_callable_contract(
     ))
 }
 
+pub(in crate::compilation) fn imported_declaration_template(
+    context: &CompilationBinderFacts<'_>,
+    address: ImportedSymbolFactAddress,
+    kind: bray_bound_tree::CheckedTemplateKind,
+) -> BinderFactResult<
+    DiagnosticResult<Option<bray_package_interface::ImportedDeclarationTemplateFact>>,
+> {
+    let result = imported_facts(
+        context,
+        address,
+        InterfaceSemanticFactKind::DeclarationTemplate,
+    )?;
+
+    let mut templates = result.value().iter().filter_map(|fact| match fact {
+        ImportedSemanticFact::DeclarationTemplate(template) if template.kind() == kind => {
+            Some(template)
+        }
+        _ => None,
+    });
+
+    let template = templates.next();
+
+    if templates.next().is_some() {
+        return Err(BinderFactError::DependencyUnavailable);
+    }
+
+    // The imported fact result and this typed view share the same immutable template graph.
+    Ok(DiagnosticResult::new(
+        template.cloned(),
+        result.diagnostics().clone(),
+    ))
+}
+
 pub(in crate::compilation) fn imported_implementation(
     context: &CompilationBinderFacts<'_>,
     address: ImportedSymbolFactAddress,

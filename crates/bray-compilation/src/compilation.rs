@@ -1,6 +1,7 @@
 mod binder;
 mod checker;
 mod constant;
+mod declaration_body;
 mod diagnostics;
 mod export;
 mod facts;

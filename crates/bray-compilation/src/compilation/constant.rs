@@ -1,11 +1,12 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use bray_binder::{BinderFactError, SymbolFactProvider};
+use bray_binder::SymbolFactProvider;
 use bray_bound_tree::{
     AnyBoundNodeId, BoundExpression, BoundExpressionId, BoundReferenceTarget, BoundUnit,
     BoundUnitKey, BoundUnitKind, BoundUnitRoot, BoundWalkControl, BoundWalkEvent,
-    CheckedExpressionTypes, ExpressionTypeEntry, ExpressionTypeResult, walk_bound_unit_view,
+    CheckedExpressionTypes, CheckedTemplateKind, CheckedTemplateOperation, ExpressionTypeEntry,
+    ExpressionTypeResult, walk_bound_unit_view,
 };
 use bray_checker::{
     CheckerUnitView, ConstantChecker, ConstantEvaluationInput, ConstantEvaluator,
@@ -21,6 +22,7 @@ use bray_symbols::{
 };
 
 use super::Compilation;
+use super::binder::{binder_fact_error, imported_declaration_template};
 use super::checker::checker_result;
 use super::unit::semantic_unit_context_for;
 use crate::fact::{
@@ -29,8 +31,8 @@ use crate::fact::{
 };
 
 impl Compilation {
-    /// Returns the checked source-independent template for one constant definition.
-    pub fn checked_constant_template(
+    /// Returns the semantic definition state of one constant declaration.
+    pub fn constant_definition(
         &self,
         definition: AnyConstantDefinitionId,
     ) -> Result<Arc<DiagnosticResult<ConstantDefinitionState>>, FactQueryError> {
@@ -39,17 +41,17 @@ impl Compilation {
         match definition {
             AnyConstantDefinitionId::Constant(owner) => facts
                 .symbol_fact(SymbolFactRequest::<ConstantDefinitionFact>::new(owner))
-                .map_err(map_binder_error),
+                .map_err(binder_fact_error),
             AnyConstantDefinitionId::TraitMember(owner) => facts
                 .symbol_fact(SymbolFactRequest::<TraitConstantMemberDefinitionFact>::new(
                     owner,
                 ))
-                .map_err(map_binder_error),
+                .map_err(binder_fact_error),
             AnyConstantDefinitionId::TraitFulfillment(owner) => facts
                 .symbol_fact(
                     SymbolFactRequest::<TraitConstantFulfillmentDefinitionFact>::new(owner),
                 )
-                .map_err(map_binder_error),
+                .map_err(binder_fact_error),
         }
     }
 
@@ -76,18 +78,35 @@ impl Compilation {
         self.constant_instance_with_cancellation(instance, &self.state.cancellation)
     }
 
-    pub(in crate::compilation) fn compute_checked_constant_template(
+    pub(in crate::compilation) fn compute_constant_definition(
         &self,
         definition: AnyConstantDefinitionId,
         cancellation: &CancellationToken,
     ) -> Result<DiagnosticResult<ConstantDefinitionState>, FactQueryError> {
         let Some(key) = self.constant_template_key(definition)? else {
+            let facts = self.binder_facts(cancellation)?;
+            let imported = facts
+                .imported_fact_address(definition.into_any())
+                .map_err(binder_fact_error)?;
+
+            if let Some(address) = imported {
+                let result = imported_declaration_template(
+                    &facts,
+                    address,
+                    CheckedTemplateKind::ConstantDefinition,
+                )
+                .map_err(binder_fact_error)?;
+
+                let diagnostics = result.diagnostics().clone();
+                let state = imported_constant_definition(definition, result.value().as_ref())?;
+
+                return Ok(DiagnosticResult::new(state, diagnostics));
+            }
+
             return match definition {
                 AnyConstantDefinitionId::TraitMember(_) => Ok(
                     DiagnosticResult::without_diagnostics(ConstantDefinitionState::Required),
                 ),
-                // TODO(BRA-220): Attach imported and compiler-provided constant bodies through
-                // their checked declaration-body facts.
                 AnyConstantDefinitionId::Constant(_)
                 | AnyConstantDefinitionId::TraitFulfillment(_) => {
                     Err(FactQueryError::InfrastructureFailure)
@@ -98,7 +117,7 @@ impl Compilation {
         let term = self.symbolic_constant_term_with_cancellation(key.clone(), cancellation)?;
         let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
         let root = expression_root(bound.result().value())?;
-        let types = self.checked_expression_types_with_cancellation(key, cancellation)?;
+        let types = self.expression_types_with_cancellation(key, cancellation)?;
 
         let Some(root_type) = types.result().value().expression(root) else {
             return Err(FactQueryError::InfrastructureFailure);
@@ -403,6 +422,38 @@ impl Compilation {
     }
 }
 
+fn imported_constant_definition(
+    definition: AnyConstantDefinitionId,
+    fact: Option<&bray_package_interface::ImportedDeclarationTemplateFact>,
+) -> Result<ConstantDefinitionState, FactQueryError> {
+    let Some(fact) = fact else {
+        return match definition {
+            AnyConstantDefinitionId::TraitMember(_) => Ok(ConstantDefinitionState::Required),
+            AnyConstantDefinitionId::Constant(_) | AnyConstantDefinitionId::TraitFulfillment(_) => {
+                Err(FactQueryError::InfrastructureFailure)
+            }
+        };
+    };
+
+    let template = fact.template();
+    let index = usize::try_from(template.result().raw())
+        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+    let result = template
+        .nodes()
+        .get(index)
+        .ok_or(FactQueryError::InfrastructureFailure)?;
+
+    let CheckedTemplateOperation::Constant(term) = result.operation() else {
+        return Err(FactQueryError::InfrastructureFailure);
+    };
+
+    Ok(ConstantDefinitionState::Defined(ConstantDefinition::new(
+        result.ty(),
+        *term,
+    )))
+}
+
 fn collect_references(
     bound: &BoundUnit,
     mut resolve: impl FnMut(
@@ -533,13 +584,6 @@ const fn selected_implementation_for_reference(
     }
 }
 
-const fn map_binder_error(error: BinderFactError) -> FactQueryError {
-    match error {
-        BinderFactError::Cancelled => FactQueryError::Cancelled,
-        BinderFactError::DependencyUnavailable => FactQueryError::InfrastructureFailure,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -641,7 +685,7 @@ mod tests {
     }
 
     #[test]
-    fn checked_constant_templates_are_cached_without_closing_instances() {
+    fn constant_definitions_are_cached_without_closing_instances() {
         let compilation = compilation(concat!("module app;\n", "const value: i32 = 1;\n",));
         let definitions = source_constant_definitions(&compilation);
 
@@ -650,11 +694,11 @@ mod tests {
         };
 
         let first = compilation
-            .checked_constant_template(*definition)
+            .constant_definition(*definition)
             .unwrap_or_else(|error| panic!("constant template must publish: {error:?}"));
 
         let second = compilation
-            .checked_constant_template(*definition)
+            .constant_definition(*definition)
             .unwrap_or_else(|error| panic!("constant template must be cached: {error:?}"));
 
         assert!(Arc::ptr_eq(&first, &second));

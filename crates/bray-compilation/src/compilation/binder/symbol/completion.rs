@@ -2,17 +2,22 @@ use bray_binder::SymbolFactProvider;
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{
     AnySymbolId, CallableContractSymbolId, CallableContractTemplateFact, CallableContractTypeFact,
-    CallableContractsFact, CallableOverloadTemplateFact, CallableParameterDefaultTemplateFact,
-    CallableSignatureFact, CallableSymbolId, ConstantDeclaredTypeFact, ExactSymbolId,
+    CallableContractsFact, CallableOverloadTemplateFact, CallableParameterDefaultFact,
+    CallableParameterDefaultTemplateFact, CallableParameterSymbolId, CallableSignatureFact,
+    CallableSymbolId, ConstantDeclaredTypeFact, ConstantDefinitionFact, ExactSymbolId,
     GenericConstParameterDeclaredTypeFact, GenericConstraintsFact, GenericDeclarationTemplateFact,
     GenericOwnerId, ImplementationCoherenceFact, ImplementationHeadTemplateFact,
     ImplementationOverloadTemplateFact, ImplementationSubjectFact, ImplementationSymbolId,
-    ImplementedTraitApplicationFact, InherentTypeMemberValueFact, PredicateDefinitionSymbolId,
-    PredicateSignatureTemplateFact, StructFieldDefaultTemplateFact, StructFieldSymbolId,
-    StructFieldTypeFact, SymbolCompletionLevel, SymbolFactCompletionRequest, SymbolFactContract,
-    SymbolFactForcer, SymbolFactKind, SymbolFactRequest, TraitConstantFulfillmentDeclaredTypeFact,
-    TraitConstantMemberDeclaredTypeFact, TraitTypeFulfillmentValueFact,
-    UnionPayloadFieldDefaultTemplateFact, UnionPayloadFieldSymbolId, UnionPayloadFieldTypeFact,
+    ImplementedTraitApplicationFact, InherentTypeMemberValueFact, PredicateDefinitionFact,
+    PredicateDefinitionSymbolId, PredicateSignatureTemplateFact, StructFieldDefaultFact,
+    StructFieldDefaultTemplateFact, StructFieldSymbolId, StructFieldTypeFact,
+    SymbolCompletionLevel, SymbolFactCompletionRequest, SymbolFactContract, SymbolFactForcer,
+    SymbolFactKind, SymbolFactRequest, TraitConstantFulfillmentDeclaredTypeFact,
+    TraitConstantFulfillmentDefinitionFact, TraitConstantMemberDeclaredTypeFact,
+    TraitConstantMemberDefinitionFact, TraitPredicateFulfillmentDefinitionFact,
+    TraitPredicateMemberDefinitionFact, TraitTypeFulfillmentValueFact,
+    UnionPayloadFieldDefaultFact, UnionPayloadFieldDefaultTemplateFact, UnionPayloadFieldSymbolId,
+    UnionPayloadFieldTypeFact,
 };
 
 use super::super::binder_fact_error;
@@ -74,6 +79,7 @@ impl SymbolFactForcer for CompilationBinderFacts<'_> {
             SymbolFactKind::ConstantDeclaredType => {
                 force_constant_declared_type(self, request.symbol())
             }
+            SymbolFactKind::ConstantDefinition => force_constant_definition(self, request.symbol()),
             SymbolFactKind::StructFieldType => {
                 force_exact::<StructFieldTypeFact, StructFieldSymbolId>(self, request.symbol())
             }
@@ -103,6 +109,20 @@ impl SymbolFactForcer for CompilationBinderFacts<'_> {
             SymbolFactKind::UnevaluatedDefaultTemplate => {
                 force_unevaluated_default(self, request.symbol())
             }
+            SymbolFactKind::CallableParameterDefault => force_exact::<
+                CallableParameterDefaultFact,
+                CallableParameterSymbolId,
+            >(self, request.symbol()),
+            SymbolFactKind::StructFieldDefault => {
+                force_exact::<StructFieldDefaultFact, StructFieldSymbolId>(self, request.symbol())
+            }
+            SymbolFactKind::UnionPayloadFieldDefault => force_exact::<
+                UnionPayloadFieldDefaultFact,
+                UnionPayloadFieldSymbolId,
+            >(self, request.symbol()),
+            SymbolFactKind::PredicateDefinition => {
+                force_predicate_definition(self, request.symbol())
+            }
             SymbolFactKind::ImplementationHeadTemplate => {
                 let owner = ImplementationSymbolId::try_from_any(request.symbol())
                     .ok_or(FactQueryError::InfrastructureFailure)?;
@@ -112,13 +132,24 @@ impl SymbolFactForcer for CompilationBinderFacts<'_> {
             SymbolFactKind::OverloadSignatureTemplate => {
                 force_overload_template(self, request.symbol())
             }
-            SymbolFactKind::ConstantDefinition
-            | SymbolFactKind::CallableParameterDefault
-            | SymbolFactKind::StructFieldDefault
-            | SymbolFactKind::UnionPayloadFieldDefault
-            | SymbolFactKind::PredicateDefinition
-            | SymbolFactKind::OverloadArms => Err(FactQueryError::InfrastructureFailure),
+            SymbolFactKind::OverloadArms => Err(FactQueryError::InfrastructureFailure),
         }
+    }
+}
+
+fn force_predicate_definition(
+    facts: &CompilationBinderFacts<'_>,
+    symbol: AnySymbolId,
+) -> Result<DiagnosticBag, FactQueryError> {
+    match symbol {
+        AnySymbolId::Predicate(owner) => force_typed::<PredicateDefinitionFact>(facts, owner),
+        AnySymbolId::TraitPredicateMember(owner) => {
+            force_typed::<TraitPredicateMemberDefinitionFact>(facts, owner)
+        }
+        AnySymbolId::TraitPredicateFulfillment(owner) => {
+            force_typed::<TraitPredicateFulfillmentDefinitionFact>(facts, owner)
+        }
+        _ => Err(FactQueryError::InfrastructureFailure),
     }
 }
 
@@ -169,6 +200,22 @@ fn force_constant_declared_type(
         }
         AnySymbolId::GenericConstParameter(owner) => {
             force_typed::<GenericConstParameterDeclaredTypeFact>(facts, owner)
+        }
+        _ => Err(FactQueryError::InfrastructureFailure),
+    }
+}
+
+fn force_constant_definition(
+    facts: &CompilationBinderFacts<'_>,
+    symbol: AnySymbolId,
+) -> Result<DiagnosticBag, FactQueryError> {
+    match symbol {
+        AnySymbolId::Constant(owner) => force_typed::<ConstantDefinitionFact>(facts, owner),
+        AnySymbolId::TraitConstantMember(owner) => {
+            force_typed::<TraitConstantMemberDefinitionFact>(facts, owner)
+        }
+        AnySymbolId::TraitConstantFulfillment(owner) => {
+            force_typed::<TraitConstantFulfillmentDefinitionFact>(facts, owner)
         }
         _ => Err(FactQueryError::InfrastructureFailure),
     }

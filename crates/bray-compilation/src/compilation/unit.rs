@@ -41,34 +41,32 @@ impl Compilation {
     }
 
     /// Returns the control-flow facts and diagnostics for one bound semantic unit.
-    pub fn checked_control_flow(
+    pub fn control_flow(
         &self,
         key: BoundUnitKey,
     ) -> Result<Arc<DiagnosticResult<CheckedControlFlowFacts>>, FactQueryError> {
-        let published =
-            self.checked_control_flow_with_cancellation(key, &self.state.cancellation)?;
+        let published = self.control_flow_with_cancellation(key, &self.state.cancellation)?;
 
         Ok(Arc::clone(published.result()))
     }
 
     /// Returns final expression types and their diagnostics for one bound semantic unit.
-    pub fn checked_expression_types(
+    pub fn expression_types(
         &self,
         key: BoundUnitKey,
     ) -> Result<Arc<DiagnosticResult<CheckedExpressionTypes>>, FactQueryError> {
-        let published =
-            self.checked_expression_types_with_cancellation(key, &self.state.cancellation)?;
+        let published = self.expression_types_with_cancellation(key, &self.state.cancellation)?;
 
         Ok(Arc::clone(published.result()))
     }
 
     /// Returns exact semantic selections and their diagnostics for one bound semantic unit.
-    pub fn checked_semantic_selections(
+    pub fn semantic_selections(
         &self,
         key: BoundUnitKey,
     ) -> Result<Arc<DiagnosticResult<CheckedSemanticSelections>>, FactQueryError> {
         let published =
-            self.checked_semantic_selections_with_cancellation(key, &self.state.cancellation)?;
+            self.semantic_selections_with_cancellation(key, &self.state.cancellation)?;
 
         Ok(Arc::clone(published.result()))
     }
@@ -105,7 +103,7 @@ impl Compilation {
         )
     }
 
-    fn checked_control_flow_with_cancellation(
+    pub(super) fn control_flow_with_cancellation(
         &self,
         key: BoundUnitKey,
         cancellation: &CancellationToken,
@@ -255,7 +253,7 @@ impl Compilation {
         }
     }
 
-    pub(in crate::compilation) fn checked_expression_types_with_cancellation(
+    pub(in crate::compilation) fn expression_types_with_cancellation(
         &self,
         key: BoundUnitKey,
         cancellation: &CancellationToken,
@@ -279,7 +277,7 @@ impl Compilation {
         )
     }
 
-    fn checked_semantic_selections_with_cancellation(
+    fn semantic_selections_with_cancellation(
         &self,
         key: BoundUnitKey,
         cancellation: &CancellationToken,
@@ -784,12 +782,12 @@ mod tests {
             Ok(false)
         );
 
-        let types = match compilation.checked_expression_types(key.clone()) {
+        let types = match compilation.expression_types(key.clone()) {
             Ok(types) => types,
             Err(error) => panic!("expression types must publish: {error:?}"),
         };
 
-        let selections = match compilation.checked_semantic_selections(key.clone()) {
+        let selections = match compilation.semantic_selections(key.clone()) {
             Ok(selections) => selections,
             Err(error) => panic!("semantic selections must publish: {error:?}"),
         };
@@ -847,12 +845,12 @@ mod tests {
             Ok(true)
         );
 
-        let repeated_types = match compilation.checked_expression_types(key.clone()) {
+        let repeated_types = match compilation.expression_types(key.clone()) {
             Ok(types) => types,
             Err(error) => panic!("repeated expression types must publish: {error:?}"),
         };
 
-        let repeated_selections = match compilation.checked_semantic_selections(key) {
+        let repeated_selections = match compilation.semantic_selections(key) {
             Ok(selections) => selections,
             Err(error) => panic!("repeated semantic selections must publish: {error:?}"),
         };
@@ -882,12 +880,12 @@ mod tests {
 
         let key = source_callable_body_key(&compilation);
 
-        let types = match compilation.checked_expression_types(key.clone()) {
+        let types = match compilation.expression_types(key.clone()) {
             Ok(types) => types,
             Err(error) => panic!("expression types must publish: {error:?}"),
         };
 
-        let selections = match compilation.checked_semantic_selections(key) {
+        let selections = match compilation.semantic_selections(key) {
             Ok(selections) => selections,
             Err(error) => panic!("semantic selections must publish: {error:?}"),
         };
@@ -940,12 +938,12 @@ mod tests {
 
         let key = source_callable_body_key(&compilation);
 
-        let types = match compilation.checked_expression_types(key.clone()) {
+        let types = match compilation.expression_types(key.clone()) {
             Ok(types) => types,
             Err(error) => panic!("named-argument expression types must publish: {error:?}"),
         };
 
-        let selections = match compilation.checked_semantic_selections(key) {
+        let selections = match compilation.semantic_selections(key) {
             Ok(selections) => selections,
             Err(error) => panic!("named-argument selection must publish: {error:?}"),
         };
@@ -990,7 +988,7 @@ mod tests {
 
         let key = source_callable_body_key(&compilation);
 
-        let types = match compilation.checked_expression_types(key) {
+        let types = match compilation.expression_types(key) {
             Ok(types) => types,
             Err(error) => panic!("deferred expression types must publish: {error:?}"),
         };
@@ -1022,12 +1020,12 @@ mod tests {
 
         let key = source_callable_body_key(&compilation);
 
-        let types = match compilation.checked_expression_types(key.clone()) {
+        let types = match compilation.expression_types(key.clone()) {
             Ok(types) => types,
             Err(error) => panic!("generic expression types must publish: {error:?}"),
         };
 
-        let selections = match compilation.checked_semantic_selections(key) {
+        let selections = match compilation.semantic_selections(key) {
             Ok(selections) => selections,
             Err(error) => panic!("generic semantic selections must publish: {error:?}"),
         };
@@ -1086,12 +1084,12 @@ mod tests {
 
         let key = source_callable_body_key(&compilation);
 
-        let types = match compilation.checked_expression_types(key.clone()) {
+        let types = match compilation.expression_types(key.clone()) {
             Ok(types) => types,
             Err(error) => panic!("asynchronous expression types must publish: {error:?}"),
         };
 
-        let selections = match compilation.checked_semantic_selections(key) {
+        let selections = match compilation.semantic_selections(key) {
             Ok(selections) => selections,
             Err(error) => panic!("asynchronous call selection must publish: {error:?}"),
         };
@@ -1139,12 +1137,12 @@ mod tests {
 
         let key = source_callable_body_key(&compilation);
 
-        let types = match compilation.checked_expression_types(key.clone()) {
+        let types = match compilation.expression_types(key.clone()) {
             Ok(types) => types,
             Err(error) => panic!("callable-value expression types must publish: {error:?}"),
         };
 
-        let selections = match compilation.checked_semantic_selections(key) {
+        let selections = match compilation.semantic_selections(key) {
             Ok(selections) => selections,
             Err(error) => panic!("callable-value selection must publish: {error:?}"),
         };
@@ -1177,12 +1175,12 @@ mod tests {
 
         let key = source_callable_body_key(&compilation);
 
-        let types = match compilation.checked_expression_types(key.clone()) {
+        let types = match compilation.expression_types(key.clone()) {
             Ok(types) => types,
             Err(error) => panic!("lambda expression types must publish: {error:?}"),
         };
 
-        let selections = match compilation.checked_semantic_selections(key) {
+        let selections = match compilation.semantic_selections(key) {
             Ok(selections) => selections,
             Err(error) => panic!("lambda call selection must publish: {error:?}"),
         };
@@ -1331,14 +1329,13 @@ mod tests {
 
         let (types, selections) = std::thread::scope(|scope| {
             let types_key = key.clone();
-            let types = scope.spawn(|| compilation.checked_expression_types(types_key));
+            let types = scope.spawn(|| compilation.expression_types(types_key));
 
             expression_gate.wait_until_observed(FactCellTestEvent::Computing, 1);
 
             let selections_key = key.clone();
 
-            let selections =
-                scope.spawn(|| compilation.checked_semantic_selections(selections_key));
+            let selections = scope.spawn(|| compilation.semantic_selections(selections_key));
 
             expression_gate.wait_until_observed(FactCellTestEvent::Waiting, 1);
             expression_gate.release();
@@ -1376,12 +1373,12 @@ mod tests {
         let checked = std::thread::scope(|scope| {
             let compilation = &compilation;
             let owner_key = key.clone();
-            let owner = scope.spawn(move || compilation.checked_control_flow(owner_key));
+            let owner = scope.spawn(move || compilation.control_flow(owner_key));
 
             gate.wait_until_observed(FactCellTestEvent::Computing, 1);
 
             let waiter_key = key.clone();
-            let waiter = scope.spawn(move || compilation.checked_control_flow(waiter_key));
+            let waiter = scope.spawn(move || compilation.control_flow(waiter_key));
 
             gate.wait_until_observed(FactCellTestEvent::Waiting, 1);
             gate.release();
@@ -1455,8 +1452,7 @@ mod tests {
             let request_key = key.clone();
 
             let request = scope.spawn(|| {
-                compilation
-                    .checked_control_flow_with_cancellation(request_key, &checked_cancellation)
+                compilation.control_flow_with_cancellation(request_key, &checked_cancellation)
             });
 
             checked_gate.wait_until_observed(FactCellTestEvent::Computed, 1);
@@ -1476,7 +1472,7 @@ mod tests {
             Ok(false)
         );
 
-        assert!(compilation.checked_control_flow(key.clone()).is_ok());
+        assert!(compilation.control_flow(key.clone()).is_ok());
 
         let expression_cancellation = CancellationToken::new();
         let expression_gate = FactTestGate::holding(FactCellTestEvent::Computed);
@@ -1533,7 +1529,7 @@ mod tests {
             Ok(false)
         );
 
-        assert!(compilation.checked_expression_types(key).is_ok());
+        assert!(compilation.expression_types(key).is_ok());
     }
 
     #[test]
@@ -1547,7 +1543,7 @@ mod tests {
         ));
         let key = source_callable_body_key(&compilation);
 
-        let checked = match compilation.checked_control_flow(key) {
+        let checked = match compilation.control_flow(key) {
             Ok(checked) => checked,
             Err(error) => panic!("recursive callable must check without a cycle: {error:?}"),
         };
@@ -1582,7 +1578,7 @@ mod tests {
             Ok(false)
         );
 
-        if let Err(error) = compilation.checked_control_flow(key) {
+        if let Err(error) = compilation.control_flow(key) {
             panic!("parent control-flow facts must be available: {error:?}");
         }
 

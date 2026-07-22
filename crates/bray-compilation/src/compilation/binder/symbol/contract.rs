@@ -6,9 +6,9 @@ use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
     AnySymbolId, CallableContractClause, CallableContractClauseKind, CallableContractSet,
     CallableContractsFact, CallableExecution, CallablePhaseBehavior, CallableSignatureFact,
-    CallableSymbolId, CheckedConstraint, CurrentRunCancellation, DependencyContractTemplateData,
-    DependencyContractTemplateId, GenericConstraintSet, GenericConstraintsFact, SymbolFactRequest,
-    SymbolFactResult, SymbolGraph, TrustedCapabilityRequirement, TypeData,
+    CallableSymbolId, CheckedConstraint, CurrentRunCancellation, DependencyContractTemplateId,
+    GenericConstraintSet, GenericConstraintsFact, SymbolFactRequest, SymbolFactResult, SymbolGraph,
+    TrustedCapabilityRequirement, TypeData,
 };
 use bray_syntax::{
     EnsuresClauseSyntax, RequiresClauseSyntax, SyntaxKind, SyntaxNodeView, SyntaxWalkControl,
@@ -137,7 +137,7 @@ fn bind_callable_contracts(
 
     let dependency = context
         .semantic_values
-        .intern_dependency_contract_template(DependencyContractTemplateData::new([]))
+        .empty_dependency_contract_template()
         .map_err(|_| BinderFactError::DependencyUnavailable)?;
 
     let signature = context.symbol_fact(SymbolFactRequest::<CallableSignatureFact>::new(owner))?;
