@@ -154,6 +154,7 @@ pub(crate) fn decode_dependencies(
     for _ in 0..count {
         let package = package_identity(read_string(&mut reader, strings)?)?;
         let product = product_identity(read_string(&mut reader, strings)?)?;
+
         let hash =
             InterfaceContentHash::from_bytes(reader.read_array::<32>().map_err(map_wire_error)?);
 
@@ -178,6 +179,7 @@ pub(crate) fn decode_symbols(
     for index in 0..count {
         let kind = read_tag(&mut reader)?;
         let container = read_optional_u32(&mut reader)?.map(InterfaceSymbolId::new);
+
         let key = super::reference::decode_local_key_component(
             &mut reader,
             strings,
@@ -186,6 +188,7 @@ pub(crate) fn decode_symbols(
             &symbols,
             budget,
         )?;
+
         let id =
             InterfaceSymbolId::try_from_index(index).ok_or(InterfaceValidationError::Malformed)?;
 

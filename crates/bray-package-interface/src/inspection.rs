@@ -437,6 +437,7 @@ mod tests {
     #[test]
     fn selected_semantic_sections_share_one_aggregate_allocation_preflight() {
         let bundle = package_interface_export_bundle();
+
         let sections = [
             EncodedArtifactSection::new(InterfaceSectionTag::SemanticTypes, 0, vec![0; 4]),
             EncodedArtifactSection::new(InterfaceSectionTag::Constants, 0, vec![0; 4]),
@@ -450,6 +451,7 @@ mod tests {
         .unwrap_or_else(|error| panic!("test sections must assemble: {error:?}"));
 
         let limits = crate::InterfaceValidationLimits::default().with_decoded_allocation(64);
+
         let interface = ValidatedPackageInterface::try_new(
             artifact.shared_bytes(),
             InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)).with_limits(limits),
@@ -478,6 +480,7 @@ mod tests {
     fn inspection_decodes_only_selected_section_payloads() {
         let bundle = package_interface_export_bundle();
         let mut sections = encoded_sections(&bundle);
+
         let template_section = sections
             .iter_mut()
             .find(|section| section.tag() == InterfaceSectionTag::DeclarationTemplates)
@@ -527,6 +530,7 @@ mod tests {
 
     fn validated_test_interface() -> ValidatedPackageInterface {
         let bundle = package_interface_export_bundle();
+
         let artifact = crate::encode_package_interface(&bundle)
             .unwrap_or_else(|error| panic!("test interface must encode: {error:?}"));
 

@@ -25,10 +25,13 @@ pub(crate) fn decode_fact_directory(
 
     for _ in 0..count {
         let owner = read_symbol_reference(&mut reader, context)?;
+
         let kind = InterfaceSemanticFactKind::from_wire(read_u32(&mut reader)?)
             .ok_or(InterfaceValidationError::Malformed)?;
+
         let section = InterfaceSectionTag::from_wire_value(read_u32(&mut reader)?)
             .ok_or(InterfaceValidationError::Malformed)?;
+
         let record = read_u32(&mut reader)?;
 
         entries.push(InterfaceSemanticFactEntry {

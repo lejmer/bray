@@ -81,6 +81,7 @@ fn parse_sections(
         }
 
         let name = arguments.next().ok_or(CommandError::MissingSection)?;
+
         let section =
             InterfaceSectionTag::from_name(&name).ok_or(CommandError::UnknownSection(name))?;
 
@@ -106,6 +107,7 @@ fn read_interface_bytes(
     limits: InterfaceValidationLimits,
 ) -> Result<Vec<u8>, CommandError> {
     let file = File::open(path).map_err(|error| CommandError::read(path, error))?;
+
     let reported_length = file
         .metadata()
         .map_err(|error| CommandError::read(path, error))?
@@ -419,6 +421,7 @@ mod tests {
         };
 
         assert!(matches!(error, CommandError::Validation(_)));
+
         assert_eq!(
             error.to_string(),
             "package-interface validation failed: Truncated"

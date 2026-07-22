@@ -134,6 +134,7 @@ mod tests {
         assert_eq!(InterfaceArtifactHash::from_bytes(bytes).as_bytes(), &bytes);
         assert_eq!(InterfaceContentHash::from_bytes(bytes).as_bytes(), &bytes);
         assert_eq!(InterfaceSectionHash::from_bytes(bytes).as_bytes(), &bytes);
+
         assert_eq!(
             InterfaceContentHash::from_bytes(bytes).to_string(),
             "5a".repeat(32)

@@ -60,8 +60,10 @@ fn reject_trailing_argument(mut arguments: impl Iterator<Item = String>) -> Resu
 fn generate(check: bool) -> Result<(), String> {
     let output = generate_catalog_output()
         .map_err(|error| format!("compiler-known catalog generation failed: {error}"))?;
+
     let root = workspace_root()?;
     let digest = format!("{}\n", output.source_digest());
+
     let files = [
         (
             root.join(GENERATED_SOURCE_PATH),
@@ -136,6 +138,7 @@ mod tests {
     fn freshness_check_rejects_stale_output() {
         let path =
             std::env::temp_dir().join(format!("bray-compiler-known-check-{}", std::process::id()));
+
         let files = [(path.clone(), b"current".as_slice())];
 
         if let Err(error) = std::fs::write(&path, b"stale") {
