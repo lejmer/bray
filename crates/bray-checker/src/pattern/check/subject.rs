@@ -149,6 +149,7 @@ where
                         SymbolFactRequest::<StructFieldTypeFact>::new(field),
                         *substitution,
                     )?;
+
                     let projection = PatternProjection::ProductField(field);
 
                     self.push_entry(entry, subject, projection, &mut children);
@@ -188,9 +189,11 @@ where
                         SymbolFactRequest::<UnionPayloadFieldTypeFact>::new(field),
                         *substitution,
                     )?;
+
                     let projection = PatternProjection::ActiveUnionPayloadField { variant, field };
 
                     self.push_entry(entry, subject, projection, &mut children);
+
                     position += 1;
                 }
             }
