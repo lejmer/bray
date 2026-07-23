@@ -40,6 +40,7 @@ impl ExpressionBinder {
             self.path_context_for(pattern_scope, self.path_context.access()),
             &pattern_syntax,
             self.error_type,
+            self.error_type,
             PatternBindingMode::Declaration,
         )?;
 
@@ -141,6 +142,7 @@ impl ExpressionBinder {
                 self.path_context_for(arm_scope, self.path_context.access()),
                 &pattern_syntax,
                 subject_type,
+                self.error_type,
                 if syntax.match_subject().consume_keyword().is_some() {
                     PatternBindingMode::MatchConsume
                 } else {

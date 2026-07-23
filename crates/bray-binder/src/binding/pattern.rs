@@ -36,7 +36,7 @@ impl BoundPatternBinding {
 
 struct PatternBindingState {
     context: PathBindingContext,
-    input_type: TypeId,
+    error_type: TypeId,
     mode: PatternBindingMode,
     coherent: Vec<(SymbolName, LocalBindingSymbolId)>,
     pending_names: BTreeSet<SymbolName>,
@@ -58,6 +58,7 @@ macro_rules! define_pattern_binder {
             context: PathBindingContext,
             syntax: &$syntax,
             input_type: TypeId,
+            error_type: TypeId,
             mode: PatternBindingMode,
         ) -> BindingResult<BoundPatternBinding> {
             let (alternatives_are_coherent, occurrences) = if $has_alternatives {
@@ -80,19 +81,20 @@ macro_rules! define_pattern_binder {
 
             let mut state = PatternBindingState {
                 context,
-                input_type,
+                error_type,
                 mode,
                 coherent,
                 pending_names,
                 suppress_bindings: !alternatives_are_coherent,
             };
 
-            self.$inner(syntax, &mut state)
+            self.$inner(syntax, input_type, &mut state)
         }
 
         fn $inner(
             &mut self,
             syntax: &$syntax,
+            input_type: TypeId,
             state: &mut PatternBindingState,
         ) -> BindingResult<BoundPatternBinding> {
             self.check_cancellation()?;
@@ -102,8 +104,14 @@ macro_rules! define_pattern_binder {
             let mut introduced = Vec::new();
             let mut ordinal = 0_u32;
 
+            let child_input_type = if syntax.has_alternative_separator() {
+                input_type
+            } else {
+                state.error_type
+            };
+
             for child in syntax.$children() {
-                let bound = self.$inner(&child, state)?;
+                let bound = self.$inner(&child, child_input_type, state)?;
 
                 children.push(bound.pattern());
                 introduced.extend_from_slice(bound.bindings());
@@ -120,7 +128,7 @@ macro_rules! define_pattern_binder {
                 let mut shorthand_binding = None;
 
                 for child in &nested {
-                    let bound = self.$inner(child, state)?;
+                    let bound = self.$inner(child, state.error_type, state)?;
 
                     nested_pattern.get_or_insert(bound.pattern());
                     children.push(bound.pattern());
@@ -153,7 +161,7 @@ macro_rules! define_pattern_binder {
             let binding_token = syntax.simple_binding_token();
 
             let (target, name_can_bind) =
-                self.bind_pattern_target(state.context, syntax, state.input_type, state.mode)?;
+                self.bind_pattern_target(state.context, syntax, input_type, state.mode)?;
 
             let is_binding = binding_token.is_some()
                 && name_can_bind
@@ -169,10 +177,7 @@ macro_rules! define_pattern_binder {
             };
 
             if let Some(binding) = direct_binding {
-                self.record_value_type(
-                    BoundReferenceTarget::Local(binding.into()),
-                    state.input_type,
-                );
+                self.record_value_type(BoundReferenceTarget::Local(binding.into()), input_type);
             }
 
             let direct_bindings = direct_binding.into_iter().collect::<Vec<_>>();
@@ -185,7 +190,7 @@ macro_rules! define_pattern_binder {
 
             let pattern = BoundPattern::new(
                 self.pattern_origin(syntax),
-                state.input_type,
+                input_type,
                 bound_mode(state.mode),
                 pattern_kind(syntax, is_binding, target, $has_alternatives),
                 children,
@@ -814,6 +819,7 @@ mod tests {
             context,
             &pattern,
             fixture.declared_type,
+            fixture.declared_type,
             PatternBindingMode::MatchObserve,
         ) {
             Ok(bound) => bound,
@@ -898,6 +904,7 @@ mod tests {
             context,
             &declaration.irrefutable_pattern(),
             fixture.declared_type,
+            fixture.declared_type,
             PatternBindingMode::Assignment,
         ) {
             Ok(bound) => bound,
@@ -961,6 +968,7 @@ mod tests {
             context,
             &pattern,
             fixture.declared_type,
+            fixture.declared_type,
             PatternBindingMode::MatchObserve,
         ) {
             Ok(bound) => bound,
@@ -1016,6 +1024,7 @@ mod tests {
         let bound = match binder.bind_case_pattern(
             context,
             &pattern,
+            fixture.declared_type,
             fixture.declared_type,
             PatternBindingMode::MatchObserve,
         ) {

@@ -317,7 +317,17 @@ where
             .type_data(subject.ty)
             .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
 
-        let target = self.pattern_target(pattern, type_data.as_ref());
+        let contextual_variant = pattern.kind() == BoundPatternKind::Binding
+            && pattern_mode_accepts_refutable(pattern.mode())
+            && self
+                .expected_subject_variant(pattern, type_data.as_ref())
+                .is_some();
+
+        let target = if contextual_variant {
+            None
+        } else {
+            self.pattern_target(pattern, type_data.as_ref())
+        };
 
         let kind = effective_pattern_kind(pattern, target);
 
@@ -348,12 +358,16 @@ where
                 .any(|entry| entry.kind() == BoundPatternEntryKind::Recovered)
             || child_recovered
             || children.is_recovered
+            || contextual_variant
             || matches!(type_data.as_ref(), TypeData::Error)
             || !compatible;
 
         let operation = pattern_operation(pattern.mode(), is_recovered);
 
-        self.record_bindings(pattern, subject, kind, operation, projection);
+        if !contextual_variant {
+            self.record_bindings(pattern, subject, kind, operation, projection);
+        }
+
         self.record_entry_bindings(pattern, operation, &children.entries);
 
         let shape_is_total =
@@ -367,7 +381,14 @@ where
             is_recovered,
         );
 
-        if !compatible && !matches!(type_data.as_ref(), TypeData::Error) {
+        if contextual_variant {
+            // TODO(BRA-249): Resolve names after expression and nested subject types are available.
+            self.report(
+                id,
+                DiagnosticKind::CheckingContextualPatternNameUnsupported,
+                SeverityKind::Error,
+            )?;
+        } else if !compatible && !matches!(type_data.as_ref(), TypeData::Error) {
             self.report_incompatible(id, subject.ty)?;
         } else if !pattern_mode_accepts_refutable(pattern.mode())
             && refutability == PatternRefutability::Refutable

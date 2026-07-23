@@ -2125,6 +2125,86 @@ func other()
         assert!(facts.diagnostics().is_empty(), "{:?}", facts.diagnostics());
     }
 
+    // TODO(BRA-249): Replace this recovery assertion with resolved late subject behavior.
+    #[test]
+    fn late_typed_match_subjects_retain_contextual_pattern_recovery() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "union Choice\n",
+            "{\n",
+            "    First;\n",
+            "}\n",
+            "func main()\n",
+            "{\n",
+            "    match make_choice()\n",
+            "    {\n",
+            "        case First\n",
+            "        {\n",
+            "        }\n",
+            "    }\n",
+            "}\n",
+            "func make_choice() -> Choice\n",
+            "{\n",
+            "    return .First;\n",
+            "}\n",
+        ));
+
+        let key = source_callable_body_key(&compilation);
+
+        let facts = match compilation.pattern_facts(key) {
+            Ok(facts) => facts,
+            Err(error) => panic!("late subject pattern recovery must be available: {error:?}"),
+        };
+
+        assert_eq!(
+            crate::test_support::diagnostic_kinds(facts.diagnostics()),
+            [bray_diagnostics::DiagnosticKind::CheckingContextualPatternNameUnsupported]
+        );
+
+        assert!(facts.value().binding_types().is_empty());
+        assert!(facts.value().is_recovered());
+    }
+
+    // TODO(BRA-249): Replace this recovery assertion with resolved nested subject behavior.
+    #[test]
+    fn nested_variant_patterns_do_not_resolve_against_the_outer_subject() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "union Inner\n",
+            "{\n",
+            "    First;\n",
+            "}\n",
+            "union Outer\n",
+            "{\n",
+            "    Wrap(value: Inner);\n",
+            "}\n",
+            "func main(value: Outer)\n",
+            "{\n",
+            "    match value\n",
+            "    {\n",
+            "        case Wrap(value = First)\n",
+            "        {\n",
+            "        }\n",
+            "    }\n",
+            "}\n",
+        ));
+
+        let key = source_callable_body_key(&compilation);
+
+        let facts = match compilation.pattern_facts(key) {
+            Ok(facts) => facts,
+            Err(error) => panic!("nested pattern recovery must be available: {error:?}"),
+        };
+
+        assert_eq!(
+            crate::test_support::diagnostic_kinds(facts.diagnostics()),
+            [bray_diagnostics::DiagnosticKind::CheckingContextualPatternNameUnsupported]
+        );
+
+        assert!(facts.value().binding_types().is_empty());
+        assert!(facts.value().is_recovered());
+    }
+
     #[test]
     fn pattern_facts_introduce_bare_bindings_after_pattern_name_resolution_fails() {
         let compilation = pattern_compilation(concat!(

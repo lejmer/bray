@@ -155,6 +155,8 @@ pub enum DiagnosticKind {
     CheckingNonExhaustiveMatch,
     /// A match arm cannot be selected because earlier arms already cover it.
     CheckingUnreachableMatchArm,
+    /// A bare variant name requires subject-aware pattern resolution.
+    CheckingContextualPatternNameUnsupported,
     /// A required planned artifact contribution was not supplied.
     EmissionMissingContribution,
     /// An artifact contribution does not satisfy the immutable emission plan.
@@ -254,6 +256,7 @@ impl DiagnosticKind {
             Self::CheckingRefutablePattern => 7022,
             Self::CheckingNonExhaustiveMatch => 7023,
             Self::CheckingUnreachableMatchArm => 7024,
+            Self::CheckingContextualPatternNameUnsupported => 7025,
             Self::EmissionMissingContribution => 9001,
             Self::EmissionInvalidContribution => 9002,
             Self::EmissionArtifactReadFailed => 9003,
@@ -368,6 +371,9 @@ impl DiagnosticKind {
             Self::CheckingRefutablePattern => "checking_refutable_pattern",
             Self::CheckingNonExhaustiveMatch => "checking_non_exhaustive_match",
             Self::CheckingUnreachableMatchArm => "checking_unreachable_match_arm",
+            Self::CheckingContextualPatternNameUnsupported => {
+                "checking_contextual_pattern_name_unsupported"
+            }
             Self::EmissionMissingContribution => "emission_missing_contribution",
             Self::EmissionInvalidContribution => "emission_invalid_contribution",
             Self::EmissionArtifactReadFailed => "emission_artifact_read_failed",
@@ -431,7 +437,7 @@ mod tests {
         }
     }
 
-    fn all_diagnostic_kinds() -> [DiagnosticKind; 84] {
+    fn all_diagnostic_kinds() -> [DiagnosticKind; 85] {
         [
             DiagnosticKind::SourceFileReadFailed,
             DiagnosticKind::SourceInvalidUtf8,
@@ -508,6 +514,7 @@ mod tests {
             DiagnosticKind::CheckingRefutablePattern,
             DiagnosticKind::CheckingNonExhaustiveMatch,
             DiagnosticKind::CheckingUnreachableMatchArm,
+            DiagnosticKind::CheckingContextualPatternNameUnsupported,
             DiagnosticKind::EmissionMissingContribution,
             DiagnosticKind::EmissionInvalidContribution,
             DiagnosticKind::EmissionArtifactReadFailed,

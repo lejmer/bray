@@ -165,6 +165,7 @@ where
             context,
             &syntax.irrefutable_pattern(),
             input_type,
+            operations.error_type(),
             PatternBindingMode::Declaration,
         )?;
 
