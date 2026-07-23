@@ -362,7 +362,10 @@ where
 
         let operation = pattern_operation(pattern.mode(), is_recovered);
 
-        self.record_bindings(pattern, subject, kind, operation, projection);
+        if !contextual_variant {
+            self.record_bindings(pattern, subject, kind, operation, projection);
+        }
+
         self.record_entry_bindings(pattern, operation, &children.entries);
 
         let shape_is_total =

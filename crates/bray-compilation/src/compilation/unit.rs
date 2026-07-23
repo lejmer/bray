@@ -2111,6 +2111,7 @@ func other()
             [bray_diagnostics::DiagnosticKind::CheckingContextualPatternNameUnsupported]
         );
 
+        assert!(facts.value().binding_types().is_empty());
         assert!(facts.value().is_recovered());
     }
 
