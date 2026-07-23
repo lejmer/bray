@@ -669,10 +669,11 @@ mod tests {
         AnyBoundNodeId, BoundExpression, BoundWalkControl, BoundWalkEvent, BoundWalkOutcome,
         IterationSourceMode, walk_bound_unit_view,
     };
+    use bray_compiler_known::RepresentationRole;
     use bray_diagnostics::{DiagnosticArg, DiagnosticBag, DiagnosticKind, DiagnosticSelectionKind};
     use bray_symbols::{
         BorrowKind, ImplementationCoherenceFact, ImplementationSymbolId, NamedTypeSymbolId,
-        SemanticValueStore, SymbolFactRequest, SymbolKind, SymbolOrigin, TypeData,
+        SemanticValueStore, StructSymbolId, SymbolFactRequest, SymbolKind, SymbolOrigin, TypeData,
     };
 
     use crate::CancellationToken;
@@ -840,23 +841,28 @@ mod tests {
             Err(error) => panic!("binder facts must be available: {error:?}"),
         };
 
-        let items = facts
+        let structures = facts
             .symbols()
             .structures()
             .iter()
-            .find(|symbol| symbol.origin() == SymbolOrigin::Source)
-            .unwrap_or_else(|| panic!("test source must declare Items"));
+            .filter(|symbol| symbol.origin() == SymbolOrigin::Source)
+            .collect::<Vec<_>>();
 
-        let substitution = empty_substitution(facts.semantic_values(), items.id().into())
-            .unwrap_or_else(|error| panic!("Items substitution must be interned: {error:?}"));
+        let [items, cursor] = structures.as_slice() else {
+            panic!("test source must declare Items and ItemsCursor");
+        };
 
-        let source_type = facts
-            .semantic_values()
-            .intern_type(TypeData::Named {
-                definition: NamedTypeSymbolId::Struct(items.id()),
-                substitution,
-            })
-            .unwrap_or_else(|error| panic!("Items type must be interned: {error:?}"));
+        let source_type = named_type(&facts, items.id());
+        let cursor_type = named_type(&facts, cursor.id());
+
+        let integer = facts
+            .symbols()
+            .compiler_known_provider()
+            .role_registry()
+            .representation_symbol::<StructSymbolId>(RepresentationRole::ScalarI32)
+            .unwrap_or_else(|| panic!("compiler-known i32 must be available"));
+
+        let element_type = named_type(&facts, integer);
 
         let subject_type = iteration_subject_type(facts.semantic_values(), source_type, mode)
             .unwrap_or_else(|error| panic!("iteration subject must be available: {error:?}"));
@@ -944,6 +950,23 @@ mod tests {
         };
 
         assert_eq!(selected.mode(), IterationSourceMode::Shared);
+        assert_eq!(selected.source_type(), source_type);
+        assert_eq!(selected.cursor_type(), cursor_type);
+        assert_eq!(selected.element_type(), element_type);
+        assert_eq!(selected.iterable_requirement().subject(), subject_type);
+        assert_eq!(selected.iterator_requirement().subject(), cursor_type);
+
+        let iterable_witness = facts
+            .semantic_values()
+            .implementation_instance_data(selected.iterable_witness())
+            .unwrap_or_else(|error| panic!("Iterable witness must be available: {error:?}"));
+
+        let iterator_witness = facts
+            .semantic_values()
+            .implementation_instance_data(selected.iterator_witness())
+            .unwrap_or_else(|error| panic!("Iterator witness must be available: {error:?}"));
+
+        assert_ne!(iterable_witness.definition(), iterator_witness.definition());
         assert_eq!(
             selected.iterate_member().definition().symbol().kind(),
             SymbolKind::TraitCallableMember
@@ -990,5 +1013,21 @@ mod tests {
             Some(iteration) => iteration,
             None => panic!("test source must bind one for expression"),
         }
+    }
+
+    fn named_type(
+        facts: &super::CompilationBinderFacts<'_>,
+        definition: StructSymbolId,
+    ) -> bray_symbols::TypeId {
+        let substitution = empty_substitution(facts.semantic_values(), definition.into())
+            .unwrap_or_else(|error| panic!("type substitution must be interned: {error:?}"));
+
+        facts
+            .semantic_values()
+            .intern_type(TypeData::Named {
+                definition: NamedTypeSymbolId::Struct(definition),
+                substitution,
+            })
+            .unwrap_or_else(|error| panic!("named type must be interned: {error:?}"))
     }
 }
